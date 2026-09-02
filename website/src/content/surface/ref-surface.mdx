@@ -213,6 +213,18 @@ the result is the erased group every serving and transport seam takes. A merge o
 **nothing** is the empty group, the identity: a rooted wire whose sibling roster
 is empty this run composes one, and refusing it would make that wire unspellable.
 
+`isStandaloneRoot(surface)` and `notStandaloneRootDetail(seam, what, tagPrefix,
+alternative)` are the **one reading of the rooted-root law**, beside the tag
+prefix they are about. A rooted bundle's root must be a *standalone* surface — a
+sibling-scoped one would bind its members at `surface/<key>/…` while every
+sibling prefixes its own key on top of nothing, so the bundle would serve a root
+nobody can address. The three doors that carry a root — `implementRootedSurfaces`
+(serve), `exposeRootedFaces` (gate) and
+[`connectSurfaces`' `core`](/surface/ref-surface-app#the-rooted-bundle) (dial) —
+each ask the predicate and raise **their own error class** with the shared
+sentence, naming the alternative that door can offer. Only the predicate and the
+sentence are shared; nothing else about the three doors is.
+
 ### Declaring a client error policy — `defineSurfaceWithPolicy`
 
 A member can carry an **opaque, app-typed client error policy** on its spec — a

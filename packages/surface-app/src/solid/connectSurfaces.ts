@@ -43,9 +43,10 @@
 
 import {
   composeSurfaceContracts,
+  isStandaloneRoot,
   mergeDisjointGroups,
+  notStandaloneRootDetail,
   type Surface,
-  SURFACE_TAG_PREFIX,
   type SurfaceSpec,
 } from "@kolu/surface/define";
 import type { WebsocketLink } from "@kolu/surface/links/websocket";
@@ -384,25 +385,24 @@ function resolveRoot(
   // dial `surface/<member>/<verb>` over a wire that serves `surface/<key>/…`
   // and every call would die at the far end — after connecting cleanly.
   //
-  // ONE LAW, TWO DOORS. The identical refusal stands at the SERVE side's rooted
-  // gate — `exposeRootedFaces` (`@kolu/surface/expose`), which cites this one back
-  // — because a root is standalone or it is not a root, and each door has to hold
-  // the rule for the app that happens to use only that door. The two sites are
-  // deliberately not one shared assertion: the message names the door a reader
-  // arrived through, and the ERROR CLASS is each module's own (`ExposeMapError` is
-  // `expose.ts`'s recognisable class for a malformed exposure; this seam has none
-  // and raises a plain `Error`, like its two neighbouring refusals). What a shared
-  // predicate would buy — one reading of "is this the root of a bundle" — is real,
-  // and is the recorded next step rather than this PR's, which is capped at the
-  // single new export it already spends on `mergeDisjointGroups`. Until then the
-  // two sites cite each other, so neither can be relaxed by someone who did not
-  // know the other existed.
-  if (core.surface.tagPrefix !== SURFACE_TAG_PREFIX) {
+  // ONE LAW, THREE DOORS — and ONE READING of it. The identical refusal stands at
+  // the serve side's two rooted doors: `implementRootedSurfaces` (`@kolu/surface`)
+  // and the gate `exposeRootedFaces` (`@kolu/surface/expose`). A root is standalone
+  // or it is not a root, and each door has to hold the rule for the app that
+  // happens to use only that door. What the three sites now SHARE is the predicate
+  // and the sentence (`@kolu/surface/define`, beside the tag prefix they are
+  // about); what each keeps is its own ERROR CLASS and the alternative it can
+  // offer. Three copies cross-citing each other was the shape the third copy
+  // arrived without amending — a rule kept by discipline, and discipline is what
+  // this replaces.
+  if (!isStandaloneRoot(core.surface)) {
     throw new Error(
-      `connectSurfaces: \`core.surface\` carries the tag prefix "${core.surface.tagPrefix}", ` +
-        `not the standalone "${SURFACE_TAG_PREFIX}" — it is a sibling-scoped surface, and the ` +
-        "root of a rooted bundle is the UNPREFIXED one. Pass the standalone surface " +
-        "(`defineSurface(spec)`), or make it a sibling in `surfaces`.",
+      notStandaloneRootDetail(
+        "connectSurfaces",
+        "`core.surface`",
+        core.surface.tagPrefix,
+        "make it a sibling in `surfaces`",
+      ),
     );
   }
   // The health fold is keyed by word, so a root sharing a sibling's key would

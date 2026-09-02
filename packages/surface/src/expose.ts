@@ -109,16 +109,18 @@ import {
   type ComposedSurfaces,
   composeSurfaceContracts,
   isReservedSurfaceTag,
+  isStandaloneRoot,
   mergeDisjointGroups,
+  notStandaloneRootDetail,
   READ_VERBS,
   type Surface,
-  SURFACE_TAG_PREFIX,
   type SurfaceSpec,
   surfaceTag,
 } from "./define";
 import {
   assertHandlersMatchGroup,
   emptyHandlers,
+  refusingHandler,
   type SurfaceHandler,
   type SurfaceHandlers,
 } from "./server";
@@ -668,13 +670,18 @@ export function exposeRootedFaces<
   siblings: M,
   siblingExpose: { [K in keyof M]?: ExposeMap<M[K]["spec"]> },
 ): FaceExposure {
-  if (core.tagPrefix !== SURFACE_TAG_PREFIX) {
+  // The predicate and the sentence are `./define`'s — ONE reading of "is this the
+  // root of a bundle", shared with the serve door and the browser door. The error
+  // CLASS stays this module's own: `ExposeMapError` is what a caller here
+  // recognises a malformed exposure by.
+  if (!isStandaloneRoot(core)) {
     throw new ExposeMapError({
-      detail:
-        `exposeRootedFaces: the root surface carries the tag prefix "${core.tagPrefix}", ` +
-        `not the standalone "${SURFACE_TAG_PREFIX}" — the root of a rooted bundle is the ` +
-        "UNPREFIXED one. Pass the standalone surface (`defineSurface(spec)`), or gate it " +
-        "as a sibling with `exposeFaces`",
+      detail: notStandaloneRootDetail(
+        "exposeRootedFaces",
+        "the root surface",
+        core.tagPrefix,
+        "gate it as a sibling with `exposeFaces`",
+      ),
     });
   }
   const composed = composeSurfaceContracts(siblings);
@@ -719,13 +726,12 @@ export class SurfaceMemberNotExposed extends Data.TaggedError(
   }
 }
 
-/** A handler that refuses, in the shape its member's `Rpc` promises. A caller
- *  subscribing to a streaming member gets a stream that dies rather than a value
- *  the protocol cannot run — which is why this needs the group, and not just the
- *  handler record. */
+/** This face's refusal, in the shape its member's `Rpc` promises. The SHAPE rule
+ *  is `./server`'s {@link refusingHandler} — the one place the framework decides
+ *  what "answer in the member's own shape" means, shared with a rooted bundle's
+ *  dropped-sibling refusal. What is this module's own is the error CLASS. */
 function refuse(tag: string, streaming: boolean): SurfaceHandler {
-  const refusal = new SurfaceMemberNotExposed({ tag });
-  return streaming ? () => Stream.die(refusal) : () => Effect.die(refusal);
+  return refusingHandler(streaming, () => new SurfaceMemberNotExposed({ tag }));
 }
 
 /** Apply one face's {@link FaceExposure} to a served surface's handlers,

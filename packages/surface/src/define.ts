@@ -474,6 +474,41 @@ export const SURFACE_TAG_ROOT = "surface";
 /** The tag prefix of a STANDALONE surface: `"surface/"`. */
 export const SURFACE_TAG_PREFIX = "surface/";
 
+/** Is this the STANDALONE surface a ROOTED bundle's root must be?
+ *
+ *  ONE READING OF ONE LAW, for the three doors that carry a root: the serve side
+ *  (`implementRootedSurfaces`), the gate (`exposeRootedFaces`) and the browser
+ *  (`connectSurfaces`' `core`). A root is standalone or it is not a root — a
+ *  sibling-scoped surface handed in as the root binds its members at
+ *  `surface/<key>/…` while every sibling mounted beside it prefixes ITS key on
+ *  top of nothing, so the bundle serves a root nobody can address.
+ *
+ *  It lives here, beside {@link SURFACE_TAG_PREFIX} — the value the law is about
+ *  — rather than at any one of the three doors, because two hand-synced copies
+ *  of a rule is something a reader can hold in their head and three across three
+ *  modules is not. Each door keeps its own ERROR CLASS and its own wording for
+ *  the alternative it can offer; only the predicate and the sentence are
+ *  shared. */
+export function isStandaloneRoot(surface: { tagPrefix: string }): boolean {
+  return surface.tagPrefix === SURFACE_TAG_PREFIX;
+}
+
+/** The refusal the three rooted doors say when {@link isStandaloneRoot} is
+ *  false, differing only in the seam's own name, what it was handed, and the
+ *  alternative that seam can offer. */
+export function notStandaloneRootDetail(
+  seam: string,
+  what: string,
+  tagPrefix: string,
+  alternative: string,
+): string {
+  return (
+    `${seam}: ${what} carries the tag prefix "${tagPrefix}", not the standalone ` +
+    `"${SURFACE_TAG_PREFIX}" — the root of a rooted bundle is the UNPREFIXED one. ` +
+    `Pass the standalone surface (\`defineSurface(spec)\`), or ${alternative}.`
+  );
+}
+
 /** The tag prefix of one sibling inside a {@link composeSurfaceContracts} bundle:
  *  `"surface/<key>/"`. Sibling composition prefixes per sibling and NEVER merges
  *  bare groups — the three reserved `system/*` members exist on EVERY surface, so

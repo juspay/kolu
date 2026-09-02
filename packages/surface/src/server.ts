@@ -83,6 +83,8 @@ import {
   type ProcedureOutputSchema,
   type ProcedureSpec,
   type ProcedureSpecError,
+  isStandaloneRoot,
+  notStandaloneRootDetail,
   READ_VERBS,
   reservedSurfaceTags,
   resolveCellVerbs,
@@ -90,7 +92,6 @@ import {
   mergeDisjointGroups,
   type StreamSpec,
   type Surface,
-  SURFACE_TAG_PREFIX,
   type SurfaceSpec,
   surfaceTag,
   type WireSchemaAny,
@@ -165,6 +166,28 @@ export type SurfaceHandlerResult =
 /** One bound member handler: a function of the member's DECODED payload. */
 // biome-ignore lint/suspicious/noExplicitAny: see SurfaceHandlerResult — the payload type is per-tag and lives in `SurfaceRpcsFor<S>`.
 export type SurfaceHandler = (payload: any) => SurfaceHandlerResult;
+
+/** A handler that REFUSES, in the shape its member's `Rpc` promises — a caller
+ *  subscribing to a streaming member gets a stream that DIES, not a value the
+ *  protocol cannot run. Which is why the shape question needs the GROUP and not
+ *  just the handler record.
+ *
+ *  ONE SPELLING of that shape decision, for the framework's two refusals: a
+ *  member this face does not expose (`SurfaceMemberNotExposed`, the
+ *  `restrictHandlers` gate) and a member whose sibling is no longer mounted
+ *  ({@link SurfaceSiblingDropped}, a rooted bundle's dropped mount). The two
+ *  errors are two axes — policy and lifetime — and stay two classes; the shape
+ *  rule under them is one, so a third member shape is one edit and not two.
+ *
+ *  `refusal` is a THUNK: a refusal that carries per-call context (which tag was
+ *  dialled) must be minted per call, and one built eagerly would freeze the
+ *  stack trace of the mount rather than of the attempt. */
+export function refusingHandler(
+  streaming: boolean,
+  refusal: () => unknown,
+): SurfaceHandler {
+  return streaming ? () => Stream.die(refusal()) : () => Effect.die(refusal());
+}
 
 /** Every member of a served surface, keyed by its FULL wire tag
  *  (`surface/<member>/<verb>`). This — not a router — is what
@@ -3589,6 +3612,68 @@ export interface ImplementSurfacesBase<S extends SurfaceMap> {
   identity?: { [K in keyof S]?: BakedIdentity };
 }
 
+/** Bind ONE sibling into a bundle: scope it to `surface/<key>/` through the
+ *  framework's own composition walk, walk it against a channel namespace the
+ *  caller names, and prove its route set.
+ *
+ *  ONE STATEMENT of what binding a sibling MEANS, for the two bundles that do it.
+ *  They differ in WHEN they call this (the fixed bundle: every key at
+ *  construction; the live one: one key per `mount`) and in what they name the
+ *  channels (`<key>/<name>` versus `<key>#<gen>/<name>`, because only the live
+ *  bundle can recycle a key) — not in what the step is. Written twice, the two
+ *  had already drifted on the disjointness proof, and the next fix would have
+ *  landed in one of them with nothing to say so.
+ *
+ *  The scoping goes through `composeSurfaceContracts` rather than re-deriving the
+ *  prefix, so the key's grammar (`assertTagSegment`) and the `surface/<key>/`
+ *  rule have one implementation here too. Scoping one key at a time is
+ *  equivalent to scoping the whole map at once — that function's own walk is
+ *  per-key — so the fixed bundle closes with `mergeDisjointGroups` over the
+ *  scoped groups it collects, which is exactly what it was handed before. */
+function bindSibling<const S extends SurfaceSpec>(
+  seam: string,
+  key: string,
+  surface: Surface<S>,
+  deps: ImplementSurfaceDeps<S>,
+  wiring: {
+    /** The bundle's one publisher. */
+    channel: <T>(name: string) => Channel<T>;
+    /** This sibling's channel NAMESPACE — what the two bundles disagree about. */
+    channelFor: (name: string) => string;
+    /** The bundle-level fallback; a sibling's own dep still wins. */
+    onStreamReadError?: (err: unknown, info: { stream: string }) => void;
+    identity?: BakedIdentity;
+    /** Present only on a live bundle's mount — see `walkSurface`'s `retract`. */
+    retract?: { live: () => boolean; key: string };
+  },
+): {
+  scoped: Surface<S>;
+  handlers: SurfaceHandlers;
+  ctx: SurfaceCtx<S>;
+  starts: SurfaceSourceStart[];
+} {
+  const scoped = composeSurfaceContracts({ [key]: surface }).siblings[
+    key
+  ] as unknown as Surface<S>;
+  const walked = walkSurface(
+    scoped,
+    {
+      ...deps,
+      channel: <T>(name: string): Channel<T> =>
+        wiring.channel<T>(wiring.channelFor(name)),
+      onStreamReadError: deps.onStreamReadError ?? wiring.onStreamReadError,
+      retract: wiring.retract,
+    },
+    wiring.identity,
+  );
+  assertHandlersMatchGroup(
+    scoped.group,
+    walked.handlers,
+    `${seam}: sibling "${key}"`,
+  );
+  return { scoped, ...walked };
+}
+
 /** Serve a keyed MAP of independent surfaces multiplexed over one transport,
  *  each namespaced by its key. Unlike `implementSurface`, the surfaces are NOT
  *  merged — surface-app stays a complete surface served as a sibling of the
@@ -3635,51 +3720,47 @@ export function implementSurfacesOnPublisher<const S extends SurfaceMap>(
   },
   deps: SurfaceDepsFor<S>,
 ): SurfacesRuntime<S> {
-  // The combined group envelope has ONE definition — the receptacle the
-  // group side already uses. Each sibling comes back as a full `Surface`
-  // whose `tagPrefix` is `surface/<key>/`, so the handler walk below is the
-  // SAME walk a standalone surface takes.
-  const composed = composeSurfaceContracts(surfaces);
-
   const handlers = emptyHandlers();
   const ctxByKey: Record<string, unknown> = {};
   const starts: SurfaceSourceStart[] = [];
+  // biome-ignore lint/suspicious/noExplicitAny: `mergeDisjointGroups` leaves the element union open — the erasure is its own, not its callers'.
+  const scopedGroups: Record<string, RpcGroup.RpcGroup<any>> = {};
   for (const key of Object.keys(surfaces)) {
-    const sibling = composed.siblings[key] as Surface<SurfaceSpec>;
-    const keyedChannel = <T>(name: string): Channel<T> =>
-      base.channel<T>(`${key}/${name}`);
     const surfaceDeps = (
       deps as Record<string, ImplementSurfaceDeps<SurfaceSpec>>
     )[key];
     if (!surfaceDeps) {
       throw new Error(`implementSurfaces: missing deps for surface "${key}"`);
     }
-    const walked = walkSurface(
-      sibling,
+    // The SAME per-sibling binding step the live bundle's `mount` performs.
+    const bound = bindSibling(
+      "implementSurfaces",
+      key,
+      surfaces[key] as Surface<SurfaceSpec>,
+      surfaceDeps,
       {
-        ...surfaceDeps,
-        channel: keyedChannel,
-        onStreamReadError:
-          surfaceDeps.onStreamReadError ?? base.onStreamReadError,
+        channel: base.channel,
+        channelFor: (name) => `${key}/${name}`,
+        onStreamReadError: base.onStreamReadError,
+        identity: base.identity?.[key as keyof S],
       },
-      base.identity?.[key as keyof S],
     );
-    for (const [tag, handler] of Object.entries(walked.handlers)) {
-      // Sibling prefixes make cross-sibling tags disjoint by construction, so a
-      // duplicate here means the composition itself is broken — crash rather
-      // than let one sibling's member silently answer for another's.
-      if (tag in handlers) {
-        throw new Error(
-          `implementSurfaces: duplicate wire tag "${tag}" while binding sibling "${key}".`,
-        );
-      }
+    scopedGroups[key] = bound.scoped.group;
+    for (const [tag, handler] of Object.entries(bound.handlers)) {
       handlers[tag] = handler;
     }
-    ctxByKey[key] = walked.ctx;
-    starts.push(...walked.starts);
+    ctxByKey[key] = bound.ctx;
+    starts.push(...bound.starts);
   }
 
-  assertHandlersMatchGroup(composed.group, handlers, "implementSurfaces");
+  // The combined group envelope has ONE definition — the counted merge the group
+  // side already uses, labelled by sibling key. Sibling prefixes make
+  // cross-sibling tags disjoint by construction, so a collision here means the
+  // composition itself is broken; this is the labelled proof that says so and
+  // names BOTH siblings, in place of the hand-rolled duplicate-tag throw the
+  // handler merge above used to carry (which named only the second to arrive).
+  const group = mergeDisjointGroups(scopedGroups);
+  assertHandlersMatchGroup(group, handlers, "implementSurfaces");
   // Transactional construction across the WHOLE map: every sibling has been
   // walked (an invalid one threw above) and the route set proved out, so
   // starting the connectors now can never orphan a source spun up for an
@@ -3687,7 +3768,7 @@ export function implementSurfacesOnPublisher<const S extends SurfaceMap>(
   const sources = starts.map((start) => start());
   const { done, close } = superviseSurface(sources);
   return {
-    group: composed.group,
+    group,
     handlers,
     ctx: ctxByKey as SurfacesCtx<S>,
     done,
@@ -3963,19 +4044,23 @@ export function implementRootedSurfaces<const C extends SurfaceSpec>(
   base: ImplementRootedSurfacesBase,
   deps: ImplementSurfaceDeps<C>,
 ): RootedSurfacesRuntime<C> {
-  // ONE LAW, THREE DOORS. `exposeRootedFaces` and `connectSurfaces` each refuse a
-  // sibling-scoped surface as the root, because a root is standalone or it is not
-  // a root; the serve side owes the same refusal for the same reason. A scoped
-  // surface here would bind its handlers at `surface/<key>/…` while every sibling
-  // mounted beside it prefixes ITS key on top of nothing — the bundle would serve
-  // a root nobody can address, and `restrictHandlers` would refuse the exposure
-  // far from the mistake.
-  if (core.tagPrefix !== SURFACE_TAG_PREFIX) {
+  // ONE LAW, THREE DOORS — and now one READING of it. `exposeRootedFaces` and
+  // `connectSurfaces` each refuse a sibling-scoped surface as the root, because a
+  // root is standalone or it is not a root; the serve side owes the same refusal
+  // for the same reason. A scoped surface here would bind its handlers at
+  // `surface/<key>/…` while every sibling mounted beside it prefixes ITS key on
+  // top of nothing — the bundle would serve a root nobody can address, and
+  // `restrictHandlers` would refuse the exposure far from the mistake. The
+  // predicate and the sentence are `@kolu/surface/define`'s (beside the tag
+  // prefix they are about); the error CLASS is each door's own.
+  if (!isStandaloneRoot(core)) {
     throw new Error(
-      `implementRootedSurfaces: the root surface carries the tag prefix "${core.tagPrefix}", ` +
-        `not the standalone "${SURFACE_TAG_PREFIX}" — the root of a rooted bundle is the ` +
-        "UNPREFIXED one. Pass the standalone surface (`defineSurface(spec)`), or serve it " +
-        "as a sibling with `implementSurfaces`.",
+      notStandaloneRootDetail(
+        "implementRootedSurfaces",
+        "the root surface",
+        core.tagPrefix,
+        "serve it as a sibling with `implementSurfaces`",
+      ),
     );
   }
 
@@ -4090,14 +4175,6 @@ export function implementRootedSurfaces<const C extends SurfaceSpec>(
         `implementRootedSurfaces: the sibling key "${key}" is already mounted; drop it before mounting another surface under that name.`,
       );
     }
-    // The sibling's SCOPED view comes from the framework's own composition walk —
-    // one key at a time, but the same `composeSurfaceContracts` the fixed bundle
-    // and both gates use, so the key's grammar (`assertTagSegment`) and the
-    // `surface/<key>/` prefix rule have ONE implementation here too. Re-deriving
-    // the prefix would be a fourth reading of the tag rule.
-    const scoped = composeSurfaceContracts({ [key]: surface }).siblings[
-      key
-    ] as unknown as Surface<S>;
     // THE CHANNEL NAMESPACE IS PER MOUNT, NOT PER KEY. `implementSurfaces` can
     // name a sibling's channels `<key>/<name>` because its roster is FIXED — a key
     // has exactly one occupant for the life of that runtime. Here a key can be
@@ -4118,22 +4195,21 @@ export function implementRootedSurfaces<const C extends SurfaceSpec>(
     // holder are then the SAME retracting object.
     const dropped = Deferred.makeUnsafe<void>();
     const live = (): boolean => !Deferred.isDoneUnsafe(dropped);
-    const walked = walkSurface(
-      scoped,
+    // The SAME per-sibling binding step the fixed bundle performs — scope, walk,
+    // prove — differing only in the channel namespace above and in the retraction
+    // this bundle's mounts carry.
+    const { scoped, ...walked } = bindSibling(
+      "implementRootedSurfaces",
+      key,
+      surface,
+      mountDeps,
       {
-        ...mountDeps,
-        channel: <T>(name: string): Channel<T> =>
-          channel<T>(`${key}#${gen}/${name}`),
-        onStreamReadError:
-          mountDeps.onStreamReadError ?? base.onStreamReadError,
+        channel,
+        channelFor: (name) => `${key}#${gen}/${name}`,
+        onStreamReadError: base.onStreamReadError,
+        identity: opts?.identity,
         retract: { live, key },
       },
-      opts?.identity,
-    );
-    assertHandlersMatchGroup(
-      scoped.group,
-      walked.handlers,
-      `implementRootedSurfaces: sibling "${key}"`,
     );
 
     const record: Mount = {
@@ -4150,21 +4226,30 @@ export function implementRootedSurfaces<const C extends SurfaceSpec>(
     // a connection that captured the record before it: `RpcGroup.toLayer` (and
     // `restrictHandlers`, which copies the values) hold these functions, not the
     // walk's raw bindings, so the retraction reaches them without the connection
-    // being rebuilt. Streaming-ness is asked of the GROUP — the same question
-    // `restrictHandlers` asks when IT has to answer in a member's own shape —
-    // rather than re-derived from the spec.
-    for (const [tag, handler] of Object.entries(walked.handlers)) {
+    // being rebuilt.
+    //
+    // Walked over the GROUP, not the handler record — the same iteration
+    // `restrictHandlers` does, and for the same reason: `requests` is an entries
+    // walk, so the `Rpc` is non-optional and the shape question needs no cast
+    // that erases an `undefined` the assertion three lines up happens to have
+    // ruled out. The shape ANSWER is `refusingHandler`'s, one home for both of
+    // the framework's refusals; the LIVENESS gate is all this loop still says on
+    // its own.
+    for (const [tag, rpc] of scoped.group.requests) {
+      const handler = walked.handlers[tag] as SurfaceHandler;
       const streaming = RpcSchema.isStreamSchema(
-        (scoped.group.requests.get(tag) as Rpc.AnyWithProps).successSchema,
+        (rpc as Rpc.AnyWithProps).successSchema,
       );
       const gone = (): SurfaceSiblingDropped =>
         new SurfaceSiblingDropped({ key, at: { face: "wire", tag } });
+      const refuse = refusingHandler(streaming, gone);
       record.handlers[tag] = streaming
         ? (payload: unknown) =>
             record.live()
               ? Stream.interruptWhen(
                   handler(payload) as Stream.Stream<unknown, unknown>,
-                  // Parks for this mount's whole life and then DIES, so an
+                  // The one leg a LIFETIME refusal has that a policy refusal does
+                  // not: parks for this mount's whole life and then DIES, so an
                   // in-flight subscription on a dropped sibling fails loudly with
                   // the same defect a fresh call gets — never ends cleanly (which
                   // a client reads as "the producer is finished") and never hangs
@@ -4173,11 +4258,11 @@ export function implementRootedSurfaces<const C extends SurfaceSpec>(
                     Effect.die(gone()),
                   ),
                 )
-              : Stream.die(gone())
+              : refuse(payload)
         : (payload: unknown) =>
             record.live()
               ? (handler(payload) as Effect.Effect<unknown, unknown>)
-              : Effect.die(gone());
+              : refuse(payload);
     }
 
     // VALIDATE THE WHOLE BUNDLE FIRST — a collision with the root or another
