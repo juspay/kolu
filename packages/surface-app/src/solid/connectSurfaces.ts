@@ -307,6 +307,53 @@ export interface SurfacesConnection<
    *  {@link SurfacesConnection.readout} for an indicator; reach for the raw fact
    *  when a component wants the per-sub `pending`/`error` detail. */
   health: () => SurfaceHealth;
+  /** Take a NEW SIBLING ROSTER by dialling a new wire — the honest answer to
+   *  "this connection's surfaces changed", and the reason there is no `update`.
+   *
+   *  ## Why a roster change cannot be an in-place update
+   *
+   *  Effect RPC resolves a call's payload/success/error SCHEMAS by looking the
+   *  tag up in the `RpcGroup` its client was built over, and this seam's group is
+   *  built at the DIAL (`openWireLink` does `RpcClient.make(group, …)` once, over
+   *  a protocol whose fibers live in the link's own scope). A sibling that joins
+   *  the roster brings tags that group never minted, so no client built before it
+   *  can dispatch them — and the far end has the same constraint, because each
+   *  accepted socket builds its own `RpcServer` over the group it was handed at
+   *  accept. A roster change is therefore a NEW WIRE at both ends. That is a fact
+   *  about the transport, not a gap in this seam, so it is stated here rather
+   *  than papered over with a method that would quietly rebuild everything and
+   *  call itself an update.
+   *
+   *  What this door removes is the part that WAS a gap: hand-rolling the redial.
+   *  It re-uses every option this connection was dialled with — the `url` (thunk
+   *  included), the heartbeat tuning, `extraGroups`, `onClientError`, the socket
+   *  options — so a consumer cannot drift them by re-spelling the call, which is
+   *  the same failure `connectSurfaces` itself exists to stop (juspay/kolu#2222).
+   *  And it owns the ORDER: the replacement is dialled FIRST and this connection
+   *  released only once it is up, so a transient dial failure leaves the working
+   *  wire alone and rejects, rather than the obvious dispose-then-dial that
+   *  leaves the caller with nothing.
+   *
+   *  THE ROOT DOES NOT MOVE. Only the siblings are re-rostered: the root is the
+   *  member on every serve this wire can reach, which is what makes it the
+   *  reserved probes' target on a bundle whose sibling set varies (see
+   *  {@link ConnectSurfacesOptions.core}) — and a `core` that could change would
+   *  make this the very thing it is not, a second `connectSurfaces`. Dial a
+   *  different root by calling `connectSurfaces` again.
+   *
+   *  EVERYTHING THIS CONNECTION HANDED OUT IS DEAD once it resolves — `clients`,
+   *  `core`, `transport`, `readout`, `health`. Read them off the returned
+   *  connection. A `connectSurfaceMap(map, conn.transport)` built over the old
+   *  handle fails loudly on its next call (the link is disposed), never silently.
+   *
+   *  Refuses on a connection that has ALREADY been redialled or disposed: a
+   *  second redial would dial a third wire while the caller still believes it
+   *  holds one, which is the leak this seam's allocation tracking exists to
+   *  prevent. */
+  redial<
+    // biome-ignore lint/suspicious/noExplicitAny: heterogeneous map of surfaces, as on the options.
+    const E2 extends Record<string, Surface<any>>,
+  >(surfaces: E2): Promise<SurfacesConnection<E2, C>>;
   /** Stop the heartbeat, dispose the standing subscriptions of every client in the
    *  fold — the siblings and, when a `core` rode this wire, the root — and release
    *  the wire. A page-lifetime cached bundle needn't call it. */
@@ -585,6 +632,11 @@ export async function connectSurfaces(
       "readout",
       createSurfaceReadout(transport.status, health),
     );
+    // Set the moment this connection's wire stops being this connection's to
+    // hand out — by a redial that took, or by a `dispose`. `dispose` itself stays
+    // idempotent (a page-lifetime bundle may call it twice); only `redial`
+    // refuses, because only `redial` would allocate over the refusal.
+    let superseded = false;
     return {
       link,
       clients,
@@ -596,12 +648,62 @@ export async function connectSurfaces(
       transport,
       readout: readout.readout,
       health,
+      redial: async (next: Record<string, Surface<SurfaceSpec>>) => {
+        if (superseded) {
+          throw new Error(
+            "connectSurfaces: `redial` on a connection that was already redialled or " +
+              "disposed — its wire is gone, so this call would dial a wire the caller " +
+              "does not know it holds. Redial the connection `redial` handed back.",
+          );
+        }
+        superseded = true;
+        let replacement: SurfacesConnection<
+          // biome-ignore lint/suspicious/noExplicitAny: the implementation signature is erased; the interface member above is the contract.
+          any,
+          // biome-ignore lint/suspicious/noExplicitAny: ditto.
+          any
+        >;
+        try {
+          // The NEW wire first, over the SAME options with only the roster
+          // replaced. A dial that throws leaves this connection exactly as it
+          // was — nothing has been released yet — so the caller keeps a working
+          // wire and hears the failure.
+          replacement = await connectSurfaces({
+            // biome-ignore lint/suspicious/noExplicitAny: the erased implementation signature; the overloads above check the caller.
+            ...(opts as any),
+            surfaces: next,
+          });
+        } catch (dialError) {
+          superseded = false;
+          throw dialError;
+        }
+        try {
+          await allocations.release();
+        } catch (releaseError) {
+          // LOGGED, not raised — the same trade `trackConnectAllocations`'
+          // `unwind` makes one level down, for the same reason. The value this
+          // call exists to produce is the live replacement; rejecting over the
+          // superseded wire's teardown would hand the caller nothing while a NEW
+          // wire is open, which is the un-nameable leak the tracker exists to
+          // prevent. The fault is not swallowed: it is on the console with the
+          // resource that failed named in it.
+          console.error(
+            "connectSurfaces: releasing the superseded connection FAILED during " +
+              "`redial` — the replacement is live and returned; these resources are leaked.",
+            releaseError,
+          );
+        }
+        return replacement;
+      },
       // The tracker's own list, in reverse — NOT a second list written beside it.
       // Two hand-kept teardowns fail asymmetrically: an allocation added above and
       // forgotten here leaks on the SUCCESS path, the one every consumer takes,
       // while the failure path — the one anybody would think to check — keeps
       // looking correct. One list, two exits (`release` here, `unwind` below).
-      dispose: allocations.release,
+      dispose: async () => {
+        superseded = true;
+        await allocations.release();
+      },
     };
   } catch (constructionError) {
     return allocations.unwind(constructionError);

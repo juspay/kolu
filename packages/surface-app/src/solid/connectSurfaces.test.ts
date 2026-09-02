@@ -579,3 +579,148 @@ describe("connectSurfaces — the ROOTED bundle (an unprefixed core beside the s
     }
   });
 });
+
+describe("connectSurfaces — a ROSTER CHANGE is a redial, and `redial` owns it", () => {
+  /** The root's own surface, as in the rooted block above. */
+  const core = defineSurface({
+    cells: {
+      floor: {
+        schema: Schema.Struct({ s: Schema.String }),
+        default: { s: "x" },
+        verbs: ["get"],
+      },
+    },
+  });
+  /** A second sibling surface, to arrive on the new roster. */
+  const later = defineSurface({
+    cells: {
+      queue: {
+        schema: Schema.Struct({ n: Schema.Number }),
+        default: { n: 0 },
+        verbs: ["get"],
+      },
+    },
+  });
+
+  it("dials a NEW wire over the new roster, keeps the root, and releases the old one", async () => {
+    const d = dialRecorder();
+    await createRoot(async (dispose) => {
+      const conn = await connectSurfaces({
+        surfaces: {},
+        core: { surface: core, name: "floor" },
+        url: "ws://test",
+        retired: () => {},
+        connect: d.connect,
+      });
+      const firstSocket = await d.nth(1);
+      firstSocket.open();
+      await settle();
+      expect(Object.keys(conn.clients)).toEqual([]);
+
+      const next = await conn.redial({ b: later });
+      // A SECOND socket — the roster change is a new wire, which is the whole
+      // contract this door states rather than hides.
+      const secondSocket = await d.nth(2);
+      expect(secondSocket).not.toBe(firstSocket);
+      secondSocket.open();
+      await settle();
+
+      // The new roster is dialable...
+      expect(Object.keys(next.clients)).toEqual(["b"]);
+      // ...the ROOT came across unchanged (it is the member on every serve)...
+      expect(next.core).toBeDefined();
+      expect(next.readout().status).toBe("live");
+      // ...and the superseded wire was released.
+      expect(firstSocket.readyState).toBe(3);
+
+      await next.dispose();
+      dispose();
+    });
+  });
+
+  it("re-uses the options this connection was dialled with, so a consumer cannot drift them", async () => {
+    const d = dialRecorder();
+    await createRoot(async (dispose) => {
+      const conn = await connectSurfaces({
+        surfaces: { a: surface },
+        core: { surface: core, name: "floor" },
+        url: "ws://recorded-url",
+        retired: () => {},
+        connect: d.connect,
+      });
+      (await d.nth(1)).open();
+      await settle();
+      const next = await conn.redial({ a: surface, b: later });
+      const second = await d.nth(2);
+      // The `url` — the residue a hand-rolled redial re-spells and gets wrong.
+      expect(second.url).toContain("recorded-url");
+      // ...and the fake `connect` itself, which is an option too: a redial that
+      // re-spelled the call would have dialled a REAL socket here.
+      expect(d.dialled.length).toBe(2);
+      await next.dispose();
+      dispose();
+    });
+  });
+
+  it("leaves the working wire ALONE when the redial's dial fails", async () => {
+    const d = dialRecorder();
+    await createRoot(async (dispose) => {
+      const conn = await connectSurfaces({
+        surfaces: { a: surface },
+        core: { surface: core, name: "floor" },
+        url: "ws://test",
+        retired: () => {},
+        connect: d.connect,
+      });
+      const firstSocket = await d.nth(1);
+      firstSocket.open();
+      await settle();
+      expect(conn.health().live).toBe(true);
+
+      // A roster carrying a sibling keyed with the root's own word — one of the
+      // three refusals `connectSurfaces` owes a rooted call, and like all of them
+      // it is raised BEFORE anything is dialled.
+      await expect(conn.redial({ a: surface, floor: core })).rejects.toThrow(
+        /also a sibling key/,
+      );
+      // The connection is untouched: still live, still THIS socket, and still
+      // redialable — a dispose-then-dial would have left the caller with nothing.
+      expect(conn.health().live).toBe(true);
+      expect(firstSocket.readyState).not.toBe(3);
+      const next = await conn.redial({ a: surface, b: later });
+      (await d.nth(2)).open();
+      await settle();
+      expect(Object.keys(next.clients).sort()).toEqual(["a", "b"]);
+      await next.dispose();
+      dispose();
+    });
+  });
+
+  it("refuses a SECOND redial, and a redial after dispose", async () => {
+    const d = dialRecorder();
+    await createRoot(async (dispose) => {
+      const conn = await connectSurfaces({
+        surfaces: { a: surface },
+        core: { surface: core, name: "floor" },
+        url: "ws://test",
+        retired: () => {},
+        connect: d.connect,
+      });
+      (await d.nth(1)).open();
+      await settle();
+      const next = await conn.redial({ b: later });
+      (await d.nth(2)).open();
+      await settle();
+      // The superseded connection's wire is gone; a second redial through it
+      // would dial a THIRD wire the caller does not know it holds.
+      await expect(conn.redial({ b: later })).rejects.toThrow(
+        /already redialled or disposed/,
+      );
+      await next.dispose();
+      await expect(next.redial({ b: later })).rejects.toThrow(
+        /already redialled or disposed/,
+      );
+      dispose();
+    });
+  });
+});

@@ -94,7 +94,7 @@ dependencies:
     .agents/skills/lens-debate/RATIONALE.md: sha256:5d27af06f554fb81fc344450f2d5031a097287c3282f19945eec2b55712a656a
     .agents/skills/lens-debate/SKILL.md: sha256:e5afec03dd8659583bc724d5bd35691affa8082f0e21f88a137616f062ab813f
     .agents/skills/perfection-review/SKILL.md: sha256:81e96416552beaa8a59299007bfd0280e008c2b41290cb2f9b7e8efa20ec0056
-    .agents/skills/surface/SKILL.md: sha256:14ba8e9b967372db2c012097aa9d6340e4e300ce59945145070f075dddaebbc8
+    .agents/skills/surface/SKILL.md: sha256:7d5da8acb1a224586218d1e2ee690756d277c06f7daf96af5a749f095f7449a0
     .claude/skills/agent-debate/ANSWER.md: sha256:47456419d24ab041d69dd85ddfb1d640fa8a26410eba24f2f6a7715276900b52
     .claude/skills/agent-debate/REVIEW.md: sha256:026eb88a4e29e521d9a0209bf9f83d0684f4231b8a10b772e9565cbd0713d82e
     .claude/skills/agent-debate/SKILL.md: sha256:4a7bd378ebf6cb1fb3865866fc2c733ace67d670e6b3932481f36afe24aae1bf
@@ -115,7 +115,7 @@ dependencies:
     .claude/skills/lens-debate/RATIONALE.md: sha256:5d27af06f554fb81fc344450f2d5031a097287c3282f19945eec2b55712a656a
     .claude/skills/lens-debate/SKILL.md: sha256:e5afec03dd8659583bc724d5bd35691affa8082f0e21f88a137616f062ab813f
     .claude/skills/perfection-review/SKILL.md: sha256:81e96416552beaa8a59299007bfd0280e008c2b41290cb2f9b7e8efa20ec0056
-    .claude/skills/surface/SKILL.md: sha256:14ba8e9b967372db2c012097aa9d6340e4e300ce59945145070f075dddaebbc8
+    .claude/skills/surface/SKILL.md: sha256:7d5da8acb1a224586218d1e2ee690756d277c06f7daf96af5a749f095f7449a0
   source: local
   local_path: ./agents
 - repo_url: anthropics/skills

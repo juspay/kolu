@@ -54,9 +54,17 @@
  * that doesn't fit `implementSurface`'s declarative path.
  */
 
-import { Cause, Effect, Layer, type Scope, Stream } from "effect";
+import {
+  Cause,
+  Data,
+  Deferred,
+  Effect,
+  Layer,
+  type Scope,
+  Stream,
+} from "effect";
 import type { Rpc, RpcGroup } from "effect/unstable/rpc";
-import { RpcServer } from "effect/unstable/rpc";
+import { RpcSchema, RpcServer } from "effect/unstable/rpc";
 import {
   collectionDeltasChannel,
   collectionKeyChannel,
@@ -79,8 +87,10 @@ import {
   reservedSurfaceTags,
   resolveCellVerbs,
   resolveCollectionVerbs,
+  mergeDisjointGroups,
   type StreamSpec,
   type Surface,
+  SURFACE_TAG_PREFIX,
   type SurfaceSpec,
   surfaceTag,
   type WireSchemaAny,
@@ -3578,6 +3588,478 @@ export function implementSurfacesOnPublisher<const S extends SurfaceMap>(
     group: composed.group,
     handlers,
     ctx: ctxByKey as SurfacesCtx<S>,
+    done,
+    close,
+  };
+}
+
+// ── implementRootedSurfaces — a ROOTED bundle whose siblings move ───────
+
+/** A member of a sibling that is no longer mounted on this bundle.
+ *
+ *  Raised as a DEFECT, per request, for the same reason
+ *  `@kolu/surface/expose`'s `SurfaceMemberNotExposed` is: a member's refusal is
+ *  not one of the failures its `Rpc` declares, so it cannot ride the typed error
+ *  channel without every member's schema learning about mounting. Both refusals
+ *  reach exactly the caller that asked — `surfaceRpcServerLayer` serves with
+ *  `disableFatalDefects: true`, so a defect is delivered as THAT request's exit
+ *  and every other subscription on the connection keeps flowing.
+ *
+ *  It carries the FULL wire tag as well as the sibling key, because the two
+ *  readers want different halves: a caller reads the tag it asked for, and an
+ *  operator reads which mount went away under it. */
+export class SurfaceSiblingDropped extends Data.TaggedError(
+  "SurfaceSiblingDropped",
+)<{
+  readonly key: string;
+  readonly tag: string;
+}> {
+  override get message(): string {
+    return `surface: "${this.tag}" is no longer served — the sibling "${this.key}" was dropped from this rooted bundle`;
+  }
+}
+
+/** ONE mounted sibling of a {@link RootedSurfacesRuntime} — a registration that
+ *  carries its own undo.
+ *
+ *  {@link MountedSurface.drop} is the ONLY way to unmount, and it is on the value
+ *  {@link RootedSurfacesRuntime.mount} handed back rather than a `drop(key)` verb
+ *  on the runtime. That is what makes a mount safe to hand to whoever asked for
+ *  it: the holder can retract its OWN sibling and cannot retract anybody else's,
+ *  and a key that has been dropped and re-mounted by someone else is a different
+ *  value, so a stale holder's `drop()` is a no-op rather than a stranger's
+ *  teardown. */
+export interface MountedSurface<S extends SurfaceSpec> {
+  /** The sibling key this surface is served under — its members are at
+   *  `surface/<key>/<member>/<verb>`. */
+  readonly key: string;
+  /** The SCOPED sibling surface — the same value `composeSurfaceContracts` mints,
+   *  with `tagPrefix` = `surface/<key>/` and a group holding only this sibling's
+   *  members. Carried so a caller can gate, dispatch or assert against exactly the
+   *  tags this mount owns without re-deriving the prefix rule. */
+  readonly surface: Surface<S>;
+  /** This sibling's typed cells/collections/events mutation ctx (domain writes) —
+   *  what `implementSurfaces` hands back under `ctx[key]`. */
+  readonly ctx: SurfaceCtx<S>;
+  /** Unmount this sibling. Idempotent, and ALWAYS RESOLVES — a teardown fault
+   *  reaches {@link SurfaceRuntimeHandle.done}, the runtime's one owned-fault
+   *  channel, exactly as a finalizer faulting during `close()` does.
+   *
+   *  Two moments, deliberately split:
+   *
+   *   - **at the call**, SYNCHRONOUSLY, the sibling leaves the roster. The
+   *     runtime's `group`/`handlers` stop carrying its tags, so a connection
+   *     accepted from here on never learns the sibling existed — and every
+   *     already-open connection's handler for those tags refuses from this
+   *     instant with a {@link SurfaceSiblingDropped} defect, its in-flight
+   *     subscriptions included (see {@link RootedSurfacesRuntime.mount}).
+   *   - **when the promise settles**, the sibling's owned sources have been
+   *     interrupted and their scopes finalized. */
+  drop(): Promise<void>;
+}
+
+/** The transport-level base of {@link implementRootedSurfaces} — what is shared
+ *  across the root and every sibling it will ever carry. */
+export interface ImplementRootedSurfacesBase {
+  /** Fallback subsequent-read error handler for any poll-shape stream — the
+   *  root's or a sibling's — whose deps don't supply their own. */
+  onStreamReadError?: (err: unknown, info: { stream: string }) => void;
+  /** The ROOT's DECLARED build identity — what its reserved `system.identity`
+   *  serves as its `identified` arm (see `./identity`). It belongs to the root
+   *  rather than to a sibling because the root is the member on EVERY serve this
+   *  bundle can reach, which is why `connectSurfaces` aims both reserved
+   *  round-trips at the root's bare tags on a rooted wire. A sibling that wants
+   *  its own declares it at {@link RootedSurfacesRuntime.mount}. */
+  identity?: BakedIdentity;
+}
+
+/** Per-mount options — the sibling twin of {@link ImplementSurfaceOptions}. */
+export interface MountSurfaceOptions {
+  /** This sibling's own DECLARED build identity, for the rare sibling whose
+   *  `system.identity` a consumer reads. Omit — as nearly every sibling does —
+   *  and it serves `anonymous`. */
+  identity?: BakedIdentity;
+}
+
+/** A ROOTED bundle whose SIBLING SET CHANGES WHILE IT IS SERVED — an unprefixed
+ *  root surface plus siblings that arrive and leave after composition.
+ *
+ *  `group`/`handlers`/`ctx`/`done`/`close` are {@link SurfaceRuntimeHandle}'s, so
+ *  this serves through the ordinary door (`surfaceRpcServerLayer`,
+ *  `serveSurfaceSocket`, `serveOverUnixSocket`) with nothing in between. `ctx` is
+ *  the ROOT's; a sibling's rides its own {@link MountedSurface}.
+ *
+ *  **`group` and `handlers` are LIVE READS.** They answer for the roster as it
+ *  stands at the moment they are read, so a serve site that reads them PER
+ *  ACCEPTED CONNECTION (which every one of kolu's does — each socket builds its
+ *  own `RpcServer` over the pair) serves the current roster without being told
+ *  the roster moved. Read them as a pair inside one synchronous turn: a mount or
+ *  a drop between the two reads would hand a caller a group and a handler record
+ *  of different generations, which `assertHandlersMatchGroup` would then refuse. */
+export interface RootedSurfacesRuntime<C extends SurfaceSpec>
+  extends SurfaceRuntimeHandle<SurfaceCtx<C>> {
+  /** Mount a sibling surface under `key`, LIVE — the only way a sibling joins
+   *  this bundle, at boot and forever after. (There is deliberately no initial
+   *  sibling map: a bundle whose roster moves would then have two composition
+   *  paths, and the one that runs at boot is the one that gets tested. The spike
+   *  this door was filed from lost survivors' state to exactly that split.)
+   *
+   *  TRANSACTIONAL. The sibling is walked, its route set proved, and the whole
+   *  bundle re-composed BEFORE anything is committed — so a surface with a
+   *  missing dep, a key already mounted, or a group that collides with the root
+   *  throws with the roster and the running sources untouched.
+   *
+   *  INCREMENTAL, which is the property the door exists for. Mounting walks the
+   *  ARRIVING sibling only: every surviving sibling keeps the handler values,
+   *  the cell stores, the channels and the running sources it already had, so a
+   *  connection accepted before the mount and a connection accepted after it are
+   *  served the SAME handler for every tag they share. Re-implementing the whole
+   *  map on every roster change — the shape a consumer reaches for when the
+   *  framework has no door — silently forks that state and leaves an open
+   *  connection answering out of the previous copy.
+   *
+   *  What a DROP does to an already-open connection is the other half of the
+   *  same property. Each of a sibling's tags is bound to a handler that is stable
+   *  for the mount's whole life and refuses the instant the mount is dropped, so
+   *  a connection that captured the record BEFORE the drop stops being served the
+   *  dropped members — a new call gets a {@link SurfaceSiblingDropped} defect, and
+   *  an in-flight SUBSCRIPTION dies with the same defect rather than hanging on a
+   *  producer nobody drives any more. A unary call already in flight is left to
+   *  finish: it cannot go stale, because it does not outlive its own answer.
+   *
+   *  A key that is dropped and later re-mounted mints a NEW handler at the same
+   *  tags. The old connection keeps the OLD one, which refuses — so a recycled
+   *  name can never route a stale connection into a different sibling's
+   *  members. */
+  mount<const S extends SurfaceSpec>(
+    key: string,
+    surface: Surface<S>,
+    deps: ImplementSurfaceDeps<S>,
+    opts?: MountSurfaceOptions,
+  ): MountedSurface<S>;
+  /** The keys currently mounted, in mount order. A snapshot, read live. */
+  readonly roster: ReadonlyArray<string>;
+}
+
+/** One mounted sibling's private bookkeeping. */
+interface Mount {
+  readonly key: string;
+  readonly scoped: Surface<SurfaceSpec>;
+  /** The tag-keyed handlers this mount contributes — the STABLE, refusing
+   *  wrappers, never the walk's raw bindings. */
+  readonly handlers: SurfaceHandlers;
+  /** Completed (with a plain success) at the moment of the drop; every
+   *  subscription this mount is serving is interrupted off it. */
+  readonly dropped: Deferred.Deferred<void>;
+  live: boolean;
+  sources: SurfaceSource[];
+  dropping?: Promise<void>;
+}
+
+/** Serve an unprefixed ROOT surface plus a sibling set that MOVES — the serve-side
+ *  third member of the family whose other two doors already carry a root
+ *  (`@kolu/surface/expose`'s {@link exposeRootedFaces} at the gate,
+ *  `@kolu/surface-app`'s `connectSurfaces` `core` slot in the browser). A distinct
+ *  constructor rather than a mode flag on {@link implementSurfaces}, exactly as
+ *  those two are.
+ *
+ *  ## Why LIVE is a property of the ROOTED door and not of the sibling one
+ *
+ *  A composed wire's two reserved round-trips — the `system/identity` echo behind
+ *  the stale-tab handshake and the `system/live` half-open watchdog — have to
+ *  address a member that is on every serve the wire can reach. On a ROOTLESS
+ *  bundle that target is the FIRST sibling (`connectSurfaces`' `firstSiblingKey`),
+ *  and a first sibling that can be dropped is not a target: a watchdog probing a
+ *  tag the serve stopped carrying reads "unknown member" as a dead wire and
+ *  reconnects forever. A ROOT is by definition on every serve, which is what makes
+ *  a moving roster safe to probe against — so the live door is the rooted one, and
+ *  {@link implementSurfaces} stays the fixed bundle it is.
+ *
+ *  ## What a consumer stops spelling
+ *
+ *  The rooted fusion had no serve-side door, so a consumer wrote it: compose the
+ *  siblings, `mergeDisjointGroups` the root's group with the bundle's, spread the
+ *  two handler records together, `assertHandlersMatchGroup` the result, and fold
+ *  the two runtimes' supervision with `superviseTerminalSource`. Five steps, of
+ *  which the spread is the one nothing checks — a handler record is keyed by
+ *  nothing but tags, so `{...a, ...b}` is a last-writer-wins merge with the same
+ *  silence `RpcGroup.merge` has, and the assertion after it proves the route SET
+ *  and not which side won a shared tag. Here the merge is counted on both axes
+ *  and the fold is the framework's.
+ *
+ *  ## The channel namespace
+ *
+ *  The root's channels are its own (`<member>:changed`), and a sibling's are
+ *  prefixed by its key (`<key>/<member>:changed`) — the same rewrite
+ *  {@link implementSurfaces} performs, so two siblings that each own a
+ *  `buildInfo:changed` cannot collide, and neither can a sibling and the root
+ *  (a member name may not contain `/`).
+ *
+ *  There is no `*OnPublisher` twin yet, deliberately: the shared-publisher
+ *  constructors exist because kolu's shared publisher carries non-surface channels
+ *  and its teardown is the caller's, and no rooted-bundle consumer has that
+ *  problem. It is a constructor to add when one does, not a flag to leave open. */
+export function implementRootedSurfaces<const C extends SurfaceSpec>(
+  core: Surface<C>,
+  base: ImplementRootedSurfacesBase,
+  deps: ImplementSurfaceDeps<C>,
+): RootedSurfacesRuntime<C> {
+  // ONE LAW, THREE DOORS. `exposeRootedFaces` and `connectSurfaces` each refuse a
+  // sibling-scoped surface as the root, because a root is standalone or it is not
+  // a root; the serve side owes the same refusal for the same reason. A scoped
+  // surface here would bind its handlers at `surface/<key>/…` while every sibling
+  // mounted beside it prefixes ITS key on top of nothing — the bundle would serve
+  // a root nobody can address, and `restrictHandlers` would refuse the exposure
+  // far from the mistake.
+  if (core.tagPrefix !== SURFACE_TAG_PREFIX) {
+    throw new Error(
+      `implementRootedSurfaces: the root surface carries the tag prefix "${core.tagPrefix}", ` +
+        `not the standalone "${SURFACE_TAG_PREFIX}" — the root of a rooted bundle is the ` +
+        "UNPREFIXED one. Pass the standalone surface (`defineSurface(spec)`), or serve it " +
+        "as a sibling with `implementSurfaces`.",
+    );
+  }
+
+  const channel = inMemoryChannelByName();
+  const walkedCore = walkSurface(
+    core,
+    {
+      ...deps,
+      channel,
+      onStreamReadError: deps.onStreamReadError ?? base.onStreamReadError,
+    },
+    base.identity,
+  );
+  assertHandlersMatchGroup(
+    core.group,
+    walkedCore.handlers,
+    "implementRootedSurfaces",
+  );
+
+  const mounts = new Map<string, Mount>();
+  /** Mounts whose `drop` is still unwinding — off the roster, still owning
+   *  sources, so `close` waits for them rather than resolving over a teardown
+   *  that is still running. */
+  const retiring = new Set<Mount>();
+
+  /** Compose the served pair from the CURRENT roster (plus `arriving`, when a
+   *  mount is being validated before it is committed). Both proofs run here:
+   *  `mergeDisjointGroups` claims every tag across the root and each sibling
+   *  before merging — labelled per sibling, so a collision names WHICH mount —
+   *  and `assertHandlersMatchGroup` pins the handler record against the group in
+   *  both directions. Pure: it commits nothing, so a caller can use it as the
+   *  validation step of a transactional mount. */
+  const compose = (
+    arriving?: Mount,
+  ): { group: RpcGroup.RpcGroup<Rpc.Any>; handlers: SurfaceHandlers } => {
+    // biome-ignore lint/suspicious/noExplicitAny: `mergeDisjointGroups` leaves the element union open — the erasure is its own, not its callers'.
+    const groups: Record<string, RpcGroup.RpcGroup<any>> = {
+      core: core.group,
+    };
+    const handlers = emptyHandlers();
+    for (const [tag, handler] of Object.entries(walkedCore.handlers)) {
+      handlers[tag] = handler;
+    }
+    const all =
+      arriving === undefined
+        ? [...mounts.values()]
+        : [...mounts.values(), arriving];
+    for (const mount of all) {
+      groups[`siblings.${mount.key}`] = mount.scoped.group;
+      for (const [tag, handler] of Object.entries(mount.handlers)) {
+        handlers[tag] = handler;
+      }
+    }
+    const group = mergeDisjointGroups(groups);
+    assertHandlersMatchGroup(group, handlers, "implementRootedSurfaces");
+    return { group, handlers };
+  };
+
+  // The served pair, as ONE value, so `group` and `handlers` read in the same
+  // synchronous turn are always the same generation.
+  let served = compose();
+
+  // ── Supervision over a source set that changes ───────────────────────
+  //
+  // The contract is {@link SurfaceRuntimeHandle.done}'s, unchanged: `done`
+  // rejects on the FIRST owned fault before close and resolves on a clean close;
+  // `close` interrupts everything, observes every exit independently, and
+  // aggregates. What the moving roster adds is only WHICH sources are in the set
+  // at any moment — a dropped sibling's teardown fault reaches this same channel,
+  // which is why `drop()` always resolves (a caller who never awaited it would
+  // otherwise be the only reader of a structural fault).
+  let resolveDone!: () => void;
+  let rejectDone!: (err: unknown) => void;
+  const done = new Promise<void>((resolve, reject) => {
+    resolveDone = resolve;
+    rejectDone = reject;
+  });
+  let closing: Promise<void> | undefined;
+  const watch = (source: SurfaceSource): void => {
+    source.settled.catch((err) => {
+      // Once `close` has begun its barrier is the SOLE settler, so it can
+      // aggregate every teardown fault instead of losing all but the first to
+      // this eager race. The `.catch` still runs, so the rejection never floats.
+      if (!closing) rejectDone(err);
+    });
+  };
+  const coreSources = walkedCore.starts.map((start) => start());
+  for (const source of coreSources) watch(source);
+
+  const close = (): Promise<void> => {
+    closing ??= (async () => {
+      const sources = [
+        ...coreSources,
+        ...[...mounts.values()].flatMap((mount) => mount.sources),
+        ...[...retiring].flatMap((mount) => mount.sources),
+      ];
+      for (const source of sources) source.interrupt();
+      const outcomes = await Promise.allSettled(
+        sources.map((source) => source.settled),
+      );
+      const faults = outcomes
+        .filter((r): r is PromiseRejectedResult => r.status === "rejected")
+        .map((r) => r.reason);
+      if (faults.length === 0) resolveDone();
+      else if (faults.length === 1) rejectDone(faults[0]);
+      else
+        rejectDone(
+          new AggregateError(faults, "surface runtime teardown faulted"),
+        );
+    })();
+    return closing;
+  };
+
+  const mount = <const S extends SurfaceSpec>(
+    key: string,
+    surface: Surface<S>,
+    mountDeps: ImplementSurfaceDeps<S>,
+    opts?: MountSurfaceOptions,
+  ): MountedSurface<S> => {
+    if (closing !== undefined) {
+      throw new Error(
+        `implementRootedSurfaces: cannot mount "${key}" — this runtime is closing or closed.`,
+      );
+    }
+    if (mounts.has(key)) {
+      throw new Error(
+        `implementRootedSurfaces: the sibling key "${key}" is already mounted; drop it before mounting another surface under that name.`,
+      );
+    }
+    // The sibling's SCOPED view comes from the framework's own composition walk —
+    // one key at a time, but the same `composeSurfaceContracts` the fixed bundle
+    // and both gates use, so the key's grammar (`assertTagSegment`) and the
+    // `surface/<key>/` prefix rule have ONE implementation here too. Re-deriving
+    // the prefix would be a fourth reading of the tag rule.
+    const scoped = composeSurfaceContracts({ [key]: surface }).siblings[
+      key
+    ] as unknown as Surface<S>;
+    const walked = walkSurface(
+      scoped,
+      {
+        ...mountDeps,
+        channel: <T>(name: string): Channel<T> => channel<T>(`${key}/${name}`),
+        onStreamReadError:
+          mountDeps.onStreamReadError ?? base.onStreamReadError,
+      },
+      opts?.identity,
+    );
+    assertHandlersMatchGroup(
+      scoped.group,
+      walked.handlers,
+      `implementRootedSurfaces: sibling "${key}"`,
+    );
+
+    const record: Mount = {
+      key,
+      scoped: scoped as unknown as Surface<SurfaceSpec>,
+      handlers: emptyHandlers(),
+      dropped: Deferred.makeUnsafe<void>(),
+      live: true,
+      sources: [],
+    };
+    // Each tag gets a handler that is STABLE for this mount's whole life and
+    // reads the mount's own liveness at call time. That is what carries a drop to
+    // a connection that captured the record before it: `RpcGroup.toLayer` (and
+    // `restrictHandlers`, which copies the values) hold these functions, not the
+    // walk's raw bindings, so the retraction reaches them without the connection
+    // being rebuilt. Streaming-ness is asked of the GROUP — the same question
+    // `restrictHandlers` asks when IT has to answer in a member's own shape —
+    // rather than re-derived from the spec.
+    for (const [tag, handler] of Object.entries(walked.handlers)) {
+      const streaming = RpcSchema.isStreamSchema(
+        (scoped.group.requests.get(tag) as Rpc.AnyWithProps).successSchema,
+      );
+      const gone = (): SurfaceSiblingDropped =>
+        new SurfaceSiblingDropped({ key, tag });
+      record.handlers[tag] = streaming
+        ? (payload: unknown) =>
+            record.live
+              ? Stream.interruptWhen(
+                  handler(payload) as Stream.Stream<unknown, unknown>,
+                  // Parks for this mount's whole life and then DIES, so an
+                  // in-flight subscription on a dropped sibling fails loudly with
+                  // the same defect a fresh call gets — never ends cleanly (which
+                  // a client reads as "the producer is finished") and never hangs
+                  // on a source nobody drives any more.
+                  Effect.flatMap(Deferred.await(record.dropped), () =>
+                    Effect.die(gone()),
+                  ),
+                )
+              : Stream.die(gone())
+        : (payload: unknown) =>
+            record.live
+              ? (handler(payload) as Effect.Effect<unknown, unknown>)
+              : Effect.die(gone());
+    }
+
+    // VALIDATE THE WHOLE BUNDLE FIRST — a collision with the root or another
+    // sibling throws here, with the roster and every running source untouched
+    // and this mount's connectors not yet started.
+    const next = compose(record);
+    mounts.set(key, record);
+    served = next;
+    record.sources = walked.starts.map((start) => start());
+    for (const source of record.sources) watch(source);
+
+    return {
+      key,
+      surface: scoped,
+      ctx: walked.ctx,
+      drop: (): Promise<void> => {
+        record.dropping ??= (async () => {
+          // SYNCHRONOUS retraction first: off the roster, and every handler this
+          // mount bound refuses from this instant — including the ones an open
+          // connection is holding.
+          record.live = false;
+          Deferred.doneUnsafe(record.dropped, Effect.void);
+          mounts.delete(key);
+          retiring.add(record);
+          served = compose();
+          for (const source of record.sources) source.interrupt();
+          // Each source's exit already INCLUDES its scope's finalizers. Faults
+          // are reported by `watch` (or aggregated by `close`); this barrier is
+          // for ORDERING — when it settles, the sibling owns nothing.
+          await Promise.allSettled(record.sources.map((s) => s.settled));
+          retiring.delete(record);
+        })();
+        return record.dropping;
+      },
+    };
+  };
+
+  return {
+    get group() {
+      return served.group;
+    },
+    get handlers() {
+      return served.handlers;
+    },
+    get roster() {
+      return [...mounts.keys()];
+    },
+    ctx: walkedCore.ctx,
+    mount,
     done,
     close,
   };
