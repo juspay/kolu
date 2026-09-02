@@ -337,6 +337,16 @@ carries its own route. `implementSurface` asserts at boot that the handler key
 set *equals* the group's tag set, so a route nobody answers (a 404 at the far
 end) and a handler nobody advertises are both boot crashes.
 
+**Read the two as a PAIR, in one synchronous turn** — a rule of the handle, not
+of any one constructor. Most runtimes hand back fixed values, so it costs them
+nothing; a runtime whose served set MOVES
+([`implementRootedSurfaces`](#a-rooted-bundle-whose-siblings-move--implementrootedsurfaces))
+answers both as live reads off one snapshot, so reading them either side of an
+`await` can hand you two generations — which the handler/group assertion then
+refuses, at a serve door far from the `await` that caused it. A function written
+against `SurfaceRuntimeHandle` cannot tell which implementation it holds, which
+is why the rule lives on the handle.
+
 `opts.identity` is the server's declared build triple — what the reserved
 `system/identity` member serves as its `identified` arm (the framework stamps
 `startedAt` and `processId`). Omit it and the surface is served `anonymous`,

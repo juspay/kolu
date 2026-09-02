@@ -2390,10 +2390,23 @@ export function superviseTerminalSource(
 export interface SurfaceRuntimeHandle<Ctx> {
   /** The flat `RpcGroup` this runtime serves — every member's `Rpc`, keyed by
    *  the same tags {@link SurfaceRuntimeHandle.handlers} is keyed by. Hand the
-   *  pair to `group.toLayer(handlers)` for a wire server. */
+   *  pair to `group.toLayer(handlers)` for a wire server.
+   *
+   *  **READ `group` AND `handlers` AS A PAIR, in one synchronous turn.** Most
+   *  implementations hand back fixed values, so the rule costs them nothing; a
+   *  runtime whose served set MOVES ({@link implementRootedSurfaces}) answers
+   *  BOTH as live reads off one snapshot, so reading them either side of an
+   *  `await` can hand a caller two generations — which
+   *  `assertHandlersMatchGroup` then refuses, at a serve door far from the
+   *  `await` that caused it. The rule is stated HERE, on the handle every serve
+   *  door types against, because a function written against this interface
+   *  cannot tell which implementation it was given. */
   readonly group: RpcGroup.RpcGroup<Rpc.Any>;
   /** Every bound member handler, keyed by FULL wire tag. See
-   *  {@link SurfaceHandlers}. */
+   *  {@link SurfaceHandlers}.
+   *
+   *  Read as a PAIR with {@link SurfaceRuntimeHandle.group}, in one synchronous
+   *  turn — see the rule there. */
   readonly handlers: SurfaceHandlers;
   /** The typed cells/collections/events mutation ctx (domain writes). */
   readonly ctx: Ctx;
@@ -3904,8 +3917,12 @@ export interface MountSurfaceOptions {
  *  the roster moved. That is the door a live bundle is served through.
  *
  *  The two LISTENER doors do NOT: `serveSurfaceApp` and `serveOverUnixSocket`
- *  both resolve the pair — and run `restrictHandlers` — ONCE, at bind, and serve
- *  every connection over that snapshot. Handed a live runtime they half-work,
+ *  both snapshot the pair TOGETHER — and run `restrictHandlers` — ONCE, at bind,
+ *  and serve every connection over that snapshot. (`serveSurfaceApp` used to
+ *  cache the handlers at bind and re-read `options.group` per accepted upgrade,
+ *  which is the mismatched-generation failure the pair rule exists to prevent,
+ *  produced by a listener rather than by consumer error.) Handed a live runtime
+ *  they half-work,
  *  which is the worst shape: a DROP still reaches them (the refusing wrapper
  *  rides the captured record), while a MOUNT after bind is invisible to every
  *  connection they will ever accept, silently — the new sibling's tags are simply
