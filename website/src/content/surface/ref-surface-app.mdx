@@ -511,7 +511,11 @@ So the door says so, instead of offering an `update` that would quietly rebuild
 everything under a name that promises it did not.
 
 ```ts
-let conn = await connectSurfaces({ surfaces: {}, core: { surface: core, name: "olai" } });
+let conn = await connectSurfaces({
+  surfaces: {},
+  core: { surface: core, name: "olai" },
+  retired: reloadForUpdate,          // …and the rest, as above
+});
 // …the served roster moved:
 conn = await conn.redial({ kolu: koluSurface });
 ```
@@ -520,9 +524,16 @@ conn = await conn.redial({ kolu: koluSurface });
 (thunk included), the heartbeat tuning, `extraGroups`, `onClientError`, the
 socket options — so a consumer cannot drift them by re-spelling the call, which
 is the same failure `connectSurfaces` exists to stop. And it owns the **order**:
-the replacement is dialled *first* and this connection released only once it is
-up, so a transient dial failure leaves the working wire alone and rejects —
+the replacement is dialled *first* and this connection released only once that
+dial has resolved, so a failing dial leaves the working wire alone and rejects —
 rather than the obvious dispose-then-dial, which leaves the caller with nothing.
+("Resolved" is the seam's own await, not an open socket: `connectSurfaces` hands
+back a connection whose wire may still be connecting, exactly as a first dial
+does. What is guaranteed is that a dial which *throws* costs you nothing.)
+
+A `dispose()` that lands while a `redial` is in flight is terminal and wins: the
+replacement is released and the redial rejects, rather than handing back a wire
+the caller has already given up.
 
 The **root does not move**: only the siblings are re-rostered. The root is the
 member on every serve this wire can reach, which is what makes it the reserved
@@ -540,9 +551,9 @@ believes it holds one.
 The serve side's half of the same contract is
 [`implementRootedSurfaces`](/surface/ref-surface#a-rooted-bundle-whose-siblings-move--implementrootedsurfaces),
 which *is* live — a server's siblings own stores, channels and running sources
-that must survive a roster change, and a serve site reads the group and handlers
-per accepted connection anyway. The asymmetry is the honest one, not an
-oversight.
+that must survive a roster change, and `serveSurfaceSocket` reads the group and
+handlers per accepted connection. (The two *listener* doors snapshot at bind; see
+the caution on that page.) The asymmetry is the honest one, not an oversight.
 
 <Snippet src="packages/surface/example/snippets/consume-solid.ts" region="connect" />
 

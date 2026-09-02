@@ -1092,8 +1092,11 @@ never took effect.
   loudly, which is the answer a default-deny gate owes here (the alternative is a
   face that silently denies a whole sibling). A gated serve over a live bundle
   therefore builds the exposure *and* the restricted record from the current
-  roster — per accepted connection is the natural place, since that is already
-  where the group and handlers are read.
+  roster, per accepted connection — which is possible only on the door that reads
+  the pair per connection (`serveSurfaceSocket`, in your own accept closure). The
+  `expose` option on `serveSurfaceApp` / `serveOverUnixSocket` is a **listener**
+  option, consumed once at bind, so those doors have no seam to re-gate through
+  and this refusal is not one they can raise.
 </Aside>
 
 A member that must be **writable** on a gated face has no spelling today — a

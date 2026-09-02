@@ -696,6 +696,67 @@ describe("connectSurfaces — a ROSTER CHANGE is a redial, and `redial` owns it"
     });
   });
 
+  it("releases the replacement when a dispose lands DURING the redial", async () => {
+    // The concurrent case the sequential tests missed. `onCleanup(() => conn.dispose())`
+    // racing a roster-change redial is the ordinary shape in a Solid app, and the
+    // old single `superseded` bit let the redial resolve and hand back an open
+    // socket plus a running heartbeat that nobody held.
+    const d = dialRecorder();
+    await createRoot(async (dispose) => {
+      const conn = await connectSurfaces({
+        surfaces: { a: surface },
+        core: { surface: core, name: "floor" },
+        url: "ws://test",
+        retired: () => {},
+        connect: d.connect,
+      });
+      (await d.nth(1)).open();
+      await settle();
+
+      const pending = conn.redial({ b: later });
+      // The caller gives the connection up while the dial is still in flight.
+      await conn.dispose();
+      await expect(pending).rejects.toThrow(
+        /disposed while `redial` was dialling/,
+      );
+      // THE property, stated over the whole set rather than over a socket index:
+      // no wire is left open. Whether the replacement got as far as dialling is a
+      // race with the protocol's own fiber — what must never happen is one
+      // surviving it, which is what the old single-bit version did.
+      await settle();
+      for (const ws of d.dialled) expect(ws.readyState).toBe(3);
+      dispose();
+    });
+  });
+
+  it("a dispose during a FAILING dial is not erased — the connection stays gone", async () => {
+    // One boolean could not carry two facts: the dial-failure path restored it
+    // unconditionally, so a dispose that landed in that window was erased and the
+    // connection re-armed itself over already-released allocations.
+    const d = dialRecorder();
+    await createRoot(async (dispose) => {
+      const conn = await connectSurfaces({
+        surfaces: { a: surface },
+        core: { surface: core, name: "floor" },
+        url: "ws://test",
+        retired: () => {},
+        connect: d.connect,
+      });
+      (await d.nth(1)).open();
+      await settle();
+
+      // A roster the seam refuses — the dial never happens.
+      const failing = conn.redial({ a: surface, floor: core });
+      await conn.dispose();
+      await expect(failing).rejects.toThrow();
+      // `gone` is TERMINAL: the failed dial must not have re-armed it.
+      await expect(conn.redial({ b: later })).rejects.toThrow(
+        /already redialled or disposed/,
+      );
+      dispose();
+    });
+  });
+
   it("refuses a SECOND redial, and a redial after dispose", async () => {
     const d = dialRecorder();
     await createRoot(async (dispose) => {

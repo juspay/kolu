@@ -330,9 +330,16 @@ export interface SurfacesConnection<
    *  options — so a consumer cannot drift them by re-spelling the call, which is
    *  the same failure `connectSurfaces` itself exists to stop (juspay/kolu#2222).
    *  And it owns the ORDER: the replacement is dialled FIRST and this connection
-   *  released only once it is up, so a transient dial failure leaves the working
-   *  wire alone and rejects, rather than the obvious dispose-then-dial that
-   *  leaves the caller with nothing.
+   *  released only once THAT DIAL HAS RESOLVED, so a failing dial leaves the
+   *  working wire alone and rejects, rather than the obvious dispose-then-dial
+   *  that leaves the caller with nothing. "Resolved" is this seam's own await and
+   *  not an OPEN socket — `connectSurfaces` hands back a connection whose wire may
+   *  still be connecting, exactly as a first dial does. What is guaranteed is that
+   *  a dial which THROWS costs the caller nothing.
+   *
+   *  A `dispose()` landing while a redial is in flight is TERMINAL and wins: the
+   *  replacement is released and this call rejects, rather than handing back a
+   *  live wire the caller has already given up.
    *
    *  THE ROOT DOES NOT MOVE. Only the siblings are re-rostered: the root is the
    *  member on every serve this wire can reach, which is what makes it the
@@ -632,11 +639,28 @@ export async function connectSurfaces(
       "readout",
       createSurfaceReadout(transport.status, health),
     );
-    // Set the moment this connection's wire stops being this connection's to
-    // hand out — by a redial that took, or by a `dispose`. `dispose` itself stays
-    // idempotent (a page-lifetime bundle may call it twice); only `redial`
-    // refuses, because only `redial` would allocate over the refusal.
-    let superseded = false;
+    // THE CONNECTION'S OWN LIFECYCLE, as a state and not a bit. It was one
+    // boolean set by both `redial` and `dispose`, and one bit cannot carry two
+    // facts: the dial-failure path restored it unconditionally, so a `dispose`
+    // that landed during a failed dial was ERASED — the connection re-armed
+    // itself over already-released allocations, and the next `redial` dialled a
+    // wire off a dead `clients`/`transport`/`readout` and double-released. The
+    // state names what is actually true, and `"gone"` is terminal, so that
+    // interleaving is unrepresentable rather than merely unlikely.
+    //
+    // `dispose` stays idempotent (a page-lifetime bundle may call it twice);
+    // only `redial` refuses, because only `redial` would allocate over the
+    // refusal.
+    type ConnectionState = "live" | "redialing" | "gone";
+    let state: ConnectionState = "live";
+    /** Read the state WITHOUT control-flow narrowing. `redial` assigns
+     *  `"redialing"` and then AWAITS, and a `dispose()` landing in that window
+     *  reassigns the same binding — but TypeScript narrows a `let` from the last
+     *  assignment it can SEE, so a direct read after the await is typed
+     *  `"redialing"` and the `"gone"` branch reads as dead code. The function
+     *  returns the declared union, which is the honest type of a binding another
+     *  path can move while this one is suspended. */
+    const stateNow = (): ConnectionState => state;
     return {
       link,
       clients,
@@ -649,14 +673,14 @@ export async function connectSurfaces(
       readout: readout.readout,
       health,
       redial: async (next: Record<string, Surface<SurfaceSpec>>) => {
-        if (superseded) {
+        if (stateNow() !== "live") {
           throw new Error(
-            "connectSurfaces: `redial` on a connection that was already redialled or " +
-              "disposed — its wire is gone, so this call would dial a wire the caller " +
-              "does not know it holds. Redial the connection `redial` handed back.",
+            `connectSurfaces: \`redial\` on a connection that is ${stateNow() === "gone" ? "already redialled or disposed" : "already redialling"} — ` +
+              "its wire is gone or going, so this call would dial a wire the caller does " +
+              "not know it holds. Redial the connection `redial` handed back.",
           );
         }
-        superseded = true;
+        state = "redialing";
         let replacement: SurfacesConnection<
           // biome-ignore lint/suspicious/noExplicitAny: the implementation signature is erased; the interface member above is the contract.
           any,
@@ -674,9 +698,25 @@ export async function connectSurfaces(
             surfaces: next,
           });
         } catch (dialError) {
-          superseded = false;
+          // Back to `live` ONLY if this call is still the one holding the
+          // transition. A `dispose()` that landed during the dial has already
+          // moved the state to `gone`, which is terminal — re-arming over it is
+          // the erasure this state exists to make unspellable.
+          if (stateNow() === "redialing") state = "live";
           throw dialError;
         }
+        // A `dispose()` during the dial means the caller has GIVEN UP this
+        // connection — so the replacement is a wire nobody asked for and nobody
+        // holds. Release it and fail, rather than handing back an open socket and
+        // a running heartbeat the caller will never dispose.
+        if (stateNow() === "gone") {
+          await replacement.dispose();
+          throw new Error(
+            "connectSurfaces: this connection was disposed while `redial` was dialling — " +
+              "the replacement has been released. A disposed connection has no successor.",
+          );
+        }
+        state = "gone";
         try {
           await allocations.release();
         } catch (releaseError) {
@@ -701,7 +741,9 @@ export async function connectSurfaces(
       // while the failure path — the one anybody would think to check — keeps
       // looking correct. One list, two exits (`release` here, `unwind` below).
       dispose: async () => {
-        superseded = true;
+        // Terminal, and set BEFORE the release so an in-flight `redial` observing
+        // it after its dial knows the caller has given the connection up.
+        state = "gone";
         await allocations.release();
       },
     };

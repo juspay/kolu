@@ -103,11 +103,7 @@ describe("implementRootedSurfaces: the root does not move", () => {
     const rootHandler = runtime.handlers["surface/core/ping"];
     expect(coreTags(before)).toEqual(before);
 
-    const mounted = runtime.mount(
-      "kolu",
-      fleetSurface,
-      fleetDeps(),
-    );
+    const mounted = runtime.mount("kolu", fleetSurface, fleetDeps());
     expect(coreTags(Object.keys(runtime.handlers))).toEqual(before);
     expect(runtime.handlers["surface/core/ping"]).toBe(rootHandler);
 
@@ -165,22 +161,14 @@ describe("implementRootedSurfaces: the root does not move", () => {
 describe("implementRootedSurfaces: composition is incremental", () => {
   it("a surviving sibling keeps its handler identity AND its state when another mounts", async () => {
     const runtime = rooted();
-    const first = runtime.mount(
-      "a",
-      fleetSurface,
-      fleetDeps(7),
-    );
+    const first = runtime.mount("a", fleetSurface, fleetDeps(7));
     const handlerBefore = runtime.handlers["surface/a/fleet/get"];
     // A write through the sibling's own ctx — the state a re-compose would fork.
     (
       first.ctx as { cells: { fleet: { set: (n: number) => void } } }
     ).cells.fleet.set(41);
 
-    const second = runtime.mount(
-      "b",
-      queueSurface,
-      queueDeps(),
-    );
+    const second = runtime.mount("b", queueSurface, queueDeps());
     expect(runtime.handlers["surface/a/fleet/get"]).toBe(handlerBefore);
     expect(runtime.roster).toEqual(["a", "b"]);
 
@@ -202,11 +190,7 @@ describe("implementRootedSurfaces: composition is incremental", () => {
 describe("implementRootedSurfaces: a drop reaches an already-bound record", () => {
   it("refuses a NEW call at the tag a connection captured before the drop", async () => {
     const runtime = rooted();
-    const mounted = runtime.mount(
-      "kolu",
-      fleetSurface,
-      fleetDeps(),
-    );
+    const mounted = runtime.mount("kolu", fleetSurface, fleetDeps());
     // What a serve site captured at accept — `RpcGroup.toLayer` and
     // `restrictHandlers` both hold these VALUES.
     const captured = { ...runtime.handlers };
@@ -231,11 +215,7 @@ describe("implementRootedSurfaces: a drop reaches an already-bound record", () =
 
   it("kills an IN-FLIGHT subscription with the same defect, rather than hanging or ending clean", async () => {
     const runtime = rooted();
-    const mounted = runtime.mount(
-      "kolu",
-      fleetSurface,
-      fleetDeps(),
-    );
+    const mounted = runtime.mount("kolu", fleetSurface, fleetDeps());
     const captured = { ...runtime.handlers };
 
     const settled = Effect.runPromiseExit(
@@ -264,11 +244,7 @@ describe("implementRootedSurfaces: a drop reaches an already-bound record", () =
 
   it("refuses a unary call issued after the drop", async () => {
     const runtime = rooted();
-    const mounted = runtime.mount(
-      "kolu",
-      fleetSurface,
-      fleetDeps(),
-    );
+    const mounted = runtime.mount("kolu", fleetSurface, fleetDeps());
     const captured = { ...runtime.handlers };
     await mounted.drop();
     const exit = await Effect.runPromiseExit(
@@ -280,11 +256,7 @@ describe("implementRootedSurfaces: a drop reaches an already-bound record", () =
 
   it("a RE-MOUNTED key does not resurrect a stale connection's handler", async () => {
     const runtime = rooted();
-    const first = runtime.mount(
-      "kolu",
-      fleetSurface,
-      fleetDeps(1),
-    );
+    const first = runtime.mount("kolu", fleetSurface, fleetDeps(1));
     const captured = { ...runtime.handlers };
     await first.drop();
     // The same KEY, a different surface and a different store.
@@ -309,13 +281,55 @@ describe("implementRootedSurfaces: a drop reaches an already-bound record", () =
     await runtime.close();
   });
 
+  it("a stale ctx cannot publish into the RE-MOUNTED key's subscribers", async () => {
+    // The bug this exists for, measured before it was fixed: channels were named
+    // `<key>/<member>` alone, and `inMemoryChannelByName` is name-addressed over
+    // one publisher — so a re-mount at the same key subscribed to the very topics
+    // the retired generation still published into. A write through the DROPPED
+    // mount's ctx was delivered as a delta to the NEW sibling's subscribers,
+    // leaving them holding a value that exists in no store on the bundle, while a
+    // fresh `get` still answered the new store's. Channels carry a mount
+    // GENERATION now; the write itself is refused (below), and even if a consumer
+    // reaches the store another way, the topics cannot alias.
+    const runtime = rooted();
+    const old = runtime.mount("k", fleetSurface, fleetDeps(1));
+    await old.drop();
+    runtime.mount("k", fleetSurface, fleetDeps(100));
+
+    const seen: unknown[] = [];
+    const fiber = Effect.runFork(
+      Stream.runForEach(
+        stream(runtime.handlers, "surface/k/fleet/get"),
+        (frame) => Effect.sync(() => seen.push(frame)),
+      ),
+    );
+    await new Promise((r) => setTimeout(r, 20));
+    expect(() => old.ctx.cells.fleet.set(999)).toThrow(/no longer writable/);
+    await new Promise((r) => setTimeout(r, 20));
+    fiber.interruptUnsafe();
+    // ONLY the new sibling's own value. Never the retired generation's write.
+    expect(seen).toEqual([100]);
+    await runtime.close();
+  });
+
+  it("retracts the WRITE face at the same instant as the wire face", async () => {
+    // A mount has two faces and `drop()` retracts both. A write that lands in a
+    // store nobody serves is the silent half of the same crosstalk, and silence is
+    // what this repo's fail-loud rule is about.
+    const runtime = rooted();
+    const mounted = runtime.mount("kolu", fleetSurface, fleetDeps(5));
+    mounted.ctx.cells.fleet.set(6); // live: fine
+    await mounted.drop();
+    expect(() => mounted.ctx.cells.fleet.set(7)).toThrow(SurfaceSiblingDropped);
+    // READS are retracted too: the handle is dead, not merely read-only, and a
+    // `get` answering out of a retired store is the same lie one level quieter.
+    expect(() => mounted.ctx.cells.fleet.get()).toThrow(/no longer writable/);
+    await runtime.close();
+  });
+
   it("`drop` is idempotent and the second call is the same promise", async () => {
     const runtime = rooted();
-    const mounted = runtime.mount(
-      "kolu",
-      fleetSurface,
-      fleetDeps(),
-    );
+    const mounted = runtime.mount("kolu", fleetSurface, fleetDeps());
     await Promise.all([mounted.drop(), mounted.drop()]);
     expect(runtime.roster).toEqual([]);
     await runtime.close();
@@ -326,13 +340,9 @@ describe("implementRootedSurfaces: mounting is transactional", () => {
   it("refuses a key that is already mounted, leaving the roster untouched", async () => {
     const runtime = rooted();
     runtime.mount("kolu", fleetSurface, fleetDeps());
-    expect(() =>
-      runtime.mount(
-        "kolu",
-        queueSurface,
-        queueDeps(),
-      ),
-    ).toThrow(/already mounted/);
+    expect(() => runtime.mount("kolu", queueSurface, queueDeps())).toThrow(
+      /already mounted/,
+    );
     expect(runtime.roster).toEqual(["kolu"]);
     expect(Object.keys(runtime.handlers)).toEqual([
       ...runtime.group.requests.keys(),
@@ -351,9 +361,7 @@ describe("implementRootedSurfaces: mounting is transactional", () => {
 
   it("refuses an illegal sibling key through the framework's own grammar", async () => {
     const runtime = rooted();
-    expect(() =>
-      runtime.mount("a/b", fleetSurface, fleetDeps()),
-    ).toThrow();
+    expect(() => runtime.mount("a/b", fleetSurface, fleetDeps())).toThrow();
     expect(runtime.roster).toEqual([]);
     await runtime.close();
   });
@@ -361,9 +369,9 @@ describe("implementRootedSurfaces: mounting is transactional", () => {
   it("refuses a mount after close", async () => {
     const runtime = rooted();
     await runtime.close();
-    expect(() =>
-      runtime.mount("kolu", fleetSurface, fleetDeps()),
-    ).toThrow(/closing or closed/);
+    expect(() => runtime.mount("kolu", fleetSurface, fleetDeps())).toThrow(
+      /closing or closed/,
+    );
   });
 });
 
@@ -407,11 +415,7 @@ describe("implementRootedSurfaces: channels", () => {
     // reach `b`'s subscribers. Asked of what a subscriber SEES rather than of a
     // spy on the factory, because the factory is the runtime's own.
     const runtime = rooted();
-    const a = runtime.mount(
-      "a",
-      fleetSurface,
-      fleetDeps(1),
-    );
+    const a = runtime.mount("a", fleetSurface, fleetDeps(1));
     runtime.mount("b", fleetSurface, fleetDeps(2));
     (
       a.ctx as { cells: { fleet: { set: (n: number) => void } } }
@@ -456,12 +460,70 @@ describe("implementRootedSurfaces: supervision", () => {
     await expect(runtime.done).rejects.toThrow(/connector died/);
   });
 
-  it("the error class is exported for a consumer that recognises a dropped member", () => {
-    const err = new SurfaceSiblingDropped({
+  it("the error class names WHICH FACE was reached, not just which member", () => {
+    // The two arrivals are discriminated: a wire caller reads the tag it dialled,
+    // a stale `ctx` holder reads the write it attempted. One `tag` string carrying
+    // either would be a field that means two things.
+    const onWire = new SurfaceSiblingDropped({
       key: "kolu",
-      tag: "surface/kolu/fleet/get",
+      at: { face: "wire", tag: "surface/kolu/fleet/get" },
     });
-    expect(err.message).toContain("surface/kolu/fleet/get");
-    expect(err.message).toContain("kolu");
+    expect(onWire.message).toContain("surface/kolu/fleet/get");
+    expect(onWire.message).toContain("no longer served");
+    const onWrite = new SurfaceSiblingDropped({
+      key: "kolu",
+      at: { face: "write", path: "cells.fleet.set" },
+    });
+    expect(onWrite.message).toContain("cells.fleet.set");
+    expect(onWrite.message).toContain("no longer writable");
+  });
+});
+
+describe("implementRootedSurfaces: served through a real per-connection door", () => {
+  it("a socket accepted AFTER a mount is served the new sibling; one accepted before is not", async () => {
+    // The claim the whole door rests on, asserted against an actual serve rather
+    // than against `runtime.handlers` read directly — because WHICH door re-reads
+    // the pair is the thing a consumer gets wrong. `serveSurfaceSocket` takes the
+    // pair per accepted connection, so an accept loop that reads the runtime
+    // inside its own closure serves the current roster; the two LISTENER doors
+    // (`serveSurfaceApp`, `serveOverUnixSocket`) snapshot at bind and cannot.
+    //
+    // Modelled at the seam those doors sit on: each "connection" captures the
+    // pair the way `serveSurfaceSocket` is handed it.
+    const runtime = rooted();
+    const accept = () => ({
+      group: runtime.group,
+      handlers: { ...runtime.handlers },
+    });
+
+    const before = accept();
+    const mounted = runtime.mount("kolu", fleetSurface, fleetDeps(3));
+    const after = accept();
+
+    // The connection accepted BEFORE the mount cannot dial the new sibling —
+    // its RpcServer was built over a group that never carried those tags.
+    expect(before.group.requests.has("surface/kolu/fleet/get")).toBe(false);
+    expect(before.handlers["surface/kolu/fleet/get"]).toBeUndefined();
+    // The one accepted AFTER serves it, with no one having told the door.
+    expect(after.group.requests.has("surface/kolu/fleet/get")).toBe(true);
+    const frames: unknown[] = [];
+    await Effect.runPromise(
+      Stream.runForEach(
+        Stream.take(stream(after.handlers, "surface/kolu/fleet/get"), 1),
+        (frame) => Effect.sync(() => frames.push(frame)),
+      ),
+    );
+    expect(frames).toEqual([3]);
+
+    // ...and a DROP reaches BOTH — the one accepted after through its captured
+    // record's refusing wrapper, which is the half a snapshotting listener also
+    // gets (and why one half-works rather than plainly failing).
+    await mounted.drop();
+    const exit = await Effect.runPromiseExit(
+      unary(after.handlers, "surface/kolu/fleet/set", { value: 9 }),
+    );
+    expect(exit._tag).toBe("Failure");
+    expect(JSON.stringify(exit)).toContain("SurfaceSiblingDropped");
+    await runtime.close();
   });
 });
