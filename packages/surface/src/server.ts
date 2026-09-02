@@ -2431,6 +2431,8 @@ export interface SurfaceRuntimeHandle<Ctx> {
    *  | A push source's `install` (the subscription) throws | REJECTS | runtime-fatal (structural) |
    *  | A poll source's cadence `install(tick)` throws | REJECTS | runtime-fatal (structural) |
    *  | A scope FINALIZER throws during `close()` | REJECTS (aggregated) | runtime-fatal (structural teardown) |
+   *  | A MOUNTED sibling's owned source faults (a rooted bundle — its connector, its poll install) | REJECTS | runtime-fatal (structural) |
+   *  | A DROPPED sibling's scope FINALIZER throws during `drop()` | REJECTS | runtime-fatal (structural teardown) — one sibling's teardown fault is fatal to the WHOLE bundle, root included; `drop()` itself still resolves |
    *  | Poll **T+0 seed** read or publish fails | no — since #2101 | cell-local: logged, cadence held, retried next tick |
    *  | Poll **later tick** read or publish fails | no | cell-local: log-skip-continue, holds last value |
    *  | `scan` step throws | no | cell-local: stop-hold, `stopped` latches |
@@ -3868,7 +3870,14 @@ export interface MountedSurface<S extends SurfaceSpec> {
    *     instant with a {@link SurfaceSiblingDropped} defect, its in-flight
    *     subscriptions included (see {@link RootedSurfacesRuntime.mount}).
    *   - **when the promise settles**, the sibling's owned sources have been
-   *     interrupted and their scopes finalized. */
+   *     interrupted and their scopes finalized.
+   *
+   *  WHAT "REACHES `done`" COSTS, stated plainly because the audit table makes
+   *  it fatal: a `done` rejection is STRUCTURAL WIRING DEATH a serving site must
+   *  treat as fatal, so a sibling's teardown fault ends the whole bundle, root
+   *  included. A host that mounts siblings it does not control is accepting that
+   *  one sibling's finalizer can end the process. That is the deliberate trade —
+   *  a source nobody drives is damage — not an oversight. */
   drop(): Promise<void>;
 }
 
@@ -3935,7 +3944,22 @@ export interface MountSurfaceOptions {
  *  the face's `FaceExposure` per accepted connection — is the receptacle this
  *  creates a population of one for. It is NAMED here rather than built: it
  *  changes the option shape of a listener every consumer binds, which is a wider
- *  blast radius than the door this PR is. */
+ *  blast radius than the door this PR is.
+ *
+ *  ## How a client learns the roster moved — THE APP'S JOB, FOR NOW
+ *
+ *  This door and `connectSurfaces`' `redial` are the two ENDS of one axis, and
+ *  the middle is deliberately not here: the framework carries "the served roster
+ *  is now `[a, c]`" NOWHERE. A consumer publishes it — the natural carrier is a
+ *  cell on the ROOT, since the root is the member on every serve this wire can
+ *  reach — and drives `conn.redial` off it.
+ *
+ *  Said out loud because the failure is the silent one: a consumer that forgets
+ *  the wire gets clients that simply never learn about the new sibling, and
+ *  nothing errors. A framework-reserved `system/roster` cell on the root, plus a
+ *  `connectSurfaces` option that redials on its change, is the receptacle that
+ *  closes it — recorded as a candidate in `docs/atlas` rather than built at a
+ *  population of one. */
 export interface RootedSurfacesRuntime<C extends SurfaceSpec>
   extends SurfaceRuntimeHandle<SurfaceCtx<C>> {
   /** Mount a sibling surface under `key`, LIVE — the only way a sibling joins

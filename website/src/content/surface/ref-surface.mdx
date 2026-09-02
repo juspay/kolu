@@ -457,6 +457,36 @@ during `close()` does. The root's channels are its own (`<member>:changed`) and 
 sibling's are prefixed by its key (`<key>/<member>:changed`), the same rewrite
 `implementSurfaces` performs.
 
+**A dropped sibling's `ctx` refuses, and so does a closed bundle's.** A mount has
+two faces — the wire handlers and the write face `mount` handed back — and a drop
+retracts both: every accessor on `MountedSurface.ctx`, reads included, throws
+`SurfaceSiblingDropped` from the instant of the drop. That covers the sibling's
+*own procedure handlers* too, which close over the same retracting value — an
+in-flight unary call is deliberately not interrupted, and its side effects would
+otherwise outlive the drop and write into a store nobody serves. `close()` is the
+runtime-wide drop and retracts every surviving mount for the same reason; the
+ROOT's `ctx` is the deliberate asymmetry (`SurfaceSiblingDropped` names a sibling,
+and the root is not one).
+
+**What reaching `done` costs.** A `done` rejection is structural wiring death a
+serving site must treat as fatal, so **one sibling's teardown finalizer faulting
+ends the whole bundle, root included** — the two rows the `done` audit table
+(on `SurfaceRuntimeHandle.done`, the single home for it) carries for this door.
+A host that mounts
+siblings it does not control is accepting that. Deliberate: a source nobody
+drives is damage.
+
+**How a client learns the roster moved — the app's job, for now.** This door and
+[`conn.redial`](/surface/ref-surface-app#a-roster-change-is-a-redial--connredialsurfaces)
+are the two *ends* of one axis, and the framework carries the middle — "the
+served roster is now `[a, c]`" — **nowhere**. A consumer publishes it (a cell on
+the *root* is the natural carrier, since the root is on every serve this wire can
+reach) and drives `redial` off it. Said out loud because forgetting it fails
+*silently*: clients simply never learn about the new sibling and nothing errors. A
+framework-reserved `system/roster` cell plus a `connectSurfaces` option that
+redials on its change is the receptacle that would close it, recorded as an atlas
+candidate rather than built at a population of one.
+
 **Why `live` is a property of the *rooted* door.** A composed wire's two reserved
 round-trips — the `system/identity` echo and the `system/live` watchdog — must
 address a member on every serve the wire can reach. On a *rootless* bundle that
