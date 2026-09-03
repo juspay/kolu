@@ -27,6 +27,7 @@ import {
   WATCH_FILTER_KEYS,
 } from "@kolu/padi-client/surface";
 import type { WaitState } from "@kolu/padi-client/terminalVocab";
+import type { Parsed } from "@kolu/padi-client/watchDuration";
 import { type WatchScope, watchScopeOf } from "@kolu/padi-client/watchScope";
 import type { StateWatchFilter, StateWatchSpec } from "./stateWatch.ts";
 
@@ -48,11 +49,7 @@ export const WATCH_NAG_COUNT_ORPHAN =
   "nagCount caps the nagging, but no nagMs was given: there is no repetition to cap.";
 
 /** Decode the knobs, defaults applied, or the pair that is refused. */
-function filterFrom(
-  knobs: WatchKnobs,
-):
-  | { readonly kind: "ok"; readonly value: StateWatchFilter }
-  | { readonly kind: "error"; readonly message: string } {
+function filterFrom(knobs: WatchKnobs): Parsed<StateWatchFilter> {
   if (knobs.nagCount !== undefined && knobs.nagMs === undefined) {
     return { kind: "error", message: WATCH_NAG_COUNT_ORPHAN };
   }
@@ -87,9 +84,7 @@ export function namesWatchKnobs(knobs: WatchKnobs): boolean {
  *  cannot spell. */
 export function watchFilterOf(
   knobs: WatchKnobs,
-):
-  | { readonly kind: "ok"; readonly value: StateWatchFilter | undefined }
-  | { readonly kind: "error"; readonly message: string } {
+): Parsed<StateWatchFilter | undefined> {
   return namesWatchKnobs(knobs)
     ? filterFrom(knobs)
     : { kind: "ok", value: undefined };
@@ -113,9 +108,7 @@ export function specOf(
  *  defaults always apply. */
 export function watchSpecOf(
   input: PadiWatchStatesInput,
-):
-  | { readonly kind: "ok"; readonly value: StateWatchSpec }
-  | { readonly kind: "error"; readonly message: string } {
+): Parsed<StateWatchSpec> {
   const scope = watchScopeOf({
     ...(input.id === undefined ? {} : { ids: [input.id] }),
     ...(input.ignoreIds === undefined ? {} : { mute: input.ignoreIds }),

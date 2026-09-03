@@ -3,8 +3,8 @@
  * still is", as a level with a memory.
  *
  * The one implementation of the capabilities a supervision face needs, served
- * to both faces (`kolu watch --states/--held-for/--nag/--nag-count` subscribes
- * the `watchStates` stream; an MCP orchestrator passes the same knobs as
+ * to both faces (`kolu watch --states/--held-for/--nag 30m/3` subscribes the
+ * `watchStates` stream; an MCP orchestrator passes the same knobs as
  * `watch.open` params). Neither face filters anything of its own — a knob
  * spelled twice is a knob that will mean two things.
  *

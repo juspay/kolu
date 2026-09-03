@@ -31,6 +31,7 @@ import {
 // carries the mirror — arrives dynamically inside the handler instead.
 import type { PadiSurfaceClient } from "@kolu/padi-client/dial";
 import {
+  PadiWatchNagMsSchema,
   type PadiWatchOpenInput,
   PadiWatchOpenInputSchema,
 } from "@kolu/padi-client/surface";
@@ -40,7 +41,6 @@ import {
   watchScopeOf,
 } from "@kolu/padi-client/watchScope";
 import { type BespokeTool, ToolFailure } from "@kolu/surface-mcp/tools";
-import { MAX_TIMER_MS } from "@kolu/surface/wait";
 import type { TerminalId } from "@kolu/terminal-vocab/schema";
 import { Effect, Schema } from "effect";
 import { match } from "ts-pattern";
@@ -57,14 +57,10 @@ export const WatchOpenArgsSchema = Schema.Struct({
   ...watchOpenFields,
   nagMs: Schema.optionalKey(
     Schema.Union([
-      // Same shape the wire field carries. The description is the UNION's —
-      // a bare number is the historic spelling, a string adds the units and
-      // the slash.
-      Schema.Number.check(
-        Schema.isInt(),
-        Schema.isGreaterThan(0),
-        Schema.isLessThanOrEqualTo(MAX_TIMER_MS),
-      ),
+      // The numeric rule is the wire field's own (`PadiWatchNagMsSchema`) —
+      // this face's grammar is the UNION around it: a bare number is the
+      // historic spelling, a string adds the units and the slash.
+      PadiWatchNagMsSchema,
       Schema.String,
     ]).annotate({
       description:

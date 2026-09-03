@@ -8,7 +8,7 @@
  * not as a fourth knob: the pairing is then unparseable rather than refused
  * twice at two faces. The wire still carries the two facts as two fields
  * (`nagMs` + `nagCount`) and padi's decode refuses the orphan there — this
- * module is the SPELING the faces offer; the wire is the fact.
+ * module is the SPELLING the faces offer; the wire is the fact.
  *
  * Both faces read THIS parser: `kolu watch` (where `flag` prints as `--nag`)
  * and the MCP `watch_open` (where it prints as `nagMs`, and a string is
@@ -96,22 +96,23 @@ export function parseNag(
   flag: string,
   raw: string,
 ): Parsed<{ readonly ms: number; readonly count?: number }> {
-  const slash = raw.indexOf("/");
-  if (slash === -1) {
+  // ONE structural read: a bare interval has no slash, the interval and its
+  // count are the two halves of one, and a third half is refuse.
+  const parts = raw.split("/");
+  if (parts.length === 1) {
     const ms = parseDuration(flag, raw, NAG_MIN);
     return ms.kind === "ok" ? { kind: "ok", value: { ms: ms.value } } : ms;
   }
-  const [interval, count, stray] = raw.split("/") as [
-    string,
-    string,
-    ...string[],
-  ];
-  if (stray !== undefined) {
+  if (parts.length > 2) {
     return {
       kind: "error",
       message: `${flag} ${JSON.stringify(raw)}: one slash only — the count after the slash caps the repetition. Write ${flag} 30m/3.`,
     };
   }
+  // The halves are two, the length checks above say so — the index signature
+  // reads `parts[i]` as possibly-`undefined` regardless, so the empty string
+  // is the default the grammar's own checks below then judge.
+  const [interval = "", count = ""] = parts;
   if (interval === "") {
     return {
       kind: "error",

@@ -1195,7 +1195,7 @@ export type PadiSettleEvent = typeof PadiSettleEventSchema.Type;
 // part of this feed consults output.
 //
 // The knobs are ONE implementation (`attention/stateWatch.ts`) served to both
-// faces: `kolu watch --states/--held-for/--nag/--nag-count` subscribes the
+// faces: `kolu watch --states/--held-for/--nag 30m/3` subscribes the
 // {@link padiSurface} `watchStates` stream, an MCP orchestrator passes the same
 // knobs as `watch.open` params. Neither face filters anything client-side.
 
@@ -1209,6 +1209,22 @@ const WatchStateSchema = Schema.Literals(WAIT_STATES);
  *  vocabulary leaf, where it sits beside the buckets it is drawn from and where
  *  a face's `--help` can read it without importing the wire. */
 export { WATCH_DEFAULT_STATES };
+
+/** The `nagMs` NUMERIC rule — the interval spelled as bare milliseconds,
+ *  exported beside the fields table that spreads it, so the MCP face's
+ *  `Number|String` union binds the same numeric arm rather than restating its
+ *  three checks (a bound change then edits ONE schema, not two).
+ *
+ *  Zero is NOT a legal interval — a nag every 0 ms is a spin, so the schema
+ *  refuses it rather than a guard downstream. */
+export const PadiWatchNagMsSchema = Schema.Number.annotate({
+  description:
+    "RE-report a terminal every this many milliseconds for as long as it keeps holding a matching state (milliseconds). Omit to be told once. This is what makes an ignored terminal come back instead of vanishing after one line.",
+}).check(
+  Schema.isInt(),
+  Schema.isGreaterThan(0),
+  Schema.isLessThanOrEqualTo(MAX_TIMER_MS),
+);
 
 /** The supervision knobs, declared ONCE and spread into both faces' inputs, so
  *  a CLI flag and an MCP param cannot mean different things.
@@ -1237,18 +1253,7 @@ export const PadiWatchFilterFields = {
       Schema.isLessThanOrEqualTo(MAX_TIMER_MS),
     ),
   ),
-  nagMs: Schema.optionalKey(
-    Schema.Number.annotate({
-      description:
-        "RE-report a terminal every this many milliseconds for as long as it keeps holding a matching state (milliseconds). Omit to be told once. This is what makes an ignored terminal come back instead of vanishing after one line.",
-      // Zero is NOT a legal interval — a nag every 0 ms is a spin, so the
-      // schema refuses it rather than a guard downstream.
-    }).check(
-      Schema.isInt(),
-      Schema.isGreaterThan(0),
-      Schema.isLessThanOrEqualTo(MAX_TIMER_MS),
-    ),
-  ),
+  nagMs: Schema.optionalKey(PadiWatchNagMsSchema),
   nagCount: Schema.optionalKey(
     Schema.Number.annotate({
       description:
