@@ -364,6 +364,44 @@ describe("createStateWatchHub", () => {
     expect(second.flat()).toHaveLength(3);
   });
 
+  it("a re-attach with a LARGER hold owes its first report as a first report — never a nag", async () => {
+    const h = harness();
+    h.observe(terminals({ a: { agent: makeAgent("waiting") } }));
+    await settled();
+    const first = collect(h.hub, { nagMs: 60_000, nagCount: 2 });
+    h.advance(60_000);
+    h.advance(60_000);
+    expect(first.flat().map((e) => [e.kind, e.nag])).toEqual([
+      ["snapshot", undefined],
+      ["nag", { index: 1, left: 1 }],
+      // …and the cap is now SPENT.
+      ["nag", { index: 2, left: 0 }],
+    ]);
+    first.stop();
+
+    // The same episode's budget, re-attached under a spec whose LARGER hold
+    // defers the seeded entry past the arriving sweep — the re-open's snapshot
+    // boundary lands EMPTY because the owed first report is not due yet.
+    const second = collect(
+      h.hub,
+      { nagMs: 60_000, nagCount: 2, heldForMs: 600_000 },
+      first.counts,
+    );
+    expect(second.flat()).toEqual([]);
+
+    // When the hold finally releases, this is STILL this subscription's own
+    // first report of a standing episode — never a nag it never preceded with
+    // a first report, and the spent cap never counts a reminder past itself
+    // (a `left` of -1 would fail the wire's NonNegativeInt on `nag.left`).
+    h.advance(600_000);
+    expect(second.flat().map((e) => [e.kind, e.nag])).toEqual([
+      ["transition", undefined],
+    ]);
+    expect(h.armedAt()).toBeUndefined();
+    h.advance(3_600_000);
+    expect(second.flat()).toHaveLength(1);
+  });
+
   it("a seed whose terminal MOVED ON before the return starts the NEW episode at zero", async () => {
     const h = harness();
     h.observe(terminals({ a: { agent: makeAgent("waiting") } }));

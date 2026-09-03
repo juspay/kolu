@@ -338,12 +338,19 @@ export function createStateWatchHub(opts: {
       }
       // Is the episode the subscription last TOLD the one still standing?
       const continuing = known !== undefined && known.since === level.since;
+      // This subscription's own FIRST report of the episode — asked of the
+      // RECORD, not the batch: a re-attach with a LARGER hold defers a seeded
+      // episode's first report past the arriving sweep (its deadline is the
+      // schedule above's), and the batch's `arriving` alone would misstamp
+      // that deferred first report as a nag — one a spent budget would number
+      // past the cap, with a negative `left`.
+      const first = !continuing || known.unreported === true;
       // Which reminder this emit is: 0 is the first report; k is the k-th nag.
       // The cap counts these, and the wire stamps them, from this one number.
       // A SEEDED re-attach keeps the episode's budget: its arriving first
       // report is a snapshot (reminder 0), its later nags continue the count
       // it inherited — an ordinary restart never re-arms the cap.
-      const reminder = !continuing || arriving ? 0 : known.nags + 1;
+      const reminder = first ? 0 : known.nags + 1;
       // How many reminders follow — the cap minus this one — asked of the spec
       // so the stamp and the schedule can never disagree about it. Absent when
       // nothing caps the nagging (there is no last one to name).
@@ -361,7 +368,7 @@ export function createStateWatchHub(opts: {
         // A (re)open's first batch is ALWAYS snapshots of the standing set —
         // even of an inherited, still-standing episode — and never a nag a
         // caller watching this attachment's feed would read as its own.
-        kind: arriving ? "snapshot" : continuing ? "nag" : "transition",
+        kind: arriving ? "snapshot" : first ? "transition" : "nag",
         state,
         since: level.since,
         at,
