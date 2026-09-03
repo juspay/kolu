@@ -118,6 +118,18 @@ export function resolveWatchOpenInput(
   live: readonly TerminalId[],
   env: { readonly [key: string]: string | undefined } = process.env,
 ): ParsedWatchOpen {
+  // argv-grammar first, before anything the roster could answer: `nagCount`
+  // caps the nagging, so a count with no interval is a cap on a repetition
+  // that never starts. Same refusal the CLI's `--nag-count` without `--nag`
+  // gets, in this face's own grammar.
+  if (args.nagCount !== undefined && args.nagMs === undefined) {
+    return {
+      kind: "error",
+      message:
+        "nagCount caps the nagging, but no nagMs was given: there is no repetition to cap. Pass both, or leave nagCount off to be told once.",
+      detail: { kind: "nag-count-without-nag" },
+    };
+  }
   const { ignoreSelf, ignoreIds, ids, ...rest } = args;
   // ONE assembly, both branches: `ignoreSelf` decides whether there is an EXTRA
   // id in the mute, never how the mute is built. (The two used to be separate
@@ -193,7 +205,7 @@ export const watchOpenTool: BespokeTool = {
   mutates: true,
   title: "Open a terminal watch",
   description:
-    "Start (or re-attach to) a named standing subscription. Omit ids to watch the WHOLE fleet — a list you forget to update goes blind to a lane nobody added. ignoreIds mutes known terminals (fail-open: a stale id costs nothing). ignoreSelf mutes the terminal this MCP server is running inside. Naming any of states/heldForMs/nagMs turns the subscription into an agent-state watch (snapshot · transition · nag); naming none leaves the settle detector (asking · finished · gone). Re-open the SAME name after a restart to reattach to the queue.",
+    "Start (or re-attach to) a named standing subscription. Omit ids to watch the WHOLE fleet — a list you forget to update goes blind to a lane nobody added. ignoreIds mutes known terminals (fail-open: a stale id costs nothing). ignoreSelf mutes the terminal this MCP server is running inside. Naming any of states/heldForMs/nagMs/nagCount turns the subscription into an agent-state watch (snapshot · transition · nag); naming none leaves the settle detector (asking · finished · gone). Re-open the SAME name after a restart to reattach to the queue.",
   handler: (args, client) => {
     const padi = client as PadiSurfaceClient;
     const asked = args as WatchOpenArgs;

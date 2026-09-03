@@ -50,6 +50,7 @@ describe("namesWatchKnobs", () => {
     // makes an invocation a supervision watch, at both faces at once.
     expect([...WATCH_FILTER_KEYS].sort()).toEqual([
       "heldForMs",
+      "nagCount",
       "nagMs",
       "states",
     ]);
@@ -89,6 +90,12 @@ describe("watchFilterOf", () => {
   it("OMITS nagMs when none was asked for, rather than sending an undefined", () => {
     const filter = watchFilterOf({ heldForMs: 1 });
     expect(Object.hasOwn(filter ?? {}, "nagMs")).toBe(false);
+  });
+
+  it("carries the CAP the caller spelled — and omits it when none was", () => {
+    expect(watchFilterOf({ nagMs: 1, nagCount: 3 })?.nagCount).toBe(3);
+    const filter = watchFilterOf({ nagMs: 1 });
+    expect(Object.hasOwn(filter ?? {}, "nagCount")).toBe(false);
   });
 });
 

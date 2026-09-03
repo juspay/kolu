@@ -61,9 +61,10 @@
  *
  * ## Two feeds, one verb
  *
- * Naming any of `--states` / `--held-for` / `--nag` switches this verb from the
- * CHANGE tail described above to the SUPERVISION feed: agent-state transitions,
- * debounced by a hold and repeated on a nag, led by the currently-matching set.
+ * Naming any of `--states` / `--held-for` / `--nag` / `--nag-count` switches
+ * this verb from the CHANGE tail described above to the SUPERVISION feed:
+ * agent-state transitions, debounced by a hold and repeated on a nag (a FINITE
+ * nag when the count caps it), led by the currently-matching set.
  * They are different questions — "what just changed in the workspace" and "what
  * has been sitting unattended" — and the second one is the reason the first was
  * never usable as an alert: it relays byte-level churn (an idle grok repaints
@@ -73,7 +74,7 @@
  * The switch is the PRESENCE of a knob, not a mode flag, so there is nothing to
  * set inconsistently with the knobs. And the knobs themselves are padi's: this
  * file parses argv into them and prints what comes back, and does not filter,
- * debounce, or remember anything — the same three knobs reach the same engine
+ * debounce, or remember anything — the same knobs reach the same engine
  * from the MCP face, so there is no second implementation to drift.
  *
  * ## Narrowing, and the mute
@@ -284,7 +285,7 @@ function parseDuration(
   return { kind: "ok", value: ms };
 }
 
-/** What the three knobs add up to — the wire input, or `undefined` when the user
+/** What the knobs add up to — the wire input, or `undefined` when the user
  *  named none of them and wants the change tail instead.
  *
  *  Only the knobs the user actually SPELLED ride the wire; the defaults live in
@@ -293,10 +294,21 @@ function parseDuration(
 export function planSupervision(
   args: WatchArgs,
 ): Parsed<PadiWatchStatesInput | undefined> {
+  // `--nag-count` caps the nagging — so a count with no interval is a cap on a
+  // repetition that never starts: refuse it here, beside the other pre-dial
+  // refusals, rather than opening a watch that silently does nothing with it.
+  if (args.nagCount !== undefined && args.nag === undefined) {
+    return {
+      kind: "error",
+      message:
+        "--nag-count caps the nagging, but no --nag was given: there is no repetition to cap. Pass both (--nag 5m --nag-count 3), or leave --nag-count off to be told once.",
+    };
+  }
   const input: {
     states?: readonly WaitState[];
     heldForMs?: number;
     nagMs?: number;
+    nagCount?: number;
   } = {};
   if (args.states !== undefined) {
     const tokens = waitStateTokens(args.states);
@@ -325,8 +337,11 @@ export function planSupervision(
     if (parsed.kind === "error") return parsed;
     input.nagMs = parsed.value;
   }
+  if (args.nagCount !== undefined) {
+    input.nagCount = args.nagCount;
+  }
   // The PRESENCE of a knob IS the choice of feed — asked of padi's ONE
-  // definition rather than re-listed here. A fourth knob then reaches this face
+  // definition rather than re-listed here. A new knob then reaches this face
   // by being declared, instead of leaving the CLI quietly on the change tail for
   // a user who named it.
   return { kind: "ok", value: namesWatchKnobs(input) ? input : undefined };

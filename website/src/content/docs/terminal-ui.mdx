@@ -124,18 +124,21 @@ miss that tap and the terminal is silent forever.
 The flags on `kolu watch` turn it into the alert that doesn't let go:
 
 ```sh
-kolu watch --states waiting,awaiting --held-for 60s --nag 5m --ignore-self
+kolu watch --states waiting,awaiting --held-for 60s --nag 5m --nag-count 3 --ignore-self
 ```
 
 Background that, and every terminal that has been idle for a minute announces
 itself, **and keeps announcing itself every five minutes**, until somebody gives
-it work or kills it.
+it work or kills it — or, with `--nag-count`, until the count runs out. The
+nagging is **finite** when you cap it: three reminders about a parked terminal,
+then quiet. Left uncapped, it repeats forever.
 
 | flag | what it does |
 | --- | --- |
 | `--states` | which agent states to report — any of `working`, `awaiting`, `waiting`, comma-separated. `awaiting` is an agent blocked on you; `waiting` is one whose turn ended |
 | `--held-for` | report a state only once it has *held* that long — milliseconds, like kolu's other windows (`60000`), or with a unit: `500ms`, `60s`, `5m`, `2h`, `1d`. An agent handed more work inside the window is never reported at all |
 | `--nag` | re-report every interval it keeps holding, so a line you ignored comes back instead of vanishing |
+| `--nag-count N` | cap the nagging: after the first report, at most N more reminders at the `--nag` interval, then quiet about that terminal. A state change re-arms it — a terminal that resumes and stops again is a new event, with a first report and N reminders of its own. Refused without `--nag`: a cap on a repetition that never starts is nothing |
 | `--ignore-self` | mute the terminal this process is running inside (`$KAVAL_TERMINAL_ID`). Refused if you are not in a kolu-owned PTY, and refused if the padi you are watching does not know that terminal — because the mute would then mute nobody and still report success. That covers `--host`, a `--socket` aimed at a different padi, and a stamp gone stale across a daemon restart, which re-keys terminals. Pass `--ignore <id>` rather than guessing |
 | `--ignore <id>` | mute this terminal (repeatable). Fail-open: a stale or unknown full id costs nothing, and every new terminal is still watched. A prefix that named nobody is still dropped, but warned on stderr |
 | `--heartbeat` | emit a timestamped alive line every interval — same duration grammar as `--held-for` — so a quiet pipe means *nothing is matching*, not *the stream is dead*. Omit to stay silent when nothing is happening |
@@ -168,10 +171,13 @@ kolu, so a script consumes it with `jq` and nothing has to re-implement the
 timing. Every line carries a `kind` — `snapshot`/`transition`/`nag` here, and
 `terminal`/`removed`/`activity` on the plain change tail — so one `jq` switch
 reads either feed. `--heartbeat` adds `{"kind":"heartbeat","at":<epoch ms>}`.
-The same knobs are [MCP tool parameters](/mcp) for a coding agent supervising a
-fleet, except `--heartbeat`: over MCP, `watch_next` answers "is anything
-there?" with its own `timeoutMs`, so a clock tick would only mix liveness into
-terminal events.
+A **nag** line also carries `"nag":{"index":1,"left":2}` — which reminder this
+is and how many follow, so a consumer can tell the last one (`left: 0`) from
+the others; `left` is absent when the nagging is uncapped, because there is no
+last one to name. The same knobs are [MCP tool parameters](/mcp) for a coding
+agent supervising a fleet, except `--heartbeat`: over MCP, `watch_next` answers
+"is anything there?" with its own `timeoutMs`, so a clock tick would only mix
+liveness into terminal events.
 
 ### `create` makes you say where the terminal goes
 

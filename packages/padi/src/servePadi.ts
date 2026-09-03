@@ -326,10 +326,11 @@ export function buildPadiSurfaceDeps(deps: {
     seq: watchSeq,
     edges: watchEdges,
   });
-  // The agent-STATE watch — `--states`/`--held-for`/`--nag`, implemented once
-  // and served to both faces: the `watchStates` stream below is `kolu watch`'s
-  // subscription, and a `watch.open` that names any of the three knobs is an MCP
-  // orchestrator's. It reads the adapter's own agent state, never output bytes.
+  // The agent-STATE watch — `--states`/`--held-for`/`--nag`/`--nag-count`,
+  // implemented once and served to both faces: the `watchStates` stream below
+  // is `kolu watch`'s subscription, and a `watch.open` that names any of the
+  // knobs is an MCP orchestrator's. It reads the adapter's own agent state,
+  // never output bytes.
   const stateWatch = createStateWatchHub({
     log,
     seq: watchSeq,
@@ -343,7 +344,7 @@ export function buildPadiSurfaceDeps(deps: {
     // no future event could climb past).
     daemonSeq: () => watchSeq.last(),
     // The composition root joins the two halves the registry keeps apart: the
-    // three knobs the caller named, and the scope the SUBSCRIPTION owns. The
+    // knobs the caller named, and the scope the SUBSCRIPTION owns. The
     // queue never mints a spec, so the state watch's scoping is the only
     // scoping there is for a state feed.
     subscribeStates: (filter, scope, emit) =>
@@ -700,7 +701,7 @@ export function buildPadiSurfaceDeps(deps: {
             // that can know it without a race, and it seeds a fresh
             // subscription's watermark from the `daemonSeq` it was built with.
             // `watchFilterOf` returns a filter only when the caller named one of
-            // the three knobs — the presence of a knob IS the choice of source,
+            // the knobs — the presence of a knob IS the choice of source,
             // so there is no mode flag here to contradict them.
             const filter = watchFilterOf(input);
             // The scope is built ONCE, by the only constructor there is, and a

@@ -1164,7 +1164,7 @@ export const PadiSettleEventSchema = Schema.Struct({
 });
 export type PadiSettleEvent = typeof PadiSettleEventSchema.Type;
 
-// ── The agent-STATE watch (`states` · `heldForMs` · `nagMs`) ────────────────
+// ── The agent-STATE watch (`states` · `heldForMs` · `nagMs` · `nagCount`) ────
 //
 // The second event source behind the same standing subscriptions, and the whole
 // of `kolu watch`'s supervision face. A settle event is an edge the DAEMON
@@ -1180,10 +1180,10 @@ export type PadiSettleEvent = typeof PadiSettleEventSchema.Type;
 // byte-quiet gate forever (#2177). So `heldForMs` debounces the STATE, and no
 // part of this feed consults output.
 //
-// The three knobs are ONE implementation (`attention/stateWatch.ts`) served to
-// both faces: `kolu watch --states/--held-for/--nag` subscribes the
+// The knobs are ONE implementation (`attention/stateWatch.ts`) served to both
+// faces: `kolu watch --states/--held-for/--nag/--nag-count` subscribes the
 // {@link padiSurface} `watchStates` stream, an MCP orchestrator passes the same
-// three as `watch.open` params. Neither face filters anything client-side.
+// knobs as `watch.open` params. Neither face filters anything client-side.
 
 /** The agent buckets a state watch may target — padi's own {@link WAIT_STATES}
  *  (the `agentBucket` fold's vocabulary minus `other`, which no real agent
@@ -1196,8 +1196,8 @@ const WatchStateSchema = Schema.Literals(WAIT_STATES);
  *  a face's `--help` can read it without importing the wire. */
 export { WATCH_DEFAULT_STATES };
 
-/** The three knobs, declared ONCE and spread into both faces' inputs, so a CLI
- *  flag and an MCP param cannot mean different things.
+/** The supervision knobs, declared ONCE and spread into both faces' inputs, so
+ *  a CLI flag and an MCP param cannot mean different things.
  *
  *  Every field carries a blurb because these fields reach MCP verbatim:
  *  `kolu-mcp`'s bespoke `watch_open` tool SPREADS them rather than re-declaring
@@ -1234,6 +1234,12 @@ export const PadiWatchFilterFields = {
       Schema.isGreaterThan(0),
       Schema.isLessThanOrEqualTo(MAX_TIMER_MS),
     ),
+  ),
+  nagCount: Schema.optionalKey(
+    Schema.Number.annotate({
+      description:
+        "CAP the nagging: after the first report of a held state, re-report at most this many more times at the nagMs interval, then go quiet about that terminal. A state change re-arms it — a terminal that resumes and stops again is a new event with its own first report and its own count. Omit to nag forever. Requires nagMs: a cap on a repetition that never starts is nothing.",
+    }).check(Schema.isInt(), Schema.isGreaterThan(0)),
   ),
 } as const;
 
@@ -1296,6 +1302,21 @@ export const PadiStateEventSchema = Schema.Struct({
   /** ms epoch, stamped once per emitted BATCH so every event in one frame
    *  describes the same instant. */
   at: PositiveInt,
+  /** The reminder accounting — present on `kind: "nag"` events ONLY: which
+   *  reminder this is, and how many follow when the subscription caps the nag.
+   *  `left: 0` is the last one. On an UNCAPPED subscription `left` is absent —
+   *  the sequence has no end to name. A consumer can tell the final reminder
+   *  from the others without knowing the subscription's flags. */
+  nag: Schema.optionalKey(
+    Schema.Struct({
+      /** Which reminder this is — 1 is the first re-report after the first
+       *  report. */
+      index: PositiveInt,
+      /** How many reminders follow this one — 0 on the last. Absent when the
+       *  subscription caps nothing (a bare `nagMs` repeats forever). */
+      left: Schema.optionalKey(NonNegativeInt),
+    }),
+  ),
   /** Who spawned this terminal — lane attribution. Absent for a root terminal. */
   parentId: Schema.optionalKey(TerminalIdSchema),
   /** The terminal's freeform intent annotation, when set. */
@@ -1305,7 +1326,7 @@ export type PadiStateEvent = typeof PadiStateEventSchema.Type;
 
 /** Everything a standing subscription can hand over. ONE queue, discriminated by
  *  `kind`: a subscription is fed by exactly one source (the settle detector, or
- *  the state watch when it named any of the three knobs), and the six `kind`
+ *  the state watch when it named any of the knobs), and the six `kind`
  *  literals are disjoint, so a consumer branches on that one field and never has
  *  to ask which source it opened. */
 export const PadiWatchEventSchema = Schema.Union([
@@ -1424,7 +1445,7 @@ export const PadiWatchDrainOutputSchema = Schema.Struct({
 /** `watchStates` — the LIVE agent-state feed, for a face that holds a socket
  *  open rather than a buffered queue (`kolu watch`).
  *
- *  The same three knobs as a standing subscription, plus the CLI's one optional
+ *  The same knobs as a standing subscription, plus the CLI's one optional
  *  id. Deliberately `id` and not `ids`: supervision must never be scoped by
  *  enumeration — a watcher narrowed to two repos went blind to a third — so the
  *  fleet is the default and the single id is a debugging tail, never a list to

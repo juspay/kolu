@@ -101,7 +101,7 @@ export const KOLU_MCP_DENIED: readonly { member: string; reason: string }[] = [
   {
     member: "watchStates",
     reason:
-      "the agent-state watch reaches this face through the states/heldForMs/nagMs params on watch.open, which is the SAME engine with a queue in front of it. Exposing the raw stream as well would give an agent a second, UNBUFFERED spelling of one feature — and unbuffered is exactly wrong here: an MCP client is not holding a socket between calls, so every nag that fired while it was thinking would be lost, which is the failure mode the standing subscription exists to remove. A socket-holding face (kolu watch) is what the stream is for.",
+      "the agent-state watch reaches this face through the states/heldForMs/nagMs/nagCount params on watch.open, which is the SAME engine with a queue in front of it. Exposing the raw stream as well would give an agent a second, UNBUFFERED spelling of one feature — and unbuffered is exactly wrong here: an MCP client is not holding a socket between calls, so every nag that fired while it was thinking would be lost, which is the failure mode the standing subscription exists to remove. A socket-holding face (kolu watch) is what the stream is for.",
   },
   {
     member: "lifecycle.killAll",

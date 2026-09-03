@@ -49,6 +49,27 @@ describe("resolveWatchOpenInput", () => {
     expect(Object.hasOwn(input, "ignoreSelf")).toBe(false);
   });
 
+  it("passes the cap through with its interval, and refuses it WITHOUT one", () => {
+    const input = plan(
+      { name: "campaign", nagMs: 300_000, nagCount: 2 },
+      [],
+      {},
+    );
+    expect(input.nagMs).toBe(300_000);
+    expect(input.nagCount).toBe(2);
+
+    // The same refusal the CLI gives --nag-count without --nag, in tool-arg
+    // grammar: a cap on a repetition that never starts is nothing.
+    const parsed = resolveWatchOpenInput(
+      { name: "campaign", nagCount: 2 },
+      [],
+      {},
+    );
+    expect(parsed.kind).toBe("error");
+    expect(parsed.kind === "error" && parsed.message).toMatch(/nagCount/);
+    expect(parsed.kind === "error" && parsed.message).toMatch(/nagMs/);
+  });
+
   it("refuses ignoreSelf when the transport cannot identify the caller", () => {
     try {
       plan({ name: "campaign", ignoreSelf: true }, [], {});

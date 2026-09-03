@@ -2,11 +2,11 @@
  * The AGENT-STATE WATCH — "this terminal has held `waiting` for a minute, and
  * still is", as a level with a memory.
  *
- * The one implementation of the four things a supervision face needs, served to
- * both faces (`kolu watch --states/--held-for/--nag` subscribes the
- * `watchStates` stream; an MCP orchestrator passes the same three as
- * `watch.open` params). Neither face filters anything of its own — a knob spelled
- * twice is a knob that will mean two things.
+ * The one implementation of the capabilities a supervision face needs, served
+ * to both faces (`kolu watch --states/--held-for/--nag/--nag-count` subscribes
+ * the `watchStates` stream; an MCP orchestrator passes the same knobs as
+ * `watch.open` params). Neither face filters anything of its own — a knob
+ * spelled twice is a knob that will mean two things.
  *
  * ## Ask the adapter, never the bytes
  *
@@ -27,6 +27,10 @@
  *   - **nag** — RE-report while it keeps holding. This is the level trigger, and
  *     the whole difference between a doorbell you can miss and one that keeps
  *     ringing: an ignored terminal reappears instead of vanishing after one line.
+ *     The nagging is FINITE when the subscriber gives it a count (`nagCount`):
+ *     after the first report, at most that many reminders, then quiet about
+ *     that terminal — with the accounting stamped on every nag so a consumer
+ *     can tell the last one from the others.
  *   - **snapshot** — {@link StateWatchHub.subscribe} emits the currently-matching
  *     set as its first batch, before any stream of changes. A late joiner sees
  *     standing neglect, not just the future.
@@ -62,9 +66,9 @@ import type { EventSeq } from "./eventSeq.ts";
  *  rather than being silently read as "no agent"). */
 type Bucket = ReturnType<typeof agentBucket>;
 
-/** What a subscriber asked for. The wire's three knobs, decoded once into the
- *  shapes the engine actually compares against — a set for membership, a number
- *  for a deadline — so no per-frame work re-parses an array. */
+/** What a subscriber asked for. The wire's knobs, decoded once into the shapes
+ *  the engine actually compares against — a set for membership, a number for a
+ *  deadline — so no per-frame work re-parses an array. */
 export interface StateWatchSpec {
   /** Buckets to report. Never empty: both faces fill the default before they get
    *  here, because an empty set is a subscription that can never match and would
@@ -80,9 +84,15 @@ export interface StateWatchSpec {
   /** How often to RE-report while it keeps holding, or `undefined` to report
    *  once. */
   readonly nagMs?: number;
+  /** CAP the nagging: after the first report of an episode, at most this many
+   *  reminders, then quiet about that terminal. A state CHANGE re-arms it — a
+   *  re-entry mints a fresh episode with its own first report and its own
+   *  count. `undefined` nags forever. Meaningful only with `nagMs`; both faces
+   *  refuse the pair without one. */
+  readonly nagCount?: number;
 }
 
-/** The three knobs alone — a spec minus the scope, which a standing
+/** The knob set alone — a spec minus the scope, which a standing
  *  subscription states once as its own {@link WatchScope} and must not restate
  *  here. */
 export type StateWatchFilter = Omit<StateWatchSpec, "scope">;
@@ -105,9 +115,16 @@ export function sameStateWatchFilter(
     states: true,
     heldForMs: true,
     nagMs: true,
+    nagCount: true,
   } satisfies Record<keyof StateWatchFilter, true>;
   if (a === undefined || b === undefined) return a === b;
-  if (a.heldForMs !== b.heldForMs || a.nagMs !== b.nagMs) return false;
+  if (
+    a.heldForMs !== b.heldForMs ||
+    a.nagMs !== b.nagMs ||
+    a.nagCount !== b.nagCount
+  ) {
+    return false;
+  }
   if (a.states.size !== b.states.size) return false;
   for (const s of a.states) if (!b.states.has(s)) return false;
   return true;
@@ -152,6 +169,11 @@ interface Announced {
    *  at both readers — rather than a per-terminal optional that has to stay in
    *  step with it. */
   toldAt: number;
+  /** How many NAGS this episode has been sent — the count the spec's
+   *  `nagCount` caps. The first report (snapshot/transition) is not a nag and
+   *  is not counted. A fresh episode starts at 0, which is what a state change
+   *  re-arms the cap THROUGH. */
+  nags: number;
 }
 
 interface Sub {
@@ -243,10 +265,15 @@ export function createStateWatchHub(opts: {
     if (known === undefined || known.since !== level.since) {
       return level.since + sub.spec.heldForMs;
     }
-    // Already reported, and still holding: the nag, or silence.
-    return sub.spec.nagMs === undefined
-      ? undefined
-      : known.toldAt + sub.spec.nagMs;
+    // Already reported, and still holding: the nag, or silence — forever when
+    // no `nagMs` was named, and from the moment a `nagCount` cap is SPENT. A
+    // spent cap is not a deadline: it arms nothing, which is what "goes quiet
+    // about that terminal" means to the timer.
+    if (sub.spec.nagMs === undefined) return undefined;
+    if (sub.spec.nagCount !== undefined && known.nags >= sub.spec.nagCount) {
+      return undefined;
+    }
+    return known.toldAt + sub.spec.nagMs;
   };
 
   /** One pass over the levels for one subscription: what is due at `at`, and
@@ -278,6 +305,16 @@ export function createStateWatchHub(opts: {
         continue;
       }
       const fresh = known === undefined || known.since !== level.since;
+      // Which reminder this emit is: 0 is the first report; k is the k-th nag.
+      // The cap counts these, and the wire stamps them, from this one number.
+      const reminder = fresh ? 0 : (known?.nags ?? 0) + 1;
+      // How many reminders follow — the cap minus this one — asked of the spec
+      // so the stamp and the schedule can never disagree about it. Absent when
+      // nothing caps the nagging (there is no last one to name).
+      const left =
+        sub.spec.nagCount === undefined
+          ? undefined
+          : sub.spec.nagCount - reminder;
       batch.push({
         seq: seq.next(),
         id,
@@ -290,12 +327,27 @@ export function createStateWatchHub(opts: {
         since: level.since,
         at,
         ...edges.edgeOf(id),
+        // The reminder accounting rides NAGS ONLY — a first report is not a
+        // reminder and carries none of it. `left` omitted rather than a lie
+        // about an end an uncapped subscription does not have.
+        ...(reminder === 0
+          ? {}
+          : {
+              nag: { index: reminder, ...(left === undefined ? {} : { left }) },
+            }),
       });
-      sub.announced.set(id, { since: level.since, toldAt: at });
-      // Just told: the next thing owed about it is a nag, if it nags at all.
-      if (sub.spec.nagMs !== undefined) {
-        const nag = at + sub.spec.nagMs;
-        if (nextAt === undefined || nag < nextAt) nextAt = nag;
+      const told: Announced = {
+        since: level.since,
+        toldAt: at,
+        nags: reminder,
+      };
+      sub.announced.set(id, told);
+      // Just told: the next thing owed about it — a nag while the count
+      // remains, silence once it is spent — asked of THE schedule rather than
+      // re-derived here, so the emit and the arm read the same expression.
+      const again = reportableAt(sub, level, told);
+      if (again !== undefined && (nextAt === undefined || again < nextAt)) {
+        nextAt = again;
       }
     }
     // Announcements for terminals that no longer exist at all.

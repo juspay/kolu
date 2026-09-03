@@ -712,6 +712,21 @@ export const watchFlags = {
       ),
     ),
   ),
+  // A count, not a duration — `Flag.integer`, the way `--lines` is. The rule
+  // that it means nothing without `--nag` is the verb's (`planSupervision`),
+  // with the other pre-dial refusals.
+  nagCount: opt(
+    Flag.integer("nag-count").pipe(
+      Flag.filter(
+        (n) => n > 0,
+        (n) =>
+          `--nag-count takes a positive whole number of reminders, got ${n}.`,
+      ),
+      Flag.withDescription(
+        "cap the nagging: after the first report, at most N more reminders at the --nag interval, then go quiet about that terminal. A state change re-arms it. Requires --nag",
+      ),
+    ),
+  ),
   // Mute, not roster: a stale id costs nothing and a new terminal is always
   // watched. Repeatable like `--key`. `--ignore-self` is the zero-config form
   // for an orchestrator running inside a kolu terminal (reads KAVAL_TERMINAL_ID).
@@ -745,7 +760,7 @@ const watch = Command.make(
   }),
 ).pipe(
   Command.withDescription(
-    "Stream terminal changes and live output activity — or, with --states/--held-for/--nag, supervise: report agents that have been sitting in a state, and keep reporting them.",
+    "Stream terminal changes and live output activity — or, with --states/--held-for/--nag/--nag-count, supervise: report agents that have been sitting in a state, and keep reporting them (finitely, when the count caps it).",
   ),
   Command.withExamples([
     {

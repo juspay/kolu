@@ -224,6 +224,85 @@ describe("createStateWatchHub", () => {
     expect(batches.flat().at(-1)?.since).toBe(10_000);
   });
 
+  it("CAPS the nagging at nagCount reminders — nagging is FINITE", async () => {
+    const h = harness();
+    h.observe(terminals({ a: { agent: makeAgent("waiting") } }));
+    await settled();
+    const { batches } = collect(h.hub, { nagMs: 60_000, nagCount: 2 });
+    // The first report — the cap counts only what follows it.
+    expect(batches.flat().map((e) => e.kind)).toEqual(["snapshot"]);
+
+    h.advance(60_000);
+    h.advance(60_000);
+    expect(batches.flat().map((e) => e.kind)).toEqual([
+      "snapshot",
+      "nag",
+      "nag",
+    ]);
+
+    // …and then silence, however much longer the terminal is left standing —
+    // including NO armed wake: a spent cap is not a deadline.
+    expect(h.armedAt()).toBeUndefined();
+    h.advance(3_600_000);
+    expect(batches.flat()).toHaveLength(3);
+  });
+
+  it("a state CHANGE re-arms a spent cap — a resumed-and-parked terminal is a new event", async () => {
+    const h = harness();
+    h.observe(terminals({ a: { agent: makeAgent("waiting") } }));
+    await settled();
+    const { batches } = collect(h.hub, { nagMs: 60_000, nagCount: 1 });
+    h.advance(60_000);
+    // snapshot + its ONE reminder, then quiet forever.
+    h.advance(600_000);
+    expect(batches.flat().map((e) => e.kind)).toEqual(["snapshot", "nag"]);
+
+    // Given work, then parked again: a NEW episode, so a fresh first report
+    // AND a fresh reminder of its own — the cap is per episode, not per
+    // terminal.
+    h.observe(terminals({ a: { agent: makeAgent("thinking") } }));
+    await settled();
+    h.observe(terminals({ a: { agent: makeAgent("waiting") } }));
+    await settled();
+    h.advance(60_000);
+    h.advance(600_000);
+    expect(batches.flat().map((e) => e.kind)).toEqual([
+      "snapshot",
+      "nag",
+      "transition",
+      "nag",
+    ]);
+  });
+
+  it("a nag says WHICH reminder it is and how many follow — the last one is tellable", async () => {
+    const h = harness();
+    h.observe(terminals({ a: { agent: makeAgent("waiting") } }));
+    await settled();
+    const { batches } = collect(h.hub, { nagMs: 60_000, nagCount: 2 });
+    h.advance(60_000);
+    h.advance(60_000);
+    const [first, second, third] = batches.flat();
+    // The first report is not a reminder and carries no reminder accounting.
+    expect(Object.hasOwn(first ?? {}, "nag")).toBe(false);
+    expect(second?.nag).toEqual({ index: 1, left: 1 });
+    expect(third?.nag).toEqual({ index: 2, left: 0 });
+  });
+
+  it("an UNCAPPED nag counts its reminders but names no end", async () => {
+    const h = harness();
+    h.observe(terminals({ a: { agent: makeAgent("waiting") } }));
+    await settled();
+    const { batches } = collect(h.hub, { nagMs: 60_000 });
+    h.advance(60_000);
+    h.advance(60_000);
+    const [, first, second] = batches.flat();
+    // There is no last one to name when the nagging repeats forever: the
+    // counter runs, but `left` is ABSENT — never a lie about an end.
+    expect(first?.nag).toEqual({ index: 1 });
+    expect(Object.hasOwn(first?.nag ?? {}, "left")).toBe(false);
+    expect(second?.nag).toEqual({ index: 2 });
+  });
+
   it("reports ONCE when no nag is asked for", async () => {
     const h = harness();
     h.observe(terminals({ a: { agent: makeAgent("waiting") } }));

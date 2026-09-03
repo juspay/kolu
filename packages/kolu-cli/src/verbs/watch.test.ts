@@ -134,6 +134,20 @@ describe("planSupervision", () => {
     expect(planSupervision(args({ states: " , " })).kind).toBe("error");
   });
 
+  it("sends the cap the user spelled — a count riding the interval it caps", () => {
+    expect(planSupervision(args({ nag: "5m", nagCount: 3 }))).toEqual({
+      kind: "ok",
+      value: { nagMs: 300_000, nagCount: 3 },
+    });
+  });
+
+  it("refuses --nag-count without --nag — a cap on a repetition that never starts is nothing", () => {
+    const plan = planSupervision(args({ nagCount: 3 }));
+    expect(plan.kind).toBe("error");
+    expect(plan.kind === "error" && plan.message).toMatch(/--nag-count/);
+    expect(plan.kind === "error" && plan.message).toMatch(/--nag/);
+  });
+
   it("does NOT switch feed for --ignore / --ignore-self / --heartbeat alone — they are not supervision knobs", () => {
     expect(
       planSupervision(

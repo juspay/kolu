@@ -328,6 +328,8 @@ interface WatchEvent {
   state: string;
   since: number;
   at: number;
+  /** The reminder accounting, present on `nag` lines only. */
+  nag?: { index: number; left?: number };
 }
 
 /** Run the SHIPPED `kolu watch` launcher and collect its NDJSON lines. */
@@ -416,6 +418,39 @@ describeDaemon("kolu watch — supervision, end to end", () => {
     expect((events[2]?.at ?? 0) - (events[2]?.since ?? 0)).toBeGreaterThan(
       (events[1]?.at ?? 0) - (events[1]?.since ?? 0),
     );
+    watch.stop();
+  });
+
+  it("--nag-count CAPS the nagging — the NDJSON says which reminder each nag is, and the last one is the end", {
+    timeout: 180000,
+  }, async () => {
+    const { socketPath } = await idleAgentWorld();
+    const watch = runWatch(socketPath, [
+      "--states",
+      "waiting",
+      "--held-for",
+      "1s",
+      "--nag",
+      "1s",
+      "--nag-count",
+      "2",
+      "--json",
+    ]);
+
+    // The first report, then exactly TWO reminders — each stamped with which
+    // reminder it is and how many follow (`left: 0` on the last)…
+    const events = await watch.atLeast(3);
+    expect(["snapshot", "transition"]).toContain(events[0]?.kind);
+    expect(events[0]?.nag).toBeUndefined();
+    expect(events.slice(1).map((e) => e.kind)).toEqual(["nag", "nag"]);
+    expect(events[1]?.nag).toEqual({ index: 1, left: 1 });
+    expect(events[2]?.nag).toEqual({ index: 2, left: 0 });
+
+    // …and then QUIET: three full intervals pass with no fourth line. The
+    // uncapped pin above proves the interval itself is one second, so four
+    // silent seconds is the cap, not a slow daemon.
+    await sleep(4000);
+    expect(events).toHaveLength(3);
     watch.stop();
   });
 
