@@ -256,11 +256,16 @@ export function planSupervision(
     input.states = tokens;
   }
   if (args.heldFor !== undefined) {
-    const parsed = parseDuration("--held-for", args.heldFor, {
-      ms: 0,
-      // Zero IS the hold's identity element — report it the instant it enters.
-      why: "a hold cannot be negative.",
-    });
+    const parsed = parseDuration(
+      "--held-for",
+      args.heldFor,
+      {
+        ms: 0,
+        // Zero IS the hold's identity element — report it the instant it enters.
+        why: "a hold cannot be negative.",
+      },
+      "reports it as held",
+    );
     if (parsed.kind === "error") return parsed;
     input.heldForMs = parsed.value;
   }
@@ -286,10 +291,15 @@ export function planSupervision(
  *  the feed — it is not a supervision knob. */
 export function planHeartbeat(args: WatchArgs): Parsed<number | undefined> {
   if (args.heartbeat === undefined) return { kind: "ok", value: undefined };
-  const parsed = parseDuration("--heartbeat", args.heartbeat, {
-    ms: 1,
-    why: "an interval of zero is a spin, not a fast heartbeat. Pass a real interval (10s), or leave --heartbeat off.",
-  });
+  const parsed = parseDuration(
+    "--heartbeat",
+    args.heartbeat,
+    {
+      ms: 1,
+      why: "an interval of zero is a spin, not a fast heartbeat. Pass a real interval (10s), or leave --heartbeat off.",
+    },
+    "ticks",
+  );
   if (parsed.kind === "error") return parsed;
   return { kind: "ok", value: parsed.value };
 }

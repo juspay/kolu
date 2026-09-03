@@ -50,11 +50,14 @@ const UNIT_MS: Record<string, number> = {
  *
  *  `min` is a PARAMETER because it is the flag's own fact and the flag's own
  *  sentence: a hold of 0 means "report it the instant it enters", an interval
- *  of 0 is a spin. */
+ *  of 0 is a spin. `effect` is the same ownership one rung up — the refusal
+ *  for overshooting the timer ceiling says what THAT flag would do with the
+ *  clamped value, not what some other flag would. */
 export function parseDuration(
   flag: string,
   raw: string,
   min: { readonly ms: number; readonly why: string },
+  effect: string,
 ): Parsed<number> {
   const m = DURATION.exec(raw.trim());
   if (m === null) {
@@ -75,7 +78,7 @@ export function parseDuration(
     // the same limit in the same words.
     return {
       kind: "error",
-      message: timerRangeMessage(flag, "fires immediately, forever", raw),
+      message: timerRangeMessage(flag, effect, raw),
     };
   }
   return { kind: "ok", value: ms };
@@ -85,6 +88,10 @@ const NAG_MIN = {
   ms: 1,
   why: "an interval of zero is a spin, not a fast nag — it would re-report every terminal as fast as the daemon can loop. Pass a real interval (5m), or leave it off to be told once.",
 } as const;
+
+// What an overflowing nag interval would do, spelled the way `timerRangeMessage`
+// composes it ("…overflows the timer and <effect> almost immediately").
+const NAG_EFFECT = "re-fires";
 
 const COUNT = /^(\d+)$/;
 
@@ -100,7 +107,7 @@ export function parseNag(
   // count are the two halves of one, and a third half is refuse.
   const parts = raw.split("/");
   if (parts.length === 1) {
-    const ms = parseDuration(flag, raw, NAG_MIN);
+    const ms = parseDuration(flag, raw, NAG_MIN, NAG_EFFECT);
     return ms.kind === "ok" ? { kind: "ok", value: { ms: ms.value } } : ms;
   }
   if (parts.length > 2) {
@@ -116,10 +123,10 @@ export function parseNag(
   if (interval === "") {
     return {
       kind: "error",
-      message: `${flag} ${JSON.stringify(raw)}: nothing after the slash can carry an interval — the interval comes before it: ${flag} 30m/3 is "every 30 minutes, three reminders, then quiet", ${flag} 30m the same without a cap.`,
+      message: `${flag} ${JSON.stringify(raw)}: the count after the slash caps the interval BEFORE it — and that interval is empty. ${flag} 30m/3 is "every 30 minutes, three reminders, then quiet", ${flag} 30m the same without a cap.`,
     };
   }
-  const ms = parseDuration(flag, interval, NAG_MIN);
+  const ms = parseDuration(flag, interval, NAG_MIN, NAG_EFFECT);
   if (ms.kind === "error") return ms;
   // The count is a bare whole number and nothing else: "0s/3" is a no-op
   // spelled loudly, and a count of zero reminders says what leaving the nag
