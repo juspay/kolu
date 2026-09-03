@@ -75,11 +75,7 @@ export function parseDuration(
     // the same limit in the same words.
     return {
       kind: "error",
-      message: timerRangeMessage(
-        flag.replace(/^--/, ""),
-        "fires immediately, forever",
-        raw,
-      ),
+      message: timerRangeMessage(flag, "fires immediately, forever", raw),
     };
   }
   return { kind: "ok", value: ms };

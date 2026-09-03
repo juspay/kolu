@@ -245,7 +245,7 @@ const positiveLines = (name: string): Flag.Flag<number> =>
 const timerMsFlag = (name: string, effect: string): Flag.Flag<number> =>
   Flag.integer(name).pipe(
     Flag.filter(isValidTimerMs, (n) =>
-      timerRangeMessage(name, effect, String(n)),
+      timerRangeMessage(`--${name}`, effect, String(n)),
     ),
   );
 
