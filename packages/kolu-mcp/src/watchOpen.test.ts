@@ -49,6 +49,28 @@ describe("resolveWatchOpenInput", () => {
     expect(Object.hasOwn(input, "ignoreSelf")).toBe(false);
   });
 
+  it('reads `nagMs: "30m/3"` as the interval AND its cap — one param, the count after the slash', () => {
+    const input = plan({ name: "campaign", nagMs: "30m/3" }, [], {});
+    expect(input.nagMs).toBe(1_800_000);
+    expect(input.nagCount).toBe(3);
+
+    // A bare interval — number or string — keeps today's meaning: forever.
+    const bare = plan({ name: "campaign", nagMs: "30m" }, [], {});
+    expect(bare.nagMs).toBe(1_800_000);
+    expect(Object.hasOwn(bare, "nagCount")).toBe(false);
+    const numeric = plan({ name: "campaign", nagMs: 1_800_000 }, [], {});
+    expect(numeric.nagMs).toBe(1_800_000);
+    expect(Object.hasOwn(numeric, "nagCount")).toBe(false);
+  });
+
+  it("refuses a garbled slash before it dials, in tool-arg grammar", () => {
+    for (const nagMs of ["30m/0", "30m/2x", "30m/", "30m/3/2"]) {
+      const parsed = resolveWatchOpenInput({ name: "campaign", nagMs }, [], {});
+      expect(parsed.kind, nagMs).toBe("error");
+      expect(parsed.kind === "error" && parsed.message).toMatch(/nagMs/);
+    }
+  });
+
   it("refuses ignoreSelf when the transport cannot identify the caller", () => {
     try {
       plan({ name: "campaign", ignoreSelf: true }, [], {});

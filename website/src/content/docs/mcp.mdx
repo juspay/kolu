@@ -231,7 +231,7 @@ parameters on `watch_open` replace that with a level you cannot miss:
 | --- | --- |
 | `states` | which agent states to report — any of `working`, `awaiting`, `waiting`. Defaults to `awaiting` + `waiting`, the two that need somebody |
 | `heldForMs` | report a terminal only once it has *held* that state this long. An agent handed more work inside the window is never reported |
-| `nagMs` | re-report it every this many milliseconds for as long as it keeps holding |
+| `nagMs` | re-report it every this many milliseconds for as long as it keeps holding — or spell it as a string: `"30m"` is the same interval, and a count after the slash caps it, `"30m/3"`: three reminders past the first report, then quiet about that terminal until the state changes (a bare interval repeats forever) |
 | `ignoreSelf` | mute the terminal this MCP server is running inside. Refused if the transport cannot identify the caller, and refused if the padi this server is connected to does not know that terminal (another machine's fleet, or a daemon restart that re-keyed them) — pass `ignoreIds` rather than guessing |
 | `ignoreIds` | mute these terminals. Fail-open: a stale id costs nothing, and every new terminal is still watched. Prefer this over `ids`. An `ids` list that is entirely muted is refused rather than hanging silent |
 
@@ -243,8 +243,15 @@ parameters on `watch_open` replace that with a level you cannot miss:
 A subscription opened this way reports **snapshot** (already in that state when
 you opened — handed over before anything that changed since), **transition** (it
 entered the state and held it), and **nag** (still holding, one interval later).
-Reopening after a restart leads with a fresh snapshot, so an agent that comes
-back finds what is standing rather than only what happens next.
+Each nag carries `nag.index` (which reminder this is — the first re-report is
+1) and `nag.left` (how many follow — `0` on the last, absent when uncapped),
+so a consumer can tell the final reminder from the others. Reopening after a restart leads with a fresh
+snapshot, so an agent that comes back finds what is standing rather than only
+what happens next — and it inherits the episode's spent nag budget rather
+than re-arming it. The budget belongs to the QUESTION, though: re-specifying
+the filter — including narrowing `states` out and then back — throws away the
+previous subscription's answers and their accounting both, so a changed watch
+starts its count fresh.
 
 kolu asks each agent for its own state rather than watching its output: an idle
 agent that repaints its prompt every second is still idle, and `heldForMs` times

@@ -21,13 +21,15 @@ import {
 } from "./attentionFixture.testlib.ts";
 import type { StateWatchSpec } from "./stateWatch.ts";
 
-/** Subscribe and collect every batch. */
+/** Subscribe and collect every batch. `seed` — the episode budget a previous
+ *  attachment handed over — keeps a re-attach from re-arming a spent cap. */
 function collect(
   hub: ReturnType<typeof harness>["hub"],
   spec: Partial<StateWatchSpec> = {},
+  seed?: Parameters<ReturnType<typeof harness>["hub"]["subscribe"]>[2],
 ) {
   const batches: Array<readonly PadiStateEvent[]> = [];
-  const stop = hub.subscribe(
+  const sub = hub.subscribe(
     {
       states: new Set(["waiting", "awaiting"] as const),
       heldForMs: 0,
@@ -35,8 +37,14 @@ function collect(
       ...spec,
     },
     (batch) => batches.push(batch),
+    seed,
   );
-  return { batches, stop, flat: () => batches.flat() };
+  return {
+    batches,
+    stop: sub.stop,
+    counts: sub.counts,
+    flat: () => batches.flat(),
+  };
 }
 
 describe("createStateWatchHub", () => {
@@ -222,6 +230,200 @@ describe("createStateWatchHub", () => {
     ]);
     // Every repeat still says how long it has been standing there.
     expect(batches.flat().at(-1)?.since).toBe(10_000);
+  });
+
+  it("CAPS the nagging at nagCount reminders — nagging is FINITE", async () => {
+    const h = harness();
+    h.observe(terminals({ a: { agent: makeAgent("waiting") } }));
+    await settled();
+    const { batches } = collect(h.hub, { nagMs: 60_000, nagCount: 2 });
+    // The first report — the cap counts only what follows it.
+    expect(batches.flat().map((e) => e.kind)).toEqual(["snapshot"]);
+
+    h.advance(60_000);
+    h.advance(60_000);
+    expect(batches.flat().map((e) => e.kind)).toEqual([
+      "snapshot",
+      "nag",
+      "nag",
+    ]);
+
+    // …and then silence, however much longer the terminal is left standing —
+    // including NO armed wake: a spent cap is not a deadline.
+    expect(h.armedAt()).toBeUndefined();
+    h.advance(3_600_000);
+    expect(batches.flat()).toHaveLength(3);
+  });
+
+  it("a state CHANGE re-arms a spent cap — a resumed-and-parked terminal is a new event", async () => {
+    const h = harness();
+    h.observe(terminals({ a: { agent: makeAgent("waiting") } }));
+    await settled();
+    const { batches } = collect(h.hub, { nagMs: 60_000, nagCount: 1 });
+    h.advance(60_000);
+    // snapshot + its ONE reminder, then quiet forever.
+    h.advance(600_000);
+    expect(batches.flat().map((e) => e.kind)).toEqual(["snapshot", "nag"]);
+
+    // Given work, then parked again: a NEW episode, so a fresh first report
+    // AND a fresh reminder of its own — the cap is per episode, not per
+    // terminal.
+    h.observe(terminals({ a: { agent: makeAgent("thinking") } }));
+    await settled();
+    h.observe(terminals({ a: { agent: makeAgent("waiting") } }));
+    await settled();
+    h.advance(60_000);
+    h.advance(600_000);
+    expect(batches.flat().map((e) => e.kind)).toEqual([
+      "snapshot",
+      "nag",
+      "transition",
+      "nag",
+    ]);
+  });
+
+  it("a nag says WHICH reminder it is and how many follow — the last one is tellable", async () => {
+    const h = harness();
+    h.observe(terminals({ a: { agent: makeAgent("waiting") } }));
+    await settled();
+    const { batches } = collect(h.hub, { nagMs: 60_000, nagCount: 2 });
+    h.advance(60_000);
+    h.advance(60_000);
+    const [first, second, third] = batches.flat();
+    // The first report is not a reminder and carries no reminder accounting.
+    expect(Object.hasOwn(first ?? {}, "nag")).toBe(false);
+    expect(second?.nag).toEqual({ index: 1, left: 1 });
+    expect(third?.nag).toEqual({ index: 2, left: 0 });
+  });
+
+  it("an UNCAPPED nag counts its reminders but names no end", async () => {
+    const h = harness();
+    h.observe(terminals({ a: { agent: makeAgent("waiting") } }));
+    await settled();
+    const { batches } = collect(h.hub, { nagMs: 60_000 });
+    h.advance(60_000);
+    h.advance(60_000);
+    const [, first, second] = batches.flat();
+    // There is no last one to name when the nagging repeats forever: the
+    // counter runs, but `left` is ABSENT — never a lie about an end.
+    expect(first?.nag).toEqual({ index: 1 });
+    expect(Object.hasOwn(first?.nag ?? {}, "left")).toBe(false);
+    expect(second?.nag).toEqual({ index: 2 });
+  });
+
+  it("a RE-ATTACH inherits the episode's budget — a spent cap stays spent", async () => {
+    const h = harness();
+    h.observe(terminals({ a: { agent: makeAgent("waiting") } }));
+    await settled();
+    const spec = { nagMs: 60_000, nagCount: 2 };
+    const first = collect(h.hub, spec);
+    h.advance(60_000);
+    h.advance(60_000);
+    expect(first.flat().map((e) => [e.kind, e.nag])).toEqual([
+      ["snapshot", undefined],
+      ["nag", { index: 1, left: 1 }],
+      ["nag", { index: 2, left: 0 }],
+    ]);
+    first.stop();
+
+    // The supervisor comes BACK with the same question (its ordinary restart):
+    // the re-attach answers with the standing truth — ONE snapshot — and KEEPS
+    // the spent budget rather than re-arming it. Only a state change re-arms.
+    const second = collect(h.hub, spec, first.counts);
+    expect(second.flat().map((e) => [e.kind, e.nag])).toEqual([
+      ["snapshot", undefined],
+    ]);
+    h.advance(3_600_000);
+    expect(second.flat()).toHaveLength(1);
+  });
+
+  it("an inherited budget CONTINUES the count — one episode, one sequence across attachments", async () => {
+    const h = harness();
+    h.observe(terminals({ a: { agent: makeAgent("waiting") } }));
+    await settled();
+    const spec = { nagMs: 60_000, nagCount: 3 };
+    const first = collect(h.hub, spec);
+    h.advance(60_000); // snapshot + nag {index:1, left:2}
+    first.stop();
+
+    const second = collect(h.hub, spec, first.counts);
+    // The re-attach's first report is a snapshot — no nag stamp — and the
+    // reminder numbering picks up where the previous attachment left it, so a
+    // script can still tell the last one.
+    expect(second.flat().map((e) => [e.kind, e.nag])).toEqual([
+      ["snapshot", undefined],
+    ]);
+    h.advance(60_000);
+    h.advance(60_000);
+    expect(second.flat().map((e) => [e.kind, e.nag])).toEqual([
+      ["snapshot", undefined],
+      ["nag", { index: 2, left: 1 }],
+      ["nag", { index: 3, left: 0 }],
+    ]);
+    h.advance(3_600_000);
+    expect(second.flat()).toHaveLength(3);
+  });
+
+  it("a re-attach with a LARGER hold owes its first report as a first report — never a nag", async () => {
+    const h = harness();
+    h.observe(terminals({ a: { agent: makeAgent("waiting") } }));
+    await settled();
+    const first = collect(h.hub, { nagMs: 60_000, nagCount: 2 });
+    h.advance(60_000);
+    h.advance(60_000);
+    expect(first.flat().map((e) => [e.kind, e.nag])).toEqual([
+      ["snapshot", undefined],
+      ["nag", { index: 1, left: 1 }],
+      // …and the cap is now SPENT.
+      ["nag", { index: 2, left: 0 }],
+    ]);
+    first.stop();
+
+    // The same episode's budget, re-attached under a spec whose LARGER hold
+    // defers the seeded entry past the arriving sweep — the re-open's snapshot
+    // boundary lands EMPTY because the owed first report is not due yet.
+    const second = collect(
+      h.hub,
+      { nagMs: 60_000, nagCount: 2, heldForMs: 600_000 },
+      first.counts,
+    );
+    expect(second.flat()).toEqual([]);
+
+    // When the hold finally releases, this is STILL this subscription's own
+    // first report of a standing episode — never a nag it never preceded with
+    // a first report, and the spent cap never counts a reminder past itself
+    // (a `left` of -1 would fail the wire's NonNegativeInt on `nag.left`).
+    h.advance(600_000);
+    expect(second.flat().map((e) => [e.kind, e.nag])).toEqual([
+      ["transition", undefined],
+    ]);
+    expect(h.armedAt()).toBeUndefined();
+    h.advance(3_600_000);
+    expect(second.flat()).toHaveLength(1);
+  });
+
+  it("a seed whose terminal MOVED ON before the return starts the NEW episode at zero", async () => {
+    const h = harness();
+    h.observe(terminals({ a: { agent: makeAgent("waiting") } }));
+    await settled();
+    const spec = { nagMs: 60_000, nagCount: 1 };
+    const first = collect(h.hub, spec);
+    h.advance(60_000); // snapshot + nag {index:1, left:0} — spent
+    first.stop();
+
+    // Given work, then parked again WHILE nobody was attached: a new episode
+    // with its own budget — the old seed does not transfer.
+    h.observe(terminals({ a: { agent: makeAgent("thinking") } }));
+    await settled();
+    h.observe(terminals({ a: { agent: makeAgent("waiting") } }));
+    await settled();
+    const second = collect(h.hub, spec, first.counts);
+    h.advance(60_000);
+    h.advance(3_600_000);
+    expect(second.flat().map((e) => [e.kind, e.nag])).toEqual([
+      ["snapshot", undefined],
+      ["nag", { index: 1, left: 0 }],
+    ]);
   });
 
   it("reports ONCE when no nag is asked for", async () => {

@@ -23,7 +23,7 @@
  * ## The two vocabularies one queue can carry
  *
  * What a batch CONTAINS is chosen at `watch_open`, by whether it named the
- * agent-state knobs (`states` / `heldForMs` / `nagMs`):
+ * agent-state knobs (`states` / `heldForMs` / `nagMs` — the last may carry a cap after a slash, `60000/3`):
  *
  *   - **without them** — settle edges, as before: `asking` (blocked on a person),
  *     `finished` (turn ended AND output went quiet), `gone` (the terminal left).

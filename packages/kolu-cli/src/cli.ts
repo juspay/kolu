@@ -245,7 +245,7 @@ const positiveLines = (name: string): Flag.Flag<number> =>
 const timerMsFlag = (name: string, effect: string): Flag.Flag<number> =>
   Flag.integer(name).pipe(
     Flag.filter(isValidTimerMs, (n) =>
-      timerRangeMessage(name, effect, String(n)),
+      timerRangeMessage(`--${name}`, effect, String(n)),
     ),
   );
 
@@ -708,7 +708,7 @@ export const watchFlags = {
   nag: opt(
     Flag.string("nag").pipe(
       Flag.withDescription(
-        "RE-report every interval the state keeps holding, so an ignored terminal comes back instead of vanishing after one line — 300000, or 5m",
+        "RE-report every interval the state keeps holding, so an ignored terminal comes back instead of vanishing after one line — 300000, or 5m. Suffix a count to make it finite: 30m/3 is three reminders past the first report, then quiet until the state changes",
       ),
     ),
   ),
@@ -745,7 +745,7 @@ const watch = Command.make(
   }),
 ).pipe(
   Command.withDescription(
-    "Stream terminal changes and live output activity — or, with --states/--held-for/--nag, supervise: report agents that have been sitting in a state, and keep reporting them.",
+    "Stream terminal changes and live output activity — or, with --states/--held-for/--nag, supervise: report agents that have been sitting in a state, and keep reporting them (finitely, when the interval carries a count, --nag 30m/3).",
   ),
   Command.withExamples([
     {

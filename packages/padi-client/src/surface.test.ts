@@ -57,7 +57,7 @@ describe("padiSurface contract", () => {
     expect(padiSurface.tagPrefix).toBe("surface/");
   });
 
-  it("is version 5.1 — a minor over the D6 protocol epoch — and DEFAULT_PADI_VERSION carries + validates it", () => {
+  it("is version 5.6 — a minor over the D6 protocol epoch — and DEFAULT_PADI_VERSION carries + validates it", () => {
     // 1.1–1.3 were additive minors over 1.0 (recycleKaval, hostInventory, identity).
     // 2.0 was the first MAJOR: (a) it ADDED the per-terminal right-panel `collapsed`
     // field (the panel follows the terminal, #959) — a major because an older client's
@@ -97,7 +97,17 @@ describe("padiSurface contract", () => {
     // would force-recycle a surviving kaval — killing live PTYs — to buy a
     // readout. It exists for the OBSERVE-ONLY attach, which asserts no size and
     // therefore never learned what size it received.
-    expect(PADI_SURFACE_VERSION).toBe("5.5");
+    // 5.6 adds the nag CAP: an optional `nagCount` on `watch.open`/`watchStates`
+    // and the `nag` reminder accounting (`{index, left?}`) on the state events
+    // those same members emit. Both are additive keys an older decoder strips —
+    // so why not the `resizeTo` class? A stripped `resizeTo` degrades to an
+    // OBSERVABLE baseline (the pty keeps its earlier shape); a stripped
+    // `nagCount` degrades to a behavioural lie: the face spelled a cap, the
+    // surviving padi serves an UNCAPPED feed, and nothing on the wire says
+    // which. The faces that spell it are the gate-only ones (`kolu watch`, the
+    // MCP `watch_open` — 5.4's #1313 case), so the version must say it for
+    // convergence to drain the straddler first.
+    expect(PADI_SURFACE_VERSION).toBe("5.6");
     expect(DEFAULT_PADI_VERSION.contractVersion).toBe(PADI_SURFACE_VERSION);
     expect(
       Schema.decodeUnknownSync(PadiVersionSchema)(DEFAULT_PADI_VERSION),
@@ -123,6 +133,10 @@ describe("padiSurface contract", () => {
     // CLI/MCP face would otherwise adopt that padi and die on the member.
     expect(isContractVersionCompatible("5.3", "5.4")).toBe(false);
     expect(isContractVersionCompatible("5.4", "5.3")).toBe(true);
+    // 5.6 is the nag cap: a face that spelled it refuses a 5.5 padi whose
+    // decoder would strip the knob and serve the uncapped feed with no signal.
+    expect(isContractVersionCompatible("5.5", "5.6")).toBe(false);
+    expect(isContractVersionCompatible("5.6", "5.5")).toBe(true);
     // A major bump is mutually incompatible in both directions.
     expect(isContractVersionCompatible("6.0", "5.0")).toBe(false);
     expect(isContractVersionCompatible("5.0", "6.0")).toBe(false);

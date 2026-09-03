@@ -15,6 +15,7 @@
     "./dial": "./src/dial.ts",
     "./rendezvous": "./src/rendezvous.ts",
     "./watch": "./src/watch.ts",
+    "./watchDuration": "./src/watchDuration.ts",
     "./watchScope": "./src/watchScope.ts",
     "./watchScope.testlib": "./src/watchScope.testlib.ts",
     "./terminalVocab": "./src/terminalVocab.ts",

@@ -2,11 +2,11 @@
  * The AGENT-STATE WATCH — "this terminal has held `waiting` for a minute, and
  * still is", as a level with a memory.
  *
- * The one implementation of the four things a supervision face needs, served to
- * both faces (`kolu watch --states/--held-for/--nag` subscribes the
- * `watchStates` stream; an MCP orchestrator passes the same three as
- * `watch.open` params). Neither face filters anything of its own — a knob spelled
- * twice is a knob that will mean two things.
+ * The one implementation of the capabilities a supervision face needs, served
+ * to both faces (`kolu watch --states/--held-for/--nag 30m/3` subscribes the
+ * `watchStates` stream; an MCP orchestrator passes the same knobs as
+ * `watch.open` params). Neither face filters anything of its own — a knob
+ * spelled twice is a knob that will mean two things.
  *
  * ## Ask the adapter, never the bytes
  *
@@ -27,6 +27,12 @@
  *   - **nag** — RE-report while it keeps holding. This is the level trigger, and
  *     the whole difference between a doorbell you can miss and one that keeps
  *     ringing: an ignored terminal reappears instead of vanishing after one line.
+ *     The nagging is FINITE when the subscriber gives it a count (`nagCount`):
+ *     after the first report, at most that many reminders, then quiet about
+ *     that terminal — with the accounting stamped on every nag so a consumer
+ *     can tell the last one from the others. Only a state CHANGE re-arms the
+ *     count: a re-attached subscription inherits the episode's budget through
+ *     its seed ({@link StateWatchAnnounced}), never a fresh one.
  *   - **snapshot** — {@link StateWatchHub.subscribe} emits the currently-matching
  *     set as its first batch, before any stream of changes. A late joiner sees
  *     standing neglect, not just the future.
@@ -62,9 +68,9 @@ import type { EventSeq } from "./eventSeq.ts";
  *  rather than being silently read as "no agent"). */
 type Bucket = ReturnType<typeof agentBucket>;
 
-/** What a subscriber asked for. The wire's three knobs, decoded once into the
- *  shapes the engine actually compares against — a set for membership, a number
- *  for a deadline — so no per-frame work re-parses an array. */
+/** What a subscriber asked for. The wire's knobs, decoded once into the shapes
+ *  the engine actually compares against — a set for membership, a number for a
+ *  deadline — so no per-frame work re-parses an array. */
 export interface StateWatchSpec {
   /** Buckets to report. Never empty: both faces fill the default before they get
    *  here, because an empty set is a subscription that can never match and would
@@ -80,9 +86,17 @@ export interface StateWatchSpec {
   /** How often to RE-report while it keeps holding, or `undefined` to report
    *  once. */
   readonly nagMs?: number;
+  /** CAP the nagging: after the first report of an episode, at most this many
+   *  reminders, then quiet about that terminal. A state CHANGE re-arms it — a
+   *  re-entry mints a fresh episode with its own first report and its own
+   *  count — and nothing else re-arms it: a re-attach with the same question
+   *  INHERITS the budget through {@link subscribe}'s seed. `undefined` nags
+   *  forever. Meaningful only with `nagMs`; the faces spell the count inside
+   *  the interval (`--nag 30m/3`), and the wire's decode refuses the orphan. */
+  readonly nagCount?: number;
 }
 
-/** The three knobs alone — a spec minus the scope, which a standing
+/** The knob set alone — a spec minus the scope, which a standing
  *  subscription states once as its own {@link WatchScope} and must not restate
  *  here. */
 export type StateWatchFilter = Omit<StateWatchSpec, "scope">;
@@ -105,9 +119,16 @@ export function sameStateWatchFilter(
     states: true,
     heldForMs: true,
     nagMs: true,
+    nagCount: true,
   } satisfies Record<keyof StateWatchFilter, true>;
   if (a === undefined || b === undefined) return a === b;
-  if (a.heldForMs !== b.heldForMs || a.nagMs !== b.nagMs) return false;
+  if (
+    a.heldForMs !== b.heldForMs ||
+    a.nagMs !== b.nagMs ||
+    a.nagCount !== b.nagCount
+  ) {
+    return false;
+  }
   if (a.states.size !== b.states.size) return false;
   for (const s of a.states) if (!b.states.has(s)) return false;
   return true;
@@ -123,12 +144,28 @@ export interface StateWatchHub {
   /** Start a subscription. The currently-matching set is emitted SYNCHRONOUSLY,
    *  as this call's first batch — possibly empty, which is itself the answer
    *  "nothing is neglected right now" and the snapshot frame a stream consumer
-   *  needs. Returns an unsubscribe. */
+   *  needs. A `seed` — the budget the subscription's PREDECESSOR left — keeps a
+   *  re-attach from re-arming a spent cap: the cap is per EPISODE, so the
+   *  counts are the per-episode state, and the attachment that carries them is
+   *  just its holder. The returned attachment's `counts` is the seed its own
+   *  successor reads back. */
   subscribe(
     spec: StateWatchSpec,
     emit: (batch: StateWatchBatch) => void,
-  ): () => void;
+    seed?: ReadonlyMap<TerminalId, StateWatchAnnounced>,
+  ): StateWatchAttachment;
   dispose(): void;
+}
+
+/** One live subscription, as the caller holds it: how to stop it, and the
+ *  episode budget it has built up. */
+export interface StateWatchAttachment {
+  /** Detach — fed nothing more, and the clock debt it armed is released. */
+  readonly stop: () => void;
+  /** The per-episode counts, LIVE: the seed its successor is opened with. Read
+   *  it at the hand-off — the map belongs to the attachment, and what it says
+   *  after `stop` is the budget as it stood when the watch ended. */
+  readonly counts: ReadonlyMap<TerminalId, StateWatchAnnounced>;
 }
 
 /** A terminal's level, as of the last observation. A VALUE, never a live
@@ -142,8 +179,11 @@ interface Level {
   readonly since: number;
 }
 
-/** What a subscription has already told its owner about one terminal. */
-interface Announced {
+/** What a subscription has already told its owner about one terminal — and,
+ *  exported, the budget a RE-ATTACHED subscription is seeded with: the cap is
+ *  per EPISODE, so the record, not the attachment that holds it, is the thing
+ *  that survives an ordinary restart. */
+export interface StateWatchAnnounced {
   /** The episode it was told about — a re-entry into the same state mints a new
    *  `since`, which is what makes it a fresh transition rather than a nag. */
   since: number;
@@ -152,12 +192,23 @@ interface Announced {
    *  at both readers — rather than a per-terminal optional that has to stay in
    *  step with it. */
   toldAt: number;
+  /** How many NAGS this episode has been sent — the count the spec's `nagCount`
+   *  caps. The first report (snapshot/transition) is not a nag and is not
+   *  counted. A fresh episode starts at 0, which is what a state change re-arms
+   *  the cap THROUGH. */
+  nags: number;
+  /** Set while THIS subscription has not yet made its own FIRST report of the
+   *  episode — which is every entry an attachment is seeded with: a re-open is
+   *  owed the standing set as a snapshot even when the inherited budget is
+   *  SPENT, or the re-attach's promise ("answers with the currently-matching
+   *  set") would be false exactly when the cap ran out. Cleared by the emit. */
+  unreported?: true;
 }
 
 interface Sub {
   readonly spec: StateWatchSpec;
   readonly emit: (batch: StateWatchBatch) => void;
-  readonly announced: Map<TerminalId, Announced>;
+  readonly announced: Map<TerminalId, StateWatchAnnounced>;
   /** Has this subscription had its FIRST batch — the snapshot — yet? Consumed
    *  and set by {@link sweep}, which HANDS BACK what it consumed, so no caller
    *  reads this field to decide the same thing one line before calling. */
@@ -236,17 +287,25 @@ export function createStateWatchHub(opts: {
   const reportableAt = (
     sub: Sub,
     level: Level,
-    known: Announced | undefined,
+    known: StateWatchAnnounced | undefined,
   ): number | undefined => {
     // A fresh episode is reportable once it has HELD. `known.since` identifies
-    // the episode, so a re-entry into the same state is fresh again.
+    // the episode, so a re-entry into the same state is fresh again. A SEEDED
+    // entry this subscription never reported asks the same thing: its first
+    // report is owed regardless of the inherited budget's cadence or cap.
     if (known === undefined || known.since !== level.since) {
       return level.since + sub.spec.heldForMs;
     }
-    // Already reported, and still holding: the nag, or silence.
-    return sub.spec.nagMs === undefined
-      ? undefined
-      : known.toldAt + sub.spec.nagMs;
+    if (known.unreported === true) return level.since + sub.spec.heldForMs;
+    // Already reported, and still holding: the nag, or silence — forever when
+    // no `nagMs` was named, and from the moment a `nagCount` cap is SPENT. A
+    // spent cap is not a deadline: it arms nothing, which is what "goes quiet
+    // about that terminal" means to the timer.
+    if (sub.spec.nagMs === undefined) return undefined;
+    if (sub.spec.nagCount !== undefined && known.nags >= sub.spec.nagCount) {
+      return undefined;
+    }
+    return known.toldAt + sub.spec.nagMs;
   };
 
   /** One pass over the levels for one subscription: what is due at `at`, and
@@ -277,7 +336,28 @@ export function createStateWatchHub(opts: {
         if (nextAt === undefined || at_ < nextAt) nextAt = at_;
         continue;
       }
-      const fresh = known === undefined || known.since !== level.since;
+      // Is the episode the subscription last TOLD the one still standing?
+      const continuing = known !== undefined && known.since === level.since;
+      // This subscription's own FIRST report of the episode — asked of the
+      // RECORD, not the batch: a re-attach with a LARGER hold defers a seeded
+      // episode's first report past the arriving sweep (its deadline is the
+      // schedule above's), and the batch's `arriving` alone would misstamp
+      // that deferred first report as a nag — one a spent budget would number
+      // past the cap, with a negative `left`.
+      const first = !continuing || known.unreported === true;
+      // Which reminder this emit is: 0 is the first report; k is the k-th nag.
+      // The cap counts these, and the wire stamps them, from this one number.
+      // A SEEDED re-attach keeps the episode's budget: its arriving first
+      // report is a snapshot (reminder 0), its later nags continue the count
+      // it inherited — an ordinary restart never re-arms the cap.
+      const reminder = first ? 0 : known.nags + 1;
+      // How many reminders follow — the cap minus this one — asked of the spec
+      // so the stamp and the schedule can never disagree about it. Absent when
+      // nothing caps the nagging (there is no last one to name).
+      const left =
+        sub.spec.nagCount === undefined
+          ? undefined
+          : sub.spec.nagCount - reminder;
       batch.push({
         seq: seq.next(),
         id,
@@ -285,17 +365,37 @@ export function createStateWatchHub(opts: {
         // is a snapshot; every later first-report is a transition it watched
         // happen. The two are the same membership, told apart by whether the
         // subscriber was there for the edge.
-        kind: fresh ? (arriving ? "snapshot" : "transition") : "nag",
+        // A (re)open's first batch is ALWAYS snapshots of the standing set —
+        // even of an inherited, still-standing episode — and never a nag a
+        // caller watching this attachment's feed would read as its own.
+        kind: arriving ? "snapshot" : first ? "transition" : "nag",
         state,
         since: level.since,
         at,
         ...edges.edgeOf(id),
+        // The reminder accounting rides NAGS ONLY — a first report is not a
+        // reminder and carries none of it. `left` omitted rather than a lie
+        // about an end an uncapped subscription does not have.
+        ...(reminder === 0
+          ? {}
+          : {
+              nag: { index: reminder, ...(left === undefined ? {} : { left }) },
+            }),
       });
-      sub.announced.set(id, { since: level.since, toldAt: at });
-      // Just told: the next thing owed about it is a nag, if it nags at all.
-      if (sub.spec.nagMs !== undefined) {
-        const nag = at + sub.spec.nagMs;
-        if (nextAt === undefined || nag < nextAt) nextAt = nag;
+      const told: StateWatchAnnounced = {
+        since: level.since,
+        toldAt: at,
+        // A first report counts nothing; a CONTINUING first report after a
+        // re-attach keeps the budget it inherited rather than zeroing it.
+        nags: continuing ? Math.max(known.nags, reminder) : reminder,
+      };
+      sub.announced.set(id, told);
+      // Just told: the next thing owed about it — a nag while the count
+      // remains, silence once it is spent — asked of THE schedule rather than
+      // re-derived here, so the emit and the arm read the same expression.
+      const again = reportableAt(sub, level, told);
+      if (again !== undefined && (nextAt === undefined || again < nextAt)) {
+        nextAt = again;
       }
     }
     // Announcements for terminals that no longer exist at all.
@@ -426,11 +526,21 @@ export function createStateWatchHub(opts: {
       });
     },
 
-    subscribe(spec, emit) {
+    subscribe(spec, emit, seed) {
       const sub: Sub = {
         spec,
         emit,
-        announced: new Map(),
+        // A seed is COPIED, never shared: the counts are the episode's, but the
+        // map itself is one attachment's, mutated nowhere else. Every inherited
+        // entry is marked UNREPORTED, so this subscription owes its own first
+        // report of each standing episode — a spent inherited cap buys silence,
+        // not invisibility.
+        announced: new Map(
+          [...(seed ?? [])].map(([id, known]) => [
+            id,
+            { ...known, unreported: true } satisfies StateWatchAnnounced,
+          ]),
+        ),
         snapshotDelivered: false,
       };
       subs.add(sub);
@@ -447,9 +557,12 @@ export function createStateWatchHub(opts: {
       // and gets a snapshot of what is actually there.
       if (hasObserved) deliver(sub, sweep(sub, now()).batch);
       armTimer();
-      return () => {
-        if (!subs.delete(sub)) return;
-        armTimer();
+      return {
+        counts: sub.announced,
+        stop: () => {
+          if (!subs.delete(sub)) return;
+          armTimer();
+        },
       };
     },
 

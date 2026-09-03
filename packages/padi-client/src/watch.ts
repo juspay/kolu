@@ -226,7 +226,7 @@ export async function watchTerminals(
 
 /** Follow the AGENT-STATE feed live — the supervision half of `kolu watch`.
  *
- *  Everything the four knobs mean (`states` · `heldForMs` · `nagMs`, and the
+ *  Everything the knobs mean (`states` · `heldForMs` · `nagMs` · `nagCount`, and the
  *  snapshot that leads a subscription) is decided in padi and arrives already
  *  filtered: this side does not narrow, debounce, or remember. That is the whole
  *  point of the member — a consumer that filtered locally would be a second

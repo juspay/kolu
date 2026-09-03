@@ -457,7 +457,21 @@ export * from "./transcriptSchema.ts";
  *  the CLI/MCP face's reasoning again: those faces gate without draining, so a
  *  fresh consumer must be able to tell a padi that serves the fields from one
  *  that does not. */
-export const PADI_SURFACE_VERSION = "5.5";
+/** 5.6 (additive · minor) — the nag CAP. `watch.open`/`watchStates` gain an
+ *  optional `nagCount` (the transport encoding of what both faces spell in one
+ *  argument: `--nag 30m/3`), and the `nag` STATE EVENT carries its arithmetic
+ *  (`{ index, left? }`). Two optional keys an older decoder strips — so why
+ *  not the `resizeTo` class? A stripped `resizeTo` degrades to an OBSERVABLE
+ *  baseline (the pty keeps its earlier shape, and 5.5's record grid names it);
+ *  a stripped `nagCount` degrades to a behavioural LIE — the face spelled a
+ *  cap, the padi serves an UNCAPPED feed, and nothing on the wire says which.
+ *  The faces that spell it are 5.4's gate-only faces (`kolu watch`, the MCP
+ *  `watch.open` — #1313), so the minor is the whole obligation here too: a
+ *  5.6 face REFUSES a surviving 5.5 padi at the gate, and convergence
+ *  drain-and-respawns the straddler. The decode also newly refuses
+ *  `nagCount` without `nagMs` — the pairing the faces make unparseable — one
+ *  refusal, reachable from every entrance. */
+export const PADI_SURFACE_VERSION = "5.6";
 
 /** The `version` cell payload — padi's self-declared surface contract version. */
 export const PadiVersionSchema = Schema.Struct({
@@ -1164,7 +1178,7 @@ export const PadiSettleEventSchema = Schema.Struct({
 });
 export type PadiSettleEvent = typeof PadiSettleEventSchema.Type;
 
-// ── The agent-STATE watch (`states` · `heldForMs` · `nagMs`) ────────────────
+// ── The agent-STATE watch (`states` · `heldForMs` · `nagMs` · `nagCount`) ────
 //
 // The second event source behind the same standing subscriptions, and the whole
 // of `kolu watch`'s supervision face. A settle event is an edge the DAEMON
@@ -1180,10 +1194,10 @@ export type PadiSettleEvent = typeof PadiSettleEventSchema.Type;
 // byte-quiet gate forever (#2177). So `heldForMs` debounces the STATE, and no
 // part of this feed consults output.
 //
-// The three knobs are ONE implementation (`attention/stateWatch.ts`) served to
-// both faces: `kolu watch --states/--held-for/--nag` subscribes the
+// The knobs are ONE implementation (`attention/stateWatch.ts`) served to both
+// faces: `kolu watch --states/--held-for/--nag 30m/3` subscribes the
 // {@link padiSurface} `watchStates` stream, an MCP orchestrator passes the same
-// three as `watch.open` params. Neither face filters anything client-side.
+// knobs as `watch.open` params. Neither face filters anything client-side.
 
 /** The agent buckets a state watch may target — padi's own {@link WAIT_STATES}
  *  (the `agentBucket` fold's vocabulary minus `other`, which no real agent
@@ -1196,8 +1210,24 @@ const WatchStateSchema = Schema.Literals(WAIT_STATES);
  *  a face's `--help` can read it without importing the wire. */
 export { WATCH_DEFAULT_STATES };
 
-/** The three knobs, declared ONCE and spread into both faces' inputs, so a CLI
- *  flag and an MCP param cannot mean different things.
+/** The `nagMs` NUMERIC rule — the interval spelled as bare milliseconds,
+ *  exported beside the fields table that spreads it, so the MCP face's
+ *  `Number|String` union binds the same numeric arm rather than restating its
+ *  three checks (a bound change then edits ONE schema, not two).
+ *
+ *  Zero is NOT a legal interval — a nag every 0 ms is a spin, so the schema
+ *  refuses it rather than a guard downstream. */
+export const PadiWatchNagMsSchema = Schema.Number.annotate({
+  description:
+    "RE-report a terminal every this many milliseconds for as long as it keeps holding a matching state (milliseconds). Omit to be told once. This is what makes an ignored terminal come back instead of vanishing after one line.",
+}).check(
+  Schema.isInt(),
+  Schema.isGreaterThan(0),
+  Schema.isLessThanOrEqualTo(MAX_TIMER_MS),
+);
+
+/** The supervision knobs, declared ONCE and spread into both faces' inputs, so
+ *  a CLI flag and an MCP param cannot mean different things.
  *
  *  Every field carries a blurb because these fields reach MCP verbatim:
  *  `kolu-mcp`'s bespoke `watch_open` tool SPREADS them rather than re-declaring
@@ -1223,17 +1253,12 @@ export const PadiWatchFilterFields = {
       Schema.isLessThanOrEqualTo(MAX_TIMER_MS),
     ),
   ),
-  nagMs: Schema.optionalKey(
+  nagMs: Schema.optionalKey(PadiWatchNagMsSchema),
+  nagCount: Schema.optionalKey(
     Schema.Number.annotate({
       description:
-        "RE-report a terminal every this many milliseconds for as long as it keeps holding a matching state (milliseconds). Omit to be told once. This is what makes an ignored terminal come back instead of vanishing after one line.",
-      // Zero is NOT a legal interval — a nag every 0 ms is a spin, so the
-      // schema refuses it rather than a guard downstream.
-    }).check(
-      Schema.isInt(),
-      Schema.isGreaterThan(0),
-      Schema.isLessThanOrEqualTo(MAX_TIMER_MS),
-    ),
+        "CAP the nagging: after the first report of a held state, re-report at most this many more times at the nagMs interval, then go quiet about that terminal. A state change re-arms it — a terminal that resumes and stops again is a new event with its own first report and its own count. Omit to nag forever. Never spelled alone: the faces carry it INSIDE the interval (`--nag 30m/3`), and the wire decode refuses it without nagMs — a cap on a repetition that never starts is nothing.",
+    }).check(Schema.isInt(), Schema.isGreaterThan(0)),
   ),
 } as const;
 
@@ -1296,6 +1321,21 @@ export const PadiStateEventSchema = Schema.Struct({
   /** ms epoch, stamped once per emitted BATCH so every event in one frame
    *  describes the same instant. */
   at: PositiveInt,
+  /** The reminder accounting — present on `kind: "nag"` events ONLY: which
+   *  reminder this is, and how many follow when the subscription caps the nag.
+   *  `left: 0` is the last one. On an UNCAPPED subscription `left` is absent —
+   *  the sequence has no end to name. A consumer can tell the final reminder
+   *  from the others without knowing the subscription's flags. */
+  nag: Schema.optionalKey(
+    Schema.Struct({
+      /** Which reminder this is — 1 is the first re-report after the first
+       *  report. */
+      index: PositiveInt,
+      /** How many reminders follow this one — 0 on the last. Absent when the
+       *  subscription caps nothing (a bare `nagMs` repeats forever). */
+      left: Schema.optionalKey(NonNegativeInt),
+    }),
+  ),
   /** Who spawned this terminal — lane attribution. Absent for a root terminal. */
   parentId: Schema.optionalKey(TerminalIdSchema),
   /** The terminal's freeform intent annotation, when set. */
@@ -1305,7 +1345,7 @@ export type PadiStateEvent = typeof PadiStateEventSchema.Type;
 
 /** Everything a standing subscription can hand over. ONE queue, discriminated by
  *  `kind`: a subscription is fed by exactly one source (the settle detector, or
- *  the state watch when it named any of the three knobs), and the six `kind`
+ *  the state watch when it named any of the knobs), and the six `kind`
  *  literals are disjoint, so a consumer branches on that one field and never has
  *  to ask which source it opened. */
 export const PadiWatchEventSchema = Schema.Union([
@@ -1336,10 +1376,10 @@ export const WatchNameSchema = Schema.String.check(
 );
 
 /** The knob set itself, as data — DERIVED from the one declaration above so a
- *  fourth knob is spelled once. Every "did the caller name a knob" question in
- *  the daemon and at both faces is asked of this (`namesWatchKnobs`), rather
- *  than by re-listing the three fields at each site and hoping every site is
- *  found again. */
+ *  knob is spelled once. Every "did the caller name a knob" question in the
+ *  daemon and at both faces is asked of this (`namesWatchKnobs`), rather than
+ *  by re-listing the fields at each site and hoping every site is found
+ *  again. */
 export const WATCH_FILTER_KEYS = Object.keys(
   PadiWatchFilterFields,
 ) as readonly (keyof typeof PadiWatchFilterFields)[];
@@ -1369,7 +1409,7 @@ export const PadiWatchOpenInputSchema = Schema.Struct({
       })
       .check(Schema.isNonEmpty()),
   ),
-  // Naming ANY of the three turns this subscription into an agent-STATE watch:
+  // Naming ANY of these turns this subscription into an agent-STATE watch:
   // it is fed by `stateWatch` (snapshot · transition · nag) instead of the settle
   // detector (asking · finished · gone). Naming NONE leaves it exactly as it was.
   // One decision, made by the presence of a knob, so there is no mode flag to
@@ -1424,7 +1464,7 @@ export const PadiWatchDrainOutputSchema = Schema.Struct({
 /** `watchStates` — the LIVE agent-state feed, for a face that holds a socket
  *  open rather than a buffered queue (`kolu watch`).
  *
- *  The same three knobs as a standing subscription, plus the CLI's one optional
+ *  The same knobs as a standing subscription, plus the CLI's one optional
  *  id. Deliberately `id` and not `ids`: supervision must never be scoped by
  *  enumeration — a watcher narrowed to two repos went blind to a third — so the
  *  fleet is the default and the single id is a debugging tail, never a list to

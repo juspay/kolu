@@ -62,10 +62,10 @@ export function waitStateTokens(raw: string): readonly WaitState[] | undefined {
  *  `kolu wait`'s `--until`, `kolu watch`'s `--states`/`--held-for`/`--nag`. The
  *  shape is the whole point (a rejection is a VALUE here, not a throw, so the
  *  refusal happens before a `--host` has ssh-provisioned a cold box), and one
- *  concept spelled twice in sibling verbs is the copy that drifts. */
-export type Parsed<T> =
-  | { readonly kind: "ok"; readonly value: T }
-  | { readonly kind: "error"; readonly message: string };
+ *  concept spelled twice in sibling verbs is the copy that drifts — which is
+ *  why this re-EXPORTS the parser layer's own `Parsed`, the same shape this
+ *  used to declare by hand. */
+export type { Parsed } from "@kolu/padi-client/watchDuration";
 
 /** Widen a user-typed id-or-prefix to the one full id it names, or fail with the
  *  sentence that says which kind of "no" this was.
