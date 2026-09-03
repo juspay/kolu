@@ -370,11 +370,22 @@ export function createWatchRegistry(opts: {
         // The scope goes to the state watch as the SUBSCRIPTION's, joined into a
         // spec by the composition root that owns both halves — not by this
         // module, which is a queue and has no business knowing what a spec is.
+        //
+        // The budget rides a RESTATEMENT of the question, never a NEW one — the
+        // same gate the buffer above is carried through: the budget is the
+        // accounting OF those answers, and a spent cap inherited into a
+        // re-specified filter would silence the very reminders that filter
+        // asked for.
+        const budget =
+          previous?.source === "state" &&
+          sameStateWatchFilter(previous.filter, filter)
+            ? previous.counts()
+            : undefined;
         attachment = opts.subscribeStates(
           filter,
           scope,
           (batch) => enqueue(owner(), feed, batch),
-          previous?.source === "state" ? previous.counts() : undefined,
+          budget,
         );
       },
     };

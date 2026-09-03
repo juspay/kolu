@@ -248,9 +248,10 @@ Each nag carries `nag.index` (which reminder this is — the first re-report is
 so a consumer can tell the final reminder from the others. Reopening after a restart leads with a fresh
 snapshot, so an agent that comes back finds what is standing rather than only
 what happens next — and it inherits the episode's spent nag budget rather
-than re-arming it (with one exception: narrowing `states` out and then back
-forgets an episode's spent reminders, because a changed filter throws away
-the previous subscription's answers).
+than re-arming it. The budget belongs to the QUESTION, though: re-specifying
+the filter — including narrowing `states` out and then back — throws away the
+previous subscription's answers and their accounting both, so a changed watch
+starts its count fresh.
 
 kolu asks each agent for its own state rather than watching its output: an idle
 agent that repaints its prompt every second is still idle, and `heldForMs` times

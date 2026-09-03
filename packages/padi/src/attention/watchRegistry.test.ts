@@ -528,6 +528,22 @@ describe("watch registry — a subscription that named the agent-state knobs", (
     expect(watch.seeds[1]).toBe(watch.budgets[0]);
   });
 
+  it("a re-asked QUESTION starts a fresh budget — the re-opened watch owes its cap its own reminders", () => {
+    const watch = fakeStateWatch();
+    const r = registry({ subscribeStates: watch.subscribeStates });
+    r.open("supervise", {
+      filter: { ...filter, heldForMs: 0, nagMs: 60_000, nagCount: 3 },
+    });
+    // Reopen with the same name but a CHANGED knob: the queue is already
+    // emptied for a changed question; the budget is the accounting OF those
+    // answers, and inheriting a spent one would silence the new question's
+    // reminders without a word.
+    r.open("supervise", {
+      filter: { ...filter, heldForMs: 60_000, nagMs: 60_000, nagCount: 3 },
+    });
+    expect(watch.seeds[1]).toBeUndefined();
+  });
+
   it("a re-open that NARROWS the states drops the answers to the wider question", () => {
     const watch = fakeStateWatch();
     const r = registry({ subscribeStates: watch.subscribeStates });
