@@ -39,9 +39,9 @@ export function stateWatchSource(
           Queue.offerUnsafe(queue, batch);
         }),
       ),
-      (unsubscribe) =>
+      (sub) =>
         Effect.sync(() => {
-          unsubscribe();
+          sub.stop();
           log.debug("padi: watchStates subscription ended");
         }),
     ),

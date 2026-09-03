@@ -20,6 +20,8 @@ import {
 } from "./attentionFixture.testlib.ts";
 import type { SettleEvent } from "./settleEvents.ts";
 import type {
+  StateWatchAnnounced,
+  StateWatchAttachment,
   StateWatchBatch,
   StateWatchFilter,
   StateWatchSpec,
@@ -51,7 +53,8 @@ const registry = (
       filter: StateWatchFilter,
       scope: WatchScope,
       emit: (batch: StateWatchBatch) => void,
-    ) => () => void;
+      seed?: ReadonlyMap<TerminalId, StateWatchAnnounced>,
+    ) => StateWatchAttachment;
   } = {},
 ): WatchRegistry =>
   createWatchRegistry({
@@ -73,6 +76,9 @@ const registry = (
  *  what these pins are about is what the QUEUE does with what it is handed. */
 function fakeStateWatch() {
   const specs: StateWatchSpec[] = [];
+  const seeds: Array<ReadonlyMap<TerminalId, StateWatchAnnounced> | undefined> =
+    [];
+  const budgets: Array<ReadonlyMap<TerminalId, StateWatchAnnounced>> = [];
   const live = new Map<
     number,
     { spec: StateWatchSpec; emit: (batch: StateWatchBatch) => void }
@@ -94,6 +100,11 @@ function fakeStateWatch() {
   });
   return {
     specs,
+    /** Every seed each attachment was opened with — the previous attachment's
+     *  budget, or `undefined` on a first open. */
+    seeds,
+    /** Every budget an attachment reported — what its successor receives. */
+    budgets,
     /** How many attachments are live right now — a re-open that left the old one
      *  running would double every nag. */
     liveCount: () => live.size,
@@ -101,15 +112,22 @@ function fakeStateWatch() {
       filter: StateWatchFilter,
       scope: WatchScope,
       emit: (batch: StateWatchBatch) => void,
+      seed?: ReadonlyMap<TerminalId, StateWatchAnnounced>,
     ) => {
       const key = ++handle;
       const spec: StateWatchSpec = { ...filter, scope };
       specs.push(spec);
+      seeds.push(seed);
+      const counts = new Map<TerminalId, StateWatchAnnounced>(seed);
+      budgets.push(counts);
       live.set(key, { spec, emit });
       // The real engine answers a subscribe with the currently-matching set.
       emit([stateEvent("standing", "snapshot")]);
-      return () => {
-        live.delete(key);
+      return {
+        stop: () => {
+          live.delete(key);
+        },
+        counts,
       };
     },
     /** Fire one event into every live attachment. */
@@ -493,6 +511,21 @@ describe("watch registry — a subscription that named the agent-state knobs", (
       "nag",
       "snapshot",
     ]);
+  });
+
+  it("hands the previous attachment's BUDGET to its successor — a spent cap is not re-charged on the ordinary restart", () => {
+    const watch = fakeStateWatch();
+    const r = registry({ subscribeStates: watch.subscribeStates });
+    r.open("supervise", { filter });
+    expect(watch.seeds[0]).toBeUndefined();
+    // The ordinary restart — same name, same question: the new attachment is
+    // seeded with the budget the old one left, so the ENGINE (not the queue)
+    // is what stops a re-open from re-arming the cap. What it does with a
+    // stale or moved-on seed is pinned in stateWatch.test.ts.
+    r.open("supervise", {
+      filter: { ...filter, states: new Set(["waiting"]) },
+    });
+    expect(watch.seeds[1]).toBe(watch.budgets[0]);
   });
 
   it("a re-open that NARROWS the states drops the answers to the wider question", () => {

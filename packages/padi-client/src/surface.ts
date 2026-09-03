@@ -457,7 +457,21 @@ export * from "./transcriptSchema.ts";
  *  the CLI/MCP face's reasoning again: those faces gate without draining, so a
  *  fresh consumer must be able to tell a padi that serves the fields from one
  *  that does not. */
-export const PADI_SURFACE_VERSION = "5.5";
+/** 5.6 (additive · minor) — the nag CAP. `watch.open`/`watchStates` gain an
+ *  optional `nagCount` (the transport encoding of what both faces spell in one
+ *  argument: `--nag 30m/3`), and the `nag` STATE EVENT carries its arithmetic
+ *  (`{ index, left? }`). Two optional keys an older decoder strips — so why
+ *  not the `resizeTo` class? A stripped `resizeTo` degrades to an OBSERVABLE
+ *  baseline (the pty keeps its earlier shape, and 5.5's record grid names it);
+ *  a stripped `nagCount` degrades to a behavioural LIE — the face spelled a
+ *  cap, the padi serves an UNCAPPED feed, and nothing on the wire says which.
+ *  The faces that spell it are 5.4's gate-only faces (`kolu watch`, the MCP
+ *  `watch.open` — #1313), so the minor is the whole obligation here too: a
+ *  5.6 face REFUSES a surviving 5.5 padi at the gate, and convergence
+ *  drain-and-respawns the straddler. The decode also newly refuses
+ *  `nagCount` without `nagMs` — the pairing the faces make unparseable — one
+ *  refusal, reachable from every entrance. */
+export const PADI_SURFACE_VERSION = "5.6";
 
 /** The `version` cell payload — padi's self-declared surface contract version. */
 export const PadiVersionSchema = Schema.Struct({
@@ -1238,7 +1252,7 @@ export const PadiWatchFilterFields = {
   nagCount: Schema.optionalKey(
     Schema.Number.annotate({
       description:
-        "CAP the nagging: after the first report of a held state, re-report at most this many more times at the nagMs interval, then go quiet about that terminal. A state change re-arms it — a terminal that resumes and stops again is a new event with its own first report and its own count. Omit to nag forever. Requires nagMs: a cap on a repetition that never starts is nothing.",
+        "CAP the nagging: after the first report of a held state, re-report at most this many more times at the nagMs interval, then go quiet about that terminal. A state change re-arms it — a terminal that resumes and stops again is a new event with its own first report and its own count. Omit to nag forever. Never spelled alone: the faces carry it INSIDE the interval (`--nag 30m/3`), and the wire decode refuses it without nagMs — a cap on a repetition that never starts is nothing.",
     }).check(Schema.isInt(), Schema.isGreaterThan(0)),
   ),
 } as const;
@@ -1357,10 +1371,10 @@ export const WatchNameSchema = Schema.String.check(
 );
 
 /** The knob set itself, as data — DERIVED from the one declaration above so a
- *  fourth knob is spelled once. Every "did the caller name a knob" question in
- *  the daemon and at both faces is asked of this (`namesWatchKnobs`), rather
- *  than by re-listing the three fields at each site and hoping every site is
- *  found again. */
+ *  knob is spelled once. Every "did the caller name a knob" question in the
+ *  daemon and at both faces is asked of this (`namesWatchKnobs`), rather than
+ *  by re-listing the fields at each site and hoping every site is found
+ *  again. */
 export const WATCH_FILTER_KEYS = Object.keys(
   PadiWatchFilterFields,
 ) as readonly (keyof typeof PadiWatchFilterFields)[];
@@ -1390,7 +1404,7 @@ export const PadiWatchOpenInputSchema = Schema.Struct({
       })
       .check(Schema.isNonEmpty()),
   ),
-  // Naming ANY of the three turns this subscription into an agent-STATE watch:
+  // Naming ANY of these turns this subscription into an agent-STATE watch:
   // it is fed by `stateWatch` (snapshot · transition · nag) instead of the settle
   // detector (asking · finished · gone). Naming NONE leaves it exactly as it was.
   // One decision, made by the presence of a knob, so there is no mode flag to

@@ -421,7 +421,7 @@ describeDaemon("kolu watch — supervision, end to end", () => {
     watch.stop();
   });
 
-  it("--nag-count CAPS the nagging — the NDJSON says which reminder each nag is, and the last one is the end", {
+  it("--nag 1s/2 CAPS the nagging — the NDJSON says which reminder each nag is, and the last one is the end", {
     timeout: 180000,
   }, async () => {
     const { socketPath } = await idleAgentWorld();
@@ -431,9 +431,7 @@ describeDaemon("kolu watch — supervision, end to end", () => {
       "--held-for",
       "1s",
       "--nag",
-      "1s",
-      "--nag-count",
-      "2",
+      "1s/2",
       "--json",
     ]);
 

@@ -61,10 +61,11 @@
  *
  * ## Two feeds, one verb
  *
- * Naming any of `--states` / `--held-for` / `--nag` / `--nag-count` switches
- * this verb from the CHANGE tail described above to the SUPERVISION feed:
- * agent-state transitions, debounced by a hold and repeated on a nag (a FINITE
- * nag when the count caps it), led by the currently-matching set.
+ * Naming any of `--states` / `--held-for` / `--nag` switches this verb from
+ * the CHANGE tail described above to the SUPERVISION feed: agent-state
+ * transitions, debounced by a hold and repeated on a nag — a FINITE nag when
+ * the interval carries a count (`--nag 30m/3`), led by the currently-matching
+ * set.
  * They are different questions — "what just changed in the workspace" and "what
  * has been sitting unattended" — and the second one is the reason the first was
  * never usable as an alert: it relays byte-level churn (an idle grok repaints
@@ -160,7 +161,7 @@ import {
   type WatchScope,
   watchScopeOf,
 } from "@kolu/padi-client/watchScope";
-import { isValidTimerMs, timerRangeMessage } from "@kolu/surface/wait";
+import { parseDuration, parseNag } from "@kolu/padi-client/watchDuration";
 import { isTerminalId, type TerminalId } from "@kolu/terminal-vocab/schema";
 import { type Cause, Effect, Fiber, Queue, Stream } from "effect";
 import type { Command } from "effect/unstable/cli";
@@ -223,67 +224,11 @@ const pumpToStdout = (
 // (`isWaitState`) and what a knob MEANS; how a comma list and a duration are
 // SPELLED, and what a rejection reads like, is argv grammar and lives here. And
 // it is decided BEFORE the dial, so `--held-for banana` is refused instantly
-// rather than after a `--host` has ssh-provisioned a cold box.
-
-/** How long, spelled the way a person writes it — and the unit is OPTIONAL,
- *  because a bare number in this binary already means milliseconds.
- *
- *  `--timeout 10000`, `--settled 15000` and `--until idle:2000` are all bare
- *  millisecond integers, so refusing `--held-for 60000` would make one binary
- *  hold two mutually-refusing duration grammars — a user who has learned the
- *  other four flags gets an error for spelling this one the same way. One
- *  grammar, then: milliseconds, with a suffix for the two flags whose natural
- *  values are minutes and hours (nobody wants to read `--nag 300000`). The
- *  suffix is a convenience ON the existing spelling, not a second one. */
-const DURATION = /^(\d+)(ms|s|m|h|d)?$/;
-const UNIT_MS: Record<string, number> = {
-  ms: 1,
-  s: 1000,
-  m: 60_000,
-  h: 3_600_000,
-  // `d`, because `relativeTime` — the fold this feed's hold column is RENDERED
-  // with — emits `2d`. A grammar you can read out of the output and not type
-  // back in is half a grammar, and the ceiling is ~24.8 days, so `1d`–`24d` are
-  // all values the feed can print.
-  d: 86_400_000,
-};
-
-/** Read a duration for `flag`, refusing anything below `min`.
- *
- *  `min` is a PARAMETER because it is the flag's own fact and the flag's own
- *  sentence: a hold of 0 means "report it the instant it enters", an interval of
- *  0 is a spin. It used to be an `ms !== 0` escape inside this parser plus a
- *  compensating check at one caller — one rule at two depths, and invisible to
- *  the third duration flag that would inherit the escape by accident. */
-function parseDuration(
-  flag: string,
-  raw: string,
-  min: { readonly ms: number; readonly why: string },
-): Parsed<number> {
-  const m = DURATION.exec(raw.trim());
-  if (m === null) {
-    return {
-      kind: "error",
-      message: `--${flag} ${JSON.stringify(raw)} is not a duration. Write a whole number of milliseconds (60000), or add a unit: 500ms, 60s, 5m, 2h, 1d.`,
-    };
-  }
-  // An omitted unit is `ms` — see the grammar note above.
-  const ms =
-    Number(m[1]) * (m[2] === undefined ? 1 : (UNIT_MS[m[2]] as number));
-  if (ms < min.ms) {
-    return { kind: "error", message: `--${flag} ${raw}: ${min.why}` };
-  }
-  if (ms > 0 && !isValidTimerMs(ms)) {
-    // The one ceiling sentence, from the module that owns the ceiling — so a
-    // user who overshoots `--timeout` and one who overshoots `--nag` are taught
-    // the same limit in the same words.
-    return {
-      kind: "error",
-      message: timerRangeMessage(flag, "fires immediately, forever", raw),
-    };
-  }
-  return { kind: "ok", value: ms };
-}
+// rather than after a `--host` has ssh-provisioned a cold box. The duration
+// SPELLING itself — the units, and the nag's `interval/count` slash — is one
+// grammar, declared with its sentences in `@kolu/padi-client/watchDuration`:
+// the MCP face parses the same `30m/3` the same way, which is exactly the
+// drift `watchScope` exists to rule out on the id side.
 
 /** What the knobs add up to — the wire input, or `undefined` when the user
  *  named none of them and wants the change tail instead.
@@ -294,16 +239,6 @@ function parseDuration(
 export function planSupervision(
   args: WatchArgs,
 ): Parsed<PadiWatchStatesInput | undefined> {
-  // `--nag-count` caps the nagging — so a count with no interval is a cap on a
-  // repetition that never starts: refuse it here, beside the other pre-dial
-  // refusals, rather than opening a watch that silently does nothing with it.
-  if (args.nagCount !== undefined && args.nag === undefined) {
-    return {
-      kind: "error",
-      message:
-        "--nag-count caps the nagging, but no --nag was given: there is no repetition to cap. Pass both (--nag 5m --nag-count 3), or leave --nag-count off to be told once.",
-    };
-  }
   const input: {
     states?: readonly WaitState[];
     heldForMs?: number;
@@ -321,7 +256,7 @@ export function planSupervision(
     input.states = tokens;
   }
   if (args.heldFor !== undefined) {
-    const parsed = parseDuration("held-for", args.heldFor, {
+    const parsed = parseDuration("--held-for", args.heldFor, {
       ms: 0,
       // Zero IS the hold's identity element — report it the instant it enters.
       why: "a hold cannot be negative.",
@@ -330,15 +265,13 @@ export function planSupervision(
     input.heldForMs = parsed.value;
   }
   if (args.nag !== undefined) {
-    const parsed = parseDuration("nag", args.nag, {
-      ms: 1,
-      why: "an interval of zero is a spin, not a fast nag — it would re-report every terminal as fast as the daemon can loop. Pass a real interval (5m), or leave --nag off to be told once.",
-    });
+    // The interval carries its own cap after a slash (`--nag 30m/3`) — the
+    // count can never be spelled without the interval it caps, so there is no
+    // pairing to refuse on this face at all.
+    const parsed = parseNag("--nag", args.nag);
     if (parsed.kind === "error") return parsed;
-    input.nagMs = parsed.value;
-  }
-  if (args.nagCount !== undefined) {
-    input.nagCount = args.nagCount;
+    input.nagMs = parsed.value.ms;
+    if (parsed.value.count !== undefined) input.nagCount = parsed.value.count;
   }
   // The PRESENCE of a knob IS the choice of feed — asked of padi's ONE
   // definition rather than re-listed here. A new knob then reaches this face
@@ -353,7 +286,7 @@ export function planSupervision(
  *  the feed — it is not a supervision knob. */
 export function planHeartbeat(args: WatchArgs): Parsed<number | undefined> {
   if (args.heartbeat === undefined) return { kind: "ok", value: undefined };
-  const parsed = parseDuration("heartbeat", args.heartbeat, {
+  const parsed = parseDuration("--heartbeat", args.heartbeat, {
     ms: 1,
     why: "an interval of zero is a spin, not a fast heartbeat. Pass a real interval (10s), or leave --heartbeat off.",
   });

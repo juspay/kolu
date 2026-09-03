@@ -49,25 +49,26 @@ describe("resolveWatchOpenInput", () => {
     expect(Object.hasOwn(input, "ignoreSelf")).toBe(false);
   });
 
-  it("passes the cap through with its interval, and refuses it WITHOUT one", () => {
-    const input = plan(
-      { name: "campaign", nagMs: 300_000, nagCount: 2 },
-      [],
-      {},
-    );
-    expect(input.nagMs).toBe(300_000);
-    expect(input.nagCount).toBe(2);
+  it('reads `nagMs: "30m/3"` as the interval AND its cap — one param, the count after the slash', () => {
+    const input = plan({ name: "campaign", nagMs: "30m/3" }, [], {});
+    expect(input.nagMs).toBe(1_800_000);
+    expect(input.nagCount).toBe(3);
 
-    // The same refusal the CLI gives --nag-count without --nag, in tool-arg
-    // grammar: a cap on a repetition that never starts is nothing.
-    const parsed = resolveWatchOpenInput(
-      { name: "campaign", nagCount: 2 },
-      [],
-      {},
-    );
-    expect(parsed.kind).toBe("error");
-    expect(parsed.kind === "error" && parsed.message).toMatch(/nagCount/);
-    expect(parsed.kind === "error" && parsed.message).toMatch(/nagMs/);
+    // A bare interval — number or string — keeps today's meaning: forever.
+    const bare = plan({ name: "campaign", nagMs: "30m" }, [], {});
+    expect(bare.nagMs).toBe(1_800_000);
+    expect(Object.hasOwn(bare, "nagCount")).toBe(false);
+    const numeric = plan({ name: "campaign", nagMs: 1_800_000 }, [], {});
+    expect(numeric.nagMs).toBe(1_800_000);
+    expect(Object.hasOwn(numeric, "nagCount")).toBe(false);
+  });
+
+  it("refuses a garbled slash before it dials, in tool-arg grammar", () => {
+    for (const nagMs of ["30m/0", "30m/2x", "30m/", "30m/3/2"]) {
+      const parsed = resolveWatchOpenInput({ name: "campaign", nagMs }, [], {});
+      expect(parsed.kind, nagMs).toBe("error");
+      expect(parsed.kind === "error" && parsed.message).toMatch(/nagMs/);
+    }
   });
 
   it("refuses ignoreSelf when the transport cannot identify the caller", () => {

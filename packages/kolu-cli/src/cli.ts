@@ -708,22 +708,7 @@ export const watchFlags = {
   nag: opt(
     Flag.string("nag").pipe(
       Flag.withDescription(
-        "RE-report every interval the state keeps holding, so an ignored terminal comes back instead of vanishing after one line — 300000, or 5m",
-      ),
-    ),
-  ),
-  // A count, not a duration — `Flag.integer`, the way `--lines` is. The rule
-  // that it means nothing without `--nag` is the verb's (`planSupervision`),
-  // with the other pre-dial refusals.
-  nagCount: opt(
-    Flag.integer("nag-count").pipe(
-      Flag.filter(
-        (n) => n > 0,
-        (n) =>
-          `--nag-count takes a positive whole number of reminders, got ${n}.`,
-      ),
-      Flag.withDescription(
-        "cap the nagging: after the first report, at most N more reminders at the --nag interval, then go quiet about that terminal. A state change re-arms it. Requires --nag",
+        "RE-report every interval the state keeps holding, so an ignored terminal comes back instead of vanishing after one line — 300000, or 5m. Suffix a count to make it finite: 30m/3 is three reminders past the first report, then quiet until the state changes",
       ),
     ),
   ),
@@ -760,7 +745,7 @@ const watch = Command.make(
   }),
 ).pipe(
   Command.withDescription(
-    "Stream terminal changes and live output activity — or, with --states/--held-for/--nag/--nag-count, supervise: report agents that have been sitting in a state, and keep reporting them (finitely, when the count caps it).",
+    "Stream terminal changes and live output activity — or, with --states/--held-for/--nag, supervise: report agents that have been sitting in a state, and keep reporting them (finitely, when the interval carries a count, --nag 30m/3).",
   ),
   Command.withExamples([
     {

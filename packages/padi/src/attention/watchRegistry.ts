@@ -56,9 +56,12 @@ import {
   WATCH_SCOPE_ALL,
   type WatchScope,
 } from "@kolu/padi-client/watchScope";
+import type { TerminalId } from "@kolu/terminal-vocab/schema";
 import type { Logger } from "pino";
 import type { SettleEvent } from "./settleEvents.ts";
 import {
+  type StateWatchAnnounced,
+  type StateWatchAttachment,
   type StateWatchBatch,
   type StateWatchFilter,
   sameStateWatchFilter,
@@ -106,6 +109,11 @@ export type WatchFeed =
       readonly source: "state";
       /** The agent-state filter this subscription was opened with. */
       readonly filter: StateWatchFilter;
+      /** The episode budget this attachment built up — the SEED its successor
+       *  opens with, so a re-attach can never re-arm a spent cap. */
+      readonly counts: () =>
+        | ReadonlyMap<TerminalId, StateWatchAnnounced>
+        | undefined;
       /** Detach from the agent-state watch. Called on close AND on a re-open, so
        *  a re-scoped subscription can never be fed by two engines at once. */
       readonly detach: () => void;
@@ -235,7 +243,8 @@ export function createWatchRegistry(opts: {
     filter: StateWatchFilter,
     scope: WatchScope,
     emit: (batch: StateWatchBatch) => void,
-  ) => () => void;
+    seed?: ReadonlyMap<TerminalId, StateWatchAnnounced>,
+  ) => StateWatchAttachment;
 }): WatchRegistry {
   const { log } = opts;
   const limit = opts.limit ?? WATCH_BUFFER_LIMIT;
@@ -342,15 +351,18 @@ export function createWatchRegistry(opts: {
           : [];
       return { feed: { source: "settle", buffer }, start: () => {} };
     }
-    let stop: (() => void) | undefined;
+    let attachment: StateWatchAttachment | undefined;
     const feed = {
       source: "state" as const,
       filter,
+      // The budget lives until its successor reads it — `detach` frees the
+      // stream, not the counts.
+      counts: () => attachment?.counts,
       buffer:
         previous?.source === "state" && carry !== undefined
           ? carry(previous.buffer)
           : [],
-      detach: () => stop?.(),
+      detach: () => attachment?.stop(),
     };
     return {
       feed,
@@ -358,8 +370,11 @@ export function createWatchRegistry(opts: {
         // The scope goes to the state watch as the SUBSCRIPTION's, joined into a
         // spec by the composition root that owns both halves — not by this
         // module, which is a queue and has no business knowing what a spec is.
-        stop = opts.subscribeStates(filter, scope, (batch) =>
-          enqueue(owner(), feed, batch),
+        attachment = opts.subscribeStates(
+          filter,
+          scope,
+          (batch) => enqueue(owner(), feed, batch),
+          previous?.source === "state" ? previous.counts() : undefined,
         );
       },
     };

@@ -326,11 +326,11 @@ export function buildPadiSurfaceDeps(deps: {
     seq: watchSeq,
     edges: watchEdges,
   });
-  // The agent-STATE watch — `--states`/`--held-for`/`--nag`/`--nag-count`,
-  // implemented once and served to both faces: the `watchStates` stream below
-  // is `kolu watch`'s subscription, and a `watch.open` that names any of the
-  // knobs is an MCP orchestrator's. It reads the adapter's own agent state,
-  // never output bytes.
+  // The agent-STATE watch — `--states`/`--held-for`/`--nag` (a count after the
+  // slash caps the last), implemented once and served to both faces: the
+  // `watchStates` stream below is `kolu watch`'s subscription, and a
+  // `watch.open` that names any of the knobs is an MCP orchestrator's. It
+  // reads the adapter's own agent state, never output bytes.
   const stateWatch = createStateWatchHub({
     log,
     seq: watchSeq,
@@ -347,8 +347,8 @@ export function buildPadiSurfaceDeps(deps: {
     // knobs the caller named, and the scope the SUBSCRIPTION owns. The
     // queue never mints a spec, so the state watch's scoping is the only
     // scoping there is for a state feed.
-    subscribeStates: (filter, scope, emit) =>
-      stateWatch.subscribe(specOf(filter, scope), emit),
+    subscribeStates: (filter, scope, emit, seed) =>
+      stateWatch.subscribe(specOf(filter, scope), emit, seed),
   });
   const unsubscribeSettle = settleEvents.onFrame((events) =>
     watchRegistry.acceptSettle(events),
@@ -702,8 +702,16 @@ export function buildPadiSurfaceDeps(deps: {
             // subscription's watermark from the `daemonSeq` it was built with.
             // `watchFilterOf` returns a filter only when the caller named one of
             // the knobs — the presence of a knob IS the choice of source,
-            // so there is no mode flag here to contradict them.
+            // so there is no mode flag here to contradict them. A refusal it
+            // hands BACK is turned into this entry's throw here — same shape
+            // as the scope's below.
             const filter = watchFilterOf(input);
+            if (filter.kind === "error") {
+              throw new Error(
+                `standing subscription "${input.name}": ${filter.message}`,
+              );
+            }
+            const filterValue = filter.value;
             // The scope is built ONCE, by the only constructor there is, and a
             // never-match one is refused here — where the subscription's NAME is
             // in hand to say which one. The registry is a queue and never mints
@@ -725,7 +733,7 @@ export function buildPadiSurfaceDeps(deps: {
             }
             const { sub, reattached } = watchRegistry.open(input.name, {
               scope: scope.value,
-              ...(filter === undefined ? {} : { filter }),
+              ...(filterValue === undefined ? {} : { filter: filterValue }),
             });
             log.info(
               {
@@ -733,12 +741,12 @@ export function buildPadiSurfaceDeps(deps: {
                 reattached,
                 scope: input.ids === undefined ? "all" : input.ids.length,
                 // The filter IS the knobs, so it is spread rather than
-                // re-listed — a fourth knob is logged by existing. `states` is
-                // a Set, which a log serializer renders as `{}`, so that one
-                // field is spelled as the array it is on the wire.
-                ...(filter === undefined
+                // re-listed — a knob is logged by existing. `states` is a Set,
+                // which a log serializer renders as `{}`, so that one field is
+                // spelled as the array it is on the wire.
+                ...(filterValue === undefined
                   ? {}
-                  : { ...filter, states: [...filter.states] }),
+                  : { ...filterValue, states: [...filterValue.states] }),
               },
               reattached
                 ? "watch subscription re-attached"

@@ -375,8 +375,14 @@ agent buckets do I care about* (`states`), *how long must one hold before I hear
 about it* (`heldForMs`), and *how often should I be told again while it keeps
 holding* (`nagMs`). Those three knobs are the whole of `kolu watch --states /
 --held-for / --nag` and of the same-named `watch.open` params — one engine, two
-faces. `--ignore` / `ignoreIds` (and `--ignore-self` / `ignoreSelf`, resolved at
-the face from `$KAVAL_TERMINAL_ID`) mute known terminals fail-open: a stale id
+faces — and the CAP rides inside the interval, never as a fourth knob:
+`--nag 30m/3` (or `nagMs: "60000/3"`) is three reminders past the first report,
+then quiet about that terminal until the state changes. (The wire carries the
+pair as `nagMs` + `nagCount`, and padi's decode refuses the count without the
+interval — the pairing is unspellable at the faces, refused at the one
+entrance that could still spell it.) `--ignore` / `ignoreIds` (and
+`--ignore-self` / `ignoreSelf`, resolved at the face from `$KAVAL_TERMINAL_ID`)
+mute known terminals fail-open: a stale id
 costs nothing, and a new terminal is always watched. Contrast `ids`, which fails
 closed.
 
@@ -387,18 +393,22 @@ gate forever). `heldForMs` debounces the STATE.
 
 Its events are `snapshot` (already matching when you subscribed — the standing
 set, handed over before anything that changed since), `transition` (entered a
-state and held it), and `nag` (still holding, one interval later). The nag is the
+state and held it), and `nag` (still holding, one interval later, and capped
+when the interval carried a count — each stamped `nag.index` and `nag.left`,
+so a script can tell the last one). The nag is the
 level trigger, and the difference between a doorbell you can miss and one that
 keeps ringing.
 
 **A subscription is fed by exactly one source**, chosen by whether it named any
-of the three knobs — never merged, because the two answer different questions in
+of the knobs — never merged, because the two answer different questions in
 different vocabularies. It follows that the state feed carries no `gone`: a
 level-triggered subscriber is not blocked on anything, so a terminal that leaves
 simply stops being reported. It follows too that re-opening a name with a
 DIFFERENT filter empties its queue — those buffered answers belong to a question
 the caller has stopped asking, and the new attachment's snapshot is the standing
-truth that replaces them.
+truth that replaces them. The question's CAP survives either kind of re-open:
+the attachment hands its per-episode nag counts to its successor, because the
+budget is the episode's — only a state change re-arms it.
 
 Both sources stamp from ONE daemon sequence (`eventSeq.ts`), because a
 subscription's acknowledgement watermark is a single number and has to mean the

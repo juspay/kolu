@@ -34,17 +34,43 @@ import {
   type PadiWatchOpenInput,
   PadiWatchOpenInputSchema,
 } from "@kolu/padi-client/surface";
+import { parseNag } from "@kolu/padi-client/watchDuration";
 import {
   type WatchScopeRefusal,
   watchScopeOf,
 } from "@kolu/padi-client/watchScope";
 import { type BespokeTool, ToolFailure } from "@kolu/surface-mcp/tools";
+import { MAX_TIMER_MS } from "@kolu/surface/wait";
 import type { TerminalId } from "@kolu/terminal-vocab/schema";
 import { Effect, Schema } from "effect";
 import { match } from "ts-pattern";
 
+// The interval and its cap are ONE argument here, after the same slash the
+// CLI's `--nag 30m/3` reads — a count can never be named apart from the
+// repetition it caps, so the tool has no `nagCount` param to orphan.
+const {
+  nagMs: _wireNagMs,
+  nagCount: _wireNagCount,
+  ...watchOpenFields
+} = PadiWatchOpenInputSchema.fields;
 export const WatchOpenArgsSchema = Schema.Struct({
-  ...PadiWatchOpenInputSchema.fields,
+  ...watchOpenFields,
+  nagMs: Schema.optionalKey(
+    Schema.Union([
+      // Same shape the wire field carries. The description is the UNION's —
+      // a bare number is the historic spelling, a string adds the units and
+      // the slash.
+      Schema.Number.check(
+        Schema.isInt(),
+        Schema.isGreaterThan(0),
+        Schema.isLessThanOrEqualTo(MAX_TIMER_MS),
+      ),
+      Schema.String,
+    ]).annotate({
+      description:
+        'RE-report a terminal every this many milliseconds for as long as it keeps holding a matching state. A string spells the same in duration form — "30m" — and suffixing a count caps it: "30m/3" is three reminders past the first report, then quiet about that terminal until the state changes (a bare interval repeats forever). Omit to be told once.',
+    }),
+  ),
   ignoreSelf: Schema.optionalKey(
     Schema.Boolean.annotate({
       description:
@@ -118,19 +144,24 @@ export function resolveWatchOpenInput(
   live: readonly TerminalId[],
   env: { readonly [key: string]: string | undefined } = process.env,
 ): ParsedWatchOpen {
-  // argv-grammar first, before anything the roster could answer: `nagCount`
-  // caps the nagging, so a count with no interval is a cap on a repetition
-  // that never starts. Same refusal the CLI's `--nag-count` without `--nag`
-  // gets, in this face's own grammar.
-  if (args.nagCount !== undefined && args.nagMs === undefined) {
+  // argv-grammar first, before anything the roster could answer: the nag's
+  // interval-and-count slash is spelled by THIS face and refused here, the
+  // same words the CLI's `--nag` gets — the pairing itself can never be
+  // orphaned, because a count only parses inside an interval.
+  const nag =
+    args.nagMs === undefined
+      ? undefined
+      : typeof args.nagMs === "number"
+        ? ({ kind: "ok", value: { ms: args.nagMs } } as const)
+        : parseNag("nagMs", args.nagMs);
+  if (nag !== undefined && nag.kind === "error") {
     return {
       kind: "error",
-      message:
-        "nagCount caps the nagging, but no nagMs was given: there is no repetition to cap. Pass both, or leave nagCount off to be told once.",
-      detail: { kind: "nag-count-without-nag" },
+      message: nag.message,
+      detail: { kind: "bad-nag-arg", raw: args.nagMs },
     };
   }
-  const { ignoreSelf, ignoreIds, ids, ...rest } = args;
+  const { ignoreSelf, ignoreIds, ids, nagMs: _parsed, ...rest } = args;
   // ONE assembly, both branches: `ignoreSelf` decides whether there is an EXTRA
   // id in the mute, never how the mute is built. (The two used to be separate
   // paths and had already diverged on the empty list.)
@@ -190,6 +221,14 @@ export function resolveWatchOpenInput(
     kind: "ok",
     value: {
       ...rest,
+      ...(nag === undefined
+        ? {}
+        : {
+            nagMs: nag.value.ms,
+            ...(nag.value.count === undefined
+              ? {}
+              : { nagCount: nag.value.count }),
+          }),
       ...(scope.value.include === undefined
         ? {}
         : { ids: [...scope.value.include] }),
@@ -205,7 +244,7 @@ export const watchOpenTool: BespokeTool = {
   mutates: true,
   title: "Open a terminal watch",
   description:
-    "Start (or re-attach to) a named standing subscription. Omit ids to watch the WHOLE fleet — a list you forget to update goes blind to a lane nobody added. ignoreIds mutes known terminals (fail-open: a stale id costs nothing). ignoreSelf mutes the terminal this MCP server is running inside. Naming any of states/heldForMs/nagMs/nagCount turns the subscription into an agent-state watch (snapshot · transition · nag); naming none leaves the settle detector (asking · finished · gone). Re-open the SAME name after a restart to reattach to the queue.",
+    'Start (or re-attach to) a named standing subscription. Omit ids to watch the WHOLE fleet — a list you forget to update goes blind to a lane nobody added. ignoreIds mutes known terminals (fail-open: a stale id costs nothing). ignoreSelf mutes the terminal this MCP server is running inside. Naming any of states/heldForMs/nagMs turns the subscription into an agent-state watch (snapshot · transition · nag) — nagMs may carry a cap after a slash ("60000/3"): three reminders past the first report, then quiet; a bare interval repeats forever. Naming none leaves the settle detector (asking · finished · gone). Re-open the SAME name after a restart to reattach to the queue — the snapshotted standing truth and the nag budget you left come with it.',
   handler: (args, client) => {
     const padi = client as PadiSurfaceClient;
     const asked = args as WatchOpenArgs;
