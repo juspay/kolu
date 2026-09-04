@@ -433,21 +433,16 @@ reads hands you a group and a handler record of different generations, which
   `RpcServer` — so an accept loop reading `runtime.group` / `runtime.handlers`
   inside its `onAccepted` closure serves the current roster.
 
-  [`serveSurfaceApp`](/surface/ref-surface-app) does the same: `group`,
-  `handlers` and `expose` may be values (the generation written at the call) or
-  thunks / getters, re-read at each accept, always as a pair, with
-  `restrictHandlers` memoized by generation identity. A socket accepted after a
-  mount is indistinguishable from one accepted on a boot that already had that
-  sibling. A connection accepted *before* the roster moved keeps the generation
-  it was built over until the client [redials](/surface/ref-surface-app#a-roster-change-is-a-redial--connredialsurfaces).
-
-  `serveOverUnixSocket` still snapshots the pair at bind. Handed a live runtime
-  it *half*-works, which is the worst shape: a **drop** still reaches it (the
-  refusing wrapper rides the captured record), while a **mount** after bind is
-  invisible to every connection it will ever accept, silently. Behind that
-  listener, serve a live bundle with `acceptSurfaceSocket` + `serveSurfaceSocket`
-  in your own accept closure — the seam kolu ships for exactly "the app picks
-  which runtime serves this socket".
+  [`serveSurfaceApp`](/surface/ref-surface-app) and `serveOverUnixSocket` take
+  the same [`ServedGenerationSource`](#per-face-expose-kolusurfaceexpose):
+  `{ group, handlers, expose? }` is the generation written at the call, and
+  `{ live: () => ({ group, handlers, expose? }) }` is re-read at each accept,
+  as a pair. A socket accepted after a mount is indistinguishable from one
+  accepted on a boot that already had that sibling. A connection accepted
+  *before* the roster moved keeps the generation it was built over until the
+  client [redials](/surface/ref-surface-app#a-roster-change-is-a-redial--connredialsurfaces).
+  The granular accept loop remains the seam for "the app picks *which* runtime
+  serves this socket" (drishti's per-host dispatch).
 </Aside>
 
 | | |
@@ -1093,6 +1088,7 @@ serve it.
 | `exposeFaces(surfaces, maps)` | the sibling-bundle twin: one map per sibling, keyed the way the bundle is, over the **standalone** sibling surfaces. A fold of `exposeFace`'s step over `composeSurfaceContracts` — the same composition `implementSurfaces` binds against, so the scoped tags the gate names and the ones the runtime serves come from one walk. A sibling with no map is fully denied; a map for a sibling that does not EXIST is an `ExposeMapError` |
 | `exposeRootedFaces(core, coreMap, siblings, siblingMaps)` | the **rooted-bundle** twin: an unprefixed root surface beside the sibling map, gated as ONE face. It exists so the two halves are never unioned by hand — a set union carries an unwritten precondition (it is sound only while the two groups are disjoint), and when they are not it keeps one copy of the shared tag, `restrictHandlers` still matches, and one member answers under the other's policy. The universe here is `mergeDisjointGroups` of the two halves, so disjointness is *established* by the same counted composition the serve path runs; and the root is refused unless it is **standalone**, the same law `connectSurfaces` states about its own `core`. It gates surfaces only — tags multiplexed on the wire that are not a surface (`connectSurfaces`' `extraGroups`) are not part of any `FaceExposure` and are gated, if at all, by whatever serves them |
 | `restrictHandlers(group, handlers, exposure?)` | apply it — the filter the two faces above call for you. **Total** over an absent exposure: no policy returns the handlers unchanged (the same record, not a copy), so the "omit `expose` = ungated" rule has one implementation. Also where the reserved members are granted, and where the handler record is proved to be exactly the group's |
+| `ServedGeneration` · `ServedGenerationSource` · `restrictServedGeneration(source)` | the triple a listener serves (`group`, `handlers`, `expose?`), and how it obtains it: `{ group, handlers }` at the call, or `{ live: () => triple }` re-read at each accept. Both `serveSurfaceApp` and `serveOverUnixSocket` take the source |
 | `SurfaceMemberNotExposed` · `ExposeMapError` | the per-request refusal, and every boot-time refusal this module raises — a map that names nothing on its surface, and an exposure that does not describe the group being served. `face` carries which door the consumer came through. `SurfaceMemberNotExposed` is matchable **server-side**; over the wire it arrives as an unstructured defect, so a client reads its message text |
 
 | Key | Grants |
@@ -1172,11 +1168,10 @@ never took effect.
   therefore builds the exposure *and* the restricted record from the current
   roster, per accepted connection.
 
-  [`serveSurfaceApp`](/surface/ref-surface-app) does that when `expose` is a
-  thunk or getter that rebuilds with the roster (the same `LiveServed` spelling
-  `group` and `handlers` take). `serveOverUnixSocket` still consumes `expose`
-  once at bind, so a live bundle behind that door has no seam to re-gate through
-  — serve it with `serveSurfaceSocket` in your own accept closure.
+  Both listener doors do that when passed
+  `{ live: () => ({ group, handlers, expose }) }` and the thunk rebuilds the
+  exposure from the current roster. A static `expose` next to a live pair is
+  the mismatch `restrictHandlers` refuses.
 </Aside>
 
 A member that must be **writable** on a gated face has no spelling today — a

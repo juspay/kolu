@@ -132,24 +132,6 @@
  *   `{ group, handlers }` pair and never the runtime's `close`/`done`: the
  *   runtime belongs to the composition root that built it, and a transport that
  *   also closed it would be two owners of one thing.
- *
- * ## The served set is read at each accept
- *
- * `group`, `handlers` and `expose` are {@link LiveServed}: a value is the
- * generation that was current when the option was written, and a thunk (or a
- * getter on the options object) is re-read at each accept. The per-connection
- * `serveSurfaceSocket` is built over that generation, so a runtime whose served
- * set MOVES (`implementRootedSurfaces`) is served the roster that is current
- * then — a socket accepted after a mount is indistinguishable from one accepted
- * on a boot that already had that sibling.
- *
- * A connection accepted BEFORE the roster moved keeps the generation it was
- * built over until the client redials. That is the honest half of Effect RPC:
- * an `RpcServer` is baked over a group at construction, and a drop still
- * reaches it (the refusing wrapper rides the captured record). The client's
- * redial is what brings a new accept. The pair is always read together, in one
- * synchronous turn, and `restrictHandlers` is memoized by generation identity
- * so an unchanged roster costs nothing per accept.
  * - **A port policy.** A bind failure is the typed {@link SurfaceAppListenFailed}
  *   and nothing else. An app that wants "if the port is taken, take any port"
  *   composes that itself (`Effect.catchIf` on the `EADDRINUSE` cause) — it is a
@@ -159,6 +141,24 @@
  *   `WebSocketServer`. There is no `server` handle to re-bind, and there is
  *   nothing to clean up by hand — the abandoned first listener never bound, and
  *   its finalizer is already on the scope.
+ *
+ * ## The served set is read at each accept
+ *
+ * The generation is {@link ServedGenerationSource} (`@kolu/surface/expose`):
+ * `{ group, handlers, expose? }` is the generation written at the call, and
+ * `{ live: () => ({ group, handlers, expose? }) }` is re-read at each accept,
+ * as a pair. The per-connection `serveSurfaceSocket` is built over that
+ * generation, so a runtime whose served set MOVES (`implementRootedSurfaces`)
+ * is served the roster that is current then — a socket accepted after a mount
+ * is indistinguishable from one accepted on a boot that already had that
+ * sibling.
+ *
+ * A connection accepted BEFORE the roster moved keeps the generation it was
+ * built over until the client redials. That is the honest half of Effect RPC:
+ * an `RpcServer` is baked over a group at construction, and a drop still
+ * reaches it (the refusing wrapper rides the captured record). The client's
+ * redial is what brings a new accept. `serveOverUnixSocket` takes the same
+ * source.
  */
 
 import {
@@ -172,9 +172,11 @@ import {
 } from "node:https";
 import type { AddressInfo, Server as NetServer } from "node:net";
 import { NodeHttpServer } from "@effect/platform-node";
-import { type FaceExposure, restrictHandlers } from "@kolu/surface/expose";
+import {
+  restrictServedGeneration,
+  type ServedGenerationSource,
+} from "@kolu/surface/expose";
 import { RPC_MAX_FRAME_BYTES } from "@kolu/surface/frame-limit";
-import type { SurfaceHandlers } from "@kolu/surface/server";
 import { gateWsOrigin } from "@kolu/surface/ws-origin";
 import { hostAuthority } from "@kolu/url-shape";
 import { Data, Effect, type FileSystem, Layer, type Path, Scope } from "effect";
@@ -184,7 +186,6 @@ import {
   type HttpServerRequest,
   type HttpServerResponse,
 } from "effect/unstable/http";
-import type { Rpc, RpcGroup } from "effect/unstable/rpc";
 import { WebSocketServer } from "ws";
 import { SURFACE_WS_PATH } from "./index";
 import { pickUpgradeHeaders } from "./pickUpgradeHeaders";
@@ -196,25 +197,6 @@ import {
   type SurfaceSocketServing,
   surfaceAppLayer,
 } from "./server";
-
-/** A served fact that may move between accepts.
- *
- *  A value is the generation that was current when the option was written —
- *  every later accept sees that same object. A thunk, or a getter on the
- *  options object, is re-read at each accept, so a runtime whose served set
- *  MOVES (`implementRootedSurfaces`) is served the generation that is current
- *  then. */
-export type LiveServed<T> = T | (() => T);
-
-/** Re-read a {@link LiveServed} option. Effect's `RpcGroup` is `typeof
- *  "function"` (a function-object with a `requests` table); calling it as a
- *  zero-arg function returns `undefined`, which is the silent "no group" that
- *  404s every member. A thunk is a bare function and has no `requests`. */
-const readLive = <T>(value: LiveServed<T>): T => {
-  if (typeof value !== "function") return value;
-  if ("requests" in value) return value as T;
-  return (value as () => T)();
-};
 
 /** The listener could not bind. The one failure `serveSurfaceApp` reports, and
  *  it carries the `cause` verbatim so a consumer can classify it (an
@@ -353,10 +335,16 @@ export type SurfaceAppEvent<H extends string = never> =
       readonly code: number;
       readonly reason: string;
     }
-  /** A socket that could not be served — a transport error, or a live
-   *  generation `restrictHandlers` refused (an expose that no longer describes
-   *  the served group). */
+  /** A transport error on an accepted socket. */
   | { readonly _tag: "SocketError"; readonly error: Error; readonly url: URL }
+  /** A live generation `restrictHandlers` refused — the expose no longer
+   *  describes the served group. Pre-enrolment, so it carries `url` rather
+   *  than a connection: there is nothing to count. */
+  | {
+      readonly _tag: "GenerationRefused";
+      readonly error: Error;
+      readonly url: URL;
+    }
   /** A tab bound to a PREVIOUS process, closed at the handshake. */
   | {
       readonly _tag: "StaleTab";
@@ -405,6 +393,12 @@ export const reportSurfaceAppEvent = (event: SurfaceAppEvent<string>): void => {
         event.error,
       );
       return;
+    case "GenerationRefused":
+      console.error(
+        `serveSurfaceApp: live generation refused on ${event.url.href}`,
+        event.error,
+      );
+      return;
     case "ServingFailed":
       console.error(
         `serveSurfaceApp: serving stack faulted for ${event.connection.url.href}`,
@@ -434,28 +428,15 @@ export type SurfaceAppHttpMiddleware = <E, R>(
   R | HttpServerRequest.HttpServerRequest
 >;
 
-/** Everything `serveSurfaceApp` needs. The required half is the app's identity —
- *  what is served on the wire, what is served over HTTP, and where. Every option
- *  below it is observational or a shell-freshness passthrough. */
-export interface ServeSurfaceAppOptions<Svc = never, H extends string = never>
-  extends SurfaceAppLayerOptions {
-  /** The served surface's flat `RpcGroup` — `runtime.group`. {@link LiveServed}:
-   *  a value is snapshotted; a thunk or getter is re-read at each accept. */
-  readonly group: LiveServed<RpcGroup.RpcGroup<Rpc.Any>>;
-  /** Every bound member handler keyed by wire tag — `runtime.handlers`.
-   *  {@link LiveServed}, and read as a PAIR with {@link group} in one
-   *  synchronous turn. */
-  readonly handlers: LiveServed<SurfaceHandlers>;
-  /** THIS face's default-deny allowlist — `exposeFace(surface, { … })` (or
-   *  `exposeFaces` for a sibling bundle, `exposeRootedFaces` for an unprefixed root
-   *  beside one). Omit and the websocket serves the
-   *  whole surface; declare one and every member it does not name is refused to
-   *  BROWSERS while a trusted face — the unix socket, the MCP adapter — may
-   *  still serve it. The rule, and which faces take one, live in
-   *  `@kolu/surface/expose`. {@link LiveServed}: a gated face over a live
-   *  bundle rebuilds the exposure with the roster, or `restrictHandlers`
-   *  refuses the generation that no longer matches. */
-  readonly expose?: LiveServed<FaceExposure | undefined>;
+/** Everything `serveSurfaceApp` needs besides the served generation. The
+ *  required half is the app's identity — what is served over HTTP, and where.
+ *  The generation is {@link ServedGenerationSource}, so `{ group, handlers }`
+ *  is today's call and `{ live: () => ({ group, handlers, expose? }) }` is
+ *  a live roster. */
+type ServeSurfaceAppShell<
+  Svc = never,
+  H extends string = never,
+> = SurfaceAppLayerOptions & {
   /** The app's OWN routes, merged alongside the shell — an MCP endpoint, a
    *  media route, anything answering with bytes the bundle does not hold.
    *  MERGED, not ordered: `HttpRouter` ranks by specificity, so a literal or
@@ -513,7 +494,16 @@ export interface ServeSurfaceAppOptions<Svc = never, H extends string = never>
   /** Narrate a listener event — connects, disconnects, and every fault, on ONE
    *  sink. Defaults to {@link reportSurfaceAppEvent}. */
   readonly onEvent?: (event: SurfaceAppEvent<H>) => void;
-}
+};
+
+/** Everything `serveSurfaceApp` needs: the shell, plus
+ *  {@link ServedGenerationSource} — `{ group, handlers, expose? }` snapshotted
+ *  at the call, or `{ live: () => ({ group, handlers, expose? }) }` re-read at
+ *  each accept. */
+export type ServeSurfaceAppOptions<
+  Svc = never,
+  H extends string = never,
+> = ServeSurfaceAppShell<Svc, H> & ServedGenerationSource;
 
 /**
  * Serve a surface app: the shell over HTTP, the surface over ONE websocket, in
@@ -532,41 +522,11 @@ export const serveSurfaceApp = <Svc = never, H extends string = never>(
     // so "what does this listener do when nobody is listening" has exactly one
     // answer and it is readable in one place.
     const report = options.onEvent ?? reportSurfaceAppEvent;
-    // THE PAIR, READ TOGETHER at each accept — see `SurfaceRuntimeHandle.group`.
-    // A value option is the generation that was current when it was written; a
-    // thunk or getter is re-read, so a live runtime is served the roster that
-    // is current then. `restrictHandlers` is memoized by the triple's identity
-    // so an unchanged generation is one pointer comparison per accept, not a
-    // walk of every tag.
-    type Generation = {
-      readonly group: RpcGroup.RpcGroup<Rpc.Any>;
-      readonly handlers: SurfaceHandlers;
-      readonly expose: FaceExposure | undefined;
-      readonly restricted: SurfaceHandlers;
-    };
-    let generation: Generation | undefined;
-    const servedAtAccept = (): {
-      readonly group: RpcGroup.RpcGroup<Rpc.Any>;
-      readonly handlers: SurfaceHandlers;
-    } => {
-      const group = readLive(options.group);
-      const handlers = readLive(options.handlers);
-      const exposeOpt = options.expose;
-      const expose = exposeOpt === undefined ? undefined : readLive(exposeOpt);
-      if (
-        generation !== undefined &&
-        generation.group === group &&
-        generation.handlers === handlers &&
-        generation.expose === expose
-      ) {
-        return { group, handlers: generation.restricted };
-      }
-      const restricted = restrictHandlers(group, handlers, expose);
-      generation = { group, handlers, expose, restricted };
-      return { group, handlers: restricted };
-    };
-    // The first generation is applied at bind so a mismatched exposure still
-    // fails before anyone connects, the way a static `expose` always has.
+    // One generation, one turn — `restrictServedGeneration` reads the source
+    // as a pair. Snapshot arm is the objects written at this call; live arm
+    // is re-read at each accept. Applied here so a static mismatch still
+    // fails before anyone connects.
+    const servedAtAccept = () => restrictServedGeneration(options);
     servedAtAccept();
     // The header allowlist, resolved once here for the same reason: a name no
     // header can match is a defect, and a defect belongs at the bind and not at
@@ -685,16 +645,13 @@ export const serveSurfaceApp = <Svc = never, H extends string = never>(
           // pair. The socket is terminated rather than left half-upgraded; the
           // error is reported rather than swallowed — existing connections
           // keep the generation they were accepted with.
-          let served: {
-            readonly group: RpcGroup.RpcGroup<Rpc.Any>;
-            readonly handlers: SurfaceHandlers;
-          };
+          let served: ReturnType<typeof restrictServedGeneration>;
           try {
             served = servedAtAccept();
           } catch (cause) {
             peer.terminate();
             report({
-              _tag: "SocketError",
+              _tag: "GenerationRefused",
               error: cause instanceof Error ? cause : new Error(String(cause)),
               url,
             });

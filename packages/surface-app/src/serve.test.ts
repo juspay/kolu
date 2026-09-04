@@ -24,7 +24,11 @@ import {
 } from "@kolu/surface/frame-limit";
 import { surfaceProcessId } from "@kolu/surface/identity";
 import { defineSurface } from "@kolu/surface/define";
-import { exposeFace } from "@kolu/surface/expose";
+import {
+  exposeFace,
+  exposeRootedFaces,
+  type ServedGenerationSource,
+} from "@kolu/surface/expose";
 import {
   implementRootedSurfaces,
   implementSurface,
@@ -316,27 +320,20 @@ describe("serveSurfaceApp — the whole listener in one call", () => {
     await socket.dispose();
   });
 
-  it("re-reads the served PAIR at each accept, together", async () => {
-    // `SurfaceRuntimeHandle`'s rule: read `group` and `handlers` as a PAIR, in
-    // one synchronous turn. This listener used to snapshot both at bind, so a
-    // getter over a live runtime was a trap: every later accept was served the
-    // generation that was current when the port bound. It now re-reads at each
-    // accept, and the two counts staying equal is the pair rule holding at the
-    // framework's own door rather than being the caller's to remember.
+  it("re-reads a live generation at each accept", async () => {
+    // The live arm is one thunk of the triple, so the pair rule holds at the
+    // options surface rather than being the caller's to remember. Bind applies
+    // the first generation so a mismatched expose still fails before anyone
+    // connects; each later accept re-runs the thunk.
     const dist = makeDist();
     const runtime = makeRuntime();
     const scope = Scope.makeUnsafe();
-    let groupReads = 0;
-    let handlerReads = 0;
+    let reads = 0;
     const bound = await Effect.runPromise(
       serveSurfaceApp({
-        get group() {
-          groupReads += 1;
-          return runtime.group;
-        },
-        get handlers() {
-          handlerReads += 1;
-          return runtime.handlers;
+        live: () => {
+          reads += 1;
+          return { group: runtime.group, handlers: runtime.handlers };
         },
         clientDist: dist.dir,
         host: "127.0.0.1",
@@ -347,10 +344,7 @@ describe("serveSurfaceApp — the whole listener in one call", () => {
     try {
       expect(bound._tag).toBe("Success");
       const url = bound._tag === "Success" ? bound.success : "";
-      // Bind applies the first generation so a mismatched expose still fails
-      // before anyone connects.
-      expect(groupReads).toBe(1);
-      expect(handlerReads).toBe(1);
+      expect(reads).toBe(1);
 
       const server: Booted = {
         url,
@@ -367,9 +361,7 @@ describe("serveSurfaceApp — the whole listener in one call", () => {
         ).toEqual({ length: 2 });
         await socket.dispose();
       }
-      // Two accepted connections later, each accept re-read the pair together.
-      expect(groupReads).toBe(3);
-      expect(handlerReads).toBe(groupReads);
+      expect(reads).toBe(3);
     } finally {
       await Effect.runPromise(Scope.close(scope, Exit.void));
       await runtime.close();
@@ -1130,26 +1122,17 @@ describe("serveSurfaceApp — the live generation", () => {
   }
 
   async function bootLive(
-    served: (
-      runtime: ReturnType<typeof rooted>,
-    ) => Pick<ServeSurfaceAppOptions, "group" | "handlers">,
+    source: (runtime: ReturnType<typeof rooted>) => ServedGenerationSource,
+    extra: { onEvent?: (event: SurfaceAppEvent) => void } = {},
   ) {
     const dist = makeDist();
     const runtime = rooted();
     const scope = Scope.makeUnsafe();
-    const pair = served(runtime);
-    // Forward through getters so a getter/thunk on `pair` is re-read at each
-    // accept rather than copied into a value at this call — object spread
-    // would evaluate them once, which is the snapshot the live tests exist
-    // to refuse.
+    const generation = source(runtime);
     const bound = await Effect.runPromise(
       serveSurfaceApp({
-        get group() {
-          return pair.group;
-        },
-        get handlers() {
-          return pair.handlers;
-        },
+        ...generation,
+        ...extra,
         clientDist: dist.dir,
         host: "127.0.0.1",
         port: 0,
@@ -1164,6 +1147,7 @@ describe("serveSurfaceApp — the live generation", () => {
     }
     return {
       runtime,
+      url: bound.success,
       wsUrl: surfaceWsUrl(bound.success),
       teardown: async () => {
         await Effect.runPromise(Scope.close(scope, Exit.void));
@@ -1186,19 +1170,17 @@ describe("serveSurfaceApp — the live generation", () => {
   }
 
   it("a socket accepted AFTER a mount is served the new sibling", async () => {
-    // The claim the whole change rests on, against a real listener: getters
-    // over a live runtime, a sibling arriving after bind, a socket accepted
-    // after that — the sibling's tag answers, with nobody having told the
-    // door. A connection accepted BEFORE the mount keeps the generation it
-    // was built over (the root still answers) and a later accept is the
-    // client's redial.
+    // The claim the whole change rests on, against a real listener: one live
+    // thunk over a rooted runtime, a sibling arriving after bind, a socket
+    // accepted after that — the sibling's tag answers, with nobody having
+    // told the door. A connection accepted BEFORE the mount keeps the
+    // generation it was built over (the root still answers) and a later
+    // accept is the client's redial.
     const server = await bootLive((runtime) => ({
-      get group() {
-        return runtime.group;
-      },
-      get handlers() {
-        return runtime.handlers;
-      },
+      live: () => ({
+        group: runtime.group,
+        handlers: runtime.handlers,
+      }),
     }));
     try {
       const before = await dialAt(server.wsUrl, server.runtime.group);
@@ -1228,29 +1210,10 @@ describe("serveSurfaceApp — the live generation", () => {
     }
   });
 
-  it("a thunk is the same live read a getter is", async () => {
-    const server = await bootLive((runtime) => ({
-      group: () => runtime.group,
-      handlers: () => runtime.handlers,
-    }));
-    try {
-      server.runtime.mount("kolu", pluginSurface, pluginDeps());
-      const socket = await dialAt(server.wsUrl, server.runtime.group);
-      await expect(
-        Effect.runPromise(
-          socket.link.dispatch.unary("surface/kolu/plugin/ping", {}),
-        ),
-      ).resolves.toBe("plugin");
-      await socket.dispose();
-    } finally {
-      await server.teardown();
-    }
-  });
-
   it("a value option keeps the generation written at the call", async () => {
     // Kolu's own listener passes values. Those must keep meaning "this
     // object", not silently become live reads of a mutated binding — a
-    // getter or a thunk is how a live runtime opts in.
+    // `live` thunk is how a live runtime opts in.
     const server = await bootLive((runtime) => ({
       group: runtime.group,
       handlers: runtime.handlers,
@@ -1265,6 +1228,82 @@ describe("serveSurfaceApp — the live generation", () => {
         Effect.exit(socket.link.dispatch.unary("surface/kolu/plugin/ping", {})),
       );
       expect(Exit.isFailure(exit)).toBe(true);
+      await socket.dispose();
+    } finally {
+      await server.teardown();
+    }
+  });
+
+  it("a stale expose after mount refuses that accept and leaves the listener up", async () => {
+    const events: SurfaceAppEvent[] = [];
+    const server = await bootLive(
+      (runtime) => ({
+        live: () => ({
+          group: runtime.group,
+          handlers: runtime.handlers,
+          expose: exposeRootedFaces(
+            coreSurface,
+            { "core.ping": "tool" },
+            {},
+            {},
+          ),
+        }),
+      }),
+      { onEvent: (event) => events.push(event) },
+    );
+    try {
+      const before = await dialAt(server.wsUrl, server.runtime.group);
+      await expect(
+        Effect.runPromise(before.link.dispatch.unary("surface/core/ping", {})),
+      ).resolves.toBe("pong");
+
+      server.runtime.mount("kolu", pluginSurface, pluginDeps());
+      void dialAt(server.wsUrl, server.runtime.group);
+      await vi.waitFor(() =>
+        expect(events.some((event) => event._tag === "GenerationRefused")).toBe(
+          true,
+        ),
+      );
+      const refused = events.find(
+        (event) => event._tag === "GenerationRefused",
+      );
+      expect(
+        refused?._tag === "GenerationRefused" ? refused.error.message : "",
+      ).toMatch(/built from a different surface/);
+
+      await expect(
+        Effect.runPromise(before.link.dispatch.unary("surface/core/ping", {})),
+      ).resolves.toBe("pong");
+      expect((await fetch(`${server.url}/`)).status).toBe(200);
+      await before.dispose();
+    } finally {
+      await server.teardown();
+    }
+  });
+
+  it("a live expose rebuilt with the roster serves the new sibling", async () => {
+    const server = await bootLive((runtime) => ({
+      live: () => ({
+        group: runtime.group,
+        handlers: runtime.handlers,
+        expose: runtime.roster.includes("kolu")
+          ? exposeRootedFaces(
+              coreSurface,
+              { "core.ping": "tool" },
+              { kolu: pluginSurface },
+              { kolu: { "plugin.ping": "tool" } },
+            )
+          : exposeRootedFaces(coreSurface, { "core.ping": "tool" }, {}, {}),
+      }),
+    }));
+    try {
+      server.runtime.mount("kolu", pluginSurface, pluginDeps());
+      const socket = await dialAt(server.wsUrl, server.runtime.group);
+      await expect(
+        Effect.runPromise(
+          socket.link.dispatch.unary("surface/kolu/plugin/ping", {}),
+        ),
+      ).resolves.toBe("plugin");
       await socket.dispose();
     } finally {
       await server.teardown();

@@ -3938,23 +3938,17 @@ export type MountSurfaceOptions = ImplementSurfaceOptions;
  *  inside its `onAccepted` closure serves the current roster without being told
  *  the roster moved.
  *
- *  `serveSurfaceApp` does the same, now: `group`, `handlers` and `expose` take
- *  a value (the generation written at the call) or a thunk / getter, re-read
- *  at each accept, the pair always together, `restrictHandlers` memoized by
- *  generation identity. A socket accepted after a mount is indistinguishable
- *  from one accepted on a boot that already had that sibling. A connection
- *  accepted BEFORE the roster moved keeps the generation it was built over
- *  until the client redials (a drop still reaches it: the refusing wrapper
- *  rides the captured record).
- *
- *  `serveOverUnixSocket` still snapshots the pair TOGETHER — and runs
- *  `restrictHandlers` — ONCE, at bind. Handed a live runtime it half-works,
- *  which is the worst shape: a DROP still reaches it (the refusing wrapper
- *  rides the captured record), while a MOUNT after bind is invisible to every
- *  connection it will ever accept, silently. A live bundle behind that
- *  listener is served by `acceptSurfaceSocket` + `serveSurfaceSocket` in the
- *  app's own accept closure, which is exactly the seam kolu ships for "the
- *  app picks WHICH runtime serves this socket".
+ *  `serveSurfaceApp` and `serveOverUnixSocket` take the same
+ *  {@link https://kolu.dev/surface/ref-surface#per-face-expose-kolusurfaceexpose | `ServedGenerationSource`}:
+ *  `{ group, handlers, expose? }` is the generation written at the call, and
+ *  `{ live: () => ({ group, handlers, expose? }) }` is re-read at each accept,
+ *  as a pair. A socket accepted after a mount is indistinguishable from one
+ *  accepted on a boot that already had that sibling. A connection accepted
+ *  BEFORE the roster moved keeps the generation it was built over until the
+ *  client redials (a drop still reaches it: the refusing wrapper rides the
+ *  captured record). The granular `acceptSurfaceSocket` + `serveSurfaceSocket`
+ *  loop remains the seam for "the app picks WHICH runtime serves this socket"
+ *  (drishti's per-host dispatch).
  *
  *  ## How a client learns the roster moved — THE APP'S JOB, FOR NOW
  *
