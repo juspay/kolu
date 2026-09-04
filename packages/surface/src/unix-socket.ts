@@ -27,7 +27,10 @@ import { Effect, Exit, Layer, Scope } from "effect";
 import { SocketServer } from "effect/unstable/socket";
 import type { Rpc, RpcGroup } from "effect/unstable/rpc";
 import { RpcServer } from "effect/unstable/rpc";
-import { type FaceExposure, restrictHandlers } from "./expose";
+import {
+  restrictServedGeneration,
+  type ServedGenerationSource,
+} from "./expose";
 import { rpcSerializationLayer } from "./frameLimit";
 import { type SurfaceHandlers, surfaceRpcServerLayer } from "./server";
 
@@ -310,27 +313,23 @@ function servingLayer(
  *  took, a dir we don't own) which the caller is expected to survive, whereas a
  *  mismatched exposure is the author's own mistake and there is no listener
  *  worth having on the far side of it. Degrading it to a no-op would hide a
- *  security gate that never took effect. */
-export async function serveOverUnixSocket(opts: {
-  socketPath: string;
-  /** The served surface's flat `RpcGroup` — `runtime.group`. */
-  group: RpcGroup.RpcGroup<Rpc.Any>;
-  /** Every bound member handler keyed by wire tag — `runtime.handlers`. */
-  handlers: SurfaceHandlers;
-  /** THIS face's default-deny allowlist — `exposeFace(surface, { … })` (or
-   *  `exposeFaces` for a sibling bundle, `exposeRootedFaces` for an unprefixed root
-   *  beside one). Omit and the socket serves the whole
-   *  surface. The rule, and which faces take one, live in
-   *  `@kolu/surface/expose`. */
-  expose?: FaceExposure;
-  /** Where this listener's own lifetime is narrated (bound / post-listen fault /
-   *  closed). REQUIRED — see the seam's note at the top of this module. */
-  log: Logger;
-}): Promise<UnixSocketListener> {
-  const { socketPath, group, log } = opts;
+ *  security gate that never took effect. Applied at bind for the first
+ *  generation; a later live generation that no longer matches closes that
+ *  peer and logs, and does not take the listener down. */
+export async function serveOverUnixSocket(
+  opts: {
+    socketPath: string;
+    /** Where this listener's own lifetime is narrated (bound / post-listen fault /
+     *  closed). REQUIRED — see the seam's note at the top of this module. */
+    log: Logger;
+  } & ServedGenerationSource,
+): Promise<UnixSocketListener> {
+  const { socketPath, log } = opts;
   // This face's gate, before anything binds — unconditionally, because
-  // `restrictHandlers` owns what an absent policy means (`./expose`).
-  const handlers = restrictHandlers(group, opts.handlers, opts.expose);
+  // `restrictHandlers` owns what an absent policy means (`./expose`). The
+  // first generation is applied here so a static mismatch still fails
+  // before anyone connects; a `live` thunk is re-read per accept below.
+  restrictServedGeneration(opts);
   const refused = (outcome: UnixSocketServeOutcome): UnixSocketListener => ({
     socketPath,
     outcome,
@@ -404,9 +403,26 @@ export async function serveOverUnixSocket(opts: {
       // `server.close()` does not complete until every established connection
       // has ended — so tearing the listener down while a peer is connected
       // DEADLOCKS the scope close, and nothing ever destroys the peer.
+      let served: ReturnType<typeof restrictServedGeneration>;
+      try {
+        served = restrictServedGeneration(opts);
+      } catch (cause) {
+        // A live generation whose expose no longer describes the group is an
+        // author defect, not a transport outcome. This peer is refused; the
+        // listener and every already-open connection keep the generation they
+        // were accepted with.
+        log.error(
+          { socketPath, err: cause },
+          "unix-socket live generation refused",
+        );
+        release();
+        return;
+      }
       void Effect.runPromise(
         Scope.provide(
-          Layer.build(servingLayer(group, handlers, socket, socketPath)),
+          Layer.build(
+            servingLayer(served.group, served.handlers, socket, socketPath),
+          ),
           scope,
         ),
       ).catch(() => {

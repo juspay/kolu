@@ -1160,6 +1160,9 @@ export async function bootKoluWeb(flags: KoluBootFlags): Promise<void> {
           case "SocketError":
             log.error({ err: event.error }, "ws error");
             return;
+          case "GenerationRefused":
+            log.error({ err: event.error }, "ws live generation refused");
+            return;
           case "StaleTab":
             log.info(
               { claimedPid: event.claimedPid, serverProcessId },

@@ -3936,28 +3936,19 @@ export type MountSurfaceOptions = ImplementSurfaceOptions;
  *  takes the pair PER ACCEPTED CONNECTION (each socket builds its own
  *  `RpcServer`), so an accept loop that reads `runtime.group`/`runtime.handlers`
  *  inside its `onAccepted` closure serves the current roster without being told
- *  the roster moved. That is the door a live bundle is served through.
+ *  the roster moved.
  *
- *  The two LISTENER doors do NOT: `serveSurfaceApp` and `serveOverUnixSocket`
- *  both snapshot the pair TOGETHER — and run `restrictHandlers` — ONCE, at bind,
- *  and serve every connection over that snapshot. (`serveSurfaceApp` used to
- *  cache the handlers at bind and re-read `options.group` per accepted upgrade,
- *  which is the mismatched-generation failure the pair rule exists to prevent,
- *  produced by a listener rather than by consumer error.) Handed a live runtime
- *  they half-work,
- *  which is the worst shape: a DROP still reaches them (the refusing wrapper
- *  rides the captured record), while a MOUNT after bind is invisible to every
- *  connection they will ever accept, silently — the new sibling's tags are simply
- *  not in the `RpcGroup` its `RpcServer` was built over. So a live bundle behind
- *  one of those listeners is served by `acceptSurfaceSocket` + `serveSurfaceSocket`
- *  in the app's own accept closure, which is exactly the seam kolu ships for "the
- *  app picks WHICH runtime serves this socket".
- *
- *  A `runtime` slot on the two listeners — re-reading the pair and re-deriving
- *  the face's `FaceExposure` per accepted connection — is the receptacle this
- *  creates a population of one for. It is NAMED here rather than built: it
- *  changes the option shape of a listener every consumer binds, which is a wider
- *  blast radius than the door this PR is.
+ *  `serveSurfaceApp` and `serveOverUnixSocket` take the same
+ *  {@link https://kolu.dev/surface/ref-surface#per-face-expose-kolusurfaceexpose | `ServedGenerationSource`}:
+ *  `{ group, handlers, expose? }` is the generation written at the call, and
+ *  `{ live: () => ({ group, handlers, expose? }) }` is re-read at each accept,
+ *  as a pair. A socket accepted after a mount is indistinguishable from one
+ *  accepted on a boot that already had that sibling. A connection accepted
+ *  BEFORE the roster moved keeps the generation it was built over until the
+ *  client redials (a drop still reaches it: the refusing wrapper rides the
+ *  captured record). The granular `acceptSurfaceSocket` + `serveSurfaceSocket`
+ *  loop remains the seam for "the app picks WHICH runtime serves this socket"
+ *  (drishti's per-host dispatch).
  *
  *  ## How a client learns the roster moved — THE APP'S JOB, FOR NOW
  *

@@ -79,14 +79,18 @@
  * ## Which faces take one — THE authority on this rule
  *
  * `serveSurfaceApp` (`@kolu/surface-app/serve`) and `serveOverUnixSocket`
- * (`@kolu/surface/unix-socket`) take `expose` directly, and apply it once at
- * bind. A HAND-BUILT serve path — `serveSurfaceSocket` under drishti's per-host
- * dispatch, `serveOverStdio` — restricts its own handlers with
- * {@link restrictHandlers} and serves the result; there is nothing else to it,
- * and that is why the filter is exported. Nothing enforces this split, so it is
- * stated HERE and only here: every other home for it (those faces' docblocks,
- * the reference page, the skill) points back rather than restating, because
- * four independently-worded copies of one rule are four places it can go stale.
+ * (`@kolu/surface/unix-socket`) take the generation through
+ * {@link ServedGenerationSource}: `{ group, handlers, expose? }` is the
+ * generation written at the call; `{ live: () => ({ group, handlers, expose? }) }`
+ * is re-read at each accept, as a pair, and `restrictHandlers` runs on that
+ * generation. A HAND-BUILT serve path — `serveSurfaceSocket` under drishti's
+ * per-host dispatch, `serveOverStdio` — restricts its own handlers with
+ * {@link restrictHandlers} and serves the result; there is nothing else to
+ * it, and that is why the filter is exported. Nothing enforces this split, so
+ * it is stated HERE and only here: every other home for it (those faces'
+ * docblocks, the reference page, the skill) points back rather than restating,
+ * because four independently-worded copies of one rule are four places it can
+ * go stale.
  *
  * The two PROJECTING faces take the MAP itself, not a {@link FaceExposure}: a
  * tag set is lossy for them, since each needs the member kind and `mutates` to
@@ -740,17 +744,55 @@ function refuse(tag: string, streaming: boolean): SurfaceHandler {
   return refusingHandler(streaming, () => refusal);
 }
 
+/** The triple a listener serves: the pair plus this face's gate.
+ *
+ *  One generation, one turn. A live roster (`implementRootedSurfaces`)
+ *  replaces this as a whole; a listener that read `group`, `handlers` and
+ *  `expose` as three independently-timed options could mix generations. */
+export type ServedGeneration = {
+  readonly group: RpcGroup.RpcGroup<Rpc.Any>;
+  readonly handlers: SurfaceHandlers;
+  readonly expose?: FaceExposure;
+};
+
+/** How a listener obtains {@link ServedGeneration}. The snapshot arm is
+ *  today's call (`{ group, handlers, expose? }`). The live arm is one thunk
+ *  of that triple, so mixed liveness is unspellable and Effect's
+ *  function-object `RpcGroup` is never mistaken for a thunk. */
+export type ServedGenerationSource =
+  | (ServedGeneration & { readonly live?: never })
+  | { readonly live: () => ServedGeneration };
+
+/** Read the generation a {@link ServedGenerationSource} names, in one
+ *  synchronous turn. */
+export function readServedGeneration(
+  source: ServedGenerationSource,
+): ServedGeneration {
+  return source.live !== undefined ? source.live() : source;
+}
+
+/** Apply this face's gate to the generation a source names. The two listener
+ *  doors call this at bind (so a static mismatch still fails before anyone
+ *  connects) and again at each accept. */
+export function restrictServedGeneration(source: ServedGenerationSource): {
+  readonly group: RpcGroup.RpcGroup<Rpc.Any>;
+  readonly handlers: SurfaceHandlers;
+} {
+  const { group, handlers, expose } = readServedGeneration(source);
+  return { group, handlers: restrictHandlers(group, handlers, expose) };
+}
+
 /** Apply one face's {@link FaceExposure} to a served surface's handlers,
  *  returning the record that face should serve: every exposed member's real
  *  handler, and a refusing handler at every other tag.
  *
  *  TOTAL over "no declared policy": an `undefined` exposure returns `handlers`
  *  unchanged, so the "omit `expose` and the face serves the whole surface" rule
- *  has ONE implementation and a face cannot get the default wrong. It applies
- *  ONCE, at bind, not per connection — the allowlist is a property of the
- *  LISTENER (of who can reach it), so every connection serves the identical
- *  record and a mismatched exposure crashes at construction rather than behind
- *  whoever connects first.
+ *  has ONE implementation and a face cannot get the default wrong. The two
+ *  listener doors call it through {@link restrictServedGeneration} per
+ *  accepted generation (and once at bind). A mismatched exposure crashes
+ *  rather than gating silently, which is the failure a default-deny gate is
+ *  uniquely good at hiding.
  *
  *  The two wire faces call this for you (`serveSurfaceApp`,
  *  `serveOverUnixSocket`); a hand-built serve path calls it itself and serves
