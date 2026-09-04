@@ -26,8 +26,8 @@ both, and a browser-only consumer of `./solid` never pulls them in.
 
 ```ts
 const url = yield* serveSurfaceApp({
-  group: runtime.group,
-  handlers: runtime.handlers,
+  group: () => runtime.group,       // or a value — a value is the generation at the call
+  handlers: () => runtime.handlers, // read as a pair, at each accept
   clientDist, // omit in dev — no bundle means no static route, never a fake one
   manifest: { name: "my app" },
   routes: myOwnRoutes, // merged alongside the shell — an MCP route, media, …
@@ -47,6 +47,17 @@ gave), and fails with the typed `SurfaceAppListenFailed`, which carries the
 rather than matching a message string. The surface runtime's own lifetime is
 **not** owned here: pass `{ group, handlers }` and keep `close`/`done` at the
 composition root that built them.
+
+`group`, `handlers` and `expose` are `LiveServed<T>` — a value **or** a thunk
+(a getter on the options object is the same live read). A value is the
+generation that was current when the option was written; a thunk is re-read at
+each accept, always as a pair, and `restrictHandlers` is memoized by generation
+identity so an unchanged roster costs nothing. A socket accepted after a
+[`implementRootedSurfaces`](/surface/ref-surface#a-rooted-bundle-whose-siblings-move--implementrootedsurfaces)
+mount is therefore indistinguishable from one accepted on a boot that already
+had that sibling. A connection accepted *before* the roster moved keeps the
+generation it was built over until the client [redials](#a-roster-change-is-a-redial--connredialsurfaces).
+Existing callers that pass values do not change.
 
 `clientDist` is optional, and its absence is the **dev** shape: no bundle means
 no static route at all — an unmatched path 404s through the router — while the
@@ -176,7 +187,8 @@ An array reaching this seam is that same defect and is refused, not joined.
 
 | Export | Subpath | Role |
 | --- | --- | --- |
-| `serveSurfaceApp(opts)` | `/serve` | the whole listener — shell, socket, gates, heartbeat, bind, teardown |
+| `serveSurfaceApp(opts)` | `/serve` | the whole listener — shell, socket, gates, heartbeat, bind, teardown. `group` / `handlers` / `expose` are `LiveServed` |
+| `LiveServed<T>` | `/serve` | `T \| (() => T)` — a value is the generation at the call; a thunk is re-read at each accept |
 | `SurfaceAppListenFailed` | `/serve` | the one failure it reports, `cause` intact |
 | `SurfaceAppConnection` | `/serve` | one accepted connection's `{ id, url, remoteAddress, headers }` — what a per-connection `services` layer is built from |
 | `SurfaceAppEvent` | `/serve` | the tagged union `onEvent` narrates |
@@ -193,7 +205,7 @@ consumer has exactly one logger:
 | --- | --- | --- |
 | `Connected` | `connection` | silent — the accept a live-connection count increments on |
 | `Disconnected` | `connection`, `code`, `reason` | silent — the same connection hung up, with the close frame's own account of why |
-| `SocketError` | `error`, `url` | loud `console.error` |
+| `SocketError` | `error`, `url` | loud `console.error` — a transport error, or a live generation `restrictHandlers` refused |
 | `StaleTab` | `claimedPid`, `url` | silent — a server that restarted while a tab was open is ordinary, not a fault |
 | `DisallowedOrigin` | `origin`, `url` | loud `console.warn` — a blocked hijack nobody can see is the one thing a shared gate must not ship |
 | `ServingFailed` | `cause`, `connection` | loud `console.error` — `done` MUST be observed |
@@ -556,9 +568,10 @@ would dial a third wire while the caller still believes it holds one.
 The serve side's half of the same contract is
 [`implementRootedSurfaces`](/surface/ref-surface#a-rooted-bundle-whose-siblings-move--implementrootedsurfaces),
 which *is* live — a server's siblings own stores, channels and running sources
-that must survive a roster change, and `serveSurfaceSocket` reads the group and
-handlers per accepted connection. (The two *listener* doors snapshot at bind; see
-the caution on that page.) The asymmetry is the honest one, not an oversight.
+that must survive a roster change. `serveSurfaceApp` and `serveSurfaceSocket`
+both read the group and handlers per accepted connection; `serveOverUnixSocket`
+still snapshots at bind (see the caution on that page). The remaining
+asymmetry is the honest one, not an oversight.
 
 <Snippet src="packages/surface/example/snippets/consume-solid.ts" region="connect" />
 

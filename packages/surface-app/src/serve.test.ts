@@ -25,7 +25,11 @@ import {
 import { surfaceProcessId } from "@kolu/surface/identity";
 import { defineSurface } from "@kolu/surface/define";
 import { exposeFace } from "@kolu/surface/expose";
-import { implementSurface } from "@kolu/surface/server";
+import {
+  implementRootedSurfaces,
+  implementSurface,
+  inMemoryStore,
+} from "@kolu/surface/server";
 import { Cause, Context, Effect, Exit, Layer, Schema, Scope } from "effect";
 import {
   HttpRouter,
@@ -312,27 +316,28 @@ describe("serveSurfaceApp — the whole listener in one call", () => {
     await socket.dispose();
   });
 
-  it("snapshots the served PAIR at bind — one generation for the listener's whole life", async () => {
+  it("re-reads the served PAIR at each accept, together", async () => {
     // `SurfaceRuntimeHandle`'s rule: read `group` and `handlers` as a PAIR, in
-    // one synchronous turn. This listener binds ONE generation, so it must take
-    // both at bind. It used to cache the handlers at bind and re-read
-    // `options.group` on every accepted upgrade — which, for a caller whose
-    // `group` is an accessor over a live runtime (nothing in the type forbids
-    // it, and "the pair is a live read" is the first thing that invites it),
-    // serves the CURRENT group beside the PREVIOUS generation's restricted
-    // handler record: the mismatched-generation failure the pair rule exists to
-    // prevent, produced by the framework's own door.
+    // one synchronous turn. This listener used to snapshot both at bind, so a
+    // getter over a live runtime was a trap: every later accept was served the
+    // generation that was current when the port bound. It now re-reads at each
+    // accept, and the two counts staying equal is the pair rule holding at the
+    // framework's own door rather than being the caller's to remember.
     const dist = makeDist();
     const runtime = makeRuntime();
     const scope = Scope.makeUnsafe();
     let groupReads = 0;
+    let handlerReads = 0;
     const bound = await Effect.runPromise(
       serveSurfaceApp({
         get group() {
           groupReads += 1;
           return runtime.group;
         },
-        handlers: runtime.handlers,
+        get handlers() {
+          handlerReads += 1;
+          return runtime.handlers;
+        },
         clientDist: dist.dir,
         host: "127.0.0.1",
         port: 0,
@@ -342,7 +347,10 @@ describe("serveSurfaceApp — the whole listener in one call", () => {
     try {
       expect(bound._tag).toBe("Success");
       const url = bound._tag === "Success" ? bound.success : "";
+      // Bind applies the first generation so a mismatched expose still fails
+      // before anyone connects.
       expect(groupReads).toBe(1);
+      expect(handlerReads).toBe(1);
 
       const server: Booted = {
         url,
@@ -359,9 +367,9 @@ describe("serveSurfaceApp — the whole listener in one call", () => {
         ).toEqual({ length: 2 });
         await socket.dispose();
       }
-      // Two accepted connections later, the pair is still the one snapshotted
-      // beside the handlers at bind.
-      expect(groupReads).toBe(1);
+      // Two accepted connections later, each accept re-read the pair together.
+      expect(groupReads).toBe(3);
+      expect(handlerReads).toBe(groupReads);
     } finally {
       await Effect.runPromise(Scope.close(scope, Exit.void));
       await runtime.close();
@@ -1090,5 +1098,176 @@ describe("serveSurfaceApp — this face's expose", () => {
       Effect.runPromise(socket.link.dispatch.unary("surface/system/live", {})),
     ).resolves.toEqual({});
     await socket.dispose();
+  });
+});
+
+describe("serveSurfaceApp — the live generation", () => {
+  const coreSurface = defineSurface({
+    cells: { errors: { schema: Schema.String, default: "" } },
+    procedures: {
+      core: {
+        ping: { input: Schema.Struct({}), output: Schema.String },
+      },
+    },
+  });
+  const pluginSurface = defineSurface({
+    procedures: {
+      plugin: {
+        ping: { input: Schema.Struct({}), output: Schema.String },
+      },
+    },
+  });
+  const coreDeps = () => ({
+    cells: { errors: { store: inMemoryStore("") } },
+    procedures: { core: { ping: () => Effect.succeed("pong") } },
+  });
+  const pluginDeps = () => ({
+    procedures: { plugin: { ping: () => Effect.succeed("plugin") } },
+  });
+
+  function rooted() {
+    return implementRootedSurfaces(coreSurface, {}, coreDeps());
+  }
+
+  async function bootLive(
+    served: (
+      runtime: ReturnType<typeof rooted>,
+    ) => Pick<ServeSurfaceAppOptions, "group" | "handlers">,
+  ) {
+    const dist = makeDist();
+    const runtime = rooted();
+    const scope = Scope.makeUnsafe();
+    const pair = served(runtime);
+    // Forward through getters so a getter/thunk on `pair` is re-read at each
+    // accept rather than copied into a value at this call — object spread
+    // would evaluate them once, which is the snapshot the live tests exist
+    // to refuse.
+    const bound = await Effect.runPromise(
+      serveSurfaceApp({
+        get group() {
+          return pair.group;
+        },
+        get handlers() {
+          return pair.handlers;
+        },
+        clientDist: dist.dir,
+        host: "127.0.0.1",
+        port: 0,
+        allowedOrigins: [],
+      }).pipe(Scope.provide(scope), Effect.result),
+    );
+    if (bound._tag === "Failure") {
+      await Effect.runPromise(Scope.close(scope, Exit.void));
+      await runtime.close();
+      dist.cleanup();
+      throw bound.failure;
+    }
+    return {
+      runtime,
+      wsUrl: surfaceWsUrl(bound.success),
+      teardown: async () => {
+        await Effect.runPromise(Scope.close(scope, Exit.void));
+        await runtime.close();
+        dist.cleanup();
+      },
+    };
+  }
+
+  async function dialAt(
+    wsUrl: string,
+    group: Parameters<typeof createSurfaceSocket>[0]["group"],
+  ) {
+    return createSurfaceSocket({
+      group,
+      url: wsUrl,
+      retired: () => {},
+      connect: (target) => new WsClient(target) as unknown as WebSocket,
+    });
+  }
+
+  it("a socket accepted AFTER a mount is served the new sibling", async () => {
+    // The claim the whole change rests on, against a real listener: getters
+    // over a live runtime, a sibling arriving after bind, a socket accepted
+    // after that — the sibling's tag answers, with nobody having told the
+    // door. A connection accepted BEFORE the mount keeps the generation it
+    // was built over (the root still answers) and a later accept is the
+    // client's redial.
+    const server = await bootLive((runtime) => ({
+      get group() {
+        return runtime.group;
+      },
+      get handlers() {
+        return runtime.handlers;
+      },
+    }));
+    try {
+      const before = await dialAt(server.wsUrl, server.runtime.group);
+      await expect(
+        Effect.runPromise(before.link.dispatch.unary("surface/core/ping", {})),
+      ).resolves.toBe("pong");
+
+      server.runtime.mount("kolu", pluginSurface, pluginDeps());
+
+      await expect(
+        Effect.runPromise(before.link.dispatch.unary("surface/core/ping", {})),
+      ).resolves.toBe("pong");
+
+      const after = await dialAt(server.wsUrl, server.runtime.group);
+      await expect(
+        Effect.runPromise(after.link.dispatch.unary("surface/core/ping", {})),
+      ).resolves.toBe("pong");
+      await expect(
+        Effect.runPromise(
+          after.link.dispatch.unary("surface/kolu/plugin/ping", {}),
+        ),
+      ).resolves.toBe("plugin");
+      await before.dispose();
+      await after.dispose();
+    } finally {
+      await server.teardown();
+    }
+  });
+
+  it("a thunk is the same live read a getter is", async () => {
+    const server = await bootLive((runtime) => ({
+      group: () => runtime.group,
+      handlers: () => runtime.handlers,
+    }));
+    try {
+      server.runtime.mount("kolu", pluginSurface, pluginDeps());
+      const socket = await dialAt(server.wsUrl, server.runtime.group);
+      await expect(
+        Effect.runPromise(
+          socket.link.dispatch.unary("surface/kolu/plugin/ping", {}),
+        ),
+      ).resolves.toBe("plugin");
+      await socket.dispose();
+    } finally {
+      await server.teardown();
+    }
+  });
+
+  it("a value option keeps the generation written at the call", async () => {
+    // Kolu's own listener passes values. Those must keep meaning "this
+    // object", not silently become live reads of a mutated binding — a
+    // getter or a thunk is how a live runtime opts in.
+    const server = await bootLive((runtime) => ({
+      group: runtime.group,
+      handlers: runtime.handlers,
+    }));
+    try {
+      server.runtime.mount("kolu", pluginSurface, pluginDeps());
+      const socket = await dialAt(server.wsUrl, server.runtime.group);
+      await expect(
+        Effect.runPromise(socket.link.dispatch.unary("surface/core/ping", {})),
+      ).resolves.toBe("pong");
+      const exit = await Effect.runPromise(
+        Effect.exit(socket.link.dispatch.unary("surface/kolu/plugin/ping", {})),
+      );
+      expect(Exit.isFailure(exit)).toBe(true);
+      await socket.dispose();
+    } finally {
+      await server.teardown();
+    }
   });
 });

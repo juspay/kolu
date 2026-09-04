@@ -15,7 +15,8 @@ layers, the bind, and a teardown registered on the enclosing scope:
 import { serveSurfaceApp } from "@kolu/surface-app/serve";
 
 // `{ group, handlers }` is what `implementSurface` returned; the runtime's own
-// close/done stay with the composition root that built it.
+// close/done stay with the composition root that built it. Pass a thunk
+// (`() => runtime.group`) when the served set moves while the listener is up.
 const url = yield* serveSurfaceApp({
   group, handlers, clientDist, host, port, allowedOrigins,
   upgradeHeaders: ["Tailscale-User-Login"], // an ALLOWLIST — empty by default

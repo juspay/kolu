@@ -431,19 +431,23 @@ reads hands you a group and a handler record of different generations, which
   [`serveSurfaceSocket`](/surface/ref-surface-app#accepting-a-browser-socket)
   takes the pair **per accepted connection** — each socket builds its own
   `RpcServer` — so an accept loop reading `runtime.group` / `runtime.handlers`
-  inside its `onAccepted` closure serves the current roster. That is the door a
-  live bundle is served through.
+  inside its `onAccepted` closure serves the current roster.
 
-  The two **listener** doors do not. `serveSurfaceApp` and `serveOverUnixSocket`
-  resolve the pair — and run `restrictHandlers` — once, at bind, and serve every
-  connection over that snapshot. Handed a live runtime they *half*-work, which is
-  the worst shape: a **drop** still reaches them (the refusing wrapper rides the
-  captured record), while a **mount** after bind is invisible to every connection
-  they will ever accept, silently. Behind one of those listeners, serve a live
-  bundle with `acceptSurfaceSocket` + `serveSurfaceSocket` in your own accept
-  closure — the seam kolu ships for exactly "the app picks which runtime serves
-  this socket". A `runtime` slot on the two listeners is a named deferral, not a
-  shipped feature.
+  [`serveSurfaceApp`](/surface/ref-surface-app) does the same: `group`,
+  `handlers` and `expose` may be values (the generation written at the call) or
+  thunks / getters, re-read at each accept, always as a pair, with
+  `restrictHandlers` memoized by generation identity. A socket accepted after a
+  mount is indistinguishable from one accepted on a boot that already had that
+  sibling. A connection accepted *before* the roster moved keeps the generation
+  it was built over until the client [redials](/surface/ref-surface-app#a-roster-change-is-a-redial--connredialsurfaces).
+
+  `serveOverUnixSocket` still snapshots the pair at bind. Handed a live runtime
+  it *half*-works, which is the worst shape: a **drop** still reaches it (the
+  refusing wrapper rides the captured record), while a **mount** after bind is
+  invisible to every connection it will ever accept, silently. Behind that
+  listener, serve a live bundle with `acceptSurfaceSocket` + `serveSurfaceSocket`
+  in your own accept closure — the seam kolu ships for exactly "the app picks
+  which runtime serves this socket".
 </Aside>
 
 | | |
@@ -1159,19 +1163,20 @@ never took effect.
 </Aside>
 
 <Aside type="caution" title="A gated face over a LIVE bundle is rebuilt when the roster moves">
-  `restrictHandlers` applies **once, at bind** — the allowlist is a property of
-  the listener, not of a connection. On an
+  On an
   [`implementRootedSurfaces`](#a-rooted-bundle-whose-siblings-move--implementrootedsurfaces)
   bundle, a mount or a drop changes the served group, so an exposure built for the
   previous roster no longer set-equals it and `restrictHandlers` **refuses** —
   loudly, which is the answer a default-deny gate owes here (the alternative is a
   face that silently denies a whole sibling). A gated serve over a live bundle
   therefore builds the exposure *and* the restricted record from the current
-  roster, per accepted connection — which is possible only on the door that reads
-  the pair per connection (`serveSurfaceSocket`, in your own accept closure). The
-  `expose` option on `serveSurfaceApp` / `serveOverUnixSocket` is a **listener**
-  option, consumed once at bind, so those doors have no seam to re-gate through
-  and this refusal is not one they can raise.
+  roster, per accepted connection.
+
+  [`serveSurfaceApp`](/surface/ref-surface-app) does that when `expose` is a
+  thunk or getter that rebuilds with the roster (the same `LiveServed` spelling
+  `group` and `handlers` take). `serveOverUnixSocket` still consumes `expose`
+  once at bind, so a live bundle behind that door has no seam to re-gate through
+  — serve it with `serveSurfaceSocket` in your own accept closure.
 </Aside>
 
 A member that must be **writable** on a gated face has no spelling today — a

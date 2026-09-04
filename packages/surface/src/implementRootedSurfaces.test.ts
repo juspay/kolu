@@ -651,8 +651,10 @@ describe("implementRootedSurfaces: served through a real per-connection door", (
     // than against `runtime.handlers` read directly — because WHICH door re-reads
     // the pair is the thing a consumer gets wrong. `serveSurfaceSocket` takes the
     // pair per accepted connection, so an accept loop that reads the runtime
-    // inside its own closure serves the current roster; the two LISTENER doors
-    // (`serveSurfaceApp`, `serveOverUnixSocket`) snapshot at bind and cannot.
+    // inside its own closure serves the current roster; `serveSurfaceApp` does
+    // the same when `group`/`handlers` are getters or thunks over this runtime
+    // (pinned in `packages/surface-app/src/serve.test.ts`). `serveOverUnixSocket`
+    // still snapshots at bind.
     //
     // Modelled at the seam those doors sit on: each "connection" captures the
     // pair the way `serveSurfaceSocket` is handed it.

@@ -79,14 +79,18 @@
  * ## Which faces take one — THE authority on this rule
  *
  * `serveSurfaceApp` (`@kolu/surface-app/serve`) and `serveOverUnixSocket`
- * (`@kolu/surface/unix-socket`) take `expose` directly, and apply it once at
- * bind. A HAND-BUILT serve path — `serveSurfaceSocket` under drishti's per-host
- * dispatch, `serveOverStdio` — restricts its own handlers with
- * {@link restrictHandlers} and serves the result; there is nothing else to it,
- * and that is why the filter is exported. Nothing enforces this split, so it is
- * stated HERE and only here: every other home for it (those faces' docblocks,
- * the reference page, the skill) points back rather than restating, because
- * four independently-worded copies of one rule are four places it can go stale.
+ * (`@kolu/surface/unix-socket`) take `expose` directly. `serveSurfaceApp`
+ * applies it per accepted generation (a value is the generation written at
+ * the call; a thunk or getter is re-read at each accept, memoized by identity
+ * so an unchanged roster costs nothing). `serveOverUnixSocket` still applies
+ * it once at bind. A HAND-BUILT serve path — `serveSurfaceSocket` under
+ * drishti's per-host dispatch, `serveOverStdio` — restricts its own handlers
+ * with {@link restrictHandlers} and serves the result; there is nothing else
+ * to it, and that is why the filter is exported. Nothing enforces this split,
+ * so it is stated HERE and only here: every other home for it (those faces'
+ * docblocks, the reference page, the skill) points back rather than restating,
+ * because four independently-worded copies of one rule are four places it can
+ * go stale.
  *
  * The two PROJECTING faces take the MAP itself, not a {@link FaceExposure}: a
  * tag set is lossy for them, since each needs the member kind and `mutates` to
@@ -746,11 +750,12 @@ function refuse(tag: string, streaming: boolean): SurfaceHandler {
  *
  *  TOTAL over "no declared policy": an `undefined` exposure returns `handlers`
  *  unchanged, so the "omit `expose` and the face serves the whole surface" rule
- *  has ONE implementation and a face cannot get the default wrong. It applies
- *  ONCE, at bind, not per connection — the allowlist is a property of the
- *  LISTENER (of who can reach it), so every connection serves the identical
- *  record and a mismatched exposure crashes at construction rather than behind
- *  whoever connects first.
+ *  has ONE implementation and a face cannot get the default wrong. WHEN a face
+ *  calls it is that face's: `serveSurfaceApp` calls it per accepted generation
+ *  (and once at bind, so a static mismatch still fails before anyone connects);
+ *  `serveOverUnixSocket` calls it once at bind. A mismatched exposure crashes
+ *  rather than gating silently, which is the failure a default-deny gate is
+ *  uniquely good at hiding.
  *
  *  The two wire faces call this for you (`serveSurfaceApp`,
  *  `serveOverUnixSocket`); a hand-built serve path calls it itself and serves
