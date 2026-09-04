@@ -14,7 +14,6 @@
  * odu's lanes. Each keys its own map and tears its own sessions down.
  */
 
-import { type ChildProcess, spawn } from "node:child_process";
 import { buildSurfaceFace, type SurfaceFace } from "@kolu/surface/client";
 import type { Surface, SurfaceSpec } from "@kolu/surface/define";
 import { stdioLink } from "@kolu/surface/links/stdio";
@@ -31,6 +30,7 @@ import {
 import { resolveAgentDrv, type AgentResolutionContext } from "./agentDrv";
 import type { AgentDerivation } from "./agentDerivation";
 import { makeProvisionBudgets, provisionAgent } from "./nixCopy";
+import { spawnOwnedProcessGroup } from "./processGroup";
 import {
   type ClosedInfo,
   classifyClosed,
@@ -230,13 +230,14 @@ export function sshConnector<S extends SurfaceSpec>(
       extraArgs: opts.extraArgs,
       localEnv: opts.localEnv,
     });
-    const child: ChildProcess = spawn(command, args, {
+    const transport = spawnOwnedProcessGroup(command, args, {
       stdio: ["pipe", "pipe", "pipe"],
       // `env` is the caller-composed localhost env, or `undefined` on the ssh arm
       // (inherit — the local ssh client needs `SSH_AUTH_SOCK` / `~/.ssh`). A localhost
       // spawn therefore NEVER inherits the caller's ambient env (#1872 / PR1.5).
       env,
     });
+    const child = transport.child;
 
     child.stderr?.setEncoding("utf-8");
     child.stderr?.on("data", (chunk: string) =>
@@ -281,11 +282,7 @@ export function sshConnector<S extends SurfaceSpec>(
       // Tear the just-spawned child down before throwing — a bare `throw` here would
       // leak the ssh process with no owner (ironic in the #1908 lifetime-ownership
       // lane; the one-hop debt R10 names).
-      try {
-        child.kill("SIGTERM");
-      } catch {
-        /* best-effort — a child already exiting is fine */
-      }
+      transport.terminate();
       throw new Error("ssh subprocess has no stdin/stdout — unreachable");
     }
     // ── The epoch gate: read the agent's readiness banner BEFORE attaching ────
@@ -344,11 +341,7 @@ export function sshConnector<S extends SurfaceSpec>(
       // standing.
       // The app's typed anomaly rides along verbatim so the binder can render a
       // real verdict instead of string-parsing this message.
-      try {
-        child.kill("SIGTERM");
-      } catch {
-        /* best-effort — a child already exiting is fine */
-      }
+      transport.terminate();
       if (isStdioReadinessError(err)) {
         throw new ConnectError(err.message, "remote", false, err.anomaly);
       }
@@ -385,11 +378,7 @@ export function sshConnector<S extends SurfaceSpec>(
         void link.dispose().catch(() => {
           /* best-effort — a link already disposed is fine */
         });
-        try {
-          child.kill("SIGTERM");
-        } catch {
-          /* best-effort — a child already exiting is fine */
-        }
+        transport.terminate();
       },
     };
   };
