@@ -142,6 +142,8 @@ describe("controlOptPairs ensure-dir", () => {
       "ka2 with space", // corrupts the NIX_SSHOPTS split; argv form stays right
       "ka2-%C%C", // an extra fixed-width token the byte budget never saw
       "ka2-%Z", // an unknown key — ssh fatals rather than expanding it
+      // The literal text is the fixture: a real template would interpolate and test nothing.
+      // biome-ignore lint/suspicious/noTemplateCurlyInString: asserts we refuse ssh's env-expansion form
       "ka2-${HOME}", // the environment-expansion form
       "ka2-'q", // a lone single quote — Nix's shell-split fatals on it
       'ka2-"q', // and its double-quoted twin

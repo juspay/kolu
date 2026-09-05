@@ -22,6 +22,9 @@ import {
   buildSshProbeCommand,
   looksLikeNetworkError,
   nixSshOpts,
+  // The deprecation steers NEW code to `sshDialOpts`; it cannot steer the test
+  // that guards the old shape, which is exactly why the const still exists.
+  // biome-ignore lint/suspicious/noDeprecatedImports: this suite pins the deprecated compat const
   SSH_COMMON_OPTS,
   sshCommonOpts,
   sshDialOpts,
