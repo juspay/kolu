@@ -83,6 +83,10 @@ function generation(
   };
 }
 
+/** Flush past the microtask queue AND the macrotask boundary. */
+const settle = (): Promise<unknown> =>
+  new Promise((resolve) => setTimeout(resolve, 0));
+
 describe("followingWire — one wire over a succession of links", () => {
   it("dispatches over the CURRENT generation, through a branded half-open dispatch", async () => {
     const first = generation("first");
@@ -222,10 +226,20 @@ describe("followingWire — one wire over a succession of links", () => {
     );
     // The throw escapes `adopt` (it is the consumer's, not this wire's to
     // swallow) — SYNCHRONOUSLY, and the sweep still ran.
-    expect(() => wire.adopt(generation("second", "open"))).toThrow(
+    const second = generation("second", "open");
+    expect(() => wire.adopt(second)).toThrow(
       /a consumer's status handler threw/,
     );
     expect(await running).toMatch(/adopted a new generation beneath this call/);
+    // ...AND the superseded generation was still RELEASED. Written as a plain
+    // statement after the advance, this was a leak: the swap had already
+    // happened, so the old link was reachable from nothing, and its reconnect
+    // schedule, ping fiber and observers lived for the rest of the page. The
+    // caller cannot clean it up either — the wire HAS taken the new generation,
+    // so its own `dispose()` closes that one and the corpse is unreachable.
+    await settle();
+    expect(first.disposals()).toBe(1);
+    expect(wire.current()).toBe(second.transport);
   });
 
   it("releases the held generation on dispose — idempotently — and refuses a later adopt", async () => {

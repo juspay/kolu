@@ -610,6 +610,45 @@ old roster keeps claiming departed keys exist. Re-bind through the result —
 `conn = await conn.redial(next)` — which costs nothing at runtime and keeps the
 type truthful.
 
+### What a roster move does not hide — `conn.connectionEpoch`
+
+Following the roster in place hides almost everything, which is the point: a
+standing subscription heals itself onto the new wire, and `readout` reads `live`
+throughout, because the page never stopped being connected.
+
+That is right for anything computed **over** the connection, and wrong for
+anything computed **from** it. A viewer identity resolved from the WebSocket
+upgrade's headers is the case that asked for this
+([juspay/olai#522](https://github.com/juspay/olai/pull/522)): it is stale the
+instant a different socket carries the calls, and nothing else on the connection
+will ever mention that — the subscriptions are fine and the light is green.
+
+`conn.connectionEpoch` is that fact, as a Solid accessor:
+
+```ts
+// re-resolve who we are whenever a different socket is carrying the calls
+const [viewer] = createResource(conn.connectionEpoch, () =>
+  Effect.runPromise(conn.core.procedures.who.get({})),
+);
+```
+
+It counts a usable connection being **established**, and only that:
+
+| | counts |
+| --- | --- |
+| a **reconnect** inside the current wire generation | ✔ |
+| a **redial** that lands on a connection — *including* the ordinary case where the replacement was already open, which the transport status has nothing to say about | ✔ |
+| a redial whose replacement is still `connecting` | ✔ when it opens, not when it is adopted |
+| a redial whose **dial failed** | ✘ — no new connection was established, and the one you had is the one you still have |
+
+It is monotonic for the connection's whole life: it does not restart with the
+underlying link. And it is **not** a rebuild signal — re-fetch what the
+connection itself answered, and leave the tree standing.
+
+*`connectSurface`, the single-surface seam, carries no such member and needs
+none: with no generations, its `link.wire.onStatus` open edges **are** the
+establishments, undeduplicated.*
+
 A **disposed** connection is the one that answers about nothing: its `readout`
 reads `retired` and its `health` reads not-live, rather than freezing on whatever
 the disposed memo last computed (which would be `live` — green over a closed
@@ -626,7 +665,7 @@ accepted connection. See the caution on that page.
 
 `connectSurface` returns `{ link, client, readout, dispose }`;
 `connectSurfaces` returns
-`{ link, clients, core, transport, readout, health, redial, dispose }`.
+`{ link, clients, core, transport, connectionEpoch, readout, health, redial, dispose }`.
 
 | Member | Meaning |
 | --- | --- |
@@ -634,6 +673,7 @@ accepted connection. See the caution on that page.
 | `client` / `clients` | the reactive surface client, or one scoped client per sibling. `clients` is one object for the connection's life — a `redial` mutates it in place |
 | `core` | *(multi only)* the root surface's own client when `core` was passed, and typed `undefined` when it was not — so a siblings-only caller reads no optional it has to check. It needs no tag-scoping wrapper: the root's tags are already the bare ones the combined dispatch carries |
 | `transport` | *(multi only)* the branded `LiveSignalHandle` — pass it whole to `connectSurfaceMap(map, conn.transport)`, which slices the sibling by `map.name` **after** the guard so the map inherits this wire's watchdog `live`. Stable across a `redial`, so a map built over it keeps working |
+| `connectionEpoch` | *(multi only)* how many usable **connections** this wire has established — 0 before the first, monotonic for the connection's life — as a Solid accessor, so a `createResource` can key on it. See [below](#what-a-roster-move-does-not-hide) |
 | `readout` | the [readout](/surface/ref-surface#the-readout) — the wire's own four states folded with the subscription-health fact into the five an indicator may report, memoized. Replaces the transport-only `status` this used to hand back |
 | `health` | *(multi only)* the client bundle's own fact over every sibling — and, when a `core` was passed, the root under its `name` — their subs AND-reduced with the shared transport leg. Reactive about the **roster** too, so a memo bound to it re-folds when a sibling arrives or leaves |
 | `redial` | *(multi only)* async: take a NEW sibling roster **in place** — a new wire is dialled over this connection's own options and adopted, the root does not move, and every handle above keeps its identity. Idempotent: a roster already carried dials nothing. See [above](#a-roster-change-follows-in-place--connredialsurfaces). Returns this same connection, retyped |

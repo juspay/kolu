@@ -1260,6 +1260,129 @@ describe("connectSurfaces — a ROSTER CHANGE moves the WIRE, not the connection
     });
   });
 
+  it("keeps `gone` TERMINAL when a dispose lands inside the synchronous handover", async () => {
+    // The handover is synchronous, but it is not consumer-free: `adopt` publishes
+    // a status through `conn.link.wire`'s own watchers, so a `dispose()` really
+    // can land in the middle of it. The success path used to re-arm `live`
+    // unconditionally right after — over a connection whose watchdog, clients and
+    // wire were already being released. That is the one-bit erasure the state
+    // machine exists to make unrepresentable, and the dial-failure path had
+    // guarded against it since the beginning.
+    const d = dialRecorder();
+    await createRoot(async (dispose) => {
+      const conn = await connectSurfaces({
+        surfaces: { a: surface },
+        core: { surface: core, name: "floor" },
+        url: "ws://test",
+        retired: () => {},
+        connect: d.connect,
+      });
+      (await d.nth(1)).open();
+      await settle();
+
+      let gaveUp: Promise<void> | undefined;
+      conn.link.wire.onStatus(() => {
+        gaveUp ??= conn.dispose();
+      });
+
+      await expect(conn.redial({ b: later })).rejects.toThrow(
+        /disposed while `redial` was/,
+      );
+      await gaveUp;
+      await settle();
+      // TERMINAL: the connection stayed given-up, and nothing it dialled is open.
+      expect(conn.readout().status).toBe("retired");
+      expect(conn.health().live).toBe(false);
+      for (const ws of d.dialled) expect(ws.readyState).toBe(3);
+      dispose();
+    });
+  });
+
+  it("advances `connectionEpoch` on a reconnect AND on a roster move, monotonically", async () => {
+    // The one thing a roster move does NOT hide, because following the roster in
+    // place hid everything else: a subscription heals itself and says nothing,
+    // and the readout says `live` throughout because the page never stopped being
+    // connected. Anything computed FROM the connection rather than over it — a
+    // viewer identity resolved from the WebSocket upgrade's headers
+    // (juspay/olai#522) — has no other way to hear that a different socket is
+    // carrying its calls now.
+    const d = dialRecorder();
+    await createRoot(async (dispose) => {
+      const conn = await connectSurfaces({
+        surfaces: { a: surface },
+        core: { surface: core, name: "floor" },
+        url: "ws://test",
+        retired: () => {},
+        connect: d.connect,
+      });
+      const seen: number[] = [];
+      createRoot((stop) => {
+        createEffect(() => seen.push(conn.connectionEpoch()));
+        return stop;
+      });
+      // Nothing established before the first open.
+      expect(conn.connectionEpoch()).toBe(0);
+
+      const first = await d.nth(1);
+      first.open();
+      await settle();
+      expect(conn.connectionEpoch()).toBe(1);
+
+      // A RECONNECT inside this generation — the link re-dials itself.
+      first.close(1006);
+      await settle();
+      const second = await d.nth(2);
+      second.open();
+      await settle();
+      expect(conn.connectionEpoch()).toBe(2);
+
+      // A ROSTER MOVE onto an already-open replacement: the readout never
+      // stopped saying `live`, and that is exactly why the epoch is the fact.
+      const before = conn.readout().status;
+      await conn.redial({ a: surface, b: later });
+      const third = await d.nth(3);
+      third.open();
+      await settle();
+      expect(before).toBe("live");
+      expect(conn.readout().status).toBe("live");
+      expect(conn.connectionEpoch()).toBe(3);
+
+      // Monotonic, and every step was OBSERVED by a tracking scope — a
+      // `createResource` keyed on it re-fetches on each.
+      expect(seen).toEqual([0, 1, 2, 3]);
+
+      await conn.dispose();
+      dispose();
+    });
+  });
+
+  it("does NOT advance `connectionEpoch` for a replacement the connection never took", async () => {
+    // "Failed replacement attempts that leave the existing connection in place
+    // must not claim a new established connection." The refusal lands before
+    // anything is dialled, so the connection you had is the one you still have.
+    const d = dialRecorder();
+    await createRoot(async (dispose) => {
+      const conn = await connectSurfaces({
+        surfaces: { a: surface },
+        core: { surface: core, name: "floor" },
+        url: "ws://test",
+        retired: () => {},
+        connect: d.connect,
+      });
+      (await d.nth(1)).open();
+      await settle();
+      expect(conn.connectionEpoch()).toBe(1);
+
+      await expect(conn.redial({ a: surface, floor: core })).rejects.toThrow(
+        /also a sibling key/,
+      );
+      await settle();
+      expect(conn.connectionEpoch()).toBe(1);
+      await conn.dispose();
+      dispose();
+    });
+  });
+
   it("refuses a CONCURRENT redial, and a redial after dispose", async () => {
     const d = dialRecorder();
     await createRoot(async (dispose) => {

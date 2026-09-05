@@ -84,6 +84,35 @@ export interface FollowingWire<T extends WireTransport = WireTransport>
    *  READ it at the moment you need such a fact; never HOLD it, because the next
    *  `adopt` replaces it. */
   readonly current: () => T;
+  /** How many usable connections this wire has ESTABLISHED — 0 before the
+   *  first, and monotonic for the wire's whole life, across every generation.
+   *
+   *  It answers a question the status funnel cannot, and a generation's own
+   *  `diagnostics.epoch()` cannot either. The funnel is DEDUPLICATED, so
+   *  adopting an already-open replacement — the ordinary shape of a roster
+   *  move, since the replacement is dialled before the old one is given up —
+   *  publishes nothing at all; and a generation's epoch counts one link's open
+   *  edges and starts again at the next generation.
+   *
+   *  Both edges count, and only these: a reconnect INSIDE the held generation,
+   *  and an `adopt` that lands on a connection. An `adopt` whose replacement is
+   *  still `connecting` counts when that connection opens, not before — and a
+   *  replacement that was never adopted (a dial that failed, a refused
+   *  `adopt`) counts never, because no new connection was established.
+   *
+   *  What it is FOR: anything whose answer was computed FROM the connection
+   *  rather than merely over it — a viewer identity resolved from the
+   *  WebSocket upgrade's headers is the case that asked for it
+   *  (juspay/olai#522). Such an answer is stale the moment a different socket
+   *  carries the calls, while every subscription riding that socket has healed
+   *  itself and says nothing. It is NOT a signal to rebuild anything: standing
+   *  subscriptions re-open themselves, which is the whole point of this wire. */
+  readonly establishments: () => number;
+  /** Subscribe to {@link establishments}. The handler is called with the new
+   *  count on each establishment; the returned function unsubscribes. */
+  readonly onEstablished: (
+    handler: (establishments: number) => void,
+  ) => () => void;
   /** Take `next` as the generation every call from now on rides, fail whatever
    *  was in flight over the old one, and release it.
    *
@@ -134,7 +163,73 @@ export function followingWire<T extends WireTransport>(
     published = next;
     for (const watcher of watchers) watcher(next);
   };
-  let detachStatus = held.transport.wire.onStatus(publish);
+
+  // ── The CONNECTION EPOCH ────────────────────────────────────────────────
+  //
+  // How many usable connections this wire has ESTABLISHED, monotonic for its
+  // whole life. It is not derivable from the status funnel, and that is the
+  // whole reason it exists as its own fact: the funnel is deduplicated (a wire
+  // that was `open` and is `open` has nothing to publish), so adopting an
+  // ALREADY-OPEN replacement — the ordinary shape of a roster move, since the
+  // replacement is dialled before the old one is given up — is a brand-new
+  // socket that the status says nothing about. Nor is a generation's own
+  // `diagnostics.epoch()` an answer: it counts one LINK's open edges and starts
+  // again at the next generation.
+  //
+  // Who needs it: anything whose answer was computed FROM the connection rather
+  // than over it. A surface app's viewer identity is the case that asked
+  // (juspay/olai#522) — it is resolved from the WebSocket upgrade's headers, so
+  // it is stale the moment a different socket carries the calls, while every
+  // subscription riding that socket has healed itself and says nothing. Such a
+  // consumer keys its own re-fetch on this number and gets it right on both
+  // edges: a reconnect INSIDE a generation, and a generation change.
+  let establishments = 0;
+  const establishmentWatchers = new Set<(establishments: number) => void>();
+  /** True while the generation currently held has a usable connection. The
+   *  EDGE detector: only a false→true transition is a new establishment, and
+   *  `adopt` clears it as the old generation goes, so an adopted-open
+   *  replacement reads as the establishment it is. */
+  let established = held.transport.wire.status() === "open";
+  if (established) establishments = 1;
+  const noteEstablished = (open: boolean): void => {
+    if (open === established) return;
+    established = open;
+    if (!open) return;
+    establishments += 1;
+    // A COPY, so a watcher that unsubscribes itself mid-notify cannot perturb
+    // the walk.
+    for (const watcher of [...establishmentWatchers]) watcher(establishments);
+  };
+
+  /** ONE forwarder, used for every generation, so a status change and the
+   *  establishment it may be are read off the same event rather than by two
+   *  subscriptions that could see different things. */
+  const forwardStatus = (next: WireStatus): void => {
+    publish(next);
+    noteEstablished(next === "open");
+  };
+  let detachStatus = held.transport.wire.onStatus(forwardStatus);
+
+  /** Close a generation this wire has let go of. A release that itself FAILS is
+   *  LOGGED, not raised: on the `adopt` path the value the call exists to
+   *  produce — the new generation, live, with every superseded call already
+   *  failed — is already delivered by the time the old one is closed, so
+   *  rejecting over its teardown would tell the caller that a move which
+   *  completed did not. (The same trade `trackConnectAllocations` makes at its
+   *  own superseded exit, at the altitude that owns the resource.) */
+  const releaseSuperseded = async (
+    generation: WireGeneration<T>,
+  ): Promise<void> => {
+    try {
+      await generation.dispose();
+    } catch (teardownError) {
+      reportLeakedTeardown(
+        "followingWire: releasing the superseded generation FAILED — that link " +
+          "is leaked; the wire is live on the generation it adopted",
+        teardownError,
+      );
+    }
+  };
 
   // THE FENCE — the shared one (`./supersession`), which `websocketLink` also
   // stands on. What this wire contributes is only three NOUNS: an operator
@@ -155,6 +250,13 @@ export function followingWire<T extends WireTransport>(
   return {
     dispatch,
     current: () => held.transport,
+    establishments: () => establishments,
+    onEstablished: (handler) => {
+      establishmentWatchers.add(handler);
+      return () => {
+        establishmentWatchers.delete(handler);
+      };
+    },
     wire: {
       status: () => published,
       onStatus: (cb) => {
@@ -182,35 +284,44 @@ export function followingWire<T extends WireTransport>(
       const superseded = held;
       detachStatus();
       held = next;
-      detachStatus = next.transport.wire.onStatus(publish);
-      // ADVANCE → publish → sweep, as ONE call, because the order is the whole
-      // point and `./supersession` is where it is stated: the mark moves first
-      // so a consumer that issues a call from its own status handler has already
-      // bound to the new generation and cannot fail its own fresh call, and the
-      // sweep runs last (in a `finally`) so a throwing handler cannot leave the
-      // superseded calls with nothing to fail them.
-      fence.advance(() => publish(next.transport.wire.status()));
-      // AFTER the swap: the handover above is synchronous, so there is no window
-      // in which this wire has no generation, and a `dispose()` landing during
-      // this await releases the generation now held rather than the corpse.
-      //
-      // A release that itself FAILS is LOGGED, not raised. The value this call
-      // exists to produce — the new generation, live, with every superseded call
-      // already failed — is already delivered by the time the old one is closed,
-      // and rejecting over its teardown would tell the caller that a move which
-      // completed did not. (The same trade `trackConnectAllocations` makes at its
-      // own superseded exit, at the altitude that owns the resource.)
-      return (async () => {
-        try {
-          await superseded.dispose();
-        } catch (teardownError) {
-          reportLeakedTeardown(
-            "followingWire: releasing the superseded generation FAILED — that link " +
-              "is leaked; the wire is live on the generation it adopted",
-            teardownError,
-          );
-        }
-      })();
+      // The generation that carried the last connection is gone, so the edge
+      // detector is armed BEFORE the new generation can be observed. Without
+      // this an already-open replacement would read as "still open" and the
+      // establishment it is would go uncounted.
+      noteEstablished(false);
+      // THE SWAP HAS HAPPENED, so the release is owed UNCONDITIONALLY from here
+      // — hence the `finally`. Everything between is a consumer's code reached
+      // through a callback (`onStatus`, and the status handlers `advance`
+      // notifies), and a consumer may throw. That throw is the consumer's and
+      // must escape; what it must NOT do is skip the release, because
+      // `superseded` is the last reference to a link that is no longer `held`.
+      // Written as a plain statement after `advance`, exactly that happened: a
+      // throwing status watcher — the case this wire has a test for — unwound
+      // `adopt` before the release was ever started, and the old socket kept its
+      // reconnect schedule, its ping fiber and its observers for the life of the
+      // page. A caller cannot clean that up either: the wire HAS taken the new
+      // generation, so `dispose()` closes that one and the corpse is unreachable.
+      let release: Promise<void>;
+      try {
+        detachStatus = next.transport.wire.onStatus(forwardStatus);
+        // ADVANCE → publish → sweep, as ONE call, because the order is the whole
+        // point and `./supersession` is where it is stated: the mark moves first
+        // so a consumer that issues a call from its own status handler has
+        // already bound to the new generation and cannot fail its own fresh call,
+        // and the sweep runs last (in a `finally`) so a throwing handler cannot
+        // leave the superseded calls with nothing to fail them.
+        //
+        // A new usable connection may be established by this very statement (an
+        // already-open replacement), which the funnel has nothing to publish
+        // about — see {@link noteEstablished}.
+        fence.advance(() => {
+          publish(next.transport.wire.status());
+          noteEstablished(next.transport.wire.status() === "open");
+        });
+      } finally {
+        release = releaseSuperseded(superseded);
+      }
+      return release;
     },
     // THE ONE release, memoized. A second `dispose()` gets the SAME promise and
     // therefore the same verdict — an early `return` would resolve while the

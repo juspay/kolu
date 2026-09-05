@@ -950,8 +950,30 @@ Everything built over the stable halves survives a generation change.
 | --- | --- |
 | `dispatch` / `wire` | the standing halves — the same values for the wire's whole life, and branded half-open exactly as a generation's are, so `createLiveSignal` accepts the pair |
 | `current()` | the generation's own link, for a fact that belongs to a generation rather than to the wire (a [dial history](#websocketlinkdiagnostics)). Read it where you need it; never hold it |
+| `establishments()` / `onEstablished(h)` | how many usable CONNECTIONS this wire has established — 0 before the first, **monotonic across every generation** — and a subscription to that count. See below |
 | `adopt(next)` | take `next` as the generation every call from now on rides, fail what was in flight over the old one, and release it. **Not `async`**: the swap is synchronous and so is every refusal it makes, so the statement a caller writes after it runs only if the wire really moved. What it *returns* is the superseded generation's release — the one asynchronous half, which never rejects (a failed teardown is logged) |
 | `dispose()` | release the generation currently held. Idempotent — a later call gets the **same promise**, and therefore the same verdict, rather than resolving early over a teardown still running. A later `adopt` is refused rather than opening a generation nobody will close |
+
+A **connection epoch** rides on it, and it is the one fact this wire cannot let
+its consumers derive. The status funnel is *deduplicated*, so adopting a
+replacement that is **already open** — the ordinary shape of a roster move, since
+the replacement is dialled before the old one is given up — publishes nothing at
+all, while a brand-new socket is now carrying every call. A generation's own
+[`diagnostics.epoch()`](#websocketlinkdiagnostics) is no answer either: it counts
+*one link's* open edges and starts again at the next generation.
+
+`establishments()` counts both edges and only these — a **reconnect** inside the
+held generation, and an **adopt that lands on a connection**. An adopt whose
+replacement is still `connecting` counts when that connection opens; a
+replacement that was never adopted (a dial that failed, a refused adopt) counts
+never, because no new connection was established.
+
+What it is *for* is anything whose answer was computed **from** the connection
+rather than merely over it — a viewer identity resolved from the WebSocket
+upgrade's headers is the case that asked for it. Such an answer is stale the
+moment a different socket carries the calls, while every subscription riding that
+socket has healed itself and says nothing. It is **not** a rebuild signal:
+standing subscriptions re-open themselves, which is the whole point of this wire.
 
 The load-bearing half is what `adopt` does to a call **in flight**. A call is
 bound to one link by construction — Effect RPC registers an entry exactly once,

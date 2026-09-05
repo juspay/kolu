@@ -375,6 +375,34 @@ export interface SurfacesConnection<
    *  members multiplexed at the same wire. The handle is unforgeable (module-private
    *  brand), so exposing it invites no green-over-dead lie. */
   transport: LiveSignalHandle;
+  /** How many usable CONNECTIONS this connection's wire has established — 0
+   *  before the first, monotonic for the connection's whole life, and a Solid
+   *  accessor so a `createMemo` / `createResource` can key on it directly.
+   *
+   *  It is the one thing a roster move does NOT hide, and it exists because
+   *  following the roster in place hid everything else. A subscription heals
+   *  itself onto the new generation and says nothing; `readout` says `live`
+   *  throughout, because the page never stopped being connected. That is right
+   *  for anything computed OVER the connection — and wrong for anything computed
+   *  FROM it. A surface app's viewer identity is the case that asked
+   *  (juspay/olai#522): it is resolved from the WebSocket upgrade's headers, so
+   *  it is stale the instant a different socket carries the calls, and nothing
+   *  else on this connection will ever mention that.
+   *
+   *  Both edges count, and only these: a RECONNECT inside the wire's current
+   *  generation, and a REDIAL that lands on a connection — including the ordinary
+   *  case where the replacement was already open, which the transport status has
+   *  nothing to say about (it was `live` before and is `live` after). A redial
+   *  whose dial FAILED counts never: no new connection was established, and the
+   *  one you had is the one you still have.
+   *
+   *  Not a rebuild signal. Re-fetch what the connection itself answered; leave
+   *  the tree standing.
+   *
+   *  (`connectSurface`, the single-surface seam, carries no such member and needs
+   *  none: with no generations, its `link.wire.onStatus` open edges ARE the
+   *  establishments, undeduplicated.) */
+  connectionEpoch: Accessor<number>;
   /** The reactive READOUT (`@kolu/surface/solid`'s {@link SurfaceReadout}) —
    *  `connecting` / `live` / `degraded` / `reconnecting` / `retired`, the
    *  `needsReload` bit, and the NAMES of whatever stopped — folded from the shared
@@ -910,6 +938,16 @@ export async function connectSurfaces(
     // state another path can move while this one is suspended.
     type ConnectionState = "live" | "redialing" | "gone";
     const [stateNow, setState] = createSignal<ConnectionState>("live");
+    // The wire's establishment count, as a Solid accessor — the fact is the
+    // standing wire's (`followingWire.establishments`), and all this seam does is
+    // give it the shape an app reads. Tracked like every other allocation: the
+    // subscription outlives this seam otherwise, and a remounted connection would
+    // accumulate one per dial.
+    const [connectionEpoch, setConnectionEpoch] = createSignal(
+      following.establishments(),
+    );
+    const detachEstablished = following.onEstablished(setConnectionEpoch);
+    allocations.track("connection epoch", { dispose: detachEstablished });
     /** GIVE THIS CONNECTION UP — the price of building arrivals AFTER the adopt,
      *  paid out loud rather than hidden.
      *
@@ -1005,6 +1043,7 @@ export async function connectSurfaces(
       // definite `undefined` for a siblings-only one.
       core: rooted?.client,
       transport,
+      connectionEpoch,
       // A DISPOSED connection answers about nothing. `readout` is a memo inside a
       // root `release()` has already disposed, and a disposed memo keeps its last
       // computed value and stops updating — which is `live`: a permanent green
@@ -1109,7 +1148,16 @@ export async function connectSurfaces(
         } catch (handoverError) {
           return abandon(handoverError, superseded, generation);
         }
-        setState("live");
+        // Back to `live` ONLY if this call still holds the transition — the same
+        // guard the dial-failure path makes, for the same reason and against the
+        // same window. A `dispose()` can land inside the SYNCHRONOUS handover
+        // above: `adopt` publishes a status, and the bundle's re-roster bumps its
+        // membership, so consumer code runs in there. That `dispose()` has already
+        // moved the state to `gone` and started releasing the watchdog, the
+        // clients and the wire, and `gone` is terminal — an unguarded re-arm here
+        // would re-arm `live` over exactly that, which is the one-bit erasure this
+        // state exists to make unrepresentable.
+        if (stateNow() === "redialing") setState("live");
         // Awaited LAST: the connection is already consistent and live on the new
         // roster, so a teardown that drags does not hold the new roster back, and
         // a `dispose()` landing in this window releases the generation now held
@@ -1117,6 +1165,18 @@ export async function connectSurfaces(
         // superseded generation's teardown failure rather than raising it, because
         // the value this call exists to produce is already delivered.
         await superseded;
+        // ...and a `dispose()` that landed in EITHER window means the caller gave
+        // this connection up. Handing back a connection whose wire, clients and
+        // watchdog are released — as a value the caller is told to re-bind
+        // through — would be the same lie `redial` refuses to tell on the dial
+        // path, one window later.
+        if (stateNow() === "gone") {
+          throw new Error(
+            "connectSurfaces: this connection was disposed while `redial` was finishing — " +
+              "the roster it was moving to is gone with it. A disposed connection " +
+              "takes no new roster.",
+          );
+        }
         return connection;
       },
       // The tracker's own list, in reverse — NOT a second list written beside it.
