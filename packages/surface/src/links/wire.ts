@@ -10,7 +10,11 @@
  * both W2 stages compile against), owning the scope that keeps the protocol's
  * fibers alive and handing back the `dispose` that releases it.
  *
- * Package-internal (not exported through any `@kolu/surface/*` subpath).
+ * The machinery here is package-internal. The `@kolu/surface/links/wire`
+ * subpath exists for ONE reason: this file is the canonical account of Effect's
+ * pinger, so {@link RPC_PING_INTERVAL_MS} / {@link RPC_PING_FATAL_SILENCE_MS}
+ * are readable by the tests elsewhere that reason about link silence, instead of
+ * being transcribed from this prose into a local literal.
  *
  * ## What this file deliberately does NOT do
  *
@@ -62,6 +66,29 @@ const neverReconnect: Schedule.Schedule<number, Socket.SocketError> =
       Cause.done(meta.attempt),
     ),
   );
+
+/** How often `RpcClient.makeProtocolSocket`'s own pinger writes a ping.
+ *
+ *  **Effect's number, OBSERVED — not a knob we own.** `makeProtocolSocket`
+ *  exposes no option for the cadence, so nothing here sets it and nothing here
+ *  can move it; this constant exists so the repo's other reasoning about link
+ *  silence can REFERENCE the fact instead of transcribing it. See
+ *  {@link RPC_PING_FATAL_SILENCE_MS} and, for the whole mechanism,
+ *  `keepAliveWentUnanswered` below — the canonical account. `stdioPingStall.test.ts`
+ *  measures the behaviour; if Effect ever changes it, that docstring changes
+ *  first and these two follow. */
+export const RPC_PING_INTERVAL_MS = 5_000;
+
+/** The worst-case silence Effect's pinger tolerates on a CONNECTED link before
+ *  it ends the socket run: one interval to notice the previous ping went
+ *  unanswered, on top of the interval that sent it. Also observed, also not a
+ *  knob — see {@link RPC_PING_INTERVAL_MS}.
+ *
+ *  This is the bound that actually ends a connected link in this stack. Every
+ *  other silence budget in the repo — the heartbeat watchdog, the provisioning
+ *  child-lifetime budgets, `@kolu/surface-remote`'s ssh keepalive — sits above
+ *  it and gets no vote while a link is connected. */
+export const RPC_PING_FATAL_SILENCE_MS = RPC_PING_INTERVAL_MS * 2;
 
 /** What every wire link factory returns: the dispatch the face binds against,
  *  plus the release of the scope the link opened. `dispose` is idempotent and

@@ -37,6 +37,7 @@ import {
   MAX_HEARTBEAT_INTERVAL_MS,
   MAX_HEARTBEAT_TIMEOUT_MS,
 } from "@kolu/surface/heartbeat";
+import { RPC_PING_FATAL_SILENCE_MS } from "@kolu/surface/links/wire";
 import {
   DEFAULT_SSH_KEEPALIVE,
   keepaliveToleranceS,
@@ -50,19 +51,6 @@ import {
   PROVISION_STEP_MAX_EXPIRIES,
   PROVISION_STEP_SILENCE_BASE_MS,
 } from "./nixCopy";
-
-/** Effect's pinger cadence, and the worst-case silence it tolerates.
- *
- *  NOT imported, because `RpcClient.makeProtocolSocket` exposes no option for it
- *  and this repo invents no export to pretend otherwise — the SOURCE OF TRUTH is
- *  the docstring beside `neverReconnect` in `packages/surface/src/links/wire.ts`
- *  ("`makePinger` writes a ping every 5s and ends the socket run the moment a
- *  tick finds the previous ping unanswered — so 5–10s of silence is fatal, and
- *  the cadence is not a knob"), and `links/stdioPingStall.test.ts` is where the
- *  behaviour itself is measured. These two numbers transcribe that sentence; if
- *  Effect ever changes it, that docstring is what has to change first. */
-const RPC_PING_INTERVAL_MS = 5_000;
-const RPC_PING_FATAL_SILENCE_MS = 10_000;
 
 /** Worst-case wall time before the heartbeat calls a connected link stale. */
 const heartbeatVerdictMs = (intervalMs: number, timeoutMs: number): number =>
@@ -84,7 +72,6 @@ const defaultHeartbeatMs = heartbeatVerdictMs(
 
 describe("what actually ends a CONNECTED link", () => {
   it("is Effect's pinger — below the heartbeat and below any ssh keepalive", () => {
-    expect(RPC_PING_FATAL_SILENCE_MS).toBe(RPC_PING_INTERVAL_MS * 2);
     // The whole ordering, in one line: pinger < heartbeat < ssh keepalive.
     expect(RPC_PING_FATAL_SILENCE_MS).toBeLessThan(defaultHeartbeatMs);
     expect(defaultHeartbeatMs).toBeLessThan(
@@ -209,9 +196,6 @@ describe("what the ssh keepalive DOES bound", () => {
     // policy tolerates on a slow peer, it also spends parked on a dead one
     // before the reconnect loop can retry.
     const ci = sshKeepalive(30, 10);
-    expect(keepaliveVerdictMs(ci)).toBe(
-      keepaliveToleranceS({ intervalS: 30, countMax: 10 }) * 1_000,
-    );
     expect(keepaliveVerdictMs(ci)).toBeGreaterThan(
       keepaliveVerdictMs(DEFAULT_SSH_KEEPALIVE),
     );

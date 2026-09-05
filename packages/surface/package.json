@@ -46,6 +46,7 @@
     "./links/readiness": "./src/links/readiness.ts",
     "./links/direct": "./src/links/direct.ts",
     "./links/unix-socket": "./src/links/unix-socket.ts",
+    "./links/wire": "./src/links/wire.ts",
     "./peer-server": "./src/peer-server.ts",
     "./unix-socket": "./src/unix-socket.ts",
     "./verbs": "./src/verbs.ts"

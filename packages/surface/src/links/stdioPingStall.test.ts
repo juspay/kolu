@@ -64,9 +64,10 @@ describe.concurrent("stdio link — a peer that is slow, not dead", () => {
     const w = await wiredThroughStalls();
     expect(await w.add(2, 3)).toBe(5);
 
-    // Hold the wire for a beat — well inside the 5s ping window, so this is only
-    // ever a pause. The assertion after `resume()` is what carries the meaning;
-    // the duration only has to be short enough to be unambiguous.
+    // Hold the wire for a beat — well inside `RPC_PING_INTERVAL_MS` (`wire.ts`),
+    // so this is only ever a pause. The assertion after `resume()` is what
+    // carries the meaning; the duration only has to be short enough to be
+    // unambiguous.
     w.stall();
     await delay(200);
     w.resume();
