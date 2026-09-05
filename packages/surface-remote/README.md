@@ -18,9 +18,9 @@ const session = makeSession({
 pumpRemoteSurface({ source: surface, session, makeSink: ({ seq }) => sink });
 ```
 
-A dial declares a link dead after ~30s of ssh silence. That is the right answer
-while someone is watching a host; a long unattended job that a redial would
-destroy rather than repair states its own tolerance instead — an `SshKeepalive`,
+By default a dial's ssh gives up on a peer that has not answered a probe for
+~30s. That is the right answer while someone is watching a host; an unattended
+dial states its own tolerance instead — an `SshKeepalive`,
 `sshConnector({ …, keepalive: sshKeepalive(30, 10) })`, reaching every ssh the
 dial spawns including the one Nix forks for a remote store. `sshKeepalive` is the
 only way to make one: both arguments must be positive whole numbers and
@@ -28,12 +28,15 @@ only way to make one: both arguments must be positive whole numbers and
 so an invalid policy throws at the literal you wrote rather than at some later
 dial — and never gets clamped to one you did not ask for.
 
-It governs the **dialling** phases — the probe and the provisioning build, where
-a cold `nix build` can sit quiet for twenty minutes. Once a session is
-`connected`, the faster judge is `makeSession`'s own liveness watchdog (≈25s at
-its defaults), so a lane that must survive a multi-minute blip **while connected**
-raises `MakeSessionOptions.liveness` alongside this. `dialAgentOnce` takes both
-halves (`keepalive` and `liveness`) for exactly that reason.
+Read it narrowly: it bounds how long a **dead or half-open ssh transport** takes
+to be noticed and exited, turning an unbounded park on a half-open socket into a
+failure the reconnect loop can retry. It does **not** let a connected link ride
+out a blip — Effect RPC's own pinger ends a connected socket after 5–10s of
+silence and is not tunable (see `links/wire.ts` in `@kolu/surface`) — and raising
+it past 120s is inert for a provisioning build, whose child is group-killed by
+`PROVISION_STEP_SILENCE_BASE_MS` after 120s without output (ssh keepalives are
+protocol traffic and never reset it). The reference page lists all four bounds
+and which of them are knobs at all.
 
 Worked end-to-end in [`packages/surface/example/remote-process-monitor`](../surface/example/remote-process-monitor).
 Part of the kolu monorepo — `"@kolu/surface-remote": "workspace:*"`.

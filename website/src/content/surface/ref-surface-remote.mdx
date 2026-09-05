@@ -54,16 +54,16 @@ Nix wrapper itself; the package name is the same `binary` value, so the
 executable and derivation cannot drift into two hand-maintained mappings.
 
 `keepalive?: SshKeepalive` is the dial's ssh **dead-peer policy** —
-`ServerAliveInterval` and `ServerAliveCountMax`, so a link may sit silent for
-`intervalS × countMax` seconds before ssh declares the peer dead and the session
-redials. It defaults to `DEFAULT_SSH_KEEPALIVE` (`10 × 3` ≈ 30s), which is what
-an interactive tool wants: a host that stopped answering must stop *looking*
-connected. **Raise it for a long-running unattended dial that a redial would
-destroy rather than repair** — a CI lane whose provisioning build has been
-compiling for twenty minutes should ride out a multi-minute network blip, not be
-killed and restarted (`sshKeepalive(30, 10)` buys five minutes). The cost is
-symmetric: a genuinely dead host keeps that dial parked for the same window
-before the loop retries.
+`ServerAliveInterval` and `ServerAliveCountMax`, so ssh may go
+`intervalS × countMax` seconds without an answer before it declares the
+**transport** dead and exits non-zero. It defaults to `DEFAULT_SSH_KEEPALIVE`
+(`10 × 3` ≈ 30s), which is what an interactive tool wants: a host that stopped
+answering must stop *looking* connected. **Raise it for an unattended dial whose
+ssh should not be torn down over a slow probe answer** (`sshKeepalive(30, 10)`
+waits five minutes before calling the transport dead). The cost is symmetric: a
+genuinely dead host keeps that dial parked for the same window before the loop
+retries. It is *not* a survival budget for the work riding that ssh — see the
+four bounds below.
 
 `sshKeepalive(intervalS, countMax)` is the only way to make one — a validated
 value, not a record you can hand-assemble — so an out-of-range policy throws at
@@ -72,8 +72,10 @@ never clamped (ceiling `MAX_SSH_KEEPALIVE_TOLERANCE_S` = one hour). The policy
 reaches **every** ssh the dial spawns: the arch probe, the cache prefetch, the
 warm validity check, the GC-root pin, the closure ship, the `NIX_SSHOPTS` that
 the remote-store `nix build` forks its own ssh with, and the agent command
-itself. `dialAgentOnce` takes the same option and forwards it — along with
-`liveness`, its other half.
+itself. `dialAgentOnce` takes the same option and forwards it. (It also takes
+`liveness`, forwarded to `MakeSessionOptions.liveness` — a passthrough on its own
+merits, **not** this option's other half: see the four bounds below for why
+tuning the heartbeat buys a connected link nothing.)
 
 Building your own ssh command outside this package? Use
 `sshDialOpts(keepalive)`, not `sshCommonOpts(keepalive)`: it emits the complete
@@ -85,39 +87,36 @@ an ordinary `Host *` block with `ControlMaster auto` supplies a master keyed by
 host+user+port and **not** by policy — which silently replaces the very
 `ServerAlive*` you just rendered.
 
-<Aside type="caution" title="Raising this alone does not protect a CONNECTED link">
-  `keepalive` governs the **dialling** phases — `probing` and `provisioning`,
-  which is where a cold build's twenty quiet minutes live, and where a 30s
-  dead-peer verdict used to throw that work away.
+<Aside type="caution" title="This bounds ssh transport death — it is not a survival budget">
+  `keepalive` answers exactly one question: **how long may ssh get no answer
+  before it declares the transport dead and exits?** Without it, an ssh parked on
+  a half-open socket waits for the OS TCP stack, effectively forever. With it,
+  that becomes an `intervalS × countMax` failure the reconnect loop can retry.
 
-  Once a session reaches `connected`, a *faster* judge takes over:
-  `makeSession`'s liveness watchdog round-trips `system.live` on the
-  `MakeSessionOptions.liveness` cadence — **≈25s at its defaults** — and because
-  an ssh `Connection` supplies no `processAlive` oracle, one silent probe
-  force-cycles the link. That fires long before any raised ssh tolerance elapses.
+  It is **not** "how long this lane survives an interruption". Four independent
+  bounds answer *how long a link may be silent*, and this is the loosest of them:
 
-  So a lane that must survive a multi-minute blip *while connected* raises
-  **both**, and the heartbeat's own ceilings bound what is reachable there
-  (`MAX_HEARTBEAT_INTERVAL_MS` 300s + `MAX_HEARTBEAT_TIMEOUT_MS` 120s):
+  | # | Bound | When it applies | Value | Tunable? |
+  | - | ----- | --------------- | ----- | -------- |
+  | 1 | **Effect RPC's own pinger** — `RpcClient.makeProtocolSocket` pings every 5s and ends the socket the moment a tick finds the previous ping unanswered | a `connected` link | **5–10s of silence is fatal** | **No.** `makeProtocolSocket` exposes no option for the cadence, and no retry survives it |
+  | 2 | **`makeSession`'s heartbeat watchdog** — the `system.live` round-trip | a `connected` link | ≈25s at its defaults | Yes, `MakeSessionOptions.liveness` — but per (1) it *never gets a vote*, because the lower deadline always wins |
+  | 3 | **The provisioning progress-liveness budget** — `PROVISION_STEP_SILENCE_BASE_MS`, which group-kills the child | `provisioning` (the build/copy) | **120s without child output**, doubling per expiry, `PROVISION_STEP_MAX_EXPIRIES` = 4 | Not by this option. ssh keepalives are protocol traffic and produce **no child stdout**, so they never reset it |
+  | 4 | **`keepalive`** — ssh's own dead-peer verdict | every phase; the backstop under all three | `intervalS × countMax`, ≈30s by default | Yes — this option |
 
-  ```ts
-  makeSession({
-    connectOnce: sshConnector({ …, keepalive: sshKeepalive(30, 10) }),
-    liveness: { intervalMs: 240_000, timeoutMs: 60_000 }, // ≈5 min, matching
-  });
-  ```
+  The canonical account of (1) is the docstring beside `neverReconnect` in
+  `packages/surface/src/links/wire.ts`, which is where the fact is *acted on*;
+  `packages/surface/src/links/stdioPingStall.test.ts` measures it (a stalled but
+  still-open wire dies with `death=keepAliveUnanswered` and stays dead). Read it
+  before promising anyone a longer silence.
 
-  `dialAgentOnce` takes both halves for the same reason — `keepalive` and
-  `liveness` side by side — so the pairing is expressible on the one-shot facade
-  every `--host` CLI and unattended runner reaches for, without dropping a layer
-  and composing `makeSession` by hand.
-
-  The two ceilings differ, and deliberately: `MAX_SSH_KEEPALIVE_TOLERANCE_S` is
-  one hour against the heartbeat's reachable 420s. They bound different
-  questions — the ssh policy is the lower-layer transport backstop and it also
-  polices `probing`/`provisioning`, which the watchdog does not watch at all
-  (`isLive()` requires `phase === "connected"`). A tolerance past 420s is
-  legitimate; what it is reachable *during* is dialling, never a connected link.
+  So: a raised `keepalive` does **not** let a connected lane ride out a
+  multi-minute blip — the link is gone in 5–10s — and raising it past 120s is
+  inert for a provisioning build, whose child bound is (3). What it prevents is
+  the opposite failure: a 30s verdict tearing down a dial whose peer was merely
+  slow to answer a probe, and an unbounded park on a transport that is genuinely
+  gone. `MAX_SSH_KEEPALIVE_TOLERANCE_S` (one hour) is therefore a ceiling on *how
+  long a dead ssh may go unnoticed*, not a promise that anything survives that
+  long.
 </Aside>
 
 <Aside type="note" title="A ControlMaster's opener fixes ServerAlive* for its lifetime">

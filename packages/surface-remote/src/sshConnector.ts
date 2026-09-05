@@ -169,36 +169,51 @@ export interface SshConnectorOptions<S extends SurfaceSpec> {
    *  a localhost dial can never fall back to ambient full-inherit — the seam #1880
    *  left and #1872 forbids. drishti and every kolu CLI plug in here. */
   localEnv: Record<string, string>;
-  /** How long a dial of THIS consumer may sit in silence before ssh declares the
-   *  peer dead and the session redials — see {@link SshKeepalive}. Defaults to
+  /** How long ssh may get no answer from the peer before it declares the
+   *  transport dead and exits non-zero — see {@link SshKeepalive}. Defaults to
    *  {@link DEFAULT_SSH_KEEPALIVE} (≈30s), the right answer for an interactive
    *  tool: a host that stopped answering must stop looking connected.
    *
-   *  RAISE it when the dial is a long-running unattended job that a redial would
-   *  destroy rather than repair — juspay/odu's CI lanes are the first consumer,
-   *  riding out a multi-minute blip instead of killing a lane mid-build. The cost
-   *  is symmetric and bounded: a genuinely dead host keeps this dial parked for
-   *  `intervalS × countMax` seconds before the loop can retry. Built with
-   *  `sshKeepalive(intervalS, countMax)`, which is the ONLY producer and throws
-   *  on an out-of-range policy at the literal the consumer wrote — never at the
-   *  first dial, and never clamped.
+   *  **What this buys, exactly: it bounds how long a DEAD or HALF-OPEN ssh
+   *  transport takes to be NOTICED.** Without it, an ssh parked on a half-open
+   *  socket waits for the OS TCP stack — effectively forever — and the dial
+   *  wedges with no recovery. With it, that eternity becomes an
+   *  `intervalS × countMax` failure the reconnect loop can retry. Raising it
+   *  therefore buys tolerance of an unresponsive NETWORK and costs exactly the
+   *  same window on a genuinely dead host. Built with
+   *  `sshKeepalive(intervalS, countMax)`, the only producer, which throws on an
+   *  out-of-range policy at the literal the consumer wrote — never at the first
+   *  dial, and never clamped.
    *
-   *  **This governs the DIALLING phases, not a connected link — raising it alone
-   *  is not enough.** While a session is `connected`, `makeSession`'s own
-   *  liveness watchdog is the faster judge: it round-trips `system.live` on the
-   *  `MakeSessionOptions.liveness` cadence (≈25s at the defaults) and, because an
-   *  ssh {@link Connection} supplies no `processAlive` oracle, a silent probe
-   *  force-cycles the link — well before ANY ssh keepalive tolerance elapses. So
-   *  a consumer that wants a connected lane to survive a multi-minute blip must
-   *  raise BOTH, and the heartbeat's own ceilings (`MAX_HEARTBEAT_INTERVAL_MS`
-   *  300s + `MAX_HEARTBEAT_TIMEOUT_MS` 120s) bound what is reachable there.
+   *  **What it does NOT buy — because it is only ONE of four independent bounds
+   *  on how long a link may be silent, and it is the LOOSEST of them:**
    *
-   *  What THIS option buys on its own is the phase the watchdog deliberately does
-   *  not police: `probing`/`provisioning`. The heartbeat's `isLive()` requires
-   *  `phase === "connected"`, so a cold `nix build` that compiles on the host for
-   *  twenty minutes is governed by ssh keepalive ALONE — which is exactly the
-   *  window a CI lane spends most of its life in, and exactly where a 30s
-   *  dead-peer verdict used to throw the work away.
+   *   1. **Effect RPC's own pinger, on a connected link — 5–10s, NOT a knob.**
+   *      `RpcClient.makeProtocolSocket` pings every 5s and ends the socket the
+   *      moment a tick finds the previous ping unanswered. No option exposes that
+   *      cadence and no retry survives it. Canonical account: the docstring at
+   *      `@kolu/surface`'s `links/wire.ts` (`neverReconnect`), measured by
+   *      `links/stdioPingStall.test.ts`. This is the bound that actually ends a
+   *      connected link, and nothing here can move it.
+   *   2. **`makeSession`'s heartbeat — ≈25s at its defaults, tunable via
+   *      `MakeSessionOptions.liveness`.** Per (1) it never gets a vote on a
+   *      connected link: the lower deadline always wins. Tune it for its own
+   *      reasons, not as a way to ride out a blip.
+   *   3. **The provisioning progress-liveness budget —
+   *      `PROVISION_STEP_SILENCE_BASE_MS` 120s, which GROUP-KILLS the child.**
+   *      ssh keepalives are protocol-level traffic and produce no child stdout,
+   *      so they do not reset it. A blip during a build is bounded by THIS, not
+   *      by the policy here; raising the policy past 120s is inert for a build.
+   *      (The budget doubles per expiry, `PROVISION_STEP_MAX_EXPIRIES` = 4.)
+   *   4. **This option** — the ssh transport's own death, the backstop
+   *      underneath all three.
+   *
+   *  So: do not read a raised policy as "this lane now survives a five-minute
+   *  interruption". It does not. A connected link is gone in 5–10s and a silent
+   *  build's child is killed at 120s. What a raised policy prevents is the
+   *  opposite failure — a 30s dead-peer verdict tearing down a dial whose peer
+   *  was merely slow to answer a probe — and an unbounded park on a transport
+   *  that is genuinely gone.
    *
    *  Threaded into EVERY ssh the dial spawns (arch probe, cache prefetch, warm
    *  validity check, GC-root pin, closure ship, Nix's own remote-store ssh, and

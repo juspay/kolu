@@ -27,19 +27,22 @@ const sshKeepaliveBrand = Symbol("SshKeepalive");
  *  (`ServerAliveCountMax`). Total tolerance is `intervalS × countMax` seconds —
  *  the wall-clock silence a link may suffer before the session gets to redial.
  *
- *  PER-DIAL rather than one baked constant, because "how long a silence is too
- *  long" is a *consumer* judgement, not a fact about ssh. An interactive tool
- *  (kolu, drishti) wants the ~30s {@link DEFAULT_SSH_KEEPALIVE}: a host that
- *  stopped answering must stop *looking* connected while someone is watching. A
- *  CI coordinator (juspay/odu) wants the opposite for the same wire — a lane
- *  that has been compiling for twenty minutes should ride out a multi-minute
- *  network blip rather than be killed and restarted.
+ *  PER-DIAL rather than one baked constant, because "how long may ssh get no
+ *  answer before it gives up on the transport" is a *consumer* judgement, not a
+ *  fact about ssh. An interactive tool (kolu, drishti) wants the ~30s
+ *  {@link DEFAULT_SSH_KEEPALIVE}: a host that stopped answering must stop
+ *  *looking* connected while someone is watching. A CI coordinator (juspay/odu)
+ *  wants the opposite for the same wire — an unattended dial should not have its
+ *  ssh torn down because a peer took 40s to answer a probe.
  *
- *  This is the ssh half of link liveness; the heartbeat half is already
- *  per-session tunable as `MakeSessionOptions.liveness` (`@kolu/surface`'s
- *  `createHeartbeat`, bounded by `MAX_HEARTBEAT_*`). They police DIFFERENT
- *  phases — see {@link MAX_SSH_KEEPALIVE_TOLERANCE_S} for why their ceilings
- *  are not the same number and must not be read as siblings.
+ *  Read what this is NARROWLY. It bounds how long a DEAD or HALF-OPEN ssh
+ *  transport takes to be noticed and exited; it is NOT "how long a lane survives
+ *  an interruption", and it is only one of four independent bounds on link
+ *  silence — the other three (Effect RPC's 5–10s pinger, which is not a knob and
+ *  which ends every connected link first; the heartbeat watchdog, which per that
+ *  pinger never gets a vote; and the 120s provisioning progress-liveness budget
+ *  that group-kills a silent child) are enumerated at
+ *  `SshConnectorOptions.keepalive`. Raising this one does not move any of them.
  *
  *  NOMINAL, like the `AgentDerivation`/`AgentBinaryCache` values it travels
  *  beside: the private symbol means only {@link sshKeepalive} can produce one,
@@ -79,17 +82,16 @@ export interface SshKeepalive {
  *  clamped to a value the caller did not ask for and would never learn about.
  *
  *  NOT the sibling of `@kolu/surface`'s `MAX_HEARTBEAT_*`, and deliberately
- *  8.6× larger: the two bound DIFFERENT questions. The heartbeat's reachable
- *  ceiling is `MAX_HEARTBEAT_INTERVAL_MS` (300s) + `MAX_HEARTBEAT_TIMEOUT_MS`
- *  (120s) = 420s, and it governs a CONNECTED link only (`isLive()` requires
- *  `phase === "connected"`). This one governs the DIALLING phases — `probing`
- *  and `provisioning`, where a cold `nix build` sits quiet for twenty minutes
- *  and the heartbeat is not watching at all — and, underneath the watchdog, it
- *  is the lower-layer transport backstop for the whole dial. So a tolerance
- *  between 420s and 3600s is legitimate and reachable; what it is reachable
- *  *during* is dialling, never a connected link. A consumer pairing the two
- *  halves (see `keepaliveOrdering.test.ts`) is bounded by the smaller ceiling
- *  for the connected half and by this one for the rest. */
+ *  8.6× larger: the two bound DIFFERENT questions, and neither is "how long a
+ *  link may be silent" (that is settled far lower, by Effect RPC's 5–10s pinger
+ *  — `links/wire.ts`). The heartbeat's reachable ceiling is
+ *  `MAX_HEARTBEAT_INTERVAL_MS` (300s) + `MAX_HEARTBEAT_TIMEOUT_MS` (120s) = 420s
+ *  and it watches a CONNECTED link only (`isLive()` requires
+ *  `phase === "connected"`) — where, per that pinger, it never gets to decide
+ *  anything. This one bounds the TRANSPORT's own death, in every phase. So a
+ *  tolerance between 420s and 3600s is legitimate: it is the ceiling on how long
+ *  a dead ssh may go unnoticed, not a promise that anything survives that long.
+ *  `keepaliveOrdering.test.ts` pins the real ordering. */
 export const MAX_SSH_KEEPALIVE_TOLERANCE_S = 3_600;
 
 /** The wall-clock silence a policy tolerates — `intervalS × countMax` seconds.
