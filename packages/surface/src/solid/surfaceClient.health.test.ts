@@ -22,7 +22,7 @@
  */
 
 import { Effect, Schema, Stream } from "effect";
-import { createEffect, createRoot } from "solid-js";
+import { createEffect, createMemo, createRoot } from "solid-js";
 import { describe, expect, it } from "vitest";
 import { defineSurface, defineSurfaceWithPolicy } from "../define";
 import {
@@ -797,6 +797,89 @@ describe("surfaceClients builds a bundle ALL-OR-NOTHING", () => {
     expect(torn).toEqual(["second", "first"]);
     // ...and the map is empty either way, so nothing reads as still-rostered.
     expect(Object.keys(bundle.clients)).toEqual([]);
+  });
+
+  it("REPORTS the move: a memo over `bundle.health()` re-folds when the roster changes", async () => {
+    // THE reactivity invariant the bundle owes every consumer. `clients` is a
+    // plain object mutated in place, so nothing about its key set is trackable —
+    // the notification has to come from the code that MUTATES it. Delete the
+    // membership bump at the end of `reroster` and this test fails: the memo
+    // keeps naming the departed sibling's subscription and never names the
+    // arrival's.
+    const other = defineSurface({
+      cells: {
+        queue: {
+          schema: Schema.Struct({ n: Schema.Number }),
+          default: { n: 0 },
+          verbs: ["get"],
+        },
+      },
+    });
+    const dispatch = fakeDispatch({
+      "surface/first/queue/get": () => once({ n: 1 }),
+      "surface/third/queue/get": () => once({ n: 3 }),
+    });
+    const bundle = surfaceClients(dispatch, { first: other });
+    await createRoot(async (dispose) => {
+      // A standing subscription on the sibling that will LEAVE, so the fold has a
+      // name to lose, and one on the arrival, so it has a name to gain.
+      createRoot(() => bundle.clients.first.cells.queue.use());
+      let runs = 0;
+      const folded = createMemo(() => {
+        runs += 1;
+        return bundle.health();
+      });
+      // A tracking observer, so the memo is live rather than lazily re-read.
+      createEffect(() => folded());
+      await settle();
+      const before = runs;
+      expect(folded().subs.map((s) => s.name)).toEqual(["first/queue"]);
+
+      // The return is this same bundle, retyped to the roster it now carries —
+      // which is how a caller reaches the arrival's client by name.
+      const moved = bundle.reroster({ third: other });
+      createRoot(() => moved.clients.third.cells.queue.use());
+      await settle();
+
+      expect(runs).toBeGreaterThan(before);
+      expect(folded().subs.map((s) => s.name)).toEqual(["third/queue"]);
+      dispose();
+    });
+    bundle.dispose();
+  });
+
+  it("`moves` answers with the bundle's OWN comparison — the one `reroster` makes", async () => {
+    // The query `connectSurfaces`' `redial` asks before it spends a whole socket.
+    // It has to be the bundle's, not a caller's: a second diff rule would let the
+    // door and the move disagree about what counts as a change.
+    const other = defineSurface({
+      cells: {
+        queue: {
+          schema: Schema.Struct({ n: Schema.Number }),
+          default: { n: 0 },
+          verbs: ["get"],
+        },
+      },
+    });
+    const another = defineSurface({
+      cells: {
+        queue: {
+          schema: Schema.Struct({ n: Schema.Number }),
+          default: { n: 0 },
+          verbs: ["get"],
+        },
+      },
+    });
+    const bundle = surfaceClients(fakeDispatch(), { a: other, b: other });
+    // The SAME roster — same keys, same `Surface` values — is not a move, whatever
+    // object literal it arrives in.
+    expect(bundle.moves({ a: other, b: other })).toBe(false);
+    // A key that leaves, a key that arrives, a key whose `Surface` VALUE was
+    // replaced (a different contract under one name) — each is a move.
+    expect(bundle.moves({ a: other })).toBe(true);
+    expect(bundle.moves({ a: other, b: other, c: other })).toBe(true);
+    expect(bundle.moves({ a: other, b: another })).toBe(true);
+    bundle.dispose();
   });
 
   it("keeps the whole bundle when every sibling builds", async () => {

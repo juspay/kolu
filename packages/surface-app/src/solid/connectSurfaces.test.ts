@@ -33,7 +33,7 @@ import {
   defineSurfaceWithPolicy,
 } from "@kolu/surface/define";
 import { Effect, Schema } from "effect";
-import { createRoot, createSignal } from "solid-js";
+import { createEffect, createMemo, createRoot, createSignal } from "solid-js";
 import { describe, expect, it, vi } from "vitest";
 
 const mocked = vi.hoisted(() => ({
@@ -1098,6 +1098,125 @@ describe("connectSurfaces — a ROSTER CHANGE moves the WIRE, not the connection
       await expect(conn.redial({ b: later })).rejects.toThrow(
         /`redial` on a DISPOSED connection/,
       );
+      dispose();
+    });
+  });
+
+  it("a memo bound to `conn.health()` RE-FOLDS across the move, naming the arrival and not the departure", async () => {
+    // The reactivity invariant the whole in-place move rests on, and the one a
+    // green suite used to be silent about. `clients` is mutated in place, so
+    // nothing about its key set is trackable — the membership notification comes
+    // from the bundle, beside the mutation. Delete it and this test fails: the
+    // memo keeps naming the departed sibling's subscription and never names the
+    // arrival's, while every object-identity assertion above still passes.
+    const d = dialRecorder();
+    await createRoot(async (dispose) => {
+      const conn = await connectSurfaces({
+        surfaces: { a: surface },
+        core: { surface: core, name: "floor" },
+        url: "ws://test",
+        retired: () => {},
+        connect: d.connect,
+      });
+      (await d.nth(1)).open();
+      await settle();
+      // A standing subscription on the sibling that LEAVES, so the fold has a
+      // name to lose.
+      createRoot(() => conn.clients.a.cells.conn.use());
+      let runs = 0;
+      const folded = createMemo(() => {
+        runs += 1;
+        return conn.health();
+      });
+      createEffect(() => folded());
+      await settle();
+      const before = runs;
+      expect(folded().subs.map((s) => s.name)).toContain("a/conn");
+
+      const moved = await conn.redial({ b: later });
+      (await d.nth(2)).open();
+      // ...and one on the ARRIVAL, so the fold has a name to gain. Reached
+      // through the redial's result, which is this same connection retyped to
+      // the roster it now carries.
+      createRoot(() => moved.clients.b.cells.queue.use());
+      await settle();
+
+      expect(runs).toBeGreaterThan(before);
+      const names = folded().subs.map((s) => s.name);
+      expect(names).toContain("b/queue");
+      expect(names).not.toContain("a/conn");
+
+      await conn.dispose();
+      dispose();
+    });
+  });
+
+  it("dials NOTHING for a roster this connection is already on", async () => {
+    // Idempotence, not a fallback. The documented pattern publishes the roster as
+    // a cell and drives `redial` off its changes, so a redundant call is ordinary
+    // — and dialling anyway would fail every call in flight and re-open every
+    // standing subscription on the page to arrive back where it started. The
+    // comparison is the BUNDLE's own, so this door and the move cannot diff by
+    // two rules.
+    const d = dialRecorder();
+    await createRoot(async (dispose) => {
+      const conn = await connectSurfaces({
+        surfaces: { a: surface, b: later },
+        core: { surface: core, name: "floor" },
+        url: "ws://test",
+        retired: () => {},
+        connect: d.connect,
+      });
+      const firstSocket = await d.nth(1);
+      firstSocket.open();
+      await settle();
+      const standing = conn.clients.a;
+
+      // The SAME roster, in a fresh object literal and a different key order —
+      // what an over-firing effect re-publishing an unchanged roster hands over.
+      const same = await conn.redial({ b: later, a: surface });
+      await settle();
+      expect(same).toBe(conn);
+      // No second socket was dialled, the first is still open, and every client
+      // came through untouched.
+      expect(d.dialled.length).toBe(1);
+      expect(firstSocket.readyState).not.toBe(3);
+      expect(conn.clients.a).toBe(standing);
+      expect(conn.readout().status).toBe("live");
+      // ...and the connection is still redialable: the no-op left the state
+      // machine exactly where it found it.
+      await conn.redial({ a: surface });
+      (await d.nth(2)).open();
+      await settle();
+      expect(Object.keys(conn.clients)).toEqual(["a"]);
+
+      await conn.dispose();
+      dispose();
+    });
+  });
+
+  it("still refuses a NO-OP roster that is illegal — the refusals come first", async () => {
+    // A roster carrying a sibling keyed with the root's own word is refused
+    // before anything is dialled, and the idempotence door is downstream of that:
+    // "nothing to do" must never become a way past a refusal.
+    const d = dialRecorder();
+    await createRoot(async (dispose) => {
+      const conn = await connectSurfaces({
+        surfaces: {},
+        core: { surface: core, name: "floor" },
+        url: "ws://test",
+        retired: () => {},
+        connect: d.connect,
+      });
+      (await d.nth(1)).open();
+      await settle();
+      // An EMPTY roster is the one this connection is already on...
+      expect(await conn.redial({})).toBe(conn);
+      // ...but the same emptiness plus the root's word is still refused.
+      await expect(conn.redial({ floor: core })).rejects.toThrow(
+        /also a sibling key/,
+      );
+      await conn.dispose();
       dispose();
     });
   });

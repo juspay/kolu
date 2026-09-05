@@ -68,6 +68,7 @@ import {
   createSurfaceReadout,
   type HeartbeatTuning,
   type LiveSignalHandle,
+  mergeSurfaceHealth,
   type OnClientError,
   type SurfaceClient,
   type SurfaceClients,
@@ -75,7 +76,6 @@ import {
   type SurfaceReadout,
   surfaceClient,
   surfaceClients,
-  surfaceClientsHealth,
   surfaceReadout,
 } from "@kolu/surface/solid";
 import type { Rpc, RpcGroup } from "effect/unstable/rpc";
@@ -329,7 +329,17 @@ export interface SurfacesConnection<
    *  the same under-coverage reaches any consumer walking `Object.values(clients)`
    *  for a cross-client operation. {@link SurfacesConnection.health} and
    *  {@link SurfacesConnection.readout} fold the root in, and `dispose` tears it
-   *  down; use those. */
+   *  down; use those.
+   *
+   *  And it is NOT REACTIVE. Mutated in place is what keeps the identity, and the
+   *  price is that Solid has nothing to track: a `<For each={Object.keys(
+   *  conn.clients)}>` or a memo folding its values never re-runs when the roster
+   *  moves. Bind {@link SurfacesConnection.health} or
+   *  {@link SurfacesConnection.readout} for anything that must FOLLOW the roster —
+   *  they go through the bundle's own `roster()` accessor
+   *  (`@kolu/surface/solid`), which reads the membership signal beside the
+   *  mutation — and read this map for the clients themselves, after a `redial`
+   *  has resolved. */
   clients: SurfaceClients<E>;
   /** The ROOT surface's own `surfaceClient` — present exactly when
    *  {@link ConnectSurfacesOptions.core} was passed, and typed as `undefined` when
@@ -364,10 +374,16 @@ export interface SurfacesConnection<
    *  It replaced a transport-only `status` beside a `health()` an app could
    *  forget to call. Memoized, so every indicator bound to it costs one fold. */
   readout: Accessor<SurfaceReadout>;
-  /** The COMBINED health fact — `surfaceClientsHealth` over every sibling AND, when
-   *  a `core` was passed, the root under {@link ConnectSurfacesOptions.core}'s
-   *  `name` — folding their subs + the shared transport `live` (AND-reduced). Pass it straight
+  /** The COMBINED health fact — the client bundle's own fact over every sibling
+   *  AND, when a `core` was passed, the root under
+   *  {@link ConnectSurfacesOptions.core}'s `name` — folding their subs + the shared
+   *  transport `live` (AND-reduced). Pass it straight
    *  to `<SurfaceGate health={conn.health}>` / `<HostStatusPip health={conn.health}>`.
+   *
+   *  It follows the ROSTER as well as the subs: the bundle reports its own
+   *  membership change, so a memo bound to this re-folds when a sibling arrives or
+   *  leaves. That is why it is the fact to bind rather than a hand-written
+   *  `surfaceClientsHealth(conn.clients)`, which is blind to a move.
    *
    *  Still the FACT, and still the gate's input: the gate's policy (pending blocks
    *  the body) is deliberately not the readout's (pending does not amber the
@@ -413,6 +429,17 @@ export interface SurfacesConnection<
    *     next frame each subscription sees is its fresh snapshot from the new
    *     generation. No app code re-subscribes, and there is no second recovery
    *     path beside the fence.
+   *
+   *  ## Idempotence
+   *
+   *  A roster this connection is ALREADY on resolves without dialling anything.
+   *  "Already on" is the bundle's own comparison — every key present with the same
+   *  `Surface` VALUE — which is the same test that decides who survives a move, so
+   *  the door and the move cannot disagree. It matters because the documented
+   *  pattern is to publish the roster as a cell and drive this off its changes, and
+   *  a redundant call there would otherwise cost the page a full transport churn.
+   *  Refusals still come first: a no-op roster that is also illegal (a sibling
+   *  keyed with the root's word) is still refused.
    *
    *  ## What it still owns
    *
@@ -789,32 +816,32 @@ export async function connectSurfaces(
               surfaceClient(root.surface, transport, onClientError),
             ),
           };
-    // The record the combined fact is folded over: every sibling under its key, and
-    // the root under the caller's word. REBUILT on every roster move (`refold`),
-    // because `clients` is mutated in place and a spread taken once would keep
-    // folding the roster this connection was born with. `assertRootWordFree` runs
-    // for every roster, so the spread can never drop the root by shadowing it.
-    let folded: Record<string, Pick<SurfaceClient<SurfaceSpec>, "health">> = {};
-    const refold = (): void => {
-      folded =
-        rooted === undefined
-          ? { ...clients }
-          : { [rooted.name]: rooted.client, ...clients };
-    };
-    refold();
-    // The roster's own VERSION, read by the fact below so a Solid memo bound to it
-    // re-folds when the MEMBERSHIP moves. Every other input to `health()` is already
-    // reactive (each sub's self-clearing signals, the transport `live`); the roster
-    // is the one that changes by plain-object mutation, so it needs the same
-    // membership bump `createSurfaceHealthRegistry` uses for exactly this reason.
-    // `equals: false` makes each bump a distinct notification though the value is
-    // constant.
-    const [rosterMembership, bumpRosterMembership] = createSignal(0, {
-      equals: false,
-    });
+    // THE COMBINED FACT — the bundle's own, joined with the root's.
+    //
+    // The siblings' half is `bundle.health()`, which is the bundle's answer about
+    // its OWN roster: it reads the bundle's membership signal, so this fact
+    // re-folds when a sibling arrives or leaves without this seam owning a second
+    // notification for a map another package mutates.
+    //
+    // The join is a CONCATENATION, not a second fold, and that is the one thing to
+    // read carefully: the bundle's `subs` are already prefixed by sibling key
+    // (`surfaceApp/buildInfo`), so passing them back through `mergeSurfaceHealth`
+    // under some word would prefix them twice. The ROOT's fact is the half that
+    // still needs prefixing — under the caller's `core.name` — so it is the only
+    // half folded here, and the two are joined by the same law
+    // `mergeSurfaceHealth` states: `live` AND-reduced, `subs` concatenated. The
+    // root goes FIRST, as the spread that preceded this did, so a readout's names
+    // arrive in the same order they always have. `assertRootWordFree` runs for
+    // every roster this connection takes, so the two halves can never claim one
+    // word.
     const health = (): SurfaceHealth => {
-      rosterMembership();
-      return surfaceClientsHealth(folded);
+      const siblings = bundle.health();
+      if (rooted === undefined) return siblings;
+      const floor = mergeSurfaceHealth([[rooted.name, rooted.client.health]]);
+      return {
+        live: floor.live && siblings.live,
+        subs: [...floor.subs, ...siblings.subs],
+      };
     };
     // ONE fold of the two facts for the whole bundle: the shared wire's status and
     // every sibling's subs. Memoized here (this seam runs outside any reactive
@@ -908,6 +935,19 @@ export async function connectSurfaces(
         // still untouched and nothing has been dialled — the same law the first
         // dial holds, applied to every later roster.
         const nextPlan = planGeneration(root, next, extraGroups);
+        // THE ROSTER THIS CONNECTION IS ALREADY ON. Nothing to dial — and dialling
+        // anyway is not a harmless no-op: it fails every call in flight, makes
+        // every standing subscription on the page re-open through the retry fence,
+        // and arrives back exactly where it started. The comparison is the
+        // BUNDLE's own (`moves` is the same key-and-`Surface`-value test `reroster`
+        // makes), so this door and the move itself cannot diff by two rules.
+        //
+        // It matters because the documented consumer pattern publishes the roster
+        // as a cell and drives `redial` off its changes — a third place the delta
+        // is computed, in app code, where an over-firing effect is ordinary. Every
+        // refusal the roster earns has already been raised above, so a no-op
+        // roster that is ALSO illegal still fails.
+        if (!bundle.moves(next)) return connection;
         setState("redialing");
         let generation: SurfaceSocket;
         try {
@@ -994,8 +1034,6 @@ export async function connectSurfaces(
             { cause: rerosterError },
           );
         }
-        refold();
-        bumpRosterMembership(0);
         setState("live");
         // Awaited LAST: the connection is already consistent and live on the new
         // roster, so a teardown that drags does not hold the new roster back, and

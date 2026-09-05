@@ -503,7 +503,9 @@ drives is damage.
 are the two *ends* of one axis, and the framework carries the middle — "the
 served roster is now `[a, c]`" — **nowhere**. A consumer publishes it (a cell on
 the *root* is the natural carrier, since the root is on every serve this wire can
-reach) and drives `redial` off it. Said out loud because forgetting it fails
+reach) and drives `redial` off it. (An over-firing effect that re-publishes an
+unchanged roster costs nothing: `redial` is idempotent — a roster the connection
+is already on dials no wire.) Said out loud because forgetting it fails
 *silently*: clients simply never learn about the new sibling and nothing errors. A
 framework-reserved `system/roster` cell plus a `connectSurfaces` option that
 redials on its change is the receptacle that would close it, recorded as an atlas
@@ -721,10 +723,34 @@ PER-KEY delivery does come through this merge, and honours the same declaration.
 splits one combined transport into a sibling client per surface — each built over
 a **tag-scoped** dispatch, so the face mints standalone tags and the wrapper
 splices the sibling key in, landing on exactly the tags `implementSurfaces` bound.
-It returns a **bundle**: `bundle.clients` is the per-key map (one object for the
-bundle's life), `bundle.reroster(next)` moves it onto a new roster in place, and
-`bundle.dispose()` ends every client on it. `surfaceClientsHealth(clients)`
-AND-reduces the map into one fact.
+It returns a **bundle**:
+
+| Member | Answers |
+| --- | --- |
+| `clients` | the per-key map — **one object for the bundle's life**, mutated in place. Read a client through it; do not fold it in a tracking scope (next row) |
+| `roster()` | that **same object**, read reactively — the accessor reads the bundle's own membership signal first, so a memo or a `<For>` that goes through it re-runs when a sibling arrives or leaves |
+| `health()` | the bundle's combined fact — `surfaceClientsHealth` over its own clients, each sub's name already prefixed by its sibling key, and reactive about the roster as well as the subs |
+| `moves(next)` | would `reroster(next)` change anything? `false` when every key is present with the same `Surface` value. This is the bundle's own comparison — the one `reroster` makes |
+| `reroster(next)` | move onto a new roster in place; returns this same bundle, retyped |
+| `dispose()` | end every client on the roster |
+
+`clients` is a plain object mutated in place, which is what keeps its identity
+across a move — and Solid tracks nothing about a plain object's key set. So a
+`<For each={Object.keys(bundle.clients)}>`, a memo folding `Object.values(…)`, or
+a hand-written `surfaceClientsHealth(bundle.clients)` is **blind to a roster
+move**: it keeps naming departed siblings and never names an arrival. Reach for
+`bundle.roster()` or `bundle.health()` in any tracking scope. The notification
+lives on the bundle, beside the mutation, because `reroster` is the only code that
+knows the key set moved — a signal a *reader* owns is a rule kept by convention,
+and the second reader is silently blind rather than broken.
+
+`moves` exists because the expensive half of following a roster lives one layer
+up: [`conn.redial`](/surface/ref-surface-app#a-roster-change-follows-in-place--connredialsurfaces)
+asks it before it dials, so a roster the connection is already on costs nothing
+instead of a whole transport churn.
+
+`surfaceClientsHealth(clients)` AND-reduces a plain record into one fact — it is
+the fold `bundle.health()` performs, exported for a record you assembled yourself.
 
 `reroster` is what makes a [roster change follow in
 place](/surface/ref-surface-app#a-roster-change-follows-in-place--connredialsurfaces).

@@ -1694,6 +1694,46 @@ export interface SurfaceClientsBundle<
 > {
   /** The per-key clients — ONE object across every re-roster. */
   readonly clients: SurfaceClients<E>;
+  /** The same per-key clients, read REACTIVELY.
+   *
+   *  {@link SurfaceClientsBundle.clients} is a plain object MUTATED IN PLACE by
+   *  {@link reroster}, so Solid has nothing to track: a `<For each={Object.keys(
+   *  bundle.clients)}>`, a memo folding `Object.values(bundle.clients)` or a
+   *  hand-written `surfaceClientsHealth(bundle.clients)` never re-runs when a
+   *  sibling arrives or leaves. This accessor reads the bundle's own MEMBERSHIP
+   *  signal first and then hands back that same object, so a tracking scope that
+   *  goes through it re-runs on every roster move.
+   *
+   *  The notification lives HERE, beside the mutation, and not in whichever
+   *  consumer happened to want it: `reroster` is the only code that knows the key
+   *  set moved, so a signal a reader owns is a rule kept by convention — and the
+   *  reader that forgets it is silently blind rather than broken. (The same reason
+   *  `createSurfaceHealthRegistry` bumps its own membership signal one layer
+   *  down.) */
+  readonly roster: Accessor<SurfaceClients<E>>;
+  /** This bundle's COMBINED health fact — {@link surfaceClientsHealth} over its
+   *  own clients, each sub's name already prefixed by its sibling key and `live`
+   *  AND-reduced across them.
+   *
+   *  Reactive, and reactive about the ROSTER too: it reads
+   *  {@link SurfaceClientsBundle.roster}, so a memo bound to it re-folds when a
+   *  sibling arrives or leaves as well as when an enrolled sub errors or
+   *  recovers. Prefer it to folding `clients` by hand — that spelling is the one
+   *  that goes blind on a move. */
+  health(): SurfaceHealth;
+  /** Would {@link reroster} onto `next` change anything?
+   *
+   *  A key on both rosters carrying the SAME `Surface` value is not a move, which
+   *  is exactly the comparison `reroster` itself makes — so this is the bundle's
+   *  own answer and a caller cannot diff by a second rule. `false` means the
+   *  bundle is already on `next`.
+   *
+   *  It exists because the expensive half of following a roster lives one layer
+   *  UP: a consumer that dials a new wire per `reroster` (`connectSurfaces`'
+   *  `redial`) would otherwise fail every call in flight and re-open every
+   *  standing subscription on the page to arrive back where it started. Asking
+   *  first is idempotence, not a fallback. */
+  moves(next: Record<string, Surface<SurfaceSpec>>): boolean;
   /** Move this bundle onto `next` IN PLACE.
    *
    *  A key on both rosters with the SAME surface value keeps its client, standing
@@ -1764,6 +1804,21 @@ export function surfaceClients<
   const slots = new Map<string, SiblingSlot>();
   /** The map the app holds — the SAME object for the bundle's whole life. */
   const clients: Record<string, SurfaceClient<SurfaceSpec>> = {};
+  /** THE ROSTER MOVED — the notification, kept beside the mutation that causes it.
+   *
+   *  `clients` is a plain object written by `delete` and assignment, so Solid
+   *  tracks nothing about its key set; every reactive fold over it needs something
+   *  to depend on. That something belongs HERE, in the only code that knows the
+   *  key set moved, and not in whichever consumer happened to want it — a signal a
+   *  READER owns is a rule kept by convention, and the second reader is silently
+   *  blind rather than broken. (`createSurfaceHealthRegistry` bumps its own
+   *  membership signal one layer down for exactly this reason.)
+   *
+   *  `equals: false` makes each bump a distinct notification though the value is
+   *  constant. Bumped ONCE per move — at the exits of `reroster` and `dispose`,
+   *  not per key — so a memo over the roster re-folds once for a move that
+   *  swapped five siblings. */
+  const [membership, bumpMembership] = createSignal(0, { equals: false });
 
   /** End a slot: REFUSE first, then release. The order is the point — a standing
    *  subscription that fails during `client.dispose()` must find the dispatch
@@ -1855,6 +1910,20 @@ export function surfaceClients<
 
   const bundle: SurfaceClientsBundle<Record<string, Surface<SurfaceSpec>>> = {
     clients: clients as SurfaceClients<Record<string, Surface<SurfaceSpec>>>,
+    // The SAME object, handed back after the membership signal has been read — so
+    // a tracking scope that reaches the roster through here re-runs on a move,
+    // and one that reaches `clients` directly is the spelling that goes blind.
+    roster: () => {
+      membership();
+      return clients as SurfaceClients<Record<string, Surface<SurfaceSpec>>>;
+    },
+    health: () => surfaceClientsHealth(bundle.roster()),
+    moves: (next) =>
+      Object.keys(next).length !== slots.size ||
+      Object.entries(next).some(([key, surface]) => {
+        const slot = slots.get(key);
+        return slot === undefined || slot.surface !== surface;
+      }),
     reroster: <
       // biome-ignore lint/suspicious/noExplicitAny: heterogeneous map of surfaces, as on the constructor.
       const E2 extends Record<string, Surface<any>>,
@@ -1885,6 +1954,10 @@ export function surfaceClients<
         slots.set(key, slot);
         clients[key] = slot.client;
       }
+      // ONE notification, at the end of the whole move — every arrival is on the
+      // map and every departure is off it, so a memo woken by this reads a roster
+      // that is finished rather than one mid-swap.
+      bumpMembership(0);
       return bundle as unknown as SurfaceClientsBundle<E2>;
     },
     dispose: () => {
@@ -1902,6 +1975,10 @@ export function surfaceClients<
         delete clients[key];
       }
       slots.clear();
+      // The roster is now EMPTY, and that is a membership change like any other:
+      // a fold left holding the last roster over a disposed bundle would keep
+      // naming subscriptions nothing is running.
+      bumpMembership(0);
       if (failures.length > 0) {
         throw new AggregateError(
           failures,
@@ -1921,7 +1998,14 @@ export function surfaceClients<
  *  via {@link mergeSurfaceHealth}, prefixing each sub's name with its surface key
  *  (`<surfaceKey>/<sub>`) and AND-reducing `live`, so the result reads as ONE fact
  *  a single `<SurfaceGate health={() => surfaceClientsHealth(clients)}>` can gate
- *  on. Reactive — call it inside a tracking scope (or wrap in an accessor). */
+ *  on. Reactive — call it inside a tracking scope (or wrap in an accessor).
+ *
+ *  It folds the record it is HANDED, and a record is not reactive. Over a
+ *  {@link SurfaceClientsBundle} whose roster can move, reach for
+ *  {@link SurfaceClientsBundle.health} instead (or fold
+ *  `bundle.roster()`, never `bundle.clients`): `clients` is one object mutated in
+ *  place, so a memo over `surfaceClientsHealth(bundle.clients)` keeps naming
+ *  departed siblings' subscriptions and never names an arrival's. */
 export function surfaceClientsHealth(
   clients: Record<string, Pick<SurfaceClient<SurfaceSpec>, "health">>,
 ): SurfaceHealth {
