@@ -48,6 +48,7 @@ import type {
 } from "../define";
 import {
   collectionHasDeltas,
+  policyBearingMember,
   resolveCellVerbs,
   scopeSiblingTag,
 } from "../define";
@@ -1055,17 +1056,7 @@ export function buildSurfaceClient<const S extends SurfaceSpec>(
   // non-`never` policy. So a policy-bearing surface connected with no interpreter is
   // caught HERE, at construction, not by the compiler.
   if (onClientError === undefined) {
-    const policyMember =
-      Object.entries(spec.cells ?? {}).find(
-        ([, s]) =>
-          (s as CellSpec<unknown, unknown, unknown>).client?.onError !==
-          undefined,
-      )?.[0] ??
-      Object.entries(spec.collections ?? {}).find(
-        ([, s]) =>
-          (s as CollectionSpec<unknown, unknown, unknown>).client?.onError !==
-          undefined,
-      )?.[0];
+    const policyMember = policyBearingMember(spec);
     if (policyMember !== undefined) {
       throw new Error(
         `buildSurfaceClient: member "${policyMember}" declares a client.onError ` +
@@ -1733,7 +1724,15 @@ export interface SurfaceClientsBundle<
    *  {@link SurfaceClientsBundle.roster}, so a memo bound to it re-folds when a
    *  sibling arrives or leaves as well as when an enrolled sub errors or
    *  recovers. Prefer it to folding `clients` by hand — that spelling is the one
-   *  that goes blind on a move. */
+   *  that goes blind on a move.
+   *
+   *  It is the whole answer for a bundle that is the WHOLE wire. A consumer with
+   *  something else to fold in — `connectSurfaces`, whose wire carries a root
+   *  beside the siblings — reaches for {@link SurfaceClientsBundle.roster} and
+   *  builds ONE entries list instead, because folding this already-prefixed fact
+   *  into a second fold would prefix every sibling's subs twice and walk them
+   *  again. That is not this member going unused; it is the two shapes a caller
+   *  can be in, and each has the cheaper door. */
   health(): SurfaceHealth;
   /** Would {@link reroster} onto `next` change anything?
    *
@@ -1948,6 +1947,29 @@ export function surfaceClients<
     admit(key, slot);
   }
 
+  /** Is `key` still the slot this bundle already holds — the SAME `Surface` value
+   *  its client was built from?
+   *
+   *  ONE spelling, because three readers ask it and they must agree: {@link
+   *  SurfaceClientsBundle.moves} (the idempotence door `redial` asks before it
+   *  dials), the arrivals filter, and the departures loop. Written out three
+   *  times, the two `redial`-facing ones drifting apart is exactly the bug the
+   *  door exists to prevent — a move the door called a no-op, or a no-op it
+   *  called a move.
+   *
+   *  A different value under the same key is NOT the same slot: it is a different
+   *  contract (an edited plugin rebuilt at a new chunk), and a client built over
+   *  the old spec would bind members the new one does not have.
+   *
+   *  `Object.hasOwn`, not a bare read: `wanted` is a caller's object, so a key
+   *  like `constructor` would otherwise answer through `Object.prototype` and
+   *  read as "still on the roster". */
+  const stillHeld = (
+    wanted: Record<string, Surface<SurfaceSpec>>,
+    key: string,
+  ): boolean =>
+    Object.hasOwn(wanted, key) && slots.get(key)?.surface === wanted[key];
+
   const bundle: SurfaceClientsBundle<Record<string, Surface<SurfaceSpec>>> = {
     clients: clients as SurfaceClients<Record<string, Surface<SurfaceSpec>>>,
     // The SAME object, handed back after the membership signal has been read — so
@@ -1960,33 +1982,22 @@ export function surfaceClients<
     health: () => surfaceClientsHealth(bundle.roster()),
     moves: (next) =>
       Object.keys(next).length !== slots.size ||
-      Object.entries(next).some(([key, surface]) => {
-        const slot = slots.get(key);
-        return slot === undefined || slot.surface !== surface;
-      }),
+      Object.keys(next).some((key) => !stillHeld(next, key)),
     reroster: <
       // biome-ignore lint/suspicious/noExplicitAny: heterogeneous map of surfaces, as on the constructor.
       const E2 extends Record<string, Surface<any>>,
     >(
       next: E2,
     ): SurfaceClientsBundle<E2> => {
-      const wanted = next as unknown as Record<string, Surface<SurfaceSpec>>;
-      // A key is KEPT only when the surface VALUE is the same one its client was
-      // built from. A different value under the same key is a different contract
-      // (an edited plugin rebuilt at a new chunk), and a client built over the old
-      // spec would bind members the new one does not have.
+      const wanted: Record<string, Surface<SurfaceSpec>> = next;
       const arriving = Object.entries(wanted).filter(
-        ([key, surface]) => slots.get(key)?.surface !== surface,
+        ([key]) => !stillHeld(wanted, key),
       );
       // Arrivals FIRST, so a throw leaves this bundle exactly on its current
       // roster — nothing retracted, nothing half-moved.
       const built = buildSlots(arriving);
       for (const [key, slot] of slots) {
-        // `Object.hasOwn`, not a bare read: `wanted` is a caller's object, and a
-        // key like `constructor` would otherwise answer through
-        // `Object.prototype` and read as "still on the roster".
-        if (Object.hasOwn(wanted, key) && wanted[key] === slot.surface)
-          continue;
+        if (stillHeld(wanted, key)) continue;
         // LOGGED, not raised: the value this call exists to produce is the bundle
         // on its new roster, and refusing to move it because a departing
         // sibling's teardown threw would leave the caller with neither.
@@ -2000,7 +2011,7 @@ export function surfaceClients<
       // map and every departure is off it, so a memo woken by this reads a roster
       // that is finished rather than one mid-swap.
       bumpMembership(0);
-      return bundle as unknown as SurfaceClientsBundle<E2>;
+      return bundle as SurfaceClientsBundle<E2>;
     },
     dispose: () => {
       // RAISES, and that is the difference from the two exits above: a
@@ -2028,7 +2039,7 @@ export function surfaceClients<
       }
     },
   };
-  return bundle as unknown as SurfaceClientsBundle<E>;
+  return bundle as SurfaceClientsBundle<E>;
 }
 
 /** The combined health FACT across every sibling client `surfaceClients` built —

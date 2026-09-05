@@ -65,20 +65,7 @@
  * delete.
  */
 
-/** Report a leaked resource whose teardown itself FAILED, at an exit that has a
- *  value to produce (or an original error to protect) and no caller left to raise
- *  to — the log-vs-raise decision this module documents, given a NAME so the
- *  policy can be grepped rather than recognised by shape.
- *
- *  `what` is the site's own sentence: it must name the resource and say that it
- *  is leaked, because only the site knows what leaked. `cause` is the teardown's
- *  own error and is never dropped — a caught error collapsing to nothing is the
- *  repo's `caught-error-must-not-collapse-to-empty` defect, and here the line is
- *  the whole remedy. `@kolu/surface` states the same policy under the same name
- *  for its own two exits (`@kolu/surface`'s internal `teardown` module). */
-export function reportLeakedTeardown(what: string, cause: unknown): void {
-  console.error(what, cause);
-}
+import { reportLeakedTeardown } from "@kolu/surface/teardown";
 
 /** Anything a connect seam allocates and must give back. Every resource these
  *  two seams hold answers to `dispose`; the async arm is the wire's. */

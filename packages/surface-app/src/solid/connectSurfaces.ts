@@ -58,6 +58,7 @@ import {
   isStandaloneRoot,
   mergeDisjointGroups,
   notStandaloneRootDetail,
+  policyBearingMember,
   type Surface,
   type SurfaceSpec,
 } from "@kolu/surface/define";
@@ -89,10 +90,8 @@ import {
   type SurfaceSocketOptions,
 } from "../connect";
 import { defaultSurfaceUrl } from "../defaultSurfaceUrl";
-import {
-  reportLeakedTeardown,
-  trackConnectAllocations,
-} from "../connectAllocations";
+import { reportLeakedTeardown } from "@kolu/surface/teardown";
+import { trackConnectAllocations } from "../connectAllocations";
 
 /** The ROOT SLOT of a rooted bundle: the unprefixed root surface, plus the WORD it
  *  answers to in the health fold and the readout.
@@ -637,6 +636,47 @@ function assertRootWordFree(
   }
 }
 
+/** A member that DECLARES a `client.onError` policy may never route nowhere —
+ *  re-checked for every roster this connection takes, and this is the door that
+ *  can check it EARLY.
+ *
+ *  `buildSurfaceClient` refuses it too, and has to: it is the one door every
+ *  client crosses, so it is where the law LANDS. But by the time it runs on a
+ *  `redial`, the new wire has already been adopted — an arriving sibling's client
+ *  can open a standing subscription at construction, and its tags are ones the
+ *  OUTGOING generation never minted, so the arrivals cannot be built any earlier.
+ *  A throw there leaves a wire serving one roster and clients built for another,
+ *  which nothing can make honest and whose only answer is to release the whole
+ *  connection ({@link abandon}).
+ *
+ *  The scan needs none of that. It reads a SPEC and an INTERPRETER, and this seam
+ *  holds both before it dials anything — `onClientError` is fixed for the
+ *  connection's life, and the arriving surfaces are `redial`'s own argument. So it
+ *  runs here, and the one roster-triggerable construction throw comes back under
+ *  the law this seam states everywhere else: EVERY refusal a roster earns is
+ *  raised before anything is dialled, with the caller's working wire untouched.
+ *  What is left for `abandon` is a framework bug, not a roster.
+ *
+ *  The ROOT is not scanned: it does not move, so a policy it declares was already
+ *  refused at construction by its own `surfaceClient`, and re-refusing it on every
+ *  later roster would report a fault that cannot have arrived. */
+function assertPoliciesRoutable(
+  surfaces: Record<string, Surface<SurfaceSpec>>,
+  onClientError: OnClientError | undefined,
+): void {
+  if (onClientError !== undefined) return;
+  for (const [key, surface] of Object.entries(surfaces)) {
+    const member = policyBearingMember(surface.spec);
+    if (member === undefined) continue;
+    throw new Error(
+      `connectSurfaces: the "${key}" surface's member "${member}" declares a ` +
+        "client.onError policy but no `onClientError` interpreter was passed — " +
+        "the declared policy would route nowhere (a silent swallow). Pass " +
+        "`onClientError` at this seam; it reaches every sibling and the root.",
+    );
+  }
+}
+
 /** Everything about ONE ROSTER that has to be settled — and refused — before a wire
  *  is dialled for it: the combined `RpcGroup` the wire is built over, and which
  *  member the two reserved round-trips address.
@@ -656,8 +696,10 @@ function planGeneration(
   surfaces: Record<string, Surface<SurfaceSpec>>,
   // biome-ignore lint/suspicious/noExplicitAny: the erasure is this seam's — see `ConnectSurfacesOptions.extraGroups`.
   extraGroups: ReadonlyArray<RpcGroup.RpcGroup<any>>,
+  onClientError: OnClientError | undefined,
 ): GenerationPlan {
   assertRootWordFree(root, surfaces);
+  assertPoliciesRoutable(surfaces, onClientError);
   // WHICH member the two reserved round-trips address — the `system/identity` echo
   // behind the stale-tab handshake and the `system/live` half-open watchdog. They
   // share ONE target (two prefixes over one wire is a split brain, not a fallback),
@@ -765,7 +807,7 @@ export async function connectSurfaces(
   // ONE decision, taken once: the root, checked, or `undefined`. Every line below
   // asks THIS binding — never the option, and never the question a second time.
   const root = resolveRoot(core);
-  const firstPlan = planGeneration(root, surfaces, extraGroups);
+  const firstPlan = planGeneration(root, surfaces, extraGroups, onClientError);
   // The one thing a roster derives that OUTLIVES its dial. A plan's `group` is
   // consumed by `dialGeneration` and never read again — keeping the whole plan
   // standing would retain an entire merged `RpcGroup` per generation for the
@@ -876,32 +918,40 @@ export async function connectSurfaces(
               surfaceClient(root.surface, transport, onClientError),
             ),
           };
-    // THE COMBINED FACT — the bundle's own, joined with the root's.
+    // THE COMBINED FACT — every sibling on the roster, and the root beside them.
+    // ONE fold, over ONE entries list, and that is deliberate rather than
+    // incidental. The obvious spelling — fold the bundle, fold the root, join the
+    // two — walks the subs TWICE and copies the whole sibling array on every read,
+    // and that array is every enrolled subscription on the page (a collection with
+    // a row per document enrols one per open row). This fact is read from the
+    // readout memo, which re-runs on every transport status change and every
+    // enrolled sub's first frame, so a second walk rides an already-N-shaped
+    // startup.
     //
-    // The siblings' half is `bundle.health()`, which is the bundle's answer about
-    // its OWN roster: it reads the bundle's membership signal, so this fact
-    // re-folds when a sibling arrives or leaves without this seam owning a second
-    // notification for a map another package mutates.
+    // Building the entries instead also keeps the PREFIXING law in one place:
+    // `mergeSurfaceHealth` prefixes each half's subs by the word it is given, so
+    // the root arrives under the caller's `core.name` and each sibling under its
+    // key — exactly once each. (Folding the bundle's ALREADY-prefixed fact back
+    // through the merger under some word would prefix it twice, which is what the
+    // join was carefully avoiding and what not having a join avoids for free.)
+    // The root goes FIRST, as the spread that preceded this did, so a readout's
+    // names arrive in the same order they always have; `assertRootWordFree` runs
+    // for every roster this connection takes, so the two halves can never claim
+    // one word.
     //
-    // The join is a CONCATENATION, not a second fold, and that is the one thing to
-    // read carefully: the bundle's `subs` are already prefixed by sibling key
-    // (`surfaceApp/buildInfo`), so passing them back through `mergeSurfaceHealth`
-    // under some word would prefix them twice. The ROOT's fact is the half that
-    // still needs prefixing — under the caller's `core.name` — so it is the only
-    // half folded here, and the two are joined by the same law
-    // `mergeSurfaceHealth` states: `live` AND-reduced, `subs` concatenated. The
-    // root goes FIRST, as the spread that preceded this did, so a readout's names
-    // arrive in the same order they always have. `assertRootWordFree` runs for
-    // every roster this connection takes, so the two halves can never claim one
-    // word.
+    // `bundle.roster()` rather than `bundle.clients` is what makes this REACTIVE
+    // to a roster move: it reads the bundle's own membership signal on the way
+    // out, so the fact re-folds when a sibling arrives or leaves without this
+    // seam owning a second notification for a map another package mutates.
     const health = (): SurfaceHealth => {
-      const siblings = bundle.health();
-      if (rooted === undefined) return siblings;
-      const floor = mergeSurfaceHealth([[rooted.name, rooted.client.health]]);
-      return {
-        live: floor.live && siblings.live,
-        subs: [...floor.subs, ...siblings.subs],
-      };
+      const siblings = bundle.roster();
+      const folded: Array<readonly [string, () => SurfaceHealth]> = [];
+      if (rooted !== undefined)
+        folded.push([rooted.name, rooted.client.health]);
+      for (const [key, client] of Object.entries(siblings)) {
+        folded.push([key, client.health]);
+      }
+      return mergeSurfaceHealth(folded);
     };
     // ONE fold of the two facts for the whole bundle: the shared wire's status and
     // every sibling's subs. Memoized here (this seam runs outside any reactive
@@ -938,6 +988,19 @@ export async function connectSurfaces(
     // state another path can move while this one is suspended.
     type ConnectionState = "live" | "redialing" | "gone";
     const [stateNow, setState] = createSignal<ConnectionState>("live");
+    /** Come back to `live` — but ONLY if this redial still holds the transition.
+     *
+     *  Both of `redial`'s exits need it and neither may skip it. A `dispose()` can
+     *  land in either window — during the dial, or inside the SYNCHRONOUS handover
+     *  (`adopt` publishes a status, the bundle's re-roster bumps its membership, so
+     *  consumer code runs in there) — and it has already moved the state to `gone`
+     *  and begun releasing the watchdog, the clients and the wire. `gone` is
+     *  terminal; an unguarded re-arm would put `live` back over exactly that, which
+     *  is the one-bit erasure {@link ConnectionState} exists to make
+     *  unrepresentable. Named once so the two exits cannot answer it differently. */
+    const resumeLive = (): void => {
+      if (stateNow() === "redialing") setState("live");
+    };
     // The wire's establishment count, as a Solid accessor — the fact is the
     // standing wire's (`followingWire.establishments`), and all this seam does is
     // give it the shape an app reads. Tracked like every other allocation: the
@@ -948,8 +1011,15 @@ export async function connectSurfaces(
     );
     const detachEstablished = following.onEstablished(setConnectionEpoch);
     allocations.track("connection epoch", { dispose: detachEstablished });
-    /** GIVE THIS CONNECTION UP — the price of building arrivals AFTER the adopt,
-     *  paid out loud rather than hidden.
+    /** GIVE THIS CONNECTION UP — the BACKSTOP under the price of building
+     *  arrivals after the adopt.
+     *
+     *  Nothing a caller can pass reaches it any more. The one construction throw a
+     *  ROSTER could trigger — an arriving sibling declaring a `client.onError`
+     *  policy with no interpreter — is now refused at plan time by
+     *  {@link assertPoliciesRoutable}, before anything is dialled. What is left
+     *  here answers a FRAMEWORK bug (a face walk disagreeing with a spec walk),
+     *  and it must still answer it, because the shape it answers is real:
      *
      *  The handover onto a new roster failed partway: the wire was adopted or the
      *  clients were built, but not both. The wire has already moved and cannot
@@ -962,11 +1032,7 @@ export async function connectSurfaces(
      *  Named, and lifted out of `redial`, because it is the one step there with a
      *  policy of its own: a nested teardown whose failure is logged rather than
      *  raised (the caller needs the error that CAUSED the teardown), and a
-     *  refusal composed over it. Returns `never` — the only way out is the throw.
-     *
-     *  (`buildSurfaceClient` throws by design for a sibling whose spec declares a
-     *  `client.onError` policy with no interpreter — a programming error, which
-     *  is exactly the class that must crash rather than degrade.) */
+     *  refusal composed over it. Returns `never` — the only way out is the throw. */
     const abandon = async (
       cause: unknown,
       superseded: Promise<void> | undefined,
@@ -1073,7 +1139,7 @@ export async function connectSurfaces(
         // EVERY refusal the new roster earns, raised while the working wire is
         // still untouched and nothing has been dialled — the same law the first
         // dial holds, applied to every later roster.
-        const nextPlan = planGeneration(root, next, extraGroups);
+        const nextPlan = planGeneration(root, next, extraGroups, onClientError);
         // THE ROSTER THIS CONNECTION IS ALREADY ON. Nothing to dial — and dialling
         // anyway is not a harmless no-op: it fails every call in flight, makes
         // every standing subscription on the page re-open through the retry fence,
@@ -1097,11 +1163,7 @@ export async function connectSurfaces(
           // failure.
           generation = await dialGeneration(nextPlan);
         } catch (dialError) {
-          // Back to `live` ONLY if this call is still the one holding the
-          // transition. A `dispose()` that landed during the dial has already
-          // moved the state to `gone`, which is terminal — re-arming over it is
-          // the erasure this state exists to make unspellable.
-          if (stateNow() === "redialing") setState("live");
+          resumeLive();
           throw dialError;
         }
         // A `dispose()` during the dial means the caller has GIVEN UP this
@@ -1148,16 +1210,7 @@ export async function connectSurfaces(
         } catch (handoverError) {
           return abandon(handoverError, superseded, generation);
         }
-        // Back to `live` ONLY if this call still holds the transition — the same
-        // guard the dial-failure path makes, for the same reason and against the
-        // same window. A `dispose()` can land inside the SYNCHRONOUS handover
-        // above: `adopt` publishes a status, and the bundle's re-roster bumps its
-        // membership, so consumer code runs in there. That `dispose()` has already
-        // moved the state to `gone` and started releasing the watchdog, the
-        // clients and the wire, and `gone` is terminal — an unguarded re-arm here
-        // would re-arm `live` over exactly that, which is the one-bit erasure this
-        // state exists to make unrepresentable.
-        if (stateNow() === "redialing") setState("live");
+        resumeLive();
         // Awaited LAST: the connection is already consistent and live on the new
         // roster, so a teardown that drags does not hold the new roster back, and
         // a `dispose()` landing in this window releases the generation now held

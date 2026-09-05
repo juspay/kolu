@@ -1056,14 +1056,19 @@ describe("connectSurfaces — a ROSTER CHANGE moves the WIRE, not the connection
     });
   });
 
-  it("RELEASES the connection when the new roster's clients cannot be built after the wire was adopted", async () => {
-    // The price of building arrivals AFTER the adopt, paid out loud. An arriving
-    // sibling whose spec declares a `client.onError` policy with no interpreter is
-    // refused at construction (design §D/F5) — and by then the wire has already
-    // moved and cannot move back. A connection whose wire serves one roster while
-    // its clients were built for another cannot be made honest, so it is given up
-    // completely rather than left wedged mid-transition with every later `redial`
-    // refused (which is what a bare rethrow left behind).
+  it("REFUSES a roster whose policy would route nowhere BEFORE it dials anything", async () => {
+    // The one construction throw a ROSTER can trigger — an arriving sibling whose
+    // spec declares a `client.onError` policy reaching a connection with no
+    // interpreter (design §D/F5) — is a scan of a spec and an interpreter, both of
+    // which this seam holds before it dials. So it is raised at PLAN time, under
+    // the law the seam states everywhere else: every refusal a roster earns is
+    // raised before anything is dialled, with the working wire untouched.
+    //
+    // It used to land at BUILD time instead, which on a redial is after the wire
+    // has already been adopted — a wire serving one roster and clients built for
+    // another, whose only honest answer was to release the whole connection. That
+    // exit still exists as a backstop (`abandon`), but nothing a caller can pass
+    // reaches it any more.
     const policied = defineSurfaceWithPolicy<{ kind: "toast" }>()({
       cells: {
         note: {
@@ -1083,21 +1088,60 @@ describe("connectSurfaces — a ROSTER CHANGE moves the WIRE, not the connection
         retired: () => {},
         connect: d.connect,
       });
-      (await d.nth(1)).open();
+      const first = await d.nth(1);
+      first.open();
       await settle();
+      const standing = conn.clients.a;
 
       await expect(conn.redial({ a: surface, bad: policied })).rejects.toThrow(
-        /the handover onto the new roster FAILED/,
+        /declares a client.onError policy but no `onClientError` interpreter/,
       );
       await settle();
-      // RELEASED, not wedged: the readout says so, every wire it ever dialled is
-      // closed, and the connection is terminal rather than stuck in "redialing".
-      expect(conn.readout().status).toBe("retired");
-      expect(conn.health().live).toBe(false);
-      for (const ws of d.dialled) expect(ws.readyState).toBe(3);
-      await expect(conn.redial({ b: later })).rejects.toThrow(
-        /`redial` on a DISPOSED connection/,
+      // NOTHING was dialled, and the connection is exactly as it was: live, on its
+      // current roster, with the same clients, and still redialable.
+      expect(d.dialled.length).toBe(1);
+      expect(first.readyState).not.toBe(3);
+      expect(conn.readout().status).toBe("live");
+      expect(Object.keys(conn.clients)).toEqual(["a"]);
+      expect(conn.clients.a).toBe(standing);
+
+      await conn.redial({ a: surface, b: later });
+      (await d.nth(2)).open();
+      await settle();
+      expect(Object.keys(conn.clients).sort()).toEqual(["a", "b"]);
+      await conn.dispose();
+      dispose();
+    });
+  });
+
+  it("REFUSES a policy-bearing roster at the FIRST dial too, before anything is allocated", async () => {
+    // The same law on the other side of the await: the plan runs before the socket
+    // does, so a first connect with an unroutable policy costs nothing either.
+    const policied = defineSurfaceWithPolicy<{ kind: "toast" }>()({
+      cells: {
+        note: {
+          schema: Schema.Struct({ s: Schema.String }),
+          default: { s: "x" },
+          verbs: ["get"],
+          client: { onError: { kind: "toast" } },
+        },
+      },
+    });
+    const d = dialRecorder();
+    await createRoot(async (dispose) => {
+      await expect(
+        connectSurfaces({
+          surfaces: { bad: policied },
+          core: { surface: core, name: "floor" },
+          url: "ws://test",
+          retired: () => {},
+          connect: d.connect,
+        }),
+      ).rejects.toThrow(
+        /declares a client.onError policy but no `onClientError` interpreter/,
       );
+      // BEFORE allocation: nothing was ever dialled.
+      expect(d.dialled).toEqual([]);
       dispose();
     });
   });

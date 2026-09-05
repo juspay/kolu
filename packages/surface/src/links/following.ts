@@ -149,8 +149,11 @@ export function followingWire<T extends WireTransport>(
   first: WireGeneration<T>,
 ): FollowingWire<T> {
   let held: WireGeneration<T> = first;
-  let disposed = false;
-  /** The one release walk, once started. See `dispose` below. */
+  /** The one release walk, once started — and, because it is started
+   *  synchronously by the only thing that starts it, ALSO the answer to "has this
+   *  wire been disposed". A second `let disposed` flag would be a second name for
+   *  the same moment, in a module whose whole claim is that the lifecycle is
+   *  stated once. See `dispose` below. */
   let released: Promise<void> | undefined;
 
   // The status FUNNEL. `published` is the value `wire.status()` answers, so what
@@ -288,7 +291,7 @@ export function followingWire<T extends WireTransport>(
     // could learn the wire had not moved. What it RETURNS is the one
     // asynchronous half — the superseded generation's release.
     adopt: (next) => {
-      if (disposed) {
+      if (released !== undefined) {
         throw new Error(
           "followingWire: `adopt` on a disposed wire — the generation handed in " +
             "would be held by nothing and closed by nobody. Dispose the generation " +
@@ -342,7 +345,6 @@ export function followingWire<T extends WireTransport>(
     // `surfaceClients`' bundle raises rather than tell.
     dispose: () =>
       (released ??= (async () => {
-        disposed = true;
         detachStatus();
         await held.dispose();
       })()),
