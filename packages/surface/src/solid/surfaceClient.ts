@@ -1622,6 +1622,19 @@ const RETIREMENTS: Record<
  *  re-subscribe fails HERE, in words. Both legs are `suspend`ed: a lazy call value
  *  built before the retraction must still refuse when it is RUN.
  *
+ *  A PLAIN `Error`, and NOT the `RpcClientError` its two cousins in
+ *  `../links/supersession` raise — that is the whole difference between the three
+ *  "a call bound to something that has moved on must fail" fences in this
+ *  framework, and it is deliberate in the OPPOSITE direction. Those two fail a
+ *  call whose transport moved and WANT the fence to re-subscribe, so they raise
+ *  the shape `isTransportError` (`../client`) recognises. This one ends a slot for
+ *  good: a retryable refusal would put a departed sibling's client back on the
+ *  wire every `STREAM_RETRY_DELAY_MS` forever, against tags nothing serves — the
+ *  precise loop retraction exists to stop. `isTransportError` is the predicate
+ *  that separates them, and retraction must stay OUTSIDE it. So do not "unify"
+ *  this onto `supersession` because the three read alike: the inversion is the
+ *  point, and `surfaceClient.health.test.ts` pins it.
+ *
  *  The retraction carries the {@link Retirement} — the REASON — rather than a flag
  *  plus a fixed sentence, because one flag cannot answer for three different
  *  endings and a sentence about a roster change is simply false in front of

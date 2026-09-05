@@ -24,6 +24,7 @@
 import { Effect, Schema, Stream } from "effect";
 import { createEffect, createMemo, createRoot } from "solid-js";
 import { describe, expect, it } from "vitest";
+import { isTransportError, shouldRetryStreamError } from "../client";
 import { defineSurface, defineSurfaceWithPolicy } from "../define";
 import {
   brandHalfOpenDispatch,
@@ -757,6 +758,44 @@ describe("surfaceClients builds a bundle ALL-OR-NOTHING", () => {
     const said = await askLive(held);
     expect(said).toMatch(/this bundle was disposed/);
     expect(said).not.toMatch(/roster change/);
+  });
+
+  it("a retracted client's refusal is NOT retryable — the inversion the other two fences do not make", async () => {
+    // Three fences in this framework say "a call bound to something that has
+    // moved on must fail", and two of them (`links/supersession`, for a socket
+    // re-dial and for a generation change) raise an `RpcClientError` PRECISELY so
+    // the per-subscription retry fence re-subscribes. Retraction inverts it: a
+    // departed sibling's client must stay off the wire, or it re-subscribes every
+    // STREAM_RETRY_DELAY_MS forever against tags nothing serves. Nothing but the
+    // error CLASS separates the two behaviours, so it is pinned here — a later
+    // reader "unifying" the three onto `supersession` turns a worded refusal into
+    // an infinite retry loop, and this is the test that stops them.
+    const other = defineSurface({
+      cells: {
+        queue: {
+          schema: Schema.Struct({ n: Schema.Number }),
+          default: { n: 0 },
+          verbs: ["get"],
+        },
+      },
+    });
+    const bundle = surfaceClients(fakeDispatch(), { only: other });
+    const held = bundle.clients.only;
+    bundle.reroster({});
+
+    // The same reach `askLive` makes, but keeping the ERROR VALUE rather than
+    // its string — the class is the whole subject here.
+    const live = (
+      held.rpc as { surface: Record<string, Record<string, unknown>> }
+    ).surface.system?.live as (
+      input: unknown,
+    ) => Effect.Effect<unknown, unknown>;
+    const refusal = await Effect.runPromise(Effect.flip(live({})));
+    expect(String(refusal)).toMatch(/no longer on this bundle's roster/);
+    // THE assertion: the fence must refuse to retry it.
+    expect(shouldRetryStreamError(refusal)).toBe(false);
+    expect(isTransportError(refusal)).toBe(false);
+    bundle.dispose();
   });
 
   it("REJECTS a dispose whose sibling teardown threw — every slot still attempted", async () => {
