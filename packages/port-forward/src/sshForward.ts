@@ -51,7 +51,10 @@ import { LOOPBACK_ADDRESS, type LoopbackFamily } from "./target.ts";
  *  five-minute tolerance still gets forwards that fail fast at ~30s, on purpose.
  *  (`@kolu/port-forward` is also deliberately dependency-free, so importing the
  *  renderer is not on the table; if these ever must track a dial, the shared
- *  `{intervalS, countMax}` graduates into a zero-dep receptacle both can read.)
+ *  `{intervalS, countMax}` graduates into a zero-dep receptacle both can read —
+ *  the graduation candidate is recorded in `.agency/lowy.md`'s Areas of
+ *  Volatility table under "ssh dead-peer / link-silence policy", so a future
+ *  sweep finds it in the ledger rather than only in this comment.)
  *
  *  The two opts that carry this module's own design are:
  *
