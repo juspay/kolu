@@ -1221,6 +1221,45 @@ describe("connectSurfaces — a ROSTER CHANGE moves the WIRE, not the connection
     });
   });
 
+  it("`conn.link.dispose()` releases the CONNECTION — there is no second door onto the wire", async () => {
+    // `link` is typed `WebsocketLink`, whose `dispose` means "close this wire",
+    // and the seam hands it out as part of the standing wire — so calling it is
+    // an easy mistake. Pointed at the wire alone it left `readout()` reading
+    // `live` over a dead socket, the allocation list still naming it, and the
+    // next `redial` dialling a generation the wire would refuse to adopt. The
+    // wire is the connection's resource and its state gates it, so this door is
+    // the connection's own.
+    const d = dialRecorder();
+    await createRoot(async (dispose) => {
+      const conn = await connectSurfaces({
+        surfaces: { a: surface },
+        core: { surface: core, name: "floor" },
+        url: "ws://test",
+        retired: () => {},
+        connect: d.connect,
+      });
+      (await d.nth(1)).open();
+      await settle();
+      expect(conn.readout().status).toBe("live");
+
+      await conn.link.dispose();
+
+      // The whole connection is gone, not just its wire: the readout says so,
+      // the health fact says so, nothing is left open, and a later `redial` is
+      // refused rather than dialling onto released allocations.
+      expect(conn.readout().status).toBe("retired");
+      expect(conn.health().live).toBe(false);
+      for (const ws of d.dialled) expect(ws.readyState).toBe(3);
+      await expect(conn.redial({ b: later })).rejects.toThrow(
+        /`redial` on a DISPOSED connection/,
+      );
+      // ...and it is still idempotent: the connection's own `dispose` after it
+      // is a no-op, not a second teardown.
+      await conn.dispose();
+      dispose();
+    });
+  });
+
   it("refuses a CONCURRENT redial, and a redial after dispose", async () => {
     const d = dialRecorder();
     await createRoot(async (dispose) => {

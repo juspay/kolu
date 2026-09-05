@@ -307,7 +307,14 @@ export interface SurfacesConnection<
    *  `<SurfaceAppProvider>`'s `createServerLifecycle`) and keep holding it while
    *  the roster moves underneath. `diagnostics` is the one leg that cannot be
    *  standing — a dial history belongs to the socket that dialled — so it reads
-   *  through to whichever generation is current. */
+   *  through to whichever generation is current.
+   *
+   *  `link.dispose()` is {@link SurfacesConnection.dispose} — the whole
+   *  connection, not the wire alone. The wire is this connection's resource and
+   *  its state machine gates it, so a second, ungated door onto the same release
+   *  would leave the connection reading `live` over a dead wire and a later
+   *  `redial` dialling a generation the wire would refuse. Nothing here survives
+   *  its wire; releasing one releases the other. */
   link: WebsocketLink;
   /** One scoped `surfaceClient` per sibling surface (the `surfaceClients` shape).
    *  Reach a sibling's primitives through `clients.<key>` and its reserved members
@@ -892,7 +899,18 @@ export async function connectSurfaces(
       link: {
         dispatch: following.dispatch,
         wire: following.wire,
-        dispose: following.dispose,
+        // THE CONNECTION'S OWN, not the wire's. The wire is this connection's
+        // resource — the tracker holds it, `ConnectionState` gates it — so a
+        // second, ungated door onto the same release is the connection's
+        // lifecycle told twice, and the second telling can move the first one's
+        // state without saying so. Handing out `following.dispose` left
+        // `stateNow()` reading `"live"` over a dead wire, the allocation list
+        // still naming it, and the next `redial` dialling a generation the wire
+        // would then refuse to adopt. Nothing here survives its wire, so
+        // releasing it through the link releases the connection.
+        //
+        // `connection` is read at CALL time, so the forward reference is fine.
+        dispose: () => connection.dispose(),
         diagnostics: {
           dialHistory: () => following.current().diagnostics.dialHistory(),
           epoch: () => following.current().diagnostics.epoch(),
