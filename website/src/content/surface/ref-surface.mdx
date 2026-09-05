@@ -440,7 +440,7 @@ reads hands you a group and a handler record of different generations, which
   as a pair. A socket accepted after a mount is indistinguishable from one
   accepted on a boot that already had that sibling. A connection accepted
   *before* the roster moved keeps the generation it was built over until the
-  client [redials](/surface/ref-surface-app#a-roster-change-is-a-redial--connredialsurfaces).
+  client [redials](/surface/ref-surface-app#a-roster-change-follows-in-place--connredialsurfaces).
   The granular accept loop remains the seam for "the app picks *which* runtime
   serves this socket" (drishti's per-host dispatch).
 </Aside>
@@ -499,7 +499,7 @@ siblings it does not control is accepting that. Deliberate: a source nobody
 drives is damage.
 
 **How a client learns the roster moved — the app's job, for now.** This door and
-[`conn.redial`](/surface/ref-surface-app#a-roster-change-is-a-redial--connredialsurfaces)
+[`conn.redial`](/surface/ref-surface-app#a-roster-change-follows-in-place--connredialsurfaces)
 are the two *ends* of one axis, and the framework carries the middle — "the
 served roster is now `[a, c]`" — **nowhere**. A consumer publishes it (a cell on
 the *root* is the natural carrier, since the root is on every serve this wire can
@@ -721,7 +721,23 @@ PER-KEY delivery does come through this merge, and honours the same declaration.
 splits one combined transport into a sibling client per surface — each built over
 a **tag-scoped** dispatch, so the face mints standalone tags and the wrapper
 splices the sibling key in, landing on exactly the tags `implementSurfaces` bound.
-`surfaceClientsHealth(clients)` AND-reduces the bundle into one fact.
+It returns a **bundle**: `bundle.clients` is the per-key map (one object for the
+bundle's life), `bundle.reroster(next)` moves it onto a new roster in place, and
+`bundle.dispose()` ends every client on it. `surfaceClientsHealth(clients)`
+AND-reduces the map into one fact.
+
+`reroster` is what makes a [roster change follow in
+place](/surface/ref-surface-app#a-roster-change-follows-in-place--connredialsurfaces).
+A key on both rosters with the **same** `Surface` value keeps its client,
+standing subscriptions and all; a key that arrives gets one built now; a key that
+leaves — or whose `Surface` value was *replaced*, which is a different contract
+under one name — has its client **retracted** and dropped from the map. Retracted
+means its scoped dispatch refuses in words: a departed sibling's client is still
+held by whatever component has not unmounted, and left alone it would re-subscribe
+through the fence onto a wire that no longer serves those tags, which reads as a
+broken connection rather than as what happened. Arrivals are built **before**
+anything is retracted, so an arrival that throws leaves the bundle on its current
+roster rather than half-moved.
 
 A `Subscription<T>` (`@kolu/surface/solid`) is a SolidJS `Accessor<T | undefined>`
 with `.pending()`, `.error()`, `.complete()` (latches once the stream ends
@@ -871,6 +887,7 @@ transport; see [How to choose a link](/surface/choose-a-link).
 | `socketDuplexLink({ group, socket, describe })` | `@kolu/surface/links/stdio`   | an already-connected LOCAL unix socket (you own the dial, and its `close`) |
 | `unixSocketLink({ group, socketPath })`     | `@kolu/surface/links/unix-socket` | a daemon on the same machine (it dials)                 |
 | `directDispatch(served)`                    | `@kolu/surface/links/direct`      | the in-process handlers, no wire (the identity element) |
+| `followingWire(first)`                      | `@kolu/surface/links/following`   | a **succession** of wire links, as one standing wire (see below) |
 
 Every **wire** link takes the served surface's `group` and is **async** — building
 a protocol and its fibers is an effect — returning a `WireLink`:
@@ -884,6 +901,52 @@ to **throw**: a thunk that cannot answer yet (kolu's reads the server's process 
 out of live state) fails that dial as an ordinary `SocketOpenError`, so the
 reconnect schedule backs off and asks again. It does not kill the link — a link
 that stopped dialling would sit `connecting` forever with nothing logged.
+
+### A wire that follows its generations — `followingWire`
+
+Every other link owns a transport for its whole life: dispose it and the dispatch
+it minted is a corpse. That is honest when the thing underneath is a socket the
+link itself re-dials — a reconnect is the same wire carrying on, and
+`websocketLink` already hides it. It is **not** honest when the thing underneath
+has to be *replaced*, because the served member set changed: the `RpcGroup` a
+client resolves its schemas through is fixed when a link is opened, so a wire
+whose siblings move needs a new link at both ends. Without somewhere for that fact
+to stop, it reaches all the way up — every client, every standing subscription and
+every reactive handle built over the old dispatch is dead, and the page rebuilds
+its tree to follow a roster move.
+
+`followingWire({ transport, dispose })` is where it stops. It is a
+`WireTransport` whose `dispatch` and `wire` are **stable values**, over a current
+**generation** — a real link, dialled over a real group — that `adopt` replaces.
+Everything built over the stable halves survives a generation change.
+
+| Member | Answers |
+| --- | --- |
+| `dispatch` / `wire` | the standing halves — the same values for the wire's whole life, and branded half-open exactly as a generation's are, so `createLiveSignal` accepts the pair |
+| `current()` | the generation's own link, for a fact that belongs to a generation rather than to the wire (a [dial history](#websocketlinkdiagnostics)). Read it where you need it; never hold it |
+| `adopt(next)` | take `next` as the generation every call from now on rides, fail what was in flight over the old one, and release it. The **swap is synchronous** — there is no window in which the wire has no generation — and the promise is the superseded generation's release |
+| `dispose()` | release the generation currently held. Idempotent; a later `adopt` is refused rather than opening a generation nobody will close |
+
+The load-bearing half is what `adopt` does to a call **in flight**. A call is
+bound to one link by construction — Effect RPC registers an entry exactly once,
+and an answer can only travel the link its request went out on — so a call that
+was in flight when the generation moved could only park forever. It is therefore
+failed, with an `RpcClientError`: the same shape, and for the same reason, as
+[a re-dial cycle failing what it orphaned](#a-re-dial-cycle-fails-what-it-orphaned)
+one layer down. That is precisely what the
+[retry fence](#the-face-and-its-retry-fence-kolusurfaceclient) re-subscribes on,
+so **standing subscriptions re-open themselves onto the new generation** — the
+framework's one recovery path, not a second one written inside a link. (A link
+that re-subscribed internally would hide the failure the fence must see, which is
+the law every link in this family is held to.)
+
+A generation's own **drop** is not a generation change and is forwarded unchanged:
+`forceReconnect` reaches the current generation, and its status changes reach the
+standing funnel, so a reader and a watcher can never disagree about what this wire
+is doing. Adopting a generation in the *same* state says nothing at all, which is
+the whole claim a roster move makes — the wire never went anywhere.
+
+The consumer is [`connectSurfaces`' `redial`](/surface/ref-surface-app#a-roster-change-follows-in-place--connredialsurfaces).
 
 ### A re-dial cycle fails what it orphaned
 

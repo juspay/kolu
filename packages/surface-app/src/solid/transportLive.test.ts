@@ -188,8 +188,9 @@ describe("kolu's wire pattern: a multi-surface bundle MUST pass the BRANDED hand
       connect: d.connect,
     });
     await createRoot(async (dispose) => {
-      const transport = createLiveSignal(link, { siblingKey: "a" });
-      const clients = surfaceClients(transport, { a: surface, b: surface });
+      const transport = createLiveSignal(link, { siblingKey: () => "a" });
+      const bundle = surfaceClients(transport, { a: surface, b: surface });
+      const clients = bundle.clients;
       // Before the first open: connecting → not live → merged fact not-live.
       expect(surfaceClientsHealth(clients).live).toBe(false);
       const ws = await d.nth(1);
@@ -201,8 +202,7 @@ describe("kolu's wire pattern: a multi-surface bundle MUST pass the BRANDED hand
       await settle();
       expect(surfaceClientsHealth(clients).live).toBe(false);
       transport.dispose();
-      for (const c of Object.values(clients))
-        (c as { dispose: () => void }).dispose();
+      bundle.dispose();
       dispose();
     });
     await link.dispose();

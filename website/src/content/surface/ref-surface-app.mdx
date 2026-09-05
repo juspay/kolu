@@ -55,7 +55,7 @@ a pair. A socket accepted after an
 [`implementRootedSurfaces`](/surface/ref-surface#a-rooted-bundle-whose-siblings-move--implementrootedsurfaces)
 mount is therefore indistinguishable from one accepted on a boot that already
 had that sibling. A connection accepted *before* the roster moved keeps the
-generation it was built over until the client [redials](#a-roster-change-is-a-redial--connredialsurfaces).
+generation it was built over until the client [redials](#a-roster-change-follows-in-place--connredialsurfaces).
 Existing callers that pass values do not change. `serveOverUnixSocket` takes
 the same source.
 
@@ -508,62 +508,93 @@ held to no tag grammar — but it *is* the word a degraded readout says, prefixe
 onto every stopped subscription as `<name>/<sub>`, so a readout that cannot say it
 (`/sub`, or a word indistinguishable from a sibling path) is refused at the door.
 
-### A roster change is a redial — `conn.redial(surfaces)`
+### A roster change follows in place — `conn.redial(surfaces)`
 
-A wire whose **sibling set** changes cannot be updated in place, and the reason
-is the transport rather than this seam. Effect RPC resolves a call's
-payload/success/error **schemas** by looking its tag up in the `RpcGroup` its
-client was built over, and that group is fixed at the dial (`openWireLink` does
-`RpcClient.make(group, …)` once, over a protocol whose fibers live in the link's
-own scope). A sibling that joins the roster brings tags that group never minted,
-so no client built before it can dispatch them — and the far end has the same
-constraint, because each accepted socket builds its own `RpcServer` over the
-group it was handed at accept. **A roster change is a new wire at both ends.**
-So the door says so, instead of offering an `update` that would quietly rebuild
-everything under a name that promises it did not.
+A new **wire** is dialled, and that part is not negotiable. Effect RPC resolves a
+call's payload/success/error **schemas** by looking its tag up in the `RpcGroup`
+its client was built over, and that group is fixed at the dial (`openWireLink`
+does `RpcClient.make(group, …)` once, over a protocol whose fibers live in the
+link's own scope). A sibling that joins the roster brings tags that group never
+minted, so no client built before it can dispatch them — and the far end has the
+same constraint, because each accepted socket builds its own `RpcServer` over the
+generation it was handed at accept.
+
+What is **not** a fact about the transport is that the connection had to go with
+it. It used to: `redial` handed back a replacement, and `clients`, `core`,
+`transport`, `readout` and `health` were all dead the moment it resolved. So
+every standing subscription had to be reopened by the app, which meant rebuilding
+the reactive tree, which meant losing local state that has nothing to do with the
+roster — a half-typed editor, an open pane, a scroll position. Now only the wire
+is replaced:
 
 ```ts
-let conn = await connectSurfaces({
+const conn = await connectSurfaces({
   surfaces: {},
   core: { surface: core, name: "olai" },
   retired: reloadForUpdate,          // …and the rest, as above
 });
-// …the served roster moved:
-conn = await conn.redial({ kolu: koluSurface });
+// …the served roster moved. Same connection, new wire underneath:
+await conn.redial({ kolu: koluSurface });
+conn.clients.kolu.cells.terminals.use();   // the arrival is on the map you hold
 ```
+
+- **`clients` is the same map**, mutated: an arriving sibling appears on it, a
+  departing one is dropped — and the departing one's *client*, which a
+  still-mounted component may hold, refuses **in words** on its next call rather
+  than dialling tags this generation does not serve. A key whose `Surface` value
+  was *replaced* (an edited plugin rebuilt at a new chunk) counts as a departure
+  and an arrival: its client is rebuilt, because one built over the old spec binds
+  members the new one may not have.
+- **`core`, `transport`, `link`, `readout` and `health` keep their identity**, so
+  a consumer holding `conn.link.wire` or `conn.transport` at module scope — as
+  drishti does, for `createServerLifecycle` and `connectSurfaceMap` — keeps
+  holding something live. And `readout` never reads `retired` for a roster move:
+  a move is not a retirement, and saying it was is the second thing every consumer
+  had to work around.
+- **Standing subscriptions re-open themselves.** The wire underneath is a
+  [`followingWire`](/surface/ref-surface#a-wire-that-follows-its-generations--followingwire),
+  whose supersession fails what was in flight with the transport error the
+  per-subscription retry fence already retries on — so the next frame each
+  subscription sees is its fresh snapshot from the new generation. No app code
+  re-subscribes, and there is no second recovery path beside the fence.
 
 `redial` re-uses **every option this connection was dialled with** — the `url`
 (thunk included), the heartbeat tuning, `extraGroups`, `onClientError`, the
 socket options — so a consumer cannot drift them by re-spelling the call, which
 is the same failure `connectSurfaces` exists to stop. And it owns the **order**:
-the replacement is dialled *first* and this connection released only once that
-dial has resolved, so a failing dial leaves the working wire alone and rejects —
-rather than the obvious dispose-then-dial, which leaves the caller with nothing.
-("Resolved" is the seam's own await, not an open socket: `connectSurfaces` hands
-back a connection whose wire may still be connecting, exactly as a first dial
-does. What is guaranteed is that a dial which *throws* costs you nothing.)
+every refusal the new roster earns is raised *before* anything is dialled, the
+replacement wire is dialled *before* the old one is given up, and the handover
+itself — adopt the wire, move the clients, re-fold the health — is synchronous. A
+dial that throws costs you nothing: the connection is untouched and still on its
+current roster. ("Resolved" is the seam's own await, not an open socket:
+`connectSurfaces` hands back a connection whose wire may still be connecting,
+exactly as a first dial does.)
 
-A `dispose()` that lands while a `redial` is in flight is terminal and wins: the
-replacement is released and the redial rejects, rather than handing back a wire
-the caller has already given up.
+A `dispose()` that lands while the dial is in flight is terminal and wins: the
+replacement wire is released and the redial rejects, rather than adopting a wire
+onto a connection the caller has already given up.
 
 The **root does not move**: only the siblings are re-rostered. The root is the
 member on every serve this wire can reach, which is what makes it the reserved
 probes' target on a bundle whose sibling set varies; a `core` that could change
 would make this a second `connectSurfaces`. Dial a different root by calling
-`connectSurfaces` again.
+`connectSurfaces` again. On a **rootless** wire the probes address the *first
+sibling*, and "first" moves with the roster — so the watchdog re-reads its target
+per probe rather than resolving it at the dial.
 
-Everything the superseded connection handed out is dead once `redial` resolves —
-`clients`, `core`, `transport`, `readout`, `health` — and it **says so**. A
-superseded (or disposed) connection's `readout` reads `retired` and its `health`
-reads not-live, rather than freezing on whatever the disposed memo last computed:
-on the common path — the roster moved, the wire was fine — that frozen value is
-`live`, so an indicator still bound to the old accessor would paint green over a
-closed wire. A `connectSurfaceMap(map, conn.transport)` built over the old handle
-fails loudly on its next call, never silently. Reading everything off the
-returned connection is still the right habit; it is no longer what stands between
-the page and a lie. A **second** `redial` (or one after `dispose`) is refused: it
-would dial a third wire while the caller still believes it holds one.
+Two things a caller still has to know. A redial while another is **in flight** is
+refused (this connection dials one wire at a time, so a queue belongs to the
+caller that has two rosters in hand), as is a redial after `dispose`. And the
+returned value is the honest half of an in-place move: it is *this same
+connection*, retyped to the roster it now carries, so a binding still typed on the
+old roster keeps claiming departed keys exist. Re-bind through the result —
+`conn = await conn.redial(next)` — which costs nothing at runtime and keeps the
+type truthful.
+
+A **disposed** connection is the one that answers about nothing: its `readout`
+reads `retired` and its `health` reads not-live, rather than freezing on whatever
+the disposed memo last computed (which would be `live` — green over a closed
+wire).
 
 The serve side's half of the same contract is
 [`implementRootedSurfaces`](/surface/ref-surface#a-rooted-bundle-whose-siblings-move--implementrootedsurfaces),
@@ -580,13 +611,13 @@ accepted connection. See the caution on that page.
 
 | Member | Meaning |
 | --- | --- |
-| `link` | the `WebsocketLink` — `{ dispatch, wire, dispose }`. Read `link.wire` for the status stream / `forceReconnect` (was `ws: PartySocket`) |
-| `client` / `clients` | the reactive surface client, or one scoped client per sibling |
+| `link` | the `WebsocketLink` — `{ dispatch, wire, dispose, diagnostics }`. Read `link.wire` for the status stream / `forceReconnect` (was `ws: PartySocket`). On the multi seam it is the **standing** wire: `dispatch` and `wire` are the same values across a `redial`, so a consumer may hold them; `diagnostics` is the one leg that belongs to a generation, and reads through to whichever is current |
+| `client` / `clients` | the reactive surface client, or one scoped client per sibling. `clients` is one object for the connection's life — a `redial` mutates it in place |
 | `core` | *(multi only)* the root surface's own client when `core` was passed, and typed `undefined` when it was not — so a siblings-only caller reads no optional it has to check. It needs no tag-scoping wrapper: the root's tags are already the bare ones the combined dispatch carries |
-| `transport` | *(multi only)* the branded `LiveSignalHandle` — pass it whole to `connectSurfaceMap(map, conn.transport)`, which slices the sibling by `map.name` **after** the guard so the map inherits this wire's watchdog `live` |
+| `transport` | *(multi only)* the branded `LiveSignalHandle` — pass it whole to `connectSurfaceMap(map, conn.transport)`, which slices the sibling by `map.name` **after** the guard so the map inherits this wire's watchdog `live`. Stable across a `redial`, so a map built over it keeps working |
 | `readout` | the [readout](/surface/ref-surface#the-readout) — the wire's own four states folded with the subscription-health fact into the five an indicator may report, memoized. Replaces the transport-only `status` this used to hand back |
 | `health` | *(multi only)* `surfaceClientsHealth` over every sibling — and, when a `core` was passed, the root under its `name` — their subs AND-reduced with the shared transport leg |
-| `redial` | *(multi only)* async: take a NEW sibling roster by dialling a new wire over this connection's own options, keeping the root — see [above](#a-roster-change-is-a-redial--connredialsurfaces). Returns the replacement; this connection is released once it is up |
+| `redial` | *(multi only)* async: take a NEW sibling roster **in place** — a new wire is dialled over this connection's own options and adopted, the root does not move, and every handle above keeps its identity. See [above](#a-roster-change-follows-in-place--connredialsurfaces). Returns this same connection, retyped |
 | `dispose` | async: stop the heartbeat, tear down standing subscriptions, release the link's scope |
 
 ### The readout, not a status

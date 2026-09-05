@@ -26,11 +26,11 @@
  * added to the unwind but forgotten in `dispose` leaks on the COMMON path — the
  * one every consumer takes — while the failure path, the one anybody would think
  * to check, still looks correct. So {@link ConnectAllocations.release} is the
- * whole teardown, {@link ConnectAllocations.unwind} is `release` plus a rethrow,
- * and {@link ConnectAllocations.supersede} is `release` plus a log. There is no
- * second list to forget, and no fourth exit written at a call site.
+ * whole teardown and {@link ConnectAllocations.unwind} is `release` plus a
+ * rethrow. There is no second list to forget, and no third exit written at a call
+ * site.
  *
- * Release order is REVERSE allocation order. The three exits differ in exactly one
+ * Release order is REVERSE allocation order. The two exits differ in exactly one
  * way, and it is deliberate: what they do with a release that ITSELF throws.
  *
  *   - {@link ConnectAllocations.unwind} swallows it to a `console.error` and
@@ -43,13 +43,13 @@
  *     socket it was asked to close is still open is a lie the awaiting caller
  *     has no way to catch. It still attempts every release before it throws:
  *     one failure must not strand the resources behind it.
- *   - {@link ConnectAllocations.supersede} — a `redial`'s exit — logs and
- *     CONTINUES. Its caller has a live replacement to return, so there is
- *     neither an original error to protect nor a caller left holding nothing.
- *     It lives here rather than as a `try { release() } catch` at the call site
- *     because "what a seam does with a release that failed" is this module's one
- *     question, and an exit written outside it is an exit this list does not know
- *     about.
+ *
+ * There WAS a third exit, `supersede` — `release` plus a log — for the `redial`
+ * that gave a whole connection up to hand back a replacement. A roster change no
+ * longer releases anything at this altitude (juspay/kolu#2227: the connection
+ * follows in place, and only the superseded WIRE is closed, by the following wire
+ * that owns it), so the exit went with the shape that needed it rather than
+ * staying on as a door nothing walks through.
  *
  * Package-internal, and NOT under `./solid`: it holds no Solid concept at all.
  *
@@ -85,16 +85,6 @@ interface ConnectAllocations {
    *  `Promise<never>`: the only way out is the original error, so a release that
    *  failed on the way is logged rather than raised. */
   unwind(cause: unknown): Promise<never>;
-  /** {@link release}, but a failure is LOGGED rather than raised — the SUPERSEDED
-   *  exit, taken by `connectSurfaces`' `redial`.
-   *
-   *  The caller has a LIVE REPLACEMENT to hand back, and rejecting over the old
-   *  wire's teardown would give it nothing while a new wire is open. Same trade
-   *  {@link unwind} makes and for the same reason, differing only in what happens
-   *  next: `unwind` has an original error to rethrow, this one has a value to
-   *  return. Per-resource, so the failing resource is named in the line rather
-   *  than one `AggregateError` deeper. */
-  supersede(): Promise<void>;
 }
 
 export function trackConnectAllocations(seam: string): ConnectAllocations {
@@ -102,27 +92,22 @@ export function trackConnectAllocations(seam: string): ConnectAllocations {
   /** Attempt every release in reverse and RETURN what failed — never throw, so one
    *  failure cannot strand the resources behind it. The two exits decide what to do
    *  with the list. */
-  /** The ONE walk, memoized. Three exits now share it, and two of them can be in
-   *  flight at once: a `dispose()` landing while `redial` is inside its
-   *  `supersede()` used to start a SECOND concurrent walk over the same array —
-   *  every tracked resource's `dispose()` called twice, interleaved, and every
-   *  failure reported twice by two different exits. Idempotence per resource was
-   *  never the guarantee that made that safe; one walk is. A later call gets the
-   *  same promise and therefore the same verdict, which is also what makes
-   *  `dispose()` idempotent for a page-lifetime bundle. */
+  /** The ONE walk, memoized. Two concurrent walks over the same array would call
+   *  every tracked resource's `dispose()` twice, interleaved, and report every
+   *  failure twice. Idempotence per resource was never the guarantee that made
+   *  that safe; one walk is. A later call gets the same promise and therefore the
+   *  same verdict, which is also what makes `dispose()` idempotent for a
+   *  page-lifetime bundle. */
   let walked: Promise<Error[]> | undefined;
   /** Whether some exit has already ANSWERED for this teardown's failures — logged
    *  them, or raised them. The FIRST exit to finish owns the verdict; a later one
    *  is a no-op.
    *
-   *  Memoizing the walk alone was not enough once there were three exits with two
-   *  policies. `supersede` decides "log and continue"; `release` decides "reject".
-   *  Sharing one walk meant a `release()` reached AFTER a `supersede()` — the
-   *  ordinary shape, since `redial` hands back a replacement and a caller may
-   *  still `dispose()` the stale accessor it holds — re-applied its own policy to
-   *  failures another exit had already reported, throwing an `AggregateError` out
-   *  of a call the caller has every reason to believe is a no-op. One failure,
-   *  reported once, by whoever got there first. */
+   *  Memoizing the walk alone is not enough, because a caller may `dispose()` a
+   *  page-lifetime connection twice: the second call would re-apply `release`'s
+   *  policy to failures the first already raised, throwing an `AggregateError`
+   *  out of a call the caller has every reason to believe is a no-op. One
+   *  failure, reported once, to whoever got there first. */
   let answered = false;
   const releaseAll = (): Promise<Error[]> => (walked ??= releaseOnce());
   /** The failures this exit must answer for — empty once another exit has. */
@@ -175,14 +160,6 @@ export function trackConnectAllocations(seam: string): ConnectAllocations {
         console.error(failure.message, failure.cause);
       }
       throw cause;
-    },
-    supersede: async () => {
-      for (const failure of await unanswered()) {
-        // Logged, not raised: the caller's whole reason to be here is the LIVE
-        // replacement it is about to hand back, and rejecting would give it
-        // nothing while a new wire is open.
-        console.error(failure.message, failure.cause);
-      }
     },
   };
 }

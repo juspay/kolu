@@ -13,7 +13,7 @@
  * `UseCellOptions` union, just with `source` / `mutate` already filled in.
  */
 
-import { Effect } from "effect";
+import { Effect, Stream } from "effect";
 import {
   type Accessor,
   createMemo,
@@ -1564,32 +1564,63 @@ export function buildSurfaceClient<const S extends SurfaceSpec>(
 // ── surfaceClients — sibling surfaces over one dispatch ─────────────────
 
 /** Scope a COMBINED dispatch to one sibling by splicing the sibling key into every
- *  tag: `surface/<member>/<verb>` → `surface/<key>/<member>/<verb>`.
+ *  tag: `surface/<member>/<verb>` → `surface/<key>/<member>/<verb>` — and hand back
+ *  the RETRACTION that ends the slice.
  *
- *  This is the runtime dual of the deleted `scopeSibling(link, key)` link re-wrap,
- *  and it is what lets a sibling's face be built from the STANDALONE surface value
- *  (whose `tagPrefix` is the bare `surface/`) while still addressing the composed
- *  server. The face therefore never learns it is scoped — the same property the
- *  server side has, where `composeSurfaceContracts` re-walks each sibling through
- *  the same `buildSurface`, so a sibling's tags and a standalone surface's tags can
- *  never be derived by two different rules.
+ *  The scoping is the runtime dual of the deleted `scopeSibling(link, key)` link
+ *  re-wrap, and it is what lets a sibling's face be built from the STANDALONE
+ *  surface value (whose `tagPrefix` is the bare `surface/`) while still addressing
+ *  the composed server. The face therefore never learns it is scoped — the same
+ *  property the server side has, where `composeSurfaceContracts` re-walks each
+ *  sibling through the same `buildSurface`, so a sibling's tags and a standalone
+ *  surface's tags can never be derived by two different rules.
  *
  *  `scopeSiblingTag` THROWS on a non-surface tag, so a mis-scoped dispatch fails at
- *  this seam rather than 404-ing at the far end. */
+ *  this seam rather than 404-ing at the far end.
+ *
+ *  RETRACTION is what a bundle whose roster can move owes a sibling that LEAVES
+ *  ({@link SurfaceClientsBundle.reroster}). A departed sibling's client is still
+ *  held — by a component that has not unmounted, by a closure the app kept — and
+ *  its standing subscriptions are still running. Left alone they would re-subscribe
+ *  through the fence onto a wire that no longer serves those tags and read as an
+ *  unreachable member, which is the far end's 404 wearing the costume of a broken
+ *  connection. Retracted, every call and every re-subscribe fails HERE, in words
+ *  that name the sibling and say what happened. Both legs are `suspend`ed: a lazy
+ *  call value built before the retraction must still refuse when it is RUN. */
 function scopeSiblingDispatch(
   dispatch: SurfaceDispatch,
   key: string,
-): SurfaceDispatch {
+): { dispatch: SurfaceDispatch; retract: () => void } {
+  let retracted = false;
+  const refusal = (): Error =>
+    new Error(
+      `surfaceClients: the "${key}" surface is no longer on this bundle's roster — ` +
+        "it left when the connection followed a roster change, and this client was " +
+        "retracted then. Reach the current roster through the bundle's `clients`.",
+    );
   return {
-    unary: (tag, payload) => dispatch.unary(scopeSiblingTag(tag, key), payload),
-    stream: (tag, payload) =>
-      dispatch.stream(scopeSiblingTag(tag, key), payload),
+    dispatch: {
+      unary: (tag, payload) =>
+        Effect.suspend(() =>
+          retracted
+            ? Effect.fail(refusal())
+            : dispatch.unary(scopeSiblingTag(tag, key), payload),
+        ),
+      stream: (tag, payload) =>
+        Stream.suspend(() =>
+          retracted
+            ? Stream.fail(refusal())
+            : dispatch.stream(scopeSiblingTag(tag, key), payload),
+        ),
+    },
+    retract: () => {
+      retracted = true;
+    },
   };
 }
 
-/** The per-key client bundle returned by `surfaceClients`. Each value is a
- *  full `SurfaceClient` for that key's surface, scoped to the key's slice of
- *  the combined dispatch. */
+/** The per-key client map a bundle carries. Each value is a full `SurfaceClient`
+ *  for that key's surface, scoped to the key's slice of the combined dispatch. */
 export type SurfaceClients<
   // biome-ignore lint/suspicious/noExplicitAny: heterogeneous map of surfaces, each pinning its own spec.
   E extends Record<string, Surface<any>>,
@@ -1597,8 +1628,71 @@ export type SurfaceClients<
   [K in keyof E]: E[K] extends Surface<infer S> ? SurfaceClient<S> : never;
 };
 
+/** One sibling's slot: the SURFACE it was built from — so a re-roster can tell
+ *  "still there" from "replaced by a different build of the same key" — plus the
+ *  client and its retraction. */
+interface SiblingSlot {
+  readonly surface: Surface<SurfaceSpec>;
+  readonly client: SurfaceClient<SurfaceSpec>;
+  readonly retract: () => void;
+}
+
+/** A live bundle of sibling clients over ONE wire, whose ROSTER can move.
+ *
+ *  `clients` is the map an app holds and reads members through; it is the SAME
+ *  object for the life of the bundle, mutated in place by {@link reroster}. That
+ *  identity is the whole point: a wire that follows a roster
+ *  (`@kolu/surface/links/following`) keeps its dispatch, so the only thing left
+ *  that would force an app to rebuild its tree on a roster move is a client map it
+ *  has to re-read. */
+export interface SurfaceClientsBundle<
+  // biome-ignore lint/suspicious/noExplicitAny: heterogeneous map of surfaces, each pinning its own spec.
+  E extends Record<string, Surface<any>>,
+> {
+  /** The per-key clients — ONE object across every re-roster. */
+  readonly clients: SurfaceClients<E>;
+  /** Move this bundle onto `next` IN PLACE.
+   *
+   *  A key on both rosters with the SAME surface value keeps its client, standing
+   *  subscriptions and all. A key that ARRIVES gets a client built now. A key that
+   *  LEAVES — or whose surface value was REPLACED, which is a different contract
+   *  under one name — has its client retracted (see {@link scopeSiblingDispatch})
+   *  and dropped from `clients`, so the map never lies about the roster while a
+   *  stale holder still gets a worded refusal.
+   *
+   *  ALL-OR-NOTHING on the arrivals, exactly as construction is: an arrival that
+   *  throws releases the arrivals already built and leaves the bundle on its
+   *  CURRENT roster, rather than half-moved.
+   *
+   *  Returns this same bundle, retyped — the object does not move, only the type
+   *  the caller reads it through. */
+  reroster<
+    // biome-ignore lint/suspicious/noExplicitAny: heterogeneous map of surfaces, as on the constructor.
+    const E2 extends Record<string, Surface<any>>,
+  >(next: E2): SurfaceClientsBundle<E2>;
+  /** Retract and dispose every client currently on the roster. */
+  dispose(): void;
+}
+
+/** Report a sibling teardown that itself threw. Named once because all three
+ *  teardown paths — the construction unwind, a re-roster's departures, and
+ *  `dispose` — owe the same line, and the useful half of it is WHICH sibling
+ *  leaked. */
+function reportSiblingTeardown(
+  key: string,
+  when: string,
+  teardownError: unknown,
+): void {
+  console.error(
+    `surfaceClients: disposing the "${key}" client FAILED ${when} — that sibling's ` +
+      "subscriptions are leaked",
+    teardownError,
+  );
+}
+
 /** Build one `surfaceClient` per sibling surface over a single combined
- *  transport (the counterpart to `implementSurfaces` / `composeSurfaceContracts`).
+ *  transport (the counterpart to `implementSurfaces` / `composeSurfaceContracts`),
+ *  as a bundle whose roster can later move.
  *
  *  Pass the WHOLE transport — a {@link LiveSignalHandle} for the half-openable
  *  combined wire (the watchdog-backed live and the combined dispatch arrive as ONE
@@ -1615,10 +1709,10 @@ export type SurfaceClients<
  *  `.rpc` (the scoped face), e.g. for the reserved identity probe under surface
  *  key `surfaceApp`:
  *
- *      clients.surfaceApp.rpc.surface.system.identity(...)
+ *      bundle.clients.surfaceApp.rpc.surface.system.identity(...)
  *
- *  (NOT `clients.surfaceApp.rpc.surface.surfaceApp.system.identity` — the key
- *  is already consumed by the scope, so it does not reappear in the path.) */
+ *  (NOT `…rpc.surface.surfaceApp.system.identity` — the key is already consumed by
+ *  the scope, so it does not reappear in the path.) */
 export function surfaceClients<
   // biome-ignore lint/suspicious/noExplicitAny: heterogeneous map of surfaces, each pinning its own spec.
   const E extends Record<string, Surface<any>>,
@@ -1626,7 +1720,7 @@ export function surfaceClients<
   transport: LiveSignalHandle | SurfaceDispatch,
   entries: E,
   onClientError?: OnClientError,
-): SurfaceClients<E> {
+): SurfaceClientsBundle<E> {
   // Collapse the combined transport ONCE, at the public boundary: a
   // `LiveSignalHandle` yields the combined `dispatch` and the shared watchdog-backed
   // `live` (paired by construction); a bare half-openable combined dispatch CRASHES
@@ -1636,52 +1730,122 @@ export function surfaceClients<
   // shared `live` — no per-wrapper brand check (the guard already ran here, on the
   // combined transport).
   const { dispatch, live } = resolveTransport(transport);
-  // ALL-OR-NOTHING, and it has to be built rather than assumed. Each
-  // `buildSurfaceClient` opens REAL side effects before it returns — a mirrored
-  // surface's eager `liveWhen` readiness subscription is live the moment the client
-  // exists — and it can THROW: a sibling whose spec declares a `client.onError`
-  // policy with no interpreter is refused at construction (design §D/F5). Built by a
-  // bare `.map`, the Nth sibling's throw would propagate with siblings 1..N-1
-  // already subscribed and their only `dispose` handles inside the discarded array:
-  // subscriptions running over the wire that NOTHING can close, for the life of the
-  // page. So the built ones are held as they are made and torn down on the way out.
-  //
-  // The guarantee belongs HERE and not at each caller: `connectSurfaces` can only
-  // see this function's return, so a caller-side unwind cannot reach a child that
-  // was never handed back. A teardown that itself throws is reported and does not
-  // replace the construction error the caller is about to see.
-  const built: Array<[string, SurfaceClient<SurfaceSpec>]> = [];
-  try {
-    for (const [k, surface] of Object.entries(entries)) {
-      built.push([
-        k,
-        buildSurfaceClient(
-          surface,
-          scopeSiblingDispatch(dispatch, k),
-          live,
-          // Threaded to EVERY sibling client — the app spells ONE interpreter at the
-          // `connectSurfaces` seam, never re-registered per internal build (design §A/m4).
-          onClientError,
-        ) as SurfaceClient<SurfaceSpec>,
-      ]);
+  /** The live roster, in enrolment order. A `Map` rather than a plain record so
+   *  "which siblings are on this bundle" has ONE answer that also carries each
+   *  slot's retraction and the surface it was built from; `clients` below is the
+   *  app-facing projection of it. */
+  const slots = new Map<string, SiblingSlot>();
+  /** The map the app holds — the SAME object for the bundle's whole life. */
+  const clients: Record<string, SurfaceClient<SurfaceSpec>> = {};
+
+  /** End a slot: REFUSE first, then release. The order is the point — a standing
+   *  subscription that fails during `client.dispose()` must find the dispatch
+   *  already retracted, so its fence's re-subscribe hits the worded refusal rather
+   *  than the wire. */
+  const retire = (key: string, slot: SiblingSlot, when: string): void => {
+    slot.retract();
+    try {
+      slot.client.dispose();
+    } catch (teardownError) {
+      reportSiblingTeardown(key, when, teardownError);
     }
-  } catch (constructionError) {
-    for (const [k, client] of built.reverse()) {
-      try {
-        client.dispose();
-      } catch (teardownError) {
-        console.error(
-          `surfaceClients: disposing the "${k}" client FAILED while unwinding a ` +
-            "bundle whose construction threw — that sibling's subscriptions are " +
-            "leaked, and the error below is the teardown's, not the one being " +
-            "reported to the caller",
-          teardownError,
-        );
+  };
+
+  /** Build the slots for `arriving`, ALL-OR-NOTHING, and it has to be built rather
+   *  than assumed. Each `buildSurfaceClient` opens REAL side effects before it
+   *  returns — a mirrored surface's eager `liveWhen` readiness subscription is live
+   *  the moment the client exists — and it can THROW: a sibling whose spec declares
+   *  a `client.onError` policy with no interpreter is refused at construction
+   *  (design §D/F5). Built by a bare `.map`, the Nth sibling's throw would propagate
+   *  with siblings 1..N-1 already subscribed and their only `dispose` handles inside
+   *  the discarded array: subscriptions running over the wire that NOTHING can
+   *  close, for the life of the page. So the built ones are held as they are made
+   *  and torn down on the way out.
+   *
+   *  The guarantee belongs HERE and not at each caller: `connectSurfaces` can only
+   *  see this function's return, so a caller-side unwind cannot reach a child that
+   *  was never handed back. A teardown that itself throws is reported and does not
+   *  replace the construction error the caller is about to see. */
+  const buildSlots = (
+    arriving: ReadonlyArray<readonly [string, Surface<SurfaceSpec>]>,
+    when: string,
+  ): Array<readonly [string, SiblingSlot]> => {
+    const built: Array<readonly [string, SiblingSlot]> = [];
+    try {
+      for (const [key, surface] of arriving) {
+        const scoped = scopeSiblingDispatch(dispatch, key);
+        built.push([
+          key,
+          {
+            surface,
+            retract: scoped.retract,
+            client: buildSurfaceClient(
+              surface,
+              scoped.dispatch,
+              live,
+              // Threaded to EVERY sibling client — the app spells ONE interpreter at
+              // the `connectSurfaces` seam, never re-registered per internal build
+              // (design §A/m4).
+              onClientError,
+            ) as SurfaceClient<SurfaceSpec>,
+          },
+        ]);
       }
+    } catch (constructionError) {
+      for (const [key, slot] of [...built].reverse()) retire(key, slot, when);
+      throw constructionError;
     }
-    throw constructionError;
+    return built;
+  };
+
+  for (const [key, slot] of buildSlots(
+    Object.entries(entries) as Array<readonly [string, Surface<SurfaceSpec>]>,
+    "while unwinding a bundle whose construction threw",
+  )) {
+    slots.set(key, slot);
+    clients[key] = slot.client;
   }
-  return Object.fromEntries(built) as SurfaceClients<E>;
+
+  const bundle: SurfaceClientsBundle<Record<string, Surface<SurfaceSpec>>> = {
+    clients: clients as SurfaceClients<Record<string, Surface<SurfaceSpec>>>,
+    reroster: <
+      // biome-ignore lint/suspicious/noExplicitAny: heterogeneous map of surfaces, as on the constructor.
+      const E2 extends Record<string, Surface<any>>,
+    >(
+      next: E2,
+    ): SurfaceClientsBundle<E2> => {
+      const wanted = next as unknown as Record<string, Surface<SurfaceSpec>>;
+      // A key is KEPT only when the surface VALUE is the same one its client was
+      // built from. A different value under the same key is a different contract
+      // (an edited plugin rebuilt at a new chunk), and a client built over the old
+      // spec would bind members the new one does not have.
+      const arriving = Object.entries(wanted).filter(
+        ([key, surface]) => slots.get(key)?.surface !== surface,
+      );
+      // Arrivals FIRST, so a throw leaves this bundle exactly on its current
+      // roster — nothing retracted, nothing half-moved.
+      const built = buildSlots(arriving, "while unwinding a failed re-roster");
+      for (const [key, slot] of slots) {
+        if (wanted[key] === slot.surface) continue;
+        retire(key, slot, "as it left the roster");
+        slots.delete(key);
+        delete clients[key];
+      }
+      for (const [key, slot] of built) {
+        slots.set(key, slot);
+        clients[key] = slot.client;
+      }
+      return bundle as unknown as SurfaceClientsBundle<E2>;
+    },
+    dispose: () => {
+      for (const [key, slot] of [...slots].reverse()) {
+        retire(key, slot, "as the bundle was disposed");
+        delete clients[key];
+      }
+      slots.clear();
+    },
+  };
+  return bundle as unknown as SurfaceClientsBundle<E>;
 }
 
 /** The combined health FACT across every sibling client `surfaceClients` built —

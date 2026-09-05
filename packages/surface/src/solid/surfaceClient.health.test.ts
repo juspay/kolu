@@ -500,7 +500,8 @@ describe("surfaceClient readiness fold — `liveWhen` completes the fact (round-
       "surface/b/connection/get": fb.stream,
     });
     await createRoot(async (dispose) => {
-      const clients = surfaceClients(combined, { a: mirrored, b: mirrored });
+      const bundle = surfaceClients(combined, { a: mirrored, b: mirrored });
+      const clients = bundle.clients;
       fa.push({ state: "connected" });
       fb.push({ state: "connected" });
       await settle();
@@ -509,7 +510,7 @@ describe("surfaceClient readiness fold — `liveWhen` completes the fact (round-
       fb.push({ state: "failed" });
       await settle();
       expect(surfaceClientsHealth(clients).live).toBe(false);
-      for (const c of Object.values(clients)) c.dispose();
+      bundle.dispose();
       dispose();
     });
   });
@@ -689,12 +690,12 @@ describe("surfaceClients builds a bundle ALL-OR-NOTHING", () => {
           }),
         ),
     });
-    const clients = surfaceClients(dispatch, { first: mirrored });
+    const bundle = surfaceClients(dispatch, { first: mirrored });
     await settle();
     // Nothing torn down on the success path — the unwind is the failure exit only.
     expect(torn).toEqual([]);
-    expect(Object.keys(clients)).toEqual(["first"]);
-    clients.first.dispose();
+    expect(Object.keys(bundle.clients)).toEqual(["first"]);
+    bundle.clients.first.dispose();
     await settle();
     expect(torn).toEqual(["first"]);
   });
