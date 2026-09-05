@@ -125,6 +125,21 @@
  * defect louder calls {@link checkUpgradeHeaders} where it MINTS the list, so
  * that part fails there and the accept-time arm is only the offer/accept race.
  *
+ * The ruling is written where it is TAKEN — at the accept, beside the served
+ * generation's own refusal, because the difference between the two (a refused
+ * generation terminates the socket; a refused allowlist serves it anonymously)
+ * is the design. The report fires at EACH accept that reads a bad list, for as
+ * long as the offering part keeps minting one: each of those accepts really did
+ * serve an anonymous connection, and suppressing repeats would leave a refusal
+ * that started after the first one unnarrated.
+ *
+ * The empty list is NOT a caught error collapsing into "no data": a legitimate
+ * empty allowlist and a refused one are distinguishable, because the refused one
+ * emits a typed {@link SurfaceAppEvent} arm a consumer's own `onEvent` receives
+ * as a value (the `console.error` is only the DEFAULT policy's answer to it).
+ * What is deliberately absent is any way to ask for the other behaviours — no
+ * knob restores the bind-once read, and no option silences the arm.
+ *
  * ### Naming a header says who may WRITE it, and that is a precondition, not a check
  *
  * What arrives on {@link SurfaceAppConnection.headers} is whatever was on the
@@ -285,42 +300,27 @@ const errorOf = (cause: unknown): Error =>
  *  name no header can match is a defect the app wrote into its own composition
  *  root, and a defect belongs at the bind rather than at the first upgrade that
  *  happens to arrive hours later. That check THROWS, taking the bind with it —
- *  the array IS the app, so there is nothing else to blame.
+ *  the array IS the app, so there is nothing else to blame, and this arm can
+ *  never throw again.
  *
- *  A THUNK is a LIVE fact and is read, and checked, at each accept. A live name
- *  this seam cannot read is the OFFERING part's defect and not the wire's, so it
- *  must not travel: this accept reads NO named headers — every request on the
- *  connection then reads as nobody, which is the state an app already defines for
- *  "no identity" — and the fault is reported once on the one sink. Terminating
- *  the socket instead would let one part's bad list take every connection with
- *  it, and throwing would take the process; the module header has the argument.
- *
- *  The empty list is NOT a caught error collapsing into "no data": a legitimate
- *  empty allowlist and a refused one are distinguishable, because the refused one
- *  emits a typed {@link SurfaceAppEvent} arm a consumer's own `onEvent` receives
- *  as a value (the `console.error` is only the DEFAULT policy's answer to it).
- *  What is deliberately absent is any way to ask for the other behaviours — no
- *  knob restores the bind-once read, and no option silences the arm.
+ *  A THUNK is a LIVE fact, read and checked at each accept — and NOT at the
+ *  bind, which is where this parts company with the generation resolved one line
+ *  above it (see there for why). It throws AT THE ACCEPT, for the caller to
+ *  answer beside the served generation's own refusal, so the one interesting
+ *  thing about this pair — a refused generation terminates the socket, a refused
+ *  allowlist does not — is legible where both are decided. What a refusal COSTS
+ *  is not this function's business; WHEN the list is read, is.
  *
  *  Returned as a closure rather than branched at each accept so the fixed arm
- *  pays its check exactly once, and so the two arms' different failure stories
- *  are settled in one place instead of inside the upgrade handler. */
+ *  pays its check exactly once. */
 const upgradeHeadersReader = <H extends string>(
   asked: ReadonlyArray<H> | (() => ReadonlyArray<H>) | undefined,
-  report: (event: SurfaceAppEvent<H>) => void,
-): ((url: URL) => ReadonlyArray<H>) => {
+): (() => ReadonlyArray<H>) => {
   if (typeof asked !== "function") {
     const checked = checkUpgradeHeaders(asked ?? []);
     return () => checked;
   }
-  return (url) => {
-    try {
-      return checkUpgradeHeaders(asked());
-    } catch (cause) {
-      report({ _tag: "UpgradeHeadersRefused", error: errorOf(cause), url });
-      return [];
-    }
-  };
+  return () => checkUpgradeHeaders(asked());
 };
 
 /** Something the listener wants narrated. ONE sink, because every consumer has
@@ -578,14 +578,18 @@ export const serveSurfaceApp = <Svc = never, H extends string = never>(
     const servedAtAccept = () => restrictServedGeneration(options);
     servedAtAccept();
     // How an accept obtains its allowlist, resolved once here. A fixed array is
-    // checked NOW, for the same reason the generation is applied now: a name no
-    // header can match is a defect, and a defect belongs at the bind and not at
-    // the first upgrade that happens to arrive hours later. A live one is read
-    // per accept, and refuses itself rather than the socket — see there.
-    const upgradeHeadersAt = upgradeHeadersReader(
-      options.upgradeHeaders,
-      report,
-    );
+    // checked NOW, for the same reason a snapshot generation is applied now: a
+    // name no header can match is a defect, and a defect belongs at the bind and
+    // not at the first upgrade that happens to arrive hours later. A LIVE list is
+    // NOT probed here, which is where this parts company with the live
+    // generation: `restrictServedGeneration` calls its thunk at the bind on the
+    // line above and lets a bad one take the bind down, because a generation the
+    // listener cannot serve makes the listener pointless. A live allowlist is
+    // legitimately EMPTY at the bind — the offering part has not switched on yet
+    // — so a bind-time read proves nothing about the list any accept will
+    // actually see, and refusing there would fail the very use case a thunk
+    // exists for. It is read, and refuses itself, per accept — see there.
+    const upgradeHeadersAt = upgradeHeadersReader(options.upgradeHeaders);
     // The HTTP handler's own scope: `makeHandler` forks each request as a fiber
     // in it, so it must outlive every in-flight request and die with the
     // listener. `Scope.fork` is the library contract for exactly that —
@@ -709,15 +713,33 @@ export const serveSurfaceApp = <Svc = never, H extends string = never>(
           }
           // Gated and enrolled — so this is the first instant at which there IS a
           // connection to narrate, and the pair a live-connection count needs.
+          //
           // The allowlist is read HERE, in the same turn as the generation: both
-          // are what this listener serves at this accept. A live one that refuses
-          // itself reports before `Connected`, so the log reads in the order it
-          // happened — why this connection is anonymous, then the connection.
+          // are what this listener serves at this accept, and the two refusals
+          // are written side by side because their DIFFERENCE is the design. A
+          // refused generation leaves nothing honest to serve, so the socket
+          // goes. A refused allowlist is the OFFERING part's defect, and one
+          // part's bad row must touch no sibling — the transport is a sibling —
+          // so the socket is SERVED with no named headers, reading as nobody,
+          // which is the state an app already defines for "no identity".
+          // Reported before `Connected`, so the log reads in the order it
+          // happened: why this connection is anonymous, then the connection.
+          let named: ReadonlyArray<H>;
+          try {
+            named = upgradeHeadersAt();
+          } catch (cause) {
+            report({
+              _tag: "UpgradeHeadersRefused",
+              error: errorOf(cause),
+              url,
+            });
+            named = [];
+          }
           const connection: SurfaceAppConnection<H> = Object.freeze({
             id: ++accepted,
             url,
             remoteAddress: request.socket.remoteAddress,
-            headers: pickUpgradeHeaders(request, upgradeHeadersAt(url)),
+            headers: pickUpgradeHeaders(request, named),
           });
           report({ _tag: "Connected", connection });
           peer.once("close", (code: number, reason: Buffer) =>
