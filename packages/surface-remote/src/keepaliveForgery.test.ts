@@ -32,10 +32,8 @@
  * rendering everything downstream from that snapshot, and this file is what
  * breaks if the capture degenerates back into an assertion.
  */
-import { mkdtempSync, rmSync } from "node:fs";
-import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { __resetControlMemo } from "./controlMaster";
+import { describe, expect, it } from "vitest";
+import { useControlDir } from "./controlDir.testutil";
 import { nixSshOpts, sshCommonOpts, sshDialOpts } from "./host";
 import {
   MAX_SSH_KEEPALIVE_TOLERANCE_S,
@@ -138,20 +136,8 @@ const socketTag = (rendered: readonly string[] | string): string | undefined =>
 
 describe("an ACCESSOR-forged keepalive cannot outrun the check", () => {
   // The complete renderers need a usable control dir or they refuse to
-  // multiplex and there is no socket tag to compare against. Short and under
-  // `/tmp` for the same reason `controlMaster.test.ts` says: a long
-  // `os.tmpdir()` would trip the sun_path guard instead.
-  let xdg: string;
-  beforeEach(() => {
-    xdg = mkdtempSync(join("/tmp", "kolu-forge-"));
-    vi.stubEnv("XDG_RUNTIME_DIR", xdg);
-    __resetControlMemo();
-  });
-  afterEach(() => {
-    __resetControlMemo();
-    vi.unstubAllEnvs();
-    rmSync(xdg, { recursive: true, force: true });
-  });
+  // multiplex and there is no socket tag to compare against.
+  useControlDir("kolu-forge-");
 
   it("reads each field EXACTLY ONCE per render — the whole anti-TOCTOU claim", () => {
     // Against the assertion-only guard this was 3 for `sshCommonOpts` (integer

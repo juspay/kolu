@@ -6,10 +6,8 @@
  * builds the argv so the assertions see exactly what would hit the wire. The
  * ask-only warm-check SHAPE (D1a) is pinned in `warmProbeCheck.test.ts`.
  */
-import { mkdtempSync, rmSync } from "node:fs";
-import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { __resetControlMemo } from "./controlMaster";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { CI_KEEPALIVE, provArgs, useControlDir } from "./controlDir.testutil";
 import { agentBinaryCache } from "./agentBinaryCache";
 import { directAgentDerivation, flakeAgentDerivation } from "./agentDerivation";
 import {
@@ -22,16 +20,8 @@ import {
   provisionAgent,
 } from "./nixCopy";
 import { type CaptureResult, runCapture } from "./process";
-import {
-  DEFAULT_SSH_KEEPALIVE,
-  type SshKeepalive,
-  sshKeepalive,
-} from "./keepalive";
+import { sshKeepalive } from "./keepalive";
 import { TEST_BINARY_CACHE } from "./agentDerivation.testutil";
-
-/** A CI-shaped keepalive: five minutes of tolerated silence, so a network blip
- *  doesn't kill a lane mid-build. The shape juspay/odu passes. */
-const CI_KEEPALIVE: SshKeepalive = sshKeepalive(30, 10);
 
 vi.mock("./process", async (importOriginal) => ({
   // Keep the real pure helpers (`describeExit`) and mock only the two
@@ -61,15 +51,6 @@ const isPrefetch = (args: readonly string[]): boolean =>
   isCopy(args) && args.includes("--from");
 const isShip = (args: readonly string[]): boolean =>
   isCopy(args) && args.includes("--to");
-
-/** The fused budgets a `provisionAgent` call needs (the connector reconciles the
- *  campaign reset itself, so `provisionAgent` takes no epoch), plus the dial's
- *  ssh policy — REQUIRED on `ProvisionOptions`, because every ssh of one dial
- *  must carry the same one. Pass a custom `budgets` (e.g. a tight-terminal one)
- *  to override. */
-function provArgs(budgets: ProvisionBudgets = makeProvisionBudgets()) {
-  return { budgets, keepalive: DEFAULT_SSH_KEEPALIVE };
-}
 
 /** Route the mocked `runCapture` by the command it was handed (robust to call
  *  order): the sender-local `-q --outputs`, the ssh `--check-validity`, the
@@ -110,24 +91,9 @@ function mockNix(over?: {
   });
 }
 
-const tmpDirs: string[] = [];
-// Rooted at `/tmp`, not `os.tmpdir()`: the expanded `ControlPath` must fit a
-// unix socket address (`controlPathFits`), and `os.tmpdir()` is a long
-// `/tmp/nix-shell.XXXXXX` in the devshell (and `/var/folders/…` on macOS), which
-// would make every renderer here refuse to multiplex. A real
-// `$XDG_RUNTIME_DIR` is short; so is this.
-beforeEach(() => {
-  const xdg = mkdtempSync(join("/tmp", "kolu-ssh-nixcopy-"));
-  tmpDirs.push(xdg);
-  vi.stubEnv("XDG_RUNTIME_DIR", xdg);
-  __resetControlMemo();
-});
+useControlDir("kolu-ssh-nixcopy-");
 afterEach(() => {
   vi.clearAllMocks();
-  vi.unstubAllEnvs();
-  __resetControlMemo();
-  for (const d of tmpDirs.splice(0))
-    rmSync(d, { recursive: true, force: true });
 });
 
 describe("provisionAgent GC-root pinning (cold path)", () => {

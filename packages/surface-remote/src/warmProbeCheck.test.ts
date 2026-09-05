@@ -12,16 +12,12 @@
  * — a pure store query that NEVER substitutes and NEVER mutates the store. These are
  * the flipped RED bodies (R9: body rewrites), now asserting the ask-only shape.
  */
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { __resetControlMemo } from "./controlMaster";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { provArgs, useControlDir } from "./controlDir.testutil";
 import { directAgentDerivation } from "./agentDerivation";
-import { makeProvisionBudgets, provisionAgent } from "./nixCopy";
+import { provisionAgent } from "./nixCopy";
 import { type CaptureResult, runCapture } from "./process";
 import { TEST_BINARY_CACHE } from "./agentDerivation.testutil";
-import { DEFAULT_SSH_KEEPALIVE } from "./keepalive";
 
 vi.mock("./process", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./process")>()),
@@ -40,10 +36,6 @@ const okOut = (stdout: string): CaptureResult => ({
 });
 const failOut: CaptureResult = { ok: false, kind: "exit", code: 1, stdout: "" };
 
-function provArgs() {
-  return { budgets: makeProvisionBudgets(), keepalive: DEFAULT_SSH_KEEPALIVE };
-}
-
 /** A warm host: outputs computed locally, present on the host, pin ok. */
 function mockWarmHit(outputsStdout = `${STORE}\n`): void {
   vi.mocked(runCapture).mockImplementation(async (_cmd, args) => {
@@ -61,19 +53,9 @@ function checkValidityCall() {
     .mock.calls.find((c) => c[1].includes("--check-validity"));
 }
 
-const tmpDirs: string[] = [];
-beforeEach(() => {
-  const xdg = mkdtempSync(join(tmpdir(), "kolu-ssh-warmprobe-test-"));
-  tmpDirs.push(xdg);
-  vi.stubEnv("XDG_RUNTIME_DIR", xdg);
-  __resetControlMemo();
-});
+useControlDir("kolu-ssh-warmprobe-");
 afterEach(() => {
   vi.clearAllMocks();
-  vi.unstubAllEnvs();
-  __resetControlMemo();
-  for (const d of tmpDirs.splice(0))
-    rmSync(d, { recursive: true, force: true });
 });
 
 describe("D1a — the warm probe asks, never substitutes (#1908)", () => {

@@ -6,10 +6,17 @@
  * that degrades mid-build wedges the caller's spawn cycle forever (the
  * "stuck copying to remote for eternity" failure this guards against).
  */
-import { chmodSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { chmodSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { __resetControlMemo } from "./controlMaster";
+import {
+  CI_KEEPALIVE,
+  namedControlDir,
+  socketLeaf,
+  sshOpts,
+  useControlDir,
+} from "./controlDir.testutil";
 import {
   buildAgentCommand,
   buildSshProbeCommand,
@@ -27,46 +34,10 @@ import {
   sshKeepalive,
 } from "./keepalive";
 
-/** A CI-shaped policy: 30s × 10 = five minutes of tolerated silence, the shape
- *  juspay/odu passes so a network blip doesn't kill a running lane. */
-const CI_KEEPALIVE: SshKeepalive = sshKeepalive(30, 10);
-
-// Every spawned-ssh builder now appends the P2.8 ControlMaster opts, which
-// mkdir a kolu-private control dir. Point that at a throwaway private tmp dir
-// per test so the suite stays hermetic and the opts render deterministically
-// (a real $XDG_RUNTIME_DIR may or may not be owner-only on a given box).
-//
-// Rooted at `/tmp` and NOT `os.tmpdir()`: the expanded `ControlPath` has to fit
-// a unix socket address (`controlPathFits`), and `os.tmpdir()` is a long
-// `/tmp/nix-shell.XXXXXX` inside the devshell and a ~49-byte `/var/folders/…` on
-// macOS — either would trip the length guard and make every builder here render
-// a refusal. A real `$XDG_RUNTIME_DIR` is short (`/run/user/1000`); so is this.
-const tmpDirs: string[] = [];
-beforeEach(() => {
-  const xdg = mkdtempSync(join("/tmp", "kolu-ssh-host-"));
-  tmpDirs.push(xdg);
-  vi.stubEnv("XDG_RUNTIME_DIR", xdg);
-  __resetControlMemo();
-});
-afterEach(() => {
-  vi.unstubAllEnvs();
-  __resetControlMemo();
-  for (const d of tmpDirs.splice(0))
-    rmSync(d, { recursive: true, force: true });
-});
-
-/** Pull the `-o Key=Value` pairs out of an ssh argv into a lookup. */
-function sshOpts(args: readonly string[]): Record<string, string> {
-  const opts: Record<string, string> = {};
-  for (let i = 0; i < args.length; i++) {
-    const val = args[i + 1];
-    if (args[i] === "-o" && val) {
-      const [k, v] = val.split("=");
-      opts[k ?? val] = v ?? "";
-    }
-  }
-  return opts;
-}
+// Every spawned-ssh builder appends the P2.8 ControlMaster opts, which mkdir a
+// kolu-private control dir out of `$XDG_RUNTIME_DIR`. The shared fixture points
+// that at a throwaway private `/tmp` dir per test — and owns the reason why.
+useControlDir("kolu-ssh-host-");
 
 /** Assert an ssh argv carries the dead-peer keepalive policy `keepalive` (the
  *  package default unless stated). One invariant ("every non-interactive ssh
@@ -74,10 +45,10 @@ function sshOpts(args: readonly string[]): Record<string, string> {
  *  re-tuning a keepalive value can't leave a second hand-synced block green on
  *  stale numbers. */
 function assertKeepAlive(
-  args: readonly string[],
+  rendered: readonly string[] | string,
   keepalive: SshKeepalive = DEFAULT_SSH_KEEPALIVE,
 ): void {
-  const opts = sshOpts(args);
+  const opts = sshOpts(rendered);
   expect(opts.BatchMode).toBe("yes");
   expect(opts.ServerAliveInterval).toBe(String(keepalive.intervalS));
   expect(opts.ServerAliveCountMax).toBe(String(keepalive.countMax));
@@ -347,7 +318,7 @@ describe("ssh keepalive policy", () => {
     expect(DEFAULT_SSH_KEEPALIVE.intervalS).toBe(10);
     expect(DEFAULT_SSH_KEEPALIVE.countMax).toBe(3);
     assertKeepAlive(sshCommonOpts());
-    assertKeepAlive([...SSH_COMMON_OPTS]);
+    assertKeepAlive(SSH_COMMON_OPTS);
   });
 
   it("carries a custom policy into the agent argv, the probe argv, and NIX_SSHOPTS", () => {
@@ -373,7 +344,7 @@ describe("ssh keepalive policy", () => {
       ).args,
       CI_KEEPALIVE,
     );
-    assertKeepAlive(nixSshOpts(CI_KEEPALIVE).split(" "), CI_KEEPALIVE);
+    assertKeepAlive(nixSshOpts(CI_KEEPALIVE), CI_KEEPALIVE);
   });
 
   it("gives a custom policy its OWN ControlMaster socket", () => {
@@ -393,9 +364,7 @@ describe("ssh keepalive policy", () => {
     expect(ciPath).toBeDefined();
     expect(ciPath).not.toBe(defaultPath);
     // The env form names the SAME per-policy socket as the argv form.
-    expect(sshOpts(nixSshOpts(CI_KEEPALIVE).split(" ")).ControlPath).toBe(
-      ciPath,
-    );
+    expect(sshOpts(nixSshOpts(CI_KEEPALIVE)).ControlPath).toBe(ciPath);
   });
 
   it("a bare host string still means the default policy", () => {
@@ -476,8 +445,8 @@ describe("sshDialOpts — the COMPLETE outward-facing opt set", () => {
   });
 
   it("names the SAME socket as the env form nix's own ssh reads", () => {
-    expect(sshOpts([...sshDialOpts(CI_KEEPALIVE)]).ControlPath).toBe(
-      sshOpts(nixSshOpts(CI_KEEPALIVE).split(" ")).ControlPath,
+    expect(sshOpts(sshDialOpts(CI_KEEPALIVE)).ControlPath).toBe(
+      sshOpts(nixSshOpts(CI_KEEPALIVE)).ControlPath,
     );
   });
 });
@@ -486,17 +455,15 @@ describe("sshDialOpts — the COMPLETE outward-facing opt set", () => {
  *  socket that belongs to `keepalive` (the master's opener fixes `ServerAlive*`
  *  for its whole lifetime, so the socket is keyed by the policy). */
 function assertMultiplex(
-  args: readonly string[],
+  rendered: readonly string[] | string,
   keepalive: SshKeepalive = DEFAULT_SSH_KEEPALIVE,
 ): void {
-  const opts = sshOpts(args);
+  const opts = sshOpts(rendered);
   expect(opts.ControlMaster).toBe("auto");
   expect(opts.ControlPersist).toBe("10m");
-  expect(
-    opts.ControlPath?.endsWith(
-      `/%C-${keepalive.intervalS}x${keepalive.countMax}`,
-    ),
-  ).toBe(true);
+  // The leaf is spelled by `policyTag`, the same function `controlOptPairs`
+  // names the socket with — never re-derived here from the policy's fields.
+  expect(opts.ControlPath?.endsWith(socketLeaf(keepalive))).toBe(true);
 }
 
 describe("ssh multiplexing (ControlMaster)", () => {
@@ -523,13 +490,13 @@ describe("ssh multiplexing (ControlMaster)", () => {
         localEnv: {},
       }).args,
     ).ControlPath;
-    const envOpts = sshOpts(nixSshOpts().split(" "));
+    const envOpts = sshOpts(nixSshOpts());
     expect(envOpts.ControlMaster).toBe("auto");
     // One source of truth: nix's NIX_SSHOPTS and our argv name one socket,
     // so the ssh-ng fork rides the master the probe opened, not a new one.
     expect(envOpts.ControlPath).toBe(argvPath);
     // …and it still word-splits cleanly to carry the dead-peer keepalive.
-    assertKeepAlive(nixSshOpts().split(" "));
+    assertKeepAlive(nixSshOpts());
   });
 
   it("never emits an `-O exit`/control command — stale recovery is ssh's `auto`", () => {
@@ -555,8 +522,7 @@ describe("ssh multiplexing (ControlMaster)", () => {
   it("degrades uniformly: a non-private control dir refuses multiplexing everywhere", () => {
     if (process.getuid === undefined) return; // no uid semantics — skip
     // Re-point XDG at a dir whose computed control dir is pre-created loose.
-    const xdg = mkdtempSync(join("/tmp", "kolu-ssh-loose-"));
-    tmpDirs.push(xdg);
+    const xdg = namedControlDir("kolu-ssh-loose");
     const dir = join(xdg, "kolu-ssh");
     mkdirSync(dir, { recursive: true });
     chmodSync(dir, 0o755); // group/other bits → not owner-only
@@ -574,7 +540,7 @@ describe("ssh multiplexing (ControlMaster)", () => {
         localEnv: {},
       }).args,
     );
-    const env = sshOpts(nixSshOpts().split(" "));
+    const env = sshOpts(nixSshOpts());
     for (const opts of [probe, dial, env]) {
       // One memoized source degrades every renderer at once: keepalive
       // survives, and multiplexing is REFUSED everywhere — explicitly, as

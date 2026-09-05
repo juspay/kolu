@@ -10,57 +10,23 @@
  * options. All FS work is confined to a fresh `/tmp` subdir per test; no ssh /
  * nix is spawned.
  */
-import {
-  chmodSync,
-  existsSync,
-  mkdirSync,
-  mkdtempSync,
-  rmSync,
-  statSync,
-} from "node:fs";
+import { chmodSync, existsSync, mkdirSync, rmSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { __resetControlMemo, controlOptPairs } from "./controlMaster";
+import {
+  CI_KEEPALIVE,
+  controlRoot,
+  namedControlDir,
+  useControlDir,
+} from "./controlDir.testutil";
 import {
   DEFAULT_SSH_KEEPALIVE,
   renderableKeepalive,
   type SshKeepalive,
-  sshKeepalive,
 } from "./keepalive";
 
-/** A CI-shaped policy: ride out a five-minute blip instead of killing a lane. */
-const CI_KEEPALIVE: SshKeepalive = sshKeepalive(30, 10);
-
-const tmpDirs: string[] = [];
-/** A fresh runtime dir under a SHORT root — deliberately `/tmp` and not
- *  `os.tmpdir()`, because the expanded `ControlPath` must fit a unix socket
- *  address (see `controlPathFits`) and macOS's `os.tmpdir()` is a ~49-byte
- *  `/var/folders/…` path that would push it over on its own. A real
- *  `$XDG_RUNTIME_DIR` is short (`/run/user/1000`); the fixture should be too, or
- *  it tests the length guard instead of what it means to. */
-function freshXdg(): string {
-  const dir = mkdtempSync(join("/tmp", "kolu-ssh-test-"));
-  tmpDirs.push(dir);
-  return dir;
-}
-/** A runtime dir of a given literal name under `/tmp`, for the length cases.
- *  Not created here — `ensureControlDir` creates it `0700`, which is what the
- *  guard has to run against. */
-function namedXdg(name: string): string {
-  const dir = join("/tmp", name);
-  tmpDirs.push(dir);
-  return dir;
-}
-
-beforeEach(() => {
-  __resetControlMemo();
-});
-afterEach(() => {
-  __resetControlMemo();
-  vi.unstubAllEnvs();
-  for (const d of tmpDirs.splice(0))
-    rmSync(d, { recursive: true, force: true });
-});
+useControlDir("kolu-ssh-cm-");
 
 /** `controlOptPairs` at a policy, reached the ONLY way `host.ts` reaches it:
  *  through the capture boundary. `controlOptPairs` takes the `KeepalivePlan`
@@ -84,31 +50,24 @@ function optMap(): Record<string, string> {
 
 describe("controlOptPairs path shape", () => {
   it("is the kolu-private %C socket under the runtime dir, never ~/.ssh", () => {
-    const xdg = freshXdg();
-    vi.stubEnv("XDG_RUNTIME_DIR", xdg);
-    __resetControlMemo();
     const path = controlPathValue();
     expect(path).toBeDefined();
     const p = path as string;
     // ssh expands %C per host at connect; the suffix keys the master by policy.
     expect(p.endsWith("/%C-10x3")).toBe(true);
     expect(p).toContain("kolu-ssh");
-    expect(p.startsWith(xdg)).toBe(true);
+    expect(p.startsWith(controlRoot())).toBe(true);
     expect(p).not.toContain(".ssh"); // never the user's ssh-config dir
     expect(/\s/.test(p)).toBe(false); // NIX_SSHOPTS word-split contract
   });
 
   it("carries ControlMaster=auto and a cross-invocation ControlPersist", () => {
-    vi.stubEnv("XDG_RUNTIME_DIR", freshXdg());
-    __resetControlMemo();
     const opts = optMap();
     expect(opts.ControlMaster).toBe("auto");
     expect(opts.ControlPersist).toBe("10m");
   });
 
   it("agrees on one path: the mkdir'd dir is dirname(ControlPath), token-free", () => {
-    vi.stubEnv("XDG_RUNTIME_DIR", freshXdg());
-    __resetControlMemo();
     const path = controlPathValue() as string;
     const dir = dirname(path);
     expect(dir).not.toContain("%C"); // the real dir has no ssh token
@@ -122,8 +81,6 @@ describe("controlOptPairs path shape", () => {
   // never name the same socket — otherwise a CI dial asking for a five-minute
   // tolerance would quietly get an interactive dial's 30s, with correct argv.
   it("keys the socket by policy, so two policies never share one master", () => {
-    vi.stubEnv("XDG_RUNTIME_DIR", freshXdg());
-    __resetControlMemo();
     const interactive = controlPathValue(DEFAULT_SSH_KEEPALIVE) as string;
     const ci = controlPathValue(CI_KEEPALIVE) as string;
     expect(ci).not.toBe(interactive);
@@ -136,10 +93,7 @@ describe("controlOptPairs path shape", () => {
 
 describe("controlOptPairs ensure-dir", () => {
   it("creates the control dir 0700 ONCE, then renders every policy purely", () => {
-    const xdg = freshXdg();
-    vi.stubEnv("XDG_RUNTIME_DIR", xdg);
-    __resetControlMemo();
-    const dir = join(xdg, "kolu-ssh");
+    const dir = join(controlRoot(), "kolu-ssh");
     const first = pairsFor();
     if (process.getuid !== undefined) {
       expect(statSync(dir).mode & 0o777).toBe(0o700);
@@ -159,14 +113,11 @@ describe("controlOptPairs ensure-dir", () => {
 
   it("refuses multiplexing (never silence) when the control dir is not owner-only", () => {
     if (process.getuid === undefined) return; // no uid semantics — skip
-    const xdg = freshXdg();
     // Pre-create the computed control dir with group/other bits set.
     // chmod (not mkdir mode) so the loose perms survive any test umask.
-    const dir = join(xdg, "kolu-ssh");
+    const dir = join(controlRoot(), "kolu-ssh");
     mkdirSync(dir, { recursive: true });
     chmodSync(dir, 0o755);
-    vi.stubEnv("XDG_RUNTIME_DIR", xdg);
-    __resetControlMemo();
     expect(pairsFor()).toEqual([
       ["ControlMaster", "no"],
       ["ControlPath", "none"],
@@ -195,7 +146,9 @@ describe("controlOptPairs ensure-dir", () => {
       "ka2-'q", // a lone single quote — Nix's shell-split fatals on it
       'ka2-"q', // and its double-quoted twin
     ]) {
-      vi.stubEnv("XDG_RUNTIME_DIR", namedXdg(dirName));
+      vi.stubEnv("XDG_RUNTIME_DIR", namedControlDir(dirName));
+      // Re-pointing mid-test is the point HERE, so the memo is dropped by hand.
+      // Every other test in this file relies on the fixture's own reset.
       __resetControlMemo();
       expect(pairsFor()).toEqual([
         ["ControlMaster", "no"],
@@ -211,19 +164,17 @@ describe("controlOptPairs ensure-dir", () => {
     // picky: an ordinary directory still gets the speedup, with the one `%C` we
     // composed intact. Real runtime dirs (`/run/user/1000`, `/tmp/kolu-ssh-501`)
     // are ordinary in exactly this way.
-    vi.stubEnv("XDG_RUNTIME_DIR", freshXdg());
-    __resetControlMemo();
     const path = controlPathValue() as string;
     expect(path.endsWith("/%C-10x3")).toBe(true);
     // Exactly ONE token in the whole path — which is what makes the byte
-    // arithmetic in `controlPathFits` (one `%C` subtracted) correct.
+    // arithmetic in `usableControlPath` (one `%C` subtracted) correct.
     expect(path.split("%").length - 1).toBe(1);
     expect(path).not.toContain("${");
 
     // A literal real-world shape (digits, dashes, slashes — the same alphabet
     // as `/run/user/1000` and the `/tmp/kolu-ssh-$UID` fallback), because "the
     // allowlist does not cost the speedup on a real box" is the claim it owes.
-    vi.stubEnv("XDG_RUNTIME_DIR", namedXdg("kolu-ssh-501"));
+    vi.stubEnv("XDG_RUNTIME_DIR", namedControlDir("kolu-ssh-501"));
     __resetControlMemo();
     expect(controlPathValue()).toBe("/tmp/kolu-ssh-501/kolu-ssh/%C-10x3");
   });
@@ -235,7 +186,7 @@ describe("controlOptPairs ensure-dir", () => {
   // to 104 bytes and real ssh connects, while `/%C-10x3` expands to 109 and dies
   // — at the DEFAULT policy. So the expanded length is measured, not asserted.
   it("refuses multiplexing when the expanded ControlPath cannot fit sun_path", () => {
-    vi.stubEnv("XDG_RUNTIME_DIR", namedXdg("a".repeat(49)));
+    vi.stubEnv("XDG_RUNTIME_DIR", namedControlDir("a".repeat(49)));
     __resetControlMemo();
     expect(pairsFor()).toEqual([
       ["ControlMaster", "no"],
@@ -254,7 +205,7 @@ describe("controlOptPairs ensure-dir", () => {
     // not. The allowlist settles it one step earlier (non-ASCII is not literal
     // path text), and the byte measurement behind it stays honest about the
     // buffer regardless.
-    vi.stubEnv("XDG_RUNTIME_DIR", namedXdg("é".repeat(20)));
+    vi.stubEnv("XDG_RUNTIME_DIR", namedControlDir("é".repeat(20)));
     __resetControlMemo();
     expect(pairsFor()).toEqual([
       ["ControlMaster", "no"],
@@ -265,8 +216,6 @@ describe("controlOptPairs ensure-dir", () => {
   it("still multiplexes for a runtime dir of a realistic length", () => {
     // The guard must not cost the speedup on ordinary systems: a real
     // $XDG_RUNTIME_DIR is `/run/user/<uid>`, and the fixture is that short.
-    vi.stubEnv("XDG_RUNTIME_DIR", freshXdg());
-    __resetControlMemo();
     const path = controlPathValue() as string;
     expect(path.endsWith("/%C-10x3")).toBe(true);
     // What the guard actually promises, spelled out: the path OpenSSH binds —
@@ -283,8 +232,7 @@ describe("controlOptPairs ensure-dir", () => {
   // `ControlMaster auto` supplies a master keyed by host+user+port and NOT by
   // policy. Two tolerances would silently share one socket again.
   it("never degrades to an empty opt set, on any refusal path", () => {
-    const xdg = freshXdg();
-    vi.stubEnv("XDG_RUNTIME_DIR", `${xdg} with space`);
+    vi.stubEnv("XDG_RUNTIME_DIR", namedControlDir("ka2 with space"));
     __resetControlMemo();
     const pairs = pairsFor();
     expect(pairs.length).toBeGreaterThan(0);
