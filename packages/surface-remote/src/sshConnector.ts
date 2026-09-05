@@ -196,24 +196,38 @@ export interface SshConnectorOptions<S extends SurfaceSpec> {
    *      `links/stdioPingStall.test.ts`. This is the bound that actually ends a
    *      connected link, and nothing here can move it.
    *   2. **`makeSession`'s heartbeat — ≈25s at its defaults, tunable via
-   *      `MakeSessionOptions.liveness`.** Per (1) it never gets a vote on a
-   *      connected link: the lower deadline always wins. Tune it for its own
-   *      reasons, not as a way to ride out a blip.
-   *   3. **The provisioning progress-liveness budget —
-   *      `PROVISION_STEP_SILENCE_BASE_MS` 120s, which GROUP-KILLS the child.**
-   *      ssh keepalives are protocol-level traffic and produce no child stdout,
-   *      so they do not reset it. A blip during a build is bounded by THIS, not
-   *      by the policy here; raising the policy past 120s is inert for a build.
-   *      (The budget doubles per expiry, `PROVISION_STEP_MAX_EXPIRIES` = 4.)
+   *      `MakeSessionOptions.liveness`.** At its defaults and at every RAISED
+   *      tuning it gets no vote on a connected link: the lower deadline always
+   *      wins. (`heartbeat.ts` sets no floor, so a sub-10s tuning does fire
+   *      first — that is tightening a link, not surviving a silence.) Tune it
+   *      for its own reasons, not as a way to ride out a blip.
+   *   3. **The provisioning child-lifetime budget, which GROUP-KILLS the
+   *      child.** ssh keepalives are protocol-level traffic and produce no child
+   *      stdout, so they reset none of it. It is not ONE number — it is per
+   *      step, and the steps differ:
+   *        - the quick probes (arch, warm `check-validity`) get a HARD
+   *          `PROVISION_PROBE_DEADLINE_MS` 30s deadline;
+   *        - the required build and GC-root steps start at
+   *          `PROVISION_STEP_SILENCE_BASE_MS` 120s of child silence and
+   *          ESCALATE — `makeStepBudget` grants `base × 2^expiries`, so a step
+   *          already killed once gets 240s, then 480s, with 960s the last
+   *          budgeted silence before it turns terminal
+   *          (`PROVISION_STEP_MAX_EXPIRIES` = 4);
+   *        - the SPECULATIVE closure copies (cache prefetch, closure ship) run
+   *          under a fixed `PROVISION_COPY_SILENCE_MS` 600s that never escalates
+   *          — they charge no expiry, so they must not inherit the build's
+   *          doubled allowance.
    *   4. **This option** — the ssh transport's own death, the backstop
    *      underneath all three.
    *
    *  So: do not read a raised policy as "this lane now survives a five-minute
-   *  interruption". It does not. A connected link is gone in 5–10s and a silent
-   *  build's child is killed at 120s. What a raised policy prevents is the
-   *  opposite failure — a 30s dead-peer verdict tearing down a dial whose peer
-   *  was merely slow to answer a probe — and an unbounded park on a transport
-   *  that is genuinely gone.
+   *  interruption". It does not. A connected link is gone in 5–10s, and during
+   *  provisioning the tolerance you REQUEST is bounded by whatever (3) grants
+   *  the step the dial is in — inert past 30s for a probe, past the current
+   *  120–960s grant for a required build, past 600s for a speculative copy.
+   *  What a raised policy prevents is the opposite failure — a 30s dead-peer
+   *  verdict tearing down a dial whose peer was merely slow to answer a probe —
+   *  and an unbounded park on a transport that is genuinely gone.
    *
    *  Threaded into EVERY ssh the dial spawns (arch probe, cache prefetch, warm
    *  validity check, GC-root pin, closure ship, Nix's own remote-store ssh, and

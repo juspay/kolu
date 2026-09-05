@@ -99,9 +99,26 @@ host+user+port and **not** by policy — which silently replaces the very
   | # | Bound | When it applies | Value | Tunable? |
   | - | ----- | --------------- | ----- | -------- |
   | 1 | **Effect RPC's own pinger** — `RpcClient.makeProtocolSocket` pings every 5s and ends the socket the moment a tick finds the previous ping unanswered | a `connected` link | **5–10s of silence is fatal** | **No.** `makeProtocolSocket` exposes no option for the cadence, and no retry survives it |
-  | 2 | **`makeSession`'s heartbeat watchdog** — the `system.live` round-trip | a `connected` link | ≈25s at its defaults | Yes, `MakeSessionOptions.liveness` — but per (1) it *never gets a vote*, because the lower deadline always wins |
-  | 3 | **The provisioning progress-liveness budget** — `PROVISION_STEP_SILENCE_BASE_MS`, which group-kills the child | `provisioning` (the build/copy) | **120s without child output**, doubling per expiry, `PROVISION_STEP_MAX_EXPIRIES` = 4 | Not by this option. ssh keepalives are protocol traffic and produce **no child stdout**, so they never reset it |
+  | 2 | **`makeSession`'s heartbeat watchdog** — the `system.live` round-trip | a `connected` link | ≈25s at its defaults | Yes, `MakeSessionOptions.liveness` — but at its defaults and at every **raised** tuning it gets no vote, because the lower deadline always wins. `heartbeat.ts` sets no floor, so a sub-10s tuning *does* fire first — that is tightening a link, not surviving a silence |
+  | 3 | **The provisioning child-lifetime budget** — a `progress-liveness` policy that group-kills the child | `provisioning` (each step separately) | **per step, and they differ** — see below | Not by this option. ssh keepalives are protocol traffic and produce **no child stdout**, so they never reset any of them |
   | 4 | **`keepalive`** — ssh's own dead-peer verdict | every phase; the backstop under all three | `intervalS × countMax`, ≈30s by default | Yes — this option |
+
+  Bound (3) is three different numbers, not one, and which one applies depends on
+  the step a dial is in:
+
+  - **The quick probes** — the arch probe and the warm `check-validity` — get a
+    hard `PROVISION_PROBE_DEADLINE_MS` **30s** deadline. Not a silence budget: a
+    wall-clock one.
+  - **The required build and GC-root steps** start at
+    `PROVISION_STEP_SILENCE_BASE_MS` **120s** without child output, and
+    **escalate**: `makeStepBudget` grants `base × 2^expiries`, so a step already
+    killed once gets 240s, then 480s, and the last budgeted silence before it
+    turns terminal is 960s (`PROVISION_STEP_MAX_EXPIRIES` = 4). 120s is the
+    *initial* allowance, not the standing one.
+  - **The speculative closure copies** (the cache prefetch and the closure ship)
+    run under their own fixed `PROVISION_COPY_SILENCE_MS` **600s** and never
+    escalate — they charge no expiry, so they must not inherit the build's
+    doubled allowance.
 
   The canonical account of (1) is the docstring beside `neverReconnect` in
   `packages/surface/src/links/wire.ts`, which is where the fact is *acted on*;
@@ -110,13 +127,15 @@ host+user+port and **not** by policy — which silently replaces the very
   before promising anyone a longer silence.
 
   So: a raised `keepalive` does **not** let a connected lane ride out a
-  multi-minute blip — the link is gone in 5–10s — and raising it past 120s is
-  inert for a provisioning build, whose child bound is (3). What it prevents is
-  the opposite failure: a 30s verdict tearing down a dial whose peer was merely
-  slow to answer a probe, and an unbounded park on a transport that is genuinely
-  gone. `MAX_SSH_KEEPALIVE_TOLERANCE_S` (one hour) is therefore a ceiling on *how
-  long a dead ssh may go unnoticed*, not a promise that anything survives that
-  long.
+  multi-minute blip — the link is gone in 5–10s. And during provisioning the
+  tolerance you *request* is bounded by whatever (3) grants **the step the dial
+  is in**: past 30s it is inert for a probe, past the current 120–960s grant it
+  is inert for a required build, and past 600s it is inert for a speculative
+  copy. Nothing here is a single 120s cliff. What a raised policy prevents is the
+  opposite failure: a 30s verdict tearing down a dial whose peer was merely slow
+  to answer a probe, and an unbounded park on a transport that is genuinely gone.
+  `MAX_SSH_KEEPALIVE_TOLERANCE_S` (one hour) is therefore a ceiling on *how long
+  a dead ssh may go unnoticed*, not a promise that anything survives that long.
 </Aside>
 
 <Aside type="note" title="A ControlMaster's opener fixes ServerAlive* for its lifetime">

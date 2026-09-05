@@ -122,11 +122,16 @@ export interface DialAgentOnceOptions<S extends SurfaceSpec> {
    *  interruption".** Raising it does not let a connected link ride out a blip:
    *  Effect RPC's own pinger ends a connected socket after 5–10s of silence and
    *  is not a knob (`@kolu/surface`'s `links/wire.ts` is the canonical account).
-   *  Nor does raising it past 120s help a provisioning build, whose child is
-   *  group-killed by `PROVISION_STEP_SILENCE_BASE_MS` — ssh keepalives produce no
-   *  child output, so they never reset that budget. `keepaliveOrdering.test.ts`
-   *  pins the whole ordering. See `SshConnectorOptions.keepalive` for the four
-   *  bounds and which of them are tunable at all. */
+   *  Nor does it stretch a provisioning step: the tolerance it REQUESTS is
+   *  bounded by the child-lifetime budget of whichever step the dial is in, and
+   *  those differ — a hard 30s deadline for the quick probes,
+   *  `PROVISION_STEP_SILENCE_BASE_MS` 120s of child silence for the required
+   *  build (escalating to 240s, 480s, and a last budgeted 960s), and a fixed
+   *  `PROVISION_COPY_SILENCE_MS` 600s for the speculative closure copies. ssh
+   *  keepalives produce no child output, so they reset none of them.
+   *  `keepaliveOrdering.test.ts` pins the whole ordering. See
+   *  `SshConnectorOptions.keepalive` for the four bounds and which of them are
+   *  tunable at all. */
   keepalive?: SshKeepalive;
   /** The heartbeat watchdog for the session this facade makes — forwarded
    *  verbatim to `MakeSessionOptions.liveness`. Omit for the ≈25s default;
@@ -134,8 +139,11 @@ export interface DialAgentOnceOptions<S extends SurfaceSpec> {
    *
    *  NOT a way to make a connected link survive a longer silence, and it is not
    *  {@link keepalive}'s other half: on a connected link Effect RPC's pinger
-   *  fails first (5–10s) and always, so the heartbeat "never gets a vote,
-   *  because the lower deadline always wins" (`links/wire.ts`). What it is good
+   *  fails first (5–10s), so at the defaults and at every RAISED tuning the
+   *  heartbeat "never gets a vote, because the lower deadline always wins"
+   *  (`links/wire.ts`). Tuned the other way it does decide — `heartbeat.ts` sets
+   *  no floor, so a sub-10s tuning fires first — but that tightens a link rather
+   *  than letting one ride out a silence. What it is good
    *  for is its own merits — cheapening or quietening the `system.live`
    *  round-trip, or turning the watchdog off for a consumer that owns liveness
    *  itself. It is exposed here because the alternative is abandoning

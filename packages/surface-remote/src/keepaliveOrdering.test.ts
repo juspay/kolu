@@ -11,11 +11,16 @@
  *      `neverReconnect` in `@kolu/surface`'s `links/wire.ts`, measured by
  *      `links/stdioPingStall.test.ts`.
  *   2. **`makeSession`'s heartbeat** — ≈25s at its defaults, tunable via
- *      `MakeSessionOptions.liveness`. Per (1) it "never gets a vote, because the
- *      lower deadline always wins" (`wire.ts`, verbatim).
- *   3. **The provisioning progress-liveness budget** — 120s without CHILD
- *      output, which group-kills the child. ssh keepalives are protocol traffic
- *      and produce no child stdout, so they never reset it.
+ *      `MakeSessionOptions.liveness`. At its defaults and at every RAISED tuning
+ *      it "never gets a vote, because the lower deadline always wins" (`wire.ts`,
+ *      verbatim). Tuned BELOW the pinger's 10s it does fire first — `heartbeat.ts`
+ *      sets no floor — which is why the test below pins the raised direction.
+ *   3. **The provisioning child-lifetime budget** — group-kills a child that
+ *      goes quiet. NOT one number: 30s hard deadline for a quick probe, 120s of
+ *      child silence for a required build that DOUBLES per expiry to a last
+ *      budgeted 960s, and a fixed 600s for the speculative closure copies. ssh
+ *      keepalives are protocol traffic and produce no child stdout, so they
+ *      never reset any of them.
  *   4. **ssh's dead-peer policy** (`SshKeepalive`) — the transport's own death.
  *
  * The file exists to make the real ordering — pinger < heartbeat < ssh
@@ -39,6 +44,9 @@ import {
   sshKeepalive,
 } from "./keepalive";
 import {
+  makeStepBudget,
+  PROVISION_COPY_SILENCE_MS,
+  PROVISION_PROBE_DEADLINE_MS,
   PROVISION_STEP_MAX_EXPIRIES,
   PROVISION_STEP_SILENCE_BASE_MS,
 } from "./nixCopy";
@@ -125,26 +133,72 @@ describe("what actually ends a CONNECTED link", () => {
 });
 
 describe("what bounds a silence during PROVISIONING", () => {
-  it("is the child's progress-liveness budget, not the ssh policy", () => {
+  it("is the child's lifetime budget, not the ssh policy", () => {
     // ssh keepalives ride the protocol layer and produce no child stdout, so
-    // they never reset this budget: a blip during a build is group-killed at
-    // 120s however long the ssh policy would have waited.
+    // they never reset any of these budgets: a blip during a required build is
+    // group-killed at 120s however long the ssh policy would have waited.
     expect(PROVISION_STEP_SILENCE_BASE_MS).toBe(120_000);
     const ci = sshKeepalive(30, 10); // the policy the docs print: 300s
     expect(keepaliveVerdictMs(ci)).toBe(300_000);
     expect(PROVISION_STEP_SILENCE_BASE_MS).toBeLessThan(keepaliveVerdictMs(ci));
   });
 
-  it("records the escalated ceiling a raised policy still cannot reach past", () => {
-    // The budget doubles per consecutive expiry, so the LAST budgeted silence is
-    // base × 2^(N-1). Even that is a bound on the child, not on ssh: a keepalive
-    // raised beyond it buys the build nothing, and one raised below it means the
-    // transport dies first and the dial retries.
-    const lastBudgetedMs =
-      PROVISION_STEP_SILENCE_BASE_MS * 2 ** (PROVISION_STEP_MAX_EXPIRIES - 1);
-    expect(lastBudgetedMs).toBe(960_000);
+  it("is 120s only INITIALLY — the required build's budget escalates", () => {
+    // The docs must not print 120s as a standing cliff. `makeStepBudget` grants
+    // `base × 2^expiries`, so a step already killed once gets 240s, then 480s,
+    // with 960s the last budgeted silence before it turns terminal. A raised ssh
+    // tolerance is therefore inert only past the CURRENT grant, not past 120s.
+    const budget = makeStepBudget(
+      PROVISION_STEP_SILENCE_BASE_MS,
+      PROVISION_STEP_MAX_EXPIRIES,
+    );
+    const granted: number[] = [];
+    for (let i = 0; i < PROVISION_STEP_MAX_EXPIRIES; i += 1) {
+      const policy = budget.policy();
+      // The escalating steps are `progress-liveness`; the quick probes are the
+      // other kind (a hard deadline), asserted separately below.
+      if (policy.kind !== "progress-liveness")
+        throw new Error(`unexpected policy kind: ${policy.kind}`);
+      granted.push(policy.silenceMs);
+      budget.recordExpiry();
+    }
+    expect(granted).toEqual([120_000, 240_000, 480_000, 960_000]);
+    // A CI policy the docs print (300s) outlives the FIRST grant and not the
+    // later ones — which is exactly why "past 120s is inert" was false.
+    expect(keepaliveVerdictMs(sshKeepalive(30, 10))).toBeGreaterThan(
+      granted[0] as number,
+    );
+    expect(keepaliveVerdictMs(sshKeepalive(30, 10))).toBeLessThan(
+      granted[3] as number,
+    );
+    // Even the escalated ceiling is a bound on the CHILD, not on ssh — and the
+    // ssh ceiling sits above it, so no policy is refused for being longer.
     expect(MAX_SSH_KEEPALIVE_TOLERANCE_S * 1_000).toBeGreaterThan(
-      lastBudgetedMs,
+      granted[3] as number,
+    );
+  });
+
+  it("gives the SPECULATIVE copies their own fixed budget, not the build's", () => {
+    // The copies charge no expiry, so they must not inherit the build's doubled
+    // allowance — they run under one flat number that never escalates. Looser
+    // than the build's base and tighter than its ceiling, which is the whole
+    // reason the docs cannot describe "the provisioning budget" as one value.
+    expect(PROVISION_COPY_SILENCE_MS).toBe(600_000);
+    expect(PROVISION_COPY_SILENCE_MS).toBeGreaterThan(
+      PROVISION_STEP_SILENCE_BASE_MS,
+    );
+    expect(PROVISION_COPY_SILENCE_MS).toBeLessThan(
+      PROVISION_STEP_SILENCE_BASE_MS * 2 ** (PROVISION_STEP_MAX_EXPIRIES - 1),
+    );
+  });
+
+  it("bounds the QUICK probes by wall clock, well under any of those", () => {
+    // The third distinct number: a hard deadline, not a silence budget. A raised
+    // ssh tolerance is inert past THIS for an arch probe or a warm validity
+    // check — 30s, long before either provisioning number.
+    expect(PROVISION_PROBE_DEADLINE_MS).toBe(30_000);
+    expect(PROVISION_PROBE_DEADLINE_MS).toBeLessThan(
+      PROVISION_STEP_SILENCE_BASE_MS,
     );
   });
 });

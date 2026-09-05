@@ -41,10 +41,13 @@ const keepalivePlanBrand = Symbol("KeepalivePlan");
  *  transport takes to be noticed and exited; it is NOT "how long a lane survives
  *  an interruption", and it is only one of four independent bounds on link
  *  silence — the other three (Effect RPC's 5–10s pinger, which is not a knob and
- *  which ends every connected link first; the heartbeat watchdog, which per that
- *  pinger never gets a vote; and the 120s provisioning progress-liveness budget
- *  that group-kills a silent child) are enumerated at
- *  `SshConnectorOptions.keepalive`. Raising this one does not move any of them.
+ *  which ends every connected link first; the heartbeat watchdog, which at its
+ *  defaults and at every RAISED tuning gets no vote against that pinger; and the
+ *  provisioning child-lifetime budget that group-kills a silent child, which is
+ *  a different number per step — 30s for a quick probe, 120s escalating to 960s
+ *  for the required build, a fixed 600s for the speculative copies) are
+ *  enumerated at `SshConnectorOptions.keepalive`. Raising this one does not move
+ *  any of them.
  *
  *  NOMINAL, like the `AgentDerivation`/`AgentBinaryCache` values it travels
  *  beside: the private symbol means only {@link sshKeepalive} can produce one,
@@ -107,8 +110,9 @@ export interface SshKeepalive {
  *  — `links/wire.ts`). The heartbeat's reachable ceiling is
  *  `MAX_HEARTBEAT_INTERVAL_MS` (300s) + `MAX_HEARTBEAT_TIMEOUT_MS` (120s) = 420s
  *  and it watches a CONNECTED link only (`isLive()` requires
- *  `phase === "connected"`) — where, per that pinger, it never gets to decide
- *  anything. This one bounds the TRANSPORT's own death, in every phase. So a
+ *  `phase === "connected"`) — where, per that pinger, no tuning at or above its
+ *  defaults ever gets to decide anything. This one bounds the TRANSPORT's own
+ *  death, in every phase. So a
  *  tolerance between 420s and 3600s is legitimate: it is the ceiling on how long
  *  a dead ssh may go unnoticed, not a promise that anything survives that long.
  *  `keepaliveOrdering.test.ts` pins the real ordering. */
