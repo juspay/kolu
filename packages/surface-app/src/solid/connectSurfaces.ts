@@ -809,11 +809,12 @@ export async function connectSurfaces(
   const root = resolveRoot(core);
   const firstPlan = planGeneration(root, surfaces, extraGroups, onClientError);
   // The one thing a roster derives that OUTLIVES its dial. A plan's `group` is
-  // consumed by `dialGeneration` and never read again — keeping the whole plan
-  // standing would retain an entire merged `RpcGroup` per generation for the
-  // connection's life, beside the one field that is live state. The probe target
-  // is that field: on a rootless wire it moves with the roster, which is why the
-  // watchdog reads it through a thunk rather than being handed a string once.
+  // consumed by the `createSurfaceSocket` call it dials and never read again —
+  // keeping the whole plan standing would retain an entire merged `RpcGroup` per
+  // generation for the connection's life, beside the one field that is live
+  // state. The probe target is that field: on a rootless wire it moves with the
+  // roster, which is why the watchdog reads it through a thunk rather than
+  // being handed a string once.
   //
   // The roster ITSELF is deliberately not kept either: after the handover the
   // roster this connection rides is exactly `bundle.clients`' key set, and a
@@ -823,13 +824,6 @@ export async function connectSurfaces(
   // not change between generations, and the refusal a missing `location` earns has
   // to land before the first dial (the law `defaultSurfaceUrl` states).
   const dialUrl = url ?? defaultSurfaceUrl("connectSurfaces");
-  const dialGeneration = (next: GenerationPlan): Promise<SurfaceSocket> =>
-    createSurfaceSocket({
-      ...socketOptions,
-      url: dialUrl,
-      group: next.group,
-      siblingKey: next.probeSibling,
-    });
   /** A dialled socket AS a generation. `socket.dispose`, never `link.dispose`:
    *  the seam's identity/retired observers outlive the link otherwise
    *  (`../connect` says so at the field). Spelled ONCE, so the first dial and
@@ -843,7 +837,12 @@ export async function connectSurfaces(
   // `../connectAllocations` for why a rejected connect that leaves an open
   // socket and a running heartbeat is the worst shape this seam could fail in.
   const allocations = trackConnectAllocations("connectSurfaces");
-  const first = await dialGeneration(firstPlan);
+  const first = await createSurfaceSocket({
+    ...socketOptions,
+    url: dialUrl,
+    group: firstPlan.group,
+    siblingKey: firstPlan.probeSibling,
+  });
   // THE STANDING WIRE. `followingWire` allocates nothing and cannot throw — it
   // reads a status and registers a listener — so taking ownership of the dialled
   // socket and tracking the result is one step with no window between them.
@@ -1161,7 +1160,12 @@ export async function connectSurfaces(
           // connection exactly as it was — nothing has been given up — so the
           // caller keeps a working wire on its current roster and hears the
           // failure.
-          generation = await dialGeneration(nextPlan);
+          generation = await createSurfaceSocket({
+            ...socketOptions,
+            url: dialUrl,
+            group: nextPlan.group,
+            siblingKey: nextPlan.probeSibling,
+          });
         } catch (dialError) {
           resumeLive();
           throw dialError;
