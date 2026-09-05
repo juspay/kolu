@@ -7538,6 +7538,18 @@
       "exampleRows": [],
       "executions": 1,
       "firstSeenSha": "d9fb92798bbf064993b4fea99b5c94acb64d127f"
+    },
+    {
+      "revisionId": "revision-024ebc7e5cf5c71778b2",
+      "scenarioKey": "scenario-ef480b4cc963533eff5b",
+      "feature": "features/worktree-agent.feature",
+      "scenario": "Mouse submission survives a live palette refresh",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "c686e7a76153b1a121d13663a284cc2853554e3a64e4f9265ad94241020abced",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "39d76c97988542ca7a43109d65135df71b063690"
     }
   ]
 }
