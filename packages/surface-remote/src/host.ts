@@ -5,7 +5,11 @@
 
 import { shellQuoteArg } from "@kolu/shell-quote";
 import { controlOptPairs } from "./controlMaster";
-import { DEFAULT_SSH_KEEPALIVE, type SshKeepalive } from "./keepalive";
+import {
+  assertRenderableKeepalive,
+  DEFAULT_SSH_KEEPALIVE,
+  type SshKeepalive,
+} from "./keepalive";
 
 export function isLocalHost(host: string): boolean {
   return host === "localhost" || host === "127.0.0.1" || host === "::1";
@@ -222,13 +226,26 @@ const SSH_FIXED_OPTS: readonly (readonly [string, string])[] = [
   ["ConnectTimeout", "10"],
 ];
 
-/** The dial's TUNABLE dead-peer policy, rendered. */
+/** The dial's TUNABLE dead-peer policy, rendered — and the ONE choke point
+ *  where a policy's numbers become ssh's behaviour, which is why the runtime
+ *  re-check lives here.
+ *
+ *  `SshKeepalive`'s brand is a compile-time fact, not a runtime one: object
+ *  spread copies the private symbol while replacing the numbers, so
+ *  `{ ...sshKeepalive(10, 3), intervalS: 0 }` typechecks and would render
+ *  `ServerAliveInterval=0` — dead-peer detection OFF, the eternal half-open
+ *  hang this option exists to bound. Every `ServerAlive*` this package emits is
+ *  emitted HERE, so one assertion at this line covers all nine seams that carry
+ *  a policy without any of them repeating a check. */
 const keepaliveOpts = (
   keepalive: SshKeepalive,
-): readonly (readonly [string, string])[] => [
-  ["ServerAliveInterval", String(keepalive.intervalS)],
-  ["ServerAliveCountMax", String(keepalive.countMax)],
-];
+): readonly (readonly [string, string])[] => {
+  assertRenderableKeepalive(keepalive);
+  return [
+    ["ServerAliveInterval", String(keepalive.intervalS)],
+    ["ServerAliveCountMax", String(keepalive.countMax)],
+  ];
+};
 
 /** Where a dial's ssh goes AND under what dead-peer policy — the pair every
  *  spawn site in this package needs to know. The `keepalive` is optional and
@@ -242,8 +259,9 @@ export interface SshDestination {
 
 /** Normalise the "host, or host + policy" argument the argv builders take: the
  *  string arm and an omitted `keepalive` both mean {@link DEFAULT_SSH_KEEPALIVE}.
- *  No validation left to do — a {@link SshKeepalive} can only have come from
- *  `sshKeepalive()`, which validated it at the literal. */
+ *  No validation HERE: a policy is checked once at the literal (`sshKeepalive()`)
+ *  and once where it is rendered (`keepaliveOpts`, which catches a spread-forged
+ *  one). A carrying seam like this repeats neither. */
 function targetOf(target: string | SshDestination): {
   host: string;
   keepalive: SshKeepalive;

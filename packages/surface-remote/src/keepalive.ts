@@ -43,9 +43,22 @@ const sshKeepaliveBrand = Symbol("SshKeepalive");
  *
  *  NOMINAL, like the `AgentDerivation`/`AgentBinaryCache` values it travels
  *  beside: the private symbol means only {@link sshKeepalive} can produce one,
- *  so "validated" is a fact the type carries rather than an assertion each of
- *  the nine seams that accept a policy repeats — and a new ssh spawn site
- *  cannot forget to check. */
+ *  so no bare object literal can reach one of the nine seams that accept a
+ *  policy, and there is exactly ONE construction site and ONE error message.
+ *
+ *  But a brand is a COMPILE-time fact, and it is NOT a runtime guarantee — do
+ *  not delete {@link assertRenderableKeepalive} on the theory that it is. Object
+ *  spread COPIES the symbol while replacing the numbers, so
+ *
+ *      const forged: SshKeepalive = { ...sshKeepalive(10, 3), intervalS: 0 };
+ *
+ *  typechecks with no cast, no `any`, and no access to the private symbol — and
+ *  renders `ServerAliveInterval=0`, which turns ssh's dead-peer detection OFF
+ *  entirely: the exact eternal hang on a half-open socket this whole option
+ *  exists to bound. Freezing the constructor's result does not help; the spread
+ *  copies out of the frozen object into a fresh one. So the brand buys the
+ *  single construction site, and ONE runtime check at the single render choke
+ *  point buys the invariant. */
 export interface SshKeepalive {
   /** `ServerAliveInterval` — seconds between keepalive probes on an idle
    *  connection. A positive integer. */
@@ -107,9 +120,22 @@ export function sshKeepalive(
   intervalS: number,
   countMax: number,
 ): SshKeepalive {
+  assertKeepalivePair({ intervalS, countMax });
+  return { intervalS, countMax, [sshKeepaliveBrand]: "ssh-keepalive" };
+}
+
+/** THE rule, in one place — the only thing that decides whether a pair of
+ *  numbers is a policy at all. Takes the raw pair (not a branded
+ *  {@link SshKeepalive}) so {@link sshKeepalive} can run it BEFORE it mints one
+ *  and {@link assertRenderableKeepalive} can run it again on one that claims to
+ *  already be minted, both raising the identical message. */
+function assertKeepalivePair(pair: {
+  readonly intervalS: number;
+  readonly countMax: number;
+}): void {
   for (const [label, value] of [
-    ["intervalS", intervalS],
-    ["countMax", countMax],
+    ["intervalS", pair.intervalS],
+    ["countMax", pair.countMax],
   ] as const) {
     if (!Number.isInteger(value) || value <= 0) {
       throw new Error(
@@ -119,16 +145,30 @@ export function sshKeepalive(
       );
     }
   }
-  const toleranceS = keepaliveToleranceS({ intervalS, countMax });
+  const toleranceS = keepaliveToleranceS(pair);
   if (toleranceS > MAX_SSH_KEEPALIVE_TOLERANCE_S) {
     throw new Error(
       `ssh keepalive: intervalS × countMax must be ≤ ${MAX_SSH_KEEPALIVE_TOLERANCE_S}s — ` +
-        `got ${intervalS} × ${countMax} = ${toleranceS}s. ` +
+        `got ${pair.intervalS} × ${pair.countMax} = ${toleranceS}s. ` +
         "A tolerance that long is not dead-peer detection at all; the policy is " +
         "rejected rather than clamped to one the caller never asked for.",
     );
   }
-  return { intervalS, countMax, [sshKeepaliveBrand]: "ssh-keepalive" };
+}
+
+/** The ONE runtime re-check, at the ONE place a policy becomes ssh options —
+ *  `host.ts`'s `keepaliveOpts`, the function every `ServerAlive*` in this
+ *  package is rendered by. Throws the same message {@link sshKeepalive} throws.
+ *
+ *  Here and NOWHERE else. Not on each of the nine seams that merely carry a
+ *  policy (that is the scattering the brand exists to abolish), and not on the
+ *  constructor's word alone (that is the forgery documented at
+ *  {@link SshKeepalive}: `{ ...sshKeepalive(10, 3), intervalS: 0 }` typechecks,
+ *  keeps the symbol, and would render `ServerAliveInterval=0`). One choke point
+ *  is enough precisely BECAUSE a policy cannot influence an ssh's behaviour
+ *  without passing through it. */
+export function assertRenderableKeepalive(keepalive: SshKeepalive): void {
+  assertKeepalivePair(keepalive);
 }
 
 /** The interactive default: probe every 10s, give up after 3 misses ≈ **30s**
