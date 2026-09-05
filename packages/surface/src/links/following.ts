@@ -58,6 +58,7 @@
  */
 
 import type { WireStatus, WireTransport } from "../link";
+import { reportLeakedTeardown } from "../teardown";
 import { supersession } from "./supersession";
 
 /** One generation of a {@link FollowingWire}: the `{ dispatch, wire }` pairing a
@@ -136,14 +137,14 @@ export function followingWire<T extends WireTransport>(
   let detachStatus = held.transport.wire.onStatus(publish);
 
   // THE FENCE — the shared one (`./supersession`), which `websocketLink` also
-  // stands on. What this wire contributes is only the WORDS: an operator reading
-  // a console must be able to tell a generation change from a re-dial.
+  // stands on. What this wire contributes is only three NOUNS: an operator
+  // reading a console must be able to tell a generation change from a re-dial,
+  // and that is the whole of the difference. The sentence they land in is the
+  // law's, written once over there.
   const fence = supersession({
-    message: (bound, now) =>
-      `the wire adopted a new generation beneath this call: it was bound to generation ${bound}, the wire is now at generation ${now}. ` +
-      "Effect RPC registers an entry exactly once and never re-sends it onto another link, and an answer can only travel the " +
-      "link its request went out on — so this call could only park forever. Failing it is the honest signal: the " +
-      "per-subscription retry fence re-subscribes on the new generation.",
+    moved: "the wire adopted a new generation",
+    mark: "generation",
+    carrier: "link",
     cause: (bound, now) =>
       `followingWire: generation ${now} superseded generation ${bound}`,
   });
@@ -203,7 +204,7 @@ export function followingWire<T extends WireTransport>(
         try {
           await superseded.dispose();
         } catch (teardownError) {
-          console.error(
+          reportLeakedTeardown(
             "followingWire: releasing the superseded generation FAILED — that link " +
               "is leaked; the wire is live on the generation it adopted",
             teardownError,

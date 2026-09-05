@@ -61,7 +61,10 @@ import {
   type Surface,
   type SurfaceSpec,
 } from "@kolu/surface/define";
-import { followingWire } from "@kolu/surface/links/following";
+import {
+  followingWire,
+  type WireGeneration,
+} from "@kolu/surface/links/following";
 import type { WebsocketLink } from "@kolu/surface/links/websocket";
 import {
   createLiveSignal,
@@ -86,7 +89,10 @@ import {
   type SurfaceSocketOptions,
 } from "../connect";
 import { defaultSurfaceUrl } from "../defaultSurfaceUrl";
-import { trackConnectAllocations } from "../connectAllocations";
+import {
+  reportLeakedTeardown,
+  trackConnectAllocations,
+} from "../connectAllocations";
 
 /** The ROOT SLOT of a rooted bundle: the unprefixed root surface, plus the WORD it
  *  answers to in the health fold and the readout.
@@ -435,7 +441,13 @@ export interface SurfacesConnection<
    *     retry fence already retries on (`@kolu/surface/links/following`), so the
    *     next frame each subscription sees is its fresh snapshot from the new
    *     generation. No app code re-subscribes, and there is no second recovery
-   *     path beside the fence.
+   *     path beside the fence — and NOT INSTANTANEOUSLY, which is the price of
+   *     having one path rather than two. The fence's schedule is
+   *     `Schedule.spaced(STREAM_RETRY_DELAY_MS)` (one second, `@kolu/surface`'s
+   *     `client.ts`), a policy sized for a FLAPPING SOCKET that now also carries
+   *     this deliberate, known-good move: every surviving sibling's subscription
+   *     reads `pending` across a roster move and its first fresh frame lands
+   *     about a second later. Size a roster switch accordingly.
    *
    *  ## Idempotence
    *
@@ -725,15 +737,18 @@ export async function connectSurfaces(
   // ONE decision, taken once: the root, checked, or `undefined`. Every line below
   // asks THIS binding — never the option, and never the question a second time.
   const root = resolveRoot(core);
-  // What the CURRENT roster derives — the wire's group and the reserved probes'
-  // target. REASSIGNED by `redial`, and read below through this binding rather
-  // than through `opts`, which is what makes "the watchdog probes a member the
-  // CURRENT generation serves" true rather than true-on-the-first-dial.
+  const firstPlan = planGeneration(root, surfaces, extraGroups);
+  // The one thing a roster derives that OUTLIVES its dial. A plan's `group` is
+  // consumed by `dialGeneration` and never read again — keeping the whole plan
+  // standing would retain an entire merged `RpcGroup` per generation for the
+  // connection's life, beside the one field that is live state. The probe target
+  // is that field: on a rootless wire it moves with the roster, which is why the
+  // watchdog reads it through a thunk rather than being handed a string once.
   //
-  // The roster ITSELF is deliberately not kept beside it: after the handover the
+  // The roster ITSELF is deliberately not kept either: after the handover the
   // roster this connection rides is exactly `bundle.clients`' key set, and a
   // second copy would be a place two writers keep in step by hand for no reader.
-  let plan = planGeneration(root, surfaces, extraGroups);
+  let probeTarget = firstPlan.probeSibling;
   // Resolved ONCE, before anything is allocated — a browser app's own origin does
   // not change between generations, and the refusal a missing `location` earns has
   // to land before the first dial (the law `defaultSurfaceUrl` states).
@@ -745,12 +760,20 @@ export async function connectSurfaces(
       group: next.group,
       siblingKey: next.probeSibling,
     });
+  /** A dialled socket AS a generation. `socket.dispose`, never `link.dispose`:
+   *  the seam's identity/retired observers outlive the link otherwise
+   *  (`../connect` says so at the field). Spelled ONCE, so the first dial and
+   *  every later one cannot pick different halves of the same pairing. */
+  const generationOf = (s: SurfaceSocket): WireGeneration<WebsocketLink> => ({
+    transport: s.link,
+    dispose: s.dispose,
+  });
   // Past this await the wire is LIVE, and every construction below can throw over
   // it — so each allocation is tracked and given back in reverse if one does. See
   // `../connectAllocations` for why a rejected connect that leaves an open
   // socket and a running heartbeat is the worst shape this seam could fail in.
   const allocations = trackConnectAllocations("connectSurfaces");
-  const first = await dialGeneration(plan);
+  const first = await dialGeneration(firstPlan);
   // THE STANDING WIRE. `followingWire` allocates nothing and cannot throw — it
   // reads a status and registers a listener — so taking ownership of the dialled
   // socket and tracking the result is one step with no window between them.
@@ -762,10 +785,7 @@ export async function connectSurfaces(
   // still owns exactly one wire-shaped resource.
   const following = allocations.track(
     "wire",
-    followingWire<WebsocketLink>({
-      transport: first.link,
-      dispose: first.dispose,
-    }),
+    followingWire<WebsocketLink>(generationOf(first)),
   );
   try {
     // `createLiveSignal` takes the WHOLE `{ dispatch, wire }` — here the STANDING
@@ -784,7 +804,7 @@ export async function connectSurfaces(
     const transport = allocations.track(
       "watchdog",
       createLiveSignal(following, {
-        siblingKey: () => plan.probeSibling,
+        siblingKey: () => probeTarget,
         ...hb,
       }),
     );
@@ -794,7 +814,12 @@ export async function connectSurfaces(
     // children's lifetimes across every roster this connection takes; a per-sibling
     // entry in this list could only describe the roster the connection was born
     // with.
-    const bundle = allocations.track(
+    //
+    // A `let` because `reroster` hands the bundle back RETYPED to the roster it
+    // now carries, and re-binding through the result is what the framework tells
+    // every other consumer to do. The object never moves — the tracker still
+    // holds the same resource — only the type comes across.
+    let bundle = allocations.track(
       "clients",
       surfaceClients(transport, surfaces, onClientError),
     );
@@ -885,6 +910,63 @@ export async function connectSurfaces(
     // state another path can move while this one is suspended.
     type ConnectionState = "live" | "redialing" | "gone";
     const [stateNow, setState] = createSignal<ConnectionState>("live");
+    /** GIVE THIS CONNECTION UP — the price of building arrivals AFTER the adopt,
+     *  paid out loud rather than hidden.
+     *
+     *  The handover onto a new roster failed partway: the wire was adopted or the
+     *  clients were built, but not both. The wire has already moved and cannot
+     *  move back — the generation this connection dialled FROM is being released
+     *  as this runs — so a connection whose wire serves one roster while its
+     *  clients were built for another cannot be made honest again. It goes,
+     *  completely, rather than sitting wedged mid-transition with every later
+     *  `redial` refused.
+     *
+     *  Named, and lifted out of `redial`, because it is the one step there with a
+     *  policy of its own: a nested teardown whose failure is logged rather than
+     *  raised (the caller needs the error that CAUSED the teardown), and a
+     *  refusal composed over it. Returns `never` — the only way out is the throw.
+     *
+     *  (`buildSurfaceClient` throws by design for a sibling whose spec declares a
+     *  `client.onError` policy with no interpreter — a programming error, which
+     *  is exactly the class that must crash rather than degrade.) */
+    const abandon = async (
+      cause: unknown,
+      superseded: Promise<void> | undefined,
+      generation: SurfaceSocket,
+    ): Promise<never> => {
+      setState("gone");
+      if (superseded !== undefined) {
+        await superseded;
+      } else if (following.current() !== generation.link) {
+        // `adopt` threw, and the wire is still on the generation it had — so the
+        // socket just dialled is the one NOBODY holds, and this call is the only
+        // thing that can close it. The release below closes the wire, and the
+        // wire closes whichever generation it holds, so asking the wire is what
+        // keeps this from being a second release of the same socket.
+        await generation.dispose();
+      }
+      try {
+        await allocations.release();
+      } catch (releaseError) {
+        // Logged, not raised: the caller needs the error that CAUSED the
+        // teardown, not the teardown's own. Same policy, same name, as the
+        // module that owns the log-vs-raise decision for this package.
+        reportLeakedTeardown(
+          "connectSurfaces: releasing this connection FAILED while giving it up " +
+            "over a roster move its clients could not follow — those resources are " +
+            "leaked",
+          releaseError,
+        );
+      }
+      throw new Error(
+        "connectSurfaces: the handover onto the new roster FAILED — its wire was " +
+          "adopted or its clients were built, but not both, so this connection has " +
+          "been RELEASED: it would have served one roster while its clients were " +
+          "built for another, and nothing can make that honest. Dial a fresh " +
+          "connection over the roster you want.",
+        { cause },
+      );
+    };
     // The connection is named so `redial` can hand back the very object it moved:
     // an in-place roster change has no replacement to return, and returning `this`
     // is what lets the caller re-bind the TYPE (`conn = await conn.redial(next)`)
@@ -999,7 +1081,7 @@ export async function connectSurfaces(
         // which the wire, the clients and the fold disagree about which roster this
         // connection is on — which is what makes "a `dispose()` may land anywhere"
         // a statement about two well-defined states rather than about a schedule.
-        plan = nextPlan;
+        probeTarget = nextPlan.probeSibling;
         // The SUPERSEDED generation's release, once the wire has taken the new
         // one. `undefined` means the wire never took it — `adopt` REFUSES
         // synchronously, so a refusal lands before a single line below it runs.
@@ -1010,13 +1092,11 @@ export async function connectSurfaces(
           // every standing subscription re-opens ITSELF against the new one. What
           // it returns is the SUPERSEDED generation's release; the swap itself has
           // already happened by the time this assignment does.
-          superseded = following.adopt({
-            transport: generation.link,
-            dispose: generation.dispose,
-          });
+          superseded = following.adopt(generationOf(generation));
           // Departed siblings are retracted (their clients refuse in words from
           // here on), arrivals are built, and `clients` — the object the app holds
-          // — carries both. The returned bundle IS this one; only the type moves.
+          // — carries both. The bundle handed back IS this one; only the type
+          // moves, which is why the binding is re-bound rather than the object.
           //
           // It must run AFTER the adopt, and that is not a preference: an arriving
           // sibling's client can open a standing subscription AT CONSTRUCTION (a
@@ -1025,48 +1105,9 @@ export async function connectSurfaces(
           // built a moment earlier it would address an unknown tag on the wire it
           // is replacing, and that answer is not the transport failure the fence
           // retries on. The arrivals therefore go onto the wire that serves them.
-          bundle.reroster(next);
+          bundle = bundle.reroster(next);
         } catch (handoverError) {
-          // AND THAT ORDER HAS A PRICE, paid here rather than hidden. The wire has
-          // already moved and cannot move back — the generation this connection
-          // dialled FROM is being released as this runs — so a connection whose
-          // wire serves one roster while its clients were built for another cannot
-          // be made honest again. It is given up, loudly and completely, rather
-          // than left wedged mid-transition with every later `redial` refused.
-          // (`buildSurfaceClient` throws by design for a sibling whose spec
-          // declares a `client.onError` policy with no interpreter — a programming
-          // error, which is exactly the class that must crash rather than degrade.)
-          setState("gone");
-          if (superseded !== undefined) {
-            await superseded;
-          } else if (following.current() !== generation.link) {
-            // `adopt` threw, and the wire is still on the generation it had — so
-            // the socket just dialled is the one NOBODY holds, and this call is
-            // the only thing that can close it. The release below closes the
-            // wire, and the wire closes whichever generation it holds, so asking
-            // the wire is what keeps this from being a second release of the
-            // same socket.
-            await generation.dispose();
-          }
-          try {
-            await allocations.release();
-          } catch (releaseError) {
-            // Logged, not raised: the caller needs the error that CAUSED the
-            // teardown, not the teardown's own.
-            console.error(
-              "connectSurfaces: releasing this connection FAILED while giving it up " +
-                "over a roster move its clients could not follow",
-              releaseError,
-            );
-          }
-          throw new Error(
-            "connectSurfaces: the handover onto the new roster FAILED — its wire was " +
-              "adopted or its clients were built, but not both, so this connection has " +
-              "been RELEASED: it would have served one roster while its clients were " +
-              "built for another, and nothing can make that honest. Dial a fresh " +
-              "connection over the roster you want.",
-            { cause: handoverError },
-          );
+          return abandon(handoverError, superseded, generation);
         }
         setState("live");
         // Awaited LAST: the connection is already consistent and live on the new

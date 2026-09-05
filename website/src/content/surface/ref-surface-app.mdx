@@ -570,7 +570,12 @@ conn.clients.kolu.cells.terminals.use();   // the arrival is on the map you hold
   whose supersession fails what was in flight with the transport error the
   per-subscription retry fence already retries on — so the next frame each
   subscription sees is its fresh snapshot from the new generation. No app code
-  re-subscribes, and there is no second recovery path beside the fence.
+  re-subscribes, and there is no second recovery path beside the fence. **Not
+  instantaneously**, and that is the price of one path rather than two: the fence
+  waits one retry interval (`STREAM_RETRY_DELAY_MS`, 1 s — a schedule sized for a
+  *flapping socket*, now also carrying this deliberate move), so every standing
+  subscription reads `pending` across a roster move and its first fresh frame
+  lands about a second later.
 
 `redial` re-uses **every option this connection was dialled with** — the `url`
 (thunk included), the heartbeat tuning, `extraGroups`, `onClientError`, the

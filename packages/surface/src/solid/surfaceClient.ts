@@ -53,6 +53,7 @@ import {
 } from "../define";
 import { isHalfOpenDispatch, type SurfaceDispatch } from "../link";
 import { runStreamScoped } from "../runStream";
+import { reportLeakedTeardown } from "../teardown";
 import type { ReactiveSubscriptionOptions } from "./createReactiveSubscription";
 import {
   createSubscription,
@@ -1647,25 +1648,25 @@ function scopeSiblingDispatch(
   key: string,
 ): { dispatch: SurfaceDispatch; retract: (why: Retirement) => void } {
   let retired: Retirement | undefined;
-  const refusal = (): Error =>
-    new Error(
-      retired === undefined
-        ? `surfaceClients: the "${key}" client refused a call while it was still live — ` +
-            "this is a framework bug (the retraction reason was never recorded)."
-        : RETIREMENTS[retired].refusal(key),
-    );
+  // The reason travels as an ARGUMENT, from where the two call sites have
+  // already narrowed it. Re-read off the closure it would have to answer for a
+  // `retired === undefined` case neither site can produce — a conditional
+  // carrying a decision the structure already made, and a "this is a framework
+  // bug" sentence describing an unrepresentable state.
+  const refusal = (why: Retirement): Error =>
+    new Error(RETIREMENTS[why].refusal(key));
   return {
     dispatch: {
       unary: (tag, payload) =>
         Effect.suspend(() =>
           retired !== undefined
-            ? Effect.fail(refusal())
+            ? Effect.fail(refusal(retired))
             : dispatch.unary(scopeSiblingTag(tag, key), payload),
         ),
       stream: (tag, payload) =>
         Stream.suspend(() =>
           retired !== undefined
-            ? Stream.fail(refusal())
+            ? Stream.fail(refusal(retired))
             : dispatch.stream(scopeSiblingTag(tag, key), payload),
         ),
     },
@@ -1761,7 +1762,11 @@ export interface SurfaceClientsBundle<
    *  CURRENT roster, rather than half-moved.
    *
    *  Returns this same bundle, retyped — the object does not move, only the type
-   *  the caller reads it through. */
+   *  the caller reads it through. Re-bind through it (`bundle =
+   *  bundle.reroster(next)`), because {@link SurfaceClientsBundle.clients} and
+   *  {@link SurfaceClientsBundle.roster} are typed on the roster: a binding still
+   *  typed on the OLD one keeps claiming departed keys exist and cannot name an
+   *  arrival. */
   reroster<
     // biome-ignore lint/suspicious/noExplicitAny: heterogeneous map of surfaces, as on the constructor.
     const E2 extends Record<string, Surface<any>>,
@@ -1815,8 +1820,15 @@ export function surfaceClients<
    *  slot's retraction and the surface it was built from; `clients` below is the
    *  app-facing projection of it. */
   const slots = new Map<string, SiblingSlot>();
-  /** The map the app holds — the SAME object for the bundle's whole life. */
-  const clients: Record<string, SurfaceClient<SurfaceSpec>> = {};
+  /** The map the app holds — the SAME object for the bundle's whole life.
+   *
+   *  NULL-PROTOTYPE: the key set is a RUNTIME roster now, arriving through
+   *  {@link SurfaceClientsBundle.reroster}, so `clients.constructor` must answer
+   *  `undefined` rather than `Object`. (The sibling seam's `assertRootWordFree`
+   *  reaches for `Object.hasOwn` for the same reason.) */
+  const clients: Record<string, SurfaceClient<SurfaceSpec>> = Object.create(
+    null,
+  );
   /** THE ROSTER MOVED — the notification, kept beside the mutation that causes it.
    *
    *  `clients` is a plain object written by `delete` and assignment, so Solid
@@ -1861,9 +1873,25 @@ export function surfaceClients<
   };
 
   /** LOG a teardown failure and continue — the exit for the two callers that have
-   *  a value to produce and no caller left to raise to. */
+   *  a value to produce and no caller left to raise to. The policy has one name
+   *  in this package ({@link reportLeakedTeardown}, `../teardown`); this is only
+   *  the arm that unwraps `retire`'s optional. */
   const logTeardown = (failure: Error | undefined): void => {
-    if (failure !== undefined) console.error(failure.message, failure.cause);
+    if (failure !== undefined)
+      reportLeakedTeardown(failure.message, failure.cause);
+  };
+
+  /** PUT a slot on the roster — BOTH halves, so `slots` and the app-facing
+   *  `clients` can never disagree about who is on this bundle. Written at three
+   *  sites by hand, that agreement was memory rather than structure. */
+  const admit = (key: string, slot: SiblingSlot): void => {
+    slots.set(key, slot);
+    clients[key] = slot.client;
+  };
+  /** TAKE a slot off the roster — both halves, same reason. */
+  const drop = (key: string): void => {
+    slots.delete(key);
+    delete clients[key];
   };
 
   /** Build the slots for `arriving`, ALL-OR-NOTHING, and it has to be built rather
@@ -1917,8 +1945,7 @@ export function surfaceClients<
   for (const [key, slot] of buildSlots(
     Object.entries(entries) as Array<readonly [string, Surface<SurfaceSpec>]>,
   )) {
-    slots.set(key, slot);
-    clients[key] = slot.client;
+    admit(key, slot);
   }
 
   const bundle: SurfaceClientsBundle<Record<string, Surface<SurfaceSpec>>> = {
@@ -1955,17 +1982,19 @@ export function surfaceClients<
       // roster — nothing retracted, nothing half-moved.
       const built = buildSlots(arriving);
       for (const [key, slot] of slots) {
-        if (wanted[key] === slot.surface) continue;
+        // `Object.hasOwn`, not a bare read: `wanted` is a caller's object, and a
+        // key like `constructor` would otherwise answer through
+        // `Object.prototype` and read as "still on the roster".
+        if (Object.hasOwn(wanted, key) && wanted[key] === slot.surface)
+          continue;
         // LOGGED, not raised: the value this call exists to produce is the bundle
         // on its new roster, and refusing to move it because a departing
         // sibling's teardown threw would leave the caller with neither.
         logTeardown(retire(key, slot, "departed"));
-        slots.delete(key);
-        delete clients[key];
+        drop(key);
       }
       for (const [key, slot] of built) {
-        slots.set(key, slot);
-        clients[key] = slot.client;
+        admit(key, slot);
       }
       // ONE notification, at the end of the whole move — every arrival is on the
       // map and every departure is off it, so a memo woken by this reads a roster
@@ -1985,9 +2014,8 @@ export function surfaceClients<
       for (const [key, slot] of [...slots].reverse()) {
         const failure = retire(key, slot, "disposed");
         if (failure !== undefined) failures.push(failure);
-        delete clients[key];
+        drop(key);
       }
-      slots.clear();
       // The roster is now EMPTY, and that is a membership change like any other:
       // a fold left holding the last roster over a disposed bundle would keep
       // naming subscriptions nothing is running.

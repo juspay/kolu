@@ -180,13 +180,12 @@ export async function websocketLink(
   // OPEN EDGES off the same funnel every consumer reads, so "the wire completed
   // a re-dial cycle" and "the status said so" can never disagree. It is the
   // shared supersession fence's MARK (`./supersession`, which `followingWire`
-  // stands on too); the words below are this leg's own.
+  // stands on too); the three NOUNS below are all this leg supplies — the
+  // sentence they go into is the law's, written once over there.
   const fence = supersession({
-    message: (bound, now) =>
-      `the wire re-dialled beneath this call: it was bound to socket epoch ${bound}, the wire is now at epoch ${now}. ` +
-      "Effect RPC registers an entry exactly once and never re-sends it across a re-dial, and an answer can only " +
-      "travel the socket its request went out on — so this call could only park forever. Failing it is the honest " +
-      "signal: the per-subscription retry fence re-subscribes on the new socket.",
+    moved: "the wire re-dialled",
+    mark: "socket epoch",
+    carrier: "socket",
     cause: (bound, now) =>
       `websocketLink: re-dial cycle superseded epoch ${bound} (wire now at ${now})`,
   });

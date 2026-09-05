@@ -252,7 +252,7 @@ describe("followingWire — one wire over a succession of links", () => {
     const orphan = generation("orphan");
     let ranAfter = false;
     expect(() => {
-      wire.adopt(orphan);
+      void wire.adopt(orphan);
       // Unreachable: the line a caller writes after `adopt` is exactly what must
       // not run when the wire refused.
       ranAfter = true;

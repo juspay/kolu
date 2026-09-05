@@ -731,7 +731,7 @@ It returns a **bundle**:
 | `roster()` | that **same object**, read reactively — the accessor reads the bundle's own membership signal first, so a memo or a `<For>` that goes through it re-runs when a sibling arrives or leaves |
 | `health()` | the bundle's combined fact — `surfaceClientsHealth` over its own clients, each sub's name already prefixed by its sibling key, and reactive about the roster as well as the subs |
 | `moves(next)` | would `reroster(next)` change anything? `false` when every key is present with the same `Surface` value. This is the bundle's own comparison — the one `reroster` makes |
-| `reroster(next)` | move onto a new roster in place; returns this same bundle, retyped |
+| `reroster(next)` | move onto a new roster in place; returns this same bundle, **retyped** to the roster it now carries. Re-bind through it — `bundle = bundle.reroster(next)` — since `clients` and `roster()` are typed on the roster, so a binding still typed on the old one keeps claiming departed keys exist |
 | `dispose()` | end every client on the roster |
 
 `clients` is a plain object mutated in place, which is what keeps its identity
@@ -1688,9 +1688,9 @@ downstream watchdog reaches into the other for the clock; both import it from he
 
 `createLiveSignal(transport, opts)` (`@kolu/surface/solid`) is the sole minter of
 the branded `LiveSignalHandle` — the watchdog-backed `live` paired by construction
-with the `dispatch` it probes. Its one option beyond the
-its heartbeat tuning is **`siblingKey?: () => string | undefined`**:
-on a composed wire, which sibling's scoped `system/live` the probe addresses.
+with the `dispatch` it probes. Its one option beyond the heartbeat tuning is
+**`siblingKey?: () => string | undefined`**: on a composed wire, which sibling's
+scoped `system/live` the probe addresses.
 
 It is a **thunk**, re-read on every probe, and that is not decoration. A watchdog
 outlives the wire underneath it when that wire
@@ -1698,10 +1698,11 @@ outlives the wire underneath it when that wire
 siblings a generation serves is a fact about *that* generation, so a key resolved
 once at construction would keep probing a member the current generation no longer
 carries — and the "unknown tag" answer reads as a dead wire, which is a watchdog
-reporting the opposite of the truth. Resolve to `undefined` (or omit the option)
-for the bare `surface/system/live` — a single-surface wire, or a rooted bundle,
-where the root is on every serve this wire can reach. A wire whose roster cannot
-move passes a constant thunk and pays nothing.
+reporting the opposite of the truth. Resolve to `undefined` **or** omit the
+option — one door, two spellings, and they mean the same thing: the bare
+`surface/system/live`, which is a single-surface wire, or a rooted bundle where
+the root is on every serve this wire can reach. A wire whose roster cannot move
+passes a constant thunk and pays nothing.
 
 `client.health()` returns a **fact**, not a verdict:
 `{ live: boolean, subs: [{ name, pending, error }] }`. `live` is the full

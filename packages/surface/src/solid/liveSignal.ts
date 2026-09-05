@@ -113,8 +113,15 @@ export type SurfaceConnectionStatus =
 export interface CreateLiveSignalOptions extends HeartbeatTuning {
   /** For a MULTI-surface combined dispatch, the sibling key whose
    *  framework-reserved `system/live` member the watchdog probes — every surface
-   *  answers it, so any sibling works; pass the first. Omit for a single-surface
-   *  dispatch, where the reserved member sits at the bare `surface/system/live`.
+   *  answers it, so any sibling works; pass the first.
+   *
+   *  ONE DOOR, two spellings, and they mean exactly the same thing: a wire with
+   *  no sibling-scoped probe target may OMIT this option or pass a thunk that
+   *  answers `undefined`. Both are the bare `surface/system/live` — the
+   *  single-surface wire, and the rooted bundle whose root is on every serve. The
+   *  option stays optional because requiring it would cost every
+   *  `connectSurface`-shaped caller a `() => undefined` for nothing; it is said
+   *  here so a reader does not go looking for a difference there isn't.
    *
    *  A THUNK, re-read on every probe, and that is not a nicety. A watchdog outlives
    *  the wire underneath it when that wire FOLLOWS a roster

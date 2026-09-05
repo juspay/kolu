@@ -53,19 +53,28 @@ import {
 } from "effect/unstable/rpc/RpcClientError";
 import { brandHalfOpenDispatch, type SurfaceDispatch } from "../link";
 
-/** What a superseded call's failure SAYS — the one thing that genuinely differs
- *  between the two links, because a re-dial and a generation change are
- *  different events and an operator reading a console must be able to tell them
- *  apart.
+/** The three NOUNS a superseded call's failure needs — because a re-dial and a
+ *  generation change are different events and an operator reading a console must
+ *  be able to tell them apart. Everything ELSE in that sentence is the law, and
+ *  the law is this module's.
  *
- *  Both are functions of the two marks, because the useful half of such a line is
- *  which mark the call was bound to and where the wire has got to. */
+ *  Taken as nouns rather than as a whole message on purpose. Typed as "give me
+ *  the message", the four-sentence explanation of WHY a superseded call must fail
+ *  got copied verbatim into both links — which is the very duplication this
+ *  module exists to end, surviving the extraction one level up. A later fix to
+ *  that explanation would have landed at one site and been forgotten at the
+ *  other. */
 export interface SupersessionWording {
-  /** The `RpcClientDefect` message: what happened, why the call could only park,
-   *  and what happens next. It is what a consumer sees in a console when an
-   *  UNFENCED call finally fails instead of hanging. */
-  readonly message: (bound: number, now: number) => string;
-  /** The one-line `cause` beneath it, naming the link that moved. */
+  /** What MOVED, as a clause: "the wire re-dialled" / "the wire adopted a new
+   *  generation". */
+  readonly moved: string;
+  /** What the mark is CALLED, singular: "socket epoch" / "generation". */
+  readonly mark: string;
+  /** What carries an answer: "socket" / "link". */
+  readonly carrier: string;
+  /** The one-line `cause` beneath the message, naming the link that moved. A
+   *  function of the two marks, because the useful half of such a line is which
+   *  mark the call was bound to and where the wire has got to. */
   readonly cause: (bound: number, now: number) => string;
 }
 
@@ -101,6 +110,16 @@ export function supersession(wording: SupersessionWording): Supersession {
   let mark = 0;
   const watchers = new Set<(mark: number) => void>();
 
+  /** THE SENTENCE, written once. It is what a consumer sees in a console when an
+   *  UNFENCED call finally fails instead of hanging — what happened, why the call
+   *  could only park, and what happens next — and every word of it but the three
+   *  nouns is the law this module states. */
+  const message = (bound: number, now: number): string =>
+    `${wording.moved} beneath this call: it was bound to ${wording.mark} ${bound}, the wire is now at ${wording.mark} ${now}. ` +
+    `Effect RPC registers an entry exactly once and never re-sends it onto another ${wording.carrier}, and an answer can ` +
+    `only travel the ${wording.carrier} its request went out on — so this call could only park forever. Failing it is the ` +
+    `honest signal: the per-subscription retry fence re-subscribes on the new ${wording.carrier}.`;
+
   /** `RpcClientError` is not decoration: the per-subscription fence matches
    *  transport failures STRUCTURALLY on `_tag === "RpcClientError"`
    *  (`../client.ts`'s `isTransportError`), and this IS a transport failure — the
@@ -108,7 +127,7 @@ export function supersession(wording: SupersessionWording): Supersession {
   const superseded = (bound: number, now: number): RpcClientError =>
     new RpcClientErrorClass({
       reason: new RpcClientDefect({
-        message: wording.message(bound, now),
+        message: message(bound, now),
         cause: new Error(wording.cause(bound, now)),
       }),
     });
