@@ -523,6 +523,15 @@ type ServeSurfaceAppShell<
    *  `headers`, and `H` infers from them, so a read that does not match one does
    *  not compile.
    *
+   *  That guarantee is only as narrow as the list's ELEMENT type, on EITHER arm:
+   *  a `ReadonlyArray<string>` — however it is supplied, a widely-typed variable
+   *  as much as a thunk returning one — infers `H = string`, and then every read
+   *  of `connection.headers` compiles and answers `string | undefined` forever.
+   *  An app that wants the compile-time guarantee types its list as a LITERAL
+   *  UNION: a literal array written here, an `as const`, or a thunk with a
+   *  narrowed return annotation
+   *  (`(): ReadonlyArray<"Tailscale-User-Login"> => identity().headers`).
+   *
    *  An ARRAY is this app's own composition root, read once: a name outside
    *  HTTP's grammar, or one wire header named twice, takes the bind down. A
    *  THUNK is a LIVE list — an app whose identity part offers a header only

@@ -171,12 +171,17 @@ that already had it — the same confluence claim
 set.
 
 ```ts
-upgradeHeaders: () => identity().headers, // re-read at each accept
+// re-read at each accept; annotated so `H` stays a literal union
+upgradeHeaders: (): ReadonlyArray<"Tailscale-User-Login"> => identity().headers,
 ```
 
 The two arms are told apart by `typeof` — an array is never callable, so unlike
 the served generation there is nothing here to mistake for a thunk, and no
-wrapper is needed. `H` infers from either.
+wrapper is needed. `H` infers from either — and on either arm it is only as
+narrow as the list's **element type**, so a `ReadonlyArray<string>` (a widely
+typed variable as much as a thunk returning one) widens `H` to `string` and
+every header read compiles again. A literal array, an `as const`, or the return
+annotation above is what keeps the guarantee.
 
 <Aside type="tip" title="A bad LIVE list refuses itself, never the socket">
   A name a fixed array cannot carry takes the bind down, because that array **is**

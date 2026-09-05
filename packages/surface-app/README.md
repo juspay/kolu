@@ -40,10 +40,12 @@ is the upgrade, so a header a proxy stamps there is the only per-connection clai
 about who is calling that the wire can carry. It **reports** that header, it does
 not authenticate it: naming one is sound only if the proxy in front *owns* it —
 strips or overwrites any copy a client sent. Pass a **thunk**
-(`upgradeHeaders: () => identity().headers`) when the list itself moves while the
-listener is up, and the next accept reads it. Why it is an allowlist and not the
-request, what an absent name means, what a misspelling costs, and why a bad live
-list refuses *itself* rather than the socket:
+(`upgradeHeaders: (): ReadonlyArray<"Tailscale-User-Login"> => identity().headers`)
+when the list itself moves while the listener is up, and the next accept reads
+it — annotated as a literal union, because `H` is only as narrow as the list's
+element type and a plain `string[]` makes every header read compile. Why it is
+an allowlist and not the request, what an absent name means, what a misspelling
+costs, and why a bad live list refuses *itself* rather than the socket:
 [Reference](https://kolu.dev/surface/ref-surface-app).
 
 Connecting is one call too:
