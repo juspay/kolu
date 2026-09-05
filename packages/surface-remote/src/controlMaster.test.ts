@@ -3,10 +3,11 @@
  * the path is the kolu-private `%C` socket (never `~/.ssh`) KEYED BY the dial's
  * keepalive policy, the control dir is created `0700` once (the effect is
  * policy-INDEPENDENT, so it is memoized in one slot while the path stays a pure
- * per-policy computation), and any unsafe setup (a non-private dir, a whitespace
- * path) degrades to NO control opts rather than corrupting the ssh options. All
- * FS work is confined to a fresh `/tmp` subdir per test; no ssh / nix is
- * spawned.
+ * per-policy computation), and any setup we cannot name a `ControlPath` for — a
+ * non-private dir, a whitespace path, a dir carrying ssh expansion syntax, or an
+ * expanded path too long for `sun_path` — degrades to an explicit refusal to
+ * multiplex rather than corrupting the ssh options. All FS work is confined to a
+ * fresh `/tmp` subdir per test; no ssh / nix is spawned.
  */
 import {
   chmodSync,
@@ -182,6 +183,45 @@ describe("controlOptPairs ensure-dir", () => {
       ["ControlMaster", "no"],
       ["ControlPath", "none"],
     ]);
+  });
+
+  // ssh expands the WHOLE ControlPath, and the directory half of ours comes
+  // from $XDG_RUNTIME_DIR — an environment string. Codex ran each of these
+  // against real ssh: the extra `%C` dies with `ControlPath too long (>= 108
+  // bytes)` (two 40-byte hashes the length guard never counted) and the unknown
+  // token dies with `vdollar_percent_expand: unknown key %Z`, both before the
+  // connection. The deeper reason to refuse rather than count harder: the
+  // directory ssh would actually open the socket in is NOT the directory we
+  // created and whose 0700 ownership we verified, so the privacy check would no
+  // longer describe the socket's real location.
+  it("refuses multiplexing when the runtime dir carries ssh expansion syntax", () => {
+    for (const dirName of [
+      "ka2-%C%C", // an extra fixed-width token the byte budget never saw
+      "ka2-%Z", // an unknown key — ssh fatals rather than expanding it
+      "ka2-${HOME}", // the environment-expansion form
+    ]) {
+      vi.stubEnv("XDG_RUNTIME_DIR", namedXdg(dirName));
+      __resetControlMemo();
+      expect(pairsFor()).toEqual([
+        ["ControlMaster", "no"],
+        ["ControlPath", "none"],
+      ]);
+      // Refused BEFORE the mkdir: a dir we will not name is not one to create.
+      expect(existsSync(join("/tmp", dirName, "kolu-ssh"))).toBe(false);
+    }
+  });
+
+  it("still multiplexes for a plain runtime dir — the control for that refusal", () => {
+    // The rule is about expansion syntax, not about being picky: an ordinary
+    // directory still gets the speedup, with the one `%C` we composed intact.
+    vi.stubEnv("XDG_RUNTIME_DIR", freshXdg());
+    __resetControlMemo();
+    const path = controlPathValue() as string;
+    expect(path.endsWith("/%C-10x3")).toBe(true);
+    // Exactly ONE token in the whole path — which is what makes the byte
+    // arithmetic in `controlPathFits` (one `%C` subtracted) correct.
+    expect(path.split("%").length - 1).toBe(1);
+    expect(path).not.toContain("${");
   });
 
   // A ControlPath ssh cannot BIND is worse than no multiplexing: ssh does not

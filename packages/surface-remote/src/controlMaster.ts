@@ -181,7 +181,13 @@ const MASTER_TEMP_SUFFIX_BYTES = 17;
  *  a constant we may assert about.
  *
  *  Bytes, not characters: `sun_path` is a byte buffer, and a multibyte runtime
- *  dir spends more of it than its `.length` suggests. */
+ *  dir spends more of it than its `.length` suggests.
+ *
+ *  It subtracts exactly ONE `%C` because exactly one is present: the leaf this
+ *  module composes. That is only true because {@link hasSshExpansion} has
+ *  already refused any directory carrying expansion syntax of its own — without
+ *  that refusal a `%C` in `$XDG_RUNTIME_DIR` would be 40 uncounted bytes and
+ *  this arithmetic would approve a path ssh cannot bind. */
 function controlPathFits(renderedPath: string): boolean {
   const expandedBytes =
     Buffer.byteLength(renderedPath, "utf8") -
@@ -198,19 +204,49 @@ function controlPathFits(renderedPath: string): boolean {
  *  `null` = computed, and we cannot own one. */
 let controlDir: string | null | undefined;
 
+/** Does `dir` carry syntax OpenSSH would EXPAND rather than take literally? A
+ *  `%` token (`%C`, `%h`, `%%`, or an unknown one) or the `${ENV}` form.
+ *
+ *  ssh expands the WHOLE `ControlPath`, not just the leaf we compose, and the
+ *  directory half comes from `$XDG_RUNTIME_DIR` — an environment string, not a
+ *  constant we may assert about. Codex demonstrated both halves of the damage
+ *  against real ssh: `XDG_RUNTIME_DIR=/tmp/ka2-…/%C%C` dies with `ControlPath
+ *  too long (>= 108 bytes)` before it connects (two extra 40-byte hashes
+ *  {@link controlPathFits} never counted), and a `%Z` directory dies with
+ *  `vdollar_percent_expand: unknown key %Z`.
+ *
+ *  Fitting is the lesser half. The DIRECTORY ssh actually opens the socket in
+ *  would not be the directory we created and whose `0700` ownership
+ *  {@link isPrivateOwnedDir} verified — and a privacy check on a path that is
+ *  not the socket's real location means nothing. Those two must be the same
+ *  path, so the environment-derived directory is treated as literal data: if it
+ *  is not, we do not multiplex at all.
+ *
+ *  Sits beside the whitespace refusal because it is the same class of rule — a
+ *  directory string we cannot render into a `ControlPath` that means what it
+ *  says. Escaping is the alternative, and it is the wrong trade here: it would
+ *  make this module responsible for a foreign quoting dialect to buy back a
+ *  speedup on a runtime dir nobody has. */
+const hasSshExpansion = (dir: string): boolean => /%|\$\{/.test(dir);
+
 /** Create (or adopt) the private control dir, once. `null` on any of: a
  *  directory path containing whitespace (which would corrupt the word-split
  *  `NIX_SSHOPTS` form while the argv form stayed correct — and it is the DIR
  *  that can carry a space, since `sshKeepalive`'s integers make the `%C-<tag>`
- *  leaf whitespace-free by construction), an un-creatable runtime dir
- *  (read-only FS, no `$XDG_RUNTIME_DIR` and no writable `/tmp`, …), or a dir
- *  that isn't owner-only. */
+ *  leaf whitespace-free by construction), a directory carrying ssh expansion
+ *  syntax (see {@link hasSshExpansion}), an un-creatable runtime dir (read-only
+ *  FS, no `$XDG_RUNTIME_DIR` and no writable `/tmp`, …), or a dir that isn't
+ *  owner-only.
+ *
+ *  Both string refusals come BEFORE the `mkdir`: a directory we will not name
+ *  in a `ControlPath` is not one to create either. */
 function ensureControlDir(): string | null {
   if (controlDir !== undefined) return controlDir;
   controlDir = ((): string | null => {
     try {
       const dir = controlDirPath();
       if (/\s/.test(dir)) return null;
+      if (hasSshExpansion(dir)) return null;
       mkdirSync(dir, { recursive: true, mode: 0o700 });
       // mkdir's mode is a no-op on a pre-existing dir, so VERIFY privacy
       // rather than assume it — a stable per-user path another local user
