@@ -3,16 +3,16 @@
  *  registers the results (not presentation/keying). */
 
 import {
+  computeTerminalKeys,
+  type TerminalKey,
+  terminalKey,
+} from "@kolu/terminal-vocab/terminalKey";
+import {
   encodeHostKey,
   type HostKey,
   hostKeysEqual as sameHost,
 } from "kolu-common/hostKey";
 import type { TerminalId } from "kolu-common/surface";
-import {
-  computeTerminalKeys,
-  type TerminalKey,
-  terminalKey,
-} from "@kolu/terminal-vocab/terminalKey";
 import type {
   PaletteAction,
   PaletteGroup,

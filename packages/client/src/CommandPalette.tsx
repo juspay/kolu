@@ -11,9 +11,9 @@
  */
 
 import Dialog from "@corvu/dialog";
+import { makeEventListener } from "@solid-primitives/event-listener";
 import { Key } from "@solid-primitives/keyed";
 import { encodeHostKey } from "kolu-common/hostKey";
-import { makeEventListener } from "@solid-primitives/event-listener";
 import {
   type Accessor,
   type Component,

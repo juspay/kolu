@@ -1,3 +1,4 @@
+import { encodeHostKey } from "kolu-common/hostKey";
 import { createSignal, type JSX } from "solid-js";
 import { render } from "solid-js/web";
 import { afterEach, expect, it, vi } from "vitest";
@@ -27,9 +28,9 @@ vi.mock("./host/hostChipTone", () => ({
 vi.mock("./palette/CreateIdentityPreview", () => ({ default: () => null }));
 vi.mock("./palette/PaletteRow", () => ({
   default: (props: { cmd: { name: string }; onSelect: () => void }) => (
-    <div role="option" onClick={() => props.onSelect()}>
+    <button type="button" role="option" onClick={() => props.onSelect()}>
       {props.cmd.name}
-    </div>
+    </button>
   ),
 }));
 const { default: CommandPalette } = await import("./CommandPalette");
@@ -123,7 +124,9 @@ it("keeps equal repository labels distinct and follows the selected root after r
   setCommands(tree());
   const after = document.querySelectorAll('[role="option"]');
   expect(after).toHaveLength(2);
-  before.forEach((node, i) => expect(after[i]).toBe(node));
+  before.forEach((node, i) => {
+    expect(after[i]).toBe(node);
+  });
   expect(before[0]).not.toBe(before[1]);
   before[1]!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
   setCommands(tree());
@@ -144,6 +147,7 @@ it("keeps local and a remote host named local in separate header nodes", () => {
         { kind: "remote", target: "local" } as const,
       ].map((host, i) => ({
         kind: "group",
+        id: encodeHostKey(host),
         name: "local",
         row: { kind: "host", hostKey: host },
         children: [
@@ -173,5 +177,12 @@ it("keeps local and a remote host named local in separate header nodes", () => {
     '[data-testid="palette-host-header"]',
   );
   expect(after).toHaveLength(2);
-  before.forEach((node, i) => expect(after[i]).toBe(node));
+  before.forEach((node, i) => {
+    expect(after[i]).toBe(node);
+  });
+  before[1]!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+  setCommands(tree());
+  expect(document.querySelector('[role="option"]')?.textContent).toBe(
+    "Terminal 1",
+  );
 });
