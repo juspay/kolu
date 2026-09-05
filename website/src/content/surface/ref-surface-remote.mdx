@@ -78,14 +78,10 @@ merits, **not** this option's other half: see the four bounds below for why
 tuning the heartbeat buys a connected link nothing.)
 
 Building your own ssh command outside this package? Use
-`sshDialOpts(keepalive)`, not `sshCommonOpts(keepalive)`: it emits the complete
-set the builders above emit — the dead-peer policy **and** this package's
-`ControlMaster` decision (our per-policy socket, or an explicit
-`ControlPath=none`). `sshCommonOpts` names no `ControlPath` at all, and silence
-is not "no multiplexing": ssh falls through to the user's `~/.ssh/config`, where
-an ordinary `Host *` block with `ControlMaster auto` supplies a master keyed by
-host+user+port and **not** by policy — which silently replaces the very
-`ServerAlive*` you just rendered.
+`sshDialOpts(keepalive)` — the one exported opt set, and the same one the
+builders above emit: the dead-peer policy **and** this package's `ControlMaster`
+decision (our per-policy socket, or an explicit `ControlPath=none`, never
+silence — see the note below).
 
 <Aside type="caution" title="This bounds ssh transport death — it is not a survival budget">
   `keepalive` answers exactly one question: **how long may ssh get no answer

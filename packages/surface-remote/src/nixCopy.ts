@@ -472,7 +472,7 @@ async function prefetchAgentClosure(opts: {
    *  `agentBinaryCache` validates substituters only as non-blank strings and
    *  deliberately restricts no scheme, so `ssh://` / `ssh-ng://` is a spellable
    *  declared cache. Without `NIX_SSHOPTS` that fork gets NO dead-peer detection
-   *  at all: the exact eternal hang `sshOptPairs` exists to bound, in the one
+   *  at all: the exact eternal hang `nixSshOpts` exists to bound, in the one
    *  provisioning step that had been left out of the policy. */
   keepalive: SshKeepalive;
   narrate: (line: string) => void;
@@ -480,6 +480,9 @@ async function prefetchAgentClosure(opts: {
   signal: AbortSignal | undefined;
 }): Promise<CopyOutcome> {
   const keys = opts.binaryCache.trustedPublicKeys.join(" ");
+  // Rendered ONCE, beside `keys`: the policy does not vary per substituter, and
+  // rendering it inside the loop would re-run the control-dir ensure per URL.
+  const sshOpts = nixSshOpts(opts.keepalive);
   for (const url of opts.binaryCache.substituters) {
     opts.narrate(`prefetching agent closure from ${url} into the local store…`);
     const res = await runCapture(
@@ -502,7 +505,7 @@ async function prefetchAgentClosure(opts: {
       {
         onProgress: opts.narrate,
         policy: opts.policy,
-        env: { NIX_SSHOPTS: nixSshOpts(opts.keepalive) },
+        env: { NIX_SSHOPTS: sshOpts },
         signal: opts.signal,
       },
     );
@@ -705,14 +708,13 @@ export async function provisionAgent(
   opts: ProvisionOptions,
 ): Promise<ProvisionResult> {
   const isLocal = isLocalHost(opts.host);
-  const { signal, budgets } = opts;
   // ONE policy for the whole provisioning: every ssh below — and the ssh Nix
   // forks for the remote store — carries the SAME one, because they share a
   // `ControlMaster` keyed by it (see `controlMaster.ts`). Required on the
   // options, so that is a type fact rather than a defaulting site that has to
   // agree with eight others; and validity is a fact the value carries
   // (`sshKeepalive` is its only producer), so nothing is re-checked here.
-  const { keepalive } = opts;
+  const { signal, budgets, keepalive } = opts;
   const { drvPath } = opts.derivation;
   // Already aborted before we start ⇒ do NO work: a user abort is a budget-EXEMPT,
   // retryable `"network"` fault (C3/F6). (The connector already reconciled the campaign

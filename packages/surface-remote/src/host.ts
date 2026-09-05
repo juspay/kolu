@@ -213,11 +213,24 @@ export function forEachLine(
  *  three public renderers below each capture once, at their own top, and hand
  *  the same snapshot here AND to `controlOptPairs`. Nothing below that capture
  *  ever touches the caller's object again — see {@link renderableKeepalive}. */
-export function sshOptPairs(
+function sshOptPairs(
   plan: KeepalivePlan,
 ): readonly (readonly [string, string])[] {
   return [...SSH_FIXED_OPTS, ...keepaliveOpts(plan)];
 }
+
+/** The COMPLETE pair list one dial's ssh needs: the non-interactive contract and
+ *  dead-peer policy, plus this package's `ControlMaster` decision. Declared ONCE
+ *  and rendered into the two shapes its consumers need — {@link sshDialOpts} is
+ *  `toArgv` of it, {@link nixSshOpts} is `toEnv` of it — so the argv a dial
+ *  spawns with and the env Nix's own ssh reads can never name two policies or
+ *  two masters. */
+const dialOptPairs = (
+  plan: KeepalivePlan,
+): readonly (readonly [string, string])[] => [
+  ...sshOptPairs(plan),
+  ...controlOptPairs(plan),
+];
 
 /** The non-interactive ssh CONTRACT — invariant, and independent of any policy.
  *
@@ -295,17 +308,12 @@ const toArgv = (pairs: readonly (readonly [string, string])[]): string[] =>
 const toEnv = (pairs: readonly (readonly [string, string])[]): string =>
   pairs.map(([key, value]) => `-o ${key}=${value}`).join(" ");
 
-/** The dead-peer policy ALONE as an ssh `-o Key=Value` argv — the keepalive
- *  primitive, for a consumer that wants to state this package's policy and owns
- *  its own multiplexing decision.
- *
- *  An out-of-package consumer building its own ssh command almost always wants
- *  {@link sshDialOpts} instead: this function names no `ControlPath`, and
- *  emitting nothing is NOT "no multiplexing" — ssh falls through to the user's
- *  `~/.ssh/config`, where an ordinary `Host *` block with `ControlMaster auto`
- *  supplies a master keyed by host+user+port and NOT by policy, so the very
- *  `ServerAlive*` this call rendered is silently replaced by whatever opened
- *  that master. */
+/** The dead-peer policy ALONE as an ssh `-o Key=Value` argv — no `ControlPath`.
+ *  PACKAGE-INTERNAL (it is not re-exported from the index): the only shape this
+ *  package hands outward is {@link sshDialOpts}, because a set that names no
+ *  `ControlPath` is not "no multiplexing" — see `NO_MULTIPLEXING` in
+ *  `controlMaster.ts`. It survives here as the base of {@link SSH_COMMON_OPTS},
+ *  which out-of-tree importers still spell. */
 export function sshCommonOpts(
   keepalive: SshKeepalive = DEFAULT_SSH_KEEPALIVE,
 ): readonly string[] {
@@ -316,14 +324,12 @@ export function sshCommonOpts(
  *  this package's `ControlMaster` decision — which is either our own per-policy
  *  socket or an explicit `ControlPath=none` refusal, never silence.
  *
- *  THIS is what a consumer that builds its own ssh command wants — e.g. the
- *  `mini-ci` surface example, which ships source over ssh with `git archive`
- *  instead of a nix closure. It is exactly what {@link buildAgentCommand} and
+ *  THIS is the one shape this package hands outward — e.g. to the `mini-ci`
+ *  surface example, which ships source over ssh with `git archive` instead of a
+ *  nix closure. It is exactly what {@link buildAgentCommand} and
  *  {@link buildSshProbeCommand} emit for their remote arm, composed in ONE
- *  place, so the seam this package hands outward cannot render a different
- *  policy from the one it spawns with — which is how {@link sshCommonOpts}
- *  alone reopened, at the outward seam, the master-inheritance failure the
- *  per-policy socket keying exists to abolish.
+ *  place, so the seam a consumer reaches for cannot render a different policy
+ *  from the one this package spawns with.
  *
  *  ONE capture, used twice. The `ServerAlive*` options and the `ControlPath`
  *  that names which master may carry them are spelled from the same snapshot,
@@ -331,18 +337,20 @@ export function sshCommonOpts(
 export function sshDialOpts(
   keepalive: SshKeepalive = DEFAULT_SSH_KEEPALIVE,
 ): readonly string[] {
-  const plan = renderableKeepalive(keepalive);
-  return toArgv([...sshOptPairs(plan), ...controlOptPairs(plan)]);
+  return toArgv(dialOptPairs(renderableKeepalive(keepalive)));
 }
 
 /** {@link sshCommonOpts} at the default policy, as a const — the pre-existing
  *  public spelling, kept so this change breaks no out-of-tree importer.
  *
- *  @deprecated Kept only for source compatibility, and it is the WRONG default
- *  reach: it is the shortest, most discoverable spelling while being the shape
- *  that omits this package's `ControlMaster` decision. A consumer building its
- *  own ssh command wants {@link sshDialOpts}; a consumer stating its own policy
- *  wants `sshCommonOpts(keepalive)`. This const is neither. */
+ *  @deprecated Kept only for source compatibility. A consumer building its own
+ *  ssh command wants {@link sshDialOpts}, which also carries this package's
+ *  `ControlMaster` decision.
+ *
+ *  It must stay `sshCommonOpts()` and never become `sshDialOpts()`: the latter
+ *  reaches `controlOptPairs`, whose `mkdirSync`/`lstatSync` would then run at
+ *  MODULE-EVALUATION time — breaking the package's `sideEffects: false` for
+ *  every importer of the index, whether or not it ever dials. */
 export const SSH_COMMON_OPTS: readonly string[] = sshCommonOpts();
 
 /** The `NIX_SSHOPTS` env string for remote-store Nix commands, carrying a
@@ -359,10 +367,7 @@ export const SSH_COMMON_OPTS: readonly string[] = sshCommonOpts();
 export function nixSshOpts(
   keepalive: SshKeepalive = DEFAULT_SSH_KEEPALIVE,
 ): string {
-  // One capture, used twice — as in `sshDialOpts`, so the rendered policy and
-  // the master named to carry it are the same two numbers.
-  const plan = renderableKeepalive(keepalive);
-  return toEnv([...sshOptPairs(plan), ...controlOptPairs(plan)]);
+  return toEnv(dialOptPairs(renderableKeepalive(keepalive)));
 }
 
 /** Argv to spawn the agent on `host` against the realised `agentPath`.
@@ -405,7 +410,6 @@ export function buildAgentCommand(
 } {
   const exe = `${opts.agentPath}/bin/${opts.binary}`;
   const extra = opts.extraArgs ?? [];
-  const { keepalive } = targetOf(opts);
   if (isLocalHost(opts.host)) {
     // Runtime backstop for the type-level guarantee. `localEnv` is a REQUIRED field, but
     // TS types erase at runtime — an untyped caller, an `as any`, a spread that drops the
@@ -434,7 +438,7 @@ export function buildAgentCommand(
     // a real ssh destination never starts with `-`, so it rejects no
     // legitimate host. (`opts.host` is a bare positional here, the sink.)
     args: [
-      ...sshDialOpts(keepalive),
+      ...sshDialOpts(opts.keepalive),
       "--",
       opts.host,
       exe,

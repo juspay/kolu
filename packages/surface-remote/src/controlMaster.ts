@@ -9,7 +9,7 @@
  * channels.
  *
  * This lives in its own module — separate from `host.ts`'s keepalive
- * `sshOptPairs` — because the multiplexing opts are a
+ * rendering — because the multiplexing opts are a
  * *different kind of thing*: the `ControlPath` is computed from the
  * environment (`$XDG_RUNTIME_DIR`) and its directory must be created (a
  * side effect), whereas the keepalive policy is pure. Keeping the
@@ -17,8 +17,8 @@
  * eager-const idiom untouched, and the package stays `sideEffects: false`
  * (the dir is made lazily on first use, never at import).
  *
- * Why no `~/.ssh/config` touch: the opts ride the existing `sshOptPairs`
- * render path (`sshCommonOpts()` argv + `nixSshOpts()` env), so every ssh
+ * Why no `~/.ssh/config` touch: the opts ride the existing dial-opt
+ * render path (`sshDialOpts()` argv + `nixSshOpts()` env), so every ssh
  * this package causes to be spawned — including the one the remote-store
  * Nix client forks internally — inherits them with no user configuration.
  *
@@ -66,21 +66,24 @@
  * defeat the cross-invocation warmth `ControlPersist` exists to provide.
  */
 
-import { lstatSync, mkdirSync } from "node:fs";
+import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
-import { getRuntimeSocketPath } from "@kolu/surface/unix-socket";
+import {
+  getRuntimeSocketPath,
+  isPrivateOwnedDir,
+} from "@kolu/surface/unix-socket";
 import { type KeepalivePlan, policyTag } from "./keepalive";
 
 /** How long the shared master lingers idle after its last channel closes.
  *  Deliberately CROSS-INVOCATION (~10m): a second `kaval-tui` within
  *  minutes reuses the still-warm master instead of re-handshaking. The
  *  idle master is reaped by this timer. NB the `ServerAlive` keepalive in
- *  `sshOptPairs` only reaps a master whose whole TRANSPORT died — it does
+ *  `sshDialOpts` only reaps a master whose whole TRANSPORT died — it does
  *  NOT catch a healthy master with a single dead exec CHANNEL (the #1908
  *  incident: fresh channels through this same master ran instantly while one
  *  channel's remote side was gone). That failure mode is owned by the child
  *  lifetime policies in `process.ts`, not by ssh keepalive. ssh's time
- *  format; whitespace-free per the `sshOptPairs` value contract. */
+ *  format; whitespace-free per the `sshDialOpts` value contract. */
 const CONTROL_PERSIST = "10m";
 
 /** What we emit when we cannot set OUR master up safely — an explicit REFUSAL
@@ -100,8 +103,8 @@ const CONTROL_PERSIST = "10m";
  *  `ControlPath=none` says "multiplex with nobody", so every command carries its
  *  own policy by construction and the guarantee holds UNCONDITIONALLY rather than
  *  only while our runtime dir happens to be usable. Same idiom, same reason, as
- *  `@kolu/port-forward`'s `sshForward.ts`. Both values are whitespace-free, so the
- *  `NIX_SSHOPTS` word-split contract still holds. The cost of this arm is the one
+ *  `@kolu/port-forward`'s `sshForward.ts`. Both values are plain literal text, so
+ *  the `NIX_SSHOPTS` split contract still holds. The cost of this arm is the one
  *  the speedup was buying: every command re-handshakes. */
 const NO_MULTIPLEXING: readonly (readonly [string, string])[] = [
   ["ControlMaster", "no"],
@@ -118,28 +121,6 @@ const NO_MULTIPLEXING: readonly (readonly [string, string])[] = [
  *  `null` when we cannot own one safely — see {@link ensureControlDir}. */
 function controlDirPath(): string {
   return dirname(getRuntimeSocketPath({ app: "kolu-ssh", file: "socket" }));
-}
-
-/** Is `dir` a private, owner-only directory we own? The control socket
- *  exposes the live connection to anyone who can open channels on it, so
- *  the directory is the security boundary (cf. the same check on the
- *  pty-host socket). The public original is `isPrivateOwnedDir` in
- *  `@kolu/surface/unix-socket`; this copy stays local because a failed
- *  `lstat` is refuse-not-throw here (the outer `controlOptPairs` catch is
- *  the additive-speedup degrade), matching `surface-daemon`'s copy rather
- *  than the transport layer's throw. `lstatSync` (not `statSync`) so a
- *  symlink is judged as itself, never followed to a target an attacker
- *  still controls the path component of. True on platforms without uid
- *  semantics (Windows) — the ACL model there is out of scope. */
-function isPrivateOwnedDir(dir: string): boolean {
-  const getuid = process.getuid?.bind(process);
-  if (getuid === undefined) return true;
-  try {
-    const st = lstatSync(dir);
-    return st.isDirectory() && st.uid === getuid() && (st.mode & 0o077) === 0;
-  } catch {
-    return false;
-  }
 }
 
 /** How many bytes `%C` becomes. It is a FIXED-WIDTH token — OpenSSH expands it
@@ -255,6 +236,14 @@ function ensureControlDir(): string | null {
       const dir = controlDirPath();
       if (!LITERAL_CONTROL_DIR.test(dir)) return null;
       mkdirSync(dir, { recursive: true, mode: 0o700 });
+      // The canonical check, from the module that owns this convention: the
+      // control socket exposes the live connection to anyone who can open
+      // channels on it, so the directory is the security boundary — the same
+      // one `serveOverUnixSocket` applies to the pty-host socket. It THROWS on
+      // a failed `lstat` where a local copy used to return false; identical
+      // behaviour here, because this whole block's catch reads either as
+      // "cannot own one" → `null`.
+      //
       // mkdir's mode is a no-op on a pre-existing dir, so VERIFY privacy
       // rather than assume it — a stable per-user path another local user
       // could have pre-created with loose perms must not host our connection.

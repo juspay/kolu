@@ -51,7 +51,6 @@ export {
   nixSshOpts,
   ResolveDrvError,
   SSH_COMMON_OPTS,
-  sshCommonOpts,
   sshDialOpts,
   type SshDestination,
 } from "./host";
