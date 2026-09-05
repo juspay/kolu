@@ -100,3 +100,78 @@ it("preserves command identity through reordering and reads the latest callback"
   expect(fresh).toHaveBeenCalledOnce();
   expect(stale).not.toHaveBeenCalled();
 });
+
+it("keeps equal repository labels distinct and follows the selected root after refresh", () => {
+  const first = vi.fn(),
+    second = vi.fn();
+  const tree = (): PaletteItem[] =>
+    ["/a/repo", "/b/repo"].map((id, i) => ({
+      kind: "value",
+      id,
+      name: "repo",
+      prefill: () => "branch",
+      onSubmit: i === 0 ? first : second,
+      children: [{ kind: "label", name: id }],
+    }));
+  const [commands, setCommands] = createSignal(tree());
+  dispose = render(
+    () => <CommandPalette commands={commands} open onOpenChange={() => {}} />,
+    document.body,
+  );
+  const before = [...document.querySelectorAll('[role="option"]')];
+  expect(before).toHaveLength(2);
+  setCommands(tree());
+  const after = document.querySelectorAll('[role="option"]');
+  expect(after).toHaveLength(2);
+  before.forEach((node, i) => expect(after[i]).toBe(node));
+  expect(before[0]).not.toBe(before[1]);
+  before[1]!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+  setCommands(tree());
+  const option = document.querySelector('[role="option"]')!;
+  expect(option.textContent).toBe("/b/repo");
+  option.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+  expect(second).toHaveBeenCalledOnce();
+  expect(first).not.toHaveBeenCalled();
+});
+
+it("keeps local and a remote host named local in separate header nodes", () => {
+  const tree = (): PaletteItem[] => [
+    {
+      kind: "group",
+      name: "Terminals",
+      children: [
+        { kind: "local" } as const,
+        { kind: "remote", target: "local" } as const,
+      ].map((host, i) => ({
+        kind: "group",
+        name: "local",
+        row: { kind: "host", hostKey: host },
+        children: [
+          { kind: "action", name: `Terminal ${i}`, onSelect: () => {} },
+        ],
+      })),
+    },
+  ];
+  const [commands, setCommands] = createSignal(tree());
+  dispose = render(
+    () => (
+      <CommandPalette
+        commands={commands}
+        open
+        onOpenChange={() => {}}
+        initialPath={["Terminals"]}
+      />
+    ),
+    document.body,
+  );
+  const before = [
+    ...document.querySelectorAll('[data-testid="palette-host-header"]'),
+  ];
+  expect(before).toHaveLength(2);
+  setCommands(tree());
+  const after = document.querySelectorAll(
+    '[data-testid="palette-host-header"]',
+  );
+  expect(after).toHaveLength(2);
+  before.forEach((node, i) => expect(after[i]).toBe(node));
+});

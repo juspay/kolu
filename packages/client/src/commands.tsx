@@ -235,6 +235,7 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
           ...repos.map(
             (r): PaletteValueInput => ({
               kind: "value",
+              id: r.repoRoot,
               name: r.repoName,
               description: `New worktree in ${r.repoRoot}`,
               prefill: randomName,

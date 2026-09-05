@@ -174,6 +174,7 @@ export function terminalHostGroups(
     const label = hostLabel(host);
     return {
       kind: "group" as const,
+      id: encodeHostKey(host),
       name: label,
       description: countLabel,
       row: {

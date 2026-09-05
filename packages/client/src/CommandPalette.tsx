@@ -104,6 +104,8 @@ function sectionIndex(s: SectionId | undefined): number {
 
 /** Fields shared by every interactive palette item. */
 interface PaletteBase {
+  /** Stable identity when display names are not unique (e.g. repository roots). */
+  id?: string;
   name: string;
   /** Secondary text shown after the name, de-emphasized. */
   description?: string;
@@ -256,7 +258,7 @@ const CommandPalette: Component<{
       const match = level.find(
         (item): item is PaletteGroup | PaletteValueInput =>
           (item.kind === "group" || item.kind === "value") &&
-          item.name === segment.name,
+          (item.id ?? item.name) === (segment.id ?? segment.name),
       );
       if (!match) break;
       valid.push(match);
@@ -1046,32 +1048,37 @@ const CommandPalette: Component<{
                   JSON.stringify(
                     match(entry)
                       .with({ kind: "header" }, (e) => [e.kind, e.section])
-                      .with({ kind: "host-header" }, (e) => [e.kind, e.name])
+                      .with({ kind: "host-header" }, (e) => [
+                        e.kind,
+                        e.group.row?.hostKey
+                          ? encodeHostKey(e.group.row.hostKey)
+                          : e.name,
+                      ])
                       .with({ kind: "row" }, (e) => [
                         e.kind,
                         e.cmd.kind,
                         e.cmd.row?.hostKey
                           ? encodeHostKey(e.cmd.row.hostKey)
                           : null,
-                        e.cmd.row?.terminalId ?? e.cmd.name,
+                        e.cmd.row?.terminalId ?? e.cmd.id ?? e.cmd.name,
                       ])
                       .exhaustive(),
                   )
                 }
               >
                 {(entry) => {
-                  const header = createMemo(() => {
+                  const header = () => {
                     const e = entry();
                     return e.kind === "header" ? e : undefined;
-                  });
-                  const host = createMemo(() => {
+                  };
+                  const host = () => {
                     const e = entry();
                     return e.kind === "host-header" ? e : undefined;
-                  });
-                  const row = createMemo(() => {
+                  };
+                  const row = () => {
                     const e = entry();
                     return e.kind === "row" ? e : undefined;
-                  });
+                  };
                   return (
                     <>
                       <Show when={header()}>
