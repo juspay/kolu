@@ -60,7 +60,8 @@ import { defineSurface } from "@kolu/surface/define";
 import { Effect, Schema } from "effect";
 import { dialAgentOnce } from "./dialAgentOnce";
 import { SURFACE_AGENT_FLAKE_REF_ENV } from "./agentDrv";
-import { DEFAULT_SSH_KEEPALIVE, sshKeepalive } from "./keepalive";
+import { CI_KEEPALIVE } from "./controlDir.testutil";
+import { DEFAULT_SSH_KEEPALIVE } from "./keepalive";
 
 /** The surface every dial below names. `dialAgentOnce` now takes the surface as a
  *  VALUE (the wire link is built from its `RpcGroup`), so a dial cannot be spelled
@@ -235,7 +236,7 @@ describe("dialAgentOnce: deferred drv resolution", () => {
     // raised CI policy provably inert here — on exactly the path every `--host`
     // CLI and unattended runner takes — with the documented remedy unreachable
     // without abandoning `dialAgentOnce` altogether.
-    const keepalive = sshKeepalive(30, 10);
+    const keepalive = CI_KEEPALIVE;
     const liveness = { intervalMs: 240_000, timeoutMs: 60_000 };
     fakeSession({});
     await dialAgentOnce({

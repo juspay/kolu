@@ -177,10 +177,16 @@ const MASTER_TEMP_SUFFIX_BYTES = 17;
  *  (`/run/user/1000`, `/tmp/kolu-ssh-501`) pass it. */
 const LITERAL_CONTROL_DIR = /^[A-Za-z0-9_./-]+$/;
 
-/** The `ControlPath` to name for `plan` inside `dir` — or `null` if we must not
- *  name one at all. The directory's LITERALNESS and the expanded path's LENGTH
- *  are one question ("is this a path we can name and ssh can bind?"), so they
- *  are one predicate.
+/** The `ControlPath` to name for `plan` inside `dir` — or `null` if the
+ *  expanded path would not fit `sun_path`. `dir`'s LITERALNESS is not re-checked
+ *  here: it is this function's sole caller's job, and its only caller is
+ *  `ensureControlDir()`, which already refused ({@link LITERAL_CONTROL_DIR}) and
+ *  returned before ever producing the `dir` this function is invoked with — so a
+ *  second check here could never observe a non-literal `dir` and would be dead
+ *  on arrival. What the allowlist buys THIS function is narrower and still real:
+ *  no `%` can hide in the directory half, so the byte arithmetic below can
+ *  assume exactly one `%C` token (the leaf composed on the next line) without
+ *  re-deriving that fact from `dir`.
  *
  *  Length is a real regression guard, not a theoretical one: keying the socket
  *  by policy grew the leaf from `/%C` to `/%C-10x3`, and a runtime dir just 49
@@ -188,17 +194,10 @@ const LITERAL_CONTROL_DIR = /^[A-Za-z0-9_./-]+$/;
  *  (which OpenSSH accepts on Linux) to 109 (`ControlPath too long (… >= 108
  *  bytes)`, and ssh dies before it connects). `getRuntimeSocketPath` hands us
  *  whatever `$XDG_RUNTIME_DIR` says, so the directory's length is an input, not
- *  a constant we may assert about.
- *
- *  The arithmetic subtracts exactly ONE `%C` because exactly one is present —
- *  the leaf composed on the line above — and that is now provable HERE rather
- *  than by cross-function prose: the allowlist two lines up admits no `%` in the
- *  directory half, so no uncounted 40-byte hash can hide in it. Bytes rather
- *  than characters for the same locality: `sun_path` is a byte buffer, and the
- *  measurement should be about the buffer even though the allowlist happens to
- *  confine us to ASCII. */
+ *  a constant we may assert about. Bytes rather than characters for the same
+ *  locality: `sun_path` is a byte buffer, and the measurement should be about
+ *  the buffer even though the allowlist happens to confine us to ASCII. */
 function usableControlPath(dir: string, plan: KeepalivePlan): string | null {
-  if (!LITERAL_CONTROL_DIR.test(dir)) return null;
   const path = `${dir}/%C-${policyTag(plan)}`;
   const expandedBytes =
     Buffer.byteLength(path, "utf8") -

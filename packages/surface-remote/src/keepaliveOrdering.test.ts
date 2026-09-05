@@ -39,11 +39,11 @@ import {
   MAX_HEARTBEAT_TIMEOUT_MS,
 } from "@kolu/surface/heartbeat";
 import { RPC_PING_FATAL_SILENCE_MS } from "@kolu/surface/links/wire";
+import { CI_KEEPALIVE } from "./controlDir.testutil";
 import {
   DEFAULT_SSH_KEEPALIVE,
   keepaliveToleranceS,
   MAX_SSH_KEEPALIVE_TOLERANCE_S,
-  sshKeepalive,
 } from "./keepalive";
 import {
   makeStepBudget,
@@ -126,9 +126,10 @@ describe("what bounds a silence during PROVISIONING", () => {
     // they never reset any of these budgets: a blip during a required build is
     // group-killed at 120s however long the ssh policy would have waited.
     expect(PROVISION_STEP_SILENCE_BASE_MS).toBe(120_000);
-    const ci = sshKeepalive(30, 10); // the policy the docs print: 300s
-    expect(keepaliveVerdictMs(ci)).toBe(300_000);
-    expect(PROVISION_STEP_SILENCE_BASE_MS).toBeLessThan(keepaliveVerdictMs(ci));
+    expect(keepaliveVerdictMs(CI_KEEPALIVE)).toBe(300_000);
+    expect(PROVISION_STEP_SILENCE_BASE_MS).toBeLessThan(
+      keepaliveVerdictMs(CI_KEEPALIVE),
+    );
   });
 
   it("is 120s only INITIALLY — the required build's budget escalates", () => {
@@ -153,12 +154,10 @@ describe("what bounds a silence during PROVISIONING", () => {
     expect(granted).toEqual([120_000, 240_000, 480_000, 960_000]);
     // A CI policy the docs print (300s) outlives the FIRST grant and not the
     // later ones — which is exactly why "past 120s is inert" was false.
-    expect(keepaliveVerdictMs(sshKeepalive(30, 10))).toBeGreaterThan(
+    expect(keepaliveVerdictMs(CI_KEEPALIVE)).toBeGreaterThan(
       granted[0] as number,
     );
-    expect(keepaliveVerdictMs(sshKeepalive(30, 10))).toBeLessThan(
-      granted[3] as number,
-    );
+    expect(keepaliveVerdictMs(CI_KEEPALIVE)).toBeLessThan(granted[3] as number);
     // Even the escalated ceiling is a bound on the CHILD, not on ssh — and the
     // ssh ceiling sits above it, so no policy is refused for being longer.
     expect(MAX_SSH_KEEPALIVE_TOLERANCE_S * 1_000).toBeGreaterThan(
@@ -196,8 +195,7 @@ describe("what the ssh keepalive DOES bound", () => {
     // The one honest reading of the option: symmetric cost. Whatever silence a
     // policy tolerates on a slow peer, it also spends parked on a dead one
     // before the reconnect loop can retry.
-    const ci = sshKeepalive(30, 10);
-    expect(keepaliveVerdictMs(ci)).toBeGreaterThan(
+    expect(keepaliveVerdictMs(CI_KEEPALIVE)).toBeGreaterThan(
       keepaliveVerdictMs(DEFAULT_SSH_KEEPALIVE),
     );
     // And the ceiling is a ceiling on going UNNOTICED, not a survival promise.

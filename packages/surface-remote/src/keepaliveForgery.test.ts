@@ -33,7 +33,7 @@
  * breaks if the capture degenerates back into an assertion.
  */
 import { describe, expect, it } from "vitest";
-import { useControlDir } from "./controlDir.testutil";
+import { CI_KEEPALIVE, useControlDir } from "./controlDir.testutil";
 import { nixSshOpts, sshCommonOpts, sshDialOpts } from "./host";
 import {
   MAX_SSH_KEEPALIVE_TOLERANCE_S,
@@ -91,12 +91,8 @@ describe("a spread-forged keepalive is rejected where it is rendered", () => {
 
   it("still renders a HONESTLY-minted policy, unchanged", () => {
     // The check must cost a valid policy nothing — it is a guard, not a filter.
-    expect(sshCommonOpts(sshKeepalive(30, 10))).toContain(
-      "ServerAliveInterval=30",
-    );
-    expect(sshCommonOpts(sshKeepalive(30, 10))).toContain(
-      "ServerAliveCountMax=10",
-    );
+    expect(sshCommonOpts(CI_KEEPALIVE)).toContain("ServerAliveInterval=30");
+    expect(sshCommonOpts(CI_KEEPALIVE)).toContain("ServerAliveCountMax=10");
   });
 });
 
