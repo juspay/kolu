@@ -36,7 +36,7 @@ const url = yield* serveSurfaceApp({
   allowedOrigins,
   tls, // present → an `https.Server`, and the returned URL says `https://`
   middleware, // wraps every HTTP request — an app's bridge to its own logger
-  upgradeHeaders, // request headers this app reads off the upgrade, by name
+  upgradeHeaders, // request headers this app reads off the upgrade, by name — or a thunk of them
   services, // (connection) => Layer — what THIS connection's handlers require
 });
 ```
@@ -122,7 +122,7 @@ const url = yield* serveSurfaceApp({
 
 | Fact | Shape | Notes |
 | --- | --- | --- |
-| `upgradeHeaders` | `ReadonlyArray<H>` | the allowlist. **Empty by default** — a header nobody named is not available at all |
+| `upgradeHeaders` | `ReadonlyArray<H>` \| `() => ReadonlyArray<H>` | the allowlist. **Empty by default** — a header nobody named is not available at all. An array is read once at the bind; a thunk is re-read at each accept |
 | `connection.headers` | `Readonly<Partial<Record<H, string>>>` | the named headers this upgrade carried. Matched case-insensitively against the wire; keyed by the spelling in `upgradeHeaders` |
 | `connection.remoteAddress` | `string \| undefined` | the **direct** TCP peer — the proxy itself, when there is one. Never a guess |
 | `services` | `(connection: SurfaceAppConnection<H>) => Layer.Layer<Svc>` | the per-connection `Layer` those facts are read into. Effect's socket-server protocol forwards no per-request context, so a connection-scoped fact is **provided**, never carried on the request |
@@ -152,9 +152,46 @@ An array reaching this seam is that same defect and is refused, not joined.
   make. A name outside HTTP's field-name grammar (node's own
   `validateHeaderName`), or one wire header named **twice** (`X-Forwarded-For`
   beside `x-forwarded-for`, which would file one value under two keys), is a
-  **defect**: the effect raises it when it runs, before anything binds, so no
-  listener is left behind — deliberately not a `SurfaceAppListenFailed`, which a
-  port-retry policy would loop on forever against something no port can fix.
+  **defect**: for a fixed array the effect raises it when it runs, before anything
+  binds, so no listener is left behind — deliberately not a
+  `SurfaceAppListenFailed`, which a port-retry policy would loop on forever
+  against something no port can fix.
+</Aside>
+
+### A live allowlist, read at each accept
+
+The list itself can move while the listener is up. An app whose identity part is
+switched on at runtime does not know its headers at the bind, and a serve that
+came up without that part used to answer its own procedures the moment it was
+switched on while **every** socket — open and new — stayed anonymous until a
+restart. Pass a thunk and the next accept reads the list that is live then, so a
+socket accepted after the switch is indistinguishable from one accepted on a boot
+that already had it — the same confluence claim
+[`ServedGenerationSource`](#the-whole-listener-in-one-call) makes for the served
+set.
+
+```ts
+upgradeHeaders: () => identity().headers, // re-read at each accept
+```
+
+The two arms are told apart by `typeof` — an array is never callable, so unlike
+the served generation there is nothing here to mistake for a thunk, and no
+wrapper is needed. `H` infers from either.
+
+<Aside type="tip" title="A bad LIVE list refuses itself, never the socket">
+  A name a fixed array cannot carry takes the bind down, because that array **is**
+  the app's composition root and there is nothing else to blame. A live list is
+  different: the bad name belongs to whatever part offered it, and one part's
+  defect must not reach the wire's other tenants. So the socket is **accepted and
+  served** with *no* named headers — every request on it reads as nobody, which is
+  the state an app already defines for "no identity" — and the fault is reported
+  as `UpgradeHeadersRefused`. Terminating would let one part's list take every
+  connection down with it; throwing would take the process.
+
+  An app that wants that defect loud calls **`checkUpgradeHeaders(names)`**
+  (exported from `/serve`) where it *mints* the list, so the offending part fails
+  there, with the same sentence, before any socket is accepted. The accept-time
+  arm is then only the race between an offer and an accept.
 </Aside>
 
 <Aside type="caution" title="Naming a header says who may WRITE it">
@@ -192,6 +229,7 @@ An array reaching this seam is that same defect and is refused, not joined.
 | `SurfaceAppConnection` | `/serve` | one accepted connection's `{ id, url, remoteAddress, headers }` — what a per-connection `services` layer is built from |
 | `SurfaceAppEvent` | `/serve` | the tagged union `onEvent` narrates |
 | `SurfaceAppHttpMiddleware` | `/serve` | the shape `middleware` takes — error and response types preserved, adding only `HttpServerRequest` |
+| `checkUpgradeHeaders(names)` | `/serve` | the allowlist's grammar, for an app that ASSEMBLES its list — refuse a bad name where it is minted, rather than at the accept. Returns the names unchanged; throws |
 | `reportSurfaceAppEvent(event)` | `/serve` | the default narration policy, exported so an `onEvent` can delegate to it |
 | `SURFACE_WS_PATH` | `.` | `/rpc/ws`, the one path a surface speaks on — both legs import it |
 | `surfaceWsUrl(httpBaseUrl)` | `.` | the dial URL from the http(s) base — the ONE `https:` → `wss:` swap, browser-safe |
@@ -205,7 +243,8 @@ consumer has exactly one logger:
 | `Connected` | `connection` | silent — the accept a live-connection count increments on |
 | `Disconnected` | `connection`, `code`, `reason` | silent — the same connection hung up, with the close frame's own account of why |
 | `SocketError` | `error`, `url` | loud `console.error` — a transport error |
-| `GenerationRefused` | `error`, `url` | loud `console.error` — a live generation `restrictHandlers` refused |
+| `GenerationRefused` | `error`, `url` | loud `console.error` — a live generation `restrictHandlers` refused. The socket is **terminated**: there is no honest reduced thing to serve when the served set itself is unservable |
+| `UpgradeHeadersRefused` | `error`, `url` | loud `console.error` — a live `upgradeHeaders` named something unreadable. The socket is **served anyway**, with no named headers ([why](#a-live-allowlist-read-at-each-accept)) |
 | `StaleTab` | `claimedPid`, `url` | silent — a server that restarted while a tab was open is ordinary, not a fault |
 | `DisallowedOrigin` | `origin`, `url` | loud `console.warn` — a blocked hijack nobody can see is the one thing a shared gate must not ship |
 | `ServingFailed` | `cause`, `connection` | loud `console.error` — `done` MUST be observed |

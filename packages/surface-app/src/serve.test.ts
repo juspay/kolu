@@ -282,7 +282,7 @@ const readConnection = async <H extends string = never>({
   sent,
 }: {
   readonly pick: (connection: SurfaceAppConnection<H>) => unknown;
-  readonly upgradeHeaders?: ReadonlyArray<H>;
+  readonly upgradeHeaders?: ReadonlyArray<H> | (() => ReadonlyArray<H>);
   /** Request headers the dial stamps on the upgrade — the proxy's half.
    *  A list sends that many header lines; node folds a repeated
    *  `x-forwarded-for` into one `", "`-joined string before we see it. */
@@ -666,6 +666,121 @@ describe("serveSurfaceApp — the upgrade facts a connection carries", () => {
     ).rejects.toThrow(
       /"x-forwarded-for" names a header already in upgradeHeaders/,
     );
+  });
+});
+
+describe("serveSurfaceApp — a LIVE allowlist", () => {
+  /** Dial the listener and read the accepted connection's `headers` back through
+   *  a REAL dispatch, the way {@link readConnection} does — but against a server
+   *  the test already booted, because the whole claim here is about a SECOND
+   *  accept on the SAME listener. */
+  const headersSeenBy = async (
+    server: Booted,
+    sent: Record<string, string>,
+  ) => {
+    const socket = await dial(server, server.wsUrl, sent);
+    const answer = await Effect.runPromise(
+      socket.link.dispatch.unary("surface/viewer/seen", {}),
+    );
+    await socket.dispose();
+    return JSON.parse((answer as { seen: string }).seen) as Record<
+      string,
+      string
+    >;
+  };
+
+  it("follows the list that is live at each accept, with no rebind", async () => {
+    // The finding this arm exists for (olai#500's identity row): a serve that
+    // came up with no identity part, and switched it on while the port stayed
+    // bound, used to answer its own procedures at once while every socket — open
+    // AND new — stayed anonymous until a restart. The state after the flip must
+    // equal the state of a from-scratch boot with the part already on, which is
+    // the confluence claim #2225 closed for the served set.
+    let offered: ReadonlyArray<"Tailscale-User-Login"> = [];
+    const server = await boot<Viewer, "Tailscale-User-Login">({
+      upgradeHeaders: () => offered,
+      services: (connection) =>
+        Layer.succeed(Viewer)({ seen: JSON.stringify(connection.headers) }),
+    });
+    const sent = { "Tailscale-User-Login": "ada@example.com" };
+
+    // The part is off: the header is on the wire and is not readable, because
+    // nothing named it.
+    expect(await headersSeenBy(server, sent)).toEqual({});
+
+    // …it switches on, and the very next accept reads the login. No rebind, no
+    // restart — the listener never moved.
+    offered = ["Tailscale-User-Login"];
+    expect(await headersSeenBy(server, sent)).toEqual(sent);
+
+    // …and off again, symmetrically: the switch goes both ways.
+    offered = [];
+    expect(await headersSeenBy(server, sent)).toEqual({});
+  });
+
+  it("serves a connection with NO named headers when the live list refuses itself", async () => {
+    // A bad name is the OFFERING part's defect, and the paper's rule is that a
+    // bad row touches no sibling — the transport being the sibling here. So the
+    // socket is ACCEPTED and served: every request on it reads as nobody, which
+    // is exactly the state an app already defines for "no identity". Terminating
+    // would let one part's bad list take the whole app down, which is the failure
+    // a live allowlist exists to survive.
+    const events: SurfaceAppEvent<"X-Real">[] = [];
+    let offered: ReadonlyArray<"X-Real"> = ["X-Real"];
+    const server = await boot<Viewer, "X-Real">({
+      upgradeHeaders: () => offered,
+      onEvent: (event) => events.push(event),
+      services: (connection) =>
+        Layer.succeed(Viewer)({ seen: JSON.stringify(connection.headers) }),
+    });
+    const sent = { "X-Real": "ada@example.com" };
+    expect(await headersSeenBy(server, sent)).toEqual(sent);
+
+    // The part now offers a name this seam cannot read off an upgrade.
+    offered = ["Set-Cookie"] as unknown as ReadonlyArray<"X-Real">;
+    // Served — the dispatch answers, which is the half a terminate would lose —
+    // and anonymous, which is the half a silent pass-through would lose.
+    expect(await headersSeenBy(server, sent)).toEqual({});
+    const refused = events.filter(
+      (event) => event._tag === "UpgradeHeadersRefused",
+    );
+    expect(refused).toHaveLength(1);
+    expect(refused[0]).toMatchObject({
+      error: expect.objectContaining({
+        message: expect.stringMatching(/"Set-Cookie" cannot be read off/),
+      }),
+    });
+    // Reported BEFORE the connection it describes, so a log reads in the order
+    // it happened: why this connection is anonymous, then the connection.
+    expect(
+      events.indexOf(refused[0] as SurfaceAppEvent<"X-Real">),
+    ).toBeLessThan(
+      events.findIndex(
+        (event) => event._tag === "Connected" && event.connection.id === 2,
+      ),
+    );
+
+    // …and the refusal poisons nothing: the part fixes its list and the next
+    // accept reads the header again.
+    offered = ["X-Real"];
+    expect(await headersSeenBy(server, sent)).toEqual(sent);
+    expect(
+      events.filter((event) => event._tag === "UpgradeHeadersRefused"),
+    ).toHaveLength(1);
+  });
+
+  it("still refuses a FIXED bad list at the bind — the array IS the app", async () => {
+    // The asymmetry, stated as a test: a thunk is a live fact whose bad name
+    // belongs to whatever minted it, while an array is written in the app's own
+    // composition root, where there is nothing else to blame and the loud
+    // failure has somewhere to land. `checkUpgradeHeaders` is exported so an app
+    // assembling a live list gets that same loudness where it mints it.
+    await expect(boot({ upgradeHeaders: ["Set-Cookie"] })).rejects.toThrow(
+      /"Set-Cookie" cannot be read off an upgrade/,
+    );
+    await expect(
+      boot({ upgradeHeaders: () => ["Set-Cookie"] as const }),
+    ).resolves.toBeDefined();
   });
 });
 
