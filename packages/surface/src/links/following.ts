@@ -201,12 +201,26 @@ export function followingWire<T extends WireTransport>(
     for (const watcher of [...establishmentWatchers]) watcher(establishments);
   };
 
-  /** ONE forwarder, used for every generation, so a status change and the
-   *  establishment it may be are read off the same event rather than by two
-   *  subscriptions that could see different things. */
+  /** ONE forwarder for BOTH establishment edges — a generation's own status
+   *  events, and the status an `adopt` reads off the generation it just took.
+   *  Two spellings of this could drift, and the drift would be invisible: the
+   *  adopt edge is the one no status event fires for.
+   *
+   *  The note is in a `finally` for the same reason `adopt`'s release is (and
+   *  it is the same class of bug, one line further in): `publish` runs CONSUMER
+   *  callbacks, a consumer may throw, and that throw must escape — but it must
+   *  not take the count with it. It would have, permanently: the detector is
+   *  armed `false` before the swap, a status reports CHANGES only, so an open
+   *  generation whose `publish` threw would never announce itself again and the
+   *  socket would go uncounted for the life of the connection. An identity
+   *  keyed on the count would then sit on the previous socket's answer with
+   *  every subscription around it healthy and green. */
   const forwardStatus = (next: WireStatus): void => {
-    publish(next);
-    noteEstablished(next === "open");
+    try {
+      publish(next);
+    } finally {
+      noteEstablished(next === "open");
+    }
   };
   let detachStatus = held.transport.wire.onStatus(forwardStatus);
 
@@ -311,13 +325,11 @@ export function followingWire<T extends WireTransport>(
         // and the sweep runs last (in a `finally`) so a throwing handler cannot
         // leave the superseded calls with nothing to fail them.
         //
-        // A new usable connection may be established by this very statement (an
-        // already-open replacement), which the funnel has nothing to publish
-        // about — see {@link noteEstablished}.
-        fence.advance(() => {
-          publish(next.transport.wire.status());
-          noteEstablished(next.transport.wire.status() === "open");
-        });
+        // Through the SAME forwarder a generation's own events go through, so
+        // the two establishment edges cannot drift — and this is the edge no
+        // status event fires for: an already-open replacement is a new usable
+        // connection the deduplicated funnel has nothing to publish about.
+        fence.advance(() => forwardStatus(next.transport.wire.status()));
       } finally {
         release = releaseSuperseded(superseded);
       }

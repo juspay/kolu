@@ -242,6 +242,115 @@ describe("followingWire — one wire over a succession of links", () => {
     expect(wire.current()).toBe(second.transport);
   });
 
+  it("counts a usable connection ESTABLISHED — the reconnect edge and the adopt edge", async () => {
+    // The fact the status funnel cannot carry, because it is DEDUPLICATED. A
+    // consumer whose answer came FROM the connection (a viewer identity resolved
+    // from the upgrade's headers) has no other way to hear that a different
+    // socket is carrying its calls now.
+    const first = generation("first", "connecting");
+    const wire = followingWire(first);
+    const seen: number[] = [];
+    const off = wire.onEstablished((n) => seen.push(n));
+    expect(wire.establishments()).toBe(0);
+
+    // The first connection.
+    first.set("open");
+    expect(seen).toEqual([1]);
+    // A RECONNECT inside this generation is a second establishment...
+    first.set("closed");
+    first.set("open");
+    expect(seen).toEqual([1, 2]);
+    // ...and a status that is not a connection is not one.
+    first.set("connecting");
+    expect(seen).toEqual([1, 2]);
+    first.set("open");
+    expect(seen).toEqual([1, 2, 3]);
+
+    // THE ADOPT EDGE, open → open: the funnel has nothing to publish, and this
+    // is the case the whole fact exists for.
+    const statuses: WireStatus[] = [];
+    wire.wire.onStatus((next) => statuses.push(next));
+    await wire.adopt(generation("second", "open"));
+    expect(statuses).toEqual([]); // the funnel said nothing...
+    expect(seen).toEqual([1, 2, 3, 4]); // ...and a connection was established.
+
+    // An adopt onto a replacement that is still CONNECTING counts when it
+    // OPENS, not when it is adopted.
+    const third = generation("third", "connecting");
+    await wire.adopt(third);
+    expect(seen).toEqual([1, 2, 3, 4]);
+    third.set("open");
+    expect(seen).toEqual([1, 2, 3, 4, 5]);
+    // MONOTONIC across generations — it never restarts with the underlying link.
+    expect(wire.establishments()).toBe(5);
+
+    // Unsubscribing stops the handler and nothing else.
+    off();
+    third.set("closed");
+    third.set("open");
+    expect(seen).toEqual([1, 2, 3, 4, 5]);
+    expect(wire.establishments()).toBe(6);
+  });
+
+  it("counts the connection a wire is BORN holding, and none it never took", async () => {
+    // A first generation that is already open IS an established connection — a
+    // consumer keying a fetch on the count must not have to wait for a reconnect
+    // to make its first one.
+    const born = followingWire(generation("first", "open"));
+    expect(born.establishments()).toBe(1);
+
+    // "A failed replacement attempt that leaves the existing connection in place
+    // must not claim a new established connection." A refused adopt throws before
+    // the swap; a dial that failed never reaches `adopt` at all.
+    await born.dispose();
+    const orphan = generation("orphan", "open");
+    expect(() => born.adopt(orphan)).toThrow(/`adopt` on a disposed wire/);
+    expect(born.establishments()).toBe(1);
+  });
+
+  it("counts the establishment even when a status watcher THROWS", async () => {
+    // The same class as the superseded release, one line further in. `publish`
+    // runs consumer callbacks; the throw must escape, but it must not take the
+    // count with it — and it would have taken it PERMANENTLY, because the
+    // detector is armed `false` before the swap and a status reports CHANGES
+    // only, so the newly-open generation would never announce itself again and
+    // that socket would go uncounted for the life of the connection.
+    //
+    // The throw is only reachable where there IS something to publish, so the
+    // statuses here DIFFER across the adopt — open → open, the other
+    // establishment edge, notifies nobody and so has no consumer to throw.
+    const first = generation("first", "closed");
+    const wire = followingWire(first);
+    const seen: number[] = [];
+    wire.onEstablished((n) => seen.push(n));
+    wire.wire.onStatus(() => {
+      throw new Error("a consumer's status handler threw");
+    });
+    expect(wire.establishments()).toBe(0);
+
+    // The ADOPT edge, closed → open.
+    const second = generation("second", "open");
+    expect(() => wire.adopt(second)).toThrow(
+      /a consumer's status handler threw/,
+    );
+    expect(seen).toEqual([1]);
+    expect(wire.establishments()).toBe(1);
+    // The wire really did move — this is not a refusal.
+    expect(wire.current()).toBe(second.transport);
+
+    // ...and the RECONNECT edge, same guarantee.
+    expect(() => second.set("closed")).toThrow(
+      /a consumer's status handler threw/,
+    );
+    expect(() => second.set("open")).toThrow(
+      /a consumer's status handler threw/,
+    );
+    expect(seen).toEqual([1, 2]);
+    expect(wire.establishments()).toBe(2);
+    await settle();
+    await wire.dispose();
+  });
+
   it("releases the held generation on dispose — idempotently — and refuses a later adopt", async () => {
     const first = generation("first");
     const wire = followingWire(first);

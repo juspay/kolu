@@ -1336,8 +1336,15 @@ describe("connectSurfaces — a ROSTER CHANGE moves the WIRE, not the connection
       await settle();
       expect(conn.connectionEpoch()).toBe(2);
 
-      // A ROSTER MOVE onto an already-open replacement: the readout never
-      // stopped saying `live`, and that is exactly why the epoch is the fact.
+      // A ROSTER MOVE. What this pins is the SEAM: the epoch a consumer reads
+      // advances across a redial, and the readout says `live` on both sides of
+      // it — which is exactly why the epoch has to be its own fact.
+      //
+      // It does NOT pin the open → open adopt edge: with fake sockets the
+      // replacement is still `connecting` when `adopt` runs, so this is the
+      // connecting-then-open path. That edge is the one the funnel publishes
+      // nothing for, and it is pinned deterministically one layer down, in
+      // `@kolu/surface`'s `links/following.test.ts`.
       const before = conn.readout().status;
       await conn.redial({ a: surface, b: later });
       const third = await d.nth(3);
