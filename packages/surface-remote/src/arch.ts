@@ -40,6 +40,7 @@ import {
   buildSshProbeCommand,
   isLocalHost,
   ResolveDrvError,
+  type SshKeepalive,
   type SshRefusal,
   sshRefusalOf,
 } from "./host";
@@ -58,6 +59,14 @@ const NIX_SYSTEM_RE = /^[a-z0-9_]+-[a-z0-9_]+$/;
 export interface ResolveSystemOptions {
   signal: AbortSignal;
   onProgress: (line: string) => void;
+  /** The owning dial's ssh dead-peer policy. Defaults to
+   *  `DEFAULT_SSH_KEEPALIVE`, and is satisfied structurally by the
+   *  `ResolveDrvPathContext` a `sshConnector` dial hands the resolver — so the
+   *  documented `resolveSystem(host, ctx)` idiom threads the dial's policy with
+   *  no extra wiring. It MUST match the rest of the dial: this probe is usually
+   *  the ssh that OPENS the host's shared `ControlMaster`, and the master's
+   *  opener fixes `ServerAlive*` for every command that later rides it. */
+  keepalive?: SshKeepalive;
 }
 
 /** Ask `host`'s Nix for its `builtins.currentSystem`. Runs locally for
@@ -72,7 +81,7 @@ export async function resolveSystem(
   // executable a spawn fault is even ABOUT — see the failure classification below.
   const local = isLocalHost(host);
   const { command, args } = buildSshProbeCommand(
-    host,
+    { host, keepalive: opts.keepalive },
     "nix-instantiate",
     "--eval",
     "--expr",

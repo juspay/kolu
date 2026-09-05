@@ -39,7 +39,8 @@ import { LOOPBACK_ADDRESS, type LoopbackFamily } from "./target.ts";
 /** The options every forward connection is opened with.
  *
  *  `BatchMode=yes` and the `ServerAlive` pair are kolu's own ssh policy
- *  (`SSH_OPT_PAIRS` in `@kolu/surface-remote`): no host may stop to prompt
+ *  (`sshOptPairs` at `DEFAULT_SSH_KEEPALIVE`, in `@kolu/surface-remote`): no
+ *  host may stop to prompt
  *  under a TUI, and a dead peer must be noticed. The two that carry this
  *  module's design are:
  *

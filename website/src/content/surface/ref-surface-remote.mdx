@@ -34,7 +34,7 @@ shared pool; key your own map and `destroy()` them yourself.
 | `Connector` / `Connection` / `ConnectError` | `.` | the transport seam: dial once, return a `Connection` or reject with a classified `ConnectError`. Supply your own for a non-ssh transport. A `Connection` may carry an optional `processAlive` same-box life-oracle (a local/stdio arm supplies it; ssh omits it) — see the liveness-watchdog note below. `ConnectError` takes a fourth, optional `anomaly: unknown` (default `null`): the app's own TYPED verdict for this failure, carried OPAQUELY from the connector that classified it to the binder that renders it, so a binder never has to string-parse `message` to tell "this daemon speaks a previous protocol epoch" from "this host is down" |
 | `Admit` / `AdmitVerdict` | `.` | optional per-dial supervision hook: `adopt` / `refuse(state)` / `replaced(reason)`. Omit and every connection is adopted |
 
-`sshConnector` opts are `{ surface, host, binary, resolveDrvPath, localEnv, extraArgs? }`:
+`sshConnector` opts are `{ surface, host, binary, resolveDrvPath, localEnv, extraArgs?, keepalive? }`:
 `surface` is the `Surface<S>` the remote agent serves, `host` is any
 ssh target (`"localhost"` short-circuits), `binary` the exe name inside the realised
 closure, `resolveDrvPath: ({ signal, localProgress, resolveAgentDrv }) => Promise<AgentDerivation>` resolves
@@ -52,6 +52,39 @@ flake-backed arm that survives local garbage collection. **`localEnv: Record<str
 `localEnv`. Surface Remote reads the exact, minimal source flake baked by the
 Nix wrapper itself; the package name is the same `binary` value, so the
 executable and derivation cannot drift into two hand-maintained mappings.
+
+`keepalive?: { intervalS, countMax }` is the dial's ssh **dead-peer policy** —
+`ServerAliveInterval` and `ServerAliveCountMax`, so a link may sit silent for
+`intervalS × countMax` seconds before ssh declares the peer dead and the session
+redials. It defaults to `DEFAULT_SSH_KEEPALIVE` (`10 × 3` ≈ 30s), which is what
+an interactive tool wants: a host that stopped answering must stop *looking*
+connected. **Raise it for a long-running unattended dial that a redial would
+destroy rather than repair** — a CI lane that has been compiling for twenty
+minutes should ride out a multi-minute network blip, not be killed and restarted
+(`{ intervalS: 30, countMax: 10 }` buys five minutes). The cost is symmetric: a
+genuinely dead host keeps that dial parked for the same window before the loop
+retries. Out-of-range values throw at `sshConnector(...)` construction rather
+than being clamped (`assertSshKeepalive`, ceiling `MAX_SSH_KEEPALIVE_TOLERANCE_S`
+= one hour) — the same fail-fast rule as `makeSession`'s `liveness`, the
+heartbeat half of the same question. The policy reaches **every** ssh the dial
+spawns: the arch probe, the warm validity check, the GC-root pin, the closure
+ship, the `NIX_SSHOPTS` that the remote-store `nix build` forks its own ssh with,
+and the agent command itself.
+
+<Aside type="note" title="A ControlMaster's opener fixes ServerAlive* for its lifetime">
+  The commands one dial issues share a single ssh `ControlMaster` connection, and
+  OpenSSH applies `ServerAliveInterval`/`ServerAliveCountMax` from the process
+  that **opened** the master — every later ssh riding that socket inherits them
+  and silently ignores its own. So the control socket is **keyed by the
+  keepalive policy**: two policies to the same host get two masters rather than
+  one of them quietly getting the other's dead-peer behaviour. The visible
+  consequence is only that a CI-tuned dial and an interactive dial to the same
+  host each keep their own warm connection (`ControlPersist` is 10 minutes, and
+  cross-invocation). Within one dial every ssh carries the same policy by
+  construction — which is why `resolveDrvPath` receives `keepalive` on its
+  context and the documented `resolveSystem(host, ctx)` idiom threads it for
+  free.
+</Aside>
 
 <Aside type="caution" title="The agent must greet before the client attaches">
   After the spawn, `sshConnector` awaits the agent's readiness banner

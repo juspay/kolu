@@ -44,12 +44,19 @@ export {
   dialAgentOnce,
 } from "./dialAgentOnce";
 export {
+  assertSshKeepalive,
   buildAgentCommand,
   buildSshProbeCommand,
+  DEFAULT_SSH_KEEPALIVE,
   forEachLine,
   isLocalHost,
+  MAX_SSH_KEEPALIVE_TOLERANCE_S,
+  nixSshOpts,
   ResolveDrvError,
   SSH_COMMON_OPTS,
+  sshCommonOpts,
+  type SshKeepalive,
+  type SshTarget,
 } from "./host";
 export {
   buildRemotePool,

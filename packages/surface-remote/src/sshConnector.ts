@@ -22,10 +22,13 @@ import {
   isStdioReadinessError,
 } from "@kolu/surface/links/readiness";
 import {
+  assertSshKeepalive,
   buildAgentCommand,
+  DEFAULT_SSH_KEEPALIVE,
   forEachLine,
   isLocalHost,
   ResolveDrvError,
+  type SshKeepalive,
 } from "./host";
 import { resolveAgentDrv, type AgentResolutionContext } from "./agentDrv";
 import type { AgentDerivation } from "./agentDerivation";
@@ -104,6 +107,12 @@ const AGENT_READINESS_DEADLINE_MS = 180_000;
 export interface ResolveDrvPathContext extends AgentResolutionContext {
   signal: AbortSignal;
   localProgress: (line: string) => void;
+  /** This dial's ssh dead-peer policy. Carried here so the documented
+   *  `resolveSystem(host, ctx)` idiom threads it STRUCTURALLY: a resolver that
+   *  forwards the whole context gets the connector's policy on its arch probe
+   *  for free, and cannot accidentally open the host's shared `ControlMaster`
+   *  under a different one. */
+  keepalive: SshKeepalive;
 }
 
 export interface SshConnectorOptions<S extends SurfaceSpec> {
@@ -146,6 +155,25 @@ export interface SshConnectorOptions<S extends SurfaceSpec> {
    *  a localhost dial can never fall back to ambient full-inherit — the seam #1880
    *  left and #1872 forbids. drishti and every kolu CLI plug in here. */
   localEnv: Record<string, string>;
+  /** How long a dial of THIS consumer may sit in silence before ssh declares the
+   *  peer dead and the session redials — see {@link SshKeepalive}. Defaults to
+   *  {@link DEFAULT_SSH_KEEPALIVE} (≈30s), the right answer for an interactive
+   *  tool: a host that stopped answering must stop looking connected.
+   *
+   *  RAISE it when the dial is a long-running unattended job that a redial would
+   *  destroy rather than repair — juspay/odu's CI lanes are the first consumer,
+   *  riding out a multi-minute blip instead of killing a lane mid-build. The cost
+   *  is symmetric and bounded: a genuinely dead host keeps this dial parked for
+   *  `intervalS × countMax` seconds before the loop can retry. A policy outside
+   *  `assertSshKeepalive`'s range throws HERE, at construction — never at the
+   *  first dial, and never clamped.
+   *
+   *  Threaded into EVERY ssh the dial spawns (arch probe, provisioning, GC-root
+   *  pin, closure ship, Nix's own remote-store ssh, and the agent command), and
+   *  the shared `ControlMaster` socket is keyed by it, so a second policy to the
+   *  same host opens its own master rather than silently inheriting this one's
+   *  `ServerAlive*`. */
+  keepalive?: SshKeepalive;
 }
 
 /** Build an ssh {@link Connector} for `(host, binary)`. Each `connectOnce` call
@@ -160,6 +188,13 @@ export function sshConnector<S extends SurfaceSpec>(
   // campaign reset is `budgets.onCampaign(ctx.campaignEpoch)` at the top of each dial
   // (below) — provisionAgent is campaign-ignorant; the connector is the only caller.
   const budgets = makeProvisionBudgets();
+  // Resolved and VALIDATED once, at construction: a nonsense policy is a crash
+  // here — where the consumer wrote it — not a surprise on the first dial, and
+  // never a silent clamp. One value for the whole connector, so every ssh a dial
+  // spawns provably carries the same policy (they share a ControlMaster keyed by
+  // it — see `controlMaster.ts`).
+  const keepalive = opts.keepalive ?? DEFAULT_SSH_KEEPALIVE;
+  assertSshKeepalive(keepalive);
 
   return async (ctx): Promise<Connection<AgentClient>> => {
     // Reconcile the per-campaign budget reset HERE — the session↔nixCopy bridge, where the
@@ -177,12 +212,14 @@ export function sshConnector<S extends SurfaceSpec>(
       derivation = await opts.resolveDrvPath({
         signal: ctx.signal,
         localProgress: ctx.localProgress,
+        keepalive,
         resolveAgentDrv: (flakeRef, packageName) =>
           resolveAgentDrv(opts.host, flakeRef, packageName, {
             signal: ctx.signal,
             onProgress: ctx.localProgress,
             onEvaluation: () => ctx.provisioning("provisioning"),
             budget: budgets.evaluation,
+            keepalive,
           }),
       });
     } catch (err) {
@@ -204,6 +241,7 @@ export function sshConnector<S extends SurfaceSpec>(
       // a cold build or a warm target's root repair.
       onProvisioning: () => ctx.provisioning("provisioning"),
       budgets,
+      keepalive,
       // The per-dial abort — recheck's abort-in-flight group-kills any provisioning
       // child so the session can redial NOW instead of waiting out a wedge (#1908 R6b).
       signal: ctx.signal,
@@ -229,6 +267,7 @@ export function sshConnector<S extends SurfaceSpec>(
       binary: opts.binary,
       extraArgs: opts.extraArgs,
       localEnv: opts.localEnv,
+      keepalive,
     });
     const transport = spawnOwnedProcessGroup(command, args, {
       stdio: ["pipe", "pipe", "pipe"],

@@ -23,7 +23,12 @@ import {
   provisionAgent,
 } from "./nixCopy";
 import { type CaptureResult, runCapture } from "./process";
+import type { SshKeepalive } from "./host";
 import { TEST_BINARY_CACHE } from "./agentDerivation.testutil";
+
+/** A CI-shaped keepalive: five minutes of tolerated silence, so a network blip
+ *  doesn't kill a lane mid-build. The shape juspay/odu passes. */
+const CI_KEEPALIVE: SshKeepalive = { intervalS: 30, countMax: 10 };
 
 vi.mock("./process", async (importOriginal) => ({
   // Keep the real pure helpers (`describeExit`) and mock only the two
@@ -161,9 +166,60 @@ describe("provisionAgent GC-root pinning (cold path)", () => {
     const opts = provisionCall![2];
     const nixSshOpts = opts.env?.NIX_SSHOPTS ?? "";
     expect(nixSshOpts).toContain("-o ControlMaster=auto");
-    expect(nixSshOpts).toMatch(/-o ControlPath=\S+\/%C(\s|$)/);
+    // The socket is keyed by the keepalive policy — `10x3` is the default.
+    expect(nixSshOpts).toMatch(/-o ControlPath=\S+\/%C-10x3(\s|$)/);
     expect(nixSshOpts).toContain("-o ControlPersist=10m");
     expect(nixSshOpts).toContain("-o ServerAliveInterval=10");
+    expect(nixSshOpts).toContain("-o ServerAliveCountMax=3");
+  });
+
+  it("threads a custom keepalive into EVERY ssh the provisioning spawns", async () => {
+    // The provisioning steps are where a long CI lane is most exposed to a
+    // blip: a cold build can sit idle for minutes. So the dial's policy has to
+    // reach the argv we spawn AND the `NIX_SSHOPTS` Nix's own ssh reads.
+    mockNix();
+    await provisionAgent({
+      host: "testhost",
+      derivation: directAgentDerivation(DRV, TEST_BINARY_CACHE),
+      onProgress: () => {},
+      keepalive: CI_KEEPALIVE,
+      ...provArgs(),
+    });
+    const calls = vi.mocked(runCapture).mock.calls;
+
+    // Every ssh argv we build ourselves (the warm check, the GC-root pin).
+    const sshCalls = calls.filter(([command]) => command === "ssh");
+    expect(sshCalls.length).toBeGreaterThan(0);
+    for (const [, args] of sshCalls) {
+      expect(args).toContain("ServerAliveInterval=30");
+      expect(args).toContain("ServerAliveCountMax=10");
+    }
+
+    // …and every remote-store Nix command, whose ssh is out of reach of argv.
+    const envs = calls
+      .map(([, , opts]) => opts?.env?.NIX_SSHOPTS)
+      .filter((v): v is string => typeof v === "string");
+    expect(envs.length).toBeGreaterThan(0);
+    for (const env of envs) {
+      expect(env).toContain("-o ServerAliveInterval=30");
+      expect(env).toContain("-o ServerAliveCountMax=10");
+      // Its own master, never the interactive one (the opener wins for life).
+      expect(env).toMatch(/-o ControlPath=\S+\/%C-30x10(\s|$)/);
+    }
+  });
+
+  it("REFUSES an out-of-range keepalive rather than clamping it", async () => {
+    mockNix();
+    await expect(
+      provisionAgent({
+        host: "testhost",
+        derivation: directAgentDerivation(DRV, TEST_BINARY_CACHE),
+        onProgress: () => {},
+        // 300 × 60 = 5 hours — no longer dead-peer detection at all.
+        keepalive: { intervalS: 300, countMax: 60 },
+        ...provArgs(),
+      }),
+    ).rejects.toThrow(/ssh keepalive/);
   });
 
   it("uses one remote-store Nix build for transfer and realisation", async () => {

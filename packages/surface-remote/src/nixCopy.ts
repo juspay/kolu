@@ -77,10 +77,12 @@ import type { AgentBinaryCache } from "./agentBinaryCache";
 import type { AgentDerivation } from "./agentDerivation";
 import {
   buildSshProbeCommand,
+  DEFAULT_SSH_KEEPALIVE,
   forEachLine,
   isLocalHost,
   looksLikeNetworkError,
   nixSshOpts,
+  type SshKeepalive,
 } from "./host";
 import {
   describeExit,
@@ -239,6 +241,14 @@ export interface ProvisionOptions {
    *  in-flight provisioning child and settles the run as `"aborted"` — a retryable,
    *  budget-EXEMPT fault. Threaded into every child. */
   signal?: AbortSignal;
+  /** The owning dial's ssh dead-peer policy (`DEFAULT_SSH_KEEPALIVE` when
+   *  omitted), threaded into EVERY ssh this provisioning causes: the warm
+   *  validity check, the GC-root pin, the closure ship, and — via `NIX_SSHOPTS`
+   *  — the ssh that the remote-store `nix build`/`nix copy` fork internally,
+   *  which is otherwise entirely out of reach of our argv. A provisioning step
+   *  is where a long CI lane is most exposed to a network blip: a cold build can
+   *  sit idle for minutes while the far end compiles. */
+  keepalive?: SshKeepalive;
 }
 
 export type ProvisionResult =
@@ -350,6 +360,7 @@ function expiredResult(
  * re-establishes the target and its root together or fails the dial. */
 async function pinGcRoot(
   host: string,
+  keepalive: SshKeepalive,
   target: string,
   rootPath: string,
   onProgress: (line: string) => void,
@@ -359,7 +370,7 @@ async function pinGcRoot(
   onProgress(`${host}: pinning GC root at '${rootPath}'…`);
   let sawNetworkError = false;
   const pin = buildSshProbeCommand(
-    host,
+    { host, keepalive },
     "nix-store",
     "--realise",
     target,
@@ -514,6 +525,7 @@ async function prefetchAgentClosure(opts: {
  *  the caller runs this step only once local validity is established. */
 async function shipAgentClosure(opts: {
   host: string;
+  keepalive: SshKeepalive;
   outPath: string;
   narrate: (line: string) => void;
   policy: LifetimePolicy;
@@ -528,7 +540,7 @@ async function shipAgentClosure(opts: {
     {
       onProgress: opts.narrate,
       policy: opts.policy,
-      env: { NIX_SSHOPTS: nixSshOpts() },
+      env: { NIX_SSHOPTS: nixSshOpts(opts.keepalive) },
       signal: opts.signal,
     },
   );
@@ -562,10 +574,12 @@ async function checkValidity(
   opts: {
     signal: AbortSignal | undefined;
     onProgress?: (line: string) => void;
+    /** The dial's ssh policy. Omitted at the LOCAL seat, which spawns no ssh. */
+    keepalive?: SshKeepalive;
   },
 ): Promise<"valid" | "absent" | "aborted"> {
   const probe = buildSshProbeCommand(
-    host,
+    { host, keepalive: opts.keepalive },
     "nix-store",
     "--check-validity",
     outPath,
@@ -598,6 +612,7 @@ async function checkValidity(
  *  the required build's escalated one. */
 async function stageAgentClosure(opts: {
   host: string;
+  keepalive: SshKeepalive;
   isLocal: boolean;
   outPath: string;
   binaryCache: AgentBinaryCache;
@@ -644,6 +659,7 @@ async function stageAgentClosure(opts: {
   }
   const ship = await shipAgentClosure({
     host: opts.host,
+    keepalive: opts.keepalive,
     outPath: opts.outPath,
     narrate: opts.narrate,
     policy: copyPolicy(),
@@ -667,6 +683,10 @@ export async function provisionAgent(
 ): Promise<ProvisionResult> {
   const isLocal = isLocalHost(opts.host);
   const { signal, budgets } = opts;
+  // Resolved ONCE for the whole provisioning: every ssh below — and the ssh Nix
+  // forks for the remote store — must carry the SAME policy, because they share
+  // one `ControlMaster` keyed by it (see `controlMaster.ts`).
+  const keepalive = opts.keepalive ?? DEFAULT_SSH_KEEPALIVE;
   const { drvPath } = opts.derivation;
   // Already aborted before we start ⇒ do NO work: a user abort is a budget-EXEMPT,
   // retryable `"network"` fault (C3/F6). (The connector already reconciled the campaign
@@ -762,6 +782,7 @@ export async function provisionAgent(
         (await checkValidity(opts.host, localAgentPath, {
           signal,
           onProgress: onProbeProgress,
+          keepalive,
         })) === "valid"
       ) {
         // Warm hit. The shared root operation is the commit point: only a rooted,
@@ -769,6 +790,7 @@ export async function provisionAgent(
         opts.onProvisioning?.();
         const bail = await pinGcRoot(
           opts.host,
+          keepalive,
           localAgentPath,
           rootPath,
           opts.onProgress,
@@ -798,6 +820,7 @@ export async function provisionAgent(
   if (localAgentPath !== undefined) {
     const staged = await stageAgentClosure({
       host: opts.host,
+      keepalive,
       isLocal,
       outPath: localAgentPath,
       binaryCache: opts.derivation.binaryCache,
@@ -817,6 +840,7 @@ export async function provisionAgent(
   if (onTarget && localAgentPath !== undefined) {
     const bail = await pinGcRoot(
       opts.host,
+      keepalive,
       localAgentPath,
       rootPath,
       opts.onProgress,
@@ -861,7 +885,7 @@ export async function provisionAgent(
   const realiseRes = await runCapture("nix", provisionArgs, {
     onProgress,
     policy: budgets.provisioning.policy(),
-    env: isLocal ? undefined : { NIX_SSHOPTS: nixSshOpts() },
+    env: isLocal ? undefined : { NIX_SSHOPTS: nixSshOpts(keepalive) },
     signal,
   });
   if (realiseRes.kind === "lifetime-expired") {
@@ -903,6 +927,7 @@ export async function provisionAgent(
   {
     const bail = await pinGcRoot(
       opts.host,
+      keepalive,
       agentPath,
       rootPath,
       opts.onProgress,

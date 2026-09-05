@@ -11,7 +11,11 @@
  */
 
 import { resolveSystem } from "./arch";
-import { looksLikeNetworkError, ResolveDrvError } from "./host";
+import {
+  looksLikeNetworkError,
+  ResolveDrvError,
+  type SshKeepalive,
+} from "./host";
 import {
   type AgentBinaryCache,
   readBakedBinaryCache,
@@ -112,6 +116,10 @@ export interface AgentDrvResolutionOptions {
   onEvaluation: () => void;
   /** Connector-owned campaign budget for the local Nix evaluation. */
   budget: StepBudget;
+  /** The owning dial's ssh dead-peer policy, forwarded to this resolver's ONE
+   *  ssh — the {@link resolveSystem} arch probe. Defaults to
+   *  `DEFAULT_SSH_KEEPALIVE`. (The Nix `eval` below is local; it opens no ssh.) */
+  keepalive?: SshKeepalive;
 }
 
 /** Stable capability exposed to a source resolver. The connector owns the
@@ -183,6 +191,7 @@ export async function resolveAgentDrv(
   const system = await resolveSystem(host, {
     signal: opts.signal,
     onProgress: opts.onProgress,
+    keepalive: opts.keepalive,
   });
   const installable = `${flakeRef}#packages.${system}.${packageName}`;
   const cached = drvCache.get(installable);

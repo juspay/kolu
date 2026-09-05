@@ -14,11 +14,20 @@ import { __resetControlMemo } from "./controlMaster";
 import {
   buildAgentCommand,
   buildSshProbeCommand,
+  DEFAULT_SSH_KEEPALIVE,
   looksLikeNetworkError,
+  MAX_SSH_KEEPALIVE_TOLERANCE_S,
   NIX_SSHOPTS,
   nixSshOpts,
+  SSH_COMMON_OPTS,
+  sshCommonOpts,
+  type SshKeepalive,
   sshRefusalOf,
 } from "./host";
+
+/** A CI-shaped policy: 30s × 10 = five minutes of tolerated silence, the shape
+ *  juspay/odu passes so a network blip doesn't kill a running lane. */
+const CI_KEEPALIVE: SshKeepalive = { intervalS: 30, countMax: 10 };
 
 // Every spawned-ssh builder now appends the P2.8 ControlMaster opts, which
 // mkdir a kolu-private control dir. Point that at a throwaway private tmp dir
@@ -51,15 +60,20 @@ function sshOpts(args: readonly string[]): Record<string, string> {
   return opts;
 }
 
-/** Assert an ssh argv carries the full shared dead-peer keepalive policy.
- *  One invariant ("every non-interactive ssh this package spawns carries
- *  `SSH_COMMON_OPTS`") asserted in one place, so re-tuning a keepalive
- *  value can't leave a second hand-synced block green on stale numbers. */
-function assertKeepAlive(args: readonly string[]): void {
+/** Assert an ssh argv carries the dead-peer keepalive policy `keepalive` (the
+ *  package default unless stated). One invariant ("every non-interactive ssh
+ *  this package spawns carries the dial's policy") asserted in one place, so
+ *  re-tuning a keepalive value can't leave a second hand-synced block green on
+ *  stale numbers. */
+function assertKeepAlive(
+  args: readonly string[],
+  keepalive: SshKeepalive = DEFAULT_SSH_KEEPALIVE,
+): void {
   const opts = sshOpts(args);
   expect(opts.BatchMode).toBe("yes");
-  expect(opts.ServerAliveInterval).toBe("10");
-  expect(opts.ServerAliveCountMax).toBe("3");
+  expect(opts.ServerAliveInterval).toBe(String(keepalive.intervalS));
+  expect(opts.ServerAliveCountMax).toBe(String(keepalive.countMax));
+  // Not part of the tunable policy: the INITIAL handshake bound is fixed.
   expect(opts.ConnectTimeout).toBe("10");
 }
 
@@ -317,6 +331,106 @@ describe("sshRefusalOf", () => {
   });
 });
 
+describe("ssh keepalive policy", () => {
+  it("defaults to ~30s of tolerated silence — the interactive policy", () => {
+    // The literal every consumer that states nothing gets. Pinned here (not
+    // read back from the const) so a change to the default is a deliberate,
+    // visible edit rather than a silently-green tautology.
+    expect(DEFAULT_SSH_KEEPALIVE).toEqual({ intervalS: 10, countMax: 3 });
+    assertKeepAlive(sshCommonOpts());
+    assertKeepAlive([...SSH_COMMON_OPTS]);
+  });
+
+  it("carries a custom policy into the agent argv, the probe argv, and NIX_SSHOPTS", () => {
+    // The whole point of the option: a CI dial's five-minute tolerance must
+    // reach EVERY ssh the dial spawns — including the one Nix forks for the
+    // remote store, which never sees our argv.
+    assertKeepAlive(
+      buildAgentCommand({
+        host: "bob.example",
+        agentPath: "/nix/store/x-agent",
+        binary: "my-agent",
+        localEnv: {},
+        keepalive: CI_KEEPALIVE,
+      }).args,
+      CI_KEEPALIVE,
+    );
+    assertKeepAlive(
+      buildSshProbeCommand(
+        { host: "bob.example", keepalive: CI_KEEPALIVE },
+        "nix-store",
+        "--realise",
+        "x",
+      ).args,
+      CI_KEEPALIVE,
+    );
+    assertKeepAlive(nixSshOpts(CI_KEEPALIVE).split(" "), CI_KEEPALIVE);
+  });
+
+  it("gives a custom policy its OWN ControlMaster socket", () => {
+    // OpenSSH applies ServerAlive* from whichever process OPENED the master, so
+    // a shared socket would silently hand the CI dial the interactive policy.
+    const ciPath = sshOpts(
+      buildSshProbeCommand(
+        { host: "h", keepalive: CI_KEEPALIVE },
+        "nix-store",
+        "--realise",
+        "x",
+      ).args,
+    ).ControlPath;
+    const defaultPath = sshOpts(
+      buildSshProbeCommand("h", "nix-store", "--realise", "x").args,
+    ).ControlPath;
+    expect(ciPath).toBeDefined();
+    expect(ciPath).not.toBe(defaultPath);
+    // The env form names the SAME per-policy socket as the argv form.
+    expect(sshOpts(nixSshOpts(CI_KEEPALIVE).split(" ")).ControlPath).toBe(
+      ciPath,
+    );
+  });
+
+  it("a bare host string still means the default policy", () => {
+    // Backward compatibility for every existing call site and for external
+    // importers of the builders.
+    assertKeepAlive(
+      buildSshProbeCommand("bob.example", "nix-store", "--realise", "x").args,
+    );
+    assertMultiplex(
+      buildSshProbeCommand(
+        { host: "bob.example" },
+        "nix-store",
+        "--realise",
+        "x",
+      ).args,
+    );
+  });
+
+  it("THROWS on an absurd or malformed policy — never clamps it", () => {
+    // Fail-fast, the sibling of createHeartbeat's MAX_HEARTBEAT_* guard: a
+    // policy is rejected, never silently reshaped into one nobody asked for.
+    for (const bad of [
+      { intervalS: 0, countMax: 3 },
+      { intervalS: -10, countMax: 3 },
+      { intervalS: 10, countMax: 0 },
+      { intervalS: 2.5, countMax: 3 },
+      { intervalS: Number.NaN, countMax: 3 },
+      { intervalS: Number.POSITIVE_INFINITY, countMax: 3 },
+      // 120 × 60 = 7200s — past the one-hour tolerance ceiling.
+      { intervalS: 120, countMax: 60 },
+    ] satisfies SshKeepalive[]) {
+      expect(() => sshCommonOpts(bad)).toThrow(/ssh keepalive/);
+      expect(() => nixSshOpts(bad)).toThrow(/ssh keepalive/);
+      expect(
+        () =>
+          buildSshProbeCommand({ host: "h", keepalive: bad }, "nix-store").args,
+      ).toThrow(/ssh keepalive/);
+    }
+    // The boundary itself is allowed: exactly one hour of tolerance passes.
+    expect(() => sshCommonOpts({ intervalS: 60, countMax: 60 })).not.toThrow();
+    expect(60 * 60).toBe(MAX_SSH_KEEPALIVE_TOLERANCE_S);
+  });
+});
+
 describe("NIX_SSHOPTS", () => {
   it("renders the same keepalive policy as the spawned-ssh argv", () => {
     // Remote-store Nix forks its own ssh out of reach of our
@@ -330,12 +444,21 @@ describe("NIX_SSHOPTS", () => {
   });
 });
 
-/** Assert an ssh argv carries the P2.8 ControlMaster multiplexing opts. */
-function assertMultiplex(args: readonly string[]): void {
+/** Assert an ssh argv carries the P2.8 ControlMaster multiplexing opts, on the
+ *  socket that belongs to `keepalive` (the master's opener fixes `ServerAlive*`
+ *  for its whole lifetime, so the socket is keyed by the policy). */
+function assertMultiplex(
+  args: readonly string[],
+  keepalive: SshKeepalive = DEFAULT_SSH_KEEPALIVE,
+): void {
   const opts = sshOpts(args);
   expect(opts.ControlMaster).toBe("auto");
   expect(opts.ControlPersist).toBe("10m");
-  expect(opts.ControlPath?.endsWith("/%C")).toBe(true);
+  expect(
+    opts.ControlPath?.endsWith(
+      `/%C-${keepalive.intervalS}x${keepalive.countMax}`,
+    ),
+  ).toBe(true);
 }
 
 describe("ssh multiplexing (ControlMaster)", () => {
