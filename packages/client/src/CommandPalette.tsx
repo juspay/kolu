@@ -11,6 +11,8 @@
  */
 
 import Dialog from "@corvu/dialog";
+import { Key } from "@solid-primitives/keyed";
+import { encodeHostKey } from "kolu-common/hostKey";
 import { makeEventListener } from "@solid-primitives/event-listener";
 import {
   type Accessor,
@@ -1035,61 +1037,110 @@ const CommandPalette: Component<{
             }
           >
             <div class="py-1 px-1.5" role="listbox">
-              <For each={displayed()}>
-                {(entry) =>
-                  entry.kind === "header" ? (
-                    <div
-                      data-testid="palette-section-header"
-                      data-section={entry.section}
-                      class="flex items-center gap-2 px-2.5 pt-2.5 pb-1 text-[0.64rem] font-semibold tracking-[0.14em] uppercase text-fg-3/80 select-none first:pt-1"
-                    >
-                      {SECTION_LABELS[entry.section]}
-                    </div>
-                  ) : entry.kind === "host-header" ? (
-                    <button
-                      type="button"
-                      data-testid="palette-host-header"
-                      data-host-name={entry.name}
-                      data-count={entry.count}
-                      class="palette-host-header first:pt-1"
-                      style={
-                        entry.group.row?.hostKey
-                          ? { "--host-hue": hostHue(entry.group.row.hostKey) }
-                          : undefined
-                      }
-                      title={`Show only ${entry.name}`}
-                      onClick={() => drillInto(entry.group)}
-                    >
-                      <Show when={entry.group.row?.hostKey}>
-                        <RepoMonogram
-                          group={entry.name}
-                          color={hostHue(entry.group.row!.hostKey!)}
-                          size="xs"
-                          data-testid="palette-host-monogram"
-                        />
-                      </Show>
-                      <span class="truncate">{entry.name}</span>
-                      <span class="ml-auto font-mono font-normal tracking-normal normal-case opacity-70">
-                        {entry.count === 1
-                          ? "1 terminal"
-                          : `${entry.count} terminals`}
-                      </span>
-                    </button>
-                  ) : (
-                    <PaletteRow
-                      cmd={entry.cmd}
-                      selected={selectedIndex() === entry.index}
-                      query={query()}
-                      showKindTag={showKindTag()}
-                      drillable={isDrillable(entry.cmd)}
-                      onHover={() =>
-                        mouseActive() && setSelectedIndex(entry.index)
-                      }
-                      onSelect={() => execute(entry.cmd)}
-                    />
+              {/* A refresh between mouse-down and mouse-up must not remove
+                  the node that owns the pending click. Key by logical identity;
+                  read the current entry for updated content and callbacks. */}
+              <Key
+                each={displayed()}
+                by={(entry) =>
+                  JSON.stringify(
+                    match(entry)
+                      .with({ kind: "header" }, (e) => [e.kind, e.section])
+                      .with({ kind: "host-header" }, (e) => [e.kind, e.name])
+                      .with({ kind: "row" }, (e) => [
+                        e.kind,
+                        e.cmd.kind,
+                        e.cmd.row?.hostKey
+                          ? encodeHostKey(e.cmd.row.hostKey)
+                          : null,
+                        e.cmd.row?.terminalId ?? e.cmd.name,
+                      ])
+                      .exhaustive(),
                   )
                 }
-              </For>
+              >
+                {(entry) => {
+                  const header = createMemo(() => {
+                    const e = entry();
+                    return e.kind === "header" ? e : undefined;
+                  });
+                  const host = createMemo(() => {
+                    const e = entry();
+                    return e.kind === "host-header" ? e : undefined;
+                  });
+                  const row = createMemo(() => {
+                    const e = entry();
+                    return e.kind === "row" ? e : undefined;
+                  });
+                  return (
+                    <>
+                      <Show when={header()}>
+                        {(header) => (
+                          <div
+                            data-testid="palette-section-header"
+                            data-section={header().section}
+                            class="flex items-center gap-2 px-2.5 pt-2.5 pb-1 text-[0.64rem] font-semibold tracking-[0.14em] uppercase text-fg-3/80 select-none first:pt-1"
+                          >
+                            {SECTION_LABELS[header().section]}
+                          </div>
+                        )}
+                      </Show>
+                      <Show when={host()}>
+                        {(host) => (
+                          <button
+                            type="button"
+                            data-testid="palette-host-header"
+                            data-host-name={host().name}
+                            data-count={host().count}
+                            class="palette-host-header first:pt-1"
+                            style={
+                              host().group.row?.hostKey
+                                ? {
+                                    "--host-hue": hostHue(
+                                      host().group.row!.hostKey!,
+                                    ),
+                                  }
+                                : undefined
+                            }
+                            title={`Show only ${host().name}`}
+                            onClick={() => drillInto(host().group)}
+                          >
+                            <Show when={host().group.row?.hostKey}>
+                              <RepoMonogram
+                                group={host().name}
+                                color={hostHue(host().group.row!.hostKey!)}
+                                size="xs"
+                                data-testid="palette-host-monogram"
+                              />
+                            </Show>
+                            <span class="truncate">{host().name}</span>
+                            <span class="ml-auto font-mono font-normal tracking-normal normal-case opacity-70">
+                              {host().count === 1
+                                ? "1 terminal"
+                                : `${host().count} terminals`}
+                            </span>
+                          </button>
+                        )}
+                      </Show>
+                      <Show when={row()}>
+                        {(row) => (
+                          <PaletteRow
+                            cmd={row().cmd}
+                            selected={selectedIndex() === row().index}
+                            query={query()}
+                            showKindTag={showKindTag()}
+                            drillable={isDrillable(row().cmd)}
+                            onHover={() =>
+                              mouseActive() && setSelectedIndex(row().index)
+                            }
+                            onSelect={() => execute(row().cmd)}
+                          />
+                        )}
+                      </Show>
+                    </>
+                  );
+                }}
+              </Key>
             </div>
           </Show>
           <Show when={partitioned().hints.length > 0}>

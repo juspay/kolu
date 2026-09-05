@@ -68,3 +68,17 @@ Feature: Agent-aware worktree creation
     And a workspace switcher pill should show "agent-experiment"
     And the screen state should contain "claude --dangerously-skip-permissions"
     And there should be no page errors
+
+  Scenario: Mouse submission survives a live palette refresh
+    When I set up a git repo at "/tmp/kolu-wt-agent-click"
+    And I run "cd /tmp/kolu-wt-agent-click"
+    And I start "claude --dangerously-skip-permissions"
+    And I open the command palette
+    And I select "New terminal" in the palette
+    And I select "kolu-wt-agent-click" in the palette
+    And I type "mouse-refresh" in the palette
+    And I click "claude --dangerously-skip-permissions" in the palette across a live refresh
+    Then the command palette should not be visible
+    And the header CWD should show ".worktrees/mouse-refresh"
+    And the screen state should contain "claude --dangerously-skip-permissions"
+    And there should be no page errors
