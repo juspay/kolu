@@ -18,6 +18,12 @@ const session = makeSession({
 pumpRemoteSurface({ source: surface, session, makeSink: ({ seq }) => sink });
 ```
 
+A dial declares a link dead after ~30s of ssh silence. That is the right answer
+while someone is watching a host; a long unattended job that a redial would
+destroy rather than repair states its own tolerance instead —
+`sshConnector({ …, keepalive: { intervalS: 30, countMax: 10 } })` rides out a
+five-minute network blip, and the policy reaches every ssh the dial spawns.
+
 Worked end-to-end in [`packages/surface/example/remote-process-monitor`](../surface/example/remote-process-monitor).
 Part of the kolu monorepo — `"@kolu/surface-remote": "workspace:*"`.
 
