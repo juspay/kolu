@@ -6,8 +6,9 @@
 import { shellQuoteArg } from "@kolu/shell-quote";
 import { controlOptPairs } from "./controlMaster";
 import {
-  assertRenderableKeepalive,
   DEFAULT_SSH_KEEPALIVE,
+  type KeepalivePlan,
+  renderableKeepalive,
   type SshKeepalive,
 } from "./keepalive";
 
@@ -206,11 +207,16 @@ export function forEachLine(
  *  rule is what keeps the two rendered numbers whitespace-free.)
  *
  *  A FUNCTION of the policy rather than a const, so the policy is a value a dial
- *  carries rather than a module-global no consumer can state. */
+ *  carries rather than a module-global no consumer can state.
+ *
+ *  Takes the CAPTURED {@link KeepalivePlan}, not a caller's `SshKeepalive`: the
+ *  three public renderers below each capture once, at their own top, and hand
+ *  the same snapshot here AND to `controlOptPairs`. Nothing below that capture
+ *  ever touches the caller's object again — see {@link renderableKeepalive}. */
 export function sshOptPairs(
-  keepalive: SshKeepalive,
+  plan: KeepalivePlan,
 ): readonly (readonly [string, string])[] {
-  return [...SSH_FIXED_OPTS, ...keepaliveOpts(keepalive)];
+  return [...SSH_FIXED_OPTS, ...keepaliveOpts(plan)];
 }
 
 /** The non-interactive ssh CONTRACT — invariant, and independent of any policy.
@@ -226,26 +232,25 @@ const SSH_FIXED_OPTS: readonly (readonly [string, string])[] = [
   ["ConnectTimeout", "10"],
 ];
 
-/** The dial's TUNABLE dead-peer policy, rendered — and the ONE choke point
- *  where a policy's numbers become ssh's behaviour, which is why the runtime
- *  re-check lives here.
+/** The dial's TUNABLE dead-peer policy, rendered. Every `ServerAlive*` this
+ *  package emits is emitted HERE — but from the already-captured
+ *  {@link KeepalivePlan}, which is why there is no assertion at this line.
  *
- *  `SshKeepalive`'s brand is a compile-time fact, not a runtime one: object
- *  spread copies the private symbol while replacing the numbers, so
- *  `{ ...sshKeepalive(10, 3), intervalS: 0 }` typechecks and would render
- *  `ServerAliveInterval=0` — dead-peer detection OFF, the eternal half-open
- *  hang this option exists to bound. Every `ServerAlive*` this package emits is
- *  emitted HERE, so one assertion at this line covers all nine seams that carry
- *  a policy without any of them repeating a check. */
+ *  There USED to be one, and an assertion here was not enough. `SshKeepalive`'s
+ *  brand is a compile-time fact, not a runtime one, and a spread can install an
+ *  accessor of the declared `readonly number` type — so validating the caller's
+ *  object here and then reading `keepalive.intervalS` on the next line is
+ *  time-of-check/time-of-use: the getter answers 10 to the check and 0 to the
+ *  render, and `controlOptPairs` reads it a third time for the socket name. The
+ *  check therefore moved UP, to `renderableKeepalive`, which reads each field
+ *  once and returns the numbers; this function and the socket tag now render
+ *  from that one snapshot and cannot disagree. */
 const keepaliveOpts = (
-  keepalive: SshKeepalive,
-): readonly (readonly [string, string])[] => {
-  assertRenderableKeepalive(keepalive);
-  return [
-    ["ServerAliveInterval", String(keepalive.intervalS)],
-    ["ServerAliveCountMax", String(keepalive.countMax)],
-  ];
-};
+  plan: KeepalivePlan,
+): readonly (readonly [string, string])[] => [
+  ["ServerAliveInterval", String(plan.intervalS)],
+  ["ServerAliveCountMax", String(plan.countMax)],
+];
 
 /** Where a dial's ssh goes AND under what dead-peer policy — the pair every
  *  spawn site in this package needs to know. The `keepalive` is optional and
@@ -260,8 +265,10 @@ export interface SshDestination {
 /** Normalise the "host, or host + policy" argument the argv builders take: the
  *  string arm and an omitted `keepalive` both mean {@link DEFAULT_SSH_KEEPALIVE}.
  *  No validation HERE: a policy is checked once at the literal (`sshKeepalive()`)
- *  and once where it is rendered (`keepaliveOpts`, which catches a spread-forged
- *  one). A carrying seam like this repeats neither. */
+ *  and once where its numbers are CAPTURED for rendering
+ *  ({@link renderableKeepalive}, which catches a spread-forged one). A carrying
+ *  seam like this repeats neither — and, being a carrying seam, it must not read
+ *  the numbers at all. */
 function targetOf(target: string | SshDestination): {
   host: string;
   keepalive: SshKeepalive;
@@ -302,7 +309,7 @@ const toEnv = (pairs: readonly (readonly [string, string])[]): string =>
 export function sshCommonOpts(
   keepalive: SshKeepalive = DEFAULT_SSH_KEEPALIVE,
 ): readonly string[] {
-  return toArgv(sshOptPairs(keepalive));
+  return toArgv(sshOptPairs(renderableKeepalive(keepalive)));
 }
 
 /** The COMPLETE argv a dial's ssh needs at `keepalive`: the dead-peer policy AND
@@ -316,11 +323,16 @@ export function sshCommonOpts(
  *  place, so the seam this package hands outward cannot render a different
  *  policy from the one it spawns with — which is how {@link sshCommonOpts}
  *  alone reopened, at the outward seam, the master-inheritance failure the
- *  per-policy socket keying exists to abolish. */
+ *  per-policy socket keying exists to abolish.
+ *
+ *  ONE capture, used twice. The `ServerAlive*` options and the `ControlPath`
+ *  that names which master may carry them are spelled from the same snapshot,
+ *  so they cannot describe two different policies. */
 export function sshDialOpts(
   keepalive: SshKeepalive = DEFAULT_SSH_KEEPALIVE,
 ): readonly string[] {
-  return toArgv([...sshOptPairs(keepalive), ...controlOptPairs(keepalive)]);
+  const plan = renderableKeepalive(keepalive);
+  return toArgv([...sshOptPairs(plan), ...controlOptPairs(plan)]);
 }
 
 /** {@link sshCommonOpts} at the default policy, as a const — the pre-existing
@@ -347,7 +359,10 @@ export const SSH_COMMON_OPTS: readonly string[] = sshCommonOpts();
 export function nixSshOpts(
   keepalive: SshKeepalive = DEFAULT_SSH_KEEPALIVE,
 ): string {
-  return toEnv([...sshOptPairs(keepalive), ...controlOptPairs(keepalive)]);
+  // One capture, used twice — as in `sshDialOpts`, so the rendered policy and
+  // the master named to carry it are the same two numbers.
+  const plan = renderableKeepalive(keepalive);
+  return toEnv([...sshOptPairs(plan), ...controlOptPairs(plan)]);
 }
 
 /** Argv to spawn the agent on `host` against the realised `agentPath`.

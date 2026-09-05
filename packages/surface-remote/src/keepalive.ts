@@ -15,11 +15,13 @@
  *
  * Everything that makes a policy what it is lives here: the branded VALUE, the
  * ONE constructor that validates it, the interactive DEFAULT, the CEILING, the
- * derived TOLERANCE every bound and message quotes, and the whitespace-free
+ * derived TOLERANCE every bound and message quotes, the {@link KeepalivePlan}
+ * SNAPSHOT everything downstream actually renders from, and the whitespace-free
  * TAG that gives a policy its identity on the control socket.
  */
 
 const sshKeepaliveBrand = Symbol("SshKeepalive");
+const keepalivePlanBrand = Symbol("KeepalivePlan");
 
 /** One dial's ssh DEAD-PEER policy: how often ssh probes an otherwise idle
  *  connection (`ServerAliveInterval`, seconds) and how many unanswered probes it
@@ -50,7 +52,7 @@ const sshKeepaliveBrand = Symbol("SshKeepalive");
  *  policy, and there is exactly ONE construction site and ONE error message.
  *
  *  But a brand is a COMPILE-time fact, and it is NOT a runtime guarantee — do
- *  not delete {@link assertRenderableKeepalive} on the theory that it is. Object
+ *  not delete {@link renderableKeepalive} on the theory that it is. Object
  *  spread COPIES the symbol while replacing the numbers, so
  *
  *      const forged: SshKeepalive = { ...sshKeepalive(10, 3), intervalS: 0 };
@@ -59,9 +61,27 @@ const sshKeepaliveBrand = Symbol("SshKeepalive");
  *  renders `ServerAliveInterval=0`, which turns ssh's dead-peer detection OFF
  *  entirely: the exact eternal hang on a half-open socket this whole option
  *  exists to bound. Freezing the constructor's result does not help; the spread
- *  copies out of the frozen object into a fresh one. So the brand buys the
- *  single construction site, and ONE runtime check at the single render choke
- *  point buys the invariant. */
+ *  copies out of the frozen object into a fresh one.
+ *
+ *  Nor is a runtime ASSERTION on this object enough, and that is the whole
+ *  reason {@link KeepalivePlan} exists. `intervalS` and `countMax` are declared
+ *  `readonly number`, but a spread can also install an ACCESSOR of that exact
+ *  type:
+ *
+ *      let reads = 0;
+ *      const changing: SshKeepalive = {
+ *        ...sshKeepalive(10, 3),
+ *        get intervalS() { return ++reads <= 2 ? 10 : 0; },
+ *      };
+ *
+ *  Also no cast, also no `any`. A check that VALIDATES the object and then lets
+ *  the renderer READ it again is time-of-check/time-of-use: the getter answers
+ *  10 while it is inspected and 0 when it is rendered, and the socket tag — a
+ *  THIRD read — can disagree with both, so a dial can end up on a `%C-10x3`
+ *  master while emitting `ServerAliveInterval=0`. So the brand buys the single
+ *  construction site, and {@link renderableKeepalive} — which reads each field
+ *  exactly ONCE into an inert snapshot, validates THAT, and hands downstream the
+ *  snapshot instead of this object — buys the invariant. */
 export interface SshKeepalive {
   /** `ServerAliveInterval` — seconds between keepalive probes on an idle
    *  connection. A positive integer. */
@@ -129,8 +149,14 @@ export function sshKeepalive(
 /** THE rule, in one place — the only thing that decides whether a pair of
  *  numbers is a policy at all. Takes the raw pair (not a branded
  *  {@link SshKeepalive}) so {@link sshKeepalive} can run it BEFORE it mints one
- *  and {@link assertRenderableKeepalive} can run it again on one that claims to
- *  already be minted, both raising the identical message. */
+ *  and {@link renderableKeepalive} can run it on the snapshot it just captured,
+ *  both raising the identical message.
+ *
+ *  It reads `pair.intervalS` twice (the integer check, then the product) and
+ *  that is SAFE only because both callers hand it plain own data properties —
+ *  a constructor argument and a captured snapshot. Never call it on a caller's
+ *  policy object directly: an accessor would be free to answer differently on
+ *  the second read. */
 function assertKeepalivePair(pair: {
   readonly intervalS: number;
   readonly countMax: number;
@@ -158,19 +184,50 @@ function assertKeepalivePair(pair: {
   }
 }
 
-/** The ONE runtime re-check, at the ONE place a policy becomes ssh options —
- *  `host.ts`'s `keepaliveOpts`, the function every `ServerAlive*` in this
- *  package is rendered by. Throws the same message {@link sshKeepalive} throws.
+/** A policy's numbers, CAPTURED — the inert two-number value that every ssh
+ *  option this package emits is actually rendered from.
  *
- *  Here and NOWHERE else. Not on each of the nine seams that merely carry a
- *  policy (that is the scattering the brand exists to abolish), and not on the
- *  constructor's word alone (that is the forgery documented at
- *  {@link SshKeepalive}: `{ ...sshKeepalive(10, 3), intervalS: 0 }` typechecks,
- *  keeps the symbol, and would render `ServerAliveInterval=0`). One choke point
- *  is enough precisely BECAUSE a policy cannot influence an ssh's behaviour
- *  without passing through it. */
-export function assertRenderableKeepalive(keepalive: SshKeepalive): void {
-  assertKeepalivePair(keepalive);
+ *  Distinct from {@link SshKeepalive} on purpose, and separately branded so the
+ *  two are not interchangeable in either direction: a `SshKeepalive` is what a
+ *  CALLER hands us and may be any object of that shape (see the accessor forgery
+ *  at {@link SshKeepalive}), while a `KeepalivePlan` is what
+ *  {@link renderableKeepalive} read out of one — plain own data properties,
+ *  frozen, validated, and re-readable as many times as the renderers like
+ *  without the answer moving. */
+export interface KeepalivePlan {
+  /** `ServerAliveInterval` — the captured seconds. A positive integer. */
+  readonly intervalS: number;
+  /** `ServerAliveCountMax` — the captured probe count. A positive integer. */
+  readonly countMax: number;
+  readonly [keepalivePlanBrand]: "keepalive-plan";
+}
+
+/** The ONE boundary between a caller's policy OBJECT and this package's ssh
+ *  behaviour: read each field exactly once, validate what was read, and return
+ *  it. Throws the same message {@link sshKeepalive} throws.
+ *
+ *  It returns a VALUE rather than merely asserting, and that is the fix, not a
+ *  flourish. An assertion leaves the caller's object as the thing downstream
+ *  reads, and there are THREE such reads on a single dial — the integer check,
+ *  the `ServerAlive*` render, and {@link policyTag}'s socket name. An accessor
+ *  that answers 10, 10, then 0 passes the check, disables dead-peer detection,
+ *  and parks the dial on a master named `%C-10x3` for a policy it is not
+ *  running. Two reads HERE and none after is what closes that: nothing
+ *  downstream may take a `SshKeepalive`, only the plan this returns.
+ *
+ *  The captured values are stored as-is, never coerced. A field that is somehow
+ *  not a whole positive number is REJECTED by the shared rule, exactly as at the
+ *  constructor — a coercion here would quietly accept what the constructor
+ *  refuses. */
+export function renderableKeepalive(keepalive: SshKeepalive): KeepalivePlan {
+  const plan = Object.freeze({
+    // One read each. Do not re-read `keepalive` below this line.
+    intervalS: keepalive.intervalS,
+    countMax: keepalive.countMax,
+    [keepalivePlanBrand]: "keepalive-plan",
+  } as const);
+  assertKeepalivePair(plan);
+  return plan;
 }
 
 /** The interactive default: probe every 10s, give up after 3 misses ≈ **30s**
@@ -184,10 +241,15 @@ export const DEFAULT_SSH_KEEPALIVE: SshKeepalive = sshKeepalive(10, 3);
  *
  *  Lives HERE, with the policy, rather than in `controlMaster.ts`: the canonical
  *  spelling of a value is a property of the value, not of the one consumer that
- *  happens to key a socket by it. {@link sshKeepalive} guarantees two positive
- *  integers, so this is always short and free of whitespace and path separators
- *  — an invariant this module both states and enforces, instead of one module
- *  depending on another's promise. */
-export function policyTag(keepalive: SshKeepalive): string {
-  return `${keepalive.intervalS}x${keepalive.countMax}`;
+ *  happens to key a socket by it. {@link renderableKeepalive} guarantees two
+ *  positive integers, so this is always short and free of whitespace and path
+ *  separators — an invariant this module both states and enforces, instead of
+ *  one module depending on another's promise.
+ *
+ *  Takes the {@link KeepalivePlan}, never a caller's {@link SshKeepalive}, and
+ *  that is load-bearing: the master's name has to be spelled from the SAME two
+ *  numbers the `ServerAlive*` options were spelled from, or a dial can ride a
+ *  master whose identity claims a policy the dial is not running. */
+export function policyTag(plan: KeepalivePlan): string {
+  return `${plan.intervalS}x${plan.countMax}`;
 }

@@ -32,7 +32,7 @@
  * this module gets to assert, because the DIRECTORY comes from the
  * environment: see {@link controlPathFits}, which measures it.
  *
- * Why the path is ALSO keyed by the {@link SshKeepalive} — the correctness
+ * Why the path is ALSO keyed by the {@link KeepalivePlan} — the correctness
  * constraint this module owes the per-dial keepalive policy: OpenSSH applies
  * `ServerAliveInterval`/`ServerAliveCountMax` from the process that OPENED the
  * master, and every later ssh that rides it inherits that connection's
@@ -69,7 +69,7 @@
 import { lstatSync, mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import { getRuntimeSocketPath } from "@kolu/surface/unix-socket";
-import { policyTag, type SshKeepalive } from "./keepalive";
+import { type KeepalivePlan, policyTag } from "./keepalive";
 
 /** How long the shared master lingers idle after its last channel closes.
  *  Deliberately CROSS-INVOCATION (~10m): a second `kaval-tui` within
@@ -91,7 +91,7 @@ const CONTROL_PERSIST = "10m";
  *  then falls back to the user's `~/.ssh/config` — where an entirely ordinary
  *  `Host *` block carrying `ControlMaster auto` + `ControlPath ~/.ssh/cm-%r@%h:%p`
  *  supplies a master keyed by host+user+port and NOT by policy. Two dials at two
- *  {@link SshKeepalive} policies would then share one socket again and the second
+ *  {@link KeepalivePlan} policies would then share one socket again and the second
  *  would silently inherit the first's `ServerAlive*` — the exact invisible
  *  failure (right argv, wrong behaviour) the per-policy keying exists to abolish,
  *  reintroduced by the fallback. It reaches Nix's forked ssh too, which reads the
@@ -236,9 +236,16 @@ function ensureControlDir(): string | null {
  *  PURE given that directory. The `%C` in the path is a LITERAL token: ssh
  *  expands it to a host+port+user hash at connect time, so one path string
  *  serves every host while each host still gets its own socket. The `-<policy>`
- *  suffix is what keeps two {@link SshKeepalive} policies off one master (see
+ *  suffix is what keeps two {@link KeepalivePlan} policies off one master (see
  *  the module header): the master's OPENER decides `ServerAlive*` for its whole
  *  lifetime, so the policy has to be part of the socket's identity.
+ *
+ *  Takes the CAPTURED plan, never a caller's `SshKeepalive`. That is not a
+ *  formality: the caller's object may expose accessors, and this socket name has
+ *  to be spelled from the very same two numbers `host.ts` rendered the
+ *  `ServerAlive*` options from. `sshDialOpts`/`nixSshOpts` capture once and pass
+ *  that one snapshot to both, so a master named `%C-10x3` is a master carrying
+ *  `ServerAliveInterval=10`, always.
  *
  *  That suffix costs `sun_path` budget, and the budget is not ours to assume —
  *  the directory comes from `$XDG_RUNTIME_DIR`. So the expanded length is
@@ -253,11 +260,11 @@ function ensureControlDir(): string | null {
  *  the connection to the user's own `ssh_config` master and break the
  *  per-policy guarantee. */
 export function controlOptPairs(
-  keepalive: SshKeepalive,
+  plan: KeepalivePlan,
 ): readonly (readonly [string, string])[] {
   const dir = ensureControlDir();
   if (dir === null) return NO_MULTIPLEXING;
-  const path = `${dir}/%C-${policyTag(keepalive)}`;
+  const path = `${dir}/%C-${policyTag(plan)}`;
   // A path ssh cannot bind is worse than no multiplexing: ssh would fail the
   // command outright rather than merely re-handshake. Refuse instead.
   if (!controlPathFits(path)) return NO_MULTIPLEXING;

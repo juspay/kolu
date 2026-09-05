@@ -21,6 +21,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { __resetControlMemo, controlOptPairs } from "./controlMaster";
 import {
   DEFAULT_SSH_KEEPALIVE,
+  renderableKeepalive,
   type SshKeepalive,
   sshKeepalive,
 } from "./keepalive";
@@ -59,16 +60,24 @@ afterEach(() => {
     rmSync(d, { recursive: true, force: true });
 });
 
+/** `controlOptPairs` at a policy, reached the ONLY way `host.ts` reaches it:
+ *  through the capture boundary. `controlOptPairs` takes the `KeepalivePlan`
+ *  `renderableKeepalive` read out of a policy, never the policy object — the
+ *  socket name has to be spelled from the same two numbers the `ServerAlive*`
+ *  options were. */
+const pairsFor = (
+  keepalive: SshKeepalive = DEFAULT_SSH_KEEPALIVE,
+): readonly (readonly [string, string])[] =>
+  controlOptPairs(renderableKeepalive(keepalive));
+
 /** The `ControlPath` value out of the rendered pairs (undefined if absent). */
 function controlPathValue(
   keepalive: SshKeepalive = DEFAULT_SSH_KEEPALIVE,
 ): string | undefined {
-  return controlOptPairs(keepalive).find(([k]) => k === "ControlPath")?.[1];
+  return pairsFor(keepalive).find(([k]) => k === "ControlPath")?.[1];
 }
 function optMap(): Record<string, string> {
-  return Object.fromEntries(
-    controlOptPairs(DEFAULT_SSH_KEEPALIVE).map(([k, v]) => [k, v]),
-  );
+  return Object.fromEntries(pairsFor().map(([k, v]) => [k, v]));
 }
 
 describe("controlOptPairs path shape", () => {
@@ -129,7 +138,7 @@ describe("controlOptPairs ensure-dir", () => {
     vi.stubEnv("XDG_RUNTIME_DIR", xdg);
     __resetControlMemo();
     const dir = join(xdg, "kolu-ssh");
-    const first = controlOptPairs(DEFAULT_SSH_KEEPALIVE);
+    const first = pairsFor();
     if (process.getuid !== undefined) {
       expect(statSync(dir).mode & 0o777).toBe(0o700);
     }
@@ -138,9 +147,9 @@ describe("controlOptPairs ensure-dir", () => {
     // it is memoized in ONE slot rather than once per policy: delete the dir
     // and neither a second render NOR a second policy recreates it.
     rmSync(dir, { recursive: true, force: true });
-    expect(controlOptPairs(DEFAULT_SSH_KEEPALIVE)).toEqual(first);
+    expect(pairsFor()).toEqual(first);
     expect(existsSync(dir)).toBe(false);
-    const ci = controlOptPairs(CI_KEEPALIVE);
+    const ci = pairsFor(CI_KEEPALIVE);
     expect(existsSync(dir)).toBe(false);
     // …while the VALUE is pure and still per-policy.
     expect(ci).not.toEqual(first);
@@ -156,7 +165,7 @@ describe("controlOptPairs ensure-dir", () => {
     chmodSync(dir, 0o755);
     vi.stubEnv("XDG_RUNTIME_DIR", xdg);
     __resetControlMemo();
-    expect(controlOptPairs(DEFAULT_SSH_KEEPALIVE)).toEqual([
+    expect(pairsFor()).toEqual([
       ["ControlMaster", "no"],
       ["ControlPath", "none"],
     ]);
@@ -169,7 +178,7 @@ describe("controlOptPairs ensure-dir", () => {
     // Upholds the NIX_SSHOPTS word-split contract: a space-bearing path drops
     // OUR control pairs rather than corrupt the env form — and says so as
     // ControlPath=none, both values whitespace-free.
-    expect(controlOptPairs(DEFAULT_SSH_KEEPALIVE)).toEqual([
+    expect(pairsFor()).toEqual([
       ["ControlMaster", "no"],
       ["ControlPath", "none"],
     ]);
@@ -184,12 +193,12 @@ describe("controlOptPairs ensure-dir", () => {
   it("refuses multiplexing when the expanded ControlPath cannot fit sun_path", () => {
     vi.stubEnv("XDG_RUNTIME_DIR", namedXdg("a".repeat(49)));
     __resetControlMemo();
-    expect(controlOptPairs(DEFAULT_SSH_KEEPALIVE)).toEqual([
+    expect(pairsFor()).toEqual([
       ["ControlMaster", "no"],
       ["ControlPath", "none"],
     ]);
     // Not merely "shorter than before": nothing over-long is emitted at all.
-    expect(controlOptPairs(CI_KEEPALIVE)).toEqual([
+    expect(pairsFor(CI_KEEPALIVE)).toEqual([
       ["ControlMaster", "no"],
       ["ControlPath", "none"],
     ]);
@@ -200,7 +209,7 @@ describe("controlOptPairs ensure-dir", () => {
     // this path comfortably short; `sun_path` is a byte buffer and it is not.
     vi.stubEnv("XDG_RUNTIME_DIR", namedXdg("é".repeat(20)));
     __resetControlMemo();
-    expect(controlOptPairs(DEFAULT_SSH_KEEPALIVE)).toEqual([
+    expect(pairsFor()).toEqual([
       ["ControlMaster", "no"],
       ["ControlPath", "none"],
     ]);
@@ -230,7 +239,7 @@ describe("controlOptPairs ensure-dir", () => {
     const xdg = freshXdg();
     vi.stubEnv("XDG_RUNTIME_DIR", `${xdg} with space`);
     __resetControlMemo();
-    const pairs = controlOptPairs(DEFAULT_SSH_KEEPALIVE);
+    const pairs = pairsFor();
     expect(pairs.length).toBeGreaterThan(0);
     const opts = Object.fromEntries(pairs.map(([k, v]) => [k, v]));
     expect(opts.ControlPath).toBe("none");
