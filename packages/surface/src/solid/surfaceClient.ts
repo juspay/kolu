@@ -1563,6 +1563,41 @@ export function buildSurfaceClient<const S extends SurfaceSpec>(
 
 // ── surfaceClients — sibling surfaces over one dispatch ─────────────────
 
+/** WHY a sibling's slot ended. Three endings, and they are genuinely different
+ *  facts about the same client, so they are a union rather than a boolean: only
+ *  `departed` is about a roster, `disposed` is about the whole bundle, and
+ *  `unwound` is about a client that never joined a roster at all. Each arm owns
+ *  BOTH strings it is responsible for — what a held client is told when it calls,
+ *  and how a teardown failure is reported — so the two can never drift apart or be
+ *  spelled at the wrong site. */
+type Retirement = "unwound" | "departed" | "disposed";
+
+const RETIREMENTS: Record<
+  Retirement,
+  { refusal: (key: string) => string; teardown: string }
+> = {
+  unwound: {
+    refusal: (key) =>
+      `surfaceClients: the "${key}" client was released while a bundle build was ` +
+      "unwinding, so it never joined a roster and does not dial. Build the bundle again.",
+    teardown: "while unwinding a build that threw",
+  },
+  departed: {
+    refusal: (key) =>
+      `surfaceClients: the "${key}" surface is no longer on this bundle's roster — ` +
+      "it left when the connection followed a roster change, and this client was " +
+      "retracted then. Reach the current roster through the bundle's `clients`.",
+    teardown: "as it left the roster",
+  },
+  disposed: {
+    refusal: (key) =>
+      `surfaceClients: this bundle was disposed, so the "${key}" client no longer ` +
+      "dials — the wire it rode is released with it. Nothing recovers a disposed " +
+      "bundle; dial a new connection.",
+    teardown: "as the bundle was disposed",
+  },
+};
+
 /** Scope a COMBINED dispatch to one sibling by splicing the sibling key into every
  *  tag: `surface/<member>/<verb>` → `surface/<key>/<member>/<verb>` — and hand back
  *  the RETRACTION that ends the slice.
@@ -1578,43 +1613,51 @@ export function buildSurfaceClient<const S extends SurfaceSpec>(
  *  `scopeSiblingTag` THROWS on a non-surface tag, so a mis-scoped dispatch fails at
  *  this seam rather than 404-ing at the far end.
  *
- *  RETRACTION is what a bundle whose roster can move owes a sibling that LEAVES
- *  ({@link SurfaceClientsBundle.reroster}). A departed sibling's client is still
- *  held — by a component that has not unmounted, by a closure the app kept — and
- *  its standing subscriptions are still running. Left alone they would re-subscribe
- *  through the fence onto a wire that no longer serves those tags and read as an
- *  unreachable member, which is the far end's 404 wearing the costume of a broken
- *  connection. Retracted, every call and every re-subscribe fails HERE, in words
- *  that name the sibling and say what happened. Both legs are `suspend`ed: a lazy
- *  call value built before the retraction must still refuse when it is RUN. */
+ *  RETRACTION is what a bundle owes a sibling whose slot ENDS. A client is still
+ *  held after its slot ends — by a component that has not unmounted, by a closure
+ *  the app kept — and its standing subscriptions are still running. Left alone
+ *  they would re-subscribe through the fence onto a wire that no longer serves
+ *  those tags and read as an unreachable member, which is the far end's 404
+ *  wearing the costume of a broken connection. Retracted, every call and every
+ *  re-subscribe fails HERE, in words. Both legs are `suspend`ed: a lazy call value
+ *  built before the retraction must still refuse when it is RUN.
+ *
+ *  The retraction carries the {@link Retirement} — the REASON — rather than a flag
+ *  plus a fixed sentence, because one flag cannot answer for three different
+ *  endings and a sentence about a roster change is simply false in front of
+ *  someone whose bundle was disposed. It is also why a DISPOSED bundle retracts at
+ *  all rather than letting the wire's own `SurfaceTransportRetired` surface: the
+ *  bundle is released BEFORE the wire it rode, so without retraction the answer a
+ *  held client gives would depend on which half of the teardown you landed in. */
 function scopeSiblingDispatch(
   dispatch: SurfaceDispatch,
   key: string,
-): { dispatch: SurfaceDispatch; retract: () => void } {
-  let retracted = false;
+): { dispatch: SurfaceDispatch; retract: (why: Retirement) => void } {
+  let retired: Retirement | undefined;
   const refusal = (): Error =>
     new Error(
-      `surfaceClients: the "${key}" surface is no longer on this bundle's roster — ` +
-        "it left when the connection followed a roster change, and this client was " +
-        "retracted then. Reach the current roster through the bundle's `clients`.",
+      retired === undefined
+        ? `surfaceClients: the "${key}" client refused a call while it was still live — ` +
+            "this is a framework bug (the retraction reason was never recorded)."
+        : RETIREMENTS[retired].refusal(key),
     );
   return {
     dispatch: {
       unary: (tag, payload) =>
         Effect.suspend(() =>
-          retracted
+          retired !== undefined
             ? Effect.fail(refusal())
             : dispatch.unary(scopeSiblingTag(tag, key), payload),
         ),
       stream: (tag, payload) =>
         Stream.suspend(() =>
-          retracted
+          retired !== undefined
             ? Stream.fail(refusal())
             : dispatch.stream(scopeSiblingTag(tag, key), payload),
         ),
     },
-    retract: () => {
-      retracted = true;
+    retract: (why) => {
+      retired = why;
     },
   };
 }
@@ -1634,7 +1677,7 @@ export type SurfaceClients<
 interface SiblingSlot {
   readonly surface: Surface<SurfaceSpec>;
   readonly client: SurfaceClient<SurfaceSpec>;
-  readonly retract: () => void;
+  readonly retract: (why: Retirement) => void;
 }
 
 /** A live bundle of sibling clients over ONE wire, whose ROSTER can move.
@@ -1672,22 +1715,6 @@ export interface SurfaceClientsBundle<
   >(next: E2): SurfaceClientsBundle<E2>;
   /** Retract and dispose every client currently on the roster. */
   dispose(): void;
-}
-
-/** Report a sibling teardown that itself threw. Named once because all three
- *  teardown paths — the construction unwind, a re-roster's departures, and
- *  `dispose` — owe the same line, and the useful half of it is WHICH sibling
- *  leaked. */
-function reportSiblingTeardown(
-  key: string,
-  when: string,
-  teardownError: unknown,
-): void {
-  console.error(
-    `surfaceClients: disposing the "${key}" client FAILED ${when} — that sibling's ` +
-      "subscriptions are leaked",
-    teardownError,
-  );
 }
 
 /** Build one `surfaceClient` per sibling surface over a single combined
@@ -1741,14 +1768,34 @@ export function surfaceClients<
   /** End a slot: REFUSE first, then release. The order is the point — a standing
    *  subscription that fails during `client.dispose()` must find the dispatch
    *  already retracted, so its fence's re-subscribe hits the worded refusal rather
-   *  than the wire. */
-  const retire = (key: string, slot: SiblingSlot, when: string): void => {
-    slot.retract();
+   *  than the wire.
+   *
+   *  Returns the teardown's own failure rather than deciding what to do with it:
+   *  the three callers want three different things (a build unwind and a
+   *  departure have a value to produce and can only LOG; `dispose` has a caller
+   *  awaiting a teardown and must RAISE), and that decision is theirs. */
+  const retire = (
+    key: string,
+    slot: SiblingSlot,
+    why: Retirement,
+  ): Error | undefined => {
+    slot.retract(why);
     try {
       slot.client.dispose();
+      return undefined;
     } catch (teardownError) {
-      reportSiblingTeardown(key, when, teardownError);
+      return new Error(
+        `surfaceClients: disposing the "${key}" client FAILED ${RETIREMENTS[why].teardown} — ` +
+          "that sibling's subscriptions are leaked",
+        { cause: teardownError },
+      );
     }
+  };
+
+  /** LOG a teardown failure and continue — the exit for the two callers that have
+   *  a value to produce and no caller left to raise to. */
+  const logTeardown = (failure: Error | undefined): void => {
+    if (failure !== undefined) console.error(failure.message, failure.cause);
   };
 
   /** Build the slots for `arriving`, ALL-OR-NOTHING, and it has to be built rather
@@ -1768,7 +1815,6 @@ export function surfaceClients<
    *  replace the construction error the caller is about to see. */
   const buildSlots = (
     arriving: ReadonlyArray<readonly [string, Surface<SurfaceSpec>]>,
-    when: string,
   ): Array<readonly [string, SiblingSlot]> => {
     const built: Array<readonly [string, SiblingSlot]> = [];
     try {
@@ -1792,7 +1838,9 @@ export function surfaceClients<
         ]);
       }
     } catch (constructionError) {
-      for (const [key, slot] of [...built].reverse()) retire(key, slot, when);
+      for (const [key, slot] of [...built].reverse()) {
+        logTeardown(retire(key, slot, "unwound"));
+      }
       throw constructionError;
     }
     return built;
@@ -1800,7 +1848,6 @@ export function surfaceClients<
 
   for (const [key, slot] of buildSlots(
     Object.entries(entries) as Array<readonly [string, Surface<SurfaceSpec>]>,
-    "while unwinding a bundle whose construction threw",
   )) {
     slots.set(key, slot);
     clients[key] = slot.client;
@@ -1824,10 +1871,13 @@ export function surfaceClients<
       );
       // Arrivals FIRST, so a throw leaves this bundle exactly on its current
       // roster — nothing retracted, nothing half-moved.
-      const built = buildSlots(arriving, "while unwinding a failed re-roster");
+      const built = buildSlots(arriving);
       for (const [key, slot] of slots) {
         if (wanted[key] === slot.surface) continue;
-        retire(key, slot, "as it left the roster");
+        // LOGGED, not raised: the value this call exists to produce is the bundle
+        // on its new roster, and refusing to move it because a departing
+        // sibling's teardown threw would leave the caller with neither.
+        logTeardown(retire(key, slot, "departed"));
         slots.delete(key);
         delete clients[key];
       }
@@ -1838,11 +1888,26 @@ export function surfaceClients<
       return bundle as unknown as SurfaceClientsBundle<E2>;
     },
     dispose: () => {
+      // RAISES, and that is the difference from the two exits above: a
+      // `dispose()` that resolves while a sibling's subscriptions are still
+      // running is a lie the awaiting caller has no way to catch — the same law
+      // `trackConnectAllocations.release` states one layer up, which used to
+      // apply it per sibling and can only see this bundle now. Every slot is
+      // still ATTEMPTED before it throws: one failure must not strand the ones
+      // behind it.
+      const failures: Error[] = [];
       for (const [key, slot] of [...slots].reverse()) {
-        retire(key, slot, "as the bundle was disposed");
+        const failure = retire(key, slot, "disposed");
+        if (failure !== undefined) failures.push(failure);
         delete clients[key];
       }
       slots.clear();
+      if (failures.length > 0) {
+        throw new AggregateError(
+          failures,
+          `surfaceClients: ${failures.length} sibling client(s) failed to dispose`,
+        );
+      }
     },
   };
   return bundle as unknown as SurfaceClientsBundle<E>;

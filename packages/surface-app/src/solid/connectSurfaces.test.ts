@@ -1056,6 +1056,52 @@ describe("connectSurfaces — a ROSTER CHANGE moves the WIRE, not the connection
     });
   });
 
+  it("RELEASES the connection when the new roster's clients cannot be built after the wire was adopted", async () => {
+    // The price of building arrivals AFTER the adopt, paid out loud. An arriving
+    // sibling whose spec declares a `client.onError` policy with no interpreter is
+    // refused at construction (design §D/F5) — and by then the wire has already
+    // moved and cannot move back. A connection whose wire serves one roster while
+    // its clients were built for another cannot be made honest, so it is given up
+    // completely rather than left wedged mid-transition with every later `redial`
+    // refused (which is what a bare rethrow left behind).
+    const policied = defineSurfaceWithPolicy<{ kind: "toast" }>()({
+      cells: {
+        note: {
+          schema: Schema.Struct({ s: Schema.String }),
+          default: { s: "x" },
+          verbs: ["get"],
+          client: { onError: { kind: "toast" } },
+        },
+      },
+    });
+    const d = dialRecorder();
+    await createRoot(async (dispose) => {
+      const conn = await connectSurfaces({
+        surfaces: { a: surface },
+        core: { surface: core, name: "floor" },
+        url: "ws://test",
+        retired: () => {},
+        connect: d.connect,
+      });
+      (await d.nth(1)).open();
+      await settle();
+
+      await expect(conn.redial({ a: surface, bad: policied })).rejects.toThrow(
+        /could not be built after its wire had already been adopted/,
+      );
+      await settle();
+      // RELEASED, not wedged: the readout says so, every wire it ever dialled is
+      // closed, and the connection is terminal rather than stuck in "redialing".
+      expect(conn.readout().status).toBe("retired");
+      expect(conn.health().live).toBe(false);
+      for (const ws of d.dialled) expect(ws.readyState).toBe(3);
+      await expect(conn.redial({ b: later })).rejects.toThrow(
+        /`redial` on a DISPOSED connection/,
+      );
+      dispose();
+    });
+  });
+
   it("refuses a CONCURRENT redial, and a redial after dispose", async () => {
     const d = dialRecorder();
     await createRoot(async (dispose) => {

@@ -691,12 +691,15 @@ export async function connectSurfaces(
   // ONE decision, taken once: the root, checked, or `undefined`. Every line below
   // asks THIS binding — never the option, and never the question a second time.
   const root = resolveRoot(core);
-  // The roster this connection currently rides, and what that roster derives. Both
-  // are REASSIGNED by `redial` and read by everything below through these bindings,
-  // never through `opts` — which is what makes "the watchdog probes a member the
+  // What the CURRENT roster derives — the wire's group and the reserved probes'
+  // target. REASSIGNED by `redial`, and read below through this binding rather
+  // than through `opts`, which is what makes "the watchdog probes a member the
   // CURRENT generation serves" true rather than true-on-the-first-dial.
-  let roster: Record<string, Surface<SurfaceSpec>> = surfaces;
-  let plan = planGeneration(root, roster, extraGroups);
+  //
+  // The roster ITSELF is deliberately not kept beside it: after the handover the
+  // roster this connection rides is exactly `bundle.clients`' key set, and a
+  // second copy would be a place two writers keep in step by hand for no reader.
+  let plan = planGeneration(root, surfaces, extraGroups);
   // Resolved ONCE, before anything is allocated — a browser app's own origin does
   // not change between generations, and the refusal a missing `location` earns has
   // to land before the first dial (the law `defaultSurfaceUrl` states).
@@ -759,7 +762,7 @@ export async function connectSurfaces(
     // with.
     const bundle = allocations.track(
       "clients",
-      surfaceClients(transport, roster, onClientError),
+      surfaceClients(transport, surfaces, onClientError),
     );
     // THE map the app holds, for the connection's whole life. `reroster` mutates
     // it in place, so there is nothing here to reassign and nothing for a consumer
@@ -939,7 +942,6 @@ export async function connectSurfaces(
         // connection is on — which is what makes "a `dispose()` may land anywhere"
         // a statement about two well-defined states rather than about a schedule.
         plan = nextPlan;
-        roster = next;
         // Adopting fails whatever was in flight over the old generation with the
         // transport error the per-subscription retry fence retries on, so every
         // standing subscription re-opens ITSELF against the new one. The promise
@@ -948,17 +950,59 @@ export async function connectSurfaces(
           transport: generation.link,
           dispose: generation.dispose,
         });
-        // Departed siblings are retracted (their clients refuse in words from
-        // here on), arrivals are built, and `clients` — the object the app holds
-        // — carries both. The returned bundle IS this one; only the type moves.
-        bundle.reroster(next);
+        try {
+          // Departed siblings are retracted (their clients refuse in words from
+          // here on), arrivals are built, and `clients` — the object the app holds
+          // — carries both. The returned bundle IS this one; only the type moves.
+          //
+          // It must run AFTER the adopt, and that is not a preference: an arriving
+          // sibling's client can open a standing subscription AT CONSTRUCTION (a
+          // mirrored surface's eager `liveWhen` leg, forked synchronously), and its
+          // tags are ones the OUTGOING generation's `RpcGroup` never minted — so
+          // built a moment earlier it would address an unknown tag on the wire it
+          // is replacing, and that answer is not the transport failure the fence
+          // retries on. The arrivals therefore go onto the wire that serves them.
+          bundle.reroster(next);
+        } catch (rerosterError) {
+          // AND THAT ORDER HAS A PRICE, paid here rather than hidden. The wire has
+          // already moved and cannot move back — the generation this connection
+          // dialled FROM is being released as this runs — so a connection whose
+          // wire serves one roster while its clients were built for another cannot
+          // be made honest again. It is given up, loudly and completely, rather
+          // than left wedged mid-transition with every later `redial` refused.
+          // (`buildSurfaceClient` throws by design for a sibling whose spec
+          // declares a `client.onError` policy with no interpreter — a programming
+          // error, which is exactly the class that must crash rather than degrade.)
+          setState("gone");
+          await superseded;
+          try {
+            await allocations.release();
+          } catch (releaseError) {
+            // Logged, not raised: the caller needs the error that CAUSED the
+            // teardown, not the teardown's own.
+            console.error(
+              "connectSurfaces: releasing this connection FAILED while giving it up " +
+                "over a roster move its clients could not follow",
+              releaseError,
+            );
+          }
+          throw new Error(
+            "connectSurfaces: the new roster's clients could not be built after its wire " +
+              "had already been adopted, so this connection has been RELEASED — its wire " +
+              "served one roster while its clients were built for another, and nothing can " +
+              "make that honest. Dial a fresh connection over the roster you want.",
+            { cause: rerosterError },
+          );
+        }
         refold();
         bumpRosterMembership(0);
         setState("live");
         // Awaited LAST: the connection is already consistent and live on the new
         // roster, so a teardown that drags does not hold the new roster back, and
         // a `dispose()` landing in this window releases the generation now held
-        // rather than the corpse.
+        // rather than the corpse. It never rejects — `followingWire.adopt` logs a
+        // superseded generation's teardown failure rather than raising it, because
+        // the value this call exists to produce is already delivered.
         await superseded;
         return connection;
       },

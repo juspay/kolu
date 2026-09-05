@@ -1660,6 +1660,23 @@ read — `performance.now()` where present, else `Date.now()`. It lives in its o
 neutral module (not `@kolu/surface/heartbeat`) so neither the heartbeat nor a
 downstream watchdog reaches into the other for the clock; both import it from here.
 
+`createLiveSignal(transport, opts)` (`@kolu/surface/solid`) is the sole minter of
+the branded `LiveSignalHandle` — the watchdog-backed `live` paired by construction
+with the `dispatch` it probes. Its one option beyond the
+its heartbeat tuning is **`siblingKey?: () => string | undefined`**:
+on a composed wire, which sibling's scoped `system/live` the probe addresses.
+
+It is a **thunk**, re-read on every probe, and that is not decoration. A watchdog
+outlives the wire underneath it when that wire
+[follows a roster](#a-wire-that-follows-its-generations--followingwire): which
+siblings a generation serves is a fact about *that* generation, so a key resolved
+once at construction would keep probing a member the current generation no longer
+carries — and the "unknown tag" answer reads as a dead wire, which is a watchdog
+reporting the opposite of the truth. Resolve to `undefined` (or omit the option)
+for the bare `surface/system/live` — a single-surface wire, or a rooted bundle,
+where the root is on every serve this wire can reach. A wire whose roster cannot
+move passes a constant thunk and pays nothing.
+
 `client.health()` returns a **fact**, not a verdict:
 `{ live: boolean, subs: [{ name, pending, error }] }`. `live` is the full
 conjunction of transport-live and every readiness predicate; a subscription

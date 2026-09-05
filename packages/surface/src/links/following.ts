@@ -55,18 +55,8 @@
  * link's own business and is forwarded through `wire.onStatus` unchanged.
  */
 
-import { Effect, Stream } from "effect";
-import {
-  RpcClientDefect,
-  type RpcClientError,
-  RpcClientError as RpcClientErrorClass,
-} from "effect/unstable/rpc/RpcClientError";
-import {
-  brandHalfOpenDispatch,
-  type SurfaceDispatch,
-  type WireStatus,
-  type WireTransport,
-} from "../link";
+import type { WireStatus, WireTransport } from "../link";
+import { supersession } from "./supersession";
 
 /** One generation of a {@link FollowingWire}: the `{ dispatch, wire }` pairing a
  *  wire link factory minted, plus the release that closes it.
@@ -103,38 +93,11 @@ export interface FollowingWire<T extends WireTransport = WireTransport>
   dispose(): Promise<void>;
 }
 
-/** The failure a call superseded by an `adopt` carries.
- *
- *  `RpcClientError` is not decoration: the per-subscription fence matches
- *  transport failures STRUCTURALLY on `_tag === "RpcClientError"`
- *  (`../client.ts`'s `isTransportError`), and this IS a transport failure — the
- *  transport that was carrying the call has been replaced. The message states the
- *  whole derivation, because it is what a consumer reads in a console when an
- *  UNFENCED call fails instead of hanging. */
-function supersededError(bound: number, now: number): RpcClientError {
-  return new RpcClientErrorClass({
-    reason: new RpcClientDefect({
-      message:
-        `the wire adopted a new generation beneath this call: it was bound to generation ${bound}, the wire is now at generation ${now}. ` +
-        "Effect RPC registers an entry exactly once and never re-sends it onto another link, and an answer can only travel the " +
-        "link its request went out on — so this call could only park forever. Failing it is the honest signal: the " +
-        "per-subscription retry fence re-subscribes on the new generation.",
-      cause: new Error(
-        `followingWire: generation ${now} superseded generation ${bound}`,
-      ),
-    }),
-  });
-}
-
 export function followingWire<T extends WireTransport>(
   first: WireGeneration<T>,
 ): FollowingWire<T> {
   let held: WireGeneration<T> = first;
   let disposed = false;
-  /** How many times this wire has adopted — the generation a call binds to. A
-   *  call bound to a generation the wire has passed was superseded. */
-  let generation = 0;
-  const generationWatchers = new Set<(generation: number) => void>();
 
   // The status FUNNEL. `published` is the value `wire.status()` answers, so what
   // a watcher was told and what a reader reads can never disagree — including
@@ -148,58 +111,21 @@ export function followingWire<T extends WireTransport>(
   };
   let detachStatus = held.transport.wire.onStatus(publish);
 
-  /** Never succeeds; fails the moment the wire adopts past `bound`.
-   *
-   *  The registration is asynchronous relative to the `bindingGeneration()` read
-   *  at the call site, so an `adopt` can complete in between — hence the eager
-   *  re-check rather than an assumption. Straight from `websocketLink`'s epoch
-   *  wrap, which answers the same question about a re-dial. */
-  const supersededByAdopt = (
-    bound: number,
-  ): Effect.Effect<never, RpcClientError> =>
-    Effect.callback<never, RpcClientError>((resume) => {
-      if (generation > bound) {
-        resume(Effect.fail(supersededError(bound, generation)));
-        return;
-      }
-      const watcher = (next: number): void => {
-        if (next <= bound) return;
-        generationWatchers.delete(watcher);
-        resume(Effect.fail(supersededError(bound, next)));
-      };
-      generationWatchers.add(watcher);
-      return Effect.sync(() => {
-        generationWatchers.delete(watcher);
-      });
-    });
-
-  // Branded: `brandHalfOpenDispatch` is by IDENTITY and this is a new object.
-  // A wire dispatch that lost the brand would be accepted by `surfaceClient`
-  // with no watchdog — the green-dot-over-a-dead-link lie (#1564).
-  const dispatch: SurfaceDispatch = brandHalfOpenDispatch({
-    unary: (tag: string, payload: unknown) =>
-      // `suspend` so the generation is read when the call RUNS, not when its
-      // lazy value is built (a call value can be held and run much later).
-      Effect.suspend(() =>
-        Effect.raceFirst(
-          held.transport.dispatch.unary(tag, payload),
-          supersededByAdopt(generation),
-        ),
-      ),
-    stream: (tag: string, payload: unknown) =>
-      // `interruptWhen`, not `haltWhen`: a superseded subscription is parked ON
-      // a pull that will never complete, and `haltWhen` waits for the current
-      // pull. The guard's FAILURE becomes the stream's failure, which is what
-      // the fence retries on. It cannot fire synchronously with the subscribe
-      // (the generation is read in the same tick it is compared against), so
-      // `SurfaceDispatch`'s no-synchronous-end invariant still holds.
-      Stream.suspend(() =>
-        Stream.interruptWhen(
-          held.transport.dispatch.stream(tag, payload),
-          supersededByAdopt(generation),
-        ),
-      ),
+  // THE FENCE — the shared one (`./supersession`), which `websocketLink` also
+  // stands on. What this wire contributes is only the WORDS: an operator reading
+  // a console must be able to tell a generation change from a re-dial.
+  const fence = supersession({
+    message: (bound, now) =>
+      `the wire adopted a new generation beneath this call: it was bound to generation ${bound}, the wire is now at generation ${now}. ` +
+      "Effect RPC registers an entry exactly once and never re-sends it onto another link, and an answer can only travel the " +
+      "link its request went out on — so this call could only park forever. Failing it is the honest signal: the " +
+      "per-subscription retry fence re-subscribes on the new generation.",
+    cause: (bound, now) =>
+      `followingWire: generation ${now} superseded generation ${bound}`,
   });
+  // `inner` is read PER CALL, so a call issued after an `adopt` rides the
+  // generation now held; every call binds to the mark current when it RUNS.
+  const dispatch = fence.wrap(() => held.transport.dispatch, fence.mark);
 
   return {
     dispatch,
@@ -228,17 +154,32 @@ export function followingWire<T extends WireTransport>(
       detachStatus();
       held = next;
       detachStatus = next.transport.wire.onStatus(publish);
-      // The counter FIRST, so a consumer that issues a call from its own status
-      // handler below has already bound to the new generation and cannot fail
-      // its own fresh call. Then the status, then the supersession sweep — the
-      // order `websocketLink`'s open edge takes, for the same reason.
-      generation += 1;
-      publish(next.transport.wire.status());
-      for (const watcher of [...generationWatchers]) watcher(generation);
+      // ADVANCE → publish → sweep, as ONE call, because the order is the whole
+      // point and `./supersession` is where it is stated: the mark moves first
+      // so a consumer that issues a call from its own status handler has already
+      // bound to the new generation and cannot fail its own fresh call, and the
+      // sweep runs last (in a `finally`) so a throwing handler cannot leave the
+      // superseded calls with nothing to fail them.
+      fence.advance(() => publish(next.transport.wire.status()));
       // AFTER the swap: the handover above is synchronous, so there is no window
       // in which this wire has no generation, and a `dispose()` landing during
       // this await releases the generation now held rather than the corpse.
-      await superseded.dispose();
+      //
+      // A release that itself FAILS is LOGGED, not raised. The value this call
+      // exists to produce — the new generation, live, with every superseded call
+      // already failed — is already delivered by the time the old one is closed,
+      // and rejecting over its teardown would tell the caller that a move which
+      // completed did not. (The same trade `trackConnectAllocations` makes at its
+      // own superseded exit, at the altitude that owns the resource.)
+      try {
+        await superseded.dispose();
+      } catch (teardownError) {
+        console.error(
+          "followingWire: releasing the superseded generation FAILED — that link " +
+            "is leaked; the wire is live on the generation it adopted",
+          teardownError,
+        );
+      }
     },
     dispose: async () => {
       if (disposed) return;

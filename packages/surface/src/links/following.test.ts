@@ -16,7 +16,7 @@
  */
 
 import { Cause, Effect, Exit, Stream } from "effect";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { isTransportError } from "../client";
 import {
   brandHalfOpenDispatch,
@@ -34,6 +34,7 @@ import { followingWire, type WireGeneration } from "./following";
 function generation(
   name: string,
   initial: WireStatus = "open",
+  refuseRelease?: Error,
 ): WireGeneration & {
   set: (status: WireStatus) => void;
   reconnects: () => number;
@@ -69,6 +70,7 @@ function generation(
     transport,
     dispose: async () => {
       disposals += 1;
+      if (refuseRelease) throw refuseRelease;
     },
     set: (next) => {
       if (next === status) return;
@@ -176,6 +178,54 @@ describe("followingWire — one wire over a succession of links", () => {
     wire.wire.forceReconnect();
     expect(first.reconnects()).toBe(1);
     expect(second.reconnects()).toBe(1);
+  });
+
+  it("LOGS a superseded generation's failed release rather than rejecting the adopt", async () => {
+    // The value `adopt` exists to produce — the new generation, live, with every
+    // superseded call already failed — is delivered BEFORE the old one is closed.
+    // Rejecting over that teardown would tell the caller a move which completed
+    // did not, and there is no other channel for it to hear the real outcome on.
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    const first = generation("first", "open", new Error("release refused"));
+    const wire = followingWire(first);
+    const second = generation("second");
+    await expect(wire.adopt(second)).resolves.toBeUndefined();
+    // The move happened...
+    expect(wire.current()).toBe(second.transport);
+    expect(await Effect.runPromise(wire.dispatch.unary("surface/x", {}))).toBe(
+      "second",
+    );
+    // ...and the leak is NAMED rather than swallowed.
+    expect(errors).toHaveBeenCalledTimes(1);
+    expect(String(errors.mock.calls[0]?.[0])).toMatch(
+      /releasing the superseded generation FAILED/,
+    );
+    errors.mockRestore();
+  });
+
+  it("sweeps the superseded calls even when a status watcher THROWS", async () => {
+    // The ordering law is advance → notify → sweep, and the sweep runs in a
+    // `finally`: a consumer callback that throws must not leave calls bound below
+    // the mark with nothing left to fail them — they would park forever over a
+    // wire that reports itself healthy, which is the whole class this fence exists
+    // to close.
+    const first = generation("first", "closed");
+    const wire = followingWire(first);
+    wire.wire.onStatus(() => {
+      throw new Error("a consumer's status handler threw");
+    });
+    const running = Effect.runPromise(
+      wire.dispatch.unary("surface/never", {}),
+    ).then(
+      () => "resolved",
+      (err: unknown) => String(err),
+    );
+    // The throw escapes `adopt` (it is the consumer's, not this wire's to
+    // swallow) — but the sweep still ran.
+    await expect(wire.adopt(generation("second", "open"))).rejects.toThrow(
+      /a consumer's status handler threw/,
+    );
+    expect(await running).toMatch(/adopted a new generation beneath this call/);
   });
 
   it("releases the held generation on dispose — idempotently — and refuses a later adopt", async () => {
