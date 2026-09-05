@@ -75,6 +75,16 @@ When(
   },
 );
 
+// Deliberately hold across the fleet's one-second clock update: replacing a
+// row during the press cancels the browser's click synthesis.
+When(
+  "I click {string} in the palette across a live refresh",
+  async function (this: KoluWorld, text: string) {
+    const item = paletteOption(this.page.locator(PALETTE_SELECTOR), text);
+    await item.first().click({ delay: 1500 });
+  },
+);
+
 Then("the command palette should be visible", async function (this: KoluWorld) {
   const palette = this.page.locator(PALETTE_SELECTOR);
   await palette.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
