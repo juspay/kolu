@@ -1,21 +1,33 @@
 /**
  * Coverage for the ssh ControlMaster opt construction (`controlOptPairs`):
  * the path is the kolu-private `%C` socket (never `~/.ssh`) KEYED BY the dial's
- * keepalive policy, the control dir is created `0700` and the concern is
- * memoized per policy, and any unsafe setup (a non-private dir, a whitespace
+ * keepalive policy, the control dir is created `0700` once (the effect is
+ * policy-INDEPENDENT, so it is memoized in one slot while the path stays a pure
+ * per-policy computation), and any unsafe setup (a non-private dir, a whitespace
  * path) degrades to NO control opts rather than corrupting the ssh options. All
  * FS work is confined to a fresh `os.tmpdir()` subdir per test; no ssh / nix is
  * spawned.
  */
-import { chmodSync, mkdirSync, mkdtempSync, rmSync, statSync } from "node:fs";
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
+  statSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { __resetControlMemo, controlOptPairs } from "./controlMaster";
-import { DEFAULT_SSH_KEEPALIVE, type SshKeepalive } from "./host";
+import {
+  DEFAULT_SSH_KEEPALIVE,
+  type SshKeepalive,
+  sshKeepalive,
+} from "./keepalive";
 
 /** A CI-shaped policy: ride out a five-minute blip instead of killing a lane. */
-const CI_KEEPALIVE: SshKeepalive = { intervalS: 30, countMax: 10 };
+const CI_KEEPALIVE: SshKeepalive = sshKeepalive(30, 10);
 
 const tmpDirs: string[] = [];
 function freshXdg(): string {
@@ -99,18 +111,26 @@ describe("controlOptPairs path shape", () => {
 });
 
 describe("controlOptPairs ensure-dir", () => {
-  it("creates the control dir 0700 and memoizes the result per policy", () => {
+  it("creates the control dir 0700 ONCE, then renders every policy purely", () => {
     const xdg = freshXdg();
     vi.stubEnv("XDG_RUNTIME_DIR", xdg);
     __resetControlMemo();
+    const dir = join(xdg, "kolu-ssh");
     const first = controlOptPairs(DEFAULT_SSH_KEEPALIVE);
     if (process.getuid !== undefined) {
-      expect(statSync(join(xdg, "kolu-ssh")).mode & 0o777).toBe(0o700);
+      expect(statSync(dir).mode & 0o777).toBe(0o700);
     }
-    // memoized: a second call returns the very same array — no recompute.
-    expect(controlOptPairs(DEFAULT_SSH_KEEPALIVE)).toBe(first);
-    // …but the memo is KEYED: another policy must not be served this entry.
-    expect(controlOptPairs(CI_KEEPALIVE)).not.toBe(first);
+    // The mkdir + lstat is the only EFFECT here, and it does not vary with the
+    // policy (every policy's socket sits in this one dir — asserted above). So
+    // it is memoized in ONE slot rather than once per policy: delete the dir
+    // and neither a second render NOR a second policy recreates it.
+    rmSync(dir, { recursive: true, force: true });
+    expect(controlOptPairs(DEFAULT_SSH_KEEPALIVE)).toEqual(first);
+    expect(existsSync(dir)).toBe(false);
+    const ci = controlOptPairs(CI_KEEPALIVE);
+    expect(existsSync(dir)).toBe(false);
+    // …while the VALUE is pure and still per-policy.
+    expect(ci).not.toEqual(first);
   });
 
   it("refuses multiplexing (never silence) when the control dir is not owner-only", () => {

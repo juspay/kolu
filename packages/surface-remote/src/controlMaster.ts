@@ -67,10 +67,7 @@
 import { lstatSync, mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import { getRuntimeSocketPath } from "@kolu/surface/unix-socket";
-// TYPE-only: `host.ts` imports this module for `controlOptPairs`, so a value
-// import here would close a runtime cycle. `controlOptPairs` takes the policy as
-// a REQUIRED argument for the same reason — there is no default to import.
-import type { SshKeepalive } from "./host";
+import { policyTag, type SshKeepalive } from "./keepalive";
 
 /** How long the shared master lingers idle after its last channel closes.
  *  Deliberately CROSS-INVOCATION (~10m): a second `kaval-tui` within
@@ -109,35 +106,16 @@ const NO_MULTIPLEXING: readonly (readonly [string, string])[] = [
   ["ControlPath", "none"],
 ];
 
-/** The one whitespace-free spelling of a keepalive policy, used as both the
- *  memo key and the `ControlPath` suffix — so "which master is this?" and "which
- *  entry is memoized?" can never disagree. `assertSshKeepalive` (run on every
- *  render path in `host.ts`) guarantees two positive integers, so this is always
- *  short and free of whitespace and path separators. */
-function policyTag(keepalive: SshKeepalive): string {
-  return `${keepalive.intervalS}x${keepalive.countMax}`;
-}
-
-/** The kolu-private control-socket path — the ONE source of truth both the
- *  `ControlPath=` opt and the ensure-dir derive from, so they can never
- *  spell it differently. `%C` is a LITERAL token here: ssh expands it to a
- *  host+port+user hash at connect time, so one path string serves every
- *  host while each host still gets its own socket. `getRuntimeSocketPath`
- *  gives `$XDG_RUNTIME_DIR/kolu-ssh/%C-<policy>` on systemd Linux, else the
- *  `$TMPDIR`-independent `/tmp/kolu-ssh-$UID/%C-<policy>` (see its doc for why
- *  `os.tmpdir()` is the wrong tool for a path two processes must agree on).
- *  Both expand to ≈65 chars — well under the ~104-char `sun_path` limit, so
- *  keep the `kolu-ssh` app name short.
+/** The kolu-private control DIRECTORY — the one thing here that is an EFFECT
+ *  and the one thing that does NOT vary with the policy. `getRuntimeSocketPath`
+ *  gives `$XDG_RUNTIME_DIR/kolu-ssh/<file>` on systemd Linux, else the
+ *  `$TMPDIR`-independent `/tmp/kolu-ssh-$UID/<file>` (see its doc for why
+ *  `os.tmpdir()` is the wrong tool for a path two processes must agree on); the
+ *  `dirname` of either is what every policy's socket sits in.
  *
- *  The `-<policy>` suffix is what keeps two {@link SshKeepalive} policies off
- *  one master (see the module header): the master's OPENER decides `ServerAlive*`
- *  for its whole lifetime, so the policy has to be part of the socket's
- *  identity. */
-function controlSocketPath(keepalive: SshKeepalive): string {
-  return getRuntimeSocketPath({
-    app: "kolu-ssh",
-    file: `%C-${policyTag(keepalive)}`,
-  });
+ *  `null` when we cannot own one safely — see {@link ensureControlDir}. */
+function controlDirPath(): string {
+  return dirname(getRuntimeSocketPath({ app: "kolu-ssh", file: "socket" }));
 }
 
 /** Is `dir` a private, owner-only directory we own? The control socket
@@ -162,73 +140,79 @@ function isPrivateOwnedDir(dir: string): boolean {
   }
 }
 
-/** Memoized PER POLICY: the multiplexing concern is computed once per process
- *  per {@link SshKeepalive} (the runtime dir and its ownership don't change
- *  under us), so the mkdir + lstat run on the first ssh of the first dial at
- *  each policy and every later render is pure. Keyed rather than single-slot
- *  because the `ControlPath` now varies with the policy — one slot would hand a
- *  second policy the first one's socket, which is the exact mix-up the keying
- *  exists to prevent. In practice the map holds one or two entries. */
-const memo = new Map<string, readonly (readonly [string, string])[]>();
+/** The memoized EFFECT — one slot, because it is policy-INDEPENDENT. The
+ *  directory is `$XDG_RUNTIME_DIR/kolu-ssh` whatever the dial's policy, so the
+ *  mkdir + lstat run once per process (the runtime dir and its ownership do not
+ *  change under us) rather than once per policy. `undefined` = not yet computed;
+ *  `null` = computed, and we cannot own one. */
+let controlDir: string | null | undefined;
 
-/** The `ControlMaster` `(key, value)` pairs to add to the ssh options — or
- *  `[]` when multiplexing can't be set up SAFELY, in which case ssh
- *  connects un-multiplexed (correct, just no speedup). This is the
- *  self-hooking ensure-dir: every spawn site renders its ssh opts through
- *  here (the agent dial, the probe/root commands, and the remote-store Nix env), so the
- *  control dir is created lazily before the first ssh and never from a
+/** Create (or adopt) the private control dir, once. `null` on any of: a
+ *  directory path containing whitespace (which would corrupt the word-split
+ *  `NIX_SSHOPTS` form while the argv form stayed correct — and it is the DIR
+ *  that can carry a space, since `sshKeepalive`'s integers make the `%C-<tag>`
+ *  leaf whitespace-free by construction), an un-creatable runtime dir
+ *  (read-only FS, no `$XDG_RUNTIME_DIR` and no writable `/tmp`, …), or a dir
+ *  that isn't owner-only. */
+function ensureControlDir(): string | null {
+  if (controlDir !== undefined) return controlDir;
+  controlDir = ((): string | null => {
+    try {
+      const dir = controlDirPath();
+      if (/\s/.test(dir)) return null;
+      mkdirSync(dir, { recursive: true, mode: 0o700 });
+      // mkdir's mode is a no-op on a pre-existing dir, so VERIFY privacy
+      // rather than assume it — a stable per-user path another local user
+      // could have pre-created with loose perms must not host our connection.
+      if (!isPrivateOwnedDir(dir)) return null;
+      return dir;
+    } catch {
+      // mkdir/stat threw (EROFS, EACCES, …) — connect un-multiplexed.
+      return null;
+    }
+  })();
+  return controlDir;
+}
+
+/** The `ControlMaster` `(key, value)` pairs to add to the ssh options — or an
+ *  explicit refusal to multiplex when we cannot set OUR master up safely, in
+ *  which case ssh connects un-multiplexed (correct, just no speedup). This is
+ *  the self-hooking ensure-dir: every spawn site renders its ssh opts through
+ *  here (the agent dial, the probe/root commands, and the remote-store Nix env),
+ *  so the control dir is created lazily before the first ssh and never from a
  *  module import.
  *
- *  Degrades to {@link NO_MULTIPLEXING} — never throws — on any of: a
- *  `ControlPath` containing whitespace (would corrupt the word-split
- *  `NIX_SSHOPTS` form while the argv form stayed correct, so we drop OUR control
- *  pairs rather than emit a half-correct set), an un-creatable runtime dir
- *  (read-only FS, no `$XDG_RUNTIME_DIR` and no writable `/tmp`, …), or a dir that
- *  isn't owner-only. Graceful degradation of an additive speedup, mirroring
- *  `serveOverUnixSocket`'s no-op `refused()` outcomes — NOT a provisioning
- *  fallback (correctness never depends on multiplexing succeeding). Note the
- *  degrade is an explicit `ControlPath=none` and NOT an empty set: see
- *  {@link NO_MULTIPLEXING} for why silence would hand the connection to the
- *  user's own `ssh_config` master and break the per-policy guarantee. */
+ *  PURE given that directory. The `%C` in the path is a LITERAL token: ssh
+ *  expands it to a host+port+user hash at connect time, so one path string
+ *  serves every host while each host still gets its own socket. The `-<policy>`
+ *  suffix is what keeps two {@link SshKeepalive} policies off one master (see
+ *  the module header): the master's OPENER decides `ServerAlive*` for its whole
+ *  lifetime, so the policy has to be part of the socket's identity. Both forms
+ *  expand to ≈65 chars — well under the ~104-char `sun_path` limit, so keep the
+ *  `kolu-ssh` app name short.
+ *
+ *  Degrades to {@link NO_MULTIPLEXING} — never throws. Graceful degradation of
+ *  an additive speedup, mirroring `serveOverUnixSocket`'s no-op `refused()`
+ *  outcomes — NOT a provisioning fallback (correctness never depends on
+ *  multiplexing succeeding). Note the degrade is an explicit `ControlPath=none`
+ *  and NOT an empty set: see {@link NO_MULTIPLEXING} for why silence would hand
+ *  the connection to the user's own `ssh_config` master and break the
+ *  per-policy guarantee. */
 export function controlOptPairs(
   keepalive: SshKeepalive,
 ): readonly (readonly [string, string])[] {
-  const key = policyTag(keepalive);
-  const hit = memo.get(key);
-  if (hit !== undefined) return hit;
-  const remember = (
-    pairs: readonly (readonly [string, string])[],
-  ): readonly (readonly [string, string])[] => {
-    memo.set(key, pairs);
-    return pairs;
-  };
-  try {
-    const path = controlSocketPath(keepalive);
-    // The value contract `sshOptPairs` documents: nix word-splits
-    // `NIX_SSHOPTS` and the argv renderer emits one `-o` per pair, so a
-    // value with a space corrupts the env form silently. Drop multiplexing
-    // wholesale rather than ship a corrupt opt.
-    if (/\s/.test(path)) return remember(NO_MULTIPLEXING);
-    const dir = dirname(path);
-    mkdirSync(dir, { recursive: true, mode: 0o700 });
-    // mkdir's mode is a no-op on a pre-existing dir, so VERIFY privacy
-    // rather than assume it — a stable per-user path another local user
-    // could have pre-created with loose perms must not host our connection.
-    if (!isPrivateOwnedDir(dir)) return remember(NO_MULTIPLEXING);
-    return remember([
-      ["ControlMaster", "auto"],
-      ["ControlPath", path],
-      ["ControlPersist", CONTROL_PERSIST],
-    ]);
-  } catch {
-    // mkdir/stat threw (EROFS, EACCES, …) — connect un-multiplexed.
-    return remember(NO_MULTIPLEXING);
-  }
+  const dir = ensureControlDir();
+  if (dir === null) return NO_MULTIPLEXING;
+  return [
+    ["ControlMaster", "auto"],
+    ["ControlPath", `${dir}/%C-${policyTag(keepalive)}`],
+    ["ControlPersist", CONTROL_PERSIST],
+  ];
 }
 
-/** Test-only: drop the memo so a test can re-drive `controlOptPairs()`
- *  after stubbing `$XDG_RUNTIME_DIR`. Not re-exported from the package
- *  index — internal. */
+/** Test-only: drop the memoized control dir so a test can re-drive
+ *  `controlOptPairs()` after stubbing `$XDG_RUNTIME_DIR`. Not re-exported from
+ *  the package index — internal. */
 export function __resetControlMemo(): void {
-  memo.clear();
+  controlDir = undefined;
 }
