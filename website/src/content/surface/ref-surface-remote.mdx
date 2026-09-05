@@ -59,17 +59,40 @@ executable and derivation cannot drift into two hand-maintained mappings.
 redials. It defaults to `DEFAULT_SSH_KEEPALIVE` (`10 × 3` ≈ 30s), which is what
 an interactive tool wants: a host that stopped answering must stop *looking*
 connected. **Raise it for a long-running unattended dial that a redial would
-destroy rather than repair** — a CI lane that has been compiling for twenty
-minutes should ride out a multi-minute network blip, not be killed and restarted
-(`{ intervalS: 30, countMax: 10 }` buys five minutes). The cost is symmetric: a
-genuinely dead host keeps that dial parked for the same window before the loop
-retries. Out-of-range values throw at `sshConnector(...)` construction rather
-than being clamped (`assertSshKeepalive`, ceiling `MAX_SSH_KEEPALIVE_TOLERANCE_S`
-= one hour) — the same fail-fast rule as `makeSession`'s `liveness`, the
-heartbeat half of the same question. The policy reaches **every** ssh the dial
-spawns: the arch probe, the warm validity check, the GC-root pin, the closure
-ship, the `NIX_SSHOPTS` that the remote-store `nix build` forks its own ssh with,
-and the agent command itself.
+destroy rather than repair** — a CI lane whose provisioning build has been
+compiling for twenty minutes should ride out a multi-minute network blip, not be
+killed and restarted (`{ intervalS: 30, countMax: 10 }` buys five minutes). The
+cost is symmetric: a genuinely dead host keeps that dial parked for the same
+window before the loop retries. Out-of-range values throw at `sshConnector(...)`
+construction rather than being clamped (`assertSshKeepalive`, ceiling
+`MAX_SSH_KEEPALIVE_TOLERANCE_S` = one hour). The policy reaches **every** ssh the
+dial spawns: the arch probe, the cache prefetch, the warm validity check, the
+GC-root pin, the closure ship, the `NIX_SSHOPTS` that the remote-store `nix
+build` forks its own ssh with, and the agent command itself. `dialAgentOnce`
+takes the same option and forwards it.
+
+<Aside type="caution" title="Raising this alone does not protect a CONNECTED link">
+  `keepalive` governs the **dialling** phases — `probing` and `provisioning`,
+  which is where a cold build's twenty quiet minutes live, and where a 30s
+  dead-peer verdict used to throw that work away.
+
+  Once a session reaches `connected`, a *faster* judge takes over:
+  `makeSession`'s liveness watchdog round-trips `system.live` on the
+  `MakeSessionOptions.liveness` cadence — **≈25s at its defaults** — and because
+  an ssh `Connection` supplies no `processAlive` oracle, one silent probe
+  force-cycles the link. That fires long before any raised ssh tolerance elapses.
+
+  So a lane that must survive a multi-minute blip *while connected* raises
+  **both**, and the heartbeat's own ceilings bound what is reachable there
+  (`MAX_HEARTBEAT_INTERVAL_MS` 300s + `MAX_HEARTBEAT_TIMEOUT_MS` 120s):
+
+  ```ts
+  makeSession({
+    connectOnce: sshConnector({ …, keepalive: { intervalS: 30, countMax: 10 } }),
+    liveness: { intervalMs: 240_000, timeoutMs: 60_000 }, // ≈5 min, matching
+  });
+  ```
+</Aside>
 
 <Aside type="note" title="A ControlMaster's opener fixes ServerAlive* for its lifetime">
   The commands one dial issues share a single ssh `ControlMaster` connection, and

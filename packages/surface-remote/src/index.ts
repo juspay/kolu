@@ -56,7 +56,7 @@ export {
   SSH_COMMON_OPTS,
   sshCommonOpts,
   type SshKeepalive,
-  type SshTarget,
+  type SshDestination,
 } from "./host";
 export {
   buildRemotePool,

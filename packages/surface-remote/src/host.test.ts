@@ -405,6 +405,26 @@ describe("ssh keepalive policy", () => {
     );
   });
 
+  it("validates on BOTH arms — a localhost dial is not a validation loophole", () => {
+    // Rendering happens only on the remote arm (both builders short-circuit for
+    // isLocalHost before any opt is rendered), so a check that rode the renderer
+    // would make fail-fast a property of WHICH HOST you dialled. The assert sits
+    // at the seam that ACCEPTS the value instead.
+    const bad = { intervalS: 0, countMax: 3 };
+    expect(() =>
+      buildSshProbeCommand({ host: "localhost", keepalive: bad }, "nix-store"),
+    ).toThrow(/ssh keepalive/);
+    expect(() =>
+      buildAgentCommand({
+        host: "localhost",
+        agentPath: "/p",
+        binary: "a",
+        localEnv: {},
+        keepalive: bad,
+      }),
+    ).toThrow(/ssh keepalive/);
+  });
+
   it("THROWS on an absurd or malformed policy — never clamps it", () => {
     // Fail-fast, the sibling of createHeartbeat's MAX_HEARTBEAT_* guard: a
     // policy is rejected, never silently reshaped into one nobody asked for.
@@ -514,7 +534,7 @@ describe("ssh multiplexing (ControlMaster)", () => {
     }
   });
 
-  it("degrades uniformly: a non-private control dir drops ALL control opts", () => {
+  it("degrades uniformly: a non-private control dir refuses multiplexing everywhere", () => {
     if (process.getuid === undefined) return; // no uid semantics — skip
     // Re-point XDG at a dir whose computed control dir is pre-created loose.
     const xdg = mkdtempSync(join(tmpdir(), "kolu-ssh-loose-"));
@@ -539,10 +559,13 @@ describe("ssh multiplexing (ControlMaster)", () => {
     const env = sshOpts(nixSshOpts().split(" "));
     for (const opts of [probe, dial, env]) {
       // One memoized source degrades every renderer at once: keepalive
-      // survives, multiplexing is dropped everywhere.
+      // survives, and multiplexing is REFUSED everywhere — explicitly, as
+      // ControlPath=none rather than by emitting nothing. Emitting nothing
+      // would let the user's own ~/.ssh/config supply a master keyed by
+      // host+user+port, which two policies would then share.
       expect(opts.BatchMode).toBe("yes");
-      expect(opts.ControlMaster).toBeUndefined();
-      expect(opts.ControlPath).toBeUndefined();
+      expect(opts.ControlMaster).toBe("no");
+      expect(opts.ControlPath).toBe("none");
       expect(opts.ControlPersist).toBeUndefined();
     }
   });

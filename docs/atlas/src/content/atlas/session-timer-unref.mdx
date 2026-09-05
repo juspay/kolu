@@ -29,9 +29,13 @@ census with the verdict and argument for each. Implemented in
 All non-test timers in the package live in `session.ts`. `controlMaster.ts`
 has none (its `ControlPersist=10m` is ssh's own lifecycle, outside Node's
 loop), and the connectors (`sshConnector`/`dialAgentOnce`) arm none — their
-children are event-loop holds, but bounded ones (ssh's `ConnectTimeout` /
-`ServerAlive` opts, ~30s), so an in-flight dial can only *delay* exit, never
-prevent it.<Footnote>Grounded by grep over `packages/surface-remote/src`
+children are event-loop holds, but bounded ones (ssh's `ConnectTimeout` / the
+dial's own `SshKeepalive` — `intervalS × countMax`, ~30s at the default and at
+most `MAX_SSH_KEEPALIVE_TOLERANCE_S` = 1h), so an in-flight dial can only *delay*
+exit, never prevent it. The invariant is the BOUND, not the number: since the
+keepalive became per-dial the delay a CI-tuned dial can impose is minutes rather
+than seconds, and it is the existence of a hard ceiling — not its size — that
+keeps "delay, never prevent" true.<Footnote>Grounded by grep over `packages/surface-remote/src`
 (non-test): `setTimeout`/`setInterval` occur only in `session.ts`; `.unref(`
 occurs nowhere. The one `setImmediate` (`dialAgentOnce.ts`) holds the loop for
 a single turn.</Footnote>

@@ -76,6 +76,7 @@
 import type { AgentBinaryCache } from "./agentBinaryCache";
 import type { AgentDerivation } from "./agentDerivation";
 import {
+  assertSshKeepalive,
   buildSshProbeCommand,
   DEFAULT_SSH_KEEPALIVE,
   forEachLine,
@@ -461,6 +462,14 @@ function abortedDuring(host: string, step: string): ProvisionResult {
 async function prefetchAgentClosure(opts: {
   outPath: string;
   binaryCache: AgentBinaryCache;
+  /** The dial's dead-peer policy, for the ssh Nix MAY fork here. A declared
+   *  substituter is usually `https://`, which needs none of this — but
+   *  `agentBinaryCache` validates substituters only as non-blank strings and
+   *  deliberately restricts no scheme, so `ssh://` / `ssh-ng://` is a spellable
+   *  declared cache. Without `NIX_SSHOPTS` that fork gets NO dead-peer detection
+   *  at all: the exact eternal hang `sshOptPairs` exists to bound, in the one
+   *  provisioning step that had been left out of the policy. */
+  keepalive: SshKeepalive;
   narrate: (line: string) => void;
   policy: LifetimePolicy;
   signal: AbortSignal | undefined;
@@ -488,6 +497,7 @@ async function prefetchAgentClosure(opts: {
       {
         onProgress: opts.narrate,
         policy: opts.policy,
+        env: { NIX_SSHOPTS: nixSshOpts(opts.keepalive) },
         signal: opts.signal,
       },
     );
@@ -636,6 +646,7 @@ async function stageAgentClosure(opts: {
     const prefetch = await prefetchAgentClosure({
       outPath: opts.outPath,
       binaryCache: opts.binaryCache,
+      keepalive: opts.keepalive,
       narrate: opts.narrate,
       policy: copyPolicy(),
       signal: opts.signal,
@@ -686,7 +697,15 @@ export async function provisionAgent(
   // Resolved ONCE for the whole provisioning: every ssh below — and the ssh Nix
   // forks for the remote store — must carry the SAME policy, because they share
   // one `ControlMaster` keyed by it (see `controlMaster.ts`).
+  //
+  // Validated eagerly, at the top, for the same reason `buildAgentCommand`
+  // throws on a missing `localEnv`: this is a programmer error, and the honest
+  // place to raise it is before any work rather than several steps in, at the
+  // first render that happens to be on the remote arm. (A throw here escapes the
+  // otherwise-total `ProvisionResult` deliberately — a nonsense policy is not a
+  // provisioning *outcome* to be classified and retried.)
   const keepalive = opts.keepalive ?? DEFAULT_SSH_KEEPALIVE;
+  assertSshKeepalive(keepalive);
   const { drvPath } = opts.derivation;
   // Already aborted before we start ⇒ do NO work: a user abort is a budget-EXEMPT,
   // retryable `"network"` fault (C3/F6). (The connector already reconciled the campaign

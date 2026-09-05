@@ -182,8 +182,8 @@ export interface SshKeepalive {
 
 /** The interactive default: probe every 10s, give up after 3 misses ≈ **30s**
  *  of silence. Every consumer that does not state a policy gets exactly this,
- *  so the behaviour of every existing dial (and of the `SSH_COMMON_OPTS` /
- *  `NIX_SSHOPTS` consts external importers read) is unchanged. */
+ *  so the behaviour of every existing dial (and of the `SSH_COMMON_OPTS` const)
+ *  is unchanged. */
 export const DEFAULT_SSH_KEEPALIVE: SshKeepalive = {
   intervalS: 10,
   countMax: 3,
@@ -303,23 +303,29 @@ export function sshOptPairs(
  *  defaults to {@link DEFAULT_SSH_KEEPALIVE}, so a plain host string remains a
  *  complete answer (which is why {@link buildSshProbeCommand} still accepts
  *  one). */
-export interface SshTarget {
+export interface SshDestination {
   readonly host: string;
   readonly keepalive?: SshKeepalive;
 }
 
-/** Normalise the "host, or host + policy" argument the argv builders take. */
-function targetOf(target: string | SshTarget): {
+/** Normalise the "host, or host + policy" argument the argv builders take.
+ *
+ *  Validates HERE rather than leaving it to `sshOptPairs`, because rendering is
+ *  the REMOTE arm only: both builders short-circuit for `isLocalHost` before any
+ *  opt is rendered, so a check that rode the renderer would make fail-fast a
+ *  property of *which host you dialled* — a nonsense policy crashing a remote
+ *  dial and passing silently on a localhost one. Validating at the seam that
+ *  ACCEPTS the value makes the verdict the same on both arms. */
+function targetOf(target: string | SshDestination): {
   host: string;
   keepalive: SshKeepalive;
 } {
   if (typeof target === "string") {
     return { host: target, keepalive: DEFAULT_SSH_KEEPALIVE };
   }
-  return {
-    host: target.host,
-    keepalive: target.keepalive ?? DEFAULT_SSH_KEEPALIVE,
-  };
+  const keepalive = target.keepalive ?? DEFAULT_SSH_KEEPALIVE;
+  assertSshKeepalive(keepalive);
+  return { host: target.host, keepalive };
 }
 
 /** Render `(key, value)` opt pairs into an ssh `-o Key=Value` argv. The one
@@ -349,9 +355,10 @@ export function sshCommonOpts(
   return toArgv(sshOptPairs(keepalive));
 }
 
-/** {@link sshCommonOpts} at the default policy, as a const — the shape external
- *  importers already read. Exactly `sshCommonOpts(DEFAULT_SSH_KEEPALIVE)`; reach
- *  for the function when a consumer states its own policy. */
+/** {@link sshCommonOpts} at the default policy, as a const — the pre-existing
+ *  public spelling, kept so this change breaks no importer. Exactly
+ *  `sshCommonOpts(DEFAULT_SSH_KEEPALIVE)`; reach for the function when a consumer
+ *  states its own policy. */
 export const SSH_COMMON_OPTS: readonly string[] = sshCommonOpts();
 
 /** The default policy as the `NIX_SSHOPTS` env string that a remote-store Nix
@@ -364,11 +371,14 @@ export const NIX_SSHOPTS: string = toEnv(sshOptPairs());
 /** The `NIX_SSHOPTS` env string for remote-store Nix commands, as a
  *  function (not the const above) so it can carry a caller's own
  *  {@link SshKeepalive} AND the runtime-computed `ControlMaster` pairs (see
- *  `controlOptPairs`). The const stays for external direct importers and is the
- *  default keepalive policy alone; THIS is what `nixCopy` passes, so Nix's
- *  internal ssh rides the SAME shared master the arch probe opened — not a fresh
- *  ~5s handshake. When multiplexing is unavailable `controlOptPairs()` returns
- *  `[]`, so this degrades back to the plain rendered policy. */
+ *  `controlOptPairs`). The const above renders the default policy alone and is
+ *  NOT re-exported from the package index — in-package readers and tests only;
+ *  THIS is what every `nixCopy` site passes, so Nix's internal ssh rides the SAME
+ *  shared master the arch probe opened — not a fresh ~5s handshake. When
+ *  multiplexing is unavailable `controlOptPairs()` returns an explicit
+ *  `ControlPath=none`, so this degrades to the plain rendered policy plus a
+ *  refusal to multiplex — never to silence, which would hand the connection to
+ *  whatever master the user's own `ssh_config` names. */
 export function nixSshOpts(
   keepalive: SshKeepalive = DEFAULT_SSH_KEEPALIVE,
 ): string {
@@ -396,7 +406,7 @@ function controlArgv(keepalive: SshKeepalive): string[] {
  *  `process-monitor-agent` for the demo, `kolu-terminal-agent` for the
  *  planned R-2 consumer). The full path is `${agentPath}/bin/${binary}`. */
 export function buildAgentCommand(
-  opts: SshTarget & {
+  opts: SshDestination & {
     agentPath: string;
     binary: string;
     /** Extra args appended after `--stdio` on the agent command line — a generic
@@ -488,7 +498,7 @@ export function buildAgentCommand(
  *  `nix build` invocations that need to round-trip and return.
  *
  *  `target` is a bare host string (the {@link DEFAULT_SSH_KEEPALIVE} policy) or
- *  an {@link SshTarget} naming the dial's own policy. Every ssh a single dial
+ *  an {@link SshDestination} naming the dial's own policy. Every ssh a single dial
  *  spawns must pass the SAME policy: they share one `ControlMaster` keyed by it,
  *  and mixing policies within a dial would open two masters to one host.
  *
@@ -499,7 +509,7 @@ export function buildAgentCommand(
  *  zsh/bash expand it (`zsh:1: no matches found: …drv^*` — #1964 macOS).
  *  Localhost is direct `spawn` — args pass through verbatim, no shell. */
 export function buildSshProbeCommand(
-  target: string | SshTarget,
+  target: string | SshDestination,
   ...remoteArgv: readonly [string, ...string[]]
 ): { command: string; args: string[] } {
   const { host, keepalive } = targetOf(target);

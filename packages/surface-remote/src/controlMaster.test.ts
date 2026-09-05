@@ -113,7 +113,7 @@ describe("controlOptPairs ensure-dir", () => {
     expect(controlOptPairs(CI_KEEPALIVE)).not.toBe(first);
   });
 
-  it("degrades to [] when the control dir is not owner-only", () => {
+  it("refuses multiplexing (never silence) when the control dir is not owner-only", () => {
     if (process.getuid === undefined) return; // no uid semantics — skip
     const xdg = freshXdg();
     // Pre-create the computed control dir with group/other bits set.
@@ -123,15 +123,39 @@ describe("controlOptPairs ensure-dir", () => {
     chmodSync(dir, 0o755);
     vi.stubEnv("XDG_RUNTIME_DIR", xdg);
     __resetControlMemo();
-    expect(controlOptPairs(DEFAULT_SSH_KEEPALIVE)).toEqual([]);
+    expect(controlOptPairs(DEFAULT_SSH_KEEPALIVE)).toEqual([
+      ["ControlMaster", "no"],
+      ["ControlPath", "none"],
+    ]);
   });
 
-  it("degrades to [] when the path would contain whitespace", () => {
+  it("refuses multiplexing (never silence) when the path would contain whitespace", () => {
     const xdg = freshXdg();
     vi.stubEnv("XDG_RUNTIME_DIR", `${xdg} with space`);
     __resetControlMemo();
-    // Upholds the NIX_SSHOPTS word-split contract: a space-bearing path
-    // drops ALL control pairs rather than corrupt the env form.
-    expect(controlOptPairs(DEFAULT_SSH_KEEPALIVE)).toEqual([]);
+    // Upholds the NIX_SSHOPTS word-split contract: a space-bearing path drops
+    // OUR control pairs rather than corrupt the env form — and says so as
+    // ControlPath=none, both values whitespace-free.
+    expect(controlOptPairs(DEFAULT_SSH_KEEPALIVE)).toEqual([
+      ["ControlMaster", "no"],
+      ["ControlPath", "none"],
+    ]);
+  });
+
+  // The degrade must REFUSE, not fall silent. Emitting no control opts does not
+  // mean "no multiplexing" — it means we stop naming a ControlPath, and ssh then
+  // honours the user's own ~/.ssh/config, where an ordinary `Host *` block with
+  // `ControlMaster auto` supplies a master keyed by host+user+port and NOT by
+  // policy. Two tolerances would silently share one socket again.
+  it("never degrades to an empty opt set, on any refusal path", () => {
+    const xdg = freshXdg();
+    vi.stubEnv("XDG_RUNTIME_DIR", `${xdg} with space`);
+    __resetControlMemo();
+    const pairs = controlOptPairs(DEFAULT_SSH_KEEPALIVE);
+    expect(pairs.length).toBeGreaterThan(0);
+    const opts = Object.fromEntries(pairs.map(([k, v]) => [k, v]));
+    expect(opts.ControlPath).toBe("none");
+    // Whitespace-free on both halves, or the NIX_SSHOPTS env form corrupts.
+    for (const [k, v] of pairs) expect(/\s/.test(`${k}${v}`)).toBe(false);
   });
 });

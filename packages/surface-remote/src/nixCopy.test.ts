@@ -195,7 +195,21 @@ describe("provisionAgent GC-root pinning (cold path)", () => {
       expect(args).toContain("ServerAliveCountMax=10");
     }
 
-    // …and every remote-store Nix command, whose ssh is out of reach of argv.
+    // …and every Nix command that MAY fork an ssh, whose fork is out of reach of
+    // our argv. That includes the cache prefetch: `agentBinaryCache` restricts no
+    // substituter scheme, so `ssh://` is a spellable declared cache and a
+    // prefetch with no NIX_SSHOPTS would have zero dead-peer detection.
+    const nixCalls = calls.filter(([command]) => command === "nix");
+    expect(nixCalls.length).toBeGreaterThan(0);
+    for (const [, args, o] of nixCalls) {
+      // Localhost-only invocations legitimately pass no env; every call that can
+      // reach another machine must carry the policy.
+      if (o?.env === undefined) {
+        throw new Error(
+          `a nix invocation reached the wire with no NIX_SSHOPTS: ${args.join(" ")}`,
+        );
+      }
+    }
     const envs = calls
       .map(([, , opts]) => opts?.env?.NIX_SSHOPTS)
       .filter((v): v is string => typeof v === "string");

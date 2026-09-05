@@ -34,7 +34,18 @@
  * constraint this module owes the per-dial keepalive policy: OpenSSH applies
  * `ServerAliveInterval`/`ServerAliveCountMax` from the process that OPENED the
  * master, and every later ssh that rides it inherits that connection's
- * behaviour, silently ignoring its own `-o ServerAlive*`. With ONE socket per
+ * behaviour, silently ignoring its own `-o ServerAlive*`. The mechanism is
+ * structural rather than a quirk: `ServerAlive*` drives ssh's TRANSPORT-layer
+ * keepalive (ssh_config(5): "sets a timeout interval … after which if no data
+ * has been received from the server, ssh will send a message through the
+ * encrypted channel"), and a multiplexed client has no transport of its own —
+ * it speaks to the master over the local unix socket, so there is no connection
+ * for its own value to govern. NB this is a claim about a program we do not
+ * own, and `controlMaster.test.ts` can only pin OUR half of it (that two
+ * policies render two different socket names); the inheritance itself is not
+ * something a unit test here can falsify. If it ever proves version-dependent,
+ * the fallback is already spelled below — `ControlPath=none` for any dial that
+ * states a non-default policy. With ONE socket per
  * host, a CI coordinator asking for a five-minute tolerance would get whichever
  * policy happened to open the master first — a kolu dial's 30s, possibly from
  * another process minutes ago (`ControlPersist` is cross-invocation). The
@@ -72,6 +83,31 @@ import type { SshKeepalive } from "./host";
  *  lifetime policies in `process.ts`, not by ssh keepalive. ssh's time
  *  format; whitespace-free per the `sshOptPairs` value contract. */
 const CONTROL_PERSIST = "10m";
+
+/** What we emit when we cannot set OUR master up safely — an explicit REFUSAL
+ *  to multiplex, never an empty opt set.
+ *
+ *  The distinction is load-bearing and was a real hole. Emitting nothing does
+ *  not mean "no multiplexing"; it means we stop naming a `ControlPath`, and ssh
+ *  then falls back to the user's `~/.ssh/config` — where an entirely ordinary
+ *  `Host *` block carrying `ControlMaster auto` + `ControlPath ~/.ssh/cm-%r@%h:%p`
+ *  supplies a master keyed by host+user+port and NOT by policy. Two dials at two
+ *  {@link SshKeepalive} policies would then share one socket again and the second
+ *  would silently inherit the first's `ServerAlive*` — the exact invisible
+ *  failure (right argv, wrong behaviour) the per-policy keying exists to abolish,
+ *  reintroduced by the fallback. It reaches Nix's forked ssh too, which reads the
+ *  same `ssh_config`.
+ *
+ *  `ControlPath=none` says "multiplex with nobody", so every command carries its
+ *  own policy by construction and the guarantee holds UNCONDITIONALLY rather than
+ *  only while our runtime dir happens to be usable. Same idiom, same reason, as
+ *  `@kolu/port-forward`'s `sshForward.ts`. Both values are whitespace-free, so the
+ *  `NIX_SSHOPTS` word-split contract still holds. The cost of this arm is the one
+ *  the speedup was buying: every command re-handshakes. */
+const NO_MULTIPLEXING: readonly (readonly [string, string])[] = [
+  ["ControlMaster", "no"],
+  ["ControlPath", "none"],
+];
 
 /** The one whitespace-free spelling of a keepalive policy, used as both the
  *  memo key and the `ControlPath` suffix — so "which master is this?" and "which
@@ -143,14 +179,17 @@ const memo = new Map<string, readonly (readonly [string, string])[]>();
  *  control dir is created lazily before the first ssh and never from a
  *  module import.
  *
- *  Degrades to `[]` — never throws — on any of: a `ControlPath` containing
- *  whitespace (would corrupt the word-split `NIX_SSHOPTS` form while the
- *  argv form stayed correct, so we drop ALL control pairs rather than emit
- *  a half-correct set), an un-creatable runtime dir (read-only FS, no
- *  `$XDG_RUNTIME_DIR` and no writable `/tmp`, …), or a dir that isn't
- *  owner-only. Graceful degradation of an additive speedup, mirroring
+ *  Degrades to {@link NO_MULTIPLEXING} — never throws — on any of: a
+ *  `ControlPath` containing whitespace (would corrupt the word-split
+ *  `NIX_SSHOPTS` form while the argv form stayed correct, so we drop OUR control
+ *  pairs rather than emit a half-correct set), an un-creatable runtime dir
+ *  (read-only FS, no `$XDG_RUNTIME_DIR` and no writable `/tmp`, …), or a dir that
+ *  isn't owner-only. Graceful degradation of an additive speedup, mirroring
  *  `serveOverUnixSocket`'s no-op `refused()` outcomes — NOT a provisioning
- *  fallback (correctness never depends on multiplexing succeeding). */
+ *  fallback (correctness never depends on multiplexing succeeding). Note the
+ *  degrade is an explicit `ControlPath=none` and NOT an empty set: see
+ *  {@link NO_MULTIPLEXING} for why silence would hand the connection to the
+ *  user's own `ssh_config` master and break the per-policy guarantee. */
 export function controlOptPairs(
   keepalive: SshKeepalive,
 ): readonly (readonly [string, string])[] {
@@ -169,13 +208,13 @@ export function controlOptPairs(
     // `NIX_SSHOPTS` and the argv renderer emits one `-o` per pair, so a
     // value with a space corrupts the env form silently. Drop multiplexing
     // wholesale rather than ship a corrupt opt.
-    if (/\s/.test(path)) return remember([]);
+    if (/\s/.test(path)) return remember(NO_MULTIPLEXING);
     const dir = dirname(path);
     mkdirSync(dir, { recursive: true, mode: 0o700 });
     // mkdir's mode is a no-op on a pre-existing dir, so VERIFY privacy
     // rather than assume it — a stable per-user path another local user
     // could have pre-created with loose perms must not host our connection.
-    if (!isPrivateOwnedDir(dir)) return remember([]);
+    if (!isPrivateOwnedDir(dir)) return remember(NO_MULTIPLEXING);
     return remember([
       ["ControlMaster", "auto"],
       ["ControlPath", path],
@@ -183,7 +222,7 @@ export function controlOptPairs(
     ]);
   } catch {
     // mkdir/stat threw (EROFS, EACCES, …) — connect un-multiplexed.
-    return remember([]);
+    return remember(NO_MULTIPLEXING);
   }
 }
 

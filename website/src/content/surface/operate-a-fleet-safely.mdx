@@ -65,8 +65,10 @@ transport CLASS (not the retry policy); the session state machine isolates two k
 
 On a long-running parent, call `recheck()` on every session when the machine
 wakes or regains connectivity — a post-sleep link is often stale (the far end
-dropped the socket but local ssh won't notice for ~30s), and `recheck()`
-force-cycles even a `connected` link. Use `reconnect()` for the manual
+dropped the socket but local ssh won't notice until this dial's
+[`keepalive`](/surface/ref-surface-remote) tolerance elapses, ~30s by default and
+longer on a dial tuned for an unattended lane), and `recheck()` force-cycles even
+a `connected` link. Use `reconnect()` for the manual
 "Reconnect" button; it re-arms a `failed` session without disturbing a live one.
 
 For why `warming` and `failed` mean exactly this, see

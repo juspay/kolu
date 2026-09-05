@@ -168,11 +168,28 @@ export interface SshConnectorOptions<S extends SurfaceSpec> {
    *  `assertSshKeepalive`'s range throws HERE, at construction — never at the
    *  first dial, and never clamped.
    *
-   *  Threaded into EVERY ssh the dial spawns (arch probe, provisioning, GC-root
-   *  pin, closure ship, Nix's own remote-store ssh, and the agent command), and
-   *  the shared `ControlMaster` socket is keyed by it, so a second policy to the
-   *  same host opens its own master rather than silently inheriting this one's
-   *  `ServerAlive*`. */
+   *  **This governs the DIALLING phases, not a connected link — raising it alone
+   *  is not enough.** While a session is `connected`, `makeSession`'s own
+   *  liveness watchdog is the faster judge: it round-trips `system.live` on the
+   *  `MakeSessionOptions.liveness` cadence (≈25s at the defaults) and, because an
+   *  ssh {@link Connection} supplies no `processAlive` oracle, a silent probe
+   *  force-cycles the link — well before ANY ssh keepalive tolerance elapses. So
+   *  a consumer that wants a connected lane to survive a multi-minute blip must
+   *  raise BOTH, and the heartbeat's own ceilings (`MAX_HEARTBEAT_INTERVAL_MS`
+   *  300s + `MAX_HEARTBEAT_TIMEOUT_MS` 120s) bound what is reachable there.
+   *
+   *  What THIS option buys on its own is the phase the watchdog deliberately does
+   *  not police: `probing`/`provisioning`. The heartbeat's `isLive()` requires
+   *  `phase === "connected"`, so a cold `nix build` that compiles on the host for
+   *  twenty minutes is governed by ssh keepalive ALONE — which is exactly the
+   *  window a CI lane spends most of its life in, and exactly where a 30s
+   *  dead-peer verdict used to throw the work away.
+   *
+   *  Threaded into EVERY ssh the dial spawns (arch probe, cache prefetch, warm
+   *  validity check, GC-root pin, closure ship, Nix's own remote-store ssh, and
+   *  the agent command), and the shared `ControlMaster` socket is keyed by it, so
+   *  a second policy to the same host opens its own master rather than silently
+   *  inheriting this one's `ServerAlive*`. */
   keepalive?: SshKeepalive;
 }
 

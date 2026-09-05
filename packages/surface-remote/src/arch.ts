@@ -37,6 +37,7 @@
  */
 
 import {
+  assertSshKeepalive,
   buildSshProbeCommand,
   isLocalHost,
   ResolveDrvError,
@@ -77,6 +78,13 @@ export async function resolveSystem(
   host: string,
   opts: ResolveSystemOptions,
 ): Promise<string> {
+  // Validate a supplied policy BEFORE any work, and on BOTH arms. Two reasons
+  // this cannot be left to the argv renderer: the localhost arm renders no opts
+  // at all (so the check would silently not happen), and a throw from here lands
+  // inside the caller's `resolveDrvPath`, which `sshConnector` classifies as
+  // `"network"` / non-terminal — so a nonsense literal would be re-thrown on
+  // every redial forever instead of failing once, loudly, at the top.
+  if (opts.keepalive !== undefined) assertSshKeepalive(opts.keepalive);
   // Which arm we are on decides how a missing executable surfaces, and which
   // executable a spawn fault is even ABOUT — see the failure classification below.
   const local = isLocalHost(host);

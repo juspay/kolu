@@ -20,9 +20,18 @@ pumpRemoteSurface({ source: surface, session, makeSink: ({ seq }) => sink });
 
 A dial declares a link dead after ~30s of ssh silence. That is the right answer
 while someone is watching a host; a long unattended job that a redial would
-destroy rather than repair states its own tolerance instead —
-`sshConnector({ …, keepalive: { intervalS: 30, countMax: 10 } })` rides out a
-five-minute network blip, and the policy reaches every ssh the dial spawns.
+destroy rather than repair states its own tolerance instead — an `SshKeepalive`,
+`sshConnector({ …, keepalive: { intervalS: 30, countMax: 10 } })`, reaching every
+ssh the dial spawns including the one Nix forks for a remote store. Both fields
+must be positive whole numbers and `intervalS × countMax` must be within
+`MAX_SSH_KEEPALIVE_TOLERANCE_S` (one hour); anything else throws where you wrote
+it rather than being clamped.
+
+It governs the **dialling** phases — the probe and the provisioning build, where
+a cold `nix build` can sit quiet for twenty minutes. Once a session is
+`connected`, the faster judge is `makeSession`'s own liveness watchdog (≈25s at
+its defaults), so a lane that must survive a multi-minute blip **while connected**
+raises `MakeSessionOptions.liveness` alongside this.
 
 Worked end-to-end in [`packages/surface/example/remote-process-monitor`](../surface/example/remote-process-monitor).
 Part of the kolu monorepo — `"@kolu/surface-remote": "workspace:*"`.
