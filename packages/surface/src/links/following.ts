@@ -44,9 +44,11 @@
  *  3. **The superseded generation is RELEASED.** `adopt` owns it, because the
  *     alternative is a caller that must remember to — and a link nobody closes
  *     keeps a socket, a ping fiber and a re-dial schedule alive for the life of
- *     the page. The release is AWAITED by `adopt`'s promise but happens AFTER the
- *     swap, so the handover itself is synchronous: there is no window in which
- *     the wire has no generation.
+ *     the page. It is the ONE asynchronous half, and `adopt` hands it back as a
+ *     promise rather than being one: `adopt` itself is a plain function that
+ *     swaps and refuses synchronously, so "the wire is never between
+ *     generations" is a claim about the statement a caller wrote, not about a
+ *     microtask schedule.
  *
  * ## What it is not
  *
@@ -82,14 +84,34 @@ export interface FollowingWire<T extends WireTransport = WireTransport>
    *  `adopt` replaces it. */
   readonly current: () => T;
   /** Take `next` as the generation every call from now on rides, fail whatever
-   *  was in flight over the old one, and release it. Resolves once the
-   *  superseded generation is closed; the SWAP itself is synchronous, so a
-   *  caller can rely on the wire never being between generations.
+   *  was in flight over the old one, and release it.
    *
-   *  Refuses on a disposed wire: adopting onto one would open a generation
-   *  nothing will ever close. */
+   *  NOT `async`, and that is the whole contract rather than a detail: the swap
+   *  is synchronous, so its REFUSAL must be too. Declared `async`, the
+   *  disposed-wire guard came back as a rejected promise a microtask later —
+   *  and a caller reading the return as "the superseded release" then ran its
+   *  whole handover (move the clients, re-fold, announce the new roster) over a
+   *  wire that had refused the generation, learning about it only after the
+   *  damage. This throws where it decides, so a caller's next statement runs
+   *  only if the wire really moved.
+   *
+   *  The RETURNED promise is the superseded generation's release — the one
+   *  genuinely asynchronous half — and it never rejects: a teardown that fails
+   *  is logged, because the value this call exists to produce is already
+   *  delivered. Await it last, or not at all.
+   *
+   *  THROWS on a disposed wire: adopting onto one would open a generation
+   *  nothing will ever close. It can also throw whatever a consumer's own
+   *  `wire.onStatus` handler throws — that throw is the consumer's, not this
+   *  wire's to swallow, and the superseded calls are swept regardless (the
+   *  `finally` in `./supersession`). */
   adopt(next: WireGeneration<T>): Promise<void>;
-  /** Release the generation currently held. Idempotent. */
+  /** Release the generation currently held.
+   *
+   *  Idempotent — and a later call gets the SAME promise, and therefore the same
+   *  verdict. An early `return` would resolve while the generation's teardown
+   *  was still running, which is a `dispose()` claiming a release that has not
+   *  happened. */
   dispose(): Promise<void>;
 }
 
@@ -98,6 +120,8 @@ export function followingWire<T extends WireTransport>(
 ): FollowingWire<T> {
   let held: WireGeneration<T> = first;
   let disposed = false;
+  /** The one release walk, once started. See `dispose` below. */
+  let released: Promise<void> | undefined;
 
   // The status FUNNEL. `published` is the value `wire.status()` answers, so what
   // a watcher was told and what a reader reads can never disagree — including
@@ -142,7 +166,11 @@ export function followingWire<T extends WireTransport>(
       // adds no recovery of its own, it only forwards.
       forceReconnect: () => held.transport.wire.forceReconnect(),
     },
-    adopt: async (next) => {
+    // NOT `async`: the swap is synchronous and so is every refusal it makes. A
+    // rejected promise here would let a caller's whole handover run before it
+    // could learn the wire had not moved. What it RETURNS is the one
+    // asynchronous half — the superseded generation's release.
+    adopt: (next) => {
       if (disposed) {
         throw new Error(
           "followingWire: `adopt` on a disposed wire — the generation handed in " +
@@ -171,21 +199,28 @@ export function followingWire<T extends WireTransport>(
       // and rejecting over its teardown would tell the caller that a move which
       // completed did not. (The same trade `trackConnectAllocations` makes at its
       // own superseded exit, at the altitude that owns the resource.)
-      try {
-        await superseded.dispose();
-      } catch (teardownError) {
-        console.error(
-          "followingWire: releasing the superseded generation FAILED — that link " +
-            "is leaked; the wire is live on the generation it adopted",
-          teardownError,
-        );
-      }
+      return (async () => {
+        try {
+          await superseded.dispose();
+        } catch (teardownError) {
+          console.error(
+            "followingWire: releasing the superseded generation FAILED — that link " +
+              "is leaked; the wire is live on the generation it adopted",
+            teardownError,
+          );
+        }
+      })();
     },
-    dispose: async () => {
-      if (disposed) return;
-      disposed = true;
-      detachStatus();
-      await held.dispose();
-    },
+    // THE ONE release, memoized. A second `dispose()` gets the SAME promise and
+    // therefore the same verdict — an early `return` would resolve while the
+    // generation's teardown was still running, which is exactly the lie
+    // `trackConnectAllocations` memoizes its walk to avoid and the one
+    // `surfaceClients`' bundle raises rather than tell.
+    dispose: () =>
+      (released ??= (async () => {
+        disposed = true;
+        detachStatus();
+        await held.dispose();
+      })()),
   };
 }

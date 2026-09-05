@@ -1087,7 +1087,7 @@ describe("connectSurfaces — a ROSTER CHANGE moves the WIRE, not the connection
       await settle();
 
       await expect(conn.redial({ a: surface, bad: policied })).rejects.toThrow(
-        /could not be built after its wire had already been adopted/,
+        /the handover onto the new roster FAILED/,
       );
       await settle();
       // RELEASED, not wedged: the readout says so, every wire it ever dialled is

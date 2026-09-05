@@ -950,8 +950,8 @@ Everything built over the stable halves survives a generation change.
 | --- | --- |
 | `dispatch` / `wire` | the standing halves — the same values for the wire's whole life, and branded half-open exactly as a generation's are, so `createLiveSignal` accepts the pair |
 | `current()` | the generation's own link, for a fact that belongs to a generation rather than to the wire (a [dial history](#websocketlinkdiagnostics)). Read it where you need it; never hold it |
-| `adopt(next)` | take `next` as the generation every call from now on rides, fail what was in flight over the old one, and release it. The **swap is synchronous** — there is no window in which the wire has no generation — and the promise is the superseded generation's release |
-| `dispose()` | release the generation currently held. Idempotent; a later `adopt` is refused rather than opening a generation nobody will close |
+| `adopt(next)` | take `next` as the generation every call from now on rides, fail what was in flight over the old one, and release it. **Not `async`**: the swap is synchronous and so is every refusal it makes, so the statement a caller writes after it runs only if the wire really moved. What it *returns* is the superseded generation's release — the one asynchronous half, which never rejects (a failed teardown is logged) |
+| `dispose()` | release the generation currently held. Idempotent — a later call gets the **same promise**, and therefore the same verdict, rather than resolving early over a teardown still running. A later `adopt` is refused rather than opening a generation nobody will close |
 
 The load-bearing half is what `adopt` does to a call **in flight**. A call is
 bound to one link by construction — Effect RPC registers an entry exactly once,

@@ -221,8 +221,8 @@ describe("followingWire — one wire over a succession of links", () => {
       (err: unknown) => String(err),
     );
     // The throw escapes `adopt` (it is the consumer's, not this wire's to
-    // swallow) — but the sweep still ran.
-    await expect(wire.adopt(generation("second", "open"))).rejects.toThrow(
+    // swallow) — SYNCHRONOUSLY, and the sweep still ran.
+    expect(() => wire.adopt(generation("second", "open"))).toThrow(
       /a consumer's status handler threw/,
     );
     expect(await running).toMatch(/adopted a new generation beneath this call/);
@@ -235,10 +235,84 @@ describe("followingWire — one wire over a succession of links", () => {
     await wire.dispose();
     expect(first.disposals()).toBe(1);
     const orphan = generation("orphan");
-    await expect(wire.adopt(orphan)).rejects.toThrow(
-      /`adopt` on a disposed wire/,
-    );
+    expect(() => wire.adopt(orphan)).toThrow(/`adopt` on a disposed wire/);
     // The refused generation is the caller's to release: the wire never took it.
     expect(orphan.disposals()).toBe(0);
+  });
+
+  it("REFUSES SYNCHRONOUSLY — the caller's next statement never runs over a wire that did not move", async () => {
+    // Declared `async`, the refusal came back as a rejected promise a microtask
+    // later: a caller reading the return as "the superseded release" ran its
+    // whole handover — moved its clients, announced the new roster — over a wire
+    // that had refused the generation, and heard about it only afterwards. The
+    // guard now lands where it decides.
+    const first = generation("first");
+    const wire = followingWire(first);
+    await wire.dispose();
+    const orphan = generation("orphan");
+    let ranAfter = false;
+    expect(() => {
+      wire.adopt(orphan);
+      // Unreachable: the line a caller writes after `adopt` is exactly what must
+      // not run when the wire refused.
+      ranAfter = true;
+    }).toThrow(/`adopt` on a disposed wire/);
+    expect(ranAfter).toBe(false);
+    // ...and no rejected promise was left unhandled: there is no promise at all
+    // on the refusing path.
+    expect(orphan.disposals()).toBe(0);
+  });
+
+  it("hands back the superseded generation's release — a promise the caller may await LAST", async () => {
+    // The swap is the statement; the release is the promise. A caller that never
+    // awaits it still gets a wire that has fully moved.
+    const first = generation("first");
+    const wire = followingWire(first);
+    const second = generation("second");
+    const superseded = wire.adopt(second);
+    // Already moved, in the same tick, before anything is awaited — including
+    // the dispatch, which is what makes "the wire is never between generations"
+    // a claim about the caller's next STATEMENT.
+    expect(wire.current()).toBe(second.transport);
+    expect(await Effect.runPromise(wire.dispatch.unary("surface/x", {}))).toBe(
+      "second",
+    );
+    await expect(superseded).resolves.toBeUndefined();
+    expect(first.disposals()).toBe(1);
+  });
+
+  it("gives a second `dispose()` the SAME promise, so neither can claim a teardown that has not happened", async () => {
+    // An early `return` resolved while the generation's teardown was still
+    // running — a `dispose()` that says "done" over a socket still closing. The
+    // walk is memoized instead, which is the law `trackConnectAllocations` states
+    // one layer up and `surfaceClients`' bundle raises rather than break.
+    let release!: () => void;
+    const slow = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let disposals = 0;
+    const first: WireGeneration = {
+      transport: generation("first").transport,
+      dispose: async () => {
+        disposals += 1;
+        await slow;
+      },
+    };
+    const wire = followingWire(first);
+    const one = wire.dispose();
+    const two = wire.dispose();
+    // The SAME promise — not a fresh, already-resolved one for the second caller.
+    expect(two).toBe(one);
+    let secondSettled = false;
+    void two.then(() => {
+      secondSettled = true;
+    });
+    await new Promise((r) => setTimeout(r, 0));
+    // The teardown is still running, so NEITHER call has resolved.
+    expect(secondSettled).toBe(false);
+    release();
+    await Promise.all([one, two]);
+    expect(secondSettled).toBe(true);
+    expect(disposals).toBe(1);
   });
 });

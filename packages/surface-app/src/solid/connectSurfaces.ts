@@ -982,15 +982,20 @@ export async function connectSurfaces(
         // connection is on — which is what makes "a `dispose()` may land anywhere"
         // a statement about two well-defined states rather than about a schedule.
         plan = nextPlan;
-        // Adopting fails whatever was in flight over the old generation with the
-        // transport error the per-subscription retry fence retries on, so every
-        // standing subscription re-opens ITSELF against the new one. The promise
-        // is the SUPERSEDED generation's release; the swap itself already happened.
-        const superseded = following.adopt({
-          transport: generation.link,
-          dispose: generation.dispose,
-        });
+        // The SUPERSEDED generation's release, once the wire has taken the new
+        // one. `undefined` means the wire never took it — `adopt` REFUSES
+        // synchronously, so a refusal lands before a single line below it runs.
+        let superseded: Promise<void> | undefined;
         try {
+          // Adopting fails whatever was in flight over the old generation with
+          // the transport error the per-subscription retry fence retries on, so
+          // every standing subscription re-opens ITSELF against the new one. What
+          // it returns is the SUPERSEDED generation's release; the swap itself has
+          // already happened by the time this assignment does.
+          superseded = following.adopt({
+            transport: generation.link,
+            dispose: generation.dispose,
+          });
           // Departed siblings are retracted (their clients refuse in words from
           // here on), arrivals are built, and `clients` — the object the app holds
           // — carries both. The returned bundle IS this one; only the type moves.
@@ -1003,7 +1008,7 @@ export async function connectSurfaces(
           // is replacing, and that answer is not the transport failure the fence
           // retries on. The arrivals therefore go onto the wire that serves them.
           bundle.reroster(next);
-        } catch (rerosterError) {
+        } catch (handoverError) {
           // AND THAT ORDER HAS A PRICE, paid here rather than hidden. The wire has
           // already moved and cannot move back — the generation this connection
           // dialled FROM is being released as this runs — so a connection whose
@@ -1014,7 +1019,17 @@ export async function connectSurfaces(
           // declares a `client.onError` policy with no interpreter — a programming
           // error, which is exactly the class that must crash rather than degrade.)
           setState("gone");
-          await superseded;
+          if (superseded !== undefined) {
+            await superseded;
+          } else if (following.current() !== generation.link) {
+            // `adopt` threw, and the wire is still on the generation it had — so
+            // the socket just dialled is the one NOBODY holds, and this call is
+            // the only thing that can close it. The release below closes the
+            // wire, and the wire closes whichever generation it holds, so asking
+            // the wire is what keeps this from being a second release of the
+            // same socket.
+            await generation.dispose();
+          }
           try {
             await allocations.release();
           } catch (releaseError) {
@@ -1027,11 +1042,12 @@ export async function connectSurfaces(
             );
           }
           throw new Error(
-            "connectSurfaces: the new roster's clients could not be built after its wire " +
-              "had already been adopted, so this connection has been RELEASED — its wire " +
-              "served one roster while its clients were built for another, and nothing can " +
-              "make that honest. Dial a fresh connection over the roster you want.",
-            { cause: rerosterError },
+            "connectSurfaces: the handover onto the new roster FAILED — its wire was " +
+              "adopted or its clients were built, but not both, so this connection has " +
+              "been RELEASED: it would have served one roster while its clients were " +
+              "built for another, and nothing can make that honest. Dial a fresh " +
+              "connection over the roster you want.",
+            { cause: handoverError },
           );
         }
         setState("live");
