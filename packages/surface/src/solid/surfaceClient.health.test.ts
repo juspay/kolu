@@ -22,8 +22,9 @@
  */
 
 import { Effect, Schema, Stream } from "effect";
-import { createEffect, createRoot } from "solid-js";
+import { createEffect, createMemo, createRoot } from "solid-js";
 import { describe, expect, it } from "vitest";
+import { isTransportError, shouldRetryStreamError } from "../client";
 import { defineSurface, defineSurfaceWithPolicy } from "../define";
 import {
   brandHalfOpenDispatch,
@@ -179,6 +180,23 @@ function feed<T>() {
 }
 
 const noop = () => Promise.resolve();
+
+/** Ask a client for the reserved `system/live` round-trip and report what came
+ *  back as a string — the cheapest way to ask a client whether it will still dial
+ *  at all. `SurfaceFace` types its leaves `unknown` on purpose (per-member
+ *  precision lives in the bound faces), so the reach through it is cast here
+ *  rather than at each call. */
+function askLive(client: {
+  rpc: { surface: Record<string, Record<string, unknown>> };
+}): Promise<string> {
+  const live = client.rpc.surface.system?.live as (
+    input: unknown,
+  ) => Effect.Effect<unknown, unknown>;
+  return Effect.runPromise(live({})).then(
+    () => "resolved",
+    (err: unknown) => String(err),
+  );
+}
 
 /** Flush past the microtask queue (async stream consumption) AND the macrotask
  *  boundary, matching this package's other subscription tests (`setTimeout(0)`).
@@ -500,7 +518,8 @@ describe("surfaceClient readiness fold — `liveWhen` completes the fact (round-
       "surface/b/connection/get": fb.stream,
     });
     await createRoot(async (dispose) => {
-      const clients = surfaceClients(combined, { a: mirrored, b: mirrored });
+      const bundle = surfaceClients(combined, { a: mirrored, b: mirrored });
+      const clients = bundle.clients;
       fa.push({ state: "connected" });
       fb.push({ state: "connected" });
       await settle();
@@ -509,7 +528,7 @@ describe("surfaceClient readiness fold — `liveWhen` completes the fact (round-
       fb.push({ state: "failed" });
       await settle();
       expect(surfaceClientsHealth(clients).live).toBe(false);
-      for (const c of Object.values(clients)) c.dispose();
+      bundle.dispose();
       dispose();
     });
   });
@@ -677,6 +696,231 @@ describe("surfaceClients builds a bundle ALL-OR-NOTHING", () => {
     expect(torn).toEqual(["first"]);
   });
 
+  it("MOVES the roster in place: survivors keep their client, arrivals join, departures are retracted", async () => {
+    const other = defineSurface({
+      cells: {
+        queue: {
+          schema: Schema.Struct({ n: Schema.Number }),
+          default: { n: 0 },
+          verbs: ["get"],
+        },
+      },
+    });
+    const dispatch = fakeDispatch(
+      {},
+      {
+        "surface/first/system/live": () => Promise.resolve({}),
+        "surface/second/system/live": () => Promise.resolve({}),
+      },
+    );
+    const bundle = surfaceClients(dispatch, { first: other, second: other });
+    const clients = bundle.clients;
+    const survivor = clients.first;
+    const departing = clients.second;
+
+    bundle.reroster({ first: other, third: other });
+    // THE map the app holds is the same object, and it now tells the truth about
+    // the roster: the survivor kept its client, the arrival joined, the departure
+    // is gone.
+    expect(bundle.clients).toBe(clients);
+    expect(Object.keys(clients).sort()).toEqual(["first", "third"]);
+    expect(clients.first).toBe(survivor);
+
+    // The departed client refuses in words; the survivor still dials.
+    expect(await askLive(departing)).toMatch(
+      /no longer on this bundle's roster/,
+    );
+    expect(await askLive(survivor)).toBe("resolved");
+    bundle.dispose();
+  });
+
+  it("says WHY a client stopped dialling — a disposed bundle is not a roster departure", async () => {
+    // One retraction flag with one fixed sentence told a holder whose bundle had
+    // been DISPOSED that its surface "left when the connection followed a roster
+    // change", and pointed it at a map `dispose` had just emptied. Both halves
+    // were false. The reason is carried, so each ending answers in its own words.
+    const other = defineSurface({
+      cells: {
+        queue: {
+          schema: Schema.Struct({ n: Schema.Number }),
+          default: { n: 0 },
+          verbs: ["get"],
+        },
+      },
+    });
+    const dispatch = fakeDispatch(
+      {},
+      { "surface/only/system/live": () => Promise.resolve({}) },
+    );
+    const bundle = surfaceClients(dispatch, { only: other });
+    const held = bundle.clients.only;
+    bundle.dispose();
+    const said = await askLive(held);
+    expect(said).toMatch(/this bundle was disposed/);
+    expect(said).not.toMatch(/roster change/);
+  });
+
+  it("a retracted client's refusal is NOT retryable — the inversion the other two fences do not make", async () => {
+    // Three fences in this framework say "a call bound to something that has
+    // moved on must fail", and two of them (`links/supersession`, for a socket
+    // re-dial and for a generation change) raise an `RpcClientError` PRECISELY so
+    // the per-subscription retry fence re-subscribes. Retraction inverts it: a
+    // departed sibling's client must stay off the wire, or it re-subscribes every
+    // STREAM_RETRY_DELAY_MS forever against tags nothing serves. Nothing but the
+    // error CLASS separates the two behaviours, so it is pinned here — a later
+    // reader "unifying" the three onto `supersession` turns a worded refusal into
+    // an infinite retry loop, and this is the test that stops them.
+    const other = defineSurface({
+      cells: {
+        queue: {
+          schema: Schema.Struct({ n: Schema.Number }),
+          default: { n: 0 },
+          verbs: ["get"],
+        },
+      },
+    });
+    const bundle = surfaceClients(fakeDispatch(), { only: other });
+    const held = bundle.clients.only;
+    bundle.reroster({});
+
+    // The same reach `askLive` makes, but keeping the ERROR VALUE rather than
+    // its string — the class is the whole subject here.
+    const live = (
+      held.rpc as { surface: Record<string, Record<string, unknown>> }
+    ).surface.system?.live as (
+      input: unknown,
+    ) => Effect.Effect<unknown, unknown>;
+    const refusal = await Effect.runPromise(Effect.flip(live({})));
+    expect(String(refusal)).toMatch(/no longer on this bundle's roster/);
+    // THE assertion: the fence must refuse to retry it.
+    expect(shouldRetryStreamError(refusal)).toBe(false);
+    expect(isTransportError(refusal)).toBe(false);
+    bundle.dispose();
+  });
+
+  it("REJECTS a dispose whose sibling teardown threw — every slot still attempted", async () => {
+    // `surfaceClients` is ONE tracked resource now, so the per-sibling reject
+    // policy `trackConnectAllocations.release` used to apply can only live here. A
+    // `dispose()` that resolves while a sibling's subscriptions are still running
+    // is a lie the awaiting caller has no way to catch.
+    const other = defineSurface({
+      cells: {
+        queue: {
+          schema: Schema.Struct({ n: Schema.Number }),
+          default: { n: 0 },
+          verbs: ["get"],
+        },
+      },
+    });
+    const bundle = surfaceClients(fakeDispatch(), {
+      first: other,
+      second: other,
+    });
+    const torn: string[] = [];
+    // A client whose teardown REFUSES. Substituted rather than provoked: what is
+    // pinned here is the bundle's policy toward a failing sibling teardown, and
+    // how a real client comes to fail one is that client's own business.
+    (bundle.clients.first as { dispose: () => void }).dispose = () => {
+      torn.push("first");
+      throw new Error("first refused teardown");
+    };
+    (bundle.clients.second as { dispose: () => void }).dispose = () => {
+      torn.push("second");
+    };
+
+    expect(() => bundle.dispose()).toThrow(
+      /1 sibling client\(s\) failed to dispose/,
+    );
+    // Every slot was still ATTEMPTED: one failure must not strand the ones behind
+    // it. (Reverse enrolment order, so `second` goes first.)
+    expect(torn).toEqual(["second", "first"]);
+    // ...and the map is empty either way, so nothing reads as still-rostered.
+    expect(Object.keys(bundle.clients)).toEqual([]);
+  });
+
+  it("REPORTS the move: a memo over `bundle.health()` re-folds when the roster changes", async () => {
+    // THE reactivity invariant the bundle owes every consumer. `clients` is a
+    // plain object mutated in place, so nothing about its key set is trackable —
+    // the notification has to come from the code that MUTATES it. Delete the
+    // membership bump at the end of `reroster` and this test fails: the memo
+    // keeps naming the departed sibling's subscription and never names the
+    // arrival's.
+    const other = defineSurface({
+      cells: {
+        queue: {
+          schema: Schema.Struct({ n: Schema.Number }),
+          default: { n: 0 },
+          verbs: ["get"],
+        },
+      },
+    });
+    const dispatch = fakeDispatch({
+      "surface/first/queue/get": () => once({ n: 1 }),
+      "surface/third/queue/get": () => once({ n: 3 }),
+    });
+    const bundle = surfaceClients(dispatch, { first: other });
+    await createRoot(async (dispose) => {
+      // A standing subscription on the sibling that will LEAVE, so the fold has a
+      // name to lose, and one on the arrival, so it has a name to gain.
+      createRoot(() => bundle.clients.first.cells.queue.use());
+      let runs = 0;
+      const folded = createMemo(() => {
+        runs += 1;
+        return bundle.health();
+      });
+      // A tracking observer, so the memo is live rather than lazily re-read.
+      createEffect(() => folded());
+      await settle();
+      const before = runs;
+      expect(folded().subs.map((s) => s.name)).toEqual(["first/queue"]);
+
+      // The return is this same bundle, retyped to the roster it now carries —
+      // which is how a caller reaches the arrival's client by name.
+      const moved = bundle.reroster({ third: other });
+      createRoot(() => moved.clients.third.cells.queue.use());
+      await settle();
+
+      expect(runs).toBeGreaterThan(before);
+      expect(folded().subs.map((s) => s.name)).toEqual(["third/queue"]);
+      dispose();
+    });
+    bundle.dispose();
+  });
+
+  it("`moves` answers with the bundle's OWN comparison — the one `reroster` makes", async () => {
+    // The query `connectSurfaces`' `redial` asks before it spends a whole socket.
+    // It has to be the bundle's, not a caller's: a second diff rule would let the
+    // door and the move disagree about what counts as a change.
+    const other = defineSurface({
+      cells: {
+        queue: {
+          schema: Schema.Struct({ n: Schema.Number }),
+          default: { n: 0 },
+          verbs: ["get"],
+        },
+      },
+    });
+    const another = defineSurface({
+      cells: {
+        queue: {
+          schema: Schema.Struct({ n: Schema.Number }),
+          default: { n: 0 },
+          verbs: ["get"],
+        },
+      },
+    });
+    const bundle = surfaceClients(fakeDispatch(), { a: other, b: other });
+    // The SAME roster — same keys, same `Surface` values — is not a move, whatever
+    // object literal it arrives in.
+    expect(bundle.moves({ a: other, b: other })).toBe(false);
+    // A key that leaves, a key that arrives, a key whose `Surface` VALUE was
+    // replaced (a different contract under one name) — each is a move.
+    expect(bundle.moves({ a: other })).toBe(true);
+    expect(bundle.moves({ a: other, b: other, c: other })).toBe(true);
+    expect(bundle.moves({ a: other, b: another })).toBe(true);
+    bundle.dispose();
+  });
+
   it("keeps the whole bundle when every sibling builds", async () => {
     const torn: string[] = [];
     const f = feed<{ state: string }>();
@@ -689,12 +933,12 @@ describe("surfaceClients builds a bundle ALL-OR-NOTHING", () => {
           }),
         ),
     });
-    const clients = surfaceClients(dispatch, { first: mirrored });
+    const bundle = surfaceClients(dispatch, { first: mirrored });
     await settle();
     // Nothing torn down on the success path — the unwind is the failure exit only.
     expect(torn).toEqual([]);
-    expect(Object.keys(clients)).toEqual(["first"]);
-    clients.first.dispose();
+    expect(Object.keys(bundle.clients)).toEqual(["first"]);
+    bundle.clients.first.dispose();
     await settle();
     expect(torn).toEqual(["first"]);
   });

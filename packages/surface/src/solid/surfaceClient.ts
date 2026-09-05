@@ -13,7 +13,7 @@
  * `UseCellOptions` union, just with `source` / `mutate` already filled in.
  */
 
-import { Effect } from "effect";
+import { Effect, Stream } from "effect";
 import {
   type Accessor,
   createMemo,
@@ -48,11 +48,13 @@ import type {
 } from "../define";
 import {
   collectionHasDeltas,
+  policyBearingMember,
   resolveCellVerbs,
   scopeSiblingTag,
 } from "../define";
 import { isHalfOpenDispatch, type SurfaceDispatch } from "../link";
 import { runStreamScoped } from "../runStream";
+import { reportLeakedTeardown } from "../teardown";
 import type { ReactiveSubscriptionOptions } from "./createReactiveSubscription";
 import {
   createSubscription,
@@ -1054,17 +1056,7 @@ export function buildSurfaceClient<const S extends SurfaceSpec>(
   // non-`never` policy. So a policy-bearing surface connected with no interpreter is
   // caught HERE, at construction, not by the compiler.
   if (onClientError === undefined) {
-    const policyMember =
-      Object.entries(spec.cells ?? {}).find(
-        ([, s]) =>
-          (s as CellSpec<unknown, unknown, unknown>).client?.onError !==
-          undefined,
-      )?.[0] ??
-      Object.entries(spec.collections ?? {}).find(
-        ([, s]) =>
-          (s as CollectionSpec<unknown, unknown, unknown>).client?.onError !==
-          undefined,
-      )?.[0];
+    const policyMember = policyBearingMember(spec);
     if (policyMember !== undefined) {
       throw new Error(
         `buildSurfaceClient: member "${policyMember}" declares a client.onError ` +
@@ -1563,33 +1555,120 @@ export function buildSurfaceClient<const S extends SurfaceSpec>(
 
 // ── surfaceClients — sibling surfaces over one dispatch ─────────────────
 
+/** WHY a sibling's slot ended. Three endings, and they are genuinely different
+ *  facts about the same client, so they are a union rather than a boolean: only
+ *  `departed` is about a roster, `disposed` is about the whole bundle, and
+ *  `unwound` is about a client that never joined a roster at all. Each arm owns
+ *  BOTH strings it is responsible for — what a held client is told when it calls,
+ *  and how a teardown failure is reported — so the two can never drift apart or be
+ *  spelled at the wrong site. */
+type Retirement = "unwound" | "departed" | "disposed";
+
+const RETIREMENTS: Record<
+  Retirement,
+  { refusal: (key: string) => string; teardown: string }
+> = {
+  unwound: {
+    refusal: (key) =>
+      `surfaceClients: the "${key}" client was released while a bundle build was ` +
+      "unwinding, so it never joined a roster and does not dial. Build the bundle again.",
+    teardown: "while unwinding a build that threw",
+  },
+  departed: {
+    refusal: (key) =>
+      `surfaceClients: the "${key}" surface is no longer on this bundle's roster — ` +
+      "it left when the connection followed a roster change, and this client was " +
+      "retracted then. Reach the current roster through the bundle's `clients`.",
+    teardown: "as it left the roster",
+  },
+  disposed: {
+    refusal: (key) =>
+      `surfaceClients: this bundle was disposed, so the "${key}" client no longer ` +
+      "dials — the wire it rode is released with it. Nothing recovers a disposed " +
+      "bundle; dial a new connection.",
+    teardown: "as the bundle was disposed",
+  },
+};
+
 /** Scope a COMBINED dispatch to one sibling by splicing the sibling key into every
- *  tag: `surface/<member>/<verb>` → `surface/<key>/<member>/<verb>`.
+ *  tag: `surface/<member>/<verb>` → `surface/<key>/<member>/<verb>` — and hand back
+ *  the RETRACTION that ends the slice.
  *
- *  This is the runtime dual of the deleted `scopeSibling(link, key)` link re-wrap,
- *  and it is what lets a sibling's face be built from the STANDALONE surface value
- *  (whose `tagPrefix` is the bare `surface/`) while still addressing the composed
- *  server. The face therefore never learns it is scoped — the same property the
- *  server side has, where `composeSurfaceContracts` re-walks each sibling through
- *  the same `buildSurface`, so a sibling's tags and a standalone surface's tags can
- *  never be derived by two different rules.
+ *  The scoping is the runtime dual of the deleted `scopeSibling(link, key)` link
+ *  re-wrap, and it is what lets a sibling's face be built from the STANDALONE
+ *  surface value (whose `tagPrefix` is the bare `surface/`) while still addressing
+ *  the composed server. The face therefore never learns it is scoped — the same
+ *  property the server side has, where `composeSurfaceContracts` re-walks each
+ *  sibling through the same `buildSurface`, so a sibling's tags and a standalone
+ *  surface's tags can never be derived by two different rules.
  *
  *  `scopeSiblingTag` THROWS on a non-surface tag, so a mis-scoped dispatch fails at
- *  this seam rather than 404-ing at the far end. */
+ *  this seam rather than 404-ing at the far end.
+ *
+ *  RETRACTION is what a bundle owes a sibling whose slot ENDS. A client is still
+ *  held after its slot ends — by a component that has not unmounted, by a closure
+ *  the app kept — and its standing subscriptions are still running. Left alone
+ *  they would re-subscribe through the fence onto a wire that no longer serves
+ *  those tags and read as an unreachable member, which is the far end's 404
+ *  wearing the costume of a broken connection. Retracted, every call and every
+ *  re-subscribe fails HERE, in words. Both legs are `suspend`ed: a lazy call value
+ *  built before the retraction must still refuse when it is RUN.
+ *
+ *  A PLAIN `Error`, and NOT the `RpcClientError` its two cousins in
+ *  `../links/supersession` raise — that is the whole difference between the three
+ *  "a call bound to something that has moved on must fail" fences in this
+ *  framework, and it is deliberate in the OPPOSITE direction. Those two fail a
+ *  call whose transport moved and WANT the fence to re-subscribe, so they raise
+ *  the shape `isTransportError` (`../client`) recognises. This one ends a slot for
+ *  good: a retryable refusal would put a departed sibling's client back on the
+ *  wire every `STREAM_RETRY_DELAY_MS` forever, against tags nothing serves — the
+ *  precise loop retraction exists to stop. `isTransportError` is the predicate
+ *  that separates them, and retraction must stay OUTSIDE it. So do not "unify"
+ *  this onto `supersession` because the three read alike: the inversion is the
+ *  point, and `surfaceClient.health.test.ts` pins it.
+ *
+ *  The retraction carries the {@link Retirement} — the REASON — rather than a flag
+ *  plus a fixed sentence, because one flag cannot answer for three different
+ *  endings and a sentence about a roster change is simply false in front of
+ *  someone whose bundle was disposed. It is also why a DISPOSED bundle retracts at
+ *  all rather than letting the wire's own `SurfaceTransportRetired` surface: the
+ *  bundle is released BEFORE the wire it rode, so without retraction the answer a
+ *  held client gives would depend on which half of the teardown you landed in. */
 function scopeSiblingDispatch(
   dispatch: SurfaceDispatch,
   key: string,
-): SurfaceDispatch {
+): { dispatch: SurfaceDispatch; retract: (why: Retirement) => void } {
+  let retired: Retirement | undefined;
+  // The reason travels as an ARGUMENT, from where the two call sites have
+  // already narrowed it. Re-read off the closure it would have to answer for a
+  // `retired === undefined` case neither site can produce — a conditional
+  // carrying a decision the structure already made, and a "this is a framework
+  // bug" sentence describing an unrepresentable state.
+  const refusal = (why: Retirement): Error =>
+    new Error(RETIREMENTS[why].refusal(key));
   return {
-    unary: (tag, payload) => dispatch.unary(scopeSiblingTag(tag, key), payload),
-    stream: (tag, payload) =>
-      dispatch.stream(scopeSiblingTag(tag, key), payload),
+    dispatch: {
+      unary: (tag, payload) =>
+        Effect.suspend(() =>
+          retired !== undefined
+            ? Effect.fail(refusal(retired))
+            : dispatch.unary(scopeSiblingTag(tag, key), payload),
+        ),
+      stream: (tag, payload) =>
+        Stream.suspend(() =>
+          retired !== undefined
+            ? Stream.fail(refusal(retired))
+            : dispatch.stream(scopeSiblingTag(tag, key), payload),
+        ),
+    },
+    retract: (why) => {
+      retired = why;
+    },
   };
 }
 
-/** The per-key client bundle returned by `surfaceClients`. Each value is a
- *  full `SurfaceClient` for that key's surface, scoped to the key's slice of
- *  the combined dispatch. */
+/** The per-key client map a bundle carries. Each value is a full `SurfaceClient`
+ *  for that key's surface, scoped to the key's slice of the combined dispatch. */
 export type SurfaceClients<
   // biome-ignore lint/suspicious/noExplicitAny: heterogeneous map of surfaces, each pinning its own spec.
   E extends Record<string, Surface<any>>,
@@ -1597,8 +1676,107 @@ export type SurfaceClients<
   [K in keyof E]: E[K] extends Surface<infer S> ? SurfaceClient<S> : never;
 };
 
+/** One sibling's slot: the SURFACE it was built from — so a re-roster can tell
+ *  "still there" from "replaced by a different build of the same key" — plus the
+ *  client and its retraction. */
+interface SiblingSlot {
+  readonly surface: Surface<SurfaceSpec>;
+  readonly client: SurfaceClient<SurfaceSpec>;
+  readonly retract: (why: Retirement) => void;
+}
+
+/** A live bundle of sibling clients over ONE wire, whose ROSTER can move.
+ *
+ *  `clients` is the map an app holds and reads members through; it is the SAME
+ *  object for the life of the bundle, mutated in place by {@link reroster}. That
+ *  identity is the whole point: a wire that follows a roster
+ *  (`@kolu/surface/links/following`) keeps its dispatch, so the only thing left
+ *  that would force an app to rebuild its tree on a roster move is a client map it
+ *  has to re-read. */
+export interface SurfaceClientsBundle<
+  // biome-ignore lint/suspicious/noExplicitAny: heterogeneous map of surfaces, each pinning its own spec.
+  E extends Record<string, Surface<any>>,
+> {
+  /** The per-key clients — ONE object across every re-roster. */
+  readonly clients: SurfaceClients<E>;
+  /** The same per-key clients, read REACTIVELY.
+   *
+   *  {@link SurfaceClientsBundle.clients} is a plain object MUTATED IN PLACE by
+   *  {@link reroster}, so Solid has nothing to track: a `<For each={Object.keys(
+   *  bundle.clients)}>`, a memo folding `Object.values(bundle.clients)` or a
+   *  hand-written `surfaceClientsHealth(bundle.clients)` never re-runs when a
+   *  sibling arrives or leaves. This accessor reads the bundle's own MEMBERSHIP
+   *  signal first and then hands back that same object, so a tracking scope that
+   *  goes through it re-runs on every roster move.
+   *
+   *  The notification lives HERE, beside the mutation, and not in whichever
+   *  consumer happened to want it: `reroster` is the only code that knows the key
+   *  set moved, so a signal a reader owns is a rule kept by convention — and the
+   *  reader that forgets it is silently blind rather than broken. (The same reason
+   *  `createSurfaceHealthRegistry` bumps its own membership signal one layer
+   *  down.) */
+  readonly roster: Accessor<SurfaceClients<E>>;
+  /** This bundle's COMBINED health fact — {@link surfaceClientsHealth} over its
+   *  own clients, each sub's name already prefixed by its sibling key and `live`
+   *  AND-reduced across them.
+   *
+   *  Reactive, and reactive about the ROSTER too: it reads
+   *  {@link SurfaceClientsBundle.roster}, so a memo bound to it re-folds when a
+   *  sibling arrives or leaves as well as when an enrolled sub errors or
+   *  recovers. Prefer it to folding `clients` by hand — that spelling is the one
+   *  that goes blind on a move.
+   *
+   *  It is the whole answer for a bundle that is the WHOLE wire. A consumer with
+   *  something else to fold in — `connectSurfaces`, whose wire carries a root
+   *  beside the siblings — reaches for {@link SurfaceClientsBundle.roster} and
+   *  builds ONE entries list instead, because folding this already-prefixed fact
+   *  into a second fold would prefix every sibling's subs twice and walk them
+   *  again. That is not this member going unused; it is the two shapes a caller
+   *  can be in, and each has the cheaper door. */
+  health(): SurfaceHealth;
+  /** Would {@link reroster} onto `next` change anything?
+   *
+   *  A key on both rosters carrying the SAME `Surface` value is not a move, which
+   *  is exactly the comparison `reroster` itself makes — so this is the bundle's
+   *  own answer and a caller cannot diff by a second rule. `false` means the
+   *  bundle is already on `next`.
+   *
+   *  It exists because the expensive half of following a roster lives one layer
+   *  UP: a consumer that dials a new wire per `reroster` (`connectSurfaces`'
+   *  `redial`) would otherwise fail every call in flight and re-open every
+   *  standing subscription on the page to arrive back where it started. Asking
+   *  first is idempotence, not a fallback. */
+  moves(next: Record<string, Surface<SurfaceSpec>>): boolean;
+  /** Move this bundle onto `next` IN PLACE.
+   *
+   *  A key on both rosters with the SAME surface value keeps its client, standing
+   *  subscriptions and all. A key that ARRIVES gets a client built now. A key that
+   *  LEAVES — or whose surface value was REPLACED, which is a different contract
+   *  under one name — has its client retracted (see {@link scopeSiblingDispatch})
+   *  and dropped from `clients`, so the map never lies about the roster while a
+   *  stale holder still gets a worded refusal.
+   *
+   *  ALL-OR-NOTHING on the arrivals, exactly as construction is: an arrival that
+   *  throws releases the arrivals already built and leaves the bundle on its
+   *  CURRENT roster, rather than half-moved.
+   *
+   *  Returns this same bundle, retyped — the object does not move, only the type
+   *  the caller reads it through. Re-bind through it (`bundle =
+   *  bundle.reroster(next)`), because {@link SurfaceClientsBundle.clients} and
+   *  {@link SurfaceClientsBundle.roster} are typed on the roster: a binding still
+   *  typed on the OLD one keeps claiming departed keys exist and cannot name an
+   *  arrival. */
+  reroster<
+    // biome-ignore lint/suspicious/noExplicitAny: heterogeneous map of surfaces, as on the constructor.
+    const E2 extends Record<string, Surface<any>>,
+  >(next: E2): SurfaceClientsBundle<E2>;
+  /** Retract and dispose every client currently on the roster. */
+  dispose(): void;
+}
+
 /** Build one `surfaceClient` per sibling surface over a single combined
- *  transport (the counterpart to `implementSurfaces` / `composeSurfaceContracts`).
+ *  transport (the counterpart to `implementSurfaces` / `composeSurfaceContracts`),
+ *  as a bundle whose roster can later move.
  *
  *  Pass the WHOLE transport — a {@link LiveSignalHandle} for the half-openable
  *  combined wire (the watchdog-backed live and the combined dispatch arrive as ONE
@@ -1615,10 +1793,10 @@ export type SurfaceClients<
  *  `.rpc` (the scoped face), e.g. for the reserved identity probe under surface
  *  key `surfaceApp`:
  *
- *      clients.surfaceApp.rpc.surface.system.identity(...)
+ *      bundle.clients.surfaceApp.rpc.surface.system.identity(...)
  *
- *  (NOT `clients.surfaceApp.rpc.surface.surfaceApp.system.identity` — the key
- *  is already consumed by the scope, so it does not reappear in the path.) */
+ *  (NOT `…rpc.surface.surfaceApp.system.identity` — the key is already consumed by
+ *  the scope, so it does not reappear in the path.) */
 export function surfaceClients<
   // biome-ignore lint/suspicious/noExplicitAny: heterogeneous map of surfaces, each pinning its own spec.
   const E extends Record<string, Surface<any>>,
@@ -1626,7 +1804,7 @@ export function surfaceClients<
   transport: LiveSignalHandle | SurfaceDispatch,
   entries: E,
   onClientError?: OnClientError,
-): SurfaceClients<E> {
+): SurfaceClientsBundle<E> {
   // Collapse the combined transport ONCE, at the public boundary: a
   // `LiveSignalHandle` yields the combined `dispatch` and the shared watchdog-backed
   // `live` (paired by construction); a bare half-openable combined dispatch CRASHES
@@ -1636,52 +1814,232 @@ export function surfaceClients<
   // shared `live` — no per-wrapper brand check (the guard already ran here, on the
   // combined transport).
   const { dispatch, live } = resolveTransport(transport);
-  // ALL-OR-NOTHING, and it has to be built rather than assumed. Each
-  // `buildSurfaceClient` opens REAL side effects before it returns — a mirrored
-  // surface's eager `liveWhen` readiness subscription is live the moment the client
-  // exists — and it can THROW: a sibling whose spec declares a `client.onError`
-  // policy with no interpreter is refused at construction (design §D/F5). Built by a
-  // bare `.map`, the Nth sibling's throw would propagate with siblings 1..N-1
-  // already subscribed and their only `dispose` handles inside the discarded array:
-  // subscriptions running over the wire that NOTHING can close, for the life of the
-  // page. So the built ones are held as they are made and torn down on the way out.
-  //
-  // The guarantee belongs HERE and not at each caller: `connectSurfaces` can only
-  // see this function's return, so a caller-side unwind cannot reach a child that
-  // was never handed back. A teardown that itself throws is reported and does not
-  // replace the construction error the caller is about to see.
-  const built: Array<[string, SurfaceClient<SurfaceSpec>]> = [];
-  try {
-    for (const [k, surface] of Object.entries(entries)) {
-      built.push([
-        k,
-        buildSurfaceClient(
-          surface,
-          scopeSiblingDispatch(dispatch, k),
-          live,
-          // Threaded to EVERY sibling client — the app spells ONE interpreter at the
-          // `connectSurfaces` seam, never re-registered per internal build (design §A/m4).
-          onClientError,
-        ) as SurfaceClient<SurfaceSpec>,
-      ]);
+  /** The live roster, in enrolment order. A `Map` rather than a plain record so
+   *  "which siblings are on this bundle" has ONE answer that also carries each
+   *  slot's retraction and the surface it was built from; `clients` below is the
+   *  app-facing projection of it. */
+  const slots = new Map<string, SiblingSlot>();
+  /** The map the app holds — the SAME object for the bundle's whole life.
+   *
+   *  NULL-PROTOTYPE: the key set is a RUNTIME roster now, arriving through
+   *  {@link SurfaceClientsBundle.reroster}, so `clients.constructor` must answer
+   *  `undefined` rather than `Object`. (The sibling seam's `assertRootWordFree`
+   *  reaches for `Object.hasOwn` for the same reason.) */
+  const clients: Record<string, SurfaceClient<SurfaceSpec>> = Object.create(
+    null,
+  );
+  /** THE ROSTER MOVED — the notification, kept beside the mutation that causes it.
+   *
+   *  `clients` is a plain object written by `delete` and assignment, so Solid
+   *  tracks nothing about its key set; every reactive fold over it needs something
+   *  to depend on. That something belongs HERE, in the only code that knows the
+   *  key set moved, and not in whichever consumer happened to want it — a signal a
+   *  READER owns is a rule kept by convention, and the second reader is silently
+   *  blind rather than broken. (`createSurfaceHealthRegistry` bumps its own
+   *  membership signal one layer down for exactly this reason.)
+   *
+   *  `equals: false` makes each bump a distinct notification though the value is
+   *  constant. Bumped ONCE per move — at the exits of `reroster` and `dispose`,
+   *  not per key — so a memo over the roster re-folds once for a move that
+   *  swapped five siblings. */
+  const [membership, bumpMembership] = createSignal(0, { equals: false });
+
+  /** End a slot: REFUSE first, then release. The order is the point — a standing
+   *  subscription that fails during `client.dispose()` must find the dispatch
+   *  already retracted, so its fence's re-subscribe hits the worded refusal rather
+   *  than the wire.
+   *
+   *  Returns the teardown's own failure rather than deciding what to do with it:
+   *  the three callers want three different things (a build unwind and a
+   *  departure have a value to produce and can only LOG; `dispose` has a caller
+   *  awaiting a teardown and must RAISE), and that decision is theirs. */
+  const retire = (
+    key: string,
+    slot: SiblingSlot,
+    why: Retirement,
+  ): Error | undefined => {
+    slot.retract(why);
+    try {
+      slot.client.dispose();
+      return undefined;
+    } catch (teardownError) {
+      return new Error(
+        `surfaceClients: disposing the "${key}" client FAILED ${RETIREMENTS[why].teardown} — ` +
+          "that sibling's subscriptions are leaked",
+        { cause: teardownError },
+      );
     }
-  } catch (constructionError) {
-    for (const [k, client] of built.reverse()) {
-      try {
-        client.dispose();
-      } catch (teardownError) {
-        console.error(
-          `surfaceClients: disposing the "${k}" client FAILED while unwinding a ` +
-            "bundle whose construction threw — that sibling's subscriptions are " +
-            "leaked, and the error below is the teardown's, not the one being " +
-            "reported to the caller",
-          teardownError,
+  };
+
+  /** LOG a teardown failure and continue — the exit for the two callers that have
+   *  a value to produce and no caller left to raise to. The policy has one name
+   *  in this package ({@link reportLeakedTeardown}, `../teardown`); this is only
+   *  the arm that unwraps `retire`'s optional. */
+  const logTeardown = (failure: Error | undefined): void => {
+    if (failure !== undefined)
+      reportLeakedTeardown(failure.message, failure.cause);
+  };
+
+  /** PUT a slot on the roster — BOTH halves, so `slots` and the app-facing
+   *  `clients` can never disagree about who is on this bundle. Written at three
+   *  sites by hand, that agreement was memory rather than structure. */
+  const admit = (key: string, slot: SiblingSlot): void => {
+    slots.set(key, slot);
+    clients[key] = slot.client;
+  };
+  /** TAKE a slot off the roster — both halves, same reason. */
+  const drop = (key: string): void => {
+    slots.delete(key);
+    delete clients[key];
+  };
+
+  /** Build the slots for `arriving`, ALL-OR-NOTHING, and it has to be built rather
+   *  than assumed. Each `buildSurfaceClient` opens REAL side effects before it
+   *  returns — a mirrored surface's eager `liveWhen` readiness subscription is live
+   *  the moment the client exists — and it can THROW: a sibling whose spec declares
+   *  a `client.onError` policy with no interpreter is refused at construction
+   *  (design §D/F5). Built by a bare `.map`, the Nth sibling's throw would propagate
+   *  with siblings 1..N-1 already subscribed and their only `dispose` handles inside
+   *  the discarded array: subscriptions running over the wire that NOTHING can
+   *  close, for the life of the page. So the built ones are held as they are made
+   *  and torn down on the way out.
+   *
+   *  The guarantee belongs HERE and not at each caller: `connectSurfaces` can only
+   *  see this function's return, so a caller-side unwind cannot reach a child that
+   *  was never handed back. A teardown that itself throws is reported and does not
+   *  replace the construction error the caller is about to see. */
+  const buildSlots = (
+    arriving: ReadonlyArray<readonly [string, Surface<SurfaceSpec>]>,
+  ): Array<readonly [string, SiblingSlot]> => {
+    const built: Array<readonly [string, SiblingSlot]> = [];
+    try {
+      for (const [key, surface] of arriving) {
+        const scoped = scopeSiblingDispatch(dispatch, key);
+        built.push([
+          key,
+          {
+            surface,
+            retract: scoped.retract,
+            client: buildSurfaceClient(
+              surface,
+              scoped.dispatch,
+              live,
+              // Threaded to EVERY sibling client — the app spells ONE interpreter at
+              // the `connectSurfaces` seam, never re-registered per internal build
+              // (design §A/m4).
+              onClientError,
+            ) as SurfaceClient<SurfaceSpec>,
+          },
+        ]);
+      }
+    } catch (constructionError) {
+      for (const [key, slot] of [...built].reverse()) {
+        logTeardown(retire(key, slot, "unwound"));
+      }
+      throw constructionError;
+    }
+    return built;
+  };
+
+  for (const [key, slot] of buildSlots(
+    Object.entries(entries) as Array<readonly [string, Surface<SurfaceSpec>]>,
+  )) {
+    admit(key, slot);
+  }
+
+  /** Is `key` still the slot this bundle already holds — the SAME `Surface` value
+   *  its client was built from?
+   *
+   *  ONE spelling, because three readers ask it and they must agree: {@link
+   *  SurfaceClientsBundle.moves} (the idempotence door `redial` asks before it
+   *  dials), the arrivals filter, and the departures loop. Written out three
+   *  times, the two `redial`-facing ones drifting apart is exactly the bug the
+   *  door exists to prevent — a move the door called a no-op, or a no-op it
+   *  called a move.
+   *
+   *  A different value under the same key is NOT the same slot: it is a different
+   *  contract (an edited plugin rebuilt at a new chunk), and a client built over
+   *  the old spec would bind members the new one does not have.
+   *
+   *  `Object.hasOwn`, not a bare read: `wanted` is a caller's object, so a key
+   *  like `constructor` would otherwise answer through `Object.prototype` and
+   *  read as "still on the roster". */
+  const stillHeld = (
+    wanted: Record<string, Surface<SurfaceSpec>>,
+    key: string,
+  ): boolean =>
+    Object.hasOwn(wanted, key) && slots.get(key)?.surface === wanted[key];
+
+  const bundle: SurfaceClientsBundle<Record<string, Surface<SurfaceSpec>>> = {
+    clients: clients as SurfaceClients<Record<string, Surface<SurfaceSpec>>>,
+    // The SAME object, handed back after the membership signal has been read — so
+    // a tracking scope that reaches the roster through here re-runs on a move,
+    // and one that reaches `clients` directly is the spelling that goes blind.
+    roster: () => {
+      membership();
+      return clients as SurfaceClients<Record<string, Surface<SurfaceSpec>>>;
+    },
+    health: () => surfaceClientsHealth(bundle.roster()),
+    moves: (next) =>
+      Object.keys(next).length !== slots.size ||
+      Object.keys(next).some((key) => !stillHeld(next, key)),
+    reroster: <
+      // biome-ignore lint/suspicious/noExplicitAny: heterogeneous map of surfaces, as on the constructor.
+      const E2 extends Record<string, Surface<any>>,
+    >(
+      next: E2,
+    ): SurfaceClientsBundle<E2> => {
+      const wanted: Record<string, Surface<SurfaceSpec>> = next;
+      const arriving = Object.entries(wanted).filter(
+        ([key]) => !stillHeld(wanted, key),
+      );
+      // Arrivals FIRST, so a throw leaves this bundle exactly on its current
+      // roster — nothing retracted, nothing half-moved.
+      const built = buildSlots(arriving);
+      for (const [key, slot] of slots) {
+        if (stillHeld(wanted, key)) continue;
+        // LOGGED, not raised: the value this call exists to produce is the bundle
+        // on its new roster, and refusing to move it because a departing
+        // sibling's teardown threw would leave the caller with neither.
+        logTeardown(retire(key, slot, "departed"));
+        drop(key);
+      }
+      for (const [key, slot] of built) {
+        admit(key, slot);
+      }
+      // ONE notification, at the end of the whole move — every arrival is on the
+      // map and every departure is off it, so a memo woken by this reads a roster
+      // that is finished rather than one mid-swap.
+      bumpMembership(0);
+      return bundle as SurfaceClientsBundle<E2>;
+    },
+    dispose: () => {
+      // RAISES, and that is the difference from the two exits above: a
+      // `dispose()` that resolves while a sibling's subscriptions are still
+      // running is a lie the awaiting caller has no way to catch — the same law
+      // `trackConnectAllocations.release` states one layer up, which used to
+      // apply it per sibling and can only see this bundle now. Every slot is
+      // still ATTEMPTED before it throws: one failure must not strand the ones
+      // behind it.
+      const failures: Error[] = [];
+      for (const [key, slot] of [...slots].reverse()) {
+        const failure = retire(key, slot, "disposed");
+        if (failure !== undefined) failures.push(failure);
+        drop(key);
+      }
+      // The roster is now EMPTY, and that is a membership change like any other:
+      // a fold left holding the last roster over a disposed bundle would keep
+      // naming subscriptions nothing is running.
+      bumpMembership(0);
+      if (failures.length > 0) {
+        throw new AggregateError(
+          failures,
+          `surfaceClients: ${failures.length} sibling client(s) failed to dispose`,
         );
       }
-    }
-    throw constructionError;
-  }
-  return Object.fromEntries(built) as SurfaceClients<E>;
+    },
+  };
+  return bundle as SurfaceClientsBundle<E>;
 }
 
 /** The combined health FACT across every sibling client `surfaceClients` built —
@@ -1692,7 +2050,14 @@ export function surfaceClients<
  *  via {@link mergeSurfaceHealth}, prefixing each sub's name with its surface key
  *  (`<surfaceKey>/<sub>`) and AND-reducing `live`, so the result reads as ONE fact
  *  a single `<SurfaceGate health={() => surfaceClientsHealth(clients)}>` can gate
- *  on. Reactive — call it inside a tracking scope (or wrap in an accessor). */
+ *  on. Reactive — call it inside a tracking scope (or wrap in an accessor).
+ *
+ *  It folds the record it is HANDED, and a record is not reactive. Over a
+ *  {@link SurfaceClientsBundle} whose roster can move, reach for
+ *  {@link SurfaceClientsBundle.health} instead (or fold
+ *  `bundle.roster()`, never `bundle.clients`): `clients` is one object mutated in
+ *  place, so a memo over `surfaceClientsHealth(bundle.clients)` keeps naming
+ *  departed siblings' subscriptions and never names an arrival's. */
 export function surfaceClientsHealth(
   clients: Record<string, Pick<SurfaceClient<SurfaceSpec>, "health">>,
 ): SurfaceHealth {

@@ -474,6 +474,50 @@ export const SURFACE_TAG_ROOT = "surface";
 /** The tag prefix of a STANDALONE surface: `"surface/"`. */
 export const SURFACE_TAG_PREFIX = "surface/";
 
+/** The first member of `spec` that DECLARES a `client.onError` policy, or
+ *  `undefined` when none does — the scan behind "a declared policy may never route
+ *  nowhere".
+ *
+ *  A member that declares one and reaches a client built with no interpreter is
+ *  refused; `buildSurfaceClient` (`./solid/surfaceClient`) is where that refusal
+ *  has to LAND, because it is the one door every client crosses. But the scan
+ *  itself needs nothing a client has — it reads a spec and an interpreter, both of
+ *  which a caller holds before it dials anything — and a door that can decide a
+ *  refusal EARLIER owes its caller that.
+ *
+ *  `connectSurfaces` is the case that made it matter (juspay/kolu#2227). Its
+ *  `redial` must build an arriving sibling's client AFTER the new wire is adopted
+ *  (an arriving client can open a standing subscription at construction, and its
+ *  tags are ones the OUTGOING generation never minted), so a construction throw
+ *  there lands with the wire already moved and the clients not — a state nothing
+ *  can make honest, whose only answer is to release the whole connection. Running
+ *  this scan at PLAN time instead puts the one roster-triggerable throw back under
+ *  the law that seam states everywhere else: every refusal a roster earns is
+ *  raised before anything is dialled.
+ *
+ *  Returns the member's KEY, because the refusal's whole value is naming which
+ *  member declared the policy. */
+export function policyBearingMember(spec: SurfaceSpec): string | undefined {
+  const declaresPolicy = ([, member]: [
+    string,
+    { readonly client?: { readonly onError?: unknown } },
+  ]): boolean => member.client?.onError !== undefined;
+  return (
+    Object.entries(
+      (spec.cells ?? {}) as Record<
+        string,
+        { readonly client?: { readonly onError?: unknown } }
+      >,
+    ).find(declaresPolicy)?.[0] ??
+    Object.entries(
+      (spec.collections ?? {}) as Record<
+        string,
+        { readonly client?: { readonly onError?: unknown } }
+      >,
+    ).find(declaresPolicy)?.[0]
+  );
+}
+
 /** Is this the STANDALONE surface a ROOTED bundle's root must be?
  *
  *  ONE READING OF ONE LAW, for the three doors that carry a root: the serve side

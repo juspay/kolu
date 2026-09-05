@@ -41,22 +41,14 @@
  * schedule below.
  */
 
-import { Cause, Duration, Effect, Layer, Schedule, Stream } from "effect";
+import { Cause, Duration, Effect, Layer, Schedule } from "effect";
 import type { Rpc, RpcGroup } from "effect/unstable/rpc";
 import { RpcClient } from "effect/unstable/rpc";
-import {
-  RpcClientDefect,
-  RpcClientError,
-} from "effect/unstable/rpc/RpcClientError";
 import { Socket } from "effect/unstable/socket";
 import { SurfaceTransportRetired } from "../errors";
 import { rpcSerializationLayer } from "../frameLimit";
-import {
-  brandHalfOpenDispatch,
-  type SurfaceDispatch,
-  type WireStatus,
-  type WireTransport,
-} from "../link";
+import type { WireStatus, WireTransport } from "../link";
+import { supersession } from "./supersession";
 import { openWireLink, type WireLink } from "./wire";
 
 /** Close code the link itself uses when {@link WatchableWire.forceReconnect}
@@ -186,22 +178,30 @@ export async function websocketLink(
 
   // The re-dial EPOCH: how many times this wire has reached `open`. It counts
   // OPEN EDGES off the same funnel every consumer reads, so "the wire completed
-  // a re-dial cycle" and "the status said so" can never disagree. `epochWatchers`
-  // are the framework's own (one per in-flight call), NOT consumer callbacks —
-  // they are notified after `watchers`, so a consumer that issues a call from its
-  // own `open` handler has already bound to the NEW epoch by the time the
-  // supersession sweep runs, and cannot fail its own fresh call.
-  let epoch = 0;
-  const epochWatchers = new Set<(epoch: number) => void>();
+  // a re-dial cycle" and "the status said so" can never disagree. It is the
+  // shared supersession fence's MARK (`./supersession`, which `followingWire`
+  // stands on too); the three NOUNS below are all this leg supplies — the
+  // sentence they go into is the law's, written once over there.
+  const fence = supersession({
+    moved: "the wire re-dialled",
+    mark: "socket epoch",
+    carrier: "socket",
+    cause: (bound, now) =>
+      `websocketLink: re-dial cycle superseded epoch ${bound} (wire now at ${now})`,
+  });
 
   const setStatus = (next: WireStatus): void => {
     if (next === status) return;
     status = next;
-    if (next === "open") epoch += 1;
-    for (const watcher of watchers) watcher(next);
-    if (next === "open") {
-      for (const watcher of [...epochWatchers]) watcher(epoch);
-    }
+    const notify = (): void => {
+      for (const watcher of watchers) watcher(next);
+    };
+    // An OPEN edge ADVANCES the mark, and `advance` owns the order: the mark
+    // moves first (so a consumer issuing a call from its own `open` handler has
+    // already bound to the NEW epoch and cannot fail its own fresh call), then
+    // the consumer notify, then the supersession sweep.
+    if (next === "open") fence.advance(notify);
+    else notify();
   };
 
   // ── The dial history (kolu#2101 J1) ─────────────────────────────────────
@@ -441,84 +441,21 @@ export async function websocketLink(
   // structurally rather than by bookkeeping: such a call has already failed and
   // its watcher is deregistered before the reopen edge, and the fence's
   // re-subscribe binds to the current/next epoch. One re-drive, never two.
-  const bindingEpoch = (): number => (status === "open" ? epoch : epoch + 1);
+  //
+  // The GUARD, the error and the dispatch wrap are the shared fence's
+  // (`./supersession`); what stays here is the one rule that is genuinely this
+  // leg's — WHICH mark a call binds to.
+  const bindingEpoch = (): number =>
+    status === "open" ? fence.mark() : fence.mark() + 1;
 
-  /** The failure a superseded call carries. `RpcClientError` is not decoration:
-   *  the per-subscription fence matches transport failures STRUCTURALLY on
-   *  `_tag === "RpcClientError"` (`client.ts`'s `isTransportError`), and this IS
-   *  a transport failure — the transport that was carrying the call is gone. The
-   *  message states the whole derivation, because it is what a consumer sees in
-   *  a console when an unfenced call finally fails instead of hanging. */
-  const orphanedByRedial = (bound: number, now: number): RpcClientError =>
-    new RpcClientError({
-      reason: new RpcClientDefect({
-        message:
-          `the wire re-dialled beneath this call: it was bound to socket epoch ${bound}, the wire is now at epoch ${now}. ` +
-          "Effect RPC registers an entry exactly once and never re-sends it across a re-dial, and an answer can only " +
-          "travel the socket its request went out on — so this call could only park forever. Failing it is the honest " +
-          "signal: the per-subscription retry fence re-subscribes on the new socket.",
-        cause: new Error(
-          `websocketLink: re-dial cycle superseded epoch ${bound} (wire now at ${now})`,
-        ),
-      }),
-    });
-
-  /** Never succeeds; fails the moment the wire opens past `bound`. */
-  const supersededByRedial = (
-    bound: number,
-  ): Effect.Effect<never, RpcClientError> =>
-    Effect.callback<never, RpcClientError>((resume) => {
-      // The registration is asynchronous relative to `bindingEpoch()`, so a
-      // re-dial can complete in between. Read the epoch again rather than assume.
-      if (epoch > bound) {
-        resume(Effect.fail(orphanedByRedial(bound, epoch)));
-        return;
-      }
-      const watcher = (next: number): void => {
-        if (next <= bound) return;
-        epochWatchers.delete(watcher);
-        resume(Effect.fail(orphanedByRedial(bound, next)));
-      };
-      epochWatchers.add(watcher);
-      return Effect.sync(() => {
-        epochWatchers.delete(watcher);
-      });
-    });
-
-  // Re-branded: `brandHalfOpenDispatch` is by IDENTITY, and this is a new object.
-  // A wire dispatch that lost the brand would be accepted by `surfaceClient`
-  // without a watchdog — the green-dot-over-a-dead-link lie (#1564).
-  const dispatch: SurfaceDispatch = brandHalfOpenDispatch({
-    unary: (tag: string, payload: unknown) =>
-      // `Effect.suspend` so the epoch is bound when the call RUNS, not when the
-      // Effect value is built (a call value can be held and run much later).
-      Effect.suspend(() =>
-        Effect.raceFirst(
-          link.dispatch.unary(tag, payload),
-          supersededByRedial(bindingEpoch()),
-        ),
-      ),
-    stream: (tag: string, payload: unknown) =>
-      // `interruptWhen`, not `haltWhen`: an orphaned subscription is parked ON a
-      // pull that will never complete, and `haltWhen` waits for the current pull.
-      // The guard's FAILURE becomes the stream's failure, which is what the fence
-      // retries on. It cannot fire synchronously with the subscribe (the epoch is
-      // read in the same tick it is compared against), so `SurfaceDispatch`'s
-      // no-synchronous-end invariant still holds.
-      Stream.suspend(() =>
-        Stream.interruptWhen(
-          link.dispatch.stream(tag, payload),
-          supersededByRedial(bindingEpoch()),
-        ),
-      ),
-  });
+  const dispatch = fence.wrap(() => link.dispatch, bindingEpoch);
 
   return {
     dispatch,
     dispose: link.dispose,
     diagnostics: {
       dialHistory: () => dialHistory.map((attempt) => ({ ...attempt })),
-      epoch: () => epoch,
+      epoch: fence.mark,
     },
     wire: {
       status: () => status,

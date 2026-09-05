@@ -113,13 +113,31 @@ export type SurfaceConnectionStatus =
 export interface CreateLiveSignalOptions extends HeartbeatTuning {
   /** For a MULTI-surface combined dispatch, the sibling key whose
    *  framework-reserved `system/live` member the watchdog probes — every surface
-   *  answers it, so any sibling works; pass the first. Omit for a single-surface
-   *  dispatch, where the reserved member sits at the bare `surface/system/live`.
+   *  answers it, so any sibling works; pass the first.
    *
-   *  Note this is a STRING, not a dispatch: `createLiveSignal` probes over the
-   *  dispatch it was handed, sliced only by TAG. There is no caller-supplied probe
-   *  target to fabricate — which is the whole point (see the module docstring). */
-  siblingKey?: string;
+   *  ONE DOOR, two spellings, and they mean exactly the same thing: a wire with
+   *  no sibling-scoped probe target may OMIT this option or pass a thunk that
+   *  answers `undefined`. Both are the bare `surface/system/live` — the
+   *  single-surface wire, and the rooted bundle whose root is on every serve. The
+   *  option stays optional because requiring it would cost every
+   *  `connectSurface`-shaped caller a `() => undefined` for nothing; it is said
+   *  here so a reader does not go looking for a difference there isn't.
+   *
+   *  A THUNK, re-read on every probe, and that is not a nicety. A watchdog outlives
+   *  the wire underneath it when that wire FOLLOWS a roster
+   *  (`@kolu/surface/links/following`, juspay/kolu#2227): the sibling set a
+   *  generation serves is a fact about THAT generation, so a key resolved once at
+   *  construction would keep probing a member the current generation no longer
+   *  carries — and the "unknown tag" answer reads as a dead wire, which is a
+   *  watchdog reporting the opposite of the truth. Resolving it per probe is what
+   *  keeps the target a member the wire actually serves. A wire whose roster cannot
+   *  move passes a constant thunk and pays nothing.
+   *
+   *  Note it resolves to a STRING, not a dispatch: `createLiveSignal` probes over
+   *  the dispatch it was handed, sliced only by TAG. There is no caller-supplied
+   *  probe target to fabricate — which is the whole point (see the module
+   *  docstring). */
+  siblingKey?: () => string | undefined;
 }
 
 /** The branded unit `createLiveSignal` returns: the watchdog-backed `live`, the
@@ -234,13 +252,18 @@ export function createLiveSignal(
   // `defineSurface` mints it with — so the probe can never address a member the
   // surface does not carry, and a sibling-scoped probe is a tag prefix rather than
   // a walk through a nested client.
-  const liveTag = surfaceTag(
-    opts.siblingKey === undefined
-      ? SURFACE_TAG_PREFIX
-      : siblingTagPrefix(opts.siblingKey),
-    LIVENESS_NAMESPACE,
-    LIVENESS_VERB,
-  );
+  //
+  // Minted PER PROBE, because the key is a thunk: over a wire that follows a
+  // roster, which siblings are served is a fact about the current generation. See
+  // {@link CreateLiveSignalOptions.siblingKey}.
+  const liveTagNow = (): string => {
+    const key = opts.siblingKey?.();
+    return surfaceTag(
+      key === undefined ? SURFACE_TAG_PREFIX : siblingTagPrefix(key),
+      LIVENESS_NAMESPACE,
+      LIVENESS_VERB,
+    );
+  };
   // The half-open watchdog — ALWAYS wired (there is no disable knob). It probes the
   // reserved liveness member over the owned dispatch while the wire is OPEN and, on
   // a TIMEOUT, forces `status` to `reconnecting` (so `live` flips false even if the
@@ -284,7 +307,7 @@ export function createLiveSignal(
     // probe that replaced it.)
     probe: () => {
       abandonProbe();
-      const fiber = Effect.runFork(dispatch.unary(liveTag, {}));
+      const fiber = Effect.runFork(dispatch.unary(liveTagNow(), {}));
       probeFiber = fiber;
       return new Promise<unknown>((resolve, reject) => {
         fiber.addObserver((exit) => {
