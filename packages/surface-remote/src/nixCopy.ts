@@ -81,6 +81,7 @@ import {
   isLocalHost,
   looksLikeNetworkError,
   nixSshOpts,
+  type SshDestination,
 } from "./host";
 import type { SshKeepalive } from "./keepalive";
 import {
@@ -585,23 +586,23 @@ async function shipAgentClosure(opts: {
  *
  *  `onProgress` is optional because the two seats differ in what the caller
  *  wants from the output: the remote warm check scans its stderr for transport
- *  evidence, while the local probe has nothing to say. */
+ *  evidence, while the local probe has nothing to say.
+ *
+ *  `target` is a bare host string or an `SshDestination` naming the dial's
+ *  policy — the same argument `buildSshProbeCommand` takes, forwarded whole. The
+ *  local seat has no policy to state and passes `"localhost"`; the remote seat
+ *  passes the dial's, where omitting it would open the warm check's master under
+ *  the default one. */
 async function checkValidity(
-  host: string,
+  target: string | SshDestination,
   outPath: string,
   opts: {
     signal: AbortSignal | undefined;
     onProgress?: (line: string) => void;
-    /** The dial's ssh policy — REQUIRED, and IGNORED at the local seat (which
-     *  spawns no ssh), exactly as `buildAgentCommand`'s `localEnv` is required
-     *  and ignored on the ssh arm. Required rather than optional so a caller
-     *  cannot forget it at the REMOTE seat, where omitting it would open the
-     *  warm check's master under the default policy. */
-    keepalive: SshKeepalive;
   },
 ): Promise<"valid" | "absent" | "aborted"> {
   const probe = buildSshProbeCommand(
-    { host, keepalive: opts.keepalive },
+    target,
     "nix-store",
     "--check-validity",
     outPath,
@@ -647,9 +648,6 @@ async function stageAgentClosure(opts: {
   });
   let held = await checkValidity("localhost", opts.outPath, {
     signal: opts.signal,
-    // Ignored on this seat — the local store query spawns no ssh — but stated
-    // so the field can stay required at the seat where forgetting it matters.
-    keepalive: opts.keepalive,
   });
   if (held === "aborted") {
     return {
@@ -807,10 +805,9 @@ export async function provisionAgent(
       // store query — it NEVER substitutes (verified: `--check-validity` on an absent path
       // returns non-zero instantly, no fetch).
       if (
-        (await checkValidity(opts.host, localAgentPath, {
+        (await checkValidity({ host: opts.host, keepalive }, localAgentPath, {
           signal,
           onProgress: onProbeProgress,
-          keepalive,
         })) === "valid"
       ) {
         // Warm hit. The shared root operation is the commit point: only a rooted,
