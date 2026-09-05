@@ -750,6 +750,14 @@ export const serveSurfaceApp = <Svc = never, H extends string = never>(
           // pair. The socket is terminated rather than left half-upgraded; the
           // error is reported rather than swallowed — existing connections
           // keep the generation they were accepted with.
+          // A live allowlist broken on this SAME accept goes unreported when the
+          // generation is also broken: this `return` fires before the headers
+          // block below ever runs, so no `UpgradeHeadersRefused` follows. That is
+          // not a second bug to fix here — a terminated socket has no headers to
+          // narrate a fault about — but it does mean fixing a reported
+          // `GenerationRefused` can uncover a second, previously-invisible
+          // `UpgradeHeadersRefused` on the very next accept, for a live thunk
+          // that was broken all along.
           let served: ReturnType<typeof restrictServedGeneration>;
           try {
             served = servedAtAccept();
