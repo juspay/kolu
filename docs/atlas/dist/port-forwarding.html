@@ -208,7 +208,7 @@ long as it takes their connections to notice — they die with those connections
 they do not linger on a timer.</p>
 <p>The per-forward connection also needs its own authentication, and that costs
 nothing new: kolu’s mirror already requires <strong>non-interactive</strong> ssh
-(<code>BatchMode=yes</code> and the rest of <code>SSH_OPT_PAIRS</code>), so any host kolu can mirror
+(<code>BatchMode=yes</code> and the rest of surface-remote’s default keepalive policy), so any host kolu can mirror
 is a host a dedicated forward connection can reach with the same keys and the
 same <code>~/.ssh/config</code>. <code>host</code> here is just an ssh destination — <code>user@box</code>, an
 alias, whatever kolu’s remote hosts already say — with no kolu-specific host

@@ -19,6 +19,7 @@ import type { padiSurface } from "@kolu/padi-client/surface";
 import {
   AgentBinaryCacheUnbakedError,
   AgentSourceUnbakedError,
+  DEFAULT_SSH_KEEPALIVE,
   ResolveDrvError,
   type ResolveDrvPathContext,
   type SshConnectorOptions,
@@ -93,7 +94,17 @@ function fakeSession() {
 const resolverContext: ResolveDrvPathContext = {
   signal: new AbortController().signal,
   localProgress: vi.fn(),
+  // The same sink under `ResolveSystemOptions`'s name, so `resolveSystem(host,
+  // ctx)` — the documented idiom — typechecks against this context.
+  onProgress: vi.fn(),
   resolveAgentDrv: vi.fn(),
+  // The arch probe a real connector hands the resolver PRE-BOUND to the dial.
+  // This resolver never reaches it (it faults on the source ref first), so the
+  // stub only has to exist.
+  resolveSystem: vi.fn(),
+  // The dial's ssh dead-peer policy, which a real connector threads into the
+  // resolver's arch probe. kolu is the interactive consumer, so it is the default.
+  keepalive: DEFAULT_SSH_KEEPALIVE,
 };
 
 /** Seed a binding and keep it LIVE, handing back both the captured resolver thunk

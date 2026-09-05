@@ -6,11 +6,8 @@
  * builds the argv so the assertions see exactly what would hit the wire. The
  * ask-only warm-check SHAPE (D1a) is pinned in `warmProbeCheck.test.ts`.
  */
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { __resetControlMemo } from "./controlMaster";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { CI_KEEPALIVE, provArgs, useControlDir } from "./controlDir.testutil";
 import { agentBinaryCache } from "./agentBinaryCache";
 import { directAgentDerivation, flakeAgentDerivation } from "./agentDerivation";
 import {
@@ -23,6 +20,7 @@ import {
   provisionAgent,
 } from "./nixCopy";
 import { type CaptureResult, runCapture } from "./process";
+import { sshKeepalive } from "./keepalive";
 import { TEST_BINARY_CACHE } from "./agentDerivation.testutil";
 
 vi.mock("./process", async (importOriginal) => ({
@@ -53,13 +51,6 @@ const isPrefetch = (args: readonly string[]): boolean =>
   isCopy(args) && args.includes("--from");
 const isShip = (args: readonly string[]): boolean =>
   isCopy(args) && args.includes("--to");
-
-/** The fused budgets a `provisionAgent` call needs (the connector reconciles the
- *  campaign reset itself, so `provisionAgent` takes no epoch). Pass a custom `budgets`
- *  (e.g. a tight-terminal one) to override. */
-function provArgs(budgets: ProvisionBudgets = makeProvisionBudgets()) {
-  return { budgets };
-}
 
 /** Route the mocked `runCapture` by the command it was handed (robust to call
  *  order): the sender-local `-q --outputs`, the ssh `--check-validity`, the
@@ -100,19 +91,9 @@ function mockNix(over?: {
   });
 }
 
-const tmpDirs: string[] = [];
-beforeEach(() => {
-  const xdg = mkdtempSync(join(tmpdir(), "kolu-ssh-nixcopy-test-"));
-  tmpDirs.push(xdg);
-  vi.stubEnv("XDG_RUNTIME_DIR", xdg);
-  __resetControlMemo();
-});
+useControlDir("kolu-ssh-nixcopy-");
 afterEach(() => {
   vi.clearAllMocks();
-  vi.unstubAllEnvs();
-  __resetControlMemo();
-  for (const d of tmpDirs.splice(0))
-    rmSync(d, { recursive: true, force: true });
 });
 
 describe("provisionAgent GC-root pinning (cold path)", () => {
@@ -161,9 +142,70 @@ describe("provisionAgent GC-root pinning (cold path)", () => {
     const opts = provisionCall![2];
     const nixSshOpts = opts.env?.NIX_SSHOPTS ?? "";
     expect(nixSshOpts).toContain("-o ControlMaster=auto");
-    expect(nixSshOpts).toMatch(/-o ControlPath=\S+\/%C(\s|$)/);
+    // The socket is keyed by the keepalive policy — `10x3` is the default.
+    expect(nixSshOpts).toMatch(/-o ControlPath=\S+\/%C-10x3(\s|$)/);
     expect(nixSshOpts).toContain("-o ControlPersist=10m");
     expect(nixSshOpts).toContain("-o ServerAliveInterval=10");
+    expect(nixSshOpts).toContain("-o ServerAliveCountMax=3");
+  });
+
+  it("threads a custom keepalive into EVERY ssh the provisioning spawns", async () => {
+    // The provisioning steps are where a long CI lane is most exposed to a
+    // blip: a cold build can sit idle for minutes. So the dial's policy has to
+    // reach the argv we spawn AND the `NIX_SSHOPTS` Nix's own ssh reads.
+    mockNix();
+    await provisionAgent({
+      host: "testhost",
+      derivation: directAgentDerivation(DRV, TEST_BINARY_CACHE),
+      onProgress: () => {},
+      ...provArgs(),
+      keepalive: CI_KEEPALIVE,
+    });
+    const calls = vi.mocked(runCapture).mock.calls;
+
+    // Every ssh argv we build ourselves (the warm check, the GC-root pin).
+    const sshCalls = calls.filter(([command]) => command === "ssh");
+    expect(sshCalls.length).toBeGreaterThan(0);
+    for (const [, args] of sshCalls) {
+      expect(args).toContain("ServerAliveInterval=30");
+      expect(args).toContain("ServerAliveCountMax=10");
+    }
+
+    // …and every Nix command that MAY fork an ssh, whose fork is out of reach of
+    // our argv. That includes the cache prefetch: `agentBinaryCache` restricts no
+    // substituter scheme, so `ssh://` is a spellable declared cache and a
+    // prefetch with no NIX_SSHOPTS would have zero dead-peer detection.
+    const nixCalls = calls.filter(([command]) => command === "nix");
+    expect(nixCalls.length).toBeGreaterThan(0);
+    for (const [, args, o] of nixCalls) {
+      // Localhost-only invocations legitimately pass no env; every call that can
+      // reach another machine must carry the policy.
+      if (o?.env === undefined) {
+        throw new Error(
+          `a nix invocation reached the wire with no NIX_SSHOPTS: ${args.join(" ")}`,
+        );
+      }
+    }
+    const envs = calls
+      .map(([, , opts]) => opts?.env?.NIX_SSHOPTS)
+      .filter((v): v is string => typeof v === "string");
+    expect(envs.length).toBeGreaterThan(0);
+    for (const env of envs) {
+      expect(env).toContain("-o ServerAliveInterval=30");
+      expect(env).toContain("-o ServerAliveCountMax=10");
+      // Its own master, never the interactive one (the opener wins for life).
+      expect(env).toMatch(/-o ControlPath=\S+\/%C-30x10(\s|$)/);
+    }
+  });
+
+  it("REFUSES an out-of-range keepalive rather than clamping it", () => {
+    // The refusal now lands at the LITERAL rather than several provisioning
+    // steps in: `sshKeepalive` is the only producer of the branded value
+    // `ProvisionOptions.keepalive` requires, so an out-of-range policy cannot
+    // reach `provisionAgent` at all — it never becomes a value, so it is not an
+    // escape from the otherwise-total `ProvisionResult` either.
+    // 300 × 60 = 5 hours — no longer dead-peer detection at all.
+    expect(() => sshKeepalive(300, 60)).toThrow(/ssh keepalive/);
   });
 
   it("uses one remote-store Nix build for transfer and realisation", async () => {

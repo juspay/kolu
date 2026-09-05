@@ -12,6 +12,7 @@
 
 import { resolveSystem } from "./arch";
 import { looksLikeNetworkError, ResolveDrvError } from "./host";
+import type { SshKeepalive } from "./keepalive";
 import {
   type AgentBinaryCache,
   readBakedBinaryCache,
@@ -112,6 +113,15 @@ export interface AgentDrvResolutionOptions {
   onEvaluation: () => void;
   /** Connector-owned campaign budget for the local Nix evaluation. */
   budget: StepBudget;
+  /** The owning dial's ssh dead-peer policy, forwarded to this resolver's ONE
+   *  ssh — the {@link resolveSystem} arch probe. (The Nix `eval` below is local;
+   *  it opens no ssh.)
+   *
+   *  REQUIRED, with no default: this is an INTERNAL seam (the connector is its
+   *  only caller), and every ssh of one dial must carry the SAME policy — they
+   *  share a `ControlMaster` keyed by it. A forgotten thread is a compile error
+   *  here rather than a silently-second warm master at the default policy. */
+  keepalive: SshKeepalive;
 }
 
 /** Stable capability exposed to a source resolver. The connector owns the
@@ -183,6 +193,7 @@ export async function resolveAgentDrv(
   const system = await resolveSystem(host, {
     signal: opts.signal,
     onProgress: opts.onProgress,
+    keepalive: opts.keepalive,
   });
   const installable = `${flakeRef}#packages.${system}.${packageName}`;
   const cached = drvCache.get(installable);

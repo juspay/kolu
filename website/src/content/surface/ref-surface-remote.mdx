@@ -34,10 +34,10 @@ shared pool; key your own map and `destroy()` them yourself.
 | `Connector` / `Connection` / `ConnectError` | `.` | the transport seam: dial once, return a `Connection` or reject with a classified `ConnectError`. Supply your own for a non-ssh transport. A `Connection` may carry an optional `processAlive` same-box life-oracle (a local/stdio arm supplies it; ssh omits it) — see the liveness-watchdog note below. `ConnectError` takes a fourth, optional `anomaly: unknown` (default `null`): the app's own TYPED verdict for this failure, carried OPAQUELY from the connector that classified it to the binder that renders it, so a binder never has to string-parse `message` to tell "this daemon speaks a previous protocol epoch" from "this host is down" |
 | `Admit` / `AdmitVerdict` | `.` | optional per-dial supervision hook: `adopt` / `refuse(state)` / `replaced(reason)`. Omit and every connection is adopted |
 
-`sshConnector` opts are `{ surface, host, binary, resolveDrvPath, localEnv, extraArgs? }`:
+`sshConnector` opts are `{ surface, host, binary, resolveDrvPath, localEnv, extraArgs?, keepalive? }`:
 `surface` is the `Surface<S>` the remote agent serves, `host` is any
 ssh target (`"localhost"` short-circuits), `binary` the exe name inside the realised
-closure, `resolveDrvPath: ({ signal, localProgress, resolveAgentDrv }) => Promise<AgentDerivation>` resolves
+closure, `resolveDrvPath: ({ signal, onProgress, resolveSystem, resolveAgentDrv }) => Promise<AgentDerivation>` resolves
 the agent derivation for the *target* arch as an `AgentDerivation` inside the
 owning dial's cancellation and progress lifetime. A direct path is
 `directAgentDerivation(drvPath, binaryCache)` — obtain the `binaryCache` with
@@ -52,6 +52,80 @@ flake-backed arm that survives local garbage collection. **`localEnv: Record<str
 `localEnv`. Surface Remote reads the exact, minimal source flake baked by the
 Nix wrapper itself; the package name is the same `binary` value, so the
 executable and derivation cannot drift into two hand-maintained mappings.
+
+`keepalive?: SshKeepalive` is the dial's ssh **dead-peer policy** —
+`ServerAliveInterval` and `ServerAliveCountMax`, so ssh may go
+`intervalS × countMax` seconds without an answer before it declares the
+**transport** dead and exits non-zero. It defaults to `DEFAULT_SSH_KEEPALIVE`
+(`10 × 3` ≈ 30s), which is what an interactive tool wants: a host that stopped
+answering must stop *looking* connected. **Raise it for an unattended dial whose
+ssh should not be torn down over a slow probe answer** (`sshKeepalive(30, 10)`
+waits five minutes before calling the transport dead). The cost is symmetric: a
+genuinely dead host keeps that dial parked for the same window before the loop
+retries. It is *not* a survival budget for the work riding that ssh — see the
+four bounds below.
+
+`sshKeepalive(intervalS, countMax)` is the only way to make one — a validated
+value, not a record you can hand-assemble — so an out-of-range policy throws at
+the literal you wrote rather than at whichever ssh renders it first, and it is
+never clamped (ceiling `MAX_SSH_KEEPALIVE_TOLERANCE_S` = one hour). The policy
+reaches **every** ssh the dial spawns: the arch probe, the cache prefetch, the
+warm validity check, the GC-root pin, the closure ship, the `NIX_SSHOPTS` that
+the remote-store `nix build` forks its own ssh with, and the agent command
+itself. `dialAgentOnce` takes the same option and forwards it. (It also takes
+`liveness`, forwarded to `MakeSessionOptions.liveness` — a passthrough on its own
+merits, **not** this option's other half: see the four bounds below for why
+tuning the heartbeat buys a connected link nothing.)
+
+Building your own ssh command outside this package? Use
+`sshDialOpts(keepalive)` — the one exported opt set, and the same one the
+builders above emit: the dead-peer policy **and** this package's `ControlMaster`
+decision (our per-policy socket, or an explicit `ControlPath=none`, never
+silence — see the note below).
+
+<Aside type="caution" title="This bounds ssh transport death — it is not a survival budget">
+  `keepalive` answers exactly one question: **how long may ssh get no answer
+  before it declares the transport dead and exits?** Without it, an ssh parked on
+  a half-open socket waits for the OS TCP stack, effectively forever. With it,
+  that becomes an `intervalS × countMax` failure the reconnect loop can retry.
+
+  It is **not** "how long this lane survives an interruption". `keepalive` is the
+  loosest of four independent bounds on how long a link may be silent — a
+  `connected` link is actually gone in 5–10s (Effect RPC's own pinger), well
+  under even the default `keepalive`, and during `provisioning` the tolerance you
+  *request* is bounded by a separate per-step child-lifetime budget (a 30s
+  deadline for a quick probe, an escalating 120s→960s allowance for a required
+  build, a flat 600s for a speculative copy) that ssh keepalives never reset,
+  since they are protocol traffic and produce no child stdout.
+
+  The full breakdown — all four bounds, their exact figures, and why raising
+  `keepalive` alone buys back none of the tighter three — is written **once**, in
+  the `keepalive` option's doc comment on `SshConnectorOptions`
+  (`packages/surface-remote/src/sshConnector.ts`), with the figures pinned
+  against arithmetic, not just prose, by
+  `packages/surface-remote/src/keepaliveOrdering.test.ts`. Read that doc comment
+  before promising anyone a longer silence — it is the account to correct if this
+  page and it ever disagree.
+
+  `MAX_SSH_KEEPALIVE_TOLERANCE_S` (one hour) is therefore a ceiling on *how long
+  a dead ssh may go unnoticed*, not a promise that anything survives that long.
+</Aside>
+
+<Aside type="note" title="A ControlMaster's opener fixes ServerAlive* for its lifetime">
+  The commands one dial issues share a single ssh `ControlMaster` connection, and
+  OpenSSH applies `ServerAliveInterval`/`ServerAliveCountMax` from the process
+  that **opened** the master — every later ssh riding that socket inherits them
+  and silently ignores its own. So the control socket is **keyed by the
+  keepalive policy**: two policies to the same host get two masters rather than
+  one of them quietly getting the other's dead-peer behaviour. The visible
+  consequence is only that a CI-tuned dial and an interactive dial to the same
+  host each keep their own warm connection (`ControlPersist` is 10 minutes, and
+  cross-invocation). Within one dial every ssh carries the same policy by
+  construction — which is why the dial-internal ssh a resolver may need reaches
+  it already bound: `const sys = await ctx.resolveSystem()` runs the arch probe
+  on this dial's host, signal, progress sink and policy, so there is no options
+  bag to assemble and no way to open a second master by omitting one.
+</Aside>
 
 <Aside type="caution" title="The agent must greet before the client attaches">
   After the spawn, `sshConnector` awaits the agent's readiness banner

@@ -29,7 +29,10 @@
  *       binary,
  *       localEnv,  // the composed env a `localhost` dial spawns with (never ambient process.env)
  *       resolveDrvPath: async (ctx) => {
- *         const sys = await resolveSystem(host, ctx);
+ *         // The connector hands the resolver this probe PRE-BOUND to the dial's
+ *         // host, signal, progress sink and keepalive — never assemble those by
+ *         // hand (see `ResolveSystemOptions.keepalive` for what goes wrong).
+ *         const sys = await ctx.resolveSystem();
  *         return resolveDrvForSystem(sys);
  *       },
  *     }),
@@ -43,6 +46,7 @@ import {
   type SshRefusal,
   sshRefusalOf,
 } from "./host";
+import type { SshKeepalive } from "./keepalive";
 import { probePolicy } from "./nixCopy";
 import { describeExit, runCapture } from "./process";
 
@@ -58,6 +62,22 @@ const NIX_SYSTEM_RE = /^[a-z0-9_]+-[a-z0-9_]+$/;
 export interface ResolveSystemOptions {
   signal: AbortSignal;
   onProgress: (line: string) => void;
+  /** The owning dial's ssh dead-peer policy, defaulting to
+   *  `DEFAULT_SSH_KEEPALIVE`. It MUST match the rest of the dial: this probe is
+   *  usually the ssh that OPENS the host's shared `ControlMaster`, and the
+   *  master's opener fixes `ServerAlive*` for every command that later rides it.
+   *
+   *  **Optional here, and that optionality is a real hazard — call
+   *  `ctx.resolveSystem()`.** A resolver that hand-builds `{ signal, onProgress }`
+   *  omits this field, and the probe then opens the host's shared master under
+   *  the DEFAULT policy while every later command in the same dial asks for the
+   *  stated one: a second warm master, right argv, wrong behaviour. The known
+   *  live instance is drishti's `packages/app/src/server/archMap.ts` (harmless
+   *  there — it states no custom policy — but it proves the shape is reachable).
+   *  The field stays optional ONLY because this function is published and that
+   *  caller exists; `ResolveDrvPathContext.resolveSystem` is the seam that makes
+   *  the hazard unreachable from inside a dial without breaking it. */
+  keepalive?: SshKeepalive;
 }
 
 /** Ask `host`'s Nix for its `builtins.currentSystem`. Runs locally for
@@ -72,7 +92,7 @@ export async function resolveSystem(
   // executable a spawn fault is even ABOUT — see the failure classification below.
   const local = isLocalHost(host);
   const { command, args } = buildSshProbeCommand(
-    host,
+    { host, keepalive: opts.keepalive },
     "nix-instantiate",
     "--eval",
     "--expr",

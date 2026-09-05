@@ -27,6 +27,8 @@ import {
   isLocalHost,
   ResolveDrvError,
 } from "./host";
+import { DEFAULT_SSH_KEEPALIVE, type SshKeepalive } from "./keepalive";
+import { type ResolveSystemOptions, resolveSystem } from "./arch";
 import { resolveAgentDrv, type AgentResolutionContext } from "./agentDrv";
 import type { AgentDerivation } from "./agentDerivation";
 import { makeProvisionBudgets, provisionAgent } from "./nixCopy";
@@ -100,10 +102,41 @@ export type SshProv = "probing" | "provisioning";
  */
 const AGENT_READINESS_DEADLINE_MS = 180_000;
 
-/** The owning dial context a deferred derivation resolver may consume. */
-export interface ResolveDrvPathContext extends AgentResolutionContext {
+/** The owning dial context a deferred derivation resolver may consume.
+ *
+ *  Everything dial-specific a resolver needs is handed to it PRE-BOUND — the
+ *  `resolveAgentDrv` closure, and {@link ResolveDrvPathContext.resolveSystem} —
+ *  so the safe path is also the SHORTEST one and there is nothing left to
+ *  hand-assemble wrongly. The context also still EXTENDS
+ *  {@link ResolveSystemOptions}, so the older `resolveSystem(host, ctx)` idiom
+ *  keeps compiling for a resolver that has its own reason to name the host. */
+export interface ResolveDrvPathContext
+  extends AgentResolutionContext,
+    ResolveSystemOptions {
   signal: AbortSignal;
+  /** @deprecated Alias of `onProgress`, kept for existing resolvers — they
+   *  destructure this name. New code should read `onProgress`, which is what the
+   *  option types downstream of this context use. */
   localProgress: (line: string) => void;
+  /** Ask THIS host's Nix for its nix-system string, on this dial's signal,
+   *  progress sink and keepalive — `resolveSystem` with every dial-owned
+   *  argument already supplied.
+   *
+   *  It exists because the arch probe was the last dial-internal ssh a consumer
+   *  had to assemble arguments for, and assembling them wrongly is invisible:
+   *  omitting `keepalive` opens the host's shared `ControlMaster` under the
+   *  DEFAULT policy while every later command in the same dial asks for the
+   *  stated one — a second warm master, right argv, wrong behaviour (drishti's
+   *  `archMap.ts` is the live instance). `const sys = await ctx.resolveSystem()`
+   *  is shorter than any hand-built form, so the safe path wins by construction
+   *  rather than by documentation. */
+  resolveSystem: () => Promise<string>;
+  /** This dial's ssh dead-peer policy — REQUIRED here (it is optional on
+   *  {@link ResolveSystemOptions}, which has out-of-tree callers). Carried so a
+   *  resolver that forwards the whole context to some other seam threads the
+   *  connector's policy structurally, and cannot open the host's shared
+   *  `ControlMaster` under a different one. */
+  keepalive: SshKeepalive;
 }
 
 export interface SshConnectorOptions<S extends SurfaceSpec> {
@@ -146,6 +179,72 @@ export interface SshConnectorOptions<S extends SurfaceSpec> {
    *  a localhost dial can never fall back to ambient full-inherit — the seam #1880
    *  left and #1872 forbids. drishti and every kolu CLI plug in here. */
   localEnv: Record<string, string>;
+  /** How long ssh may get no answer from the peer before it declares the
+   *  transport dead and exits non-zero — see {@link SshKeepalive}. Defaults to
+   *  {@link DEFAULT_SSH_KEEPALIVE} (≈30s), the right answer for an interactive
+   *  tool: a host that stopped answering must stop looking connected.
+   *
+   *  **What this buys, exactly: it bounds how long a DEAD or HALF-OPEN ssh
+   *  transport takes to be NOTICED.** Without it, an ssh parked on a half-open
+   *  socket waits for the OS TCP stack — effectively forever — and the dial
+   *  wedges with no recovery. With it, that eternity becomes an
+   *  `intervalS × countMax` failure the reconnect loop can retry. Raising it
+   *  therefore buys tolerance of an unresponsive NETWORK and costs exactly the
+   *  same window on a genuinely dead host. Built with
+   *  `sshKeepalive(intervalS, countMax)`, the only producer, which throws on an
+   *  out-of-range policy at the literal the consumer wrote — never at the first
+   *  dial, and never clamped.
+   *
+   *  **What it does NOT buy — because it is only ONE of four independent bounds
+   *  on how long a link may be silent, and it is the LOOSEST of them:**
+   *
+   *   1. **Effect RPC's own pinger, on a connected link — 5–10s, NOT a knob.**
+   *      `RpcClient.makeProtocolSocket` pings every 5s and ends the socket the
+   *      moment a tick finds the previous ping unanswered. No option exposes that
+   *      cadence and no retry survives it. Canonical account: the docstring at
+   *      `@kolu/surface`'s `links/wire.ts` (`neverReconnect`), measured by
+   *      `links/stdioPingStall.test.ts`. This is the bound that actually ends a
+   *      connected link, and nothing here can move it.
+   *   2. **`makeSession`'s heartbeat — ≈25s at its defaults, tunable via
+   *      `MakeSessionOptions.liveness`.** At its defaults and at every RAISED
+   *      tuning it gets no vote on a connected link: the lower deadline always
+   *      wins. (`heartbeat.ts` sets no floor, so a sub-10s tuning does fire
+   *      first — that is tightening a link, not surviving a silence.) Tune it
+   *      for its own reasons, not as a way to ride out a blip.
+   *   3. **The provisioning child-lifetime budget, which GROUP-KILLS the
+   *      child.** ssh keepalives are protocol-level traffic and produce no child
+   *      stdout, so they reset none of it. It is not ONE number — it is per
+   *      step, and the steps differ:
+   *        - the quick probes (arch, warm `check-validity`) get a HARD
+   *          `PROVISION_PROBE_DEADLINE_MS` 30s deadline;
+   *        - the required build and GC-root steps start at
+   *          `PROVISION_STEP_SILENCE_BASE_MS` 120s of child silence and
+   *          ESCALATE — `makeStepBudget` grants `base × 2^expiries`, so a step
+   *          already killed once gets 240s, then 480s, with 960s the last
+   *          budgeted silence before it turns terminal
+   *          (`PROVISION_STEP_MAX_EXPIRIES` = 4);
+   *        - the SPECULATIVE closure copies (cache prefetch, closure ship) run
+   *          under a fixed `PROVISION_COPY_SILENCE_MS` 600s that never escalates
+   *          — they charge no expiry, so they must not inherit the build's
+   *          doubled allowance.
+   *   4. **This option** — the ssh transport's own death, the backstop
+   *      underneath all three.
+   *
+   *  So: do not read a raised policy as "this lane now survives a five-minute
+   *  interruption". It does not. A connected link is gone in 5–10s, and during
+   *  provisioning the tolerance you REQUEST is bounded by whatever (3) grants
+   *  the step the dial is in — inert past 30s for a probe, past the current
+   *  120–960s grant for a required build, past 600s for a speculative copy.
+   *  What a raised policy prevents is the opposite failure — a 30s dead-peer
+   *  verdict tearing down a dial whose peer was merely slow to answer a probe —
+   *  and an unbounded park on a transport that is genuinely gone.
+   *
+   *  Threaded into EVERY ssh the dial spawns (arch probe, cache prefetch, warm
+   *  validity check, GC-root pin, closure ship, Nix's own remote-store ssh, and
+   *  the agent command), and the shared `ControlMaster` socket is keyed by it, so
+   *  a second policy to the same host opens its own master rather than silently
+   *  inheriting this one's `ServerAlive*`. */
+  keepalive?: SshKeepalive;
 }
 
 /** Build an ssh {@link Connector} for `(host, binary)`. Each `connectOnce` call
@@ -160,6 +259,12 @@ export function sshConnector<S extends SurfaceSpec>(
   // campaign reset is `budgets.onCampaign(ctx.campaignEpoch)` at the top of each dial
   // (below) — provisionAgent is campaign-ignorant; the connector is the only caller.
   const budgets = makeProvisionBudgets();
+  // Resolved once, at construction: ONE value for the whole connector, so every
+  // ssh a dial spawns provably carries the same policy (they share a
+  // ControlMaster keyed by it — see `controlMaster.ts`). No validation here —
+  // an `SshKeepalive` can only have come from `sshKeepalive()`, which threw at
+  // the literal the consumer wrote.
+  const keepalive = opts.keepalive ?? DEFAULT_SSH_KEEPALIVE;
 
   return async (ctx): Promise<Connection<AgentClient>> => {
     // Reconcile the per-campaign budget reset HERE — the session↔nixCopy bridge, where the
@@ -177,12 +282,26 @@ export function sshConnector<S extends SurfaceSpec>(
       derivation = await opts.resolveDrvPath({
         signal: ctx.signal,
         localProgress: ctx.localProgress,
+        // The same sink under the name `ResolveSystemOptions` uses, so
+        // `resolveSystem(host, ctx)` compiles (see `ResolveDrvPathContext`).
+        onProgress: ctx.localProgress,
+        keepalive,
+        // Bound HERE, beside `resolveAgentDrv`, for the same reason: every
+        // dial-owned argument of a dial-internal ssh is supplied by the dial,
+        // so no resolver has an opportunity to supply a different one.
+        resolveSystem: () =>
+          resolveSystem(opts.host, {
+            signal: ctx.signal,
+            onProgress: ctx.localProgress,
+            keepalive,
+          }),
         resolveAgentDrv: (flakeRef, packageName) =>
           resolveAgentDrv(opts.host, flakeRef, packageName, {
             signal: ctx.signal,
             onProgress: ctx.localProgress,
             onEvaluation: () => ctx.provisioning("provisioning"),
             budget: budgets.evaluation,
+            keepalive,
           }),
       });
     } catch (err) {
@@ -204,6 +323,7 @@ export function sshConnector<S extends SurfaceSpec>(
       // a cold build or a warm target's root repair.
       onProvisioning: () => ctx.provisioning("provisioning"),
       budgets,
+      keepalive,
       // The per-dial abort — recheck's abort-in-flight group-kills any provisioning
       // child so the session can redial NOW instead of waiting out a wedge (#1908 R6b).
       signal: ctx.signal,
@@ -229,6 +349,7 @@ export function sshConnector<S extends SurfaceSpec>(
       binary: opts.binary,
       extraArgs: opts.extraArgs,
       localEnv: opts.localEnv,
+      keepalive,
     });
     const transport = spawnOwnedProcessGroup(command, args, {
       stdio: ["pipe", "pipe", "pipe"],

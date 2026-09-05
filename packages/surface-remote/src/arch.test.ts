@@ -4,12 +4,9 @@
  * cancellation must never leak across a recheck.
  * Mocks `./process` so no ssh is ever spawned.
  */
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { resolveSystem } from "./arch";
-import { __resetControlMemo } from "./controlMaster";
+import { useControlDir } from "./controlDir.testutil";
 import { ResolveDrvError } from "./host";
 import { type CaptureResult, runCapture } from "./process";
 
@@ -20,23 +17,12 @@ vi.mock("./process", async (importOriginal) => ({
   runCapture: vi.fn(),
 }));
 
-const tmpDirs: string[] = [];
-beforeEach(() => {
-  // The argv builder appends ControlMaster opts (which mkdir a control dir);
-  // point it at a throwaway private runtime dir per test so the suite never
-  // touches the real one and leaves no residue. The mocked runCapture means
-  // no ssh runs regardless.
-  const xdg = mkdtempSync(join(tmpdir(), "kolu-ssh-arch-test-"));
-  tmpDirs.push(xdg);
-  vi.stubEnv("XDG_RUNTIME_DIR", xdg);
-  __resetControlMemo();
-});
+// The argv builder appends ControlMaster opts (which mkdir a control dir); the
+// shared fixture points it at a throwaway private runtime dir per test. The
+// mocked `runCapture` means no ssh runs regardless.
+useControlDir("kolu-ssh-arch-");
 afterEach(() => {
   vi.clearAllMocks();
-  vi.unstubAllEnvs();
-  __resetControlMemo();
-  for (const d of tmpDirs.splice(0))
-    rmSync(d, { recursive: true, force: true });
 });
 
 const okSystem = (sys: string) =>

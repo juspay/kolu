@@ -60,6 +60,8 @@ import { defineSurface } from "@kolu/surface/define";
 import { Effect, Schema } from "effect";
 import { dialAgentOnce } from "./dialAgentOnce";
 import { SURFACE_AGENT_FLAKE_REF_ENV } from "./agentDrv";
+import { CI_KEEPALIVE } from "./controlDir.testutil";
+import { DEFAULT_SSH_KEEPALIVE } from "./keepalive";
 
 /** The surface every dial below names. `dialAgentOnce` now takes the surface as a
  *  VALUE (the wire link is built from its `RpcGroup`), so a dial cannot be spelled
@@ -114,6 +116,8 @@ const FLAKE_REF = "/nix/store/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-source";
 const resolverContext = {
   signal: new AbortController().signal,
   localProgress: vi.fn(),
+  onProgress: vi.fn(),
+  keepalive: DEFAULT_SSH_KEEPALIVE,
   resolveAgentDrv: h.resolveAgentDrv,
 };
 
@@ -222,6 +226,48 @@ describe("dialAgentOnce: deferred drv resolution", () => {
     expect(sshOpts()).toMatchObject({
       extraArgs: ["--kaval", "/run/user/1000/kaval-7692/pty-host.sock"],
     });
+  });
+
+  it("forwards BOTH halves of link silence — keepalive AND liveness", async () => {
+    // The two are a coupled pair, and this facade is the one seam that owns
+    // both: `keepalive` governs the DIALLING phases while the session's own
+    // watchdog governs a CONNECTED link and force-cycles it at ≈25s by default
+    // (`keepaliveOrdering.test.ts`). Forwarding only `keepalive` would make a
+    // raised CI policy provably inert here — on exactly the path every `--host`
+    // CLI and unattended runner takes — with the documented remedy unreachable
+    // without abandoning `dialAgentOnce` altogether.
+    const keepalive = CI_KEEPALIVE;
+    const liveness = { intervalMs: 240_000, timeoutMs: 60_000 };
+    fakeSession({});
+    await dialAgentOnce({
+      host: "nix@prod",
+      surface: dialSurface,
+      package: "agent",
+      binary: "agent",
+      fatalPrefix: "agent:",
+      localEnv: {},
+      probe: () => Effect.succeed(undefined),
+      keepalive,
+      liveness,
+    });
+    expect(sshOpts()).toMatchObject({ keepalive });
+    expect(h.sessions[0]?.opts).toMatchObject({ liveness });
+  });
+
+  it("leaves liveness undefined when none given — the ≈25s default stands", async () => {
+    fakeSession({});
+    await dialAgentOnce({
+      host: "nix@prod",
+      surface: dialSurface,
+      package: "agent",
+      binary: "agent",
+      fatalPrefix: "agent:",
+      localEnv: {},
+      probe: () => Effect.succeed(undefined),
+    });
+    expect(
+      (h.sessions[0]?.opts as { liveness?: unknown }).liveness,
+    ).toBeUndefined();
   });
 
   it("leaves extraArgs undefined when none given (discover-by-default)", async () => {

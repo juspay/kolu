@@ -38,10 +38,25 @@ import { LOOPBACK_ADDRESS, type LoopbackFamily } from "./target.ts";
 
 /** The options every forward connection is opened with.
  *
- *  `BatchMode=yes` and the `ServerAlive` pair are kolu's own ssh policy
- *  (`SSH_OPT_PAIRS` in `@kolu/surface-remote`): no host may stop to prompt
- *  under a TUI, and a dead peer must be noticed. The two that carry this
- *  module's design are:
+ *  `BatchMode=yes` and the `ServerAlive` pair spell the same intent as
+ *  `@kolu/surface-remote`'s interactive default (`DEFAULT_SSH_KEEPALIVE`, 10×3):
+ *  no host may stop to prompt under a TUI, and a dead peer must be noticed.
+ *
+ *  They are a DELIBERATELY INDEPENDENT policy, not a stale copy — worth saying
+ *  now that surface-remote's is per-dial and can be raised. A forward does NOT
+ *  track the tolerance its host's mirror dial chose, and should not: a dial is
+ *  protecting minutes of provisioning work that a redial would destroy, whereas a
+ *  forward is cheap to re-establish and a listener left pointing at a dead peer
+ *  is worse than one that drops promptly. So a consumer who raises a dial to a
+ *  five-minute tolerance still gets forwards that fail fast at ~30s, on purpose.
+ *  (`@kolu/port-forward` is also deliberately dependency-free, so importing the
+ *  renderer is not on the table; if these ever must track a dial, the shared
+ *  `{intervalS, countMax}` graduates into a zero-dep receptacle both can read —
+ *  the graduation candidate is recorded in `.agency/lowy.md`'s Areas of
+ *  Volatility table under "ssh dead-peer / link-silence policy", so a future
+ *  sweep finds it in the ledger rather than only in this comment.)
+ *
+ *  The two opts that carry this module's own design are:
  *
  *  - `ControlPath=none` — never ride or create a shared master. This
  *    connection is the forward's lifetime; a master would hand that lifetime

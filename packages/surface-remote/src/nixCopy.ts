@@ -81,7 +81,9 @@ import {
   isLocalHost,
   looksLikeNetworkError,
   nixSshOpts,
+  type SshDestination,
 } from "./host";
+import type { SshKeepalive } from "./keepalive";
 import {
   describeExit,
   type ExitResult,
@@ -239,6 +241,21 @@ export interface ProvisionOptions {
    *  in-flight provisioning child and settles the run as `"aborted"` — a retryable,
    *  budget-EXEMPT fault. Threaded into every child. */
   signal?: AbortSignal;
+  /** The owning dial's ssh dead-peer policy, threaded into EVERY ssh this
+   *  provisioning causes: the warm validity check, the GC-root pin, the closure
+   *  ship, and — via `NIX_SSHOPTS` — the ssh that the remote-store `nix
+   *  build`/`nix copy` fork internally, which is otherwise entirely out of reach
+   *  of our argv. A provisioning step is where a long CI lane is most exposed to
+   *  a network blip: a cold build can sit idle for minutes while the far end
+   *  compiles.
+   *
+   *  REQUIRED, with no default. Every ssh of one dial must carry the SAME policy
+   *  — they share a `ControlMaster` keyed by it — so a forgotten thread is a
+   *  compile error rather than a second warm master opened at the default while
+   *  the dial asked for something else. The only caller in this repo is
+   *  `sshConnector`, which resolves the default once at its own public edge;
+   *  state `DEFAULT_SSH_KEEPALIVE` explicitly if you call this directly. */
+  keepalive: SshKeepalive;
 }
 
 export type ProvisionResult =
@@ -350,6 +367,7 @@ function expiredResult(
  * re-establishes the target and its root together or fails the dial. */
 async function pinGcRoot(
   host: string,
+  keepalive: SshKeepalive,
   target: string,
   rootPath: string,
   onProgress: (line: string) => void,
@@ -359,7 +377,7 @@ async function pinGcRoot(
   onProgress(`${host}: pinning GC root at '${rootPath}'…`);
   let sawNetworkError = false;
   const pin = buildSshProbeCommand(
-    host,
+    { host, keepalive },
     "nix-store",
     "--realise",
     target,
@@ -450,11 +468,22 @@ function abortedDuring(host: string, step: string): ProvisionResult {
 async function prefetchAgentClosure(opts: {
   outPath: string;
   binaryCache: AgentBinaryCache;
+  /** The dial's dead-peer policy, for the ssh Nix MAY fork here. A declared
+   *  substituter is usually `https://`, which needs none of this — but
+   *  `agentBinaryCache` validates substituters only as non-blank strings and
+   *  deliberately restricts no scheme, so `ssh://` / `ssh-ng://` is a spellable
+   *  declared cache. Without `NIX_SSHOPTS` that fork gets NO dead-peer detection
+   *  at all: the exact eternal hang `nixSshOpts` exists to bound, in the one
+   *  provisioning step that had been left out of the policy. */
+  keepalive: SshKeepalive;
   narrate: (line: string) => void;
   policy: LifetimePolicy;
   signal: AbortSignal | undefined;
 }): Promise<CopyOutcome> {
   const keys = opts.binaryCache.trustedPublicKeys.join(" ");
+  // Rendered ONCE, beside `keys`: the policy does not vary per substituter, and
+  // rendering it inside the loop would re-run the control-dir ensure per URL.
+  const sshOpts = nixSshOpts(opts.keepalive);
   for (const url of opts.binaryCache.substituters) {
     opts.narrate(`prefetching agent closure from ${url} into the local store…`);
     const res = await runCapture(
@@ -477,6 +506,7 @@ async function prefetchAgentClosure(opts: {
       {
         onProgress: opts.narrate,
         policy: opts.policy,
+        env: { NIX_SSHOPTS: sshOpts },
         signal: opts.signal,
       },
     );
@@ -514,6 +544,7 @@ async function prefetchAgentClosure(opts: {
  *  the caller runs this step only once local validity is established. */
 async function shipAgentClosure(opts: {
   host: string;
+  keepalive: SshKeepalive;
   outPath: string;
   narrate: (line: string) => void;
   policy: LifetimePolicy;
@@ -528,7 +559,7 @@ async function shipAgentClosure(opts: {
     {
       onProgress: opts.narrate,
       policy: opts.policy,
-      env: { NIX_SSHOPTS: nixSshOpts() },
+      env: { NIX_SSHOPTS: nixSshOpts(opts.keepalive) },
       signal: opts.signal,
     },
   );
@@ -555,9 +586,15 @@ async function shipAgentClosure(opts: {
  *
  *  `onProgress` is optional because the two seats differ in what the caller
  *  wants from the output: the remote warm check scans its stderr for transport
- *  evidence, while the local probe has nothing to say. */
+ *  evidence, while the local probe has nothing to say.
+ *
+ *  `target` is a bare host string or an `SshDestination` naming the dial's
+ *  policy — the same argument `buildSshProbeCommand` takes, forwarded whole. The
+ *  local seat has no policy to state and passes `"localhost"`; the remote seat
+ *  passes the dial's, where omitting it would open the warm check's master under
+ *  the default one. */
 async function checkValidity(
-  host: string,
+  target: string | SshDestination,
   outPath: string,
   opts: {
     signal: AbortSignal | undefined;
@@ -565,7 +602,7 @@ async function checkValidity(
   },
 ): Promise<"valid" | "absent" | "aborted"> {
   const probe = buildSshProbeCommand(
-    host,
+    target,
     "nix-store",
     "--check-validity",
     outPath,
@@ -598,6 +635,7 @@ async function checkValidity(
  *  the required build's escalated one. */
 async function stageAgentClosure(opts: {
   host: string;
+  keepalive: SshKeepalive;
   isLocal: boolean;
   outPath: string;
   binaryCache: AgentBinaryCache;
@@ -621,6 +659,7 @@ async function stageAgentClosure(opts: {
     const prefetch = await prefetchAgentClosure({
       outPath: opts.outPath,
       binaryCache: opts.binaryCache,
+      keepalive: opts.keepalive,
       narrate: opts.narrate,
       policy: copyPolicy(),
       signal: opts.signal,
@@ -644,6 +683,7 @@ async function stageAgentClosure(opts: {
   }
   const ship = await shipAgentClosure({
     host: opts.host,
+    keepalive: opts.keepalive,
     outPath: opts.outPath,
     narrate: opts.narrate,
     policy: copyPolicy(),
@@ -666,7 +706,13 @@ export async function provisionAgent(
   opts: ProvisionOptions,
 ): Promise<ProvisionResult> {
   const isLocal = isLocalHost(opts.host);
-  const { signal, budgets } = opts;
+  // ONE policy for the whole provisioning: every ssh below — and the ssh Nix
+  // forks for the remote store — carries the SAME one, because they share a
+  // `ControlMaster` keyed by it (see `controlMaster.ts`). Required on the
+  // options, so that is a type fact rather than a defaulting site that has to
+  // agree with eight others; and validity is a fact the value carries
+  // (`sshKeepalive` is its only producer), so nothing is re-checked here.
+  const { signal, budgets, keepalive } = opts;
   const { drvPath } = opts.derivation;
   // Already aborted before we start ⇒ do NO work: a user abort is a budget-EXEMPT,
   // retryable `"network"` fault (C3/F6). (The connector already reconciled the campaign
@@ -759,7 +805,7 @@ export async function provisionAgent(
       // store query — it NEVER substitutes (verified: `--check-validity` on an absent path
       // returns non-zero instantly, no fetch).
       if (
-        (await checkValidity(opts.host, localAgentPath, {
+        (await checkValidity({ host: opts.host, keepalive }, localAgentPath, {
           signal,
           onProgress: onProbeProgress,
         })) === "valid"
@@ -769,6 +815,7 @@ export async function provisionAgent(
         opts.onProvisioning?.();
         const bail = await pinGcRoot(
           opts.host,
+          keepalive,
           localAgentPath,
           rootPath,
           opts.onProgress,
@@ -798,6 +845,7 @@ export async function provisionAgent(
   if (localAgentPath !== undefined) {
     const staged = await stageAgentClosure({
       host: opts.host,
+      keepalive,
       isLocal,
       outPath: localAgentPath,
       binaryCache: opts.derivation.binaryCache,
@@ -817,6 +865,7 @@ export async function provisionAgent(
   if (onTarget && localAgentPath !== undefined) {
     const bail = await pinGcRoot(
       opts.host,
+      keepalive,
       localAgentPath,
       rootPath,
       opts.onProgress,
@@ -861,7 +910,7 @@ export async function provisionAgent(
   const realiseRes = await runCapture("nix", provisionArgs, {
     onProgress,
     policy: budgets.provisioning.policy(),
-    env: isLocal ? undefined : { NIX_SSHOPTS: nixSshOpts() },
+    env: isLocal ? undefined : { NIX_SSHOPTS: nixSshOpts(keepalive) },
     signal,
   });
   if (realiseRes.kind === "lifetime-expired") {
@@ -903,6 +952,7 @@ export async function provisionAgent(
   {
     const bail = await pinGcRoot(
       opts.host,
+      keepalive,
       agentPath,
       rootPath,
       opts.onProgress,
