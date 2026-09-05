@@ -77,7 +77,8 @@ describe("a spread-forged keepalive is rejected where it is rendered", () => {
 
   it("rejects at EVERY render shape, because they share the one choke point", () => {
     // sshCommonOpts / sshDialOpts / nixSshOpts are three renderings of one
-    // `keepaliveOpts` call. The check is on that function, not on each of them.
+    // CAPTURE. The check lives on `renderableKeepalive`, the boundary each of
+    // them goes through — not on any of the three.
     const forged = forge({ intervalS: 0 });
     const renders: readonly ((k: SshKeepalive) => unknown)[] = [
       sshCommonOpts,

@@ -415,10 +415,8 @@ describe("ssh keepalive policy", () => {
 describe("sshDialOpts — the COMPLETE outward-facing opt set", () => {
   it("is what the builders emit: keepalive AND the ControlMaster decision", () => {
     // The seam this package hands an out-of-package consumer must render the
-    // SAME set the package spawns with. `sshCommonOpts` alone names no
-    // ControlPath, and silence is not "no multiplexing" — ssh falls through to
-    // the user's ~/.ssh/config, where a master keyed by host+user+port (not by
-    // policy) silently replaces the very ServerAlive* that call rendered.
+    // SAME set the package spawns with — a set that names no ControlPath is not
+    // "no multiplexing" (see NO_MULTIPLEXING in controlMaster.ts).
     const dial = [...sshDialOpts(CI_KEEPALIVE)];
     assertKeepAlive(dial, CI_KEEPALIVE);
     assertMultiplex(dial, CI_KEEPALIVE);
@@ -544,9 +542,8 @@ describe("ssh multiplexing (ControlMaster)", () => {
     for (const opts of [probe, dial, env]) {
       // One memoized source degrades every renderer at once: keepalive
       // survives, and multiplexing is REFUSED everywhere — explicitly, as
-      // ControlPath=none rather than by emitting nothing. Emitting nothing
-      // would let the user's own ~/.ssh/config supply a master keyed by
-      // host+user+port, which two policies would then share.
+      // ControlPath=none rather than by emitting nothing (NO_MULTIPLEXING in
+      // controlMaster.ts argues why silence would be worse than either).
       expect(opts.BatchMode).toBe("yes");
       expect(opts.ControlMaster).toBe("no");
       expect(opts.ControlPath).toBe("none");

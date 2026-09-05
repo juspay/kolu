@@ -37,17 +37,11 @@ const keepalivePlanBrand = Symbol("KeepalivePlan");
  *  wants the opposite for the same wire — an unattended dial should not have its
  *  ssh torn down because a peer took 40s to answer a probe.
  *
- *  Read what this is NARROWLY. It bounds how long a DEAD or HALF-OPEN ssh
- *  transport takes to be noticed and exited; it is NOT "how long a lane survives
- *  an interruption", and it is only one of four independent bounds on link
- *  silence — the other three (Effect RPC's 5–10s pinger, which is not a knob and
- *  which ends every connected link first; the heartbeat watchdog, which at its
- *  defaults and at every RAISED tuning gets no vote against that pinger; and the
- *  provisioning child-lifetime budget that group-kills a silent child, which is
- *  a different number per step — 30s for a quick probe, 120s escalating to 960s
- *  for the required build, a fixed 600s for the speculative copies) are
- *  enumerated at `SshConnectorOptions.keepalive`. Raising this one does not move
- *  any of them.
+ *  Read what this is NARROWLY: it bounds how long a DEAD or HALF-OPEN ssh
+ *  TRANSPORT takes to be noticed and exited — not how long a lane survives an
+ *  interruption. It is the loosest of four independent bounds on link silence
+ *  and moves none of the others; they are enumerated once, at
+ *  `SshConnectorOptions.keepalive`, and pinned by `keepaliveOrdering.test.ts`.
  *
  *  NOMINAL, like the `AgentDerivation`/`AgentBinaryCache` values it travels
  *  beside: the private symbol means only {@link sshKeepalive} can produce one,
@@ -105,17 +99,13 @@ export interface SshKeepalive {
  *  clamped to a value the caller did not ask for and would never learn about.
  *
  *  NOT the sibling of `@kolu/surface`'s `MAX_HEARTBEAT_*`, and deliberately
- *  8.6× larger: the two bound DIFFERENT questions, and neither is "how long a
- *  link may be silent" (that is settled far lower, by Effect RPC's 5–10s pinger
- *  — `links/wire.ts`). The heartbeat's reachable ceiling is
- *  `MAX_HEARTBEAT_INTERVAL_MS` (300s) + `MAX_HEARTBEAT_TIMEOUT_MS` (120s) = 420s
- *  and it watches a CONNECTED link only (`isLive()` requires
- *  `phase === "connected"`) — where, per that pinger, no tuning at or above its
- *  defaults ever gets to decide anything. This one bounds the TRANSPORT's own
- *  death, in every phase. So a
- *  tolerance between 420s and 3600s is legitimate: it is the ceiling on how long
- *  a dead ssh may go unnoticed, not a promise that anything survives that long.
- *  `keepaliveOrdering.test.ts` pins the real ordering. */
+ *  larger: the heartbeat watches a CONNECTED link only (`isLive()` requires
+ *  `phase === "connected"`), where it gets no vote anyway, while this bounds the
+ *  TRANSPORT's own death in every phase. So a tolerance above the heartbeat's
+ *  reachable ceiling is legitimate — it is the ceiling on how long a dead ssh may
+ *  go UNNOTICED, not a promise that anything survives that long.
+ *  `keepaliveOrdering.test.ts` pins the real ordering, from the constants
+ *  themselves. */
 export const MAX_SSH_KEEPALIVE_TOLERANCE_S = 3_600;
 
 /** The wall-clock silence a policy tolerates — `intervalS × countMax` seconds.

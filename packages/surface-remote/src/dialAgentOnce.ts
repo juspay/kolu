@@ -119,37 +119,21 @@ export interface DialAgentOnceOptions<S extends SurfaceSpec> {
    *  no recourse short of dropping a layer and composing `makeSession` by hand.
    *
    *  **It bounds ssh TRANSPORT death — not "how long a lane survives an
-   *  interruption".** Raising it does not let a connected link ride out a blip:
-   *  Effect RPC's own pinger ends a connected socket after 5–10s of silence and
-   *  is not a knob (`@kolu/surface`'s `links/wire.ts` is the canonical account).
-   *  Nor does it stretch a provisioning step: the tolerance it REQUESTS is
-   *  bounded by the child-lifetime budget of whichever step the dial is in, and
-   *  those differ — a hard 30s deadline for the quick probes,
-   *  `PROVISION_STEP_SILENCE_BASE_MS` 120s of child silence for the required
-   *  build (escalating to 240s, 480s, and a last budgeted 960s), and a fixed
-   *  `PROVISION_COPY_SILENCE_MS` 600s for the speculative closure copies. ssh
-   *  keepalives produce no child output, so they reset none of them.
-   *  `keepaliveOrdering.test.ts` pins the whole ordering. See
-   *  `SshConnectorOptions.keepalive` for the four bounds and which of them are
-   *  tunable at all. */
+   *  interruption".** It is the loosest of four independent bounds on link
+   *  silence and moves none of the others; they are enumerated once, at
+   *  `SshConnectorOptions.keepalive`. */
   keepalive?: SshKeepalive;
   /** The heartbeat watchdog for the session this facade makes — forwarded
    *  verbatim to `MakeSessionOptions.liveness`. Omit for the ≈25s default;
    *  `false` disables the watchdog entirely.
    *
    *  NOT a way to make a connected link survive a longer silence, and it is not
-   *  {@link keepalive}'s other half: on a connected link Effect RPC's pinger
-   *  fails first (5–10s), so at the defaults and at every RAISED tuning the
-   *  heartbeat "never gets a vote, because the lower deadline always wins"
-   *  (`links/wire.ts`). Tuned the other way it does decide — `heartbeat.ts` sets
-   *  no floor, so a sub-10s tuning fires first — but that tightens a link rather
-   *  than letting one ride out a silence. What it is good
-   *  for is its own merits — cheapening or quietening the `system.live`
-   *  round-trip, or turning the watchdog off for a consumer that owns liveness
-   *  itself. It is exposed here because the alternative is abandoning
-   *  `dialAgentOnce` and re-deriving `initialConnection: "probing"` and the
-   *  `host:<host>` label by hand. Its own ceilings (`MAX_HEARTBEAT_INTERVAL_MS`
-   *  300s + `MAX_HEARTBEAT_TIMEOUT_MS` 120s) bound what is reachable here. */
+   *  {@link keepalive}'s other half — see the four bounds at
+   *  `SshConnectorOptions.keepalive`. What it IS good for is its own merits:
+   *  cheapening or quietening the `system.live` round-trip, or turning the
+   *  watchdog off for a consumer that owns liveness itself. It is exposed here
+   *  because the alternative is abandoning `dialAgentOnce` and re-deriving
+   *  `initialConnection: "probing"` and the `host:<host>` label by hand. */
   liveness?: MakeSessionOptions<AgentClient, SshProv>["liveness"];
   /** Structured diagnostic logger, forwarded to `MakeSessionOptions.log`. Omit
    *  and the session writes its provisioning progress / connection transitions /
@@ -197,10 +181,7 @@ export async function dialAgentOnce<S extends SurfaceSpec>(
     // before an uncached source evaluation or cold target build/root transaction.
     initialConnection: "probing",
     // The heartbeat watchdog, passed through on its own merits — NOT as the
-    // other half of `keepalive`. On a connected link Effect RPC's pinger fails
-    // at 5–10s and the heartbeat never gets a vote (`links/wire.ts`); a
-    // consumer tunes this to quieten or disable the `system.live` round-trip,
-    // not to survive a longer silence.
+    // other half of `keepalive`; see `DialAgentOnceOptions.liveness`.
     liveness: opts.liveness,
     log: opts.log,
     // Preserve the pre-S9 `[host:<host> …]` diagnostic prefix byte-for-byte (the tag

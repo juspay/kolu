@@ -29,18 +29,10 @@ so an invalid policy throws at the literal you wrote rather than at some later
 dial — and never gets clamped to one you did not ask for.
 
 Read it narrowly: it bounds how long a **dead or half-open ssh transport** takes
-to be noticed and exited, turning an unbounded park on a half-open socket into a
-failure the reconnect loop can retry. It does **not** let a connected link ride
-out a blip — Effect RPC's own pinger ends a connected socket after 5–10s of
-silence and is not tunable (see `links/wire.ts` in `@kolu/surface`). During
-provisioning, the tolerance you request is bounded by the child-lifetime budget
-of **the step the dial is in**, and those differ: a hard 30s deadline for the
-quick probes, `PROVISION_STEP_SILENCE_BASE_MS` 120s of child silence for the
-required build — *escalating* to 240s, 480s and a last budgeted 960s as
-`makeStepBudget` doubles it per expiry — and a fixed `PROVISION_COPY_SILENCE_MS`
-600s for the speculative closure copies. ssh keepalives are protocol traffic and
-reset none of them. The reference page lists all four bounds and which of them
-are knobs at all.
+to be noticed and exited — *not* how long a lane survives an interruption. It is
+the loosest of four independent bounds on link silence and moves none of the
+others. The [reference page](https://kolu.dev/surface/ref-surface-remote) lists
+all four, with their values, and which of them are knobs at all.
 
 Worked end-to-end in [`packages/surface/example/remote-process-monitor`](../surface/example/remote-process-monitor).
 Part of the kolu monorepo — `"@kolu/surface-remote": "workspace:*"`.

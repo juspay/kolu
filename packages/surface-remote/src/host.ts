@@ -184,35 +184,24 @@ export function forEachLine(
  *  Crucially this does NOT cap a healthy-but-slow build: ssh keepalives
  *  ride the protocol layer independently of channel data, so a
  *  responsive sshd answers them no matter how long the build's stdout
- *  stays quiet. Only an actually-unresponsive peer trips the limit. Raising the
- *  policy therefore buys tolerance of an unresponsive *network*, and costs only
- *  how long a genuinely dead host keeps a dial parked.
+ *  stays quiet. Only an actually-unresponsive peer trips the limit. It also
+ *  cannot close the #1908 blind spot — a healthy transport with one dead exec
+ *  CHANNEL, which the child lifetime policies in `process.ts` own. What this
+ *  policy does and does not buy is argued once, at
+ *  `SshConnectorOptions.keepalive`.
  *
- *  The blind spot this keepalive CANNOT close (#1908): a healthy transport
- *  with a single dead exec CHANNEL. The sshd answered keepalives fine while
- *  one channel's remote side was gone, so the local child parked in `poll()`
- *  forever with no keepalive to trip. That is why keepalive is necessary but
- *  NOT sufficient — the child lifetime policies in `process.ts` (a hard
- *  deadline or progress-liveness kill of the exact child) are what actually
- *  bound this case.
- *
- *  Declared once as `(key, value)` pairs — the single source of truth —
- *  then rendered into the two shapes its consumers need: an ssh `-o`
- *  argv ({@link sshCommonOpts}) for the ssh commands we spawn directly, and
- *  a whitespace-joined `NIX_SSHOPTS` string ({@link nixSshOpts}) for the
- *  remote-store ssh fork out of reach of our argv. Values MUST stay
- *  whitespace-free: the argv renderer emits one option per pair and nix
- *  word-splits `NIX_SSHOPTS`, so a value with a space would silently corrupt the
- *  env form while the argv form stayed correct. (`sshKeepalive`'s integers-only
- *  rule is what keeps the two rendered numbers whitespace-free.)
+ *  Declared once as `(key, value)` pairs — the single source of truth — then
+ *  rendered into the two shapes its consumers need (see {@link dialOptPairs}).
+ *  Values MUST stay plain literal text: the argv renderer emits one option per
+ *  pair and Nix SHELL-splits `NIX_SSHOPTS`, so a value carrying a space or a
+ *  quote would silently corrupt the env form while the argv form stayed correct.
+ *  (`sshKeepalive`'s integers-only rule is what keeps the two rendered numbers
+ *  safe; `controlMaster.ts`'s allowlist is what keeps the `ControlPath` safe.)
  *
  *  A FUNCTION of the policy rather than a const, so the policy is a value a dial
- *  carries rather than a module-global no consumer can state.
- *
- *  Takes the CAPTURED {@link KeepalivePlan}, not a caller's `SshKeepalive`: the
- *  three public renderers below each capture once, at their own top, and hand
- *  the same snapshot here AND to `controlOptPairs`. Nothing below that capture
- *  ever touches the caller's object again — see {@link renderableKeepalive}. */
+ *  carries rather than a module-global no consumer can state. It takes the
+ *  CAPTURED {@link KeepalivePlan}, never a caller's `SshKeepalive` — see
+ *  {@link renderableKeepalive} for why that distinction is load-bearing. */
 function sshOptPairs(
   plan: KeepalivePlan,
 ): readonly (readonly [string, string])[] {
@@ -245,19 +234,9 @@ const SSH_FIXED_OPTS: readonly (readonly [string, string])[] = [
   ["ConnectTimeout", "10"],
 ];
 
-/** The dial's TUNABLE dead-peer policy, rendered. Every `ServerAlive*` this
- *  package emits is emitted HERE — but from the already-captured
- *  {@link KeepalivePlan}, which is why there is no assertion at this line.
- *
- *  There USED to be one, and an assertion here was not enough. `SshKeepalive`'s
- *  brand is a compile-time fact, not a runtime one, and a spread can install an
- *  accessor of the declared `readonly number` type — so validating the caller's
- *  object here and then reading `keepalive.intervalS` on the next line is
- *  time-of-check/time-of-use: the getter answers 10 to the check and 0 to the
- *  render, and `controlOptPairs` reads it a third time for the socket name. The
- *  check therefore moved UP, to `renderableKeepalive`, which reads each field
- *  once and returns the numbers; this function and the socket tag now render
- *  from that one snapshot and cannot disagree. */
+/** The dial's TUNABLE dead-peer policy, rendered from the already-captured
+ *  {@link KeepalivePlan}. Validation happens once, at
+ *  {@link renderableKeepalive} — never here. */
 const keepaliveOpts = (
   plan: KeepalivePlan,
 ): readonly (readonly [string, string])[] => [
@@ -303,7 +282,7 @@ const toArgv = (pairs: readonly (readonly [string, string])[]): string[] =>
   pairs.flatMap(([key, value]) => ["-o", `${key}=${value}`]);
 
 /** Render `(key, value)` opt pairs into the whitespace-joined `-o Key=Value`
- *  env string Nix word-splits out of `NIX_SSHOPTS`.
+ *  env string Nix SHELL-splits out of `NIX_SSHOPTS`.
  *  The one wire-format definition for the env shape. */
 const toEnv = (pairs: readonly (readonly [string, string])[]): string =>
   pairs.map(([key, value]) => `-o ${key}=${value}`).join(" ");
@@ -360,10 +339,9 @@ export const SSH_COMMON_OPTS: readonly string[] = sshCommonOpts();
  *  Nix spawns its *own* ssh which never sees our argv, so this env var is the
  *  only handle on its dead-peer behaviour. Every `nixCopy` site passes it, so
  *  Nix's internal ssh rides the SAME shared master the arch probe opened — not
- *  a fresh ~5s handshake. When multiplexing is unavailable `controlOptPairs()`
- *  returns an explicit `ControlPath=none`, so this degrades to the plain
- *  rendered policy plus a refusal to multiplex — never to silence, which would
- *  hand the connection to whatever master the user's own `ssh_config` names. */
+ *  a fresh ~5s handshake. When multiplexing is unavailable this degrades to an
+ *  explicit `ControlPath=none` and never to silence (`NO_MULTIPLEXING` in
+ *  `controlMaster.ts` argues why that distinction matters). */
 export function nixSshOpts(
   keepalive: SshKeepalive = DEFAULT_SSH_KEEPALIVE,
 ): string {
