@@ -219,7 +219,11 @@ import {
 } from "effect/unstable/http";
 import { WebSocketServer } from "ws";
 import { SURFACE_WS_PATH } from "./index";
-import { checkUpgradeHeaders, pickUpgradeHeaders } from "./upgradeHeaders";
+import {
+  checkUpgradeHeaders,
+  pickUpgradeHeaders,
+  type UpgradeHeadersSource,
+} from "./upgradeHeaders";
 import {
   acceptSurfaceSocket,
   type ServableSocket,
@@ -283,12 +287,14 @@ export interface SurfaceAppConnection<H extends string = never> {
   readonly headers: Readonly<Partial<Record<H, string>>>;
 }
 
-/** The allowlist's grammar, re-exported at the door an app already imports from
- *  — so an app that ASSEMBLES its list (a part that offers its identity header
- *  when it is switched on) can refuse a bad name where it MINTS the list, loudly,
- *  instead of leaving it to the quiet accept-time refusal below. The rule, and
- *  why an accept cannot afford to throw it, live in `./upgradeHeaders`. */
-export { checkUpgradeHeaders } from "./upgradeHeaders";
+/** The allowlist's grammar, and the shape a listener takes its list in — both
+ *  re-exported at the door an app already imports from. Why an app calls the
+ *  check directly, and why an accept cannot afford to throw it:
+ *  `@kolu/surface-app/upgrade-headers`, where they are declared. */
+export {
+  checkUpgradeHeaders,
+  type UpgradeHeadersSource,
+} from "./upgradeHeaders";
 
 /** A thrown `cause` as the `Error` an event arm carries. */
 const errorOf = (cause: unknown): Error =>
@@ -314,7 +320,7 @@ const errorOf = (cause: unknown): Error =>
  *  Returned as a closure rather than branched at each accept so the fixed arm
  *  pays its check exactly once. */
 const upgradeHeadersReader = <H extends string>(
-  asked: ReadonlyArray<H> | (() => ReadonlyArray<H>) | undefined,
+  asked: UpgradeHeadersSource<H> | undefined,
 ): (() => ReadonlyArray<H>) => {
   if (typeof asked !== "function") {
     const checked = checkUpgradeHeaders(asked ?? []);
@@ -543,7 +549,7 @@ type ServeSurfaceAppShell<
    *
    *  Why it is an ALLOWLIST, and why a live one refuses itself: this module's
    *  header. */
-  readonly upgradeHeaders?: ReadonlyArray<H> | (() => ReadonlyArray<H>);
+  readonly upgradeHeaders?: UpgradeHeadersSource<H>;
   /** Services this ONE connection's handlers require — kolu's per-viewer
    *  address, taken off the upgrade request. Effect's socket-server protocol
    *  carries no per-request headers, so a per-connection serving stack simply

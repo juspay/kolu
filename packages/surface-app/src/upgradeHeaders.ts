@@ -10,6 +10,20 @@
 
 import { type IncomingMessage, validateHeaderName } from "node:http";
 
+/** How a listener obtains its allowlist. An ARRAY is the app's own composition
+ *  root, checked once at the bind; a THUNK is a LIVE list, read and checked at
+ *  each accept. `typeof` tells them apart with no wrapper — an array is never
+ *  callable, so unlike `ServedGenerationSource` (whose `RpcGroup` is a callable
+ *  function-object) there is nothing here to mistake for the other.
+ *
+ *  `H` is only as narrow as `ReadonlyArray<H>`'s element type on EITHER arm: a
+ *  list typed `ReadonlyArray<string>` infers `H = string`, and every read of a
+ *  connection's `headers` then compiles. A literal array, an `as const`, or a
+ *  thunk with a narrowed return annotation is what keeps the guarantee. */
+export type UpgradeHeadersSource<H extends string> =
+  | ReadonlyArray<H>
+  | (() => ReadonlyArray<H>);
+
 /** The allowlist's grammar, checked — and the names handed back UNCHANGED, so
  *  `H` reaches {@link pickUpgradeHeaders} straight off the app's own array and
  *  the picked record's keys are CHECKED against it rather than asserted.

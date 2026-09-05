@@ -8,9 +8,10 @@ const request = (headers: IncomingMessage["headers"]) =>
 describe("checkUpgradeHeaders — the grammar an app can refuse a list against", () => {
   // Exported so an app that ASSEMBLES its allowlist fails the part that offered
   // a bad name where it mints the list, rather than leaving every accept to the
-  // quiet `UpgradeHeadersRefused`. `serve.test.ts` pins the same three rules at
-  // the bind; these pin them at the door an app calls directly, and pin that a
-  // good list comes back UNCHANGED (which is what carries `H` to the pick).
+  // quiet `UpgradeHeadersRefused`. These are the ONE place each rule and its
+  // message are pinned — `serve.test.ts` pins only that the bind is wired to
+  // this check for an array and not for a thunk. They also pin that a good list
+  // comes back UNCHANGED, which is what carries `H` to the pick.
   it("hands a good list back unchanged", () => {
     const asked = ["Tailscale-User-Login", "x-forwarded-for"] as const;
     expect(checkUpgradeHeaders(asked)).toBe(asked);

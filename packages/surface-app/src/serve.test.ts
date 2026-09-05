@@ -267,32 +267,20 @@ async function dial(
   return socket;
 }
 
-/** Boot a listener, dial it, and read whatever `pick` makes of the accepted
- *  connection back out through a REAL dispatch — so every claim built on this is
- *  about what a HANDLER sees, not about an object a test wrote for itself. That
- *  matters most for `upgradeHeaders`: `H` is inferred here from the allowlist
- *  one object literal over, which is the path a consumer is actually on.
+/** Read what the ALREADY-BOOTED listener's `Viewer` saw of an accepted
+ *  connection, through a REAL dispatch — so every claim built on this is about
+ *  what a HANDLER sees, not about an object a test wrote for itself.
  *
  *  JSON on the way out, because the facts under test are a record while `Viewer`
  *  carries one string. `undefined` does not survive `JSON.stringify`, so a key
  *  whose value is absent simply does not come back. */
-const readConnection = async <H extends string = never>({
-  pick,
-  upgradeHeaders,
-  sent,
-}: {
-  readonly pick: (connection: SurfaceAppConnection<H>) => unknown;
-  readonly upgradeHeaders?: ReadonlyArray<H> | (() => ReadonlyArray<H>);
+const seenBy = async (
+  server: Booted,
   /** Request headers the dial stamps on the upgrade — the proxy's half.
    *  A list sends that many header lines; node folds a repeated
    *  `x-forwarded-for` into one `", "`-joined string before we see it. */
-  readonly sent?: Record<string, string | string[]>;
-}): Promise<unknown> => {
-  const server = await boot<Viewer, H>({
-    upgradeHeaders,
-    services: (connection) =>
-      Layer.succeed(Viewer)({ seen: JSON.stringify(pick(connection)) }),
-  });
+  sent?: Record<string, string | string[]>,
+): Promise<unknown> => {
   const socket = await dial(server, server.wsUrl, sent);
   const answer = await Effect.runPromise(
     socket.link.dispatch.unary("surface/viewer/seen", {}),
@@ -300,6 +288,31 @@ const readConnection = async <H extends string = never>({
   await socket.dispose();
   return JSON.parse((answer as { seen: string }).seen);
 };
+
+/** Boot a listener, dial it, and read whatever `pick` makes of the accepted
+ *  connection back out — {@link seenBy} plus the boot. That matters most for
+ *  `upgradeHeaders`: `H` is inferred here from the allowlist one object literal
+ *  over, which is the path a consumer is actually on. */
+const readConnection = async <H extends string = never>({
+  pick,
+  upgradeHeaders,
+  sent,
+}: {
+  readonly pick: (connection: SurfaceAppConnection<H>) => unknown;
+  /** An ARRAY only: this helper boots per call, so a thunk read at its single
+   *  accept would prove nothing the array arm does not. The live claims are
+   *  about a SECOND accept on one listener, and boot themselves. */
+  readonly upgradeHeaders?: ReadonlyArray<H>;
+  readonly sent?: Record<string, string | string[]>;
+}): Promise<unknown> =>
+  seenBy(
+    await boot<Viewer, H>({
+      upgradeHeaders,
+      services: (connection) =>
+        Layer.succeed(Viewer)({ seen: JSON.stringify(pick(connection)) }),
+    }),
+    sent,
+  );
 
 describe("serveSurfaceApp — the whole listener in one call", () => {
   it("serves the shell over HTTP and the surface over one websocket", async () => {
@@ -640,55 +653,12 @@ describe("serveSurfaceApp — the upgrade facts a connection carries", () => {
       readConnection({ pick: (connection) => connection.remoteAddress }),
     ).resolves.toMatch(/^(127\.0\.0\.1|::1|::ffff:127\.0\.0\.1)$/);
   });
-
-  it("refuses to bind on a name that is not an HTTP field name", async () => {
-    // A name no header can ever match would read to the app as "the proxy never
-    // sends it" — a silent, permanent absence. It takes the bind down instead.
-    await expect(
-      boot({ upgradeHeaders: ["X-Ok", "not a name"] }),
-    ).rejects.toThrow(/"not a name" is not an HTTP header name/);
-  });
-
-  it("refuses to bind on set-cookie, whose value a joined string cannot carry", async () => {
-    // The one header node hands over as a list, and the one whose values carry
-    // commas of their own — so the string this seam reports every other header
-    // as could not be split back apart. Refused rather than reported wrongly.
-    await expect(boot({ upgradeHeaders: ["Set-Cookie"] })).rejects.toThrow(
-      /"Set-Cookie" cannot be read off an upgrade/,
-    );
-  });
-
-  it("refuses to bind on ONE wire header named twice", async () => {
-    // The same class of app defect as a name outside the grammar, and the same
-    // treatment — the message says why.
-    await expect(
-      boot({ upgradeHeaders: ["X-Forwarded-For", "x-forwarded-for"] }),
-    ).rejects.toThrow(
-      /"x-forwarded-for" names a header already in upgradeHeaders/,
-    );
-  });
 });
 
+// Every claim here is about a SECOND accept on the SAME listener, so these boot
+// their own server and read it with `seenBy` — the half `readConnection` is the
+// boot-plus of.
 describe("serveSurfaceApp — a LIVE allowlist", () => {
-  /** Dial the listener and read the accepted connection's `headers` back through
-   *  a REAL dispatch, the way {@link readConnection} does — but against a server
-   *  the test already booted, because the whole claim here is about a SECOND
-   *  accept on the SAME listener. */
-  const headersSeenBy = async (
-    server: Booted,
-    sent: Record<string, string>,
-  ) => {
-    const socket = await dial(server, server.wsUrl, sent);
-    const answer = await Effect.runPromise(
-      socket.link.dispatch.unary("surface/viewer/seen", {}),
-    );
-    await socket.dispose();
-    return JSON.parse((answer as { seen: string }).seen) as Record<
-      string,
-      string
-    >;
-  };
-
   it("follows the list that is live at each accept, with no rebind", async () => {
     // The finding this arm exists for (olai#500's identity row): a serve that
     // came up with no identity part, and switched it on while the port stayed
@@ -706,16 +676,16 @@ describe("serveSurfaceApp — a LIVE allowlist", () => {
 
     // The part is off: the header is on the wire and is not readable, because
     // nothing named it.
-    expect(await headersSeenBy(server, sent)).toEqual({});
+    expect(await seenBy(server, sent)).toEqual({});
 
     // …it switches on, and the very next accept reads the login. No rebind, no
     // restart — the listener never moved.
     offered = ["Tailscale-User-Login"];
-    expect(await headersSeenBy(server, sent)).toEqual(sent);
+    expect(await seenBy(server, sent)).toEqual(sent);
 
     // …and off again, symmetrically: the switch goes both ways.
     offered = [];
-    expect(await headersSeenBy(server, sent)).toEqual({});
+    expect(await seenBy(server, sent)).toEqual({});
   });
 
   it("serves a connection with NO named headers when the live list refuses itself", async () => {
@@ -734,13 +704,13 @@ describe("serveSurfaceApp — a LIVE allowlist", () => {
         Layer.succeed(Viewer)({ seen: JSON.stringify(connection.headers) }),
     });
     const sent = { "X-Real": "ada@example.com" };
-    expect(await headersSeenBy(server, sent)).toEqual(sent);
+    expect(await seenBy(server, sent)).toEqual(sent);
 
     // The part now offers a name this seam cannot read off an upgrade.
     offered = ["Set-Cookie"] as unknown as ReadonlyArray<"X-Real">;
     // Served — the dispatch answers, which is the half a terminate would lose —
     // and anonymous, which is the half a silent pass-through would lose.
-    expect(await headersSeenBy(server, sent)).toEqual({});
+    expect(await seenBy(server, sent)).toEqual({});
     const refused = events.filter(
       (event) => event._tag === "UpgradeHeadersRefused",
     );
@@ -763,7 +733,7 @@ describe("serveSurfaceApp — a LIVE allowlist", () => {
     // …and the refusal poisons nothing: the part fixes its list and the next
     // accept reads the header again.
     offered = ["X-Real"];
-    expect(await headersSeenBy(server, sent)).toEqual(sent);
+    expect(await seenBy(server, sent)).toEqual(sent);
     expect(
       events.filter((event) => event._tag === "UpgradeHeadersRefused"),
     ).toHaveLength(1);
@@ -775,6 +745,12 @@ describe("serveSurfaceApp — a LIVE allowlist", () => {
     // composition root, where there is nothing else to blame and the loud
     // failure has somewhere to land. `checkUpgradeHeaders` is exported so an app
     // assembling a live list gets that same loudness where it mints it.
+    //
+    // Only the TIMING is pinned here — that the bind runs the check for an
+    // array and does not for a thunk. The three grammar rules themselves, and
+    // their messages, are `upgradeHeaders.test.ts`'s, at the door an app calls
+    // directly; asserting them again through `boot` would be one rule with two
+    // copies of its regex.
     await expect(boot({ upgradeHeaders: ["Set-Cookie"] })).rejects.toThrow(
       /"Set-Cookie" cannot be read off an upgrade/,
     );
