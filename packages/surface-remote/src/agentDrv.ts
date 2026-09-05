@@ -11,11 +11,8 @@
  */
 
 import { resolveSystem } from "./arch";
-import {
-  looksLikeNetworkError,
-  ResolveDrvError,
-  type SshKeepalive,
-} from "./host";
+import { looksLikeNetworkError, ResolveDrvError } from "./host";
+import type { SshKeepalive } from "./keepalive";
 import {
   type AgentBinaryCache,
   readBakedBinaryCache,
@@ -117,9 +114,14 @@ export interface AgentDrvResolutionOptions {
   /** Connector-owned campaign budget for the local Nix evaluation. */
   budget: StepBudget;
   /** The owning dial's ssh dead-peer policy, forwarded to this resolver's ONE
-   *  ssh — the {@link resolveSystem} arch probe. Defaults to
-   *  `DEFAULT_SSH_KEEPALIVE`. (The Nix `eval` below is local; it opens no ssh.) */
-  keepalive?: SshKeepalive;
+   *  ssh — the {@link resolveSystem} arch probe. (The Nix `eval` below is local;
+   *  it opens no ssh.)
+   *
+   *  REQUIRED, with no default: this is an INTERNAL seam (the connector is its
+   *  only caller), and every ssh of one dial must carry the SAME policy — they
+   *  share a `ControlMaster` keyed by it. A forgotten thread is a compile error
+   *  here rather than a silently-second warm master at the default policy. */
+  keepalive: SshKeepalive;
 }
 
 /** Stable capability exposed to a source resolver. The connector owns the

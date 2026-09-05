@@ -32,6 +32,7 @@ import {
 } from "./agentDrv";
 import { ResolveDrvError } from "./host";
 import { makeProvisionBudgets } from "./nixCopy";
+import { DEFAULT_SSH_KEEPALIVE } from "./keepalive";
 import { TEST_BINARY_CACHE } from "./agentDerivation.testutil";
 
 const success = (stdout: string) => ({
@@ -53,6 +54,10 @@ const resolutionOptions = {
   onProgress: vi.fn(),
   onEvaluation: vi.fn(),
   budget: makeProvisionBudgets().evaluation,
+  // REQUIRED on this internal seam: the resolver's one ssh (the arch probe)
+  // must carry the dial's own policy, or it opens the host's shared
+  // ControlMaster under a different one.
+  keepalive: DEFAULT_SSH_KEEPALIVE,
 };
 
 beforeEach(() => {

@@ -76,15 +76,13 @@
 import type { AgentBinaryCache } from "./agentBinaryCache";
 import type { AgentDerivation } from "./agentDerivation";
 import {
-  assertSshKeepalive,
   buildSshProbeCommand,
-  DEFAULT_SSH_KEEPALIVE,
   forEachLine,
   isLocalHost,
   looksLikeNetworkError,
   nixSshOpts,
-  type SshKeepalive,
 } from "./host";
+import type { SshKeepalive } from "./keepalive";
 import {
   describeExit,
   type ExitResult,
@@ -242,14 +240,21 @@ export interface ProvisionOptions {
    *  in-flight provisioning child and settles the run as `"aborted"` — a retryable,
    *  budget-EXEMPT fault. Threaded into every child. */
   signal?: AbortSignal;
-  /** The owning dial's ssh dead-peer policy (`DEFAULT_SSH_KEEPALIVE` when
-   *  omitted), threaded into EVERY ssh this provisioning causes: the warm
-   *  validity check, the GC-root pin, the closure ship, and — via `NIX_SSHOPTS`
-   *  — the ssh that the remote-store `nix build`/`nix copy` fork internally,
-   *  which is otherwise entirely out of reach of our argv. A provisioning step
-   *  is where a long CI lane is most exposed to a network blip: a cold build can
-   *  sit idle for minutes while the far end compiles. */
-  keepalive?: SshKeepalive;
+  /** The owning dial's ssh dead-peer policy, threaded into EVERY ssh this
+   *  provisioning causes: the warm validity check, the GC-root pin, the closure
+   *  ship, and — via `NIX_SSHOPTS` — the ssh that the remote-store `nix
+   *  build`/`nix copy` fork internally, which is otherwise entirely out of reach
+   *  of our argv. A provisioning step is where a long CI lane is most exposed to
+   *  a network blip: a cold build can sit idle for minutes while the far end
+   *  compiles.
+   *
+   *  REQUIRED, with no default. Every ssh of one dial must carry the SAME policy
+   *  — they share a `ControlMaster` keyed by it — so a forgotten thread is a
+   *  compile error rather than a second warm master opened at the default while
+   *  the dial asked for something else. The only caller in this repo is
+   *  `sshConnector`, which resolves the default once at its own public edge;
+   *  state `DEFAULT_SSH_KEEPALIVE` explicitly if you call this directly. */
+  keepalive: SshKeepalive;
 }
 
 export type ProvisionResult =
@@ -584,8 +589,12 @@ async function checkValidity(
   opts: {
     signal: AbortSignal | undefined;
     onProgress?: (line: string) => void;
-    /** The dial's ssh policy. Omitted at the LOCAL seat, which spawns no ssh. */
-    keepalive?: SshKeepalive;
+    /** The dial's ssh policy — REQUIRED, and IGNORED at the local seat (which
+     *  spawns no ssh), exactly as `buildAgentCommand`'s `localEnv` is required
+     *  and ignored on the ssh arm. Required rather than optional so a caller
+     *  cannot forget it at the REMOTE seat, where omitting it would open the
+     *  warm check's master under the default policy. */
+    keepalive: SshKeepalive;
   },
 ): Promise<"valid" | "absent" | "aborted"> {
   const probe = buildSshProbeCommand(
@@ -635,6 +644,9 @@ async function stageAgentClosure(opts: {
   });
   let held = await checkValidity("localhost", opts.outPath, {
     signal: opts.signal,
+    // Ignored on this seat — the local store query spawns no ssh — but stated
+    // so the field can stay required at the seat where forgetting it matters.
+    keepalive: opts.keepalive,
   });
   if (held === "aborted") {
     return {
@@ -694,18 +706,13 @@ export async function provisionAgent(
 ): Promise<ProvisionResult> {
   const isLocal = isLocalHost(opts.host);
   const { signal, budgets } = opts;
-  // Resolved ONCE for the whole provisioning: every ssh below — and the ssh Nix
-  // forks for the remote store — must carry the SAME policy, because they share
-  // one `ControlMaster` keyed by it (see `controlMaster.ts`).
-  //
-  // Validated eagerly, at the top, for the same reason `buildAgentCommand`
-  // throws on a missing `localEnv`: this is a programmer error, and the honest
-  // place to raise it is before any work rather than several steps in, at the
-  // first render that happens to be on the remote arm. (A throw here escapes the
-  // otherwise-total `ProvisionResult` deliberately — a nonsense policy is not a
-  // provisioning *outcome* to be classified and retried.)
-  const keepalive = opts.keepalive ?? DEFAULT_SSH_KEEPALIVE;
-  assertSshKeepalive(keepalive);
+  // ONE policy for the whole provisioning: every ssh below — and the ssh Nix
+  // forks for the remote store — carries the SAME one, because they share a
+  // `ControlMaster` keyed by it (see `controlMaster.ts`). Required on the
+  // options, so that is a type fact rather than a defaulting site that has to
+  // agree with eight others; and validity is a fact the value carries
+  // (`sshKeepalive` is its only producer), so nothing is re-checked here.
+  const { keepalive } = opts;
   const { drvPath } = opts.derivation;
   // Already aborted before we start ⇒ do NO work: a user abort is a budget-EXEMPT,
   // retryable `"network"` fault (C3/F6). (The connector already reconciled the campaign

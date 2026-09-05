@@ -23,12 +23,16 @@ import {
   provisionAgent,
 } from "./nixCopy";
 import { type CaptureResult, runCapture } from "./process";
-import type { SshKeepalive } from "./host";
+import {
+  DEFAULT_SSH_KEEPALIVE,
+  type SshKeepalive,
+  sshKeepalive,
+} from "./keepalive";
 import { TEST_BINARY_CACHE } from "./agentDerivation.testutil";
 
 /** A CI-shaped keepalive: five minutes of tolerated silence, so a network blip
  *  doesn't kill a lane mid-build. The shape juspay/odu passes. */
-const CI_KEEPALIVE: SshKeepalive = { intervalS: 30, countMax: 10 };
+const CI_KEEPALIVE: SshKeepalive = sshKeepalive(30, 10);
 
 vi.mock("./process", async (importOriginal) => ({
   // Keep the real pure helpers (`describeExit`) and mock only the two
@@ -60,10 +64,12 @@ const isShip = (args: readonly string[]): boolean =>
   isCopy(args) && args.includes("--to");
 
 /** The fused budgets a `provisionAgent` call needs (the connector reconciles the
- *  campaign reset itself, so `provisionAgent` takes no epoch). Pass a custom `budgets`
- *  (e.g. a tight-terminal one) to override. */
+ *  campaign reset itself, so `provisionAgent` takes no epoch), plus the dial's
+ *  ssh policy — REQUIRED on `ProvisionOptions`, because every ssh of one dial
+ *  must carry the same one. Pass a custom `budgets` (e.g. a tight-terminal one)
+ *  to override. */
 function provArgs(budgets: ProvisionBudgets = makeProvisionBudgets()) {
-  return { budgets };
+  return { budgets, keepalive: DEFAULT_SSH_KEEPALIVE };
 }
 
 /** Route the mocked `runCapture` by the command it was handed (robust to call
@@ -182,8 +188,8 @@ describe("provisionAgent GC-root pinning (cold path)", () => {
       host: "testhost",
       derivation: directAgentDerivation(DRV, TEST_BINARY_CACHE),
       onProgress: () => {},
-      keepalive: CI_KEEPALIVE,
       ...provArgs(),
+      keepalive: CI_KEEPALIVE,
     });
     const calls = vi.mocked(runCapture).mock.calls;
 
@@ -222,18 +228,14 @@ describe("provisionAgent GC-root pinning (cold path)", () => {
     }
   });
 
-  it("REFUSES an out-of-range keepalive rather than clamping it", async () => {
-    mockNix();
-    await expect(
-      provisionAgent({
-        host: "testhost",
-        derivation: directAgentDerivation(DRV, TEST_BINARY_CACHE),
-        onProgress: () => {},
-        // 300 × 60 = 5 hours — no longer dead-peer detection at all.
-        keepalive: { intervalS: 300, countMax: 60 },
-        ...provArgs(),
-      }),
-    ).rejects.toThrow(/ssh keepalive/);
+  it("REFUSES an out-of-range keepalive rather than clamping it", () => {
+    // The refusal now lands at the LITERAL rather than several provisioning
+    // steps in: `sshKeepalive` is the only producer of the branded value
+    // `ProvisionOptions.keepalive` requires, so an out-of-range policy cannot
+    // reach `provisionAgent` at all — it never becomes a value, so it is not an
+    // escape from the otherwise-total `ProvisionResult` either.
+    // 300 × 60 = 5 hours — no longer dead-peer detection at all.
+    expect(() => sshKeepalive(300, 60)).toThrow(/ssh keepalive/);
   });
 
   it("uses one remote-store Nix build for transfer and realisation", async () => {

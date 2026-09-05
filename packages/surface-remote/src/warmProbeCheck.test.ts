@@ -21,6 +21,7 @@ import { directAgentDerivation } from "./agentDerivation";
 import { makeProvisionBudgets, provisionAgent } from "./nixCopy";
 import { type CaptureResult, runCapture } from "./process";
 import { TEST_BINARY_CACHE } from "./agentDerivation.testutil";
+import { DEFAULT_SSH_KEEPALIVE } from "./keepalive";
 
 vi.mock("./process", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./process")>()),
@@ -40,7 +41,7 @@ const okOut = (stdout: string): CaptureResult => ({
 const failOut: CaptureResult = { ok: false, kind: "exit", code: 1, stdout: "" };
 
 function provArgs() {
-  return { budgets: makeProvisionBudgets() };
+  return { budgets: makeProvisionBudgets(), keepalive: DEFAULT_SSH_KEEPALIVE };
 }
 
 /** A warm host: outputs computed locally, present on the host, pin ok. */

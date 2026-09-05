@@ -22,14 +22,13 @@ import {
   isStdioReadinessError,
 } from "@kolu/surface/links/readiness";
 import {
-  assertSshKeepalive,
   buildAgentCommand,
-  DEFAULT_SSH_KEEPALIVE,
   forEachLine,
   isLocalHost,
   ResolveDrvError,
-  type SshKeepalive,
 } from "./host";
+import { DEFAULT_SSH_KEEPALIVE, type SshKeepalive } from "./keepalive";
+import type { ResolveSystemOptions } from "./arch";
 import { resolveAgentDrv, type AgentResolutionContext } from "./agentDrv";
 import type { AgentDerivation } from "./agentDerivation";
 import { makeProvisionBudgets, provisionAgent } from "./nixCopy";
@@ -103,15 +102,30 @@ export type SshProv = "probing" | "provisioning";
  */
 const AGENT_READINESS_DEADLINE_MS = 180_000;
 
-/** The owning dial context a deferred derivation resolver may consume. */
-export interface ResolveDrvPathContext extends AgentResolutionContext {
+/** The owning dial context a deferred derivation resolver may consume.
+ *
+ *  It EXTENDS {@link ResolveSystemOptions}, so the documented
+ *  `resolveSystem(host, ctx)` idiom actually compiles — which is what makes
+ *  forwarding the whole context the path of least resistance rather than a
+ *  suggestion a consumer has to hand-assemble around. Hand-building
+ *  `{ signal, onProgress }` instead silently opens the arch probe's
+ *  `ControlMaster` under the DEFAULT policy while the rest of the dial asks for
+ *  another (see `ResolveSystemOptions.keepalive`). */
+export interface ResolveDrvPathContext
+  extends AgentResolutionContext,
+    ResolveSystemOptions {
   signal: AbortSignal;
+  /** The progress sink, under this context's own long-standing name. Identical
+   *  to the inherited `onProgress` — one sink, two spellings, because
+   *  `localProgress` is what every existing resolver destructures and
+   *  `onProgress` is the name the option types downstream of it use. */
   localProgress: (line: string) => void;
-  /** This dial's ssh dead-peer policy. Carried here so the documented
-   *  `resolveSystem(host, ctx)` idiom threads it STRUCTURALLY: a resolver that
-   *  forwards the whole context gets the connector's policy on its arch probe
-   *  for free, and cannot accidentally open the host's shared `ControlMaster`
-   *  under a different one. */
+  /** This dial's ssh dead-peer policy — REQUIRED here (it is optional on
+   *  {@link ResolveSystemOptions}, which has out-of-tree callers). Carried so
+   *  the documented `resolveSystem(host, ctx)` idiom threads it STRUCTURALLY: a
+   *  resolver that forwards the whole context gets the connector's policy on its
+   *  arch probe for free, and cannot accidentally open the host's shared
+   *  `ControlMaster` under a different one. */
   keepalive: SshKeepalive;
 }
 
@@ -164,8 +178,9 @@ export interface SshConnectorOptions<S extends SurfaceSpec> {
    *  destroy rather than repair — juspay/odu's CI lanes are the first consumer,
    *  riding out a multi-minute blip instead of killing a lane mid-build. The cost
    *  is symmetric and bounded: a genuinely dead host keeps this dial parked for
-   *  `intervalS × countMax` seconds before the loop can retry. A policy outside
-   *  `assertSshKeepalive`'s range throws HERE, at construction — never at the
+   *  `intervalS × countMax` seconds before the loop can retry. Built with
+   *  `sshKeepalive(intervalS, countMax)`, which is the ONLY producer and throws
+   *  on an out-of-range policy at the literal the consumer wrote — never at the
    *  first dial, and never clamped.
    *
    *  **This governs the DIALLING phases, not a connected link — raising it alone
@@ -205,13 +220,12 @@ export function sshConnector<S extends SurfaceSpec>(
   // campaign reset is `budgets.onCampaign(ctx.campaignEpoch)` at the top of each dial
   // (below) — provisionAgent is campaign-ignorant; the connector is the only caller.
   const budgets = makeProvisionBudgets();
-  // Resolved and VALIDATED once, at construction: a nonsense policy is a crash
-  // here — where the consumer wrote it — not a surprise on the first dial, and
-  // never a silent clamp. One value for the whole connector, so every ssh a dial
-  // spawns provably carries the same policy (they share a ControlMaster keyed by
-  // it — see `controlMaster.ts`).
+  // Resolved once, at construction: ONE value for the whole connector, so every
+  // ssh a dial spawns provably carries the same policy (they share a
+  // ControlMaster keyed by it — see `controlMaster.ts`). No validation here —
+  // an `SshKeepalive` can only have come from `sshKeepalive()`, which threw at
+  // the literal the consumer wrote.
   const keepalive = opts.keepalive ?? DEFAULT_SSH_KEEPALIVE;
-  assertSshKeepalive(keepalive);
 
   return async (ctx): Promise<Connection<AgentClient>> => {
     // Reconcile the per-campaign budget reset HERE — the session↔nixCopy bridge, where the
@@ -229,6 +243,9 @@ export function sshConnector<S extends SurfaceSpec>(
       derivation = await opts.resolveDrvPath({
         signal: ctx.signal,
         localProgress: ctx.localProgress,
+        // The same sink under the name `ResolveSystemOptions` uses, so
+        // `resolveSystem(host, ctx)` compiles (see `ResolveDrvPathContext`).
+        onProgress: ctx.localProgress,
         keepalive,
         resolveAgentDrv: (flakeRef, packageName) =>
           resolveAgentDrv(opts.host, flakeRef, packageName, {

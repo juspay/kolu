@@ -29,6 +29,10 @@
  *       binary,
  *       localEnv,  // the composed env a `localhost` dial spawns with (never ambient process.env)
  *       resolveDrvPath: async (ctx) => {
+ *         // Forward the WHOLE context, never a hand-built `{signal, onProgress}`:
+ *         // `ResolveDrvPathContext` extends `ResolveSystemOptions` precisely so
+ *         // this compiles, and it is what threads the dial's own `keepalive`
+ *         // into the probe (see `ResolveSystemOptions.keepalive`).
  *         const sys = await resolveSystem(host, ctx);
  *         return resolveDrvForSystem(sys);
  *       },
@@ -37,14 +41,13 @@
  */
 
 import {
-  assertSshKeepalive,
   buildSshProbeCommand,
   isLocalHost,
   ResolveDrvError,
-  type SshKeepalive,
   type SshRefusal,
   sshRefusalOf,
 } from "./host";
+import type { SshKeepalive } from "./keepalive";
 import { probePolicy } from "./nixCopy";
 import { describeExit, runCapture } from "./process";
 
@@ -66,7 +69,18 @@ export interface ResolveSystemOptions {
    *  documented `resolveSystem(host, ctx)` idiom threads the dial's policy with
    *  no extra wiring. It MUST match the rest of the dial: this probe is usually
    *  the ssh that OPENS the host's shared `ControlMaster`, and the master's
-   *  opener fixes `ServerAlive*` for every command that later rides it. */
+   *  opener fixes `ServerAlive*` for every command that later rides it.
+   *
+   *  **Optional here, and that optionality is a real hazard — forward `ctx`.**
+   *  A resolver that hand-builds `{ signal, onProgress }` instead of forwarding
+   *  the whole context omits this field, and the probe then opens the host's
+   *  shared master under the DEFAULT policy while every later command in the
+   *  same dial asks for the stated one: a second warm master, right argv, wrong
+   *  behaviour. The known live instance is drishti's
+   *  `packages/app/src/server/archMap.ts` (harmless there — it states no custom
+   *  policy — but it proves the shape is reachable). The field stays optional
+   *  ONLY because this function is published and that caller exists; making it
+   *  required is the fix the moment the compat window closes. */
   keepalive?: SshKeepalive;
 }
 
@@ -78,13 +92,6 @@ export async function resolveSystem(
   host: string,
   opts: ResolveSystemOptions,
 ): Promise<string> {
-  // Validate a supplied policy BEFORE any work, and on BOTH arms. Two reasons
-  // this cannot be left to the argv renderer: the localhost arm renders no opts
-  // at all (so the check would silently not happen), and a throw from here lands
-  // inside the caller's `resolveDrvPath`, which `sshConnector` classifies as
-  // `"network"` / non-terminal — so a nonsense literal would be re-thrown on
-  // every redial forever instead of failing once, loudly, at the top.
-  if (opts.keepalive !== undefined) assertSshKeepalive(opts.keepalive);
   // Which arm we are on decides how a missing executable surfaces, and which
   // executable a spawn fault is even ABOUT — see the failure classification below.
   const local = isLocalHost(host);

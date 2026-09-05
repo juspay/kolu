@@ -94,6 +94,9 @@ function fakeSession() {
 const resolverContext: ResolveDrvPathContext = {
   signal: new AbortController().signal,
   localProgress: vi.fn(),
+  // The same sink under `ResolveSystemOptions`'s name, so `resolveSystem(host,
+  // ctx)` — the documented idiom — typechecks against this context.
+  onProgress: vi.fn(),
   resolveAgentDrv: vi.fn(),
   // The dial's ssh dead-peer policy, which a real connector threads into the
   // resolver's arch probe. kolu is the interactive consumer, so it is the default.
