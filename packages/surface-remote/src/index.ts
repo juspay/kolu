@@ -44,20 +44,23 @@ export {
   dialAgentOnce,
 } from "./dialAgentOnce";
 export {
-  assertSshKeepalive,
   buildAgentCommand,
   buildSshProbeCommand,
-  DEFAULT_SSH_KEEPALIVE,
   forEachLine,
   isLocalHost,
-  MAX_SSH_KEEPALIVE_TOLERANCE_S,
   nixSshOpts,
   ResolveDrvError,
   SSH_COMMON_OPTS,
   sshCommonOpts,
-  type SshKeepalive,
+  sshDialOpts,
   type SshDestination,
 } from "./host";
+export {
+  DEFAULT_SSH_KEEPALIVE,
+  MAX_SSH_KEEPALIVE_TOLERANCE_S,
+  type SshKeepalive,
+  sshKeepalive,
+} from "./keepalive";
 export {
   buildRemotePool,
   type ClosableSocket,

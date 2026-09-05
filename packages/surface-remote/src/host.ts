@@ -5,6 +5,7 @@
 
 import { shellQuoteArg } from "@kolu/shell-quote";
 import { controlOptPairs } from "./controlMaster";
+import { DEFAULT_SSH_KEEPALIVE, type SshKeepalive } from "./keepalive";
 
 export function isLocalHost(host: string): boolean {
   return host === "localhost" || host === "127.0.0.1" || host === "::1";
@@ -153,85 +154,6 @@ export function forEachLine(
   }
 }
 
-/** One dial's ssh DEAD-PEER policy: how often ssh probes an otherwise idle
- *  connection (`ServerAliveInterval`, seconds) and how many unanswered probes it
- *  tolerates before it declares the peer dead and exits non-zero
- *  (`ServerAliveCountMax`). Total tolerance is `intervalS × countMax` seconds —
- *  the wall-clock silence a link may suffer before the session gets to redial.
- *
- *  PER-DIAL rather than one baked constant, because "how long a silence is too
- *  long" is a *consumer* judgement, not a fact about ssh. An interactive tool
- *  (kolu, drishti) wants the ~30s {@link DEFAULT_SSH_KEEPALIVE}: a host that
- *  stopped answering must stop *looking* connected while someone is watching. A
- *  CI coordinator (juspay/odu) wants the opposite for the same wire — a lane
- *  that has been compiling for twenty minutes should ride out a multi-minute
- *  network blip rather than be killed and restarted.
- *
- *  This is the ssh half of link liveness; the heartbeat half is already
- *  per-session tunable as `MakeSessionOptions.liveness` (`@kolu/surface`'s
- *  `createHeartbeat`, bounded by `MAX_HEARTBEAT_*`). Same shape, same fail-fast
- *  validation, same reason to be a typed option rather than a global. */
-export interface SshKeepalive {
-  /** `ServerAliveInterval` — seconds between keepalive probes on an idle
-   *  connection. A positive integer. */
-  readonly intervalS: number;
-  /** `ServerAliveCountMax` — how many consecutive unanswered probes ssh
-   *  tolerates before declaring the peer dead. A positive integer. */
-  readonly countMax: number;
-}
-
-/** The interactive default: probe every 10s, give up after 3 misses ≈ **30s**
- *  of silence. Every consumer that does not state a policy gets exactly this,
- *  so the behaviour of every existing dial (and of the `SSH_COMMON_OPTS` const)
- *  is unchanged. */
-export const DEFAULT_SSH_KEEPALIVE: SshKeepalive = {
-  intervalS: 10,
-  countMax: 3,
-};
-
-/** Upper bound on a policy's TOTAL tolerance (`intervalS × countMax`). An hour
- *  of unanswered probes is not a slow keepalive — it is a link with effectively
- *  no dead-peer detection, which is the exact eternal hang this option exists to
- *  bound (see the argument below). Generous on purpose: a CI lane riding out a
- *  ten-minute blip is well inside it; only the pathological is rejected.
- *
- *  Per the repo's fail-fast rule an out-of-range policy CRASHES — it is never
- *  clamped to a value the caller did not ask for and would never learn about.
- *  The sibling bound is `MAX_HEARTBEAT_INTERVAL_MS` in `@kolu/surface`. */
-export const MAX_SSH_KEEPALIVE_TOLERANCE_S = 3_600;
-
-/** Crash unless `keepalive` is two positive integers whose product is within
- *  {@link MAX_SSH_KEEPALIVE_TOLERANCE_S}. Integers, not merely finite positives:
- *  ssh takes whole seconds and a whole probe count, and a fractional value would
- *  render as `ServerAliveInterval=2.5` — a value OpenSSH rejects at connect time,
- *  turning a caller's typo into a per-dial spawn failure instead of a loud one at
- *  the seam that owns the policy. Called by {@link sshOptPairs} (so EVERY render
- *  path is gated) and eagerly by `sshConnector` (so a bad policy is a
- *  construction-time crash, not a first-dial one). */
-export function assertSshKeepalive(keepalive: SshKeepalive): void {
-  for (const [label, value] of [
-    ["intervalS", keepalive.intervalS],
-    ["countMax", keepalive.countMax],
-  ] as const) {
-    if (!Number.isInteger(value) || value <= 0) {
-      throw new Error(
-        `ssh keepalive: ${label} must be a positive integer — got ${value}. ` +
-          "The value is rejected rather than silently coerced: a non-integer " +
-          "renders as an ssh option OpenSSH refuses at connect time.",
-      );
-    }
-  }
-  const toleranceS = keepalive.intervalS * keepalive.countMax;
-  if (toleranceS > MAX_SSH_KEEPALIVE_TOLERANCE_S) {
-    throw new Error(
-      `ssh keepalive: intervalS × countMax must be ≤ ${MAX_SSH_KEEPALIVE_TOLERANCE_S}s — ` +
-        `got ${keepalive.intervalS} × ${keepalive.countMax} = ${toleranceS}s. ` +
-        "A tolerance that long is not dead-peer detection at all; the policy is " +
-        "rejected rather than clamped to one the caller never asked for.",
-    );
-  }
-}
-
 /** ssh options shared by *every* non-interactive ssh this package causes
  *  to be spawned — the long-lived agent session, the one-shot
  *  probe/root commands, AND the ssh that `nix build --store ssh-ng://…`
@@ -261,11 +183,6 @@ export function assertSshKeepalive(keepalive: SshKeepalive): void {
  *  policy therefore buys tolerance of an unresponsive *network*, and costs only
  *  how long a genuinely dead host keeps a dial parked.
  *
- *  `ConnectTimeout` is deliberately NOT part of the tunable policy: it bounds the
- *  INITIAL handshake to a host that is not answering at all, which no consumer has
- *  a reason to stretch — a dial that cannot connect is retried by the session
- *  loop, not waited on.
- *
  *  The blind spot this keepalive CANNOT close (#1908): a healthy transport
  *  with a single dead exec CHANNEL. The sshd answered keepalives fine while
  *  one channel's remote side was gone, so the local child parked in `poll()`
@@ -281,22 +198,37 @@ export function assertSshKeepalive(keepalive: SshKeepalive): void {
  *  remote-store ssh fork out of reach of our argv. Values MUST stay
  *  whitespace-free: the argv renderer emits one option per pair and nix
  *  word-splits `NIX_SSHOPTS`, so a value with a space would silently corrupt the
- *  env form while the argv form stayed correct. (`assertSshKeepalive`'s
- *  integers-only rule is what keeps the two rendered numbers whitespace-free.)
+ *  env form while the argv form stayed correct. (`sshKeepalive`'s integers-only
+ *  rule is what keeps the two rendered numbers whitespace-free.)
  *
  *  A FUNCTION of the policy rather than a const, so the policy is a value a dial
  *  carries rather than a module-global no consumer can state. */
 export function sshOptPairs(
-  keepalive: SshKeepalive = DEFAULT_SSH_KEEPALIVE,
+  keepalive: SshKeepalive,
 ): readonly (readonly [string, string])[] {
-  assertSshKeepalive(keepalive);
-  return [
-    ["BatchMode", "yes"],
-    ["ServerAliveInterval", String(keepalive.intervalS)],
-    ["ServerAliveCountMax", String(keepalive.countMax)],
-    ["ConnectTimeout", "10"],
-  ];
+  return [...SSH_FIXED_OPTS, ...keepaliveOpts(keepalive)];
 }
+
+/** The non-interactive ssh CONTRACT — invariant, and independent of any policy.
+ *
+ *  `ConnectTimeout` sits HERE and not in {@link keepaliveOpts} because it is
+ *  deliberately not tunable: it bounds the INITIAL handshake to a host that is
+ *  not answering at all, which no consumer has a reason to stretch — a dial that
+ *  cannot connect is retried by the session loop, not waited on. Two straight
+ *  lists rather than one braided one, so which half varies with the argument is
+ *  visible in the code instead of only in prose. */
+const SSH_FIXED_OPTS: readonly (readonly [string, string])[] = [
+  ["BatchMode", "yes"],
+  ["ConnectTimeout", "10"],
+];
+
+/** The dial's TUNABLE dead-peer policy, rendered. */
+const keepaliveOpts = (
+  keepalive: SshKeepalive,
+): readonly (readonly [string, string])[] => [
+  ["ServerAliveInterval", String(keepalive.intervalS)],
+  ["ServerAliveCountMax", String(keepalive.countMax)],
+];
 
 /** Where a dial's ssh goes AND under what dead-peer policy — the pair every
  *  spawn site in this package needs to know. The `keepalive` is optional and
@@ -308,14 +240,10 @@ export interface SshDestination {
   readonly keepalive?: SshKeepalive;
 }
 
-/** Normalise the "host, or host + policy" argument the argv builders take.
- *
- *  Validates HERE rather than leaving it to `sshOptPairs`, because rendering is
- *  the REMOTE arm only: both builders short-circuit for `isLocalHost` before any
- *  opt is rendered, so a check that rode the renderer would make fail-fast a
- *  property of *which host you dialled* — a nonsense policy crashing a remote
- *  dial and passing silently on a localhost one. Validating at the seam that
- *  ACCEPTS the value makes the verdict the same on both arms. */
+/** Normalise the "host, or host + policy" argument the argv builders take: the
+ *  string arm and an omitted `keepalive` both mean {@link DEFAULT_SSH_KEEPALIVE}.
+ *  No validation left to do — a {@link SshKeepalive} can only have come from
+ *  `sshKeepalive()`, which validated it at the literal. */
 function targetOf(target: string | SshDestination): {
   host: string;
   keepalive: SshKeepalive;
@@ -323,79 +251,85 @@ function targetOf(target: string | SshDestination): {
   if (typeof target === "string") {
     return { host: target, keepalive: DEFAULT_SSH_KEEPALIVE };
   }
-  const keepalive = target.keepalive ?? DEFAULT_SSH_KEEPALIVE;
-  assertSshKeepalive(keepalive);
-  return { host: target.host, keepalive };
+  return {
+    host: target.host,
+    keepalive: target.keepalive ?? DEFAULT_SSH_KEEPALIVE,
+  };
 }
 
 /** Render `(key, value)` opt pairs into an ssh `-o Key=Value` argv. The one
  *  wire-format definition for the argv shape — `sshCommonOpts()` and
- *  `controlArgv()` both go through here, so re-tuning the form (say ssh ever
+ *  `sshDialOpts()` both go through here, so re-tuning the form (say ssh ever
  *  wants `-o k v` instead of `-o k=v`) touches one place. */
 const toArgv = (pairs: readonly (readonly [string, string])[]): string[] =>
   pairs.flatMap(([key, value]) => ["-o", `${key}=${value}`]);
 
 /** Render `(key, value)` opt pairs into the whitespace-joined `-o Key=Value`
  *  env string Nix word-splits out of `NIX_SSHOPTS`.
- *  The one wire-format definition for the env shape — both `NIX_SSHOPTS` and
- *  `nixSshOpts()` go through here. */
+ *  The one wire-format definition for the env shape. */
 const toEnv = (pairs: readonly (readonly [string, string])[]): string =>
   pairs.map(([key, value]) => `-o ${key}=${value}`).join(" ");
 
-/** The policy as an ssh `-o Key=Value` argv, for the ssh commands this
- *  package spawns directly (agent session, probe/realise/pin). Exported so
- *  consumers that build their *own* ssh command — e.g. the `mini-ci`
- *  surface example, which ships source over ssh with `git archive` instead
- *  of a nix closure — reuse the same dead-peer policy rather than copying
- *  it. (`buildAgentCommand`/`buildSshProbeCommand` already bake it in for
- *  the argv shapes this package spawns itself.) */
+/** The dead-peer policy ALONE as an ssh `-o Key=Value` argv — the keepalive
+ *  primitive, for a consumer that wants to state this package's policy and owns
+ *  its own multiplexing decision.
+ *
+ *  An out-of-package consumer building its own ssh command almost always wants
+ *  {@link sshDialOpts} instead: this function names no `ControlPath`, and
+ *  emitting nothing is NOT "no multiplexing" — ssh falls through to the user's
+ *  `~/.ssh/config`, where an ordinary `Host *` block with `ControlMaster auto`
+ *  supplies a master keyed by host+user+port and NOT by policy, so the very
+ *  `ServerAlive*` this call rendered is silently replaced by whatever opened
+ *  that master. */
 export function sshCommonOpts(
   keepalive: SshKeepalive = DEFAULT_SSH_KEEPALIVE,
 ): readonly string[] {
   return toArgv(sshOptPairs(keepalive));
 }
 
+/** The COMPLETE argv a dial's ssh needs at `keepalive`: the dead-peer policy AND
+ *  this package's `ControlMaster` decision — which is either our own per-policy
+ *  socket or an explicit `ControlPath=none` refusal, never silence.
+ *
+ *  THIS is what a consumer that builds its own ssh command wants — e.g. the
+ *  `mini-ci` surface example, which ships source over ssh with `git archive`
+ *  instead of a nix closure. It is exactly what {@link buildAgentCommand} and
+ *  {@link buildSshProbeCommand} emit for their remote arm, composed in ONE
+ *  place, so the seam this package hands outward cannot render a different
+ *  policy from the one it spawns with — which is how {@link sshCommonOpts}
+ *  alone reopened, at the outward seam, the master-inheritance failure the
+ *  per-policy socket keying exists to abolish. */
+export function sshDialOpts(
+  keepalive: SshKeepalive = DEFAULT_SSH_KEEPALIVE,
+): readonly string[] {
+  return toArgv([...sshOptPairs(keepalive), ...controlOptPairs(keepalive)]);
+}
+
 /** {@link sshCommonOpts} at the default policy, as a const — the pre-existing
- *  public spelling, kept so this change breaks no importer. Exactly
- *  `sshCommonOpts(DEFAULT_SSH_KEEPALIVE)`; reach for the function when a consumer
- *  states its own policy. */
+ *  public spelling, kept so this change breaks no out-of-tree importer.
+ *
+ *  @deprecated Kept only for source compatibility, and it is the WRONG default
+ *  reach: it is the shortest, most discoverable spelling while being the shape
+ *  that omits this package's `ControlMaster` decision. A consumer building its
+ *  own ssh command wants {@link sshDialOpts}; a consumer stating its own policy
+ *  wants `sshCommonOpts(keepalive)`. This const is neither. */
 export const SSH_COMMON_OPTS: readonly string[] = sshCommonOpts();
 
-/** The default policy as the `NIX_SSHOPTS` env string that a remote-store Nix
- *  command reads. Nix spawns its *own* ssh which never sees our argv, so this
- *  env var is the only handle on its dead-peer behaviour — without it the
- *  remote-store step is exposed to the exact hang `SSH_COMMON_OPTS`
- *  closes for the commands we spawn directly. */
-export const NIX_SSHOPTS: string = toEnv(sshOptPairs());
-
-/** The `NIX_SSHOPTS` env string for remote-store Nix commands, as a
- *  function (not the const above) so it can carry a caller's own
- *  {@link SshKeepalive} AND the runtime-computed `ControlMaster` pairs (see
- *  `controlOptPairs`). The const above renders the default policy alone and is
- *  NOT re-exported from the package index — in-package readers and tests only;
- *  THIS is what every `nixCopy` site passes, so Nix's internal ssh rides the SAME
- *  shared master the arch probe opened — not a fresh ~5s handshake. When
- *  multiplexing is unavailable `controlOptPairs()` returns an explicit
- *  `ControlPath=none`, so this degrades to the plain rendered policy plus a
- *  refusal to multiplex — never to silence, which would hand the connection to
- *  whatever master the user's own `ssh_config` names. */
+/** The `NIX_SSHOPTS` env string for remote-store Nix commands, carrying a
+ *  caller's own {@link SshKeepalive} AND the runtime-computed `ControlMaster`
+ *  pairs (see `controlOptPairs`) — the env-form twin of {@link sshDialOpts}.
+ *
+ *  Nix spawns its *own* ssh which never sees our argv, so this env var is the
+ *  only handle on its dead-peer behaviour. Every `nixCopy` site passes it, so
+ *  Nix's internal ssh rides the SAME shared master the arch probe opened — not
+ *  a fresh ~5s handshake. When multiplexing is unavailable `controlOptPairs()`
+ *  returns an explicit `ControlPath=none`, so this degrades to the plain
+ *  rendered policy plus a refusal to multiplex — never to silence, which would
+ *  hand the connection to whatever master the user's own `ssh_config` names. */
 export function nixSshOpts(
   keepalive: SshKeepalive = DEFAULT_SSH_KEEPALIVE,
 ): string {
   return toEnv([...sshOptPairs(keepalive), ...controlOptPairs(keepalive)]);
-}
-
-/** The `ControlMaster` opts as ssh `-o` argv — empty when multiplexing is
- *  unavailable (see `controlOptPairs`). Appended after the keepalive opts by
- *  the spawned-ssh builders so the agent dial, the arch probe, and the
- *  realise all ride the one shared master.
- *
- *  Takes the KEEPALIVE because the control socket is keyed by it: OpenSSH
- *  applies `ServerAlive*` from the process that OPENED the master, so two
- *  policies sharing one `ControlPath` would silently give the second one the
- *  first one's dead-peer behaviour. See `controlMaster.ts`. */
-function controlArgv(keepalive: SshKeepalive): string[] {
-  return toArgv(controlOptPairs(keepalive));
 }
 
 /** Argv to spawn the agent on `host` against the realised `agentPath`.
@@ -467,8 +401,7 @@ export function buildAgentCommand(
     // a real ssh destination never starts with `-`, so it rejects no
     // legitimate host. (`opts.host` is a bare positional here, the sink.)
     args: [
-      ...sshCommonOpts(keepalive),
-      ...controlArgv(keepalive),
+      ...sshDialOpts(keepalive),
       "--",
       opts.host,
       exe,
@@ -525,8 +458,7 @@ export function buildSshProbeCommand(
     // Quote remote tokens the same way `buildAgentCommand` quotes `extraArgs`
     // — the remote login shell re-parses this argv as one string.
     args: [
-      ...sshCommonOpts(keepalive),
-      ...controlArgv(keepalive),
+      ...sshDialOpts(keepalive),
       "--",
       host,
       ...remoteArgv.map(shellQuoteArg),

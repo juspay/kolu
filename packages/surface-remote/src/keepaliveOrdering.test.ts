@@ -23,17 +23,24 @@ import {
   MAX_HEARTBEAT_INTERVAL_MS,
   MAX_HEARTBEAT_TIMEOUT_MS,
 } from "@kolu/surface/heartbeat";
-import { DEFAULT_SSH_KEEPALIVE, MAX_SSH_KEEPALIVE_TOLERANCE_S } from "./host";
+import {
+  DEFAULT_SSH_KEEPALIVE,
+  keepaliveToleranceS,
+  MAX_SSH_KEEPALIVE_TOLERANCE_S,
+  sshKeepalive,
+} from "./keepalive";
 
 /** Worst-case wall time before the heartbeat calls a connected link stale. */
 const heartbeatVerdictMs = (intervalMs: number, timeoutMs: number): number =>
   intervalMs + timeoutMs;
 
-/** Wall time before ssh calls the peer dead. */
+/** Wall time before ssh calls the peer dead. The product is derived by
+ *  `keepaliveToleranceS` — the same one the bound checks and both error
+ *  messages print — so this test cannot drift from the value it is comparing. */
 const keepaliveVerdictMs = (k: {
-  intervalS: number;
-  countMax: number;
-}): number => k.intervalS * k.countMax * 1_000;
+  readonly intervalS: number;
+  readonly countMax: number;
+}): number => keepaliveToleranceS(k) * 1_000;
 
 describe("ssh keepalive vs the heartbeat watchdog", () => {
   it("at the defaults the heartbeat is the FASTER judge on a connected link", () => {
@@ -52,7 +59,7 @@ describe("ssh keepalive vs the heartbeat watchdog", () => {
     // The documented CI policy. Its ssh tolerance is five minutes, but with the
     // default heartbeat the link is still force-cycled at ~25s — which is why
     // every doc sentence tells a consumer to raise `liveness` alongside.
-    const ci = { intervalS: 30, countMax: 10 };
+    const ci = sshKeepalive(30, 10);
     expect(keepaliveVerdictMs(ci)).toBe(300_000);
     expect(
       heartbeatVerdictMs(
@@ -64,12 +71,12 @@ describe("ssh keepalive vs the heartbeat watchdog", () => {
 
   it("the matching heartbeat tuning the reference prints is actually reachable", () => {
     // ref-surface-remote.mdx shows `liveness: { intervalMs: 240_000, timeoutMs:
-    // 60_000 }` beside `{ intervalS: 30, countMax: 10 }`. Both halves must be
+    // 60_000 }` beside `sshKeepalive(30, 10)`. Both halves must be
     // within the heartbeat's own ceilings or that snippet throws at runtime.
     expect(240_000).toBeLessThanOrEqual(MAX_HEARTBEAT_INTERVAL_MS);
     expect(60_000).toBeLessThanOrEqual(MAX_HEARTBEAT_TIMEOUT_MS);
     expect(heartbeatVerdictMs(240_000, 60_000)).toBe(
-      keepaliveVerdictMs({ intervalS: 30, countMax: 10 }),
+      keepaliveVerdictMs(sshKeepalive(30, 10)),
     );
   });
 

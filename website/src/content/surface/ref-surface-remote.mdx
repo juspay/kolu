@@ -53,7 +53,7 @@ flake-backed arm that survives local garbage collection. **`localEnv: Record<str
 Nix wrapper itself; the package name is the same `binary` value, so the
 executable and derivation cannot drift into two hand-maintained mappings.
 
-`keepalive?: { intervalS, countMax }` is the dial's ssh **dead-peer policy** —
+`keepalive?: SshKeepalive` is the dial's ssh **dead-peer policy** —
 `ServerAliveInterval` and `ServerAliveCountMax`, so a link may sit silent for
 `intervalS × countMax` seconds before ssh declares the peer dead and the session
 redials. It defaults to `DEFAULT_SSH_KEEPALIVE` (`10 × 3` ≈ 30s), which is what
@@ -61,15 +61,29 @@ an interactive tool wants: a host that stopped answering must stop *looking*
 connected. **Raise it for a long-running unattended dial that a redial would
 destroy rather than repair** — a CI lane whose provisioning build has been
 compiling for twenty minutes should ride out a multi-minute network blip, not be
-killed and restarted (`{ intervalS: 30, countMax: 10 }` buys five minutes). The
-cost is symmetric: a genuinely dead host keeps that dial parked for the same
-window before the loop retries. Out-of-range values throw at `sshConnector(...)`
-construction rather than being clamped (`assertSshKeepalive`, ceiling
-`MAX_SSH_KEEPALIVE_TOLERANCE_S` = one hour). The policy reaches **every** ssh the
-dial spawns: the arch probe, the cache prefetch, the warm validity check, the
-GC-root pin, the closure ship, the `NIX_SSHOPTS` that the remote-store `nix
-build` forks its own ssh with, and the agent command itself. `dialAgentOnce`
-takes the same option and forwards it.
+killed and restarted (`sshKeepalive(30, 10)` buys five minutes). The cost is
+symmetric: a genuinely dead host keeps that dial parked for the same window
+before the loop retries.
+
+`sshKeepalive(intervalS, countMax)` is the only way to make one — a validated
+value, not a record you can hand-assemble — so an out-of-range policy throws at
+the literal you wrote rather than at whichever ssh renders it first, and it is
+never clamped (ceiling `MAX_SSH_KEEPALIVE_TOLERANCE_S` = one hour). The policy
+reaches **every** ssh the dial spawns: the arch probe, the cache prefetch, the
+warm validity check, the GC-root pin, the closure ship, the `NIX_SSHOPTS` that
+the remote-store `nix build` forks its own ssh with, and the agent command
+itself. `dialAgentOnce` takes the same option and forwards it — along with
+`liveness`, its other half.
+
+Building your own ssh command outside this package? Use
+`sshDialOpts(keepalive)`, not `sshCommonOpts(keepalive)`: it emits the complete
+set the builders above emit — the dead-peer policy **and** this package's
+`ControlMaster` decision (our per-policy socket, or an explicit
+`ControlPath=none`). `sshCommonOpts` names no `ControlPath` at all, and silence
+is not "no multiplexing": ssh falls through to the user's `~/.ssh/config`, where
+an ordinary `Host *` block with `ControlMaster auto` supplies a master keyed by
+host+user+port and **not** by policy — which silently replaces the very
+`ServerAlive*` you just rendered.
 
 <Aside type="caution" title="Raising this alone does not protect a CONNECTED link">
   `keepalive` governs the **dialling** phases — `probing` and `provisioning`,
@@ -88,10 +102,22 @@ takes the same option and forwards it.
 
   ```ts
   makeSession({
-    connectOnce: sshConnector({ …, keepalive: { intervalS: 30, countMax: 10 } }),
+    connectOnce: sshConnector({ …, keepalive: sshKeepalive(30, 10) }),
     liveness: { intervalMs: 240_000, timeoutMs: 60_000 }, // ≈5 min, matching
   });
   ```
+
+  `dialAgentOnce` takes both halves for the same reason — `keepalive` and
+  `liveness` side by side — so the pairing is expressible on the one-shot facade
+  every `--host` CLI and unattended runner reaches for, without dropping a layer
+  and composing `makeSession` by hand.
+
+  The two ceilings differ, and deliberately: `MAX_SSH_KEEPALIVE_TOLERANCE_S` is
+  one hour against the heartbeat's reachable 420s. They bound different
+  questions — the ssh policy is the lower-layer transport backstop and it also
+  polices `probing`/`provisioning`, which the watchdog does not watch at all
+  (`isLive()` requires `phase === "connected"`). A tolerance past 420s is
+  legitimate; what it is reachable *during* is dialling, never a connected link.
 </Aside>
 
 <Aside type="note" title="A ControlMaster's opener fixes ServerAlive* for its lifetime">

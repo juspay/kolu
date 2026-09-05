@@ -14,20 +14,23 @@ import { __resetControlMemo } from "./controlMaster";
 import {
   buildAgentCommand,
   buildSshProbeCommand,
-  DEFAULT_SSH_KEEPALIVE,
   looksLikeNetworkError,
-  MAX_SSH_KEEPALIVE_TOLERANCE_S,
-  NIX_SSHOPTS,
   nixSshOpts,
   SSH_COMMON_OPTS,
   sshCommonOpts,
-  type SshKeepalive,
+  sshDialOpts,
   sshRefusalOf,
 } from "./host";
+import {
+  DEFAULT_SSH_KEEPALIVE,
+  MAX_SSH_KEEPALIVE_TOLERANCE_S,
+  type SshKeepalive,
+  sshKeepalive,
+} from "./keepalive";
 
 /** A CI-shaped policy: 30s × 10 = five minutes of tolerated silence, the shape
  *  juspay/odu passes so a network blip doesn't kill a running lane. */
-const CI_KEEPALIVE: SshKeepalive = { intervalS: 30, countMax: 10 };
+const CI_KEEPALIVE: SshKeepalive = sshKeepalive(30, 10);
 
 // Every spawned-ssh builder now appends the P2.8 ControlMaster opts, which
 // mkdir a kolu-private control dir. Point that at a throwaway private tmp dir
@@ -336,7 +339,8 @@ describe("ssh keepalive policy", () => {
     // The literal every consumer that states nothing gets. Pinned here (not
     // read back from the const) so a change to the default is a deliberate,
     // visible edit rather than a silently-green tautology.
-    expect(DEFAULT_SSH_KEEPALIVE).toEqual({ intervalS: 10, countMax: 3 });
+    expect(DEFAULT_SSH_KEEPALIVE.intervalS).toBe(10);
+    expect(DEFAULT_SSH_KEEPALIVE.countMax).toBe(3);
     assertKeepAlive(sshCommonOpts());
     assertKeepAlive([...SSH_COMMON_OPTS]);
   });
@@ -405,62 +409,71 @@ describe("ssh keepalive policy", () => {
     );
   });
 
-  it("validates on BOTH arms — a localhost dial is not a validation loophole", () => {
-    // Rendering happens only on the remote arm (both builders short-circuit for
-    // isLocalHost before any opt is rendered), so a check that rode the renderer
-    // would make fail-fast a property of WHICH HOST you dialled. The assert sits
-    // at the seam that ACCEPTS the value instead.
-    const bad = { intervalS: 0, countMax: 3 };
-    expect(() =>
-      buildSshProbeCommand({ host: "localhost", keepalive: bad }, "nix-store"),
-    ).toThrow(/ssh keepalive/);
-    expect(() =>
-      buildAgentCommand({
-        host: "localhost",
-        agentPath: "/p",
-        binary: "a",
-        localEnv: {},
-        keepalive: bad,
-      }),
-    ).toThrow(/ssh keepalive/);
-  });
-
   it("THROWS on an absurd or malformed policy — never clamps it", () => {
     // Fail-fast, the sibling of createHeartbeat's MAX_HEARTBEAT_* guard: a
     // policy is rejected, never silently reshaped into one nobody asked for.
-    for (const bad of [
-      { intervalS: 0, countMax: 3 },
-      { intervalS: -10, countMax: 3 },
-      { intervalS: 10, countMax: 0 },
-      { intervalS: 2.5, countMax: 3 },
-      { intervalS: Number.NaN, countMax: 3 },
-      { intervalS: Number.POSITIVE_INFINITY, countMax: 3 },
+    //
+    // And it is rejected in ONE place — `sshKeepalive` is the only producer of
+    // a branded `SshKeepalive`, so the throw lands at the literal the consumer
+    // wrote rather than at whichever render seam happens to see it first. That
+    // closes the localhost loophole structurally too: there is no longer an
+    // unvalidated value that could reach a builder whose local arm renders no
+    // opts at all, so fail-fast cannot become a property of WHICH HOST you
+    // dialled.
+    for (const [intervalS, countMax] of [
+      [0, 3],
+      [-10, 3],
+      [10, 0],
+      [2.5, 3],
+      [Number.NaN, 3],
+      [Number.POSITIVE_INFINITY, 3],
       // 120 × 60 = 7200s — past the one-hour tolerance ceiling.
-      { intervalS: 120, countMax: 60 },
-    ] satisfies SshKeepalive[]) {
-      expect(() => sshCommonOpts(bad)).toThrow(/ssh keepalive/);
-      expect(() => nixSshOpts(bad)).toThrow(/ssh keepalive/);
-      expect(
-        () =>
-          buildSshProbeCommand({ host: "h", keepalive: bad }, "nix-store").args,
-      ).toThrow(/ssh keepalive/);
+      [120, 60],
+    ] as const) {
+      expect(() => sshKeepalive(intervalS, countMax)).toThrow(/ssh keepalive/);
     }
     // The boundary itself is allowed: exactly one hour of tolerance passes.
-    expect(() => sshCommonOpts({ intervalS: 60, countMax: 60 })).not.toThrow();
+    expect(() => sshKeepalive(60, 60)).not.toThrow();
     expect(60 * 60).toBe(MAX_SSH_KEEPALIVE_TOLERANCE_S);
   });
 });
 
-describe("NIX_SSHOPTS", () => {
-  it("renders the same keepalive policy as the spawned-ssh argv", () => {
-    // Remote-store Nix forks its own ssh out of reach of our
-    // argv; this env string is the only handle on its dead-peer
-    // behaviour, so it must carry the identical policy. Parse it back
-    // through the argv reader (NIX_SSHOPTS is word-split by nix) and
-    // assert the same four flags the spawned ssh gets. (The const carries
-    // the keepalive policy alone; `nixSshOpts()` is what additionally
-    // carries the ControlMaster opts — asserted below.)
-    assertKeepAlive(NIX_SSHOPTS.split(" "));
+describe("sshDialOpts — the COMPLETE outward-facing opt set", () => {
+  it("is what the builders emit: keepalive AND the ControlMaster decision", () => {
+    // The seam this package hands an out-of-package consumer must render the
+    // SAME set the package spawns with. `sshCommonOpts` alone names no
+    // ControlPath, and silence is not "no multiplexing" — ssh falls through to
+    // the user's ~/.ssh/config, where a master keyed by host+user+port (not by
+    // policy) silently replaces the very ServerAlive* that call rendered.
+    const dial = [...sshDialOpts(CI_KEEPALIVE)];
+    assertKeepAlive(dial, CI_KEEPALIVE);
+    assertMultiplex(dial, CI_KEEPALIVE);
+    // Byte-for-byte the option prefix both builders emit — one composition, so
+    // the outward seam cannot drift from the argv this package spawns.
+    const probe = buildSshProbeCommand(
+      { host: "bob.example", keepalive: CI_KEEPALIVE },
+      "nix-store",
+      "--realise",
+      "x",
+    ).args;
+    expect(probe.slice(0, dial.length)).toEqual(dial);
+    const agent = buildAgentCommand({
+      host: "bob.example",
+      agentPath: "/nix/store/x-agent",
+      binary: "my-agent",
+      localEnv: {},
+      keepalive: CI_KEEPALIVE,
+    }).args;
+    expect(agent.slice(0, dial.length)).toEqual(dial);
+    // …and nothing is double-appended by the composition.
+    const opts = dial.filter((a) => a !== "-o");
+    expect(new Set(opts).size).toBe(opts.length);
+  });
+
+  it("names the SAME socket as the env form nix's own ssh reads", () => {
+    expect(sshOpts([...sshDialOpts(CI_KEEPALIVE)]).ControlPath).toBe(
+      sshOpts(nixSshOpts(CI_KEEPALIVE).split(" ")).ControlPath,
+    );
   });
 });
 
