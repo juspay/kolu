@@ -30,7 +30,7 @@
  * ours. Addressed by ssh's `%C` token (a fixed-length host+port+user hash)
  * to keep the leaf short and whitespace-free — but "short" is not something
  * this module gets to assert, because the DIRECTORY comes from the
- * environment: see {@link controlPathFits}, which measures it.
+ * environment: see {@link usableControlPath}, which measures it.
  *
  * Why the path is ALSO keyed by the {@link KeepalivePlan} — the correctness
  * constraint this module owes the per-dial keepalive policy: OpenSSH applies
@@ -168,33 +168,64 @@ const SUN_PATH_BYTES = 104;
  *  socket name would still let the master die. A dot plus sixteen bytes. */
 const MASTER_TEMP_SUFFIX_BYTES = 17;
 
-/** Will the `ControlPath` we are about to name still fit in a unix socket
- *  address once ssh expands it — including the temporary name the master binds
- *  first? If not, we must not name it at all.
+/** The ONE rule a control DIRECTORY has to pass: every character is an ordinary
+ *  literal path character. An ALLOWLIST, not a list of banned shapes — the
+ *  directory comes from `$XDG_RUNTIME_DIR`, an environment string, and the
+ *  question we actually need answered is "does this render into a `ControlPath`
+ *  that means exactly what it says?", which only a positive rule can answer.
  *
- *  This is a real regression guard, not a theoretical one: keying the socket by
- *  policy grew the leaf from `/%C` to `/%C-10x3`, and a runtime dir just 49
+ *  Three separate refusals used to try, and between them they still let a real
+ *  break through. Nix does not word-split `NIX_SSHOPTS`, it SHELL-splits it, so
+ *  a single quote character is enough (verified against Nix 2.34.8):
+ *
+ *      $ NIX_SSHOPTS="-o Foo='bar" nix store info --store ssh://nonexistent.invalid
+ *      error: … while splitting NIX_SSHOPTS '-o Foo='bar' / unterminated single quote
+ *
+ *  — which breaks EVERY remote-store Nix command in the dial, while passing a
+ *  whitespace test, an expansion-syntax test and a length test alike. One
+ *  allowlist subsumes all of them: whitespace, `%` tokens, `${ENV}` and quotes
+ *  are refused by the same rule, and so is whatever the next environment string
+ *  turns out to carry.
+ *
+ *  Escaping is the alternative and it is the wrong trade: it would make this
+ *  module responsible for two foreign quoting dialects (ssh's and the shell
+ *  Nix splits with) to buy back a speedup on a runtime dir nobody has. Being
+ *  over-strict costs only the speedup — an unusable dir degrades to
+ *  {@link NO_MULTIPLEXING}, exactly as an un-creatable one does — so the rule is
+ *  strictly no-worse than the blocklists it replaces. Real runtime dirs
+ *  (`/run/user/1000`, `/tmp/kolu-ssh-501`) pass it. */
+const LITERAL_CONTROL_DIR = /^[A-Za-z0-9_./-]+$/;
+
+/** The `ControlPath` to name for `plan` inside `dir` — or `null` if we must not
+ *  name one at all. The directory's LITERALNESS and the expanded path's LENGTH
+ *  are one question ("is this a path we can name and ssh can bind?"), so they
+ *  are one predicate.
+ *
+ *  Length is a real regression guard, not a theoretical one: keying the socket
+ *  by policy grew the leaf from `/%C` to `/%C-10x3`, and a runtime dir just 49
  *  bytes longer than `/tmp/` took the DEFAULT policy from 104 expanded bytes
  *  (which OpenSSH accepts on Linux) to 109 (`ControlPath too long (… >= 108
  *  bytes)`, and ssh dies before it connects). `getRuntimeSocketPath` hands us
  *  whatever `$XDG_RUNTIME_DIR` says, so the directory's length is an input, not
  *  a constant we may assert about.
  *
- *  Bytes, not characters: `sun_path` is a byte buffer, and a multibyte runtime
- *  dir spends more of it than its `.length` suggests.
- *
- *  It subtracts exactly ONE `%C` because exactly one is present: the leaf this
- *  module composes. That is only true because {@link hasSshExpansion} has
- *  already refused any directory carrying expansion syntax of its own — without
- *  that refusal a `%C` in `$XDG_RUNTIME_DIR` would be 40 uncounted bytes and
- *  this arithmetic would approve a path ssh cannot bind. */
-function controlPathFits(renderedPath: string): boolean {
+ *  The arithmetic subtracts exactly ONE `%C` because exactly one is present —
+ *  the leaf composed on the line above — and that is now provable HERE rather
+ *  than by cross-function prose: the allowlist two lines up admits no `%` in the
+ *  directory half, so no uncounted 40-byte hash can hide in it. Bytes rather
+ *  than characters for the same locality: `sun_path` is a byte buffer, and the
+ *  measurement should be about the buffer even though the allowlist happens to
+ *  confine us to ASCII. */
+function usableControlPath(dir: string, plan: KeepalivePlan): string | null {
+  if (!LITERAL_CONTROL_DIR.test(dir)) return null;
+  const path = `${dir}/%C-${policyTag(plan)}`;
   const expandedBytes =
-    Buffer.byteLength(renderedPath, "utf8") -
+    Buffer.byteLength(path, "utf8") -
     "%C".length +
     CONTROL_HASH_BYTES +
     MASTER_TEMP_SUFFIX_BYTES;
-  return expandedBytes + 1 <= SUN_PATH_BYTES; // +1: the terminating NUL
+  if (expandedBytes + 1 > SUN_PATH_BYTES) return null; // +1: the terminating NUL
+  return path;
 }
 
 /** The memoized EFFECT — one slot, because it is policy-INDEPENDENT. The
@@ -204,49 +235,25 @@ function controlPathFits(renderedPath: string): boolean {
  *  `null` = computed, and we cannot own one. */
 let controlDir: string | null | undefined;
 
-/** Does `dir` carry syntax OpenSSH would EXPAND rather than take literally? A
- *  `%` token (`%C`, `%h`, `%%`, or an unknown one) or the `${ENV}` form.
- *
- *  ssh expands the WHOLE `ControlPath`, not just the leaf we compose, and the
- *  directory half comes from `$XDG_RUNTIME_DIR` — an environment string, not a
- *  constant we may assert about. Codex demonstrated both halves of the damage
- *  against real ssh: `XDG_RUNTIME_DIR=/tmp/ka2-…/%C%C` dies with `ControlPath
- *  too long (>= 108 bytes)` before it connects (two extra 40-byte hashes
- *  {@link controlPathFits} never counted), and a `%Z` directory dies with
- *  `vdollar_percent_expand: unknown key %Z`.
- *
- *  Fitting is the lesser half. The DIRECTORY ssh actually opens the socket in
- *  would not be the directory we created and whose `0700` ownership
- *  {@link isPrivateOwnedDir} verified — and a privacy check on a path that is
- *  not the socket's real location means nothing. Those two must be the same
- *  path, so the environment-derived directory is treated as literal data: if it
- *  is not, we do not multiplex at all.
- *
- *  Sits beside the whitespace refusal because it is the same class of rule — a
- *  directory string we cannot render into a `ControlPath` that means what it
- *  says. Escaping is the alternative, and it is the wrong trade here: it would
- *  make this module responsible for a foreign quoting dialect to buy back a
- *  speedup on a runtime dir nobody has. */
-const hasSshExpansion = (dir: string): boolean => /%|\$\{/.test(dir);
-
 /** Create (or adopt) the private control dir, once. `null` on any of: a
- *  directory path containing whitespace (which would corrupt the word-split
- *  `NIX_SSHOPTS` form while the argv form stayed correct — and it is the DIR
- *  that can carry a space, since `sshKeepalive`'s integers make the `%C-<tag>`
- *  leaf whitespace-free by construction), a directory carrying ssh expansion
- *  syntax (see {@link hasSshExpansion}), an un-creatable runtime dir (read-only
- *  FS, no `$XDG_RUNTIME_DIR` and no writable `/tmp`, …), or a dir that isn't
- *  owner-only.
+ *  directory that is not literal path text ({@link LITERAL_CONTROL_DIR} — which
+ *  covers whitespace, ssh's `%`/`${}` expansion syntax, and the quote characters
+ *  Nix's SHELL-split of `NIX_SSHOPTS` chokes on), an un-creatable runtime dir
+ *  (read-only FS, no `$XDG_RUNTIME_DIR` and no writable `/tmp`, …), or a dir
+ *  that isn't owner-only.
  *
- *  Both string refusals come BEFORE the `mkdir`: a directory we will not name
- *  in a `ControlPath` is not one to create either. */
+ *  The string refusal comes BEFORE the `mkdir`: a directory we will not name in
+ *  a `ControlPath` is not one to create either. It is also what keeps the
+ *  privacy check meaningful — ssh expands the WHOLE `ControlPath`, so a
+ *  directory carrying expansion syntax would put the socket somewhere other than
+ *  the `0700` dir we just verified, and a privacy check on a path that is not
+ *  the socket's real location means nothing. */
 function ensureControlDir(): string | null {
   if (controlDir !== undefined) return controlDir;
   controlDir = ((): string | null => {
     try {
       const dir = controlDirPath();
-      if (/\s/.test(dir)) return null;
-      if (hasSshExpansion(dir)) return null;
+      if (!LITERAL_CONTROL_DIR.test(dir)) return null;
       mkdirSync(dir, { recursive: true, mode: 0o700 });
       // mkdir's mode is a no-op on a pre-existing dir, so VERIFY privacy
       // rather than assume it — a stable per-user path another local user
@@ -285,8 +292,8 @@ function ensureControlDir(): string | null {
  *
  *  That suffix costs `sun_path` budget, and the budget is not ours to assume —
  *  the directory comes from `$XDG_RUNTIME_DIR`. So the expanded length is
- *  MEASURED here ({@link controlPathFits}) rather than asserted in a comment,
- *  and a path that will not fit degrades like every other unusable setup.
+ *  MEASURED ({@link usableControlPath}) rather than asserted in a comment, and a
+ *  path that will not fit degrades like every other unusable setup.
  *
  *  Degrades to {@link NO_MULTIPLEXING} — never throws. Graceful degradation of
  *  an additive speedup, mirroring `serveOverUnixSocket`'s no-op `refused()`
@@ -300,10 +307,11 @@ export function controlOptPairs(
 ): readonly (readonly [string, string])[] {
   const dir = ensureControlDir();
   if (dir === null) return NO_MULTIPLEXING;
-  const path = `${dir}/%C-${policyTag(plan)}`;
-  // A path ssh cannot bind is worse than no multiplexing: ssh would fail the
-  // command outright rather than merely re-handshake. Refuse instead.
-  if (!controlPathFits(path)) return NO_MULTIPLEXING;
+  // A path ssh cannot bind — or one that would not mean what it says — is worse
+  // than no multiplexing: ssh fails the command outright rather than merely
+  // re-handshaking. Refuse instead.
+  const path = usableControlPath(dir, plan);
+  if (path === null) return NO_MULTIPLEXING;
   return [
     ["ControlMaster", "auto"],
     ["ControlPath", path],

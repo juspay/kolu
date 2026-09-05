@@ -4,10 +4,11 @@
  * keepalive policy, the control dir is created `0700` once (the effect is
  * policy-INDEPENDENT, so it is memoized in one slot while the path stays a pure
  * per-policy computation), and any setup we cannot name a `ControlPath` for — a
- * non-private dir, a whitespace path, a dir carrying ssh expansion syntax, or an
- * expanded path too long for `sun_path` — degrades to an explicit refusal to
- * multiplex rather than corrupting the ssh options. All FS work is confined to a
- * fresh `/tmp` subdir per test; no ssh / nix is spawned.
+ * non-private dir, a dir that is not literal path text (whitespace, ssh
+ * expansion syntax, a quote), or an expanded path too long for `sun_path` —
+ * degrades to an explicit refusal to multiplex rather than corrupting the ssh
+ * options. All FS work is confined to a fresh `/tmp` subdir per test; no ssh /
+ * nix is spawned.
  */
 import {
   chmodSync,
@@ -172,33 +173,27 @@ describe("controlOptPairs ensure-dir", () => {
     ]);
   });
 
-  it("refuses multiplexing (never silence) when the path would contain whitespace", () => {
-    const xdg = freshXdg();
-    vi.stubEnv("XDG_RUNTIME_DIR", `${xdg} with space`);
-    __resetControlMemo();
-    // Upholds the NIX_SSHOPTS word-split contract: a space-bearing path drops
-    // OUR control pairs rather than corrupt the env form — and says so as
-    // ControlPath=none, both values whitespace-free.
-    expect(pairsFor()).toEqual([
-      ["ControlMaster", "no"],
-      ["ControlPath", "none"],
-    ]);
-  });
-
-  // ssh expands the WHOLE ControlPath, and the directory half of ours comes
-  // from $XDG_RUNTIME_DIR — an environment string. Codex ran each of these
-  // against real ssh: the extra `%C` dies with `ControlPath too long (>= 108
-  // bytes)` (two 40-byte hashes the length guard never counted) and the unknown
-  // token dies with `vdollar_percent_expand: unknown key %Z`, both before the
-  // connection. The deeper reason to refuse rather than count harder: the
-  // directory ssh would actually open the socket in is NOT the directory we
-  // created and whose 0700 ownership we verified, so the privacy check would no
-  // longer describe the socket's real location.
-  it("refuses multiplexing when the runtime dir carries ssh expansion syntax", () => {
+  // ONE allowlist decides all of these, which is why they are one test. ssh
+  // expands the WHOLE ControlPath and Nix SHELL-splits NIX_SSHOPTS, and the
+  // directory half of ours comes from $XDG_RUNTIME_DIR — an environment string
+  // both of them get to reinterpret. Each case is a real break, verified against
+  // the real tools: the extra `%C` dies with `ControlPath too long (>= 108
+  // bytes)` (two 40-byte hashes a length guard never counts), the unknown token
+  // dies with `vdollar_percent_expand: unknown key %Z`, and a lone quote dies in
+  // Nix 2.34.8 with `while splitting NIX_SSHOPTS … unterminated single quote`
+  // — that last one passing a whitespace rule, an expansion rule and a length
+  // rule alike while breaking every remote-store Nix command in the dial. The
+  // deeper reason to refuse rather than escape or count harder: the directory
+  // ssh would actually open the socket in must BE the directory we created and
+  // whose 0700 ownership we verified, or the privacy check describes nothing.
+  it("refuses multiplexing when the runtime dir is not literal path text", () => {
     for (const dirName of [
+      "ka2 with space", // corrupts the NIX_SSHOPTS split; argv form stays right
       "ka2-%C%C", // an extra fixed-width token the byte budget never saw
       "ka2-%Z", // an unknown key — ssh fatals rather than expanding it
       "ka2-${HOME}", // the environment-expansion form
+      "ka2-'q", // a lone single quote — Nix's shell-split fatals on it
+      'ka2-"q', // and its double-quoted twin
     ]) {
       vi.stubEnv("XDG_RUNTIME_DIR", namedXdg(dirName));
       __resetControlMemo();
@@ -212,8 +207,10 @@ describe("controlOptPairs ensure-dir", () => {
   });
 
   it("still multiplexes for a plain runtime dir — the control for that refusal", () => {
-    // The rule is about expansion syntax, not about being picky: an ordinary
-    // directory still gets the speedup, with the one `%C` we composed intact.
+    // The allowlist is a rule about what a path may CONTAIN, not an excuse to be
+    // picky: an ordinary directory still gets the speedup, with the one `%C` we
+    // composed intact. Real runtime dirs (`/run/user/1000`, `/tmp/kolu-ssh-501`)
+    // are ordinary in exactly this way.
     vi.stubEnv("XDG_RUNTIME_DIR", freshXdg());
     __resetControlMemo();
     const path = controlPathValue() as string;
@@ -222,6 +219,13 @@ describe("controlOptPairs ensure-dir", () => {
     // arithmetic in `controlPathFits` (one `%C` subtracted) correct.
     expect(path.split("%").length - 1).toBe(1);
     expect(path).not.toContain("${");
+
+    // A literal real-world shape (digits, dashes, slashes — the same alphabet
+    // as `/run/user/1000` and the `/tmp/kolu-ssh-$UID` fallback), because "the
+    // allowlist does not cost the speedup on a real box" is the claim it owes.
+    vi.stubEnv("XDG_RUNTIME_DIR", namedXdg("kolu-ssh-501"));
+    __resetControlMemo();
+    expect(controlPathValue()).toBe("/tmp/kolu-ssh-501/kolu-ssh/%C-10x3");
   });
 
   // A ControlPath ssh cannot BIND is worse than no multiplexing: ssh does not
@@ -244,9 +248,12 @@ describe("controlOptPairs ensure-dir", () => {
     ]);
   });
 
-  it("measures BYTES, not characters — a multibyte runtime dir counts double", () => {
-    // 20 × U+00E9 is 20 characters and 40 bytes. A `.length` check would call
-    // this path comfortably short; `sun_path` is a byte buffer and it is not.
+  it("refuses a multibyte runtime dir — where a `.length` check would not", () => {
+    // 20 × U+00E9 is 20 characters and 40 bytes, so a `.length` budget would
+    // call this path comfortably short while `sun_path`, a byte buffer, would
+    // not. The allowlist settles it one step earlier (non-ASCII is not literal
+    // path text), and the byte measurement behind it stays honest about the
+    // buffer regardless.
     vi.stubEnv("XDG_RUNTIME_DIR", namedXdg("é".repeat(20)));
     __resetControlMemo();
     expect(pairsFor()).toEqual([
