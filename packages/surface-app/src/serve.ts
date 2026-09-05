@@ -125,6 +125,17 @@
  * louder calls {@link checkUpgradeHeaders} where it MINTS the list, so that part
  * fails there and the accept-time arm is only the offer/accept race.
  *
+ * What this does NOT close, and an app should know it: a listener whose roster
+ * moves now holds TWO live facts that have to agree — the served generation and
+ * this list. If the identity part reaches the roster before its thunk starts
+ * offering the header, the app is back in the original symptom (the part answers
+ * its own procedures while every socket reads as nobody), one level up, and
+ * narrated by nothing, because an empty allowlist is legitimate by design and
+ * stays deliberately quiet. Deriving the list from the roster here would leak an
+ * HTTP-only fact into the generation `serveOverUnixSocket` shares, so the answer
+ * is the app's: derive the thunk from the SAME row its generation is derived
+ * from, and the two cannot disagree.
+ *
  * "Cannot serve" is the WHOLE of it, and that is deliberate: a name outside the
  * grammar and a thunk that simply THREW take the same path, because the rule is
  * about blast radius rather than cause. A part whose thunk crashes mid-reload is
@@ -215,6 +226,11 @@ import {
   type ServedGenerationSource,
 } from "@kolu/surface/expose";
 import { RPC_MAX_FRAME_BYTES } from "@kolu/surface/frame-limit";
+// The framework's own normalise-to-`Error`, not a third spelling of it: the two
+// refusal arms below promise an `Error`, and `toError` is where the rule that a
+// TAGGED surface error passes through with its `_tag` intact — so a consumer can
+// still narrow on it — is written down.
+import { toError } from "@kolu/surface/run-stream";
 import { gateWsOrigin } from "@kolu/surface/ws-origin";
 import { hostAuthority } from "@kolu/url-shape";
 import { Data, Effect, type FileSystem, Layer, type Path, Scope } from "effect";
@@ -303,10 +319,6 @@ export {
   type UpgradeHeadersSource,
 } from "./upgradeHeaders";
 
-/** A thrown `cause` as the `Error` an event arm carries. */
-const errorOf = (cause: unknown): Error =>
-  cause instanceof Error ? cause : new Error(String(cause));
-
 /** How an accept obtains its allowlist, resolved ONCE at the bind.
  *
  *  A FIXED array is checked HERE and handed back unchanged at every accept: a
@@ -316,18 +328,17 @@ const errorOf = (cause: unknown): Error =>
  *  the array IS the app, so there is nothing else to blame, and this arm can
  *  never throw again.
  *
- *  A THUNK is a LIVE fact, read and checked at each accept — and NOT at the
- *  bind, which is where this parts company with the generation resolved one line
- *  above it (see there for why). It throws AT THE ACCEPT, for the caller to
- *  answer beside the served generation's own refusal, so the one interesting
- *  thing about this pair — a refused generation terminates the socket, a refused
- *  allowlist does not — is legible where both are decided. What a refusal COSTS
- *  is not this function's business; WHEN the list is read, is.
+ *  A THUNK is a LIVE fact, read and checked at each accept, and it THROWS there
+ *  rather than answering — the call site catches it beside the served
+ *  generation's own refusal, so the one interesting thing about that pair is
+ *  legible where both are decided. What a refusal COSTS is not this function's
+ *  business; WHEN the list is read, is. Why a live thunk is not also probed at
+ *  the BIND, where the generation is: the call site, which is the only place
+ *  both reads are visible at once.
  *
- *  Deliberately NOT guarded around `asked()` alone: a thunk that throws and a
- *  thunk that returns a bad name are one fact here — "this part could not supply
- *  a list" — and separating them would only let the two grow different blast
- *  radii, which is the one thing the caller's policy says they must not have.
+ *  The check deliberately wraps `asked()` rather than sitting after it — see
+ *  {@link SurfaceAppEvent}'s `UpgradeHeadersRefused` for why a thunk that threw
+ *  and a thunk that named a bad header are one fact here.
  *
  *  Returned as a closure rather than branched at each accept so the fixed arm
  *  pays its check exactly once. */
@@ -744,7 +755,7 @@ export const serveSurfaceApp = <Svc = never, H extends string = never>(
             served = servedAtAccept();
           } catch (cause) {
             peer.terminate();
-            report({ _tag: "GenerationRefused", error: errorOf(cause), url });
+            report({ _tag: "GenerationRefused", error: toError(cause), url });
             return;
           }
           // Gated and enrolled — so this is the first instant at which there IS a
@@ -767,7 +778,7 @@ export const serveSurfaceApp = <Svc = never, H extends string = never>(
           } catch (cause) {
             report({
               _tag: "UpgradeHeadersRefused",
-              error: errorOf(cause),
+              error: toError(cause),
               url,
             });
             named = [];

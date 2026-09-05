@@ -289,10 +289,45 @@ const seenBy = async (
   return JSON.parse((answer as { seen: string }).seen);
 };
 
-/** Boot a listener, dial it, and read whatever `pick` makes of the accepted
- *  connection back out — {@link seenBy} plus the boot. That matters most for
- *  `upgradeHeaders`: `H` is inferred here from the allowlist one object literal
- *  over, which is the path a consumer is actually on. */
+/** Boot a listener whose `Viewer` reports whatever `pick` makes of each accepted
+ *  connection, with its whole event trail collected — the ONE probe every
+ *  header claim below is read through, so `H` is inferred from the allowlist one
+ *  object literal over (the path a consumer is actually on) in exactly one place.
+ *
+ *  Returns the trail as well as the server because the live claims are about a
+ *  SECOND accept on the same listener, and half of what they assert is what the
+ *  sink did — or did not — narrate in between. */
+const bootProbe = async <H extends string = never>({
+  pick,
+  upgradeHeaders,
+}: {
+  readonly pick: (connection: SurfaceAppConnection<H>) => unknown;
+  readonly upgradeHeaders?: ReadonlyArray<H> | (() => ReadonlyArray<H>);
+}): Promise<{
+  readonly server: Booted;
+  readonly events: SurfaceAppEvent<H>[];
+  /** How many accepts so far could not be served the list they asked for. The
+   *  count, not the array, is what every assertion here wants — and ONE spelling
+   *  of the filter, so two tests cannot mean different things by it. */
+  readonly refusals: () => number;
+}> => {
+  const events: SurfaceAppEvent<H>[] = [];
+  const server = await boot<Viewer, H>({
+    upgradeHeaders,
+    onEvent: (event) => events.push(event),
+    services: (connection) =>
+      Layer.succeed(Viewer)({ seen: JSON.stringify(pick(connection)) }),
+  });
+  return {
+    server,
+    events,
+    refusals: () =>
+      events.filter((event) => event._tag === "UpgradeHeadersRefused").length,
+  };
+};
+
+/** Boot a probe, dial it once, and read what its handler saw — {@link bootProbe}
+ *  plus one {@link seenBy}, which is every single-accept claim below. */
 const readConnection = async <H extends string = never>({
   pick,
   upgradeHeaders,
@@ -301,18 +336,11 @@ const readConnection = async <H extends string = never>({
   readonly pick: (connection: SurfaceAppConnection<H>) => unknown;
   /** An ARRAY only: this helper boots per call, so a thunk read at its single
    *  accept would prove nothing the array arm does not. The live claims are
-   *  about a SECOND accept on one listener, and boot themselves. */
+   *  about a SECOND accept on one listener, and use {@link bootProbe} directly. */
   readonly upgradeHeaders?: ReadonlyArray<H>;
   readonly sent?: Record<string, string | string[]>;
 }): Promise<unknown> =>
-  seenBy(
-    await boot<Viewer, H>({
-      upgradeHeaders,
-      services: (connection) =>
-        Layer.succeed(Viewer)({ seen: JSON.stringify(pick(connection)) }),
-    }),
-    sent,
-  );
+  seenBy((await bootProbe<H>({ pick, upgradeHeaders })).server, sent);
 
 describe("serveSurfaceApp — the whole listener in one call", () => {
   it("serves the shell over HTTP and the surface over one websocket", async () => {
@@ -666,17 +694,12 @@ describe("serveSurfaceApp — a LIVE allowlist", () => {
     // AND new — stayed anonymous until a restart. The state after the flip must
     // equal the state of a from-scratch boot with the part already on, which is
     // the confluence claim #2225 closed for the served set.
-    const events: SurfaceAppEvent<"Tailscale-User-Login">[] = [];
     let offered: ReadonlyArray<"Tailscale-User-Login"> = [];
-    const server = await boot<Viewer, "Tailscale-User-Login">({
+    const { server, refusals } = await bootProbe<"Tailscale-User-Login">({
+      pick: (connection) => connection.headers,
       upgradeHeaders: () => offered,
-      onEvent: (event) => events.push(event),
-      services: (connection) =>
-        Layer.succeed(Viewer)({ seen: JSON.stringify(connection.headers) }),
     });
     const sent = { "Tailscale-User-Login": "ada@example.com" };
-    const refusals = () =>
-      events.filter((event) => event._tag === "UpgradeHeadersRefused").length;
 
     // The part is off: the header is on the wire and is not readable, because
     // nothing named it.
@@ -707,29 +730,28 @@ describe("serveSurfaceApp — a LIVE allowlist", () => {
     // is exactly the state an app already defines for "no identity". Terminating
     // would let one part's bad list take the whole app down, which is the failure
     // a live allowlist exists to survive.
-    const events: SurfaceAppEvent<"X-Real">[] = [];
-    let offered: ReadonlyArray<"X-Real"> = ["X-Real"];
-    const server = await boot<Viewer, "X-Real">({
+    // `H` spans both names so the bad one is a VALUE the test can offer rather
+    // than a cast: what is under test is the runtime refusal of `set-cookie`,
+    // and an `as unknown as` here would outlive its reason and hide the next
+    // real type error on this line.
+    type Named = "X-Real" | "Set-Cookie";
+    let offered: ReadonlyArray<Named> = ["X-Real"];
+    const { server, events, refusals } = await bootProbe<Named>({
+      pick: (connection) => connection.headers,
       upgradeHeaders: () => offered,
-      onEvent: (event) => events.push(event),
-      services: (connection) =>
-        Layer.succeed(Viewer)({ seen: JSON.stringify(connection.headers) }),
     });
     const sent = { "X-Real": "ada@example.com" };
-    const refusalCount = () =>
-      events.filter((event) => event._tag === "UpgradeHeadersRefused").length;
     expect(await seenBy(server, sent)).toEqual(sent);
 
     // The part now offers a name this seam cannot read off an upgrade.
-    offered = ["Set-Cookie"] as unknown as ReadonlyArray<"X-Real">;
+    offered = ["Set-Cookie"];
     // Served — the dispatch answers, which is the half a terminate would lose —
     // and anonymous, which is the half a silent pass-through would lose.
     expect(await seenBy(server, sent)).toEqual({});
-    const refused = events.filter(
-      (event) => event._tag === "UpgradeHeadersRefused",
-    );
-    expect(refused).toHaveLength(1);
-    expect(refused[0]).toMatchObject({
+    expect(refusals()).toBe(1);
+    expect(
+      events.find((event) => event._tag === "UpgradeHeadersRefused"),
+    ).toMatchObject({
       error: expect.objectContaining({
         message: expect.stringMatching(/"Set-Cookie" cannot be read off/),
       }),
@@ -737,7 +759,7 @@ describe("serveSurfaceApp — a LIVE allowlist", () => {
     // Reported BEFORE the connection it describes, so a log reads in the order
     // it happened: why this connection is anonymous, then the connection.
     expect(
-      events.indexOf(refused[0] as SurfaceAppEvent<"X-Real">),
+      events.findIndex((event) => event._tag === "UpgradeHeadersRefused"),
     ).toBeLessThan(
       events.findIndex(
         (event) => event._tag === "Connected" && event.connection.id === 2,
@@ -750,13 +772,13 @@ describe("serveSurfaceApp — a LIVE allowlist", () => {
     // "remember the last refusal" cache would pass a test that only ever refused
     // once.
     expect(await seenBy(server, sent)).toEqual({});
-    expect(refusalCount()).toBe(2);
+    expect(refusals()).toBe(2);
 
     // …and the refusal poisons nothing: the part fixes its list and the next
     // accept reads the header again, with no further narration.
     offered = ["X-Real"];
     expect(await seenBy(server, sent)).toEqual(sent);
-    expect(refusalCount()).toBe(2);
+    expect(refusals()).toBe(2);
   });
 
   it("serves a connection with NO named headers when the live thunk THROWS", async () => {
@@ -767,27 +789,23 @@ describe("serveSurfaceApp — a LIVE allowlist", () => {
     // Terminating here while serving through a bad name would be an
     // inconsistency nothing could justify to an operator, and it is exactly the
     // drift this test exists to stop.
-    const events: SurfaceAppEvent<"X-Real">[] = [];
     let boom = false;
-    const server = await boot<Viewer, "X-Real">({
+    const { server, events, refusals } = await bootProbe<"X-Real">({
+      pick: (connection) => connection.headers,
       upgradeHeaders: (): ReadonlyArray<"X-Real"> => {
         if (boom) throw new Error("the identity part is mid-reload");
         return ["X-Real"];
       },
-      onEvent: (event) => events.push(event),
-      services: (connection) =>
-        Layer.succeed(Viewer)({ seen: JSON.stringify(connection.headers) }),
     });
     const sent = { "X-Real": "ada@example.com" };
     expect(await seenBy(server, sent)).toEqual(sent);
 
     boom = true;
     expect(await seenBy(server, sent)).toEqual({});
-    const refused = events.filter(
-      (event) => event._tag === "UpgradeHeadersRefused",
-    );
-    expect(refused).toHaveLength(1);
-    expect(refused[0]).toMatchObject({
+    expect(refusals()).toBe(1);
+    expect(
+      events.find((event) => event._tag === "UpgradeHeadersRefused"),
+    ).toMatchObject({
       error: expect.objectContaining({
         message: "the identity part is mid-reload",
       }),
