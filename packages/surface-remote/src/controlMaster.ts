@@ -28,7 +28,9 @@
  * same owner-only `0700` directory boundary — anyone who can reach the
  * master can open channels on the live connection, so the dir must be
  * ours. Addressed by ssh's `%C` token (a fixed-length host+port+user hash)
- * to stay well under the ~104-char `sun_path` limit and whitespace-free.
+ * to keep the leaf short and whitespace-free — but "short" is not something
+ * this module gets to assert, because the DIRECTORY comes from the
+ * environment: see {@link controlPathFits}, which measures it.
  *
  * Why the path is ALSO keyed by the {@link SshKeepalive} — the correctness
  * constraint this module owes the per-dial keepalive policy: OpenSSH applies
@@ -140,6 +142,55 @@ function isPrivateOwnedDir(dir: string): boolean {
   }
 }
 
+/** How many bytes `%C` becomes. It is a FIXED-WIDTH token — OpenSSH expands it
+ *  to the hex digest of (local host, remote host, port, user), 40 characters,
+ *  whatever the host is. Verified against the ssh on PATH rather than assumed:
+ *
+ *      $ ssh -G -o 'ControlPath=/x/%C' -p 22 example.invalid | grep controlpath
+ *      controlpath /x/401d5feaf63a23c7fb60492d0d559be7a3fb2804
+ *
+ *  That fixed width is the whole reason a length check here is meaningful: the
+ *  expanded path's length does not vary with the host we happen to dial. */
+const CONTROL_HASH_BYTES = 40;
+
+/** The `sun_path` budget we hold ourselves to, in bytes INCLUDING the trailing
+ *  NUL. Deliberately the SMALLER of the platforms we support — macOS's 104, not
+ *  Linux's 108 — because the same runtime dir, and the same reasoning, has to
+ *  hold on both, and being 4 bytes conservative costs a path nobody wants. */
+const SUN_PATH_BYTES = 104;
+
+/** The bytes OpenSSH adds to `ControlPath` before it binds anything. A master is
+ *  NOT created at the path we name: `muxserver_listen` (mux.c) fills
+ *  `char rbuf[16+1]` with 16 random alphanumerics, binds
+ *  `xasprintf("%s.%s", control_path, rbuf)`, and links THAT into place — and it
+ *  is that longer name the `strlcpy` into `sun_path` fatals on
+ *  (`ControlPath too long ('%s' >= %u bytes)`). So a check of only the final
+ *  socket name would still let the master die. A dot plus sixteen bytes. */
+const MASTER_TEMP_SUFFIX_BYTES = 17;
+
+/** Will the `ControlPath` we are about to name still fit in a unix socket
+ *  address once ssh expands it — including the temporary name the master binds
+ *  first? If not, we must not name it at all.
+ *
+ *  This is a real regression guard, not a theoretical one: keying the socket by
+ *  policy grew the leaf from `/%C` to `/%C-10x3`, and a runtime dir just 49
+ *  bytes longer than `/tmp/` took the DEFAULT policy from 104 expanded bytes
+ *  (which OpenSSH accepts on Linux) to 109 (`ControlPath too long (… >= 108
+ *  bytes)`, and ssh dies before it connects). `getRuntimeSocketPath` hands us
+ *  whatever `$XDG_RUNTIME_DIR` says, so the directory's length is an input, not
+ *  a constant we may assert about.
+ *
+ *  Bytes, not characters: `sun_path` is a byte buffer, and a multibyte runtime
+ *  dir spends more of it than its `.length` suggests. */
+function controlPathFits(renderedPath: string): boolean {
+  const expandedBytes =
+    Buffer.byteLength(renderedPath, "utf8") -
+    "%C".length +
+    CONTROL_HASH_BYTES +
+    MASTER_TEMP_SUFFIX_BYTES;
+  return expandedBytes + 1 <= SUN_PATH_BYTES; // +1: the terminating NUL
+}
+
 /** The memoized EFFECT — one slot, because it is policy-INDEPENDENT. The
  *  directory is `$XDG_RUNTIME_DIR/kolu-ssh` whatever the dial's policy, so the
  *  mkdir + lstat run once per process (the runtime dir and its ownership do not
@@ -187,9 +238,12 @@ function ensureControlDir(): string | null {
  *  serves every host while each host still gets its own socket. The `-<policy>`
  *  suffix is what keeps two {@link SshKeepalive} policies off one master (see
  *  the module header): the master's OPENER decides `ServerAlive*` for its whole
- *  lifetime, so the policy has to be part of the socket's identity. Both forms
- *  expand to ≈65 chars — well under the ~104-char `sun_path` limit, so keep the
- *  `kolu-ssh` app name short.
+ *  lifetime, so the policy has to be part of the socket's identity.
+ *
+ *  That suffix costs `sun_path` budget, and the budget is not ours to assume —
+ *  the directory comes from `$XDG_RUNTIME_DIR`. So the expanded length is
+ *  MEASURED here ({@link controlPathFits}) rather than asserted in a comment,
+ *  and a path that will not fit degrades like every other unusable setup.
  *
  *  Degrades to {@link NO_MULTIPLEXING} — never throws. Graceful degradation of
  *  an additive speedup, mirroring `serveOverUnixSocket`'s no-op `refused()`
@@ -203,9 +257,13 @@ export function controlOptPairs(
 ): readonly (readonly [string, string])[] {
   const dir = ensureControlDir();
   if (dir === null) return NO_MULTIPLEXING;
+  const path = `${dir}/%C-${policyTag(keepalive)}`;
+  // A path ssh cannot bind is worse than no multiplexing: ssh would fail the
+  // command outright rather than merely re-handshake. Refuse instead.
+  if (!controlPathFits(path)) return NO_MULTIPLEXING;
   return [
     ["ControlMaster", "auto"],
-    ["ControlPath", `${dir}/%C-${policyTag(keepalive)}`],
+    ["ControlPath", path],
     ["ControlPersist", CONTROL_PERSIST],
   ];
 }

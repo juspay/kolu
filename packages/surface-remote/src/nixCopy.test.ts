@@ -7,7 +7,6 @@
  * ask-only warm-check SHAPE (D1a) is pinned in `warmProbeCheck.test.ts`.
  */
 import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { __resetControlMemo } from "./controlMaster";
@@ -112,8 +111,13 @@ function mockNix(over?: {
 }
 
 const tmpDirs: string[] = [];
+// Rooted at `/tmp`, not `os.tmpdir()`: the expanded `ControlPath` must fit a
+// unix socket address (`controlPathFits`), and `os.tmpdir()` is a long
+// `/tmp/nix-shell.XXXXXX` in the devshell (and `/var/folders/…` on macOS), which
+// would make every renderer here refuse to multiplex. A real
+// `$XDG_RUNTIME_DIR` is short; so is this.
 beforeEach(() => {
-  const xdg = mkdtempSync(join(tmpdir(), "kolu-ssh-nixcopy-test-"));
+  const xdg = mkdtempSync(join("/tmp", "kolu-ssh-nixcopy-"));
   tmpDirs.push(xdg);
   vi.stubEnv("XDG_RUNTIME_DIR", xdg);
   __resetControlMemo();

@@ -7,7 +7,6 @@
  * "stuck copying to remote for eternity" failure this guards against).
  */
 import { chmodSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { __resetControlMemo } from "./controlMaster";
@@ -36,9 +35,15 @@ const CI_KEEPALIVE: SshKeepalive = sshKeepalive(30, 10);
 // mkdir a kolu-private control dir. Point that at a throwaway private tmp dir
 // per test so the suite stays hermetic and the opts render deterministically
 // (a real $XDG_RUNTIME_DIR may or may not be owner-only on a given box).
+//
+// Rooted at `/tmp` and NOT `os.tmpdir()`: the expanded `ControlPath` has to fit
+// a unix socket address (`controlPathFits`), and `os.tmpdir()` is a long
+// `/tmp/nix-shell.XXXXXX` inside the devshell and a ~49-byte `/var/folders/…` on
+// macOS — either would trip the length guard and make every builder here render
+// a refusal. A real `$XDG_RUNTIME_DIR` is short (`/run/user/1000`); so is this.
 const tmpDirs: string[] = [];
 beforeEach(() => {
-  const xdg = mkdtempSync(join(tmpdir(), "kolu-ssh-host-test-"));
+  const xdg = mkdtempSync(join("/tmp", "kolu-ssh-host-"));
   tmpDirs.push(xdg);
   vi.stubEnv("XDG_RUNTIME_DIR", xdg);
   __resetControlMemo();
@@ -550,7 +555,7 @@ describe("ssh multiplexing (ControlMaster)", () => {
   it("degrades uniformly: a non-private control dir refuses multiplexing everywhere", () => {
     if (process.getuid === undefined) return; // no uid semantics — skip
     // Re-point XDG at a dir whose computed control dir is pre-created loose.
-    const xdg = mkdtempSync(join(tmpdir(), "kolu-ssh-loose-"));
+    const xdg = mkdtempSync(join("/tmp", "kolu-ssh-loose-"));
     tmpDirs.push(xdg);
     const dir = join(xdg, "kolu-ssh");
     mkdirSync(dir, { recursive: true });

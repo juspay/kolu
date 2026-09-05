@@ -5,7 +5,7 @@
  * policy-INDEPENDENT, so it is memoized in one slot while the path stays a pure
  * per-policy computation), and any unsafe setup (a non-private dir, a whitespace
  * path) degrades to NO control opts rather than corrupting the ssh options. All
- * FS work is confined to a fresh `os.tmpdir()` subdir per test; no ssh / nix is
+ * FS work is confined to a fresh `/tmp` subdir per test; no ssh / nix is
  * spawned.
  */
 import {
@@ -16,7 +16,6 @@ import {
   rmSync,
   statSync,
 } from "node:fs";
-import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { __resetControlMemo, controlOptPairs } from "./controlMaster";
@@ -30,8 +29,22 @@ import {
 const CI_KEEPALIVE: SshKeepalive = sshKeepalive(30, 10);
 
 const tmpDirs: string[] = [];
+/** A fresh runtime dir under a SHORT root — deliberately `/tmp` and not
+ *  `os.tmpdir()`, because the expanded `ControlPath` must fit a unix socket
+ *  address (see `controlPathFits`) and macOS's `os.tmpdir()` is a ~49-byte
+ *  `/var/folders/…` path that would push it over on its own. A real
+ *  `$XDG_RUNTIME_DIR` is short (`/run/user/1000`); the fixture should be too, or
+ *  it tests the length guard instead of what it means to. */
 function freshXdg(): string {
-  const dir = mkdtempSync(join(tmpdir(), "kolu-ssh-test-"));
+  const dir = mkdtempSync(join("/tmp", "kolu-ssh-test-"));
+  tmpDirs.push(dir);
+  return dir;
+}
+/** A runtime dir of a given literal name under `/tmp`, for the length cases.
+ *  Not created here — `ensureControlDir` creates it `0700`, which is what the
+ *  guard has to run against. */
+function namedXdg(name: string): string {
+  const dir = join("/tmp", name);
   tmpDirs.push(dir);
   return dir;
 }
@@ -160,6 +173,52 @@ describe("controlOptPairs ensure-dir", () => {
       ["ControlMaster", "no"],
       ["ControlPath", "none"],
     ]);
+  });
+
+  // A ControlPath ssh cannot BIND is worse than no multiplexing: ssh does not
+  // degrade, it dies with `ControlPath too long (… >= 108 bytes)` before it
+  // connects. And the `-<policy>` suffix made this reachable where it was not:
+  // with $XDG_RUNTIME_DIR = '/tmp/' + 'a'.repeat(49), the old `/%C` leaf expands
+  // to 104 bytes and real ssh connects, while `/%C-10x3` expands to 109 and dies
+  // — at the DEFAULT policy. So the expanded length is measured, not asserted.
+  it("refuses multiplexing when the expanded ControlPath cannot fit sun_path", () => {
+    vi.stubEnv("XDG_RUNTIME_DIR", namedXdg("a".repeat(49)));
+    __resetControlMemo();
+    expect(controlOptPairs(DEFAULT_SSH_KEEPALIVE)).toEqual([
+      ["ControlMaster", "no"],
+      ["ControlPath", "none"],
+    ]);
+    // Not merely "shorter than before": nothing over-long is emitted at all.
+    expect(controlOptPairs(CI_KEEPALIVE)).toEqual([
+      ["ControlMaster", "no"],
+      ["ControlPath", "none"],
+    ]);
+  });
+
+  it("measures BYTES, not characters — a multibyte runtime dir counts double", () => {
+    // 20 × U+00E9 is 20 characters and 40 bytes. A `.length` check would call
+    // this path comfortably short; `sun_path` is a byte buffer and it is not.
+    vi.stubEnv("XDG_RUNTIME_DIR", namedXdg("é".repeat(20)));
+    __resetControlMemo();
+    expect(controlOptPairs(DEFAULT_SSH_KEEPALIVE)).toEqual([
+      ["ControlMaster", "no"],
+      ["ControlPath", "none"],
+    ]);
+  });
+
+  it("still multiplexes for a runtime dir of a realistic length", () => {
+    // The guard must not cost the speedup on ordinary systems: a real
+    // $XDG_RUNTIME_DIR is `/run/user/<uid>`, and the fixture is that short.
+    vi.stubEnv("XDG_RUNTIME_DIR", freshXdg());
+    __resetControlMemo();
+    const path = controlPathValue() as string;
+    expect(path.endsWith("/%C-10x3")).toBe(true);
+    // What the guard actually promises, spelled out: the path OpenSSH binds —
+    // %C expanded to its 40-byte hash, plus the `.<16 random>` name the master
+    // binds first — still fits the smaller (macOS) 104-byte sun_path, NUL
+    // included.
+    const expanded = Buffer.byteLength(path) - "%C".length + 40;
+    expect(expanded + 17 + 1).toBeLessThanOrEqual(104);
   });
 
   // The degrade must REFUSE, not fall silent. Emitting no control opts does not
