@@ -102,6 +102,73 @@ function sectionIndex(s: SectionId | undefined): number {
   return s === undefined ? SECTION_ORDER.length : SECTION_INDEX[s];
 }
 
+/** Annotated render list — root section headers, Terminals host headers
+ *  (auto-expanded), or a plain row list. Headers are not selectable;
+ *  `index` on rows indexes into `filtered()`. */
+export type DisplayEntry =
+  | { kind: "header"; section: SectionId; index?: never }
+  | {
+      kind: "host-header";
+      name: string;
+      count: number;
+      group: PaletteGroup;
+      index?: never;
+    }
+  | { kind: "row"; cmd: PaletteCommand | PaletteLabel; index: number };
+
+/** A render entry paired with the identity the list retains its node by. */
+export interface KeyedDisplayEntry {
+  key: string;
+  entry: DisplayEntry;
+}
+
+/** The identity an entry WANTS — its logical name in the tree.
+ *
+ *  Deliberately not unique on its own: a terminal has an id and a host has an
+ *  encoded key, but a plain command row has only what it is displayed as, and
+ *  two rows can honestly carry the same name. {@link keyDisplayEntries} is what
+ *  turns this into a usable key. */
+function entryKey(entry: DisplayEntry): string {
+  return JSON.stringify(
+    match(entry)
+      .with({ kind: "header" }, (e) => [e.kind, e.section])
+      .with({ kind: "host-header" }, (e) => [
+        e.kind,
+        e.group.row?.hostKey ? encodeHostKey(e.group.row.hostKey) : e.name,
+      ])
+      .with({ kind: "row" }, (e) => [
+        e.kind,
+        e.cmd.kind,
+        e.cmd.row?.hostKey ? encodeHostKey(e.cmd.row.hostKey) : null,
+        e.cmd.row?.terminalId ?? e.cmd.id ?? e.cmd.name,
+      ])
+      .exhaustive(),
+  );
+}
+
+/** Pair each entry with a key that is unique ACROSS THE LIST.
+ *
+ *  A repeated {@link entryKey} gets an occurrence ordinal appended, so entries
+ *  the tree cannot tell apart are separated by the only thing that does tell
+ *  them apart: where they sit among their twins. Rows with a genuine identity
+ *  (a terminal id, a host key, a repo root) never collide, so they keep the
+ *  same key across a refresh AND across reordering — which is what lets a node
+ *  survive a live update with a click pending on it.
+ *
+ *  This is not a de-duplication: every entry is still painted. It is the list
+ *  saying which of two same-named rows is which. */
+export function keyDisplayEntries(
+  entries: readonly DisplayEntry[],
+): KeyedDisplayEntry[] {
+  const seen = new Map<string, number>();
+  return entries.map((entry) => {
+    const base = entryKey(entry);
+    const nth = seen.get(base) ?? 0;
+    seen.set(base, nth + 1);
+    return { key: nth === 0 ? base : `${base}#${nth}`, entry };
+  });
+}
+
 /** Fields shared by every interactive palette item. */
 interface PaletteBase {
   /** Stable identity when display names are not unique (e.g. repository roots). */
@@ -499,20 +566,6 @@ const CommandPalette: Component<{
     },
   );
 
-  /** Annotated render list — root section headers, Terminals host headers
-   *  (auto-expanded), or a plain row list. Headers are not selectable;
-   *  `index` on rows indexes into `filtered()`. */
-  type DisplayEntry =
-    | { kind: "header"; section: SectionId; index?: never }
-    | {
-        kind: "host-header";
-        name: string;
-        count: number;
-        group: PaletteGroup;
-        index?: never;
-      }
-    | { kind: "row"; cmd: PaletteCommand | PaletteLabel; index: number };
-
   const atRootFilter = createMemo(
     () => path().length === 0 && mode().kind === "filter",
   );
@@ -583,6 +636,18 @@ const CommandPalette: Component<{
 
   /** List has content to paint (rows and/or host headers with zero terms). */
   const hasListContent = createMemo(() => displayed().length > 0);
+
+  /** The render list paired with the identity `<Key>` retains nodes by.
+   *
+   *  `keyedDisplay` is what the list actually iterates, never `displayed()`:
+   *  `keyArray` stores one mapped node per key, so two entries sharing a key
+   *  are handed the SAME node on the next refresh — the list silently loses a
+   *  row and Solid's node bookkeeping stops matching the DOM. `entryKey` can
+   *  only fall back to a display name, and names are not unique (two agents
+   *  with one command, two rows a repo root does not separate), so uniqueness
+   *  has to be established over the whole list rather than hoped for per item.
+   */
+  const keyedDisplay = createMemo(() => keyDisplayEntries(displayed()));
 
   function drillInto(cmd: DrillableKind) {
     setPath((p) => [...p, cmd]);
@@ -1042,31 +1107,9 @@ const CommandPalette: Component<{
               {/* A refresh between mouse-down and mouse-up must not remove
                   the node that owns the pending click. Key by logical identity;
                   read the current entry for updated content and callbacks. */}
-              <Key
-                each={displayed()}
-                by={(entry) =>
-                  JSON.stringify(
-                    match(entry)
-                      .with({ kind: "header" }, (e) => [e.kind, e.section])
-                      .with({ kind: "host-header" }, (e) => [
-                        e.kind,
-                        e.group.row?.hostKey
-                          ? encodeHostKey(e.group.row.hostKey)
-                          : e.name,
-                      ])
-                      .with({ kind: "row" }, (e) => [
-                        e.kind,
-                        e.cmd.kind,
-                        e.cmd.row?.hostKey
-                          ? encodeHostKey(e.cmd.row.hostKey)
-                          : null,
-                        e.cmd.row?.terminalId ?? e.cmd.id ?? e.cmd.name,
-                      ])
-                      .exhaustive(),
-                  )
-                }
-              >
-                {(entry) => {
+              <Key each={keyedDisplay()} by={(keyed) => keyed.key}>
+                {(keyed) => {
+                  const entry = () => keyed().entry;
                   const header = () => {
                     const e = entry();
                     return e.kind === "header" ? e : undefined;
