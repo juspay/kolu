@@ -11,6 +11,7 @@
     ".": "./src/index.ts",
     "./server": "./src/server.ts",
     "./serve": "./src/serve.ts",
+    "./upgrade-headers": "./src/upgradeHeaders.ts",
     "./surface": "./src/surface.ts",
     "./solid": "./src/solid/index.ts",
     "./connect": "./src/connect.ts",
