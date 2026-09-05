@@ -40,7 +40,8 @@ describe("pickUpgradeHeaders", () => {
   it("refuses an array-shaped value rather than folding it", () => {
     // Unreachable from the wire — node folds a repeated header into one
     // `", "`-joined string, and only `set-cookie` arrives as a list, which the
-    // allowlist refuses at bind. An array here is a defect, not a second
+    // allowlist refuses wherever it is checked (at the bind for an array, at
+    // each accept for a thunk). An array here is a defect, not a second
     // spelling of that fold.
     expect(() =>
       pickUpgradeHeaders(

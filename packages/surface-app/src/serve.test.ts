@@ -666,13 +666,17 @@ describe("serveSurfaceApp — a LIVE allowlist", () => {
     // AND new — stayed anonymous until a restart. The state after the flip must
     // equal the state of a from-scratch boot with the part already on, which is
     // the confluence claim #2225 closed for the served set.
+    const events: SurfaceAppEvent<"Tailscale-User-Login">[] = [];
     let offered: ReadonlyArray<"Tailscale-User-Login"> = [];
     const server = await boot<Viewer, "Tailscale-User-Login">({
       upgradeHeaders: () => offered,
+      onEvent: (event) => events.push(event),
       services: (connection) =>
         Layer.succeed(Viewer)({ seen: JSON.stringify(connection.headers) }),
     });
     const sent = { "Tailscale-User-Login": "ada@example.com" };
+    const refusals = () =>
+      events.filter((event) => event._tag === "UpgradeHeadersRefused").length;
 
     // The part is off: the header is on the wire and is not readable, because
     // nothing named it.
@@ -686,6 +690,14 @@ describe("serveSurfaceApp — a LIVE allowlist", () => {
     // …and off again, symmetrically: the switch goes both ways.
     offered = [];
     expect(await seenBy(server, sent)).toEqual({});
+
+    // The QUIET side of the distinguishability claim, and it is the half a
+    // reader has to take on trust otherwise: an app's defence against "a caught
+    // error collapsed into no data" is that a legitimately empty allowlist and a
+    // refused one are told apart by the event, so an empty one must emit NOTHING.
+    // Without this, an implementation that treated every empty list as a refusal
+    // would pass every other assertion in this test.
+    expect(refusals()).toBe(0);
   });
 
   it("serves a connection with NO named headers when the live list refuses itself", async () => {
@@ -704,6 +716,8 @@ describe("serveSurfaceApp — a LIVE allowlist", () => {
         Layer.succeed(Viewer)({ seen: JSON.stringify(connection.headers) }),
     });
     const sent = { "X-Real": "ada@example.com" };
+    const refusalCount = () =>
+      events.filter((event) => event._tag === "UpgradeHeadersRefused").length;
     expect(await seenBy(server, sent)).toEqual(sent);
 
     // The part now offers a name this seam cannot read off an upgrade.
@@ -730,13 +744,59 @@ describe("serveSurfaceApp — a LIVE allowlist", () => {
       ),
     );
 
+    // Still bad, so it is reported AGAIN — at each accept that reads a bad list,
+    // not once per fault. Suppressing the repeat would leave the second socket's
+    // anonymity unexplained in the log, which is the whole job of the arm; and a
+    // "remember the last refusal" cache would pass a test that only ever refused
+    // once.
+    expect(await seenBy(server, sent)).toEqual({});
+    expect(refusalCount()).toBe(2);
+
     // …and the refusal poisons nothing: the part fixes its list and the next
-    // accept reads the header again.
+    // accept reads the header again, with no further narration.
     offered = ["X-Real"];
     expect(await seenBy(server, sent)).toEqual(sent);
-    expect(
-      events.filter((event) => event._tag === "UpgradeHeadersRefused"),
-    ).toHaveLength(1);
+    expect(refusalCount()).toBe(2);
+  });
+
+  it("serves a connection with NO named headers when the live thunk THROWS", async () => {
+    // The same blast-radius rule, on the other cause. A part whose thunk crashes
+    // mid-reload is as bad a part as one that named `set-cookie`, so it takes the
+    // same path: the socket is served, anonymous, and one `UpgradeHeadersRefused`
+    // says so — with the thunk's OWN error, not a message this seam invented.
+    // Terminating here while serving through a bad name would be an
+    // inconsistency nothing could justify to an operator, and it is exactly the
+    // drift this test exists to stop.
+    const events: SurfaceAppEvent<"X-Real">[] = [];
+    let boom = false;
+    const server = await boot<Viewer, "X-Real">({
+      upgradeHeaders: (): ReadonlyArray<"X-Real"> => {
+        if (boom) throw new Error("the identity part is mid-reload");
+        return ["X-Real"];
+      },
+      onEvent: (event) => events.push(event),
+      services: (connection) =>
+        Layer.succeed(Viewer)({ seen: JSON.stringify(connection.headers) }),
+    });
+    const sent = { "X-Real": "ada@example.com" };
+    expect(await seenBy(server, sent)).toEqual(sent);
+
+    boom = true;
+    expect(await seenBy(server, sent)).toEqual({});
+    const refused = events.filter(
+      (event) => event._tag === "UpgradeHeadersRefused",
+    );
+    expect(refused).toHaveLength(1);
+    expect(refused[0]).toMatchObject({
+      error: expect.objectContaining({
+        message: "the identity part is mid-reload",
+      }),
+    });
+    // The socket SURVIVED: a terminate would have taken the dispatch above with
+    // it, and it would also show up here as a second connection never opening.
+    expect(events.filter((event) => event._tag === "Connected")).toHaveLength(
+      2,
+    );
   });
 
   it("still refuses a FIXED bad list at the bind — the array IS the app", async () => {

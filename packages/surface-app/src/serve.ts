@@ -115,15 +115,22 @@
  * whose identity part offers a header only while it is switched on — and is read,
  * and checked, at each accept, the way the served generation is.
  *
- * A live list that names something this seam cannot read is the OFFERING part's
- * defect, not the wire's, so it does not travel: the socket is accepted and
- * served with NO named headers — every request on it reads as nobody, which is
- * the state an app already defines for "no identity" — and the fault is reported
- * as `UpgradeHeadersRefused`. Terminating instead would let one part's bad list
- * take every connection down with it, and throwing would take the process; both
- * are the failure a live allowlist exists to survive. An app that wants the
- * defect louder calls {@link checkUpgradeHeaders} where it MINTS the list, so
- * that part fails there and the accept-time arm is only the offer/accept race.
+ * A live list this seam cannot serve is the OFFERING part's defect, not the
+ * wire's, so it does not travel: the socket is accepted and served with NO named
+ * headers — every request on it reads as nobody, which is the state an app
+ * already defines for "no identity" — and the fault is reported as
+ * `UpgradeHeadersRefused`. Terminating instead would let one part's bad list take
+ * every connection down with it, and throwing would take the process; both are
+ * the failure a live allowlist exists to survive. An app that wants the defect
+ * louder calls {@link checkUpgradeHeaders} where it MINTS the list, so that part
+ * fails there and the accept-time arm is only the offer/accept race.
+ *
+ * "Cannot serve" is the WHOLE of it, and that is deliberate: a name outside the
+ * grammar and a thunk that simply THREW take the same path, because the rule is
+ * about blast radius rather than cause. A part whose thunk crashes mid-reload is
+ * as bad a part as one that named `set-cookie`, and terminating for the crash
+ * while serving through the bad name would be an inconsistency nothing could
+ * justify to an operator. The event's `error` carries which one it was.
  *
  * The ruling is written where it is TAKEN — at the accept, beside the served
  * generation's own refusal, because the difference between the two (a refused
@@ -317,6 +324,11 @@ const errorOf = (cause: unknown): Error =>
  *  allowlist does not — is legible where both are decided. What a refusal COSTS
  *  is not this function's business; WHEN the list is read, is.
  *
+ *  Deliberately NOT guarded around `asked()` alone: a thunk that throws and a
+ *  thunk that returns a bad name are one fact here — "this part could not supply
+ *  a list" — and separating them would only let the two grow different blast
+ *  radii, which is the one thing the caller's policy says they must not have.
+ *
  *  Returned as a closure rather than branched at each accept so the fixed arm
  *  pays its check exactly once. */
 const upgradeHeadersReader = <H extends string>(
@@ -374,12 +386,21 @@ export type SurfaceAppEvent<H extends string = never> =
       readonly error: Error;
       readonly url: URL;
     }
-  /** A live `upgradeHeaders` named something this seam cannot read off an
-   *  upgrade. Unlike a refused generation the connection IS served — with no
-   *  named headers, so every request on it reads as nobody — because a bad list
-   *  is the OFFERING part's defect and must not reach the wire's other tenants.
-   *  The `url` rather than the connection for the reason above: what was refused
-   *  is the listener's allowlist, not this socket. */
+  /** A live `upgradeHeaders` could not be PRODUCED for this accept — either it
+   *  named something this seam cannot read off an upgrade, or the thunk itself
+   *  threw. Unlike a refused generation the connection IS served — with no named
+   *  headers, so every request on it reads as nobody — because either way it is
+   *  the OFFERING part's defect and must not reach the wire's other tenants.
+   *
+   *  ONE arm for both, deliberately. A part whose thunk crashes is as bad a part
+   *  as one that named `set-cookie`, and the rule that decides this arm is about
+   *  the BLAST RADIUS, not the cause: terminating for the crash would be exactly
+   *  what serving anonymously exists to avoid. `error` says which happened, and
+   *  that is the honest place for the distinction — a second arm would ask every
+   *  consumer to hold a difference that changes nothing it does.
+   *
+   *  The `url` rather than the connection, for the reason above: what could not
+   *  be produced is the listener's allowlist, not this socket. */
   | {
       readonly _tag: "UpgradeHeadersRefused";
       readonly error: Error;
@@ -441,7 +462,7 @@ export const reportSurfaceAppEvent = (event: SurfaceAppEvent<string>): void => {
       return;
     case "UpgradeHeadersRefused":
       console.error(
-        `serveSurfaceApp: live upgradeHeaders refused on ${event.url.href} — this connection carries no named headers`,
+        `serveSurfaceApp: live upgradeHeaders could not be produced for ${event.url.href} — this connection carries no named headers`,
         event.error,
       );
       return;
@@ -733,10 +754,11 @@ export const serveSurfaceApp = <Svc = never, H extends string = never>(
           // are what this listener serves at this accept, and the two refusals
           // are written side by side because their DIFFERENCE is the design. A
           // refused generation leaves nothing honest to serve, so the socket
-          // goes. A refused allowlist is the OFFERING part's defect, and one
-          // part's bad row must touch no sibling — the transport is a sibling —
-          // so the socket is SERVED with no named headers, reading as nobody,
-          // which is the state an app already defines for "no identity".
+          // goes. An allowlist this seam cannot serve — a bad name, or a thunk
+          // that threw — is the OFFERING part's defect, and one part's bad row
+          // must touch no sibling — the transport is a sibling — so the socket
+          // is SERVED with no named headers, reading as nobody, which is the
+          // state an app already defines for "no identity".
           // Reported before `Connected`, so the log reads in the order it
           // happened: why this connection is anonymous, then the connection.
           let named: ReadonlyArray<H>;
