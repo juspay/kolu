@@ -32,7 +32,8 @@ import type { SurfaceDispatch } from "@kolu/surface/link";
 import { probeSurfaceLive } from "@kolu/surface/liveness";
 import { readBakedAgentSource } from "./agentDrv";
 import { makeSession, runProbe } from "./session";
-import type { SshKeepalive } from "./host";
+import type { SshKeepalive } from "./keepalive";
+import type { MakeSessionOptions } from "./session";
 import { type AgentClient, sshConnector, type SshProv } from "./sshConnector";
 
 /** A live one-shot agent connection: the surface FACE plus a `dispose` that tears
@@ -115,8 +116,26 @@ export interface DialAgentOnceOptions<S extends SurfaceSpec> {
    *  is the path every `--host` CLI takes (`kaval-tui`, `padi-tui`, `kolu-cli`)
    *  and the one an unattended runner reaches for, so leaving it off would pin
    *  exactly the consumer the option exists for to the interactive default with
-   *  no recourse short of dropping a layer and composing `makeSession` by hand. */
+   *  no recourse short of dropping a layer and composing `makeSession` by hand.
+   *
+   *  **The DIALLING half only — pair it with {@link liveness}.** This governs
+   *  `probing`/`provisioning`; on a CONNECTED link the heartbeat watchdog is the
+   *  faster judge and force-cycles at ≈25s by default, well before any raised
+   *  ssh tolerance elapses (`keepaliveOrdering.test.ts` pins that). A dial that
+   *  raises this for an unattended lane must raise `liveness` too, or the
+   *  documented remedy is inert on the very facade that ships the option. */
   keepalive?: SshKeepalive;
+  /** The CONNECTED half of the same question {@link keepalive} answers for the
+   *  dialling phases — forwarded verbatim to `MakeSessionOptions.liveness`. Omit
+   *  for the ≈25s default; `false` disables the watchdog entirely.
+   *
+   *  Exposed here for exactly the reason `keepalive` is: half a coupled pair
+   *  crossing the facade would pin an unattended runner to a policy it cannot
+   *  complete, with no recourse short of abandoning `dialAgentOnce` and
+   *  re-deriving `initialConnection: "probing"` and the `host:<host>` label by
+   *  hand. The heartbeat's own ceilings (`MAX_HEARTBEAT_INTERVAL_MS` 300s +
+   *  `MAX_HEARTBEAT_TIMEOUT_MS` 120s) bound what is reachable here. */
+  liveness?: MakeSessionOptions<AgentClient, SshProv>["liveness"];
   /** Structured diagnostic logger, forwarded to `MakeSessionOptions.log`. Omit
    *  and the session writes its provisioning progress / connection transitions /
    *  forwarded remote stderr to `process.stderr` (what a plain CLI wants). An
@@ -162,6 +181,11 @@ export async function dialAgentOnce<S extends SurfaceSpec>(
     // at "probing" for the architecture check. It advances to "provisioning"
     // before an uncached source evaluation or cold target build/root transaction.
     initialConnection: "probing",
+    // The CONNECTED half of the link-silence pair whose DIALLING half is
+    // `keepalive` above. Forwarding only one of the two would make the raised
+    // ssh tolerance provably inert on this facade (the watchdog force-cycles
+    // first), with the documented remedy unreachable through it.
+    liveness: opts.liveness,
     log: opts.log,
     // Preserve the pre-S9 `[host:<host> …]` diagnostic prefix byte-for-byte (the tag
     // every session line carried), so an alt-screen consumer's log filtering
