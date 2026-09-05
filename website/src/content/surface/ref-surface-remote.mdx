@@ -37,7 +37,7 @@ shared pool; key your own map and `destroy()` them yourself.
 `sshConnector` opts are `{ surface, host, binary, resolveDrvPath, localEnv, extraArgs?, keepalive? }`:
 `surface` is the `Surface<S>` the remote agent serves, `host` is any
 ssh target (`"localhost"` short-circuits), `binary` the exe name inside the realised
-closure, `resolveDrvPath: ({ signal, localProgress, resolveAgentDrv }) => Promise<AgentDerivation>` resolves
+closure, `resolveDrvPath: ({ signal, onProgress, resolveSystem, resolveAgentDrv }) => Promise<AgentDerivation>` resolves
 the agent derivation for the *target* arch as an `AgentDerivation` inside the
 owning dial's cancellation and progress lifetime. A direct path is
 `directAgentDerivation(drvPath, binaryCache)` — obtain the `binaryCache` with
@@ -144,9 +144,10 @@ silence — see the note below).
   consequence is only that a CI-tuned dial and an interactive dial to the same
   host each keep their own warm connection (`ControlPersist` is 10 minutes, and
   cross-invocation). Within one dial every ssh carries the same policy by
-  construction — which is why `resolveDrvPath` receives `keepalive` on its
-  context and the documented `resolveSystem(host, ctx)` idiom threads it for
-  free.
+  construction — which is why the dial-internal ssh a resolver may need reaches
+  it already bound: `const sys = await ctx.resolveSystem()` runs the arch probe
+  on this dial's host, signal, progress sink and policy, so there is no options
+  bag to assemble and no way to open a second master by omitting one.
 </Aside>
 
 <Aside type="caution" title="The agent must greet before the client attaches">

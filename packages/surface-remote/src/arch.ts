@@ -29,11 +29,10 @@
  *       binary,
  *       localEnv,  // the composed env a `localhost` dial spawns with (never ambient process.env)
  *       resolveDrvPath: async (ctx) => {
- *         // Forward the WHOLE context, never a hand-built `{signal, onProgress}`:
- *         // `ResolveDrvPathContext` extends `ResolveSystemOptions` precisely so
- *         // this compiles, and it is what threads the dial's own `keepalive`
- *         // into the probe (see `ResolveSystemOptions.keepalive`).
- *         const sys = await resolveSystem(host, ctx);
+ *         // The connector hands the resolver this probe PRE-BOUND to the dial's
+ *         // host, signal, progress sink and keepalive — never assemble those by
+ *         // hand (see `ResolveSystemOptions.keepalive` for what goes wrong).
+ *         const sys = await ctx.resolveSystem();
  *         return resolveDrvForSystem(sys);
  *       },
  *     }),
@@ -63,24 +62,21 @@ const NIX_SYSTEM_RE = /^[a-z0-9_]+-[a-z0-9_]+$/;
 export interface ResolveSystemOptions {
   signal: AbortSignal;
   onProgress: (line: string) => void;
-  /** The owning dial's ssh dead-peer policy. Defaults to
-   *  `DEFAULT_SSH_KEEPALIVE`, and is satisfied structurally by the
-   *  `ResolveDrvPathContext` a `sshConnector` dial hands the resolver — so the
-   *  documented `resolveSystem(host, ctx)` idiom threads the dial's policy with
-   *  no extra wiring. It MUST match the rest of the dial: this probe is usually
-   *  the ssh that OPENS the host's shared `ControlMaster`, and the master's
-   *  opener fixes `ServerAlive*` for every command that later rides it.
+  /** The owning dial's ssh dead-peer policy, defaulting to
+   *  `DEFAULT_SSH_KEEPALIVE`. It MUST match the rest of the dial: this probe is
+   *  usually the ssh that OPENS the host's shared `ControlMaster`, and the
+   *  master's opener fixes `ServerAlive*` for every command that later rides it.
    *
-   *  **Optional here, and that optionality is a real hazard — forward `ctx`.**
-   *  A resolver that hand-builds `{ signal, onProgress }` instead of forwarding
-   *  the whole context omits this field, and the probe then opens the host's
-   *  shared master under the DEFAULT policy while every later command in the
-   *  same dial asks for the stated one: a second warm master, right argv, wrong
-   *  behaviour. The known live instance is drishti's
-   *  `packages/app/src/server/archMap.ts` (harmless there — it states no custom
-   *  policy — but it proves the shape is reachable). The field stays optional
-   *  ONLY because this function is published and that caller exists; making it
-   *  required is the fix the moment the compat window closes. */
+   *  **Optional here, and that optionality is a real hazard — call
+   *  `ctx.resolveSystem()`.** A resolver that hand-builds `{ signal, onProgress }`
+   *  omits this field, and the probe then opens the host's shared master under
+   *  the DEFAULT policy while every later command in the same dial asks for the
+   *  stated one: a second warm master, right argv, wrong behaviour. The known
+   *  live instance is drishti's `packages/app/src/server/archMap.ts` (harmless
+   *  there — it states no custom policy — but it proves the shape is reachable).
+   *  The field stays optional ONLY because this function is published and that
+   *  caller exists; `ResolveDrvPathContext.resolveSystem` is the seam that makes
+   *  the hazard unreachable from inside a dial without breaking it. */
   keepalive?: SshKeepalive;
 }
 

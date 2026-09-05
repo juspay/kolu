@@ -28,7 +28,7 @@ import {
   ResolveDrvError,
 } from "./host";
 import { DEFAULT_SSH_KEEPALIVE, type SshKeepalive } from "./keepalive";
-import type { ResolveSystemOptions } from "./arch";
+import { type ResolveSystemOptions, resolveSystem } from "./arch";
 import { resolveAgentDrv, type AgentResolutionContext } from "./agentDrv";
 import type { AgentDerivation } from "./agentDerivation";
 import { makeProvisionBudgets, provisionAgent } from "./nixCopy";
@@ -104,27 +104,37 @@ const AGENT_READINESS_DEADLINE_MS = 180_000;
 
 /** The owning dial context a deferred derivation resolver may consume.
  *
- *  It EXTENDS {@link ResolveSystemOptions}, so the documented
- *  `resolveSystem(host, ctx)` idiom actually compiles — which is what makes
- *  forwarding the whole context the path of least resistance rather than a
- *  suggestion a consumer has to hand-assemble around. Hand-building
- *  `{ signal, onProgress }` instead silently opens the arch probe's
- *  `ControlMaster` under the DEFAULT policy while the rest of the dial asks for
- *  another (see `ResolveSystemOptions.keepalive`). */
+ *  Everything dial-specific a resolver needs is handed to it PRE-BOUND — the
+ *  `resolveAgentDrv` closure, and {@link ResolveDrvPathContext.resolveSystem} —
+ *  so the safe path is also the SHORTEST one and there is nothing left to
+ *  hand-assemble wrongly. The context also still EXTENDS
+ *  {@link ResolveSystemOptions}, so the older `resolveSystem(host, ctx)` idiom
+ *  keeps compiling for a resolver that has its own reason to name the host. */
 export interface ResolveDrvPathContext
   extends AgentResolutionContext,
     ResolveSystemOptions {
   signal: AbortSignal;
-  /** The progress sink, under this context's own long-standing name. Identical
-   *  to the inherited `onProgress` — one sink, two spellings, because
-   *  `localProgress` is what every existing resolver destructures and
-   *  `onProgress` is the name the option types downstream of it use. */
+  /** @deprecated Alias of `onProgress`, kept for existing resolvers — they
+   *  destructure this name. New code should read `onProgress`, which is what the
+   *  option types downstream of this context use. */
   localProgress: (line: string) => void;
+  /** Ask THIS host's Nix for its nix-system string, on this dial's signal,
+   *  progress sink and keepalive — `resolveSystem` with every dial-owned
+   *  argument already supplied.
+   *
+   *  It exists because the arch probe was the last dial-internal ssh a consumer
+   *  had to assemble arguments for, and assembling them wrongly is invisible:
+   *  omitting `keepalive` opens the host's shared `ControlMaster` under the
+   *  DEFAULT policy while every later command in the same dial asks for the
+   *  stated one — a second warm master, right argv, wrong behaviour (drishti's
+   *  `archMap.ts` is the live instance). `const sys = await ctx.resolveSystem()`
+   *  is shorter than any hand-built form, so the safe path wins by construction
+   *  rather than by documentation. */
+  resolveSystem: () => Promise<string>;
   /** This dial's ssh dead-peer policy — REQUIRED here (it is optional on
-   *  {@link ResolveSystemOptions}, which has out-of-tree callers). Carried so
-   *  the documented `resolveSystem(host, ctx)` idiom threads it STRUCTURALLY: a
-   *  resolver that forwards the whole context gets the connector's policy on its
-   *  arch probe for free, and cannot accidentally open the host's shared
+   *  {@link ResolveSystemOptions}, which has out-of-tree callers). Carried so a
+   *  resolver that forwards the whole context to some other seam threads the
+   *  connector's policy structurally, and cannot open the host's shared
    *  `ControlMaster` under a different one. */
   keepalive: SshKeepalive;
 }
@@ -276,6 +286,15 @@ export function sshConnector<S extends SurfaceSpec>(
         // `resolveSystem(host, ctx)` compiles (see `ResolveDrvPathContext`).
         onProgress: ctx.localProgress,
         keepalive,
+        // Bound HERE, beside `resolveAgentDrv`, for the same reason: every
+        // dial-owned argument of a dial-internal ssh is supplied by the dial,
+        // so no resolver has an opportunity to supply a different one.
+        resolveSystem: () =>
+          resolveSystem(opts.host, {
+            signal: ctx.signal,
+            onProgress: ctx.localProgress,
+            keepalive,
+          }),
         resolveAgentDrv: (flakeRef, packageName) =>
           resolveAgentDrv(opts.host, flakeRef, packageName, {
             signal: ctx.signal,
