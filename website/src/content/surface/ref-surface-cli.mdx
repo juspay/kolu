@@ -62,9 +62,12 @@ using it beats gluing the key on with an underscore and reproducing MCP's
 constraint where it does not apply.
 
 `list` stays at the **top** and describes the whole bundle — one authoritative
-"what can I address" per face. Each row's `name` is what a caller *types*
-(`outlines ops_run`), with the sibling repeated as a `surface` field so a script
-can group by it without re-splitting a string.
+"what can I address" per face. Each row's `name` is what a caller *types*, in
+both arms: `outlines ops_run` for a verb, and the full address for a readable
+member — `outlines get nodes`, plus a `keys` / `watch` row wherever the
+collection declares them, since those are different addresses. The sibling is
+repeated as a `surface` field and the member key as a `member` field, so a script
+can group by either without re-splitting a string this face composed.
 
 A sibling's own `verbs` are mounted behind its word like everything else it
 contributes, so `outlines read` is here what `outlines_read` is on the MCP
@@ -75,9 +78,10 @@ A **verb receives the client of the thing it is declared on**: a sibling's
 `verbs` are handed `clients[key]`, and the bundle-root `verbs` are handed the
 whole `{ core, clients }` bundle.
 
-Three refusals, all at BUILD:
+Four refusals, all at BUILD:
 
 - a bundle with neither a core nor a sibling — that is not a bundle;
+- a sibling that exposes nothing and declares no verbs — it would mount an argv word a user can only ever be refused at;
 - a sibling key that would be mounted beside a reader command or a root verb of the same name, which the parser would answer with whichever it met first;
 - everything the single-surface projection already refuses, per scope.
 

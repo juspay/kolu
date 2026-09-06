@@ -73,13 +73,7 @@ import {
 } from "@modelcontextprotocol/sdk/types.js";
 import { Effect, Option, Schema, Stream } from "effect";
 import { match } from "ts-pattern";
-import {
-  collectionUri,
-  type ResourceEntry,
-  type ResourceTemplateEntry,
-  type SiblingKey,
-  type ToolEntry,
-} from "./expose";
+import { collectionUri, type ResourceEntry, type SiblingKey } from "./expose";
 import {
   disposeQuietly,
   type PusherConnection,
@@ -205,35 +199,12 @@ export interface ServedSurfaceMcp {
   close: () => Promise<void>;
 }
 
-/** ONE generation of the roster, resolved into everything a request handler
- *  reads.
- *
- *  A single value, replaced whole by {@link ServedSurfaceMcp.reroster}, rather
- *  than five tables updated in sequence: a `tools/list` landing between two of
- *  those updates would answer from a roster that never existed. The handlers read
- *  `gen` once per request, so whichever generation they get is a real one. */
-interface Generation {
-  readonly resolved: ResolvedBundle;
-  /** Static resources by URI — O(1) read/subscribe dispatch. */
-  readonly byUri: ReadonlyMap<string, ResourceEntry>;
-  /** Collection templates keyed by their COLLECTION's key-set URI, which is the
-   *  one address that identifies a collection across a bundle (its `(sibling,
-   *  key)` pair, already composed). Keyed by the member key alone, two siblings
-   *  exposing `entries` would share one entry and one of them would decode item
-   *  ids against the other's key schema. */
-  readonly templateByCollection: ReadonlyMap<string, ResourceTemplateEntry>;
-  readonly toolByName: ReadonlyMap<string, ToolEntry>;
-  /** `tools/list`'s answer, projected once per generation: nothing in it reads
-   *  request state, so re-projecting per call would buy nothing. */
-  readonly advertisedTools: ReadonlyArray<Record<string, unknown>>;
-}
-
 /** Build + connect an MCP server that re-exposes a rooted bundle. */
 export async function serveSurfaceAsMcp<
   C extends SurfaceSpec,
   M extends Record<string, SurfaceSpec>,
 >(opts: ServeSurfaceAsMcpOptions<C, M>): Promise<ServedSurfaceMcp> {
-  let gen = buildGeneration(opts);
+  let gen = resolveBundle(opts);
   /** WHAT this endpoint has served and no longer does, and WHO owned it: tool
    *  names in one map, resource addresses in the other, each pointing at the
    *  sibling key that went away with it.
@@ -374,7 +345,7 @@ export async function serveSurfaceAsMcp<
       throw err;
     }
     if (rosterEpoch !== epoch) {
-      disposeQuietly(conn);
+      void disposeQuietly(conn);
       throw linkFailure(
         "the sibling roster moved while this connection was being dialled, so " +
           "the bundle it carries is a generation behind the tables this request " +
@@ -390,7 +361,7 @@ export async function serveSurfaceAsMcp<
     // is waiting on" answers both "was the server closed" and "did another dial
     // take the slot", so neither needs a cell of its own to fall out of sync.
     if (state.t !== "dialing") {
-      disposeQuietly(conn);
+      void disposeQuietly(conn);
       throw new Error(
         "the server closed while this connection was being dialed",
       );
@@ -484,7 +455,7 @@ export async function serveSurfaceAsMcp<
     // Released QUIETLY: the framework's `dispose` may be async and may reject,
     // and this slot has already stopped pointing at the connection — see
     // `disposeQuietly`.
-    disposeQuietly(conn);
+    void disposeQuietly(conn);
   };
   // Teardown: move to the terminal state FIRST (so a still-pending dial finds
   // no slot to publish into and disposes its own result — see `dialOnce`), then
@@ -493,7 +464,7 @@ export async function serveSurfaceAsMcp<
   const disposeSharedConn = (): void => {
     const prev = state;
     state = { t: "closed" };
-    if (prev.t === "live") disposeQuietly(prev.conn);
+    if (prev.t === "live") void disposeQuietly(prev.conn);
   };
   /** The roster moved: retire the current connection so the next request dials a
    *  bundle carrying the new siblings' clients.
@@ -507,7 +478,7 @@ export async function serveSurfaceAsMcp<
     const prev = state;
     if (prev.t === "closed") return;
     state = { t: "idle" };
-    if (prev.t === "live") disposeQuietly(prev.conn);
+    if (prev.t === "live") void disposeQuietly(prev.conn);
   };
   // The failure-reset policy in one place. Reset ONLY on a recognized TRANSPORT
   // death — an application error (a bad tool arg, an unknown key, a wrong
@@ -518,7 +489,7 @@ export async function serveSurfaceAsMcp<
   // the identity guard above keeps that reset from nuking a successor.
   const withClient = async <R>(
     /** The generation the caller resolved its NAMES against. */
-    current: Generation,
+    current: ResolvedBundle,
     fn: (client: RootedSurfaceClients) => Promise<R>,
   ): Promise<R> => {
     const conn = await getConn();
@@ -568,6 +539,37 @@ export async function serveSurfaceAsMcp<
         e,
       );
     }
+  };
+
+  /** THE entry point for a request that resolves names AND may reach a client.
+   *
+   *  {@link withClient} proves the two belong to one generation — but OBTAINING
+   *  the generation was each handler's own `const current = gen;`, so the
+   *  invariant was enforced at the check and left to memory at the read, and
+   *  nothing stopped a handler from reading the module-level `gen` a second time
+   *  mid-request and passing the other one. Here the generation and the ONLY door
+   *  to a client are handed over together, so a handler that goes through this
+   *  never names `gen` at all and cannot spell the mismatch.
+   *
+   *  The client is behind `withBundle` rather than handed over, because a request
+   *  that resolves NO name (an unknown tool) must be refused without dialling —
+   *  a daemon that is down would otherwise turn "unknown tool" into a link
+   *  failure. Resolution happens against `current`; the dial happens only if it
+   *  landed.
+   *
+   *  The three LIST handlers still read `gen` directly, and honestly: they have no
+   *  client leg to pair it with, so there is no pair for them to get wrong. */
+  const withGeneration = <R>(
+    fn: (
+      /** The generation this request resolves EVERY name against. */
+      current: ResolvedBundle,
+      withBundle: <A>(
+        use: (bundle: RootedSurfaceClients) => Promise<A>,
+      ) => Promise<A>,
+    ) => Promise<R>,
+  ): Promise<R> => {
+    const current = gen;
+    return fn(current, (use) => withClient(current, use));
   };
 
   /** THE request edge: answer one MCP request by running its effect under the
@@ -628,8 +630,9 @@ export async function serveSurfaceAsMcp<
   });
 
   // ── tools/list ─────────────────────────────────────────────────────────
-  // Answered from the CURRENT generation's projection (`buildGeneration`), read
-  // per request so a rerostered list is the one a host is told about.
+  // Answered from the CURRENT generation's own projection (`resolveBundle`
+  // indexes the tables it composes), read per request so a rerostered list is the
+  // one a host is told about.
   server.setRequestHandler(ListToolsRequestSchema, async () => ({
     tools: gen.advertisedTools,
   }));
@@ -641,87 +644,92 @@ export async function serveSurfaceAsMcp<
   ): Promise<ToolResult> => {
     const { name, arguments: rawArgs } = req.params;
     const args = rawArgs ?? {};
-    // Read ONCE per request: a reroster mid-request must not have this call
-    // resolve its name against one roster and its client against another.
-    const current = gen;
     try {
-      const exposed = current.toolByName.get(name);
-      if (exposed !== undefined) {
-        // `await`, not a bare `return`: a returned promise's REJECTION does not
-        // route through this try/catch, so a failing procedure call (e.g. the
-        // transport down mid-call) would surface as a protocol-level -32603
-        // instead of the `isError` tool result the contract promises.
-        return await withClient(current, async (bundle) => {
-          const client = clientAt(bundle, exposed.sibling);
-          if (client === undefined) return fail(brand(missingClient(exposed)));
-          const proc = client.surface[exposed.ns]?.[exposed.verb];
-          if (proc === undefined) {
-            return fail(
-              brand(`client has no procedure "${exposed.ns}.${exposed.verb}"`),
+      // ONE generation for this whole request, and the only door to a client is
+      // already paired with it — a mid-request reroster cannot have this call
+      // resolve its name against one roster and its client against another, and
+      // the handler never names `gen` to get it wrong.
+      return await withGeneration(async (current, withBundle) => {
+        const exposed = current.toolByName.get(name);
+        if (exposed !== undefined) {
+          // `await`, not a bare `return`: a returned promise's REJECTION does not
+          // route through this try/catch, so a failing procedure call (e.g. the
+          // transport down mid-call) would surface as a protocol-level -32603
+          // instead of the `isError` tool result the contract promises.
+          return await withBundle(async (bundle) => {
+            const client = clientAt(bundle, exposed.sibling);
+            if (client === undefined) {
+              return fail(brand(noLegFor(exposed.sibling, `tool "${name}"`)));
+            }
+            const proc = client.surface[exposed.ns]?.[exposed.verb];
+            if (proc === undefined) {
+              return fail(
+                brand(
+                  `client has no procedure "${exposed.ns}.${exposed.verb}"`,
+                ),
+              );
+            }
+            // A no-input procedure's payload schema is `Schema.Void`, which the
+            // face calls with `undefined` — an empty `{}` is not the same value. A
+            // scalar/array/union input was advertised wrapped under `value`
+            // (`toInputSchema`), so unwrap it back to the bare value the
+            // procedure's schema expects.
+            //
+            // The face's unary ref DECODES the argument (D2/#13: a procedure input
+            // is a pure argument, so it travels encoded and the face decodes at the
+            // edge) — which is exactly where the old `.parse` ran, and is why the
+            // MCP host's raw JSON arguments can be handed over verbatim.
+            const callArgs = exposed.hasInput
+              ? unwrapArgs(exposed.wrapped, args)
+              : undefined;
+            // A unary member call is an `Effect`; it runs at the request edge, so
+            // a cancelled `tools/call` interrupts the dispatch instead of leaving
+            // it in flight with nobody to answer. A DECLARED failure rejects with
+            // the squashed error, which the `catch` below turns into the `isError`
+            // tool result the contract promises — the same route a rejecting
+            // procedure took before.
+            return ok(await runRequest(proc(callArgs), extra.signal));
+          });
+        }
+        const entry = current.bespoke.get(name);
+        if (entry !== undefined) {
+          const { tool } = entry;
+          // Bespoke inputs are advertised through the same `toInputSchema`, so a
+          // scalar/array/union input is also wrapped under `value` — unwrap
+          // before decoding with the tool's own schema. `decodeUnknownSync` throws
+          // a `SchemaError` on bad input, which is the fail-fast `.parse` semantic
+          // this branch has always had; the catch below turns it into `isError`.
+          const rawInput = unwrapArgs(entry.wrapped, args);
+          const parsed =
+            tool.input !== undefined
+              ? Schema.decodeUnknownSync(tool.input)(rawInput)
+              : rawInput;
+          // `await` for the same reason as the exposed-procedure branch above: a
+          // failing handler must land in `failFrom`, never escape as -32603. The
+          // handler DESCRIBES its work; it runs at the same request edge every
+          // other handler does, so a cancelled `tools/call` interrupts it.
+          return await withBundle(async (bundle) => {
+            // THE rule for every bespoke table this face takes — the FRAMEWORK's,
+            // beside `clientAt`, because the argv face implements the same one and
+            // neither face owns it: a tool receives the client of the thing it was
+            // DECLARED on.
+            const target = declarationTarget(bundle, entry.sibling);
+            if (target === undefined) {
+              return fail(
+                brand(noLegFor(entry.sibling, `bespoke tool "${name}"`)),
+              );
+            }
+            const out = await runRequest(
+              tool.handler(parsed, target, extra.signal),
+              extra.signal,
             );
-          }
-          // A no-input procedure's payload schema is `Schema.Void`, which the
-          // face calls with `undefined` — an empty `{}` is not the same value. A
-          // scalar/array/union input was advertised wrapped under `value`
-          // (`toInputSchema`), so unwrap it back to the bare value the
-          // procedure's schema expects.
-          //
-          // The face's unary ref DECODES the argument (D2/#13: a procedure input
-          // is a pure argument, so it travels encoded and the face decodes at the
-          // edge) — which is exactly where the old `.parse` ran, and is why the
-          // MCP host's raw JSON arguments can be handed over verbatim.
-          const callArgs = exposed.hasInput
-            ? unwrapArgs(exposed.wrapped, args)
-            : undefined;
-          // A unary member call is an `Effect`; it runs at the request edge, so
-          // a cancelled `tools/call` interrupts the dispatch instead of leaving
-          // it in flight with nobody to answer. A DECLARED failure rejects with
-          // the squashed error, which the `catch` below turns into the `isError`
-          // tool result the contract promises — the same route a rejecting
-          // procedure took before.
-          return ok(await runRequest(proc(callArgs), extra.signal));
-        });
-      }
-      const entry = current.resolved.bespoke.get(name);
-      if (entry !== undefined) {
-        const { tool } = entry;
-        // Bespoke inputs are advertised through the same `toInputSchema`, so a
-        // scalar/array/union input is also wrapped under `value` — unwrap
-        // before decoding with the tool's own schema. `decodeUnknownSync` throws
-        // a `SchemaError` on bad input, which is the fail-fast `.parse` semantic
-        // this branch has always had; the catch below turns it into `isError`.
-        const rawInput = unwrapArgs(entry.wrapped, args);
-        const parsed =
-          tool.input !== undefined
-            ? Schema.decodeUnknownSync(tool.input)(rawInput)
-            : rawInput;
-        // `await` for the same reason as the exposed-procedure branch above: a
-        // failing handler must land in `failFrom`, never escape as -32603. The
-        // handler DESCRIBES its work; it runs at the same request edge every
-        // other handler does, so a cancelled `tools/call` interrupts it.
-        return await withClient(current, async (bundle) => {
-          // THE rule for every bespoke table this face takes — the FRAMEWORK's,
-          // beside `clientAt`, because the argv face implements the same one and
-          // neither face owns it: a tool receives the client of the thing it was
-          // DECLARED on.
-          const target = declarationTarget(bundle, entry.sibling);
-          if (target === undefined) {
-            return fail(
-              brand(
-                `bespoke tool "${name}" is declared on sibling "${entry.sibling}", which this bundle's client does not carry`,
-              ),
-            );
-          }
-          const out = await runRequest(
-            tool.handler(parsed, target, extra.signal),
-            extra.signal,
-          );
-          // The tool's own renderer when it declared one (an image face),
-          // else the JSON default every other tool uses.
-          return tool.render ? tool.render(out) : ok(out);
-        });
-      }
-      return fail(brand(unknownToolMessage(name, departedTools)));
+            // The tool's own renderer when it declared one (an image face),
+            // else the JSON default every other tool uses.
+            return tool.render ? tool.render(out) : ok(out);
+          });
+        }
+        return fail(brand(unknownToolMessage(name, departedTools)));
+      });
     } catch (e) {
       return failFrom(e);
     }
@@ -737,7 +745,7 @@ export async function serveSurfaceAsMcp<
 
   // ── resources/list ─────────────────────────────────────────────────────
   server.setRequestHandler(ListResourcesRequestSchema, async () => ({
-    resources: gen.resolved.resources.map((r) => ({
+    resources: gen.resources.map((r) => ({
       uri: r.uri,
       name: r.name,
       mimeType: r.mimeType,
@@ -746,7 +754,7 @@ export async function serveSurfaceAsMcp<
 
   // ── resources/templates/list ───────────────────────────────────────────
   server.setRequestHandler(ListResourceTemplatesRequestSchema, async () => ({
-    resourceTemplates: gen.resolved.resourceTemplates.map((t) => ({
+    resourceTemplates: gen.resourceTemplates.map((t) => ({
       uriTemplate: t.uriTemplate,
       name: t.name,
       mimeType: t.mimeType,
@@ -759,9 +767,10 @@ export async function serveSurfaceAsMcp<
     // THE `resources/read` edge's branding — the mirror of `failFrom` on the
     // tools/call side (see {@link brand}). Without it the same link failure
     // named this adapter or didn't depending on which request kind hit it.
-    const current = gen;
-    const result = await withClient(current, (bundle) =>
-      runRequest(readSnapshot(bundle, uri, current), extra.signal),
+    const result = await withGeneration((current, withBundle) =>
+      withBundle((bundle) =>
+        runRequest(readSnapshot(bundle, uri, current), extra.signal),
+      ),
     ).catch((e: unknown): never => {
       // `messageOf`, the SAME derivation `failFrom` uses on the tools/call side
       // — which is what makes the comment above a mirror rather than a claim.
@@ -823,7 +832,7 @@ export async function serveSurfaceAsMcp<
     // refuses must leave this endpoint exactly as it was, still serving the
     // generation it was serving. A half-applied move is the one outcome nothing
     // downstream could recover from.
-    const next = buildGeneration({ ...opts, surfaces });
+    const next = resolveBundle({ ...opts, surfaces });
     const previous = gen;
     gen = next;
     recordDeparted(previous, next, departedTools, departedResources);
@@ -865,75 +874,6 @@ export async function serveSurfaceAsMcp<
   return { server, reroster, close };
 }
 
-// ── One generation of the roster ─────────────────────────────────────────
-
-/** `annotations` carry the read/write distinction to the host: a read-only tool
- *  (`readOnlyHint`) can be auto-approved or surfaced separately from a mutating
- *  one (`destructiveHint`). Without these the `mutates` flag the API and docs
- *  promise never reaches the host.
- *
- *  `mutates` reaches the host through ONE `mutates → annotations` projection, so
- *  the two tool sources cannot drift on the mapping or on the undefined edge
- *  case. Each normalizes `mutates` to a concrete boolean before calling:
- *  procedure tools already carry one (`expose.ts`'s `?? true`), bespoke tools
- *  apply the same conservative `?? true` at the call. */
-const toolAnnotations = (mutates: boolean) => ({
-  readOnlyHint: !mutates,
-  destructiveHint: mutates,
-});
-
-/** Resolve a bundle and index it into everything the request handlers read.
- *
- *  NO `outputSchema` is advertised, and adding one is not the free win it looks
- *  like. The SDK's client validates `structuredContent` against a declared
- *  `outputSchema` whenever the field is PRESENT — including on an `isError`
- *  result, despite the comment beside that code claiming otherwise
- *  (`client/index.js`: the validate branch sits outside the `isError` guard). A
- *  refusal's `ToolFailure.detail` is a different shape from the success it
- *  refused, so declaring a success schema would make every structured refusal
- *  throw inside the client's SDK instead of reaching the agent. Whoever adds
- *  `outputSchema` owes that case a home first — a union with the refusal shape,
- *  or no structured arm on the error side.
- *
- *  `title` and `description` are bespoke-only TODAY because `ToolExposure` has no
- *  field for either — a gap in the consumer's authoring map, not in this
- *  projection. */
-function buildGeneration<
-  C extends SurfaceSpec,
-  M extends Record<string, SurfaceSpec>,
->(bundle: McpBundle<C, M>): Generation {
-  const resolved = resolveBundle(bundle);
-  const byUri = new Map<string, ResourceEntry>();
-  for (const r of resolved.resources) byUri.set(r.uri, r);
-  const templateByCollection = new Map<string, ResourceTemplateEntry>();
-  for (const t of resolved.resourceTemplates) {
-    templateByCollection.set(collectionUri(t.sibling, t.key), t);
-  }
-  return {
-    resolved,
-    byUri,
-    templateByCollection,
-    toolByName: new Map(resolved.tools.map((t) => [t.name, t])),
-    advertisedTools: [
-      ...resolved.tools.map((t) => ({
-        name: t.name,
-        inputSchema: t.inputSchema,
-        annotations: toolAnnotations(t.mutates),
-      })),
-      ...[...resolved.bespoke].map(([name, { tool, schema }]) => ({
-        name,
-        // MCP's display name, distinct from `description`: a host renders it in a
-        // tool list, and without one it renders `name` — the machine spelling
-        // (`lifecycle_sendInput`) rather than a phrase.
-        title: tool.title,
-        description: tool.description,
-        inputSchema: schema,
-        annotations: toolAnnotations(tool.mutates ?? true),
-      })),
-    ],
-  };
-}
-
 // ── Refusals that name a DEPARTED sibling ────────────────────────────────
 
 /** The sentence a departed sibling's name earns — the same one
@@ -960,8 +900,8 @@ function droppedNote(sibling: string): string {
  *  right there — true of the member, and false of the sentence. Those fall
  *  through to plain "unknown", which is what they are. */
 function recordDeparted(
-  previous: Generation,
-  next: Generation,
+  previous: ResolvedBundle,
+  next: ResolvedBundle,
   tools: Map<string, string>,
   resources: Map<string, string>,
 ): void {
@@ -969,20 +909,18 @@ function recordDeparted(
     // Only a SIBLING's entry can ever be departed — the core does not move.
     if (owner !== undefined) map.set(key, owner);
   };
-  for (const tool of previous.resolved.tools)
-    own(tools, tool.name, tool.sibling);
-  for (const [name, e] of previous.resolved.bespoke)
-    own(tools, name, e.sibling);
-  for (const r of previous.resolved.resources) own(resources, r.uri, r.sibling);
+  for (const tool of previous.tools) own(tools, tool.name, tool.sibling);
+  for (const [name, e] of previous.bespoke) own(tools, name, e.sibling);
+  for (const r of previous.resources) own(resources, r.uri, r.sibling);
   // Then subtract, over the WHOLE map rather than only what this move touched —
   // an entry retired three rosters ago is cleared by the move that brings its
   // sibling back, and by nothing else.
   for (const [name, owner] of [...tools]) {
-    const served = next.toolByName.has(name) || next.resolved.bespoke.has(name);
-    if (served || next.resolved.siblings.has(owner)) tools.delete(name);
+    const served = next.toolByName.has(name) || next.bespoke.has(name);
+    if (served || next.siblings.has(owner)) tools.delete(name);
   }
   for (const [uri, owner] of [...resources]) {
-    if (next.byUri.has(uri) || next.resolved.siblings.has(owner)) {
+    if (next.byUri.has(uri) || next.siblings.has(owner)) {
       resources.delete(uri);
     }
   }
@@ -1025,13 +963,30 @@ function unknownResourceMessage(
     : `resource "${uri}" is no longer served — ${droppedNote(owner)}`;
 }
 
-/** A tool whose surface the dialled bundle has no client for. Reachable when a
- *  host's `client()` factory has not caught up with the roster it rerostered to
- *  — which is a wiring fact worth naming, never an empty answer. */
-function missingClient(tool: ToolEntry): string {
-  return tool.sibling === undefined
-    ? `tool "${tool.name}" needs the bundle's core client, which the dialled bundle does not carry`
-    : `tool "${tool.name}" needs sibling "${tool.sibling}"'s client, which the dialled bundle does not carry`;
+/** ONE fact about one dialled bundle, read by ONE reader — an MCP host — so it is
+ *  ONE sentence, however it is reached.
+ *
+ *  It is reachable from three places (a generated tool's dispatch, a bespoke
+ *  tool's, a resource's) and each used to word it for itself, in three shapes: a
+ *  string builder, a fabricated failing `Stream`, and an inline template. The
+ *  three already disagreed about the same condition ("needs the bundle's core
+ *  client", "carries no the bundle's core client", "which this bundle's client
+ *  does not carry"), which is what three places to reword buys.
+ *
+ *  It always names the LEG, because the fix is always at the host's `client()`
+ *  factory: it was re-invoked and did not carry a surface the roster it serves
+ *  says it should. Reachable whenever that factory has not caught up with a
+ *  reroster — a wiring fact worth naming, never an empty answer. */
+function noLegFor(sibling: SiblingKey, what: string): string {
+  const which =
+    sibling === undefined
+      ? "the bundle's core client"
+      : `sibling "${sibling}"'s client`;
+  return (
+    `${what} is served by this bundle, but the dialled client bundle carries ` +
+    `no ${which} — the connection is a leg short of the roster being served, ` +
+    "not the address wrong."
+  );
 }
 
 // ── URI → stream / snapshot resolution ───────────────────────────────────
@@ -1039,7 +994,7 @@ function missingClient(tool: ToolEntry): string {
 /** Whether `uri` resolves to something the pusher can subscribe to: a listed
  *  static resource, or a well-formed collection-item template instance whose
  *  collection this generation exposes. */
-function isSubscribable(uri: string, gen: Generation): boolean {
+function isSubscribable(uri: string, gen: ResolvedBundle): boolean {
   if (gen.byUri.has(uri)) return true;
   const item = parseCollectionItem(uri);
   if (item === null) return false;
@@ -1087,7 +1042,7 @@ interface ResolvedCall {
 function resolveCall(
   bundle: RootedSurfaceClients,
   uri: string,
-  gen: Generation,
+  gen: ResolvedBundle,
 ): ResolvedCall | undefined {
   const entry = gen.byUri.get(uri);
   if (entry !== undefined) {
@@ -1148,28 +1103,16 @@ function resolveCall(
  *  A resolved call whose `open()` fails, rather than an absent one, so the one
  *  fact travels to both readers by the route each already has — the one-shot read
  *  raises it, the subscription's fiber exits on it and the pusher reports and
- *  retries. The sentence names the LEG, because the fix is always at the host's
- *  `client()` factory: it was re-invoked and did not carry the surface the roster
- *  it serves says it should. */
+ *  retries. The SENTENCE is {@link noLegFor}, shared with the two tool-dispatch
+ *  sites that report the same condition. */
 function unreachableLeg(
   uri: string,
   kind: ResolvedCall["kind"],
   mimeType: string,
   sibling: SiblingKey,
 ): ResolvedCall {
-  const which =
-    sibling === undefined
-      ? "the bundle's core client"
-      : `sibling "${sibling}"'s client`;
   return {
-    open: () =>
-      Stream.fail(
-        new Error(
-          `${uri} (${kind}) is served by this bundle, but the dialled client ` +
-            `bundle carries no ${which} — the connection is a leg short of the ` +
-            "roster being served, not the address wrong.",
-        ),
-      ),
+    open: () => Stream.fail(new Error(noLegFor(sibling, `${uri} (${kind})`))),
     mimeType,
     kind,
   };
@@ -1220,7 +1163,7 @@ function decodeKey(keySchema: WireSchemaAny, id: string): unknown {
 function streamForUri(
   bundle: RootedSurfaceClients,
   uri: string,
-  gen: Generation,
+  gen: ResolvedBundle,
 ): Stream.Stream<unknown, unknown> | undefined {
   const call = resolveCall(bundle, uri, gen);
   return call === undefined ? undefined : call.open();
@@ -1273,7 +1216,7 @@ function isMiss(r: Snapshot | ReadMiss): r is ReadMiss {
 function readSnapshot(
   bundle: RootedSurfaceClients,
   uri: string,
-  gen: Generation,
+  gen: ResolvedBundle,
 ): Effect.Effect<Snapshot | ReadMiss, unknown> {
   const call = resolveCall(bundle, uri, gen);
   if (call === undefined)
@@ -1358,7 +1301,7 @@ function readCollectionItemSnapshot(
   bundle: RootedSurfaceClients,
   uri: string,
   call: ResolvedCall,
-  gen: Generation,
+  gen: ResolvedBundle,
 ): Effect.Effect<Snapshot | ReadMiss, unknown> {
   const item = parseCollectionItem(uri);
   const template =

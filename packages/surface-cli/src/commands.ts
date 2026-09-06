@@ -94,10 +94,12 @@
 import {
   clientAt,
   declarationTarget,
+  disposeQuietly,
   notABundleDetail,
   type OwnedSurfaceConnection,
   type RootedSurfaceClients,
   rootedBundleEntries,
+  type SiblingKey,
   type SurfaceClientCallable,
 } from "@kolu/surface/client";
 import type {
@@ -183,11 +185,6 @@ interface FaceContext<F extends FlagRecord = FlagRecord, R = never> {
  *  guess the meaning of. `onClose` is on the base and unused here: a CLI never
  *  redials, so it has nothing to do with a transport announcing its close. */
 export type SurfaceCliConnection = OwnedSurfaceConnection<RootedSurfaceClients>;
-
-/** WHICH surface of the bundle a projected command belongs to — a sibling's key,
- *  or `undefined` for the core. The same one-field spelling the MCP face uses:
- *  "the core" is the ABSENCE of a sibling word and nothing else. */
-type SiblingKey = string | undefined;
 
 /** CLI-only ergonomics for one verb, keyed by the verb's name.
  *
@@ -530,6 +527,23 @@ function scopesOf<
         `surface-cli: the sibling "${key}" would be mounted beside ${prior} of the same name — rename one.`,
       );
     }
+  }
+  // A sibling that projects NOTHING is an author's mistake, refused where the
+  // author is. Every other malformed projection in this file is caught at build;
+  // this one used to ship — mounting an argv word with `withSubcommands([])` and
+  // a help line reading "nothing exposed", an address a user can only ever be
+  // refused at. (The MCP face has no equivalent hazard: an empty sibling
+  // contributes no names and no word, so there is nothing to arrive at.)
+  const empty = scopes.filter(
+    (scope) =>
+      scope.sibling !== undefined &&
+      scope.verbs.length === 0 &&
+      scope.readable.size === 0,
+  );
+  if (empty.length > 0) {
+    throw new SurfaceCliBuildError(
+      `surface-cli: the sibling(s) [${empty.map((scope) => scope.sibling).join(", ")}] expose nothing and declare no verbs — remove them, or expose a member.`,
+    );
   }
   return scopes;
 }
@@ -1010,8 +1024,9 @@ function siblingBlurb(scope: Scope): string {
       `${scope.readable.size} readable member${scope.readable.size === 1 ? "" : "s"}`,
     );
   }
-  const what = parts.length === 0 ? "nothing exposed" : parts.join(" and ");
-  return `The "${scope.sibling}" surface — ${what}.`;
+  // No "nothing exposed" arm: `scopesOf` refuses an empty sibling at BUILD, so a
+  // scope that reaches here has at least one of the two.
+  return `The "${scope.sibling}" surface — ${parts.join(" and ")}.`;
 }
 
 /** A verb's `--help` line: its own description, or a plain sentence naming it,
@@ -1780,7 +1795,22 @@ interface ListTable {
     readonly input: Record<string, unknown>;
   }>;
   readonly resources: ReadonlyArray<{
+    /** The argv spelling of ONE ADDRESS of a readable member — `tenant get load`,
+     *  never `tenant load`.
+     *
+     *  `name` means the same thing in both arms of this table: what a caller
+     *  types. It used to mean that for a verb and something else entirely for a
+     *  resource — `tenant load` is neither the member key nor a command, and
+     *  pasting it fails — so the face's authoritative "what can I address" answer
+     *  printed, in its human renderer, a string that does not work. A member with
+     *  more than one reader gets one ROW per reader (`get`, and `keys` / `watch`
+     *  where the collection declares them), because those are different addresses
+     *  and this table's job is to name addresses. */
     readonly name: string;
+    /** The member's own key, kept as a FIELD for the same reason `surface` is: a
+     *  script grouping a member's addresses should not have to re-split a string
+     *  this face composed. */
+    readonly member: string;
     readonly kind: string;
     readonly surface?: string;
   }>;
@@ -1793,7 +1823,7 @@ interface ListTable {
  *  had already happened — `flagsOf` runs the same bridge over the same schema to
  *  make the flags, moments earlier. So the walk ran twice per verb (56× on olai,
  *  0.023 ms each) and once more than any run of the binary can use. */
-function listTable(scopes: readonly Scope[]): ListTable {
+function listTable(scopes: readonly Scope[], streams: boolean): ListTable {
   /** The argv spelling of one name in a scope — the sibling word in front, or
    *  nothing for the core. The ONE place this face composes an addressable name,
    *  so the table and the mounted tree cannot spell one differently. */
@@ -1818,12 +1848,26 @@ function listTable(scopes: readonly Scope[]): ListTable {
         };
       }),
     ),
+    // One row per ADDRESS, not per member: `get <member>` always, plus the
+    // collection readers this projection actually mounted. Both walks read
+    // {@link COLLECTION_READERS} and the same `streams` fact `readerCommands`
+    // does, so the table cannot offer an address the tree does not answer.
     resources: scopes.flatMap((scope) =>
-      [...scope.readable.values()].map((member) => ({
-        name: spell(scope, member.name),
-        kind: member.kind,
-        ...at(scope),
-      })),
+      [...scope.readable.values()].flatMap((member) => {
+        const row = (command: string) => ({
+          name: spell(scope, `${command} ${member.name}`),
+          member: member.name,
+          kind: member.kind,
+          ...at(scope),
+        });
+        if (member.kind !== "collection") return [row("get")];
+        return [
+          row("get"),
+          ...COLLECTION_READERS.filter(
+            (reader) => reader.eligible(member) && !(reader.always && !streams),
+          ).map((reader) => row(reader.name)),
+        ];
+      }),
     ),
   };
 }
@@ -1853,7 +1897,11 @@ function listCommand<F extends FlagRecord, R>(
     // every verb goes through — the aligned table by default, the JSON when
     // `--json` says so, and no question anywhere about what stdout is.
     (values: Record<string, unknown>) =>
-      present(listTable(scopes), alignedTable, values[JSON_FLAG] === true),
+      present(
+        listTable(scopes, opts.endpoint.streaming !== false),
+        alignedTable,
+        values[JSON_FLAG] === true,
+      ),
   ).pipe(
     Command.withDescription(
       "List what this surface offers — every verb and every readable member. This face's tools/list, answered from the projection itself, so it dials nothing.",
@@ -1883,20 +1931,13 @@ function alignedTable(value: unknown): string {
 
 // ── The connection, for the length of one command ────────────────────────
 
-/** A teardown that must not have a last word. A socket close that rejects
- *  has nothing to add to a command that already has — or just lost — its
- *  answer, and an escaping rejection is either a DEFECT that replaces the
- *  verdict (the release arm) or an unhandled promise rejection mid-Ctrl-C
- *  (the arrive-late arm of the interruptible acquire). One concept, one
- *  spelling; the socket is going away with the process either way. */
-const disposeQuietly = async (c: { dispose(): void | Promise<void> }) => {
-  // The (synchronous) call is DEFERRED under `.then`: a `dispose` that THROWS
-  // before returning must read exactly like one that rejects — the `.catch`
-  // owns both, never the caller's framing.
-  await Promise.resolve()
-    .then(() => c.dispose())
-    .catch(() => {});
-};
+// A teardown that must not have a last word — the FRAMEWORK's `disposeQuietly`,
+// beside the `OwnedSurfaceConnection` whose property it is. A socket close that
+// rejects has nothing to add to a command that already has (or just lost) its
+// answer, and an escaping rejection is either a DEFECT that replaces the verdict
+// or an unhandled rejection mid-Ctrl-C. This face held its own copy of that
+// argument, in near-identical prose and a different signature from the MCP
+// face's, until the concept moved to where the shape lives.
 
 /** Dial, run, release — in that order, whatever happens in the middle.
  *

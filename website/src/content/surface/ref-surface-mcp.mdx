@@ -319,10 +319,11 @@ cannot see through, so a default declared outside it never reaches the agent.
 | Export | Role |
 | --- | --- |
 | `toInputSchema(schema?)` | Effect Schema → JSON Schema (draft 2020-12), `$ref`-dereferenced, top-level-object enforced. A **re-export** of [`@kolu/surface/verbs`](/surface/ref-surface#the-projection-vocabulary-kolusurfaceverbs) — the bridge is the framework's, shared with the CLI face |
-| `resolveExpose(spec, expose, sibling?)` | the default-deny resolver for ONE surface → `{ resources, resourceTemplates, tools }`, with `sibling` folded into every name it mints |
-| `resolveBundle(bundle)` | the whole-bundle resolver both the boot and every `reroster` run through — the flat tables plus every refusal the composition owes |
+| `resolveExpose(spec, expose, sibling)` | the default-deny resolver for ONE surface → `{ resources, resourceTemplates, tools }`, with `sibling` folded into every name it mints. `sibling` is required and `undefined` names the bare core — the address, not an omitted argument |
+| `resolveBundle(bundle)` | the whole-bundle resolver both the boot and every `reroster` run through — the flat tables, the indices over them (`byUri` · `templateByCollection` · `toolByName` · `advertisedTools`), and every refusal the composition owes. One value, replaced whole by a move, so no request ever reads a half-updated roster |
 | `scopedToolName(sibling, name)` | the tool-name half of the prefix rule (`t_ops_run`), applied to a sibling's hand-authored tools as well as its generated ones |
-| `McpCore<S>` · `McpSibling<S>` · `McpBundle<C, M>` · `SiblingKey` | the bundle's option shapes |
+| `McpCore<S>` · `McpSibling<S>` · `McpBundle<C, M>` | the bundle's option shapes |
+| `SiblingKey` | re-exported from [`@kolu/surface/client`](/surface/ref-surface#the-client-a-face-holds), where it lives beside `clientAt` — both projecting faces read the same one |
 | `ToolFailure<D>(message, detail)` | the refusal a handler fails with when the reason is machine-readable — `detail` becomes the result's `structuredContent`, normalized the same way a success is |
 | `messageOf(error)` | the framework's "name what broke" derivation ([`@kolu/surface/errors`](/surface/ref-surface#the-tagged-error-vocabulary-kolusurfaceerrors)), **re-exported** here under the name this package shipped it with — the one the request edge uses to word a failure. Reach for it in a bespoke tool that folds a caught failure into its own message instead of raising it, so both paths word the same error the same way; it handles the two shapes `e instanceof Error ? e.message : String(e)` gets wrong (a tagged error whose `message` is empty, a failure declared as a plain object) |
 | `okImage(image, detail)` | wrap a tool result whose answer is an image — the bytes travel once, as an MCP image block; `detail` becomes the structured arm and must not repeat the payload (a documented contract, not a check — see above) |

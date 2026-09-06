@@ -39,6 +39,7 @@ import type { ExposeMap } from "@kolu/surface/expose";
 import { inputSchema } from "@kolu/surface/verbs";
 import {
   COLLECTION_PREFIX,
+  collectionUri,
   type ResourceEntry,
   type ResourceTemplateEntry,
   resolveExpose,
@@ -153,7 +154,21 @@ export interface ResolvedBespokeTool {
   readonly sibling: SiblingKey;
 }
 
-/** Everything the server registers, for ONE generation of the roster. */
+/** Everything the server registers, for ONE GENERATION of the roster —
+ *  composed, refused, and INDEXED.
+ *
+ *  A single value, replaced whole by `ServedSurfaceMcp.reroster` rather than five
+ *  tables updated in sequence: a `tools/list` landing between two of those
+ *  updates would answer from a roster that never existed. The handlers read it
+ *  once per request, so whichever generation they get is a real one.
+ *
+ *  The indices live HERE, on the value they index, and not in a second type one
+ *  depth up. Split by authoring order, a reader did
+ *  `current.resolved.bespoke.get(name)` on one line and `current.toolByName.get(
+ *  name)` on the next for the same kind of lookup, and a new index had no
+ *  principled home. They are a compute-once-read-N-times cache over exactly this
+ *  composition — nothing in them reads request state — so the thing that produces
+ *  the tables is the thing that produces their indices. */
 export interface ResolvedBundle {
   readonly resources: readonly ResourceEntry[];
   readonly resourceTemplates: readonly ResourceTemplateEntry[];
@@ -162,7 +177,49 @@ export interface ResolvedBundle {
   /** The sibling keys this generation serves — what a later reroster diffs
    *  against to know who left. */
   readonly siblings: ReadonlySet<string>;
+  /** Static resources by URI — O(1) read/subscribe dispatch. */
+  readonly byUri: ReadonlyMap<string, ResourceEntry>;
+  /** Collection templates keyed by their COLLECTION's key-set URI, which is the
+   *  one address that identifies a collection across a bundle (its `(sibling,
+   *  key)` pair, already composed). Keyed by the member key alone, two siblings
+   *  exposing `entries` would share one entry and one of them would decode item
+   *  ids against the other's key schema. */
+  readonly templateByCollection: ReadonlyMap<string, ResourceTemplateEntry>;
+  readonly toolByName: ReadonlyMap<string, ToolEntry>;
+  /** `tools/list`'s answer, projected once per generation: nothing in it reads
+   *  request state, so re-projecting per call would buy nothing.
+   *
+   *  NO `outputSchema` is advertised, and adding one is not the free win it looks
+   *  like. The SDK's client validates `structuredContent` against a declared
+   *  `outputSchema` whenever the field is PRESENT — including on an `isError`
+   *  result, despite the comment beside that code claiming otherwise
+   *  (`client/index.js`: the validate branch sits outside the `isError` guard). A
+   *  refusal's `ToolFailure.detail` is a different shape from the success it
+   *  refused, so declaring a success schema would make every structured refusal
+   *  throw inside the client's SDK instead of reaching the agent. Whoever adds
+   *  `outputSchema` owes that case a home first — a union with the refusal shape,
+   *  or no structured arm on the error side.
+   *
+   *  `title` and `description` are bespoke-only TODAY because `ToolExposure` has
+   *  no field for either — a gap in the consumer's authoring map, not in this
+   *  projection. */
+  readonly advertisedTools: ReadonlyArray<Record<string, unknown>>;
 }
+
+/** `annotations` carry the read/write distinction to the host: a read-only tool
+ *  (`readOnlyHint`) can be auto-approved or surfaced separately from a mutating
+ *  one (`destructiveHint`). Without these the `mutates` flag the API and docs
+ *  promise never reaches the host.
+ *
+ *  `mutates` reaches the host through ONE `mutates → annotations` projection, so
+ *  the two tool sources cannot drift on the mapping or on the undefined edge
+ *  case. Each normalizes `mutates` to a concrete boolean before calling:
+ *  procedure tools already carry one (`expose.ts`'s `?? true`), bespoke tools
+ *  apply the same conservative `?? true` at the call. */
+const toolAnnotations = (mutates: boolean) => ({
+  readOnlyHint: !mutates,
+  destructiveHint: mutates,
+});
 
 /** Resolve a whole bundle into the flat tables, making every refusal the
  *  composition owes.
@@ -260,12 +317,39 @@ export function resolveBundle<
     if (sibling !== undefined) takeBespoke(sibling, value.tools);
   }
 
+  const byUri = new Map<string, ResourceEntry>();
+  for (const r of resources) byUri.set(r.uri, r);
+  const templateByCollection = new Map<string, ResourceTemplateEntry>();
+  for (const t of resourceTemplates) {
+    templateByCollection.set(collectionUri(t.sibling, t.key), t);
+  }
+
   return {
     resources,
     resourceTemplates,
     tools,
     bespoke,
     siblings: new Set(siblingKeys),
+    byUri,
+    templateByCollection,
+    toolByName: new Map(tools.map((t) => [t.name, t])),
+    advertisedTools: [
+      ...tools.map((t) => ({
+        name: t.name,
+        inputSchema: t.inputSchema,
+        annotations: toolAnnotations(t.mutates),
+      })),
+      ...[...bespoke].map(([name, { tool, schema }]) => ({
+        name,
+        // MCP's display name, distinct from `description`: a host renders it in a
+        // tool list, and without one it renders `name` — the machine spelling
+        // (`lifecycle_sendInput`) rather than a phrase.
+        title: tool.title,
+        description: tool.description,
+        inputSchema: schema,
+        annotations: toolAnnotations(tool.mutates ?? true),
+      })),
+    ],
   };
 }
 

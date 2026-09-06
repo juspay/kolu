@@ -1376,6 +1376,19 @@ subscription's lifetime, so a host can write one connection factory that feeds
 both faces. `@kolu/surface-mcp`'s `PusherConnection` / `OwnedSurfaceConnection`
 and `@kolu/surface-cli`'s `SurfaceCliConnection` are aliases of it.
 
+`SiblingKey` (`string | undefined`) is which surface of a bundle something
+belongs to — `undefined` *is* the bare core, never an omitted value. It lives
+here because each projecting face had declared it for itself: neither could
+import the other's without pointing a face at a face.
+
+`disposeQuietly(conn)` is the one way a face lets go of a connection — it
+defers the call, swallows a rejection *and* a synchronous throw, and returns a
+promise that never rejects. A bare `conn.dispose()` on an async disposer leaves
+an unhandled rejection, which on Node terminates the process at exactly the
+moment the code is being resilient about a transport going away. Both faces held
+their own copy of that argument, in different signatures, until it moved beside
+the shape it is a property of.
+
 `RootedSurfaceClients` is the **client half of a rooted bundle** —
 `{ core?, clients? }`, the shape `connectSurfaces` hands back and the shape both
 projecting faces now dial, so "the client for a bundle" is one shape rather than

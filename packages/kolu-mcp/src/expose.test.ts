@@ -42,7 +42,11 @@ function specMembers(): Set<string> {
 
 describe("KOLU_MCP_EXPOSE — the ratified v1 map", () => {
   it("resolves against the real padiSurface spec", () => {
-    const resolved = resolveExpose(padiSurface.spec, KOLU_MCP_EXPOSE);
+    const resolved = resolveExpose(
+      padiSurface.spec,
+      KOLU_MCP_EXPOSE,
+      undefined,
+    );
     expect(resolved.resources.map((r) => r.key).sort()).toEqual([
       "daemonStatus",
       "identity",

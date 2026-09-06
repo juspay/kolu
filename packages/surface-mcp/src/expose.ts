@@ -38,6 +38,7 @@
  * per-surface reading `exposeRootedFaces` takes.
  */
 
+import type { SiblingKey } from "@kolu/surface/client";
 import type { SurfaceSpec, WireSchemaAny } from "@kolu/surface/define";
 import {
   classifyExpose,
@@ -63,16 +64,11 @@ import { ADAPTER_NAME, brand } from "./tools";
 
 // ── Resolved registration lists ─────────────────────────────────────────
 
-/** WHICH surface of a rooted bundle an entry came from: a sibling's key, or
- *  `undefined` for the unprefixed core.
- *
- *  One field, not a `{ scoped: boolean; key: string }` pair, because "the core"
- *  is the ABSENCE of a sibling segment and nothing else — the same way
- *  `connectSurfaces` spells a rootless wire's `core` as `undefined` rather than
- *  as a filled slot with a flag beside it. A single-surface face is a bundle
- *  whose every entry carries `undefined` here, so the serving code below has one
- *  reading rather than a degenerate second one. */
-export type SiblingKey = string | undefined;
+/** WHICH surface of a rooted bundle an entry came from — the FRAMEWORK's
+ *  {@link SiblingKey}, beside `clientAt` and the fold, because the argv face
+ *  needs exactly the same one and could not import this face's without pointing a
+ *  face at a face. Re-exported under the name this package publishes. */
+export type { SiblingKey };
 
 /** A static resource (cell / collection key-set / stream / event). */
 export interface ResourceEntry {
@@ -259,8 +255,16 @@ export function resolveExpose<S extends SurfaceSpec>(
   /** Which surface of a rooted bundle this map belongs to — a sibling's key, or
    *  `undefined` for the core (and for a bundle that is one surface). It is
    *  folded into every name this resolver mints, which is the whole of the
-   *  prefix composition (see the module header). */
-  sibling: SiblingKey = undefined,
+   *  prefix composition (see the module header).
+   *
+   *  REQUIRED, with no default. `undefined` here is not "the argument was
+   *  omitted" — it is the ADDRESS, the bare core. With a default the two readings
+   *  were the same call, so a caller walking a sibling and forgetting the key
+   *  would silently mint bare, core-shaped names for it: a composition bug the
+   *  collision pass catches only sometimes, because `_` is legal inside a
+   *  segment. Saying `undefined` out loud costs one word and cannot be
+   *  forgotten. */
+  sibling: SiblingKey,
 ): ResolvedExpose {
   const resources: ResourceEntry[] = [];
   const resourceTemplates: ResourceTemplateEntry[] = [];

@@ -291,7 +291,7 @@ describe("the command table", () => {
         mutates: boolean;
         input: unknown;
       }[];
-      resources: { name: string; kind: string }[];
+      resources: { name: string; member: string; kind: string }[];
     };
     expect(table.verbs.map((verb) => verb.name)).toEqual([
       "echo",
@@ -312,18 +312,26 @@ describe("the command table", () => {
     // EXACT, not `arrayContaining`: a member silently dropped from the
     // projection is precisely what this table is for, and a containment
     // assertion cannot see one go missing.
+    //
+    // One row per ADDRESS a caller can type, not one per member: `list` answers
+    // "what can I address", so a row's `name` has to work when pasted. A
+    // collection therefore has as many rows as it has readers — `processes`
+    // declares `keys` and `deltas`, so it gets all three; `mounts` declares only
+    // `get`, so it gets one.
     expect(
       [...table.resources].sort((a, b) => a.name.localeCompare(b.name)),
     ).toEqual([
-      { name: "autosave", kind: "event" },
-      { name: "load", kind: "cell" },
-      { name: "mounts", kind: "collection" },
-      { name: "nodeLog", kind: "stream" },
-      { name: "processes", kind: "collection" },
-      { name: "ticks", kind: "stream" },
+      { name: "get autosave", member: "autosave", kind: "event" },
+      { name: "get load", member: "load", kind: "cell" },
+      { name: "get mounts", member: "mounts", kind: "collection" },
+      { name: "get nodeLog", member: "nodeLog", kind: "stream" },
+      { name: "get processes", member: "processes", kind: "collection" },
+      { name: "get ticks", member: "ticks", kind: "stream" },
       // Offered by the CLI and WITHHELD by the served face — the two gates are
       // separate decisions, and this table is the CLI's.
-      { name: "withheld", kind: "cell" },
+      { name: "get withheld", member: "withheld", kind: "cell" },
+      { name: "keys processes", member: "processes", kind: "collection" },
+      { name: "watch processes", member: "processes", kind: "collection" },
     ]);
     // The advertised input is the SAME document the MCP face publishes.
     expect(
@@ -1295,11 +1303,18 @@ describe("a ROOTED BUNDLE mounts each sibling behind its own argv word", () => {
     expect(listed.code).toBe(EXIT.ok);
     const table = JSON.parse(listed.stdout) as {
       verbs: Array<{ name: string; surface?: string }>;
-      resources: Array<{ name: string; surface?: string }>;
+      resources: Array<{ name: string; member: string; surface?: string }>;
     };
-    // A row's `name` is what a caller TYPES, sibling word included.
+    // A row's `name` is what a caller TYPES, sibling word included — in BOTH
+    // arms. A resource row names an ADDRESS (`tenant get load`), not the member
+    // key behind it: `tenant load` is a string that fails when pasted, and this
+    // table is this face's authoritative answer to "what can I address".
     expect(table.verbs.map((v) => v.name)).toContain("tenant echo");
-    expect(table.resources.map((r) => r.name)).toContain("tenant load");
+    expect(table.resources.map((r) => r.name)).toContain("tenant get load");
+    expect(table.resources.map((r) => r.name)).not.toContain("tenant load");
+    expect(
+      table.resources.find((r) => r.name === "tenant get load")?.member,
+    ).toBe("load");
     // …and the core's rows carry no surface at all.
     expect(table.verbs.find((v) => v.name === "proc_kill")?.surface).toBe(
       undefined,

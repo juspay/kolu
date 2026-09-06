@@ -20,9 +20,12 @@ export {
   type ResourceTemplateEntry,
   resolveExpose,
   scopedToolName,
-  type SiblingKey,
   type ToolEntry,
 } from "./expose";
+// `SiblingKey` is the FRAMEWORK's — it was declared once per face until it moved
+// beside `clientAt`, where both faces read it. Re-exported here under the name
+// this package has always published it as.
+export type { SiblingKey } from "@kolu/surface/client";
 // The ROOTED BUNDLE this face composes on — the option shapes a consumer writes,
 // and the resolver both the boot and every `reroster` run through.
 export {

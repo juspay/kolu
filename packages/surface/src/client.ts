@@ -407,6 +407,24 @@ export interface RootedSurfaceClients {
   readonly clients?: Readonly<Record<string, SurfaceClientCallable>>;
 }
 
+/** WHICH surface of a rooted bundle something belongs to: a sibling's key, or
+ *  `undefined` for the unprefixed core.
+ *
+ *  One field, not a `{ scoped: boolean; key: string }` pair, because "the core"
+ *  is the ABSENCE of a sibling segment and nothing else — the same way
+ *  `connectSurfaces` spells a rootless wire's `core` as `undefined` rather than
+ *  as a filled slot with a flag beside it. A single-surface face is a bundle
+ *  whose every entry carries `undefined` here, so the serving code has one
+ *  reading rather than a degenerate second one.
+ *
+ *  It lives HERE, beside {@link clientAt} and {@link rootedBundleEntries}, for
+ *  the reason it was declared three times before: each projecting face spelled it
+ *  for itself (the argv one with a comment saying it was "the same one-field
+ *  spelling the MCP face uses") because neither could import the other's without
+ *  pointing a face at a face — which is the evidence that the type was at the
+ *  wrong altitude, not that it needed a copy. */
+export type SiblingKey = string | undefined;
+
 /** The one lookup both faces do: which client answers for a bundle address —
  *  the core (`sibling === undefined`) or one named sibling.
  *
@@ -417,7 +435,7 @@ export interface RootedSurfaceClients {
  *  by different people — an MCP host and a person at a shell. */
 export function clientAt(
   bundle: RootedSurfaceClients,
-  sibling: string | undefined,
+  sibling: SiblingKey,
 ): SurfaceClientCallable | undefined {
   return sibling === undefined ? bundle.core : bundle.clients?.[sibling];
 }
@@ -441,7 +459,7 @@ export function clientAt(
  *  wants the CORE asks for it with {@link clientAt} and refuses there. */
 export function declarationTarget(
   bundle: RootedSurfaceClients,
-  sibling: string | undefined,
+  sibling: SiblingKey,
 ): RootedSurfaceClients | SurfaceClientCallable | undefined {
   return sibling === undefined ? bundle : bundle.clients?.[sibling];
 }
@@ -473,8 +491,8 @@ export function declarationTarget(
 export function rootedBundleEntries<T>(
   core: T | undefined,
   siblings: Readonly<Record<string, T>> | undefined,
-): ReadonlyArray<{ readonly sibling: string | undefined; readonly value: T }> {
-  const entries: Array<{ sibling: string | undefined; value: T }> = [];
+): ReadonlyArray<{ readonly sibling: SiblingKey; readonly value: T }> {
+  const entries: Array<{ sibling: SiblingKey; value: T }> = [];
   if (core !== undefined) entries.push({ sibling: undefined, value: core });
   for (const key of Object.keys(siblings ?? {}).sort()) {
     entries.push({
@@ -523,6 +541,46 @@ export interface OwnedSurfaceConnection<Client = SurfaceClientCallable> {
    *  close must supply it, and what an absent hook costs the MCP face is spelled
    *  out on that face's own alias. */
   onClose?: (cb: () => void) => void;
+}
+
+/** Release an {@link OwnedSurfaceConnection} and SWALLOW whatever the release
+ *  says about it — the one way a projecting face lets go of a socket.
+ *
+ *  `dispose` may be async (one shape for both faces, and the real one — a unix
+ *  socket link — is), so it can REJECT: a finalizer that fails while a daemon
+ *  restarts races a socket close every day of the week. A bare `conn.dispose()`
+ *  leaves that rejection unhandled, and Node's default for an unhandled rejection
+ *  is to TERMINATE the process — killing a long-lived MCP server at exactly the
+ *  moment the code is trying to be resilient about a transport going away. A
+ *  `dispose` that throws SYNCHRONOUSLY never produces a promise to attach that
+ *  handler to, and is the same non-event for the same reason, so the `try` covers
+ *  it.
+ *
+ *  The release itself is SYNCHRONOUS — the socket starts closing on this line,
+ *  not a microtask later. The MCP face's slots have already stopped pointing at
+ *  the connection by the time they call, and its identity guards read as
+ *  "disposed by now"; only the WAITING is deferred, which is what the returned
+ *  promise is for (the argv face awaits it inside an `acquireRelease`).
+ *  It never rejects.
+ *
+ *  Ignoring is safe, and it is the only thing that is: every call site has
+ *  already stopped pointing at this connection (a lost dial race, a teardown, a
+ *  drop, the server closing), so a failed release has nothing left to tell
+ *  anyone — while a THROWN one would replace an answer the caller already has.
+ *  The socket is going away with the process either way.
+ *
+ *  It lives beside {@link OwnedSurfaceConnection} because it is a property of
+ *  THAT shape, and because both faces argued for it in near-identical prose while
+ *  keeping one implementation each — already differing in signature, which is the
+ *  same drift this type was unified to prevent one level up. */
+export function disposeQuietly(conn: {
+  readonly dispose: () => void | Promise<void>;
+}): Promise<void> {
+  try {
+    return Promise.resolve(conn.dispose()).catch(() => {});
+  } catch {
+    return Promise.resolve();
+  }
 }
 
 /** Decode an ENCODED argument at the face edge, or pass a DECODED one through.
