@@ -1,6 +1,7 @@
 # @kolu/surface-mcp
 
-Re-expose any [`@kolu/surface`](../surface) as an
+Re-expose a [`@kolu/surface`](../surface) **rooted bundle** — a bare core beside
+a keyed set of siblings, the roster changing live — as an
 [MCP](https://modelcontextprotocol.io/) server, so a coding agent (Claude Code,
 Codex, opencode) drives your surface with structured tool calls. Cells,
 collections, streams, and events become subscribable **resources**; procedures
@@ -11,11 +12,17 @@ and leaves you in control of what is exposed, default-deny.
 ```ts
 import { serveSurfaceAsMcp } from "@kolu/surface-mcp";
 
-await serveSurfaceAsMcp({
-  surface,
-  client: () => client,
-  expose: { load: "resource", "proc.kill": { tool: { mutates: true } } },
+const served = await serveSurfaceAsMcp({
+  core: { surface, expose: { load: "resource" } },
+  surfaces: {
+    tenantA: { surface, expose: { "proc.kill": { tool: { mutates: true } } } },
+  },
+  client: () => ({ core, clients: { tenantA } }),
 });
+
+// The sibling key is a segment of every name it contributes:
+//   surface://cells/load          tenantA_proc_kill
+await served.reroster({ /* the new sibling map, whole */ });
 ```
 
 Part of the kolu monorepo — `"@kolu/surface-mcp": "workspace:*"`.

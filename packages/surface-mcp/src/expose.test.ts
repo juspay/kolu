@@ -58,14 +58,14 @@ describe("resolveExpose", () => {
     });
 
     const uris = r.resources.map((e) => e.uri).sort();
-    expect(uris).toContain(cellUri("count"));
-    expect(uris).toContain(collectionUri("notes"));
-    expect(uris).toContain(streamUri("ticks"));
-    expect(uris).toContain(eventUri("exited"));
+    expect(uris).toContain(cellUri(undefined, "count"));
+    expect(uris).toContain(collectionUri(undefined, "notes"));
+    expect(uris).toContain(streamUri(undefined, "ticks"));
+    expect(uris).toContain(eventUri(undefined, "exited"));
 
     // A collection also yields a per-item template.
     expect(r.resourceTemplates.map((t) => t.uriTemplate)).toEqual([
-      collectionItemTemplate("notes"),
+      collectionItemTemplate(undefined, "notes"),
     ]);
   });
 
@@ -333,7 +333,9 @@ describe("an inherited spec-table key names nothing, and is never advertised", (
         "admin.toString": "tool",
       }),
     );
-    expect(r.resources.map((e) => e.uri)).toEqual([cellUri("toString")]);
+    expect(r.resources.map((e) => e.uri)).toEqual([
+      cellUri(undefined, "toString"),
+    ]);
     expect(r.tools.map((t) => t.name)).toEqual(["admin_toString"]);
   });
 });

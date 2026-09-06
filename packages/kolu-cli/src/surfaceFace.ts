@@ -252,8 +252,10 @@ export const KOLU_SURFACE_HELP = {
  *  — so the typing costs the graph nothing. */
 export const koluSurfaceFace = (root: typeof koluRoot) => {
   const projection = {
-    surface: padiSurface,
-    expose: KOLU_MCP_EXPOSE,
+    // The degenerate rooted bundle, exactly as the MCP face declares it: padi as
+    // the unprefixed CORE and no siblings, so every argv spelling this face
+    // mounts is the one it mounted before the projection learned to compose.
+    core: { surface: padiSurface, expose: KOLU_MCP_EXPOSE },
     verbs: KOLU_MCP_TOOLS,
     endpoint: {
       resolve: () => Effect.flatMap(root, surfaceEndpointOf),

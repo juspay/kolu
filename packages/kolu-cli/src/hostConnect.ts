@@ -46,7 +46,7 @@ function koluCliConnectionOfAgentDial(
   dispose: () => void,
 ): KoluCliConnection {
   return {
-    client: scopePadiSurface(padiClientOver(dispatch)),
+    client: { core: scopePadiSurface(padiClientOver(dispatch)) },
     dispose,
     // NO close announcement, stated rather than omitted. `AgentDial` carries no
     // close-shaped field, so there is nothing here to pass on — even though the

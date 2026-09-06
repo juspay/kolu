@@ -29,12 +29,12 @@ import {
 // the table). The two pure concept modules have homes of their own under padi
 // subpaths; the one transport-shaped reach — `readTerminalKeys`, whose closure
 // carries the mirror — arrives dynamically inside the handler instead.
-import type { PadiSurfaceClient } from "@kolu/padi-client/dial";
 import {
   PadiWatchNagMsSchema,
   type PadiWatchOpenInput,
   PadiWatchOpenInputSchema,
 } from "@kolu/padi-client/surface";
+import { padiOf } from "./bundleClient.ts";
 import { parseNag } from "@kolu/padi-client/watchDuration";
 import {
   type WatchScopeRefusal,
@@ -242,7 +242,7 @@ export const watchOpenTool: BespokeTool = {
   description:
     'Start (or re-attach to) a named standing subscription. Omit ids to watch the WHOLE fleet — a list you forget to update goes blind to a lane nobody added. ignoreIds mutes known terminals (fail-open: a stale id costs nothing). ignoreSelf mutes the terminal this MCP server is running inside. Naming any of states/heldForMs/nagMs turns the subscription into an agent-state watch (snapshot · transition · nag) — nagMs may carry a cap after a slash ("60000/3"): three reminders past the first report, then quiet; a bare interval repeats forever. Naming none leaves the settle detector (asking · finished · gone). Re-open the SAME name after a restart to reattach to the queue — the snapshotted standing truth and the nag budget you left come with it.',
   handler: (args, client) => {
-    const padi = client as PadiSurfaceClient;
+    const padi = padiOf(client);
     const asked = args as WatchOpenArgs;
     return Effect.gen(function* () {
       // The roster, and ONLY when the stamp needs confirming against it: `kolu

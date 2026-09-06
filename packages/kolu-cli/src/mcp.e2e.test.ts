@@ -331,7 +331,7 @@ describeDaemon("kolu mcp — the headless graduation pin", () => {
     const [clientTransport, serverTransport] =
       InMemoryTransport.createLinkedPair();
     const { close } = await serveKoluMcp({
-      connect: async () => ({ client, dispose: () => {} }),
+      connect: async () => ({ client: { core: client }, dispose: () => {} }),
       serverInfo: { name: "kolu-mcp", version: "0.0.0-e2e" },
       transport: serverTransport,
     });

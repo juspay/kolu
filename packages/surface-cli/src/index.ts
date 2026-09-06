@@ -52,7 +52,14 @@ export {
   type ResolvedEndpoint,
   surfaceCommands,
   type SurfaceCliConnection,
+  type SurfaceCliCore,
   type SurfaceCliOptions,
+  type SurfaceCliSibling,
   surfaceHelp,
   type VerbAnnotation,
 } from "./commands";
+// The client BUNDLE this face dials — the framework's shape
+// (`@kolu/surface/client`), re-exported because `SurfaceCliConnection` above
+// carries it and a host writing an `endpoint.open` has to be able to import the
+// name it names.
+export type { RootedSurfaceClients } from "@kolu/surface/client";

@@ -187,6 +187,25 @@ export class ResourcePusher<Client> {
     if (this.subscribed.size === 0) this.detach();
   }
 
+  /** Drop the current attachment and re-open every SURVIVING subscription on a
+   *  freshly obtained connection.
+   *
+   *  What the adapter calls when the served bundle's sibling roster moves: the
+   *  held connection carries a client map for the roster it was dialled for, so
+   *  a subscription re-opened on it would stream from a generation the adapter
+   *  no longer serves. Distinct from {@link stop}, which is terminal — this
+   *  endpoint keeps serving, and the subscriptions it keeps are the caller's to
+   *  decide (the adapter unsubscribes the departed ones first, then calls this).
+   *
+   *  Detach-then-attach rather than a swap: `detach` bumps the generation, which
+   *  is what tells each in-flight stream fiber's exit handler that it was torn
+   *  down rather than that its source settled. */
+  reattach(): void {
+    if (this.stopped) return;
+    this.detach();
+    void this.ensureAttached();
+  }
+
   stop(): void {
     this.stopped = true;
     this.subscribed.clear();

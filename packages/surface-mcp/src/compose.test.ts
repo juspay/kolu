@@ -21,7 +21,11 @@
  *     proc    node.rerun → A.node.rerun (passthrough)
  *     — NO run.configure. The dangerous verb is structurally absent from B.
  *
- *   MCP = serveSurfaceAsMcp({ surface: B, client: bClient, expose, tools: { run } })
+ *   MCP = serveSurfaceAsMcp({
+    core: { surface: B, expose },
+    client: bClient,
+    tools: { run },
+  })
  *
  * The six assertions (the proof):
  *   a. tools/list has `node_rerun` AND bespoke `run`, but NOT `run_configure`
@@ -34,7 +38,10 @@
  *   f. tools/call the bespoke `run` tool runs against the live client.
  */
 
-import { buildSurfaceFace } from "@kolu/surface/client";
+import {
+  buildSurfaceFace,
+  type RootedSurfaceClients,
+} from "@kolu/surface/client";
 import { defineSurface } from "@kolu/surface/define";
 import { directDispatch } from "@kolu/surface/links/direct";
 import {
@@ -295,18 +302,21 @@ async function compose(initial: readonly Node[]): Promise<Composed> {
   const [clientTransport, serverTransport] =
     InMemoryTransport.createLinkedPair();
   const served = await serveSurfaceAsMcp({
-    surface: projected.surface,
-    client: () => bClient,
-    expose: {
-      nodes: "resource",
-      log: "resource",
-      "node.rerun": { tool: { mutates: true } },
-      // "run.configure" is not even in B — cannot be named here.
+    core: {
+      surface: projected.surface,
+      expose: {
+        nodes: "resource",
+        log: "resource",
+        "node.rerun": { tool: { mutates: true } },
+        // "run.configure" is not even in B — cannot be named here.
+      },
     },
+    client: () => ({ core: bClient }),
     tools: {
-      // A bespoke, call-shaped tool: spawn-and-summarize. Composes over the
-      // live B-client (reads the curated nodes snapshot) — the escape hatch
-      // for capabilities that aren't a single surface verb.
+      // A bespoke, call-shaped tool: spawn-and-summarize. Declared at the
+      // BUNDLE ROOT, so it is handed the whole client bundle and reaches the
+      // core through it — the escape hatch for capabilities that aren't a
+      // single surface verb.
       run: {
         input: Schema.Struct({ note: Schema.optionalKey(Schema.String) }),
         description: "Kick off a run and summarize the curated node view.",
@@ -318,7 +328,7 @@ async function compose(initial: readonly Node[]): Promise<Composed> {
           // the adapter runs it at the request edge, so a cancelled tools/call
           // interrupts the subscription instead of orphaning it.
           Stream.runHead(
-            (client as SurfaceClientCallable).surface.nodes?.get?.(
+            (client as RootedSurfaceClients).core?.surface.nodes?.get?.(
               undefined,
             ) as Stream.Stream<readonly BNode[]>,
           ).pipe(
@@ -390,8 +400,8 @@ describe("COMPOSITION PROOF — projectSurface ∘ serveSurfaceAsMcp (odu in min
     const { resources } = await mcp.listResources();
     const uris = resources.map((r) => r.uri);
 
-    expect(uris).toContain(cellUri("nodes"));
-    expect(uris).toContain(streamUri("log"));
+    expect(uris).toContain(cellUri(undefined, "nodes"));
+    expect(uris).toContain(streamUri(undefined, "log"));
   });
 
   it("(c) resources/read on nodes returns the current (mapped) snapshot", async () => {
@@ -403,7 +413,7 @@ describe("COMPOSITION PROOF — projectSurface ∘ serveSurfaceAsMcp (odu in min
     // deriveCell's connect loop is async — poll until A's snapshot has
     // propagated through B's cell into the MCP read.
     await vi.waitFor(async () => {
-      const read = await mcp.readResource({ uri: cellUri("nodes") });
+      const read = await mcp.readResource({ uri: cellUri(undefined, "nodes") });
       const body = (read.contents[0] as { text: string }).text;
       const value = JSON.parse(body) as BNode[];
       expect(value).toEqual([
@@ -421,7 +431,7 @@ describe("COMPOSITION PROOF — projectSurface ∘ serveSurfaceAsMcp (odu in min
       updates.push(n.params.uri);
     });
 
-    await mcp.subscribeResource({ uri: cellUri("nodes") });
+    await mcp.subscribeResource({ uri: cellUri(undefined, "nodes") });
 
     // Mutate A directly via its ctx. The chain is:
     //   A.nodes set → A cell delta → B.deriveCell maps → B.nodes delta →
@@ -430,7 +440,7 @@ describe("COMPOSITION PROOF — projectSurface ∘ serveSurfaceAsMcp (odu in min
 
     await vi.waitFor(
       () => {
-        expect(updates).toContain(cellUri("nodes"));
+        expect(updates).toContain(cellUri(undefined, "nodes"));
       },
       { timeout: 2000 },
     );

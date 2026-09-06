@@ -34,12 +34,12 @@
 
 // The tail slice is padi's — the same fold `screen_text`'s `tail` and `kolu
 // wait --snapshot` use, so "the last N lines" means one thing on every face.
+import { padiOf } from "./bundleClient.ts";
 import { tailLines } from "@kolu/padi-client/screenTail";
 // The dial kit arrives dynamically, INSIDE the handlers: this module is on the
 // static tree-build path of every `kolu` invocation (the surface face mounts
 // the table), so the waiters' socket/mirror closure may only load at call
 // time. WAIT_STATES has a schema home of its own and belongs here statically.
-import type { PadiSurfaceClient } from "@kolu/padi-client/dial";
 import {
   MAX_TIMER_MS,
   type WaitMet,
@@ -178,7 +178,7 @@ export const waitOutputSettledTool: BespokeTool = {
       const { id, idleMs, screenTail, timeoutMs } =
         args as WaitOutputSettledArgs;
       const { awaitOutputSettled } = await import("@kolu/padi-client/watch");
-      const outcome = await awaitOutputSettled(client as PadiSurfaceClient, {
+      const outcome = await awaitOutputSettled(padiOf(client), {
         id,
         idleMs,
         captureScreen: screenTail !== undefined,
@@ -233,7 +233,7 @@ export const waitAgentStateTool: BespokeTool = {
       const { id, until, settledMs, screenTail, timeoutMs } =
         args as WaitAgentStateArgs;
       const { awaitAgentState } = await import("@kolu/padi-client/watch");
-      const outcome = await awaitAgentState(client as PadiSurfaceClient, {
+      const outcome = await awaitAgentState(padiOf(client), {
         id,
         targets: new Set(until),
         settledMs,

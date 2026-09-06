@@ -1376,6 +1376,15 @@ subscription's lifetime, so a host can write one connection factory that feeds
 both faces. `@kolu/surface-mcp`'s `PusherConnection` / `OwnedSurfaceConnection`
 and `@kolu/surface-cli`'s `SurfaceCliConnection` are aliases of it.
 
+`RootedSurfaceClients` is the **client half of a rooted bundle** —
+`{ core?, clients? }`, the shape `connectSurfaces` hands back and the shape both
+projecting faces now dial, so "the client for a bundle" is one shape rather than
+one per face. `clientAt(bundle, sibling)` is the one lookup both faces do:
+`undefined` names the core, a key names that sibling, and a missing leg comes
+back `undefined` so each face can word its own refusal — a refusal is read by
+whoever made the call, and an MCP host and a person at a shell are not the same
+reader.
+
 The per-subscription **retry fence** lives here too, not in a link: a link that
 retried inside itself could not tell one subscriber's supersession from
 another's. `STREAM_RETRY` retries forever on a failure the fence accepts, spaced

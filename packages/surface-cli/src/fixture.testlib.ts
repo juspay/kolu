@@ -335,13 +335,18 @@ export function resolveFixture(values: { readonly socket: string }) {
       unixSocketLink({
         group: surface.group,
         socketPath: values.socket,
-      }).then((link) => ({
-        client: buildSurfaceFace(
-          surface,
-          link.dispatch,
-        ) as SurfaceClientCallable,
-        dispose: () => link.dispose(),
-      })),
+      }).then(
+        (link): SurfaceCliConnection => ({
+          // The degenerate rooted bundle: one unprefixed core, no siblings.
+          client: {
+            core: buildSurfaceFace(
+              surface,
+              link.dispatch,
+            ) as SurfaceClientCallable,
+          },
+          dispose: () => link.dispose(),
+        }),
+      ),
   });
 }
 
@@ -365,8 +370,7 @@ function commandsWith<F extends Command.Command.FlagConfig, R>(
   help?: SurfaceCliHelp,
 ) {
   return surfaceCommands({
-    surface,
-    expose: EXPOSE,
+    core: { surface, expose: EXPOSE },
     verbs: VERBS,
     endpoint,
     annotate: ANNOTATE,
@@ -455,8 +459,7 @@ export function fixtureRootWithHelp() {
   return Command.make("demo").pipe(
     Command.withDescription(
       surfaceHelp({
-        surface,
-        expose: EXPOSE,
+        core: { surface, expose: EXPOSE },
         verbs: VERBS,
         endpoint: { flags: endpointFlags, resolve: resolveFixture },
         annotate: ANNOTATE,
@@ -511,6 +514,78 @@ export function fixtureRootWithHungOpen() {
     Command.withDescription(
       "the surface-cli fixture host (a dial that never lands)",
     ),
+    Command.withSubcommands([...commands]),
+  );
+}
+
+/** The SAME projection as a ROOTED BUNDLE: the fixture surface as the core, and
+ *  the same surface again as a SIBLING keyed `tenant`.
+ *
+ *  Deliberately the same surface on both sides. What the argv composition has to
+ *  prove is that a member reachable at `demo get load` is ALSO reachable at
+ *  `demo tenant get load` and that the two are different addresses — using two
+ *  different surfaces would let a case pass on the difference between them
+ *  rather than on the composition.
+ *
+ *  The sibling carries its own verbs and its own annotations, so a case can see
+ *  that they arrive behind its word and nowhere else. Its client is a second
+ *  face over the same link, which is what a real bundle's dial hands back — one
+ *  connection, a client per sibling over it. */
+export function fixtureRootBundle() {
+  const commands = surfaceCommands({
+    core: { surface, expose: EXPOSE },
+    surfaces: {
+      tenant: {
+        surface,
+        expose: EXPOSE,
+        verbs: { echo: VERBS.echo as SurfaceVerb },
+        annotate: {
+          echo: {
+            render: (out) => `tenant echoed ${(out as { said: string }).said}`,
+          },
+        },
+      },
+    },
+    verbs: VERBS,
+    endpoint: {
+      flags: endpointFlags,
+      resolve: (values: { readonly socket: string }) =>
+        Effect.map(resolveFixture(values), (resolved) => ({
+          ...resolved,
+          open: async (): Promise<SurfaceCliConnection> => {
+            const conn = await resolved.open();
+            return {
+              ...conn,
+              client: { ...conn.client, clients: { tenant: conn.client.core } },
+            } as SurfaceCliConnection;
+          },
+        })),
+    },
+    annotate: ANNOTATE,
+    info: { name: "demo" },
+  });
+  return Command.make("demo").pipe(
+    Command.withDescription("the surface-cli fixture host (rooted bundle)"),
+    Command.withSubcommands([...commands]),
+  );
+}
+
+/** The same bundle whose dial carries NO client for the sibling — the shape a
+ *  face standing on a roster that moved under it meets. The projection still
+ *  mounts `tenant`, because the tree is built from the surfaces the host
+ *  declared; what is missing is on the far side, which is why it is exit 3 and
+ *  not a usage error. */
+export function fixtureRootBundleWithoutSibling() {
+  const commands = surfaceCommands({
+    core: { surface, expose: EXPOSE },
+    surfaces: { tenant: { surface, expose: EXPOSE } },
+    verbs: VERBS,
+    endpoint: { flags: endpointFlags, resolve: resolveFixture },
+    annotate: ANNOTATE,
+    info: { name: "demo" },
+  });
+  return Command.make("demo").pipe(
+    Command.withDescription("the surface-cli fixture host (sibling missing)"),
     Command.withSubcommands([...commands]),
   );
 }

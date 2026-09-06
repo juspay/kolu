@@ -381,6 +381,47 @@ export type SurfaceClientCallable = {
   surface: Record<string, Record<string, (...args: any[]) => any>>;
 };
 
+/** The CLIENT HALF of a rooted bundle — one unprefixed `core` beside a keyed set
+ *  of siblings, exactly the shape `connectSurfaces` hands back
+ *  (`{ core, clients }`) and the shape `implementRootedSurfaces` serves.
+ *
+ *  It is what a PROJECTING FACE dials now. Both projecting faces compose on the
+ *  rooted bundle (`serveSurfaceAsMcp`, `surfaceCommands`), so "the client for a
+ *  bundle" is one shape rather than one per face — the same argument
+ *  {@link SurfaceClientCallable} and {@link OwnedSurfaceConnection} already make
+ *  one line up, and the reason a host can write ONE factory that feeds both.
+ *
+ *  Both halves are optional at the type and a bundle with NEITHER is refused by
+ *  whichever face was handed it: "no core and no siblings" is not a bundle, and
+ *  the refusal is the face's because only the face knows which door it came
+ *  through. What is NOT optional is agreement with the surfaces the face was
+ *  built over — a sibling the face serves whose client is missing here fails the
+ *  call that needs it, loudly, rather than answering an empty value. */
+export interface RootedSurfaceClients {
+  /** The unprefixed root's client — its members are the bare
+   *  `surface/<member>/<verb>`, so it is an ordinary client with no tag scoping. */
+  readonly core?: SurfaceClientCallable;
+  /** One client per sibling, keyed exactly as the served roster is. A sibling
+   *  that has LEFT the roster is absent here, which is what makes a call to its
+   *  members refusable rather than silently unresolved. */
+  readonly clients?: Readonly<Record<string, SurfaceClientCallable>>;
+}
+
+/** The one lookup both faces do: which client answers for a bundle address —
+ *  the core (`sibling === undefined`) or one named sibling.
+ *
+ *  Returns `undefined` for "this bundle has no client there", which is a real
+ *  and expected state (a roster that moved under a standing face), never an
+ *  empty answer to substitute for one. Each face words its OWN refusal from it,
+ *  because a refusal is read by whoever made the call and the two faces are read
+ *  by different people — an MCP host and a person at a shell. */
+export function clientAt(
+  bundle: RootedSurfaceClients,
+  sibling: string | undefined,
+): SurfaceClientCallable | undefined {
+  return sibling === undefined ? bundle.core : bundle.clients?.[sibling];
+}
+
 /** A live connection a projecting face OWNS for some span — the client plus the
  *  release the face is responsible for.
  *

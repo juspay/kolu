@@ -15,14 +15,26 @@ import { surfaceCommands } from "@kolu/surface-cli";
 import { Command } from "effect/unstable/cli";
 
 const verbs = surfaceCommands({
-  surface,
-  expose: { load: "resource", "proc.kill": "tool" },
+  // The unprefixed core — its verbs and readers sit at the top.
+  core: { surface, expose: { load: "resource", "proc.kill": "tool" } },
+  // A sibling's whole projection is mounted behind its key as the first argv
+  // word: `example outlines ops_run`, `example outlines get entries`.
+  surfaces: { outlines: { surface: outlines, expose: { entries: "resource" } } },
   endpoint: { flags, resolve },
   info: { name: "example" },
 });
 
 export const cli = Command.make("example").pipe(Command.withSubcommands(verbs));
 ```
+
+## A rooted bundle, spelled in argv
+
+This face takes the same **rooted bundle** the MCP face does — a bare core beside
+a keyed set of siblings — and composes it the way argv already composes: the
+sibling key is the first word. That is the MCP face's `outlines_ops_run` in
+argv's own separator, exactly as `<ns>.<verb>` is already `<ns>_<verb>` on both.
+`list` stays at the top and describes the whole bundle, each row tagged with the
+surface it belongs to.
 
 ## What it knows nothing about
 

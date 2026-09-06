@@ -5,6 +5,7 @@
  */
 
 import type { PadiSurfaceClient } from "@kolu/padi-client/dial";
+import type { KoluSurfaceClients } from "./bundleClient.ts";
 import type { PadiWatchOpenInput } from "@kolu/padi-client/surface";
 import { ToolFailure } from "@kolu/surface-mcp";
 import type { TerminalId } from "@kolu/terminal-vocab/schema";
@@ -165,7 +166,9 @@ const fakePadi = (live: readonly TerminalId[]) => {
       },
     },
   } as unknown as PadiSurfaceClient;
-  return { client, opened };
+  // What a BUNDLE-ROOT verb is handed: kolu's rooted bundle, padi as its
+  // unprefixed core — the same value `serveKoluMcp`'s injected factory produces.
+  return { client: { core: client } satisfies KoluSurfaceClients, opened };
 };
 
 describe("watch_open — ignoreSelf against a fleet that has never heard of us", () => {
@@ -238,7 +241,11 @@ describe("watch_open — ignoreSelf against a fleet that has never heard of us",
       },
     } as unknown as PadiSurfaceClient;
     await Effect.runPromise(
-      watchOpenTool.handler({ name: "campaign" }, client, undefined),
+      watchOpenTool.handler(
+        { name: "campaign" },
+        { core: client } satisfies KoluSurfaceClients,
+        undefined,
+      ),
     );
   });
 });

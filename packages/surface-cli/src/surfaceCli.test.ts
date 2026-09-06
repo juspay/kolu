@@ -180,12 +180,35 @@ function buildHelp(help: string): Promise<Run> {
     import { surfaceHelp } from "./src/commands.ts";
     import { EXPOSE, endpointFlags, HELP, resolveFixture, surface, VERBS } from "./src/fixture.testlib.ts";
     surfaceHelp({
-      surface,
-      expose: EXPOSE,
+      core: { surface, expose: EXPOSE },
       verbs: VERBS,
       endpoint: { flags: endpointFlags, resolve: resolveFixture },
       info: { name: "demo" },
       help: ${help},
+    });
+  `;
+  return collect(
+    spawn(TSX, ["--eval", script], {
+      cwd: join(HERE, ".."),
+      stdio: ["ignore", "pipe", "pipe"],
+    }),
+  );
+}
+
+/** Build a BUNDLE tree from nothing but the given options — no core is supplied
+ *  by the harness, so a case can prove the "not a bundle" refusal as well as the
+ *  key collisions. Same shape of proof as {@link buildTree}: a malformed tree is
+ *  an author's mistake with no CLI to read the refusal off, so the process must
+ *  refuse to start. */
+function buildBundle(options: string): Promise<Run> {
+  const script = `
+    import { surfaceCommands } from "./src/commands.ts";
+    import { EXPOSE, endpointFlags, resolveFixture, surface, VERBS } from "./src/fixture.testlib.ts";
+    surfaceCommands({
+      verbs: VERBS,
+      endpoint: { flags: endpointFlags, resolve: resolveFixture },
+      info: { name: "demo" },
+      ${options}
     });
   `;
   return collect(
@@ -201,8 +224,7 @@ function buildTree(override: string): Promise<Run> {
     import { surfaceCommands } from "./src/commands.ts";
     import { EXPOSE, endpointFlags, resolveFixture, surface, VERBS } from "./src/fixture.testlib.ts";
     surfaceCommands({
-      surface,
-      expose: EXPOSE,
+      core: { surface, expose: EXPOSE },
       verbs: VERBS,
       endpoint: { flags: endpointFlags, resolve: resolveFixture },
       info: { name: "demo" },
@@ -1234,5 +1256,91 @@ describe("the help page a host writes is the page a person reads", () => {
     );
     expect(built.code).not.toBe(0);
     expect(built.stderr).toContain('"list"');
+  });
+});
+
+describe("a ROOTED BUNDLE mounts each sibling behind its own argv word", () => {
+  it("mounts the sibling's verbs and readers under its key, and the core's at the top", async () => {
+    const top = await run(["--help"], { fixture: "bundle" });
+    expect(top.code).toBe(EXIT.ok);
+    // The sibling appears as ONE word, not as a flattened set of prefixed verbs.
+    expect(top.stdout).toContain("tenant");
+    expect(top.stdout).not.toContain("tenant_echo");
+
+    const inner = await run(["tenant", "--help"], { fixture: "bundle" });
+    expect(inner.code).toBe(EXIT.ok);
+    // Its own verb, its own readers.
+    expect(inner.stdout).toContain("echo");
+    expect(inner.stdout).toContain("get");
+  });
+
+  it("reads the SAME member at two addresses — the core's bare, the sibling's behind its word", async () => {
+    const bare = await run(["get", "load"], { fixture: "bundle" });
+    expect(bare.code).toBe(EXIT.ok);
+    const scoped = await run(["tenant", "get", "load"], { fixture: "bundle" });
+    expect(scoped.code).toBe(EXIT.ok);
+    expect(JSON.parse(scoped.stdout)).toEqual(JSON.parse(bare.stdout));
+  });
+
+  it("runs a sibling's own verb, with the sibling's own renderer", async () => {
+    // The renderer is the sibling's `annotate`, so an argv word that reached the
+    // core's table instead would print the core's answer shape.
+    const said = await run(["tenant", "echo", "hi"], { fixture: "bundle" });
+    expect(said.code).toBe(EXIT.ok);
+    expect(said.stdout.trim()).toBe("tenant echoed hi");
+  });
+
+  it("answers ONE `list` for the whole bundle, each row tagged with its surface", async () => {
+    const listed = await run(["list", "--json"], { fixture: "bundle" });
+    expect(listed.code).toBe(EXIT.ok);
+    const table = JSON.parse(listed.stdout) as {
+      verbs: Array<{ name: string; surface?: string }>;
+      resources: Array<{ name: string; surface?: string }>;
+    };
+    // A row's `name` is what a caller TYPES, sibling word included.
+    expect(table.verbs.map((v) => v.name)).toContain("tenant echo");
+    expect(table.resources.map((r) => r.name)).toContain("tenant load");
+    // …and the core's rows carry no surface at all.
+    expect(table.verbs.find((v) => v.name === "proc_kill")?.surface).toBe(
+      undefined,
+    );
+    expect(table.verbs.find((v) => v.name === "tenant echo")?.surface).toBe(
+      "tenant",
+    );
+  });
+
+  it("is exit 3 when the dialled bundle carries no client for the sibling", async () => {
+    // The argv was right; what is missing is on the far side — the same arm a
+    // dead socket lands on, which is what tells a driver to try another
+    // endpoint rather than to fix its command line.
+    const missing = await run(["tenant", "get", "load"], {
+      fixture: "bundle-no-client",
+    });
+    expect(missing.code).toBe(EXIT.unreachable);
+    expect(missing.stderr).toContain('no sibling "tenant"');
+  });
+});
+
+describe("the bundle refuses a malformed composition at BUILD time", () => {
+  it("refuses a bundle with no core and no siblings", async () => {
+    const built = await buildBundle("");
+    expect(built.code).not.toBe(0);
+    expect(built.stderr).toContain("not a bundle");
+  });
+
+  it("refuses a sibling key that would be mounted beside a reader command", async () => {
+    const built = await buildBundle(
+      `core: { surface, expose: EXPOSE }, surfaces: { get: { surface, expose: EXPOSE } },`,
+    );
+    expect(built.code).not.toBe(0);
+    expect(built.stderr).toContain('sibling "get"');
+  });
+
+  it("refuses a sibling key that would be mounted beside a core verb", async () => {
+    const built = await buildBundle(
+      `core: { surface, expose: EXPOSE }, surfaces: { proc_kill: { surface, expose: EXPOSE } },`,
+    );
+    expect(built.code).not.toBe(0);
+    expect(built.stderr).toContain('sibling "proc_kill"');
   });
 });

@@ -182,7 +182,9 @@ export function connectKoluCliLocal(
  *  back; `hostConnect.ts`'s `koluCliConnectionOfAgentDial` is its ssh mirror. */
 export function koluCliConnectionOf(conn: PadiConnection): KoluCliConnection {
   return {
-    client: scopePadiSurface(conn.client),
+    // The rooted bundle this face dials: padi is the unprefixed CORE, and
+    // there are no siblings — see `kolu-mcp`'s `bundleClient.ts`.
+    client: { core: scopePadiSurface(conn.client) },
     // Both transport members go across through a closure, not as bare method
     // references: `DaemonConnection` declares `dispose()` and `onClose()` as
     // METHODS, so a detached `conn.dispose` would call with no receiver and

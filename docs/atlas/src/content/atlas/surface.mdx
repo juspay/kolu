@@ -15,8 +15,8 @@ The packages, one line each:
 - **`@kolu/surface-remote`** — the ssh leg: sessions, host fan-out, connection state.
 - **`@kolu/surface-daemon`** / **`-supervisor`** — the daemon spine (socket lifecycle, contract handshake, identity) and the side that supervises daemons (convergence, drain/recycle).
 - **`@kolu/surface-app`** — the app shell for browser apps run against your own server (delivery, identity, connection lifecycle).
-- **`@kolu/surface-mcp`** — any surface re-exposed as an MCP server.
-- **`@kolu/surface-cli`** — any surface projected as command-line verbs (the argv sibling of the MCP adapter: one expose map, one verb table, one set of names).
+- **`@kolu/surface-mcp`** — a rooted bundle (core + siblings, live roster) re-exposed as an MCP server.
+- **`@kolu/surface-cli`** — the same rooted bundle projected as command-line verbs, the sibling key as the first argv word (the argv sibling of the MCP adapter: one expose map, one verb table, one set of names).
 
 ## How the runtime is shaped
 

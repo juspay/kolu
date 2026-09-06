@@ -327,8 +327,12 @@ function connectEndpoint(
               // and lets padi default to the host's home. Read through
               // `localCwdOf` rather than written out, so the pre-dial answer and
               // this one are the same expression.
+              // `conn.client` is the projected faces' ROOTED BUNDLE (padi as its
+              // unprefixed core). The native verbs address padi directly, so
+              // this arm takes the core out of it — one hop, at the one place a
+              // verb's `Connection` is built from a face's connection.
               (conn) => ({
-                client: conn.client,
+                client: conn.client.core,
                 localCwd: localCwdOf(endpoint),
               }),
             ),
