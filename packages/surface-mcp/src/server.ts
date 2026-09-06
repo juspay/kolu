@@ -190,8 +190,15 @@ export interface ServedSurfaceMcp {
    *  sentence `SurfaceSiblingDropped` gives on the wire), not answered with a bare
    *  "unknown" — an agent holding a stale tool list needs to know the difference
    *  between a name it got wrong and one that went away. */
-  reroster: (
-    surfaces: Record<string, McpSibling<SurfaceSpec>>,
+  /** METHOD-generic, exactly as {@link McpBundle.surfaces} is, and for exactly
+   *  its reason: `Record<string, McpSibling<SurfaceSpec>>` collapses every map to
+   *  the loosest `ExposeMap`, whose index signature accepts a key naming nothing.
+   *  Spelled that way the two doors were held to different gates — the boot call
+   *  rejected a misspelled member where the author wrote it, and the reroster
+   *  call took it and failed at runtime instead. `ServedSurfaceMcp` itself stays
+   *  concrete; only this method binds `M2`. */
+  reroster: <M2 extends Record<string, SurfaceSpec>>(
+    surfaces: { [K in keyof M2]: McpSibling<M2[K]> },
   ) => Promise<void>;
   /** Stop the pusher, release the shared connection, disconnect the transport. */
   close: () => Promise<void>;
@@ -509,9 +516,41 @@ export async function serveSurfaceAsMcp<
   // still resets so the next call re-dials rather than reusing a dead socket;
   // the identity guard above keeps that reset from nuking a successor.
   const withClient = async <R>(
+    /** The generation the caller resolved its NAMES against. */
+    current: Generation,
     fn: (client: RootedSurfaceClients) => Promise<R>,
   ): Promise<R> => {
     const conn = await getConn();
+    // The names and the client must belong to ONE generation, and this is where
+    // that stops being a convention. Reading `gen` once per request buys the
+    // caller a consistent set of TABLES; it does not reach the client, which
+    // comes from a slot of its own that a reroster empties and a redial refills.
+    //
+    // `dialOnce`'s epoch guard closes the wide, I/O-shaped window — a reroster
+    // landing DURING a dial makes that dial refuse to publish. What it cannot
+    // close is `getConn`'s born-dead retry: written for a connection that
+    // announces its own close, the loop re-enters `dialShared` after the identity
+    // re-check fails, and a second dial that starts AFTER the move carries the
+    // new bundle honestly — to a caller still holding the old tables.
+    //
+    // One identity test settles it, because the generation IS the value: if the
+    // server has swapped it since this request read it, the pair this request
+    // would answer with was never served together. Refusing is the same answer
+    // `dialOnce` gives for the same fact, and it makes `reroster`'s promise true
+    // in both directions — an in-flight request fails rather than being answered
+    // off the wrong roster, whichever side moved first.
+    //
+    // It bounds the pairing at the moment the call is PLACED, which is the whole
+    // of what it claims: a move landing while the member call is already in
+    // flight is the ordinary in-flight case, whose outcome is unknown rather than
+    // wrong (see {@link linkFailure}).
+    if (current !== gen) {
+      throw linkFailure(
+        "the sibling roster moved between this request resolving its names and " +
+          "reaching the served surface, so the two describe different generations",
+        "retry, and the next request resolves both against the new roster",
+      );
+    }
     try {
       return await fn(conn.client);
     } catch (e) {
@@ -611,7 +650,7 @@ export async function serveSurfaceAsMcp<
         // route through this try/catch, so a failing procedure call (e.g. the
         // transport down mid-call) would surface as a protocol-level -32603
         // instead of the `isError` tool result the contract promises.
-        return await withClient(async (bundle) => {
+        return await withClient(current, async (bundle) => {
           const client = clientAt(bundle, exposed.sibling);
           if (client === undefined) return fail(brand(missingClient(exposed)));
           const proc = client.surface[exposed.ns]?.[exposed.verb];
@@ -659,7 +698,7 @@ export async function serveSurfaceAsMcp<
         // failing handler must land in `failFrom`, never escape as -32603. The
         // handler DESCRIBES its work; it runs at the same request edge every
         // other handler does, so a cancelled `tools/call` interrupts it.
-        return await withClient(async (bundle) => {
+        return await withClient(current, async (bundle) => {
           // THE rule for every bespoke table this face takes: a tool receives the
           // client of the thing it was DECLARED on — the whole bundle for one at
           // the bundle root, that sibling's own client for one on a sibling. A
@@ -725,7 +764,7 @@ export async function serveSurfaceAsMcp<
     // tools/call side (see {@link brand}). Without it the same link failure
     // named this adapter or didn't depending on which request kind hit it.
     const current = gen;
-    const result = await withClient((bundle) =>
+    const result = await withClient(current, (bundle) =>
       runRequest(readSnapshot(bundle, uri, current), extra.signal),
     ).catch((e: unknown): never => {
       // `messageOf`, the SAME derivation `failFrom` uses on the tools/call side
@@ -781,8 +820,8 @@ export async function serveSurfaceAsMcp<
   });
 
   // ── The roster move ────────────────────────────────────────────────────
-  const reroster = async (
-    surfaces: Record<string, McpSibling<SurfaceSpec>>,
+  const reroster = async <M2 extends Record<string, SurfaceSpec>>(
+    surfaces: { [K in keyof M2]: McpSibling<M2[K]> },
   ): Promise<void> => {
     // Resolved BEFORE anything is retired: a new roster that the composition
     // refuses must leave this endpoint exactly as it was, still serving the
@@ -1034,10 +1073,21 @@ interface ResolvedCall {
  *
  *  WHICH client answers is the URI's own `sibling` segment, resolved through
  *  {@link clientAt}: a member of a bundle is addressed by `(sibling, key)`, and
- *  the pair travels together from the resolved entry all the way to the call. A
- *  bundle that carries no client there resolves nothing — the same answer an
- *  unaddressable URI gets, because from the read's point of view they are the
- *  same fact. */
+ *  the pair travels together from the resolved entry all the way to the call.
+ *
+ *  `undefined` means ONE thing — this generation serves no such address — and a
+ *  URI whose address IS served but whose CLIENT cannot be reached is a different
+ *  fact answered differently: a resolved call whose `open()` FAILS, naming the
+ *  missing leg. Collapsing the two was a silence with two costs. A
+ *  `resources/read` on a served URI reported "unknown resource", which is false —
+ *  the resource is known and the bundle is short a client. And a live
+ *  SUBSCRIPTION on it was dropped without a word (`ResourcePusher.startStream`
+ *  drops an unresolvable URI quietly, correctly, because it takes `undefined` to
+ *  mean "nothing to stream"), so a surviving subscription whose sibling client
+ *  the re-dialled bundle happened to omit went permanently, silently quiet.
+ *  As a failing stream it travels the pusher's OWN recovery path instead —
+ *  reported through `onError`, then detached and retried, so a host factory that
+ *  catches up on the next dial heals it. */
 function resolveCall(
   bundle: RootedSurfaceClients,
   uri: string,
@@ -1045,9 +1095,14 @@ function resolveCall(
 ): ResolvedCall | undefined {
   const entry = gen.byUri.get(uri);
   if (entry !== undefined) {
-    const ns = clientAt(bundle, entry.sibling)?.surface[entry.key];
-    if (ns === undefined) return undefined;
-    const proc = entry.kind === "collection" ? ns.keys : ns.get;
+    const client = clientAt(bundle, entry.sibling);
+    if (client === undefined) {
+      return unreachableLeg(uri, entry.kind, entry.mimeType, entry.sibling);
+    }
+    const proc =
+      entry.kind === "collection"
+        ? client.surface[entry.key]?.keys
+        : client.surface[entry.key]?.get;
     if (proc === undefined) return undefined;
     return {
       open: () => asStream(proc(undefined), uri, entry.kind),
@@ -1064,7 +1119,16 @@ function resolveCall(
       collectionUri(item.sibling, item.key),
     );
     if (template === undefined) return undefined;
-    const proc = clientAt(bundle, item.sibling)?.surface[item.key]?.get;
+    const client = clientAt(bundle, item.sibling);
+    if (client === undefined) {
+      return unreachableLeg(
+        uri,
+        "collection-item",
+        "application/json",
+        item.sibling,
+      );
+    }
+    const proc = client.surface[item.key]?.get;
     if (proc === undefined) return undefined;
     // Decode the URI's string `<id>` into the collection's key type via the one
     // rule keyed off the schema itself: a string key passes straight through; a
@@ -1080,6 +1144,39 @@ function resolveCall(
     };
   }
   return undefined;
+}
+
+/** A served address the DIALLED BUNDLE cannot reach: the tables carry it, and the
+ *  client bundle has no leg for its surface.
+ *
+ *  A resolved call whose `open()` fails, rather than an absent one, so the one
+ *  fact travels to both readers by the route each already has — the one-shot read
+ *  raises it, the subscription's fiber exits on it and the pusher reports and
+ *  retries. The sentence names the LEG, because the fix is always at the host's
+ *  `client()` factory: it was re-invoked and did not carry the surface the roster
+ *  it serves says it should. */
+function unreachableLeg(
+  uri: string,
+  kind: ResolvedCall["kind"],
+  mimeType: string,
+  sibling: SiblingKey,
+): ResolvedCall {
+  const which =
+    sibling === undefined
+      ? "the bundle's core client"
+      : `sibling "${sibling}"'s client`;
+  return {
+    open: () =>
+      Stream.fail(
+        new Error(
+          `${uri} (${kind}) is served by this bundle, but the dialled client ` +
+            `bundle carries no ${which} — the connection is a leg short of the ` +
+            "roster being served, not the address wrong.",
+        ),
+      ),
+    mimeType,
+    kind,
+  };
 }
 
 /** Assert that a member ref really handed back a `Stream`.

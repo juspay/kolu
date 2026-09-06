@@ -36,9 +36,8 @@ name at all.
 
 | Option | Meaning |
 | --- | --- |
-| `core?` | the unprefixed root — `{ surface, expose }`. Its verbs and readers sit at the TOP of the mounted tree (`expose` is checked against its `spec` at build) |
-| `surfaces?` | the siblings, keyed — `{ [key]: { surface, expose, verbs?, annotate? } }`. Each is mounted **behind its key as the first argv word** |
-| `expose` | the default-deny allowlist — the same [`ExposeMap`](/surface/ref-surface#per-face-expose-kolusurfaceexpose) every other face takes, one per surface |
+| `core?` | the unprefixed root — `{ surface, expose }`. Its verbs and readers sit at the TOP of the mounted tree. Its `expose` is the default-deny allowlist, the same [`ExposeMap`](/surface/ref-surface#per-face-expose-kolusurfaceexpose) every other face takes, checked against **its own** `spec` at build |
+| `surfaces?` | the siblings, keyed — `{ [key]: { surface, expose, verbs?, annotate? } }`. Each is mounted **behind its key as the first argv word**, and each `expose` is checked against that sibling's own spec. There is no top-level `expose`: one map per surface |
 | `verbs?` | hand-authored [`SurfaceVerb`](/surface/ref-surface#the-projection-vocabulary-kolusurfaceverbs)s at the BUNDLE ROOT, by name — the same record `serveSurfaceAsMcp` takes as its top-level `tools` |
 | `endpoint` | the transport seam: `{ flags?, resolve }` — see below |
 | `annotate?` | CLI-only ergonomics by verb name, for the core's and the bundle root's verbs: `{ positional?, render? }`. A sibling's live on the sibling |

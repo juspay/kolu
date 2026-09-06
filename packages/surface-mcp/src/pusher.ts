@@ -222,6 +222,18 @@ export class ResourcePusher<Client> {
   private async ensureAttached(): Promise<void> {
     if (this.conn !== null || this.stopped) return;
     if (this.subscribed.size === 0) return;
+    /** WHICH attachment this dial is for. Captured before the await and checked
+     *  after it, because `detach` bumps the counter and every reason to detach is
+     *  a reason this dial's answer is stale — a {@link reattach} above all, whose
+     *  entire purpose is that the NEXT connection is dialled after some change
+     *  the current one predates. Without it the dial in flight wins the empty
+     *  slot on its way back and re-attaches the very connection the reattach
+     *  existed to replace, silently and for as long as it lives.
+     *
+     *  The counter is the one already here. It was minted to tell a stream
+     *  fiber's exit handler "you were torn down" from "your source settled", and
+     *  a dial crossing a teardown is the same question one frame out. */
+    const attach = this.generation;
     let conn: PusherConnection<Client> | null;
     try {
       conn = await this.deps.client();
@@ -239,13 +251,25 @@ export class ResourcePusher<Client> {
       return;
     }
     // A concurrent ensureAttached won the race, or we were stopped, or the
-    // last subscriber left while we were dialing — in every case there's no
-    // owner for this freshly-opened connection, so dispose it rather than
-    // store an attachment nobody will ever tear down. Disposing the CONNECTION
-    // (not a disposer looked up by client identity) is what makes this correct
-    // when a factory hands back the same client object on both dials.
-    if (this.conn !== null || this.stopped || this.subscribed.size === 0) {
+    // last subscriber left while we were dialing, or a detach superseded this
+    // dial — in every case there's no owner for this freshly-opened connection,
+    // so dispose it rather than store an attachment nobody will ever tear down.
+    // Disposing the CONNECTION (not a disposer looked up by client identity) is
+    // what makes this correct when a factory hands back the same client object
+    // on both dials.
+    if (
+      this.conn !== null ||
+      this.stopped ||
+      this.subscribed.size === 0 ||
+      attach !== this.generation
+    ) {
       disposeQuietly(conn);
+      // The superseded-dial arm is the one that can leave subscribers with no
+      // attachment and nothing in flight: the other three each mean somebody
+      // else owns the outcome (a winner attached, we stopped, nobody is
+      // waiting). `scheduleRetry` is a no-op in those, and the recovery in this
+      // one — and it is exactly what `reattach`'s own dial does if IT loses.
+      this.scheduleRetry();
       return;
     }
     this.conn = conn;

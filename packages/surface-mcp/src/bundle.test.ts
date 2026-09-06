@@ -22,6 +22,7 @@ import {
   type SurfaceClientCallable,
 } from "@kolu/surface/client";
 import type { Surface, SurfaceSpec } from "@kolu/surface/define";
+import type { ExposeMap } from "@kolu/surface/expose";
 import { defineSurface } from "@kolu/surface/define";
 import { directDispatch } from "@kolu/surface/links/direct";
 import type { SurfaceHandlers } from "@kolu/surface/server";
@@ -554,6 +555,43 @@ describe("the roster follows in place", () => {
     ).resolves.toBeDefined();
   });
 
+  it("fails LOUDLY when the re-dialled bundle is a leg short of the roster", async () => {
+    // The host's factory is re-invoked on every move, and one that has not caught
+    // up hands back a bundle missing a surface the tables still serve. That is a
+    // wiring fact with a name, not an unaddressable URI: a read of it used to
+    // answer "unknown resource" (false — the resource is known) and a standing
+    // subscription on it used to be dropped without a word, going permanently
+    // quiet under a host that still believed it was subscribed.
+    const moving = movingBundle();
+    const { mcp, served } = await connectBundle({
+      core: { surface: coreSurface, expose: {} },
+      surfaces: { a: sibling(tenantSurface), b: sibling(tenantSurface) },
+      bundle: moving.read,
+    });
+    await mcp.subscribeResource({ uri: "surface://collections/a/rows" });
+
+    // `b` leaves; `a` stays in the ROSTER but the factory forgets its client.
+    moving.set({});
+    await served.reroster({ a: sibling(tenantSurface) });
+
+    await expect(
+      mcp.readResource({ uri: "surface://collections/a/rows" }),
+    ).rejects.toThrow(/carries no sibling "a"'s client/);
+    // …and it is told apart from the two answers it used to be confused with.
+    await expect(
+      mcp.readResource({ uri: "surface://collections/a/rows" }),
+    ).rejects.not.toThrow(/unknown resource/);
+
+    // And the subscription is still the host's: the adapter retired only what the
+    // new roster cannot serve, and `a` is served — it is the CONNECTION that is
+    // short. So the address stays subscribable, and the stream's failure travels
+    // the pusher's own recovery path (reported, detached, retried) rather than
+    // being dropped where nobody would hear it.
+    await expect(
+      mcp.subscribeResource({ uri: "surface://collections/a/rows" }),
+    ).resolves.toBeDefined();
+  });
+
   it("refuses a roster the composition would refuse at boot, leaving the old one standing", async () => {
     const moving = movingBundle();
     const { mcp, served } = await connectBundle({
@@ -563,7 +601,17 @@ describe("the roster follows in place", () => {
     });
     await expect(
       served.reroster({
-        a: { surface: tenantSurface, expose: { nope: "resource" } },
+        a: {
+          surface: tenantSurface,
+          // The TYPE catches this first: `reroster` is method-generic, exactly as
+          // the boot door is, so a member the sibling's spec does not declare is
+          // a compile error where an author writes it. The cast is deliberate —
+          // what this case pins is the RUNTIME refusal underneath, which is what
+          // an erased map or a JavaScript caller still meets, and which is what
+          // makes a roster move re-run the boot composition instead of trusting
+          // its argument.
+          expose: { nope: "resource" } as ExposeMap<SurfaceSpec>,
+        },
       }),
     ).rejects.toThrow(/nope/);
     // Nothing moved: the endpoint is still serving the roster it was serving.
