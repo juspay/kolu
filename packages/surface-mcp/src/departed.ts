@@ -33,18 +33,22 @@ import type { ResolvedBundle } from "./bundle";
 import { collectionUri, parseCollectionItem } from "./expose";
 import type { SiblingKey } from "@kolu/surface/client";
 
-/** The sentence a departed sibling's name earns — the same one
- *  `SurfaceSiblingDropped` gives a caller on the wire, in this face's vocabulary.
+/** The sentence a retired name earns, in the ONE reading that is true of it.
  *
- *  Told apart from "you got the name wrong" on purpose: an agent holding a tool
- *  list from before a reroster has made a reasonable call against a name that WAS
- *  real, and "unknown" tells it to doubt itself instead of to re-read the list. */
-function droppedNote(sibling: string): string {
-  return `the sibling "${sibling}" was dropped from this rooted bundle — re-read the list`;
+ *  Two facts, not one, and conflating them is what made this table lose entries.
+ *  A name stops being served for two different reasons: its sibling LEFT, or its
+ *  sibling is standing and no longer EXPOSES it. Both are "this was real and is
+ *  not now" — which is the thing an agent holding an older `tools/list` needs to
+ *  hear instead of "you got the name wrong" — and they differ only in what the
+ *  caller should do next, so they differ only in the sentence. */
+function retiredNote(sibling: string, present: boolean): string {
+  return present
+    ? `the sibling "${sibling}" no longer exposes it — re-read the list`
+    : `the sibling "${sibling}" was dropped from this rooted bundle — re-read the list`;
 }
 
 /** The endpoint's tombstones: tool names in one table, resource addresses in the
- *  other, each pointing at the sibling key that went away with it.
+ *  other, each pointing at the sibling key it was retired with.
  *
  *  Ownership is RECORDED, never derived. A DERIVED name carries its owner's
  *  segment and could in principle be read back out of it, but an AUTHORED tool
@@ -56,6 +60,12 @@ function droppedNote(sibling: string): string {
 export class DepartedNames {
   private readonly tools = new Map<string, string>();
   private readonly resources = new Map<string, string>();
+  /** The sibling keys the CURRENT roster serves, so a tombstone can say which of
+   *  the two retirements it is without a second writer deciding. Written by the
+   *  same call that writes the tables, from the same generation, because "what is
+   *  standing now" and "what stopped being served just now" are one fact about
+   *  one move. */
+  private standing: ReadonlySet<string> = new Set();
 
   /** Remember what a roster move RETIRED, and forget what it brought back.
    *
@@ -64,12 +74,27 @@ export class DepartedNames {
    *  is the only reading that works for an authored tool name and the only one
    *  that cannot mistake a stranger for a former tenant.
    *
-   *  Two clearing rules, and both are needed. What the NEW roster serves is not
-   *  departed, obviously. And so is everything belonging to a sibling that came
-   *  BACK: a sibling that returns exposing less would otherwise leave its old
-   *  members reported as "the sibling was dropped" while the sibling is standing
-   *  right there — true of the member, and false of the sentence. Those fall
-   *  through to plain "unknown", which is what they are. */
+   *  ONE clearing rule: what the NEW roster SERVES is not retired. That is the
+   *  whole of it, and the second rule this used to carry — "clear everything
+   *  belonging to a sibling that came back" — was a defect with a repro
+   *  (juspay/olai#546).
+   *
+   *  It was written to stop a false sentence: a sibling that returns exposing
+   *  LESS would have its old members reported as "the sibling was dropped" while
+   *  the sibling is standing right there. True of the member, false of the
+   *  sentence. But deleting the entry answers a wrong sentence with NO sentence,
+   *  and it does so DESTRUCTIVELY — the next move records from a generation that
+   *  no longer serves the name, so nothing can ever put the tombstone back. A row
+   *  that unloads in two steps (members, then zero members, then gone) therefore
+   *  lost every name it had ever served, permanently, and answered "unknown tool"
+   *  for names an agent had seen in a `tools/list` minutes earlier. A roster that
+   *  carries a present-but-empty row is not exotic: it is what a host hands over
+   *  while a plugin is shutting down, and olai's own log shows one (`chat:0`).
+   *
+   *  The fix is to say the true sentence rather than to forget the fact:
+   *  {@link retiredNote} reads {@link standing} and tells "dropped" from "no
+   *  longer exposes it". A tombstone now outlives its sibling's return, which is
+   *  exactly what makes it survive the return's departure. */
   record(previous: ResolvedBundle, next: ResolvedBundle): void {
     const own = (
       map: Map<string, string>,
@@ -87,29 +112,29 @@ export class DepartedNames {
     // Then subtract, over the WHOLE table rather than only what this move touched
     // — an entry retired three rosters ago is cleared by the move that brings its
     // sibling back, and by nothing else.
-    for (const [name, owner] of [...this.tools]) {
-      const served = next.toolByName.has(name) || next.bespoke.has(name);
-      if (served || next.siblings.has(owner)) this.tools.delete(name);
-    }
-    for (const [uri, owner] of [...this.resources]) {
-      if (next.byUri.has(uri) || next.siblings.has(owner)) {
-        this.resources.delete(uri);
+    for (const name of [...this.tools.keys()]) {
+      if (next.toolByName.has(name) || next.bespoke.has(name)) {
+        this.tools.delete(name);
       }
     }
+    for (const uri of [...this.resources.keys()]) {
+      if (next.byUri.has(uri)) this.resources.delete(uri);
+    }
+    this.standing = next.siblings;
   }
 
   toolMessage(name: string): string {
     const owner = this.tools.get(name);
     return owner === undefined
       ? `unknown tool "${name}"`
-      : `tool "${name}" is no longer served — ${droppedNote(owner)}`;
+      : `tool "${name}" is no longer served — ${retiredNote(owner, this.standing.has(owner))}`;
   }
 
   resourceMessage(uri: string): string {
     const owner = this.ownerOfUri(uri);
     return owner === undefined
       ? `unknown resource "${uri}"`
-      : `resource "${uri}" is no longer served — ${droppedNote(owner)}`;
+      : `resource "${uri}" is no longer served — ${retiredNote(owner, this.standing.has(owner))}`;
   }
 
   /** Which departed sibling a resource URI belonged to, if any.

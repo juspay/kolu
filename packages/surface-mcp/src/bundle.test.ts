@@ -407,6 +407,55 @@ describe("the roster follows in place", () => {
     tools: { [name]: { handler: () => Effect.succeed(name) } },
   });
 
+  it("a tombstone survives redundant rerosters and later departures", async () => {
+    // The field sequence from juspay/olai#546, verbatim: boot with the rows, six
+    // rerosters IDENTICAL to boot, the flip where rows leave, two further
+    // departures, then the call. This shape always worked — it is here because it
+    // is what was reported, and pinning it is what proved the report's sequence
+    // was not the whole story (the row that unloads in two steps is; see the
+    // REGRESSION case below).
+    const moving = movingBundle();
+    const rows = (keys: readonly string[]) =>
+      Object.fromEntries(
+        keys.map((k) => [
+          k,
+          k === "outlines"
+            ? siblingWithVerb(tenantSurface, "title")
+            : sibling(tenantSurface),
+        ]),
+      );
+    const clientsFor = (keys: readonly string[]) =>
+      Object.fromEntries(keys.map((k) => [k, tenantClient(k)]));
+
+    const BOOT = ["outlines", "markdown", "chat", "vaultplugins"];
+    moving.set(clientsFor(BOOT));
+    const { mcp, served } = await connectBundle({
+      core: { surface: coreSurface, expose: { "who.get": "tool" } },
+      surfaces: rows(BOOT),
+      bundle: moving.read,
+    });
+    const { tools } = await mcp.listTools();
+    expect(tools.map((t) => t.name)).toContain("outlines_title");
+
+    // #1–#6: identical to boot, redundant but they happened.
+    for (let i = 0; i < 6; i += 1) await served.reroster(rows(BOOT));
+    // #7: outlines (and markdown) leave.
+    moving.set(clientsFor(["chat", "vaultplugins"]));
+    await served.reroster(rows(["chat", "vaultplugins"]));
+    // #8 identical, #9 drops vaultplugins, #10 empties the sibling map.
+    await served.reroster(rows(["chat", "vaultplugins"]));
+    moving.set(clientsFor(["chat"]));
+    await served.reroster(rows(["chat"]));
+    moving.set({});
+    await served.reroster({});
+
+    const res = await mcp.callTool({ name: "outlines_title", arguments: {} });
+    expect(res.isError).toBe(true);
+    expect((res.content as Array<{ text: string }>)[0]?.text ?? "").toContain(
+      'the sibling "outlines" was dropped',
+    );
+  });
+
   it("advertises listChanged so a host has reason to re-read", async () => {
     const { mcp } = await connectBundle({
       core: { surface: coreSurface, expose: {} },
@@ -505,7 +554,43 @@ describe("the roster follows in place", () => {
     expect(await said("b_typo")).toContain("unknown tool");
   });
 
-  it("stops calling a name departed once its sibling comes back", async () => {
+  it("REGRESSION juspay/olai#546: a present-but-empty row does not erase its tombstones", async () => {
+    // The minimal sequence the property search reduced the field report to. A row
+    // that unloads in TWO steps — members, then zero members, then gone — used to
+    // lose every name it had ever served: the middle move recorded the tombstone
+    // and then deleted it (the sibling was still standing), and the last move had
+    // nothing left to record from. The name answered "unknown tool" forever,
+    // minutes after an agent had seen it in a `tools/list`.
+    const moving = movingBundle();
+    const { mcp, served } = await connectBundle({
+      core: { surface: coreSurface, expose: {} },
+      surfaces: { a: siblingWithVerb(tenantSurface, "title") },
+      bundle: () => ({ core: coreClient(), clients: moving.read().clients }),
+    });
+    moving.set({ a: tenantClient("a") });
+    expect((await mcp.listTools()).tools.map((t) => t.name)).toContain(
+      "a_title",
+    );
+
+    // Still present, now exposing nothing — a plugin on its way out.
+    await served.reroster({ a: { surface: tenantSurface, expose: {} } });
+    const midway = await mcp.callTool({ name: "a_title", arguments: {} });
+    expect(
+      (midway.content as Array<{ text: string }>)[0]?.text ?? "",
+    ).toContain('the sibling "a" no longer exposes it');
+
+    // …and now gone. The tombstone survives BOTH moves, and the sentence follows
+    // the sibling rather than being frozen at the moment of the first one.
+    moving.set({});
+    await served.reroster({});
+    const gone = await mcp.callTool({ name: "a_title", arguments: {} });
+    expect(gone.isError).toBe(true);
+    expect((gone.content as Array<{ text: string }>)[0]?.text ?? "").toContain(
+      'the sibling "a" was dropped from this rooted bundle',
+    );
+  });
+
+  it("says which retirement it was — dropped, or standing and no longer exposing", async () => {
     const moving = movingBundle();
     const { mcp, served } = await connectBundle({
       core: { surface: coreSurface, expose: {} },
@@ -514,9 +599,10 @@ describe("the roster follows in place", () => {
     });
     moving.set({ a: tenantClient("a") });
     await served.reroster({ a: sibling(tenantSurface) });
-    // `b` returns, exposing LESS than it did: `rows` is not served by anyone
-    // now, and it is not "dropped with the sibling" either — the sibling is
-    // standing right there. It is simply unknown.
+    // `b` returns, exposing LESS than it did: `rows` is served by nobody now, and
+    // "dropped with its sibling" would be false — the sibling is standing right
+    // there. The tombstone is KEPT and the sentence changes, rather than the fact
+    // being deleted to avoid saying a wrong one.
     moving.set({ a: tenantClient("a"), b: tenantClient("b") });
     await served.reroster({
       a: sibling(tenantSurface),
@@ -527,7 +613,7 @@ describe("the roster follows in place", () => {
     expect(back.isError).toBeFalsy();
     await expect(
       mcp.readResource({ uri: "surface://collections/b/rows" }),
-    ).rejects.toThrow(/unknown resource/);
+    ).rejects.toThrow(/the sibling "b" no longer exposes it/);
   });
 
   it("ends a subscription the new roster cannot serve, and keeps the rest", async () => {

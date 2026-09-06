@@ -124,11 +124,21 @@ The face therefore advertises `tools: { listChanged: true }` and
 `resources: { subscribe: true, listChanged: true }` from the first `initialize` —
 a host that never heard the list could change has no reason to re-read it.
 
-A call to a **departed** sibling's tool or URI is refused **by name**, with the
-same sentence `SurfaceSiblingDropped` gives a caller on the wire — never a bare
-"unknown". An agent holding a tool list from before the move made a reasonable
-call against a name that *was* real, and "unknown" tells it to doubt itself
-instead of to re-read the list.
+A call to a name a past roster served and this one does not is refused **by
+name** — never a bare "unknown". An agent holding a tool list from before the
+move made a reasonable call against a name that *was* real, and "unknown" tells
+it to doubt itself instead of to re-read the list. The refusal says which of the
+two retirements it was, because the caller's next move differs:
+
+- the sibling **left** — the sentence `SurfaceSiblingDropped` gives a caller on the wire;
+- the sibling is **standing and no longer exposes it** — its roster entry narrowed.
+
+A tombstone outlives its sibling's return, which is what makes it survive that
+return's own departure. Retiring it when the sibling came back read as tidiness
+and was a defect with a repro ([juspay/olai#546](https://github.com/juspay/olai/issues/546)):
+a row that unloads in two steps — members, then zero members, then gone — had its
+tombstones deleted by the middle move and could never earn them back, so names an
+agent had seen minutes earlier answered "unknown tool" forever.
 
 <Aside type="caution" title="mutates defaults to true">
   A procedure exposed as a tool is advertised **mutating unless you say
