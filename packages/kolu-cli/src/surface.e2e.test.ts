@@ -129,7 +129,7 @@ describeDaemon(
         "--json",
       ])) as {
         verbs: { name: string; source: string; mutates: boolean }[];
-        resources: { name: string }[];
+        resources: { name: string; member: string }[];
       };
       const verbs = new Set(table.verbs.map((v) => v.name));
       // The gaps are the point: keys/get/watch/verbs are the introspection
@@ -154,8 +154,24 @@ describeDaemon(
         expect(verbs.has(name), name).toBe(true);
       }
       expect(verbs.size).toBe(15);
-      // And both shapes of introspection answer: the staggered resources.
+      // And both shapes of introspection answer: the staggered resources, one
+      // row per ADDRESS a caller can type rather than one per member. A
+      // collection is reachable two ways and says so — `get terminals` for an
+      // item, `keys terminals` for the key set — which is what makes this table
+      // the face's authoritative "what can I address" rather than a member
+      // inventory a reader has to re-derive the argv for.
       expect(table.resources.map((r) => r.name)).toEqual([
+        "get terminals",
+        "keys terminals",
+        "get urgency",
+        "get daemonStatus",
+        "keys daemonStatus",
+        "get status",
+        "get identity",
+      ]);
+      // The member each row addresses is still carried, so a script that wants
+      // the inventory has it without splitting a string this face composed.
+      expect([...new Set(table.resources.map((r) => r.member))]).toEqual([
         "terminals",
         "urgency",
         "daemonStatus",
