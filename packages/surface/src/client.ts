@@ -422,6 +422,30 @@ export function clientAt(
   return sibling === undefined ? bundle.core : bundle.clients?.[sibling];
 }
 
+/** WHAT a hand-authored verb declared at `sibling` is handed when it runs: the
+ *  WHOLE bundle for one declared at the bundle root, that sibling's own client
+ *  for one declared on a sibling.
+ *
+ *  **A verb receives the client of the thing it is declared on** — one rule for
+ *  every authored table a projecting face takes, and it lives here because BOTH
+ *  faces implement it and neither owns it. A bundle-root verb is about the
+ *  ENDPOINT, so it gets the bundle; a sibling's verb is written against that
+ *  sibling's surface and nothing else, so handing it the bundle would make every
+ *  such verb start by re-deriving the key it was already filed under.
+ *
+ *  `undefined` means "the dialled bundle has no leg there" — a real and expected
+ *  state under a roster that moved — exactly as {@link clientAt}'s does, and each
+ *  face words its own refusal from it. Note the asymmetry that makes this worth a
+ *  function rather than a remembered ternary: the ROOT arm can never be
+ *  `undefined`, because the bundle itself is the value; a bundle-root verb that
+ *  wants the CORE asks for it with {@link clientAt} and refuses there. */
+export function declarationTarget(
+  bundle: RootedSurfaceClients,
+  sibling: string | undefined,
+): RootedSurfaceClients | SurfaceClientCallable | undefined {
+  return sibling === undefined ? bundle : bundle.clients?.[sibling];
+}
+
 /** Every POSITION of a rooted bundle's DECLARATION, core first then siblings in
  *  key order — the declaration half of the shape {@link RootedSurfaceClients} is
  *  the client half of.

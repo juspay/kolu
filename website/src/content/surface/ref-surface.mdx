@@ -1385,6 +1385,13 @@ back `undefined` so each face can word its own refusal — a refusal is read by
 whoever made the call, and an MCP host and a person at a shell are not the same
 reader.
 
+`declarationTarget(bundle, sibling)` is the other lookup both faces do, and it is
+a *different* one: **a verb receives the client of the thing it is declared on**,
+so a hand-authored verb declared at the bundle root is handed the whole bundle
+and one declared on a sibling is handed that sibling's client. The root arm can
+never come back `undefined` (the bundle *is* the value) — a bundle-root verb that
+wants the core asks `clientAt` for it and refuses there.
+
 The **declaration** half of the same shape has one fold, beside it.
 `rootedBundleEntries(core, siblings)` returns every position of a rooted bundle —
 `{ sibling, value }`, the core first with `sibling: undefined`, then the siblings

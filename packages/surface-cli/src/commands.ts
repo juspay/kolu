@@ -93,6 +93,7 @@
 
 import {
   clientAt,
+  declarationTarget,
   notABundleDetail,
   type OwnedSurfaceConnection,
   type RootedSurfaceClients,
@@ -793,9 +794,8 @@ function readerRows<F extends FlagRecord, R>(
  *  whether the argument arrives encoded or decoded — so they are ONE shape with
  *  the dispatch as a field and the reading DERIVED from `source`, rather than
  *  two parallel builders. */
-interface CallableVerb {
+interface CallableVerbBase {
   readonly name: string;
-  readonly source: "procedure" | "bespoke";
   /** Which surface of the bundle it belongs to — which decides the argv word it
    *  sits behind AND which client its dispatch is handed. */
   readonly sibling: SiblingKey;
@@ -805,19 +805,38 @@ interface CallableVerb {
   readonly schema: WireSchemaAny | undefined;
   readonly projection: InputProjection;
   readonly annotation: VerbAnnotation;
-  /** THE rule for every bespoke table this face takes, expressed as a type: a
-   *  procedure's dispatch wants its own surface's client, and a bespoke verb
-   *  wants the client of the thing it was DECLARED on — a sibling's own client
-   *  for one on a sibling, the whole bundle for one at the bundle root. The two
-   *  are handed the value {@link clientOf} resolves for this verb. */
-  readonly call: (
-    client: SurfaceClientCallable | RootedSurfaceClients,
-    input: unknown,
-  ) => Effect.Effect<unknown, unknown>;
-  /** Does the DISPATCH want the whole bundle rather than one surface's client?
-   *  True for exactly the bundle-root bespoke verbs. */
-  readonly wantsBundle: boolean;
 }
+
+/** A SUM on `source`, so each arm's `call` is typed for exactly the client that
+ *  arm can receive.
+ *
+ *  A procedure addresses ONE surface, so its dispatch takes a
+ *  `SurfaceClientCallable` and nothing else — spelled as the union it never
+ *  receives, the arm had to cast the union away on its first line, which is a
+ *  switch-on-type by assertion. A bespoke verb takes whichever client the
+ *  framework's `declarationTarget` resolves for where it was declared, which
+ *  genuinely is either.
+ *
+ *  There is no `wantsBundle` beside them: it was a DERIVED field standing next to
+ *  the two fields it derives from (`source === "bespoke" && sibling ===
+ *  undefined` — a core PROCEDURE also has no sibling and did NOT want the
+ *  bundle), set at two construction sites and trusted at one read. Narrowing on
+ *  `source` is the same fact with nothing to keep in sync. */
+type CallableVerb =
+  | (CallableVerbBase & {
+      readonly source: "procedure";
+      readonly call: (
+        client: SurfaceClientCallable,
+        input: unknown,
+      ) => Effect.Effect<unknown, unknown>;
+    })
+  | (CallableVerbBase & {
+      readonly source: "bespoke";
+      readonly call: (
+        client: SurfaceClientCallable | RootedSurfaceClients,
+        input: unknown,
+      ) => Effect.Effect<unknown, unknown>;
+    });
 
 function callableVerbs(
   sibling: SiblingKey,
@@ -837,7 +856,6 @@ function callableVerbs(
       name,
       source: "procedure",
       sibling,
-      wantsBundle: false,
       // The conservative default the whole stack shares, read through the
       // framework's one derivation rather than re-spelled here: an exposure that
       // does not explicitly say `mutates: false` is mutating, and a SAFETY
@@ -849,9 +867,7 @@ function callableVerbs(
       ),
       annotation,
       call: (client, input) => {
-        const proc = (client as SurfaceClientCallable).surface[entry.ns]?.[
-          entry.verb
-        ];
+        const proc = client.surface[entry.ns]?.[entry.verb];
         if (proc === undefined) {
           return Effect.fail(
             new Error(
@@ -873,10 +889,6 @@ function callableVerbs(
       name,
       source: "bespoke",
       sibling,
-      // A bundle-root bespoke verb is about the BUNDLE, so it is handed the
-      // bundle; a sibling's is about that sibling, so it is handed that
-      // sibling's client. One rule, read off where the table was declared.
-      wantsBundle: sibling === undefined,
       mutates: verb.mutates ?? true,
       description: verb.description,
       title: verb.title,
@@ -1101,21 +1113,24 @@ function runVerb<F extends FlagRecord, R>(
       decoded = result.success;
     }
 
+    // WHICH client this verb's dispatch is handed, and WHICH reading of the
+    // input it wants, are ONE question — `source` answers both, and narrowing on
+    // it is what lets each arm's `call` be typed for exactly the client it can
+    // receive. A procedure addresses its own surface's client and takes the
+    // ENCODED value (its client ref decodes what it is handed); a bespoke verb is
+    // handed the client of the thing it was DECLARED on — the framework's rule,
+    // `declarationTarget`, the same one the MCP face dispatches by — and its
+    // `args` ARE the decoded one.
     const output = yield* withConnection(opts, values, (bundle, where) =>
-      Effect.flatMap(
-        // A bundle-root bespoke verb wants the WHOLE bundle; everything else
-        // wants the client of the surface it belongs to. One field decides, and
-        // the resolution failure is worded once for both (see {@link surfaceOf}).
-        verb.wantsBundle
-          ? Effect.succeed<SurfaceClientCallable | RootedSurfaceClients>(bundle)
-          : surfaceOf(opts, bundle, where, scope.sibling),
-        (client) =>
-          // WHICH reading this verb's dispatch wants, off the one field that
-          // already says: a procedure's client ref decodes what it is handed, so
-          // it takes the ENCODED value, while a bespoke handler's `args` ARE the
-          // decoded one.
-          verb.call(client, verb.source === "bespoke" ? decoded : encoded),
-      ),
+      verb.source === "bespoke"
+        ? Effect.flatMap(
+            declaredOn(opts, bundle, where, verb.sibling),
+            (client) => verb.call(client, decoded),
+          )
+        : Effect.flatMap(
+            surfaceOf(opts, bundle, where, scope.sibling),
+            (client) => verb.call(client, encoded),
+          ),
     );
     // The author's renderer, unless `--json` asked for the answer whole —
     // `io.ts` owns that branch, and NOTHING here asks what stdout is attached
@@ -1582,15 +1597,36 @@ function surfaceOf<F extends FlagRecord, R>(
 ): Effect.Effect<SurfaceClientCallable, SurfaceCliFailure> {
   const client = clientAt(bundle, sibling);
   if (client !== undefined) return Effect.succeed(client);
-  return Effect.fail(
-    unreachable(
-      opts.info.name,
-      where,
-      sibling === undefined
-        ? "the surface at this endpoint carries no core — this face's bare verbs and readers address one"
-        : `the surface at this endpoint carries no sibling "${sibling}" — it may have been dropped from the served bundle`,
-    ),
-  );
+  return Effect.fail(unreachable(opts.info.name, where, noLegDetail(sibling)));
+}
+
+/** WHICH client a HAND-AUTHORED verb's dispatch is handed — the framework's one
+ *  rule ({@link declarationTarget}: the whole bundle at the root, that sibling's
+ *  client on a sibling), with this face's refusal on the leg that is missing.
+ *
+ *  The rule is the framework's and the SENTENCE is this face's, which is the same
+ *  division {@link clientAt} and {@link surfaceOf} already make: a refusal is read
+ *  by whoever made the call, and a person at a shell is not an MCP host. */
+function declaredOn<F extends FlagRecord, R>(
+  opts: FaceContext<F, R>,
+  bundle: RootedSurfaceClients,
+  where: string,
+  sibling: SiblingKey,
+): Effect.Effect<
+  RootedSurfaceClients | SurfaceClientCallable,
+  SurfaceCliFailure
+> {
+  const target = declarationTarget(bundle, sibling);
+  if (target !== undefined) return Effect.succeed(target);
+  return Effect.fail(unreachable(opts.info.name, where, noLegDetail(sibling)));
+}
+
+/** The one sentence this face says about a leg the dialled bundle does not
+ *  carry — read by a verb's dispatch, by a reader's, and by a bespoke verb's. */
+function noLegDetail(sibling: SiblingKey): string {
+  return sibling === undefined
+    ? "the surface at this endpoint carries no core — this face's bare verbs and readers address one"
+    : `the surface at this endpoint carries no sibling "${sibling}" — it may have been dropped from the served bundle`;
 }
 
 /** Address one member verb on the live client. */

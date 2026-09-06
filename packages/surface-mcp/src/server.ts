@@ -88,6 +88,7 @@ import {
 import { brand, fail, failFrom, messageOf, ok, type ToolResult } from "./tools";
 import {
   clientAt,
+  declarationTarget,
   type RootedSurfaceClients,
   type SurfaceClientCallable,
 } from "@kolu/surface/client";
@@ -699,16 +700,11 @@ export async function serveSurfaceAsMcp<
         // handler DESCRIBES its work; it runs at the same request edge every
         // other handler does, so a cancelled `tools/call` interrupts it.
         return await withClient(current, async (bundle) => {
-          // THE rule for every bespoke table this face takes: a tool receives the
-          // client of the thing it was DECLARED on — the whole bundle for one at
-          // the bundle root, that sibling's own client for one on a sibling. A
-          // sibling's verb is written against a sibling's surface, so handing it
-          // the bundle would make every such verb start by re-deriving the key it
-          // was already filed under.
-          const target =
-            entry.sibling === undefined
-              ? bundle
-              : clientAt(bundle, entry.sibling);
+          // THE rule for every bespoke table this face takes — the FRAMEWORK's,
+          // beside `clientAt`, because the argv face implements the same one and
+          // neither face owns it: a tool receives the client of the thing it was
+          // DECLARED on.
+          const target = declarationTarget(bundle, entry.sibling);
           if (target === undefined) {
             return fail(
               brand(
