@@ -42,12 +42,12 @@
 // `awaitWatchEvents` arrives dynamically, INSIDE the handler — same fence as
 // `wait.ts`: this module is on the static tree-build path of every `kolu`
 // invocation, so the watcher's mirror/socket closure may only load at call time.
-import type { PadiSurfaceClient } from "@kolu/padi-client/dial";
 import {
   NonNegativeInt,
   type PadiWatchEvent,
   WatchNameSchema,
 } from "@kolu/padi-client/surface";
+import { padiOf } from "./bundleClient.ts";
 import { waitOutcomeJson } from "@kolu/surface/wait";
 import type { BespokeTool } from "@kolu/surface-mcp/tools";
 import { Effect, Schema } from "effect";
@@ -96,7 +96,7 @@ export const watchNextTool: BespokeTool = {
     Effect.tryPromise(async (fiberSignal) => {
       const { name, after, timeoutMs } = args as WatchNextArgs;
       const { awaitWatchEvents } = await import("@kolu/padi-client/watch");
-      const outcome = await awaitWatchEvents(client as PadiSurfaceClient, {
+      const outcome = await awaitWatchEvents(padiOf(client), {
         name,
         after,
         timeoutMs,

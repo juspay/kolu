@@ -59,9 +59,8 @@ calls anything:
 
 ```ts
 await serveSurfaceAsMcp({
-  surface,
-  client: () => client,
-  expose: EXPOSE,
+  core: { surface, expose: EXPOSE },
+  client: () => ({ core: client }),
   instructions:
     "Everything here is about NODES, not files. There is no file access — a " +
     "node is the smallest thing you can name, and that is deliberate.",
@@ -98,7 +97,22 @@ the dangerous procedures, bound the logs, derive read-only verdicts, and expose
 *that* second surface. It is the difference between hiding a control and not
 wiring it at all.
 
-## 7. Point the agent at it
+## 7. Serve several surfaces on one endpoint
+
+A `core` and no siblings is the ordinary case. When the endpoint should carry a
+**set** of surfaces whose roster moves — one per tenant, per plugin, per open
+document — hand them in as `surfaces` and the sibling key becomes a segment of
+every name that sibling contributes: `surface://collections/tenantA/rows`,
+`tenantA_ops_run`. The core keeps its bare names.
+
+<Snippet src="packages/surface/example/snippets/mcp.ts" region="bundle" />
+
+`served.reroster(surfaces)` replaces the sibling map whole and tells the host both
+lists changed; a subscription the new roster cannot serve is ended, and a call to
+a departed sibling's name is refused by name rather than as an unknown one. The
+core never moves — serving a different core is a different endpoint.
+
+## 8. Point the agent at it
 
 The server speaks stdio by default. Register it in the agent's `.mcp.json` and
 the tools and resources appear in its next session. For the full option list and

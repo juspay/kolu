@@ -20,6 +20,15 @@ import {
 } from "./expose";
 import { ADAPTER_NAME, brand } from "./tools";
 
+/** The CORE's resolution — this file's subject. `sibling` is required and has no
+ *  default (`undefined` there is the bare core's ADDRESS, never an omitted
+ *  argument), so the core arm is named once here rather than spelled at every
+ *  call. The sibling arm has its own suite in `bundle.test.ts`. */
+const resolveCore = <S extends SurfaceSpec>(
+  spec: S,
+  expose: ExposeMap<S>,
+): ReturnType<typeof resolveExpose> => resolveExpose(spec, expose, undefined);
+
 function buildSpec() {
   return defineSurface({
     cells: { count: { schema: Schema.Finite, default: 0 } },
@@ -50,7 +59,7 @@ function buildSpec() {
 
 describe("resolveExpose", () => {
   it("maps each primitive kind to its resource URI shape", () => {
-    const r = resolveExpose(buildSpec(), {
+    const r = resolveCore(buildSpec(), {
       count: "resource",
       notes: "resource",
       ticks: "resource",
@@ -58,19 +67,19 @@ describe("resolveExpose", () => {
     });
 
     const uris = r.resources.map((e) => e.uri).sort();
-    expect(uris).toContain(cellUri("count"));
-    expect(uris).toContain(collectionUri("notes"));
-    expect(uris).toContain(streamUri("ticks"));
-    expect(uris).toContain(eventUri("exited"));
+    expect(uris).toContain(cellUri(undefined, "count"));
+    expect(uris).toContain(collectionUri(undefined, "notes"));
+    expect(uris).toContain(streamUri(undefined, "ticks"));
+    expect(uris).toContain(eventUri(undefined, "exited"));
 
     // A collection also yields a per-item template.
     expect(r.resourceTemplates.map((t) => t.uriTemplate)).toEqual([
-      collectionItemTemplate("notes"),
+      collectionItemTemplate(undefined, "notes"),
     ]);
   });
 
   it("default-deny: only listed procedures become tools; mutates defaults conservatively", () => {
-    const r = resolveExpose(buildSpec(), {
+    const r = resolveCore(buildSpec(), {
       "counter.bump": { tool: { mutates: true } },
       // The bare `"tool"` shorthand carries no flag, so it defaults to MUTATING
       // (conservative): an unannotated procedure is never advertised as a harmless
@@ -100,12 +109,12 @@ describe("resolveExpose", () => {
     // is `{"type":"null"}` — the divergence D8 item 3 exists for. Pinned end-to-end
     // through `resolveExpose` (not only in `jsonschema.test.ts`) because this is
     // the path an actual MCP host reads.
-    const r = resolveExpose(buildSpec(), { "counter.bump": "tool" });
+    const r = resolveCore(buildSpec(), { "counter.bump": "tool" });
     expect(r.tools[0]?.inputSchema).toEqual({ type: "object", properties: {} });
   });
 
   it("omitting everything exposes nothing", () => {
-    const r = resolveExpose(buildSpec(), {});
+    const r = resolveCore(buildSpec(), {});
     expect(r.resources).toEqual([]);
     expect(r.tools).toEqual([]);
     expect(r.resourceTemplates).toEqual([]);
@@ -113,12 +122,12 @@ describe("resolveExpose", () => {
 
   it("a key naming no primitive/procedure throws at resolve time", () => {
     expect(() =>
-      resolveExpose(buildSpec(), {
+      resolveCore(buildSpec(), {
         nope: "resource",
       } as Record<string, "resource">),
     ).toThrow(/no such/);
     expect(() =>
-      resolveExpose(buildSpec(), {
+      resolveCore(buildSpec(), {
         "counter.nonexistent": "tool",
       } as Record<string, "tool">),
     ).toThrow(/no such procedure/);
@@ -132,7 +141,7 @@ describe("resolveExpose", () => {
     // message, never twice.
     let thrown: unknown;
     try {
-      resolveExpose(buildSpec(), { nope: "resource" } as Record<
+      resolveCore(buildSpec(), { nope: "resource" } as Record<
         string,
         "resource"
       >);
@@ -150,7 +159,7 @@ describe("resolveExpose", () => {
 
   it("mis-tagging a primitive as a tool throws", () => {
     expect(() =>
-      resolveExpose(buildSpec(), {
+      resolveCore(buildSpec(), {
         count: "tool",
       } as unknown as Record<string, "tool">),
     ).toThrow(/must be exposed as "resource"/);
@@ -158,7 +167,7 @@ describe("resolveExpose", () => {
 
   it("mis-tagging a procedure as a resource throws", () => {
     expect(() =>
-      resolveExpose(buildSpec(), {
+      resolveCore(buildSpec(), {
         "counter.bump": "resource",
       } as unknown as Record<string, "resource">),
     ).toThrow(/procedures map to tools/);
@@ -178,13 +187,11 @@ describe("resolveExpose", () => {
       },
     }).spec;
 
-    expect(() => resolveExpose(spec, { nodeLog: "resource" })).toThrow(
+    expect(() => resolveCore(spec, { nodeLog: "resource" })).toThrow(
       /requires an input/,
     );
     // The void-input stream still resolves.
-    expect(resolveExpose(spec, { ticks: "resource" }).resources).toHaveLength(
-      1,
-    );
+    expect(resolveCore(spec, { ticks: "resource" }).resources).toHaveLength(1);
   });
 
   it("an input-bearing event can't be exposed as a static resource (F1)", () => {
@@ -202,13 +209,11 @@ describe("resolveExpose", () => {
       },
     }).spec;
 
-    expect(() => resolveExpose(spec, { terminalExit: "resource" })).toThrow(
+    expect(() => resolveCore(spec, { terminalExit: "resource" })).toThrow(
       /requires an input/,
     );
     // The void-input event still resolves.
-    expect(resolveExpose(spec, { exited: "resource" }).resources).toHaveLength(
-      1,
-    );
+    expect(resolveCore(spec, { exited: "resource" }).resources).toHaveLength(1);
   });
 
   it("carries the collection key schema on the item template (F9)", () => {
@@ -223,7 +228,7 @@ describe("resolveExpose", () => {
       },
     }).spec;
 
-    const r = resolveExpose(spec, { rows: "resource" });
+    const r = resolveCore(spec, { rows: "resource" });
     const tmpl = r.resourceTemplates[0];
     if (tmpl === undefined) throw new Error("expected one item template");
     expect(tmpl.key).toBe("rows");
@@ -249,7 +254,7 @@ describe("resolveExpose", () => {
       },
     }).spec;
 
-    const r = resolveExpose(spec, { "echo.shout": "tool", "echo.tag": "tool" });
+    const r = resolveCore(spec, { "echo.shout": "tool", "echo.tag": "tool" });
     const shout = r.tools.find((t) => t.name === "echo_shout");
     const tag = r.tools.find((t) => t.name === "echo_tag");
     expect(shout?.wrapped).toBe(true);
@@ -289,11 +294,11 @@ describe("an inherited spec-table key names nothing, and is never advertised", (
   it("refuses an inherited name as a primitive key, and registers no resource", () => {
     for (const key of INHERITED) {
       expect(
-        () => resolveExpose(buildSpec(), { [key]: "resource" }),
+        () => resolveCore(buildSpec(), { [key]: "resource" }),
         key,
       ).toThrow(ExposeMapError);
       expect(
-        () => resolveExpose(buildSpec(), { [key]: "resource" }),
+        () => resolveCore(buildSpec(), { [key]: "resource" }),
         key,
       ).toThrow(/no such cell\/collection\/stream\/event/);
     }
@@ -302,7 +307,7 @@ describe("an inherited spec-table key names nothing, and is never advertised", (
   it("refuses an inherited name as a procedure verb, and mints no tool", () => {
     for (const key of INHERITED) {
       expect(
-        () => resolveExpose(buildSpec(), { [`admin.${key}`]: "tool" }),
+        () => resolveCore(buildSpec(), { [`admin.${key}`]: "tool" }),
         `admin.${key}`,
       ).toThrow(/no such procedure/);
     }
@@ -310,10 +315,10 @@ describe("an inherited spec-table key names nothing, and is never advertised", (
 
   it("keeps this adapter's brand on the refusal, like every other bad key", () => {
     expect(() =>
-      resolveExpose(buildSpec(), erased({ toString: "resource" })),
+      resolveCore(buildSpec(), erased({ toString: "resource" })),
     ).toThrow(brand("expose names"));
     try {
-      resolveExpose(buildSpec(), erased({ toString: "resource" }));
+      resolveCore(buildSpec(), erased({ toString: "resource" }));
     } catch (err) {
       expect((err as ExposeMapError).face).toBe(ADAPTER_NAME);
     }
@@ -326,14 +331,16 @@ describe("an inherited spec-table key names nothing, and is never advertised", (
       cells: { toString: { schema: Schema.String, default: "own" } },
       procedures: { admin: { toString: { output: Schema.String } } },
     }).spec;
-    const r = resolveExpose(
+    const r = resolveCore(
       shadowing,
       erased({
         toString: "resource",
         "admin.toString": "tool",
       }),
     );
-    expect(r.resources.map((e) => e.uri)).toEqual([cellUri("toString")]);
+    expect(r.resources.map((e) => e.uri)).toEqual([
+      cellUri(undefined, "toString"),
+    ]);
     expect(r.tools.map((t) => t.name)).toEqual(["admin_toString"]);
   });
 });

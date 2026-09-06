@@ -23,7 +23,7 @@
  * `screen_text` documents at length.
  */
 
-import type { PadiSurfaceClient } from "@kolu/padi-client/dial";
+import { padiOf } from "./bundleClient.ts";
 import type { PadiScreenImageOutput } from "@kolu/padi-client/surface";
 import {
   SCREEN_IMAGE_MAX_ROWS,
@@ -58,7 +58,7 @@ export const screenImageTool: BespokeTool = {
     "A terminal's screen as a PNG image, themed and rendered the way the user sees it — colours, box drawing, highlights and all. Use it when the answer is visual (a TUI's state, a rendered diff, a chart); use screen_text when plain characters will do, since it is much cheaper.",
   handler: (args, client) => {
     const { id, lines } = args as ScreenImageArgs;
-    return (client as PadiSurfaceClient).surface.screen.image({
+    return padiOf(client).surface.screen.image({
       id,
       // SPREAD, never spell: `lines` is `Schema.optionalKey` on padi's wire and
       // that input is DECODED, so an absent key is accepted where a

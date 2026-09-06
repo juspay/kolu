@@ -21,8 +21,8 @@
  * (juspay/kolu#2082).
  */
 
-import type { PadiSurfaceClient } from "@kolu/padi-client/dial";
 import { padiSurface } from "@kolu/padi-client/surface";
+import type { KoluSurfaceClients } from "./bundleClient.ts";
 import {
   type OwnedSurfaceConnection,
   serveSurfaceAsMcp,
@@ -47,12 +47,14 @@ import { KOLU_MCP_TOOLS } from "./tools.ts";
  *  — one layer up from where it was fixed.
  *
  *  Field docs live on the base, including why `onClose` is optional and which
- *  arm supplies it: see {@link OwnedSurfaceConnection}. `PadiSurfaceClient` is
- *  the `buildSurfaceFace` shape — a streaming member hands back a lazy `Stream`,
- *  a procedure a `Promise`, no `AbortSignal` anywhere (D10/#18) — which is
- *  exactly what the adapter asks for, so this needs no adapter of its own. */
+ *  arm supplies it: see {@link OwnedSurfaceConnection}. The client is kolu's
+ *  ROOTED BUNDLE ({@link KoluSurfaceClients}) — padi as the unprefixed core, no
+ *  siblings — whose `core` is the `buildSurfaceFace` shape (a streaming member
+ *  hands back a lazy `Stream`, a procedure a `Promise`, no `AbortSignal`
+ *  anywhere — D10/#18), which is exactly what the adapter asks for, so this
+ *  needs no adapter of its own. */
 export interface KoluMcpConnection extends OwnedSurfaceConnection {
-  client: PadiSurfaceClient;
+  client: KoluSurfaceClients;
 }
 
 export interface ServeKoluMcpOptions {
@@ -77,9 +79,11 @@ export async function serveKoluMcp(
   opts: ServeKoluMcpOptions,
 ): Promise<{ server: Server; close: () => Promise<void> }> {
   return serveSurfaceAsMcp({
-    surface: padiSurface,
+    // kolu's bundle is the degenerate one: padi is the unprefixed CORE and there
+    // are no siblings, so every tool name and every `surface://` URI this face
+    // serves is exactly what it was before the adapter learned to compose.
+    core: { surface: padiSurface, expose: KOLU_MCP_EXPOSE },
     client: opts.connect,
-    expose: KOLU_MCP_EXPOSE,
     tools: KOLU_MCP_TOOLS,
     serverInfo: opts.serverInfo,
     ...(opts.transport !== undefined ? { transport: opts.transport } : {}),

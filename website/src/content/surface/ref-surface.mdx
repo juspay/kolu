@@ -469,6 +469,14 @@ A key that is dropped and later re-mounted mints a **new** handler at the same
 tags, so a recycled name can never route a stale connection into a different
 sibling's members.
 
+`siblingDroppedDetail(key)` is that refusal's **one sentence** — "the sibling
+`"<key>"` was dropped from this rooted bundle" — beside the class, read by
+`SurfaceSiblingDropped.message` and by the second reader that is not on the wire
+at all: `@kolu/surface-mcp`'s retirement table, which words the same fact for an
+agent holding a stale `tools/list`. Each caller keeps its own surrounding clause
+(what the name was, what to do next); only the sentence is shared, the same
+arrangement `notStandaloneRootDetail` makes for the three rooted doors.
+
 `drop()` is idempotent and **always resolves**; a teardown fault reaches
 `done`, the runtime's one owned-fault channel, exactly as a finalizer faulting
 during `close()` does. The root's channels are its own (`<member>:changed`) and a
@@ -1375,6 +1383,45 @@ the release the face is responsible for (`dispose`, and the transport's optional
 subscription's lifetime, so a host can write one connection factory that feeds
 both faces. `@kolu/surface-mcp`'s `PusherConnection` / `OwnedSurfaceConnection`
 and `@kolu/surface-cli`'s `SurfaceCliConnection` are aliases of it.
+
+`SiblingKey` (`string | undefined`) is which surface of a bundle something
+belongs to — `undefined` *is* the bare core, never an omitted value. It lives
+here because each projecting face had declared it for itself: neither could
+import the other's without pointing a face at a face.
+
+`disposeQuietly(conn)` is the one way a face lets go of a connection — it
+defers the call, swallows a rejection *and* a synchronous throw, and returns a
+promise that never rejects. A bare `conn.dispose()` on an async disposer leaves
+an unhandled rejection, which on Node terminates the process at exactly the
+moment the code is being resilient about a transport going away. Both faces held
+their own copy of that argument, in different signatures, until it moved beside
+the shape it is a property of.
+
+`RootedSurfaceClients` is the **client half of a rooted bundle** —
+`{ core?, clients? }`, the shape `connectSurfaces` hands back and the shape both
+projecting faces now dial, so "the client for a bundle" is one shape rather than
+one per face. `clientAt(bundle, sibling)` is the one lookup both faces do:
+`undefined` names the core, a key names that sibling, and a missing leg comes
+back `undefined` so each face can word its own refusal — a refusal is read by
+whoever made the call, and an MCP host and a person at a shell are not the same
+reader.
+
+`declarationTarget(bundle, sibling)` is the other lookup both faces do, and it is
+a *different* one: **a verb receives the client of the thing it is declared on**,
+so a hand-authored verb declared at the bundle root is handed the whole bundle
+and one declared on a sibling is handed that sibling's client. The root arm can
+never come back `undefined` (the bundle *is* the value) — a bundle-root verb that
+wants the core asks `clientAt` for it and refuses there.
+
+The **declaration** half of the same shape has one fold, beside it.
+`rootedBundleEntries(core, siblings)` returns every position of a rooted bundle —
+`{ sibling, value }`, the core first with `sibling: undefined`, then the siblings
+in key order, which is the order a `tools/list`, a `resources/list` and a
+`--help` page are rendered in. It does not refuse: an EMPTY walk *is* the shape
+that is not a bundle, and `notABundleDetail(seam)` is that refusal's one
+sentence, in the calling face's own name — so the predicate and the wording are
+each written once while each face still throws its own error class, the same
+arrangement `notStandaloneRootDetail` makes for the three rooted doors.
 
 The per-subscription **retry fence** lives here too, not in a link: a link that
 retried inside itself could not tell one subscriber's supersession from

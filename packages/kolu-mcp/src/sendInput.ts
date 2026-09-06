@@ -25,7 +25,7 @@
  * give the same answer to the same intent.
  */
 
-import type { PadiSurfaceClient } from "@kolu/padi-client/dial";
+import { padiOf } from "./bundleClient.ts";
 import { type BespokeTool, ToolFailure } from "@kolu/surface-mcp/tools";
 import {
   ACCEPTED_KEY_NAMES,
@@ -196,7 +196,7 @@ export const sendInputTool: BespokeTool = {
     const { id, ...rest } = args as SendInputArgs;
     const plan = resolveSendInputData(rest);
     return Effect.as(
-      (client as PadiSurfaceClient).surface.lifecycle.sendInput({
+      padiOf(client).surface.lifecycle.sendInput({
         id,
         data: plan.write,
       }),

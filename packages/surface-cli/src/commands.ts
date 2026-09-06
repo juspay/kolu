@@ -5,7 +5,28 @@
  * same surface as commands. Both read ONE `expose` map by one grammar
  * (`classifyExpose`), take ONE verb table (`SurfaceVerb`), and compute ONE name
  * per procedure (`toolName`) — so `git_commit` the MCP tool and `git_commit` the
- * CLI verb are one name for one function, and the two faces cannot drift.
+ * CLI verb are one name for one function, and the two faces cannot drift about
+ * WHAT a member is called.
+ *
+ * ## What the two faces DO decide separately — the composition gates
+ *
+ * They cannot drift about names. They can, and do, differ about whether a given
+ * bundle DECLARATION is servable at all, because the refusals are properties of
+ * each face's ADDRESS SPACE and the two address spaces are genuinely different:
+ * MCP has one flat namespace, argv has a tree. A host handing one declaration to
+ * both faces should know which refusal comes from which:
+ *
+ * | refused by | what | why the other face does not |
+ * | --- | --- | --- |
+ * | both | a bundle with neither a core nor a sibling | the shared fold |
+ * | both | an `expose` key naming nothing on its own spec | `classifyExpose` |
+ * | MCP only | a sibling key equal to a CORE COLLECTION's key | `surface://collections/<k>/{id}` would be that collection's items and that sibling's whole space at once; argv reads `get <k> <key>` and `<k> …` as different words |
+ * | MCP only | two tools colliding in the `_`-joined namespace (a bundle-root `a_x` beside sibling `a`'s `x`) | argv mounts them as `a_x` and `a x`, which do not collide |
+ * | CLI only | a sibling key equal to a reader command (`get`/`keys`/`watch`/`list`) or a root verb | MCP has no reader commands and no argv word to shadow |
+ * | CLI only | a sibling that exposes nothing | argv would mount a word with no subcommand under it; MCP just contributes no names, and an empty row is load-bearing there (a plugin on its way out — juspay/olai#546) |
+ *
+ * That last row is the one worth knowing: an empty sibling is legal on MCP and
+ * refused here, deliberately, and neither is the other's bug.
  *
  * ## It returns a VALUE, and does not run a program
  *
@@ -46,6 +67,28 @@
  * | collection exposed `"resource"` | `get <member> <key> [--follow]` · `keys <member> [--follow]` · `watch <member>` |
  * | always | `list` — this face's `tools/list`, answered from the projection rather than from a server |
  *
+ * ## A ROOTED BUNDLE, with the sibling key as the first argv word
+ *
+ * This face takes the same rooted bundle the MCP face does — a bare `core` beside
+ * a keyed set of `surfaces` — and composes it the way argv already composes:
+ * a sibling's whole projection is mounted under a SUBCOMMAND named by its key.
+ *
+ * ```sh
+ * example who_get                 # the core, bare
+ * example outlines ops_run …      # the sibling "outlines"
+ * example outlines get entries    # its readers, under the same word
+ * ```
+ *
+ * That is the MCP face's `outlines_ops_run` in argv's own separator, exactly as
+ * `<ns>.<verb>` is already `<ns>_<verb>` on both faces: one composition, spelled
+ * once per face in the separator that face has. A shell has a real hierarchy, so
+ * using it beats gluing the key on with an underscore and reproducing MCP's
+ * constraint where it does not apply.
+ *
+ * `list` stays at the TOP and describes the WHOLE bundle, each row tagged with the
+ * surface it belongs to. One authoritative "what can I address" per face — a
+ * per-sibling `list` beside it would be a second answer to the same question.
+ *
  * `--follow` turns a one-shot read into the subscription itself, one ndjson line
  * per frame, until the stream ends or the fiber is interrupted. Without it a
  * read takes the opening SNAPSHOT frame and stops — which is what every
@@ -69,9 +112,16 @@
  * ergonomics, never security.
  */
 
-import type {
-  OwnedSurfaceConnection,
-  SurfaceClientCallable,
+import {
+  clientAt,
+  declarationTarget,
+  disposeQuietly,
+  notABundleDetail,
+  type OwnedSurfaceConnection,
+  type RootedSurfaceClients,
+  rootedBundleEntries,
+  type SiblingKey,
+  type SurfaceClientCallable,
 } from "@kolu/surface/client";
 import type {
   CollectionSpec,
@@ -126,6 +176,20 @@ import {
 } from "./help";
 import { data, frames, present, readStdin } from "./io";
 
+/** What the helpers below actually read off the options: the binary's identity
+ *  and the endpoint seam.
+ *
+ *  Narrow on purpose. Most of this file words a diagnostic or merges a flag
+ *  table, and neither is a fact about which surfaces the bundle carries — making
+ *  every such helper generic over the core spec AND the sibling map would put
+ *  four type parameters on a function that reads one string. The full
+ *  {@link SurfaceCliOptions} assigns to it structurally, so a caller passes
+ *  `opts` unchanged. */
+interface FaceContext<F extends FlagRecord = FlagRecord, R = never> {
+  readonly endpoint: EndpointSeam<F, R>;
+  readonly info: { readonly name: string };
+}
+
 /** A live connection this face owns for the length of ONE command.
  *
  *  The framework's {@link OwnedSurfaceConnection} under this face's name, not a
@@ -141,7 +205,7 @@ import { data, frames, present, readStdin } from "./io";
  *  which is a decision it makes out loud rather than an absence this face has to
  *  guess the meaning of. `onClose` is on the base and unused here: a CLI never
  *  redials, so it has nothing to do with a transport announcing its close. */
-export type SurfaceCliConnection = OwnedSurfaceConnection;
+export type SurfaceCliConnection = OwnedSurfaceConnection<RootedSurfaceClients>;
 
 /** CLI-only ergonomics for one verb, keyed by the verb's name.
  *
@@ -164,21 +228,62 @@ export interface VerbAnnotation {
   readonly render?: (output: unknown) => string;
 }
 
-export interface SurfaceCliOptions<
-  S extends SurfaceSpec,
-  F extends FlagRecord = FlagRecord,
-  R = never,
-> {
+/** The unprefixed CORE of a projected bundle — the surface whose verbs and
+ *  readers sit at the TOP of the mounted tree, with no sibling word in front.
+ *
+ *  It carries no `verbs` of its own: hand-authored verbs that should keep their
+ *  bare argv spelling are the bundle's ({@link SurfaceCliOptions.verbs}) and are
+ *  handed the whole client bundle. One bare table, so a name can only come from
+ *  one place — the same arrangement `serveSurfaceAsMcp` makes. */
+export interface SurfaceCliCore<S extends SurfaceSpec> {
   readonly surface: Surface<S>;
   /** Default-deny allowlist — the SAME map shape `serveSurfaceAsMcp` and the
    *  wire faces take (`@kolu/surface/expose`). */
   readonly expose: ExposeMap<S>;
-  /** Hand-authored verbs — the SAME record handed to `serveSurfaceAsMcp` as
-   *  `tools`, so the two faces offer one table under one set of names. */
+}
+
+/** One SIBLING of a projected bundle: everything that belongs behind its argv
+ *  word. Its verbs and its CLI-only ergonomics live here rather than in a
+ *  bundle-wide table keyed by a prefixed name, so a sibling's projection arrives
+ *  and departs as one value. */
+export interface SurfaceCliSibling<S extends SurfaceSpec = SurfaceSpec> {
+  readonly surface: Surface<S>;
+  readonly expose: ExposeMap<S>;
+  /** Hand-authored verbs for THIS sibling — the same record its
+   *  {@link McpSibling} twin takes as `tools`. Their handler is given this
+   *  sibling's own client. */
+  readonly verbs?: Record<string, SurfaceVerb>;
+  /** CLI-only ergonomics for this sibling's verbs, by verb name. */
+  readonly annotate?: Record<string, VerbAnnotation>;
+}
+
+export interface SurfaceCliOptions<
+  C extends SurfaceSpec = SurfaceSpec,
+  M extends Record<string, SurfaceSpec> = Record<string, SurfaceSpec>,
+  F extends FlagRecord = FlagRecord,
+  R = never,
+> {
+  /** The unprefixed core. Optional — a bundle may be siblings only — but a call
+   *  with NEITHER a core nor a sibling is refused: that is not a bundle. */
+  readonly core?: SurfaceCliCore<C>;
+  /** The sibling surfaces, each mounted under a subcommand named by its key. */
+  /** `M` is the map of the siblings' SPECS, and the mapped type is what makes
+   *  each sibling's `expose` checked against ITS OWN surface — TypeScript infers
+   *  `M` backwards through it, so a call site pins one spec per key instead of
+   *  collapsing every map to a single erased `ExposeMap`. */
+  readonly surfaces?: { [K in keyof M]: SurfaceCliSibling<M[K]> };
+  /** Hand-authored verbs at the BUNDLE ROOT — the SAME record handed to
+   *  `serveSurfaceAsMcp` as its top-level `tools`, so the two faces offer one
+   *  table under one set of names.
+   *
+   *  Their handler's `client` is the {@link RootedSurfaceClients} bundle, not one
+   *  surface's client. The rule across every table this face takes is the same
+   *  one — **a verb receives the client of the thing it is declared on**. */
   readonly verbs?: Record<string, SurfaceVerb>;
   /** The transport seam: app-owned, framework-blind. */
   readonly endpoint: EndpointSeam<F, R>;
-  /** CLI-only ergonomics, by verb name. */
+  /** CLI-only ergonomics for the CORE's verbs and the bundle-root ones, by verb
+   *  name. A sibling's live on the sibling ({@link SurfaceCliSibling.annotate}). */
   readonly annotate?: Record<string, VerbAnnotation>;
   /** The WORDING of the help page — a purpose line, the verbs grouped by what
    *  they do, an example each. Passing it does two things: {@link surfaceHelp}
@@ -351,22 +456,143 @@ const jsonFlag = Flag.boolean(JSON_FLAG).pipe(
   Flag.withDefault(false),
 );
 
+/** ONE surface of the bundle, projected: which argv word it sits behind (none,
+ *  for the core and the bundle-root verbs), what it can call, and what it can
+ *  read.
+ *
+ *  Each table is derived ONCE per scope and handed to every reader of it —
+ *  `list` is this face's authoritative answer to "what can I address", and an
+ *  authoritative answer computed separately from the thing it describes is one
+ *  edit away from describing something else. */
+interface Scope {
+  readonly sibling: SiblingKey;
+  readonly verbs: readonly CallableVerb[];
+  readonly readable: Map<string, Readable>;
+}
+
+/** The bundle, resolved into one scope per surface: the ROOT first (the core's
+ *  members plus the bundle-root verbs), then the siblings in a stable order.
+ *
+ *  Every refusal the composition owes is made here, so `surfaceCommands` and
+ *  `surfaceHelp` — which both build the tree — are held to exactly the same gate
+ *  rather than one of them being the lenient door. */
+function scopesOf<
+  C extends SurfaceSpec,
+  M extends Record<string, SurfaceSpec>,
+  F extends FlagRecord,
+  R,
+>(opts: SurfaceCliOptions<C, M, F, R>): readonly [Scope, ...Scope[]] {
+  const siblings = (opts.surfaces ?? {}) as Record<
+    string,
+    SurfaceCliSibling<SurfaceSpec>
+  >;
+  // THE fold, the framework's — core first, then the siblings in key order, and
+  // an EMPTY walk is the one shape that is not a bundle. Both the order and the
+  // refusal used to be spelled here and again, word for word, in the MCP face;
+  // what stays this face's is the error CLASS and the seam's own name, the same
+  // arrangement `notStandaloneRootDetail` makes for the three rooted doors.
+  const positions = rootedBundleEntries<
+    SurfaceCliCore<SurfaceSpec> | SurfaceCliSibling<SurfaceSpec>
+  >(opts.core, siblings);
+  if (positions.length === 0) {
+    throw new SurfaceCliBuildError(notABundleDetail("surface-cli"));
+  }
+  const scopeOf = (sibling: SiblingKey, value: SurfaceCliSibling): Scope => {
+    const entries = classifyExpose(
+      value.surface.spec,
+      value.expose,
+      "surface-cli",
+    );
+    return {
+      sibling,
+      verbs: callableVerbs(sibling, entries, value.verbs, value.annotate),
+      readable: readables(entries),
+    };
+  };
+  // The ROOT scope is NOT simply the core's position: it exists even for a
+  // coreless bundle, because the bundle-root verbs are the options object's own
+  // bare table and they mount at the top whatever the core is. So the fold gives
+  // the sibling ORDER and the emptiness refusal; the root is assembled from both
+  // halves that sit there.
+  const rootEntries =
+    opts.core === undefined
+      ? []
+      : classifyExpose(opts.core.surface.spec, opts.core.expose, "surface-cli");
+  const root: Scope = {
+    sibling: undefined,
+    verbs: callableVerbs(undefined, rootEntries, opts.verbs, opts.annotate),
+    readable: readables(rootEntries),
+  };
+  // The ROOT is always first, so the tuple type is a fact about the body rather
+  // than an assertion each caller re-makes: both used to write
+  // `scopesOf(opts) as [Scope, ...Scope[]]` to destructure it.
+  const scopes: [Scope, ...Scope[]] = [
+    root,
+    ...positions.flatMap(({ sibling, value }): Scope[] =>
+      sibling === undefined
+        ? []
+        : [scopeOf(sibling, value as SurfaceCliSibling)],
+    ),
+  ];
+  // A sibling's argv word shares ONE namespace with everything the root mounts:
+  // the parser answers `example outlines …` with whichever it meets first, so a
+  // sibling keyed `get` or one keyed like a core verb is refused at BUILD rather
+  // than shadowing — the same check `callableVerbs` already makes inside a scope,
+  // made across the one boundary it cannot see.
+  const atRoot = new Map<string, string>([
+    ...READER_NAMES.map((name): [string, string] => [name, "a reader command"]),
+    ...root.verbs.map((verb): [string, string] => [verb.name, verb.source]),
+  ]);
+  // Over the scopes the fold already produced — the sibling keys are what that
+  // walk is FOR, and a second `Object.keys(siblings).sort()` beside it was the
+  // line `rootedBundleEntries` was extracted to delete.
+  for (const scope of scopes) {
+    if (scope.sibling === undefined) continue;
+    const prior = atRoot.get(scope.sibling);
+    if (prior !== undefined) {
+      throw new SurfaceCliBuildError(
+        `surface-cli: the sibling "${scope.sibling}" would be mounted beside ${prior} of the same name — rename one.`,
+      );
+    }
+  }
+  // A sibling that projects NOTHING is an author's mistake, refused where the
+  // author is. Every other malformed projection in this file is caught at build;
+  // this one used to ship — mounting an argv word with `withSubcommands([])` and
+  // a help line reading "nothing exposed", an address a user can only ever be
+  // refused at. (The MCP face has no equivalent hazard: an empty sibling
+  // contributes no names and no word, so there is nothing to arrive at.)
+  const empty = scopes.filter(
+    (scope) =>
+      scope.sibling !== undefined &&
+      scope.verbs.length === 0 &&
+      scope.readable.size === 0,
+  );
+  if (empty.length > 0) {
+    throw new SurfaceCliBuildError(
+      `surface-cli: the sibling(s) [${empty.map((scope) => scope.sibling).join(", ")}] expose nothing and declare no verbs — remove them, or expose a member.`,
+    );
+  }
+  return scopes;
+}
+
 /** Every command this face mounts, in the order a `--help` should list them:
- *  the verbs (alphabetical), then the readers, then `list`. */
-export function surfaceCommands<S extends SurfaceSpec, F extends FlagRecord, R>(
-  opts: SurfaceCliOptions<S, F, R>,
+ *  the root's verbs (alphabetical), its readers, one subcommand per sibling,
+ *  then `list`. */
+export function surfaceCommands<
+  C extends SurfaceSpec,
+  M extends Record<string, SurfaceSpec>,
+  F extends FlagRecord,
+  R,
+>(
+  opts: SurfaceCliOptions<C, M, F, R>,
 ): ReadonlyArray<ProjectedCommand<Stdio.Stdio | R>> {
-  const entries = classifyExpose(opts.surface.spec, opts.expose, "surface-cli");
-  // Each table derived ONCE from the entries and handed to both its readers.
-  // `list` is this face's authoritative answer to "what can I address", and an
-  // authoritative answer computed separately from the thing it describes is one
-  // edit away from describing something else.
-  const verbs = callableVerbs(opts, entries);
-  const readable = readables(entries);
+  const scopes = scopesOf(opts);
+  const [root, ...siblings] = scopes;
   const mounted = [
-    ...verbs.map((verb) => verbCommand(opts, verb)),
-    ...readerCommands(opts, readable),
-    listCommand(opts, verbs, readable),
+    ...root.verbs.map((verb) => verbCommand(opts, verb)),
+    ...readerCommands(opts, root),
+    ...siblings.map((scope) => siblingCommand(opts, scope)),
+    listCommand(opts, scopes),
   ];
   // A host that wrote a help page has ALREADY listed its verbs, in groups, with
   // an example each ({@link surfaceHelp}). Leaving them in the parent's own
@@ -398,19 +624,23 @@ const hide = <R>(command: ProjectedCommand<R>): ProjectedCommand<R> =>
  * Handing back a pair would make every host that wants no help page destructure
  * one.
  */
-export function surfaceHelp<S extends SurfaceSpec, F extends FlagRecord, R>(
-  opts: SurfaceCliOptions<S, F, R> & { readonly help: SurfaceCliHelp },
+export function surfaceHelp<
+  C extends SurfaceSpec,
+  M extends Record<string, SurfaceSpec>,
+  F extends FlagRecord,
+  R,
+>(
+  opts: SurfaceCliOptions<C, M, F, R> & { readonly help: SurfaceCliHelp },
 ): string {
-  const entries = classifyExpose(opts.surface.spec, opts.expose, "surface-cli");
-  const verbs = callableVerbs(opts, entries);
-  const readable = readables(entries);
+  const scopes = scopesOf(opts);
+  const [root, ...siblings] = scopes;
   const rows = new Map<string, HelpRow>();
   const prefix = `${opts.info.name} ${opts.help.command}`;
   const exampleFor = (name: string): string | undefined => {
     const said = opts.help.examples?.[name];
     return said === undefined ? undefined : `${prefix} ${said}`;
   };
-  for (const verb of verbs) {
+  for (const verb of root.verbs) {
     rows.set(verb.name, {
       name: verb.name,
       usage: verbUsage(verb),
@@ -418,8 +648,20 @@ export function surfaceHelp<S extends SurfaceSpec, F extends FlagRecord, R>(
       example: exampleFor(verb.name),
     });
   }
-  for (const reader of readerRows(opts, readable)) {
+  for (const reader of readerRows(opts, root.readable)) {
     rows.set(reader.name, { ...reader, example: exampleFor(reader.name) });
+  }
+  // One row per sibling — the argv WORD, not its verbs. A page that inlined every
+  // sibling's whole projection is the flat dump this page exists not to be, and
+  // `<key> --help` is one keystroke away.
+  for (const scope of siblings) {
+    const key = scope.sibling as string;
+    rows.set(key, {
+      name: key,
+      usage: `${key} <verb> [flags]`,
+      description: siblingBlurb(scope),
+      example: exampleFor(key),
+    });
   }
 
   const named = new Map<string, string>();
@@ -546,8 +788,8 @@ function verbUsage(verb: CallableVerb): string {
 /** The reader commands as help rows — the SAME set {@link readerCommands}
  *  mounts, decided by the same two questions (is anything readable, can the
  *  endpoint push), so the page cannot offer a `watch` the projection withheld. */
-function readerRows<S extends SurfaceSpec, F extends FlagRecord, R>(
-  opts: SurfaceCliOptions<S, F, R>,
+function readerRows<F extends FlagRecord, R>(
+  opts: FaceContext<F, R>,
   table: Map<string, Readable>,
 ): ReadonlyArray<Omit<HelpRow, "example">> {
   const rows: Array<Omit<HelpRow, "example">> = [
@@ -593,26 +835,57 @@ function readerRows<S extends SurfaceSpec, F extends FlagRecord, R>(
  *  whether the argument arrives encoded or decoded — so they are ONE shape with
  *  the dispatch as a field and the reading DERIVED from `source`, rather than
  *  two parallel builders. */
-interface CallableVerb {
+interface CallableVerbBase {
   readonly name: string;
-  readonly source: "procedure" | "bespoke";
+  /** Which surface of the bundle it belongs to — which decides the argv word it
+   *  sits behind AND which client its dispatch is handed. */
+  readonly sibling: SiblingKey;
   readonly mutates: boolean;
   readonly description?: string;
   readonly title?: string;
   readonly schema: WireSchemaAny | undefined;
   readonly projection: InputProjection;
   readonly annotation: VerbAnnotation;
-  readonly call: (
-    client: SurfaceClientCallable,
-    input: unknown,
-  ) => Effect.Effect<unknown, unknown>;
 }
 
-function callableVerbs<S extends SurfaceSpec, F extends FlagRecord, R>(
-  opts: SurfaceCliOptions<S, F, R>,
+/** A SUM on `source`, so each arm's `call` is typed for exactly the client that
+ *  arm can receive.
+ *
+ *  A procedure addresses ONE surface, so its dispatch takes a
+ *  `SurfaceClientCallable` and nothing else — spelled as the union it never
+ *  receives, the arm had to cast the union away on its first line, which is a
+ *  switch-on-type by assertion. A bespoke verb takes whichever client the
+ *  framework's `declarationTarget` resolves for where it was declared, which
+ *  genuinely is either.
+ *
+ *  There is no `wantsBundle` beside them: it was a DERIVED field standing next to
+ *  the two fields it derives from (`source === "bespoke" && sibling ===
+ *  undefined` — a core PROCEDURE also has no sibling and did NOT want the
+ *  bundle), set at two construction sites and trusted at one read. Narrowing on
+ *  `source` is the same fact with nothing to keep in sync. */
+type CallableVerb =
+  | (CallableVerbBase & {
+      readonly source: "procedure";
+      readonly call: (
+        client: SurfaceClientCallable,
+        input: unknown,
+      ) => Effect.Effect<unknown, unknown>;
+    })
+  | (CallableVerbBase & {
+      readonly source: "bespoke";
+      readonly call: (
+        client: SurfaceClientCallable | RootedSurfaceClients,
+        input: unknown,
+      ) => Effect.Effect<unknown, unknown>;
+    });
+
+function callableVerbs(
+  sibling: SiblingKey,
   entries: readonly ExposeEntry[],
+  verbTable: Record<string, SurfaceVerb> | undefined,
+  annotations: Record<string, VerbAnnotation> | undefined,
 ): CallableVerb[] {
-  const annotate = opts.annotate ?? {};
+  const annotate = annotations ?? {};
   const out: CallableVerb[] = [];
 
   for (const entry of entries) {
@@ -623,6 +896,7 @@ function callableVerbs<S extends SurfaceSpec, F extends FlagRecord, R>(
     out.push({
       name,
       source: "procedure",
+      sibling,
       // The conservative default the whole stack shares, read through the
       // framework's one derivation rather than re-spelled here: an exposure that
       // does not explicitly say `mutates: false` is mutating, and a SAFETY
@@ -649,12 +923,13 @@ function callableVerbs<S extends SurfaceSpec, F extends FlagRecord, R>(
     });
   }
 
-  for (const [name, verb] of Object.entries(opts.verbs ?? {})) {
+  for (const [name, verb] of Object.entries(verbTable ?? {})) {
     const annotation = annotate[name] ?? {};
     const schema = verb.input as WireSchemaAny | undefined;
     out.push({
       name,
       source: "bespoke",
+      sibling,
       mutates: verb.mutates ?? true,
       description: verb.description,
       title: verb.title,
@@ -724,8 +999,8 @@ function build<T>(name: string, f: () => T): T {
   }
 }
 
-function verbCommand<S extends SurfaceSpec, F extends FlagRecord, R>(
-  opts: SurfaceCliOptions<S, F, R>,
+function verbCommand<F extends FlagRecord, R>(
+  opts: FaceContext<F, R>,
   verb: CallableVerb,
 ): ProjectedCommand<Stdio.Stdio | R> {
   return Command.make(
@@ -735,6 +1010,49 @@ function verbCommand<S extends SurfaceSpec, F extends FlagRecord, R>(
   ).pipe(Command.withDescription(blurb(verb))) as ProjectedCommand<
     Stdio.Stdio | R
   >;
+}
+
+/** One SIBLING, mounted as the argv word its whole projection sits behind: its
+ *  verbs and its readers, and nothing else — `list` stays at the top and answers
+ *  for the whole bundle.
+ *
+ *  The parent takes NO handler of its own beyond the library's own "name a
+ *  subcommand" refusal: a sibling word is an address, not a verb, and giving it a
+ *  default action would make `example outlines` mean something a reader has to
+ *  learn. */
+function siblingCommand<F extends FlagRecord, R>(
+  opts: FaceContext<F, R>,
+  scope: Scope,
+): ProjectedCommand<Stdio.Stdio | R> {
+  const key = scope.sibling as string;
+  return Command.make(key).pipe(
+    Command.withDescription(siblingBlurb(scope)),
+    Command.withSubcommands([
+      ...scope.verbs.map((verb) => verbCommand(opts, verb)),
+      ...readerCommands(opts, scope),
+    ]),
+  ) as ProjectedCommand<Stdio.Stdio | R>;
+}
+
+/** What a sibling's own row and `--help` line say: what is behind the word, in
+ *  counts. There is no place for an author to write a sentence about a sibling —
+ *  a `Surface` carries no prose — so this states the shape rather than inventing
+ *  a description that would be one more thing to keep true. */
+function siblingBlurb(scope: Scope): string {
+  const parts: string[] = [];
+  if (scope.verbs.length > 0) {
+    parts.push(
+      `${scope.verbs.length} verb${scope.verbs.length === 1 ? "" : "s"}`,
+    );
+  }
+  if (scope.readable.size > 0) {
+    parts.push(
+      `${scope.readable.size} readable member${scope.readable.size === 1 ? "" : "s"}`,
+    );
+  }
+  // No "nothing exposed" arm: `scopesOf` refuses an empty sibling at BUILD, so a
+  // scope that reaches here has at least one of the two.
+  return `The "${scope.sibling}" surface — ${parts.join(" and ")}.`;
 }
 
 /** A verb's `--help` line: its own description, or a plain sentence naming it,
@@ -756,8 +1074,8 @@ function blurb(verb: CallableVerb): string {
  *  parsing here. So the collision is named at build, where an author can fix it.
  *  (Effect CLI independently refuses two params sharing a flag NAME; this covers
  *  the record KEY, which is the half a spread eats.) */
-function mergeConfig<S extends SurfaceSpec, F extends FlagRecord, R>(
-  opts: SurfaceCliOptions<S, F, R>,
+function mergeConfig<F extends FlagRecord, R>(
+  opts: FaceContext<F, R>,
   name: string,
   own: Command.Command.Config,
   /** Does this command have a SUMMARY that `--json` could replace? Verbs do
@@ -780,8 +1098,8 @@ function mergeConfig<S extends SurfaceSpec, F extends FlagRecord, R>(
   return { ...own, ...added };
 }
 
-function runVerb<S extends SurfaceSpec, F extends FlagRecord, R>(
-  opts: SurfaceCliOptions<S, F, R>,
+function runVerb<F extends FlagRecord, R>(
+  opts: FaceContext<F, R>,
   verb: CallableVerb,
   values: Record<string, unknown>,
 ): Effect.Effect<void, unknown, Stdio.Stdio | R> {
@@ -835,11 +1153,28 @@ function runVerb<S extends SurfaceSpec, F extends FlagRecord, R>(
       decoded = result.success;
     }
 
-    const output = yield* withConnection(opts, values, (client) =>
-      // WHICH reading this verb's dispatch wants, off the one field that already
-      // says: a procedure's client ref decodes what it is handed, so it takes
-      // the ENCODED value, while a bespoke handler's `args` ARE the decoded one.
-      verb.call(client, verb.source === "bespoke" ? decoded : encoded),
+    // WHICH client this verb's dispatch is handed, and WHICH reading of the
+    // input it wants, are ONE question — `source` answers both, and narrowing on
+    // it is what lets each arm's `call` be typed for exactly the client it can
+    // receive. A procedure addresses its own surface's client and takes the
+    // ENCODED value (its client ref decodes what it is handed); a bespoke verb is
+    // handed the client of the thing it was DECLARED on — the framework's rule,
+    // `declarationTarget`, the same one the MCP face dispatches by — and its
+    // `args` ARE the decoded one.
+    //
+    // BOTH arms read `verb.sibling`, which is the one holder of that fact:
+    // `callableVerbs(sibling, …)` stamps it on every verb it mints, so the scope
+    // this verb was built in carried nothing the verb does not.
+    const output = yield* withConnection(opts, values, (bundle, where) =>
+      verb.source === "bespoke"
+        ? Effect.flatMap(
+            declaredOn(opts, bundle, where, verb.sibling),
+            (client) => verb.call(client, decoded),
+          )
+        : Effect.flatMap(
+            surfaceOf(opts, bundle, where, verb.sibling),
+            (client) => verb.call(client, encoded),
+          ),
     );
     // The author's renderer, unless `--json` asked for the answer whole —
     // `io.ts` owns that branch, and NOTHING here asks what stdout is attached
@@ -992,10 +1327,11 @@ const COLLECTION_READERS: readonly CollectionReader[] = [
   },
 ];
 
-function readerCommands<S extends SurfaceSpec, F extends FlagRecord, R>(
-  opts: SurfaceCliOptions<S, F, R>,
-  table: Map<string, Readable>,
+function readerCommands<F extends FlagRecord, R>(
+  opts: FaceContext<F, R>,
+  scope: Scope,
 ): Array<ProjectedCommand<Stdio.Stdio | R>> {
+  const table = scope.readable;
   if (table.size === 0) return [];
   // Whether the far side can push AT ALL — the one fact that decides which
   // readers exist. Absent means yes, because every link the framework ships is
@@ -1020,7 +1356,7 @@ function readerCommands<S extends SurfaceSpec, F extends FlagRecord, R>(
         ),
         ...(streams ? { follow: followFlag } : {}),
       }),
-      (values: Record<string, unknown>) => runGet(opts, table, values),
+      (values: Record<string, unknown>) => runGet(opts, scope, values),
     ).pipe(
       Command.withDescription(
         streams
@@ -1051,7 +1387,7 @@ function readerCommands<S extends SurfaceSpec, F extends FlagRecord, R>(
           ...(reader.always || !streams ? {} : { follow: followFlag }),
         }),
         (values: Record<string, unknown>) =>
-          runCollectionRead(opts, table, values, reader),
+          runCollectionRead(opts, scope, values, reader),
       ).pipe(
         Command.withDescription(
           streams ? reader.description : (reader.oneShot ?? reader.description),
@@ -1068,8 +1404,8 @@ function readerCommands<S extends SurfaceSpec, F extends FlagRecord, R>(
  *  A name that reaches no member is a usage error, never an empty answer: an
  *  empty answer for a typo is the silent degradation this repo treats as a
  *  defect. */
-function resolveMember<S extends SurfaceSpec, F extends FlagRecord, R>(
-  opts: SurfaceCliOptions<S, F, R>,
+function resolveMember<F extends FlagRecord, R>(
+  opts: FaceContext<F, R>,
   table: Map<string, Readable>,
   values: Record<string, unknown>,
   want?: (readable: Readable) => boolean,
@@ -1096,13 +1432,13 @@ function resolveMember<S extends SurfaceSpec, F extends FlagRecord, R>(
   return Effect.succeed(found);
 }
 
-function runGet<S extends SurfaceSpec, F extends FlagRecord, R>(
-  opts: SurfaceCliOptions<S, F, R>,
-  table: Map<string, Readable>,
+function runGet<F extends FlagRecord, R>(
+  opts: FaceContext<F, R>,
+  scope: Scope,
   values: Record<string, unknown>,
 ): Effect.Effect<void, unknown, Stdio.Stdio | R> {
   return Effect.gen(function* () {
-    const member = yield* resolveMember(opts, table, values);
+    const member = yield* resolveMember(opts, scope.readable, values);
     const follow = values.follow === true;
     const raw = values.arg as string | undefined;
 
@@ -1112,19 +1448,25 @@ function runGet<S extends SurfaceSpec, F extends FlagRecord, R>(
     // opened like every other member.
     if (member.kind === "collection" && !follow) {
       const key = yield* collectionKey(opts, member, raw);
-      return yield* withConnection(opts, values, (client, where) =>
-        readCollectionItem(opts.info.name, where, client, member, key),
+      return yield* withConnection(opts, values, (bundle, where) =>
+        Effect.flatMap(
+          surfaceOf(opts, bundle, where, scope.sibling),
+          (client) =>
+            readCollectionItem(opts.info.name, where, client, member, key),
+        ),
       );
     }
 
     // Every other read is the same three lines with a different `get` argument,
     // so the arms decide only WHAT to call it with and the tail is shared.
     const input = yield* getArgument(opts, member, raw, follow);
-    return yield* withConnection(opts, values, (client) =>
-      readStream(
-        memberStream(client, member.name, "get", input),
-        follow,
-        member.name,
+    return yield* withConnection(opts, values, (bundle, where) =>
+      Effect.flatMap(surfaceOf(opts, bundle, where, scope.sibling), (client) =>
+        readStream(
+          memberStream(client, member.name, "get", input),
+          follow,
+          member.name,
+        ),
       ),
     );
   });
@@ -1136,8 +1478,8 @@ function runGet<S extends SurfaceSpec, F extends FlagRecord, R>(
  *  Arms and not a `{arity, message}` table: each is a DIFFERENT sentence about a
  *  different mistake, and a table would hold the same four facts spelled
  *  sideways, one column of which is the sentence anyway. */
-function getArgument<S extends SurfaceSpec, F extends FlagRecord, R>(
-  opts: SurfaceCliOptions<S, F, R>,
+function getArgument<F extends FlagRecord, R>(
+  opts: FaceContext<F, R>,
   member: Readable,
   raw: string | undefined,
   follow: boolean,
@@ -1190,8 +1532,8 @@ function getArgument<S extends SurfaceSpec, F extends FlagRecord, R>(
  *  DECODED reading, because a collection payload is built from decoded keys
  *  (`client.ts`), which is the other half of the same landed token the stream
  *  arm takes encoded. */
-function collectionKey<S extends SurfaceSpec, F extends FlagRecord, R>(
-  opts: SurfaceCliOptions<S, F, R>,
+function collectionKey<F extends FlagRecord, R>(
+  opts: FaceContext<F, R>,
   member: Extract<Readable, { kind: "collection" }>,
   raw: string | undefined,
 ): Effect.Effect<unknown, SurfaceCliFailure> {
@@ -1223,8 +1565,8 @@ function collectionKey<S extends SurfaceSpec, F extends FlagRecord, R>(
  *  argument" answered twice is a way for the two faces to disagree about which
  *  members exist. Each face keeps its own policy for a `false`: a boot refusal
  *  there, this usage error here. */
-function streamInput<S extends SurfaceSpec, F extends FlagRecord, R>(
-  opts: SurfaceCliOptions<S, F, R>,
+function streamInput<F extends FlagRecord, R>(
+  opts: FaceContext<F, R>,
   member: string,
   schema: WireSchemaAny,
   raw: string | undefined,
@@ -1257,28 +1599,78 @@ function streamInput<S extends SurfaceSpec, F extends FlagRecord, R>(
 
 /** `keys` and `watch`, which are one read: resolve the `<collection>` against
  *  this reader's own eligibility, open its member verb, write what comes back. */
-function runCollectionRead<S extends SurfaceSpec, F extends FlagRecord, R>(
-  opts: SurfaceCliOptions<S, F, R>,
-  table: Map<string, Readable>,
+function runCollectionRead<F extends FlagRecord, R>(
+  opts: FaceContext<F, R>,
+  scope: Scope,
   values: Record<string, unknown>,
   reader: CollectionReader,
 ): Effect.Effect<void, unknown, Stdio.Stdio | R> {
   return Effect.gen(function* () {
     const member = yield* resolveMember(
       opts,
-      table,
+      scope.readable,
       values,
       (r) => r.kind === "collection" && reader.eligible(r),
       reader.wanted,
     );
-    yield* withConnection(opts, values, (client) =>
-      readStream(
-        memberStream(client, member.name, reader.verb, undefined),
-        reader.always || values.follow === true,
-        member.name,
+    yield* withConnection(opts, values, (bundle, where) =>
+      Effect.flatMap(surfaceOf(opts, bundle, where, scope.sibling), (client) =>
+        readStream(
+          memberStream(client, member.name, reader.verb, undefined),
+          reader.always || values.follow === true,
+          member.name,
+        ),
       ),
     );
   });
+}
+
+/** WHICH client of the dialled bundle answers for a scope — the core's, or a
+ *  named sibling's.
+ *
+ *  A bundle that carries neither is exit 3 and not a usage error, and the
+ *  distinction is the point: the command line was right, and what is missing is
+ *  on the far side. That is the same arm a dead socket lands on, which is what
+ *  tells a driver to try another endpoint rather than to fix its argv — a sibling
+ *  the served bundle does not carry is exactly "nothing serving that". */
+function surfaceOf<F extends FlagRecord, R>(
+  opts: FaceContext<F, R>,
+  bundle: RootedSurfaceClients,
+  where: string,
+  sibling: SiblingKey,
+): Effect.Effect<SurfaceClientCallable, SurfaceCliFailure> {
+  const client = clientAt(bundle, sibling);
+  if (client !== undefined) return Effect.succeed(client);
+  return Effect.fail(unreachable(opts.info.name, where, noLegDetail(sibling)));
+}
+
+/** WHICH client a HAND-AUTHORED verb's dispatch is handed — the framework's one
+ *  rule ({@link declarationTarget}: the whole bundle at the root, that sibling's
+ *  client on a sibling), with this face's refusal on the leg that is missing.
+ *
+ *  The rule is the framework's and the SENTENCE is this face's, which is the same
+ *  division {@link clientAt} and {@link surfaceOf} already make: a refusal is read
+ *  by whoever made the call, and a person at a shell is not an MCP host. */
+function declaredOn<F extends FlagRecord, R>(
+  opts: FaceContext<F, R>,
+  bundle: RootedSurfaceClients,
+  where: string,
+  sibling: SiblingKey,
+): Effect.Effect<
+  RootedSurfaceClients | SurfaceClientCallable,
+  SurfaceCliFailure
+> {
+  const target = declarationTarget(bundle, sibling);
+  if (target !== undefined) return Effect.succeed(target);
+  return Effect.fail(unreachable(opts.info.name, where, noLegDetail(sibling)));
+}
+
+/** The one sentence this face says about a leg the dialled bundle does not
+ *  carry — read by a verb's dispatch, by a reader's, and by a bespoke verb's. */
+function noLegDetail(sibling: SiblingKey): string {
+  return sibling === undefined
+    ? "the surface at this endpoint carries no core — this face's bare verbs and readers address one"
+    : `the surface at this endpoint carries no sibling "${sibling}" — it may have been dropped from the served bundle`;
 }
 
 /** Address one member verb on the live client. */
@@ -1417,16 +1809,39 @@ function readCollectionItem(
  *  whose command line is simplest. */
 interface ListTable {
   readonly verbs: ReadonlyArray<{
+    /** The argv spelling, sibling word included — `outlines ops_run`, not
+     *  `ops_run`. `list` answers "what can I address", and the answer to that is
+     *  what a caller types. */
     readonly name: string;
     readonly source: string;
     readonly mutates: boolean;
+    /** Which sibling it belongs to, absent for the core and the bundle root — the
+     *  same fact as the word inside `name`, kept as a FIELD so a script can group
+     *  by it without re-splitting a string this face composed. */
+    readonly surface?: string;
     readonly title?: string;
     readonly description?: string;
     readonly input: Record<string, unknown>;
   }>;
   readonly resources: ReadonlyArray<{
+    /** The argv spelling of ONE ADDRESS of a readable member — `tenant get load`,
+     *  never `tenant load`.
+     *
+     *  `name` means the same thing in both arms of this table: what a caller
+     *  types. It used to mean that for a verb and something else entirely for a
+     *  resource — `tenant load` is neither the member key nor a command, and
+     *  pasting it fails — so the face's authoritative "what can I address" answer
+     *  printed, in its human renderer, a string that does not work. A member with
+     *  more than one reader gets one ROW per reader (`get`, and `keys` / `watch`
+     *  where the collection declares them), because those are different addresses
+     *  and this table's job is to name addresses. */
     readonly name: string;
+    /** The member's own key, kept as a FIELD for the same reason `surface` is: a
+     *  script grouping a member's addresses should not have to re-split a string
+     *  this face composed. */
+    readonly member: string;
     readonly kind: string;
+    readonly surface?: string;
   }>;
 }
 
@@ -1437,35 +1852,58 @@ interface ListTable {
  *  had already happened — `flagsOf` runs the same bridge over the same schema to
  *  make the flags, moments earlier. So the walk ran twice per verb (56× on olai,
  *  0.023 ms each) and once more than any run of the binary can use. */
-function listTable(
-  verbs: readonly CallableVerb[],
-  readable: Map<string, Readable>,
-): ListTable {
+function listTable(scopes: readonly Scope[], streams: boolean): ListTable {
+  /** The argv spelling of one name in a scope — the sibling word in front, or
+   *  nothing for the core. The ONE place this face composes an addressable name,
+   *  so the table and the mounted tree cannot spell one differently. */
+  const spell = (scope: Scope, name: string): string =>
+    scope.sibling === undefined ? name : `${scope.sibling} ${name}`;
+  const at = (scope: Scope) =>
+    scope.sibling === undefined ? {} : { surface: scope.sibling };
   return {
-    verbs: verbs.map((verb) => {
-      const advertised = verb.projection.advertised;
-      return {
-        name: verb.name,
-        source: verb.source,
-        mutates: verb.mutates,
-        ...(verb.title === undefined ? {} : { title: verb.title }),
-        ...(verb.description === undefined
-          ? {}
-          : { description: verb.description }),
-        input: advertised.wrapped ? advertised.inner : advertised.schema,
-      };
-    }),
-    resources: [...readable.values()].map((member) => ({
-      name: member.name,
-      kind: member.kind,
-    })),
+    verbs: scopes.flatMap((scope) =>
+      scope.verbs.map((verb) => {
+        const advertised = verb.projection.advertised;
+        return {
+          name: spell(scope, verb.name),
+          source: verb.source,
+          mutates: verb.mutates,
+          ...at(scope),
+          ...(verb.title === undefined ? {} : { title: verb.title }),
+          ...(verb.description === undefined
+            ? {}
+            : { description: verb.description }),
+          input: advertised.wrapped ? advertised.inner : advertised.schema,
+        };
+      }),
+    ),
+    // One row per ADDRESS, not per member: `get <member>` always, plus the
+    // collection readers this projection actually mounted. Both walks read
+    // {@link COLLECTION_READERS} and the same `streams` fact `readerCommands`
+    // does, so the table cannot offer an address the tree does not answer.
+    resources: scopes.flatMap((scope) =>
+      [...scope.readable.values()].flatMap((member) => {
+        const row = (command: string) => ({
+          name: spell(scope, `${command} ${member.name}`),
+          member: member.name,
+          kind: member.kind,
+          ...at(scope),
+        });
+        if (member.kind !== "collection") return [row("get")];
+        return [
+          row("get"),
+          ...COLLECTION_READERS.filter(
+            (reader) => reader.eligible(member) && !(reader.always && !streams),
+          ).map((reader) => row(reader.name)),
+        ];
+      }),
+    ),
   };
 }
 
-function listCommand<S extends SurfaceSpec, F extends FlagRecord, R>(
-  opts: SurfaceCliOptions<S, F, R>,
-  verbs: readonly CallableVerb[],
-  readable: Map<string, Readable>,
+function listCommand<F extends FlagRecord, R>(
+  opts: FaceContext<F, R>,
+  scopes: readonly Scope[],
 ): ProjectedCommand<Stdio.Stdio | R> {
   return Command.make(
     "list",
@@ -1489,7 +1927,7 @@ function listCommand<S extends SurfaceSpec, F extends FlagRecord, R>(
     // `--json` says so, and no question anywhere about what stdout is.
     (values: Record<string, unknown>) =>
       present(
-        listTable(verbs, readable),
+        listTable(scopes, opts.endpoint.streaming !== false),
         alignedTable,
         values[JSON_FLAG] === true,
       ),
@@ -1522,20 +1960,13 @@ function alignedTable(value: unknown): string {
 
 // ── The connection, for the length of one command ────────────────────────
 
-/** A teardown that must not have a last word. A socket close that rejects
- *  has nothing to add to a command that already has — or just lost — its
- *  answer, and an escaping rejection is either a DEFECT that replaces the
- *  verdict (the release arm) or an unhandled promise rejection mid-Ctrl-C
- *  (the arrive-late arm of the interruptible acquire). One concept, one
- *  spelling; the socket is going away with the process either way. */
-const disposeQuietly = async (c: { dispose(): void | Promise<void> }) => {
-  // The (synchronous) call is DEFERRED under `.then`: a `dispose` that THROWS
-  // before returning must read exactly like one that rejects — the `.catch`
-  // owns both, never the caller's framing.
-  await Promise.resolve()
-    .then(() => c.dispose())
-    .catch(() => {});
-};
+// A teardown that must not have a last word — the FRAMEWORK's `disposeQuietly`,
+// beside the `OwnedSurfaceConnection` whose property it is. A socket close that
+// rejects has nothing to add to a command that already has (or just lost) its
+// answer, and an escaping rejection is either a DEFECT that replaces the verdict
+// or an unhandled rejection mid-Ctrl-C. This face held its own copy of that
+// argument, in near-identical prose and a different signature from the MCP
+// face's, until the concept moved to where the shape lives.
 
 /** Dial, run, release — in that order, whatever happens in the middle.
  *
@@ -1551,8 +1982,8 @@ const disposeQuietly = async (c: { dispose(): void | Promise<void> }) => {
  *  DEFECT no `Effect.catch` sees, exiting on the runtime's default and colliding
  *  with exit 1, the code the matrix reserves for "the verb refused". Both are
  *  caught here, so no path out of this process misses the matrix. */
-function withConnection<S extends SurfaceSpec, F extends FlagRecord, R, A>(
-  opts: SurfaceCliOptions<S, F, R>,
+function withConnection<F extends FlagRecord, R, A>(
+  opts: FaceContext<F, R>,
   values: Record<string, unknown>,
   /** Whatever the command does with the live client. Its failure travels to
    *  `classify` untouched — including one that is about the ENDPOINT rather than
@@ -1568,7 +1999,7 @@ function withConnection<S extends SurfaceSpec, F extends FlagRecord, R, A>(
    *  same string this function dials with, so the diagnostic names what the user
    *  pointed at. */
   use: (
-    client: SurfaceClientCallable,
+    bundle: RootedSurfaceClients,
     where: string,
   ) => Effect.Effect<A, unknown, Stdio.Stdio>,
 ): Effect.Effect<A, unknown, Stdio.Stdio | R> {

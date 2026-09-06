@@ -72,6 +72,7 @@
  * — there is no base to resolve it against that the caller meant.
  */
 
+import { padiOf } from "./bundleClient.ts";
 import { isAbsolute } from "node:path";
 import type { PadiSurfaceClient } from "@kolu/padi-client/dial";
 import {
@@ -392,6 +393,6 @@ export const createTool: BespokeTool = {
     // Refusals are raised synchronously, BEFORE anything dials padi.
     refuseBlankFields(a);
     const directory = resolveCreateDirectory(a);
-    return composeCreate(directory, a, client as PadiSurfaceClient);
+    return composeCreate(directory, a, padiOf(client));
   },
 };

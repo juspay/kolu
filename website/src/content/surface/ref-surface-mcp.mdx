@@ -8,7 +8,7 @@ section: Basics · Reference
 import Aside from "../../components/docs/Aside.astro";
 import Snippet from "../../components/docs/Snippet.astro";
 
-Re-expose any `@kolu/surface` as an [MCP](https://modelcontextprotocol.io) server, so a coding agent drives it with
+Re-expose a `@kolu/surface` **rooted bundle** as an [MCP](https://modelcontextprotocol.io) server, so a coding agent drives it with
 structured tool calls. The adapter owns the generic parts — the
 `resources/subscribe` lifecycle, stdio discipline, and the framework's [Effect Schema](https://effect.website) → JSON-Schema bridge —
 and leaves the consumer in control of *what* is exposed.
@@ -17,31 +17,37 @@ and leaves the consumer in control of *what* is exposed.
 
 <Snippet src="packages/surface/example/snippets/mcp.ts" region="serve" />
 
-`serveSurfaceAsMcp(opts): Promise<{ server, close }>`, imported from the root
-`@kolu/surface-mcp` subpath.
+`serveSurfaceAsMcp(opts): Promise<ServedSurfaceMcp>`, imported from the root
+`@kolu/surface-mcp` subpath. It answers `{ server, reroster, close }`.
 
 | Option | Meaning |
 | --- | --- |
-| `surface` | the `Surface<S>` being projected (`expose` is checked against its `spec` at boot) |
-| `client` | a factory `() => client` for a live implementation — return an `OwnedSurfaceConnection` (`{ client, dispose, onClose? }`) when the adapter owns a dialled socket, or the bare client when there is nothing to dispose. Re-invoked on retry after a drop |
-| `expose` | the default-deny allowlist (see below) |
-| `tools?` | hand-authored bespoke tools |
+| `core?` | the unprefixed root — `{ surface, expose }`. Its members keep their bare names |
+| `surfaces?` | the siblings, keyed — `{ [key]: { surface, expose, tools? } }`. Each key becomes a segment of every name that sibling contributes |
+| `client` | a factory `() => bundle` for a live implementation — return an `OwnedSurfaceConnection` (`{ client, dispose, onClose? }`) when the adapter owns a dialled socket, or the bare `RootedSurfaceClients` bundle when there is nothing to dispose. Re-invoked on retry after a drop **and after every `reroster`**, so it must read the host's current roster rather than close over one |
+| `tools?` | hand-authored bespoke tools at the BUNDLE ROOT — bare-named, and handed the whole bundle |
 | `serverInfo?` | MCP server identity |
 | `instructions?` | the server's own `initialize` instructions — where an embedding app teaches an agent its domain ("everything here is about nodes, not files"). The SDK answers `initialize` inside its own `Protocol`, so this option is the only route to the field |
 | `transport?` | defaults to `StdioServerTransport`; inject an in-memory half for tests |
 
+A bundle with **neither** a core nor a sibling is refused at boot: that is not a
+bundle. A single surface is the degenerate case — a `core` and no siblings —
+and every name it mints is the bare one this face has always minted.
+
 ## The projection
 
 `expose` is **default-deny**: nothing crosses to the host until named, and every
-key is checked against the surface spec at boot.
+key is checked against **its own** surface's spec at boot — one map per surface,
+exactly as [`exposeRootedFaces`](/surface/ref-surface#per-face-expose-kolusurfaceexpose)
+takes them. There is no composed top-level spec.
 
-| Surface member | Exposed as | URI / wire name |
-| --- | --- | --- |
-| cell | resource | `surface://cells/<k>` |
-| collection | resource (+ template) | `surface://collections/<k>` · `…/<k>/{id}` |
-| stream | resource | `surface://streams/<k>` |
-| event | resource | `surface://events/<k>` |
-| procedure `"<ns>.<verb>"` | tool | `<ns>_<verb>` (`.` is illegal in a tool name) |
+| Surface member | Exposed as | URI / wire name (core) | …on sibling `t` |
+| --- | --- | --- | --- |
+| cell | resource | `surface://cells/<k>` | `surface://cells/t/<k>` |
+| collection | resource (+ template) | `surface://collections/<k>` · `…/<k>/{id}` | `surface://collections/t/<k>` · `…/t/<k>/{id}` |
+| stream | resource | `surface://streams/<k>` | `surface://streams/t/<k>` |
+| event | resource | `surface://events/<k>` | `surface://events/t/<k>` |
+| procedure `"<ns>.<verb>"` | tool | `<ns>_<verb>` (`.` is illegal in a tool name) | `t_<ns>_<verb>` |
 
 Resources are readable and subscribable; procedures become callable tools.
 
@@ -59,6 +65,80 @@ same map for the same reason. What stays here is
 the *resolver*: only this adapter turns a map entry into a `surface://` URI or an
 MCP tool name. A consumer gating its MCP face and its browser face writes one
 kind of map, and the same key means the same thing on both.
+
+## Composing by prefix, never by merge
+
+The sibling key is a **segment** of the URI and of the tool name, and the core is
+the only surface without one — the same rule
+[`composeSurfaceContracts`](/surface/ref-surface#composing-siblings) applies to
+wire tags, applied here to MCP's two name spaces. Two siblings exposing the same
+member key are therefore disjoint *by construction* rather than because a merge
+happened to keep both.
+
+**One rule for every name a sibling contributes** — its hand-authored `tools`
+take the segment exactly as its generated names do (`outlines_read`), so a reader
+of a `tools/list` never has to know which kind of name they are looking at. A
+sibling's tool word is *row-relative* (`read`, `commit`, `nodes`), and putting the
+row in front of it is what composition is for; it is the same word the argv face
+puts the row's own subcommand in front of. Only the **bundle-root** `tools` stay
+bare, having no row to be relative to.
+
+<Aside type="note" title="A tool name is not reversible to its origin">
+  `_` is legal inside a tag segment, so `outlines_ops_run` can be spelled by more
+  than one `(sibling, ns, verb)` triple. Do not read a tool name backwards — the
+  face does not either: which sibling owns a tool is recorded on its entry, which
+  is what the departed-name refusal below consults. And what guarantees the
+  namespace is the one-pass collision check, over the finished names; the prefix
+  narrows what can reach it and is not itself the guarantee.
+</Aside>
+
+Three refusals keep the space honest, and each is made at boot **and again on
+every `reroster`**:
+
+- a sibling key that equals a **core collection's** key is refused: `surface://collections/<k>/{id}` would be that collection's items *and* that sibling's whole address space, and no lookup order resolves that honestly;
+- the whole tool namespace — generated names plus every bespoke table — is checked for duplicates in one pass, each candidate tagged by origin, so a report names both claimants. Prefixing does not make it redundant: the bundle-root table is bare and shares one space with every scoped name, so a root `a_here` beside a sibling `a`'s `here` — or a root `a_ops_run` beside a sibling `a` exposing `ops.run` — is refused here;
+- a `expose` key that names nothing on its own sibling's spec is refused where it is written.
+
+A bespoke tool receives **the client of the thing it is declared on**: a
+sibling's `tools` are handed `clients[key]`, and the bundle-root `tools` are
+handed the whole `{ core, clients }` bundle. A root-level verb that wants only
+the core reaches `client.core`, which says which surface it is about at the line
+that calls it.
+
+## `reroster` — the roster follows in place
+
+`served.reroster(surfaces)` replaces the **sibling map whole**: what is absent
+from the argument has left. The core does not move — it is the member of every
+generation this endpoint can serve, the same reason
+[`connectSurfaces.redial`](/surface/ref-surface-app#a-roster-change-follows-in-place--connredialsurfaces) leaves its
+root alone; serving a different core is a different endpoint.
+
+What a move does:
+
+- re-runs the whole boot composition, so a roster the gate would refuse leaves the endpoint exactly as it was;
+- re-dials `client()`, so the bundle carries the arriving siblings' clients;
+- **ends** any `resources/subscribe` the new roster cannot serve, and re-opens the survivors' on the new connection;
+- sends `notifications/tools/list_changed` and `notifications/resources/list_changed`.
+
+The face therefore advertises `tools: { listChanged: true }` and
+`resources: { subscribe: true, listChanged: true }` from the first `initialize` —
+a host that never heard the list could change has no reason to re-read it.
+
+A call to a name a past roster served and this one does not is refused **by
+name** — never a bare "unknown". An agent holding a tool list from before the
+move made a reasonable call against a name that *was* real, and "unknown" tells
+it to doubt itself instead of to re-read the list. The refusal says which of the
+two retirements it was, because the caller's next move differs:
+
+- the sibling **left** — the sentence `SurfaceSiblingDropped` gives a caller on the wire;
+- the sibling is **standing and no longer exposes it** — its roster entry narrowed.
+
+A tombstone outlives its sibling's return, which is what makes it survive that
+return's own departure. Retiring it when the sibling came back read as tidiness
+and was a defect with a repro ([juspay/olai#546](https://github.com/juspay/olai/issues/546)):
+a row that unloads in two steps — members, then zero members, then gone — had its
+tombstones deleted by the middle move and could never earn them back, so names an
+agent had seen minutes earlier answered "unknown tool" forever.
 
 <Aside type="caution" title="mutates defaults to true">
   A procedure exposed as a tool is advertised **mutating unless you say
@@ -126,7 +206,7 @@ intent, so repeating one replays nothing.*
 
 - `tools:` — hand-authored, call-shaped capabilities (spawn-and-wait, blocking polls). Each is `{ description, title?, input: Schema.Struct(...), mutates, handler, render? }`; the `handler(args, client, signal)` composes over the live client and still rides the JSON-Schema bridge and lifecycle. A scalar, array, or union input is advertised **wrapped** under `value` and unwrapped before decode. `title` is MCP's display name — a host that has none renders `name`, the machine spelling. `title` and `description` are **bespoke-only** today: `ToolExposure` has no field for either, so a procedure-derived tool carries neither. `render?: (out) => ToolResult` overrides how the success value becomes content — declared per TOOL rather than sniffed per result, so a handler cannot change its own content type call-to-call and the dispatch never guesses from a value's shape. Its one purpose today is an answer that is a **picture** (see below).
 - **Failure framing**: a rejecting handler (or a failing procedure call — e.g. the bridged transport down mid-call) always returns an `isError` **tool result**, never a JSON-RPC protocol error — so the agent sees a typed, retryable failure instead of its SDK throwing.
-- **One tool namespace**: generated (`<ns>_<verb>`) and bespoke names are checked for collision in one pass at boot, each candidate tagged by origin so the error names both sources.
+- **One tool namespace**: generated (`<ns>_<verb>`) and bespoke names — across the core, every sibling and the bundle root — are checked for collision in one pass at boot and on every `reroster`, each candidate tagged by origin so the error names both sources.
 - `projectSurface` (from `@kolu/surface/project`) is the cleanest curation: project the live surface into an observer-safe second surface — drop dangerous procedures, bound logs, derive verdicts — and serve *that*.
 
 ## Tool results — the same answer twice
@@ -249,14 +329,18 @@ cannot see through, so a default declared outside it never reaches the agent.
 | Export | Role |
 | --- | --- |
 | `toInputSchema(schema?)` | Effect Schema → JSON Schema (draft 2020-12), `$ref`-dereferenced, top-level-object enforced. A **re-export** of [`@kolu/surface/verbs`](/surface/ref-surface#the-projection-vocabulary-kolusurfaceverbs) — the bridge is the framework's, shared with the CLI face |
-| `resolveExpose(spec, expose)` | the default-deny resolver → `{ resources, resourceTemplates, tools }` |
+| `resolveExpose(spec, expose, sibling)` | the default-deny resolver for ONE surface → `{ resources, resourceTemplates, tools }`, with `sibling` folded into every name it mints. `sibling` is required and `undefined` names the bare core — the address, not an omitted argument |
+| `resolveBundle(bundle)` | the whole-bundle resolver both the boot and every `reroster` run through — the flat tables, the indices over them (`byUri` · `templateByCollection` · `toolByName`) and the three list answers projected once per generation (`advertisedTools` · `advertisedResources` · `advertisedResourceTemplates`), and every refusal the composition owes. One value, replaced whole by a move, so no request ever reads a half-updated roster |
+| `scopedToolName(sibling, name)` | the tool-name half of the prefix rule (`t_ops_run`), applied to a sibling's hand-authored tools as well as its generated ones |
+| `McpCore<S>` · `McpSibling<S>` · `McpBundle<C, M>` | the bundle's option shapes |
+| `SiblingKey` | re-exported from [`@kolu/surface/client`](/surface/ref-surface#the-client-a-face-holds), where it lives beside `clientAt` — both projecting faces read the same one |
 | `ToolFailure<D>(message, detail)` | the refusal a handler fails with when the reason is machine-readable — `detail` becomes the result's `structuredContent`, normalized the same way a success is |
 | `messageOf(error)` | the framework's "name what broke" derivation ([`@kolu/surface/errors`](/surface/ref-surface#the-tagged-error-vocabulary-kolusurfaceerrors)), **re-exported** here under the name this package shipped it with — the one the request edge uses to word a failure. Reach for it in a bespoke tool that folds a caught failure into its own message instead of raising it, so both paths word the same error the same way; it handles the two shapes `e instanceof Error ? e.message : String(e)` gets wrong (a tagged error whose `message` is empty, a failure declared as a plain object) |
 | `okImage(image, detail)` | wrap a tool result whose answer is an image — the bytes travel once, as an MCP image block; `detail` becomes the structured arm and must not repeat the payload (a documented contract, not a check — see above) |
 | `BespokeTool` | the framework's [`SurfaceVerb`](/surface/ref-surface#the-projection-vocabulary-kolusurfaceverbs) — the record an app hands to EVERY face verbatim, so the same table also projects as argv through `@kolu/surface-cli` — **extended** with the one field only this face can act on, `render` |
 | `ToolInputSchema` | the framework's `SurfaceVerbInputSchema` under the name this package shipped it with |
-| `ToolResult` · `ToolContent` · `ServeSurfaceAsMcpOptions` | types |
-| `SurfaceClientCallable` · `OwnedSurfaceConnection` · `PusherConnection<Client>` | types, **re-exported** from [`@kolu/surface/client`](/surface/ref-surface#the-face-and-its-retry-fence-kolusurfaceclient) — the client shape a projecting face holds, and the connection it owns. `OwnedSurfaceConnection` is the framework shape at this adapter's client type; the CLI face aliases the very same one, so a host can write ONE connection factory that feeds both |
+| `ToolResult` · `ToolContent` · `ServeSurfaceAsMcpOptions` · `ServedSurfaceMcp` · `ResolvedBundle` · `ResolvedBespokeTool` | types |
+| `SurfaceClientCallable` · `RootedSurfaceClients` · `OwnedSurfaceConnection` · `PusherConnection<Client>` | types, **re-exported** from [`@kolu/surface/client`](/surface/ref-surface#the-face-and-its-retry-fence-kolusurfaceclient) — the client shape a projecting face holds, the BUNDLE of them a rooted face dials, and the connection it owns. `OwnedSurfaceConnection` is the framework shape at this adapter's client type; the CLI face aliases the very same one, so a host can write ONE connection factory that feeds both |
 
 **`@kolu/surface-mcp/tools` is a subpath of its own** — the `BespokeTool` /
 `ToolInputSchema` / `ToolFailure` / `okImage` / `messageOf` spine the root

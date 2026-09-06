@@ -36,12 +36,58 @@ name at all.
 
 | Option | Meaning |
 | --- | --- |
-| `surface` | the `Surface<S>` being projected (`expose` is checked against its `spec` at build) |
-| `expose` | the default-deny allowlist — the same [`ExposeMap`](/surface/ref-surface#per-face-expose-kolusurfaceexpose) every other face takes |
-| `verbs?` | hand-authored [`SurfaceVerb`](/surface/ref-surface#the-projection-vocabulary-kolusurfaceverbs)s, by name — the same record `serveSurfaceAsMcp` takes as `tools` |
+| `core?` | the unprefixed root — `{ surface, expose }`. Its verbs and readers sit at the TOP of the mounted tree. Its `expose` is the default-deny allowlist, the same [`ExposeMap`](/surface/ref-surface#per-face-expose-kolusurfaceexpose) every other face takes, checked against **its own** `spec` at build |
+| `surfaces?` | the siblings, keyed — `{ [key]: { surface, expose, verbs?, annotate? } }`. Each is mounted **behind its key as the first argv word**, and each `expose` is checked against that sibling's own spec. There is no top-level `expose`: one map per surface |
+| `verbs?` | hand-authored [`SurfaceVerb`](/surface/ref-surface#the-projection-vocabulary-kolusurfaceverbs)s at the BUNDLE ROOT, by name — the same record `serveSurfaceAsMcp` takes as its top-level `tools` |
 | `endpoint` | the transport seam: `{ flags?, resolve }` — see below |
-| `annotate?` | CLI-only ergonomics by verb name: `{ positional?, render? }` |
+| `annotate?` | CLI-only ergonomics by verb name, for the core's and the bundle root's verbs: `{ positional?, render? }`. A sibling's live on the sibling |
 | `info` | the **binary's** identity: `name`, which fronts every **prose** diagnostic — the usage and unreachable sentences — because a user reads `olai: no surface at …` and never the package's name. The refusal body is verbatim JSON with **no** prefix: an `olai: ` in front of it would stop it being JSON |
+
+### A rooted bundle, with the sibling key as the first argv word
+
+This face takes the same **rooted bundle** the MCP face does, and composes it the
+way argv already composes: a sibling's whole projection is mounted under a
+subcommand named by its key.
+
+```sh
+example who_get                 # the core, bare
+example outlines ops_run …      # the sibling "outlines"
+example outlines get entries    # its readers, under the same word
+```
+
+That is the MCP face's `outlines_ops_run` in argv's own separator, exactly as
+`<ns>.<verb>` is already `<ns>_<verb>` on both faces: one composition, spelled
+once per face in the separator that face has. A shell has a real hierarchy, so
+using it beats gluing the key on with an underscore and reproducing MCP's
+constraint where it does not apply.
+
+`list` stays at the **top** and describes the whole bundle — one authoritative
+"what can I address" per face. Each row's `name` is what a caller *types*, in
+both arms: `outlines ops_run` for a verb, and the full address for a readable
+member — `outlines get nodes`, plus a `keys` / `watch` row wherever the
+collection declares them, since those are different addresses. The sibling is
+repeated as a `surface` field and the member key as a `member` field, so a script
+can group by either without re-splitting a string this face composed.
+
+A sibling's own `verbs` are mounted behind its word like everything else it
+contributes, so `outlines read` is here what `outlines_read` is on the MCP
+face — one composition, spelled once per face in the separator that face has.
+Only the bundle-root `verbs` sit bare at the top.
+
+A **verb receives the client of the thing it is declared on**: a sibling's
+`verbs` are handed `clients[key]`, and the bundle-root `verbs` are handed the
+whole `{ core, clients }` bundle.
+
+Four refusals, all at BUILD:
+
+- a bundle with neither a core nor a sibling — that is not a bundle;
+- a sibling that exposes nothing and declares no verbs — it would mount an argv word a user can only ever be refused at;
+- a sibling key that would be mounted beside a reader command or a root verb of the same name, which the parser would answer with whichever it met first;
+- everything the single-surface projection already refuses, per scope.
+
+A dialled bundle that carries **no client** for a sibling is exit `3`, not a
+usage error: the command line was right, and what is missing is on the far side —
+the same arm a dead socket lands on.
 
 ### The endpoint seam
 
@@ -56,7 +102,9 @@ with nothing holding them together.
 | `flags?` | the flags every generated command carries (`--socket`, `--url`, `--host`). **Optional**: omit it when your binary declares them on its own parent instead — see below |
 | `resolve(values)` | → `Effect<{ where, open }>`. `values` is **typed from `flags`**, so renaming a flag is a compile error here rather than an `undefined` your app dials. `where` names the endpoint in the app's own words; `open()` dials it, returning `{ client, dispose }`. `open` rejecting is the honest answer for "nothing is serving there", and the rejection's own words reach the user beside `where` |
 
-`client` is a [`SurfaceClientCallable`](/surface/ref-surface#the-face-and-its-retry-fence-kolusurfaceclient) —
+`client` is a [`RootedSurfaceClients`](/surface/ref-surface#the-face-and-its-retry-fence-kolusurfaceclient)
+bundle — `{ core?, clients? }`, each leg a
+[`SurfaceClientCallable`](/surface/ref-surface#the-face-and-its-retry-fence-kolusurfaceclient),
 what `buildSurfaceFace(surface, link.dispatch)` mints. `dispose` is
 **required**: a CLI dials, does one thing and exits, and the failure that costs a
 user something is a socket left open in a shell loop. An in-process host passes
@@ -319,14 +367,19 @@ print and return success, so they never reach it.)
 | `isConsumerHangup(failure)` | did the consumer hang up (`… \| head -1`) or did the write genuinely fail — the predicate behind the complete-run discipline above. Reads the errno BOTH flat (`{code:"EPIPE"}`) and nested (`{cause:{code:"EPIPE"}}`, the shape a wrapped sink failure actually raises), so a host's own stdout writes ask the one question once |
 | `SurfaceCliFailure` | the failure class carrying both the text and the code |
 | `SurfaceCliBuildError` | a malformed projection, refused when the tree is built (a positional naming no field, a flag-name collision, a field that cannot be a flag) |
-| `SurfaceCliOptions` · `EndpointSeam` · `ResolvedEndpoint` · `SurfaceCliConnection` · `VerbAnnotation` · `InputProjection` · `Assembled` · `ProjectedCommand` · `RunEdgeReport` | types |
+| `SurfaceCliOptions` · `SurfaceCliCore` · `SurfaceCliSibling` · `EndpointSeam` · `ResolvedEndpoint` · `SurfaceCliConnection` · `VerbAnnotation` · `InputProjection` · `Assembled` · `ProjectedCommand` · `RunEdgeReport` | types |
 
-This package re-exports nothing of the framework's: `messageOf` is
+The framework's rules stay the framework's: `messageOf` is
 [`@kolu/surface/errors`](/surface/ref-surface#the-tagged-error-vocabulary-kolusurfaceerrors)'s
-and `SurfaceClientCallable` — the client shape `resolve`'s `open` must return —
-is [`@kolu/surface/client`](/surface/ref-surface#the-face-and-its-retry-fence-kolusurfaceclient)'s.
+and `SurfaceClientCallable` — the shape each leg of the bundle `resolve`'s `open`
+returns has — is
+[`@kolu/surface/client`](/surface/ref-surface#the-face-and-its-retry-fence-kolusurfaceclient)'s.
 One concept, one import path; a face that published the framework's rules under
-its own name would be a second place to look for them. `SurfaceCliConnection` is
+its own name would be a second place to look for them. The one exception is
+`RootedSurfaceClients`, re-exported here for the same reason the MCP face
+re-exports it: `SurfaceCliConnection` below carries it, and a host writing an
+`endpoint.open` has to be able to import the name it names.
+`SurfaceCliConnection` is
 an alias of that module's `OwnedSurfaceConnection`, which is the same shape the
 MCP face holds — so one connection factory can feed both faces.
 

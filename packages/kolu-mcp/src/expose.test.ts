@@ -13,7 +13,7 @@
 import { padiSurface } from "@kolu/padi-client/surface";
 import {
   resolveExpose,
-  type SurfaceClientCallable,
+  type RootedSurfaceClients,
   serveSurfaceAsMcp,
 } from "@kolu/surface-mcp";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
@@ -42,7 +42,11 @@ function specMembers(): Set<string> {
 
 describe("KOLU_MCP_EXPOSE — the ratified v1 map", () => {
   it("resolves against the real padiSurface spec", () => {
-    const resolved = resolveExpose(padiSurface.spec, KOLU_MCP_EXPOSE);
+    const resolved = resolveExpose(
+      padiSurface.spec,
+      KOLU_MCP_EXPOSE,
+      undefined,
+    );
     expect(resolved.resources.map((r) => r.key).sort()).toEqual([
       "daemonStatus",
       "identity",
@@ -168,18 +172,17 @@ describe("the served face — default deny at the wire", () => {
    *  BEFORE it touches the client: dispatch dials first, so the default factory
    *  would answer with a link failure instead of the refusal under test. */
   async function servedFace(
-    client?: () => SurfaceClientCallable,
+    client?: () => RootedSurfaceClients,
   ): Promise<Client> {
     const [clientTransport, serverTransport] =
       InMemoryTransport.createLinkedPair();
     const { close } = await serveSurfaceAsMcp({
-      surface: padiSurface,
+      core: { surface: padiSurface, expose: KOLU_MCP_EXPOSE },
       client:
         client ??
         (() => {
           throw new Error("this assertion must not dial padi");
         }),
-      expose: KOLU_MCP_EXPOSE,
       tools: KOLU_MCP_TOOLS,
       transport: serverTransport,
     });
@@ -264,7 +267,7 @@ describe("the served face — default deny at the wire", () => {
     //
     // The refusal is raised before the handler touches the client, so a stub
     // that is never called is enough to get past dispatch's dial.
-    const mcp = await servedFace(() => ({ surface: {} }));
+    const mcp = await servedFace(() => ({ core: { surface: {} } }));
 
     const res = await mcp.callTool({
       name: "lifecycle_sendInput",

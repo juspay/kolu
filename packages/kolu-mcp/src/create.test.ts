@@ -162,9 +162,8 @@ describe("lifecycle_create at the wire — the CLI composition, one tool call", 
     const [clientTransport, serverTransport] =
       InMemoryTransport.createLinkedPair();
     const { close } = await serveSurfaceAsMcp({
-      surface: padiSurface,
-      client: () => client,
-      expose: KOLU_MCP_EXPOSE,
+      core: { surface: padiSurface, expose: KOLU_MCP_EXPOSE },
+      client: () => ({ core: client }),
       tools: KOLU_MCP_TOOLS,
       transport: serverTransport,
     });

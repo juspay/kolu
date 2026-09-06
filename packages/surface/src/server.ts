@@ -3828,8 +3828,23 @@ export class SurfaceSiblingDropped extends Data.TaggedError(
           // (`cells.x.get` throws this too — the handle is dead, not read-only), so
           // a reader told its `get` is unwritable is told the wrong thing.
           `"${this.at.path}" is no longer reachable — this mount's ctx is retracted`;
-    return `surface: ${what} — the sibling "${this.key}" was dropped from this rooted bundle`;
+    return `surface: ${what} — ${siblingDroppedDetail(this.key)}`;
   }
+}
+
+/** WHY a name a rooted bundle used to answer for no longer answers: its sibling
+ *  left.
+ *
+ *  Beside {@link SurfaceSiblingDropped} and read by its own `message`, exactly as
+ *  {@link notStandaloneRootDetail} sits beside `isStandaloneRoot` — because there
+ *  is a SECOND reader that is not on the wire at all. `@kolu/surface-mcp`'s
+ *  retirement table words the same fact for an agent holding a stale
+ *  `tools/list`, and its docs assert the two agree ("the same sentence
+ *  `SurfaceSiblingDropped` gives on the wire"); hand-copied, that was a claim two
+ *  files kept by memory. Each caller keeps its OWN surrounding clause — what the
+ *  name was, and what to do next. */
+export function siblingDroppedDetail(key: string): string {
+  return `the sibling "${key}" was dropped from this rooted bundle`;
 }
 
 /** ONE mounted sibling of a {@link RootedSurfacesRuntime} — a registration that

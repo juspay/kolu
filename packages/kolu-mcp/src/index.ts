@@ -9,6 +9,9 @@
  * connected client.
  */
 
+// WHAT the injected factory must hand back — kolu's rooted bundle, padi as its
+// core — and the one hop a bundle-root verb takes to reach padi through it.
+export { type KoluSurfaceClients, padiOf } from "./bundleClient.ts";
 export { KOLU_MCP_DENIED, KOLU_MCP_EXPOSE } from "./expose.ts";
 export {
   type KoluMcpConnection,

@@ -77,6 +77,13 @@ CLI-only ergonomics ride in `annotate`, *beside* the verb table rather than
 inside it: a `positional` is a shell concern, and the verb record has to stay a
 value the MCP face can take verbatim.
 
+The `core` is the unprefixed root — its verbs and readers sit at the top of the
+mounted tree. Several surfaces on one binary go in `surfaces`, and each is
+mounted **behind its key as the first argv word**: `example outlines ops_run`,
+`example outlines get entries`. That is the MCP face's `outlines_ops_run` in
+argv's own separator. `list` stays at the top and describes the whole bundle,
+each row named the way a caller types it.
+
 ## 5. Mount them in your binary
 
 <Snippet src="packages/surface/example/snippets/cli.ts" region="mount" />

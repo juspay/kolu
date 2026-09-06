@@ -381,6 +381,142 @@ export type SurfaceClientCallable = {
   surface: Record<string, Record<string, (...args: any[]) => any>>;
 };
 
+/** The CLIENT HALF of a rooted bundle — one unprefixed `core` beside a keyed set
+ *  of siblings, exactly the shape `connectSurfaces` hands back
+ *  (`{ core, clients }`) and the shape `implementRootedSurfaces` serves.
+ *
+ *  It is what a PROJECTING FACE dials now. Both projecting faces compose on the
+ *  rooted bundle (`serveSurfaceAsMcp`, `surfaceCommands`), so "the client for a
+ *  bundle" is one shape rather than one per face — the same argument
+ *  {@link SurfaceClientCallable} and {@link OwnedSurfaceConnection} already make
+ *  one line up, and the reason a host can write ONE factory that feeds both.
+ *
+ *  Both halves are optional at the type and a bundle with NEITHER is refused by
+ *  whichever face was handed it: "no core and no siblings" is not a bundle, and
+ *  the refusal is the face's because only the face knows which door it came
+ *  through. What is NOT optional is agreement with the surfaces the face was
+ *  built over — a sibling the face serves whose client is missing here fails the
+ *  call that needs it, loudly, rather than answering an empty value. */
+export interface RootedSurfaceClients {
+  /** The unprefixed root's client — its members are the bare
+   *  `surface/<member>/<verb>`, so it is an ordinary client with no tag scoping. */
+  readonly core?: SurfaceClientCallable;
+  /** One client per sibling, keyed exactly as the served roster is. A sibling
+   *  that has LEFT the roster is absent here, which is what makes a call to its
+   *  members refusable rather than silently unresolved. */
+  readonly clients?: Readonly<Record<string, SurfaceClientCallable>>;
+}
+
+/** WHICH surface of a rooted bundle something belongs to: a sibling's key, or
+ *  `undefined` for the unprefixed core.
+ *
+ *  One field, not a `{ scoped: boolean; key: string }` pair, because "the core"
+ *  is the ABSENCE of a sibling segment and nothing else — the same way
+ *  `connectSurfaces` spells a rootless wire's `core` as `undefined` rather than
+ *  as a filled slot with a flag beside it. A single-surface face is a bundle
+ *  whose every entry carries `undefined` here, so the serving code has one
+ *  reading rather than a degenerate second one.
+ *
+ *  It lives HERE, beside {@link clientAt} and {@link rootedBundleEntries}, for
+ *  the reason it was declared three times before: each projecting face spelled it
+ *  for itself (the argv one with a comment saying it was "the same one-field
+ *  spelling the MCP face uses") because neither could import the other's without
+ *  pointing a face at a face — which is the evidence that the type was at the
+ *  wrong altitude, not that it needed a copy. */
+export type SiblingKey = string | undefined;
+
+/** The one lookup both faces do: which client answers for a bundle address —
+ *  the core (`sibling === undefined`) or one named sibling.
+ *
+ *  Returns `undefined` for "this bundle has no client there", which is a real
+ *  and expected state (a roster that moved under a standing face), never an
+ *  empty answer to substitute for one. Each face words its OWN refusal from it,
+ *  because a refusal is read by whoever made the call and the two faces are read
+ *  by different people — an MCP host and a person at a shell. */
+export function clientAt(
+  bundle: RootedSurfaceClients,
+  sibling: SiblingKey,
+): SurfaceClientCallable | undefined {
+  return sibling === undefined ? bundle.core : bundle.clients?.[sibling];
+}
+
+/** WHAT a hand-authored verb declared at `sibling` is handed when it runs: the
+ *  WHOLE bundle for one declared at the bundle root, that sibling's own client
+ *  for one declared on a sibling.
+ *
+ *  **A verb receives the client of the thing it is declared on** — one rule for
+ *  every authored table a projecting face takes, and it lives here because BOTH
+ *  faces implement it and neither owns it. A bundle-root verb is about the
+ *  ENDPOINT, so it gets the bundle; a sibling's verb is written against that
+ *  sibling's surface and nothing else, so handing it the bundle would make every
+ *  such verb start by re-deriving the key it was already filed under.
+ *
+ *  `undefined` means "the dialled bundle has no leg there" — a real and expected
+ *  state under a roster that moved — exactly as {@link clientAt}'s does, and each
+ *  face words its own refusal from it. Note the asymmetry that makes this worth a
+ *  function rather than a remembered ternary: the ROOT arm can never be
+ *  `undefined`, because the bundle itself is the value; a bundle-root verb that
+ *  wants the CORE asks for it with {@link clientAt} and refuses there. */
+export function declarationTarget(
+  bundle: RootedSurfaceClients,
+  sibling: SiblingKey,
+): RootedSurfaceClients | SurfaceClientCallable | undefined {
+  return sibling === undefined ? bundle : bundle.clients?.[sibling];
+}
+
+/** Every POSITION of a rooted bundle's DECLARATION, core first then siblings in
+ *  key order — the declaration half of the shape {@link RootedSurfaceClients} is
+ *  the client half of.
+ *
+ *  "What a rooted bundle IS, and what iterating one owes" is ONE fact: read the
+ *  sibling map, take its keys in a stable order, and put the bare core in front
+ *  of them with no key. Every projecting face walks it, and each spelled the walk
+ *  itself — twice verbatim, `[...Object.keys(x)].sort()` included — so the day
+ *  the shape grows a third half every copy has to be found by grep. It lives here
+ *  because the shape is the FRAMEWORK's: `implementRootedSurfaces` serves it,
+ *  `connectSurfaces` hands it back, and both projecting faces take it.
+ *
+ *  SORTED, because the order reaches a reader: it is the order of a `tools/list`,
+ *  of a `resources/list` and of a `--help` page, and a set that reshuffles on a
+ *  move that changed nothing about a given sibling is noise somebody has to
+ *  re-read.
+ *
+ *  It does NOT refuse the empty bundle, and that is deliberate rather than a gap:
+ *  an empty walk IS the refusable state (`entries.length === 0`), and the SENTENCE
+ *  is {@link notABundleDetail} — so the predicate is derived from the fold and the
+ *  wording is written once, while each face still throws its OWN error class,
+ *  which is the arrangement `notStandaloneRootDetail` already established for the
+ *  three rooted doors. A face that swallowed a shared throw to re-brand it would
+ *  be trading a duplicated predicate for a caught error. */
+export function rootedBundleEntries<T>(
+  core: T | undefined,
+  siblings: Readonly<Record<string, T>> | undefined,
+): ReadonlyArray<{ readonly sibling: SiblingKey; readonly value: T }> {
+  const entries: Array<{ sibling: SiblingKey; value: T }> = [];
+  if (core !== undefined) entries.push({ sibling: undefined, value: core });
+  for (const key of Object.keys(siblings ?? {}).sort()) {
+    entries.push({
+      sibling: key,
+      value: (siblings as Readonly<Record<string, T>>)[key] as T,
+    });
+  }
+  return entries;
+}
+
+/** The one sentence a face says when it was handed something that is not a
+ *  bundle — no core and no siblings — in that face's own name.
+ *
+ *  Worded once for the same reason {@link notStandaloneRootDetail} is: two faces
+ *  refusing one shape were saying it character for character alike, in two
+ *  packages, as two error classes, and a rule kept by two copies agreeing is a
+ *  rule kept by discipline. */
+export function notABundleDetail(seam: string): string {
+  return (
+    `${seam}: a bundle with no core and no siblings is not a bundle — pass ` +
+    "`core`, at least one entry in `surfaces`, or both"
+  );
+}
+
 /** A live connection a projecting face OWNS for some span — the client plus the
  *  release the face is responsible for.
  *
@@ -405,6 +541,46 @@ export interface OwnedSurfaceConnection<Client = SurfaceClientCallable> {
    *  close must supply it, and what an absent hook costs the MCP face is spelled
    *  out on that face's own alias. */
   onClose?: (cb: () => void) => void;
+}
+
+/** Release an {@link OwnedSurfaceConnection} and SWALLOW whatever the release
+ *  says about it — the one way a projecting face lets go of a socket.
+ *
+ *  `dispose` may be async (one shape for both faces, and the real one — a unix
+ *  socket link — is), so it can REJECT: a finalizer that fails while a daemon
+ *  restarts races a socket close every day of the week. A bare `conn.dispose()`
+ *  leaves that rejection unhandled, and Node's default for an unhandled rejection
+ *  is to TERMINATE the process — killing a long-lived MCP server at exactly the
+ *  moment the code is trying to be resilient about a transport going away. A
+ *  `dispose` that throws SYNCHRONOUSLY never produces a promise to attach that
+ *  handler to, and is the same non-event for the same reason, so the `try` covers
+ *  it.
+ *
+ *  The release itself is SYNCHRONOUS — the socket starts closing on this line,
+ *  not a microtask later. The MCP face's slots have already stopped pointing at
+ *  the connection by the time they call, and its identity guards read as
+ *  "disposed by now"; only the WAITING is deferred, which is what the returned
+ *  promise is for (the argv face awaits it inside an `acquireRelease`).
+ *  It never rejects.
+ *
+ *  Ignoring is safe, and it is the only thing that is: every call site has
+ *  already stopped pointing at this connection (a lost dial race, a teardown, a
+ *  drop, the server closing), so a failed release has nothing left to tell
+ *  anyone — while a THROWN one would replace an answer the caller already has.
+ *  The socket is going away with the process either way.
+ *
+ *  It lives beside {@link OwnedSurfaceConnection} because it is a property of
+ *  THAT shape, and because both faces argued for it in near-identical prose while
+ *  keeping one implementation each — already differing in signature, which is the
+ *  same drift this type was unified to prevent one level up. */
+export function disposeQuietly(conn: {
+  readonly dispose: () => void | Promise<void>;
+}): Promise<void> {
+  try {
+    return Promise.resolve(conn.dispose()).catch(() => {});
+  } catch {
+    return Promise.resolve();
+  }
 }
 
 /** Decode an ENCODED argument at the face edge, or pass a DECODED one through.
