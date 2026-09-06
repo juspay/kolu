@@ -38,7 +38,7 @@ import type { Surface, SurfaceSpec, WireSchemaAny } from "@kolu/surface/define";
 import type { ExposeMap } from "@kolu/surface/expose";
 import { inputSchema } from "@kolu/surface/verbs";
 import {
-  COLLECTION_PREFIX,
+  collectionItemTemplate,
   collectionUri,
   type ResourceEntry,
   type ResourceTemplateEntry,
@@ -383,45 +383,18 @@ function assertItemSpaceUnshadowed<C extends SurfaceSpec>(
     .map((r) => r.key)
     .filter((key) => keys.has(key));
   if (shadowed.length === 0) return;
+  const names = shadowed.sort();
+  // Rendered by the BUILDER that MINTS the template (`./expose.ts`), and for the
+  // actual keys rather than a hand-written `<name>` placeholder — so the refusal
+  // cannot describe a URI the writer would not produce, and a reader can paste
+  // what it names.
+  const templates = names.map((key) => collectionItemTemplate(undefined, key));
   throw new Error(
     brand(
-      `the core exposes collection(s) [${shadowed.sort().join(", ")}] whose item template ` +
-        `${COLLECTION_PREFIX}<name>/{id} is the same address space as the sibling(s) of that ` +
-        "name — rename the sibling, or expose the collection from a sibling of its own",
+      `the core exposes collection(s) [${names.join(", ")}], whose item ` +
+        `template(s) ${templates.join(", ")} are the same address space as the ` +
+        "sibling(s) of that name — rename the sibling, or expose the collection " +
+        "from a sibling of its own",
     ),
   );
-}
-
-/** A collection-item URI, split into the bundle address it names.
- *
- *  Segment counting is the whole rule, and it is sound because every segment was
- *  `encodeURIComponent`-ed on the way out (`./expose.ts`): TWO segments is a CORE
- *  collection's item, THREE is a sibling's. A two-segment URI that is really a
- *  sibling's key-set resource never reaches here — the caller answers those from
- *  the resource index first — and the one case where the two readings would
- *  genuinely overlap is refused at boot by {@link assertItemSpaceUnshadowed}.
- *
- *  `null` for anything else, including a URI with four or more segments: a rooted
- *  bundle is one level deep, so a deeper address names nothing rather than being
- *  folded into the last segment. */
-export function parseCollectionItem(
-  uri: string,
-): { sibling: SiblingKey; key: string; id: string } | null {
-  if (!uri.startsWith(COLLECTION_PREFIX)) return null;
-  const raw = uri.slice(COLLECTION_PREFIX.length).split("/");
-  if (raw.length !== 2 && raw.length !== 3) return null;
-  let parts: string[];
-  try {
-    parts = raw.map((segment) => decodeURIComponent(segment));
-  } catch {
-    return null;
-  }
-  if (parts.some((segment) => segment === "")) return null;
-  return parts.length === 2
-    ? { sibling: undefined, key: parts[0] as string, id: parts[1] as string }
-    : {
-        sibling: parts[0] as string,
-        key: parts[1] as string,
-        id: parts[2] as string,
-      };
 }

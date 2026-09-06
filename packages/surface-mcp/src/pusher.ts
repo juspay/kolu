@@ -202,6 +202,19 @@ export class ResourcePusher<Client> {
     return this.conn !== null;
   }
 
+  /** WHICH URIs are live right now — the ONE copy of that fact.
+   *
+   *  Visible to the adapter because a roster move has to ask a question this
+   *  class cannot answer ("which of these does the new roster still serve") and
+   *  end the rest. That is a reason to READ the set, not to keep a second one:
+   *  the adapter mirrored it and kept the two aligned by four paired call sites,
+   *  and they already diverged — after {@link stop}, `subscribe` returns early
+   *  while the mirror recorded the URI anyway. The roster question is the
+   *  adapter's; the set is this class's. */
+  get subscriptions(): ReadonlySet<string> {
+    return this.subscribed;
+  }
+
   private async ensureAttached(): Promise<void> {
     if (this.conn !== null || this.stopped) return;
     if (this.subscribed.size === 0) return;

@@ -165,6 +165,47 @@ export function collectionItemTemplate(
 ): string {
   return `${collectionUri(sibling, key)}/{id}`;
 }
+/** A collection-item URI, split into the bundle address it names.
+ *
+ *  Segment counting is the whole rule, and it is sound because every segment was
+ *  `encodeURIComponent`-ed on the way out by {@link memberUri} above: TWO segments is a CORE
+ *  collection's item, THREE is a sibling's. A two-segment URI that is really a
+ *  sibling's key-set resource never reaches here — the caller answers those from
+ *  the resource index first — and the one case where the two readings would
+ *  genuinely overlap is refused at boot by {@link assertItemSpaceUnshadowed}.
+ *
+ *  `null` for anything else, including a URI with four or more segments: a rooted
+ *  bundle is one level deep, so a deeper address names nothing rather than being
+ *  folded into the last segment.
+ *
+ *  It lives HERE, directly below the builders, because the reader's soundness is a
+ *  precondition on the WRITER — one axis, "how a bundle address is spelled in a
+ *  `surface://` URI", and the segment-counting rule is only sound because
+ *  {@link memberUri} encodes each segment on its own. Split across two modules
+ *  that was a promise a caller had to keep, held together by this comment across a
+ *  boundary. */
+export function parseCollectionItem(
+  uri: string,
+): { sibling: SiblingKey; key: string; id: string } | null {
+  if (!uri.startsWith(COLLECTION_PREFIX)) return null;
+  const raw = uri.slice(COLLECTION_PREFIX.length).split("/");
+  if (raw.length !== 2 && raw.length !== 3) return null;
+  let parts: string[];
+  try {
+    parts = raw.map((segment) => decodeURIComponent(segment));
+  } catch {
+    return null;
+  }
+  if (parts.some((segment) => segment === "")) return null;
+  return parts.length === 2
+    ? { sibling: undefined, key: parts[0] as string, id: parts[1] as string }
+    : {
+        sibling: parts[0] as string,
+        key: parts[1] as string,
+        id: parts[2] as string,
+      };
+}
+
 export function streamUri(sibling: SiblingKey, key: string): string {
   return memberUri(STREAM_PREFIX, sibling, key);
 }

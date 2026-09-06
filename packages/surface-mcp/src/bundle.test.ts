@@ -592,6 +592,35 @@ describe("the roster follows in place", () => {
     ).resolves.toBeDefined();
   });
 
+  it("fails LOUDLY when the dialled leg's FACE is narrower than the roster", async () => {
+    // The neighbouring arm of the same fact, and the one that was still silent
+    // after the missing-leg one was fixed: the leg is THERE and answers, it is
+    // just answering for a surface that has no such member (a client built over
+    // an older or narrower spec than the roster being served). A read of it
+    // reported "unknown resource" — false, the resource is known — and a standing
+    // subscription on it was dropped without a word, because the pusher takes an
+    // unresolvable URI to mean "nothing to stream".
+    const { mcp } = await connectBundle({
+      core: { surface: coreSurface, expose: {} },
+      surfaces: { a: sibling(tenantSurface) },
+      // `a`'s client is built over the CORE's surface: it has no `rows` at all.
+      bundle: () => ({ core: coreClient(), clients: { a: coreClient() } }),
+    });
+
+    await expect(
+      mcp.readResource({ uri: "surface://collections/a/rows" }),
+    ).rejects.toThrow(/face has no "rows\.keys"/);
+    await expect(
+      mcp.readResource({ uri: "surface://collections/a/rows" }),
+    ).rejects.not.toThrow(/unknown resource/);
+    // Still a SERVED address, so the subscription is accepted and the stream's
+    // failure travels the pusher's own recovery path (reported, detached,
+    // retried) instead of going permanently, silently quiet.
+    await expect(
+      mcp.subscribeResource({ uri: "surface://collections/a/rows" }),
+    ).resolves.toBeDefined();
+  });
+
   it("refuses a roster the composition would refuse at boot, leaving the old one standing", async () => {
     const moving = movingBundle();
     const { mcp, served } = await connectBundle({

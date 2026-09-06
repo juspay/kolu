@@ -29,6 +29,28 @@
  *   - `ResourcePusher` → the subscribe/teardown lifecycle.
  *   - `toInputSchema` (inside `resolveExpose`) → each tool's JSON Schema.
  *
+ * ## What is NOT here, and why
+ *
+ * This module used to hold five concerns and six closure-held mutables in one
+ * 640-line factory, with the legality of each combination kept by prose. Four of
+ * them are separable without inventing anything, and each is now a module that
+ * depends on far less than an MCP server does — which is what makes each of them
+ * testable without a transport:
+ *
+ *   - `./bundle.ts` — the COMPOSITION and every refusal it owes, plus the indices
+ *     over one resolved generation.
+ *   - `./connection.ts` — the LIFETIME of the one dialled connection: the tagged
+ *     state, the coalesced dial, the roster epoch, the identity-guarded drop, the
+ *     born-dead retry. It knows about `dial()` and nothing else.
+ *   - `./departed.ts` — the RETIREMENT policy: what a departed name is remembered
+ *     as, and when a tombstone is cleared.
+ *   - `./read.ts` — ADDRESSING (`uri × generation → address`), BINDING (`address ×
+ *     bundle → call | no-leg | no-member`) and the one-shot snapshot readers.
+ *
+ * What stays is the SDK wiring, the generation, `reroster`, and the one rule that
+ * is genuinely about this face's own time: a request's names and its client must
+ * belong to the same generation ({@link withGeneration}).
+ *
  * **The Effect edges, named (PLAN D10/#25).** MCP's SDK is Promise- and
  * callback-shaped, so this module is a genuine process boundary. Every request
  * it serves runs its effect through ONE function — {@link runRequest} — and the
@@ -44,20 +66,23 @@
  * no `signal`, because cancellation IS fiber interruption (D10/#18).
  */
 
-import type { SurfaceSpec, WireSchemaAny } from "@kolu/surface/define";
+import type { SurfaceSpec } from "@kolu/surface/define";
 import { isDeadTransportError } from "@kolu/surface/errors";
 import {
   type McpBundle,
   type McpSibling,
-  parseCollectionItem,
   type ResolvedBundle,
   resolveBundle,
 } from "./bundle";
+import { linkFailure, makeSharedConnection } from "./connection";
+import { DepartedNames } from "./departed";
 import {
-  firstFrameOfCollectionItem,
-  firstFrameOrThrow,
-  ITEM_READ_DEADLINE_MS,
-} from "@kolu/surface/first-frame";
+  isMiss,
+  isSubscribable,
+  noLegFor,
+  readSnapshot,
+  streamForUri,
+} from "./read";
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
@@ -71,14 +96,8 @@ import {
   SubscribeRequestSchema,
   UnsubscribeRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
-import { Effect, Option, Schema, Stream } from "effect";
-import { match } from "ts-pattern";
-import { collectionUri, type ResourceEntry, type SiblingKey } from "./expose";
-import {
-  disposeQuietly,
-  type PusherConnection,
-  ResourcePusher,
-} from "./pusher";
+import { Effect, Schema } from "effect";
+import { type PusherConnection, ResourcePusher } from "./pusher";
 import { brand, fail, failFrom, messageOf, ok, type ToolResult } from "./tools";
 import {
   clientAt,
@@ -86,7 +105,7 @@ import {
   type RootedSurfaceClients,
   type SurfaceClientCallable,
 } from "@kolu/surface/client";
-import { decodeTextValue, unwrapArgs } from "@kolu/surface/verbs";
+import { unwrapArgs } from "@kolu/surface/verbs";
 
 // The client shape a projecting face holds opaquely is the FRAMEWORK's
 // (`@kolu/surface/client`, beside the `buildSurfaceFace` that mints one) — the
@@ -205,24 +224,12 @@ export async function serveSurfaceAsMcp<
   M extends Record<string, SurfaceSpec>,
 >(opts: ServeSurfaceAsMcpOptions<C, M>): Promise<ServedSurfaceMcp> {
   let gen = resolveBundle(opts);
-  /** WHAT this endpoint has served and no longer does, and WHO owned it: tool
-   *  names in one map, resource addresses in the other, each pointing at the
-   *  sibling key that went away with it.
-   *
-   *  Recorded rather than derived. A DERIVED name carries its owner's segment
-   *  and could in principle be read back out of it, but an AUTHORED tool name
-   *  never did — it is the author's word, with nothing in it about which sibling
-   *  declared it (see {@link McpSibling}) — so ownership has to be remembered at
-   *  the moment it is lost. Reading a leading `<key>_` also answered wrongly for
-   *  a name that merely BEGINS with a departed key's word: an unknown tool
-   *  `outlines_typo` was reported as "no longer served" by a bundle that had
-   *  never served it.
-   *
-   *  Bounded by what has actually been retired, and an entry lives only while its
-   *  owner is genuinely absent — see the reroster below, which clears both what
-   *  the new roster serves and everything belonging to a sibling that came back. */
-  const departedTools = new Map<string, string>();
-  const departedResources = new Map<string, string>();
+  /** WHAT this endpoint has served and no longer does, and WHO owned it — the
+   *  retirement policy, which is an axis of its own and has its own module
+   *  (`./departed.ts`, where the retention rule is stated out loud). It was two
+   *  bare maps here and four module-level functions that took them as
+   *  parameters. */
+  const departed = new DepartedNames();
 
   const server = new Server(opts.serverInfo ?? DEFAULT_SERVER_INFO, {
     // `listChanged` on BOTH lists, from the first `initialize`: the roster can
@@ -262,224 +269,18 @@ export async function serveSurfaceAsMcp<
 
   // ── A single shared connection for reads + bespoke tools ───────────────
   // The pusher manages its own (re-)attaching connection for the streaming
-  // subscription face; reads and tool calls dial on demand. We memoize one
-  // connection for the lifetime so reads/tools don't re-dial per call (the
-  // bridge case's factory may open a socket each time).
+  // subscription face; reads and tool calls dial on demand. ONE connection is
+  // memoized for the lifetime so reads/tools don't re-dial per call (the bridge
+  // case's factory may open a socket each time).
   //
-  // A dead connection is dropped by TWO paths, and the order matters:
-  //
-  //   1. EAGERLY, the moment the transport says it closed (`onClose`, wired in
-  //      `dialOnce` below). This is the one that matters in practice — a daemon
-  //      restart is announced, so the corpse is discarded while the adapter is
-  //      idle and the next request dials fresh. It needs the transport to carry
-  //      the announcement all the way to the factory; where a dial does not yet
-  //      project one (see {@link OwnedSurfaceConnection}) only (2) is left.
-  //   2. LAZILY, in `withClient`'s catch, when a call fails with a recognized
-  //      transport death. This remains the backstop for the two cases (1) cannot
-  //      cover: a dial that carries no close announcement, and the genuine race
-  //      where the socket dies with a request already in flight.
-  //
-  // (2) alone was the whole of juspay/kolu#2082: a restart could only be
-  // discovered by spending a request on the dead socket.
-  /** The WHOLE lifetime of that one connection, as ONE value — never a
-   *  connection-or-null beside a `closed` flag beside an in-flight-dial cell.
-   *
-   *  Three independent cells have eight combinations and only four legal ones,
-   *  held apart by statement order and by prose — and one writer here runs on a
-   *  clock of its own (the transport's `onClose` fires on no request's
-   *  schedule), so statement order is not available as a guarantee. Split cells
-   *  also make it easy to gate the MIDDLE of a dial without gating its ENTRY,
-   *  which lets a request landing after teardown really open a socket and
-   *  dispose it on the next line. A tag puts the gate at the front for free, and
-   *  every guard below is one tag test rather than a remembered rule. */
-  type ConnState =
-    | { readonly t: "idle" }
-    /** A dial is in flight, memoized so two concurrent callers (a long-blocking
-     *  wait tool beside a read — the kolu-mcp case) share ONE dial instead of
-     *  each racing an emptiness check across the await and opening (then
-     *  leaking) a second socket. */
-    | { readonly t: "dialing"; readonly dial: Promise<OwnedSurfaceConnection> }
-    | { readonly t: "live"; readonly conn: OwnedSurfaceConnection }
-    /** Terminal. Reached only by teardown, and never left. */
-    | { readonly t: "closed" };
-  let state: ConnState = { t: "idle" };
-  /** Which ROSTER the current connection was dialled for. Bumped by every
-   *  reroster, and read by a dial that finishes AFTER one: the bundle it carries
-   *  describes the old sibling set, so publishing it would answer the next
-   *  request's call on a client map that no longer matches the tables the same
-   *  request resolved its address against. One counter, checked at the one place
-   *  a dial publishes, is the whole of it. */
-  let rosterEpoch = 0;
+  // Its whole lifetime — the tagged state, the coalesced dial, the epoch that
+  // makes a dial crossing a reroster refuse to publish, the identity-guarded
+  // drop, the born-dead retry loop — is `./connection.ts`. That is one axis of
+  // change and it is nothing to do with MCP, so it is not six mutable bindings
+  // in the middle of the SDK wiring. What stays HERE is the pairing rule below,
+  // which is about this face's generations and about nothing else.
+  const shared = makeSharedConnection(dial);
 
-  /** The in-flight or memoized dial. Coalescing, the closed-gate, and the
-   *  fresh-dial decision are one tag test each. */
-  const dialShared = (): Promise<OwnedSurfaceConnection> =>
-    match(state)
-      // Gated at the ENTRY: a post-teardown request must not open a socket
-      // only to dispose it on the next line.
-      .with({ t: "closed" }, () =>
-        Promise.reject(
-          new Error("the server is closed — no connection to dial"),
-        ),
-      )
-      .with({ t: "live" }, ({ conn }) => Promise.resolve(conn))
-      .with({ t: "dialing" }, ({ dial }) => dial)
-      .with({ t: "idle" }, () => {
-        const pending = dialOnce();
-        state = { t: "dialing", dial: pending };
-        return pending;
-      })
-      .exhaustive();
-
-  const dialOnce = async (): Promise<OwnedSurfaceConnection> => {
-    const epoch = rosterEpoch;
-    let conn: OwnedSurfaceConnection;
-    try {
-      conn = await dial();
-    } catch (err) {
-      // Only OUR generation's slot is ours to reset. A reroster that landed
-      // mid-dial has already put the slot back to `idle` and a fresh dial may
-      // hold it; resetting it here would orphan that one's memo and let two
-      // callers open two sockets.
-      if (state.t === "dialing" && rosterEpoch === epoch) state = { t: "idle" };
-      throw err;
-    }
-    if (rosterEpoch !== epoch) {
-      void disposeQuietly(conn);
-      throw linkFailure(
-        "the sibling roster moved while this connection was being dialled, so " +
-          "the bundle it carries is a generation behind the tables this request " +
-          "resolved against",
-        "retry, and the next dial carries the new roster",
-      );
-    }
-    // Teardown won the race while we dialed: there is no slot to publish into,
-    // so dispose the just-opened socket rather than orphan it (the adapter's
-    // promise: dispose every connection it opens). Reject so a caller
-    // mid-`getConn` fails loud instead of running against a socket about to
-    // close. ONE tag test is the whole gate here: "am I still the dial this slot
-    // is waiting on" answers both "was the server closed" and "did another dial
-    // take the slot", so neither needs a cell of its own to fall out of sync.
-    if (state.t !== "dialing") {
-      void disposeQuietly(conn);
-      throw new Error(
-        "the server closed while this connection was being dialed",
-      );
-    }
-    state = { t: "live", conn };
-    // EAGER INVALIDATION (#2082). Registered AFTER the store, so the identity
-    // guard in `dropConn` can see this connection as the current one — and on
-    // the SUCCESS path only, because a connection the teardown test above
-    // already disposed has no slot to invalidate.
-    //
-    // This call can invoke its callback BEFORE it returns. A transport that
-    // died during the dial replays the close at registration — padi's does it
-    // on a microtask, and the contract permits a plain synchronous `cb()` — so
-    // by the next line the state may already be back at `idle`. `getConn` is
-    // what handles that; see the born-dead loop.
-    conn.onClose?.(() => dropConn(conn));
-    return conn;
-  };
-
-  /** How many times `getConn` dials before giving up on a connection that keeps
-   *  arriving already dead. Three attempts, not two: the second covers the
-   *  ordinary race (a daemon that went down between the dial and its
-   *  registration) and the third distinguishes an unlucky moment from a daemon
-   *  that cannot hold a connection at all — and saying so beats spinning. */
-  const BORN_DEAD_DIAL_ATTEMPTS = 3;
-  /** The wall-clock half of the same bound, armed alongside the count so the
-   *  guarantee is TRANSPORT-INDEPENDENT: "a request is never delayed more than
-   *  this by born-dead redials", whatever a dial costs.
-   *
-   *  A count alone is only cheap while a dial is. Over a unix socket it nearly
-   *  is — though not the "~1ms" it is tempting to claim: each redial re-runs the
-   *  factory, and kolu-cli's local one re-resolves the running padi
-   *  (`resolveRunningPadiSocket`: a synchronous `readdirSync` over the runtime-dir
-   *  regimes plus a `statSync`/manifest-read/`kill(pid, 0)` per candidate) before
-   *  the connect and its `hello` round-trip. Bounded and only on a failure path,
-   *  but milliseconds each, not one.
-   *
-   *  This slot ALREADY holds a link where a count would be the wrong unit:
-   *  `kolu mcp --host` feeds an ssh dial that provisions a closure on the far
-   *  side, seconds to minutes. It never re-dials today only because that dial
-   *  supplies no `onClose` — transport luck, not a guarantee, and it evaporates
-   *  the day the remote leg projects its close signal.
-   *
-   *  Ten seconds, and the deadline is only ever read BETWEEN attempts — it never
-   *  cuts a dial short. So it is generous next to a socket dial (all three
-   *  attempts finish inside it, and the count is what trips) and tight next to an
-   *  ssh provision (the first one runs to completion; a second and third cannot
-   *  stack behind one MCP request). Not a knob: a better-chosen invariant. */
-  const BORN_DEAD_DIAL_BUDGET_MS = 10_000;
-  /** Hand out a LIVE shared connection.
-   *
-   *  A dial can land already dead: the transport announces its close during
-   *  registration, so `dropConn` disposes the connection before the awaiting
-   *  caller ever resumes. Returning it anyway would spend that caller's request
-   *  on a corpse — #2082's exact symptom, reintroduced through the door opened
-   *  to fix it. So the slot is re-checked by identity after the dial settles,
-   *  and a connection that is no longer current is re-dialed rather than handed
-   *  out.
-   *
-   *  Re-dialing here is safe in the way re-REQUESTING is not, and the
-   *  distinction is the whole reason this loop is allowed to exist: a dial
-   *  carries no caller intent, so repeating one replays nothing. Repeating the
-   *  REQUEST is what would resend a mutation into a fresh daemon generation,
-   *  and that is still never done. */
-  const getConn = async (): Promise<OwnedSurfaceConnection> => {
-    const started = Date.now();
-    const deadline = started + BORN_DEAD_DIAL_BUDGET_MS;
-    let attempts = 0;
-    while (attempts < BORN_DEAD_DIAL_ATTEMPTS && Date.now() < deadline) {
-      attempts += 1;
-      const conn = await dialShared();
-      // Still the current connection ⇒ it did not announce a close on the way
-      // out, so it is live as far as anything here can know.
-      if (state.t === "live" && state.conn === conn) return conn;
-    }
-    throw linkFailure(
-      `the served surface's transport closed immediately on each of ${attempts} consecutive dials over ${
-        Date.now() - started
-      }ms — it is not staying up long enough to carry a request`,
-      "retry once the served daemon is holding connections",
-    );
-  };
-  /** The connection died — ANNOUNCED by its transport, or discovered by a call
-   *  that failed on it. Both funnel here, and the identity guard is the single
-   *  invariant: a drop is inert unless `conn` is still the current one, so a
-   *  late/duplicate announcement from a disposed predecessor can never dispose
-   *  the fresh successor another call already redialed. */
-  const dropConn = (conn: OwnedSurfaceConnection): void => {
-    if (state.t !== "live" || state.conn !== conn) return;
-    state = { t: "idle" };
-    // Released QUIETLY: the framework's `dispose` may be async and may reject,
-    // and this slot has already stopped pointing at the connection — see
-    // `disposeQuietly`.
-    void disposeQuietly(conn);
-  };
-  // Teardown: move to the terminal state FIRST (so a still-pending dial finds
-  // no slot to publish into and disposes its own result — see `dialOnce`), then
-  // dispose whatever connection is current (identity-agnostic — the server is
-  // closing, so there is no successor to protect).
-  const disposeSharedConn = (): void => {
-    const prev = state;
-    state = { t: "closed" };
-    if (prev.t === "live") void disposeQuietly(prev.conn);
-  };
-  /** The roster moved: retire the current connection so the next request dials a
-   *  bundle carrying the new siblings' clients.
-   *
-   *  NOT `disposeSharedConn` — that is terminal, and this endpoint keeps serving.
-   *  The epoch is bumped FIRST so a dial already in flight finds itself a
-   *  generation behind and disposes its own result (see `dialOnce`) rather than
-   *  publishing a stale bundle into the slot this line just emptied. */
-  const retireSharedConn = (): void => {
-    rosterEpoch += 1;
-    const prev = state;
-    if (prev.t === "closed") return;
-    state = { t: "idle" };
-    if (prev.t === "live") void disposeQuietly(prev.conn);
-  };
   // The failure-reset policy in one place. Reset ONLY on a recognized TRANSPORT
   // death — an application error (a bad tool arg, an unknown key, a wrong
   // terminal id) must NOT tear down the shared socket, because a concurrent
@@ -492,23 +293,23 @@ export async function serveSurfaceAsMcp<
     current: ResolvedBundle,
     fn: (client: RootedSurfaceClients) => Promise<R>,
   ): Promise<R> => {
-    const conn = await getConn();
+    const conn = await shared.get();
     // The names and the client must belong to ONE generation, and this is where
     // that stops being a convention. Reading `gen` once per request buys the
     // caller a consistent set of TABLES; it does not reach the client, which
     // comes from a slot of its own that a reroster empties and a redial refills.
     //
-    // `dialOnce`'s epoch guard closes the wide, I/O-shaped window — a reroster
+    // the shared slot's epoch guard closes the wide, I/O-shaped window — a reroster
     // landing DURING a dial makes that dial refuse to publish. What it cannot
-    // close is `getConn`'s born-dead retry: written for a connection that
-    // announces its own close, the loop re-enters `dialShared` after the identity
+    // close is its born-dead retry: written for a connection that
+    // announces its own close, the loop re-dials after the identity
     // re-check fails, and a second dial that starts AFTER the move carries the
     // new bundle honestly — to a caller still holding the old tables.
     //
     // One identity test settles it, because the generation IS the value: if the
     // server has swapped it since this request read it, the pair this request
     // would answer with was never served together. Refusing is the same answer
-    // `dialOnce` gives for the same fact, and it makes `reroster`'s promise true
+    // the slot's own dial guard gives for the same fact, and it makes `reroster`'s promise true
     // in both directions — an in-flight request fails rather than being answered
     // off the wrong roster, whichever side moved first.
     //
@@ -527,11 +328,11 @@ export async function serveSurfaceAsMcp<
       return await fn(conn.client);
     } catch (e) {
       if (!isDeadTransportError(e)) throw e;
-      dropConn(conn);
+      shared.drop(conn);
       // The genuine race: the socket died with this request in flight, plus any
       // dial whose close announcement never reached us. Framed by the shared
       // link-failure policy rather than here, because a BORN-DEAD connection
-      // fails a request too (`getConn`'s bounded loop) and both must read alike.
+      // fails a request too (the slot's bounded loop) and both must read alike.
       throw linkFailure(
         "the connection to the served surface dropped while this request was in " +
           `flight (${messageOf(e)})`,
@@ -586,13 +387,6 @@ export async function serveSurfaceAsMcp<
     effect: Effect.Effect<A, unknown>,
     signal: AbortSignal,
   ): Promise<A> => Effect.runPromise(effect, { signal });
-
-  /** Every URI a host currently holds a `resources/subscribe` on.
-   *
-   *  Mirrored here rather than read back off the pusher because a reroster has to
-   *  ASK the question the pusher's own set cannot answer — "which of these does
-   *  the new roster still serve" — and end the rest. */
-  const subscribed = new Set<string>();
 
   // ── ResourcePusher (subscribe/teardown lifecycle) ──────────────────────
   // The pusher dials its OWN connection (one per attach) rather than sharing
@@ -728,7 +522,7 @@ export async function serveSurfaceAsMcp<
             return tool.render ? tool.render(out) : ok(out);
           });
         }
-        return fail(brand(unknownToolMessage(name, departedTools)));
+        return fail(brand(departed.toolMessage(name)));
       });
     } catch (e) {
       return failFrom(e);
@@ -788,7 +582,7 @@ export async function serveSurfaceAsMcp<
           ? brand(
               `resource "${uri}" has no value yet — its collection key is not present`,
             )
-          : brand(unknownResourceMessage(uri, departedResources)),
+          : brand(departed.resourceMessage(uri)),
       );
     }
     return {
@@ -809,17 +603,13 @@ export async function serveSurfaceAsMcp<
     // leave the pusher attached/retrying for something it can never push.
     if (!isSubscribable(uri, gen)) {
       throw new Error(
-        brand(
-          `cannot subscribe to ${unknownResourceMessage(uri, departedResources)}`,
-        ),
+        brand(`cannot subscribe to ${departed.resourceMessage(uri)}`),
       );
     }
-    subscribed.add(uri);
     pusher.subscribe(uri);
     return {};
   });
   server.setRequestHandler(UnsubscribeRequestSchema, async (req) => {
-    subscribed.delete(req.params.uri);
     pusher.unsubscribe(req.params.uri);
     return {};
   });
@@ -835,18 +625,21 @@ export async function serveSurfaceAsMcp<
     const next = resolveBundle({ ...opts, surfaces });
     const previous = gen;
     gen = next;
-    recordDeparted(previous, next, departedTools, departedResources);
+    departed.record(previous, next);
 
     // A subscription the new roster cannot serve ends HERE — the alternative is a
     // stream nothing will ever push again, which reads to a host exactly like a
     // quiet one. The survivors stay subscribed and are re-opened on the new
     // connection by `reattach`, so a sibling that did not move keeps its stream.
-    for (const uri of [...subscribed]) {
+    // Read off the pusher, which OWNS the set — the adapter asks the one question
+    // the pusher cannot ("does the new roster still serve this") and ends the
+    // rest. It used to keep a mirror of the set and align the two by hand at four
+    // paired call sites.
+    for (const uri of [...pusher.subscriptions]) {
       if (isSubscribable(uri, next)) continue;
-      subscribed.delete(uri);
       pusher.unsubscribe(uri);
     }
-    retireSharedConn();
+    shared.retire();
     pusher.reattach();
 
     // Told LAST, so a host that immediately re-lists is answered from the roster
@@ -863,532 +656,13 @@ export async function serveSurfaceAsMcp<
 
   const close = async (): Promise<void> => {
     pusher.stop();
-    disposeSharedConn();
+    shared.dispose();
     await server.close();
   };
   server.onclose = () => {
     pusher.stop();
-    disposeSharedConn();
+    shared.dispose();
   };
 
   return { server, reroster, close };
-}
-
-// ── Refusals that name a DEPARTED sibling ────────────────────────────────
-
-/** The sentence a departed sibling's name earns — the same one
- *  `SurfaceSiblingDropped` gives a caller on the wire, in this face's vocabulary.
- *
- *  Told apart from "you got the name wrong" on purpose: an agent holding a tool
- *  list from before a reroster has made a reasonable call against a name that WAS
- *  real, and "unknown" tells it to doubt itself instead of to re-read the list. */
-function droppedNote(sibling: string): string {
-  return `the sibling "${sibling}" was dropped from this rooted bundle — re-read the list`;
-}
-
-/** Remember what a roster move RETIRED, and forget what it brought back.
- *
- *  Ownership is read off the outgoing generation's own entries — a tool's
- *  `sibling`, a resource's `sibling` — rather than guessed out of a name, which
- *  is the only reading that works for an authored tool name and the only one that
- *  cannot mistake a stranger for a former tenant.
- *
- *  Two clearing rules, and both are needed. What the NEW roster serves is not
- *  departed, obviously. And so is everything belonging to a sibling that came
- *  BACK: a sibling that returns exposing less would otherwise leave its old
- *  members reported as "the sibling was dropped" while the sibling is standing
- *  right there — true of the member, and false of the sentence. Those fall
- *  through to plain "unknown", which is what they are. */
-function recordDeparted(
-  previous: ResolvedBundle,
-  next: ResolvedBundle,
-  tools: Map<string, string>,
-  resources: Map<string, string>,
-): void {
-  const own = (map: Map<string, string>, key: string, owner: SiblingKey) => {
-    // Only a SIBLING's entry can ever be departed — the core does not move.
-    if (owner !== undefined) map.set(key, owner);
-  };
-  for (const tool of previous.tools) own(tools, tool.name, tool.sibling);
-  for (const [name, e] of previous.bespoke) own(tools, name, e.sibling);
-  for (const r of previous.resources) own(resources, r.uri, r.sibling);
-  // Then subtract, over the WHOLE map rather than only what this move touched —
-  // an entry retired three rosters ago is cleared by the move that brings its
-  // sibling back, and by nothing else.
-  for (const [name, owner] of [...tools]) {
-    const served = next.toolByName.has(name) || next.bespoke.has(name);
-    if (served || next.siblings.has(owner)) tools.delete(name);
-  }
-  for (const [uri, owner] of [...resources]) {
-    if (next.byUri.has(uri) || next.siblings.has(owner)) {
-      resources.delete(uri);
-    }
-  }
-}
-
-function unknownToolMessage(
-  name: string,
-  departed: ReadonlyMap<string, string>,
-): string {
-  const owner = departed.get(name);
-  return owner === undefined
-    ? `unknown tool "${name}"`
-    : `tool "${name}" is no longer served — ${droppedNote(owner)}`;
-}
-
-/** Which departed sibling a resource URI belonged to, if any.
- *
- *  A static resource is looked up by its whole address. A collection ITEM is not
- *  in the table — it is a template instance, never a listed resource — so it is
- *  answered through its COLLECTION's address, which is: the same
- *  `(sibling, key)` pair, composed by the same builder that minted it. */
-function departedOwnerOfUri(
-  uri: string,
-  departed: ReadonlyMap<string, string>,
-): string | undefined {
-  const direct = departed.get(uri);
-  if (direct !== undefined) return direct;
-  const item = parseCollectionItem(uri);
-  if (item === null) return undefined;
-  return departed.get(collectionUri(item.sibling, item.key));
-}
-
-function unknownResourceMessage(
-  uri: string,
-  departed: ReadonlyMap<string, string>,
-): string {
-  const owner = departedOwnerOfUri(uri, departed);
-  return owner === undefined
-    ? `unknown resource "${uri}"`
-    : `resource "${uri}" is no longer served — ${droppedNote(owner)}`;
-}
-
-/** ONE fact about one dialled bundle, read by ONE reader — an MCP host — so it is
- *  ONE sentence, however it is reached.
- *
- *  It is reachable from three places (a generated tool's dispatch, a bespoke
- *  tool's, a resource's) and each used to word it for itself, in three shapes: a
- *  string builder, a fabricated failing `Stream`, and an inline template. The
- *  three already disagreed about the same condition ("needs the bundle's core
- *  client", "carries no the bundle's core client", "which this bundle's client
- *  does not carry"), which is what three places to reword buys.
- *
- *  It always names the LEG, because the fix is always at the host's `client()`
- *  factory: it was re-invoked and did not carry a surface the roster it serves
- *  says it should. Reachable whenever that factory has not caught up with a
- *  reroster — a wiring fact worth naming, never an empty answer. */
-function noLegFor(sibling: SiblingKey, what: string): string {
-  const which =
-    sibling === undefined
-      ? "the bundle's core client"
-      : `sibling "${sibling}"'s client`;
-  return (
-    `${what} is served by this bundle, but the dialled client bundle carries ` +
-    `no ${which} — the connection is a leg short of the roster being served, ` +
-    "not the address wrong."
-  );
-}
-
-// ── URI → stream / snapshot resolution ───────────────────────────────────
-
-/** Whether `uri` resolves to something the pusher can subscribe to: a listed
- *  static resource, or a well-formed collection-item template instance whose
- *  collection this generation exposes. */
-function isSubscribable(uri: string, gen: ResolvedBundle): boolean {
-  if (gen.byUri.has(uri)) return true;
-  const item = parseCollectionItem(uri);
-  if (item === null) return false;
-  return gen.templateByCollection.has(collectionUri(item.sibling, item.key));
-}
-
-interface ResolvedCall {
-  /** Open the member's streaming source. LAZY — nothing is dispatched until the
-   *  returned stream is run, and the run's fiber owns its lifetime. */
-  open: () => Stream.Stream<unknown, unknown>;
-  mimeType: string;
-  /** Which primitive kind backs the URI — `event` has no snapshot, so a
-   *  one-shot read must not block on a first frame. */
-  kind: ResourceEntry["kind"] | "collection-item";
-}
-
-/** Resolve a resource URI to its streaming call on the client: which key, the
- *  verb (`get`/`keys`), the input, and the mime type — one source of truth for
- *  both the live subscription (`streamForUri`) and the one-shot read
- *  (`readSnapshot`). Returns `undefined` for a URI that doesn't resolve.
- *
- *  Cells/streams/events read via `.get(undefined)` (their input is either absent
- *  or `Schema.Void` — an empty `{}` is not that value); a collection's key-set
- *  via `.keys(undefined)`; a collection item via `.get({ key })`, where `key` is
- *  the URI's `<id>` segment decoded through the collection's key schema (so a
- *  `Schema.Finite` key addresses item `42`, not `"42"`).
- *
- *  WHICH client answers is the URI's own `sibling` segment, resolved through
- *  {@link clientAt}: a member of a bundle is addressed by `(sibling, key)`, and
- *  the pair travels together from the resolved entry all the way to the call.
- *
- *  `undefined` means ONE thing — this generation serves no such address — and a
- *  URI whose address IS served but whose CLIENT cannot be reached is a different
- *  fact answered differently: a resolved call whose `open()` FAILS, naming the
- *  missing leg. Collapsing the two was a silence with two costs. A
- *  `resources/read` on a served URI reported "unknown resource", which is false —
- *  the resource is known and the bundle is short a client. And a live
- *  SUBSCRIPTION on it was dropped without a word (`ResourcePusher.startStream`
- *  drops an unresolvable URI quietly, correctly, because it takes `undefined` to
- *  mean "nothing to stream"), so a surviving subscription whose sibling client
- *  the re-dialled bundle happened to omit went permanently, silently quiet.
- *  As a failing stream it travels the pusher's OWN recovery path instead —
- *  reported through `onError`, then detached and retried, so a host factory that
- *  catches up on the next dial heals it. */
-function resolveCall(
-  bundle: RootedSurfaceClients,
-  uri: string,
-  gen: ResolvedBundle,
-): ResolvedCall | undefined {
-  const entry = gen.byUri.get(uri);
-  if (entry !== undefined) {
-    const client = clientAt(bundle, entry.sibling);
-    if (client === undefined) {
-      return unreachableLeg(uri, entry.kind, entry.mimeType, entry.sibling);
-    }
-    const proc =
-      entry.kind === "collection"
-        ? client.surface[entry.key]?.keys
-        : client.surface[entry.key]?.get;
-    if (proc === undefined) return undefined;
-    return {
-      open: () => asStream(proc(undefined), uri, entry.kind),
-      mimeType: entry.mimeType,
-      kind: entry.kind,
-    };
-  }
-  const item = parseCollectionItem(uri);
-  if (item !== null) {
-    // The TEMPLATE is looked up first, and it is what proves the collection is
-    // exposed at that address at all: keyed by the composed collection URI, two
-    // siblings exposing the same member key cannot answer for each other's items.
-    const template = gen.templateByCollection.get(
-      collectionUri(item.sibling, item.key),
-    );
-    if (template === undefined) return undefined;
-    const client = clientAt(bundle, item.sibling);
-    if (client === undefined) {
-      return unreachableLeg(
-        uri,
-        "collection-item",
-        "application/json",
-        item.sibling,
-      );
-    }
-    const proc = client.surface[item.key]?.get;
-    if (proc === undefined) return undefined;
-    // Decode the URI's string `<id>` into the collection's key type via the one
-    // rule keyed off the schema itself: a string key passes straight through; a
-    // numeric/boolean key parses from its JSON form (`"42"` → `42`). A value that
-    // fails its key schema is an addressing error — leave it `undefined` so the
-    // call resolves nothing.
-    const key = decodeKey(template.keySchema, item.id);
-    if (key === undefined) return undefined;
-    return {
-      open: () => asStream(proc({ key }), uri, "collection-item"),
-      mimeType: "application/json",
-      kind: "collection-item",
-    };
-  }
-  return undefined;
-}
-
-/** A served address the DIALLED BUNDLE cannot reach: the tables carry it, and the
- *  client bundle has no leg for its surface.
- *
- *  A resolved call whose `open()` fails, rather than an absent one, so the one
- *  fact travels to both readers by the route each already has — the one-shot read
- *  raises it, the subscription's fiber exits on it and the pusher reports and
- *  retries. The SENTENCE is {@link noLegFor}, shared with the two tool-dispatch
- *  sites that report the same condition. */
-function unreachableLeg(
-  uri: string,
-  kind: ResolvedCall["kind"],
-  mimeType: string,
-  sibling: SiblingKey,
-): ResolvedCall {
-  return {
-    open: () => Stream.fail(new Error(noLegFor(sibling, `${uri} (${kind})`))),
-    mimeType,
-    kind,
-  };
-}
-
-/** Assert that a member ref really handed back a `Stream`.
- *
- *  Every streaming verb on a real face does. What this catches is a DROPPED
- *  BRIDGE: a client whose member resolved to nothing (a stale/partial face over
- *  a dead link) would otherwise reach `Stream.runHead` as `undefined` and blow
- *  up three frames later with a shapeless error, or worse be coerced into an
- *  empty read. The surface contract guarantees a snapshot-first open, so "no
- *  streaming source at all" is a link/protocol failure and is stated as one. */
-function asStream(
-  source: unknown,
-  uri: string,
-  kind: ResolvedCall["kind"],
-): Stream.Stream<unknown, unknown> {
-  if (!Stream.isStream(source)) {
-    return Stream.fail(
-      new Error(
-        `${uri} (${kind}) resolved no streaming source — the ` +
-          "surface contract guarantees a snapshot-first open, so this is a link/" +
-          "protocol failure, not an empty value.",
-      ),
-    );
-  }
-  return source as Stream.Stream<unknown, unknown>;
-}
-
-/** Decode a collection item URI's string `<id>` segment into the collection's
- *  declared key type — {@link decodeTextValue}'s rule ("a schema-less caller
- *  hands scalars over as text"), at this face's policy: a token that lands in
- *  neither the verbatim nor the JSON reading returns `undefined`, so the caller
- *  treats it as an unaddressable item rather than calling `.get` with a
- *  wrong-typed key.
- *
- *  The DECODED key is what comes back, which is what the face's collection
- *  payloads are built from (`{ key }` carries decoded keys — client.ts). */
-function decodeKey(keySchema: WireSchemaAny, id: string): unknown {
-  return Option.getOrUndefined(
-    Option.map(decodeTextValue(keySchema, id), (landed) => landed.decoded),
-  );
-}
-
-/** Open the streaming source for a subscribed URI (the pusher's `StreamFor`).
- *  Returns `undefined` for a URI that doesn't resolve so the pusher drops it. */
-function streamForUri(
-  bundle: RootedSurfaceClients,
-  uri: string,
-  gen: ResolvedBundle,
-): Stream.Stream<unknown, unknown> | undefined {
-  const call = resolveCall(bundle, uri, gen);
-  return call === undefined ? undefined : call.open();
-}
-
-interface Snapshot {
-  value: unknown;
-  mimeType: string;
-}
-
-/** A one-shot read that produced no snapshot, and WHY — so the handler tells a
- *  genuinely unaddressable URI (`unresolved`) apart from a well-formed
- *  collection-item URI whose key is simply not present yet (`not-present`, the
- *  #1681 held-open case). Collapsing both to a bare `undefined` + one "unknown
- *  resource" message hid that distinction (invalid-states-unrepresentable). */
-type ReadMiss = { miss: "unresolved" | "not-present" };
-function isMiss(r: Snapshot | ReadMiss): r is ReadMiss {
-  return "miss" in r;
-}
-
-/** Read a one-shot snapshot for a resource URI: pull the first frame of the
- *  primitive's streaming source and return immediately.
- *
- *  The empty-open POLICY depends on the kind's snapshot guarantee:
- *
- *    - **cell / collection / stream** are SNAPSHOT-FIRST
- *      (`@kolu/surface/server` opens a cell/collection with a current-value frame,
- *      and `StreamHandlerDeps` REQUIRES "first yield is a fresh full snapshot"), so
- *      an empty open is a dead/dropped bridge link, NOT an empty value — it FAILS,
- *      never collapses to `null` (the green-dot lie in MCP form;
- *      caught-error-must-not-collapse-to-empty).
- *    - **collection-item** is snapshot-first ONLY when the key currently EXISTS.
- *      A collection's membership is dynamic (a key can be born later), and the
- *      collection `get` HOLDS OPEN for an absent key instead of throwing (it
- *      yields nothing until the first upsert — the fix for the gray-chip #1681).
- *      That held-open semantic is correct for a LIVE subscription but would make a
- *      one-shot read block forever on a not-yet-born key, so the read races the
- *      item's first frame against a live `keys`-absence watch and a hard deadline
- *      — see {@link readCollectionItemSnapshot}.
- *    - **event** is the ONE kind with no snapshot by contract (`EventHandlerDeps`
- *      explicitly carries no snapshot obligation — it may yield zero frames, and a
- *      late subscriber misses past occurrences — which is what distinguishes Event
- *      from Stream). Awaiting its first frame would block `resources/read` forever or
- *      until the next occurrence, so an event reads as an immediate explicit `null`
- *      — its live value is the `notifications/resources/updated` stream, delivered
- *      via `resources/subscribe`, not a readable snapshot.
- *
- *  Returns an EFFECT: the caller runs it with the MCP request's `AbortSignal`, so
- *  a cancelled read interrupts every subscription it opened. */
-function readSnapshot(
-  bundle: RootedSurfaceClients,
-  uri: string,
-  gen: ResolvedBundle,
-): Effect.Effect<Snapshot | ReadMiss, unknown> {
-  const call = resolveCall(bundle, uri, gen);
-  if (call === undefined)
-    return Effect.succeed<Snapshot | ReadMiss>({ miss: "unresolved" });
-  switch (call.kind) {
-    case "event":
-      return Effect.succeed<Snapshot | ReadMiss>({
-        value: null,
-        mimeType: call.mimeType,
-      });
-    // A collection-item read must not lean on the held-open `get` to signal
-    // absence — an absent key yields nothing forever — so it gets a BOUNDED read
-    // that races the `get` first frame against a live `keys`-absence watch.
-    case "collection-item":
-      return readCollectionItemSnapshot(bundle, uri, call, gen);
-    case "cell":
-    case "collection":
-    case "stream":
-      return readFirstFrameSnapshot(call, uri);
-    default: {
-      // Exhaustiveness guard: a new `ResolvedCall` kind must add its own case
-      // rather than silently falling through to the snapshot-first reader.
-      const unreachable: never = call.kind;
-      return Effect.die(new Error(`unhandled resource kind "${unreachable}"`));
-    }
-  }
-}
-
-/** Open a snapshot-first source (cell / collection / stream) and return its
- *  first frame.
- *
- *  cell / collection / collection-item / STREAM are ALL snapshot-first by the
- *  surface contract: `@kolu/surface/server` opens a cell/collection with a
- *  current-value frame, and `StreamHandlerDeps` REQUIRES "first yield is a fresh
- *  full snapshot" — only `Event` carries no snapshot obligation (handled by the
- *  caller as an immediate `null`). So an empty open for any of these is NOT an
- *  empty value — it is a dead/dropped bridge link, and collapsing it to JSON
- *  `null` would hand an MCP agent `surface://<kind>/<x> => null` as if it were
- *  real (the green-dot lie in MCP form, the snapshot-then-delta class). Fail
- *  loudly per caught-error-must-not-collapse-to-empty.
- *
- *  The read is the FRAMEWORK's {@link firstFrameOrThrow}, which is exactly this
- *  pair: `Stream.runHead` (it takes the first element and then ENDS the stream,
- *  releasing the subscription through the stream's own finalizers — the Effect
- *  equivalent of the old `for await … return`) with this empty-open policy over
- *  it. Hand-rolled here, it left the shared reader with one consumer while its
- *  own doc claimed two, and reported the empty open as a bare `Error` that no
- *  caller could tell from the source's own failure — which is the condition
- *  `NoSnapshotFrame` was minted for, and the one the argv face reads its exit-3
- *  arm off. The MESSAGE stays this face's: the URI and the kind are MCP's
- *  words. */
-function readFirstFrameSnapshot(
-  call: ResolvedCall,
-  uri: string,
-): Effect.Effect<Snapshot, unknown> {
-  return Effect.map(
-    firstFrameOrThrow(
-      call.open(),
-      `${uri} (${call.kind}) yielded no snapshot frame — the surface ` +
-        "contract opens a cell/collection/stream with a current-value snapshot, so an " +
-        "empty open means the bridge link dropped, not that the value is null.",
-    ),
-    (value) => ({ value, mimeType: call.mimeType }),
-  );
-}
-
-/** One-shot read of a collection-item URI, BOUNDED against `collectionHandlers.get`'s
- *  held-open-on-absent semantic (#1681): the item `get` yields nothing until the key
- *  is a member, so taking its first frame ALONE hangs forever on a not-yet-present
- *  key.
- *
- *  The bounded race itself — the item's first frame against BOTH a live
- *  `keys`-absence watch AND a deadline, neither subsuming the other — is the
- *  FRAMEWORK's, `@kolu/surface/first-frame`'s `firstFrameOfCollectionItem`, which
- *  lives beside the held-open `get` footgun it guards. This function is the MCP
- *  vocabulary over it: which streams to hand it, and how each outcome reads as a
- *  `Snapshot` or a `ReadMiss`. It stays an EFFECT all the way down so the whole
- *  read runs inside the request's fiber — `resources/read` runs it under the MCP
- *  request's abort signal, and a Promise edge in the middle would detach the
- *  subscriptions from that interruption. */
-function readCollectionItemSnapshot(
-  bundle: RootedSurfaceClients,
-  uri: string,
-  call: ResolvedCall,
-  gen: ResolvedBundle,
-): Effect.Effect<Snapshot | ReadMiss, unknown> {
-  const item = parseCollectionItem(uri);
-  const template =
-    item === null
-      ? undefined
-      : gen.templateByCollection.get(collectionUri(item.sibling, item.key));
-  if (item === null || template === undefined) {
-    // Unreachable by construction: `readCollectionItemSnapshot` is called only for
-    // a `call.kind === "collection-item"`, which `resolveCall` sets ONLY after
-    // `parseCollectionItem(uri)` succeeded on this same URI AND its collection's
-    // template was found. Fail LOUD if that invariant is ever broken — never a
-    // silent fall-through.
-    return Effect.die(
-      new Error(`${uri} routed as a collection item but does not parse as one`),
-    );
-  }
-  const keysProc = clientAt(bundle, item.sibling)?.surface[item.key]?.keys;
-  const key = decodeKey(template.keySchema, item.id);
-
-  return Effect.flatMap(
-    firstFrameOfCollectionItem(
-      call.open(),
-      keysProc === undefined
-        ? null
-        : asStream(keysProc(undefined), uri, "collection"),
-      key,
-      `${uri} (collection-item) yielded no snapshot frame — a PRESENT ` +
-        "collection item opens with a current-value snapshot, so an empty open means " +
-        "the bridge link dropped, not that the value is null.",
-      // The hard upper bound, so a quiet producer can never hang this read: a
-      // collection with no `keys` verb has no membership signal to resolve an
-      // absent key against at all, and one WITH a `keys` verb can still keep
-      // saying "still a member" while the item stream says nothing. Both bounds
-      // are always armed. The NUMBER is the framework's, beside the reader it
-      // bounds — this adapter knows nothing about "how long may a local read
-      // wait" that the CLI face does not, and the two spelled the same `5_000`
-      // independently until the constant existed.
-      ITEM_READ_DEADLINE_MS,
-    ),
-    (frame): Effect.Effect<Snapshot | ReadMiss, unknown> => {
-      if (frame.present)
-        return Effect.succeed({ value: frame.value, mimeType: call.mimeType });
-      if (frame.reason === "absent")
-        return Effect.succeed({ miss: "not-present" });
-      // The read ran out of time. Either the collection has no membership
-      // signal to resolve against, or it has one that kept saying "still a
-      // member" while the item stream said nothing — the race arms BOTH
-      // bounds, so a deadline no longer implies keys-lessness and this must
-      // not claim it does. Either way the not-present is UNCERTAIN (the item
-      // may exist but never opened a snapshot in time), so surface it loudly
-      // rather than degrade silently.
-      return Effect.sync(() => {
-        console.error(
-          brand(
-            `${uri} — the read of "${item.key}" hit its ${ITEM_READ_DEADLINE_MS}ms deadline before the item produced a snapshot, so this not-present is UNCONFIRMED rather than a known absence`,
-          ),
-        );
-        return { miss: "not-present" };
-      });
-    },
-  );
-}
-
-/** EVERY failure this adapter reports for a LINK problem, framed for a host
- *  standing on its own stdio channel. The policy, in one place:
- *
- *    1. name the layer that actually died — the raw error is the LINK's own
- *       vocabulary ("stdio transport closed … the peer process exited"), true
- *       of the link and badly false of everything above it;
- *    2. say THIS MCP SERVER IS STILL RUNNING and has discarded the corpse. An
- *       MCP host reads a link-death message on its own stdio channel and
- *       concludes the MCP server exited, so it stops calling — exactly what
- *       happened in juspay/kolu#2082, where one such message cost the rest of
- *       an agent's session;
- *    3. say what retrying does, since the caller's next move is the whole point.
- *
- *  A `cause` is kept where there is one, so the underlying reason survives the
- *  re-frame (a re-frame must add context, never swallow it).
- *
- *  TEARDOWN is the one link failure this policy does NOT cover, and deliberately:
- *  when the server really is shutting down, "this MCP server is still running"
- *  would be a lie. Those two throws (`dialShared`'s closed gate and `dialOnce`'s
- *  lost race) say plainly that the server closed, and nothing more. */
-function linkFailure(what: string, retry: string, cause?: unknown): Error {
-  return new Error(
-    `${what}. This MCP server is still running and has discarded the dead ` +
-      `connection — ${retry}.`,
-    cause === undefined ? undefined : { cause },
-  );
 }
