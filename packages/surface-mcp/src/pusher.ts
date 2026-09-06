@@ -260,12 +260,18 @@ export class ResourcePusher<Client> {
       attach !== this.generation
     ) {
       void disposeQuietly(conn);
-      // The superseded-dial arm is the one that can leave subscribers with no
-      // attachment and nothing in flight: the other three each mean somebody
-      // else owns the outcome (a winner attached, we stopped, nobody is
-      // waiting). `scheduleRetry` is a no-op in those, and the recovery in this
-      // one — and it is exactly what `reattach`'s own dial does if IT loses.
-      this.scheduleRetry();
+      // ONLY the superseded-dial arm schedules. It is the one that can leave
+      // subscribers with no attachment and nothing in flight; the other three
+      // each mean somebody else owns the outcome (a winner attached, we
+      // stopped, nobody is waiting).
+      //
+      // Scheduling on all four read as harmless and was not: `scheduleRetry`
+      // bails on `stopped`, on an empty subscription set, and on an
+      // already-armed timer — NOT on `this.conn !== null`. So a dial that merely
+      // lost a race armed a timer, and a later `onAnnouncedClose` found that
+      // timer already set and returned, leaving the loser's timer as the thing
+      // the real recovery depended on. It recovered, on somebody else's clock.
+      if (attach !== this.generation) this.scheduleRetry();
       return;
     }
     this.conn = conn;

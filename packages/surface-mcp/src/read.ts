@@ -61,7 +61,6 @@ import {
   parseCollectionItem,
   type ResourceEntry,
 } from "./expose";
-import { brand } from "./tools";
 
 /** WHAT one generation serves at one URI — resolved without a client.
  *
@@ -423,11 +422,15 @@ function readCollectionItemSnapshot(
       // did not complete, so whether the item is there is still unknown"). Two
       // faces over one `firstFrameOfCollectionItem` outcome had two answers, and
       // the MCP one was the degrading half.
+      //
+      // BARE, like every other failure this module raises: the request edge
+      // brands exactly once (`resources/read`'s catch), and `brand` is a plain
+      // prefix rather than an idempotent one, so branding here too reaches the
+      // host as `surface-mcp: surface-mcp: …` — the doubled prefix `./tools.ts`
+      // names as the reason the rule is request-edge-only.
       return Effect.fail(
         new Error(
-          brand(
-            `${address.uri} — "${address.key}" did not answer for key ${JSON.stringify(address.itemKey)} within ${ITEM_READ_DEADLINE_MS}ms, so the read did not complete and whether the item is there is still unknown`,
-          ),
+          `${address.uri} — "${address.key}" did not answer for key ${JSON.stringify(address.itemKey)} within ${ITEM_READ_DEADLINE_MS}ms, so the read did not complete and whether the item is there is still unknown`,
         ),
       );
     },
