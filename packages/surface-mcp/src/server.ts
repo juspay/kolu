@@ -74,13 +74,10 @@ import {
 import { Effect, Option, Schema, Stream } from "effect";
 import { match } from "ts-pattern";
 import {
-  CELL_PREFIX,
-  COLLECTION_PREFIX,
   collectionUri,
-  EVENT_PREFIX,
   type ResourceEntry,
   type ResourceTemplateEntry,
-  STREAM_PREFIX,
+  type SiblingKey,
   type ToolEntry,
 } from "./expose";
 import {
@@ -229,12 +226,24 @@ export async function serveSurfaceAsMcp<
   M extends Record<string, SurfaceSpec>,
 >(opts: ServeSurfaceAsMcpOptions<C, M>): Promise<ServedSurfaceMcp> {
   let gen = buildGeneration(opts);
-  /** Sibling keys this endpoint HAS served and no longer does. Bounded by the
-   *  set of keys ever mounted, and it is what lets a call to a departed
-   *  sibling's name be refused by name instead of as an unknown one. A key that
-   *  comes back leaves the set — it is served again, so there is nothing to
-   *  explain. */
-  const departed = new Set<string>();
+  /** WHAT this endpoint has served and no longer does, and WHO owned it: tool
+   *  names in one map, resource addresses in the other, each pointing at the
+   *  sibling key that went away with it.
+   *
+   *  Recorded rather than derived. A DERIVED name carries its owner's segment
+   *  and could in principle be read back out of it, but an AUTHORED tool name
+   *  never did — it is the author's word, with nothing in it about which sibling
+   *  declared it (see {@link McpSibling}) — so ownership has to be remembered at
+   *  the moment it is lost. Reading a leading `<key>_` also answered wrongly for
+   *  a name that merely BEGINS with a departed key's word: an unknown tool
+   *  `outlines_typo` was reported as "no longer served" by a bundle that had
+   *  never served it.
+   *
+   *  Bounded by what has actually been retired, and an entry lives only while its
+   *  owner is genuinely absent — see the reroster below, which clears both what
+   *  the new roster serves and everything belonging to a sibling that came back. */
+  const departedTools = new Map<string, string>();
+  const departedResources = new Map<string, string>();
 
   const server = new Server(opts.serverInfo ?? DEFAULT_SERVER_INFO, {
     // `listChanged` on BOTH lists, from the first `initialize`: the roster can
@@ -677,7 +686,7 @@ export async function serveSurfaceAsMcp<
           return tool.render ? tool.render(out) : ok(out);
         });
       }
-      return fail(brand(unknownToolMessage(name, departed)));
+      return fail(brand(unknownToolMessage(name, departedTools)));
     } catch (e) {
       return failFrom(e);
     }
@@ -735,7 +744,7 @@ export async function serveSurfaceAsMcp<
           ? brand(
               `resource "${uri}" has no value yet — its collection key is not present`,
             )
-          : brand(unknownResourceMessage(uri, departed)),
+          : brand(unknownResourceMessage(uri, departedResources)),
       );
     }
     return {
@@ -756,7 +765,9 @@ export async function serveSurfaceAsMcp<
     // leave the pusher attached/retrying for something it can never push.
     if (!isSubscribable(uri, gen)) {
       throw new Error(
-        brand(`cannot subscribe to ${unknownResourceMessage(uri, departed)}`),
+        brand(
+          `cannot subscribe to ${unknownResourceMessage(uri, departedResources)}`,
+        ),
       );
     }
     subscribed.add(uri);
@@ -780,10 +791,7 @@ export async function serveSurfaceAsMcp<
     const next = buildGeneration({ ...opts, surfaces });
     const previous = gen;
     gen = next;
-    for (const key of previous.resolved.siblings) {
-      if (!next.resolved.siblings.has(key)) departed.add(key);
-    }
-    for (const key of next.resolved.siblings) departed.delete(key);
+    recordDeparted(previous, next, departedTools, departedResources);
 
     // A subscription the new roster cannot serve ends HERE — the alternative is a
     // stream nothing will ever push again, which reads to a host exactly like a
@@ -903,63 +911,78 @@ function droppedNote(sibling: string): string {
   return `the sibling "${sibling}" was dropped from this rooted bundle — re-read the list`;
 }
 
-/** Which departed sibling a tool name belonged to, if any. The LONGEST matching
- *  key wins: sibling keys may share a prefix (`a` and `a_b`), and the longer one
- *  is the one whose scoped name this actually is. */
-function departedOwnerOfTool(
-  name: string,
-  departed: ReadonlySet<string>,
-): string | undefined {
-  let found: string | undefined;
-  for (const key of departed) {
-    if (!name.startsWith(`${key}_`)) continue;
-    if (found === undefined || key.length > found.length) found = key;
+/** Remember what a roster move RETIRED, and forget what it brought back.
+ *
+ *  Ownership is read off the outgoing generation's own entries — a tool's
+ *  `sibling`, a resource's `sibling` — rather than guessed out of a name, which
+ *  is the only reading that works for an authored tool name and the only one that
+ *  cannot mistake a stranger for a former tenant.
+ *
+ *  Two clearing rules, and both are needed. What the NEW roster serves is not
+ *  departed, obviously. And so is everything belonging to a sibling that came
+ *  BACK: a sibling that returns exposing less would otherwise leave its old
+ *  members reported as "the sibling was dropped" while the sibling is standing
+ *  right there — true of the member, and false of the sentence. Those fall
+ *  through to plain "unknown", which is what they are. */
+function recordDeparted(
+  previous: Generation,
+  next: Generation,
+  tools: Map<string, string>,
+  resources: Map<string, string>,
+): void {
+  const own = (map: Map<string, string>, key: string, owner: SiblingKey) => {
+    // Only a SIBLING's entry can ever be departed — the core does not move.
+    if (owner !== undefined) map.set(key, owner);
+  };
+  for (const tool of previous.resolved.tools)
+    own(tools, tool.name, tool.sibling);
+  for (const [name, e] of previous.resolved.bespoke)
+    own(tools, name, e.sibling);
+  for (const r of previous.resolved.resources) own(resources, r.uri, r.sibling);
+  // Then subtract, over the WHOLE map rather than only what this move touched —
+  // an entry retired three rosters ago is cleared by the move that brings its
+  // sibling back, and by nothing else.
+  for (const [name, owner] of [...tools]) {
+    const served = next.toolByName.has(name) || next.resolved.bespoke.has(name);
+    if (served || next.resolved.siblings.has(owner)) tools.delete(name);
   }
-  return found;
+  for (const [uri, owner] of [...resources]) {
+    if (next.byUri.has(uri) || next.resolved.siblings.has(owner)) {
+      resources.delete(uri);
+    }
+  }
 }
 
 function unknownToolMessage(
   name: string,
-  departed: ReadonlySet<string>,
+  departed: ReadonlyMap<string, string>,
 ): string {
-  const owner = departedOwnerOfTool(name, departed);
+  const owner = departed.get(name);
   return owner === undefined
     ? `unknown tool "${name}"`
     : `tool "${name}" is no longer served — ${droppedNote(owner)}`;
 }
 
-/** The sibling segment of a resource URI, when it names one this endpoint has
- *  DROPPED.
+/** Which departed sibling a resource URI belonged to, if any.
  *
- *  Reading the first segment as a sibling key is unambiguous for exactly the keys
- *  in `departed`: while such a key was mounted, `assertItemSpaceUnshadowed`
- *  refused a core collection of the same name, and the core cannot grow one after
- *  the fact — the core is fixed for this endpoint's life. */
+ *  A static resource is looked up by its whole address. A collection ITEM is not
+ *  in the table — it is a template instance, never a listed resource — so it is
+ *  answered through its COLLECTION's address, which is: the same
+ *  `(sibling, key)` pair, composed by the same builder that minted it. */
 function departedOwnerOfUri(
   uri: string,
-  departed: ReadonlySet<string>,
+  departed: ReadonlyMap<string, string>,
 ): string | undefined {
-  const prefix = [
-    CELL_PREFIX,
-    COLLECTION_PREFIX,
-    STREAM_PREFIX,
-    EVENT_PREFIX,
-  ].find((p) => uri.startsWith(p));
-  if (prefix === undefined) return undefined;
-  const first = uri.slice(prefix.length).split("/")[0];
-  if (first === undefined) return undefined;
-  let key: string;
-  try {
-    key = decodeURIComponent(first);
-  } catch {
-    return undefined;
-  }
-  return departed.has(key) ? key : undefined;
+  const direct = departed.get(uri);
+  if (direct !== undefined) return direct;
+  const item = parseCollectionItem(uri);
+  if (item === null) return undefined;
+  return departed.get(collectionUri(item.sibling, item.key));
 }
 
 function unknownResourceMessage(
   uri: string,
-  departed: ReadonlySet<string>,
+  departed: ReadonlyMap<string, string>,
 ): string {
   const owner = departedOwnerOfUri(uri, departed);
   return owner === undefined

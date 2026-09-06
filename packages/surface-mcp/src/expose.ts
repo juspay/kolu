@@ -29,6 +29,9 @@
  * names, and it makes two siblings that expose the same member key disjoint by
  * construction rather than by a merge nobody checked.
  *
+ * DERIVED names, which is everything this module mints. A hand-authored tool
+ * keeps its name as written, wherever it was declared — see `./bundle.ts`.
+ *
  * Each sibling's map is resolved against ITS OWN spec, so `resolveExpose` runs
  * per surface and this module never needs a composed top-level spec — the same
  * per-surface reading `exposeRootedFaces` takes.
@@ -172,14 +175,21 @@ export function eventUri(sibling: SiblingKey, key: string): string {
   return memberUri(EVENT_PREFIX, sibling, key);
 }
 
-/** The TOOL name of one member of a bundle — the same prefix rule in MCP's own
- *  separator. `.` is illegal in a tool name and `/` is not a tool name at all, so
- *  where the URI takes a segment the tool name takes the `_` it already uses to
- *  join `<ns>` to `<verb>`.
+/** The TOOL name a DERIVED member of a bundle answers to — the same prefix rule
+ *  in MCP's own separator. `.` is illegal in a tool name and `/` is not a tool
+ *  name at all, so where the URI takes a segment the tool name takes the `_` it
+ *  already uses to join `<ns>` to `<verb>`.
  *
- *  Applied to BESPOKE tools as well as generated ones (a sibling's hand-authored
- *  verbs leave with it, so they must be named with it), which is why it takes a
- *  finished name rather than an `(ns, verb)` pair. */
+ *  DERIVED names only. A hand-authored tool on a sibling keeps its name exactly
+ *  as written — it is the product's vocabulary rather than a spelling this face
+ *  composes, and `@kolu/surface-mcp`'s `McpSibling` records the argument. So this
+ *  takes a finished name rather than an `(ns, verb)` pair only because a
+ *  procedure's flat name is already one.
+ *
+ *  It does NOT make the derived space unique on its own: `_` is legal inside a
+ *  tag segment, so `a_b_c` can be spelled by more than one `(sibling, ns, verb)`
+ *  triple. The one-pass collision check over the finished namespace is what
+ *  guarantees uniqueness, for derived and authored names alike. */
 export function scopedToolName(sibling: SiblingKey, name: string): string {
   return sibling === undefined ? name : `${sibling}_${name}`;
 }

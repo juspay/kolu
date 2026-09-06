@@ -14,7 +14,7 @@
  * function, called from both, is what makes that true by construction rather than
  * by two call sites remembering the same list.
  *
- * ## The composition rule, once
+ * ## The composition rule, once — and what it is FOR
  *
  * `composeSurfaceContracts` makes siblings disjoint by giving each one a SEGMENT
  * of the wire tag. This module applies the same rule to MCP's two name spaces —
@@ -24,6 +24,13 @@
  *
  * The core is the only surface with no segment, which is what leaves the
  * single-surface face's names exactly as they were.
+ *
+ * It applies to DERIVED names only. A member key is chosen inside one spec with
+ * no view of the others, so the segment is what makes a collision nobody could
+ * have foreseen impossible; an AUTHORED tool name is chosen with the whole
+ * product in view and stays exactly as written (see {@link McpSibling}). The
+ * uniqueness of the finished namespace is the collision pass's job either way —
+ * the prefix narrows what can reach it, and was never the guarantee.
  */
 
 import type { Surface, SurfaceSpec, WireSchemaAny } from "@kolu/surface/define";
@@ -34,7 +41,6 @@ import {
   type ResourceEntry,
   type ResourceTemplateEntry,
   resolveExpose,
-  scopedToolName,
   type SiblingKey,
   type ToolEntry,
 } from "./expose";
@@ -43,11 +49,11 @@ import { type BespokeTool, brand } from "./tools";
 /** The unprefixed CORE of a bundle: the surface whose members keep their bare
  *  names, and the default-deny map that gates it.
  *
- *  It carries no `tools` of its own. Hand-authored verbs that should keep BARE
- *  names are the bundle's ({@link McpBundle.tools}) and are handed the whole
- *  client bundle — one bare table, so `who_get` can only ever come from one
- *  place. A verb that wants only the core reaches `client.core`, which says which
- *  surface it is about at the line that calls it. */
+ *  It carries no `tools` of its own. Hand-authored verbs that are about the
+ *  ENDPOINT rather than about one surface are the bundle's
+ *  ({@link McpBundle.tools}) and are handed the whole client bundle; a verb that
+ *  wants only the core reaches `client.core`, which says which surface it is
+ *  about at the line that calls it. */
 export interface McpCore<S extends SurfaceSpec> {
   readonly surface: Surface<S>;
   readonly expose: ExposeMap<S>;
@@ -56,8 +62,21 @@ export interface McpCore<S extends SurfaceSpec> {
 /** One SIBLING of a bundle: its surface, its own default-deny map, and its own
  *  hand-authored tools.
  *
- *  Everything here is scoped by the sibling's key, tools included — which is what
- *  makes a sibling's verbs LEAVE with it on a reroster. A sibling's tool is
+ *  Its DERIVED names take the sibling's key as a segment. Its AUTHORED ones do
+ *  not — `tools` keeps every name exactly as written. The two are different kinds
+ *  of name and the prefix answers only the first: a member key is chosen inside
+ *  one spec with no view of the others, so `entries` on two siblings is a
+ *  collision nobody could have foreseen and the segment is what makes it
+ *  impossible. A tool name is chosen by an author with the whole product in view;
+ *  it is the product's vocabulary (`read_node`, `write_document` — words that
+ *  appear in agent prompts and in docs), which is a different axis from which
+ *  siblings happen to be standing, and it must not move when the composition
+ *  does. What keeps THAT space safe is the collision pass in
+ *  {@link resolveBundle} — over the finished namespace, tagged by origin, at boot
+ *  and on every reroster — which the prefix was never what guaranteed.
+ *
+ *  Belonging to the sibling is recorded on the entry, not spelled into the name,
+ *  so a sibling's verbs still LEAVE with it on a reroster. A sibling's tool is
  *  handed that sibling's own client (`client.clients[key]`), because it is
  *  written against that sibling's surface and nothing else. */
 export interface McpSibling<S extends SurfaceSpec = SurfaceSpec> {
@@ -86,15 +105,20 @@ export interface McpBundle<
    *  erased one — which is what a `Record<string, McpSibling>` would do, and what
    *  would silently reduce every map to the loosest `ExposeMap`. */
   readonly surfaces?: { [K in keyof M]: McpSibling<M[K]> };
-  /** BARE-named hand-authored tools, composing over the whole client bundle —
-   *  the verbs that are about the endpoint rather than about one sibling, and the
-   *  ones that must survive any roster.
+  /** Hand-authored tools composing over the whole client bundle — the verbs that
+   *  are about the endpoint rather than about one surface, and the ones that must
+   *  survive any roster.
    *
    *  Their handler's `client` is the {@link RootedSurfaceClients} bundle, not a
    *  single surface's client: a tool declared at the bundle root is about the
    *  bundle. The rule across every table this face takes is the same one —
    *  **a tool receives the client of the thing it is declared on** — so a
-   *  sibling's tool gets that sibling's client and this one gets the bundle. */
+   *  sibling's tool gets that sibling's client and this one gets the bundle.
+   *
+   *  Names here and on a sibling live in ONE space, both as authored. Two tables
+   *  claiming one word is a boot crash naming both, which is the point: the
+   *  choice of which table a verb belongs on is a real one (does it outlive the
+   *  roster?), and a silent winner would make it look like it did not matter. */
   readonly tools?: Record<string, BespokeTool>;
 }
 
@@ -108,8 +132,14 @@ export interface ResolvedBespokeTool {
   readonly tool: BespokeTool;
   readonly schema: Record<string, unknown>;
   readonly wrapped: boolean;
-  /** `undefined` for a bundle-root tool (handed the whole bundle), a sibling's
-   *  key for one declared on that sibling (handed that sibling's client). */
+  /** WHO it belongs to: `undefined` for a bundle-root tool (handed the whole
+   *  bundle), a sibling's key for one declared on that sibling (handed that
+   *  sibling's client).
+   *
+   *  Recorded here rather than spelled into the name, which is what lets an
+   *  authored name stay the author's while the tool still leaves with its
+   *  sibling — and what a departed-tool refusal reads, instead of guessing an
+   *  owner out of a name's leading word. */
   readonly sibling: SiblingKey;
 }
 
@@ -177,10 +207,13 @@ export function resolveBundle<
   // dispatch order-dependent. Each candidate is tagged by its ORIGIN — which
   // sibling, or the bundle root — so the error names both colliding sources.
   //
-  // Prefixing does NOT make this redundant. A sibling key containing the
-  // separator collides across scopes by construction: a bundle-root tool `a_b`
-  // and a sibling `a` whose tool is `b` mint one name from two places, and only a
-  // pass over the finished names can see it.
+  // THIS pass is what makes the namespace safe, and the prefix never was. The
+  // segment answers a different question — it makes DERIVED names disjoint,
+  // because a member key is chosen inside one spec with no view of the others —
+  // and it does not even close the derived space on its own: `_` is legal inside
+  // a tag segment, so `a_b_c` can be spelled by more than one (sibling, ns, verb)
+  // triple, and only a pass over the finished names can see that. Authored names
+  // rely on it entirely, which is the whole reason it runs over every table.
   const sourceByToolName = new Map<string, string>();
   const claim = (name: string, source: string): void => {
     const prior = sourceByToolName.get(name);
@@ -199,14 +232,16 @@ export function resolveBundle<
     table: Record<string, BespokeTool> | undefined,
   ): void => {
     for (const [name, tool] of Object.entries(table ?? {})) {
-      const scoped = scopedToolName(sibling, name);
+      // The name AS AUTHORED — see {@link McpSibling}. Which sibling it belongs
+      // to is recorded on the entry instead, which is what a departed-tool
+      // refusal reads and what makes the tool leave with its sibling.
       claim(
-        scoped,
+        name,
         sibling === undefined
           ? `bespoke ${name}`
           : `bespoke ${name} on sibling "${sibling}"`,
       );
-      bespoke.set(scoped, {
+      bespoke.set(name, {
         tool,
         ...inputSchema(tool.input as WireSchemaAny | undefined),
         sibling,

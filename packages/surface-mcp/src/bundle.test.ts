@@ -236,7 +236,7 @@ describe("a rooted bundle composes by PREFIX", () => {
 
 // ── Bespoke tables ───────────────────────────────────────────────────────
 
-describe("a bespoke tool is handed the client of the thing it is declared on", () => {
+describe("a bespoke tool keeps its authored name and gets its own client", () => {
   it("gives a bundle-root tool the bundle and a sibling's tool that sibling's client", async () => {
     const { mcp } = await connectBundle({
       core: { surface: coreSurface, expose: {} },
@@ -271,10 +271,13 @@ describe("a bespoke tool is handed the client of the thing it is declared on", (
     });
 
     const { tools } = await mcp.listTools();
-    // The sibling's verb LEAVES WITH IT, so it is named with it.
-    expect(tools.map((t) => t.name).sort()).toEqual(["a_here", "everywhere"]);
+    // AS AUTHORED, on both tables. A hand-written name is the product's
+    // vocabulary — it appears in agent prompts and in docs — so it does not move
+    // because the composition did. Belonging to the sibling is recorded on the
+    // entry, which is what still makes it leave with it (below).
+    expect(tools.map((t) => t.name).sort()).toEqual(["everywhere", "here"]);
 
-    const sibling = await mcp.callTool({ name: "a_here", arguments: {} });
+    const sibling = await mcp.callTool({ name: "here", arguments: {} });
     expect(
       JSON.parse((sibling.content as Array<{ text: string }>)[0]?.text ?? ""),
     ).toBe("sibling-client");
@@ -313,9 +316,11 @@ describe("the composition refuses at BOOT", () => {
     ).toThrow(/same address space as the sibling/);
   });
 
-  it("refuses two tools that collapse to one name across scopes", () => {
-    // Prefixing does not make the uniqueness pass redundant: a bundle-root
-    // `a_here` and a sibling `a`'s `here` mint one name from two places.
+  it("refuses two AUTHORED names that collide, naming both claimants", () => {
+    // The pass over the finished namespace is what makes authored names safe,
+    // and it is the whole guarantee now that nothing prefixes them. Which table
+    // a verb belongs on is a real choice (does it outlive the roster?), so a
+    // silent winner would make it look like it did not matter.
     expect(
       bundleOf({
         surfaces: {
@@ -325,9 +330,43 @@ describe("the composition refuses at BOOT", () => {
             tools: { here: { handler: () => Effect.succeed(1) } },
           },
         },
-        tools: { a_here: { handler: () => Effect.succeed(1) } },
+        tools: { here: { handler: () => Effect.succeed(1) } },
+      }),
+    ).toThrow(
+      /"here" is produced by both bespoke here and bespoke here on sibling "a"/,
+    );
+
+    // …and across two siblings, which is the case a prefix used to hide.
+    expect(
+      bundleOf({
+        surfaces: {
+          a: {
+            surface: tenantSurface,
+            expose: {},
+            tools: { here: { handler: () => Effect.succeed(1) } },
+          },
+          b: {
+            surface: tenantSurface,
+            expose: {},
+            tools: { here: { handler: () => Effect.succeed(1) } },
+          },
+        },
       }),
     ).toThrow(/produced by both/);
+  });
+
+  it("refuses an authored name that collides with a DERIVED one", () => {
+    // The two spaces are one space. A sibling `a` exposing `ops.run` derives
+    // `a_ops_run`, so a bundle-root verb spelled that way is refused — and the
+    // report names a procedure on one side and a bespoke table on the other.
+    expect(
+      bundleOf({
+        surfaces: {
+          a: { surface: tenantSurface, expose: { "ops.run": "tool" } },
+        },
+        tools: { a_ops_run: { handler: () => Effect.succeed(1) } },
+      }),
+    ).toThrow(/procedure ops\.run on sibling "a" and bespoke a_ops_run/);
   });
 
   it("checks each sibling's expose map against ITS OWN spec", () => {
@@ -365,6 +404,13 @@ describe("the roster follows in place", () => {
   const sibling = (surface: Surface<SurfaceSpec>) => ({
     surface,
     expose: { rows: "resource", "ops.run": "tool" },
+  });
+
+  /** The same sibling, plus one AUTHORED verb whose name carries nothing about
+   *  which sibling declared it — the case a `<key>_` prefix could never answer. */
+  const siblingWithVerb = (surface: Surface<SurfaceSpec>, name: string) => ({
+    ...sibling(surface),
+    tools: { [name]: { handler: () => Effect.succeed(name) } },
   });
 
   it("advertises listChanged so a host has reason to re-read", async () => {
@@ -417,7 +463,54 @@ describe("the roster follows in place", () => {
     ).toBe("a");
   });
 
-  it("refuses a DEPARTED sibling's tool and URI by name", async () => {
+  it("refuses a DEPARTED sibling's tool and URI by name — ownership recorded, not parsed", async () => {
+    const moving = movingBundle();
+    const { mcp, served } = await connectBundle({
+      core: { surface: coreSurface, expose: {} },
+      surfaces: {
+        a: sibling(tenantSurface),
+        b: siblingWithVerb(tenantSurface, "publish"),
+      },
+      bundle: moving.read,
+    });
+    moving.set({ a: tenantClient("a") });
+    await served.reroster({ a: sibling(tenantSurface) });
+
+    const said = async (name: string) => {
+      const res = await mcp.callTool({ name, arguments: {} });
+      expect(res.isError).toBe(true);
+      return (res.content as Array<{ text: string }>)[0]?.text ?? "";
+    };
+
+    // The DERIVED name, whose owner is spelled into it…
+    expect(await said("b_ops_run")).toContain(
+      'the sibling "b" was dropped from this rooted bundle',
+    );
+    // …and the AUTHORED one, whose owner is not. Nothing about "publish" says
+    // "b"; the entry did, and that is what the refusal reads.
+    expect(await said("publish")).toContain(
+      'the sibling "b" was dropped from this rooted bundle',
+    );
+
+    await expect(
+      mcp.readResource({ uri: "surface://collections/b/rows" }),
+    ).rejects.toThrow(/dropped from this rooted bundle/);
+    // A departed collection's ITEM too, which is never a listed resource — it is
+    // answered through its collection's address.
+    await expect(
+      mcp.readResource({ uri: "surface://collections/b/rows/b-row" }),
+    ).rejects.toThrow(/dropped from this rooted bundle/);
+
+    // …while a name that was never real still reads as unknown, which is a
+    // different fact and a different next move for the caller.
+    expect(await said("z_ops_run")).toContain("unknown tool");
+    // Including one that merely BEGINS with a departed key's word. Parsing an
+    // owner out of a leading `<key>_` reported this as "no longer served" by a
+    // bundle that never served it.
+    expect(await said("b_typo")).toContain("unknown tool");
+  });
+
+  it("stops calling a name departed once its sibling comes back", async () => {
     const moving = movingBundle();
     const { mcp, served } = await connectBundle({
       core: { surface: coreSurface, expose: {} },
@@ -426,23 +519,20 @@ describe("the roster follows in place", () => {
     });
     moving.set({ a: tenantClient("a") });
     await served.reroster({ a: sibling(tenantSurface) });
+    // `b` returns, exposing LESS than it did: `rows` is not served by anyone
+    // now, and it is not "dropped with the sibling" either — the sibling is
+    // standing right there. It is simply unknown.
+    moving.set({ a: tenantClient("a"), b: tenantClient("b") });
+    await served.reroster({
+      a: sibling(tenantSurface),
+      b: { surface: tenantSurface, expose: { "ops.run": "tool" } },
+    });
 
-    const gone = await mcp.callTool({ name: "b_ops_run", arguments: {} });
-    expect(gone.isError).toBe(true);
-    const text = (gone.content as Array<{ text: string }>)[0]?.text ?? "";
-    expect(text).toContain('"b"');
-    expect(text).toContain("dropped from this rooted bundle");
-
+    const back = await mcp.callTool({ name: "b_ops_run", arguments: {} });
+    expect(back.isError).toBeFalsy();
     await expect(
       mcp.readResource({ uri: "surface://collections/b/rows" }),
-    ).rejects.toThrow(/dropped from this rooted bundle/);
-
-    // …while a name that was never real still reads as unknown, which is a
-    // different fact and a different next move for the caller.
-    const never = await mcp.callTool({ name: "z_ops_run", arguments: {} });
-    expect((never.content as Array<{ text: string }>)[0]?.text).toContain(
-      "unknown tool",
-    );
+    ).rejects.toThrow(/unknown resource/);
   });
 
   it("ends a subscription the new roster cannot serve, and keeps the rest", async () => {
