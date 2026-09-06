@@ -244,7 +244,12 @@ export interface Snapshot {
  *  genuinely unaddressable URI (`unresolved`) apart from a well-formed
  *  collection-item URI whose key is simply not present yet (`not-present`, the
  *  #1681 held-open case). Collapsing both to a bare `undefined` + one "unknown
- *  resource" message hid that distinction (invalid-states-unrepresentable). */
+ *  resource" message hid that distinction (invalid-states-unrepresentable).
+ *
+ *  Both arms are ESTABLISHED facts. A read that ran out of time established
+ *  neither, so it is not a miss at all — it fails, with the sentence the CLI
+ *  face gives the same outcome. `not-present` means "membership answered, and
+ *  the answer is no"; nothing else may borrow it. */
 export type ReadMiss = { miss: "unresolved" | "not-present" };
 export function isMiss(r: Snapshot | ReadMiss): r is ReadMiss {
   return "miss" in r;
@@ -400,20 +405,31 @@ function readCollectionItemSnapshot(
       }
       if (frame.reason === "absent")
         return Effect.succeed({ miss: "not-present" });
-      // The read ran out of time. Either the collection has no membership signal
-      // to resolve against, or it has one that kept saying "still a member" while
-      // the item stream said nothing — the race arms BOTH bounds, so a deadline no
-      // longer implies keys-lessness and this must not claim it does. Either way
-      // the not-present is UNCERTAIN (the item may exist but never opened a
-      // snapshot in time), so surface it loudly rather than degrade silently.
-      return Effect.sync(() => {
-        console.error(
+      // The read ran out of time, and that is NOT an absence. Either the
+      // collection has no membership signal to resolve against, or it has one
+      // that kept saying "still a member" while the item stream said nothing —
+      // the race arms BOTH bounds, so a deadline does not imply keys-lessness
+      // and cannot be reported as one.
+      //
+      // It FAILS rather than answering `not-present`. Answering was the shape
+      // this repo names as a defect: the read did not complete, so "the key is
+      // not present" is a claim nobody established, and a `console.error` beside
+      // it puts the truth somewhere the caller cannot read while the value it
+      // acts on stays a lie. An agent branching on the payload saw a confident
+      // absence; only an operator tailing stderr saw the doubt.
+      //
+      // The CLI face already refuses exactly this arm of exactly this framework
+      // reader, in these words (`surface-cli`'s `readCollectionItem`: "the read
+      // did not complete, so whether the item is there is still unknown"). Two
+      // faces over one `firstFrameOfCollectionItem` outcome had two answers, and
+      // the MCP one was the degrading half.
+      return Effect.fail(
+        new Error(
           brand(
-            `${address.uri} — the read of "${address.key}" hit its ${ITEM_READ_DEADLINE_MS}ms deadline before the item produced a snapshot, so this not-present is UNCONFIRMED rather than a known absence`,
+            `${address.uri} — "${address.key}" did not answer for key ${JSON.stringify(address.itemKey)} within ${ITEM_READ_DEADLINE_MS}ms, so the read did not complete and whether the item is there is still unknown`,
           ),
-        );
-        return { miss: "not-present" };
-      });
+        ),
+      );
     },
   );
 }

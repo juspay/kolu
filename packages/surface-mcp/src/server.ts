@@ -77,10 +77,13 @@ import {
 import { linkFailure, makeSharedConnection } from "./connection";
 import { DepartedNames } from "./departed";
 import {
+  addressOf,
   isMiss,
   isSubscribable,
   noLegFor,
   readSnapshot,
+  type ReadMiss,
+  type Snapshot,
   streamForUri,
 } from "./read";
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
@@ -561,11 +564,21 @@ export async function serveSurfaceAsMcp<
     // THE `resources/read` edge's branding — the mirror of `failFrom` on the
     // tools/call side (see {@link brand}). Without it the same link failure
     // named this adapter or didn't depending on which request kind hit it.
-    const result = await withGeneration((current, withBundle) =>
-      withBundle((bundle) =>
+    const result = await withGeneration((current, withBundle) => {
+      // ADDRESS FIRST, dial second — the rule `withGeneration` states and the
+      // one `tools/call` and `resources/subscribe` already keep. `addressOf` is
+      // pure over `(uri, generation)`; asking it costs no connection, and asking
+      // it AFTER the dial is what turned an unknown or retired URI into a link
+      // failure whenever the served daemon happened to be down. A caller who
+      // typed a URI wrong, or held one from a roster ago, would then be told the
+      // connection dropped — the one answer that is about neither.
+      if (addressOf(uri, current) === undefined) {
+        return Promise.resolve<Snapshot | ReadMiss>({ miss: "unresolved" });
+      }
+      return withBundle((bundle) =>
         runRequest(readSnapshot(bundle, uri, current), extra.signal),
-      ),
-    ).catch((e: unknown): never => {
+      );
+    }).catch((e: unknown): never => {
       // `messageOf`, the SAME derivation `failFrom` uses on the tools/call side
       // — which is what makes the comment above a mirror rather than a claim.
       // Spelled inline, a `Schema.TaggedError` procedure failure (empty

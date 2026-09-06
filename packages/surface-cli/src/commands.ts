@@ -5,7 +5,28 @@
  * same surface as commands. Both read ONE `expose` map by one grammar
  * (`classifyExpose`), take ONE verb table (`SurfaceVerb`), and compute ONE name
  * per procedure (`toolName`) — so `git_commit` the MCP tool and `git_commit` the
- * CLI verb are one name for one function, and the two faces cannot drift.
+ * CLI verb are one name for one function, and the two faces cannot drift about
+ * WHAT a member is called.
+ *
+ * ## What the two faces DO decide separately — the composition gates
+ *
+ * They cannot drift about names. They can, and do, differ about whether a given
+ * bundle DECLARATION is servable at all, because the refusals are properties of
+ * each face's ADDRESS SPACE and the two address spaces are genuinely different:
+ * MCP has one flat namespace, argv has a tree. A host handing one declaration to
+ * both faces should know which refusal comes from which:
+ *
+ * | refused by | what | why the other face does not |
+ * | --- | --- | --- |
+ * | both | a bundle with neither a core nor a sibling | the shared fold |
+ * | both | an `expose` key naming nothing on its own spec | `classifyExpose` |
+ * | MCP only | a sibling key equal to a CORE COLLECTION's key | `surface://collections/<k>/{id}` would be that collection's items and that sibling's whole space at once; argv reads `get <k> <key>` and `<k> …` as different words |
+ * | MCP only | two tools colliding in the `_`-joined namespace (a bundle-root `a_x` beside sibling `a`'s `x`) | argv mounts them as `a_x` and `a x`, which do not collide |
+ * | CLI only | a sibling key equal to a reader command (`get`/`keys`/`watch`/`list`) or a root verb | MCP has no reader commands and no argv word to shadow |
+ * | CLI only | a sibling that exposes nothing | argv would mount a word with no subcommand under it; MCP just contributes no names, and an empty row is load-bearing there (a plugin on its way out — juspay/olai#546) |
+ *
+ * That last row is the one worth knowing: an empty sibling is legal on MCP and
+ * refused here, deliberately, and neither is the other's bug.
  *
  * ## It returns a VALUE, and does not run a program
  *

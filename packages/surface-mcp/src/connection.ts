@@ -123,6 +123,19 @@ export function makeSharedConnection<Client>(
    *  tables the same request resolved its address against. One counter, checked at
    *  the one place a dial publishes, is the whole of it. */
   let rosterEpoch = 0;
+  /** The one sentence a caller gets when the roster moved out from under its
+   *  dial. Named because BOTH windows raise it and they must read alike: a
+   *  `retire()` landing while the dial was in flight (`dialOnce`), and one
+   *  landing between the slot publishing and `get` re-checking it. Neither is a
+   *  transport that will not stay up, which is the only other thing that empties
+   *  the slot and the thing this used to be mistaken for. */
+  const rosterMoved = (): Error =>
+    linkFailure(
+      "the sibling roster moved while this connection was being dialled, so " +
+        "the bundle it carries is a generation behind the tables this request " +
+        "resolved against",
+      "retry, and the next dial carries the new roster",
+    );
 
   const drop = (conn: Conn): void => {
     // The identity guard is the single invariant: a drop is inert unless `conn`
@@ -151,12 +164,7 @@ export function makeSharedConnection<Client>(
     }
     if (rosterEpoch !== epoch) {
       void disposeQuietly(conn);
-      throw linkFailure(
-        "the sibling roster moved while this connection was being dialled, so " +
-          "the bundle it carries is a generation behind the tables this request " +
-          "resolved against",
-        "retry, and the next dial carries the new roster",
-      );
+      throw rosterMoved();
     }
     // Teardown won the race while we dialed: there is no slot to publish into,
     // so dispose the just-opened socket rather than orphan it (the adapter's
@@ -222,6 +230,15 @@ export function makeSharedConnection<Client>(
     get: async (): Promise<Conn> => {
       const started = Date.now();
       const deadline = started + BORN_DEAD_DIAL_BUDGET_MS;
+      // WHICH roster this caller is dialling for. The identity check below fails
+      // for two unrelated reasons, and only one of them is a born-dead
+      // connection: a `retire()` landing after the slot published empties it too,
+      // and looping on THAT reports a daemon "not staying up long enough to carry
+      // a request" — false of a daemon that is up and whose roster simply moved.
+      // `dialOnce` already tells the two apart for a retire that lands mid-dial;
+      // this is the same question for one that lands mid-await, which the
+      // `{t:"live"}` fast path makes reachable with no I/O in the window at all.
+      const epoch = rosterEpoch;
       let attempts = 0;
       while (attempts < BORN_DEAD_DIAL_ATTEMPTS && Date.now() < deadline) {
         attempts += 1;
@@ -229,6 +246,7 @@ export function makeSharedConnection<Client>(
         // Still the current connection ⇒ it did not announce a close on the way
         // out, so it is live as far as anything here can know.
         if (state.t === "live" && state.conn === conn) return conn;
+        if (rosterEpoch !== epoch) throw rosterMoved();
       }
       throw linkFailure(
         `the served surface's transport closed immediately on each of ${attempts} consecutive dials over ${
