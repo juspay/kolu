@@ -32,6 +32,7 @@
 import type { ResolvedBundle } from "./bundle";
 import { collectionUri, parseCollectionItem } from "./expose";
 import type { SiblingKey } from "@kolu/surface/client";
+import { siblingDroppedDetail } from "@kolu/surface/server";
 
 /** The sentence a retired name earns, in the ONE reading that is true of it.
  *
@@ -42,9 +43,14 @@ import type { SiblingKey } from "@kolu/surface/client";
  *  hear instead of "you got the name wrong" — and they differ only in what the
  *  caller should do next, so they differ only in the sentence. */
 function retiredNote(sibling: string, present: boolean): string {
-  return present
-    ? `the sibling "${sibling}" no longer exposes it — re-read the list`
-    : `the sibling "${sibling}" was dropped from this rooted bundle — re-read the list`;
+  const why = present
+    ? `the sibling "${sibling}" no longer exposes it`
+    : // The FRAMEWORK's sentence, beside `SurfaceSiblingDropped`, which says the
+      // same thing on the wire — hand-copied here, the two agreed only by
+      // memory. The surrounding clause stays this face's: "re-read the list" is
+      // an MCP host's next move, not a wire caller's.
+      siblingDroppedDetail(sibling);
+  return `${why} — re-read the list`;
 }
 
 /** The endpoint's tombstones: tool names in one table, resource addresses in the
@@ -60,12 +66,6 @@ function retiredNote(sibling: string, present: boolean): string {
 export class DepartedNames {
   private readonly tools = new Map<string, string>();
   private readonly resources = new Map<string, string>();
-  /** The sibling keys the CURRENT roster serves, so a tombstone can say which of
-   *  the two retirements it is without a second writer deciding. Written by the
-   *  same call that writes the tables, from the same generation, because "what is
-   *  standing now" and "what stopped being served just now" are one fact about
-   *  one move. */
-  private standing: ReadonlySet<string> = new Set();
 
   /** Remember what a roster move RETIRED, and forget what it brought back.
    *
@@ -92,9 +92,9 @@ export class DepartedNames {
    *  while a plugin is shutting down, and olai's own log shows one (`chat:0`).
    *
    *  The fix is to say the true sentence rather than to forget the fact:
-   *  {@link retiredNote} reads {@link standing} and tells "dropped" from "no
-   *  longer exposes it". A tombstone now outlives its sibling's return, which is
-   *  exactly what makes it survive the return's departure. */
+   *  {@link retiredNote} is told which siblings are STANDING and tells "dropped"
+   *  from "no longer exposes it". A tombstone now outlives its sibling's return,
+   *  which is exactly what makes it survive the return's departure. */
   record(previous: ResolvedBundle, next: ResolvedBundle): void {
     const own = (
       map: Map<string, string>,
@@ -120,21 +120,25 @@ export class DepartedNames {
     for (const uri of [...this.resources.keys()]) {
       if (next.byUri.has(uri)) this.resources.delete(uri);
     }
-    this.standing = next.siblings;
   }
 
-  toolMessage(name: string): string {
+  /** WHICH sibling keys are standing is the GENERATION's fact, so it is asked
+   *  AT the question rather than copied into a field here. Held as state it was
+   *  a third holder of something the generation already owns, and correct only
+   *  because `record` happened to run one line after the generation was
+   *  swapped — every caller below has the generation in hand anyway. */
+  toolMessage(name: string, standing: ReadonlySet<string>): string {
     const owner = this.tools.get(name);
     return owner === undefined
       ? `unknown tool "${name}"`
-      : `tool "${name}" is no longer served — ${retiredNote(owner, this.standing.has(owner))}`;
+      : `tool "${name}" is no longer served — ${retiredNote(owner, standing.has(owner))}`;
   }
 
-  resourceMessage(uri: string): string {
+  resourceMessage(uri: string, standing: ReadonlySet<string>): string {
     const owner = this.ownerOfUri(uri);
     return owner === undefined
       ? `unknown resource "${uri}"`
-      : `resource "${uri}" is no longer served — ${retiredNote(owner, this.standing.has(owner))}`;
+      : `resource "${uri}" is no longer served — ${retiredNote(owner, standing.has(owner))}`;
   }
 
   /** Which departed sibling a resource URI belonged to, if any.

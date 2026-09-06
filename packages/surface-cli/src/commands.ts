@@ -481,12 +481,11 @@ function scopesOf<
   M extends Record<string, SurfaceSpec>,
   F extends FlagRecord,
   R,
->(opts: SurfaceCliOptions<C, M, F, R>): readonly Scope[] {
+>(opts: SurfaceCliOptions<C, M, F, R>): readonly [Scope, ...Scope[]] {
   const siblings = (opts.surfaces ?? {}) as Record<
     string,
     SurfaceCliSibling<SurfaceSpec>
   >;
-  const keys = Object.keys(siblings).sort();
   // THE fold, the framework's — core first, then the siblings in key order, and
   // an EMPTY walk is the one shape that is not a bundle. Both the order and the
   // refusal used to be spelled here and again, word for word, in the MCP face;
@@ -524,7 +523,10 @@ function scopesOf<
     verbs: callableVerbs(undefined, rootEntries, opts.verbs, opts.annotate),
     readable: readables(rootEntries),
   };
-  const scopes = [
+  // The ROOT is always first, so the tuple type is a fact about the body rather
+  // than an assertion each caller re-makes: both used to write
+  // `scopesOf(opts) as [Scope, ...Scope[]]` to destructure it.
+  const scopes: [Scope, ...Scope[]] = [
     root,
     ...positions.flatMap(({ sibling, value }): Scope[] =>
       sibling === undefined
@@ -541,11 +543,15 @@ function scopesOf<
     ...READER_NAMES.map((name): [string, string] => [name, "a reader command"]),
     ...root.verbs.map((verb): [string, string] => [verb.name, verb.source]),
   ]);
-  for (const key of keys) {
-    const prior = atRoot.get(key);
+  // Over the scopes the fold already produced — the sibling keys are what that
+  // walk is FOR, and a second `Object.keys(siblings).sort()` beside it was the
+  // line `rootedBundleEntries` was extracted to delete.
+  for (const scope of scopes) {
+    if (scope.sibling === undefined) continue;
+    const prior = atRoot.get(scope.sibling);
     if (prior !== undefined) {
       throw new SurfaceCliBuildError(
-        `surface-cli: the sibling "${key}" would be mounted beside ${prior} of the same name — rename one.`,
+        `surface-cli: the sibling "${scope.sibling}" would be mounted beside ${prior} of the same name — rename one.`,
       );
     }
   }
@@ -581,9 +587,9 @@ export function surfaceCommands<
   opts: SurfaceCliOptions<C, M, F, R>,
 ): ReadonlyArray<ProjectedCommand<Stdio.Stdio | R>> {
   const scopes = scopesOf(opts);
-  const [root, ...siblings] = scopes as [Scope, ...Scope[]];
+  const [root, ...siblings] = scopes;
   const mounted = [
-    ...root.verbs.map((verb) => verbCommand(opts, root, verb)),
+    ...root.verbs.map((verb) => verbCommand(opts, verb)),
     ...readerCommands(opts, root),
     ...siblings.map((scope) => siblingCommand(opts, scope)),
     listCommand(opts, scopes),
@@ -627,7 +633,7 @@ export function surfaceHelp<
   opts: SurfaceCliOptions<C, M, F, R> & { readonly help: SurfaceCliHelp },
 ): string {
   const scopes = scopesOf(opts);
-  const [root, ...siblings] = scopes as [Scope, ...Scope[]];
+  const [root, ...siblings] = scopes;
   const rows = new Map<string, HelpRow>();
   const prefix = `${opts.info.name} ${opts.help.command}`;
   const exampleFor = (name: string): string | undefined => {
@@ -995,13 +1001,12 @@ function build<T>(name: string, f: () => T): T {
 
 function verbCommand<F extends FlagRecord, R>(
   opts: FaceContext<F, R>,
-  scope: Scope,
   verb: CallableVerb,
 ): ProjectedCommand<Stdio.Stdio | R> {
   return Command.make(
     verb.name,
     mergeConfig(opts, verb.name, verb.projection.config, true),
-    (values: Record<string, unknown>) => runVerb(opts, scope, verb, values),
+    (values: Record<string, unknown>) => runVerb(opts, verb, values),
   ).pipe(Command.withDescription(blurb(verb))) as ProjectedCommand<
     Stdio.Stdio | R
   >;
@@ -1023,7 +1028,7 @@ function siblingCommand<F extends FlagRecord, R>(
   return Command.make(key).pipe(
     Command.withDescription(siblingBlurb(scope)),
     Command.withSubcommands([
-      ...scope.verbs.map((verb) => verbCommand(opts, scope, verb)),
+      ...scope.verbs.map((verb) => verbCommand(opts, verb)),
       ...readerCommands(opts, scope),
     ]),
   ) as ProjectedCommand<Stdio.Stdio | R>;
@@ -1095,7 +1100,6 @@ function mergeConfig<F extends FlagRecord, R>(
 
 function runVerb<F extends FlagRecord, R>(
   opts: FaceContext<F, R>,
-  scope: Scope,
   verb: CallableVerb,
   values: Record<string, unknown>,
 ): Effect.Effect<void, unknown, Stdio.Stdio | R> {
@@ -1157,6 +1161,10 @@ function runVerb<F extends FlagRecord, R>(
     // handed the client of the thing it was DECLARED on — the framework's rule,
     // `declarationTarget`, the same one the MCP face dispatches by — and its
     // `args` ARE the decoded one.
+    //
+    // BOTH arms read `verb.sibling`, which is the one holder of that fact:
+    // `callableVerbs(sibling, …)` stamps it on every verb it mints, so the scope
+    // this verb was built in carried nothing the verb does not.
     const output = yield* withConnection(opts, values, (bundle, where) =>
       verb.source === "bespoke"
         ? Effect.flatMap(
@@ -1164,7 +1172,7 @@ function runVerb<F extends FlagRecord, R>(
             (client) => verb.call(client, decoded),
           )
         : Effect.flatMap(
-            surfaceOf(opts, bundle, where, scope.sibling),
+            surfaceOf(opts, bundle, where, verb.sibling),
             (client) => verb.call(client, encoded),
           ),
     );

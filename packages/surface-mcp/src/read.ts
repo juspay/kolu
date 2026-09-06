@@ -84,10 +84,20 @@ export type Address =
       readonly uri: string;
       readonly sibling: SiblingKey;
       readonly key: string;
+      /** The member verb that opens it — an item is always the collection's
+       *  `get`. Spelled on the arm rather than re-derived from `kind` at every
+       *  reader: `bind` and {@link unreachableDetail} each used to ask
+       *  `kind === "collection-item" ? "get" : address.verb` for the same fact. */
+      readonly verb: "get";
       /** The URI's `<id>`, decoded against the collection's key schema. Decoded
        *  HERE, once, and carried — the reader downstream used to decode it a
        *  second time from the same URI. */
       readonly itemKey: unknown;
+      /** Does the COLLECTION declare a `keys` verb? The CONTRACT's answer
+       *  (`resolveCollectionVerbs`, resolved once at expose time onto the
+       *  template), not a duck-type of the dialled client — see
+       *  {@link readCollectionItemSnapshot}. */
+      readonly listable: boolean;
       readonly mimeType: string;
     };
 
@@ -127,7 +137,9 @@ export function addressOf(
     uri,
     sibling: item.sibling,
     key: item.key,
+    verb: "get",
     itemKey,
+    listable: template.listable,
     mimeType: "application/json",
   };
 }
@@ -162,9 +174,7 @@ export type Bound =
 export function bind(bundle: RootedSurfaceClients, address: Address): Bound {
   const client = clientAt(bundle, address.sibling);
   if (client === undefined) return { at: "no-leg", address };
-  const member = client.surface[address.key];
-  const proc =
-    address.kind === "collection-item" ? member?.get : member?.[address.verb];
+  const proc = client.surface[address.key]?.[address.verb];
   if (proc === undefined) return { at: "no-member", address };
   const input =
     address.kind === "collection-item" ? { key: address.itemKey } : undefined;
@@ -196,6 +206,27 @@ export function noLegFor(sibling: SiblingKey, what: string): string {
   );
 }
 
+/** The OTHER half of the same fact, and the same arrangement: the leg is there
+ *  and its face is narrower than the roster being served.
+ *
+ *  Beside {@link noLegFor} because the two travel together — a `tools/call` that
+ *  finds no leg already says the first sentence and used to hand-roll the second
+ *  as a bare `client has no procedure "<ns>.<verb>"`, which is the same condition
+ *  the resource path words through {@link unreachableDetail}. One name, so the
+ *  leg sentence and the member sentence move together. */
+export function noMemberFor(
+  sibling: SiblingKey,
+  member: string,
+  verb: string,
+): string {
+  const which = sibling === undefined ? "core" : `sibling "${sibling}"`;
+  return (
+    `the dialled ${which} client's face has no "${member}.${verb}" — the ` +
+    "connection is answering for a narrower surface than the roster being " +
+    "served, not the address wrong."
+  );
+}
+
 /** The unreachable arms' sentence — a leg that is missing, or a leg whose face
  *  is. Both name the CONNECTION as the thing that is behind, because in both
  *  cases the address is right and the dial is not. */
@@ -205,12 +236,11 @@ export function unreachableDetail(
   const { address } = bound;
   const what = `${address.uri} (${address.kind})`;
   if (bound.at === "no-leg") return noLegFor(address.sibling, what);
-  const verb = address.kind === "collection-item" ? "get" : address.verb;
-  return (
-    `${what} is served by this bundle, but the dialled client's face has no ` +
-    `"${address.key}.${verb}" — the connection is answering for a narrower ` +
-    "surface than the roster being served, not the address wrong."
-  );
+  return `${what} is served by this bundle, but ${noMemberFor(
+    address.sibling,
+    address.key,
+    address.verb,
+  )}`;
 }
 
 /** Open the streaming source for a subscribed URI (the pusher's `StreamFor`).
@@ -239,17 +269,18 @@ export interface Snapshot {
   mimeType: string;
 }
 
-/** A one-shot read that produced no snapshot, and WHY — so the handler tells a
- *  genuinely unaddressable URI (`unresolved`) apart from a well-formed
- *  collection-item URI whose key is simply not present yet (`not-present`, the
- *  #1681 held-open case). Collapsing both to a bare `undefined` + one "unknown
- *  resource" message hid that distinction (invalid-states-unrepresentable).
+/** A one-shot read that produced no snapshot: a well-formed collection-item URI
+ *  whose key is simply not present yet (the #1681 held-open case). Collapsing it
+ *  into a bare `undefined` + one "unknown resource" message hid the distinction
+ *  between it and an unaddressable URI (invalid-states-unrepresentable) — but
+ *  UNADDRESSABLE never reaches here: {@link readSnapshot} takes an Address, so
+ *  the handler that resolved one has already answered that case itself.
  *
- *  Both arms are ESTABLISHED facts. A read that ran out of time established
- *  neither, so it is not a miss at all — it fails, with the sentence the CLI
- *  face gives the same outcome. `not-present` means "membership answered, and
- *  the answer is no"; nothing else may borrow it. */
-export type ReadMiss = { miss: "unresolved" | "not-present" };
+ *  It is an ESTABLISHED fact. A read that ran out of time established nothing,
+ *  so it is not a miss at all — it fails, with the sentence the CLI face gives
+ *  the same outcome. `not-present` means "membership answered, and the answer is
+ *  no"; nothing else may borrow it. */
+export type ReadMiss = { miss: "not-present" };
 export function isMiss(r: Snapshot | ReadMiss): r is ReadMiss {
   return "miss" in r;
 }
@@ -285,17 +316,19 @@ export function isMiss(r: Snapshot | ReadMiss): r is ReadMiss {
  *  resource" would be false of it, and the two facts a host can act on are
  *  different (fix the address vs. fix the `client()` factory).
  *
+ *  It takes the ADDRESS, not the `(uri, generation)` pair — "one derivation,
+ *  once" applies to the handler above it too. `resources/read` resolves the
+ *  address BEFORE it dials (that is what keeps an unknown URI from becoming a
+ *  link failure under a daemon that is down), so re-deriving it here was the
+ *  same walk twice per request and left the handler holding a value it threw
+ *  away.
+ *
  *  Returns an EFFECT: the caller runs it with the MCP request's `AbortSignal`, so
  *  a cancelled read interrupts every subscription it opened. */
 export function readSnapshot(
   bundle: RootedSurfaceClients,
-  uri: string,
-  gen: ResolvedBundle,
+  address: Address,
 ): Effect.Effect<Snapshot | ReadMiss, unknown> {
-  const address = addressOf(uri, gen);
-  if (address === undefined) {
-    return Effect.succeed<Snapshot | ReadMiss>({ miss: "unresolved" });
-  }
   const bound = bind(bundle, address);
   if (bound.at !== "call") {
     return Effect.fail(new Error(unreachableDetail(bound)));
@@ -369,12 +402,27 @@ function readFirstFrameSnapshot(
  *  It takes the ADDRESS it was resolved from, so there is no second parse of the
  *  URI, no second template lookup and no second `decodeKey` — and therefore no
  *  `Effect.die` guard whose only job was to prove the second derivation agreed
- *  with the first. */
+ *  with the first.
+ *
+ *  Whether there IS a membership signal is the CONTRACT's answer, carried on the
+ *  address (`listable`, resolved from `resolveCollectionVerbs` at expose time),
+ *  not a duck-type of the dialled client. Asked of the client, a collection that
+ *  DECLARES `keys` but whose leg does not carry the member read as "this
+ *  collection has no membership signal" and degraded to the deadline alone — a
+ *  five-second wait ending in a failure about time, for what is really the
+ *  narrow-face fact {@link noMemberFor} already has a sentence for. */
 function readCollectionItemSnapshot(
   address: Extract<Address, { kind: "collection-item" }>,
   bound: Extract<Bound, { at: "call" }>,
 ): Effect.Effect<Snapshot | ReadMiss, unknown> {
-  const keysProc = bound.client.surface[address.key]?.keys;
+  const keysProc = address.listable
+    ? bound.client.surface[address.key]?.keys
+    : undefined;
+  if (address.listable && keysProc === undefined) {
+    return Effect.fail(
+      new Error(noMemberFor(address.sibling, address.key, "keys")),
+    );
+  }
   return Effect.flatMap(
     firstFrameOfCollectionItem(
       bound.open(),

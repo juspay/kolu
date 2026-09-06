@@ -204,6 +204,13 @@ export interface ResolvedBundle {
    *  no field for either — a gap in the consumer's authoring map, not in this
    *  projection. */
   readonly advertisedTools: ReadonlyArray<Record<string, unknown>>;
+  /** `resources/list`'s answer, projected once per generation — the same
+   *  compute-once-read-N-times reasoning `advertisedTools` states, for the same
+   *  reason: nothing in the projection reads request state, and the handler that
+   *  re-ran it per request re-ran it for every list a host takes. */
+  readonly advertisedResources: ReadonlyArray<Record<string, unknown>>;
+  /** `resources/templates/list`'s answer, on the same terms. */
+  readonly advertisedResourceTemplates: ReadonlyArray<Record<string, unknown>>;
 }
 
 /** `annotations` carry the read/write distinction to the host: a read-only tool
@@ -243,8 +250,13 @@ export function resolveBundle<
     bundle.core as BundlePosition | undefined,
     siblings,
   );
-  const siblingKeys = Object.keys(siblings);
   if (positions.length === 0) throw new Error(notABundleDetail(ADAPTER_NAME));
+  // Off the FOLD, not a second `Object.keys(siblings)` beside it: the fold is
+  // the one walk of the bundle, and deleting exactly this line is what it was
+  // extracted for.
+  const siblingKeys = positions.flatMap(({ sibling }) =>
+    sibling === undefined ? [] : [sibling],
+  );
 
   const resources: ResourceEntry[] = [];
   const resourceTemplates: ResourceTemplateEntry[] = [];
@@ -261,7 +273,7 @@ export function resolveBundle<
     take(resolveExpose(value.surface.spec, value.expose, sibling));
   }
 
-  assertItemSpaceUnshadowed(bundle.core, resources, siblingKeys);
+  assertItemSpaceUnshadowed(resources, siblingKeys);
 
   // ── The whole tool namespace's uniqueness invariant, in one pass ────────
   // The union of generated tool names and every bespoke table's names must have
@@ -350,6 +362,16 @@ export function resolveBundle<
         annotations: toolAnnotations(tool.mutates ?? true),
       })),
     ],
+    advertisedResources: resources.map((r) => ({
+      uri: r.uri,
+      name: r.name,
+      mimeType: r.mimeType,
+    })),
+    advertisedResourceTemplates: resourceTemplates.map((t) => ({
+      uriTemplate: t.uriTemplate,
+      name: t.name,
+      mimeType: t.mimeType,
+    })),
   };
 }
 
@@ -370,13 +392,17 @@ function describeProcedure(tool: ToolEntry): string {
  *
  *  So it is refused at BOOT and on every reroster, naming both claimants. It is
  *  the only pair that can collide — every other kind's URI has a fixed segment
- *  count, and the tool names are held disjoint by the uniqueness pass above. */
-function assertItemSpaceUnshadowed<C extends SurfaceSpec>(
-  core: McpCore<C> | undefined,
+ *  count, and the tool names are held disjoint by the uniqueness pass above.
+ *
+ *  It takes no `core` and needs none: the shadowed set is the CORE's own
+ *  resources (`sibling === undefined`) whose key a sibling also claims, so a
+ *  coreless bundle contributes nothing to the filter and an empty sibling set
+ *  empties it. A parameter and a fast-path guard that only restate what the
+ *  filter already computes are two more things to keep true. */
+function assertItemSpaceUnshadowed(
   resources: readonly ResourceEntry[],
   siblingKeys: readonly string[],
 ): void {
-  if (core === undefined || siblingKeys.length === 0) return;
   const keys = new Set(siblingKeys);
   const shadowed = resources
     .filter((r) => r.sibling === undefined && r.kind === "collection")

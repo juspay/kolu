@@ -469,6 +469,14 @@ A key that is dropped and later re-mounted mints a **new** handler at the same
 tags, so a recycled name can never route a stale connection into a different
 sibling's members.
 
+`siblingDroppedDetail(key)` is that refusal's **one sentence** — "the sibling
+`"<key>"` was dropped from this rooted bundle" — beside the class, read by
+`SurfaceSiblingDropped.message` and by the second reader that is not on the wire
+at all: `@kolu/surface-mcp`'s retirement table, which words the same fact for an
+agent holding a stale `tools/list`. Each caller keeps its own surrounding clause
+(what the name was, what to do next); only the sentence is shared, the same
+arrangement `notStandaloneRootDetail` makes for the three rooted doors.
+
 `drop()` is idempotent and **always resolves**; a teardown fault reaches
 `done`, the runtime's one owned-fault channel, exactly as a finalizer faulting
 during `close()` does. The root's channels are its own (`<member>:changed`) and a

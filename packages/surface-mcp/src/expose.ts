@@ -40,6 +40,7 @@
 
 import type { SiblingKey } from "@kolu/surface/client";
 import type { SurfaceSpec, WireSchemaAny } from "@kolu/surface/define";
+import { resolveCollectionVerbs } from "@kolu/surface/define";
 import {
   classifyExpose,
   type ExposeMap,
@@ -99,6 +100,15 @@ export interface ResourceTemplateEntry {
    *  before calling `.get({ key })`. A `keySchema: Schema.Finite` collection
    *  must turn the string `"42"` into `42`, not address item `"42"`. */
   keySchema: WireSchemaAny;
+  /** Does the collection DECLARE a `keys` verb? The bounded item read races the
+   *  item's first frame against a live membership watch, and whether there is
+   *  one to watch is a fact about the CONTRACT — the framework's
+   *  `resolveCollectionVerbs`, which documents itself as the single runtime
+   *  source of that rule, and which the argv face already asks. Read here, once,
+   *  where the spec is in hand; the read path used to duck-type the DIALLED
+   *  client instead, which answered "no membership signal" for a collection whose
+   *  leg was merely narrower than the roster. */
+  listable: boolean;
 }
 
 /** A tool backed by an exposed procedure. */
@@ -133,10 +143,17 @@ export interface ResolvedExpose {
 
 // ── URI helpers ─────────────────────────────────────────────────────────
 
-export const CELL_PREFIX = "surface://cells/";
-export const COLLECTION_PREFIX = "surface://collections/";
-export const STREAM_PREFIX = "surface://streams/";
-export const EVENT_PREFIX = "surface://events/";
+// PRIVATE to this module, all four. The published spellings are the BUILDERS
+// below (`cellUri`/`collectionUri`/`collectionItemTemplate`/`streamUri`/
+// `eventUri`) and the one reader (`parseCollectionItem`); a consumer that
+// concatenated a prefix by hand would be spelling the segment rule a second
+// time, which is exactly what `memberUri` exists to stop. The last external
+// reader went when `parseCollectionItem` moved in here beside the writer whose
+// encoding makes it sound.
+const CELL_PREFIX = "surface://cells/";
+const COLLECTION_PREFIX = "surface://collections/";
+const STREAM_PREFIX = "surface://streams/";
+const EVENT_PREFIX = "surface://events/";
 
 /** The address of one member of a bundle, under a kind's prefix: the sibling key
  *  as a leading SEGMENT where there is one, and nothing at all for the core.
@@ -361,6 +378,7 @@ export function resolveExpose<S extends SurfaceSpec>(
           name: `${displayName(sibling, key)} item`,
           mimeType: "application/json",
           keySchema: collSpec.keySchema,
+          listable: resolveCollectionVerbs(collSpec).includes("keys"),
         });
       })
       .with({ kind: P.union("stream", "event") }, ({ kind, key, spec: io }) => {

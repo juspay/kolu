@@ -130,12 +130,28 @@ export function makeSharedConnection<Client>(
    *  transport that will not stay up, which is the only other thing that empties
    *  the slot and the thing this used to be mistaken for. */
   const rosterMoved = (): Error =>
-    linkFailure(
+    stillServing(
       "the sibling roster moved while this connection was being dialled, so " +
         "the bundle it carries is a generation behind the tables this request " +
         "resolved against",
       "retry, and the next dial carries the new roster",
     );
+
+  /** Leave the current state for `next`, releasing whatever connection was
+   *  live — the whole of both non-drop exits, which differed only in the state
+   *  they land on.
+   *
+   *  The `closed` guard is right for both: `closed` is terminal and never left,
+   *  so a `retire` after teardown must not reopen the slot, and a second
+   *  `dispose` has nothing left to release (the first already moved out of
+   *  `live`). It is written FIRST so a still-pending dial finds no `dialing` slot
+   *  to publish into and disposes its own result — see `dialOnce`. */
+  const settle = (next: ConnState): void => {
+    const prev = state;
+    if (prev.t === "closed") return;
+    state = next;
+    if (prev.t === "live") void disposeQuietly(prev.conn);
+  };
 
   const drop = (conn: Conn): void => {
     // The identity guard is the single invariant: a drop is inert unless `conn`
@@ -261,51 +277,72 @@ export function makeSharedConnection<Client>(
      *  publishing a stale bundle into the slot this line just emptied. */
     retire: (): void => {
       rosterEpoch += 1;
-      const prev = state;
-      if (prev.t === "closed") return;
-      state = { t: "idle" };
-      if (prev.t === "live") void disposeQuietly(prev.conn);
+      settle({ t: "idle" });
     },
-    /** Move to the terminal state FIRST (so a still-pending dial finds no slot to
-     *  publish into and disposes its own result — see `dialOnce`), then dispose
-     *  whatever connection is current (identity-agnostic — the server is closing,
-     *  so there is no successor to protect). */
-    dispose: (): void => {
-      const prev = state;
-      state = { t: "closed" };
-      if (prev.t === "live") void disposeQuietly(prev.conn);
-    },
+    /** Terminal, and identity-agnostic — the server is closing, so there is no
+     *  successor to protect. */
+    dispose: (): void => settle({ t: "closed" }),
   };
 }
 
-/** EVERY failure this adapter reports for a LINK problem, framed for a host
- *  standing on its own stdio channel. The policy, in one place:
+/** EVERY failure this adapter reports for a request it could not carry, framed
+ *  for a host standing on its own stdio channel. The policy, in one place:
  *
- *    1. name the layer that actually died — the raw error is the LINK's own
+ *    1. name the layer that actually failed — the raw error is the LINK's own
  *       vocabulary ("stdio transport closed … the peer process exited"), true of
  *       the link and badly false of everything above it;
- *    2. say THIS MCP SERVER IS STILL RUNNING and has discarded the corpse. An MCP
- *       host reads a link-death message on its own stdio channel and concludes the
- *       MCP server exited, so it stops calling — exactly what happened in
- *       juspay/kolu#2082, where one such message cost the rest of an agent's
- *       session;
+ *    2. say THIS MCP SERVER IS STILL RUNNING. An MCP host reads a link-death
+ *       message on its own stdio channel and concludes the MCP server exited, so
+ *       it stops calling — exactly what happened in juspay/kolu#2082, where one
+ *       such message cost the rest of an agent's session;
  *    3. say what retrying does, since the caller's next move is the whole point.
  *
  *  A `cause` is kept where there is one, so the underlying reason survives the
  *  re-frame (a re-frame must add context, never swallow it).
  *
- *  TEARDOWN is the one link failure this policy does NOT cover, and deliberately:
+ *  TEARDOWN is the one failure this policy does NOT cover, and deliberately:
  *  when the server really is shutting down, "this MCP server is still running"
  *  would be a lie. Those two throws (`dialShared`'s closed gate and `dialOnce`'s
  *  lost race) say plainly that the server closed, and nothing more. */
+const stillServingFrame = (
+  what: string,
+  discarded: string,
+  retry: string,
+  cause?: unknown,
+): Error =>
+  new Error(
+    `${what}. This MCP server is still running${discarded} — ${retry}.`,
+    cause === undefined ? undefined : { cause },
+  );
+
+/** The frame with NO claim about a connection — the request could not be carried
+ *  and the endpoint is fine.
+ *
+ *  Separate from {@link linkFailure} because a SUPERSESSION is not a death: a
+ *  roster move discards a connection that was healthy, and reporting one with
+ *  "has discarded the dead connection" tells a host a corpse exists where there
+ *  is none. Two facts a host acts on differently ("retry, the next dial carries
+ *  the new roster" vs. "the socket died"), so two sentences. */
+export function stillServing(
+  what: string,
+  retry: string,
+  cause?: unknown,
+): Error {
+  return stillServingFrame(what, "", retry, cause);
+}
+
+/** The frame for a genuine LINK DEATH: the same sentence plus the one clause
+ *  that is only true of a corpse — this server has already thrown it away, so
+ *  the next request dials fresh. */
 export function linkFailure(
   what: string,
   retry: string,
   cause?: unknown,
 ): Error {
-  return new Error(
-    `${what}. This MCP server is still running and has discarded the dead ` +
-      `connection — ${retry}.`,
-    cause === undefined ? undefined : { cause },
+  return stillServingFrame(
+    what,
+    " and has discarded the dead connection",
+    retry,
+    cause,
   );
 }

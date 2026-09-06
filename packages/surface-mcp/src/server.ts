@@ -74,13 +74,14 @@ import {
   type ResolvedBundle,
   resolveBundle,
 } from "./bundle";
-import { linkFailure, makeSharedConnection } from "./connection";
+import { linkFailure, makeSharedConnection, stillServing } from "./connection";
 import { DepartedNames } from "./departed";
 import {
   addressOf,
   isMiss,
   isSubscribable,
   noLegFor,
+  noMemberFor,
   readSnapshot,
   type ReadMiss,
   type Snapshot,
@@ -227,6 +228,17 @@ export async function serveSurfaceAsMcp<
   M extends Record<string, SurfaceSpec>,
 >(opts: ServeSurfaceAsMcpOptions<C, M>): Promise<ServedSurfaceMcp> {
   let gen = resolveBundle(opts);
+  /** Everything about this endpoint EXCEPT the roster it booted with.
+   *
+   *  The boot `surfaces` are done the moment `resolveBundle` above has read them,
+   *  and every long-lived closure below must be built over this rather than over
+   *  `opts`: `dial` reads `opts.client()` and `reroster` spreads `{ ...opts,
+   *  surfaces }`, so `opts` kept the FIRST roster's `McpSibling` values — each
+   *  holding a `Surface` spec, an `ExposeMap`, and `tools` handlers closed over
+   *  app state — reachable for the endpoint's whole life. Every LATER roster is
+   *  already released when the next one replaces it; this releases the first one
+   *  on the same terms. */
+  const { surfaces: _bootRoster, ...base } = opts;
   /** WHAT this endpoint has served and no longer does, and WHO owned it — the
    *  retirement policy, which is an axis of its own and has its own module
    *  (`./departed.ts`, where the retention rule is stated out loud). It was two
@@ -258,7 +270,7 @@ export async function serveSurfaceAsMcp<
   // The two are told apart by `dispose`, not by `client`: a bare bundle carries
   // `core` and `clients`, never those two fields, so the test is exact.
   const dial = async (): Promise<OwnedSurfaceConnection> => {
-    const result = await opts.client();
+    const result = await base.client();
     if (
       typeof result === "object" &&
       result !== null &&
@@ -321,7 +333,10 @@ export async function serveSurfaceAsMcp<
     // flight is the ordinary in-flight case, whose outcome is unknown rather than
     // wrong (see {@link linkFailure}).
     if (current !== gen) {
-      throw linkFailure(
+      // `stillServing`, not `linkFailure`: the connection is HEALTHY and the
+      // roster moved under this request, so "has discarded the dead connection"
+      // would assert a corpse that does not exist.
+      throw stillServing(
         "the sibling roster moved between this request resolving its names and " +
           "reaching the served surface, so the two describe different generations",
         "retry, and the next request resolves both against the new roster",
@@ -460,10 +475,14 @@ export async function serveSurfaceAsMcp<
             }
             const proc = client.surface[exposed.ns]?.[exposed.verb];
             if (proc === undefined) {
+              // The MEMBER half of the same fact the line above reports for the
+              // LEG, in the shared sentence rather than a second hand-rolled one:
+              // the two conditions are neighbours and used to be worded apart, so
+              // the resource path said "the connection is answering for a
+              // narrower surface" and this one said a bare "client has no
+              // procedure".
               return fail(
-                brand(
-                  `client has no procedure "${exposed.ns}.${exposed.verb}"`,
-                ),
+                brand(noMemberFor(exposed.sibling, exposed.ns, exposed.verb)),
               );
             }
             // A no-input procedure's payload schema is `Schema.Void`, which the
@@ -525,7 +544,7 @@ export async function serveSurfaceAsMcp<
             return tool.render ? tool.render(out) : ok(out);
           });
         }
-        return fail(brand(departed.toolMessage(name)));
+        return fail(brand(departed.toolMessage(name, current.siblings)));
       });
     } catch (e) {
       return failFrom(e);
@@ -542,60 +561,71 @@ export async function serveSurfaceAsMcp<
 
   // ── resources/list ─────────────────────────────────────────────────────
   server.setRequestHandler(ListResourcesRequestSchema, async () => ({
-    resources: gen.resources.map((r) => ({
-      uri: r.uri,
-      name: r.name,
-      mimeType: r.mimeType,
-    })),
+    resources: gen.advertisedResources,
   }));
 
   // ── resources/templates/list ───────────────────────────────────────────
   server.setRequestHandler(ListResourceTemplatesRequestSchema, async () => ({
-    resourceTemplates: gen.resourceTemplates.map((t) => ({
-      uriTemplate: t.uriTemplate,
-      name: t.name,
-      mimeType: t.mimeType,
-    })),
+    resourceTemplates: gen.advertisedResourceTemplates,
   }));
 
   // ── resources/read ─────────────────────────────────────────────────────
+  /** The three answers a read can reach without failing: a snapshot, an
+   *  established absence, and a URI this generation does not serve — the last
+   *  carrying its own already-worded sentence, because only the resolving step
+   *  holds the generation that has to word it. */
+  type ReadOutcome = Snapshot | ReadMiss | { readonly unresolved: string };
   server.setRequestHandler(ReadResourceRequestSchema, async (req, extra) => {
     const { uri } = req.params;
     // THE `resources/read` edge's branding — the mirror of `failFrom` on the
     // tools/call side (see {@link brand}). Without it the same link failure
     // named this adapter or didn't depending on which request kind hit it.
-    const result = await withGeneration((current, withBundle) => {
-      // ADDRESS FIRST, dial second — the rule `withGeneration` states and the
-      // one `tools/call` and `resources/subscribe` already keep. `addressOf` is
-      // pure over `(uri, generation)`; asking it costs no connection, and asking
-      // it AFTER the dial is what turned an unknown or retired URI into a link
-      // failure whenever the served daemon happened to be down. A caller who
-      // typed a URI wrong, or held one from a roster ago, would then be told the
-      // connection dropped — the one answer that is about neither.
-      if (addressOf(uri, current) === undefined) {
-        return Promise.resolve<Snapshot | ReadMiss>({ miss: "unresolved" });
-      }
-      return withBundle((bundle) =>
-        runRequest(readSnapshot(bundle, uri, current), extra.signal),
-      );
-    }).catch((e: unknown): never => {
+    const result = await withGeneration(
+      (current, withBundle): Promise<ReadOutcome> => {
+        // ADDRESS FIRST, dial second — the rule `withGeneration` states and the
+        // one `tools/call` and `resources/subscribe` already keep. `addressOf` is
+        // pure over `(uri, generation)`; asking it costs no connection, and asking
+        // it AFTER the dial is what turned an unknown or retired URI into a link
+        // failure whenever the served daemon happened to be down. A caller who
+        // typed a URI wrong, or held one from a roster ago, would then be told the
+        // connection dropped — the one answer that is about neither.
+        //
+        // The address is then CARRIED into the read rather than re-derived there:
+        // one derivation, once, which is the rule `./read.ts` states for itself and
+        // which this handler used to break by discarding the value it had just
+        // resolved.
+        //
+        // The UNRESOLVED case is answered here too, in the one place that holds
+        // both the URI and the generation it failed against — `readSnapshot` used
+        // to carry an arm for it that this handler had already ruled out one line
+        // earlier.
+        const address = addressOf(uri, current);
+        if (address === undefined) {
+          return Promise.resolve<ReadOutcome>({
+            unresolved: departed.resourceMessage(uri, current.siblings),
+          });
+        }
+        return withBundle((bundle) =>
+          runRequest(readSnapshot(bundle, address), extra.signal),
+        );
+      },
+    ).catch((e: unknown): never => {
       // `messageOf`, the SAME derivation `failFrom` uses on the tools/call side
       // — which is what makes the comment above a mirror rather than a claim.
       // Spelled inline, a `Schema.TaggedError` procedure failure (empty
       // `message`, identity in `_tag`) reached the host as the bare brand.
       throw new Error(brand(messageOf(e)), { cause: e });
     });
+    // A not-yet-present collection key is a well-formed but empty resource, NOT
+    // an unknown URI — distinct messages so an agent can tell "this address is
+    // wrong" from "this value hasn't arrived yet" (it may appear once its
+    // producer reports in; watch it via `resources/subscribe`).
+    if ("unresolved" in result) throw new Error(brand(result.unresolved));
     if (isMiss(result)) {
-      // A not-yet-present collection key is a well-formed but empty resource, NOT
-      // an unknown URI — distinct messages so an agent can tell "this address is
-      // wrong" from "this value hasn't arrived yet" (it may appear once its
-      // producer reports in; watch it via `resources/subscribe`).
       throw new Error(
-        result.miss === "not-present"
-          ? brand(
-              `resource "${uri}" has no value yet — its collection key is not present`,
-            )
-          : brand(departed.resourceMessage(uri)),
+        brand(
+          `resource "${uri}" has no value yet — its collection key is not present`,
+        ),
       );
     }
     return {
@@ -614,9 +644,12 @@ export async function serveSurfaceAsMcp<
     const { uri } = req.params;
     // Only the resources we actually serve. Storing an unknown URI would
     // leave the pusher attached/retrying for something it can never push.
-    if (!isSubscribable(uri, gen)) {
+    const current = gen;
+    if (!isSubscribable(uri, current)) {
       throw new Error(
-        brand(`cannot subscribe to ${departed.resourceMessage(uri)}`),
+        brand(
+          `cannot subscribe to ${departed.resourceMessage(uri, current.siblings)}`,
+        ),
       );
     }
     pusher.subscribe(uri);
@@ -635,7 +668,7 @@ export async function serveSurfaceAsMcp<
     // refuses must leave this endpoint exactly as it was, still serving the
     // generation it was serving. A half-applied move is the one outcome nothing
     // downstream could recover from.
-    const next = resolveBundle({ ...opts, surfaces });
+    const next = resolveBundle({ ...base, surfaces });
     const previous = gen;
     gen = next;
     departed.record(previous, next);
