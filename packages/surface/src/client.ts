@@ -422,6 +422,59 @@ export function clientAt(
   return sibling === undefined ? bundle.core : bundle.clients?.[sibling];
 }
 
+/** Every POSITION of a rooted bundle's DECLARATION, core first then siblings in
+ *  key order — the declaration half of the shape {@link RootedSurfaceClients} is
+ *  the client half of.
+ *
+ *  "What a rooted bundle IS, and what iterating one owes" is ONE fact: read the
+ *  sibling map, take its keys in a stable order, and put the bare core in front
+ *  of them with no key. Every projecting face walks it, and each spelled the walk
+ *  itself — twice verbatim, `[...Object.keys(x)].sort()` included — so the day
+ *  the shape grows a third half every copy has to be found by grep. It lives here
+ *  because the shape is the FRAMEWORK's: `implementRootedSurfaces` serves it,
+ *  `connectSurfaces` hands it back, and both projecting faces take it.
+ *
+ *  SORTED, because the order reaches a reader: it is the order of a `tools/list`,
+ *  of a `resources/list` and of a `--help` page, and a set that reshuffles on a
+ *  move that changed nothing about a given sibling is noise somebody has to
+ *  re-read.
+ *
+ *  It does NOT refuse the empty bundle, and that is deliberate rather than a gap:
+ *  an empty walk IS the refusable state (`entries.length === 0`), and the SENTENCE
+ *  is {@link notABundleDetail} — so the predicate is derived from the fold and the
+ *  wording is written once, while each face still throws its OWN error class,
+ *  which is the arrangement `notStandaloneRootDetail` already established for the
+ *  three rooted doors. A face that swallowed a shared throw to re-brand it would
+ *  be trading a duplicated predicate for a caught error. */
+export function rootedBundleEntries<T>(
+  core: T | undefined,
+  siblings: Readonly<Record<string, T>> | undefined,
+): ReadonlyArray<{ readonly sibling: string | undefined; readonly value: T }> {
+  const entries: Array<{ sibling: string | undefined; value: T }> = [];
+  if (core !== undefined) entries.push({ sibling: undefined, value: core });
+  for (const key of Object.keys(siblings ?? {}).sort()) {
+    entries.push({
+      sibling: key,
+      value: (siblings as Readonly<Record<string, T>>)[key] as T,
+    });
+  }
+  return entries;
+}
+
+/** The one sentence a face says when it was handed something that is not a
+ *  bundle — no core and no siblings — in that face's own name.
+ *
+ *  Worded once for the same reason {@link notStandaloneRootDetail} is: two faces
+ *  refusing one shape were saying it character for character alike, in two
+ *  packages, as two error classes, and a rule kept by two copies agreeing is a
+ *  rule kept by discipline. */
+export function notABundleDetail(seam: string): string {
+  return (
+    `${seam}: a bundle with no core and no siblings is not a bundle — pass ` +
+    "`core`, at least one entry in `surfaces`, or both"
+  );
+}
+
 /** A live connection a projecting face OWNS for some span — the client plus the
  *  release the face is responsible for.
  *

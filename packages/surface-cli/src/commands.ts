@@ -93,8 +93,10 @@
 
 import {
   clientAt,
+  notABundleDetail,
   type OwnedSurfaceConnection,
   type RootedSurfaceClients,
+  rootedBundleEntries,
   type SurfaceClientCallable,
 } from "@kolu/surface/client";
 import type {
@@ -466,11 +468,34 @@ function scopesOf<
     SurfaceCliSibling<SurfaceSpec>
   >;
   const keys = Object.keys(siblings).sort();
-  if (opts.core === undefined && keys.length === 0) {
-    throw new SurfaceCliBuildError(
-      "surface-cli: a bundle with no core and no siblings is not a bundle — pass `core`, at least one entry in `surfaces`, or both.",
-    );
+  // THE fold, the framework's — core first, then the siblings in key order, and
+  // an EMPTY walk is the one shape that is not a bundle. Both the order and the
+  // refusal used to be spelled here and again, word for word, in the MCP face;
+  // what stays this face's is the error CLASS and the seam's own name, the same
+  // arrangement `notStandaloneRootDetail` makes for the three rooted doors.
+  const positions = rootedBundleEntries<
+    SurfaceCliCore<SurfaceSpec> | SurfaceCliSibling<SurfaceSpec>
+  >(opts.core, siblings);
+  if (positions.length === 0) {
+    throw new SurfaceCliBuildError(notABundleDetail("surface-cli"));
   }
+  const scopeOf = (sibling: SiblingKey, value: SurfaceCliSibling): Scope => {
+    const entries = classifyExpose(
+      value.surface.spec,
+      value.expose,
+      "surface-cli",
+    );
+    return {
+      sibling,
+      verbs: callableVerbs(sibling, entries, value.verbs, value.annotate),
+      readable: readables(entries),
+    };
+  };
+  // The ROOT scope is NOT simply the core's position: it exists even for a
+  // coreless bundle, because the bundle-root verbs are the options object's own
+  // bare table and they mount at the top whatever the core is. So the fold gives
+  // the sibling ORDER and the emptiness refusal; the root is assembled from both
+  // halves that sit there.
   const rootEntries =
     opts.core === undefined
       ? []
@@ -482,19 +507,11 @@ function scopesOf<
   };
   const scopes = [
     root,
-    ...keys.map((key): Scope => {
-      const sibling = siblings[key] as SurfaceCliSibling<SurfaceSpec>;
-      const entries = classifyExpose(
-        sibling.surface.spec,
-        sibling.expose,
-        "surface-cli",
-      );
-      return {
-        sibling: key,
-        verbs: callableVerbs(key, entries, sibling.verbs, sibling.annotate),
-        readable: readables(entries),
-      };
-    }),
+    ...positions.flatMap(({ sibling, value }): Scope[] =>
+      sibling === undefined
+        ? []
+        : [scopeOf(sibling, value as SurfaceCliSibling)],
+    ),
   ];
   // A sibling's argv word shares ONE namespace with everything the root mounts:
   // the parser answers `example outlines …` with whichever it meets first, so a

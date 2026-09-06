@@ -1385,6 +1385,16 @@ back `undefined` so each face can word its own refusal — a refusal is read by
 whoever made the call, and an MCP host and a person at a shell are not the same
 reader.
 
+The **declaration** half of the same shape has one fold, beside it.
+`rootedBundleEntries(core, siblings)` returns every position of a rooted bundle —
+`{ sibling, value }`, the core first with `sibling: undefined`, then the siblings
+in key order, which is the order a `tools/list`, a `resources/list` and a
+`--help` page are rendered in. It does not refuse: an EMPTY walk *is* the shape
+that is not a bundle, and `notABundleDetail(seam)` is that refusal's one
+sentence, in the calling face's own name — so the predicate and the wording are
+each written once while each face still throws its own error class, the same
+arrangement `notStandaloneRootDetail` makes for the three rooted doors.
+
 The per-subscription **retry fence** lives here too, not in a link: a link that
 retried inside itself could not tell one subscriber's supersession from
 another's. `STREAM_RETRY` retries forever on a failure the fence accepts, spaced

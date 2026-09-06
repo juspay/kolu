@@ -33,6 +33,7 @@
  * segment, and the bundle-root table is bare.
  */
 
+import { notABundleDetail, rootedBundleEntries } from "@kolu/surface/client";
 import type { Surface, SurfaceSpec, WireSchemaAny } from "@kolu/surface/define";
 import type { ExposeMap } from "@kolu/surface/expose";
 import { inputSchema } from "@kolu/surface/verbs";
@@ -45,7 +46,17 @@ import {
   type SiblingKey,
   type ToolEntry,
 } from "./expose";
-import { type BespokeTool, brand } from "./tools";
+import { ADAPTER_NAME, type BespokeTool, brand } from "./tools";
+
+/** One position of the bundle as the composition WALKS it: a surface, its
+ *  default-deny map, and — for a sibling — its own authored table. The core and a
+ *  sibling differ only in whether that last field can be there, which is what
+ *  lets one fold visit both. */
+interface BundlePosition {
+  readonly surface: Surface<SurfaceSpec>;
+  readonly expose: ExposeMap<SurfaceSpec>;
+  readonly tools?: Record<string, BespokeTool>;
+}
 
 /** The unprefixed CORE of a bundle: the surface whose members keep their bare
  *  names, and the default-deny map that gates it.
@@ -166,14 +177,17 @@ export function resolveBundle<
     string,
     McpSibling<SurfaceSpec>
   >;
+  // THE fold, the framework's — core first, then the siblings in key order, so
+  // the tables (and therefore `tools/list` and `resources/list`, which a host
+  // renders in order) read the same for the same roster however the caller's
+  // object was built. The walk and its emptiness refusal used to be spelled here
+  // and again, word for word, in the argv face.
+  const positions = rootedBundleEntries<BundlePosition>(
+    bundle.core as BundlePosition | undefined,
+    siblings,
+  );
   const siblingKeys = Object.keys(siblings);
-  if (bundle.core === undefined && siblingKeys.length === 0) {
-    throw new Error(
-      brand(
-        "a bundle with no core and no siblings is not a bundle — pass `core`, at least one entry in `surfaces`, or both",
-      ),
-    );
-  }
+  if (positions.length === 0) throw new Error(notABundleDetail(ADAPTER_NAME));
 
   const resources: ResourceEntry[] = [];
   const resourceTemplates: ResourceTemplateEntry[] = [];
@@ -186,16 +200,8 @@ export function resolveBundle<
     tools.push(...resolved.tools);
   };
 
-  if (bundle.core !== undefined) {
-    take(resolveExpose(bundle.core.surface.spec, bundle.core.expose));
-  }
-  // Sorted, so the tables — and therefore `tools/list` and `resources/list` —
-  // read the same for the same roster however the caller's object was built.
-  // An MCP host renders these in order; a set that reshuffles on a reroster that
-  // changed nothing about a given sibling is noise an agent has to re-read.
-  for (const key of [...siblingKeys].sort()) {
-    const sibling = siblings[key] as McpSibling<SurfaceSpec>;
-    take(resolveExpose(sibling.surface.spec, sibling.expose, key));
+  for (const { sibling, value } of positions) {
+    take(resolveExpose(value.surface.spec, value.expose, sibling));
   }
 
   assertItemSpaceUnshadowed(bundle.core, resources, siblingKeys);
@@ -247,9 +253,11 @@ export function resolveBundle<
       });
     }
   };
+  // The BARE bundle-root table first, then the siblings in the fold's own order,
+  // so a collision report names the two sources in a stable order.
   takeBespoke(undefined, bundle.tools);
-  for (const key of [...siblingKeys].sort()) {
-    takeBespoke(key, (siblings[key] as McpSibling<SurfaceSpec>).tools);
+  for (const { sibling, value } of positions) {
+    if (sibling !== undefined) takeBespoke(sibling, value.tools);
   }
 
   return {
