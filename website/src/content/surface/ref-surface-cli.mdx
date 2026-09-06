@@ -67,6 +67,11 @@ constraint where it does not apply.
 (`outlines ops_run`), with the sibling repeated as a `surface` field so a script
 can group by it without re-splitting a string.
 
+A sibling's own `verbs` are mounted behind its word like everything else it
+contributes, so `outlines read` is here what `outlines_read` is on the MCP
+face — one composition, spelled once per face in the separator that face has.
+Only the bundle-root `verbs` sit bare at the top.
+
 A **verb receives the client of the thing it is declared on**: a sibling's
 `verbs` are handed `clients[key]`, and the bundle-root `verbs` are handed the
 whole `{ core, clients }` bundle.

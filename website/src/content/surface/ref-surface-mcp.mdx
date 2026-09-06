@@ -75,30 +75,28 @@ wire tags, applied here to MCP's two name spaces. Two siblings exposing the same
 member key are therefore disjoint *by construction* rather than because a merge
 happened to keep both.
 
-**Derived names only.** A hand-authored `tools` entry keeps its name exactly as
-written, wherever it was declared. The two are different kinds of name: a member
-key is chosen inside one spec with no view of the others, so the segment makes a
-collision nobody could have foreseen impossible — while a tool name is chosen by
-an author with the whole product in view. It is the product's vocabulary
-(`read_node`, `write_document` — words that appear in agent prompts and in the
-docs that send a plugin author to them), which is a different axis from which
-siblings happen to be standing, and it does not move when the composition does.
-Belonging to a sibling is recorded on the entry instead, which is what still
-makes a sibling's tool **leave with it** on a `reroster`.
+**One rule for every name a sibling contributes** — its hand-authored `tools`
+take the segment exactly as its generated names do (`outlines_read`), so a reader
+of a `tools/list` never has to know which kind of name they are looking at. A
+sibling's tool word is *row-relative* (`read`, `commit`, `nodes`), and putting the
+row in front of it is what composition is for; it is the same word the argv face
+puts the row's own subcommand in front of. Only the **bundle-root** `tools` stay
+bare, having no row to be relative to.
 
 <Aside type="note" title="A tool name is not reversible to its origin">
   `_` is legal inside a tag segment, so `outlines_ops_run` can be spelled by more
-  than one `(sibling, ns, verb)` triple — and an authored name carries nothing
-  about its origin at all. Do not read a tool name backwards. What guarantees the
-  namespace is the one-pass collision check below, over the finished names; the
-  prefix narrows what can reach it and was never the guarantee.
+  than one `(sibling, ns, verb)` triple. Do not read a tool name backwards — the
+  face does not either: which sibling owns a tool is recorded on its entry, which
+  is what the departed-name refusal below consults. And what guarantees the
+  namespace is the one-pass collision check, over the finished names; the prefix
+  narrows what can reach it and is not itself the guarantee.
 </Aside>
 
 Three refusals keep the space honest, and each is made at boot **and again on
 every `reroster`**:
 
 - a sibling key that equals a **core collection's** key is refused: `surface://collections/<k>/{id}` would be that collection's items *and* that sibling's whole address space, and no lookup order resolves that honestly;
-- the whole tool namespace — generated names plus every bespoke table — is checked for duplicates in one pass, each candidate tagged by origin, so a report names both claimants. This is the *whole* guarantee for authored names, and the last one for derived ones: two siblings that authored `publish`, or a bundle-root verb spelled `a_ops_run` beside a sibling `a` exposing `ops.run`, are both refused here;
+- the whole tool namespace — generated names plus every bespoke table — is checked for duplicates in one pass, each candidate tagged by origin, so a report names both claimants. Prefixing does not make it redundant: the bundle-root table is bare and shares one space with every scoped name, so a root `a_here` beside a sibling `a`'s `here` — or a root `a_ops_run` beside a sibling `a` exposing `ops.run` — is refused here;
 - a `expose` key that names nothing on its own sibling's spec is refused where it is written.
 
 A bespoke tool receives **the client of the thing it is declared on**: a
@@ -323,7 +321,7 @@ cannot see through, so a default declared outside it never reaches the agent.
 | `toInputSchema(schema?)` | Effect Schema → JSON Schema (draft 2020-12), `$ref`-dereferenced, top-level-object enforced. A **re-export** of [`@kolu/surface/verbs`](/surface/ref-surface#the-projection-vocabulary-kolusurfaceverbs) — the bridge is the framework's, shared with the CLI face |
 | `resolveExpose(spec, expose, sibling?)` | the default-deny resolver for ONE surface → `{ resources, resourceTemplates, tools }`, with `sibling` folded into every name it mints |
 | `resolveBundle(bundle)` | the whole-bundle resolver both the boot and every `reroster` run through — the flat tables plus every refusal the composition owes |
-| `scopedToolName(sibling, name)` | the tool-name half of the prefix rule (`t_ops_run`) — **derived** names only; an authored one is never passed through it |
+| `scopedToolName(sibling, name)` | the tool-name half of the prefix rule (`t_ops_run`), applied to a sibling's hand-authored tools as well as its generated ones |
 | `McpCore<S>` · `McpSibling<S>` · `McpBundle<C, M>` · `SiblingKey` | the bundle's option shapes |
 | `ToolFailure<D>(message, detail)` | the refusal a handler fails with when the reason is machine-readable — `detail` becomes the result's `structuredContent`, normalized the same way a success is |
 | `messageOf(error)` | the framework's "name what broke" derivation ([`@kolu/surface/errors`](/surface/ref-surface#the-tagged-error-vocabulary-kolusurfaceerrors)), **re-exported** here under the name this package shipped it with — the one the request edge uses to word a failure. Reach for it in a bespoke tool that folds a caught failure into its own message instead of raising it, so both paths word the same error the same way; it handles the two shapes `e instanceof Error ? e.message : String(e)` gets wrong (a tagged error whose `message` is empty, a failure declared as a plain object) |

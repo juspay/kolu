@@ -25,12 +25,12 @@
  * The core is the only surface with no segment, which is what leaves the
  * single-surface face's names exactly as they were.
  *
- * It applies to DERIVED names only. A member key is chosen inside one spec with
- * no view of the others, so the segment is what makes a collision nobody could
- * have foreseen impossible; an AUTHORED tool name is chosen with the whole
- * product in view and stays exactly as written (see {@link McpSibling}). The
- * uniqueness of the finished namespace is the collision pass's job either way —
- * the prefix narrows what can reach it, and was never the guarantee.
+ * It applies to EVERY name a sibling contributes, hand-authored ones included: a
+ * sibling's tool word is row-relative, and putting the row in front of it is what
+ * composition is for. What the segment buys is that a collision nobody could have
+ * foreseen becomes impossible; what it does NOT buy is uniqueness of the finished
+ * namespace, which stays the collision pass's job — `_` is legal inside a
+ * segment, and the bundle-root table is bare.
  */
 
 import type { Surface, SurfaceSpec, WireSchemaAny } from "@kolu/surface/define";
@@ -41,6 +41,7 @@ import {
   type ResourceEntry,
   type ResourceTemplateEntry,
   resolveExpose,
+  scopedToolName,
   type SiblingKey,
   type ToolEntry,
 } from "./expose";
@@ -62,23 +63,20 @@ export interface McpCore<S extends SurfaceSpec> {
 /** One SIBLING of a bundle: its surface, its own default-deny map, and its own
  *  hand-authored tools.
  *
- *  Its DERIVED names take the sibling's key as a segment. Its AUTHORED ones do
- *  not — `tools` keeps every name exactly as written. The two are different kinds
- *  of name and the prefix answers only the first: a member key is chosen inside
- *  one spec with no view of the others, so `entries` on two siblings is a
- *  collision nobody could have foreseen and the segment is what makes it
- *  impossible. A tool name is chosen by an author with the whole product in view;
- *  it is the product's vocabulary (`read_node`, `write_document` — words that
- *  appear in agent prompts and in docs), which is a different axis from which
- *  siblings happen to be standing, and it must not move when the composition
- *  does. What keeps THAT space safe is the collision pass in
- *  {@link resolveBundle} — over the finished namespace, tagged by origin, at boot
- *  and on every reroster — which the prefix was never what guaranteed.
+ *  EVERY name it contributes takes the sibling's key as a segment — the
+ *  hand-authored ones exactly as the derived ones. One rule, so a reader of a
+ *  `tools/list` never has to know which kind of name they are looking at, and an
+ *  author never has to decide whether this particular verb is "product
+ *  vocabulary" enough to escape the composition. A sibling's tool word is
+ *  ROW-RELATIVE (`read`, `commit`, `nodes`), and putting the row in front of it
+ *  is exactly what composition is for; that is the same word the argv face puts
+ *  the row's own subcommand in front of.
  *
- *  Belonging to the sibling is recorded on the entry, not spelled into the name,
- *  so a sibling's verbs still LEAVE with it on a reroster. A sibling's tool is
- *  handed that sibling's own client (`client.clients[key]`), because it is
- *  written against that sibling's surface and nothing else. */
+ *  Belonging to the sibling is ALSO recorded on the entry, and the refusal path
+ *  reads that rather than the name — see {@link ResolvedBespokeTool.sibling}. A
+ *  sibling's tool is handed that sibling's own client (`client.clients[key]`),
+ *  because it is written against that sibling's surface and nothing else, and it
+ *  leaves with the sibling on a reroster. */
 export interface McpSibling<S extends SurfaceSpec = SurfaceSpec> {
   readonly surface: Surface<S>;
   readonly expose: ExposeMap<S>;
@@ -115,10 +113,11 @@ export interface McpBundle<
    *  **a tool receives the client of the thing it is declared on** — so a
    *  sibling's tool gets that sibling's client and this one gets the bundle.
    *
-   *  Names here and on a sibling live in ONE space, both as authored. Two tables
-   *  claiming one word is a boot crash naming both, which is the point: the
-   *  choice of which table a verb belongs on is a real one (does it outlive the
-   *  roster?), and a silent winner would make it look like it did not matter. */
+   *  BARE, and the only bare authored table there is — a bundle-root verb is
+   *  about the endpoint, so it has no row to be relative to. It can still collide
+   *  with a sibling's: a bundle-root `a_x` and a sibling `a` whose tool is `x`
+   *  mint one name from two places, which is the case the collision pass in
+   *  {@link resolveBundle} exists for. */
   readonly tools?: Record<string, BespokeTool>;
 }
 
@@ -136,10 +135,10 @@ export interface ResolvedBespokeTool {
    *  bundle), a sibling's key for one declared on that sibling (handed that
    *  sibling's client).
    *
-   *  Recorded here rather than spelled into the name, which is what lets an
-   *  authored name stay the author's while the tool still leaves with its
-   *  sibling — and what a departed-tool refusal reads, instead of guessing an
-   *  owner out of a name's leading word. */
+   *  Recorded rather than read back out of the name, even though the name now
+   *  carries the segment: `_` is legal inside a tag segment, so a leading
+   *  `<key>_` is not a sound reading of ownership and never was. It is also what
+   *  a departed-tool refusal consults — see `recordDeparted` in `./server.ts`. */
   readonly sibling: SiblingKey;
 }
 
@@ -207,13 +206,11 @@ export function resolveBundle<
   // dispatch order-dependent. Each candidate is tagged by its ORIGIN — which
   // sibling, or the bundle root — so the error names both colliding sources.
   //
-  // THIS pass is what makes the namespace safe, and the prefix never was. The
-  // segment answers a different question — it makes DERIVED names disjoint,
-  // because a member key is chosen inside one spec with no view of the others —
-  // and it does not even close the derived space on its own: `_` is legal inside
-  // a tag segment, so `a_b_c` can be spelled by more than one (sibling, ns, verb)
-  // triple, and only a pass over the finished names can see that. Authored names
-  // rely on it entirely, which is the whole reason it runs over every table.
+  // Prefixing narrows what can reach here; it is not the guarantee. `_` is legal
+  // inside a tag segment, so `a_b_c` can be spelled by more than one
+  // (sibling, ns, verb) triple — and a BARE bundle-root name shares the space
+  // with every scoped one, so `a_x` at the root and `x` on sibling `a` mint one
+  // name from two places. Only a pass over the FINISHED names can see either.
   const sourceByToolName = new Map<string, string>();
   const claim = (name: string, source: string): void => {
     const prior = sourceByToolName.get(name);
@@ -232,16 +229,18 @@ export function resolveBundle<
     table: Record<string, BespokeTool> | undefined,
   ): void => {
     for (const [name, tool] of Object.entries(table ?? {})) {
-      // The name AS AUTHORED — see {@link McpSibling}. Which sibling it belongs
-      // to is recorded on the entry instead, which is what a departed-tool
-      // refusal reads and what makes the tool leave with its sibling.
+      // The sibling's segment, exactly as a derived name takes it — one rule for
+      // every name this face publishes (see {@link McpSibling}). Ownership is
+      // recorded on the entry as well, because the NAME is not a sound reading
+      // of it: `_` is legal inside a segment.
+      const scoped = scopedToolName(sibling, name);
       claim(
-        name,
+        scoped,
         sibling === undefined
           ? `bespoke ${name}`
           : `bespoke ${name} on sibling "${sibling}"`,
       );
-      bespoke.set(name, {
+      bespoke.set(scoped, {
         tool,
         ...inputSchema(tool.input as WireSchemaAny | undefined),
         sibling,

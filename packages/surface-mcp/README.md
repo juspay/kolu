@@ -20,9 +20,8 @@ const served = await serveSurfaceAsMcp({
   client: () => ({ core, clients: { tenantA } }),
 });
 
-// The sibling key is a segment of every DERIVED name it contributes:
-//   surface://cells/load          tenantA_proc_kill
-// A hand-authored `tools` entry keeps the name its author wrote.
+// The sibling key is a segment of every name it contributes, hand-authored
+// tools included:  surface://cells/load  ·  tenantA_proc_kill
 await served.reroster({ /* the new sibling map, whole */ });
 ```
 

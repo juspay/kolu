@@ -236,7 +236,7 @@ describe("a rooted bundle composes by PREFIX", () => {
 
 // ── Bespoke tables ───────────────────────────────────────────────────────
 
-describe("a bespoke tool keeps its authored name and gets its own client", () => {
+describe("a bespoke tool takes its sibling's segment and gets its own client", () => {
   it("gives a bundle-root tool the bundle and a sibling's tool that sibling's client", async () => {
     const { mcp } = await connectBundle({
       core: { surface: coreSurface, expose: {} },
@@ -271,13 +271,12 @@ describe("a bespoke tool keeps its authored name and gets its own client", () =>
     });
 
     const { tools } = await mcp.listTools();
-    // AS AUTHORED, on both tables. A hand-written name is the product's
-    // vocabulary — it appears in agent prompts and in docs — so it does not move
-    // because the composition did. Belonging to the sibling is recorded on the
-    // entry, which is what still makes it leave with it (below).
-    expect(tools.map((t) => t.name).sort()).toEqual(["everywhere", "here"]);
+    // ONE RULE for every name a sibling contributes: its hand-authored `here`
+    // takes the segment exactly as a generated name would. Only the bundle-root
+    // table is bare, having no row to be relative to.
+    expect(tools.map((t) => t.name).sort()).toEqual(["a_here", "everywhere"]);
 
-    const sibling = await mcp.callTool({ name: "here", arguments: {} });
+    const sibling = await mcp.callTool({ name: "a_here", arguments: {} });
     expect(
       JSON.parse((sibling.content as Array<{ text: string }>)[0]?.text ?? ""),
     ).toBe("sibling-client");
@@ -316,11 +315,11 @@ describe("the composition refuses at BOOT", () => {
     ).toThrow(/same address space as the sibling/);
   });
 
-  it("refuses two AUTHORED names that collide, naming both claimants", () => {
-    // The pass over the finished namespace is what makes authored names safe,
-    // and it is the whole guarantee now that nothing prefixes them. Which table
-    // a verb belongs on is a real choice (does it outlive the roster?), so a
-    // silent winner would make it look like it did not matter.
+  it("refuses a BARE bundle-root name that collides with a scoped one", () => {
+    // Prefixing does not make the pass redundant: the bundle-root table is bare
+    // and shares one space with every scoped name, so `a_here` at the root and
+    // `here` on sibling `a` mint one name from two places. Only a pass over the
+    // finished names can see it, and the report names both claimants.
     expect(
       bundleOf({
         surfaces: {
@@ -330,35 +329,18 @@ describe("the composition refuses at BOOT", () => {
             tools: { here: { handler: () => Effect.succeed(1) } },
           },
         },
-        tools: { here: { handler: () => Effect.succeed(1) } },
+        tools: { a_here: { handler: () => Effect.succeed(1) } },
       }),
     ).toThrow(
-      /"here" is produced by both bespoke here and bespoke here on sibling "a"/,
+      /"a_here" is produced by both bespoke a_here and bespoke here on sibling "a"/,
     );
-
-    // …and across two siblings, which is the case a prefix used to hide.
-    expect(
-      bundleOf({
-        surfaces: {
-          a: {
-            surface: tenantSurface,
-            expose: {},
-            tools: { here: { handler: () => Effect.succeed(1) } },
-          },
-          b: {
-            surface: tenantSurface,
-            expose: {},
-            tools: { here: { handler: () => Effect.succeed(1) } },
-          },
-        },
-      }),
-    ).toThrow(/produced by both/);
   });
 
   it("refuses an authored name that collides with a DERIVED one", () => {
-    // The two spaces are one space. A sibling `a` exposing `ops.run` derives
-    // `a_ops_run`, so a bundle-root verb spelled that way is refused — and the
-    // report names a procedure on one side and a bespoke table on the other.
+    // The two kinds of name are ONE space. A sibling `a` exposing `ops.run`
+    // derives `a_ops_run`, so a bundle-root verb spelled that way is refused —
+    // and the report names a procedure on one side and a bespoke table on the
+    // other.
     expect(
       bundleOf({
         surfaces: {
@@ -367,6 +349,17 @@ describe("the composition refuses at BOOT", () => {
         tools: { a_ops_run: { handler: () => Effect.succeed(1) } },
       }),
     ).toThrow(/procedure ops\.run on sibling "a" and bespoke a_ops_run/);
+
+    // …while two siblings that authored the SAME word do not collide at all:
+    // each takes its own segment, which is the collision the prefix prevents.
+    const twin = (name: string) => ({
+      surface: tenantSurface,
+      expose: {},
+      tools: { [name]: { handler: () => Effect.succeed(1) } },
+    });
+    expect(
+      bundleOf({ surfaces: { a: twin("read"), b: twin("read") } }),
+    ).not.toThrow();
   });
 
   it("checks each sibling's expose map against ITS OWN spec", () => {
@@ -406,8 +399,8 @@ describe("the roster follows in place", () => {
     expose: { rows: "resource", "ops.run": "tool" },
   });
 
-  /** The same sibling, plus one AUTHORED verb whose name carries nothing about
-   *  which sibling declared it — the case a `<key>_` prefix could never answer. */
+  /** The same sibling, plus one HAND-AUTHORED verb — served as `<key>_<name>`,
+   *  the same segment its generated names take. */
   const siblingWithVerb = (surface: Surface<SurfaceSpec>, name: string) => ({
     ...sibling(surface),
     tools: { [name]: { handler: () => Effect.succeed(name) } },
@@ -482,13 +475,12 @@ describe("the roster follows in place", () => {
       return (res.content as Array<{ text: string }>)[0]?.text ?? "";
     };
 
-    // The DERIVED name, whose owner is spelled into it…
+    // Both kinds of name, derived and hand-authored, refused by the sibling that
+    // owned them — read off the retired entry rather than out of the name.
     expect(await said("b_ops_run")).toContain(
       'the sibling "b" was dropped from this rooted bundle',
     );
-    // …and the AUTHORED one, whose owner is not. Nothing about "publish" says
-    // "b"; the entry did, and that is what the refusal reads.
-    expect(await said("publish")).toContain(
+    expect(await said("b_publish")).toContain(
       'the sibling "b" was dropped from this rooted bundle',
     );
 
@@ -504,9 +496,11 @@ describe("the roster follows in place", () => {
     // …while a name that was never real still reads as unknown, which is a
     // different fact and a different next move for the caller.
     expect(await said("z_ops_run")).toContain("unknown tool");
-    // Including one that merely BEGINS with a departed key's word. Parsing an
-    // owner out of a leading `<key>_` reported this as "no longer served" by a
-    // bundle that never served it.
+    // Including one that merely BEGINS with a departed key's word — which is why
+    // ownership is RECORDED and not parsed even though every scoped name carries
+    // the segment. `_` is legal inside a segment, so a leading `<key>_` was never
+    // a sound reading: parsing it reported this as "no longer served" by a bundle
+    // that never served it.
     expect(await said("b_typo")).toContain("unknown tool");
   });
 
