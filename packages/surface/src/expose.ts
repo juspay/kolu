@@ -193,8 +193,8 @@ export const exposureMutates = (exposure: ToolExposure): boolean =>
  *  a procedure to a `ToolExposure`.
  *
  *  Typed against `S`, with NO string index: write the map where `S` is
- *  inferable — `exposeFace(surface, { … })`, `serveSurfaceAsMcp({ surface,
- *  expose })`, `satisfies ExposeMap<MySpec>` — and a typo'd key is a type
+ *  inferable — `exposeFace(surface, { … })`, `serveSurfaceAsMcp({ core: {
+ *  surface, expose } })`, `satisfies ExposeMap<MySpec>` — and a typo'd key is a type
  *  error rather than a boot crash. A loosening index signature would take that
  *  away on exactly the paths that have it (excess-property checking never fires
  *  when every string key is assignable) and buy nothing on the paths that

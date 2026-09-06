@@ -55,6 +55,7 @@ import {
 import type { WireSchemaAny } from "@kolu/surface/define";
 import { decodeTextValue } from "@kolu/surface/verbs";
 import { Effect, Option, Stream } from "effect";
+import { match, P } from "ts-pattern";
 import type { ResolvedBundle } from "./bundle";
 import {
   collectionUri,
@@ -333,22 +334,25 @@ export function readSnapshot(
   if (bound.at !== "call") {
     return Effect.fail(new Error(unreachableDetail(bound)));
   }
-  switch (address.kind) {
-    case "event":
-      return Effect.succeed<Snapshot | ReadMiss>({
-        value: null,
-        mimeType: address.mimeType,
-      });
-    // A collection-item read must not lean on the held-open `get` to signal
-    // absence — an absent key yields nothing forever — so it gets a BOUNDED read
-    // that races the `get` first frame against a live `keys`-absence watch.
-    case "collection-item":
-      return readCollectionItemSnapshot(address, bound);
-    case "cell":
-    case "collection":
-    case "stream":
-      return readFirstFrameSnapshot(address, bound);
-  }
+  return (
+    match(address)
+      .with({ kind: "event" }, (event) =>
+        Effect.succeed<Snapshot | ReadMiss>({
+          value: null,
+          mimeType: event.mimeType,
+        }),
+      )
+      // A collection-item read must not lean on the held-open `get` to signal
+      // absence — an absent key yields nothing forever — so it gets a BOUNDED read
+      // that races the `get` first frame against a live `keys`-absence watch.
+      .with({ kind: "collection-item" }, (item) =>
+        readCollectionItemSnapshot(item, bound),
+      )
+      .with({ kind: P.union("cell", "collection", "stream") }, (frame) =>
+        readFirstFrameSnapshot(frame, bound),
+      )
+      .exhaustive()
+  );
 }
 
 /** Open a snapshot-first source (cell / collection / stream) and return its first

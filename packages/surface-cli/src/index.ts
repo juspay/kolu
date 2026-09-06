@@ -1,16 +1,19 @@
 /**
  * `@kolu/surface-cli` — project any `@kolu/surface` as command-line verbs.
  *
- * The argv sibling of `@kolu/surface-mcp`: the same surface, the same
- * default-deny `expose` map, the same hand-authored `SurfaceVerb` table, and the
- * same flat verb names — spelled for a shell instead of for an agent. What this
+ * The argv sibling of `@kolu/surface-mcp`: the same ROOTED BUNDLE, the same
+ * default-deny `expose` map per surface, the same hand-authored `SurfaceVerb`
+ * table, and the same verb names — spelled for a shell instead of for an agent,
+ * with a sibling's key as the first argv word where MCP joins it with `_`. What this
  * package owns is only the generic part: the argv grammar, the output and exit
  * discipline, and the projection itself. The domain stays behind the surface,
  * the transport stays with the app, and the run edge stays with the binary.
  *
  * ```ts
  * const verbs = surfaceCommands({
- *   surface, expose: AGENT, verbs: TOOLS,
+ *   core: { surface, expose: AGENT },          // the unprefixed root
+ *   surfaces: { outlines: { surface: outlines, expose: ROWS, verbs: ROW_TOOLS } },
+ *   verbs: TOOLS,                              // bundle-root, bare
  *   endpoint: { flags, resolve },
  *   info: { name: "olai" },
  * })

@@ -405,7 +405,9 @@ export function resolveExpose<S extends SurfaceSpec>(
   }
 
   // Tool-name uniqueness (proc-vs-proc, proc-vs-bespoke, bespoke-vs-bespoke) is
-  // checked in one pass in `serveSurfaceAsMcp`, where the full namespace — the
-  // exposed procedures here plus the bespoke tools — is in view.
+  // checked in one pass in `resolveBundle` (`./bundle.ts`), where the full
+  // namespace — every surface's exposed procedures plus every bespoke table — is
+  // in view. `serveSurfaceAsMcp` only calls it; a reader chasing the invariant
+  // wants the module that owns it.
   return { resources, resourceTemplates, tools };
 }
