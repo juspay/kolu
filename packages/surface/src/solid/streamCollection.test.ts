@@ -85,13 +85,11 @@ it("shares equal stream keys, isolates other keys, folds frames, and releases th
     first.stop();
     await settle();
     expect(closed).toEqual([]);
-    sources
-      .get("a")!
-      .push({
-        kind: "delta",
-        upserts: [["row", { text: "changed" }]],
-        removes: [],
-      });
+    sources.get("a")!.push({
+      kind: "delta",
+      upserts: [["row", { text: "changed" }]],
+      removes: [],
+    });
     await settle();
     expect(twin.view.byKey("row")?.()).toEqual({ text: "changed" });
     twin.stop();
