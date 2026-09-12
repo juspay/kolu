@@ -77,12 +77,15 @@ describe("watchDirWhenReady", () => {
   }, async () => {
     const nested = path.join(tmp, "a", "b", "c");
     const events: number[] = [];
-    stops.push(watchDirWhenReady(nested, () => {
-      events.push(1);
-      // An agent can start writing as soon as its directory appears. Let an
-      // event follow the attach kick before the asynchronous waiter probes.
-      if (events.length === 1) fs.writeFileSync(path.join(nested, "startup"), "x");
-    }));
+    stops.push(
+      watchDirWhenReady(nested, () => {
+        events.push(1);
+        // An agent can start writing as soon as its directory appears. Let an
+        // event follow the attach kick before the asynchronous waiter probes.
+        if (events.length === 1)
+          fs.writeFileSync(path.join(nested, "startup"), "x");
+      }),
+    );
     expect(events.length).toBe(0); // nothing yet — no dir anywhere down a/b/c
 
     fs.mkdirSync(path.join(tmp, "a"));
