@@ -668,6 +668,7 @@ construction, because a declared policy may never route nowhere.
 | cell (read-only, `verbs: ["get"]`) | `.cells.X.use({ onError? })` | a `ReadOnlyUseCellResult` `{ value, pending, error, sub }` — NO `set` / `patch`, and the options accept ONLY `onError` (no `authority: "local"` branch — a get-only cell carries no wire mutation verb) |
 | collection | `.collections.X.use({ keys?, onError? })` | `.byKey(id)?.()`, `.keys()`; mutate with `.upsert(k,v)` / `.delete(k)`. A `deltas`-declaring collection's WHOLE-collection `.use()` also carries `.fold({ init, step })` — see [the frame socket](#the-frame-socket--fold-on-a-deltas-collection) |
 | stream | `.streams.X.use(inputFn, { onError? })` | a `Subscription` DIRECTLY — an accessor plus `.pending()`, `.error()`, `.complete()`, `.updated(...)` and `.changed(...)` |
+| collection-shaped stream | `.streams.X.useCollection(input, descriptor)` | a keyed, read-only collection view with `byKey` and `fold`; equal static inputs share one subscription |
 | event | `.events.X.use(inputFn, handler, { onError?, signal? })` | nothing (no current value) |
 | procedure | `.procedures.<ns>.<verb>(input)` | a `ProcedureEffect<O, E>` — `Effect<O, E \| SurfaceCallFailure>`, the declared union in a channel the compiler tracks |
 
@@ -772,6 +773,14 @@ through the fence onto a wire that no longer serves those tags, which reads as a
 broken connection rather than as what happened. Arrivals are built **before**
 anything is retracted, so an arrival that throws leaves the bundle on its current
 roster rather than half-moved.
+
+A parameterized stream yielding collection snapshots and deltas can use
+`app.streams.X.useCollection(input, descriptor)`. The descriptor supplies the
+collection key/value types; the stream supplies the frames. Input is a static
+JSON key captured on acquisition. Mount a new owner to change it. Equal inputs
+share one upstream subscription and one health entry until the last owner
+disposes; distinct inputs remain independent. The existing retry fence handles
+reconnection, whose first snapshot replaces the old collection contents.
 
 A `Subscription<T>` (`@kolu/surface/solid`) is a SolidJS `Accessor<T | undefined>`
 with `.pending()`, `.error()`, `.complete()` (latches once the stream ends

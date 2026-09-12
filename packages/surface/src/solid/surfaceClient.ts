@@ -23,6 +23,7 @@ import {
   onCleanup,
 } from "solid-js";
 import type { SetStoreFunction } from "solid-js/store";
+import type { Collection } from "../index";
 import {
   buildSurfaceFace,
   type StreamingProcedure,
@@ -79,6 +80,7 @@ import { type UseCellResult, useCell } from "./useCell";
 import {
   type CollectionFold,
   type UseCollectionResult,
+  type UseCollectionDeltasResult,
   useCollection,
   useCollectionDeltas,
 } from "./useCollection";
@@ -378,7 +380,26 @@ export interface ReadOnlyBoundDeltasCollection<K, T>
     ReadOnlyBoundDeltasCollectionResult<K, T>
   > {}
 
+/** Schema-decoded deltas are readonly; consumers only read their frames. */
+type CollectionFrames<K, V> =
+  | {
+      readonly kind: "snapshot";
+      readonly entries: readonly (readonly [K, V])[];
+    }
+  | {
+      readonly kind: "delta";
+      readonly upserts: readonly (readonly [K, V])[];
+      readonly removes: readonly K[];
+    };
+
 export interface BoundStream<I, T> {
+  /** An immutable keyed collection, acquired by this Solid owner. Equal
+   * inputs share one upstream subscription until their last owner leaves. */
+  useCollection<K, V>(
+    this: BoundStream<I, CollectionFrames<K, V>>,
+    input: I,
+    descriptor: Collection<string, K, V>,
+  ): UseCollectionDeltasResult<K, V>;
   use(
     inputFn: () => I | null,
     opts?: ReactiveSubscriptionOptions,
@@ -1411,6 +1432,23 @@ export function buildSurfaceClient<const S extends SurfaceSpec>(
   for (const [key] of Object.entries(spec.streams ?? {})) {
     const ns = memberOf(face, key);
     streams[key] = {
+      useCollection<K, V>(
+        input: unknown,
+        descriptor: Collection<string, K, V>,
+      ) {
+        const cacheKey = `stream-collection:${key}:${stableOptsKey({ input })}`;
+        return subs.use(cacheKey, (onComplete) =>
+          useCollectionDeltas(descriptor, {
+            source: unenrolledStreamCall(
+              ns.get as StreamingProcedure<unknown, CollectionDeltasMsg<K, V>>,
+              input,
+              { label: cacheKey },
+            ),
+            onComplete,
+            enroll: (sub) => registry.enroll(cacheKey, sub),
+          }),
+        );
+      },
       use: (inputFn, streamOpts) => {
         const sub = useStream(
           // biome-ignore lint/suspicious/noExplicitAny: the descriptor types the hook; only its `name` is read at runtime
