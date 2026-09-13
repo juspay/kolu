@@ -19,12 +19,10 @@ import {
 } from "./agentBinaryCache";
 import { type AgentDerivation, flakeAgentDerivation } from "./agentDerivation";
 import type { StepBudget } from "./nixCopy";
-import { describeNixRun, runNix } from "./nixLog";
-import type { ExitResult } from "./process";
+import { describeNixRun, resolverErrorOf, runNix } from "./nixLog";
 import agentEnv from "../agent-env.json" with { type: "json" };
 import { err, ok, type Result } from "neverthrow";
 import QuickLRU from "quick-lru";
-import { match, P } from "ts-pattern";
 
 /** The framework-owned wrapper boundary for an agent source flake. */
 export const SURFACE_AGENT_FLAKE_REF_ENV = agentEnv.flakeRef;
@@ -134,39 +132,6 @@ export interface AgentResolutionContext {
   ): Promise<AgentDerivation>;
 }
 
-function evaluationError(
-  message: string,
-  result: ExitResult,
-  sawNetworkError: boolean,
-): Error {
-  return match(result)
-    .with({ kind: "exit" }, () =>
-      sawNetworkError
-        ? new Error(message)
-        : new ResolveDrvError(message, {
-            kind: "unavailable",
-            failureCause: "remote",
-            terminal: false,
-          }),
-    )
-    .with({ kind: P.union("spawn-error", "output-error", "signal") }, () => {
-      // These are local resource/setup faults, not transport facts. Retrying a
-      // missing executable or externally OOM-killed evaluator inside the host
-      // reconnect loop would respawn the same failure indefinitely; keep it
-      // terminal until an explicit recheck or a new process starts a campaign.
-      return new ResolveDrvError(message, {
-        kind: "unavailable",
-        failureCause: "remote",
-        terminal: false,
-      });
-    })
-    .with(
-      { kind: P.union("lifetime-expired", "aborted") },
-      () => new Error(message),
-    )
-    .exhaustive();
-}
-
 /**
  * Probe `host`, then resolve only `packages.<host-system>.<packageName>` from
  * `flakeRef` as a flake-backed {@link AgentDerivation}. Host-probe failures remain plain transport errors so the
@@ -236,7 +201,7 @@ export async function resolveAgentDrv(
           )
         : new Error(message);
     }
-    throw evaluationError(message, result, result.transportFailure);
+    throw resolverErrorOf(message, result);
   }
   const drv = result.stdout.trim();
   if (!drv.endsWith(".drv")) {

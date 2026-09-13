@@ -47,7 +47,7 @@ import {
 } from "./host";
 import type { SshKeepalive } from "./keepalive";
 import { probePolicy } from "./nixCopy";
-import { describeNixRun, runNix } from "./nixLog";
+import { describeNixRun, resolverErrorOf, runNix } from "./nixLog";
 
 /** Sanity-guard shape for a nix-system identifier: `<cpu>-<os>`, e.g.
  *  `x86_64-linux`, `aarch64-darwin`. Deliberately NOT a closed
@@ -163,7 +163,7 @@ export async function resolveSystem(
       // a local setup fault, not a statement about the far end.
       if (res.kind === "spawn-error" && !local) {
         // Bounded rather than terminal, matching how the sibling resolver treats a
-        // spawn fault (`agentDrv`'s `evaluationError`): it ends instead of
+        // spawn fault (`nixLog`'s `resolverErrorOf`): it ends instead of
         // retrying forever, without claiming a verdict about the remote host.
         throw new ResolveDrvError(
           `${host}: could not run \`ssh\` on THIS machine (${res.message}) — a remote host is reached by spawning ssh locally, so it cannot be dialled until ssh is installed and on kolu's PATH.`,
@@ -184,22 +184,18 @@ export async function resolveSystem(
       );
     }
     const failure = `${host}: \`nix-instantiate --eval builtins.currentSystem\` failed: ${describeNixRun(res)}`;
-    // An EXIT with no transport evidence means ssh RAN the probe and the host's
-    // Nix failed it (a broken nix.conf, a daemon that is down): the host
-    // answered, so calling it unreachable and retrying forever would hide a
-    // fault only its operator can fix. It stays retryable but BOUNDED, like the
-    // other resolver faults, and carries Nix's own error. The transport (Nix's
-    // headline saying so, or ssh's own 255 WITH its reason — `sshExitIsTransport`),
-    // our own kills, and a transient local spawn fault keep the untyped
-    // retry-forever class.
-    if (res.kind !== "exit" || res.transportFailure) {
-      throw new Error(failure);
-    }
-    throw new ResolveDrvError(failure, {
-      kind: "unavailable",
-      failureCause: "remote",
-      terminal: false,
-    });
+    // The probe's one exception to the shared resolver table: a spawn fault
+    // other than ENOENT (handled above) is transient local resource exhaustion
+    // (EMFILE, EAGAIN) that a later dial may well clear, so it keeps the untyped
+    // retry-forever class rather than ending the host.
+    if (res.kind === "spawn-error") throw new Error(failure);
+    // Everything else classifies exactly as the agent evaluation does. An EXIT
+    // with no transport evidence means ssh RAN the probe and the host's Nix
+    // failed it (a broken nix.conf, a daemon that is down): the host answered,
+    // so it is bounded and carries Nix's own error. The transport (Nix's
+    // headline saying so, or ssh's own 255 WITH its reason) and our own kills
+    // stay retry-forever.
+    throw resolverErrorOf(failure, res);
   }
   // nix-instantiate prints the Nix string repr — `"x86_64-linux"\n` —
   // which is valid JSON for a plain string, so JSON.parse strips the

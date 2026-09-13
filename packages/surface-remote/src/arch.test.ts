@@ -292,6 +292,27 @@ describe("resolveSystem ssh-refusal classification", () => {
     expect(await failureOf("localhost")).not.toBeInstanceOf(ResolveDrvError);
   });
 
+  it("an externally killed probe is bounded, exactly as the agent evaluation classifies it", async () => {
+    // One resolver table (`resolverErrorOf`): a signal from outside is a local
+    // fault, not a transport fact, so it must not retry forever here while the
+    // sibling resolver bounds it.
+    vi.mocked(runCapture).mockImplementationOnce(
+      async (): Promise<CaptureResult> => ({
+        ok: false,
+        kind: "signal",
+        signal: "SIGKILL",
+        stdout: "",
+      }),
+    );
+    expect(await failureOf("petit")).toMatchObject({
+      resolution: {
+        kind: "unavailable",
+        failureCause: "remote",
+        terminal: false,
+      },
+    });
+  });
+
   it("keeps a refusal PER DIAL — a later clean probe resolves normally", async () => {
     // `drvFaultCause`-style staleness at the framework layer: the classifier
     // holds no state across dials, so a fixed host recovers on the next probe.

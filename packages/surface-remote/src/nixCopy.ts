@@ -359,6 +359,18 @@ function expiredResult(
   };
 }
 
+/** The retry class of a failed REQUIRED provisioning step — the ONE table, shared
+ *  by the cold build and the GC-root pin. Each step's transport verdict is its
+ *  OWN run's (`NixRun.transportFailure`): a host that went unreachable
+ *  mid-provision exits with Nix's code, so what ssh and Nix SAID is the evidence
+ *  — never a builder's log (see `nixLog.ts`). An `aborted` (user verb) is
+ *  RETRYABLE `"network"` — never the bounded `"remote"` default — so a user
+ *  abort never burns the give-up budget. `lifetime-expired` (our kill) never
+ *  reaches here: each step intercepts its own kill inline via `expiredResult`. */
+function causeFor(res: NixRun): "network" | "remote" {
+  return res.kind === "aborted" || res.transportFailure ? "network" : "remote";
+}
+
 /** Commit `target` behind the target store's indirect per-agent GC root.
  *
  * `nix-store --realise ... --add-root` makes validity and durable ownership one
@@ -389,11 +401,10 @@ async function pinGcRoot(
       pinRes,
     );
   }
-  const network = pinRes.kind === "aborted" || pinRes.transportFailure;
   return {
     ok: false,
     reason: `${host}: could not establish the agent GC root: ${describeNixRun(pinRes)}`,
-    cause: network ? "network" : "remote",
+    cause: causeFor(pinRes),
   };
 }
 
@@ -718,15 +729,6 @@ export async function provisionAgent(
   }
 
   const { onProgress } = opts;
-  // The cold build's transport verdict is its OWN run's (`NixRun.transportFailure`):
-  // a host that went unreachable mid-provision exits with Nix's code, so what
-  // ssh and Nix SAID is the evidence — never a builder's log (see `nixLog.ts`).
-  // An `aborted` (user verb) is RETRYABLE `"network"` — never the bounded
-  // `"remote"` default — so a user abort never burns the give-up budget.
-  // `lifetime-expired` (our kill) never reaches here: the step intercepts its
-  // own kill inline via `expiredResult`.
-  const causeFor = (res: NixRun): "network" | "remote" =>
-    res.kind === "aborted" || res.transportFailure ? "network" : "remote";
 
   const rootPath = agentGcRootPath(isLocal, drvPath);
   // No root path means no rootable agent, and every step below ends at the

@@ -31,10 +31,12 @@
 import { stripVTControlCharacters } from "node:util";
 import { Option, Schema } from "effect";
 import QuickLRU from "quick-lru";
+import { match, P } from "ts-pattern";
 import {
   buildSshProbeCommand,
   isLocalHost,
   looksLikeNetworkError,
+  ResolveDrvError,
   type SshDestination,
   sshExitIsTransport,
   sshReportsTransportFailure,
@@ -355,4 +357,38 @@ export function describeNixRun(res: NixRun): string {
   return res.kind === "exit" && res.error !== null
     ? describeNixError(res.error)
     : describeExit(res);
+}
+
+/** A resolver's verdict for a failed Nix run — the ONE table from a {@link NixRun}
+ *  to the error a `resolveDrvPath` rejects with, shared by the arch probe and the
+ *  agent evaluation so the two can never classify the same outcome differently.
+ *
+ *  - An `exit` with transport evidence stays the untyped (retry-forever) error;
+ *    without it the command RAN and failed, so it is a bounded `unavailable`
+ *    carrying Nix's own error.
+ *  - `spawn-error` / `output-error` / `signal` are local resource or setup
+ *    faults, not transport facts: retrying a missing executable or an externally
+ *    OOM-killed evaluator inside the reconnect loop would respawn the same
+ *    failure indefinitely, so they are bounded too.
+ *  - Our own kills (`lifetime-expired`) and the user's abort stay untyped. */
+export function resolverErrorOf(message: string, run: NixRun): Error {
+  const unavailable = (): Error =>
+    new ResolveDrvError(message, {
+      kind: "unavailable",
+      failureCause: "remote",
+      terminal: false,
+    });
+  return match(run)
+    .with({ kind: "exit" }, (r) =>
+      r.transportFailure ? new Error(message) : unavailable(),
+    )
+    .with(
+      { kind: P.union("spawn-error", "output-error", "signal") },
+      unavailable,
+    )
+    .with(
+      { kind: P.union("lifetime-expired", "aborted") },
+      () => new Error(message),
+    )
+    .exhaustive();
 }
