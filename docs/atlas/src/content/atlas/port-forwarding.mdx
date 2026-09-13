@@ -637,7 +637,9 @@ evidence was the union of the terminals' own ports.
   `TerminalPorts`) and for the whole host — `HostListeners { claimed: PortInfo[],
   unclaimed: known|unknown }`, padi's new read-only `hostListeners` cell
   (surface 5.7). `PortInfo` gains `command`, the owner's command line, bounded
-  at 512 characters.<Footnote>`argv` is a LABEL facet: an unreadable argv shows
+  at 512 characters; each claimed host row also carries `heldByTerminal`, read
+  off the same pass's subtree walk — so "detached" is the scanner's fact, exact
+  even beside a terminal whose root it cannot read.<Footnote>`argv` is a LABEL facet: an unreadable argv shows
   the row by its program name instead of dropping the listener. The unclaimed
   half is its own two-way because macOS 27 hides exactly those sockets.</Footnote>
 - **The reaper reads the host.** `readHostPorts` is one frame of that cell, not
@@ -652,11 +654,15 @@ evidence was the union of the terminals' own ports.
   `listenerAt` in the vocabulary is the one place those four are derived.
 - **Ports gains two groups.** "From this terminal" adds servers the tile printed
   that listen elsewhere, found by an incremental scan of the terminal's own
-  buffer (`printedPorts.ts`) — text that only ever says which tile, never whether.
+  buffer (`printedPorts.ts`), which the backfill controller tells about every
+  scrollback splice (`onPrepended`) — text that only ever says which tile, never
+  whether.
   A folded "elsewhere on this host" lists the user's other listeners, unclaimed
   sockets with a story (printed or forwarded), and orphan doors; kolu's own relay
   listeners are excluded. A print claims a server only when no terminal's subtree
-  holds it — "detached" is that positive fact, not a missing link.
+  holds it (`heldByTerminal: false`). When both halves hold one port, the card,
+  the row and the reaper all take `listenerAt`'s bind, so a door never dials a
+  different listener than the one shown.
 
 **What PRT5 leaves open — PRT6, a host-side printed-URL index.** The index lives
 in the browser's buffer, and a remounted terminal (reload, host switch, wake)

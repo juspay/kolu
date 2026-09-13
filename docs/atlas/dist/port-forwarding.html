@@ -913,7 +913,9 @@ evidence was the union of the terminals’ own ports.</p>
 and argv on the host and folds it twice: per requested root (the old
 <code>TerminalPorts</code>) and for the whole host — <code>HostListeners { claimed: PortInfo[], unclaimed: known|unknown }</code>, padi’s new read-only <code>hostListeners</code> cell
 (surface 5.7). <code>PortInfo</code> gains <code>command</code>, the owner’s command line, bounded
-at 512 characters.<span class="fn" data-fn data-astro-cid-2yjzt2l5><button type="button" class="fn-ref" aria-expanded="false" aria-label="Footnote" data-astro-cid-2yjzt2l5><span class="fn-num" aria-hidden="true" data-astro-cid-2yjzt2l5></span></button><span class="fn-pop" role="tooltip" data-astro-cid-2yjzt2l5><span class="fn-pop-inner" data-astro-cid-2yjzt2l5><code>argv</code> is a LABEL facet: an unreadable argv shows
+at 512 characters; each claimed host row also carries <code>heldByTerminal</code>, read
+off the same pass’s subtree walk — so “detached” is the scanner’s fact, exact
+even beside a terminal whose root it cannot read.<span class="fn" data-fn data-astro-cid-2yjzt2l5><button type="button" class="fn-ref" aria-expanded="false" aria-label="Footnote" data-astro-cid-2yjzt2l5><span class="fn-num" aria-hidden="true" data-astro-cid-2yjzt2l5></span></button><span class="fn-pop" role="tooltip" data-astro-cid-2yjzt2l5><span class="fn-pop-inner" data-astro-cid-2yjzt2l5><code>argv</code> is a LABEL facet: an unreadable argv shows
 the row by its program name instead of dropping the listener. The unclaimed
 half is its own two-way because macOS 27 hides exactly those sockets.</span></span></span></li>
 <li><strong>The reaper reads the host.</strong> <code>readHostPorts</code> is one frame of that cell, not
@@ -928,11 +930,15 @@ visible) · unbacked only when the whole host holds nothing · blind otherwise.
 <code>listenerAt</code> in the vocabulary is the one place those four are derived.</li>
 <li><strong>Ports gains two groups.</strong> “From this terminal” adds servers the tile printed
 that listen elsewhere, found by an incremental scan of the terminal’s own
-buffer (<code>printedPorts.ts</code>) — text that only ever says which tile, never whether.
+buffer (<code>printedPorts.ts</code>), which the backfill controller tells about every
+scrollback splice (<code>onPrepended</code>) — text that only ever says which tile, never
+whether.
 A folded “elsewhere on this host” lists the user’s other listeners, unclaimed
 sockets with a story (printed or forwarded), and orphan doors; kolu’s own relay
 listeners are excluded. A print claims a server only when no terminal’s subtree
-holds it — “detached” is that positive fact, not a missing link.</li>
+holds it (<code>heldByTerminal: false</code>). When both halves hold one port, the card,
+the row and the reaper all take <code>listenerAt</code>’s bind, so a door never dials a
+different listener than the one shown.</li>
 </ul>
 <p><strong>What PRT5 leaves open — PRT6, a host-side printed-URL index.</strong> The index lives
 in the browser’s buffer, and a remounted terminal (reload, host switch, wake)
