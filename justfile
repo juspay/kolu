@@ -25,14 +25,12 @@ pnpm_vendored_filter := '--filter=!osfacts-client'
 # source tree so a remote dial can resolve padi for the host's arch. A run from
 # source has no wrapper, so it sources the SAME (name, value) set Nix builds the
 # wrapper's `--set` args from (`default.nix`'s `agentBakedEnv`) — one definition,
-# no parallel path. Kept as ONE snippet because both working-tree entrypoints
-# need it — `dev` before its parallel fork, and the standalone `server` — and
+# no parallel path. Kept as ONE snippet for the working-tree entrypoints
+# (`dev`, standalone `server`, and the dev smoke harness), and
 # `ci::agent-bake` runs this exact string to prove it still exports (#2039).
 #
-# Two entrypoints bake, not one, because `_dev-parallel` must stay nix-free:
-# ci::dev-smoke enters there (packages/tests/devSmoke.ts) and has no `nix` dep.
-# So `dev` bakes once in its sequential body and forks `_server-raw`, while the
-# standalone `server` bakes for itself. Nothing bakes twice.
+# Each entrypoint bakes before starting the server.
+# The parallel recipes stay nix-free, and no entrypoint bakes twice.
 agent_bake := 'set -a; . "$(nix build --no-link --print-out-paths --accept-flake-config .#agent-flake-env)"; set +a'
 
 mod ai 'agents/ai.just'
@@ -288,8 +286,9 @@ test-agent-bake:
     }
     check_bakes dev 1
     check_bakes server 1
+    check_bakes test-dev 1
     check_bakes _dev-parallel 0
-    echo "agent-bake: dev + server bake once each; _dev-parallel does not bake"
+    echo "agent-bake: dev + server + test-dev bake once each; _dev-parallel does not bake"
 
 # Run client with Vite dev server (HMR)
 client:
@@ -647,6 +646,7 @@ test-quick *args: install
 test-dev: install
     #!/usr/bin/env bash
     set -euo pipefail
+    {{ agent_bake }}
     cd packages/tests
     {{ nix_shell_e2e }} pnpm test:dev-smoke
 

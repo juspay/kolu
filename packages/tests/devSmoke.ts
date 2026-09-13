@@ -179,6 +179,12 @@ async function main() {
         `app never mounted: no [data-ws-status] within ${APP_MOUNT_TIMEOUT_MS}ms`,
       );
     }
+  } catch (error) {
+    console.error(
+      "dev-smoke: dev server output before failure:\n",
+      devLog.join(""),
+    );
+    throw error;
   } finally {
     await browser?.close();
     stopDevServer(dev);
