@@ -49,10 +49,8 @@ let
   # hosted terminals, where node, npm, npx, and corepack are part of the existing
   # environment.
   runtimeNode = pkgs.nodejs;
-  # This nixpkgs revision builds tsx against Node 22. Point only tsx at the
-  # stock, cache.nixos.org-substitutable Node 24 runtime so the shipped closure
-  # carries one Node core.
-  runtimeTsx = pkgs.tsx.override { nodejs_22 = runtimeNode; };
+  # nixpkgs tsx and the full Node command set share the same Node 24 core.
+  runtimeTsx = pkgs.tsx;
   runtimeTsxLoader = "${runtimeTsx}/lib/tsx/dist/loader.mjs";
 
   # Build uses a placeholder so docs-only commits don't bust the derivation
