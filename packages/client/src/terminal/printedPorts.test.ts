@@ -29,6 +29,16 @@ describe("portsInText", () => {
     expect(portsInText("open http://localhost/ now")).toEqual([80]);
   });
 
+  it("reads a URL followed by prose punctuation, as the link underline does", () => {
+    // The shared link grammar never ends a URL on `.`, `,` or `)` — so "running
+    // at http://localhost:3000." names port 3000 instead of failing to parse.
+    expect(
+      portsInText(
+        "running at http://localhost:3000. (see http://127.0.0.1:4000), or http://[::1]:5000,",
+      ),
+    ).toEqual([3000, 4000, 5000]);
+  });
+
   it("accepts every loopback spelling the click path accepts", () => {
     expect(portsInText("http://[::1]:3000 http://0.0.0.0:4000")).toEqual([
       3000, 4000,

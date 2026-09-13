@@ -27,13 +27,24 @@
  * Only the NORMAL buffer is read. A full-screen program's alternate buffer is a
  * picture of a UI, not a log of what the terminal printed.
  *
- * Which hostnames count as loopback is `@kolu/url-shape`'s decision, not this
- * file's: the pattern below only finds URL-shaped candidates, and
- * `parseLoopbackUrl` — the same judge the click path uses — keeps the ones that
- * are.
+ * What counts as a URL and which hostnames count as loopback are both
+ * `@kolu/url-shape`'s decisions, not this file's: `WEB_URL_PATTERN` is the same
+ * grammar the terminal's link underlining uses, and `parseLoopbackUrl` is the
+ * same judge the click path uses.
+ *
+ * ## What it cannot see
+ *
+ * The index is as long as the browser's buffer, and a remounted terminal (a
+ * reload, a host switch, a wake) holds only the attach snapshot's recent rows
+ * until the user scrolls back. A detached server whose URL was printed further
+ * up than that is still listed — under "elsewhere on this host" instead of under
+ * the terminal — and the printed-URL card still finds it on click. Keeping the
+ * claim across a remount needs the index where the output lives, host-side
+ * (Atlas `port-forwarding`, PRT6).
  */
 
-import { parseLoopbackUrl } from "@kolu/url-shape";
+import { parseLoopbackUrl, WEB_URL_PATTERN } from "@kolu/url-shape";
+import { snapToWrapHead } from "@kolu/xterm-kit";
 import type { TerminalId } from "kolu-common/surface";
 import { createRoot } from "solid-js";
 import { createStore, produce } from "solid-js/store";
@@ -41,7 +52,7 @@ import { createStore, produce } from "solid-js/store";
 /** Rows read per turn before yielding. */
 export const SCAN_CHUNK_LINES = 2_000;
 
-/** How long output must pause before a scan runs — a stream of writes is one scan. */
+/** At most one scan per this many ms while output flows — a burst is one scan. */
 export const SCAN_DELAY_MS = 250;
 
 /** The slice of xterm this module reads, so the scanner is testable without a
@@ -69,8 +80,8 @@ export interface ScannableTerminal {
     | undefined;
 }
 
-/** URL-shaped candidates. Deliberately loose: the judge is `parseLoopbackUrl`. */
-const URL_CANDIDATE = /https?:\/\/[^\s"'<>`]+/gi;
+/** Every URL in a line, by the terminal's own link grammar. */
+const URL_CANDIDATE = new RegExp(WEB_URL_PATTERN.source, "g");
 
 /** Every loopback port a line of text names a URL for. */
 export function portsInText(text: string): number[] {
@@ -101,8 +112,8 @@ function record(id: TerminalId, found: ReadonlySet<number>): void {
 }
 
 /** Index what `term` prints, for as long as the returned disposer is not called.
- *  Disposing forgets the terminal's index: a remount re-reads its buffer, which
- *  a restore has already refilled. */
+ *  Disposing forgets the terminal's index; a remount re-reads whatever its
+ *  buffer holds by then (see "What it cannot see" above). */
 export function trackPrintedPorts(
   term: ScannableTerminal,
   id: TerminalId,
@@ -116,12 +127,8 @@ export function trackPrintedPorts(
   let cancelPending: (() => void) | undefined;
 
   /** The first row of the logical line that `y` belongs to. */
-  const logicalStart = (y: number): number => {
-    const buf = term.buffer.active;
-    let row = y;
-    while (row > 0 && buf.getLine(row)?.isWrapped === true) row -= 1;
-    return row;
-  };
+  const logicalStart = (y: number): number =>
+    snapToWrapHead(term.buffer.active, y);
 
   /** Scan from `from` exactly, or — when absent — from the start of the last
    *  logical line a previous scan saw. */

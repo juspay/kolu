@@ -87,6 +87,7 @@ import {
   fileRefAtCell,
 } from "./fileRefLinkProvider";
 import { installTerminalFocusProvenance } from "./focusProvenance";
+import { WEB_URL_PATTERN } from "@kolu/url-shape";
 import { handleWebLink } from "./handleWebLink";
 import { trackPrintedPorts } from "./printedPorts";
 import { PrintedUrlCardMount } from "./PrintedUrlCard";
@@ -1282,6 +1283,8 @@ const Terminal: Component<{
         webLinkHandler={(event, uri) =>
           handleWebLink(event, uri, props.terminalId)
         }
+        // The same URL grammar the printed-port index reads the buffer with.
+        webLinkPattern={WEB_URL_PATTERN}
         webglHooks={{
           onCanvas: (c) => {
             webglTrackerId = trackCreate(props.terminalId, c);

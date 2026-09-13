@@ -23,6 +23,7 @@ import type { HostKey } from "kolu-common/hostKey";
 import { type Component, createSignal, Show } from "solid-js";
 import { toast } from "solid-sonner";
 import { match } from "ts-pattern";
+import { DetachedBadge } from "../forwards/DetachedBadge";
 import { ForwardControls, ForwardPill } from "../forwards/ForwardPill";
 import type { PortAction } from "../forwards/portAction";
 import type { PortRow as PortRowData } from "../forwards/portRows";
@@ -58,13 +59,10 @@ export const PortRow: Component<{
       .with({ kind: "orphan" }, () => "also forwarded on this host")
       .exhaustive();
 
-  /** A server this tile printed whose process is in NO terminal's subtree — it
-   *  detached from the terminal that started it. A printed server that another
-   *  terminal holds gets that terminal's link instead. */
+  /** A server this tile printed that NO terminal's subtree holds — the join only
+   *  files a claimed listener as `printed` on that positive fact. */
   const detached = () =>
-    props.row.kind === "port" &&
-    props.row.origin === "printed" &&
-    props.serving === undefined;
+    props.row.kind === "port" && props.row.origin === "printed";
 
   /** Ready URL when no door is needed, or when one is already open. */
   const readyHref = (): string | undefined => {
@@ -180,13 +178,7 @@ export const PortRow: Component<{
        *  kolu cannot point at. */}
       <span class="flex min-w-0 flex-1 items-baseline gap-1.5">
         <Show when={detached()}>
-          <span
-            class="shrink-0 rounded bg-amber-500/15 px-1 text-[10px] font-medium text-amber-800 dark:text-amber-300"
-            data-testid="inspector-port-detached"
-            title="printed by this terminal, served by a process that left it"
-          >
-            detached
-          </span>
+          <DetachedBadge testid="inspector-port-detached" />
         </Show>
         <Show
           when={props.serving}

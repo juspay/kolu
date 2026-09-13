@@ -137,6 +137,8 @@ interface XtermOwnProps {
    *  {@link XtermLifecycleOptions.webLinkHandler}). When absent, the addon's
    *  default open runs. */
   webLinkHandler?: (event: MouseEvent, uri: string) => void;
+  /** Injected web-link pattern (see {@link XtermLifecycleOptions.webLinkPattern}). */
+  webLinkPattern?: RegExp;
 }
 
 /** Props consumed by the component; everything else is spread onto the mount div. */
@@ -154,6 +156,7 @@ const OWN_KEYS = [
   "onTap",
   "webglHooks",
   "webLinkHandler",
+  "webLinkPattern",
 ] as const satisfies readonly (keyof XtermOwnProps)[];
 
 export const Xterm: Component<
@@ -306,6 +309,7 @@ export const Xterm: Component<
         fontFamily: own.fontFamily,
       },
       webLinkHandler: own.webLinkHandler,
+      webLinkPattern: own.webLinkPattern,
     }),
     (c: XtermCore) => {
       core = c;

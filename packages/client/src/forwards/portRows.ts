@@ -9,8 +9,9 @@
  * exactly one of them.
  *
  * **From this terminal** is what the tile serves: every port its panes' process
- * subtrees hold, plus every server whose URL a pane PRINTED that is listening
- * somewhere else on the host. The second kind is the reason the host-wide scan
+ * subtrees hold, plus every server whose URL a pane PRINTED that NO terminal's
+ * subtree holds — a server that detached. A printed URL of a server another
+ * terminal runs stays that terminal's (it shows below, linked to it). The second kind is the reason the host-wide scan
  * exists — `odu web-daemon`, anything under `setsid`, reparents to init and
  * leaves the subtree while it keeps serving the URL the terminal printed. The
  * printed URL is an entry point, never a fact: the row exists because the HOST
@@ -44,7 +45,7 @@ import {
 export type PortOrigin =
   /** In one of this tile's process subtrees. */
   | "subtree"
-  /** Printed by this tile, served by a process outside its subtrees. */
+  /** Printed by this tile, held by no terminal's subtree — detached. */
   | "printed"
   /** On the host, with a story, and not this tile's. */
   | "host";
@@ -93,6 +94,9 @@ export function portGroups(opts: {
   host: HostListeners;
   /** Ports whose URLs this tile's panes printed. */
   printedHere: ReadonlySet<number>;
+  /** Every port some terminal subtree on this host holds, or `unknown` while a
+   *  pane is unscanned — a print claims a server only when no terminal can. */
+  terminalPorts: ReadonlySet<number> | "unknown";
   /** Ports whose URLs any terminal on this host printed. */
   printedOnHost: ReadonlySet<number>;
   /** The doors on the inspected terminal's host. ALREADY host-scoped by the
@@ -119,6 +123,9 @@ export function portGroups(opts: {
   });
   for (const port of opts.printedHere) {
     if (taken.has(port) || opts.doorPorts.has(port)) continue;
+    if (opts.terminalPorts === "unknown" || opts.terminalPorts.has(port)) {
+      continue;
+    }
     const at = listenerAt(opts.host, port);
     if (at.kind === "claimed") {
       here.push({

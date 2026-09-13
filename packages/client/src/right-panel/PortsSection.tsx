@@ -59,7 +59,7 @@ import {
   viewerHost,
 } from "../forwards/useForwards";
 import { activeHostListeners } from "../forwards/useHostListeners";
-import { useServingFor } from "../forwards/useServingFor";
+import { useHostTerminals } from "../forwards/useHostTerminals";
 import { isActiveHostLocal } from "../kaval/useDaemonStatus";
 import { printedPortsOf } from "../terminal/printedPorts";
 import { useTerminalStore } from "../terminal/useTerminalStore";
@@ -138,7 +138,7 @@ const PortsSection: Component<{ terminalId: TerminalId }> = (props) => {
   /** WHICH terminal serves a port, and how to reach it — asked only for rows
    *  that are not this tile's own subtree ports: naming the terminal on screen
    *  would name the thing you are looking at, and the jump would go nowhere. */
-  const servingFor = useServingFor();
+  const terminals = useHostTerminals();
 
   const groups = createMemo(() =>
     portGroups({
@@ -146,6 +146,7 @@ const PortsSection: Component<{ terminalId: TerminalId }> = (props) => {
       host: activeHostListeners(),
       printedHere: printedHere(),
       printedOnHost: printedOnHost(),
+      terminalPorts: terminals.heldPorts(),
       forwards: forwardsForHost(host()),
       // kolu's relay listeners live on the kolu server's own machine, so only
       // that host's list can contain them.
@@ -176,9 +177,11 @@ const PortsSection: Component<{ terminalId: TerminalId }> = (props) => {
         row={row}
         host={host()}
         serving={
-          row.kind !== "orphan" && row.origin === "subtree"
-            ? undefined
-            : servingFor(row.port)
+          // Only rows that are not this tile's name a terminal: a subtree row is
+          // the terminal on screen, and a printed row is held by none.
+          row.kind === "orphan" || row.origin === "host"
+            ? terminals.servingFor(row.port)
+            : undefined
         }
         action={decided().action}
         forwardReason={decided().reason}

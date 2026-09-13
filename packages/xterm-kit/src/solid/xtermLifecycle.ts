@@ -48,6 +48,10 @@ export interface XtermLifecycleOptions {
   terminalOptions: ITerminalOptions & { fontFamily: string };
   /** Optional override for web-link activation. `(event, uri) => void`. */
   webLinkHandler?: (event: MouseEvent, uri: string) => void;
+  /** Optional override for what counts as a web link (`WebLinksAddon`'s
+   *  `urlRegex`). A consumer that reads URLs out of the buffer itself passes the
+   *  same pattern here, so what the terminal underlines and what it reads agree. */
+  webLinkPattern?: RegExp;
 }
 
 /** Construct an xterm `Terminal` into `container` once its font has loaded, then
@@ -109,11 +113,12 @@ export function createXtermLifecycle(
         // Re-read options here (post-await) so a late-bound handler is current.
         // The constructor's first arg is the activate callback; omit it to keep
         // the addon's default `window.open` path.
-        const webLinkHandler = getOptions().webLinkHandler;
+        const { webLinkHandler, webLinkPattern } = getOptions();
         term.loadAddon(
-          webLinkHandler === undefined
-            ? new WebLinksAddon()
-            : new WebLinksAddon(webLinkHandler),
+          new WebLinksAddon(
+            webLinkHandler,
+            webLinkPattern === undefined ? {} : { urlRegex: webLinkPattern },
+          ),
         );
         const search = new SearchAddon();
         term.loadAddon(search);

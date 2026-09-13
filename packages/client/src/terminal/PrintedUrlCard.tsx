@@ -41,7 +41,8 @@ import { ensureDoor, urlForPort } from "../forwards/openPort";
 import { portAction } from "../forwards/portAction";
 import { forwardsForHost, viewerHost } from "../forwards/useForwards";
 import { activeHostListeners } from "../forwards/useHostListeners";
-import { useServingFor } from "../forwards/useServingFor";
+import { DetachedBadge } from "../forwards/DetachedBadge";
+import { useHostTerminals } from "../forwards/useHostTerminals";
 import { hostDisplayName } from "../host/hostChipTone";
 import { isActiveHostLocal } from "../kaval/useDaemonStatus";
 import { ServingTerminalLink } from "../forwards/ServingTerminalLink";
@@ -155,9 +156,9 @@ export const PrintedUrlCard: Component<{ target: PrintedUrlCardTarget }> = (
       : undefined;
   };
 
-  const servingFor = useServingFor();
+  const terminals = useHostTerminals();
 
-  const actionForJoined = () => {
+  const actionForListening = () => {
     const j = listening();
     if (j === undefined) return undefined;
     const reach = portReach({
@@ -203,7 +204,7 @@ export const PrintedUrlCard: Component<{ target: PrintedUrlCardTarget }> = (
   /** Compose decide · act · effect for a joined open. */
   const forwardAndOpen = (): UiAction =>
     Effect.suspend(() => {
-      const action = actionForJoined();
+      const action = actionForListening();
       if (action === undefined || action.kind === "none") return Effect.void;
       if (busy()) return Effect.void;
       setBusy(true);
@@ -278,7 +279,7 @@ export const PrintedUrlCard: Component<{ target: PrintedUrlCardTarget }> = (
    *  opens the door, then asks for a second click to copy. */
   const copyDoorUrl = (): UiAction =>
     Effect.suspend(() => {
-      const action = actionForJoined();
+      const action = actionForListening();
       if (action === undefined || action.kind === "none") return Effect.void;
       if (busy()) return Effect.void;
       const doorPort = listening()?.forward?.localPort;
@@ -363,12 +364,22 @@ export const PrintedUrlCard: Component<{ target: PrintedUrlCardTarget }> = (
               // `keyed`: `j` is the VALUE at branch entry — a stale accessor
               // read is unspellable. The join memo's structural equality keeps
               // re-keying to real content changes only.
-              const joined = () => j;
-              /** The terminal holding a server this tile does not — `undefined`
-               *  for a detached server or one whose owner is not visible. */
+              /** The terminal holding a server this tile does not. */
               const serving = () =>
-                j.kind === "elsewhere" ? servingFor(j.port) : undefined;
-              const action = () => actionForJoined();
+                j.kind === "elsewhere"
+                  ? terminals.servingFor(j.port)
+                  : undefined;
+              /** No terminal's subtree holds it — said only on a positive
+               *  reading of every terminal, never from a missing link. */
+              const detached = () => {
+                const held = terminals.heldPorts();
+                return (
+                  j.kind === "elsewhere" &&
+                  held !== "unknown" &&
+                  !held.has(j.port)
+                );
+              };
+              const action = () => actionForListening();
               const primaryLabel = () => {
                 const a = action();
                 if (a === undefined) return null;
@@ -377,9 +388,7 @@ export const PrintedUrlCard: Component<{ target: PrintedUrlCardTarget }> = (
                   .with({ kind: "viewer" }, () => "↗ open")
                   .with({ kind: "here" }, () => "↗ open")
                   .with({ kind: "forward" }, () =>
-                    joined().forward !== undefined
-                      ? "↗ open"
-                      : "⇄ forward & open ↗",
+                    j.forward !== undefined ? "↗ open" : "⇄ forward & open ↗",
                   )
                   .exhaustive();
               };
@@ -406,7 +415,7 @@ export const PrintedUrlCard: Component<{ target: PrintedUrlCardTarget }> = (
                     </>
                   ))
                   .with({ kind: "forward" }, () =>
-                    joined().forward !== undefined ? (
+                    j.forward !== undefined ? (
                       <>
                         Already forwarded — the click opens through the door on{" "}
                         <span class="font-mono">{hostName()}</span>, path
@@ -437,12 +446,12 @@ export const PrintedUrlCard: Component<{ target: PrintedUrlCardTarget }> = (
                       class={`${FORWARD_PILL} text-[11px]`}
                       data-testid="printed-url-pill"
                     >
-                      ⇄ {joined().port}
+                      ⇄ {j.port}
                     </span>
                     <span class="min-w-0 truncate text-fg font-medium">
                       {match(action() ?? { kind: "none" as const })
                         .with({ kind: "forward" }, () =>
-                          joined().forward !== undefined
+                          j.forward !== undefined
                             ? "door already open"
                             : j.kind === "joined"
                               ? "this terminal serves it"
@@ -462,16 +471,8 @@ export const PrintedUrlCard: Component<{ target: PrintedUrlCardTarget }> = (
                     class="mb-1 flex min-w-0 items-baseline gap-1.5 text-[11px]"
                     data-testid="printed-url-owner"
                   >
-                    <Show
-                      when={j.kind === "elsewhere" && serving() === undefined}
-                    >
-                      <span
-                        class="shrink-0 rounded bg-amber-500/15 px-1 text-[10px] font-medium text-amber-800 dark:text-amber-300"
-                        data-testid="printed-url-detached"
-                        title="served by a process outside every terminal"
-                      >
-                        detached
-                      </span>
+                    <Show when={detached()}>
+                      <DetachedBadge testid="printed-url-detached" />
                     </Show>
                     <Show keyed when={serving()}>
                       {(s) => (

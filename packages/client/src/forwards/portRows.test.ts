@@ -67,6 +67,7 @@ function groups(opts: Partial<Parameters<typeof portGroups>[0]>) {
     host: { status: "unknown" },
     printedHere: none,
     printedOnHost: none,
+    terminalPorts: none,
     forwards: [],
     doorPorts: none,
     ...opts,
@@ -120,6 +121,28 @@ describe("from this terminal", () => {
     expect(
       groups({ host: hostOf([]), printedHere: new Set([3000]) }).here,
     ).toEqual([]);
+  });
+
+  it("leaves a printed server another terminal runs with THAT terminal", () => {
+    // An agent echoing another tile's vite URL does not make this tile its home.
+    const g = groups({
+      host: hostOf([port(5173)]),
+      printedHere: new Set([5173]),
+      terminalPorts: new Set([5173]),
+    });
+    expect(g.here).toEqual([]);
+    expect(shape(g.elsewhere)).toEqual([["port", 5173, "host"]]);
+  });
+
+  it("does not claim a printed server while a terminal is unscanned", () => {
+    // "No terminal holds it" is what detached MEANS; an unscanned pane might.
+    const g = groups({
+      host: hostOf([port(18440, "bun odu web-daemon")]),
+      printedHere: new Set([18440]),
+      terminalPorts: "unknown",
+    });
+    expect(g.here).toEqual([]);
+    expect(shape(g.elsewhere)).toEqual([["port", 18440, "host"]]);
   });
 
   it("makes no row from a print while the host is unknown", () => {
