@@ -27,6 +27,7 @@ import {
   type PortBind,
 } from "kolu-common/surface";
 import { parseLoopbackUrl } from "@kolu/url-shape";
+import { match } from "ts-pattern";
 
 /** What the join finds for a printed URL.
  *
@@ -98,14 +99,38 @@ export function joinPrintedPort(opts: {
     return { kind: "joined", port: opts.port, info, forward };
   }
   const at = listenerAt(opts.host, opts.port);
-  switch (at.kind) {
-    case "claimed":
-      return { kind: "elsewhere", port: opts.port, info: at.info, forward };
-    case "unclaimed":
-      return { kind: "unclaimed", port: opts.port, bind: at.bind, forward };
-    case "absent":
-      return { kind: "unbacked", port: opts.port };
-    case "unknown":
-      return { kind: "blind", port: opts.port };
-  }
+  return match(at)
+    .with(
+      { kind: "claimed" },
+      (a): PrintedUrlJoin => ({
+        kind: "elsewhere",
+        port: opts.port,
+        info: a.info,
+        forward,
+      }),
+    )
+    .with(
+      { kind: "unclaimed" },
+      (a): PrintedUrlJoin => ({
+        kind: "unclaimed",
+        port: opts.port,
+        bind: a.bind,
+        forward,
+      }),
+    )
+    .with(
+      { kind: "absent" },
+      (): PrintedUrlJoin => ({
+        kind: "unbacked",
+        port: opts.port,
+      }),
+    )
+    .with(
+      { kind: "unknown" },
+      (): PrintedUrlJoin => ({
+        kind: "blind",
+        port: opts.port,
+      }),
+    )
+    .exhaustive();
 }
