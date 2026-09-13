@@ -35,14 +35,8 @@
  *  effect at the row edge). This file is the section; `PortRow.tsx` is the row.
  */
 
-import { activeArm } from "@kolu/padi-client/surface";
 import { hostKeysEqual as sameHost } from "kolu-common/hostKey";
-import {
-  foldPorts,
-  knownPorts,
-  samePortList,
-  type TerminalId,
-} from "kolu-common/surface";
+import { samePortList, type TerminalId } from "kolu-common/surface";
 import {
   type Component,
   createMemo,
@@ -52,17 +46,19 @@ import {
   Show,
 } from "solid-js";
 import { rowAction } from "../forwards/portAction";
-import { type PortRow as PortRowData, portGroups } from "../forwards/portRows";
+import {
+  type PortRow as PortRowData,
+  portGroups,
+  rowGroup,
+} from "../forwards/portRows";
 import {
   doorLocalPorts,
   forwardsForHost,
   viewerHost,
 } from "../forwards/useForwards";
 import { activeHostListeners } from "../forwards/useHostListeners";
-import { useHostTerminals } from "../forwards/useHostTerminals";
+import { sameSet, useHostTerminals } from "../forwards/useHostTerminals";
 import { isActiveHostLocal } from "../kaval/useDaemonStatus";
-import { printedPortsOf } from "../terminal/printedPorts";
-import { useTerminalStore } from "../terminal/useTerminalStore";
 import { ChevronRightIcon } from "../ui/Icons";
 import Section from "../ui/Section";
 import { activeHost } from "../wire";
@@ -70,58 +66,33 @@ import { PortRow } from "./PortRow";
 
 const NO_PORTS: ReadonlySet<number> = new Set();
 
-const sameSet = (a: ReadonlySet<number>, b: ReadonlySet<number>): boolean =>
-  a.size === b.size && [...a].every((p) => b.has(p));
-
 const PortsSection: Component<{ terminalId: TerminalId }> = (props) => {
-  const store = useTerminalStore();
+  const host = () => activeHost();
+
+  /** WHICH terminal serves a port, and how to reach it — asked only for rows
+   *  that are not this tile's own subtree ports: naming the terminal on screen
+   *  would name the thing you are looking at, and the jump would go nowhere.
+   *  Also the one source of every pane walk the join below reads. */
+  const terminals = useHostTerminals();
+
   // Every pane of the tile: the scanner attributes a port to the pane whose
   // subtree holds it — correct and unavoidable, each pane being its own process
   // tree — but "run the dev server in the split, read the Inspector on the main
   // pane, see nothing" would then be the DEFAULT experience, because a split is
-  // exactly where a long-running server goes. What a tile's panes ARE is the
-  // store's to say (`getTilePaneIds`), not this section's.
-  //
-  // `knownPorts` is the ONE place "we never looked" reads as no ports: a pane
-  // whose first scan has not landed contributes nothing rather than asserting it
-  // serves nothing. `equals` keeps the memo's IDENTITY across a recompute that
-  // produced the same ports, so an unrelated terminal tick does not re-run the
-  // join below.
+  // exactly where a long-running server goes. `HostTerminals.tilePorts` folds
+  // them. `equals` keeps the memo's IDENTITY across a recompute that produced
+  // the same ports, so an unrelated terminal tick does not re-run the join below.
   const ports = createMemo(
-    () =>
-      foldPorts(
-        store.getTilePaneIds(props.terminalId).flatMap((id) => {
-          const arm = activeArm(store.getMetadata(id));
-          return arm ? knownPorts(arm.ports) : [];
-        }),
-      ),
+    () => terminals.tilePorts(props.terminalId),
     undefined,
-    { equals: samePortList },
+    {
+      equals: samePortList,
+    },
   );
-  const host = () => activeHost();
 
   /** The ports this tile's panes printed a loopback URL for. */
   const printedHere = createMemo(
-    () =>
-      new Set(
-        store
-          .getTilePaneIds(props.terminalId)
-          .flatMap((id) => printedPortsOf(id)),
-      ),
-    undefined,
-    { equals: sameSet },
-  );
-
-  /** …and every terminal on this host — the story an unclaimed socket needs. */
-  const printedOnHost = createMemo(
-    () =>
-      new Set(
-        store
-          .terminalIds()
-          .flatMap((tile) =>
-            store.getTilePaneIds(tile).flatMap((id) => printedPortsOf(id)),
-          ),
-      ),
+    () => terminals.printedBy(props.terminalId),
     undefined,
     { equals: sameSet },
   );
@@ -135,18 +106,15 @@ const PortsSection: Component<{ terminalId: TerminalId }> = (props) => {
     return v !== null && sameHost(v, host());
   });
 
-  /** WHICH terminal serves a port, and how to reach it — asked only for rows
-   *  that are not this tile's own subtree ports: naming the terminal on screen
-   *  would name the thing you are looking at, and the jump would go nowhere. */
-  const terminals = useHostTerminals();
-
   const groups = createMemo(() =>
     portGroups({
-      tilePorts: ports(),
+      terminals: {
+        tilePorts: ports(),
+        printedHere: printedHere(),
+        heldPorts: terminals.heldPorts(),
+        printedOnHost: terminals.printedOnHost(),
+      },
       host: activeHostListeners(),
-      printedHere: printedHere(),
-      printedOnHost: printedOnHost(),
-      terminalPorts: terminals.heldPorts(),
       forwards: forwardsForHost(host()),
       // kolu's relay listeners live on the kolu server's own machine, so only
       // that host's list can contain them.
@@ -179,7 +147,7 @@ const PortsSection: Component<{ terminalId: TerminalId }> = (props) => {
         serving={
           // Only rows that are not this tile's name a terminal: a subtree row is
           // the terminal on screen, and a printed row is held by none.
-          row.kind === "orphan" || row.origin === "host"
+          rowGroup(row) === "elsewhere"
             ? terminals.servingFor(row.port)
             : undefined
         }

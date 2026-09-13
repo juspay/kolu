@@ -12,7 +12,6 @@
  * "nothing is listening" is said only when the host positively holds nothing.
  */
 
-import { activeArm } from "@kolu/padi-client/surface";
 import { toError } from "@kolu/surface/run-stream";
 import { parseLoopbackUrl } from "@kolu/url-shape";
 import { Effect } from "effect";
@@ -33,17 +32,10 @@ import { Portal } from "solid-js/web";
 import { toast } from "solid-sonner";
 import { match } from "ts-pattern";
 import { FORWARD_PILL } from "../forwards/forwardTone";
-import {
-  joinPrintedUrl,
-  tilePortsObservation,
-} from "../forwards/joinPrintedUrl";
+import { joinPrintedUrl } from "../forwards/joinPrintedUrl";
 import { ensureDoor, urlForPort } from "../forwards/openPort";
 import { portAction } from "../forwards/portAction";
-import {
-  bindOf,
-  heldByNoTerminal,
-  listenerLabel,
-} from "../forwards/portRows";
+import { bindOf, heldByNoTerminal, listenerLabel } from "../forwards/portRows";
 import { forwardsForHost, viewerHost } from "../forwards/useForwards";
 import { activeHostListeners } from "../forwards/useHostListeners";
 import { DetachedBadge } from "../forwards/DetachedBadge";
@@ -62,7 +54,6 @@ import {
   type PrintedUrlCardTarget,
   printedUrlCardTarget,
 } from "./printedUrlCardState";
-import { useTerminalStore } from "./useTerminalStore";
 
 /** Put a URL on the clipboard and say so — the card's two copy affordances (the
  *  post-open toast action and the raw `⧉ copy` button) share one program so the
@@ -106,7 +97,6 @@ function clampPos(
 export const PrintedUrlCard: Component<{ target: PrintedUrlCardTarget }> = (
   props,
 ) => {
-  const store = useTerminalStore();
   const { hostname } = useServerIdentity();
   const [busy, setBusy] = createSignal(false);
   let panelEl: HTMLElement | undefined;
@@ -114,21 +104,16 @@ export const PrintedUrlCard: Component<{ target: PrintedUrlCardTarget }> = (
   const host = () => activeHost();
   const hostName = () => hostDisplayName(host(), hostname());
 
-  /** LIVE tile observation — re-reads the store every tick the card is open. */
-  const observation = createMemo(() =>
-    tilePortsObservation(
-      store.getTilePaneIds(props.target.terminalId).flatMap((id) => {
-        const arm = activeArm(store.getMetadata(id));
-        return arm === undefined ? [] : [arm.ports];
-      }),
-    ),
-  );
+  /** The host's terminals — the tile's ports for the join, and the serving /
+   *  detached facts for a listener this tile does not hold. */
+  const terminals = useHostTerminals();
 
   const join = createMemo(
     () =>
       joinPrintedUrl({
         uri: props.target.uri,
-        observation: observation(),
+        // LIVE — re-reads the store every tick the card is open.
+        tilePorts: terminals.tilePorts(props.target.terminalId),
         host: activeHostListeners(),
         forwards: forwardsForHost(host()),
       }),
@@ -160,8 +145,6 @@ export const PrintedUrlCard: Component<{ target: PrintedUrlCardTarget }> = (
       ? j
       : undefined;
   };
-
-  const terminals = useHostTerminals();
 
   const actionForListening = () => {
     const j = listening();

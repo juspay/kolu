@@ -416,19 +416,18 @@ describe("the host's listeners ride the same pass", () => {
     h.sampler.dispose();
   });
 
-  it("keeps the SAME object across an unchanged pass, and a fresh one on a change", async () => {
-    // The cell's dedup is a structural compare, but an unchanged host should not
-    // even allocate: a 1 Hz sampler lives in the steady state.
+  it("republishes an unchanged reading every pass, and the change when it comes", async () => {
+    // The sampler does not dedup the host: its one sink, the `hostListeners`
+    // cell, owns that with `hostListenersEqual`.
     const h = harness({ answer: [], elsewhere: [DAEMON] });
     await h.seeded();
     await h.advance(PORT_SCAN_INTERVAL_MS);
     const [first, second] = h.hostPublished;
     expect(first?.status).toBe("known");
-    expect(second).toBe(first);
+    expect(second).toEqual(first);
 
     h.setElsewhere([]);
     await h.advance(PORT_SCAN_INTERVAL_MS);
-    expect(h.hostPublished.at(-1)).not.toBe(first);
     expect(h.hostPublished.at(-1)).toMatchObject({ claimed: [] });
     h.sampler.dispose();
   });

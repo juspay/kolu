@@ -86,7 +86,7 @@ export type LoopbackUrl = {
 };
 
 /** What counts as a web URL inside terminal text — the ONE pattern both the
- *  click path (xterm's `WebLinksAddon`, handed this as `urlRegex`) and kolu's
+ *  click path (`@kolu/xterm-kit` always hands it to `WebLinksAddon` as `urlRegex`) and kolu's
  *  printed-port index find URLs with, so a URL the terminal underlines is
  *  exactly a URL the index reads.
  *

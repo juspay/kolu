@@ -28,6 +28,7 @@ import type { PortAction } from "../forwards/portAction";
 import {
   listenerLabel,
   type PortRow as PortRowData,
+  rowGroup,
 } from "../forwards/portRows";
 import { ensureDoor, urlForPort } from "../forwards/openPort";
 import { ServingTerminalLink } from "../forwards/ServingTerminalLink";
@@ -148,11 +149,7 @@ export const PortRow: Component<{
       data-testid="inspector-port-row"
       data-port={props.row.port}
       data-kind={props.row.kind}
-      data-group={
-        props.row.kind === "orphan" || props.row.origin === "host"
-          ? "elsewhere"
-          : "here"
-      }
+      data-group={rowGroup(props.row)}
       data-forwarded={forward() ? "yes" : undefined}
       data-origin={forward()?.origin}
       data-orphan={props.row.kind === "orphan" ? "" : undefined}

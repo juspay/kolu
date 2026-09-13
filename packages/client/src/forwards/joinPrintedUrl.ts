@@ -19,12 +19,10 @@
  */
 
 import {
-  foldPorts,
   type HostListeners,
   type KoluForward,
   listenerAt,
   type PortInfo,
-  type TerminalPorts,
   type PortBind,
 } from "kolu-common/surface";
 import { parseLoopbackUrl } from "@kolu/url-shape";
@@ -56,36 +54,14 @@ export type PrintedUrlJoin =
       forward: KoluForward | undefined;
     };
 
-/** A tile's ports observation — folded known list, or "could not look".
- *
- *  Built by the caller from every pane of the tile (same unit PortsSection
- *  uses): any known observation yields a known list; only when NO pane has ever
- *  been successfully scanned is the observation `unknown`. */
-export type TilePortsObservation =
-  | { status: "known"; list: readonly PortInfo[] }
-  | { status: "unknown" };
-
-/** Collapse per-pane {@link TerminalPorts} into one tile observation. */
-export function tilePortsObservation(
-  perPane: readonly TerminalPorts[],
-): TilePortsObservation {
-  let anyKnown = false;
-  const list: PortInfo[] = [];
-  for (const ports of perPane) {
-    if (ports.status === "known") {
-      anyKnown = true;
-      list.push(...ports.list);
-    }
-  }
-  if (!anyKnown) return { status: "unknown" };
-  // foldPorts is the vocabulary's widest-bind collapse — same as PortsSection.
-  return { status: "known", list: foldPorts(list) };
-}
-
 /** Join a printed URL string against the tile, the host, and the host's doors. */
 export function joinPrintedUrl(opts: {
   uri: string;
-  observation: TilePortsObservation;
+  /** The tile's ports, folded across its panes — the same list the Ports
+   *  section joins (`HostTerminals.tilePorts`). A pane never scanned adds
+   *  nothing, which costs nothing here: a tile that does not hold the port
+   *  falls through to the host reading either way. */
+  tilePorts: readonly PortInfo[];
   host: HostListeners;
   /** Host-scoped forwards already filtered by the caller. */
   forwards: readonly KoluForward[];
@@ -104,16 +80,14 @@ export function joinPrintedUrl(opts: {
  *  host reading answers the same question from the same pass. */
 export function joinPrintedPort(opts: {
   port: number;
-  observation: TilePortsObservation;
+  tilePorts: readonly PortInfo[];
   host: HostListeners;
   forwards: readonly KoluForward[];
 }): PrintedUrlJoin {
   const forward = opts.forwards.find((f) => f.remotePort === opts.port);
-  if (opts.observation.status === "known") {
-    const info = opts.observation.list.find((p) => p.port === opts.port);
-    if (info !== undefined) {
-      return { kind: "joined", port: opts.port, info, forward };
-    }
+  const info = opts.tilePorts.find((p) => p.port === opts.port);
+  if (info !== undefined) {
+    return { kind: "joined", port: opts.port, info, forward };
   }
   const at = listenerAt(opts.host, opts.port);
   switch (at.kind) {

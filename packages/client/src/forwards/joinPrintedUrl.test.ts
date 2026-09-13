@@ -15,11 +15,7 @@ import type {
   PortBind,
 } from "kolu-common/surface";
 import { describe, expect, it } from "vitest";
-import {
-  joinPrintedPort,
-  joinPrintedUrl,
-  tilePortsObservation,
-} from "./joinPrintedUrl";
+import { joinPrintedPort, joinPrintedUrl } from "./joinPrintedUrl";
 
 const info = (port: number, name = "node"): PortInfo => ({
   port,
@@ -50,35 +46,12 @@ const forward = (port: number, localPort = 61000): KoluForward => ({
   createdAt: 0,
 });
 
-describe("tilePortsObservation", () => {
-  it("is unknown only when no pane has ever been scanned", () => {
-    expect(
-      tilePortsObservation([{ status: "unknown" }, { status: "unknown" }]),
-    ).toEqual({ status: "unknown" });
-  });
-
-  it("is known (even empty) when any pane answered", () => {
-    expect(
-      tilePortsObservation([
-        { status: "unknown" },
-        { status: "known", list: [] },
-      ]),
-    ).toEqual({ status: "known", list: [] });
-    expect(
-      tilePortsObservation([
-        { status: "known", list: [info(5173)] },
-        { status: "unknown" },
-      ]),
-    ).toEqual({ status: "known", list: [info(5173)] });
-  });
-});
-
 describe("joinPrintedPort — the decision table", () => {
   it("joins when this tile's subtree serves the port, with its door if any", () => {
     expect(
       joinPrintedPort({
         port: 5173,
-        observation: { status: "known", list: [info(5173, "vite")] },
+        tilePorts: [info(5173, "vite")],
         host: hostOf([info(5173, "vite")]),
         forwards: [],
       }),
@@ -91,7 +64,7 @@ describe("joinPrintedPort — the decision table", () => {
     expect(
       joinPrintedPort({
         port: 5173,
-        observation: { status: "known", list: [info(5173)] },
+        tilePorts: [info(5173)],
         host: hostOf([info(5173)]),
         forwards: [forward(5173, 61003)],
       }),
@@ -109,7 +82,7 @@ describe("joinPrintedPort — the decision table", () => {
     expect(
       joinPrintedPort({
         port: 18440,
-        observation: { status: "known", list: [] },
+        tilePorts: [],
         host: hostOf([daemon]),
         forwards: [forward(18440, 61004)],
       }),
@@ -126,7 +99,7 @@ describe("joinPrintedPort — the decision table", () => {
     expect(
       joinPrintedPort({
         port: 8443,
-        observation: { status: "known", list: [] },
+        tilePorts: [],
         host: hostOf([], [bind]),
         forwards: [],
       }),
@@ -137,7 +110,7 @@ describe("joinPrintedPort — the decision table", () => {
     expect(
       joinPrintedPort({
         port: 9000,
-        observation: { status: "known", list: [info(5173)] },
+        tilePorts: [info(5173)],
         host: hostOf([info(5173)]),
         forwards: [],
       }),
@@ -150,7 +123,7 @@ describe("joinPrintedPort — the decision table", () => {
     expect(
       joinPrintedPort({
         port: 9000,
-        observation: { status: "known", list: [] },
+        tilePorts: [],
         host: { status: "unknown" },
         forwards: [],
       }),
@@ -162,18 +135,18 @@ describe("joinPrintedPort — the decision table", () => {
     expect(
       joinPrintedPort({
         port: 9000,
-        observation: { status: "known", list: [] },
+        tilePorts: [],
         host: hostOf([], "blind"),
         forwards: [],
       }),
     ).toEqual({ kind: "blind", port: 9000 });
   });
 
-  it("asks the host even when the tile has never been scanned", () => {
+  it("asks the host when the tile holds no such port — scanned or not", () => {
     expect(
       joinPrintedPort({
         port: 18440,
-        observation: { status: "unknown" },
+        tilePorts: [],
         host: hostOf([info(18440, "bun")]),
         forwards: [],
       }),
@@ -181,7 +154,7 @@ describe("joinPrintedPort — the decision table", () => {
     expect(
       joinPrintedPort({
         port: 5173,
-        observation: { status: "unknown" },
+        tilePorts: [],
         host: { status: "unknown" },
         forwards: [],
       }),
@@ -194,7 +167,7 @@ describe("joinPrintedPort — the decision table", () => {
     expect(
       joinPrintedPort({
         port: 5173,
-        observation: { status: "known", list: [] },
+        tilePorts: [],
         host: hostOf([]),
         forwards: [forward(5173)],
       }),
@@ -207,7 +180,7 @@ describe("joinPrintedUrl", () => {
     expect(
       joinPrintedUrl({
         uri: "https://github.com/juspay/kolu",
-        observation: { status: "known", list: [info(5173)] },
+        tilePorts: [info(5173)],
         host: hostOf([info(5173)]),
         forwards: [],
       }),
@@ -218,7 +191,7 @@ describe("joinPrintedUrl", () => {
     expect(
       joinPrintedUrl({
         uri: "http://localhost:5173/",
-        observation: { status: "known", list: [info(5173, "vite")] },
+        tilePorts: [info(5173, "vite")],
         host: hostOf([info(5173, "vite")]),
         forwards: [],
       }),

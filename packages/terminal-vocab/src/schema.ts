@@ -466,9 +466,10 @@ export type TerminalGrid = typeof TerminalGridSchema.Type;
  *  than forgotten — read them before adding a third:
  *
  *    · `@kolu/xterm-kit/solid`'s `sameGrid`, over its own structurally-identical
- *      `TerminalGrid`. That kit's manifest declares no workspace package at all,
- *      which is the property that makes it cheap to consume; importing this one
- *      would take its closure from one member to twelve to share four tokens.
+ *      `TerminalGrid`. That kit's manifest declares one dependency-free
+ *      workspace leaf (`@kolu/url-shape`) and nothing else, which is the property
+ *      that makes it cheap to consume; importing this one would take its closure
+ *      from two members to thirteen to share four tokens.
  *    · `@kolu/padi-client/attach`'s `snapshotAnswersGrid`, over `EndpointGrid` —
  *      a THIRD declaration of `{ cols, rows }`, on padi's own surface, with its
  *      own header claiming to be "the ONE grid rule on this surface". It is

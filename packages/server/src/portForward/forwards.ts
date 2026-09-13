@@ -348,10 +348,9 @@ export function createKoluForwards(deps: {
       for (const f of auto)
         hosts.set(encodeHostKey(hostOf(f.target)), hostOf(f.target));
 
-      // The hosts are read TOGETHER, for the same reason the read fans out over
-      // a host's terminals inside `readHostPorts`: the reads are independent and
-      // each is separately bounded, so in sequence one quiet mirror costs its
-      // whole deadline and three cost three of them. Against a cadence shorter
+      // The hosts are read TOGETHER: each host's read is independent and
+      // separately bounded, so in sequence one quiet mirror costs its whole
+      // deadline and three cost three of them. Against a cadence shorter
       // than that sum the poll's non-overlap guard just defers the next tick,
       // and the reap slips to the sum of its worst hosts for the life of the
       // server. Per-host error containment is unchanged — each read keeps its

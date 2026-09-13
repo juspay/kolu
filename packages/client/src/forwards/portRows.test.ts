@@ -23,6 +23,8 @@ import {
   heldByNoTerminal,
   listenerLabel,
   portGroups,
+  rowGroup,
+  type TerminalsView,
 } from "./portRows";
 
 const LOCAL = { kind: "local" as const };
@@ -66,16 +68,24 @@ const hostOf = (
 const none = new Set<number>();
 
 /** The join with every input at its empty default, overridden per case. */
-function groups(opts: Partial<Parameters<typeof portGroups>[0]>) {
+function groups(
+  opts: Partial<
+    Omit<Parameters<typeof portGroups>[0], "terminals"> & TerminalsView
+  >,
+) {
+  const {
+    tilePorts = [],
+    printedHere = none,
+    printedOnHost = none,
+    heldPorts = none,
+    ...rest
+  } = opts;
   return portGroups({
-    tilePorts: [],
+    terminals: { tilePorts, printedHere, printedOnHost, heldPorts },
     host: { status: "unknown" },
-    printedHere: none,
-    printedOnHost: none,
-    terminalPorts: none,
     forwards: [],
     doorPorts: none,
-    ...opts,
+    ...rest,
   });
 }
 
@@ -158,7 +168,7 @@ describe("from this terminal", () => {
     const g = groups({
       host: hostOf([port(5173)]),
       printedHere: new Set([5173]),
-      terminalPorts: new Set([5173]),
+      heldPorts: new Set([5173]),
     });
     expect(g.here).toEqual([]);
     expect(shape(g.elsewhere)).toEqual([["port", 5173, "host"]]);
@@ -169,7 +179,7 @@ describe("from this terminal", () => {
     const g = groups({
       host: hostOf([port(18440, "bun odu web-daemon")]),
       printedHere: new Set([18440]),
-      terminalPorts: "unknown",
+      heldPorts: "unknown",
     });
     expect(g.here).toEqual([]);
     expect(shape(g.elsewhere)).toEqual([["port", 18440, "host"]]);
@@ -189,6 +199,24 @@ describe("from this terminal", () => {
       ["port", 3000, "printed"],
       ["port", 5173, "subtree"],
     ]);
+  });
+});
+
+describe("rowGroup — the group a row is filed in", () => {
+  it("agrees with the array portGroups put every row in", () => {
+    const g = groups({
+      tilePorts: [port(5173)],
+      host: hostOf(
+        [port(5173), port(3000, "bun serve"), port(8734)],
+        [bind(8443)],
+      ),
+      printedHere: new Set([3000, 8443]),
+      forwards: [forward(9229, 61000, "manual")],
+    });
+    expect(g.here.length).toBeGreaterThan(0);
+    expect(g.elsewhere.length).toBeGreaterThan(0);
+    for (const row of g.here) expect(rowGroup(row)).toBe("here");
+    for (const row of g.elsewhere) expect(rowGroup(row)).toBe("elsewhere");
   });
 });
 

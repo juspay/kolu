@@ -112,6 +112,28 @@ export type PortRow =
     }
   | { kind: "orphan"; port: number; forward: KoluForward };
 
+/** Which group a row belongs to — the ONE statement of it. `portGroups` files
+ *  rows by it, and the row's `data-group` and the section's serving-link gate
+ *  read it, so the array a row sits in and the predicate cannot disagree. */
+export function rowGroup(row: PortRow): "here" | "elsewhere" {
+  return row.kind === "orphan" || row.origin === "host" ? "elsewhere" : "here";
+}
+
+/** What the host's terminals say, as seen from ONE tile — the four sets the join
+ *  reads, arriving as one value so they are the same host at the same moment
+ *  (`HostTerminals` is their source). */
+export interface TerminalsView {
+  /** The tile's subtree ports, already folded across its panes. */
+  tilePorts: readonly PortInfo[];
+  /** Ports whose URLs this tile's panes printed. */
+  printedHere: ReadonlySet<number>;
+  /** Every port some terminal subtree on this host holds, or `unknown` while a
+   *  pane is unscanned — a print claims a server only when no terminal can. */
+  heldPorts: ReadonlySet<number> | "unknown";
+  /** Ports whose URLs any terminal on this host printed. */
+  printedOnHost: ReadonlySet<number>;
+}
+
 export interface PortGroups {
   /** What this terminal serves — its subtrees' ports and the servers it printed. */
   here: PortRow[];
@@ -121,17 +143,10 @@ export interface PortGroups {
 
 /** Group what the tile and the host serve, joined to what kolu has opened. */
 export function portGroups(opts: {
-  /** The tile's subtree ports, already folded across its panes. */
-  tilePorts: readonly PortInfo[];
+  /** The host's terminals, from the inspected tile. */
+  terminals: TerminalsView;
   /** The host's listeners — `unknown` leaves only the subtree rows and doors. */
   host: HostListeners;
-  /** Ports whose URLs this tile's panes printed. */
-  printedHere: ReadonlySet<number>;
-  /** Every port some terminal subtree on this host holds, or `unknown` while a
-   *  pane is unscanned — a print claims a server only when no terminal can. */
-  terminalPorts: ReadonlySet<number> | "unknown";
-  /** Ports whose URLs any terminal on this host printed. */
-  printedOnHost: ReadonlySet<number>;
   /** The doors on the inspected terminal's host. ALREADY host-scoped by the
    *  caller (`forwardsForHost`), so this function does not re-filter. */
   forwards: readonly KoluForward[];
@@ -144,7 +159,8 @@ export function portGroups(opts: {
   const byPort = (a: PortRow, b: PortRow) => a.port - b.port;
 
   // ── From this terminal ────────────────────────────────────────────────
-  const here: PortRow[] = opts.tilePorts.map((info) => {
+  const { tilePorts, printedHere, heldPorts, printedOnHost } = opts.terminals;
+  const here: PortRow[] = tilePorts.map((info) => {
     taken.add(info.port);
     return {
       kind: "port",
@@ -154,9 +170,9 @@ export function portGroups(opts: {
       forward: doorOf.get(info.port),
     };
   });
-  for (const port of opts.printedHere) {
+  for (const port of printedHere) {
     if (taken.has(port) || opts.doorPorts.has(port)) continue;
-    if (!heldByNoTerminal(opts.terminalPorts, port)) continue;
+    if (!heldByNoTerminal(heldPorts, port)) continue;
     const at = listenerAt(opts.host, port);
     if (at.kind === "claimed") {
       here.push({
@@ -201,7 +217,7 @@ export function portGroups(opts: {
       for (const bind of opts.host.unclaimed.list) {
         if (taken.has(bind.port) || opts.doorPorts.has(bind.port)) continue;
         const forward = doorOf.get(bind.port);
-        if (forward === undefined && !opts.printedOnHost.has(bind.port)) {
+        if (forward === undefined && !printedOnHost.has(bind.port)) {
           continue;
         }
         elsewhere.push({

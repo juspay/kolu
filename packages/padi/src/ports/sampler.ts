@@ -70,7 +70,6 @@ import type {
   TerminalPorts,
 } from "@kolu/terminal-vocab/schema";
 import {
-  hostListenersEqual,
   samePortList,
   UNKNOWN_HOST_LISTENERS,
 } from "@kolu/terminal-vocab/schema";
@@ -342,13 +341,9 @@ export function createPortSampler(opts: {
               : { status: "known", list };
           next.set(t.id, { rootPid: t.rootPid, ports });
         }
-        // Same identity rule for the host: an unchanged reading keeps the held
-        // object, so the fan-out forwards a reference the cell's dedup drops on a
-        // pointer compare.
-        last = {
-          terminals: next,
-          host: hostListenersEqual(last.host, host) ? last.host : host,
-        };
+        // The host takes no identity rule of its own: it has ONE sink, the
+        // `hostListeners` cell, whose `equals` is the one dedup point.
+        last = { terminals: next, host };
         return last;
       } catch (err) {
         // The PERMANENT arm STOPS THE SAMPLER, here, at the pass that learned the
