@@ -155,7 +155,11 @@ export {
   AgentMemorySchema,
   ForegroundSchema,
   foldPorts,
+  type HostListeners,
+  type HostPort,
   knownPorts,
+  type ListenerAt,
+  listenerAt,
   type PortFamily,
   PortFamilySchema,
   type PortReach,
@@ -174,6 +178,8 @@ export {
   TerminalIdSchema,
   type TerminalPorts,
   TerminalSnapshotSchema,
+  UNKNOWN_HOST_LISTENERS,
+  type PortBind,
 } from "@kolu/terminal-vocab/schema";
 
 // ── User preferences (server-side, shared with client) ────────────────

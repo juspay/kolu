@@ -2442,6 +2442,9 @@ importers:
 
   packages/xterm-kit:
     dependencies:
+      '@kolu/url-shape':
+        specifier: workspace:*
+        version: link:../url-shape
       '@solid-primitives/event-listener':
         specifier: ^2.4.5
         version: 2.4.5(solid-js@1.9.11)

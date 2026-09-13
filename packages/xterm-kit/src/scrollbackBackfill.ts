@@ -512,6 +512,12 @@ export function createBackfillController(
      *  ignore faults passes an explicit no-op `() => {}` — a visible decision,
      *  not a missing one. */
     onError: (err: unknown) => void;
+    /** Rows were spliced in above everything — told once per committed insert,
+     *  with its row count. A splice fires no write event (only a scroll), so a
+     *  consumer that reads the buffer — kolu's printed-port index — cannot tell a
+     *  backfill from the user scrolling without being told. REQUIRED, like
+     *  {@link onError}: a caller with nothing to do passes `() => {}`. */
+    onPrepended: (rows: number) => void;
     /** Test seam: inject a small trigger so a controller test fires the near-top
      *  fetch without a giant buffer (defaults to 2× the visible rows). */
     triggerRows?: number;
@@ -692,6 +698,7 @@ export function createBackfillController(
         // re-fetches it. Conflating this with an empty insert is the silent-hole
         // bug: `skipped` is a distinct arm precisely so the cursor can't move.
         if (result.kind === "skipped") return;
+        if (result.rows > 0) opts.onPrepended(result.rows);
         cursor = res.topLine;
         exhausted = res.exhausted;
         before = res.topLine;

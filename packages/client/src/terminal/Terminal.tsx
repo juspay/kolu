@@ -88,6 +88,7 @@ import {
 } from "./fileRefLinkProvider";
 import { installTerminalFocusProvenance } from "./focusProvenance";
 import { handleWebLink } from "./handleWebLink";
+import { trackPrintedPorts } from "./printedPorts";
 import { PrintedUrlCardMount } from "./PrintedUrlCard";
 import { deliverScratchPaste } from "./pasteDelivery";
 import { createForeignGridWatcher } from "./foreignGrid";
@@ -316,6 +317,10 @@ const Terminal: Component<{
     // that touches terminal contents. Cleared in the teardown below.
     (h.container as HTMLElement & { __xterm?: XTerm }).__xterm = term;
 
+    // Index the loopback URLs this terminal prints, so its Ports section can
+    // claim a server that detached from its process subtree (see printedPorts).
+    const printedPorts = trackPrintedPorts(term, props.terminalId);
+
     // Consumer teardown registered HERE, inside onReady — NOT at the component
     // body top. `<Xterm>` is a plain JSX child (no own reactive owner), so a
     // body-registered `onCleanup` lands FIRST on the shared owner and runs LAST
@@ -337,6 +342,7 @@ const Terminal: Component<{
       disposeDiagnostics = null;
       linkProviderDisposable?.dispose();
       linkProviderDisposable = null;
+      printedPorts.dispose();
       backfill?.dispose();
       backfill = null;
       (h.container as HTMLElement & { __xterm?: XTerm }).__xterm = undefined;
@@ -512,6 +518,8 @@ const Terminal: Component<{
       // rejection only. Matched on the `_tag` (see `rpc/declaredErrors`) so a
       // wire hop cannot cost us the recognition.
       isTerminalGone: (err) => isDeclared(err, TERMINAL_NOT_FOUND),
+      // A splice fires no write; the printed-port index must be told.
+      onPrepended: () => printedPorts.notePrepended(),
       // Any OTHER backfill fetch fault (transport, schema, server) surfaces here
       // rather than silently leaving a scrollback hole. A later scroll retries.
       onError: (err) =>

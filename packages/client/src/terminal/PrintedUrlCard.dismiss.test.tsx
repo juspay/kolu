@@ -21,11 +21,16 @@ vi.mock("./useTerminalStore", () => ({
   useTerminalStore: () => ({
     getTilePaneIds: () => [],
     getMetadata: () => undefined,
+    terminalIds: () => [],
+    activate: () => {},
   }),
 }));
 vi.mock("../forwards/useForwards", () => ({
   forwardsForHost: () => [],
   viewerHost: () => null,
+}));
+vi.mock("../forwards/useHostListeners", () => ({
+  useHostListeners: () => () => ({ status: "unknown" as const }),
 }));
 vi.mock("../kaval/useDaemonStatus", () => ({
   isActiveHostLocal: () => true,

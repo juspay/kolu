@@ -25,6 +25,7 @@ import { PortInfoSchema, TcpPortSchema } from "./ports.ts";
 import {
   AgentMemorySchema,
   ForegroundSchema,
+  HostListenersSchema,
   ProcessRssSchema,
   PrResultSchema,
   PrUnavailableSourceSchema,
@@ -151,7 +152,15 @@ describe("TerminalSnapshot — the persisted + served producer emission", () => 
       foreground: { name: "claude", title: "user@host: ~/code" },
       ports: {
         status: "known",
-        list: [{ port: 5173, name: "node", scope: "loopback", family: "v4" }],
+        list: [
+          {
+            port: 5173,
+            name: "node",
+            command: "node vite",
+            scope: "loopback",
+            family: "v4",
+          },
+        ],
       },
     } as const satisfies typeof TerminalSnapshotSchema.Type;
 
@@ -169,7 +178,7 @@ describe("TerminalSnapshot — the persisted + served producer emission", () => 
         '"summary":null,"taskProgress":null,"workflow":null,"contextTokens":47000,' +
         '"startedAt":1712345678901},' +
         '"foreground":{"name":"claude","title":"user@host: ~/code"},' +
-        '"ports":{"status":"known","list":[{"port":5173,"name":"node","scope":"loopback","family":"v4"}]}}',
+        '"ports":{"status":"known","list":[{"port":5173,"name":"node","command":"node vite","scope":"loopback","family":"v4"}]}}',
     );
   });
 
@@ -298,10 +307,18 @@ describe("discriminants — the five unions keep their field and values", () => 
     expect(
       encode({
         status: "known",
-        list: [{ port: 8080, name: "node", scope: "any", family: "v6" }],
+        list: [
+          {
+            port: 8080,
+            name: "node",
+            command: "node server.js",
+            scope: "any",
+            family: "v6",
+          },
+        ],
       }),
     ).toBe(
-      '{"status":"known","list":[{"port":8080,"name":"node","scope":"any","family":"v6"}]}',
+      '{"status":"known","list":[{"port":8080,"name":"node","command":"node server.js","scope":"any","family":"v6"}]}',
     );
   });
 
@@ -351,15 +368,42 @@ describe("leaf schemas", () => {
     );
   });
 
-  it("PortInfo encodes its four fields in declaration order", () => {
+  it("PortInfo encodes its five fields in declaration order", () => {
     expect(
       encodeJson(PortInfoSchema)({
         port: 1,
         name: "sshd",
+        command: "sshd -D",
         scope: "interface",
         family: "v4",
       }),
-    ).toBe('{"port":1,"name":"sshd","scope":"interface","family":"v4"}');
+    ).toBe(
+      '{"port":1,"name":"sshd","command":"sshd -D","scope":"interface","family":"v4"}',
+    );
+  });
+
+  it("HostListeners: status ∈ known|unknown, known carries claimed + an unclaimed two-way", () => {
+    const encode = encodeJson(HostListenersSchema);
+    expect(encode({ status: "unknown" })).toBe('{"status":"unknown"}');
+    expect(
+      encode({
+        status: "known",
+        claimed: [],
+        unclaimed: { status: "unknown" },
+      }),
+    ).toBe('{"status":"known","claimed":[],"unclaimed":{"status":"unknown"}}');
+    expect(
+      encode({
+        status: "known",
+        claimed: [],
+        unclaimed: {
+          status: "known",
+          list: [{ port: 631, scope: "loopback", family: "v6" }],
+        },
+      }),
+    ).toBe(
+      '{"status":"known","claimed":[],"unclaimed":{"status":"known","list":[{"port":631,"scope":"loopback","family":"v6"}]}}',
+    );
   });
 
   it("TcpPort holds the 1..65535 range", () => {

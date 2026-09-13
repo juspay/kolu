@@ -165,11 +165,13 @@ export const ForegroundSchema = Schema.Struct({
 // two-way) and what kolu's UI decides from them (`portReach`).
 
 export {
+  foldBinds,
   foldPorts,
   type PortFamily,
   PortFamilySchema,
   type PortInfo,
   PortInfoSchema,
+  type PortBind,
   type PortScope,
   PortScopeSchema,
   preferredFamily,
@@ -179,13 +181,16 @@ export {
 } from "./ports.ts";
 
 // Imported as well as re-exported: `export … from` re-publishes without binding,
-// and the three below are used right here to build `TerminalPortsSchema` and
-// `portReach`.
+// and the ones below are used right here to build `TerminalPortsSchema`,
+// `HostListenersSchema` and `portReach`.
 import {
+  type PortBind,
+  PortBindSchema,
   type PortInfo,
   PortInfoSchema,
   type PortScope,
   samePortList,
+  widerScope,
 } from "./ports.ts";
 
 /** What a terminal is serving, as an HONEST two-way — not a bare `PortInfo[]` that
@@ -330,6 +335,127 @@ export function portsEqual(a: TerminalPorts, b: TerminalPorts): boolean {
   return samePortList(a.list, b.list);
 }
 
+// ── The HOST's listeners ────────────────────────────────────────────────
+//
+// `TerminalPorts` answers "what is THIS terminal serving?", and a process that
+// detaches (a `setsid` daemon, an `odu web-daemon` coordinator that reparents to
+// init) leaves every terminal's subtree while its server keeps answering. A
+// printed URL for it then read "nothing is listening yet" — a claim about the
+// whole machine made from a look at one subtree. `HostListeners` is the look at
+// the whole machine, from the SAME scan pass.
+
+/** The unclaimed half of a host reading, as its own honest two-way. `unknown`
+ *  is a real state on darwin: macOS 27 gates the host-wide socket table, so the
+ *  sockets nobody claims are exactly the ones that go missing while every
+ *  claimed listener survives. Folding that into `known: []` would say "no other
+ *  user's server is on this port" when the truth is "we could not see". */
+export const UnclaimedPortsSchema = Schema.Union([
+  Schema.Struct({
+    status: Schema.Literal("known"),
+    list: Schema.Array(PortBindSchema),
+  }),
+  Schema.Struct({ status: Schema.Literal("unknown") }),
+]);
+export type UnclaimedPorts = typeof UnclaimedPortsSchema.Type;
+
+/** A listener a readable program holds on the host, and whether a TERMINAL's
+ *  process subtree holds it. The scanner knows the second from the same pass
+ *  that found the listener, so "detached" — held by no terminal — is a fact on
+ *  the row, never re-derived by joining this reading against every terminal's
+ *  separately delivered `ports` (where one unscanned or unreadable terminal
+ *  would make it unanswerable for the whole host). */
+export const HostPortSchema = Schema.Struct({
+  ...PortInfoSchema.fields,
+  heldByTerminal: Schema.Boolean,
+});
+export type HostPort = typeof HostPortSchema.Type;
+
+/** Every TCP listener on a host, as its scanner saw it.
+ *
+ *   - `claimed` — sockets a readable (same-user) process holds, with the program
+ *     and command line holding each, and whether any terminal's subtree holds it
+ *     (a detached daemon: no).
+ *   - `unclaimed` — sockets the OS showed with no readable owner.
+ *   - `{ status: "unknown" }` — no pass has succeeded yet: padi has never run a
+ *     terminal (its sampler arms on the first one), or the first pass has not
+ *     landed. Once armed, the sampler keeps reading the host after the last
+ *     terminal closes, so a detached server's door is still reaped when it dies.
+ *
+ *  A blind pass does NOT flip this to `unknown`: like `TerminalPorts`, the last
+ *  good reading is re-served, because one pass that could not see is not news
+ *  that every server stopped. */
+export const HostListenersSchema = Schema.Union([
+  Schema.Struct({
+    status: Schema.Literal("known"),
+    claimed: Schema.Array(HostPortSchema),
+    unclaimed: UnclaimedPortsSchema,
+  }),
+  Schema.Struct({ status: Schema.Literal("unknown") }),
+]);
+export type HostListeners = typeof HostListenersSchema.Type;
+
+/** The value before any reading has landed. */
+export const UNKNOWN_HOST_LISTENERS: HostListeners = { status: "unknown" };
+
+/** Are two host readings the same fact? The wire dedup gate for the cell that
+ *  carries them — same contract as {@link portsEqual}: a status flip (on either
+ *  level) is always a change, and an unchanged host publishes nothing.
+ *
+ *  DERIVED from the schema rather than walked by hand: a hand-written walk of a
+ *  two-level union is one more place a new arm or field has to be remembered, and
+ *  a dedup gate that forgets one swallows that field's changes with nothing to
+ *  say why. Arrays compare in order, which is the producer's contract (every
+ *  list is sorted by port). */
+export const hostListenersEqual: (
+  a: HostListeners,
+  b: HostListeners,
+) => boolean = Schema.toEquivalence(HostListenersSchema);
+
+/** What a host reading says about ONE port — the four answers a reader acts on,
+ *  and the ONE place they are derived, so the printed-URL card and the Ports
+ *  section cannot disagree about when "nothing is listening" may be said.
+ *
+ *  The forward reaper deliberately does NOT read it: it asks a looser question
+ *  (may this door close?) and counts the claimed half alone as an observation
+ *  when the unclaimed half is blind — kolu-server's `hostPortsOf` says why.
+ *
+ *   - `claimed`   — a readable program holds it.
+ *   - `unclaimed` — something holds it; its owner is not visible.
+ *
+ *  When BOTH halves hold the port, the answer is the bind a reader can act on —
+ *  the same scope-first rule `foldBinds` gives the reaper: the unclaimed bind
+ *  wins only when its scope is strictly more useful (another user's `127.0.0.1`
+ *  beside our interface-only bind is the one a door can dial). Its owner stays
+ *  "not visible"; it never borrows the claimed listener's command.
+ *   - `absent`    — positively not listening anywhere on this host.
+ *   - `unknown`   — cannot say: the host is not scanned, or the port is not
+ *     claimed and the unclaimed half is blind (it may be another user's). */
+export type ListenerAt =
+  | { kind: "claimed"; info: HostPort }
+  | { kind: "unclaimed"; bind: PortBind }
+  | { kind: "absent" }
+  | { kind: "unknown" };
+
+export function listenerAt(host: HostListeners, port: number): ListenerAt {
+  if (host.status !== "known") return { kind: "unknown" };
+  const info = host.claimed.find((p) => p.port === port);
+  const bind =
+    host.unclaimed.status === "known"
+      ? host.unclaimed.list.find((p) => p.port === port)
+      : undefined;
+  if (info !== undefined) {
+    const unclaimedWins =
+      bind !== undefined &&
+      bind.scope !== info.scope &&
+      widerScope(info.scope, bind.scope) === bind.scope;
+    return unclaimedWins
+      ? { kind: "unclaimed", bind }
+      : { kind: "claimed", info };
+  }
+  if (host.unclaimed.status !== "known") return { kind: "unknown" };
+  return bind === undefined ? { kind: "absent" } : { kind: "unclaimed", bind };
+}
+
 // ── The TerminalSnapshot — what a host PRODUCER emits ──────────────────────
 //
 // The de-entanglement (awareness-derive-store.mdx): a host PRODUCER emits one
@@ -367,9 +493,10 @@ export type TerminalGrid = typeof TerminalGridSchema.Type;
  *  than forgotten — read them before adding a third:
  *
  *    · `@kolu/xterm-kit/solid`'s `sameGrid`, over its own structurally-identical
- *      `TerminalGrid`. That kit's manifest declares no workspace package at all,
- *      which is the property that makes it cheap to consume; importing this one
- *      would take its closure from one member to twelve to share four tokens.
+ *      `TerminalGrid`. That kit's manifest declares one dependency-free
+ *      workspace leaf (`@kolu/url-shape`) and nothing else, which is the property
+ *      that makes it cheap to consume; importing this one would take its closure
+ *      from two members to thirteen to share four tokens.
  *    · `@kolu/padi-client/attach`'s `snapshotAnswersGrid`, over `EndpointGrid` —
  *      a THIRD declaration of `{ cols, rows }`, on padi's own surface, with its
  *      own header claiming to be "the ONE grid rule on this surface". It is

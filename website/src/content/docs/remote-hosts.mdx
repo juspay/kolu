@@ -328,9 +328,11 @@ wears a **thin teal ring** while that host has doors open.
 Each row also **names the terminal serving that port**, and the name is a link:
 click it and you land on the agent that started the thing.
 
-A door you opened by hand, or one whose server has since died, trails the Ports
-list under **"also forwarded on this host"** — a door belongs to the machine, not
-to whichever terminal you happen to be looking at.
+A door onto a server no terminal holds — one you opened by hand, one whose
+server has since died, one onto a server running elsewhere on the machine — sits
+in the Ports list under **elsewhere on this host**, and stays visible while that
+group is folded: a door belongs to the machine, not to whichever terminal you
+happen to be looking at.
 
 <Steps>
 
@@ -340,8 +342,8 @@ to whichever terminal you happen to be looking at.
 
 2. **Or forward a port kolu never saw.** `⌘K` → **Forward a port…**, then
    `host:port` (or just a port, for the host you're looking at). Useful for a
-   service outside any terminal's process tree, or one that was already running
-   before kolu started.
+   port kolu's scan cannot see — another user's service on a host whose socket
+   table hides it — or when you want a door that no scan may close.
 
 3. **Close it when you're done.** `⨯` on the row. A forward you asked for by
    hand stays until you cancel it or its host leaves — there is no listener for
@@ -357,10 +359,11 @@ timer, so a deploy or a crash never leaves an orphaned door open.
 Agents constantly print `http://localhost:5173/` (and `127.*`, `[::1]`,
 `0.0.0.0`). In your browser that hostname is the **wrong machine** — the laptop
 you are reading kolu from, not the host running the server. Click a loopback URL
-in the terminal and a small card appears at the cursor: when the scanner already
-sees that port on this terminal it offers **forward &amp; open** (and copy), with
-the printed path carried through the door; when nothing is listening yet it says
-so instead of inventing a forward from text. ⌘/Ctrl-click opens the raw URL with
+in the terminal and a small card appears at the cursor: when anything on the
+host is listening on that port — in this terminal, in another one, or a server
+that detached from all of them — it says which and offers **forward &amp; open**
+(and copy), with the printed path carried through the door; only when nothing on
+the host listens there does it say so, instead of inventing a forward from text. ⌘/Ctrl-click opens the raw URL with
 no card. Non-loopback links keep the usual open behaviour.
 
 The card is **live** — leave it open while a server starts and it upgrades the

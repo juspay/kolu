@@ -708,6 +708,11 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
       // `unknown`, which is a different fact from `known: []`.
       publish: (id, ports) => this.lifecycles.get(id)?.ports.publish(ports),
       rootPidOf: (id) => this.lifecycles.get(id)?.rootPid,
+      // The host's listeners, from the same pass, into padi's own read-only
+      // `hostListeners` cell — whose spec `equals` is the one dedup point, so a
+      // re-served or unchanged reading publishes nothing downstream.
+      publishHost: (listeners) =>
+        padiSurfaceCtx.cells.hostListeners.set(listeners),
       log,
     });
     this.portSampler = sampler;

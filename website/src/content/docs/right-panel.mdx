@@ -59,16 +59,17 @@ switching tiles or reloading.
 ## Ports the terminal is serving
 
 When something in a terminal starts listening on a TCP port, a **Ports** section
-appears listing it — the port number and the program holding it. This is the
-answer to "where is the thing the agent just ran?", without scrolling back
-through output for a URL that has long since gone by. Detection is not a guess at
-printed text: kolu reads the host's own socket table every few seconds (and
-immediately whenever the terminal produces output), and attributes each listener
-to the terminal whose process subtree holds it. So a port appears because
-something is genuinely listening, and it disappears when that stops.
+appears listing it — the port number and the full command line of the program
+holding it. This is the answer to "where is the thing the agent just ran?",
+without scrolling back through output for a URL that has long since gone by.
+Detection is not a guess at printed text: kolu reads the host's own socket table
+every few seconds (and immediately whenever a terminal produces output), and
+attributes each listener to the terminal whose process subtree holds it. So a
+port appears because something is genuinely listening, and it disappears when
+that stops.
 
 A port bound to **all interfaces** on the machine running kolu already answers on
-the address you're viewing kolu at, so its chip has an **open** link that opens it
+the address you're viewing kolu at, so its row has an **open** link that opens it
 in a new tab.
 
 A port bound only to **loopback** — or one on a remote host — can't be reached
@@ -76,23 +77,40 @@ from your browser as-is, so kolu opens a door for it. Click **forward & open**
 and kolu makes that port answer on the machine serving this page, then opens the
 tab. The row then carries a teal `⇄ :<port>` pill naming where it answers, a
 copy button for the full address, and a `⨯` that closes the door — one list,
-one row per port. A door you opened by hand, or one whose server has since died,
-trails the same list under "also forwarded on this host", because a door belongs
-to the machine rather than to any one terminal.
+one row per port.
 
-Each of those rows also **names the terminal serving the port**, and the name is
-a link: click it and you land on the agent that started the thing.
+### Servers that detached, and the rest of the host
+
+Some servers leave the terminal that started them: a tool that daemonizes itself
+(`odu`'s web daemon, anything under `setsid`, a double-forked dev server)
+reparents away from the shell and keeps serving. When the terminal **printed
+that server's URL**, the server is still listed under the terminal, marked
+**detached** — the printed URL says which terminal it belongs with, and the
+host's socket table says it is really listening. The claim is read from what the
+browser has loaded of the terminal's output, so after a reload a server whose URL
+scrolled far back shows under **elsewhere on this host** instead, until you
+scroll back to the URL.
+
+Below the terminal's own rows, a folded **elsewhere on this host** group counts
+everything else with a story on that machine: your other servers, another
+user's socket that a terminal printed or a door points at, and any door whose
+server has since died. Open it to see them; a row with an open door stays
+visible even while the group is folded, because a door belongs to the machine
+rather than to any one terminal. A row served by another terminal **names that
+terminal**, and the name is a link that takes you there.
 
 ### A printed `localhost` URL is the same door
 
 Agents constantly print `http://localhost:5173/` (and `127.*`, `[::1]`,
 `0.0.0.0`). In your browser that hostname is the **wrong machine** — the laptop
 you are reading kolu from, not the host running the server. Click a loopback URL
-in the terminal and a small card appears at the cursor: when the scanner already
-sees that port on this terminal it offers **forward & open** (and copy), with
-the printed path carried through the door; when nothing is listening yet it says
-so instead of inventing a forward from text. ⌘/Ctrl-click opens the raw URL with
-no card. Non-loopback links keep the usual open behaviour.
+in the terminal and a small card appears at the cursor. When something on the
+host is listening on that port — in this terminal, in another one, or detached
+from all of them — the card says which, shows the owner's command line, and
+offers **forward & open** (and copy), with the printed path carried through the
+door. Only when nothing on the whole host listens there does it say **nothing is
+listening yet**, instead of inventing a forward from text. ⌘/Ctrl-click opens the
+raw URL with no card. Non-loopback links keep the usual open behaviour.
 
 The card is **live** — leave it open while a server starts and it upgrades the
 moment the listener is real. Printed text never creates a port fact of its own;
@@ -103,12 +121,6 @@ it only looks up what observation already established.
 `⌘K` → **Forward a port…** path for a port kolu never saw, and the security
 note that a forwarded port is unauthenticated on every interface of the machine
 running kolu.
-
-<Aside type="note" title="A daemonized server is not listed">
-A process that fully daemonizes itself (double-fork, reparented away from the
-shell) leaves the terminal's process tree, so it is deliberately not listed — at
-that point it isn't "this terminal's server" any more.
-</Aside>
 
 ## The terminal CLI, documented in place
 
