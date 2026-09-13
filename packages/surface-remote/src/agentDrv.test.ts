@@ -54,6 +54,7 @@ const resolutionOptions = {
   signal: new AbortController().signal,
   onProgress: vi.fn(),
   onEvaluation: vi.fn(),
+  onActivity: vi.fn(),
   budget: makeProvisionBudgets().evaluation,
   // REQUIRED on this internal seam: the resolver's one ssh (the arch probe)
   // must carry the dial's own policy, or it opens the host's shared

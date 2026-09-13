@@ -84,7 +84,12 @@ import {
 } from "./host";
 import type { SshKeepalive } from "./keepalive";
 import { describeNixRun, type NixRun, runNix } from "./nixLog";
-import { describeExit, type ExitResult, type LifetimePolicy } from "./process";
+import {
+  type DeadlinePolicy,
+  describeExit,
+  type ExitResult,
+  type ProgressLivenessPolicy,
+} from "./process";
 
 /** Hard deadline for the QUICK ssh/local steps — the arch probe and warm
  *  `check-validity`. A genuine round-trip; generous so a slow link doesn't
@@ -138,7 +143,7 @@ export const PROVISION_STEP_MAX_EXPIRIES = 4;
  *  would otherwise reset before it ever counted (the composed-mechanism hole the
  *  architecture gate caught). */
 export interface StepBudget {
-  policy(): LifetimePolicy;
+  policy(): ProgressLivenessPolicy;
   recordExpiry(): boolean;
   reset(): void;
 }
@@ -223,6 +228,14 @@ export interface ProvisionOptions {
    *  owns evaluation, transfer, and realisation without a GC race. */
   derivation: AgentDerivation;
   onProgress: (line: string) => void;
+  /** Every stderr line of a long-running provisioning Nix command, narrated or
+   *  not — the liveness its owner's silence watchdog needs (the ssh connector
+   *  wires the session's `ctx.activity`). Much of that output (build log lines,
+   *  transfer progress) is deliberately kept out of `onProgress`, and a
+   *  watchdog fed only by `onProgress` would cycle a healthy long build whose
+   *  own silence bound never fires. REQUIRED: a forgotten wire is a compile
+   *  error, not that restart loop. */
+  onActivity: () => void;
   /** Fired once immediately before this call's first potentially long required
    *  operation: the cold target build or a warm target's GC-root commit. */
   onProvisioning?: () => void;
@@ -296,14 +309,14 @@ export function agentGcRootPath(
  *  probe and warm `check-validity`. One place so every quick step shares the
  *  "how long a quick nix/ssh round-trip may run" bound (exported so `arch.ts` rides
  *  the same shape rather than re-spelling the literal). */
-export function probePolicy(): LifetimePolicy {
+export function probePolicy(): DeadlinePolicy {
   return { kind: "deadline", ms: PROVISION_PROBE_DEADLINE_MS };
 }
 
 /** The progress-liveness policy the two SPECULATIVE copies run under — their
  *  own bound, not a slice of the required build's escalating budget. See
  *  {@link PROVISION_COPY_SILENCE_MS}. */
-function copyPolicy(): LifetimePolicy {
+function copyPolicy(): ProgressLivenessPolicy {
   return { kind: "progress-liveness", silenceMs: PROVISION_COPY_SILENCE_MS };
 }
 
@@ -378,6 +391,7 @@ async function pinGcRoot(
   target: string,
   rootPath: string,
   onProgress: (line: string) => void,
+  onActivity: () => void,
   budget: StepBudget,
   signal: AbortSignal | undefined,
 ): Promise<ProvisionResult | null> {
@@ -385,7 +399,7 @@ async function pinGcRoot(
   const pinRes = await runNix(
     { host, keepalive },
     ["nix-store", "--realise", target, "--add-root", rootPath, "--indirect"],
-    { narrate: onProgress, policy: budget.policy(), signal },
+    { narrate: onProgress, policy: budget.policy(), onActivity, signal },
   );
   if (pinRes.ok) return null;
   if (pinRes.kind === "lifetime-expired") {
@@ -467,7 +481,8 @@ async function prefetchAgentClosure(opts: {
    *  provisioning step that had been left out of the policy. */
   keepalive: SshKeepalive;
   narrate: (line: string) => void;
-  policy: LifetimePolicy;
+  onActivity: () => void;
+  policy: ProgressLivenessPolicy;
   signal: AbortSignal | undefined;
 }): Promise<CopyOutcome> {
   const keys = opts.binaryCache.trustedPublicKeys.join(" ");
@@ -497,6 +512,7 @@ async function prefetchAgentClosure(opts: {
       ],
       {
         narrate: opts.narrate,
+        onActivity: opts.onActivity,
         policy: opts.policy,
         env: { NIX_SSHOPTS: sshOpts },
         signal: opts.signal,
@@ -541,7 +557,8 @@ async function shipAgentClosure(opts: {
   keepalive: SshKeepalive;
   outPath: string;
   narrate: (line: string) => void;
-  policy: LifetimePolicy;
+  onActivity: () => void;
+  policy: ProgressLivenessPolicy;
   signal: AbortSignal | undefined;
 }): Promise<CopyOutcome> {
   opts.narrate("shipping agent closure to the host's store…");
@@ -566,6 +583,7 @@ async function shipAgentClosure(opts: {
     ],
     {
       narrate: opts.narrate,
+      onActivity: opts.onActivity,
       policy: opts.policy,
       env: { NIX_SSHOPTS: nixSshOpts(opts.keepalive) },
       signal: opts.signal,
@@ -633,6 +651,7 @@ async function stageAgentClosure(opts: {
   outPath: string;
   binaryCache: AgentBinaryCache;
   narrate: (line: string) => void;
+  onActivity: () => void;
   signal: AbortSignal | undefined;
 }): Promise<{ bail: ProvisionResult | null; onTarget: boolean }> {
   const cont = (onTarget: boolean): { bail: null; onTarget: boolean } => ({
@@ -654,6 +673,7 @@ async function stageAgentClosure(opts: {
       binaryCache: opts.binaryCache,
       keepalive: opts.keepalive,
       narrate: opts.narrate,
+      onActivity: opts.onActivity,
       policy: copyPolicy(),
       signal: opts.signal,
     });
@@ -679,6 +699,7 @@ async function stageAgentClosure(opts: {
     keepalive: opts.keepalive,
     outPath: opts.outPath,
     narrate: opts.narrate,
+    onActivity: opts.onActivity,
     policy: copyPolicy(),
     signal: opts.signal,
   });
@@ -793,6 +814,7 @@ export async function provisionAgent(
           localAgentPath,
           rootPath,
           opts.onProgress,
+          opts.onActivity,
           budgets.provisioning,
           signal,
         );
@@ -821,6 +843,7 @@ export async function provisionAgent(
       outPath: localAgentPath,
       binaryCache: opts.derivation.binaryCache,
       narrate: (line) => opts.onProgress(`${opts.host}: ${line}`),
+      onActivity: opts.onActivity,
       signal,
     });
     if (staged.bail) return staged.bail;
@@ -840,6 +863,7 @@ export async function provisionAgent(
       localAgentPath,
       rootPath,
       opts.onProgress,
+      opts.onActivity,
       budgets.provisioning,
       signal,
     );
@@ -885,6 +909,7 @@ export async function provisionAgent(
   ];
   const realiseRes = await runNix("localhost", provisionArgs, {
     narrate: onProgress,
+    onActivity: opts.onActivity,
     policy: budgets.provisioning.policy(),
     env: isLocal ? undefined : { NIX_SSHOPTS: nixSshOpts(keepalive) },
     signal,
@@ -932,6 +957,7 @@ export async function provisionAgent(
       agentPath,
       rootPath,
       opts.onProgress,
+      opts.onActivity,
       budgets.provisioning,
       signal,
     );

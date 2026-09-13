@@ -165,7 +165,7 @@ hover-opened.
   card tells the truth about **who can fix it**:
 
   - While a **remote** machine is still **setting itself up** — probing or provisioning
-    its agent over ssh — the card stays **non-terminal**: it says kolu is **still retrying**
+    its agent over ssh — the card stays **non-terminal**: it says kolu **hasn't given up** and is still working on it
     (naming the phase it's on), and its recovery verb is **Retry connection**, which recycles
     the **server-side** connection — the only thing that can move a stuck dial, where a browser
     reload can't. There's also a **campaign backstop**: after about half an hour of a setup that
@@ -189,9 +189,11 @@ hover-opened.
   (A **local** machine whose own agent fails to start is a different case with its own
   ["kaval didn't start" card](/kaval) and a **Restart** action, unchanged.)
 
-  The canvas shows a **tail**; the full firehose still lives in the **kolu server logs** —
-  the complete Nix provisioning output, and the actual reason if a connect genuinely
-  fails. Under systemd that's `journalctl` for your kolu service — started by hand, it is
+  The canvas shows a **tail**; the **kolu server logs** keep every line it narrates —
+  Nix's own messages, each path copied and each build started, and, when a connect fails,
+  Nix's error with the failed build's last lines. They are not the build's complete
+  output: to read all of a failed build's log, run the `nix log` command the error names
+  on the host. Under systemd that's `journalctl` for your kolu service — started by hand, it is
   only in the terminal you launched it from unless you [redirected
   it](/operations#three-things-to-know-first). padi also keeps its own log in its
   state-root on the host.

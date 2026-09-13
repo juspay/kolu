@@ -254,6 +254,11 @@ export interface SshConnectorOptions<S extends SurfaceSpec> {
  *  on stderr before the exit is classified without it. */
 const SSH_STDERR_DRAIN_MS = 250;
 
+/** How long a child whose stdout ended before its readiness banner is given to
+ *  exit, so its exit (and ssh's reason) classifies the failure. Dominates
+ *  {@link SSH_STDERR_DRAIN_MS}, since that drain sits inside the exit. */
+const STDOUT_EOF_EXIT_GRACE_MS = 2 * SSH_STDERR_DRAIN_MS + 500;
+
 /** Classify the agent child's exit: `transport-failed` exactly when
  *  {@link sshExitIsTransport} says ssh itself failed (its 255 with its own
  *  reason on stderr). Anything else — including a 255 the agent exited with, and
@@ -321,6 +326,7 @@ export function sshConnector<S extends SurfaceSpec>(
           resolveAgentDrv(opts.host, flakeRef, packageName, {
             signal: ctx.signal,
             onProgress: ctx.localProgress,
+            onActivity: () => ctx.activity(),
             onEvaluation: () => ctx.provisioning("provisioning"),
             budget: budgets.evaluation,
             keepalive,
@@ -341,6 +347,7 @@ export function sshConnector<S extends SurfaceSpec>(
       host: opts.host,
       derivation,
       onProgress: (line) => ctx.localProgress(line),
+      onActivity: () => ctx.activity(),
       // Advance before this call's first potentially long required operation:
       // a cold build or a warm target's root repair.
       onProvisioning: () => ctx.provisioning("provisioning"),
@@ -399,13 +406,17 @@ export function sshConnector<S extends SurfaceSpec>(
       }
       ctx.remoteProgress(line);
     });
-    // A newline-free run past the stream's own bound stops the forwarding, and
-    // says so — the link itself is not this stream's to kill.
-    stderrLines?.on("error", (err: Error) =>
+    // A newline-free run past the stream's bound errors the line reader, which
+    // UNPIPES and pauses the child's stderr — nothing drains it after that, so
+    // the child would eventually block writing to it and wedge the link. So it
+    // fails the owned transport, loudly, the same contract `runCapture` keeps
+    // for its children: say why, then terminate (the exit settles `closed`).
+    stderrLines?.on("error", (err: Error) => {
       ctx.remoteProgress(
-        `${opts.binary} on ${opts.host}: stderr no longer forwarded — ${err.message}`,
-      ),
-    );
+        `${opts.binary} on ${opts.host}: stderr could not be read as lines (${err.message}) — ending the connection rather than leaving its stderr undrained`,
+      );
+      transport.terminate();
+    });
 
     // One `closed` per connection: the child's `exit` (a link/agent death — the loop
     // classifies it by `wasConnected`/kind) or `error` (the transport couldn't even
@@ -508,7 +519,30 @@ export function sshConnector<S extends SurfaceSpec>(
           cause,
         );
       }),
-    ]).catch((err: unknown) => {
+    ]).catch(async (err: unknown) => {
+      // stdout ENDING before a banner is the child leaving, not something the
+      // host said — and that end can reach the gate before the child's exit
+      // does, most of all while an ssh 255 waits (bounded) for the line that
+      // says why. So it defers to the child's own exit classification (the
+      // `closed` arm above, the one authority) instead of convicting the host
+      // as `"remote"`; only a child that stays alive past that bound with its
+      // stdout gone is judged from the stream alone.
+      if (isStdioReadinessError(err) && err.kind === "closed") {
+        const exited = await Promise.race([
+          closed,
+          new Promise<null>((resolve) =>
+            setTimeout(() => resolve(null), STDOUT_EOF_EXIT_GRACE_MS).unref(),
+          ),
+        ]);
+        if (exited !== null) {
+          transport.terminate();
+          const { reason, cause } = classifyClosed(exited, false);
+          throw new ConnectError(
+            `${opts.binary} on ${opts.host} exited before it announced readiness — ${reason}`,
+            cause,
+          );
+        }
+      }
       // A gate REFUSAL / expiry / undecodable prelude is a REMOTE fault, not a
       // network one: the host answered, and what it said (or failed to say) is
       // about the daemon there, not the wire in between. `"remote"` is what

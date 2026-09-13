@@ -46,7 +46,8 @@ import {
 import {
   type CaptureResult,
   describeExit,
-  type LifetimePolicy,
+  type DeadlinePolicy,
+  type ProgressLivenessPolicy,
   runCapture,
 } from "./process";
 
@@ -297,6 +298,14 @@ export function describeNixError(error: NixError): string {
     : `${error.headline} — ${last}`;
 }
 
+/** How long a Nix run may live, and who else watches it for silence. */
+export type NixRunLifetime =
+  | { readonly policy: DeadlinePolicy }
+  | {
+      readonly policy: ProgressLivenessPolicy;
+      readonly onActivity: () => void;
+    };
+
 /** A finished Nix run: how the process ended, plus what its log said. */
 export type NixRun = CaptureResult & {
   /** The run's root error, or `null` when Nix reported none. */
@@ -321,16 +330,22 @@ export type NixRun = CaptureResult & {
  *
  *  When the run fails after its root error was pushed down by the cascade, the
  *  root error is narrated once more as the LAST lines — a bounded progress tail
- *  (the failure card's evidence) then ends on the cause, not its fallout. */
+ *  (the failure card's evidence) then ends on the cause, not its fallout.
+ *
+ *  A `progress-liveness` run REQUIRES `onActivity`, called for EVERY stderr line
+ *  — narrated or filtered. The child's own policy is kept alive by those same
+ *  bytes, so an owner watching for silence one level up (the session's
+ *  pre-connected backstop) must see them too, or a healthy build whose output is
+ *  all filtered log lines is cycled there while its own bound never fires. A
+ *  quick `deadline` run has no such owner to feed, so the type refuses one. */
 export async function runNix(
   target: string | SshDestination,
   argv: readonly [string, ...string[]],
   opts: {
     readonly narrate?: (line: string) => void;
-    readonly policy: LifetimePolicy;
     readonly signal: AbortSignal | undefined;
     readonly env?: Readonly<Record<string, string>>;
-  },
+  } & NixRunLifetime,
 ): Promise<NixRun> {
   const narrate = opts.narrate ?? (() => {});
   const reader = nixLogReader(narrate);
@@ -342,8 +357,15 @@ export async function runNix(
     "internal-json",
     ...rest,
   );
+  const onActivity = "onActivity" in opts ? opts.onActivity : undefined;
   const res = await runCapture(command, args, {
-    onProgress: reader.line,
+    onProgress:
+      onActivity === undefined
+        ? reader.line
+        : (line) => {
+            onActivity();
+            reader.line(line);
+          },
     policy: opts.policy,
     signal: opts.signal,
     env: opts.env,

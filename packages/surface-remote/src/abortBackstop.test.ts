@@ -225,4 +225,40 @@ describe("#1908 R8b — the pre-connected liveness backstop", () => {
     expect(session.currentState().phase).toBe("probing");
     session.destroy();
   });
+
+  it("does NOT cycle a dial whose output is all filtered from the log — activity() alone keeps it live", async () => {
+    // A long remote build under `--log-format internal-json`: its child emits build
+    // log lines and transfer progress the connector deliberately does not narrate.
+    // Those bytes keep the child's OWN silence policy alive, so the backstop one
+    // level up must see them too — or it cycles a healthy build its own bound never
+    // would, and every cycle restarts the build (a fresh campaign, fresh budgets).
+    let ctx: ConnectContext<SshProv> | undefined;
+    let dials = 0;
+    const logged: string[] = [];
+    const session = makeSession<unknown, SshProv>({
+      connectOnce: (c) => {
+        dials += 1;
+        ctx = c;
+        return new Promise(() => {});
+      },
+      initialConnection: "probing",
+      liveness: false,
+      log: silentLogger,
+    });
+    session.onState((st) => {
+      for (const e of st.log) logged.push(e.line);
+    });
+    session.pin().catch(() => {});
+    await flush();
+
+    for (let i = 0; i < 5; i++) {
+      await vi.advanceTimersByTimeAsync(BOUND - 1000);
+      ctx?.activity();
+    }
+    expect(dials).toBe(1);
+    expect(session.currentState().phase).toBe("probing");
+    // …and it is a liveness signal ONLY: nothing was written to the log.
+    expect(logged).toEqual([]);
+    session.destroy();
+  });
 });

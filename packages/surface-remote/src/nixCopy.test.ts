@@ -1244,6 +1244,47 @@ describe("honest failure reporting (the sheetal-codex incident)", () => {
     });
   };
 
+  it("every stderr line of a long step reaches onActivity — even the ones never narrated", async () => {
+    // The session's pre-connected backstop listens to narration AND activity; the
+    // child's own silence policy listens to raw bytes. Filtered build-log lines and
+    // transfer progress must feed the backstop, or a healthy long build is cycled.
+    const filtered = [
+      nixJsonLine({ action: "result", id: 7, type: 105, fields: [1, 2, 0, 0] }),
+      nixJsonLine({
+        action: "result",
+        id: 7,
+        type: 101,
+        fields: ["compiling…"],
+      }),
+      nixJsonLine({ action: "msg", level: 4, msg: "evaluating file 'x'" }),
+    ];
+    vi.mocked(runCapture).mockImplementation(async (_cmd, args, opts) => {
+      if (args.includes("--outputs")) return okOut(`${STORE}\n`);
+      if (args.includes("--print-out-paths")) {
+        for (const l of filtered) opts?.onProgress?.(l);
+        return okOut(`${STORE}\n`);
+      }
+      if (args.includes("--add-root")) return okOut("/home/u/link\n");
+      return failOut;
+    });
+    const onProgress = vi.fn();
+    const onActivity = vi.fn();
+    const res = await provisionAgent({
+      host: "build-host",
+      derivation: flakeDrv(),
+      onProgress,
+      ...provArgs(),
+      onActivity,
+    });
+    expect(res.ok).toBe(true);
+    expect(onActivity.mock.calls.length).toBeGreaterThanOrEqual(
+      filtered.length,
+    );
+    for (const l of ["compiling…", "evaluating file 'x'"]) {
+      expect(onProgress).not.toHaveBeenCalledWith(l);
+    }
+  });
+
   it("ships with --no-check-sigs, so a host that trusts the ssh user accepts the closure", async () => {
     mockNix({ localValidity: okOut(""), ship: okOut("") });
     const res = await provisionAgent({

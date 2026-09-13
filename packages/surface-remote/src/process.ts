@@ -50,9 +50,12 @@ import { spawnOwnedProcessGroup } from "./processGroup";
  *                           genuinely silent (wedged) child trips it. The CALLER owns
  *                           the doubling / kill-budget across retries (R4) — this seam
  *                           enforces exactly the one `silenceMs` it is handed. */
-export type LifetimePolicy =
-  | { kind: "deadline"; ms: number }
-  | { kind: "progress-liveness"; silenceMs: number };
+export type LifetimePolicy = DeadlinePolicy | ProgressLivenessPolicy;
+export type DeadlinePolicy = { kind: "deadline"; ms: number };
+export type ProgressLivenessPolicy = {
+  kind: "progress-liveness";
+  silenceMs: number;
+};
 
 /** How a fire-and-collect child settled — a CLOSED union over the ways a run ends,
  *  so each cause has ONE honest shape (no magic exit-code sentinel, no both-null

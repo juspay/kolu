@@ -484,6 +484,12 @@ export interface ConnectContext<Prov extends string = never> {
   localProgress(line: string): void;
   /** Push a `remote`-tagged forwarded remote-agent stderr line. */
   remoteProgress(line: string): void;
+  /** A liveness signal with no log line: the connector's child produced output it
+   *  deliberately does not narrate (a structured log's build lines, transfer
+   *  progress). Resets the pre-connected backstop exactly as a progress line does,
+   *  so the backstop keeps dominating the connector's own per-step silence bound
+   *  (#1908 C1) even when most of a step's output is filtered from the log. */
+  activity(): void;
   /** Advance to one of the connector's OWN provisioning phases (e.g. the ssh
    *  connector's `probing → provisioning`, each at its real command boundary). The
    *  session opens at the connector's first provisioning phase; this moves it
@@ -1358,6 +1364,7 @@ export function makeSession<
       conn = await opts.connectOnce({
         localProgress: gated(localProgress),
         remoteProgress: gated(remoteProgress),
+        activity: gated(armPreConnected),
         provisioning: gated((phase: Prov) => setUp(phase)),
         connecting: gated(() => setUp("connecting")),
         signal: abort.signal,

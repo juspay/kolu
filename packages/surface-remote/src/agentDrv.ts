@@ -106,6 +106,9 @@ export interface AgentDrvResolutionOptions {
   /** Forward evaluation output into the session's liveness and visible progress
    * path while retaining only a bounded private tail for a final error. */
   onProgress: (line: string) => void;
+  /** Every stderr line of the evaluation, narrated or not — the owner's silence
+   *  watchdog's liveness (see `ProvisionOptions.onActivity`). */
+  onActivity: () => void;
   /** Advance the owning connector into its long-running provisioning phase
    * immediately before an uncached Nix evaluation starts. */
   onEvaluation: () => void;
@@ -176,6 +179,7 @@ export async function resolveAgentDrv(
       // Treat it like the other long-running Nix steps: output proves
       // liveness, while a genuinely silent process is retried by the session.
       policy: opts.budget.policy(),
+      onActivity: opts.onActivity,
       signal: opts.signal,
       narrate: opts.onProgress,
     },
