@@ -1,5 +1,5 @@
-/** One row of the Inspector's ports section — a port this terminal serves, or a
- *  door on this host with no scanned port behind it.
+/** One row of the Inspector's ports section — a listener (this terminal's, or
+ *  elsewhere on its host), or a door on this host with no listener behind it.
  *
  *  Hierarchy is deliberate and is the whole of the "look nicer" ask: the NUMBER
  *  and the program name are the subject and carry the weight; everything else —
@@ -12,20 +12,28 @@
  *  right now" — and a component per row is how that stays per row rather than
  *  becoming a map keyed by port number.
  *
- *  Open flow is the three-layer composition ({@link urlForPort} ·
- *  {@link ensureDoor} · `window.open` at this edge) — the same pieces the
- *  printed-URL card and "copy door URL" use.
+ *  Open flow is {@link claimBlankTab} · {@link openThroughDoor} — the shared
+ *  fourth layer over {@link urlForPort} and `ensureDoor` — composed with this
+ *  row's own busy signal; the printed-URL card composes the same two
+ *  functions for its "forward & open".
  */
 
-import { toError } from "@kolu/surface/run-stream";
 import { Effect } from "effect";
 import type { HostKey } from "kolu-common/hostKey";
 import { type Component, createSignal, Show } from "solid-js";
-import { toast } from "solid-sonner";
+import { DetachedBadge } from "../forwards/DetachedBadge";
 import { ForwardControls, ForwardPill } from "../forwards/ForwardPill";
 import type { PortAction } from "../forwards/portAction";
-import type { PortRow as PortRowData } from "../forwards/portRows";
-import { ensureDoor, urlForPort } from "../forwards/openPort";
+import {
+  listenerLabel,
+  type PortRow as PortRowData,
+  rowGroup,
+} from "../forwards/portRows";
+import {
+  claimBlankTab,
+  openThroughDoor,
+  urlForPort,
+} from "../forwards/openPort";
 import { ServingTerminalLink } from "../forwards/ServingTerminalLink";
 import { runAction, type UiAction } from "../runAction";
 import { OpenIcon } from "../ui/Icons";
@@ -37,13 +45,27 @@ export const PortRow: Component<{
   forwardReason: string | undefined;
   /** Host this row's door would open on — the active host of the section. */
   host: HostKey;
-  /** WHICH terminal serves this port, and how to get to it — the trailing
-   *  group's affordance. Absent for a main port row (you are already there) and
-   *  for a forward no terminal serves. */
+  /** WHICH terminal serves this port, and how to get to it. Absent for this
+   *  tile's own subtree ports (you are already there) and for a listener no
+   *  terminal's subtree holds — a detached server, another user's socket. */
   serving?: { name: string; jump: () => void };
 }> = (props) => {
   const [opening, setOpening] = createSignal(false);
   const forward = () => props.row.forward;
+
+  /** What is behind the number, in words: who holds a listener
+   *  ({@link listenerLabel}), and the door sentence for an orphan. */
+  const label = (): string => {
+    const row = props.row;
+    return row.kind === "orphan"
+      ? "also forwarded on this host"
+      : listenerLabel(row);
+  };
+
+  /** A server this tile printed that NO terminal's subtree holds — the join only
+   *  files a claimed listener as `printed` on that positive fact. */
+  const detached = () =>
+    props.row.kind === "port" && props.row.origin === "printed";
 
   /** Ready URL when no door is needed, or when one is already open. */
   const readyHref = (): string | undefined => {
@@ -56,67 +78,22 @@ export const PortRow: Component<{
     return decided.kind === "ready" ? decided.url : undefined;
   };
 
-  /** Open the door, then the page. The window is opened SYNCHRONOUSLY inside the
-   *  click — before the await — because a popup blocker judges a `window.open`
-   *  by whether it descends from a user gesture, and one issued after an await
-   *  does not. So the tab is claimed first and pointed at the URL once the door
-   *  is up; a failure closes it again rather than leaving a blank tab behind.
-   *
-   *  Deliberately NOT `"noopener"` in the feature string, and the `opener = null`
-   *  below is why: `window.open` with `noopener` returns **null** by spec, so
-   *  there would be no handle to navigate once the forward is up — the flag and
-   *  this flow are mutually exclusive. Severing `opener` on the blank tab (while
-   *  it is still same-origin `about:blank`, the one moment this is possible)
-   *  reaches the same posture the anchor path gets from `rel="noopener"`. */
+  /** Open the door, then the page — {@link claimBlankTab} · {@link openThroughDoor}
+   *  composed at this edge with the row's own busy signal; the printed-URL
+   *  card composes the same two functions for its own "forward & open". */
   const openThroughForward = (): UiAction =>
     Effect.suspend(() => {
       if (opening()) return Effect.void;
       setOpening(true);
-      // Claimed on the CALLING stack — `runAction` forks synchronously up to the
-      // first suspension, and `Effect.suspend`'s body runs there, so the popup
-      // blocker still sees this `window.open` as descending from the click.
-      const tab = window.open("", "_blank");
-      if (tab !== null) {
-        try {
-          tab.opener = null;
-        } catch {
-          // Electron can throw; ignore.
-        }
-      }
-      return ensureDoor({
+      // `runAction` forks synchronously up to the first suspension, and
+      // `Effect.suspend`'s body runs there, so the popup blocker still sees
+      // this claim as descending from the click.
+      const tab = claimBlankTab();
+      return openThroughDoor({
         host: props.host,
         port: props.row.port,
-        origin: "auto",
+        tab,
       }).pipe(
-        Effect.tap((localPort) =>
-          Effect.sync(() => {
-            const decided = urlForPort({
-              action: { kind: "forward" },
-              remotePort: props.row.port,
-              doorPort: localPort,
-              pageHost: window.location.hostname,
-            });
-            if (decided.kind !== "ready") {
-              tab?.close();
-              return;
-            }
-            if (tab === null) {
-              toast.info(`Forward open on port ${localPort}`, {
-                description: "Your browser blocked the new tab.",
-              });
-              return;
-            }
-            tab.location.replace(decided.url);
-          }),
-        ),
-        Effect.catch((err) =>
-          Effect.sync(() => {
-            tab?.close();
-            toast.error(
-              `Could not forward port ${props.row.port}: ${toError(err).message}`,
-            );
-          }),
-        ),
         // The `finally` of the old shape, and now total: a finalizer runs on
         // interruption too, so a row unmounted mid-open does not stay "opening".
         Effect.ensuring(Effect.sync(() => setOpening(false))),
@@ -129,6 +106,8 @@ export const PortRow: Component<{
       classList={{ "opacity-70": props.row.kind === "orphan" }}
       data-testid="inspector-port-row"
       data-port={props.row.port}
+      data-kind={props.row.kind}
+      data-group={rowGroup(props.row)}
       data-forwarded={forward() ? "yes" : undefined}
       data-origin={forward()?.origin}
       data-orphan={props.row.kind === "orphan" ? "" : undefined}
@@ -151,22 +130,30 @@ export const PortRow: Component<{
        *  user to guess which of its terminals. When the join finds nothing the
        *  old sentence stands, unlinked: honest copy about a door whose server
        *  kolu cannot point at. */}
-      <Show
-        when={props.serving}
-        fallback={
-          <span class="min-w-0 flex-1 truncate font-mono text-fg-3/80">
-            {props.row.kind === "port"
-              ? props.row.info.name
-              : "also forwarded on this host"}
-          </span>
-        }
-      >
-        {(s) => (
-          <span class="min-w-0 flex-1 truncate">
-            <ServingTerminalLink name={s().name} onJump={s().jump} />
-          </span>
-        )}
-      </Show>
+      <span class="flex min-w-0 flex-1 items-baseline gap-1.5">
+        <Show when={detached()}>
+          <DetachedBadge testid="inspector-port-detached" />
+        </Show>
+        <Show
+          when={props.serving}
+          fallback={
+            <span
+              class="min-w-0 truncate font-mono text-fg-3/80"
+              classList={{ italic: props.row.kind === "unclaimed" }}
+              title={label()}
+              data-testid="inspector-port-label"
+            >
+              {label()}
+            </span>
+          }
+        >
+          {(s) => (
+            <span class="min-w-0 truncate" title={label()}>
+              <ServingTerminalLink name={s().name} onJump={s().jump} />
+            </span>
+          )}
+        </Show>
+      </span>
 
       {/* The door — the same pill the host dropdown shows, not a link here
        *  because this row already carries its own open affordance below. */}

@@ -4,10 +4,12 @@
  */
 
 import { describe, expect, it } from "vitest";
+import { Effect } from "effect";
 import { parseSnapshotOutput } from "osfacts-client";
 import {
   addressBind,
   decodeNetworkAddress,
+  foldScan,
   partitionSubtrees,
   sourceErrorsMessage,
   type ProcessRow,
@@ -126,47 +128,47 @@ describe("parse + classify (client raw → padi policy)", () => {
 
 describe("unreadablePolicy", () => {
   it("skips a foreign-uid DESCENDANT rather than blinding the whole host", () => {
-    const { fatal, skipPids } = unreadablePolicy(
+    const { blindRoots, skipPids } = unreadablePolicy(
       [{ pid: 991, facet: "ports", errno: "EACCES" }],
       new Set([4200]),
     );
-    expect(fatal).toBeNull();
+    expect(blindRoots.size).toBe(0);
     expect([...skipPids]).toEqual([991]);
   });
 
-  it("is fatal when a requested root is EACCES/EPERM", () => {
-    const { fatal, skipPids } = unreadablePolicy(
+  it("marks a requested root BLIND when it is EACCES/EPERM", () => {
+    const { blindRoots, skipPids } = unreadablePolicy(
       [{ pid: 4200, facet: "ports", errno: "EPERM" }],
       new Set([4200]),
     );
-    expect(fatal).toEqual({ pid: 4200, facet: "ports", errno: "EPERM" });
-    expect(skipPids.size).toBe(0);
+    expect([...blindRoots]).toEqual([4200]);
+    expect([...skipPids]).toEqual([4200]);
   });
 
   it("treats a vanished requested root as skip (empty ports), not blind", () => {
-    const { fatal, skipPids } = unreadablePolicy(
+    const { blindRoots, skipPids } = unreadablePolicy(
       [{ pid: 9999, facet: "proc", errno: "ENOENT" }],
       new Set([9999]),
     );
-    expect(fatal).toBeNull();
+    expect(blindRoots.size).toBe(0);
     expect([...skipPids]).toEqual([9999]);
   });
 
   it("skips U rows outside the ask rather than making them fatal", () => {
-    const { fatal, skipPids } = unreadablePolicy(
+    const { blindRoots, skipPids } = unreadablePolicy(
       [{ pid: 1, facet: "ports", errno: "EPERM" }],
       new Set([4200]),
     );
-    expect(fatal).toBeNull();
+    expect(blindRoots.size).toBe(0);
     expect([...skipPids]).toEqual([1]);
   });
 
   it("ignores unreadability from unrelated facets", () => {
-    const { fatal, skipPids } = unreadablePolicy(
+    const { blindRoots, skipPids } = unreadablePolicy(
       [{ pid: 4200, facet: "mem", errno: "EACCES" }],
       new Set([4200]),
     );
-    expect(fatal).toBeNull();
+    expect(blindRoots.size).toBe(0);
     expect(skipPids.size).toBe(0);
   });
 });
@@ -263,5 +265,144 @@ describe("partitionSubtrees", () => {
     ];
     const subtrees = partitionSubtrees(cyclic, [10]);
     expect([...subtrees.get(10)!].sort()).toEqual([10, 11]);
+  });
+});
+
+describe("foldScan — one host-wide reading, two folds", () => {
+  /** A host: zsh (4200) is a terminal's root, node (53082) serves inside it,
+   *  a detached `odu web-daemon` (9001, parent init) serves outside every
+   *  subtree, and sshd's socket belongs to nobody we can read. */
+  const HOST = [
+    "V\t2",
+    "P\t1\t0\tinit",
+    "P\t4200\t1\tzsh",
+    "P\t53082\t4200\tnode",
+    "P\t9001\t1\tbun",
+    'ARGV\t53082\t["node","vite"]',
+    'ARGV\t9001\t["bun","odu","web-daemon"]',
+    "L\tclaimed\t53082\t501\t5173\t7f000001",
+    "L\tclaimed\t9001\t501\t18440\t7f000001",
+    "L\tunclaimed\t-\t0\t22\t00000000",
+  ];
+  const fold = (lines: string[], roots: number[] = [4200]) =>
+    Effect.runSync(
+      foldScan(parseSnapshotOutput([...lines, ""].join("\n")), roots),
+    );
+
+  it("keeps the subtree fold to the subtree", () => {
+    expect(fold(HOST).byRoot.get(4200)).toEqual([
+      {
+        port: 5173,
+        name: "node",
+        command: "node vite",
+        scope: "loopback",
+        family: "v4",
+      },
+    ]);
+  });
+
+  it("puts the detached server on the host list, with its command line", () => {
+    expect(fold(HOST).host.claimed).toEqual([
+      expect.objectContaining({
+        port: 5173,
+        command: "node vite",
+        heldByTerminal: true,
+      }),
+      {
+        port: 18440,
+        name: "bun",
+        command: "bun odu web-daemon",
+        scope: "loopback",
+        family: "v4",
+        heldByTerminal: false,
+      },
+    ]);
+  });
+
+  it("carries sockets nobody claims as bare binds", () => {
+    expect(fold(HOST).host.unclaimed).toEqual({
+      status: "known",
+      list: [{ port: 22, scope: "any", family: "v4" }],
+    });
+  });
+
+  it("reports the unclaimed half UNKNOWN when that source was blind", () => {
+    // macOS 27: the claimed listeners all arrive, the unclaimed ones do not.
+    const scan = fold([
+      ...HOST.filter((l) => !l.startsWith("L\tunclaimed")),
+      "E\tdarwin_tcp_pcblist\tports_unclaimed\tBLIND_OR_EMPTY",
+    ]);
+    expect(scan.host.unclaimed).toEqual({ status: "unknown" });
+    expect(scan.host.claimed.map((p) => p.port)).toEqual([5173, 18440]);
+  });
+
+  it("keeps a listener whose argv could not be read, shown by its name", () => {
+    // The command is a label: an unreadable one must not cost the listener.
+    const scan = fold([
+      ...HOST.filter((l) => !l.startsWith("ARGV\t9001")),
+      "U\t9001\targv\tEACCES",
+    ]);
+    expect(scan.host.claimed).toContainEqual(
+      expect.objectContaining({ port: 18440, name: "bun", command: "bun" }),
+    );
+  });
+
+  it("drops a foreign pid's listener from both folds when its sockets are unreadable", () => {
+    // The sudo lesson, host-wide: a pid we could not read contributes to
+    // neither list rather than being smuggled into one.
+    const scan = fold([...HOST, "U\t9001\tports\tEACCES"]);
+    expect(scan.host.claimed.map((p) => p.port)).toEqual([5173]);
+    // The drop is not silent to a caller with a logger — it is a real
+    // listener the fold could see and could not attribute to anyone.
+    expect(scan.dropped).toEqual([{ pid: 9001, port: 18440 }]);
+  });
+
+  it("shows a listener whose pid exited before the process walk as (exited), not its pid number", () => {
+    // The ordinary exit race: a claimed socket with no U row (never hit the
+    // unreadable path) and no P row either (the pid is simply gone from the
+    // process table this pass caught).
+    const scan = fold([...HOST, "L\tclaimed\t7777\t501\t9090\t7f000001"]);
+    expect(scan.host.claimed).toContainEqual(
+      expect.objectContaining({
+        port: 9090,
+        name: "(exited)",
+        command: "(exited)",
+      }),
+    );
+    expect(scan.exited).toEqual([{ pid: 7777, port: 9090 }]);
+    // Distinct from a drop: the scan still SHOWS this listener, just honestly
+    // labeled, rather than removing it the way `dropped` does.
+    expect(scan.dropped).toEqual([]);
+  });
+
+  it("counts a listener whose pid EXITED mid-read as exited, never as dropped", () => {
+    // ENOENT is a process that is gone, not one kolu could not see — a warning
+    // about an unreadable owner would be a false alarm.
+    const scan = fold([...HOST, "U\t9001\tports\tENOENT"]);
+    expect(scan.dropped).toEqual([]);
+    expect(scan.exited).toContainEqual({ pid: 9001, port: 18440 });
+  });
+
+  it("marks a listener held by a terminal even when that terminal's ROOT is unreadable", () => {
+    // Membership comes from the process TABLE, which stays readable where a
+    // root's sockets are not — so "detached" stays exact beside a sudo terminal.
+    const scan = fold([...HOST, "U\t4200\tports\tEACCES"]);
+    expect(scan.host.claimed).toContainEqual(
+      expect.objectContaining({ port: 5173, heldByTerminal: true }),
+    );
+    expect(scan.host.claimed).toContainEqual(
+      expect.objectContaining({ port: 18440, heldByTerminal: false }),
+    );
+  });
+
+  it("blinds only the unreadable root — the host fold still answers", () => {
+    const scan = fold([...HOST, "U\t4200\tports\tEACCES"]);
+    expect(scan.byRoot.get(4200)).toBe("blind");
+    expect(scan.host.claimed.map((p) => p.port)).toContain(18440);
+  });
+
+  it("does not let a blind argv source blind the scan", () => {
+    const scan = fold([...HOST, "E\tproc_cmdline\targv\tEIO"]);
+    expect(scan.host.claimed.map((p) => p.port)).toEqual([5173, 18440]);
   });
 });

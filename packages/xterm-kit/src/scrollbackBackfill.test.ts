@@ -525,6 +525,7 @@ describe("createBackfillController — near-top trigger + lifecycle races", () =
       prepend,
       isTerminalGone,
       onError: () => {},
+      onPrepended: () => {},
       triggerRows: 1e9,
     });
     seedController(f, c, 100);
@@ -538,6 +539,26 @@ describe("createBackfillController — near-top trigger + lifecycle races", () =
     c.dispose();
   });
 
+  it("reports each committed insert through onPrepended, with its row count", async () => {
+    // A splice fires no write, so a buffer reader (kolu's printed-port index)
+    // learns of a backfill only from this callback.
+    const f = fakeTerm();
+    const onPrepended = vi.fn();
+    const c = createBackfillController(f.term, {
+      fetch: vi.fn(async () => chunk),
+      prepend: vi.fn(async () => inserted(3)),
+      isTerminalGone,
+      onError: () => {},
+      onPrepended,
+      triggerRows: 1e9,
+    });
+    seedController(f, c, 100);
+    f.fireScroll();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(onPrepended).toHaveBeenCalledWith(3);
+    c.dispose();
+  });
+
   it("dispose() during an in-flight fetch discards the result — no prepend onto a torn-down term", async () => {
     const f = fakeTerm();
     const gate = deferred<HistoryChunk>();
@@ -548,6 +569,7 @@ describe("createBackfillController — near-top trigger + lifecycle races", () =
       prepend,
       isTerminalGone,
       onError: () => {},
+      onPrepended: () => {},
       triggerRows: 1e9,
     });
     seedController(f, c, 100);
@@ -574,6 +596,7 @@ describe("createBackfillController — near-top trigger + lifecycle races", () =
       prepend,
       isTerminalGone,
       onError: () => {},
+      onPrepended: () => {},
       triggerRows: 1e9,
     });
     seedController(f, c, 100);
@@ -607,6 +630,7 @@ describe("createBackfillController — near-top trigger + lifecycle races", () =
       prepend,
       isTerminalGone,
       onError: () => {},
+      onPrepended: () => {},
       triggerRows: 1e9,
     });
     seedController(f, c, 100, 7); // seeded under reflow generation 7
@@ -636,6 +660,7 @@ describe("createBackfillController — near-top trigger + lifecycle races", () =
       prepend,
       isTerminalGone,
       onError,
+      onPrepended: () => {},
       triggerRows: 1e9,
     });
     seedController(f, c, 100);
@@ -666,6 +691,7 @@ describe("createBackfillController — near-top trigger + lifecycle races", () =
       prepend,
       isTerminalGone,
       onError,
+      onPrepended: () => {},
       triggerRows: 1e9,
     });
     seedController(f, c, 100);
@@ -697,6 +723,7 @@ describe("createBackfillController — near-top trigger + lifecycle races", () =
       prepend: vi.fn(async () => inserted(1)),
       isTerminalGone,
       onError,
+      onPrepended: () => {},
       triggerRows: 1e9,
     });
     seedController(f, c, 100);
@@ -725,6 +752,7 @@ describe("createBackfillController — near-top trigger + lifecycle races", () =
       prepend,
       isTerminalGone,
       onError: () => {},
+      onPrepended: () => {},
       triggerRows: 1e9,
     });
     seedController(f, c, 100);
@@ -756,6 +784,7 @@ describe("createBackfillController — near-top trigger + lifecycle races", () =
       prepend,
       isTerminalGone,
       onError: () => {},
+      onPrepended: () => {},
       triggerRows: 1e9,
     });
     seedController(f, c, 100);
@@ -803,6 +832,7 @@ describe("createBackfillController — near-top trigger + lifecycle races", () =
       prepend,
       isTerminalGone,
       onError: () => {},
+      onPrepended: () => {},
       triggerRows: 1e9,
     });
     seedController(f, c, 100);
@@ -834,6 +864,7 @@ describe("createBackfillController — near-top trigger + lifecycle races", () =
       prepend,
       isTerminalGone,
       onError: () => {},
+      onPrepended: () => {},
       triggerRows: 1e9,
     });
     // A snapshot frame arrives; its seam parses (baseline captured), then its
@@ -863,6 +894,7 @@ describe("createBackfillController — near-top trigger + lifecycle races", () =
       prepend,
       isTerminalGone,
       onError: () => {},
+      onPrepended: () => {},
       triggerRows: 1e9,
     });
     // The frame is RECEIVED (pauses, arms the committer) but its seam has NOT
@@ -901,6 +933,7 @@ describe("createBackfillController — near-top trigger + lifecycle races", () =
       prepend,
       isTerminalGone,
       onError: () => {},
+      onPrepended: () => {},
       triggerRows: 1e9,
     });
     // An overflow re-attach snapshot frame — its data leads with a RIS.
@@ -941,6 +974,7 @@ describe("createBackfillController — near-top trigger + lifecycle races", () =
       prepend,
       isTerminalGone,
       onError: () => {},
+      onPrepended: () => {},
       triggerRows: 1e9,
     });
     const { commit, seam } = c.consumeSnapshotFrame(30, 2, true);
@@ -971,6 +1005,7 @@ describe("createBackfillController — near-top trigger + lifecycle races", () =
       prepend,
       isTerminalGone,
       onError: () => {},
+      onPrepended: () => {},
       triggerRows: 1e9,
     });
     // Both frames received (each pauses + pushes a pending seed), in receipt order.
@@ -1014,6 +1049,7 @@ describe("createBackfillController — near-top trigger + lifecycle races", () =
       prepend,
       isTerminalGone,
       onError: () => {},
+      onPrepended: () => {},
       triggerRows: 1e9,
     });
     const { commit, seam } = c.consumeSnapshotFrame(30, 2, false);
@@ -1039,6 +1075,7 @@ describe("createBackfillController — near-top trigger + lifecycle races", () =
       prepend: vi.fn(async () => inserted(1)),
       isTerminalGone,
       onError: () => {},
+      onPrepended: () => {},
       triggerRows: 1e9,
     });
     expect(() => f.fireOsc("anything")).not.toThrow();
@@ -1077,6 +1114,7 @@ describe("createBackfillController — near-top trigger + lifecycle races", () =
         prepend: vi.fn(async () => inserted(1)),
         isTerminalGone,
         onError: () => {},
+        onPrepended: () => {},
         triggerRows: 1e9,
       });
       const first = c.consumeSnapshotFrame(30, 2, false);
@@ -1137,6 +1175,7 @@ describe("createBackfillController — near-top trigger + lifecycle races", () =
       prepend,
       isTerminalGone,
       onError: () => {},
+      onPrepended: () => {},
       triggerRows: 1e9,
     });
     seedController(f, c, 100);
@@ -1289,6 +1328,7 @@ describe("backfill reset vs pending-seed FIFO", () => {
       prepend,
       isTerminalGone,
       onError: () => {},
+      onPrepended: () => {},
       triggerRows: 1e9,
     });
     // Receive a snapshot (pushes pending seed) but never fire its seam OSC —

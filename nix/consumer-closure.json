@@ -465,7 +465,9 @@
     },
     "@kolu/xterm-kit": {
       "dir": "packages/xterm-kit",
-      "workspace": [],
+      "workspace": [
+        "@kolu/url-shape"
+      ],
       "external": {
         "@solid-primitives/event-listener": "^2.4.5",
         "@solid-primitives/media": "^2.3.5",

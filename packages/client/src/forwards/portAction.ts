@@ -9,7 +9,7 @@
 
 import { type PortReach, portReach } from "kolu-common/surface";
 import { match } from "ts-pattern";
-import type { PortRow } from "./portRows";
+import { bindOf, type PortRow } from "./portRows";
 
 /** The words for each reason a chip is not open-as-is — a table over `PortReach`'s
  *  `via` union, so a new mechanism is a COMPILE ERROR here rather than a silently
@@ -119,8 +119,10 @@ export function rowAction(opts: {
   if (opts.row.kind === "orphan") {
     return { action: { kind: "forward" }, reason: undefined };
   }
+  // An unclaimed row has no program, but it has a bind — which is all the judge
+  // reads. Its owner being invisible changes nothing about how it is reached.
   const reach = portReach({
-    scope: opts.row.info.scope,
+    scope: bindOf(opts.row).scope,
     onKoluHost: opts.onKoluHost,
   });
   return {

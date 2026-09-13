@@ -40,7 +40,10 @@ import {
 } from "@kolu/surface/server";
 import type { DaemonLifetimeInfo } from "@kolu/surface-daemon";
 import { isContractSkewError } from "@kolu/surface-daemon-supervisor";
-import { DEFAULT_SCROLLBACK } from "@kolu/terminal-vocab/schema";
+import {
+  DEFAULT_SCROLLBACK,
+  UNKNOWN_HOST_LISTENERS,
+} from "@kolu/terminal-vocab/schema";
 import { terminalCaption } from "@kolu/terminal-vocab/terminalKey";
 import { Effect } from "effect";
 import {
@@ -423,6 +426,11 @@ export function buildPadiSurfaceDeps(deps: {
       // The SAME module store `resolveNewTerminalTheme` reads — that identity is
       // what makes `lifecycle.create` resolve against the wire-written authority.
       newTerminalPolicy: { store: newTerminalPolicyStore },
+      // Every TCP listener on THIS padi's host — written by the port sampler (the
+      // same pass that feeds each terminal's `ports`), read by the printed-URL
+      // card, the Ports section's "elsewhere on this host" group, and kolu-server's
+      // forward reaper. In-memory: a reading is re-derived within a pass of boot.
+      hostListeners: { store: inMemoryStore(UNKNOWN_HOST_LISTENERS) },
       // The running kaval + padi daemons on THIS padi's host — the "Running daemons"
       // leak diagnostic. A DERIVED member fed by a POLL source: `samplePadiHostInventory`
       // scans the host (reading padi's serve socket from the module global set at boot),

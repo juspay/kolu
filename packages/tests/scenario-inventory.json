@@ -7550,6 +7550,18 @@
       "exampleRows": [],
       "executions": 1,
       "firstSeenSha": "39d76c97988542ca7a43109d65135df71b063690"
+    },
+    {
+      "revisionId": "revision-b88ae7e124084a8ed302",
+      "scenarioKey": "scenario-18a56f653b558b7b816d",
+      "feature": "features/printed-url.feature",
+      "scenario": "A detached server's printed URL is found on the host",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "c8408dd14213993dc7df9c470beac874b3c105d250f953f59ee473f57766b2e7",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "29c8d0d4fecf78f444754d8c5a1c3ec961c2424f"
     }
   ]
 }

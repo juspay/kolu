@@ -85,6 +85,20 @@ export type LoopbackUrl = {
   hash: string;
 };
 
+/** What counts as a web URL inside terminal text — the ONE pattern both the
+ *  click path (`@kolu/xterm-kit` always hands it to `WebLinksAddon` as `urlRegex`) and kolu's
+ *  printed-port index find URLs with, so a URL the terminal underlines is
+ *  exactly a URL the index reads.
+ *
+ *  It is the addon's own default (`@xterm/addon-web-links` `strictUrlRegex`),
+ *  stated here because the addon does not export it: a scheme, then a run of
+ *  URL characters that may not END on trailing punctuation — so the `.` in
+ *  "running at http://localhost:3000." is prose, not part of the port. Non-global
+ *  on purpose, like the addon's; a scanner that needs every match builds a
+ *  global copy from `.source`. */
+export const WEB_URL_PATTERN =
+  /(https?|HTTPS?):[/]{2}[^\s"'!*(){}|\\\^<>`]*[^\s"':,.!?{}|\\\^~\[\]`()<>]/;
+
 /** Parse a printed URL into a loopback target, or `null` when it is not one.
  *
  *  Only `http:` / `https:` count — a `file:` or `ws:` URL is not a dev-server
