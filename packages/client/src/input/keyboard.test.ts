@@ -273,15 +273,17 @@ describe("PROHIBITED_KEYBINDS", () => {
   // Synthesize the prohibited chord as a KeyboardEvent and ask
   // every registered action whether it would intercept it. A match
   // means the action would steal a keystroke meant for the PTY.
-  it.each(PROHIBITED_KEYBINDS)("no action collides with $tool: $reason", ({
-    keybind,
-  }) => {
-    const event = keybindAsEvent(keybind) as KeyboardEvent;
-    const collisions = Object.entries(ACTIONS).filter(
-      ([, action]) =>
-        matchesKeybind(event, action.keybind) ||
-        (action.altKeybind != null && matchesKeybind(event, action.altKeybind)),
-    );
-    expect(collisions.map(([id]) => id)).toEqual([]);
-  });
+  it.each(PROHIBITED_KEYBINDS)(
+    "no action collides with $tool: $reason",
+    ({ keybind }) => {
+      const event = keybindAsEvent(keybind) as KeyboardEvent;
+      const collisions = Object.entries(ACTIONS).filter(
+        ([, action]) =>
+          matchesKeybind(event, action.keybind) ||
+          (action.altKeybind != null &&
+            matchesKeybind(event, action.altKeybind)),
+      );
+      expect(collisions.map(([id]) => id)).toEqual([]);
+    },
+  );
 });

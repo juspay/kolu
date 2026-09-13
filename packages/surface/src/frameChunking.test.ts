@@ -45,25 +45,26 @@ const SMALL_CHUNK_CHARS = 8; // 8 base64 chars = 6 raw bytes
 const RAW_LENGTHS = [0, 1, 2, 3, 5, 6, 7, 11, 12, 13, 17, 18, 19, 60, 61, 255];
 
 describe("the pieces reassemble into exactly the bytes that went in", () => {
-  it.each(
-    RAW_LENGTHS,
-  )("%i raw bytes: concatenated chunks decode byte-identical", (length) => {
-    const raw = bytes(length, length + 1);
-    const encoded = toBase64(raw);
-    const pieces = chunkBase64(encoded, SMALL_CHUNK_CHARS);
+  it.each(RAW_LENGTHS)(
+    "%i raw bytes: concatenated chunks decode byte-identical",
+    (length) => {
+      const raw = bytes(length, length + 1);
+      const encoded = toBase64(raw);
+      const pieces = chunkBase64(encoded, SMALL_CHUNK_CHARS);
 
-    // The concatenation is the same STRING — nothing was dropped or doubled.
-    expect(pieces.join("")).toBe(encoded);
+      // The concatenation is the same STRING — nothing was dropped or doubled.
+      expect(pieces.join("")).toBe(encoded);
 
-    // And each piece decodes ALONE, which is the property that matters: the
-    // server appends `Buffer.from(piece, "base64")` per call and never sees
-    // the whole string. Splitting off a 4-character group would still
-    // reassemble as a string while decoding to garbage.
-    const decoded = Buffer.concat(
-      pieces.map((piece) => Buffer.from(piece, "base64")),
-    );
-    expect(new Uint8Array(decoded)).toEqual(raw);
-  });
+      // And each piece decodes ALONE, which is the property that matters: the
+      // server appends `Buffer.from(piece, "base64")` per call and never sees
+      // the whole string. Splitting off a 4-character group would still
+      // reassemble as a string while decoding to garbage.
+      const decoded = Buffer.concat(
+        pieces.map((piece) => Buffer.from(piece, "base64")),
+      );
+      expect(new Uint8Array(decoded)).toEqual(raw);
+    },
+  );
 
   it("emits at least one piece for empty input — an empty file still lands", () => {
     // The caller's loop is "first chunk creates, later ones append". Zero pieces
@@ -74,21 +75,22 @@ describe("the pieces reassemble into exactly the bytes that went in", () => {
 });
 
 describe("every boundary lands on a 4-character group", () => {
-  it.each(
-    RAW_LENGTHS,
-  )("%i raw bytes: only the LAST piece may be short or padded", (length) => {
-    const pieces = chunkBase64(
-      toBase64(bytes(length, length + 7)),
-      SMALL_CHUNK_CHARS,
-    );
-    for (const piece of pieces.slice(0, -1)) {
-      expect(piece.length).toBe(SMALL_CHUNK_CHARS);
-      expect(piece).not.toMatch(/=/); // padding may only close the stream
-    }
-    const last = pieces[pieces.length - 1] ?? "";
-    expect(last.length % 4).toBe(0);
-    expect(last.length).toBeLessThanOrEqual(SMALL_CHUNK_CHARS);
-  });
+  it.each(RAW_LENGTHS)(
+    "%i raw bytes: only the LAST piece may be short or padded",
+    (length) => {
+      const pieces = chunkBase64(
+        toBase64(bytes(length, length + 7)),
+        SMALL_CHUNK_CHARS,
+      );
+      for (const piece of pieces.slice(0, -1)) {
+        expect(piece.length).toBe(SMALL_CHUNK_CHARS);
+        expect(piece).not.toMatch(/=/); // padding may only close the stream
+      }
+      const last = pieces[pieces.length - 1] ?? "";
+      expect(last.length % 4).toBe(0);
+      expect(last.length).toBeLessThanOrEqual(SMALL_CHUNK_CHARS);
+    },
+  );
 
   it("refuses a chunk size that is not a positive multiple of 4", () => {
     // Fail loudly at the call rather than shipping pieces that decode to
@@ -125,15 +127,16 @@ describe("no emitted frame can bust the cap", () => {
     );
   });
 
-  it.each(
-    RAW_LENGTHS.map((n) => n * 1000),
-  )("%i raw bytes: every chunk's frame clears the limit after the envelope", (length) => {
-    const pieces = chunkBase64(toBase64(bytes(length, 42)));
-    for (const piece of pieces) {
-      expect(piece.length).toBeLessThanOrEqual(FRAME_CHUNK_BASE64_CHARS);
-      expect(exceedsFrameLimit(frameBytesFor(piece.length))).toBe(false);
-    }
-  });
+  it.each(RAW_LENGTHS.map((n) => n * 1000))(
+    "%i raw bytes: every chunk's frame clears the limit after the envelope",
+    (length) => {
+      const pieces = chunkBase64(toBase64(bytes(length, 42)));
+      for (const piece of pieces) {
+        expect(piece.length).toBeLessThanOrEqual(FRAME_CHUNK_BASE64_CHARS);
+        expect(exceedsFrameLimit(frameBytesFor(piece.length))).toBe(false);
+      }
+    },
+  );
 
   it("holds at the real chunk size too — a 26 MB drop, the incident's size", () => {
     // The production failure was one 26 MB frame. Content is irrelevant here;

@@ -279,13 +279,13 @@ describe("runningToolsBucket", () => {
     expect(runningToolsBucket("m1", undefined, db)).toBe("tool_use");
   });
 
-  it.each([
-    "question",
-    "plan_exit",
-  ])("returns awaiting_user when the only running tool is %s", (toolName) => {
-    const db = withParts([{ tool: toolName, status: "running" }]);
-    expect(runningToolsBucket("m1", undefined, db)).toBe("awaiting_user");
-  });
+  it.each(["question", "plan_exit"])(
+    "returns awaiting_user when the only running tool is %s",
+    (toolName) => {
+      const db = withParts([{ tool: toolName, status: "running" }]);
+      expect(runningToolsBucket("m1", undefined, db)).toBe("awaiting_user");
+    },
+  );
 
   it("returns awaiting_user when every running tool is some awaiting-user tool", () => {
     const db = withParts([

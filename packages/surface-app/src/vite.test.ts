@@ -38,15 +38,13 @@ describe("surfaceApp (vite plugin)", () => {
   // byte-copy to the ONE authoritative `shellCommitScriptBody`, across hostile
   // commits the escape exists for — a `</script>` breakout and a bare `<` — not
   // just a clean short SHA. If either side hardens its escape, this fails.
-  it.each([
-    "0fab0cc",
-    "</script><script>alert(1)",
-    "a<b",
-    'with"quote',
-  ])("emits exactly shellCommitScriptBody(%j)", (commit) => {
-    const [tag] = surfaceApp({ commit }).transformIndexHtml();
-    expect(tag?.children).toBe(shellCommitScriptBody(commit));
-  });
+  it.each(["0fab0cc", "</script><script>alert(1)", "a<b", 'with"quote'])(
+    "emits exactly shellCommitScriptBody(%j)",
+    (commit) => {
+      const [tag] = surfaceApp({ commit }).transformIndexHtml();
+      expect(tag?.children).toBe(shellCommitScriptBody(commit));
+    },
+  );
 
   it("defines NOTHING into the bundle — the define path is retired (kolu#1319)", () => {
     const plugin = surfaceApp({ commit: "0fab0cc" });

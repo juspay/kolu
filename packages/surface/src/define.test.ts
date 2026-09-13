@@ -231,15 +231,14 @@ describe("defineSurface reserved members", () => {
     expect(tags(surface)).toEqual([...RESERVED, "surface/system/echo"].sort());
   });
 
-  it.each([
-    "live",
-    "identity",
-    "clockNow",
-  ])("an app claiming the reserved `system.%s` verb is a loud boot-time collision", (verb) => {
-    expect(() =>
-      defineSurface({ procedures: { system: { [verb]: {} } } }),
-    ).toThrow(new RegExp(`duplicate verb "${verb}"`));
-  });
+  it.each(["live", "identity", "clockNow"])(
+    "an app claiming the reserved `system.%s` verb is a loud boot-time collision",
+    (verb) => {
+      expect(() =>
+        defineSurface({ procedures: { system: { [verb]: {} } } }),
+      ).toThrow(new RegExp(`duplicate verb "${verb}"`));
+    },
+  );
 });
 
 describe("defineSurface collision refusal", () => {

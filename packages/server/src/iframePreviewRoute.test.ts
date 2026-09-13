@@ -47,13 +47,14 @@ import type { PadiSession } from "./padi/padiSession.ts";
 describe("@kolu/serve-dir Content-Type covers kolu's binary-previewable classifier", () => {
   // If any previewable extension lacked a real type, serve-dir would serve it as
   // `application/octet-stream` and the browser would download instead of render.
-  it.each(
-    BINARY_PREVIEWABLE_EXTENSIONS,
-  )("%s has a non-octet Content-Type", (ext) => {
-    expect(contentTypeForPath(`file${ext}`)).not.toBe(
-      "application/octet-stream",
-    );
-  });
+  it.each(BINARY_PREVIEWABLE_EXTENSIONS)(
+    "%s has a non-octet Content-Type",
+    (ext) => {
+      expect(contentTypeForPath(`file${ext}`)).not.toBe(
+        "application/octet-stream",
+      );
+    },
+  );
 
   // Beyond "non-octet", assert the MIME FAMILY per classifier bucket: the client
   // dispatches `VIDEO_EXTENSIONS` into a `<video>` element and
@@ -73,13 +74,14 @@ describe("@kolu/serve-dir Content-Type covers kolu's binary-previewable classifi
 
   // Sandbox-previewable kinds (.html/.htm/.svg) span families (text/html,
   // image/svg+xml), so the non-octet check is the right invariant for that bucket.
-  it.each(
-    SANDBOX_PREVIEWABLE_EXTENSIONS,
-  )("%s has a non-octet Content-Type", (ext) => {
-    expect(contentTypeForPath(`file${ext}`)).not.toBe(
-      "application/octet-stream",
-    );
-  });
+  it.each(SANDBOX_PREVIEWABLE_EXTENSIONS)(
+    "%s has a non-octet Content-Type",
+    (ext) => {
+      expect(contentTypeForPath(`file${ext}`)).not.toBe(
+        "application/octet-stream",
+      );
+    },
+  );
 });
 
 describe("assembleRemotePreview — the remote-bind chunked range-loop", () => {

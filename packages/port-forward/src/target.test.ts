@@ -26,17 +26,16 @@ describe("parseTarget", () => {
     });
   });
 
-  it.each([
-    ":5173",
-    "localhost:5173",
-    "127.0.0.1:5173",
-  ])("reads %s as a local target", (text) => {
-    expect(parseTarget(text)).toEqual({
-      kind: "local",
-      port: 5173,
-      loopback: "v4",
-    });
-  });
+  it.each([":5173", "localhost:5173", "127.0.0.1:5173"])(
+    "reads %s as a local target",
+    (text) => {
+      expect(parseTarget(text)).toEqual({
+        kind: "local",
+        port: 5173,
+        loopback: "v4",
+      });
+    },
+  );
 
   it("reads ::1 as a V6 loopback target, because that is what it says", () => {
     // The spelling names the family outright, and getting it wrong is not a
@@ -136,12 +135,10 @@ describe("assertHost", () => {
     }
   });
 
-  it.each([
-    "",
-    "-oProxyCommand=touch /tmp/pwn",
-    "two words",
-    "a\nb",
-  ])("rejects %j", (host) => {
-    expect(() => assertHost(host)).toThrow();
-  });
+  it.each(["", "-oProxyCommand=touch /tmp/pwn", "two words", "a\nb"])(
+    "rejects %j",
+    (host) => {
+      expect(() => assertHost(host)).toThrow();
+    },
+  );
 });

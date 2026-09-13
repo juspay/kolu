@@ -241,9 +241,12 @@ describe("verdict-time stamping contract (#1900 R1 / codex F4)", () => {
       "if (pending() !== route) return",
       "Couldn't open that file",
     ],
-  ])("the %s verdict stamps (disarmResolved in its own branch)", (_l, start, end) => {
-    expect(between(start, end)).toContain("disarmResolved();");
-  });
+  ])(
+    "the %s verdict stamps (disarmResolved in its own branch)",
+    (_l, start, end) => {
+      expect(between(start, end)).toContain("disarmResolved();");
+    },
+  );
 
   it("keeps exactly the four disarming verdicts stamping (extra guard)", () => {
     expect((routerSrc.match(/\bdisarmResolved\(\);/g) ?? []).length).toBe(4);

@@ -113,13 +113,14 @@ describe("ToolInputSchema", () => {
     expect(ToolInputSchema.members.length).toBe(TOOL_INPUTS.length);
   });
 
-  it.each(
-    TOOL_INPUTS.map((input) => [input.kind, input] as const),
-  )("round-trips the %s arm byte-identically", (_kind, input) => {
-    const json = JSON.stringify(encodeToolInput(input));
-    expect(json).toBe(JSON.stringify(input));
-    expect(decodeToolInput(JSON.parse(json))).toEqual(input);
-  });
+  it.each(TOOL_INPUTS.map((input) => [input.kind, input] as const))(
+    "round-trips the %s arm byte-identically",
+    (_kind, input) => {
+      const json = JSON.stringify(encodeToolInput(input));
+      expect(json).toBe(JSON.stringify(input));
+      expect(decodeToolInput(JSON.parse(json))).toEqual(input);
+    },
+  );
 
   it("pins the encoded bytes of the deepest arm", () => {
     expect(
@@ -174,13 +175,14 @@ describe("TranscriptEventSchema", () => {
     expect(TranscriptEventSchema.members.length).toBe(EVENTS.length);
   });
 
-  it.each(
-    EVENTS.map((event) => [event.kind, event] as const),
-  )("round-trips the %s arm byte-identically", (_kind, event) => {
-    const json = JSON.stringify(encodeEvent(event));
-    expect(json).toBe(JSON.stringify(event));
-    expect(decodeEvent(JSON.parse(json))).toEqual(event);
-  });
+  it.each(EVENTS.map((event) => [event.kind, event] as const))(
+    "round-trips the %s arm byte-identically",
+    (_kind, event) => {
+      const json = JSON.stringify(encodeEvent(event));
+      expect(json).toBe(JSON.stringify(event));
+      expect(decodeEvent(JSON.parse(json))).toEqual(event);
+    },
+  );
 
   it("pins the encoded bytes of a nested tool_call", () => {
     expect(

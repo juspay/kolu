@@ -150,21 +150,21 @@ describe("narrowRowVocab — the guards WITH their defaults", () => {
     { field: "variant", fallback: "idle" },
     { field: "glyph", fallback: "shell" },
     { field: "bucket", fallback: "idle" },
-  ] as const)("an unknown $field falls back to $fallback AND keeps the word", ({
-    field,
-    fallback,
-  }) => {
-    const w = wire();
-    if (field === "bucket") w.bucket = "sideways";
-    else w.pip[field] = "sideways";
-    const n = narrowRowVocab(w);
-    const got = field === "bucket" ? n.bucket : n.pip[field];
-    expect(got).toBe(fallback);
-    // The fallback is what the row DRAWS; this is the fact it must not cost.
-    // Reading it at all means having checked `known` — the union sees to that.
-    expect(n.known).toBe(false);
-    if (!n.known) expect(n.unrecognised[field]).toBe("sideways");
-  });
+  ] as const)(
+    "an unknown $field falls back to $fallback AND keeps the word",
+    ({ field, fallback }) => {
+      const w = wire();
+      if (field === "bucket") w.bucket = "sideways";
+      else w.pip[field] = "sideways";
+      const n = narrowRowVocab(w);
+      const got = field === "bucket" ? n.bucket : n.pip[field];
+      expect(got).toBe(fallback);
+      // The fallback is what the row DRAWS; this is the fact it must not cost.
+      // Reading it at all means having checked `known` — the union sees to that.
+      expect(n.known).toBe(false);
+      if (!n.known) expect(n.unrecognised[field]).toBe("sideways");
+    },
+  );
 
   it("FOLDS the motion rather than transporting it — always, not only on a miss", () => {
     // `pipMotionKind` is a total function of the variant and `active`, so a

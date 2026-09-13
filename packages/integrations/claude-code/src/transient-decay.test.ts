@@ -136,23 +136,22 @@ describe("decayTransientState (#1017 phantom transient pill)", () => {
     ).toEqual({ state: "thinking", recheckAt: now + 30_000 });
   });
 
-  it.each([
-    "waiting",
-    "awaiting_user",
-    "running_background",
-  ] as const)("never decays the non-transient state `%s`", (state) => {
-    // running_background has its own decay path (#1109); waiting/awaiting_user
-    // are settled / a genuine human gate. None should ever probe the subtree.
-    expect(
-      decayTransientState(
-        state,
-        TRANSIENT_STALE_MS * 10,
-        probes(neverProbed, true),
-        undefined,
-        now,
-      ),
-    ).toEqual({ state, recheckAt: null });
-  });
+  it.each(["waiting", "awaiting_user", "running_background"] as const)(
+    "never decays the non-transient state `%s`",
+    (state) => {
+      // running_background has its own decay path (#1109); waiting/awaiting_user
+      // are settled / a genuine human gate. None should ever probe the subtree.
+      expect(
+        decayTransientState(
+          state,
+          TRANSIENT_STALE_MS * 10,
+          probes(neverProbed, true),
+          undefined,
+          now,
+        ),
+      ).toEqual({ state, recheckAt: null });
+    },
+  );
 });
 
 describe("deriveState timestampMs (the entry the state derives from)", () => {

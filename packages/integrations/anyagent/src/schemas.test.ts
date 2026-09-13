@@ -40,14 +40,12 @@ const decodeProgressResult = Schema.decodeUnknownResult(TaskProgressSchema);
 const SESSION_ID = "0192f3a1-4c5b-7d8e-9f01-23456789abcd";
 
 describe("AgentKindSchema — the exact discriminator vocabulary", () => {
-  it.each([
-    "claude-code",
-    "codex",
-    "opencode",
-    "grok",
-  ])("accepts %s", (kind) => {
-    expect(Schema.decodeUnknownSync(AgentKindSchema)(kind)).toBe(kind);
-  });
+  it.each(["claude-code", "codex", "opencode", "grok"])(
+    "accepts %s",
+    (kind) => {
+      expect(Schema.decodeUnknownSync(AgentKindSchema)(kind)).toBe(kind);
+    },
+  );
 
   it("rejects a basename that is not a kind (the two axes differ for Claude)", () => {
     expect(Result.isFailure(decodeKindResult("claude"))).toBe(true);
