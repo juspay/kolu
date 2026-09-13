@@ -42,6 +42,7 @@ import {
   sshExitIsTransport,
   sshRefusalOf,
   sshReportsTransportFailure,
+  targetOf,
 } from "./host";
 import {
   type CaptureResult,
@@ -141,14 +142,23 @@ const decodeNixEvent = Schema.decodeUnknownOption(NixEventSchema);
 
 const NIX_PREFIX = "@nix ";
 
+/** Nix writes `action` first, so a progress result — sent by the hundred
+ *  thousand during a large copy — is recognisable from its prefix alone. A
+ *  build-log result always carries `"type":101` somewhere, so a line lacking it
+ *  is dropped with no parse at all; anything else falls through to the parse. */
+const RESULT_PREFIX = `${NIX_PREFIX}{"action":"result"`;
+const BUILD_LOG_TYPE = `"type":${RES_BUILD_LOG_LINE}`;
+
 /** Classify one stderr line: a decoded event, `"ignored"` for a Nix event this
- *  reader has no use for (activity stops, the progress results a large copy
- *  sends by the hundred thousand — dropped after the native parse, before any
+ *  reader has no use for (activity stops, progress results — dropped before any
  *  schema work), or `"raw"` for a line that is not a Nix event at all (ssh's
  *  own stderr — or a line that claims to be one and is not valid JSON, which
  *  is surfaced verbatim rather than dropped). */
 function classify(line: string): NixEvent | "ignored" | "raw" {
   if (!line.startsWith(NIX_PREFIX)) return "raw";
+  if (line.startsWith(RESULT_PREFIX) && !line.includes(BUILD_LOG_TYPE)) {
+    return "ignored";
+  }
   let value: unknown;
   try {
     value = JSON.parse(line.slice(NIX_PREFIX.length));
@@ -157,7 +167,11 @@ function classify(line: string): NixEvent | "ignored" | "raw" {
   }
   if (typeof value !== "object" || value === null) return "raw";
   const { action, type } = value as { action?: unknown; type?: unknown };
-  if (action === "result" && type !== RES_BUILD_LOG_LINE) return "ignored";
+  const wanted =
+    action === "msg" ||
+    action === "start" ||
+    (action === "result" && type === RES_BUILD_LOG_LINE);
+  if (!wanted) return "ignored";
   return Option.getOrElse(decodeNixEvent(value), (): "ignored" => "ignored");
 }
 
@@ -189,11 +203,7 @@ function headlineOf(msg: string, rawMsg: string | undefined): string {
 }
 
 export function nixLogReader(narrate: (line: string) => void): NixLogReader {
-  let root: {
-    readonly headline: string;
-    readonly text: string;
-    readonly trace: readonly string[];
-  } | null = null;
+  let root: { readonly headline: string; readonly msg: string } | null = null;
   let narratedAfterRoot = false;
   let nixTransport = false;
   let sshTransport = false;
@@ -218,9 +228,8 @@ export function nixLogReader(narrate: (line: string) => void): NixLogReader {
     // error message may quote a builder's log ("Last 17 log lines: > …").
     if (looksLikeNetworkError(headline)) nixTransport = true;
     if (root === null) {
-      const lines = linesOf(msg);
-      root = { headline, text: plain(msg), trace: lines.slice(1) };
-      for (const l of lines) narrate(l);
+      root = { headline, msg };
+      for (const l of linesOf(msg)) narrate(l);
       return;
     }
     // A later error is the cascade of the first — one line each, never a block.
@@ -229,13 +238,14 @@ export function nixLogReader(narrate: (line: string) => void): NixLogReader {
 
   const rootError = (): NixError | null => {
     if (root === null) return null;
-    const r = root;
+    const { headline, msg } = root;
+    const text = plain(msg);
     const failed = [...builds.values()].find(
-      (b) => b.tail.length > 0 && r.text.includes(b.drv),
+      (b) => b.tail.length > 0 && text.includes(b.drv),
     );
     return {
-      headline: r.headline,
-      detail: failed !== undefined ? failed.tail : r.trace,
+      headline,
+      detail: failed !== undefined ? failed.tail : linesOf(msg).slice(1),
     };
   };
 
@@ -357,34 +367,26 @@ export async function runNix(
     "internal-json",
     ...rest,
   );
-  const onActivity = "onActivity" in opts ? opts.onActivity : undefined;
   const res = await runCapture(command, args, {
-    onProgress:
-      onActivity === undefined
-        ? reader.line
-        : (line) => {
-            onActivity();
-            reader.line(line);
-          },
+    onProgress: (line) => {
+      if ("onActivity" in opts) opts.onActivity();
+      reader.line(line);
+    },
     policy: opts.policy,
     signal: opts.signal,
     env: opts.env,
     maxLineLength: NIX_LOG_LINE_MAX,
   });
   if (!res.ok) for (const l of reader.recap()) narrate(l);
-  const host = typeof target === "string" ? target : target.host;
-  const usesSsh = !isLocalHost(host);
-  // On the local seat the only raw stderr is the ssh Nix forked for a remote
-  // store, and Nix exits with its own code, so ssh's say-so stands alone. On an
-  // ssh-wrapped seat the raw stderr is also the remote command's, so it counts
-  // only with ssh's own 255 — never a bare 255, never text alone.
-  const sshFailed = usesSsh
-    ? sshExitIsTransport({
-        usesSsh,
+  // See `NixRun.transportFailure` for why the two seats read ssh differently.
+  const sshSaid = reader.sshReportedTransportFailure();
+  const sshFailed = isLocalHost(targetOf(target).host)
+    ? sshSaid
+    : sshExitIsTransport({
+        usesSsh: true,
         code: res.kind === "exit" ? res.code : null,
-        sshReportedTransportFailure: reader.sshReportedTransportFailure(),
-      })
-    : reader.sshReportedTransportFailure();
+        sshReportedTransportFailure: sshSaid,
+      });
   return {
     ...res,
     error: reader.rootError(),
@@ -423,7 +425,9 @@ export function describeNixRun(res: NixRun): string {
  *  - `spawn-error` / `output-error` / `signal` are local resource or setup
  *    faults, not transport facts: retrying a missing executable or an externally
  *    OOM-killed evaluator inside the reconnect loop would respawn the same
- *    failure indefinitely, so they are bounded too.
+ *    failure indefinitely, so they are bounded too. (A spawn fault depends on
+ *    WHICH program was launched: the arch probe handles its own spawn faults
+ *    before reaching this table — see `arch.ts`.)
  *  - Our own kills (`lifetime-expired`) and the user's abort stay untyped. */
 export function resolverErrorOf(message: string, run: NixRun): Error {
   const unavailable = (): Error =>

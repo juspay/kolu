@@ -39,7 +39,7 @@
  *   });
  */
 
-import { isLocalHost, ResolveDrvError } from "./host";
+import { isLocalHost, ResolveDrvError, sshExitIsTransport } from "./host";
 import type { SshKeepalive } from "./keepalive";
 import { probePolicy } from "./nixCopy";
 import { describeNixRun, resolverErrorOf, runNix } from "./nixLog";
@@ -105,14 +105,18 @@ export async function resolveSystem(
   );
   if (!res.ok) {
     // A refusal line alone is not proof — the remote COMMAND's stderr also rides
-    // ssh's stderr. ssh exits 255 for its OWN failures, so require both: the
-    // refusal text AND the ssh-255 exit. (A localhost probe never sshs, so its
-    // stderr can't match; a refusal that slips this guard merely stays an
-    // untyped, retried error — the safe default, never a wrong terminal verdict.
-    // NB 255 is ssh's CONVENTION for its own failures, not a guarantee — a remote
-    // command may legitimately exit 255 too. The text match is what carries the
-    // classification; the code is the corroborating guard.)
-    if (res.sshRefusal !== null && res.kind === "exit" && res.code === 255) {
+    // ssh's stderr — so it counts only under the package's one ssh exit rule
+    // (`sshExitIsTransport`: ssh's own 255 AND ssh saying why). A localhost probe
+    // never sshs; a refusal that slips this guard merely stays an untyped,
+    // retried error — the safe default, never a wrong terminal verdict.
+    if (
+      res.sshRefusal !== null &&
+      sshExitIsTransport({
+        usesSsh: !local,
+        code: res.kind === "exit" ? res.code : null,
+        sshReportedTransportFailure: true,
+      })
+    ) {
       const { kind, line } = res.sshRefusal;
       throw new ResolveDrvError(
         kind === "auth-refused"

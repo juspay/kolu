@@ -918,8 +918,16 @@ export function makeSession<
     return ph === "connected" || ph === "disconnected" || ph === "failed";
   };
   const armPreConnected = (): void => {
-    clearPreConnected();
-    if (backstopInert()) return;
+    if (backstopInert()) {
+      clearPreConnected();
+      return;
+    }
+    // Re-arming on every line of a large transfer (hundreds of thousands of
+    // `activity()` calls) restarts the existing timer rather than allocating one.
+    if (preConnectedTimer !== null) {
+      preConnectedTimer.refresh();
+      return;
+    }
     preConnectedTimer = armInternalTimer(preConnectedLivenessMs, () => {
       preConnectedTimer = null;
       if (destroyed || backstopInert()) return;

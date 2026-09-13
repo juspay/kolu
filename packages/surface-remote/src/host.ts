@@ -287,7 +287,7 @@ export interface SshDestination {
  *  ({@link renderableKeepalive}, which catches a spread-forged one). A carrying
  *  seam like this repeats neither — and, being a carrying seam, it must not read
  *  the numbers at all. */
-function targetOf(target: string | SshDestination): {
+export function targetOf(target: string | SshDestination): {
   host: string;
   keepalive: SshKeepalive;
 } {

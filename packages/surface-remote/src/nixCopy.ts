@@ -229,12 +229,8 @@ export interface ProvisionOptions {
   derivation: AgentDerivation;
   onProgress: (line: string) => void;
   /** Every stderr line of a long-running provisioning Nix command, narrated or
-   *  not — the liveness its owner's silence watchdog needs (the ssh connector
-   *  wires the session's `ctx.activity`). Much of that output (build log lines,
-   *  transfer progress) is deliberately kept out of `onProgress`, and a
-   *  watchdog fed only by `onProgress` would cycle a healthy long build whose
-   *  own silence bound never fires. REQUIRED: a forgotten wire is a compile
-   *  error, not that restart loop. */
+   *  not — wire it to the session's `ctx.activity` (why: `runNix`). REQUIRED,
+   *  so a forgotten wire is a compile error rather than a restart loop. */
   onActivity: () => void;
   /** Fired once immediately before this call's first potentially long required
    *  operation: the cold target build or a warm target's GC-root commit. */
@@ -740,8 +736,6 @@ export async function provisionAgent(
     };
   }
 
-  const { onProgress } = opts;
-
   const rootPath = agentGcRootPath(isLocal, drvPath);
   // No root path means no rootable agent, and every step below ends at the
   // required root commit — so fail HERE, where the fact is known, instead of
@@ -753,6 +747,19 @@ export async function provisionAgent(
       cause: "remote",
     };
   }
+  // Every commit of a realised output behind the GC root — the warm hit, the
+  // staged closure and the cold build — is the same required step.
+  const pin = (target: string): Promise<ProvisionResult | null> =>
+    pinGcRoot(
+      opts.host,
+      keepalive,
+      target,
+      rootPath,
+      opts.onProgress,
+      opts.onActivity,
+      budgets.provisioning,
+      signal,
+    );
 
   // 0. The derivation's output path, computed LOCALLY (no ssh, no
   //    substitution, instant). Two consumers: the remote warm check (1) asks
@@ -791,12 +798,12 @@ export async function provisionAgent(
         outsRes.ok || outsRes.kind === "aborted"
           ? ""
           : ` (${describeNixRun(outsRes)})`;
-      onProgress(
+      opts.onProgress(
         `${opts.host}: agent output path unknown locally${why} — skipping the cached-agent check; the cold provision re-establishes it`,
       );
     } else {
       // One SYNTHESIZED, truthful line at check start (NOT raw nix stderr).
-      onProgress(`${opts.host}: checking for a cached agent…`);
+      opts.onProgress(`${opts.host}: checking for a cached agent…`);
       // Ask the host, bounded, whether the output is already valid there. This is a pure
       // store query — it NEVER substitutes (verified: `--check-validity` on an absent path
       // returns non-zero instantly, no fetch).
@@ -808,19 +815,10 @@ export async function provisionAgent(
         // Warm hit. The shared root operation is the commit point: only a rooted,
         // still-valid target may short-circuit as success.
         opts.onProvisioning?.();
-        const bail = await pinGcRoot(
-          opts.host,
-          keepalive,
-          localAgentPath,
-          rootPath,
-          opts.onProgress,
-          opts.onActivity,
-          budgets.provisioning,
-          signal,
-        );
+        const bail = await pin(localAgentPath);
         if (bail) return bail;
         budgets.provisioning.reset();
-        onProgress(
+        opts.onProgress(
           `${opts.host}: already provisioned at ${localAgentPath} — skipped copy`,
         );
         return { ok: true, agentPath: localAgentPath };
@@ -857,21 +855,12 @@ export async function provisionAgent(
   //     and it is where the cache actually pays off, since the build it skips
   //     is a full flake evaluation plus an ssh-ng round trip.
   if (onTarget && localAgentPath !== undefined) {
-    const bail = await pinGcRoot(
-      opts.host,
-      keepalive,
-      localAgentPath,
-      rootPath,
-      opts.onProgress,
-      opts.onActivity,
-      budgets.provisioning,
-      signal,
-    );
+    const bail = await pin(localAgentPath);
     if (bail) return bail;
     budgets.provisioning.reset();
     // Say only what is known: the closure is valid in the target store. It may
     // have come from the declared cache or been built on this machine earlier.
-    onProgress(
+    opts.onProgress(
       isLocal
         ? "localhost: agent already in the local store — no build needed"
         : `${opts.host}: agent copied to the host's store — no build needed`,
@@ -886,7 +875,7 @@ export async function provisionAgent(
   //    lifetime; there is no command boundary at which remote GC can collect the
   //    transferred derivation. Localhost uses the same installable without the
   //    remote-store split.
-  onProgress(
+  opts.onProgress(
     isLocal
       ? `localhost: realising '${drvPath}'…`
       : `${opts.host}: provisioning '${drvPath}' on remote…`,
@@ -908,7 +897,7 @@ export async function provisionAgent(
     installable,
   ];
   const realiseRes = await runNix("localhost", provisionArgs, {
-    narrate: onProgress,
+    narrate: opts.onProgress,
     onActivity: opts.onActivity,
     policy: budgets.provisioning.policy(),
     env: isLocal ? undefined : { NIX_SSHOPTS: nixSshOpts(keepalive) },
@@ -944,23 +933,14 @@ export async function provisionAgent(
       cause: "remote",
     };
   }
-  onProgress(`${opts.host}: agent realised at ${agentPath}`);
+  opts.onProgress(`${opts.host}: agent realised at ${agentPath}`);
 
   // 5. Commit the realised output behind a stable, per-agent GC root. This is
   //    the same required operation as the warm-hit and staged paths; provision
   //    success means both "valid" and "durably rooted", never merely "was
   //    built". (`rootPath` was proven non-null before any work started.)
   {
-    const bail = await pinGcRoot(
-      opts.host,
-      keepalive,
-      agentPath,
-      rootPath,
-      opts.onProgress,
-      opts.onActivity,
-      budgets.provisioning,
-      signal,
-    );
+    const bail = await pin(agentPath);
     if (bail) return bail;
   }
 

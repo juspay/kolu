@@ -15,6 +15,7 @@
  */
 
 import { once } from "node:events";
+import { setTimeout as sleep } from "node:timers/promises";
 import { buildSurfaceFace, type SurfaceFace } from "@kolu/surface/client";
 import type { Surface, SurfaceSpec } from "@kolu/surface/define";
 import { stdioLink } from "@kolu/surface/links/stdio";
@@ -499,6 +500,21 @@ export function sshConnector<S extends SurfaceSpec>(
     // host fails at ssh spawn / exit 255 BEFORE any banner, and that arm keeps
     // its existing `closed` classification untouched (`"network"`, retry
     // forever) — nothing changes for a host that is merely off.
+    // The child left before greeting. Classify it with the LOOP'S OWN authority
+    // (`classifyClosed`), never a verdict invented here: a child that exits
+    // before it greets is the same fact as a child that exits before its first
+    // RPC — bounded `"remote"` — while an ssh transport failure stays the
+    // unbounded `"network"` a merely-unreachable host has always been. Restating
+    // that rule here is how the gate would quietly un-bound a broken agent or
+    // condemn a sleeping laptop. The ONE spelling of that verdict, for both ways
+    // the gate learns the child left.
+    const exitedBeforeReady = (info: ClosedInfo): ConnectError => {
+      const { reason, cause } = classifyClosed(info, false);
+      return new ConnectError(
+        `${opts.binary} on ${opts.host} exited before it announced readiness — ${reason}`,
+        cause,
+      );
+    };
     const readiness = await Promise.race([
       awaitStdioReadiness({
         read: child.stdout,
@@ -506,18 +522,7 @@ export function sshConnector<S extends SurfaceSpec>(
         describe: `${opts.binary} on ${opts.host}`,
       }),
       closed.then((info): never => {
-        // The child left before greeting. Classify it with the LOOP'S OWN
-        // authority (`classifyClosed`), never a verdict invented here: a child
-        // that exits before it greets is the same fact as a child that exits
-        // before its first RPC — bounded `"remote"` — while an ssh transport
-        // failure stays the unbounded `"network"` a merely-unreachable host has
-        // always been. Restating that rule here is how the gate would quietly
-        // un-bound a broken agent or condemn a sleeping laptop.
-        const { reason, cause } = classifyClosed(info, false);
-        throw new ConnectError(
-          `${opts.binary} on ${opts.host} exited before it announced readiness — ${reason}`,
-          cause,
-        );
+        throw exitedBeforeReady(info);
       }),
     ]).catch(async (err: unknown) => {
       // stdout ENDING before a banner is the child leaving, not something the
@@ -530,17 +535,11 @@ export function sshConnector<S extends SurfaceSpec>(
       if (isStdioReadinessError(err) && err.kind === "closed") {
         const exited = await Promise.race([
           closed,
-          new Promise<null>((resolve) =>
-            setTimeout(() => resolve(null), STDOUT_EOF_EXIT_GRACE_MS).unref(),
-          ),
+          sleep(STDOUT_EOF_EXIT_GRACE_MS, null, { ref: false }),
         ]);
         if (exited !== null) {
           transport.terminate();
-          const { reason, cause } = classifyClosed(exited, false);
-          throw new ConnectError(
-            `${opts.binary} on ${opts.host} exited before it announced readiness — ${reason}`,
-            cause,
-          );
+          throw exitedBeforeReady(exited);
         }
       }
       // A gate REFUSAL / expiry / undecodable prelude is a REMOTE fault, not a
