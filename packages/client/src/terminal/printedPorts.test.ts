@@ -153,6 +153,24 @@ function manual() {
   };
 }
 
+/** A scheduler the test steps one callback at a time — to interleave buffer
+ *  changes BETWEEN two chunks of one pass. */
+function stepper() {
+  let queue: Array<() => void> = [];
+  return {
+    schedule: (run: () => void) => {
+      queue.push(run);
+      return () => {
+        queue = queue.filter((r) => r !== run);
+      };
+    },
+    runOne: () => queue.shift()?.(),
+    drain: () => {
+      for (let i = 0; i < 50 && queue.length > 0; i++) queue.shift()?.();
+    },
+  };
+}
+
 let seq = 0;
 const nextId = () =>
   `00000000-0000-4000-8000-${String(++seq).padStart(12, "0")}` as TerminalId;
@@ -253,6 +271,40 @@ describe("trackPrintedPorts", () => {
     f.prepend("odu · http://127.0.0.1:18440/runs/x", "older output");
     clock.flush();
     expect(printedPortsOf(id)).toEqual([18440]);
+    stop();
+  });
+
+  it("reads a backfill that lands DURING the first multi-chunk pass", () => {
+    // The continuation follows content it already passed; the rows spliced in
+    // above it are still owed a pass from the top — with no later write needed.
+    const f = fakeTerminal();
+    f.write(
+      ...Array.from({ length: SCAN_CHUNK_LINES * 2 }, (_, i) => `line ${i}`),
+    );
+    const q = stepper();
+    const id = nextId();
+    const stop = trackPrintedPorts(f.term, id, q.schedule);
+    q.runOne(); // first chunk only
+    f.prepend("http://localhost:18440/", "older");
+    q.drain();
+    expect(printedPortsOf(id)).toEqual([18440]);
+    stop();
+  });
+
+  it("reads a SECOND backfill that lands during the pass reading the first", () => {
+    const f = fakeTerminal();
+    f.write("recent", "prompt");
+    const q = stepper();
+    const id = nextId();
+    const stop = trackPrintedPorts(f.term, id, q.schedule);
+    q.drain();
+    f.prepend(
+      ...Array.from({ length: SCAN_CHUNK_LINES * 2 }, (_, i) => `older ${i}`),
+    );
+    q.runOne(); // the pass that reads the first backfill, one chunk in
+    f.prepend("http://localhost:5173/", "oldest");
+    q.drain();
+    expect(printedPortsOf(id)).toEqual([5173]);
     stop();
   });
 

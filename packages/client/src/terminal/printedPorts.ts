@@ -127,10 +127,18 @@ export function trackPrintedPorts(
   type Marker = NonNullable<ReturnType<ScannableTerminal["registerMarker"]>>;
   /** Where the next pass resumes: the viewport top at the last completed pass. */
   let resume: Marker | undefined;
-  /** Row 0 at the last completed pass. Rows spliced in ABOVE it (a scrollback
-   *  backfill) push it down, which is how a prepend is noticed at all: a
-   *  backfill fires no write, only a scroll. */
-  let head: Marker | undefined;
+  /** Sits on row 0. Rows spliced in ABOVE it (a scrollback backfill) push it
+   *  down, which is how a prepend is noticed at all: a backfill fires no write,
+   *  only a scroll. Re-armed on row 0 after every sighting and every trim. */
+  let top: Marker | undefined;
+  /** Prepends seen, and prepends a completed pass has read past. A pass clears
+   *  a prepend only if it STARTED at row 0 after that prepend was seen — so a
+   *  prepend landing mid-pass (its rows above a continuation that has already
+   *  moved on) is still owed a pass from the top. */
+  let prependsSeen = 0;
+  let prependsRead = 0;
+  /** The `prependsSeen` a pass in progress started from row 0 with, if it did. */
+  let passFromTop: number | undefined;
   /** Where an in-progress pass continues after yielding. A MARKER, not a row
    *  number: output that trims the buffer between two chunks moves every row,
    *  and a captured number would skip the rows that moved under it. */
@@ -144,14 +152,21 @@ export function trackPrintedPorts(
   };
   const live = (m: Marker | undefined): m is Marker =>
     m !== undefined && !m.isDisposed;
-  /** Rows were spliced in above what the last pass read. */
-  const prepended = (): boolean => live(head) && head.line > 0;
+  const armTop = (): void => {
+    if (term.buffer.active.type !== "normal") return;
+    top?.dispose();
+    top = markAt(0);
+  };
 
-  /** One chunk of a pass. A pass starts at the top when rows were prepended,
+  const request = (ms: number): void => {
+    if (cancelPending === undefined) cancelPending = schedule(scan, ms);
+  };
+
+  /** One chunk of a pass. A new pass starts at row 0 when a prepend is owed,
    *  otherwise at the logical line holding the last viewport top; a continuing
    *  pass starts where its marker now sits (the top, if the rows it marked were
    *  trimmed away — re-reading is safe, skipping is not). */
-  const scan = (): void => {
+  function scan(): void {
     cancelPending = undefined;
     const buf = term.buffer.active;
     if (buf.type !== "normal") return;
@@ -160,10 +175,12 @@ export function trackPrintedPorts(
       start = live(cont) ? cont.line : 0;
       cont.dispose();
       cont = undefined;
+    } else if (resume === undefined || prependsSeen > prependsRead) {
+      start = 0;
+      passFromTop = prependsSeen;
     } else {
-      start = prepended()
-        ? 0
-        : snapToWrapHead(buf, live(resume) ? resume.line : 0);
+      start = snapToWrapHead(buf, live(resume) ? resume.line : 0);
+      passFromTop = undefined;
     }
     const end = Math.min(buf.length, start + SCAN_CHUNK_LINES);
     const found = new Set<number>();
@@ -196,6 +213,10 @@ export function trackPrintedPorts(
     }
     for (const port of portsInText(line)) found.add(port);
     record(id, found);
+    if (passFromTop !== undefined) {
+      prependsRead = Math.max(prependsRead, passFromTop);
+    }
+    passFromTop = undefined;
     // Resume from the top of the VIEWPORT next time, not from the last row read.
     // A program may redraw anywhere inside the viewport by moving the cursor up
     // (Claude Code re-renders its live region exactly so), which rewrites rows
@@ -203,19 +224,24 @@ export function trackPrintedPorts(
     // immutable. Re-reading one screenful per scan is the price, and it is small.
     resume?.dispose();
     resume = markAt(snapToWrapHead(buf, buf.baseY));
-    head?.dispose();
-    head = markAt(0);
-  };
+    if (!live(top)) armTop();
+    // A prepend that landed while this pass ran is still owed its rows.
+    if (prependsSeen > prependsRead) request(0);
+  }
 
-  const request = (ms: number): void => {
-    if (cancelPending === undefined) cancelPending = schedule(scan, ms);
-  };
   const writes = term.onWriteParsed(() => request(SCAN_DELAY_MS));
   // A backfill splices older rows in above everything and fires only a scroll.
   // Most scrolls are the user's; they cost one marker read here.
   const scrolls = term.onScroll(() => {
-    if (prepended()) request(SCAN_DELAY_MS);
+    if (live(top) && top.line > 0) {
+      prependsSeen += 1;
+      armTop();
+      request(SCAN_DELAY_MS);
+    } else if (!live(top)) {
+      armTop();
+    }
   });
+  armTop();
   // The buffer may already hold a restored scrollback before the first write.
   request(0);
 
@@ -225,7 +251,7 @@ export function trackPrintedPorts(
     cancelPending?.();
     cancelPending = undefined;
     resume?.dispose();
-    head?.dispose();
+    top?.dispose();
     cont?.dispose();
     setPrinted(
       produce((index) => {
