@@ -188,9 +188,10 @@ export async function resolveSystem(
     // Nix failed it (a broken nix.conf, a daemon that is down): the host
     // answered, so calling it unreachable and retrying forever would hide a
     // fault only its operator can fix. It stays retryable but BOUNDED, like the
-    // other resolver faults, and carries Nix's own error. The transport (ssh
-    // saying so, or its own 255), our own kills, and a transient local spawn
-    // fault keep the untyped retry-forever class.
+    // other resolver faults, and carries Nix's own error. The transport (Nix's
+    // headline saying so, or ssh's own 255 WITH its reason — `sshExitIsTransport`),
+    // our own kills, and a transient local spawn fault keep the untyped
+    // retry-forever class.
     if (res.kind !== "exit" || res.transportFailure) {
       throw new Error(failure);
     }

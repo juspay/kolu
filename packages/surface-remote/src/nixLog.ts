@@ -36,6 +36,8 @@ import {
   isLocalHost,
   looksLikeNetworkError,
   type SshDestination,
+  sshExitIsTransport,
+  sshReportsTransportFailure,
 } from "./host";
 import {
   type CaptureResult,
@@ -81,11 +83,14 @@ export interface NixLogReader {
   readonly line: (line: string) => void;
   /** The run's root error, or `null` when Nix reported none. */
   readonly rootError: () => NixError | null;
-  /** Did a voice that can speak for the connection report a failure: ssh's
-   *  own untagged stderr, or the HEADLINE of Nix's own error (a failed ssh
-   *  connection, an unreachable download)? A builder's log — and Nix quoting
-   *  it inside an error — is never consulted. */
-  readonly sawTransportFailure: () => boolean;
+  /** Did the HEADLINE of Nix's own error report a failed connection (a failed
+   *  ssh connection, an unreachable download)? A builder's log — and Nix
+   *  quoting it inside an error — is never consulted. */
+  readonly nixReportedTransportFailure: () => boolean;
+  /** Did ssh's own untagged stderr say ssh failed the connection
+   *  ({@link sshReportsTransportFailure})? Kept apart from Nix's headline: what
+   *  it proves depends on the seat, which {@link runNix} decides. */
+  readonly sshReportedTransportFailure: () => boolean;
   /** The root error's lines to narrate once more when something was narrated
    *  after it (the cascade that pushes it out of a bounded tail), so the tail
    *  ends on the cause; empty when the root error is already last, or absent. */
@@ -175,7 +180,8 @@ export function nixLogReader(narrate: (line: string) => void): NixLogReader {
     readonly trace: readonly string[];
   } | null = null;
   let narratedAfterRoot = false;
-  let transport = false;
+  let nixTransport = false;
+  let sshTransport = false;
   const builds = new QuickLRU<number, { drv: string; tail: string[] }>({
     maxSize: BUILDS_RETAINED,
   });
@@ -194,7 +200,7 @@ export function nixLogReader(narrate: (line: string) => void): NixLogReader {
     const headline = headlineOf(msg, rawMsg);
     // Only the headline can be Nix speaking about a connection; the rest of an
     // error message may quote a builder's log ("Last 17 log lines: > …").
-    if (looksLikeNetworkError(headline)) transport = true;
+    if (looksLikeNetworkError(headline)) nixTransport = true;
     if (root === null) {
       const lines = linesOf(msg);
       root = { headline, text: plain(msg), trace: lines.slice(1) };
@@ -222,7 +228,7 @@ export function nixLogReader(narrate: (line: string) => void): NixLogReader {
       const event = classify(line);
       if (event === "ignored") return;
       if (event === "raw") {
-        if (looksLikeNetworkError(line)) transport = true;
+        if (sshReportsTransportFailure(line)) sshTransport = true;
         say(line);
         return;
       }
@@ -251,7 +257,8 @@ export function nixLogReader(narrate: (line: string) => void): NixLogReader {
       }
     },
     rootError,
-    sawTransportFailure: () => transport,
+    nixReportedTransportFailure: () => nixTransport,
+    sshReportedTransportFailure: () => sshTransport,
     recap: () => {
       const error = narratedAfterRoot ? rootError() : null;
       return error === null
@@ -274,8 +281,10 @@ export function describeNixError(error: NixError): string {
 export type NixRun = CaptureResult & {
   /** The run's root error, or `null` when Nix reported none. */
   readonly error: NixError | null;
-  /** The connection failed: see {@link NixLogReader.sawTransportFailure}, or
-   *  the ssh we spawned ourselves exited with its own 255. */
+  /** The connection failed: Nix's own error headline said so, or ssh did —
+   *  on the local seat its forked ssh's stderr alone (Nix exits with its own
+   *  code), on an ssh-wrapped seat only through {@link sshExitIsTransport} (the
+   *  ssh we spawned exited 255 AND said why), the same rule as the agent dial. */
   readonly transportFailure: boolean;
 };
 
@@ -320,12 +329,22 @@ export async function runNix(
   });
   if (!res.ok) for (const l of reader.recap()) narrate(l);
   const host = typeof target === "string" ? target : target.host;
-  const sshExit255 =
-    !isLocalHost(host) && res.kind === "exit" && res.code === 255;
+  const usesSsh = !isLocalHost(host);
+  // On the local seat the only raw stderr is the ssh Nix forked for a remote
+  // store, and Nix exits with its own code, so ssh's say-so stands alone. On an
+  // ssh-wrapped seat the raw stderr is also the remote command's, so it counts
+  // only with ssh's own 255 — never a bare 255, never text alone.
+  const sshFailed = usesSsh
+    ? sshExitIsTransport({
+        usesSsh,
+        code: res.kind === "exit" ? res.code : null,
+        sshReportedTransportFailure: reader.sshReportedTransportFailure(),
+      })
+    : reader.sshReportedTransportFailure();
   return {
     ...res,
     error: reader.rootError(),
-    transportFailure: reader.sawTransportFailure() || sshExit255,
+    transportFailure: reader.nixReportedTransportFailure() || sshFailed,
   };
 }
 

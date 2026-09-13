@@ -25,9 +25,9 @@ import {
 import {
   buildAgentCommand,
   isLocalHost,
-  looksLikeNetworkError,
   ResolveDrvError,
-  sshRefusalOf,
+  sshExitIsTransport,
+  sshReportsTransportFailure,
 } from "./host";
 import { DEFAULT_SSH_KEEPALIVE, type SshKeepalive } from "./keepalive";
 import { type ResolveSystemOptions, resolveSystem } from "./arch";
@@ -254,10 +254,9 @@ export interface SshConnectorOptions<S extends SurfaceSpec> {
  *  on stderr before the exit is classified without it. */
 const SSH_STDERR_DRAIN_MS = 250;
 
-/** Classify the agent child's exit. ssh exits 255 for its OWN failures, but a
- *  remote command may exit 255 too, and the code alone cannot tell them apart;
- *  ssh never fails silently, so a 255 is `transport-failed` only when ssh's
- *  stderr said so. Anything else — including a 255 the agent exited with, and
+/** Classify the agent child's exit: `transport-failed` exactly when
+ *  {@link sshExitIsTransport} says ssh itself failed (its 255 with its own
+ *  reason on stderr). Anything else — including a 255 the agent exited with, and
  *  every localhost exit (no ssh in play) — is the process's own `exit`. */
 export function sshClosedInfo(o: {
   usesSsh: boolean;
@@ -265,7 +264,7 @@ export function sshClosedInfo(o: {
   signal: NodeJS.Signals | null;
   sshReportedTransportFailure: boolean;
 }): ClosedInfo {
-  return o.usesSsh && o.code === 255 && o.sshReportedTransportFailure
+  return sshExitIsTransport(o)
     ? { kind: "transport-failed" }
     : { kind: "exit", code: o.code, signal: o.signal };
 }
@@ -399,7 +398,7 @@ export function sshConnector<S extends SurfaceSpec>(
             .pipe(split({ maxLength: child.stderr.readableHighWaterMark }));
     stderrLines?.on("data", (line: string) => {
       if (line.trim() === "") return;
-      if (looksLikeNetworkError(line) || sshRefusalOf(line) !== null) {
+      if (sshReportsTransportFailure(line)) {
         sshReportedTransportFailure = true;
       }
       ctx.remoteProgress(line);

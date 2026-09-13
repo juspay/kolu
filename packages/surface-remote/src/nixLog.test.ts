@@ -54,7 +54,8 @@ describe("nixLogReader", () => {
 
   it("never reads a builder's log — or Nix quoting it — as a transport failure", () => {
     const { reader } = read(failingBuildWithDependent);
-    expect(reader.sawTransportFailure()).toBe(false);
+    expect(reader.nixReportedTransportFailure()).toBe(false);
+    expect(reader.sshReportedTransportFailure()).toBe(false);
   });
 
   it("narrates the root error in full and the cascade one line each, without colour", () => {
@@ -73,12 +74,12 @@ describe("nixLogReader", () => {
     ]);
   });
 
-  it("an ssh connection failure is ssh's own raw line plus Nix's headline — both transport", () => {
+  it("an ssh connection failure is ssh's own raw line — transport — plus Nix's headline", () => {
     const { reader, narrated } = read([
       "ssh: connect to host 10.255.255.1 port 22: Connection timed out",
       `@nix {"action":"msg","column":null,"file":null,"level":0,"line":null,"msg":"${J}[31;1merror:${J}[0m failed to start SSH connection to '${J}[35;1m10.255.255.1${J}[0m'","raw_msg":"failed to start SSH connection to '${J}[35;1m10.255.255.1${J}[0m'"}`,
     ]);
-    expect(reader.sawTransportFailure()).toBe(true);
+    expect(reader.sshReportedTransportFailure()).toBe(true);
     expect(narrated[0]).toBe(
       "ssh: connect to host 10.255.255.1 port 22: Connection timed out",
     );
@@ -133,5 +134,40 @@ describe("runNix", () => {
     expect(
       vi.mocked(runCapture).mock.calls[0]?.[2].maxLineLength,
     ).toBeGreaterThan(64 * 1024);
+  });
+
+  /** One run at `target` whose stderr is `lines` and whose exit code is `code`. */
+  const runAt = async (
+    target: string,
+    lines: readonly string[],
+    code: number,
+  ) => {
+    vi.mocked(runCapture).mockImplementationOnce(async (_cmd, _args, opts) => {
+      for (const l of lines) opts.onProgress?.(l);
+      return { ok: false, kind: "exit", code, stdout: "" };
+    });
+    return runNix(target, ["nix-store", "--check-validity", "/nix/store/x"], {
+      policy: { kind: "deadline", ms: 1000 },
+      signal: undefined,
+    });
+  };
+  const SSH_TIMEOUT = "ssh: connect to host h port 22: Connection timed out";
+  const SSH_REFUSED = "u@h: Permission denied (publickey).";
+
+  it("an ssh-wrapped 255 is transport only when ssh said why — never a bare 255", async () => {
+    expect((await runAt("h", [], 255)).transportFailure).toBe(false);
+    expect((await runAt("h", [SSH_TIMEOUT], 255)).transportFailure).toBe(true);
+    expect((await runAt("h", [SSH_REFUSED], 255)).transportFailure).toBe(true);
+  });
+
+  it("an ssh-wrapped seat never reads text alone as transport — the remote command's stderr rides the same stream", async () => {
+    expect((await runAt("h", [SSH_TIMEOUT], 1)).transportFailure).toBe(false);
+  });
+
+  it("on the local seat, the ssh Nix forked saying so is transport on its own", async () => {
+    expect((await runAt("localhost", [SSH_TIMEOUT], 1)).transportFailure).toBe(
+      true,
+    );
+    expect((await runAt("localhost", [], 1)).transportFailure).toBe(false);
   });
 });

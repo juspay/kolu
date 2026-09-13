@@ -141,13 +141,36 @@ const AUTH_REFUSED_RE =
  *  `Too many authentication failures`, and `Host key verification failed.`
  *  (the stable final line for both an unknown and a CHANGED host key). On the
  *  arch probe a miss only means the failure stays an untyped transport error
- *  (retried) — never a wrong terminal verdict. On an agent dial's exit 255 it is
- *  one of the two signals that ssh (not the agent) failed, so a miss there —
- *  with no network line either — reads as the agent's own bounded exit. */
+ *  (retried) — never a wrong terminal verdict. On any ssh we spawned that exits
+ *  255 it is one of the two signals that ssh (not the remote command) failed
+ *  ({@link sshReportsTransportFailure}), so a miss there — with no network line
+ *  either — reads as the command's own bounded exit. */
 export function sshRefusalOf(line: string): SshRefusal | null {
   if (HOST_KEY_UNVERIFIED_RE.test(line)) return "host-key-unverified";
   if (AUTH_REFUSED_RE.test(line)) return "auth-refused";
   return null;
+}
+
+/** Did a line of ssh's OWN stderr say ssh failed the connection — a transport
+ *  error, or a refusal at its gate? The ONE line predicate for "ssh said so",
+ *  shared by every reader of ssh's raw stderr (the agent dial's and every Nix
+ *  run's), so the two can never disagree about what counts as ssh's reason. */
+export function sshReportsTransportFailure(line: string): boolean {
+  return looksLikeNetworkError(line) || sshRefusalOf(line) !== null;
+}
+
+/** Is the exit of a child WE spawned through ssh ssh's own transport failure?
+ *  ssh exits 255 for its own failures, but a remote command (or its wrapper,
+ *  `ForceCommand`, a shell rc) may exit 255 too, and the code alone cannot tell
+ *  them apart; ssh never fails silently, so a 255 counts only when ssh's stderr
+ *  said so ({@link sshReportsTransportFailure}). The ONE exit rule for every ssh
+ *  this package spawns — the agent dial and every ssh-wrapped Nix command. */
+export function sshExitIsTransport(o: {
+  usesSsh: boolean;
+  code: number | null;
+  sshReportedTransportFailure: boolean;
+}): boolean {
+  return o.usesSsh && o.code === 255 && o.sshReportedTransportFailure;
 }
 
 /** Forward every non-blank `\n`-terminated line in `chunk` to `onLine`.
