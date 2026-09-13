@@ -39,6 +39,7 @@ import {
 } from "../forwards/joinPrintedUrl";
 import { ensureDoor, urlForPort } from "../forwards/openPort";
 import { portAction } from "../forwards/portAction";
+import { heldByNoTerminal } from "../forwards/portRows";
 import { forwardsForHost, viewerHost } from "../forwards/useForwards";
 import { activeHostListeners } from "../forwards/useHostListeners";
 import { DetachedBadge } from "../forwards/DetachedBadge";
@@ -371,14 +372,9 @@ export const PrintedUrlCard: Component<{ target: PrintedUrlCardTarget }> = (
                   : undefined;
               /** No terminal's subtree holds it — said only on a positive
                *  reading of every terminal, never from a missing link. */
-              const detached = () => {
-                const held = terminals.heldPorts();
-                return (
-                  j.kind === "elsewhere" &&
-                  held !== "unknown" &&
-                  !held.has(j.port)
-                );
-              };
+              const detached = () =>
+                j.kind === "elsewhere" &&
+                heldByNoTerminal(terminals.heldPorts(), j.port);
               const action = () => actionForListening();
               const primaryLabel = () => {
                 const a = action();

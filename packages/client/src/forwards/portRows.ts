@@ -50,6 +50,19 @@ export type PortOrigin =
   /** On the host, with a story, and not this tile's. */
   | "host";
 
+/** No terminal's subtree holds `port` — true only on a positive reading of
+ *  every terminal; `unknown` is never "no one holds it".
+ *
+ *  This is what "detached" rests on, and the ONE place it is spelled: the Ports
+ *  section files a printed server under `printed` on it and the printed-URL card
+ *  marks its server detached on it, so the two cannot disagree. */
+export function heldByNoTerminal(
+  held: ReadonlySet<number> | "unknown",
+  port: number,
+): boolean {
+  return held !== "unknown" && !held.has(port);
+}
+
 /** One row of the section.
  *
  *  `port` — a listener a readable program holds, with its door if it has one.
@@ -123,9 +136,7 @@ export function portGroups(opts: {
   });
   for (const port of opts.printedHere) {
     if (taken.has(port) || opts.doorPorts.has(port)) continue;
-    if (opts.terminalPorts === "unknown" || opts.terminalPorts.has(port)) {
-      continue;
-    }
+    if (!heldByNoTerminal(opts.terminalPorts, port)) continue;
     const at = listenerAt(opts.host, port);
     if (at.kind === "claimed") {
       here.push({

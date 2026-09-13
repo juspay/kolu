@@ -18,7 +18,7 @@ import type {
   UnclaimedPort,
 } from "kolu-common/surface";
 import { describe, expect, it } from "vitest";
-import { portGroups } from "./portRows";
+import { heldByNoTerminal, portGroups } from "./portRows";
 
 const LOCAL = { kind: "local" as const };
 
@@ -76,6 +76,17 @@ function groups(opts: Partial<Parameters<typeof portGroups>[0]>) {
 
 const shape = (rows: ReturnType<typeof portGroups>["here"]) =>
   rows.map((r) => [r.kind, r.port, r.kind === "orphan" ? null : r.origin]);
+
+describe("heldByNoTerminal — what detached rests on", () => {
+  it("is true only on a positive reading that holds no such port", () => {
+    expect(heldByNoTerminal(new Set([5173]), 18440)).toBe(true);
+    expect(heldByNoTerminal(new Set([18440]), 18440)).toBe(false);
+  });
+
+  it("is never true while a terminal is unscanned — unknown is not no", () => {
+    expect(heldByNoTerminal("unknown", 18440)).toBe(false);
+  });
+});
 
 describe("from this terminal", () => {
   it("renders a subtree port ONCE, carrying its forward inline", () => {
