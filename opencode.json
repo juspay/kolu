@@ -12,7 +12,7 @@
       "type": "local",
       "enabled": true,
       "command": [
-        ".agents/skills/odu-mcp/bin/serve"
+        ".agents/skills/odu/serve"
       ]
     },
     "kolu": {
