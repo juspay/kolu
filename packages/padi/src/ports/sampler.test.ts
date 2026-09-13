@@ -47,16 +47,15 @@ const DAEMON: PortInfo = {
 /** A scan answer: the per-root map, and a host reading holding every port in it
  *  plus whatever else is on the host. */
 function scanOf(
-  byRoot: Map<number, PortInfo[]>,
+  byRoot: Map<number, PortInfo[] | "blind">,
   elsewhere: PortInfo[] = [],
 ): PortScan {
+  const held = [...byRoot.values()].flatMap((v) => (v === "blind" ? [] : v));
   return {
     byRoot,
     host: {
       status: "known",
-      claimed: [...[...byRoot.values()].flat(), ...elsewhere].sort(
-        (a, b) => a.port - b.port,
-      ),
+      claimed: [...held, ...elsewhere].sort((a, b) => a.port - b.port),
       unclaimed: { status: "known", list: [] },
     },
   };
@@ -78,7 +77,7 @@ function harness(
   opts: {
     targets?: PortScanTarget[];
     answer?: PortInfo[];
-    answerRaw?: Map<number, PortInfo[]>;
+    answerRaw?: Map<number, PortInfo[] | "blind">;
     /** Listeners on the host outside every requested subtree. */
     elsewhere?: PortInfo[];
     fail?: Error;
@@ -91,7 +90,9 @@ function harness(
   let release: (() => void) | undefined;
   let answer =
     opts.answerRaw ??
-    new Map<number, PortInfo[]>(opts.answer ? [[100, opts.answer]] : []);
+    new Map<number, PortInfo[] | "blind">(
+      opts.answer ? [[100, opts.answer]] : [],
+    );
   let failWith: Error | undefined = opts.fail;
   const sampler = createPortSampler({
     targets: () => [...(opts.targets ?? ONE)],
@@ -285,12 +286,16 @@ describe("the port sampler's cadence", () => {
     h.sampler.dispose();
   });
 
-  it("does no OS work at all when there are no terminals", async () => {
-    const h = harness({ targets: [] });
+  it("keeps watching the HOST at zero terminals, publishing no terminal", async () => {
+    // A detached server outlives its terminal; the reaper needs the host reading
+    // after the last terminal closes. The sampler arms only on padi's first
+    // terminal, so this costs nothing on a padi that never ran one.
+    const h = harness({ targets: [], elsewhere: [DAEMON] });
     await h.seeded();
     await h.advance(PORT_SCAN_INTERVAL_MS * 3);
-    expect(h.passes()).toBe(0);
+    expect(h.passes()).toBe(4);
     expect(h.published).toEqual([]);
+    expect(h.hostPublished.at(-1)).toMatchObject({ claimed: [DAEMON] });
     h.sampler.dispose();
   });
 
@@ -447,10 +452,11 @@ describe("the host's listeners ride the same pass", () => {
     h.sampler.dispose();
   });
 
-  it("publishes UNKNOWN when there are no terminals to scan for", async () => {
-    // No OS work runs then, so a reading would only go stale while claiming to
-    // be current.
+  it("keeps the host reading LIVE after the last terminal closes", async () => {
+    // The detached server's door must still be reaped when the server dies, and
+    // that takes a fresh reading, not a frozen or unknown one.
     const targets: PortScanTarget[] = [...ONE];
+    let elsewhere: PortInfo[] = [DAEMON];
     const hostPublished: HostListeners[] = [];
     let passes = 0;
     const sampler = createPortSampler({
@@ -459,21 +465,48 @@ describe("the host's listeners ride the same pass", () => {
       publish: () => {},
       publishHost: (listeners) => hostPublished.push(listeners),
       log: quietLog,
-      scan: async () => {
+      scan: async (pids) => {
         passes += 1;
-        return scanOf(new Map([[100, []]]), [DAEMON]);
+        return scanOf(new Map(pids.map((p) => [p, []])), elsewhere);
       },
     });
     await settle();
-    expect(hostPublished.at(-1)?.status).toBe("known");
+    expect(hostPublished.at(-1)).toMatchObject({ claimed: [DAEMON] });
 
     targets.length = 0;
+    elsewhere = [];
     await vi.advanceTimersByTimeAsync(PORT_SCAN_INTERVAL_MS);
     await settle();
 
-    expect(passes).toBe(1);
-    expect(hostPublished.at(-1)).toEqual({ status: "unknown" });
+    expect(passes).toBe(2);
+    expect(hostPublished.at(-1)).toMatchObject({
+      status: "known",
+      claimed: [],
+    });
     sampler.dispose();
+  });
+
+  it("an unreadable ROOT blinds only its own terminal, never the host or its siblings", async () => {
+    // A terminal rooted in another user's process (`sudo -i`) must not freeze
+    // every other terminal's ports and the host list.
+    const two: PortScanTarget[] = [
+      { id: "A" as TerminalId, rootPid: 100 },
+      { id: "B" as TerminalId, rootPid: 200 },
+    ];
+    const h = harness({
+      targets: two,
+      answerRaw: new Map<number, PortInfo[] | "blind">([
+        [100, [PORT]],
+        [200, "blind"],
+      ]),
+      elsewhere: [DAEMON],
+    });
+    await h.seeded();
+
+    expect(h.lastPublished("A")).toEqual([PORT]);
+    expect(h.lastPublished("B")).toBeUndefined(); // stays `unknown`, never `[]`
+    expect(h.hostPublished.at(-1)).toMatchObject({ status: "known" });
+    h.sampler.dispose();
   });
 });
 

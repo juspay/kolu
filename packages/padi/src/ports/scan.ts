@@ -226,32 +226,30 @@ export function addressBind(bytes: readonly number[]): {
 /**
  * Map osfacts `U` rows onto the scan's blindness policy.
  *
- *  - root + EACCES/EPERM → fatal (`blind`)
+ *  - root + EACCES/EPERM → that ROOT is blind (its terminal cannot be answered)
  *  - root + ENOENT/ESRCH → skip (dead root → empty ports)
  *  - non-root (any errno) → skip that pid (sudo child must not empty the host)
+ *
+ * A blind root costs its own terminal and nothing else. The pass is host-wide, so
+ * one terminal rooted in another user's process (a `sudo -i` as the PTY's first
+ * command) must not freeze every other terminal's ports and the host's listener
+ * list — the fold of every OTHER pid never needed that root.
  */
 export function unreadablePolicy(
   unreadable: readonly UnreadableRow[],
   rootPids: ReadonlySet<number>,
-): { fatal: UnreadableRow | null; skipPids: Set<number> } {
+): { blindRoots: Set<number>; skipPids: Set<number> } {
   const skipPids = new Set<number>();
-  let fatal: UnreadableRow | null = null;
+  const blindRoots = new Set<number>();
   for (const u of unreadable) {
     if (!SCANNED.unreadable.includes(u.facet)) continue;
     // A label facet's unreadability costs a label, not the pid — see LABEL_FACETS.
     if ((LABEL_FACETS as readonly string[]).includes(u.facet)) continue;
     const exitRace = u.errno === "ENOENT" || u.errno === "ESRCH";
-    if (rootPids.has(u.pid)) {
-      if (exitRace) {
-        skipPids.add(u.pid);
-      } else if (fatal === null) {
-        fatal = u;
-      }
-    } else {
-      skipPids.add(u.pid);
-    }
+    skipPids.add(u.pid);
+    if (rootPids.has(u.pid) && !exitRace) blindRoots.add(u.pid);
   }
-  return { fatal, skipPids };
+  return { blindRoots, skipPids };
 }
 
 // ── Bake path ───────────────────────────────────────────────────────────
@@ -298,11 +296,11 @@ function classifyListeners(ports: readonly ListenerRow[]): {
   return { claimed, unclaimed };
 }
 
-/** One scan's answer: every requested ROOT pid's subtree ports, and the host's
- *  listeners — both folded from the same reading, so they cannot disagree about
- *  a listener. */
+/** One scan's answer: every requested ROOT pid's subtree ports — or `blind` for
+ *  a root the scan could not read — and the host's listeners, both folded from
+ *  the same reading, so they cannot disagree about a listener. */
 export interface PortScan {
-  byRoot: Map<number, PortInfo[]>;
+  byRoot: Map<number, PortInfo[] | "blind">;
   host: Extract<HostListeners, { status: "known" }>;
 }
 
@@ -310,6 +308,7 @@ function joinPorts(
   reading: SnapshotReading,
   rootPids: readonly number[],
   skipPids: ReadonlySet<number>,
+  blindRoots: ReadonlySet<number>,
   unclaimedBlind: boolean,
 ): PortScan {
   const { claimed, unclaimed } = classifyListeners(reading.ports);
@@ -337,8 +336,14 @@ function joinPorts(
     else held.push(row);
   }
 
-  const byRoot = new Map<number, PortInfo[]>();
+  const byRoot = new Map<number, PortInfo[] | "blind">();
   for (const [rootPid, pids] of partitionSubtrees(reading.procs, rootPids)) {
+    // `[]` here would render byte-identically to "this terminal serves nothing"
+    // (`caught-error-must-not-collapse-to-empty`).
+    if (blindRoots.has(rootPid)) {
+      byRoot.set(rootPid, "blind");
+      continue;
+    }
     const rows: PortInfo[] = [];
     for (const pid of pids) {
       const held = byPid.get(pid);
@@ -370,8 +375,10 @@ export function portScanSupported(): boolean {
  * every listener on the host.
  *
  * Every requested pid is present in `byRoot` (empty array when its subtree
- * serves nothing). **Fails** with `PortScanError` — `"blind"` for a pass that
- * could not see; `"unsupported-platform"` for a host that never can. Both are
+ * serves nothing, `"blind"` when its root could not be read). An empty root list
+ * is a real ask: the host fold still runs. **Fails** with `PortScanError` —
+ * `"blind"` for a pass whose SOURCE could not see; `"unsupported-platform"` for a
+ * host that never can. Both are
  * on the DECLARED error channel, so the sampler's two-way permanent/transient
  * fold below is reading a type rather than guessing at a rejection.
  *
@@ -441,25 +448,10 @@ export function foldScan(
     );
   }
 
-  const { fatal, skipPids } = unreadablePolicy(
+  const { blindRoots, skipPids } = unreadablePolicy(
     reading.unreadable,
     new Set(rootPids),
   );
-  // An unreadable REQUESTED root still blinds the whole pass, host list included
-  // — deliberately. The pass is all-or-nothing (the sampler's contract), so a
-  // blind pass re-serves the last reading for every terminal AND the host rather
-  // than publishing a mix whose halves came from different moments. The case is
-  // a terminal rooted in another user's process (a `sudo -i` as the PTY's first
-  // command), which the subtree ask was already blind to.
-  if (fatal !== null) {
-    return Effect.fail(
-      new PortScanError(
-        "blind",
-        `port scan: cannot inspect requested root pid ${fatal.pid} (${fatal.errno})`,
-      ),
-    );
-  }
-
   // A root pid that is not in the process table at all is not a blindness: a
   // host-wide read lists every live pid, so its absence IS the exit race the
   // subtree ask used to report as an ENOENT `U` row — an empty subtree, which
@@ -469,6 +461,7 @@ export function foldScan(
       reading,
       rootPids,
       skipPids,
+      blindRoots,
       reading.errors.some(({ facet }) => facet === "ports_unclaimed"),
     ),
   );

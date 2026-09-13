@@ -59,8 +59,14 @@
  *    target re-serves the last map instead. There is no way to spell "published
  *    the first two targets, then failed", which is what a per-target publish loop
  *    with a throw in it did. The HOST's listeners ride the same sample, so a
- *    blind pass re-serves them too, and a pass that answered for the terminals
- *    answered for the host.
+ *    blind pass re-serves them too. One terminal whose ROOT is unreadable is not
+ *    a blind pass: that terminal keeps its last sample (or stays `unknown`) while
+ *    every other terminal and the host publish.
+ *  - **The host is watched while padi has run a terminal, even at zero.** A
+ *    detached server outlives the terminal that started it, and a door onto it
+ *    must still be reaped when it dies — which needs a live host reading after
+ *    the last terminal closes. The sampler only arms on padi's first terminal,
+ *    so a padi that never ran one still does no OS work.
  */
 
 import { everyMsOr, source } from "@kolu/surface/reactor";
@@ -191,9 +197,8 @@ interface PortSample {
   host: HostListeners;
 }
 
-/** The sample of a sampler that is not looking — no terminals, so no OS work,
- *  and no host reading it could honestly keep serving as current. */
-const IDLE_SAMPLE: PortSample = {
+/** The sample before any pass has landed. */
+const NO_SAMPLE: PortSample = {
   terminals: new Map(),
   host: UNKNOWN_HOST_LISTENERS,
 };
@@ -264,7 +269,7 @@ export function createPortSampler(opts: {
    *  byte-identically to "this terminal serves nothing"
    *  (`caught-error-must-not-collapse-to-empty`) — but only to the lifecycle that
    *  actually produced it. */
-  let last: PortSample = IDLE_SAMPLE;
+  let last: PortSample = NO_SAMPLE;
   /** The nudge edge, live only while the cadence is installed. */
   let edge:
     | { fire: () => void; cancel: () => void; setGap: (ms: number) => void }
@@ -288,32 +293,21 @@ export function createPortSampler(opts: {
     // aborts the connector below) — the framework will not stop it for us, at any
     // tick, and that symmetry is deliberate (#2101 G1).
     read: async () => {
+      // Re-read every pass. An EMPTY list still scans: the host's listeners are
+      // this sampler's other output, and the forward reaper needs them after the
+      // last terminal closes (see the module header).
       const targets = opts.targets();
-      // No terminals, no OS work at all — not even a `/proc` readdir. The interval
-      // keeps ticking, so the first terminal of a session is picked up without the
-      // sampler needing to be re-armed from outside. Deliberately BEFORE the timing
-      // below: a pass that did no work must not teach the floor that work is cheap.
-      //
-      // The host reading goes `unknown` here too, and `last` with it: a host list
-      // nobody refreshes any more is not a current fact, and a blind pass after
-      // the next terminal appears must not re-serve it as one.
-      if (targets.length === 0) {
-        last = IDLE_SAMPLE;
-        return last;
-      }
       // Timed around the WHOLE pass — the scan AND the join — because the floor
       // bounds what this readout costs the box, and the join is part of that cost.
       const startedAt = Date.now();
       try {
-        const { byRoot: byPid, host } = await scan(
-          targets.map((t) => t.rootPid),
-        );
+        const { byRoot, host } = await scan(targets.map((t) => t.rootPid));
         // The scan's contract is that EVERY requested pid comes back — with an
         // empty array when its subtree serves nothing. A missing key is a scan
         // that failed to answer, not a terminal with no ports, so the whole pass
         // is void: publishing the targets that DID answer would leave a mixed
         // old/new sample whose halves depend on iteration order.
-        const missing = targets.filter((t) => !byPid.has(t.rootPid));
+        const missing = targets.filter((t) => !byRoot.has(t.rootPid));
         if (missing.length > 0) {
           opts.log.error(
             { missing: missing.map((t) => t.id) },
@@ -331,8 +325,15 @@ export function createPortSampler(opts: {
           { rootPid: number; ports: TerminalPorts }
         >();
         for (const t of targets) {
-          const list = byPid.get(t.rootPid)!;
+          const list = byRoot.get(t.rootPid)!;
           const held = last.terminals.get(t.id);
+          if (list === "blind") {
+            // This terminal's root could not be read. Re-serve its own last sample
+            // if it has one from THIS lifecycle; otherwise leave it out, so it
+            // stays `unknown` on the wire — never `[]`.
+            if (held?.rootPid === t.rootPid) next.set(t.id, held);
+            continue;
+          }
           const ports: TerminalPorts =
             held?.rootPid === t.rootPid &&
             held.ports.status === "known" &&

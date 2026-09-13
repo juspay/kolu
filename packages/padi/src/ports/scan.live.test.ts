@@ -118,8 +118,10 @@ function routableAddress(): string | undefined {
 async function scanSelf() {
   const result = await Effect.runPromise(scanPorts([process.pid]));
   const ports = result.byRoot.get(process.pid);
-  if (ports === undefined) {
-    throw new Error("the scan returned no sample for the requested root pid");
+  if (ports === undefined || ports === "blind") {
+    throw new Error(
+      `the scan returned ${ports === undefined ? "no sample" : "blind"} for its own pid`,
+    );
   }
   return ports;
 }
@@ -358,15 +360,15 @@ describeDaemon(`the port scan on this host (${process.platform})`, () => {
   // for it. Both platforms: osfacts returns U for launchd / init when the
   // caller cannot inspect it.
   it.skipIf(process.getuid?.() === 0)(
-    "THROWS rather than reporting no ports when it cannot see a requested subtree",
+    "reports a requested subtree it cannot see as BLIND, not as no ports",
     async () => {
       // pid 1 is unreadable as a normal user (linux EACCES / darwin EPERM) —
       // a real, unfakeable blind spot. Reporting `[]` here would render byte
       // -identically to "this terminal serves nothing"
-      // (`caught-error-must-not-collapse-to-empty`).
-      await expect(Effect.runPromise(scanPorts([1]))).rejects.toThrow(
-        /cannot inspect requested root pid 1/,
-      );
+      // (`caught-error-must-not-collapse-to-empty`). The host fold still answers.
+      const result = await Effect.runPromise(scanPorts([1]));
+      expect(result.byRoot.get(1)).toBe("blind");
+      expect(result.host.status).toBe("known");
     },
   );
 

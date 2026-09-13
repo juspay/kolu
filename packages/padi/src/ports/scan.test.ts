@@ -128,47 +128,47 @@ describe("parse + classify (client raw → padi policy)", () => {
 
 describe("unreadablePolicy", () => {
   it("skips a foreign-uid DESCENDANT rather than blinding the whole host", () => {
-    const { fatal, skipPids } = unreadablePolicy(
+    const { blindRoots, skipPids } = unreadablePolicy(
       [{ pid: 991, facet: "ports", errno: "EACCES" }],
       new Set([4200]),
     );
-    expect(fatal).toBeNull();
+    expect(blindRoots.size).toBe(0);
     expect([...skipPids]).toEqual([991]);
   });
 
-  it("is fatal when a requested root is EACCES/EPERM", () => {
-    const { fatal, skipPids } = unreadablePolicy(
+  it("marks a requested root BLIND when it is EACCES/EPERM", () => {
+    const { blindRoots, skipPids } = unreadablePolicy(
       [{ pid: 4200, facet: "ports", errno: "EPERM" }],
       new Set([4200]),
     );
-    expect(fatal).toEqual({ pid: 4200, facet: "ports", errno: "EPERM" });
-    expect(skipPids.size).toBe(0);
+    expect([...blindRoots]).toEqual([4200]);
+    expect([...skipPids]).toEqual([4200]);
   });
 
   it("treats a vanished requested root as skip (empty ports), not blind", () => {
-    const { fatal, skipPids } = unreadablePolicy(
+    const { blindRoots, skipPids } = unreadablePolicy(
       [{ pid: 9999, facet: "proc", errno: "ENOENT" }],
       new Set([9999]),
     );
-    expect(fatal).toBeNull();
+    expect(blindRoots.size).toBe(0);
     expect([...skipPids]).toEqual([9999]);
   });
 
   it("skips U rows outside the ask rather than making them fatal", () => {
-    const { fatal, skipPids } = unreadablePolicy(
+    const { blindRoots, skipPids } = unreadablePolicy(
       [{ pid: 1, facet: "ports", errno: "EPERM" }],
       new Set([4200]),
     );
-    expect(fatal).toBeNull();
+    expect(blindRoots.size).toBe(0);
     expect([...skipPids]).toEqual([1]);
   });
 
   it("ignores unreadability from unrelated facets", () => {
-    const { fatal, skipPids } = unreadablePolicy(
+    const { blindRoots, skipPids } = unreadablePolicy(
       [{ pid: 4200, facet: "mem", errno: "EACCES" }],
       new Set([4200]),
     );
-    expect(fatal).toBeNull();
+    expect(blindRoots.size).toBe(0);
     expect(skipPids.size).toBe(0);
   });
 });
@@ -349,10 +349,10 @@ describe("foldScan — one host-wide reading, two folds", () => {
     expect(scan.host.claimed.map((p) => p.port)).toEqual([5173]);
   });
 
-  it("is BLIND when a requested root cannot be read, even host-wide", () => {
-    expect(() => fold([...HOST, "U\t4200\tports\tEACCES"])).toThrow(
-      /cannot inspect requested root pid 4200/,
-    );
+  it("blinds only the unreadable root — the host fold still answers", () => {
+    const scan = fold([...HOST, "U\t4200\tports\tEACCES"]);
+    expect(scan.byRoot.get(4200)).toBe("blind");
+    expect(scan.host.claimed.map((p) => p.port)).toContain(18440);
   });
 
   it("does not let a blind argv source blind the scan", () => {

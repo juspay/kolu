@@ -918,7 +918,10 @@ the row by its program name instead of dropping the listener. The unclaimed
 half is its own two-way because macOS 27 hides exactly those sockets.</span></span></span></li>
 <li><strong>The reaper reads the host.</strong> <code>readHostPorts</code> is one frame of that cell, not
 a race across every terminal’s record — simpler, and a detached server’s door
-lives as long as the server.</li>
+lives as long as the server. Once padi has run a terminal the host stays
+watched even at zero terminals, so that door still closes when its server dies
+after the last terminal did; and an unreadable terminal root (<code>sudo -i</code> as the
+PTY’s command) blinds only that terminal, never the host reading.</li>
 <li><strong>The card answers for the host.</strong> Joined (this tile) · elsewhere (a readable
 program elsewhere, “detached” when no subtree holds it) · unclaimed (owner not
 visible) · unbacked only when the whole host holds nothing · blind otherwise.
