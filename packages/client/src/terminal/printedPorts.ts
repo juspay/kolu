@@ -42,6 +42,10 @@
  * the terminal — and the printed-URL card still finds it on click. Keeping the
  * claim across a remount needs the index where the output lives, host-side
  * (Atlas `port-forwarding`, PRT6).
+ *
+ * Per-terminal, the index also caps at {@link MAX_TRACKED_PORTS} distinct
+ * ports, evicting the least-recently-seen ones — a long-lived terminal that
+ * prints many distinct ports over its life must not grow this store forever.
  */
 
 import { parseLoopbackUrl, WEB_URL_PATTERN } from "@kolu/url-shape";
@@ -98,7 +102,17 @@ const [printed, setPrinted] = createRoot(() =>
   createStore<Record<TerminalId, readonly number[]>>({}),
 );
 
-/** The ports `id` has printed a loopback URL for, ascending. Reactive. */
+/** Distinct ports tracked per terminal, capped so a session that keeps a
+ *  terminal open for hours and prints an unbounded number of distinct
+ *  dev-server ports (a loop that picks a new one each run, say) cannot grow
+ *  this index without limit for the terminal's whole lifetime — the only
+ *  eviction otherwise is the terminal's own `dispose()`. An ordinary session
+ *  prints a handful of ports; this is far above that. */
+export const MAX_TRACKED_PORTS = 512;
+
+/** The ports `id` has printed a loopback URL for, oldest first (subject to the
+ *  {@link MAX_TRACKED_PORTS} cap — a full index evicts its least-recently-seen
+ *  entries). Reactive. */
 export function printedPortsOf(id: TerminalId): readonly number[] {
   return printed[id] ?? [];
 }
@@ -108,10 +122,17 @@ function record(id: TerminalId, found: ReadonlySet<number>): void {
   // The steady state — a URL still on screen, re-read every pass — finds
   // nothing new, and must allocate nothing and notify no reader.
   if ([...found].every((port) => prior.includes(port))) return;
-  setPrinted(
-    id,
-    [...new Set([...prior, ...found])].sort((a, b) => a - b),
-  );
+  // Ports this pass re-saw move to the back (most-recently-seen); the cap
+  // below then evicts from the front, so a port still being printed survives
+  // and a stale one — the module has no way to know if its listener is even
+  // still alive — is the one dropped first.
+  const stale = prior.filter((port) => !found.has(port));
+  const merged = [...stale, ...[...found].sort((a, b) => a - b)];
+  const capped =
+    merged.length > MAX_TRACKED_PORTS
+      ? merged.slice(merged.length - MAX_TRACKED_PORTS)
+      : merged;
+  setPrinted(id, capped);
 }
 
 /** What a tracked terminal's owner can tell the index. */

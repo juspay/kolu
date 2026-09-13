@@ -9,6 +9,7 @@
 import type { TerminalId } from "kolu-common/surface";
 import { describe, expect, it } from "vitest";
 import {
+  MAX_TRACKED_PORTS,
   portsInText,
   printedPortsOf,
   SCAN_CHUNK_LINES,
@@ -356,5 +357,29 @@ describe("trackPrintedPorts", () => {
     expect(printedPortsOf(id)).toEqual([5173]);
     tracker.dispose();
     expect(printedPortsOf(id)).toEqual([]);
+  });
+
+  it("caps the index and evicts the oldest ports once it grows without bound", () => {
+    // A terminal that prints far more distinct ports than any real session
+    // would (a loop picking a new one each run) must not grow the index
+    // forever — only the most recently seen MAX_TRACKED_PORTS survive.
+    const f = fakeTerminal();
+    const total = MAX_TRACKED_PORTS + 100;
+    for (let i = 0; i < total; i++) {
+      f.write(`http://localhost:${20000 + i}/`);
+    }
+    const clock = manual();
+    const id = nextId();
+    const tracker = trackPrintedPorts(f.term, id, clock.schedule);
+    clock.flush();
+    const ports = printedPortsOf(id);
+    expect(ports.length).toBe(MAX_TRACKED_PORTS);
+    // The earliest-printed ports are the ones evicted…
+    expect(ports).not.toContain(20000);
+    expect(ports).not.toContain(20000 + 99);
+    // …the most recently printed ones survive.
+    expect(ports).toContain(20000 + total - 1);
+    expect(ports).toContain(20000 + 100);
+    tracker.dispose();
   });
 });
