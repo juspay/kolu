@@ -4,7 +4,7 @@ description: A shared @kolu/port-forward library and live openable port chips fo
 parents: [feature]
 status: accepted
 maturity: seedling
-updated: 2026-08-07
+updated: 2026-09-13
 ---
 
 import Callout from "../../components/Callout.astro";
@@ -275,8 +275,8 @@ pid→ppid table once, partitions it into per-shell subtrees, and joins
 listening TCP sockets against each subtree:
 
 - **both platforms** — one spawn of the baked **osfacts** binary
-  (`KOLU_OSFACTS_BIN`, via `osfacts-client`) with `--roots` over the terminal
-  root pids. Versioned TSV (`V 2`, then `P` / `L` / `U` rows); raw network-order
+  (`KOLU_OSFACTS_BIN`, via `osfacts-client`) over the WHOLE host
+  (`snapshot --procs --ports --argv`, no `--roots` since PRT5). Versioned TSV (`V 2`, then `P` / `L` / `U` rows); raw network-order
   bind-address hex; padi's `addressBind` is the single scope/family judge.
   A `U` on a *requested* root is a blind scan (never an empty port list); a `U`
   on a descendant is skipped (the sudo lesson). Non-root sees own-uid pids only
@@ -297,12 +297,14 @@ context: the darwin C helper measured 8.45–10.6 ms per pass and the linux
 `/proc` reader 14–18 ms, both parity-checked against `lsof`/`ss` on live
 boxes. osfacts clears it: ~5 ms darwin, ~8 ms scoped linux.</Footnote>
 
-**Attribution is the live ppid subtree**Attribution is the live ppid subtree — and nothing more.** Backgrounded
-(`&`) processes, pipelines, and grandchildren all keep the shell as an
-ancestor, so the walk sees them; a *true* daemon (setsid/double-fork,
-reparented to init) leaves the subtree and is deliberately out of scope — no
-session-id heuristics, no host-wide orphan matching. If you daemonized it, it
-is no longer "this terminal's server".
+**Two attributions from one pass: the live ppid subtree, and the host.**
+Backgrounded (`&`) processes, pipelines, and grandchildren all keep the shell as
+an ancestor, so the subtree walk sees them and they are the terminal's own. A
+*true* daemon (setsid/double-fork, reparented to init) leaves every subtree —
+and since PRT5 it is still seen, on the host's `hostListeners` reading, and
+claimed by a terminal only when that terminal PRINTED its URL. No session-id
+heuristics and no guessing from ancestry: the print says which tile, the socket
+table says it is real.
 
 **Cadence: a 5-second baseline, nudged by output.** The tick alone means up
 to ~5 s between a dev server's "ready" banner and its chip — the one UX cost
@@ -376,6 +378,7 @@ release note:
 | PRT2 ✅ | kolu embeds the library — <PrLink pr={1991} />: lazy forward · merged Ports UI · manual · auto-cancel | PRT0 + PRT1 | real remote box: chip → tunneled HTTP 200; kill the server → ports refuse |
 | PRT3 | embedded in-kolu preview | PRT2 | parked — <PrLink pr={2001} /> closed at the HTTPS-page × HTTP-door browser wall |
 | PRT4 ✅ | printed URLs join the scanner — click `localhost:5173`, get the door — <PrLink pr={2004} /> | PRT2 | e2e: printed URL → door → path preserved; live card upgrade; join unit table |
+| PRT5 ✅ | the host, not just the subtree — detached servers found, claimed by the printing tile, never reaped | PRT4 | e2e: a detached listener's printed URL → card "elsewhere" · detached row in Ports · door survives two reap intervals |
 
 PRT0 shipped in <PrLink pr={1975} /> and PRT1 in <PrLink pr={1982} />;
 PRT2 shipped in <PrLink pr={1991} />; **PRT3 is parked** at a browser
@@ -618,6 +621,42 @@ after the card opened. (3) join decision table in unit, including
 blind-vs-unbacked. (4) <Kbd keys="⌘" />-click bypasses. (5) the chip's
 e2e passes through the extracted flow; `PortsSection` net-negative after
 extraction.
+
+### PRT5 — the host, not just the subtree
+
+PRT1 scoped attribution to the terminal's subtree and called a daemonized server
+"no longer this terminal's". The field disagreed: `odu web-daemon` detaches by
+design, prints its URL in the terminal that started it, and the card said
+**nothing is listening yet** about a server that was answering. Worse, a door
+opened onto it by hand was reaped within one interval, because the reaper's
+evidence was the union of the terminals' own ports.
+
+- **One host-wide pass.** `scanPorts` asks osfacts for every process, listener
+  and argv on the host and folds it twice: per requested root (the old
+  `TerminalPorts`) and for the whole host — `HostListeners { claimed: PortInfo[],
+  unclaimed: known|unknown }`, padi's new read-only `hostListeners` cell
+  (surface 5.7). `PortInfo` gains `command`, the owner's command line, bounded
+  at 512 characters.<Footnote>`argv` is a LABEL facet: an unreadable argv shows
+  the row by its program name instead of dropping the listener. The unclaimed
+  half is its own two-way because macOS 27 hides exactly those sockets.</Footnote>
+- **The reaper reads the host.** `readHostPorts` is one frame of that cell, not
+  a race across every terminal's record — simpler, and a detached server's door
+  lives as long as the server.
+- **The card answers for the host.** Joined (this tile) · elsewhere (a readable
+  program elsewhere, "detached" when no subtree holds it) · unclaimed (owner not
+  visible) · unbacked only when the whole host holds nothing · blind otherwise.
+  `listenerAt` in the vocabulary is the one place those four are derived.
+- **Ports gains two groups.** "From this terminal" adds servers the tile printed
+  that listen elsewhere, found by an incremental scan of the terminal's own
+  buffer (`printedPorts.ts`) — text that only ever says which tile, never whether.
+  A folded "elsewhere on this host" lists the user's other listeners, unclaimed
+  sockets with a story (printed or forwarded), and orphan doors; kolu's own relay
+  listeners are excluded.
+
+**Cost, measured on a ~900-process linux box:** a host-wide pass takes ~35 ms
+against ~9 ms for the subtree ask. The duty-cycle floor
+([performance](./performance.html)) absorbs it — the nudge floor stays at its
+1 s minimum until a pass exceeds 50 ms.
 
 ## What this track sent upstream
 

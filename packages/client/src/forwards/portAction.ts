@@ -119,10 +119,11 @@ export function rowAction(opts: {
   if (opts.row.kind === "orphan") {
     return { action: { kind: "forward" }, reason: undefined };
   }
-  const reach = portReach({
-    scope: opts.row.info.scope,
-    onKoluHost: opts.onKoluHost,
-  });
+  // An unclaimed row has no program, but it has a bind — which is all the judge
+  // reads. Its owner being invisible changes nothing about how it is reached.
+  const scope =
+    opts.row.kind === "port" ? opts.row.info.scope : opts.row.bind.scope;
+  const reach = portReach({ scope, onKoluHost: opts.onKoluHost });
   return {
     action: portAction({ reach, viewerOnHost: opts.viewerOnHost }),
     reason: reachReason(reach),

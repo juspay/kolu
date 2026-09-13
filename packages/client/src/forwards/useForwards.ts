@@ -52,6 +52,19 @@ export function forwardsForHost(host: HostKey): Forwards {
   return memo();
 }
 
+/** The LOCAL listen ports of every door kolu holds — kolu-server's own relay
+ *  listeners, which live on the kolu server's machine whatever host they reach.
+ *  The Ports section leaves these out of that machine's listener list: a door is
+ *  shown as the row it serves, and its relay listener as a second row would be
+ *  one door rendered twice. */
+const doorPorts = createRoot(() =>
+  createMemo(() => new Set(allForwards().map((f) => f.localPort))),
+);
+
+export function doorLocalPorts(): ReadonlySet<number> {
+  return doorPorts();
+}
+
 /** Open a forward, or return the live one for the same target. Idempotent by
  *  target on the server, so a double-clicked chip opens exactly one door. */
 export function createForward(input: {

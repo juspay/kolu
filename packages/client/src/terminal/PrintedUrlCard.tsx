@@ -3,8 +3,13 @@
  *
  * Same species as the host diagnostics popover (Portal + surface chrome +
  * outside-click / Escape dismiss). LIVE: the join is a reactive derivation over
- * the ports and forwards stores, evaluated only while the card is open, so it
- * upgrades when a listener appears and degrades when auto-cancel closes a door.
+ * the tile's ports, the host's listeners and the forwards, evaluated only while
+ * the card is open, so it upgrades when a listener appears and degrades when
+ * auto-cancel closes a door.
+ *
+ * It answers for the whole HOST, not only the tile: a server that detached from
+ * the terminal that printed its URL is found where it actually listens, and
+ * "nothing is listening" is said only when the host positively holds nothing.
  */
 
 import { activeArm } from "@kolu/padi-client/surface";
@@ -35,8 +40,11 @@ import {
 import { ensureDoor, urlForPort } from "../forwards/openPort";
 import { portAction } from "../forwards/portAction";
 import { forwardsForHost, viewerHost } from "../forwards/useForwards";
+import { activeHostListeners } from "../forwards/useHostListeners";
+import { useServingFor } from "../forwards/useServingFor";
 import { hostDisplayName } from "../host/hostChipTone";
 import { isActiveHostLocal } from "../kaval/useDaemonStatus";
+import { ServingTerminalLink } from "../forwards/ServingTerminalLink";
 import { runAction, type UiAction } from "../runAction";
 import { writeTextToClipboard } from "../ui/clipboard";
 import { surface } from "../ui/Surface";
@@ -115,6 +123,7 @@ export const PrintedUrlCard: Component<{ target: PrintedUrlCardTarget }> = (
       joinPrintedUrl({
         uri: props.target.uri,
         observation: observation(),
+        host: activeHostListeners(),
         forwards: forwardsForHost(host()),
       }),
     undefined,
@@ -135,11 +144,24 @@ export const PrintedUrlCard: Component<{ target: PrintedUrlCardTarget }> = (
     protocol: props.target.protocol,
   });
 
-  const actionForJoined = () => {
+  /** The join, narrowed to the arms where something IS listening — the three
+   *  that share the open/forward/copy affordances. */
+  const listening = () => {
     const j = join();
-    if (j.kind !== "joined") return undefined;
+    return j.kind === "joined" ||
+      j.kind === "elsewhere" ||
+      j.kind === "unclaimed"
+      ? j
+      : undefined;
+  };
+
+  const servingFor = useServingFor();
+
+  const actionForJoined = () => {
+    const j = listening();
+    if (j === undefined) return undefined;
     const reach = portReach({
-      scope: j.info.scope,
+      scope: j.kind === "unclaimed" ? j.bind.scope : j.info.scope,
       onKoluHost: isActiveHostLocal(),
     });
     return portAction({ reach, viewerOnHost: viewerOnHost() });
@@ -185,8 +207,7 @@ export const PrintedUrlCard: Component<{ target: PrintedUrlCardTarget }> = (
       if (action === undefined || action.kind === "none") return Effect.void;
       if (busy()) return Effect.void;
       setBusy(true);
-      const j = join();
-      const doorPort = j.kind === "joined" ? j.forward?.localPort : undefined;
+      const doorPort = listening()?.forward?.localPort;
       const first = urlForPort({
         action,
         remotePort: props.target.port,
@@ -260,8 +281,7 @@ export const PrintedUrlCard: Component<{ target: PrintedUrlCardTarget }> = (
       const action = actionForJoined();
       if (action === undefined || action.kind === "none") return Effect.void;
       if (busy()) return Effect.void;
-      const j = join();
-      const doorPort = j.kind === "joined" ? j.forward?.localPort : undefined;
+      const doorPort = listening()?.forward?.localPort;
       const decided = urlForPort({
         action,
         remotePort: props.target.port,
@@ -338,15 +358,16 @@ export const PrintedUrlCard: Component<{ target: PrintedUrlCardTarget }> = (
         }}
       >
         <Switch>
-          <Match keyed when={join().kind === "joined" ? join() : undefined}>
+          <Match keyed when={listening()}>
             {(j) => {
               // `keyed`: `j` is the VALUE at branch entry — a stale accessor
               // read is unspellable. The join memo's structural equality keeps
               // re-keying to real content changes only.
-              const joined = () => {
-                if (j.kind !== "joined") throw new Error("unreachable");
-                return j;
-              };
+              const joined = () => j;
+              /** The terminal holding a server this tile does not — `undefined`
+               *  for a detached server or one whose owner is not visible. */
+              const serving = () =>
+                j.kind === "elsewhere" ? servingFor(j.port) : undefined;
               const action = () => actionForJoined();
               const primaryLabel = () => {
                 const a = action();
@@ -423,16 +444,53 @@ export const PrintedUrlCard: Component<{ target: PrintedUrlCardTarget }> = (
                         .with({ kind: "forward" }, () =>
                           joined().forward !== undefined
                             ? "door already open"
-                            : "this terminal serves it",
+                            : j.kind === "joined"
+                              ? "this terminal serves it"
+                              : "listening on this host",
                         )
                         .with({ kind: "here" }, () => "opens on this host")
                         .with({ kind: "viewer" }, () => "on your machine")
                         .with({ kind: "none" }, () => "not reachable")
                         .exhaustive()}
-                      <span class="text-fg-3 font-normal font-mono">
-                        {" "}
-                        · {joined().info.name}
+                    </span>
+                  </div>
+                  {/* WHO is listening: the command line for a readable owner
+                   *  (the program name alone cannot tell two `bun` servers
+                   *  apart), and — when that owner is not this terminal — where
+                   *  it lives instead. */}
+                  <div
+                    class="mb-1 flex min-w-0 items-baseline gap-1.5 text-[11px]"
+                    data-testid="printed-url-owner"
+                  >
+                    <Show
+                      when={j.kind === "elsewhere" && serving() === undefined}
+                    >
+                      <span
+                        class="shrink-0 rounded bg-amber-500/15 px-1 text-[10px] font-medium text-amber-800 dark:text-amber-300"
+                        data-testid="printed-url-detached"
+                        title="served by a process outside every terminal"
+                      >
+                        detached
                       </span>
+                    </Show>
+                    <Show keyed when={serving()}>
+                      {(s) => (
+                        <span class="shrink-0 text-fg-3">
+                          in{" "}
+                          <ServingTerminalLink name={s.name} onJump={s.jump} />
+                        </span>
+                      )}
+                    </Show>
+                    <span
+                      class="min-w-0 truncate font-mono text-fg-3"
+                      classList={{ italic: j.kind === "unclaimed" }}
+                      title={
+                        j.kind === "unclaimed" ? undefined : j.info.command
+                      }
+                    >
+                      {j.kind === "unclaimed"
+                        ? "owner not visible"
+                        : j.info.command}
                     </span>
                   </div>
                   <p class="text-fg-3 text-[11px] mb-2">{prose()}</p>
@@ -482,10 +540,10 @@ export const PrintedUrlCard: Component<{ target: PrintedUrlCardTarget }> = (
               <span class="text-fg font-medium">nothing is listening yet</span>
             </div>
             <p class="text-fg-3 text-[11px] mb-2">
-              The scan doesn&apos;t see port{" "}
-              <span class="font-mono">{props.target.port}</span> on this
-              terminal — the server may still be starting, or it printed a
-              promise it hasn&apos;t kept.
+              Nothing on <span class="font-mono">{hostName()}</span> listens on
+              port <span class="font-mono">{props.target.port}</span> — the
+              server may still be starting, or it printed a promise it
+              hasn&apos;t kept.
             </p>
             <div class="flex flex-wrap items-center gap-x-3 gap-y-1">
               <button
@@ -521,8 +579,9 @@ export const PrintedUrlCard: Component<{ target: PrintedUrlCardTarget }> = (
               <span class="text-fg font-medium">can&apos;t tell right now</span>
             </div>
             <p class="text-fg-3 text-[11px] mb-2">
-              The scan couldn&apos;t look at this terminal&apos;s ports —
-              &quot;unknown&quot; is never &quot;no&quot;.
+              The scan couldn&apos;t see every port on{" "}
+              <span class="font-mono">{hostName()}</span> — &quot;unknown&quot;
+              is never &quot;no&quot;.
             </p>
             <div class="flex flex-wrap items-center gap-x-3 gap-y-1">
               <button

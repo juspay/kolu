@@ -1,31 +1,37 @@
 /**
- * What the ONE ports section shows — the merge of what used to be two.
+ * What the ports section shows — two groups, "from this terminal" and
+ * "elsewhere on this host", each port in exactly one of them, each carrying its
+ * door inline.
  *
- * Field feedback, screenshot-grounded: the Inspector stacked a PORTS group and a
- * FORWARDED PORTS group, and a forwarded port appeared in BOTH — once as a chip
- * with a `⇄ :5173` badge, again as a row reading `naiveintent:5173 → :5173`. Two
- * renderings of one fact, which is confusing in exactly the way duplicated state
- * always is: it invites the reader to look for the difference.
- *
- * The merge has to keep the reason the second group existed, though, and that
- * reason is real: **a forward is a fact about the HOST, not about a terminal.** A
- * ⌘K manual forward belongs to no tile at all, and an `auto` forward outlives the
- * listener that earned it (by up to a reap interval) and the tile that opened it.
- * Those must stay visible and cancellable — so they join the same section as a
- * subdued trailing group rather than vanishing with the titled one.
- *
- * This file pins the JOIN that produces the rows. The rendering reads it.
+ * The one-row-per-port rule is older than the groups and stays: a forwarded
+ * port once rendered as a chip in one group AND a row in another, and two
+ * renderings of one fact invite the reader to hunt for the difference. What the
+ * groups add is the host: a server that detached from the terminal that started
+ * it is still that terminal's when the terminal printed its URL, and every other
+ * listener with a story is listed below.
  */
 
-import type { KoluForward, PortInfo } from "kolu-common/surface";
+import type {
+  HostListeners,
+  KoluForward,
+  PortInfo,
+  UnclaimedPort,
+} from "kolu-common/surface";
 import { describe, expect, it } from "vitest";
-import { portRows } from "./portRows";
+import { portGroups } from "./portRows";
 
 const LOCAL = { kind: "local" as const };
 
-const port = (p: number, name = "node"): PortInfo => ({
+const port = (p: number, command = "node vite"): PortInfo => ({
   port: p,
-  name,
+  name: command.split(" ")[0] ?? command,
+  command,
+  scope: "loopback",
+  family: "v4",
+});
+
+const bind = (p: number): UnclaimedPort => ({
+  port: p,
   scope: "loopback",
   family: "v4",
 });
@@ -34,89 +40,175 @@ const forward = (
   remotePort: number,
   localPort: number,
   origin: "auto" | "manual" = "auto",
-  host: KoluForward["host"] = LOCAL,
 ): KoluForward => ({
   key: `k:${remotePort}`,
-  host,
+  host: LOCAL,
   remotePort,
   localPort,
   origin,
   createdAt: 0,
 });
 
-describe("portRows", () => {
-  it("renders a scanned port ONCE, carrying its forward inline", () => {
-    // The defect the merge fixes: this used to be a chip in one group AND a row
-    // in another. One port, one row, with the door's state on it.
-    const rows = portRows({
-      ports: [port(5173)],
-      forwards: [forward(5173, 5173)],
-    });
+const hostOf = (
+  claimed: PortInfo[],
+  unclaimed: UnclaimedPort[] = [],
+): HostListeners => ({
+  status: "known",
+  claimed,
+  unclaimed: { status: "known", list: unclaimed },
+});
 
-    expect(rows).toHaveLength(1);
-    expect(rows[0]).toMatchObject({
-      kind: "port",
-      port: 5173,
-      // The program name is the OBSERVATION's, read through `info` — the row
-      // does not carry a second copy of a field the observation already has.
-      info: expect.objectContaining({ name: "node" }),
-      forward: expect.objectContaining({ localPort: 5173, origin: "auto" }),
+const none = new Set<number>();
+
+/** The join with every input at its empty default, overridden per case. */
+function groups(opts: Partial<Parameters<typeof portGroups>[0]>) {
+  return portGroups({
+    tilePorts: [],
+    host: { status: "unknown" },
+    printedHere: none,
+    printedOnHost: none,
+    forwards: [],
+    doorPorts: none,
+    ...opts,
+  });
+}
+
+const shape = (rows: ReturnType<typeof portGroups>["here"]) =>
+  rows.map((r) => [r.kind, r.port, r.kind === "orphan" ? null : r.origin]);
+
+describe("from this terminal", () => {
+  it("renders a subtree port ONCE, carrying its forward inline", () => {
+    const vite = port(5173);
+    const g = groups({
+      tilePorts: [vite],
+      host: hostOf([vite]),
+      forwards: [forward(5173, 61000)],
     });
+    expect(shape(g.here)).toEqual([["port", 5173, "subtree"]]);
+    expect(g.here[0]).toMatchObject({
+      forward: expect.objectContaining({ localPort: 61000 }),
+    });
+    // …and not again below, though the host reading holds it too.
+    expect(g.elsewhere).toEqual([]);
   });
 
-  it("leaves a port with no forward carrying none", () => {
-    const rows = portRows({ ports: [port(3000)], forwards: [] });
-    expect(rows).toHaveLength(1);
-    expect(rows[0]).toMatchObject({ kind: "port", port: 3000 });
-    expect(rows[0]?.forward).toBeUndefined();
+  it("claims a DETACHED server whose URL this tile printed", () => {
+    // The headline: `odu web-daemon` reparented to init, so no subtree holds
+    // 18440 — but this tile printed its URL and the host positively holds it.
+    const daemon = port(18440, "bun odu web-daemon");
+    const g = groups({
+      host: hostOf([daemon]),
+      printedHere: new Set([18440]),
+      printedOnHost: new Set([18440]),
+    });
+    expect(shape(g.here)).toEqual([["port", 18440, "printed"]]);
+    expect(g.here[0]).toMatchObject({ info: daemon });
+    expect(g.elsewhere).toEqual([]);
   });
 
-  it("keeps a HOST forward that matches no scanned port — as a trailing row", () => {
-    // A ⌘K manual forward, or one whose listener has died but whose door is not
-    // reaped yet. Dropping it would leave an open door with nothing anywhere to
-    // cancel it from, which is the whole reason the second group existed.
-    const rows = portRows({
-      ports: [port(3000)],
-      forwards: [forward(9229, 61000, "manual")],
+  it("claims a printed server whose owner is not visible, as an unclaimed row", () => {
+    const g = groups({
+      host: hostOf([], [bind(8443)]),
+      printedHere: new Set([8443]),
     });
+    expect(shape(g.here)).toEqual([["unclaimed", 8443, "printed"]]);
+  });
 
-    expect(rows.map((r) => r.kind)).toEqual(["port", "orphan"]);
-    expect(rows[1]).toMatchObject({
-      kind: "orphan",
-      port: 9229,
+  it("makes NO row from a printed URL the host does not hold", () => {
+    // A printed URL is an entry point, never a fact. "Nothing is listening"
+    // belongs on the printed-URL card, not as a chip made from text.
+    expect(
+      groups({ host: hostOf([]), printedHere: new Set([3000]) }).here,
+    ).toEqual([]);
+  });
+
+  it("makes no row from a print while the host is unknown", () => {
+    expect(groups({ printedHere: new Set([3000]) }).here).toEqual([]);
+  });
+
+  it("orders subtree and printed rows together, by port", () => {
+    const g = groups({
+      tilePorts: [port(5173)],
+      host: hostOf([port(3000, "bun serve"), port(5173)]),
+      printedHere: new Set([3000]),
+    });
+    expect(shape(g.here)).toEqual([
+      ["port", 3000, "printed"],
+      ["port", 5173, "subtree"],
+    ]);
+  });
+});
+
+describe("elsewhere on this host", () => {
+  it("lists every listener a readable program holds that is not this tile's", () => {
+    const g = groups({
+      tilePorts: [port(5173)],
+      host: hostOf([port(5173), port(8734, "node serve -l 8734"), port(22)]),
+    });
+    expect(shape(g.elsewhere)).toEqual([
+      ["port", 22, "host"],
+      ["port", 8734, "host"],
+    ]);
+  });
+
+  it("hides another user's socket unless a terminal printed it or a door points at it", () => {
+    // A system daemon on 631 has no story here; one a terminal printed does, and
+    // so does one kolu already opened a door onto.
+    const g = groups({
+      host: hostOf([], [bind(631), bind(8443), bind(5432)]),
+      printedOnHost: new Set([8443]),
+      forwards: [forward(5432, 61001, "manual")],
+    });
+    expect(shape(g.elsewhere)).toEqual([
+      ["unclaimed", 5432, "host"],
+      ["unclaimed", 8443, "host"],
+    ]);
+    expect(g.elsewhere[0]).toMatchObject({
       forward: expect.objectContaining({ origin: "manual" }),
     });
   });
 
-  it("puts every orphan AFTER every scanned port", () => {
-    // Hierarchy: what this terminal is serving is the section's subject, and the
-    // host's other doors are the footnote. Interleaving them by number would
-    // bury the subject in the footnote.
-    const rows = portRows({
-      ports: [port(8080)],
-      forwards: [forward(80, 61000, "manual"), forward(8080, 8080)],
+  it("leaves out kolu's own relay listeners", () => {
+    // A door is shown as the row it serves. Its local listener as a second row
+    // is the double rendering the one-row rule removed.
+    const g = groups({
+      host: hostOf([port(5173), port(61000, "node kolu-server")]),
+      forwards: [forward(5173, 61000)],
+      doorPorts: new Set([61000]),
     });
+    expect(shape(g.elsewhere)).toEqual([["port", 5173, "host"]]);
+  });
 
-    expect(rows.map((r) => [r.kind, r.port])).toEqual([
-      ["port", 8080],
-      ["orphan", 80],
+  it("keeps a door with nothing behind it — as a trailing orphan", () => {
+    // A ⌘K manual forward, or one whose listener died before the reap. Dropping
+    // it would leave an open door with nothing anywhere to cancel it from.
+    const g = groups({
+      host: hostOf([port(3000)]),
+      forwards: [forward(9229, 61000, "manual")],
+    });
+    expect(shape(g.elsewhere)).toEqual([
+      ["port", 3000, "host"],
+      ["orphan", 9229, null],
     ]);
   });
 
-  it("sorts orphans by port, so the trailing group is stable", () => {
-    // `<For>` keys by identity and the list re-derives on every forward change;
-    // an unstable order would rebuild the rows' DOM on unrelated ticks.
-    const rows = portRows({
-      ports: [],
+  it("keeps doors as orphans while the host is unknown", () => {
+    const g = groups({
+      tilePorts: [port(8080)],
+      forwards: [forward(80, 61000, "manual"), forward(8080, 8080)],
+    });
+    expect(shape(g.here)).toEqual([["port", 8080, "subtree"]]);
+    expect(shape(g.elsewhere)).toEqual([["orphan", 80, null]]);
+  });
+
+  it("sorts orphans by port, so the trailing rows are stable", () => {
+    const g = groups({
       forwards: [forward(9229, 1), forward(80, 2), forward(3000, 3)],
     });
-
-    expect(rows.map((r) => r.port)).toEqual([80, 3000, 9229]);
+    expect(g.elsewhere.map((r) => r.port)).toEqual([80, 3000, 9229]);
   });
 
   it("is empty when there is nothing to say", () => {
-    // The section renders nothing at all in that case — a heading over an empty
-    // list would advertise a feature as broken rather than unused.
-    expect(portRows({ ports: [], forwards: [] })).toEqual([]);
+    expect(groups({ host: hostOf([]) })).toEqual({ here: [], elsewhere: [] });
   });
 });

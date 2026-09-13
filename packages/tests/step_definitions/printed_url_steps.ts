@@ -7,7 +7,7 @@
  */
 
 import * as assert from "node:assert";
-import { Then, When } from "@cucumber/cucumber";
+import { After, Then, When } from "@cucumber/cucumber";
 import { ACTIVE_TERMINAL, waitForBufferContains } from "../support/buffer.ts";
 import { pollFor } from "../support/poll.ts";
 import { type KoluWorld, POLL_TIMEOUT } from "../support/world.ts";
@@ -43,6 +43,27 @@ async function waitForListening(world: KoluWorld, port: number): Promise<void> {
     );
   }
 }
+
+/** Pids of detached listeners this worker started. They left the terminal's
+ *  process tree on purpose, so closing the terminal does not take them with it:
+ *  each scenario that starts one kills it here, or a retry of the same scenario
+ *  would meet its own leftover as an `EADDRINUSE`. */
+const detachedPids: number[] = [];
+
+After(() => {
+  for (const pid of detachedPids.splice(0)) {
+    try {
+      process.kill(pid, "SIGKILL");
+    } catch (err) {
+      // Already gone is the one expected outcome; anything else is loud.
+      if ((err as NodeJS.ErrnoException).code !== "ESRCH") throw err;
+    }
+  }
+});
+
+/** How long an auto forward must outlive its first reap pass to prove the reaper
+ *  saw its listener: two reap intervals (5 s each) plus a scan's slack. */
+const REAP_SURVIVAL_MS = 12_000;
 
 type ClickPoint = { x: number; y: number } | null;
 
@@ -115,6 +136,30 @@ When(
   async function (this: KoluWorld, port: number) {
     await this.terminalRun(pathAwareListenerCommand(port, "127.0.0.1"));
     await waitForListening(this, port);
+  },
+);
+
+When(
+  "I start a detached path-aware listener on port {int} bound to loopback only",
+  async function (this: KoluWorld, port: number) {
+    // `( … & )`: the subshell backgrounds the server and exits at once, so the
+    // server's parent is gone before it binds and it reparents out of the
+    // terminal's process tree — the shape of `odu web-daemon` or anything under
+    // `setsid`, without depending on `setsid` being on the PTY's PATH (it is not
+    // on darwin). Its stdout is still the PTY, so it can print its own marker.
+    const listen = `'${process.execPath}' -e 'require("http").createServer((q,r)=>r.end("ok:"+q.url)).listen(${port},"127.0.0.1",()=>console.log(${LISTENING_EXPR}+" pid="+process.pid))'`;
+    await this.terminalRun(`( ${listen} & )`);
+    await waitForListening(this, port);
+    const shown = await this.page.evaluate(
+      (sel) => window.__readXtermBuffer?.(sel, 0) ?? "",
+      ACTIVE_TERMINAL,
+    );
+    const pid = Number(new RegExp(`${LISTENING} pid=(\\d+)`).exec(shown)?.[1]);
+    assert.ok(
+      Number.isInteger(pid) && pid > 0,
+      `the detached listener on port ${port} printed no pid; the terminal showed:\n${shown.trimEnd().split("\n").slice(-6).join("\n")}`,
+    );
+    detachedPids.push(pid);
   },
 );
 
@@ -286,5 +331,78 @@ Then(
           `Raw popup URL was ${JSON.stringify(last)}, expected ${expected} (${ms}ms)`,
         ),
     });
+  },
+);
+
+Then(
+  "the printed-url card should mark the server detached",
+  async function (this: KoluWorld) {
+    // Detached means no terminal's process subtree holds the listener — the card
+    // says so rather than naming a terminal, and shows the owner's command line.
+    const owner = this.page.locator('[data-testid="printed-url-owner"]');
+    await owner.waitFor({ state: "visible", timeout: PORT_SCAN_TIMEOUT });
+    await this.page
+      .locator('[data-testid="printed-url-detached"]')
+      .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    const text = (await owner.textContent()) ?? "";
+    assert.ok(
+      text.includes("createServer"),
+      `the card's owner line should carry the server's command line; it read ${JSON.stringify(text)}`,
+    );
+  },
+);
+
+Then(
+  "the inspector should show port {int} as a detached server of this terminal",
+  async function (this: KoluWorld, port: number) {
+    // In the FROM-THIS-TERMINAL group, though no subtree of this terminal holds
+    // it: the terminal printed its URL and the host's scan holds the listener.
+    const row = await pollFor({
+      observe: () =>
+        this.page.evaluate((p) => {
+          const el = document.querySelector(
+            `[data-testid="inspector-ports"] [data-testid="inspector-port-row"][data-port="${p}"]`,
+          );
+          if (el === null) return null;
+          return {
+            group: el.getAttribute("data-group"),
+            detached:
+              el.querySelector('[data-testid="inspector-port-detached"]') !==
+              null,
+          };
+        }, port),
+      isDone: (r) => r?.detached === true,
+      timeoutMs: PORT_SCAN_TIMEOUT,
+      onTimeout: (last, elapsedMs) =>
+        new Error(
+          `port ${port} was not shown as detached within ${elapsedMs}ms; the row was ${JSON.stringify(last)}`,
+        ),
+    });
+    assert.strictEqual(row?.group, "here");
+  },
+);
+
+Then(
+  "the forward for port {int} should survive the reaper",
+  async function (this: KoluWorld, port: number) {
+    // The reaper closes an `auto` door once the host's scan no longer holds its
+    // listener. When its evidence was only the terminals' own ports, a door onto
+    // a detached server died within one reap interval. Held continuously across
+    // two intervals, the door proves the reaper sees the host.
+    const began = Date.now();
+    while (Date.now() - began < REAP_SURVIVAL_MS) {
+      const forwarded = await this.page.evaluate(
+        (p) =>
+          document.querySelector(
+            `[data-testid="inspector-ports"] [data-port="${p}"][data-forwarded="yes"]`,
+          ) !== null,
+        port,
+      );
+      assert.ok(
+        forwarded,
+        `the forward for port ${port} was closed ${Date.now() - began}ms into the reap window`,
+      );
+      await this.page.waitForTimeout(500);
+    }
   },
 );

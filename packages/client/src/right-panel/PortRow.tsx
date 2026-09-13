@@ -1,5 +1,5 @@
-/** One row of the Inspector's ports section — a port this terminal serves, or a
- *  door on this host with no scanned port behind it.
+/** One row of the Inspector's ports section — a listener (this terminal's, or
+ *  elsewhere on its host), or a door on this host with no listener behind it.
  *
  *  Hierarchy is deliberate and is the whole of the "look nicer" ask: the NUMBER
  *  and the program name are the subject and carry the weight; everything else —
@@ -22,6 +22,7 @@ import { Effect } from "effect";
 import type { HostKey } from "kolu-common/hostKey";
 import { type Component, createSignal, Show } from "solid-js";
 import { toast } from "solid-sonner";
+import { match } from "ts-pattern";
 import { ForwardControls, ForwardPill } from "../forwards/ForwardPill";
 import type { PortAction } from "../forwards/portAction";
 import type { PortRow as PortRowData } from "../forwards/portRows";
@@ -37,13 +38,33 @@ export const PortRow: Component<{
   forwardReason: string | undefined;
   /** Host this row's door would open on — the active host of the section. */
   host: HostKey;
-  /** WHICH terminal serves this port, and how to get to it — the trailing
-   *  group's affordance. Absent for a main port row (you are already there) and
-   *  for a forward no terminal serves. */
+  /** WHICH terminal serves this port, and how to get to it. Absent for this
+   *  tile's own subtree ports (you are already there) and for a listener no
+   *  terminal's subtree holds — a detached server, another user's socket. */
   serving?: { name: string; jump: () => void };
 }> = (props) => {
   const [opening, setOpening] = createSignal(false);
   const forward = () => props.row.forward;
+
+  /** What is behind the number, in words: the owning program's full command
+   *  line for a claimed listener (the program NAME alone cannot tell four
+   *  `bun …/main.ts web <dir>` servers apart), the honest "owner not visible"
+   *  for a socket the scanner could not attribute, and the door sentence for an
+   *  orphan. */
+  const label = (): string =>
+    match(props.row)
+      .with({ kind: "port" }, (row) => row.info.command)
+      .with({ kind: "unclaimed" }, () => "owner not visible")
+      .with({ kind: "orphan" }, () => "also forwarded on this host")
+      .exhaustive();
+
+  /** A server this tile printed whose process is in NO terminal's subtree — it
+   *  detached from the terminal that started it. A printed server that another
+   *  terminal holds gets that terminal's link instead. */
+  const detached = () =>
+    props.row.kind === "port" &&
+    props.row.origin === "printed" &&
+    props.serving === undefined;
 
   /** Ready URL when no door is needed, or when one is already open. */
   const readyHref = (): string | undefined => {
@@ -129,6 +150,12 @@ export const PortRow: Component<{
       classList={{ "opacity-70": props.row.kind === "orphan" }}
       data-testid="inspector-port-row"
       data-port={props.row.port}
+      data-kind={props.row.kind}
+      data-group={
+        props.row.kind === "orphan" || props.row.origin === "host"
+          ? "elsewhere"
+          : "here"
+      }
       data-forwarded={forward() ? "yes" : undefined}
       data-origin={forward()?.origin}
       data-orphan={props.row.kind === "orphan" ? "" : undefined}
@@ -151,22 +178,36 @@ export const PortRow: Component<{
        *  user to guess which of its terminals. When the join finds nothing the
        *  old sentence stands, unlinked: honest copy about a door whose server
        *  kolu cannot point at. */}
-      <Show
-        when={props.serving}
-        fallback={
-          <span class="min-w-0 flex-1 truncate font-mono text-fg-3/80">
-            {props.row.kind === "port"
-              ? props.row.info.name
-              : "also forwarded on this host"}
+      <span class="flex min-w-0 flex-1 items-baseline gap-1.5">
+        <Show when={detached()}>
+          <span
+            class="shrink-0 rounded bg-amber-500/15 px-1 text-[10px] font-medium text-amber-800 dark:text-amber-300"
+            data-testid="inspector-port-detached"
+            title="printed by this terminal, served by a process that left it"
+          >
+            detached
           </span>
-        }
-      >
-        {(s) => (
-          <span class="min-w-0 flex-1 truncate">
-            <ServingTerminalLink name={s().name} onJump={s().jump} />
-          </span>
-        )}
-      </Show>
+        </Show>
+        <Show
+          when={props.serving}
+          fallback={
+            <span
+              class="min-w-0 truncate font-mono text-fg-3/80"
+              classList={{ italic: props.row.kind === "unclaimed" }}
+              title={label()}
+              data-testid="inspector-port-label"
+            >
+              {label()}
+            </span>
+          }
+        >
+          {(s) => (
+            <span class="min-w-0 truncate" title={label()}>
+              <ServingTerminalLink name={s().name} onJump={s().jump} />
+            </span>
+          )}
+        </Show>
+      </span>
 
       {/* The door — the same pill the host dropdown shows, not a link here
        *  because this row already carries its own open affordance below. */}

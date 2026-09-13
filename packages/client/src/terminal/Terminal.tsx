@@ -88,6 +88,7 @@ import {
 } from "./fileRefLinkProvider";
 import { installTerminalFocusProvenance } from "./focusProvenance";
 import { handleWebLink } from "./handleWebLink";
+import { trackPrintedPorts } from "./printedPorts";
 import { PrintedUrlCardMount } from "./PrintedUrlCard";
 import { deliverScratchPaste } from "./pasteDelivery";
 import { createForeignGridWatcher } from "./foreignGrid";
@@ -316,6 +317,10 @@ const Terminal: Component<{
     // that touches terminal contents. Cleared in the teardown below.
     (h.container as HTMLElement & { __xterm?: XTerm }).__xterm = term;
 
+    // Index the loopback URLs this terminal prints, so its Ports section can
+    // claim a server that detached from its process subtree (see printedPorts).
+    const stopPrintedPorts = trackPrintedPorts(term, props.terminalId);
+
     // Consumer teardown registered HERE, inside onReady — NOT at the component
     // body top. `<Xterm>` is a plain JSX child (no own reactive owner), so a
     // body-registered `onCleanup` lands FIRST on the shared owner and runs LAST
@@ -337,6 +342,7 @@ const Terminal: Component<{
       disposeDiagnostics = null;
       linkProviderDisposable?.dispose();
       linkProviderDisposable = null;
+      stopPrintedPorts();
       backfill?.dispose();
       backfill = null;
       (h.container as HTMLElement & { __xterm?: XTerm }).__xterm = undefined;

@@ -87,6 +87,11 @@ export const AMBIENT_TIPS: readonly Tip[] = [
     doc: "remote-hosts",
   },
   {
+    id: "amb-inspector-ports-detached",
+    text: 'A server that detached from its terminal still shows up — the Inspector\'s Ports lists it under that terminal when the terminal printed its URL, and every other server on the host is one click away under "elsewhere on this host"',
+    doc: "right-panel",
+  },
+  {
     id: "amb-shuffle-theme",
     text: `${formatKeybind(ACTIONS.shuffleTheme.keybind)} shuffles the terminal color theme`,
     doc: "theming",

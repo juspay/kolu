@@ -41,6 +41,7 @@ const serving = (
     list: ports.map((port) => ({
       port,
       name: "node",
+      command: "node server.js",
       scope: "loopback",
       family: "v4",
     })),

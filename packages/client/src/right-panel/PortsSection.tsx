@@ -1,10 +1,18 @@
-/** The Inspector's **Ports** section — "what is this terminal serving?", and one
- *  click from the page.
+/** The Inspector's **Ports** section — "what is this terminal serving?", what
+ *  else is serving on its host, and one click from the page.
  *
- *  ONE list. Every row is a listening TCP port padi's scanner attributed to this
- *  terminal's process subtree, joined to the door kolu holds for it if there is
- *  one; this host's other doors — a ⌘K forward, or one whose listener died
- *  before the reap — trail the list rather than getting a heading of their own.
+ *  Two groups, each port in exactly one, each row carrying its door inline
+ *  (`forwards/portRows.ts` is the join and says why):
+ *
+ *   - **From this terminal** — ports in this tile's process subtrees, plus
+ *     servers whose URL the tile PRINTED that listen elsewhere on the host (a
+ *     server that detached, marked so). Always shown.
+ *   - **Elsewhere on this host** — the user's other listeners, printed or
+ *     forwarded foreign sockets, and doors with nothing behind them. Folded
+ *     behind a count by default: a busy dev box runs dozens of servers, and the
+ *     section's subject is still this terminal. A row with an open door stays
+ *     visible while folded — an open door must never be out of reach.
+ *
  *  Which affordance a row gets is decided by facts, never by a guess:
  *
  *   - **Openable** — the port answers on every interface of the KOLU SERVER's own
@@ -35,23 +43,38 @@ import {
   samePortList,
   type TerminalId,
 } from "kolu-common/surface";
-import { type Component, createMemo, For, Show } from "solid-js";
+import {
+  type Component,
+  createMemo,
+  createSignal,
+  For,
+  type JSX,
+  Show,
+} from "solid-js";
 import { rowAction } from "../forwards/portAction";
-import { portRows } from "../forwards/portRows";
-import { servingLink } from "../forwards/terminalServingPort";
-import { forwardsForHost, viewerHost } from "../forwards/useForwards";
+import { type PortRow as PortRowData, portGroups } from "../forwards/portRows";
+import {
+  doorLocalPorts,
+  forwardsForHost,
+  viewerHost,
+} from "../forwards/useForwards";
+import { activeHostListeners } from "../forwards/useHostListeners";
+import { useServingFor } from "../forwards/useServingFor";
 import { isActiveHostLocal } from "../kaval/useDaemonStatus";
+import { printedPortsOf } from "../terminal/printedPorts";
 import { useTerminalStore } from "../terminal/useTerminalStore";
+import { ChevronRightIcon } from "../ui/Icons";
 import Section from "../ui/Section";
 import { activeHost } from "../wire";
 import { PortRow } from "./PortRow";
 
+const NO_PORTS: ReadonlySet<number> = new Set();
+
+const sameSet = (a: ReadonlySet<number>, b: ReadonlySet<number>): boolean =>
+  a.size === b.size && [...a].every((p) => b.has(p));
+
 const PortsSection: Component<{ terminalId: TerminalId }> = (props) => {
   const store = useTerminalStore();
-  // "Is the inspected terminal on the machine serving this page?" has a named home
-  // in the host layer (`isActiveHostLocal`), and reading it from there matters more
-  // here than in a cosmetic caller: `portReach`s remote-host arm decides whether
-  // kolu offers a link that would land on the WRONG machine.
   // Every pane of the tile: the scanner attributes a port to the pane whose
   // subtree holds it — correct and unavoidable, each pane being its own process
   // tree — but "run the dev server in the split, read the Inspector on the main
@@ -59,19 +82,11 @@ const PortsSection: Component<{ terminalId: TerminalId }> = (props) => {
   // exactly where a long-running server goes. What a tile's panes ARE is the
   // store's to say (`getTilePaneIds`), not this section's.
   //
-  // `foldPorts` is the vocabulary's own collapse (the same one the scanner applies
-  // per terminal), so the widest-bind rule is stated once for both ends of the
-  // wire rather than re-implemented here.
-  // `knownPorts` is the ONE place "we never looked" reads as no ports, and calling
-  // it here is deliberate: a pane whose first scan has not landed (or was blind)
-  // contributes nothing to the tile rather than asserting it serves nothing. The
-  // section then renders nothing at all for a tile with no KNOWN ports, so an
-  // unknown pane never produces a claim on screen either way.
-  // `equals` keeps the memo's IDENTITY across a recompute that produced the same
-  // ports, which matters because `<For>` keys by item reference: `foldPorts` mints
-  // fresh objects every run, so without this every host-wide terminal spawn, kill or
-  // sleep would dispose and rebuild every port chip's DOM. Same remedy as
-  // `sameTerminalIdOrder` and `sameParentSnapshot` elsewhere in the client.
+  // `knownPorts` is the ONE place "we never looked" reads as no ports: a pane
+  // whose first scan has not landed contributes nothing rather than asserting it
+  // serves nothing. `equals` keeps the memo's IDENTITY across a recompute that
+  // produced the same ports, so an unrelated terminal tick does not re-run the
+  // join below.
   const ports = createMemo(
     () =>
       foldPorts(
@@ -85,30 +100,30 @@ const PortsSection: Component<{ terminalId: TerminalId }> = (props) => {
   );
   const host = () => activeHost();
 
-  /** Every PANE of every tile on this host, as the port join needs them — panes
-   *  and not tiles, because a dev server almost always runs in a split and the
-   *  scanner attributes the port to the split's own subtree.
-   *  `servingLink` folds the answer back to the tile.
-   *
-   *  A memo, not a plain function: it is read once per row inside a `<For>`, and
-   *  rebuilding every pane's metadata read per row is O(rows × terminals). */
-  const servingCandidates = createMemo(() =>
-    store.terminalIds().flatMap((tileId) =>
-      store.getTilePaneIds(tileId).flatMap((paneId) => {
-        const arm = activeArm(store.getMetadata(paneId));
-        // `parentId` here is the CONTAINING TILE (root), not the true one-hop
-        // parent — the port join returns the tile the user can activate.
-        return arm === undefined
-          ? []
-          : [
-              {
-                id: paneId,
-                parentId: paneId === tileId ? null : tileId,
-                ports: arm.ports,
-              },
-            ];
-      }),
-    ),
+  /** The ports this tile's panes printed a loopback URL for. */
+  const printedHere = createMemo(
+    () =>
+      new Set(
+        store
+          .getTilePaneIds(props.terminalId)
+          .flatMap((id) => printedPortsOf(id)),
+      ),
+    undefined,
+    { equals: sameSet },
+  );
+
+  /** …and every terminal on this host — the story an unclaimed socket needs. */
+  const printedOnHost = createMemo(
+    () =>
+      new Set(
+        store
+          .terminalIds()
+          .flatMap((tile) =>
+            store.getTilePaneIds(tile).flatMap((id) => printedPortsOf(id)),
+          ),
+      ),
+    undefined,
+    { equals: sameSet },
   );
 
   /** Is the browser sitting at the machine this host IS? One fact about the
@@ -120,58 +135,97 @@ const PortsSection: Component<{ terminalId: TerminalId }> = (props) => {
     return v !== null && sameHost(v, host());
   });
 
-  /** WHICH terminal an "also forwarded on this host" row belongs to, and how to
-   *  reach it. Only the TRAILING group gets this: a main port row is already a
-   *  port of the terminal you are inspecting, so naming it would name the thing
-   *  on screen and the jump would go nowhere you are not. */
-  const servingFor = (port: number) =>
-    servingLink({
-      port,
-      candidates: servingCandidates(),
-      armOf: (id) => {
-        const arm = activeArm(store.getMetadata(id));
-        return arm === undefined
-          ? undefined
-          : { git: arm.git ?? null, cwd: arm.cwd };
-      },
-      activate: (id) => store.activate(id),
-    });
+  /** WHICH terminal serves a port, and how to reach it — asked only for rows
+   *  that are not this tile's own subtree ports: naming the terminal on screen
+   *  would name the thing you are looking at, and the jump would go nowhere. */
+  const servingFor = useServingFor();
 
-  /** The ONE list: what this terminal serves, joined to the doors kolu holds,
-   *  plus this host's doors that match no scanned port. Two titled groups used
-   *  to render a forwarded port twice; the join is in `portRows` so its ordering
-   *  and host scoping are pinned without a DOM. */
-  const rows = createMemo(() =>
-    portRows({
-      ports: ports(),
+  const groups = createMemo(() =>
+    portGroups({
+      tilePorts: ports(),
+      host: activeHostListeners(),
+      printedHere: printedHere(),
+      printedOnHost: printedOnHost(),
       forwards: forwardsForHost(host()),
+      // kolu's relay listeners live on the kolu server's own machine, so only
+      // that host's list can contain them.
+      doorPorts: isActiveHostLocal() ? doorLocalPorts() : NO_PORTS,
     }),
   );
+
+  const [elsewhereOpen, setElsewhereOpen] = createSignal(false);
+  /** The elsewhere rows on screen: all of them when open, and only the rows
+   *  with an open door when folded. */
+  const elsewhereShown = createMemo(() =>
+    elsewhereOpen()
+      ? groups().elsewhere
+      : groups().elsewhere.filter((row) => row.forward !== undefined),
+  );
+  const elsewhereFolded = () =>
+    groups().elsewhere.length - elsewhereShown().length;
+
+  const renderRow = (row: PortRowData): JSX.Element => {
+    const decided = () =>
+      rowAction({
+        row,
+        onKoluHost: isActiveHostLocal(),
+        viewerOnHost: viewerOnHost(),
+      });
+    return (
+      <PortRow
+        row={row}
+        host={host()}
+        serving={
+          row.kind !== "orphan" && row.origin === "subtree"
+            ? undefined
+            : servingFor(row.port)
+        }
+        action={decided().action}
+        forwardReason={decided().reason}
+      />
+    );
+  };
+
   return (
-    <Show when={rows().length > 0}>
+    <Show when={groups().here.length + groups().elsewhere.length > 0}>
       <Section title="Ports">
         <div class="flex flex-col" data-testid="inspector-ports">
-          <For each={rows()}>
-            {(row) => {
-              const decided = () =>
-                rowAction({
-                  row,
-                  onKoluHost: isActiveHostLocal(),
-                  viewerOnHost: viewerOnHost(),
-                });
-              return (
-                <PortRow
-                  row={row}
-                  host={host()}
-                  serving={
-                    row.kind === "orphan" ? servingFor(row.port) : undefined
-                  }
-                  action={decided().action}
-                  forwardReason={decided().reason}
+          <For each={groups().here}>{renderRow}</For>
+          <Show when={groups().elsewhere.length > 0}>
+            <div
+              class="flex flex-col"
+              classList={{ "mt-1.5": groups().here.length > 0 }}
+              data-testid="inspector-ports-elsewhere"
+            >
+              <button
+                type="button"
+                class="-mx-1 flex items-center gap-1 rounded px-1 py-0.5 text-left text-[10px] text-fg-3/70 transition-colors hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 motion-reduce:transition-none"
+                aria-expanded={elsewhereOpen()}
+                data-testid="inspector-ports-elsewhere-toggle"
+                onClick={() => setElsewhereOpen((open) => !open)}
+              >
+                <ChevronRightIcon
+                  class={`h-3 w-3 shrink-0 transition-transform motion-reduce:transition-none ${elsewhereOpen() ? "rotate-90" : ""}`}
                 />
-              );
-            }}
-          </For>
+                <span>elsewhere on this host</span>
+                <span class="tabular-nums text-fg-3/50">
+                  · {groups().elsewhere.length}
+                </span>
+              </button>
+              <For each={elsewhereShown()}>{renderRow}</For>
+              <Show
+                when={
+                  !elsewhereOpen() &&
+                  elsewhereFolded() > 0 &&
+                  elsewhereShown().length > 0
+                }
+              >
+                <span class="pl-4 text-[10px] text-fg-3/50">
+                  +{elsewhereFolded()} more
+                </span>
+              </Show>
+            </div>
+          </Show>
         </div>
       </Section>
     </Show>
