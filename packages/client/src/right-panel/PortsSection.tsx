@@ -35,13 +35,13 @@
  *  effect at the row edge). This file is the section; `PortRow.tsx` is the row.
  */
 
+import { Key } from "@solid-primitives/keyed";
 import { hostKeysEqual as sameHost } from "kolu-common/hostKey";
 import { samePortList, type TerminalId } from "kolu-common/surface";
 import {
   type Component,
   createMemo,
   createSignal,
-  For,
   type JSX,
   Show,
 } from "solid-js";
@@ -56,7 +56,7 @@ import {
   forwardsForHost,
   viewerHost,
 } from "../forwards/useForwards";
-import { activeHostListeners } from "../forwards/useHostListeners";
+import { useHostListeners } from "../forwards/useHostListeners";
 import { sameSet, useHostTerminals } from "../forwards/useHostTerminals";
 import { isActiveHostLocal } from "../kaval/useDaemonStatus";
 import { ChevronRightIcon } from "../ui/Icons";
@@ -106,6 +106,7 @@ const PortsSection: Component<{ terminalId: TerminalId }> = (props) => {
     return v !== null && sameHost(v, host());
   });
 
+  const hostListeners = useHostListeners();
   const groups = createMemo(() =>
     portGroups({
       terminals: {
@@ -113,7 +114,7 @@ const PortsSection: Component<{ terminalId: TerminalId }> = (props) => {
         printedHere: printedHere(),
         printedOnHost: terminals.printedOnHost(),
       },
-      host: activeHostListeners(),
+      host: hostListeners(),
       forwards: forwardsForHost(host()),
       // kolu's relay listeners live on the kolu server's own machine, so only
       // that host's list can contain them.
@@ -132,22 +133,26 @@ const PortsSection: Component<{ terminalId: TerminalId }> = (props) => {
   const elsewhereFolded = () =>
     groups().elsewhere.length - elsewhereShown().length;
 
-  const renderRow = (row: PortRowData): JSX.Element => {
+  /** One row, KEYED by port (`<Key by={port}>`): the join rebuilds its row
+   *  objects whenever the host reading, a terminal's ports or a forward ticks,
+   *  and a reference-keyed `<For>` would tear down every row's DOM — and its
+   *  in-flight "opening…" state — on each of them. Keyed, a row updates in place. */
+  const renderRow = (row: () => PortRowData): JSX.Element => {
     const decided = () =>
       rowAction({
-        row,
+        row: row(),
         onKoluHost: isActiveHostLocal(),
         viewerOnHost: viewerOnHost(),
       });
     return (
       <PortRow
-        row={row}
+        row={row()}
         host={host()}
         serving={
           // Only rows that are not this tile's name a terminal: a subtree row is
           // the terminal on screen, and a printed row is held by none.
-          rowGroup(row) === "elsewhere"
-            ? terminals.servingFor(row.port)
+          rowGroup(row()) === "elsewhere"
+            ? terminals.servingFor(row().port)
             : undefined
         }
         action={decided().action}
@@ -160,7 +165,9 @@ const PortsSection: Component<{ terminalId: TerminalId }> = (props) => {
     <Show when={groups().here.length + groups().elsewhere.length > 0}>
       <Section title="Ports">
         <div class="flex flex-col" data-testid="inspector-ports">
-          <For each={groups().here}>{renderRow}</For>
+          <Key each={groups().here} by={(row) => row.port}>
+            {renderRow}
+          </Key>
           <Show when={groups().elsewhere.length > 0}>
             <div
               class="flex flex-col"
@@ -182,14 +189,10 @@ const PortsSection: Component<{ terminalId: TerminalId }> = (props) => {
                   · {groups().elsewhere.length}
                 </span>
               </button>
-              <For each={elsewhereShown()}>{renderRow}</For>
-              <Show
-                when={
-                  !elsewhereOpen() &&
-                  elsewhereFolded() > 0 &&
-                  elsewhereShown().length > 0
-                }
-              >
+              <Key each={elsewhereShown()} by={(row) => row.port}>
+                {renderRow}
+              </Key>
+              <Show when={elsewhereFolded() > 0 && elsewhereShown().length > 0}>
                 <span class="pl-4 text-[10px] text-fg-3/50">
                   +{elsewhereFolded()} more
                 </span>

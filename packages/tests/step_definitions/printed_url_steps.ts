@@ -8,7 +8,11 @@
 
 import * as assert from "node:assert";
 import { After, Then, When } from "@cucumber/cucumber";
-import { ACTIVE_TERMINAL, waitForBufferContains } from "../support/buffer.ts";
+import {
+  ACTIVE_TERMINAL,
+  readBufferText,
+  waitForBufferContains,
+} from "../support/buffer.ts";
 import { pollFor } from "../support/poll.ts";
 import { type KoluWorld, POLL_TIMEOUT } from "../support/world.ts";
 
@@ -21,9 +25,18 @@ const LISTENING = "kolu-e2e-listening";
 const LISTENING_EXPR = '"kolu-e2e"+"-listening"';
 
 /** Path-aware listener: body is `ok:<url>` so the door can prove the path rode
- *  through. Marker is built at runtime so the shell echo cannot satisfy it. */
-function pathAwareListenerCommand(port: number, host: string): string {
-  return `'${process.execPath}' -e 'require("http").createServer((q,r)=>r.end("ok:"+q.url)).listen(${port},"${host}",()=>console.log(${LISTENING_EXPR}))'`;
+ *  through. Marker is built at runtime so the shell echo cannot satisfy it.
+ *  `printPid` appends ` pid=<n>` to the marker — for a detached listener, whose
+ *  pid is the only handle left to stop it with. */
+function pathAwareListenerCommand(
+  port: number,
+  host: string,
+  opts: { printPid?: boolean } = {},
+): string {
+  const marker = opts.printPid
+    ? `${LISTENING_EXPR}+" pid="+process.pid`
+    : LISTENING_EXPR;
+  return `'${process.execPath}' -e 'require("http").createServer((q,r)=>r.end("ok:"+q.url)).listen(${port},"${host}",()=>console.log(${marker}))'`;
 }
 
 async function waitForListening(world: KoluWorld, port: number): Promise<void> {
@@ -33,10 +46,7 @@ async function waitForListening(world: KoluWorld, port: number): Promise<void> {
       timeout: LISTENER_START_TIMEOUT,
     });
   } catch {
-    const shown = await world.page.evaluate(
-      (sel) => window.__readXtermBuffer?.(sel, 0) ?? "",
-      ACTIVE_TERMINAL,
-    );
+    const shown = await readBufferText(world.page);
     throw new Error(
       `The listener on port ${port} never bound within ${LISTENER_START_TIMEOUT}ms. ` +
         `The terminal last showed:\n${shown.trimEnd().split("\n").slice(-12).join("\n")}`,
@@ -147,13 +157,12 @@ When(
     // terminal's process tree — the shape of `odu web-daemon` or anything under
     // `setsid`, without depending on `setsid` being on the PTY's PATH (it is not
     // on darwin). Its stdout is still the PTY, so it can print its own marker.
-    const listen = `'${process.execPath}' -e 'require("http").createServer((q,r)=>r.end("ok:"+q.url)).listen(${port},"127.0.0.1",()=>console.log(${LISTENING_EXPR}+" pid="+process.pid))'`;
+    const listen = pathAwareListenerCommand(port, "127.0.0.1", {
+      printPid: true,
+    });
     await this.terminalRun(`( ${listen} & )`);
     await waitForListening(this, port);
-    const shown = await this.page.evaluate(
-      (sel) => window.__readXtermBuffer?.(sel, 0) ?? "",
-      ACTIVE_TERMINAL,
-    );
+    const shown = await readBufferText(this.page);
     const pid = Number(new RegExp(`${LISTENING} pid=(\\d+)`).exec(shown)?.[1]);
     assert.ok(
       Number.isInteger(pid) && pid > 0,

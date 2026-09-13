@@ -3,23 +3,21 @@
  * machine the inspected terminal lives on, including servers that detached
  * from every terminal.
  *
- * One app-lifetime subscription, re-keyed when the active host switches, read by
- * the Ports section and the printed-URL card alike. `unknown` until the cell's
- * first frame lands: a reading that has not arrived is "we have not looked", and
- * every reader already has an honest arm for that.
+ * A HOOK, called inside its readers' own owners (the Ports section, the
+ * printed-URL card), not an app-lifetime subscription: the reading carries a
+ * command line per listener, and the re-serve path (an ssh leg for a remote host)
+ * need not carry it while neither reader is on screen. It re-keys when the active
+ * host switches. `unknown` until the cell's first frame lands: a reading that has
+ * not arrived is "we have not looked", and every reader has an honest arm for it.
  */
 
 import {
   type HostListeners,
   UNKNOWN_HOST_LISTENERS,
 } from "kolu-common/surface";
-import { createRoot } from "solid-js";
 import { activeHost, padiMap } from "../wire";
 
-const sub = createRoot(() =>
-  padiMap.useEntry(activeHost).cells.hostListeners.use(),
-);
-
-export function activeHostListeners(): HostListeners {
-  return sub.value() ?? UNKNOWN_HOST_LISTENERS;
+export function useHostListeners(): () => HostListeners {
+  const sub = padiMap.useEntry(activeHost).cells.hostListeners.use();
+  return () => sub.value() ?? UNKNOWN_HOST_LISTENERS;
 }

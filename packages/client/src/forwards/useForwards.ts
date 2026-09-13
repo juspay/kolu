@@ -58,7 +58,12 @@ export function forwardsForHost(host: HostKey): Forwards {
  *  shown as the row it serves, and its relay listener as a second row would be
  *  one door rendered twice. */
 const doorPorts = createRoot(() =>
-  createMemo(() => new Set(allForwards().map((f) => f.localPort))),
+  createMemo(
+    () => new Set(allForwards().map((f) => f.localPort)),
+    undefined,
+    // An unrelated forward tick with the same doors must not re-run the join.
+    { equals: (a, b) => a.size === b.size && [...a].every((p) => b.has(p)) },
+  ),
 );
 
 export function doorLocalPorts(): ReadonlySet<number> {

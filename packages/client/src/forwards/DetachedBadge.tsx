@@ -1,14 +1,16 @@
 /** The mark on a listener no terminal's subtree holds, shown where a terminal
- *  printed its URL — the Ports row and the printed-URL card say it the same way. */
+ *  printed its URL — the Ports row and the printed-URL card say it the same way,
+ *  in the Inspector's own status-chip vocabulary. */
 
 import type { Component } from "solid-js";
+import Chip from "../ui/Chip";
 
 export const DetachedBadge: Component<{ testid: string }> = (props) => (
-  <span
-    class="shrink-0 rounded bg-amber-500/15 px-1 text-[10px] font-medium text-amber-800 dark:text-amber-300"
-    data-testid={props.testid}
+  <Chip
+    tone="warning"
     title="served by a process that left every terminal"
+    data-testid={props.testid}
   >
     detached
-  </span>
+  </Chip>
 );

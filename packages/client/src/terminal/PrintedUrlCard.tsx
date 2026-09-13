@@ -37,7 +37,7 @@ import { ensureDoor, urlForPort } from "../forwards/openPort";
 import { portAction } from "../forwards/portAction";
 import { bindOf, listenerLabel } from "../forwards/portRows";
 import { forwardsForHost, viewerHost } from "../forwards/useForwards";
-import { activeHostListeners } from "../forwards/useHostListeners";
+import { useHostListeners } from "../forwards/useHostListeners";
 import { DetachedBadge } from "../forwards/DetachedBadge";
 import { useHostTerminals } from "../forwards/useHostTerminals";
 import { hostDisplayName } from "../host/hostChipTone";
@@ -108,13 +108,15 @@ export const PrintedUrlCard: Component<{ target: PrintedUrlCardTarget }> = (
    *  detached facts for a listener this tile does not hold. */
   const terminals = useHostTerminals();
 
+  const hostListeners = useHostListeners();
+
   const join = createMemo(
     () =>
       joinPrintedUrl({
         uri: props.target.uri,
         // LIVE — re-reads the store every tick the card is open.
         tilePorts: terminals.tilePorts(props.target.terminalId),
-        host: activeHostListeners(),
+        host: hostListeners(),
         forwards: forwardsForHost(host()),
       }),
     undefined,

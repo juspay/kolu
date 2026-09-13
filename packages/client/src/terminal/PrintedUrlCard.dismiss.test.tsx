@@ -30,7 +30,7 @@ vi.mock("../forwards/useForwards", () => ({
   viewerHost: () => null,
 }));
 vi.mock("../forwards/useHostListeners", () => ({
-  activeHostListeners: () => ({ status: "unknown" as const }),
+  useHostListeners: () => () => ({ status: "unknown" as const }),
 }));
 vi.mock("../kaval/useDaemonStatus", () => ({
   isActiveHostLocal: () => true,
