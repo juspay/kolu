@@ -9,7 +9,11 @@
  * empty set, an all-or-nothing pass, and teardown.
  */
 
-import type { PortInfo, TerminalId } from "@kolu/terminal-vocab/schema";
+import type {
+  HostListeners,
+  PortInfo,
+  TerminalId,
+} from "@kolu/terminal-vocab/schema";
 import pino, { type Logger } from "pino";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
@@ -18,7 +22,7 @@ import {
   PORT_SCAN_INTERVAL_MS,
   type PortScanTarget,
 } from "./sampler.ts";
-import { PortScanError, portScanSupported } from "./scan.ts";
+import { type PortScan, PortScanError, portScanSupported } from "./scan.ts";
 
 const quietLog = pino({ level: "silent" });
 
@@ -26,9 +30,37 @@ const ONE: PortScanTarget[] = [{ id: "A" as TerminalId, rootPid: 100 }];
 const PORT: PortInfo = {
   port: 8080,
   name: "node",
+  command: "node server.js",
   scope: "any",
   family: "v4",
 };
+
+/** A detached server — on the host, in no terminal's subtree. */
+const DAEMON: PortInfo = {
+  port: 18440,
+  name: "bun",
+  command: "bun odu web-daemon",
+  scope: "loopback",
+  family: "v4",
+};
+
+/** A scan answer: the per-root map, and a host reading holding every port in it
+ *  plus whatever else is on the host. */
+function scanOf(
+  byRoot: Map<number, PortInfo[]>,
+  elsewhere: PortInfo[] = [],
+): PortScan {
+  return {
+    byRoot,
+    host: {
+      status: "known",
+      claimed: [...[...byRoot.values()].flat(), ...elsewhere].sort(
+        (a, b) => a.port - b.port,
+      ),
+      unclaimed: { status: "known", list: [] },
+    },
+  };
+}
 
 /** Let a pass settle. One pass is `read → scan → publish` — several promise hops,
  *  so advancing the clock alone leaves the publish in the microtask queue. */
@@ -47,10 +79,14 @@ function harness(
     targets?: PortScanTarget[];
     answer?: PortInfo[];
     answerRaw?: Map<number, PortInfo[]>;
+    /** Listeners on the host outside every requested subtree. */
+    elsewhere?: PortInfo[];
     fail?: Error;
   } = {},
 ) {
   const published: Array<[TerminalId, readonly PortInfo[] | "unknown"]> = [];
+  const hostPublished: HostListeners[] = [];
+  let elsewhere = opts.elsewhere ?? [];
   let passes = 0;
   let release: (() => void) | undefined;
   let answer =
@@ -62,6 +98,7 @@ function harness(
     rootPidOf: (id) => (opts.targets ?? ONE).find((x) => x.id === id)?.rootPid,
     publish: (id, ports) =>
       published.push([id, ports.status === "known" ? ports.list : "unknown"]),
+    publishHost: (listeners) => hostPublished.push(listeners),
     log: quietLog,
     scan: async () => {
       passes += 1;
@@ -71,12 +108,16 @@ function harness(
         });
       }
       if (failWith !== undefined) throw failWith;
-      return answer;
+      return scanOf(answer, elsewhere);
     },
   });
   return {
     sampler,
     published,
+    hostPublished,
+    setElsewhere: (ports: PortInfo[]) => {
+      elsewhere = ports;
+    },
     /** What a target last heard, which is the fact its consumer sees. */
     lastPublished: (id: string) =>
       published.filter(([pid]) => pid === id).at(-1)?.[1],
@@ -359,6 +400,84 @@ describe("the port sampler's cadence", () => {
   });
 });
 
+describe("the host's listeners ride the same pass", () => {
+  it("publishes a listener outside every terminal's subtree", async () => {
+    // The detached-server case this reading exists for: the daemon is in no
+    // terminal's `ports`, and it IS in the host reading from the same pass.
+    const h = harness({ answer: [PORT], elsewhere: [DAEMON] });
+    await h.seeded();
+
+    expect(h.lastPublished("A")).toEqual([PORT]);
+    expect(h.hostPublished.at(-1)).toEqual({
+      status: "known",
+      claimed: [PORT, DAEMON],
+      unclaimed: { status: "known", list: [] },
+    });
+    h.sampler.dispose();
+  });
+
+  it("keeps the SAME object across an unchanged pass, and a fresh one on a change", async () => {
+    // The cell's dedup is a structural compare, but an unchanged host should not
+    // even allocate: a 1 Hz sampler lives in the steady state.
+    const h = harness({ answer: [], elsewhere: [DAEMON] });
+    await h.seeded();
+    await h.advance(PORT_SCAN_INTERVAL_MS);
+    const [first, second] = h.hostPublished;
+    expect(first?.status).toBe("known");
+    expect(second).toBe(first);
+
+    h.setElsewhere([]);
+    await h.advance(PORT_SCAN_INTERVAL_MS);
+    expect(h.hostPublished.at(-1)).not.toBe(first);
+    expect(h.hostPublished.at(-1)).toMatchObject({ claimed: [] });
+    h.sampler.dispose();
+  });
+
+  it("a BLIND pass re-serves the last host reading rather than unknown or empty", async () => {
+    // One pass that could not see is not news that every server stopped — and
+    // it is not news that we stopped looking, either.
+    const h = harness({ answer: [], elsewhere: [DAEMON] });
+    await h.seeded();
+    const good = h.hostPublished.at(-1);
+    expect(good?.status).toBe("known");
+
+    h.setFailure(new PortScanError("blind", "EACCES"));
+    await h.advance(PORT_SCAN_INTERVAL_MS);
+
+    expect(h.hostPublished.at(-1)).toBe(good);
+    h.sampler.dispose();
+  });
+
+  it("publishes UNKNOWN when there are no terminals to scan for", async () => {
+    // No OS work runs then, so a reading would only go stale while claiming to
+    // be current.
+    const targets: PortScanTarget[] = [...ONE];
+    const hostPublished: HostListeners[] = [];
+    let passes = 0;
+    const sampler = createPortSampler({
+      targets: () => [...targets],
+      rootPidOf: (id) => targets.find((t) => t.id === id)?.rootPid,
+      publish: () => {},
+      publishHost: (listeners) => hostPublished.push(listeners),
+      log: quietLog,
+      scan: async () => {
+        passes += 1;
+        return scanOf(new Map([[100, []]]), [DAEMON]);
+      },
+    });
+    await settle();
+    expect(hostPublished.at(-1)?.status).toBe("known");
+
+    targets.length = 0;
+    await vi.advanceTimersByTimeAsync(PORT_SCAN_INTERVAL_MS);
+    await settle();
+
+    expect(passes).toBe(1);
+    expect(hostPublished.at(-1)).toEqual({ status: "unknown" });
+    sampler.dispose();
+  });
+});
+
 describe("a sample belongs to the lifecycle that produced it", () => {
   // Sleep/wake deliberately reuses a terminal's UUID and gives it a NEW root pid.
   // Keyed by id alone, a sample captured before the sleep was published into the
@@ -374,6 +493,7 @@ describe("a sample belongs to the lifecycle that produced it", () => {
       rootPidOf: (id) => targets.find((t) => t.id === id)?.rootPid,
       publish: (id, ports) =>
         published.push([id, ports.status === "known" ? ports.list : "unknown"]),
+      publishHost: () => {},
       log: quietLog,
       scan: async () => {
         if (release !== undefined) {
@@ -381,7 +501,7 @@ describe("a sample belongs to the lifecycle that produced it", () => {
             release = resolve;
           });
         }
-        return new Map([[100, [PORT]]]);
+        return scanOf(new Map([[100, [PORT]]]));
       },
     });
 
@@ -416,10 +536,11 @@ describe("a sample belongs to the lifecycle that produced it", () => {
       rootPidOf: (id) => targets.find((t) => t.id === id)?.rootPid,
       publish: (id, ports) =>
         published.push([id, ports.status === "known" ? ports.list : "unknown"]),
+      publishHost: () => {},
       log: quietLog,
       scan: async (pids) => {
         if (fail) throw new PortScanError("blind", "EACCES");
-        return new Map(pids.map((p) => [p, [PORT]]));
+        return scanOf(new Map(pids.map((p) => [p, [PORT]])));
       },
     });
     await settle();
@@ -473,10 +594,13 @@ describe("the platform refusal is permanent, and asked before the cadence", () =
         publish: () => {
           throw new Error("must not publish on an unsupported platform");
         },
+        publishHost: () => {
+          throw new Error("must not publish on an unsupported platform");
+        },
         log: platformLog(errors),
         scan: async () => {
           scans += 1;
-          return new Map();
+          return scanOf(new Map());
         },
       });
       await settle();

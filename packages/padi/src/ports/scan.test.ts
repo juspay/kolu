@@ -4,10 +4,12 @@
  */
 
 import { describe, expect, it } from "vitest";
+import { Effect } from "effect";
 import { parseSnapshotOutput } from "osfacts-client";
 import {
   addressBind,
   decodeNetworkAddress,
+  foldScan,
   partitionSubtrees,
   sourceErrorsMessage,
   type ProcessRow,
@@ -263,5 +265,98 @@ describe("partitionSubtrees", () => {
     ];
     const subtrees = partitionSubtrees(cyclic, [10]);
     expect([...subtrees.get(10)!].sort()).toEqual([10, 11]);
+  });
+});
+
+describe("foldScan — one host-wide reading, two folds", () => {
+  /** A host: zsh (4200) is a terminal's root, node (53082) serves inside it,
+   *  a detached `odu web-daemon` (9001, parent init) serves outside every
+   *  subtree, and sshd's socket belongs to nobody we can read. */
+  const HOST = [
+    "V\t2",
+    "P\t1\t0\tinit",
+    "P\t4200\t1\tzsh",
+    "P\t53082\t4200\tnode",
+    "P\t9001\t1\tbun",
+    'ARGV\t53082\t["node","vite"]',
+    'ARGV\t9001\t["bun","odu","web-daemon"]',
+    "L\tclaimed\t53082\t501\t5173\t7f000001",
+    "L\tclaimed\t9001\t501\t18440\t7f000001",
+    "L\tunclaimed\t-\t0\t22\t00000000",
+  ];
+  const fold = (lines: string[], roots: number[] = [4200]) =>
+    Effect.runSync(
+      foldScan(parseSnapshotOutput([...lines, ""].join("\n")), roots),
+    );
+
+  it("keeps the subtree fold to the subtree", () => {
+    expect(fold(HOST).byRoot.get(4200)).toEqual([
+      {
+        port: 5173,
+        name: "node",
+        command: "node vite",
+        scope: "loopback",
+        family: "v4",
+      },
+    ]);
+  });
+
+  it("puts the detached server on the host list, with its command line", () => {
+    expect(fold(HOST).host.claimed).toEqual([
+      expect.objectContaining({ port: 5173, command: "node vite" }),
+      {
+        port: 18440,
+        name: "bun",
+        command: "bun odu web-daemon",
+        scope: "loopback",
+        family: "v4",
+      },
+    ]);
+  });
+
+  it("carries sockets nobody claims as bare binds", () => {
+    expect(fold(HOST).host.unclaimed).toEqual({
+      status: "known",
+      list: [{ port: 22, scope: "any", family: "v4" }],
+    });
+  });
+
+  it("reports the unclaimed half UNKNOWN when that source was blind", () => {
+    // macOS 27: the claimed listeners all arrive, the unclaimed ones do not.
+    const scan = fold([
+      ...HOST.filter((l) => !l.startsWith("L\tunclaimed")),
+      "E\tdarwin_tcp_pcblist\tports_unclaimed\tBLIND_OR_EMPTY",
+    ]);
+    expect(scan.host.unclaimed).toEqual({ status: "unknown" });
+    expect(scan.host.claimed.map((p) => p.port)).toEqual([5173, 18440]);
+  });
+
+  it("keeps a listener whose argv could not be read, shown by its name", () => {
+    // The command is a label: an unreadable one must not cost the listener.
+    const scan = fold([
+      ...HOST.filter((l) => !l.startsWith("ARGV\t9001")),
+      "U\t9001\targv\tEACCES",
+    ]);
+    expect(scan.host.claimed).toContainEqual(
+      expect.objectContaining({ port: 18440, name: "bun", command: "bun" }),
+    );
+  });
+
+  it("drops a foreign pid's listener from both folds when its sockets are unreadable", () => {
+    // The sudo lesson, host-wide: a pid we could not read contributes to
+    // neither list rather than being smuggled into one.
+    const scan = fold([...HOST, "U\t9001\tports\tEACCES"]);
+    expect(scan.host.claimed.map((p) => p.port)).toEqual([5173]);
+  });
+
+  it("is BLIND when a requested root cannot be read, even host-wide", () => {
+    expect(() => fold([...HOST, "U\t4200\tports\tEACCES"])).toThrow(
+      /cannot inspect requested root pid 4200/,
+    );
+  });
+
+  it("does not let a blind argv source blind the scan", () => {
+    const scan = fold([...HOST, "E\tproc_cmdline\targv\tEIO"]);
+    expect(scan.host.claimed.map((p) => p.port)).toEqual([5173, 18440]);
   });
 });

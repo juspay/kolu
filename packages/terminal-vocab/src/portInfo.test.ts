@@ -10,9 +10,12 @@
 import { describe, expect, it } from "vitest";
 import {
   foldPorts,
+  foldUnclaimedPorts,
+  PORT_COMMAND_MAX_CHARS,
   type PortFamily,
   type PortInfo,
   PortInfoSchema,
+  portCommand,
   type PortScope,
   preferredFamily,
   samePortList,
@@ -27,6 +30,7 @@ const p = (
 ): PortInfo => ({
   port,
   name,
+  command: name,
   scope,
   family,
 });
@@ -234,6 +238,7 @@ describe("samePortList", () => {
     const differing: Array<[PortInfo, PortInfo]> = [
       [p(1000), { ...p(1000), port: 1001 }],
       [p(1000), { ...p(1000), name: "other" }],
+      [p(1000), { ...p(1000), command: "node other.js" }],
       [p(1000), { ...p(1000), scope: "loopback" }],
       [p(1000), { ...p(1000), family: "v6" }],
     ];
@@ -243,5 +248,63 @@ describe("samePortList", () => {
     for (const [a, b] of differing) {
       expect(samePortList([a], [b])).toBe(false);
     }
+  });
+});
+
+describe("foldPorts — the owner pair", () => {
+  it("takes name AND command from the same row, never one from each", () => {
+    // Two programs on one port. A name from the smaller row beside a command
+    // from the other would describe a process that does not exist.
+    const vite: PortInfo = { ...p(5173), name: "node", command: "node vite" };
+    const other: PortInfo = { ...p(5173), name: "bun", command: "zzz serve" };
+    for (const rows of [
+      [vite, other],
+      [other, vite],
+    ]) {
+      const [folded] = foldPorts(rows);
+      expect(folded?.name).toBe("bun");
+      expect(folded?.command).toBe("zzz serve");
+    }
+  });
+
+  it("breaks a name tie by command, so the result is a function of the set", () => {
+    const a: PortInfo = { ...p(8080), command: "node a.js" };
+    const b: PortInfo = { ...p(8080), command: "node b.js" };
+    expect(foldPorts([b, a])).toEqual(foldPorts([a, b]));
+    expect(foldPorts([b, a])[0]?.command).toBe("node a.js");
+  });
+});
+
+describe("foldUnclaimedPorts", () => {
+  it("collapses binds per port with the same scope and family rule", () => {
+    expect(
+      foldUnclaimedPorts([
+        { port: 631, scope: "loopback", family: "v6" },
+        { port: 22, scope: "any", family: "v6" },
+        { port: 631, scope: "loopback", family: "v4" },
+        { port: 22, scope: "any", family: "v4" },
+      ]),
+    ).toEqual([
+      { port: 22, scope: "any", family: "v4" },
+      { port: 631, scope: "loopback", family: "v4" },
+    ]);
+  });
+});
+
+describe("portCommand", () => {
+  it("joins argv with spaces", () => {
+    expect(portCommand(["odu", "web-daemon"], "bun")).toBe("odu web-daemon");
+  });
+
+  it("names an argv-less process by its name", () => {
+    expect(portCommand([], "kworker")).toBe("kworker");
+  });
+
+  it("cuts a long command at the bound, marking the cut", () => {
+    const script = ["node", "-e", "x".repeat(PORT_COMMAND_MAX_CHARS * 2)];
+    const command = portCommand(script, "node");
+    expect(command).toHaveLength(PORT_COMMAND_MAX_CHARS);
+    expect(command.endsWith("…")).toBe(true);
+    expect(command.startsWith("node -e xxx")).toBe(true);
   });
 });

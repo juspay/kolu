@@ -57,7 +57,7 @@ describe("padiSurface contract", () => {
     expect(padiSurface.tagPrefix).toBe("surface/");
   });
 
-  it("is version 5.6 — a minor over the D6 protocol epoch — and DEFAULT_PADI_VERSION carries + validates it", () => {
+  it("is version 5.7 — a minor over the D6 protocol epoch — and DEFAULT_PADI_VERSION carries + validates it", () => {
     // 1.1–1.3 were additive minors over 1.0 (recycleKaval, hostInventory, identity).
     // 2.0 was the first MAJOR: (a) it ADDED the per-terminal right-panel `collapsed`
     // field (the panel follows the terminal, #959) — a major because an older client's
@@ -107,7 +107,10 @@ describe("padiSurface contract", () => {
     // which. The faces that spell it are the gate-only ones (`kolu watch`, the
     // MCP `watch_open` — 5.4's #1313 case), so the version must say it for
     // convergence to drain the straddler first.
-    expect(PADI_SURFACE_VERSION).toBe("5.6");
+    // 5.7 adds host-wide ports: the `hostListeners` cell, and a REQUIRED
+    // `command` on every `PortInfo` — required, so the minor is what keeps a 5.7
+    // decoder from meeting a 5.6 padi's records.
+    expect(PADI_SURFACE_VERSION).toBe("5.7");
     expect(DEFAULT_PADI_VERSION.contractVersion).toBe(PADI_SURFACE_VERSION);
     expect(
       Schema.decodeUnknownSync(PadiVersionSchema)(DEFAULT_PADI_VERSION),
@@ -137,6 +140,10 @@ describe("padiSurface contract", () => {
     // decoder would strip the knob and serve the uncapped feed with no signal.
     expect(isContractVersionCompatible("5.5", "5.6")).toBe(false);
     expect(isContractVersionCompatible("5.6", "5.5")).toBe(true);
+    // 5.7 is host-wide ports: `PortInfo.command` is REQUIRED, so a 5.7 decoder
+    // must never meet a 5.6 padi's records — the minor rule refuses it.
+    expect(isContractVersionCompatible("5.6", "5.7")).toBe(false);
+    expect(isContractVersionCompatible("5.7", "5.6")).toBe(true);
     // A major bump is mutually incompatible in both directions.
     expect(isContractVersionCompatible("6.0", "5.0")).toBe(false);
     expect(isContractVersionCompatible("5.0", "6.0")).toBe(false);
@@ -150,6 +157,7 @@ describe("padiSurface contract", () => {
       "urgency",
       "status",
       "newTerminalPolicy",
+      "hostListeners",
       "hostInventory",
       "processMemory",
       "activityFeed",
@@ -326,6 +334,9 @@ describe("padiSurface contract", () => {
     // scan snapshot (so the re-served surface hands the dialog the bound host's
     // list identically local and remote).
     expect(PADI_FORWARDING_POLICY.hostInventory).toBe("value");
+    // The 5.7 host-listeners cell is value for the same reason: a rebind replays
+    // the current reading, and each reading stands alone.
+    expect(PADI_FORWARDING_POLICY.hostListeners).toBe("value");
   });
 
   it("the terminals value carries the active | sleeping | parked union", () => {

@@ -36,6 +36,7 @@ const p = (
 ): PortInfo => ({
   port,
   name: "node",
+  command: "node server.js",
   scope,
   family,
 });
@@ -155,8 +156,12 @@ describe("the port sensor", () => {
 
   it("emits when only the process NAME changes", async () => {
     const h = harness();
-    await h.scan([{ port: 3000, name: "node", scope: "any", family: "v4" }]);
-    await h.scan([{ port: 3000, name: "workerd", scope: "any", family: "v4" }]);
+    await h.scan([
+      { port: 3000, name: "node", command: "x", scope: "any", family: "v4" },
+    ]);
+    await h.scan([
+      { port: 3000, name: "workerd", command: "x", scope: "any", family: "v4" },
+    ]);
     expect(h.emitted).toHaveLength(2);
     h.stop();
   });

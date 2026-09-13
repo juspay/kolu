@@ -15,7 +15,8 @@ export {
   type ProcessRow,
   PORT_SCAN_COMMAND_TIMEOUT_MS,
   portScanSupported,
-  scanSubtreePorts,
+  type PortScan,
+  scanPorts,
   unreadablePolicy,
 } from "./scan.ts";
 export {

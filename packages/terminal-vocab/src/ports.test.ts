@@ -11,11 +11,16 @@
 import { describe, expect, it } from "vitest";
 import {
   foldPorts,
+  type HostListeners,
+  hostListenersEqual,
+  listenerAt,
   type PortInfo,
   type PortScope,
   portReach,
   portsEqual,
   type TerminalPorts,
+  type UnclaimedPorts,
+  UNKNOWN_HOST_LISTENERS,
 } from "./schema.ts";
 
 const p = (
@@ -25,6 +30,7 @@ const p = (
 ): PortInfo => ({
   port,
   name,
+  command: name,
   scope,
   // The IP family plays no part in anything THIS file tests: `portsEqual`
   // compares it like every other field of the schema, and `portReach` never
@@ -150,5 +156,86 @@ describe("portsEqual over the honest two-way", () => {
     // The whole reason the arm exists: `[]` is an answer, `unknown` is not.
     expect(portsEqual(known([]), known([]))).toBe(true);
     expect(portsEqual(known([]), unknown)).toBe(false);
+  });
+});
+
+describe("hostListeners", () => {
+  const known = (
+    claimed: PortInfo[],
+    unclaimed: UnclaimedPorts = { status: "known", list: [] },
+  ): HostListeners => ({ status: "known", claimed, unclaimed });
+
+  describe("listenerAt — the four answers", () => {
+    it("names a claimed listener with its owner", () => {
+      expect(listenerAt(known([p(18440)]), 18440)).toEqual({
+        kind: "claimed",
+        info: p(18440),
+      });
+    });
+
+    it("finds an unclaimed bind when no readable program holds the port", () => {
+      const bind = { port: 631, scope: "loopback", family: "v4" } as const;
+      expect(
+        listenerAt(known([], { status: "known", list: [bind] }), 631),
+      ).toEqual({ kind: "unclaimed", bind });
+    });
+
+    it("says ABSENT only when both halves were read", () => {
+      expect(listenerAt(known([p(1)]), 18440)).toEqual({ kind: "absent" });
+    });
+
+    it("never says absent while the unclaimed half is blind", () => {
+      // macOS 27 hides the sockets nobody claims. A port not in `claimed` may be
+      // another user's server, so "nothing is listening" is not ours to say.
+      expect(listenerAt(known([p(1)], { status: "unknown" }), 18440)).toEqual({
+        kind: "unknown",
+      });
+    });
+
+    it("still names a claimed listener while the unclaimed half is blind", () => {
+      expect(
+        listenerAt(known([p(5173)], { status: "unknown" }), 5173).kind,
+      ).toBe("claimed");
+    });
+
+    it("is unknown for a host that is not scanned", () => {
+      expect(listenerAt(UNKNOWN_HOST_LISTENERS, 5173)).toEqual({
+        kind: "unknown",
+      });
+    });
+  });
+
+  describe("hostListenersEqual", () => {
+    it("treats an unchanged reading as the same fact", () => {
+      expect(hostListenersEqual(known([p(1)]), known([p(1)]))).toBe(true);
+    });
+
+    it("sees a command change on an otherwise identical port", () => {
+      expect(
+        hostListenersEqual(
+          known([{ ...p(1), command: "node a" }]),
+          known([{ ...p(1), command: "node b" }]),
+        ),
+      ).toBe(false);
+    });
+
+    it("sees a status flip on either level", () => {
+      expect(hostListenersEqual(known([]), UNKNOWN_HOST_LISTENERS)).toBe(false);
+      expect(
+        hostListenersEqual(known([]), known([], { status: "unknown" })),
+      ).toBe(false);
+    });
+
+    it("sees an unclaimed bind appear", () => {
+      expect(
+        hostListenersEqual(
+          known([]),
+          known([], {
+            status: "known",
+            list: [{ port: 631, scope: "loopback", family: "v4" }],
+          }),
+        ),
+      ).toBe(false);
+    });
   });
 });

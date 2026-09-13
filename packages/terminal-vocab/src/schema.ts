@@ -166,26 +166,35 @@ export const ForegroundSchema = Schema.Struct({
 
 export {
   foldPorts,
+  foldUnclaimedPorts,
+  PORT_COMMAND_MAX_CHARS,
   type PortFamily,
   PortFamilySchema,
   type PortInfo,
   PortInfoSchema,
+  portCommand,
   type PortScope,
   PortScopeSchema,
   preferredFamily,
   samePortList,
+  sameUnclaimedList,
   TcpPortSchema,
+  type UnclaimedPort,
+  UnclaimedPortSchema,
   widerScope,
 } from "./ports.ts";
 
 // Imported as well as re-exported: `export … from` re-publishes without binding,
-// and the three below are used right here to build `TerminalPortsSchema` and
-// `portReach`.
+// and the ones below are used right here to build `TerminalPortsSchema`,
+// `HostListenersSchema` and `portReach`.
 import {
   type PortInfo,
   PortInfoSchema,
   type PortScope,
   samePortList,
+  sameUnclaimedList,
+  type UnclaimedPort,
+  UnclaimedPortSchema,
 } from "./ports.ts";
 
 /** What a terminal is serving, as an HONEST two-way — not a bare `PortInfo[]` that
@@ -328,6 +337,97 @@ export function portsEqual(a: TerminalPorts, b: TerminalPorts): boolean {
   if (a.status !== b.status) return false;
   if (a.status !== "known" || b.status !== "known") return true;
   return samePortList(a.list, b.list);
+}
+
+// ── The HOST's listeners ────────────────────────────────────────────────
+//
+// `TerminalPorts` answers "what is THIS terminal serving?", and a process that
+// detaches (a `setsid` daemon, an `odu web-daemon` coordinator that reparents to
+// init) leaves every terminal's subtree while its server keeps answering. A
+// printed URL for it then read "nothing is listening yet" — a claim about the
+// whole machine made from a look at one subtree. `HostListeners` is the look at
+// the whole machine, from the SAME scan pass.
+
+/** The unclaimed half of a host reading, as its own honest two-way. `unknown`
+ *  is a real state on darwin: macOS 27 gates the host-wide socket table, so the
+ *  sockets nobody claims are exactly the ones that go missing while every
+ *  claimed listener survives. Folding that into `known: []` would say "no other
+ *  user's server is on this port" when the truth is "we could not see". */
+export const UnclaimedPortsSchema = Schema.Union([
+  Schema.Struct({
+    status: Schema.Literal("known"),
+    list: Schema.Array(UnclaimedPortSchema),
+  }),
+  Schema.Struct({ status: Schema.Literal("unknown") }),
+]);
+export type UnclaimedPorts = typeof UnclaimedPortsSchema.Type;
+
+/** Every TCP listener on a host, as its scanner saw it.
+ *
+ *   - `claimed` — sockets a readable (same-user) process holds, with the program
+ *     and command line holding each. Terminal subtrees and detached daemons
+ *     alike: this list does not know about terminals, `TerminalPorts` does.
+ *   - `unclaimed` — sockets the OS showed with no readable owner.
+ *   - `{ status: "unknown" }` — this host is not being scanned: no pass has
+ *     succeeded yet, or it has no terminals (the sampler does no OS work then,
+ *     and a reading it stopped refreshing must not stay on the wire as current).
+ *
+ *  A blind pass does NOT flip this to `unknown`: like `TerminalPorts`, the last
+ *  good reading is re-served, because one pass that could not see is not news
+ *  that every server stopped. */
+export const HostListenersSchema = Schema.Union([
+  Schema.Struct({
+    status: Schema.Literal("known"),
+    claimed: Schema.Array(PortInfoSchema),
+    unclaimed: UnclaimedPortsSchema,
+  }),
+  Schema.Struct({ status: Schema.Literal("unknown") }),
+]);
+export type HostListeners = typeof HostListenersSchema.Type;
+
+/** The value before any reading — and the value a host with nothing to scan
+ *  publishes. */
+export const UNKNOWN_HOST_LISTENERS: HostListeners = { status: "unknown" };
+
+/** Are two host readings the same fact? The wire dedup gate for the cell that
+ *  carries them — same contract as {@link portsEqual}: a status flip (on either
+ *  level) is always a change, and an unchanged host publishes nothing. */
+export function hostListenersEqual(
+  a: HostListeners,
+  b: HostListeners,
+): boolean {
+  if (a.status !== b.status) return false;
+  if (a.status !== "known" || b.status !== "known") return true;
+  if (!samePortList(a.claimed, b.claimed)) return false;
+  if (a.unclaimed.status !== b.unclaimed.status) return false;
+  if (a.unclaimed.status !== "known" || b.unclaimed.status !== "known") {
+    return true;
+  }
+  return sameUnclaimedList(a.unclaimed.list, b.unclaimed.list);
+}
+
+/** What a host reading says about ONE port — the four answers a reader acts on,
+ *  and the ONE place they are derived, so the printed-URL card and the forward
+ *  reaper cannot disagree about when "nothing is listening" may be said.
+ *
+ *   - `claimed`   — a readable program holds it.
+ *   - `unclaimed` — something holds it; its owner is not visible.
+ *   - `absent`    — positively not listening anywhere on this host.
+ *   - `unknown`   — cannot say: the host is not scanned, or the port is not
+ *     claimed and the unclaimed half is blind (it may be another user's). */
+export type ListenerAt =
+  | { kind: "claimed"; info: PortInfo }
+  | { kind: "unclaimed"; bind: UnclaimedPort }
+  | { kind: "absent" }
+  | { kind: "unknown" };
+
+export function listenerAt(host: HostListeners, port: number): ListenerAt {
+  if (host.status !== "known") return { kind: "unknown" };
+  const info = host.claimed.find((p) => p.port === port);
+  if (info !== undefined) return { kind: "claimed", info };
+  if (host.unclaimed.status !== "known") return { kind: "unknown" };
+  const bind = host.unclaimed.list.find((p) => p.port === port);
+  return bind === undefined ? { kind: "absent" } : { kind: "unclaimed", bind };
 }
 
 // ── The TerminalSnapshot — what a host PRODUCER emits ──────────────────────

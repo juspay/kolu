@@ -81,8 +81,11 @@ import {
 import {
   FsFileInputSchema,
   FsReadFileTextOutputSchema,
+  HostListenersSchema,
+  hostListenersEqual,
   RepoChangePulseSchema,
   TerminalIdSchema,
+  UNKNOWN_HOST_LISTENERS,
 } from "@kolu/terminal-vocab/schema";
 import { Effect, Schema } from "effect";
 import {
@@ -470,8 +473,18 @@ export * from "./transcriptSchema.ts";
  *  5.6 face REFUSES a surviving 5.5 padi at the gate, and convergence
  *  drain-and-respawns the straddler. The decode also newly refuses
  *  `nagCount` without `nagMs` — the pairing the faces make unparseable — one
- *  refusal, reachable from every entrance. */
-export const PADI_SURFACE_VERSION = "5.6";
+ *  refusal, reachable from every entrance.
+ *
+ *  5.7 (additive · minor) — HOST-WIDE ports. A new read-only `hostListeners` cell
+ *  (every TCP listener on the host, claimed ones with their owning program and
+ *  unclaimed ones as bare binds), and `PortInfo` — on every terminal record's
+ *  `ports` — gains a REQUIRED `command` (the owner's command line). The required
+ *  field is why this is a version and not a silent add: a 5.7 decoder refuses a
+ *  5.6 padi's `PortInfo`, and the minor rule keeps it from ever meeting one (a
+ *  newer binder drains a 5.6 padi before consuming its surface). The other
+ *  direction is the ordinary graceful one — an older decoder strips the unknown
+ *  key and never subscribes to the new cell. */
+export const PADI_SURFACE_VERSION = "5.7";
 
 /** The `version` cell payload — padi's self-declared surface contract version. */
 export const PadiVersionSchema = Schema.Struct({
@@ -1895,6 +1908,20 @@ export const padiSurface = defineSurfaceWithPolicy<ClientErrorPolicy>()({
       verbs: ["get", "set"],
       client: { onError: { kind: "toast", label: "New-terminal policy" } },
     },
+    /** Every TCP listener on THIS padi's host — what the terminal-scoped `ports`
+     *  on each record cannot see: a server that detached from the terminal that
+     *  started it. Read-only on the client; padi's port sampler is the sole writer,
+     *  from the same scan pass that feeds every terminal's `ports`. `unknown` until
+     *  a pass lands and whenever the host has no terminals to scan for. */
+    hostListeners: {
+      schema: HostListenersSchema,
+      default: UNKNOWN_HOST_LISTENERS,
+      // The ONE wire dedup point: a seconds-cadence sampler republishes an
+      // unchanged host on every pass.
+      equals: hostListenersEqual,
+      verbs: ["get"],
+      client: { onError: { kind: "toast", label: "Host listeners" } },
+    },
     /** The running kaval + padi daemons on THIS padi's host — the "Running daemons"
      *  leak diagnostic the Kaval + Padi dialogs list. Read-only on the client; padi's
      *  periodic host-inventory sampler (`hostInventory.ts`, wired into daemon boot)
@@ -2347,6 +2374,7 @@ export const PADI_FORWARDING_POLICY = {
   urgency: "value",
   status: "value",
   newTerminalPolicy: "value",
+  hostListeners: "value",
   hostInventory: "value",
   processMemory: "value",
   activityFeed: "value",
