@@ -489,7 +489,7 @@ already capped.
 </Finding>
 
 <Finding sev="low" id="b-port-scan-host-wide" title="The port scan reads the whole host on purpose, and pays ~4× the subtree ask">
-A former finding here proposed descending `/proc/<pid>/task/*/children` so a pass
+**Banked** in <PrLink pr={2236} />. A former finding here proposed descending `/proc/<pid>/task/*/children` so a pass
 cost what the terminals' subtrees cost rather than what the host costs. PRT5
 ([port forwarding](./port-forwarding.html)) reversed the premise: a server that
 detaches from its terminal is exactly the one a subtree read cannot see, and the
