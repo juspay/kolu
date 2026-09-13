@@ -1223,8 +1223,11 @@ export function makeSession<
           ? `gave up — ${reason}`
           : // Derived from the verdict, so it can only ever name the true remote
             // run — the incident's "gave up after 5 consecutive failures" after ONE
-            // remote failure is now unspellable.
-            `gave up after ${verdict.run} consecutive remote failures — fix the underlying issue (often: remote nix-daemon needs your user in 'trusted-users' to accept unsigned closures), then reconnect`,
+            // remote failure is now unspellable. It names the LAST failure's own
+            // reason and nothing else: a remedy guessed here ("often: trusted-users")
+            // is a claim about a cause this loop cannot see, and it once sent an
+            // operator to fix trust for a host whose crate fetch got a 403.
+            `gave up after ${verdict.run} consecutive remote failures — last: ${reason}`,
       );
       clientPromise = null;
       // `failed` carries the HONEST transport cause, orthogonal to terminality (F3): a
@@ -1236,12 +1239,16 @@ export function makeSession<
       return;
     }
     const delay = Math.min(reconnectDelayMs * 2 ** attemptsSoFar, 60_000);
+    // Both arms say what the attempt ran into — its own `reason` — rather than a
+    // fixed label. `"network"` is a RETRY class, not proof the host is gone: a
+    // wake cycle, a replace-after-drain and a silence kill all ride it, and a
+    // fixed "host unreachable" printed for those is false.
     localProgress(
       cause === "network"
-        ? `host unreachable — retrying in ${delay}ms… (attempt ${failures.attempts()})`
+        ? `attempt ${failures.attempts()} failed: ${reason} — retrying in ${delay}ms…`
         : // The remote arm reports the REMOTE run — the number the ceiling actually
           // reads — not the cross-class attempt total.
-          `reconnecting in ${delay}ms… (attempt ${verdict.run}/${MAX_CONSECUTIVE_FAILURES})`,
+          `attempt ${verdict.run}/${MAX_CONSECUTIVE_FAILURES} failed: ${reason} — retrying in ${delay}ms…`,
     );
     armTimer(delay, () => {
       if (destroyed || refCount === 0) return;

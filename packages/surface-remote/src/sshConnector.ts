@@ -25,7 +25,9 @@ import {
   buildAgentCommand,
   forEachLine,
   isLocalHost,
+  looksLikeNetworkError,
   ResolveDrvError,
+  sshRefusalOf,
 } from "./host";
 import { DEFAULT_SSH_KEEPALIVE, type SshKeepalive } from "./keepalive";
 import { type ResolveSystemOptions, resolveSystem } from "./arch";
@@ -247,6 +249,26 @@ export interface SshConnectorOptions<S extends SurfaceSpec> {
   keepalive?: SshKeepalive;
 }
 
+/** How long an ssh that exited 255 is given for its reason to finish arriving
+ *  on stderr before the exit is classified without it. */
+const SSH_STDERR_DRAIN_MS = 250;
+
+/** Classify the agent child's exit. ssh exits 255 for its OWN failures, but a
+ *  remote command may exit 255 too, and the code alone cannot tell them apart;
+ *  ssh never fails silently, so a 255 is `transport-failed` only when ssh's
+ *  stderr said so. Anything else — including a 255 the agent exited with, and
+ *  every localhost exit (no ssh in play) — is the process's own `exit`. */
+export function sshClosedInfo(o: {
+  usesSsh: boolean;
+  code: number | null;
+  signal: NodeJS.Signals | null;
+  sshReportedTransportFailure: boolean;
+}): ClosedInfo {
+  return o.usesSsh && o.code === 255 && o.sshReportedTransportFailure
+    ? { kind: "transport-failed" }
+    : { kind: "exit", code: o.code, signal: o.signal };
+}
+
 /** Build an ssh {@link Connector} for `(host, binary)`. Each `connectOnce` call
  *  resolves the drv (fail → classified `ConnectError`), provisions the closure,
  *  spawns the ssh child, and returns a {@link Connection} whose `closed` resolves on
@@ -360,9 +382,19 @@ export function sshConnector<S extends SurfaceSpec>(
     });
     const child = transport.child;
 
+    // Did ssh itself say the transport failed? Read below, where an exit 255 is
+    // classified: the code alone is only ssh's CONVENTION, and a remote agent
+    // (or its wrapper) exiting 255 on startup must not read as "host
+    // unreachable" and retry forever.
+    let sshReportedTransportFailure = false;
     child.stderr?.setEncoding("utf-8");
     child.stderr?.on("data", (chunk: string) =>
-      forEachLine(chunk, (line) => ctx.remoteProgress(line)),
+      forEachLine(chunk, (line) => {
+        if (looksLikeNetworkError(line) || sshRefusalOf(line) !== null) {
+          sshReportedTransportFailure = true;
+        }
+        ctx.remoteProgress(line);
+      }),
     );
 
     // One `closed` per connection: the child's `exit` (a link/agent death — the loop
@@ -380,21 +412,39 @@ export function sshConnector<S extends SurfaceSpec>(
       onClosed(info);
     };
     // A REMOTE dial went through ssh; localhost ran the binary directly (no ssh).
-    // ssh exits 255 for its OWN connection failures, so over a real ssh link a 255
-    // is (indistinguishably — ssh gives no better signal) either the transport
-    // failing or the remote command itself exiting 255; presume the transport (the
-    // standard ssh-255 convention) and classify it at the CONNECTOR as a distinct
-    // `transport-failed`, rather than leaking a magic `code === 255` into the
-    // transport-agnostic session loop. A localhost 255 has no ssh in play, so it
-    // stays an honest process `exit` (the loop bounds it as `"remote"`).
+    // Classified here, at the CONNECTOR (see `sshClosedInfo`), rather than
+    // leaking a magic `code === 255` into the transport-agnostic session loop.
     const usesSsh = !isLocalHost(opts.host);
-    child.on("exit", (code, signal) =>
-      settle(
-        usesSsh && code === 255
-          ? { kind: "transport-failed" }
-          : { kind: "exit", code, signal },
-      ),
-    );
+    child.on("exit", (code, signal) => {
+      const decide = (): void =>
+        settle(
+          sshClosedInfo({
+            usesSsh,
+            code,
+            signal,
+            sshReportedTransportFailure,
+          }),
+        );
+      const stderr = child.stderr;
+      // ssh prints its reason and exits; `exit` can reach us before that last
+      // stderr chunk does. Only an ssh 255 still lacking its reason waits — for
+      // the stream to end, bounded, since a forked ControlMaster may hold it.
+      if (
+        !usesSsh ||
+        code !== 255 ||
+        sshReportedTransportFailure ||
+        stderr === null ||
+        stderr.readableEnded
+      ) {
+        decide();
+        return;
+      }
+      const drain = setTimeout(decide, SSH_STDERR_DRAIN_MS);
+      stderr.once("end", () => {
+        clearTimeout(drain);
+        decide();
+      });
+    });
     child.on("error", (err) =>
       settle({ kind: "spawn-error", message: err.message }),
     );

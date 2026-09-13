@@ -11,7 +11,7 @@
  */
 
 import { resolveSystem } from "./arch";
-import { looksLikeNetworkError, ResolveDrvError } from "./host";
+import { ResolveDrvError } from "./host";
 import type { SshKeepalive } from "./keepalive";
 import {
   type AgentBinaryCache,
@@ -19,8 +19,8 @@ import {
 } from "./agentBinaryCache";
 import { type AgentDerivation, flakeAgentDerivation } from "./agentDerivation";
 import type { StepBudget } from "./nixCopy";
-import { describeExit, type ExitResult, runCapture } from "./process";
-import { appendProgressLine } from "./progressTail";
+import { describeNixRun, runNix } from "./nixLog";
+import type { ExitResult } from "./process";
 import agentEnv from "../agent-env.json" with { type: "json" };
 import { err, ok, type Result } from "neverthrow";
 import QuickLRU from "quick-lru";
@@ -202,29 +202,27 @@ export async function resolveAgentDrv(
     return cached;
   }
 
-  const diagnostics: string[] = [];
-  let sawNetworkError = false;
   opts.onEvaluation();
-  const result = await runCapture(
-    "nix",
-    ["eval", "--accept-flake-config", "--raw", `${installable}.drvPath`],
+  const result = await runNix(
+    "localhost",
+    ["nix", "eval", "--accept-flake-config", "--raw", `${installable}.drvPath`],
     {
       // Evaluating a fresh exact source may fetch and build its Nix graph.
       // Treat it like the other long-running Nix steps: output proves
       // liveness, while a genuinely silent process is retried by the session.
       policy: opts.budget.policy(),
       signal: opts.signal,
-      onProgress: (line) => {
-        sawNetworkError ||= looksLikeNetworkError(line);
-        appendProgressLine(diagnostics, line);
-        opts.onProgress(line);
-      },
+      narrate: opts.onProgress,
     },
   );
   if (!result.ok) {
+    // Nix's own root error, then its detail (an evaluation trace, or a failed
+    // fetch's last log lines) — never a scrolled tail of whatever came last.
     const detail =
-      diagnostics.length === 0 ? "" : `\n${diagnostics.join("\n")}`;
-    const message = `${host}: could not resolve ${packageName} for system=${system} from the baked agent flake: nix eval ${describeExit(result)}${detail}`;
+      result.error === null || result.error.detail.length === 0
+        ? ""
+        : `\n${result.error.detail.join("\n")}`;
+    const message = `${host}: could not resolve ${packageName} for system=${system} from the baked agent flake: nix eval failed: ${describeNixRun(result)}${detail}`;
     if (result.kind === "lifetime-expired") {
       throw opts.budget.recordExpiry()
         ? new AgentResolutionExhaustedError(
@@ -232,7 +230,7 @@ export async function resolveAgentDrv(
           )
         : new Error(message);
     }
-    throw evaluationError(message, result, sawNetworkError);
+    throw evaluationError(message, result, result.transportFailure);
   }
   const drv = result.stdout.trim();
   if (!drv.endsWith(".drv")) {

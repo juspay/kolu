@@ -171,7 +171,7 @@ describe("#1908 — a permanently silent provision reaches `failed`, bounded", (
           stdout: '"x86_64-linux"\n',
         };
       }
-      if (args[0] === "eval") return EXPIRED_PROVISION;
+      if (args.includes("eval")) return EXPIRED_PROVISION;
       throw new Error(`unexpected command: ${args.join(" ")}`);
     });
     // A REAL on-disk agent source (with its binary-cache sidecar): this suite
@@ -203,7 +203,7 @@ describe("#1908 — a permanently silent provision reaches `failed`, bounded", (
     expect(final.phase === "failed" && final.cause).toBe("network");
     const evalCalls = vi
       .mocked(runCapture)
-      .mock.calls.filter((call) => call[1][0] === "eval");
+      .mock.calls.filter((call) => call[1].includes("eval"));
     expect(evalCalls).toHaveLength(PROVISION_STEP_MAX_EXPIRIES);
     session.destroy();
   });

@@ -76,14 +76,13 @@
 import type { AgentBinaryCache } from "./agentBinaryCache";
 import type { AgentDerivation } from "./agentDerivation";
 import {
-  buildSshProbeCommand,
   forEachLine,
   isLocalHost,
-  looksLikeNetworkError,
   nixSshOpts,
   type SshDestination,
 } from "./host";
 import type { SshKeepalive } from "./keepalive";
+import { describeNixRun, type NixRun, runNix } from "./nixLog";
 import {
   describeExit,
   type ExitResult,
@@ -375,24 +374,11 @@ async function pinGcRoot(
   signal: AbortSignal | undefined,
 ): Promise<ProvisionResult | null> {
   onProgress(`${host}: pinning GC root at '${rootPath}'…`);
-  let sawNetworkError = false;
-  const pin = buildSshProbeCommand(
+  const pinRes = await runNix(
     { host, keepalive },
-    "nix-store",
-    "--realise",
-    target,
-    "--add-root",
-    rootPath,
-    "--indirect",
+    ["nix-store", "--realise", target, "--add-root", rootPath, "--indirect"],
+    { narrate: onProgress, policy: budget.policy(), signal },
   );
-  const pinRes = await runCapture(pin.command, pin.args, {
-    onProgress: (line) => {
-      sawNetworkError ||= looksLikeNetworkError(line);
-      onProgress(line);
-    },
-    policy: budget.policy(),
-    signal,
-  });
   if (pinRes.ok) return null;
   if (pinRes.kind === "lifetime-expired") {
     return expiredResult(
@@ -402,13 +388,10 @@ async function pinGcRoot(
       pinRes,
     );
   }
-  const network =
-    pinRes.kind === "aborted" ||
-    sawNetworkError ||
-    (pinRes.kind === "exit" && pinRes.code === 255);
+  const network = pinRes.kind === "aborted" || pinRes.transportFailure;
   return {
     ok: false,
-    reason: `${host}: could not establish the agent GC root: ${describeExit(pinRes)}`,
+    reason: `${host}: could not establish the agent GC root: ${describeNixRun(pinRes)}`,
     cause: network ? "network" : "remote",
   };
 }
@@ -486,15 +469,16 @@ async function prefetchAgentClosure(opts: {
   const sshOpts = nixSshOpts(opts.keepalive);
   for (const url of opts.binaryCache.substituters) {
     opts.narrate(`prefetching agent closure from ${url} into the local store…`);
-    const res = await runCapture(
-      "nix",
+    const res = await runNix(
+      "localhost",
       // `-v` for the same reason the cold build passes it: stderr is a pipe, so
       // without it nix reports nothing per path and a healthy transfer reads as
       // silence to the liveness policy. `--extra-trusted-public-keys` lets a
       // trusted local user import the declared cache's signatures without a
-      // nix.conf edit; for an untrusted user nix's own refusal line lands in the
-      // tail and we fall back.
+      // nix.conf edit; for an untrusted user nix's own refusal is what the
+      // per-URL line below reports, and we fall back.
       [
+        "nix",
         "-v",
         "copy",
         "--from",
@@ -504,7 +488,7 @@ async function prefetchAgentClosure(opts: {
         opts.outPath,
       ],
       {
-        onProgress: opts.narrate,
+        narrate: opts.narrate,
         policy: opts.policy,
         env: { NIX_SSHOPTS: sshOpts },
         signal: opts.signal,
@@ -515,13 +499,15 @@ async function prefetchAgentClosure(opts: {
       return "delivered";
     }
     if (res.kind === "aborted") return "aborted";
-    // Per-URL: state only what this URL did. The give-up verdict belongs
-    // AFTER the loop — another declared cache may still deliver, and
-    // announcing a fall back to source before trying it is simply false.
-    opts.narrate(`no agent closure at ${url} (${describeExit(res)})`);
+    // Per-URL: state only what this URL did — which is what Nix said, not an
+    // assumed "it wasn't there" (a signature refusal or a DNS failure is not a
+    // miss). The give-up verdict belongs AFTER the loop — another declared
+    // cache may still deliver, and announcing a fall back before trying it is
+    // simply false.
+    opts.narrate(`could not fetch the agent closure from ${url}: ${describeNixRun(res)}`);
   }
   opts.narrate(
-    "no declared cache had the agent closure — realising from source instead",
+    "no declared cache delivered the agent closure",
   );
   return "missed";
 }
@@ -551,13 +537,28 @@ async function shipAgentClosure(opts: {
   signal: AbortSignal | undefined;
 }): Promise<CopyOutcome> {
   opts.narrate("shipping agent closure to the host's store…");
-  const res = await runCapture(
-    "nix",
+  const res = await runNix(
+    "localhost",
     // `-v`: see the prefetch — per-path lines are what keep a healthy transfer
     // alive under progress-liveness.
-    ["-v", "copy", "--to", `ssh-ng://${opts.host}`, opts.outPath],
+    //
+    // `--no-check-sigs`: without it `nix copy` asks the destination to verify
+    // signatures EVEN FOR a trusted user, so `trusted-users` alone never let a
+    // locally-built (unsigned) closure land — verified live: `Trusted: 1` over
+    // `ssh-ng://`, and the copy still refused "lacks a signature by a trusted
+    // key" until this flag was passed. An UNTRUSTED user's copy is still
+    // checked by the daemon regardless, so this relaxes nothing it should not.
+    [
+      "nix",
+      "-v",
+      "copy",
+      "--no-check-sigs",
+      "--to",
+      `ssh-ng://${opts.host}`,
+      opts.outPath,
+    ],
     {
-      onProgress: opts.narrate,
+      narrate: opts.narrate,
       policy: opts.policy,
       env: { NIX_SSHOPTS: nixSshOpts(opts.keepalive) },
       signal: opts.signal,
@@ -569,7 +570,7 @@ async function shipAgentClosure(opts: {
   }
   if (res.kind === "aborted") return "aborted";
   opts.narrate(
-    `could not ship the agent closure (${describeExit(res)}) — the host will realise it itself. If this keeps compiling on the host: trust the declared cache key there, or add the cache to the host's nix.conf.`,
+    `could not ship the agent closure: ${describeNixRun(res)} — the host will realise it with its own substituters`,
   );
   return "missed";
 }
@@ -596,19 +597,9 @@ async function shipAgentClosure(opts: {
 async function checkValidity(
   target: string | SshDestination,
   outPath: string,
-  opts: {
-    signal: AbortSignal | undefined;
-    onProgress?: (line: string) => void;
-  },
+  opts: { signal: AbortSignal | undefined },
 ): Promise<"valid" | "absent" | "aborted"> {
-  const probe = buildSshProbeCommand(
-    target,
-    "nix-store",
-    "--check-validity",
-    outPath,
-  );
-  const res = await runCapture(probe.command, probe.args, {
-    ...(opts.onProgress ? { onProgress: opts.onProgress } : {}),
+  const res = await runNix(target, ["nix-store", "--check-validity", outPath], {
     policy: probePolicy(),
     signal: opts.signal,
   });
@@ -628,11 +619,10 @@ async function checkValidity(
  *  built or dialled — then does zero cache work, and only a genuinely absent
  *  closure pays for the prefetch.
  *
- *  Both copies are SPECULATIVE, so they narrate via the caller's RAW progress
- *  sink — never a scanning wrapper: an unreachable cache's stderr must not set
- *  `sawNetworkError` and misclassify the required build's failure as retryable
- *  "network". They also run under their OWN silence bound (`copyPolicy`), never
- *  the required build's escalated one. */
+ *  Both copies are SPECULATIVE: each run's transport evidence stays on its own
+ *  `NixRun`, so an unreachable cache can never misclassify the required build's
+ *  failure as retryable "network". They also run under their OWN silence bound
+ *  (`copyPolicy`), never the required build's escalated one. */
 async function stageAgentClosure(opts: {
   host: string;
   keepalive: SshKeepalive;
@@ -677,7 +667,7 @@ async function stageAgentClosure(opts: {
   if (opts.isLocal) return cont(held === "valid");
   if (held === "absent") {
     opts.narrate(
-      "no local copy of the agent to ship — the host will realise it from source",
+      "no local copy of the agent to ship — the host will realise it with its own substituters",
     );
     return cont(false);
   }
@@ -726,29 +716,17 @@ export async function provisionAgent(
     };
   }
 
-  // Watch the streamed output for ssh/nix connection errors as it flows by, so a
-  // host that went unreachable mid-provision (which exits with Nix's code, not
-  // ssh's 255) is still classified `"network"`. We only flip a flag.
-  let sawNetworkError = false;
-  const scanForNetworkError = (line: string): void => {
-    if (looksLikeNetworkError(line)) sawNetworkError = true;
-  };
-  const onProgress = (line: string): void => {
-    scanForNetworkError(line);
-    opts.onProgress(line);
-  };
-  // The warm check's stderr is scanned for the network classification but NOT echoed
-  // to the user-visible ring (a cold miss can write a scary line).
-  const onProbeProgress = scanForNetworkError;
-  // A direct-ssh command surfaces ssh's own 255 on a transport failure. Keys on the
-  // EXIT arm's numeric code; an `aborted` (user verb) is RETRYABLE `"network"` — never
-  // the bounded `"remote"` default — so a user abort never burns the give-up budget.
-  // A `signal`/`spawn-error`/plain non-255 exit falls to the bounded `"remote"`.
-  // `lifetime-expired` (our kill) never reaches here: each step intercepts its own kill
-  // inline via `expiredResult` (with its budget), before it ever calls `causeFor`.
-  const causeFor = (res: ExitResult): "network" | "remote" => {
+  const { onProgress } = opts;
+  // The cold build's transport verdict is its OWN run's: ssh (or Nix about its
+  // ssh connection) reporting a failure — a host that went unreachable
+  // mid-provision exits with Nix's code, not ssh's 255 — or a 255 exit. A
+  // builder's log never counts (see `nixLog.ts`). An `aborted` (user verb) is
+  // RETRYABLE `"network"` — never the bounded `"remote"` default — so a user
+  // abort never burns the give-up budget. `lifetime-expired` (our kill) never
+  // reaches here: the step intercepts its own kill inline via `expiredResult`.
+  const causeFor = (res: NixRun): "network" | "remote" => {
     if (res.kind === "aborted") return "network";
-    return sawNetworkError || (res.kind === "exit" && res.code === 255)
+    return res.transportFailure || (res.kind === "exit" && res.code === 255)
       ? "network"
       : "remote";
   };
@@ -807,7 +785,6 @@ export async function provisionAgent(
       if (
         (await checkValidity({ host: opts.host, keepalive }, localAgentPath, {
           signal,
-          onProgress: onProbeProgress,
         })) === "valid"
       ) {
         // Warm hit. The shared root operation is the commit point: only a rooted,
@@ -832,9 +809,6 @@ export async function provisionAgent(
     }
   }
 
-  // The cold command establishes its own current transport evidence. Do not let
-  // a speculative warm-probe miss poison the classification of this operation.
-  sawNetworkError = false;
   opts.onProvisioning?.();
 
   // 2/3. Stage the closure onto the target WITHOUT building it there — the
@@ -874,8 +848,12 @@ export async function provisionAgent(
     );
     if (bail) return bail;
     budgets.provisioning.reset();
+    // Say only what is known: the closure is valid in the target store. It may
+    // have come from the declared cache or been built on this machine earlier.
     onProgress(
-      `${opts.host}: agent staged from the binary cache — no build needed`,
+      isLocal
+        ? "localhost: agent already in the local store — no build needed"
+        : `${opts.host}: agent copied to the host's store — no build needed`,
     );
     return { ok: true, agentPath: localAgentPath };
   }
@@ -896,7 +874,8 @@ export async function provisionAgent(
     opts.derivation.kind === "flake-installable"
       ? opts.derivation.installable
       : `${drvPath}^*`;
-  const provisionArgs = [
+  const provisionArgs: [string, ...string[]] = [
+    "nix",
     "-v",
     "build",
     "--accept-flake-config",
@@ -907,8 +886,8 @@ export async function provisionAgent(
     "--no-link",
     installable,
   ];
-  const realiseRes = await runCapture("nix", provisionArgs, {
-    onProgress,
+  const realiseRes = await runNix("localhost", provisionArgs, {
+    narrate: onProgress,
     policy: budgets.provisioning.policy(),
     env: isLocal ? undefined : { NIX_SSHOPTS: nixSshOpts(keepalive) },
     signal,
@@ -924,7 +903,7 @@ export async function provisionAgent(
   if (!realiseRes.ok) {
     return {
       ok: false,
-      reason: `${opts.host}: 'nix build' ${describeExit(realiseRes)}`,
+      reason: `${opts.host}: 'nix build' failed: ${describeNixRun(realiseRes)}`,
       cause: causeFor(realiseRes),
     };
   }

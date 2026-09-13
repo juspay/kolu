@@ -271,7 +271,7 @@ describe("HostSession with a failing drv resolver (network-unreachable)", () => 
   it("never gives up on an unreachable host — a network fault is not terminal", async () => {
     // Count retries off the log sink, NOT the state `log` tail: the tail is now
     // scoped to the CURRENT episode (it RESETS on each down→up reconnect — W6 item 4),
-    // so a per-episode tail holds at most one "host unreachable" line at any instant.
+    // so a per-episode tail holds at most one retry line at any instant.
     // The log sink receives every emitted diagnostic across all episodes, so it is the
     // honest witness that the loop retried past the give-up ceiling.
     const emitted: string[] = [];
@@ -289,8 +289,8 @@ describe("HostSession with a failing drv resolver (network-unreachable)", () => 
     expect(down(session.currentState()).cause).toBe("network");
 
     // Proof it sailed past the old MAX_CONSECUTIVE_FAILURES (=5) ceiling:
-    // more than five "host unreachable" retry lines were EMITTED (across episodes).
-    const retries = emitted.filter((line) => line.includes("host unreachable"));
+    // more than five retry lines were EMITTED (across episodes).
+    const retries = emitted.filter((line) => line.includes("— retrying in"));
     expect(retries.length).toBeGreaterThan(5);
 
     session.destroy();
