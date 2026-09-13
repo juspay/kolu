@@ -34,8 +34,8 @@ import { type ResolveSystemOptions, resolveSystem } from "./arch";
 import { resolveAgentDrv, type AgentResolutionContext } from "./agentDrv";
 import type { AgentDerivation } from "./agentDerivation";
 import { makeProvisionBudgets, provisionAgent } from "./nixCopy";
+import { stderrLinesOf } from "./process";
 import { spawnOwnedProcessGroup } from "./processGroup";
-import split from "split2";
 import {
   type ClosedInfo,
   classifyClosed,
@@ -387,15 +387,11 @@ export function sshConnector<S extends SurfaceSpec>(
     // (or its wrapper) exiting 255 on startup must not read as "host
     // unreachable" and retry forever.
     let sshReportedTransportFailure = false;
-    // Whole lines, via `split2` exactly as `process.ts` reads a child's stderr:
-    // the verdict reads ssh's reason, so it must never see half of one cut at a
+    // Whole lines, through the same reader every child's stderr uses: the
+    // verdict reads ssh's reason, so it must never see half of one cut at a
     // libuv read boundary.
     const stderrLines =
-      child.stderr === null
-        ? null
-        : child.stderr
-            .setEncoding("utf-8")
-            .pipe(split({ maxLength: child.stderr.readableHighWaterMark }));
+      child.stderr === null ? null : stderrLinesOf(child.stderr);
     stderrLines?.on("data", (line: string) => {
       if (line.trim() === "") return;
       if (sshReportsTransportFailure(line)) {

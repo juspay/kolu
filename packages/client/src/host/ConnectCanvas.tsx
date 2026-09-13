@@ -44,7 +44,6 @@ import { LOG_TAIL_SURFACE } from "../ui/logTailChrome";
 import { activeHost, connectionInfo } from "../wire";
 import {
   connectCanvasCopy,
-  isConnectPhase,
   isNarratedPhase,
   type NarratedPhase,
 } from "./connectCanvasCopy";
@@ -106,10 +105,8 @@ export function ConnectCanvas(props: { daemonState: DaemonState | undefined }) {
     // Residual `connecting` mode can still have a live connection cell with a
     // long-lived connected campaign (reload of a warm host). Title-only "Connecting…"
     // is fine; elapsed/tail must not show that campaign's uptime as connect progress.
-    // The reconnect backoff shows no elapsed either: a link that dropped after
-    // hours connected carries that whole episode's duration, which is not how long
-    // the reconnect has taken.
-    if (c === null || frame === undefined || !isConnectPhase(frame.phase)) {
+    // Whether a phase times itself at all is the copy table's call (`showsElapsed`).
+    if (c === null || frame === undefined || !c.showsElapsed) {
       setAnchor(null);
       return;
     }

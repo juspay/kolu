@@ -84,12 +84,7 @@ import {
 } from "./host";
 import type { SshKeepalive } from "./keepalive";
 import { describeNixRun, type NixRun, runNix } from "./nixLog";
-import {
-  describeExit,
-  type ExitResult,
-  type LifetimePolicy,
-  runCapture,
-} from "./process";
+import { describeExit, type ExitResult, type LifetimePolicy } from "./process";
 
 /** Hard deadline for the QUICK ssh/local steps — the arch probe and warm
  *  `check-validity`. A genuine round-trip; generous so a slow link doesn't
@@ -597,10 +592,6 @@ async function shipAgentClosure(opts: {
  *  the user just cancelled — a false statement about the store, and the same
  *  class of lie the other copy steps take care to avoid.
  *
- *  `onProgress` is optional because the two seats differ in what the caller
- *  wants from the output: the remote warm check scans its stderr for transport
- *  evidence, while the local probe has nothing to say.
- *
  *  `target` is a bare host string or an `SshDestination` naming the dial's
  *  policy — the same argument `buildSshProbeCommand` takes, forwarded whole. The
  *  local seat has no policy to state and passes `"localhost"`; the remote seat
@@ -750,10 +741,11 @@ export async function provisionAgent(
   //    fails loud; a failed query (GC collected the evaluated .drv) leaves
   //    `undefined` and both consumers fall through to the cold provision,
   //    which re-establishes the truth itself.
-  const outsRes = await runCapture("nix-store", ["-q", "--outputs", drvPath], {
-    policy: probePolicy(),
-    signal,
-  });
+  const outsRes = await runNix(
+    "localhost",
+    ["nix-store", "-q", "--outputs", drvPath],
+    { policy: probePolicy(), signal },
+  );
   const outputs = parseOutputs(outsRes.stdout);
   if (outsRes.ok && outputs.length > 1) {
     return multiOutputError(opts.host, outputs.length);
@@ -772,8 +764,14 @@ export async function provisionAgent(
       // Step 0's local query missed (GC took the evaluated .drv), so there is
       // no path to ask the host about — say THAT, rather than the line below,
       // which would announce a check that never runs.
+      // Name what the query said, so a GC'd or unreadable `.drv` is on record
+      // rather than thrown away (an aborted query has nothing to say).
+      const why =
+        outsRes.ok || outsRes.kind === "aborted"
+          ? ""
+          : ` (${describeNixRun(outsRes)})`;
       onProgress(
-        `${opts.host}: agent output path unknown locally — skipping the cached-agent check; the cold provision re-establishes it`,
+        `${opts.host}: agent output path unknown locally${why} — skipping the cached-agent check; the cold provision re-establishes it`,
       );
     } else {
       // One SYNTHESIZED, truthful line at check start (NOT raw nix stderr).

@@ -39,12 +39,7 @@
  *   });
  */
 
-import {
-  isLocalHost,
-  ResolveDrvError,
-  type SshRefusal,
-  sshRefusalOf,
-} from "./host";
+import { isLocalHost, ResolveDrvError } from "./host";
 import type { SshKeepalive } from "./keepalive";
 import { probePolicy } from "./nixCopy";
 import { describeNixRun, resolverErrorOf, runNix } from "./nixLog";
@@ -90,12 +85,11 @@ export async function resolveSystem(
   // Which arm we are on decides how a missing executable surfaces, and which
   // executable a spawn fault is even ABOUT — see the failure classification below.
   const local = isLocalHost(host);
-  // Watch the probe's stderr for an ssh REFUSAL as the lines stream past — the
+  // The probe's stderr is read for an ssh REFUSAL (`NixRun.sshRefusal`) — the
   // probe is every dial's FIRST ssh contact, so classifying here covers all of
   // them: any refusal a LATER step hits (nix's own ssh fork, the agent dial)
   // kills that dial, and the redial's probe meets the same refusal
   // un-multiplexed and lands in this one classifier within a single retry.
-  let refusal: { kind: SshRefusal; line: string } | null = null;
   const res = await runNix(
     { host, keepalive: opts.keepalive },
     ["nix-instantiate", "--eval", "--expr", "builtins.currentSystem"],
@@ -106,15 +100,7 @@ export async function resolveSystem(
       // in ONE place, not re-spelled here.
       policy: probePolicy(),
       signal: opts.signal,
-      // ssh's refusal lines are its own raw stderr, which the Nix log reader
-      // narrates verbatim — so they reach this scan exactly as before.
-      narrate: (line) => {
-        if (refusal === null) {
-          const kind = sshRefusalOf(line);
-          if (kind !== null) refusal = { kind, line };
-        }
-        opts.onProgress(line);
-      },
+      narrate: opts.onProgress,
     },
   );
   if (!res.ok) {
@@ -126,8 +112,8 @@ export async function resolveSystem(
     // NB 255 is ssh's CONVENTION for its own failures, not a guarantee — a remote
     // command may legitimately exit 255 too. The text match is what carries the
     // classification; the code is the corroborating guard.)
-    if (refusal !== null && res.kind === "exit" && res.code === 255) {
-      const { kind, line } = refusal;
+    if (res.sshRefusal !== null && res.kind === "exit" && res.code === 255) {
+      const { kind, line } = res.sshRefusal;
       throw new ResolveDrvError(
         kind === "auth-refused"
           ? `${host}: ssh refused our credentials — this client connects non-interactively and can never answer a password or passphrase prompt. Set up key-based ssh (e.g. \`ssh-copy-id ${host}\`) so plain \`ssh ${host}\` connects without prompting: ${line}`

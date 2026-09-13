@@ -173,8 +173,9 @@ export function sshExitIsTransport(o: {
   return o.usesSsh && o.code === 255 && o.sshReportedTransportFailure;
 }
 
-/** Forward every non-blank `\n`-terminated line in `chunk` to `onLine`.
- *  Used by Nix progress and ssh-child stderr forwarding. */
+/** Forward every non-blank `\n`-separated line in `chunk` to `onLine`. Used to
+ *  split multi-line Nix stdout; streamed stderr is read whole-line by
+ *  `process.ts`'s `stderrLinesOf`. */
 export function forEachLine(
   chunk: string,
   onLine: (line: string) => void,

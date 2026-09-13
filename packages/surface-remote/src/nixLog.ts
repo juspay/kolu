@@ -38,7 +38,9 @@ import {
   looksLikeNetworkError,
   ResolveDrvError,
   type SshDestination,
+  type SshRefusal,
   sshExitIsTransport,
+  sshRefusalOf,
   sshReportsTransportFailure,
 } from "./host";
 import {
@@ -79,6 +81,12 @@ export interface NixError {
   readonly detail: readonly string[];
 }
 
+/** An ssh refusal and the stderr line that proved it. */
+export interface SshRefusalEvidence {
+  readonly kind: SshRefusal;
+  readonly line: string;
+}
+
 /** Reads one Nix run's stderr. `line` is fed every stderr line; narration of
  *  the human-meaningful ones goes to the `narrate` sink it was built with. */
 export interface NixLogReader {
@@ -93,6 +101,10 @@ export interface NixLogReader {
    *  ({@link sshReportsTransportFailure})? Kept apart from Nix's headline: what
    *  it proves depends on the seat, which {@link runNix} decides. */
   readonly sshReportedTransportFailure: () => boolean;
+  /** The first refusal ssh's own untagged stderr reported ({@link sshRefusalOf}),
+   *  with the line that said it, or `null`. Read off the reader — the component
+   *  that knows which lines are ssh's own voice — never off the narration. */
+  readonly sshRefusal: () => SshRefusalEvidence | null;
   /** The root error's lines to narrate once more when something was narrated
    *  after it (the cascade that pushes it out of a bounded tail), so the tail
    *  ends on the cause; empty when the root error is already last, or absent. */
@@ -184,6 +196,7 @@ export function nixLogReader(narrate: (line: string) => void): NixLogReader {
   let narratedAfterRoot = false;
   let nixTransport = false;
   let sshTransport = false;
+  let refusal: SshRefusalEvidence | null = null;
   const builds = new QuickLRU<number, { drv: string; tail: string[] }>({
     maxSize: BUILDS_RETAINED,
   });
@@ -231,6 +244,10 @@ export function nixLogReader(narrate: (line: string) => void): NixLogReader {
       if (event === "ignored") return;
       if (event === "raw") {
         if (sshReportsTransportFailure(line)) sshTransport = true;
+        if (refusal === null) {
+          const kind = sshRefusalOf(line);
+          if (kind !== null) refusal = { kind, line };
+        }
         say(line);
         return;
       }
@@ -261,6 +278,7 @@ export function nixLogReader(narrate: (line: string) => void): NixLogReader {
     rootError,
     nixReportedTransportFailure: () => nixTransport,
     sshReportedTransportFailure: () => sshTransport,
+    sshRefusal: () => refusal,
     recap: () => {
       const error = narratedAfterRoot ? rootError() : null;
       return error === null
@@ -288,6 +306,8 @@ export type NixRun = CaptureResult & {
    *  code), on an ssh-wrapped seat only through {@link sshExitIsTransport} (the
    *  ssh we spawned exited 255 AND said why), the same rule as the agent dial. */
   readonly transportFailure: boolean;
+  /** See {@link NixLogReader.sshRefusal}. */
+  readonly sshRefusal: SshRefusalEvidence | null;
 };
 
 /** Run one Nix command with its log read through {@link nixLogReader} — the ONE
@@ -347,7 +367,19 @@ export async function runNix(
     ...res,
     error: reader.rootError(),
     transportFailure: reader.nixReportedTransportFailure() || sshFailed,
+    sshRefusal: reader.sshRefusal(),
   };
+}
+
+/** The multi-line account of how a Nix run ended: Nix's root error headline
+ *  followed by its whole detail (an evaluation trace, or a failed build's last
+ *  log lines) when there is one, otherwise {@link describeNixRun}. */
+export function describeNixRunWithDetail(res: NixRun): string {
+  return res.kind === "exit" &&
+    res.error !== null &&
+    res.error.detail.length > 0
+    ? [res.error.headline, ...res.error.detail].join("\n")
+    : describeNixRun(res);
 }
 
 /** How a Nix run ended, in words: Nix's own root error when it exited having

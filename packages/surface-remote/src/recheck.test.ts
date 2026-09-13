@@ -210,6 +210,10 @@ describe("HostSession.recheck", () => {
       label: "testhost",
     });
 
+    const seen: string[] = [];
+    session.onState((st) => {
+      for (const e of st.log) if (!seen.includes(e.line)) seen.push(e.line);
+    });
     session.pin().catch(() => {});
     // Flush the (resolved) resolve + provision microtasks so the first
     // child spawns and we enter `connecting`.
@@ -231,6 +235,13 @@ describe("HostSession.recheck", () => {
     await vi.advanceTimersByTimeAsync(100);
     expect(spawn).toHaveBeenCalledTimes(2);
     expect(session.currentState().phase).toBe("connecting");
+    // The session cycled the link ON PURPOSE — the narration says so, and never
+    // calls it a failed attempt.
+    const lines = seen;
+    expect(lines).toContainEqual(
+      expect.stringMatching(/rechecking link.* — reconnecting in \d+ms…/),
+    );
+    expect(lines.some((l) => /attempt \d+.* failed/.test(l))).toBe(false);
 
     session.destroy();
   });

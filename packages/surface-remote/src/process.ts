@@ -31,6 +31,7 @@
  *  New fire-and-collect callers should reach for `runCapture` rather than
  *  open-coding a fresh `spawn` dance. */
 
+import type { Readable, Transform } from "node:stream";
 import split from "split2";
 import { match } from "ts-pattern";
 import { spawnOwnedProcessGroup } from "./processGroup";
@@ -109,6 +110,12 @@ export interface RunOptions {
   /** Aborting this settles the run as `{ kind: "aborted" }` and group-kills the child
    *  (and its ssh grandchild). Threaded from the connector's per-dial abort. */
   signal?: AbortSignal;
+}
+
+/** {@link RunOptions} plus what only this package's own runners state. Kept OFF
+ *  the published `RunOptions` (the package index re-exports that type, and this
+ *  field is not part of its API). */
+export interface CaptureOptions extends RunOptions {
   /** The longest stderr line (in characters) the child may write before it is
    *  killed as `output-error`. Defaults to the stream's own buffering bound
    *  (`readableHighWaterMark`, 64 KiB) — right for a child whose stderr is human
@@ -116,6 +123,21 @@ export interface RunOptions {
    *  long records (Nix's `--log-format internal-json`, one JSON event per line,
    *  builder log lines included) states its own bound. */
   maxLineLength?: number;
+}
+
+/** A child's stderr as whole, bounded lines — the ONE reader every spawned
+ *  child's stderr goes through. Child streams split at arbitrary byte
+ *  boundaries; `split2` owns the trailing partial line so classification never
+ *  depends on libuv chunks, while its bound prevents a newline-free child from
+ *  retaining an ever-growing fragment (the transform errors past it; each
+ *  caller decides what that means for its child). The bound defaults to the
+ *  stream's own buffering contract (`readableHighWaterMark`) instead of a
+ *  second magic size — unless the caller states one for a structured stream
+ *  (see {@link CaptureOptions.maxLineLength}). */
+export function stderrLinesOf(stream: Readable, maxLength?: number): Transform {
+  return stream
+    .setEncoding("utf-8")
+    .pipe(split({ maxLength: maxLength ?? stream.readableHighWaterMark }));
 }
 
 /** A human-readable tail describing how a run ended — honest across every
@@ -249,19 +271,8 @@ function runWithLifetime(
       stdout += chunk;
       bumpLiveness();
     });
-    proc.stderr?.setEncoding("utf-8");
     if (proc.stderr !== null) {
-      // Child streams split at arbitrary byte boundaries. `split2` owns the
-      // trailing partial line so classification never depends on libuv chunks,
-      // while its bound prevents a newline-free child from retaining an
-      // ever-growing fragment. Use the stream's own buffering contract as the
-      // bound instead of inventing a second magic size — unless the caller
-      // stated a bound for a structured stream (see `RunOptions.maxLineLength`).
-      const lines = proc.stderr.pipe(
-        split({
-          maxLength: o.maxLineLength ?? proc.stderr.readableHighWaterMark,
-        }),
-      );
+      const lines = stderrLinesOf(proc.stderr, o.maxLineLength);
       lines.on("data", (line: string) => o.onProgress(line));
       lines.on("error", (err: Error) => {
         processGroup.terminate();
@@ -298,7 +309,7 @@ function runWithLifetime(
 export function runCapture(
   cmd: string,
   args: readonly string[],
-  opts: RunOptions,
+  opts: CaptureOptions,
 ): Promise<CaptureResult> {
   return runWithLifetime({
     cmd,

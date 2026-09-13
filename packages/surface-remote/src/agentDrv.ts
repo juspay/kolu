@@ -19,7 +19,7 @@ import {
 } from "./agentBinaryCache";
 import { type AgentDerivation, flakeAgentDerivation } from "./agentDerivation";
 import type { StepBudget } from "./nixCopy";
-import { describeNixRun, resolverErrorOf, runNix } from "./nixLog";
+import { describeNixRunWithDetail, resolverErrorOf, runNix } from "./nixLog";
 import agentEnv from "../agent-env.json" with { type: "json" };
 import { err, ok, type Result } from "neverthrow";
 import QuickLRU from "quick-lru";
@@ -183,17 +183,7 @@ export async function resolveAgentDrv(
   if (!result.ok) {
     // Nix's own root error, then its detail (an evaluation trace, or a failed
     // fetch's last log lines) — never a scrolled tail of whatever came last.
-    const detail =
-      result.error === null || result.error.detail.length === 0
-        ? ""
-        : `\n${result.error.detail.join("\n")}`;
-    // The detail block already carries the last line `describeNixRun` would
-    // append, so with a detail block the summary is the headline alone.
-    const summary =
-      detail === "" || result.error === null
-        ? describeNixRun(result)
-        : result.error.headline;
-    const message = `${host}: could not resolve ${packageName} for system=${system} from the baked agent flake: nix eval failed: ${summary}${detail}`;
+    const message = `${host}: could not resolve ${packageName} for system=${system} from the baked agent flake: nix eval failed: ${describeNixRunWithDetail(result)}`;
     if (result.kind === "lifetime-expired") {
       throw opts.budget.recordExpiry()
         ? new AgentResolutionExhaustedError(

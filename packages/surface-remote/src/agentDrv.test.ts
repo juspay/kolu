@@ -34,6 +34,7 @@ import { ResolveDrvError } from "./host";
 import { makeProvisionBudgets } from "./nixCopy";
 import { DEFAULT_SSH_KEEPALIVE } from "./keepalive";
 import { TEST_BINARY_CACHE } from "./agentDerivation.testutil";
+import { nixErrorLine } from "./nixLog.testutil";
 
 const success = (stdout: string) => ({
   ok: true,
@@ -69,10 +70,6 @@ afterEach(() => {
   vi.unstubAllEnvs();
   resolutionOptions.budget.reset();
 });
-
-/** Nix's `--log-format internal-json` error event, as the real `nix` emits it. */
-const nixError = (msg: string): string =>
-  `@nix ${JSON.stringify({ action: "msg", level: 0, msg })}`;
 
 describe("readBakedAgentSource", () => {
   it("normalizes the wrapper-baked source at the framework boundary", () => {
@@ -170,7 +167,7 @@ describe("resolveAgentDrv", () => {
         _args: readonly string[],
         opts: { onProgress?: (line: string) => void },
       ) => {
-        opts.onProgress?.(nixError("error: attribute 'padi' missing"));
+        opts.onProgress?.(nixErrorLine("error: attribute 'padi' missing"));
         return { ok: false, kind: "exit", code: 1, stdout: "" };
       },
     );
@@ -274,7 +271,7 @@ describe("resolveAgentDrv", () => {
         opts: { onProgress?: (line: string) => void },
       ) => {
         opts.onProgress?.(
-          nixError(
+          nixErrorLine(
             "error:\n       … while evaluating the attribute 'padi'\n\n       error: attribute 'padi' missing",
           ),
         );

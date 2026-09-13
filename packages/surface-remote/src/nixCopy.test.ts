@@ -22,6 +22,7 @@ import {
 import { type CaptureResult, runCapture } from "./process";
 import { sshKeepalive } from "./keepalive";
 import { TEST_BINARY_CACHE } from "./agentDerivation.testutil";
+import { nixJsonLine } from "./nixLog.testutil";
 
 vi.mock("./process", async (importOriginal) => ({
   // Keep the real pure helpers (`describeExit`) and mock only the two
@@ -41,11 +42,6 @@ const okOut = (stdout: string): CaptureResult => ({
   stdout,
 });
 const failOut: CaptureResult = { ok: false, kind: "exit", code: 1, stdout: "" };
-
-/** Nix's `--log-format internal-json` line for an event — the exact shape the
- *  real `nix` writes to stderr (verified against nix 2.34). */
-const nixJson = (event: Record<string, unknown>): string =>
-  `@nix ${JSON.stringify(event)}`;
 
 /** The two speculative closure copies, matched by SHAPE rather than position —
  *  both argv start with `-v` (per-path progress keeps a healthy transfer alive
@@ -358,7 +354,7 @@ describe("provisionAgent cause classification", () => {
           "ssh: connect to host testhost port 22: Connection timed out",
         );
         opts?.onProgress?.(
-          nixJson({
+          nixJsonLine({
             action: "msg",
             level: 0,
             msg: "error: failed to start SSH connection to 'testhost'",
@@ -939,6 +935,39 @@ describe("cache prefetch + ship (steps 2 and 3)", () => {
     });
   });
 
+  it("names why the local output query failed, in Nix's own words", async () => {
+    // The query runs through `runNix` like every other Nix step, so a GC'd or
+    // unreadable `.drv` is on record rather than thrown away.
+    vi.mocked(runCapture).mockImplementation(async (_cmd, args, opts) => {
+      if (args.includes("--outputs")) {
+        opts.onProgress?.(
+          nixJsonLine({
+            action: "msg",
+            level: 0,
+            msg: "error: path '/nix/store/zzz-agent.drv' is not valid",
+            raw_msg: "path '/nix/store/zzz-agent.drv' is not valid",
+          }),
+        );
+        return failOut;
+      }
+      if (args.includes("--print-out-paths")) return okOut(`${STORE}\n`);
+      if (args.includes("--add-root")) return okOut("/home/u/link\n");
+      return failOut;
+    });
+    const onProgress = vi.fn();
+    await provisionAgent({
+      host: "testhost",
+      derivation: directAgentDerivation(DRV, TEST_BINARY_CACHE),
+      onProgress,
+      ...provArgs(),
+    });
+    expect(onProgress).toHaveBeenCalledWith(
+      expect.stringMatching(
+        /agent output path unknown locally \(path '\/nix\/store\/zzz-agent\.drv' is not valid\)/,
+      ),
+    );
+  });
+
   it("skips the prefetch when the local output query fails — the build owns realisation", async () => {
     mockNix({ outputs: failOut });
     const res = await provisionAgent({
@@ -1156,7 +1185,7 @@ describe("honest failure reporting (the sheetal-codex incident)", () => {
    *  dependent's cascade. */
   const failedCrateBuild = (line: (l: string) => void): void => {
     line(
-      nixJson({
+      nixJsonLine({
         action: "start",
         id: 7,
         level: 3,
@@ -1167,7 +1196,7 @@ describe("honest failure reporting (the sheetal-codex incident)", () => {
       }),
     );
     line(
-      nixJson({
+      nixJsonLine({
         action: "result",
         id: 7,
         type: 101,
@@ -1177,7 +1206,7 @@ describe("honest failure reporting (the sheetal-codex incident)", () => {
       }),
     );
     line(
-      nixJson({
+      nixJsonLine({
         action: "result",
         id: 7,
         type: 101,
@@ -1187,14 +1216,14 @@ describe("honest failure reporting (the sheetal-codex incident)", () => {
       }),
     );
     line(
-      nixJson({
+      nixJsonLine({
         action: "msg",
         level: 0,
         msg: `${sgr("31;1")}error:${sgr("0")} Cannot build '${sgr("35;1")}${CRATE_DRV}${sgr("0")}'.\n       Reason: ${sgr("31;1")}builder failed with exit code 1${sgr("0")}.`,
       }),
     );
     line(
-      nixJson({
+      nixJsonLine({
         action: "msg",
         level: 0,
         msg: `${sgr("31;1")}error:${sgr("0")} Cannot build '${KOLU_DRV}'.\n       Reason: 1 dependency failed.`,
