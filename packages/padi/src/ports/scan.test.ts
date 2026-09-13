@@ -375,6 +375,14 @@ describe("foldScan — one host-wide reading, two folds", () => {
     expect(scan.dropped).toEqual([]);
   });
 
+  it("counts a listener whose pid EXITED mid-read as exited, never as dropped", () => {
+    // ENOENT is a process that is gone, not one kolu could not see — a warning
+    // about an unreadable owner would be a false alarm.
+    const scan = fold([...HOST, "U\t9001\tports\tENOENT"]);
+    expect(scan.dropped).toEqual([]);
+    expect(scan.exited).toContainEqual({ pid: 9001, port: 18440 });
+  });
+
   it("marks a listener held by a terminal even when that terminal's ROOT is unreadable", () => {
     // Membership comes from the process TABLE, which stays readable where a
     // root's sockets are not — so "detached" stays exact beside a sudo terminal.

@@ -238,18 +238,26 @@ export function addressBind(bytes: readonly number[]): {
 export function unreadablePolicy(
   unreadable: readonly UnreadableRow[],
   rootPids: ReadonlySet<number>,
-): { blindRoots: Set<number>; skipPids: Set<number> } {
+): {
+  blindRoots: Set<number>;
+  skipPids: Set<number>;
+  /** The subset of `skipPids` that is the ordinary exit race (ENOENT/ESRCH) —
+   *  gone, not hidden. */
+  exitedPids: Set<number>;
+} {
   const skipPids = new Set<number>();
   const blindRoots = new Set<number>();
+  const exitedPids = new Set<number>();
   for (const u of unreadable) {
     if (!SCANNED.unreadable.includes(u.facet)) continue;
     // A label facet's unreadability costs a label, not the pid — see LABEL_FACETS.
     if ((LABEL_FACETS as readonly string[]).includes(u.facet)) continue;
     const exitRace = u.errno === "ENOENT" || u.errno === "ESRCH";
     skipPids.add(u.pid);
-    if (rootPids.has(u.pid) && !exitRace) blindRoots.add(u.pid);
+    if (exitRace) exitedPids.add(u.pid);
+    else if (rootPids.has(u.pid)) blindRoots.add(u.pid);
   }
-  return { blindRoots, skipPids };
+  return { blindRoots, skipPids, exitedPids };
 }
 
 // ── Bake path ───────────────────────────────────────────────────────────
@@ -329,6 +337,7 @@ function joinPorts(
   reading: SnapshotReading,
   rootPids: readonly number[],
   skipPids: ReadonlySet<number>,
+  exitedPids: ReadonlySet<number>,
   blindRoots: ReadonlySet<number>,
 ): PortScan {
   // `ports_unclaimed` is TOLERATED (see TOLERATED_SOURCE_FACETS), not ignored:
@@ -348,7 +357,9 @@ function joinPorts(
   const exited: { pid: number; port: number }[] = [];
   for (const l of claimed) {
     if (skipPids.has(l.pid)) {
-      dropped.push({ pid: l.pid, port: l.port });
+      // An exit race is a listener that is GONE, not one kolu could not see.
+      if (exitedPids.has(l.pid)) exited.push({ pid: l.pid, port: l.port });
+      else dropped.push({ pid: l.pid, port: l.port });
       continue;
     }
     // A claimed pid absent from BOTH `names` and `skipPids` never hit a `U`
@@ -495,7 +506,7 @@ export function foldScan(
     );
   }
 
-  const { blindRoots, skipPids } = unreadablePolicy(
+  const { blindRoots, skipPids, exitedPids } = unreadablePolicy(
     reading.unreadable,
     new Set(rootPids),
   );
@@ -503,5 +514,7 @@ export function foldScan(
   // host-wide read lists every live pid, so its absence IS the exit race the
   // subtree ask used to report as an ENOENT `U` row — an empty subtree, which
   // `partitionSubtrees` already answers for a pid it does not find.
-  return Effect.succeed(joinPorts(reading, rootPids, skipPids, blindRoots));
+  return Effect.succeed(
+    joinPorts(reading, rootPids, skipPids, exitedPids, blindRoots),
+  );
 }
