@@ -280,6 +280,15 @@ export function createPortSampler(opts: {
    *  nudge at the minimum gap: there is no measurement yet to bound anything by. */
   let lastPassMs = 0;
 
+  /** Pids the last pass already logged as dropped — a pid held by a process
+   *  this scanner can never read (another user's `sudo` child, say) would
+   *  otherwise warn on every single pass for as long as it lives. Diffed
+   *  against each new pass rather than accumulated, so it stays bounded by
+   *  how many pids are CURRENTLY dropped, and a pid that stops being dropped
+   *  (it exited) is warned about again if a different process ever reuses
+   *  its number. */
+  let loggedDroppedPids = new Set<number>();
+
   /** The sampler's teardown latch — the poll connector's abort signal, and the one
    *  thing `dispose()` does. Declared HERE, above the read, because the read's
    *  permanent-failure arm is a caller of it: the stop decision belongs to the pass
@@ -301,7 +310,32 @@ export function createPortSampler(opts: {
       // bounds what this readout costs the box, and the join is part of that cost.
       const startedAt = Date.now();
       try {
-        const { byRoot, host } = await scan(targets.map((t) => t.rootPid));
+        const { byRoot, host, dropped, exited } = await scan(
+          targets.map((t) => t.rootPid),
+        );
+        // A dropped listener is a real socket this pass could see but could
+        // not attribute to anyone — it is simply absent from both `byRoot`
+        // and `host.claimed` otherwise, with nothing on the wire saying why.
+        // Logged only on the pids NEWLY dropped this pass (see
+        // `loggedDroppedPids`), so a long-lived unreadable process warns once
+        // rather than every 1-5 s for as long as it lives.
+        const nowDropped = new Set(dropped.map((d) => d.pid));
+        for (const d of dropped) {
+          if (loggedDroppedPids.has(d.pid)) continue;
+          opts.log.warn(
+            { pid: d.pid, port: d.port },
+            "port scan: a listener's owner could not be read (another user's process?) — dropped from every fold",
+          );
+        }
+        loggedDroppedPids = nowDropped;
+        // The ordinary exit race (a pid's socket outlived it by a tick) —
+        // expected, not a fault, so `debug` rather than `warn`.
+        for (const e of exited) {
+          opts.log.debug(
+            { pid: e.pid, port: e.port },
+            "port scan: a listener's pid exited before its name could be read — shown as (exited)",
+          );
+        }
         // The scan's contract is that EVERY requested pid comes back — with an
         // empty array when its subtree serves nothing. A missing key is a scan
         // that failed to answer, not a terminal with no ports, so the whole pass

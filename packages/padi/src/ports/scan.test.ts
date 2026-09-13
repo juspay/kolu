@@ -352,6 +352,27 @@ describe("foldScan — one host-wide reading, two folds", () => {
     // neither list rather than being smuggled into one.
     const scan = fold([...HOST, "U\t9001\tports\tEACCES"]);
     expect(scan.host.claimed.map((p) => p.port)).toEqual([5173]);
+    // The drop is not silent to a caller with a logger — it is a real
+    // listener the fold could see and could not attribute to anyone.
+    expect(scan.dropped).toEqual([{ pid: 9001, port: 18440 }]);
+  });
+
+  it("shows a listener whose pid exited before the process walk as (exited), not its pid number", () => {
+    // The ordinary exit race: a claimed socket with no U row (never hit the
+    // unreadable path) and no P row either (the pid is simply gone from the
+    // process table this pass caught).
+    const scan = fold([...HOST, "L\tclaimed\t7777\t501\t9090\t7f000001"]);
+    expect(scan.host.claimed).toContainEqual(
+      expect.objectContaining({
+        port: 9090,
+        name: "(exited)",
+        command: "(exited)",
+      }),
+    );
+    expect(scan.exited).toEqual([{ pid: 7777, port: 9090 }]);
+    // Distinct from a drop: the scan still SHOWS this listener, just honestly
+    // labeled, rather than removing it the way `dropped` does.
+    expect(scan.dropped).toEqual([]);
   });
 
   it("marks a listener held by a terminal even when that terminal's ROOT is unreadable", () => {

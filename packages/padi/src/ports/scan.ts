@@ -298,11 +298,32 @@ function classifyListeners(ports: readonly ListenerRow[]): {
 
 /** One scan's answer: every requested ROOT pid's subtree ports — or `blind` for
  *  a root the scan could not read — and the host's listeners, both folded from
- *  the same reading, so they cannot disagree about a listener. */
+ *  the same reading, so they cannot disagree about a listener.
+ *
+ *  `dropped` and `exited` are facts about the JOIN itself, not about any one
+ *  terminal or the host — surfaced so a caller with a logger (the sampler) can
+ *  say so, rather than the scan silently producing a `known` answer that is
+ *  quietly missing a listener or mislabeling one. */
 export interface PortScan {
   byRoot: Map<number, PortInfo[] | "blind">;
   host: Extract<HostListeners, { status: "known" }>;
+  /** A claimed listener whose pid's `/proc` rows were unreadable for a reason
+   *  OTHER than the ordinary exit race (another user's process, an LSM denial)
+   *  — dropped from every fold rather than attributed to the wrong owner, so
+   *  it is simply absent from `byRoot` and `host.claimed` with nothing on the
+   *  wire explaining why. */
+  dropped: readonly { pid: number; port: number }[];
+  /** A claimed listener whose pid never appeared in the process table this
+   *  pass — the ordinary exit race between the ports read and the `/proc`
+   *  walk — shown by {@link EXITED_LISTENER_NAME} rather than its bare pid
+   *  number, which would look like a real, if oddly-named, program. */
+  exited: readonly { pid: number; port: number }[];
 }
+
+/** Stands in for a claimed listener's name/command when its pid exited between
+ *  the ports read and the process-table walk — honest about the race rather
+ *  than showing the pid number, which reads as a real (if odd) program name. */
+export const EXITED_LISTENER_NAME = "(exited)";
 
 function joinPorts(
   reading: SnapshotReading,
@@ -323,14 +344,24 @@ function joinPorts(
    *  skipped pid (unreadable, exit race) contributes nothing to EITHER fold —
    *  the host list is not a place to smuggle in a row the subtree fold refused. */
   const byPid = new Map<number, PortInfo[]>();
+  const dropped: { pid: number; port: number }[] = [];
+  const exited: { pid: number; port: number }[] = [];
   for (const l of claimed) {
-    if (skipPids.has(l.pid)) continue;
-    const name = names.get(l.pid) ?? String(l.pid);
+    if (skipPids.has(l.pid)) {
+      dropped.push({ pid: l.pid, port: l.port });
+      continue;
+    }
+    // A claimed pid absent from BOTH `names` and `skipPids` never hit a `U`
+    // row at all — the ordinary race of a pid exiting between the ports read
+    // and the `/proc` walk, not the unreadable-owner case `skipPids` names.
+    if (!names.has(l.pid)) exited.push({ pid: l.pid, port: l.port });
+    const name = names.get(l.pid) ?? EXITED_LISTENER_NAME;
     const row: PortInfo = {
       port: l.port,
       name,
-      // No argv row: either the process has none, or its argv was unreadable
-      // (a LABEL facet — see LABEL_FACETS). Both are shown by the name.
+      // No argv row: either the process has none, its argv was unreadable (a
+      // LABEL facet — see LABEL_FACETS), or the pid raced past `/proc`
+      // entirely. All three are shown by the name.
       command: portCommand(argvs.get(l.pid) ?? [], name),
       scope: l.scope,
       family: l.family,
@@ -375,6 +406,8 @@ function joinPorts(
         ? { status: "unknown" }
         : { status: "known", list: foldBinds(unclaimed) },
     },
+    dropped,
+    exited,
   };
 }
 

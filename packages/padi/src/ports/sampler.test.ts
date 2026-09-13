@@ -61,6 +61,8 @@ function scanOf(
       ].sort((a, b) => a.port - b.port),
       unclaimed: { status: "known", list: [] },
     },
+    dropped: [],
+    exited: [],
   };
 }
 
