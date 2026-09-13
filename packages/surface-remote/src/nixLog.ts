@@ -6,8 +6,8 @@
  * Plain `-v` stderr mixed three voices into one undifferentiated stream, and
  * reading them apart by pattern is what made the connect path lie:
  *
- *   - ssh's own stderr (Nix forks ssh with inherited stderr) — the ONLY voice
- *     that can say the host is unreachable;
+ *   - ssh's own stderr (Nix forks ssh with inherited stderr), which arrives
+ *     untagged;
  *   - Nix's own messages — the root error, and the "1 dependency failed"
  *     cascade that follows it;
  *   - a BUILDER's log (curl inside a crate fetch, a compiler) — which says
@@ -29,6 +29,8 @@
  */
 
 import { stripVTControlCharacters } from "node:util";
+import { Option, Schema } from "effect";
+import QuickLRU from "quick-lru";
 import {
   buildSshProbeCommand,
   isLocalHost,
@@ -42,14 +44,9 @@ import {
   runCapture,
 } from "./process";
 
-/** The flag pair every provisioning Nix command carries. Nix accepts it on the
- *  new CLI and on the legacy `nix-store` / `nix-instantiate` alike. */
-export const NIX_LOG_FORMAT_ARGS = ["--log-format", "internal-json"] as const;
-
-/** Nix's verbosity for plain informational messages (`lvlInfo`). Messages and
- *  activities above it are the `-v` chatter ("evaluating file …") that the old
- *  plain-stderr tail was full of; they still keep a slow step alive (every
- *  stderr line bumps the lifetime policy) but are not narrated. */
+/** Nix's verbosity for plain informational messages (`lvlInfo`). Anything above
+ *  it is chatter ("evaluating file …"): it still keeps a slow step alive (every
+ *  stderr line bumps the lifetime policy) but is not narrated. */
 const LVL_INFO = 3;
 
 /** `ActivityType::actBuild` and `ResultType::resBuildLogLine`. */
@@ -61,6 +58,13 @@ const RES_BUILD_LOG_LINE = 101;
  *  graph cannot grow the server heap. */
 const BUILD_LOG_TAIL = 8;
 const BUILDS_RETAINED = 32;
+
+/** The longest single stderr line a Nix run may write. internal-json puts one
+ *  event per line and a builder's log line inside one event, so the default
+ *  64 KiB text bound would kill a build whose compiler printed one long line
+ *  (verified: a 131072-character builder line). Still a bound — a line past it
+ *  fails the run loudly rather than growing the heap without limit. */
+const NIX_LOG_LINE_MAX = 16 * 1024 * 1024;
 
 /** The first error Nix reported in a run: its one-line `headline` (the
  *  message itself, colour and the `error:` prefix removed) and the `detail`
@@ -77,87 +81,64 @@ export interface NixLogReader {
   readonly line: (line: string) => void;
   /** The run's root error, or `null` when Nix reported none. */
   readonly rootError: () => NixError | null;
-  /** Did ssh itself, or Nix about its own connection, report a transport
-   *  failure? A builder's log is never consulted. */
+  /** Did a voice that can speak for the connection report a failure: ssh's
+   *  own untagged stderr, or the HEADLINE of Nix's own error (a failed ssh
+   *  connection, an unreachable download)? A builder's log — and Nix quoting
+   *  it inside an error — is never consulted. */
   readonly sawTransportFailure: () => boolean;
-  /** Lines narrated after the root error was — the cascade that pushes it out
-   *  of a bounded tail. The caller re-narrates the root error when this is
-   *  non-zero, so the tail ends on the cause rather than its fallout. */
-  readonly narratedAfterRootError: () => number;
+  /** The root error's lines to narrate once more when something was narrated
+   *  after it (the cascade that pushes it out of a bounded tail), so the tail
+   *  ends on the cause; empty when the root error is already last, or absent. */
+  readonly recap: () => readonly string[];
 }
 
-interface RootError {
-  readonly headline: string;
-  readonly text: string;
-  readonly trace: readonly string[];
-}
-
-/** One Nix log event, as far as this reader needs to see it. Anything else
- *  (activity `stop`, progress `result`s, a future action) is `ignored`. */
-type NixEvent =
-  | {
-      readonly kind: "msg";
-      readonly level: number;
-      readonly msg: string;
-      readonly rawMsg: string | undefined;
-    }
-  | {
-      readonly kind: "start";
-      readonly id: number;
-      readonly level: number;
-      readonly type: number;
-      readonly text: string;
-      readonly fields: readonly unknown[];
-    }
-  | {
-      readonly kind: "result";
-      readonly id: number;
-      readonly type: number;
-      readonly fields: readonly unknown[];
-    }
-  | { readonly kind: "ignored" };
+/** The events this reader acts on, decoded with the package's validation
+ *  vocabulary. Unknown keys are tolerated (Nix adds `file`/`line`/`column`). */
+const NixEventSchema = Schema.Union([
+  Schema.Struct({
+    action: Schema.Literal("msg"),
+    level: Schema.Number,
+    msg: Schema.String,
+    raw_msg: Schema.optionalKey(Schema.String),
+  }),
+  Schema.Struct({
+    action: Schema.Literal("start"),
+    id: Schema.Number,
+    level: Schema.Number,
+    type: Schema.Number,
+    text: Schema.String,
+    fields: Schema.optionalKey(Schema.Array(Schema.Unknown)),
+  }),
+  Schema.Struct({
+    action: Schema.Literal("result"),
+    id: Schema.Number,
+    type: Schema.Literal(RES_BUILD_LOG_LINE),
+    fields: Schema.Array(Schema.Unknown),
+  }),
+]);
+type NixEvent = typeof NixEventSchema.Type;
+const decodeNixEvent = Schema.decodeUnknownOption(NixEventSchema);
 
 const NIX_PREFIX = "@nix ";
 
-/** Decode an `@nix` line, or `null` when the line is not one (ssh's own
- *  stderr) — or claims to be one and is not valid JSON, which is surfaced
- *  verbatim as a raw line rather than dropped. */
-function decodeNixEvent(line: string): NixEvent | null {
-  if (!line.startsWith(NIX_PREFIX)) return null;
+/** Classify one stderr line: a decoded event, `"ignored"` for a Nix event this
+ *  reader has no use for (activity stops, the progress results a large copy
+ *  sends by the hundred thousand — dropped after the native parse, before any
+ *  schema work), or `"raw"` for a line that is not a Nix event at all (ssh's
+ *  own stderr — or a line that claims to be one and is not valid JSON, which
+ *  is surfaced verbatim rather than dropped). */
+function classify(line: string): NixEvent | "ignored" | "raw" {
+  if (!line.startsWith(NIX_PREFIX)) return "raw";
   let value: unknown;
   try {
     value = JSON.parse(line.slice(NIX_PREFIX.length));
   } catch {
-    return null;
+    return "raw";
   }
-  if (typeof value !== "object" || value === null) return null;
-  const e = value as Record<string, unknown>;
-  const num = (v: unknown): number | undefined =>
-    typeof v === "number" ? v : undefined;
-  const str = (v: unknown): string | undefined =>
-    typeof v === "string" ? v : undefined;
-  const fields = Array.isArray(e.fields) ? (e.fields as unknown[]) : [];
-  if (e.action === "msg") {
-    const level = num(e.level);
-    const msg = str(e.msg);
-    if (level === undefined || msg === undefined) return null;
-    return { kind: "msg", level, msg, rawMsg: str(e.raw_msg) };
-  }
-  if (e.action === "start") {
-    const id = num(e.id);
-    const level = num(e.level);
-    const type = num(e.type);
-    if (id === undefined || level === undefined || type === undefined)
-      return null;
-    return { kind: "start", id, level, type, text: str(e.text) ?? "", fields };
-  }
-  if (e.action === "result") {
-    const id = num(e.id);
-    const type = num(e.type);
-    if (id === undefined || type === undefined) return null;
-    return { kind: "result", id, type, fields };
-  }
-  return { kind: "ignored" };
+  if (typeof value !== "object" || value === null) return "raw";
+  const { action, type } = value as { action?: unknown; type?: unknown };
+  if (action === "result" && type !== RES_BUILD_LOG_LINE) return "ignored";
+  return Option.getOrElse(decodeNixEvent(value), (): "ignored" => "ignored");
 }
 
 /** Nix colours its messages even into a pipe; none of that reaches a screen. */
@@ -188,14 +169,19 @@ function headlineOf(msg: string, rawMsg: string | undefined): string {
 }
 
 export function nixLogReader(narrate: (line: string) => void): NixLogReader {
-  let root: RootError | null = null;
-  let afterRoot = 0;
+  let root: {
+    readonly headline: string;
+    readonly text: string;
+    readonly trace: readonly string[];
+  } | null = null;
+  let narratedAfterRoot = false;
   let transport = false;
-  // Insertion-ordered, so the oldest build is the first key when trimming.
-  const builds = new Map<number, { drv: string; tail: string[] }>();
+  const builds = new QuickLRU<number, { drv: string; tail: string[] }>({
+    maxSize: BUILDS_RETAINED,
+  });
 
   const say = (line: string): void => {
-    if (root !== null) afterRoot += 1;
+    if (root !== null) narratedAfterRoot = true;
     narrate(line);
   };
 
@@ -206,8 +192,8 @@ export function nixLogReader(narrate: (line: string) => void): NixLogReader {
       return;
     }
     const headline = headlineOf(msg, rawMsg);
-    // Only the headline can be Nix speaking about its own connection; the rest
-    // of an error message may quote a builder's log ("Last 17 log lines: > …").
+    // Only the headline can be Nix speaking about a connection; the rest of an
+    // error message may quote a builder's log ("Last 17 log lines: > …").
     if (looksLikeNetworkError(headline)) transport = true;
     if (root === null) {
       const lines = linesOf(msg);
@@ -219,33 +205,40 @@ export function nixLogReader(narrate: (line: string) => void): NixLogReader {
     say(`error: ${headline}`);
   };
 
+  const rootError = (): NixError | null => {
+    if (root === null) return null;
+    const r = root;
+    const failed = [...builds.values()].find(
+      (b) => b.tail.length > 0 && r.text.includes(b.drv),
+    );
+    return {
+      headline: r.headline,
+      detail: failed !== undefined ? failed.tail : r.trace,
+    };
+  };
+
   return {
     line: (line) => {
-      const event = decodeNixEvent(line);
-      if (event === null) {
-        // ssh's own voice (or an undecodable line, shown as-is).
+      const event = classify(line);
+      if (event === "ignored") return;
+      if (event === "raw") {
         if (looksLikeNetworkError(line)) transport = true;
         say(line);
         return;
       }
-      switch (event.kind) {
+      switch (event.action) {
         case "msg":
-          onMsg(event.level, event.msg, event.rawMsg);
+          onMsg(event.level, event.msg, event.raw_msg);
           return;
         case "start": {
-          const drv = event.fields[0];
+          const drv = event.fields?.[0];
           if (event.type === ACT_BUILD && typeof drv === "string") {
             builds.set(event.id, { drv, tail: [] });
-            if (builds.size > BUILDS_RETAINED) {
-              const oldest = builds.keys().next().value;
-              if (oldest !== undefined) builds.delete(oldest);
-            }
           }
           if (event.level <= LVL_INFO && event.text !== "") say(event.text);
           return;
         }
         case "result": {
-          if (event.type !== RES_BUILD_LOG_LINE) return;
           const build = builds.get(event.id);
           const text = event.fields[0];
           if (build === undefined || typeof text !== "string") return;
@@ -255,23 +248,16 @@ export function nixLogReader(narrate: (line: string) => void): NixLogReader {
           if (build.tail.length > BUILD_LOG_TAIL) build.tail.shift();
           return;
         }
-        case "ignored":
-          return;
       }
     },
-    rootError: () => {
-      if (root === null) return null;
-      const r = root;
-      const failed = [...builds.values()].find(
-        (b) => b.tail.length > 0 && r.text.includes(b.drv),
-      );
-      return {
-        headline: r.headline,
-        detail: failed !== undefined ? failed.tail : r.trace,
-      };
-    },
+    rootError,
     sawTransportFailure: () => transport,
-    narratedAfterRootError: () => afterRoot,
+    recap: () => {
+      const error = narratedAfterRoot ? rootError() : null;
+      return error === null
+        ? []
+        : [`error: ${error.headline}`, ...error.detail];
+    },
   };
 }
 
@@ -288,8 +274,8 @@ export function describeNixError(error: NixError): string {
 export type NixRun = CaptureResult & {
   /** The run's root error, or `null` when Nix reported none. */
   readonly error: NixError | null;
-  /** The transport failed — ssh (or Nix about its ssh connection) said so, or
-   *  the ssh we spawned exited with its own 255. Never inferred from a builder. */
+  /** The connection failed: see {@link NixLogReader.sawTransportFailure}, or
+   *  the ssh we spawned ourselves exited with its own 255. */
   readonly transportFailure: boolean;
 };
 
@@ -321,7 +307,8 @@ export async function runNix(
   const { command, args } = buildSshProbeCommand(
     target,
     nixCommand,
-    ...NIX_LOG_FORMAT_ARGS,
+    "--log-format",
+    "internal-json",
     ...rest,
   );
   const res = await runCapture(command, args, {
@@ -329,18 +316,15 @@ export async function runNix(
     policy: opts.policy,
     signal: opts.signal,
     env: opts.env,
+    maxLineLength: NIX_LOG_LINE_MAX,
   });
-  const error = reader.rootError();
-  if (!res.ok && error !== null && reader.narratedAfterRootError() > 0) {
-    narrate(`error: ${error.headline}`);
-    for (const l of error.detail) narrate(l);
-  }
+  if (!res.ok) for (const l of reader.recap()) narrate(l);
   const host = typeof target === "string" ? target : target.host;
   const sshExit255 =
     !isLocalHost(host) && res.kind === "exit" && res.code === 255;
   return {
     ...res,
-    error,
+    error: reader.rootError(),
     transportFailure: reader.sawTransportFailure() || sshExit255,
   };
 }

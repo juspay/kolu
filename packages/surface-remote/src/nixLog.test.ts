@@ -4,8 +4,14 @@
  * dependent, a failing `ssh-ng://` build, an ssh connection failure, and an
  * evaluation error — with only the store hashes shortened.
  */
-import { describe, expect, it } from "vitest";
-import { describeNixError, nixLogReader } from "./nixLog";
+import { describe, expect, it, vi } from "vitest";
+import { describeNixError, nixLogReader, runNix } from "./nixLog";
+import { runCapture } from "./process";
+
+vi.mock("./process", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./process")>()),
+  runCapture: vi.fn(),
+}));
 
 const ESC = "\u001b";
 /** How Nix spells ESC inside its JSON strings — a raw control character would
@@ -59,7 +65,12 @@ describe("nixLogReader", () => {
     expect(narrated.some((l) => l.includes(ESC))).toBe(false);
     // Builder log lines are evidence for the failure, not live narration.
     expect(narrated).not.toContain("curl: Failed to connect to crates.io");
-    expect(reader.narratedAfterRootError()).toBe(1);
+    // The cascade followed the root error, so the caller gets it to re-narrate last.
+    expect(reader.recap()).toEqual([
+      `error: Cannot build '${BAD_DRV}'.`,
+      "curl: Failed to connect to crates.io",
+      "error: cannot download x from any mirror",
+    ]);
   });
 
   it("an ssh connection failure is ssh's own raw line plus Nix's headline — both transport", () => {
@@ -95,8 +106,32 @@ describe("nixLogReader", () => {
     expect(narrated).toEqual(["these 57 derivations will be built:"]);
   });
 
+  it("no recap when the root error is already the last thing narrated", () => {
+    const { reader } = read(failingBuildWithDependent.slice(0, 5));
+    expect(reader.rootError()).not.toBeNull();
+    expect(reader.recap()).toEqual([]);
+  });
+
   it("surfaces a line that only claims to be a Nix event verbatim, never drops it", () => {
     const { narrated } = read(["@nix {not json"]);
     expect(narrated).toEqual(["@nix {not json"]);
+  });
+});
+
+describe("runNix", () => {
+  it("states a line bound far above the 64 KiB text default — a builder's long line must not kill the build", async () => {
+    vi.mocked(runCapture).mockResolvedValue({
+      ok: true,
+      kind: "exit",
+      code: 0,
+      stdout: "",
+    });
+    await runNix("localhost", ["nix", "build"], {
+      policy: { kind: "deadline", ms: 1000 },
+      signal: undefined,
+    });
+    expect(
+      vi.mocked(runCapture).mock.calls[0]?.[2].maxLineLength,
+    ).toBeGreaterThan(64 * 1024);
   });
 });

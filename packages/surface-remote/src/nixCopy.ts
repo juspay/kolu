@@ -45,8 +45,9 @@
  *      locally, transfers the derivation, and realises it remotely. One Nix
  *      process owns the temporary roots across that whole handoff, so a
  *      concurrent GC cannot collect the just-transferred derivation between
- *      separate copy and build commands. Plain `-v` lets Nix's own transfer and
- *      build lines reach the connect overlay.
+ *      separate copy and build commands. Its log is read as tagged events
+ *      (`nixLog.ts`): Nix's transfer and build lines reach the connect overlay,
+ *      and a failure reports Nix's own root error.
  *   5. `ssh $host nix-store --realise $out --add-root $link --indirect`
  *      atomically proves the output still exists (restoring it if possible)
  *      and commits it behind a per-agent GC root on the target, so a
@@ -114,9 +115,9 @@ export const PROVISION_STEP_SILENCE_BASE_MS = 120_000;
  *  the user waits, then the fallback runs. Too tight kills a HEALTHY transfer
  *  and narrates it as a miss, so the host compiles from source: the precise
  *  outcome this feature exists to prevent, produced by a timeout rather than a
- *  real miss. `nix copy` reports per PATH, so one large NAR (kolu's own closure
- *  carries a ~200 MB path) is legitimately quiet for minutes on a slow uplink
- *  even with `-v`. Bound the dead endpoint, not the slow one. */
+ *  real miss. A slow uplink stalls a large NAR (kolu's own closure carries a
+ *  ~200 MB path) for long stretches, and a remote store may batch its
+ *  progress. Bound the dead endpoint, not the slow one. */
 export const PROVISION_COPY_SILENCE_MS = 600_000;
 
 /** How many consecutive `lifetime-expired` kills of the SAME step before it is
@@ -471,9 +472,10 @@ async function prefetchAgentClosure(opts: {
     opts.narrate(`prefetching agent closure from ${url} into the local store…`);
     const res = await runNix(
       "localhost",
-      // `-v` for the same reason the cold build passes it: stderr is a pipe, so
-      // without it nix reports nothing per path and a healthy transfer reads as
-      // silence to the liveness policy. `--extra-trusted-public-keys` lets a
+      // `-v` keeps a healthy transfer producing output under progress-liveness
+      // (#1964). Under internal-json the per-path activity events already do
+      // on a local-store copy (measured); the flag stays so that guarantee does
+      // not rest on one store type. `--extra-trusted-public-keys` lets a
       // trusted local user import the declared cache's signatures without a
       // nix.conf edit; for an untrusted user nix's own refusal is what the
       // per-URL line below reports, and we fall back.
@@ -539,8 +541,7 @@ async function shipAgentClosure(opts: {
   opts.narrate("shipping agent closure to the host's store…");
   const res = await runNix(
     "localhost",
-    // `-v`: see the prefetch — per-path lines are what keep a healthy transfer
-    // alive under progress-liveness.
+    // `-v`: see the prefetch.
     //
     // `--no-check-sigs`: without it `nix copy` asks the destination to verify
     // signatures EVEN FOR a trusted user, so `trusted-users` alone never let a
@@ -717,19 +718,15 @@ export async function provisionAgent(
   }
 
   const { onProgress } = opts;
-  // The cold build's transport verdict is its OWN run's: ssh (or Nix about its
-  // ssh connection) reporting a failure — a host that went unreachable
-  // mid-provision exits with Nix's code, not ssh's 255 — or a 255 exit. A
-  // builder's log never counts (see `nixLog.ts`). An `aborted` (user verb) is
-  // RETRYABLE `"network"` — never the bounded `"remote"` default — so a user
-  // abort never burns the give-up budget. `lifetime-expired` (our kill) never
-  // reaches here: the step intercepts its own kill inline via `expiredResult`.
-  const causeFor = (res: NixRun): "network" | "remote" => {
-    if (res.kind === "aborted") return "network";
-    return res.transportFailure || (res.kind === "exit" && res.code === 255)
-      ? "network"
-      : "remote";
-  };
+  // The cold build's transport verdict is its OWN run's (`NixRun.transportFailure`):
+  // a host that went unreachable mid-provision exits with Nix's code, so what
+  // ssh and Nix SAID is the evidence — never a builder's log (see `nixLog.ts`).
+  // An `aborted` (user verb) is RETRYABLE `"network"` — never the bounded
+  // `"remote"` default — so a user abort never burns the give-up budget.
+  // `lifetime-expired` (our kill) never reaches here: the step intercepts its
+  // own kill inline via `expiredResult`.
+  const causeFor = (res: NixRun): "network" | "remote" =>
+    res.kind === "aborted" || res.transportFailure ? "network" : "remote";
 
   const rootPath = agentGcRootPath(isLocal, drvPath);
   // No root path means no rootable agent, and every step below ends at the

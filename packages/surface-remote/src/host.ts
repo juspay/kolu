@@ -139,9 +139,11 @@ const AUTH_REFUSED_RE =
  *  `Permission denied (publickey,…)` (the parenthesised auth-method list keeps
  *  a remote command's generic "Permission denied" from misclassifying),
  *  `Too many authentication failures`, and `Host key verification failed.`
- *  (the stable final line for both an unknown and a CHANGED host key). A miss
- *  only means the failure stays an untyped transport error (retried) — never a
- *  wrong terminal verdict. */
+ *  (the stable final line for both an unknown and a CHANGED host key). On the
+ *  arch probe a miss only means the failure stays an untyped transport error
+ *  (retried) — never a wrong terminal verdict. On an agent dial's exit 255 it is
+ *  one of the two signals that ssh (not the agent) failed, so a miss there —
+ *  with no network line either — reads as the agent's own bounded exit. */
 export function sshRefusalOf(line: string): SshRefusal | null {
   if (HOST_KEY_UNVERIFIED_RE.test(line)) return "host-key-unverified";
   if (AUTH_REFUSED_RE.test(line)) return "auth-refused";

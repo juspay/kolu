@@ -14,6 +14,7 @@
  * odu's lanes. Each keys its own map and tears its own sessions down.
  */
 
+import { once } from "node:events";
 import { buildSurfaceFace, type SurfaceFace } from "@kolu/surface/client";
 import type { Surface, SurfaceSpec } from "@kolu/surface/define";
 import { stdioLink } from "@kolu/surface/links/stdio";
@@ -23,7 +24,6 @@ import {
 } from "@kolu/surface/links/readiness";
 import {
   buildAgentCommand,
-  forEachLine,
   isLocalHost,
   looksLikeNetworkError,
   ResolveDrvError,
@@ -35,6 +35,7 @@ import { resolveAgentDrv, type AgentResolutionContext } from "./agentDrv";
 import type { AgentDerivation } from "./agentDerivation";
 import { makeProvisionBudgets, provisionAgent } from "./nixCopy";
 import { spawnOwnedProcessGroup } from "./processGroup";
+import split from "split2";
 import {
   type ClosedInfo,
   classifyClosed,
@@ -387,14 +388,28 @@ export function sshConnector<S extends SurfaceSpec>(
     // (or its wrapper) exiting 255 on startup must not read as "host
     // unreachable" and retry forever.
     let sshReportedTransportFailure = false;
-    child.stderr?.setEncoding("utf-8");
-    child.stderr?.on("data", (chunk: string) =>
-      forEachLine(chunk, (line) => {
-        if (looksLikeNetworkError(line) || sshRefusalOf(line) !== null) {
-          sshReportedTransportFailure = true;
-        }
-        ctx.remoteProgress(line);
-      }),
+    // Whole lines, via `split2` exactly as `process.ts` reads a child's stderr:
+    // the verdict reads ssh's reason, so it must never see half of one cut at a
+    // libuv read boundary.
+    const stderrLines =
+      child.stderr === null
+        ? null
+        : child.stderr
+            .setEncoding("utf-8")
+            .pipe(split({ maxLength: child.stderr.readableHighWaterMark }));
+    stderrLines?.on("data", (line: string) => {
+      if (line.trim() === "") return;
+      if (looksLikeNetworkError(line) || sshRefusalOf(line) !== null) {
+        sshReportedTransportFailure = true;
+      }
+      ctx.remoteProgress(line);
+    });
+    // A newline-free run past the stream's own bound stops the forwarding, and
+    // says so — the link itself is not this stream's to kill.
+    stderrLines?.on("error", (err: Error) =>
+      ctx.remoteProgress(
+        `${opts.binary} on ${opts.host}: stderr no longer forwarded — ${err.message}`,
+      ),
     );
 
     // One `closed` per connection: the child's `exit` (a link/agent death — the loop
@@ -425,25 +440,23 @@ export function sshConnector<S extends SurfaceSpec>(
             sshReportedTransportFailure,
           }),
         );
-      const stderr = child.stderr;
       // ssh prints its reason and exits; `exit` can reach us before that last
-      // stderr chunk does. Only an ssh 255 still lacking its reason waits — for
-      // the stream to end, bounded, since a forked ControlMaster may hold it.
+      // line does. Only an ssh 255 still lacking its reason waits — for the
+      // line stream to end (its final partial line flushed and classified),
+      // bounded, since a forked ControlMaster may hold the pipe open.
       if (
         !usesSsh ||
         code !== 255 ||
         sshReportedTransportFailure ||
-        stderr === null ||
-        stderr.readableEnded
+        stderrLines === null ||
+        stderrLines.readableEnded
       ) {
         decide();
         return;
       }
-      const drain = setTimeout(decide, SSH_STDERR_DRAIN_MS);
-      stderr.once("end", () => {
-        clearTimeout(drain);
-        decide();
-      });
+      once(stderrLines, "end", {
+        signal: AbortSignal.timeout(SSH_STDERR_DRAIN_MS),
+      }).then(decide, decide);
     });
     child.on("error", (err) =>
       settle({ kind: "spawn-error", message: err.message }),

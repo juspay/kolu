@@ -109,6 +109,13 @@ export interface RunOptions {
   /** Aborting this settles the run as `{ kind: "aborted" }` and group-kills the child
    *  (and its ssh grandchild). Threaded from the connector's per-dial abort. */
   signal?: AbortSignal;
+  /** The longest stderr line (in characters) the child may write before it is
+   *  killed as `output-error`. Defaults to the stream's own buffering bound
+   *  (`readableHighWaterMark`, 64 KiB) — right for a child whose stderr is human
+   *  text. A child whose stderr is a STRUCTURED stream that legitimately carries
+   *  long records (Nix's `--log-format internal-json`, one JSON event per line,
+   *  builder log lines included) states its own bound. */
+  maxLineLength?: number;
 }
 
 /** A human-readable tail describing how a run ended — honest across every
@@ -156,6 +163,7 @@ interface LifetimeSpawn {
   onProgress: (line: string) => void;
   policy: LifetimePolicy;
   signal?: AbortSignal;
+  maxLineLength?: number;
 }
 
 /** Spawn a child that OWNS its lifetime: forward stderr lines to `onProgress`,
@@ -247,9 +255,12 @@ function runWithLifetime(
       // trailing partial line so classification never depends on libuv chunks,
       // while its bound prevents a newline-free child from retaining an
       // ever-growing fragment. Use the stream's own buffering contract as the
-      // bound instead of inventing a second magic size.
+      // bound instead of inventing a second magic size — unless the caller
+      // stated a bound for a structured stream (see `RunOptions.maxLineLength`).
       const lines = proc.stderr.pipe(
-        split({ maxLength: proc.stderr.readableHighWaterMark }),
+        split({
+          maxLength: o.maxLineLength ?? proc.stderr.readableHighWaterMark,
+        }),
       );
       lines.on("data", (line: string) => o.onProgress(line));
       lines.on("error", (err: Error) => {
@@ -296,5 +307,6 @@ export function runCapture(
     onProgress: opts.onProgress ?? (() => {}),
     policy: opts.policy,
     signal: opts.signal,
+    maxLineLength: opts.maxLineLength,
   }).then(({ result, stdout }) => ({ ...result, stdout }));
 }

@@ -42,6 +42,11 @@ const okOut = (stdout: string): CaptureResult => ({
 });
 const failOut: CaptureResult = { ok: false, kind: "exit", code: 1, stdout: "" };
 
+/** Nix's `--log-format internal-json` line for an event — the exact shape the
+ *  real `nix` writes to stderr (verified against nix 2.34). */
+const nixJson = (event: Record<string, unknown>): string =>
+  `@nix ${JSON.stringify(event)}`;
+
 /** The two speculative closure copies, matched by SHAPE rather than position —
  *  both argv start with `-v` (per-path progress keeps a healthy transfer alive
  *  under progress-liveness), so an index-based match would silently stop
@@ -343,8 +348,27 @@ describe("provisionAgent GC-root pinning (cold path)", () => {
 });
 
 describe("provisionAgent cause classification", () => {
-  it("classifies a transport 255 on the build as network", async () => {
-    mockNix({ realise: { ok: false, kind: "exit", code: 255, stdout: "" } });
+  it("classifies the build's ssh-ng connection failure as network", async () => {
+    // What real nix does when its ssh to the remote store fails: ssh's own raw
+    // stderr, Nix's own error, and exit 1 — never 255 (that is OUR ssh's code).
+    vi.mocked(runCapture).mockImplementation(async (_cmd, args, opts) => {
+      if (args.includes("--outputs")) return okOut(`${STORE}\n`);
+      if (args.includes("--print-out-paths")) {
+        opts?.onProgress?.(
+          "ssh: connect to host testhost port 22: Connection timed out",
+        );
+        opts?.onProgress?.(
+          nixJson({
+            action: "msg",
+            level: 0,
+            msg: "error: failed to start SSH connection to 'testhost'",
+            raw_msg: "failed to start SSH connection to 'testhost'",
+          }),
+        );
+        return failOut;
+      }
+      return failOut;
+    });
     const res = await provisionAgent({
       host: "testhost",
       derivation: directAgentDerivation(DRV, TEST_BINARY_CACHE),
@@ -1116,11 +1140,6 @@ describe("staging replaces the build when it can (steps 2/3 → 4a)", () => {
     );
   });
 });
-
-/** Nix's `--log-format internal-json` line for an event — the exact shape the
- *  real `nix` writes to stderr (verified against nix 2.34). */
-const nixJson = (event: Record<string, unknown>): string =>
-  `@nix ${JSON.stringify(event)}`;
 
 /** An ANSI SGR sequence, the way Nix colours its messages even into a pipe. */
 const sgr = (code: string): string => `\u001b[${code}m`;

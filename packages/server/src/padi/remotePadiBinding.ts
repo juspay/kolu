@@ -812,12 +812,12 @@ export function ensureRemotePadiBinding(
   base.onState((s) => {
     if (s.phase === "failed") {
       // The EPOCH verdict outranks the generic give-up banner (juspay/kolu#2101).
-      // `link-failed` means "we could not reach it"; an `unspeakable-protocol`
-      // standing verdict means "we reached it and it is from another epoch" — a
-      // strictly more specific fact about the SAME give-up, which the gate stood
-      // up on the very dials that exhausted the budget. Overwriting it here would
-      // put the operator back in front of a "can't reach this host" card for a
-      // host that answered every time.
+      // `link-failed` means "the link gave up" (stalled, or setup kept failing);
+      // an `unspeakable-protocol` standing verdict means "we reached it and it is
+      // from another epoch" — a strictly more specific fact about the SAME
+      // give-up, which the gate stood up on the very dials that exhausted the
+      // budget. Overwriting it here would put the operator back in front of a
+      // generic give-up card for a host whose real problem is known.
       //
       // Deliberately narrow: every OTHER standing anomaly (adopted-stale, a skew
       // the admit refused) describes a bind that WAS working, so a later terminal
