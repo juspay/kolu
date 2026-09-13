@@ -117,6 +117,20 @@ describe("nixLogReader", () => {
     const { narrated } = read(["@nix {not json"]);
     expect(narrated).toEqual(["@nix {not json"]);
   });
+
+  it("still recognises a build-log result whose `type` field carries a space after the colon — the pre-filter is whitespace-tolerant, not a literal byte match", () => {
+    const { reader } = read([
+      `@nix {"action":"start","fields":["${BAD_DRV}","",1,1],"id":1,"level":3,"parent":0,"text":"building '${BAD_DRV}'","type":105}`,
+      // Not Nix's own current spelling, but valid JSON all the same: the
+      // pre-filter must not assume nlohmann::json's exact `dump()` byte output
+      // is a protocol guarantee.
+      `@nix {"action":"result","fields":["curl: Failed to connect to crates.io"],"id":1,"type": 101}`,
+      `@nix {"action":"msg","level":0,"msg":"error: Cannot build '${BAD_DRV}'."}`,
+    ]);
+    expect(reader.rootError()?.detail).toEqual([
+      "curl: Failed to connect to crates.io",
+    ]);
+  });
 });
 
 describe("runNix", () => {

@@ -144,10 +144,16 @@ const NIX_PREFIX = "@nix ";
 
 /** Nix writes `action` first, so a progress result — sent by the hundred
  *  thousand during a large copy — is recognisable from its prefix alone. A
- *  build-log result always carries `"type":101` somewhere, so a line lacking it
- *  is dropped with no parse at all; anything else falls through to the parse. */
+ *  build-log result always carries a `"type":101` field somewhere, so a line
+ *  lacking it is dropped with no parse at all; anything else falls through to
+ *  the parse. Whitespace-tolerant (`\s*`), not a literal `includes`: the exact
+ *  byte spelling is unspecified JSON formatting, not part of the protocol, and
+ *  this pre-filter is a PURE optimisation over the parse below (which already
+ *  checks `type === RES_BUILD_LOG_LINE` on the decoded number) — a false
+ *  negative here would silently drop the exact evidence (a failed build's own
+ *  last log lines) this whole module exists to keep. */
 const RESULT_PREFIX = `${NIX_PREFIX}{"action":"result"`;
-const BUILD_LOG_TYPE = `"type":${RES_BUILD_LOG_LINE}`;
+const BUILD_LOG_TYPE_RE = new RegExp(`"type"\\s*:\\s*${RES_BUILD_LOG_LINE}\\b`);
 
 /** Classify one stderr line: a decoded event, `"ignored"` for a Nix event this
  *  reader has no use for (activity stops, progress results — dropped before any
@@ -156,7 +162,7 @@ const BUILD_LOG_TYPE = `"type":${RES_BUILD_LOG_LINE}`;
  *  is surfaced verbatim rather than dropped). */
 function classify(line: string): NixEvent | "ignored" | "raw" {
   if (!line.startsWith(NIX_PREFIX)) return "raw";
-  if (line.startsWith(RESULT_PREFIX) && !line.includes(BUILD_LOG_TYPE)) {
+  if (line.startsWith(RESULT_PREFIX) && !BUILD_LOG_TYPE_RE.test(line)) {
     return "ignored";
   }
   let value: unknown;
