@@ -202,7 +202,9 @@ describe("stderr line bound", () => {
   // `--log-format internal-json` writes when a builder prints one long line.
   const LONG_LINE = [
     "-e",
-    "process.stderr.write('x'.repeat(131072) + '\\n'); process.exit(0)",
+    // Exit only once the write has flushed: stderr to a pipe is asynchronous, and
+    // an immediate `process.exit` truncates it (at 64 KiB on macOS).
+    "process.stderr.write('x'.repeat(131072) + '\\n', () => process.exit(0))",
   ] as const;
 
   it("the default text bound kills a child past it, loudly", async () => {
