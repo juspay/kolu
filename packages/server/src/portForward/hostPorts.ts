@@ -17,7 +17,7 @@ import { firstFrameOrThrow } from "@kolu/surface/first-frame";
 import { Effect, Option, type Stream } from "effect";
 import { encodeHostKey, type HostKey } from "kolu-common/hostKey";
 import {
-  foldUnclaimedPorts,
+  foldBinds,
   type HostListeners,
   type PortFamily,
 } from "kolu-common/surface";
@@ -71,7 +71,7 @@ export function hostPortsOf(reading: HostListeners): HostPorts {
   // SCOPE wins and the family is read off the binds holding it. A family-only
   // merge would pick v4 from another user's interface bind over our `[::1]`
   // loopback one, and the door would dial 127.0.0.1 where nothing listens.
-  const binds = foldUnclaimedPorts([
+  const binds = foldBinds([
     ...reading.claimed,
     ...(reading.unclaimed.status === "known" ? reading.unclaimed.list : []),
   ]);

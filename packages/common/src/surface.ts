@@ -179,9 +179,9 @@ export {
   TerminalIdSchema,
   type TerminalPorts,
   TerminalSnapshotSchema,
-  foldUnclaimedPorts,
+  foldBinds,
   UNKNOWN_HOST_LISTENERS,
-  type UnclaimedPort,
+  type PortBind,
   type UnclaimedPorts,
 } from "@kolu/terminal-vocab/schema";
 

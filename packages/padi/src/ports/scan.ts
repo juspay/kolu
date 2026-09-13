@@ -42,7 +42,7 @@ import {
 } from "osfacts-client";
 import {
   foldPorts,
-  foldUnclaimedPorts,
+  foldBinds,
   type PortFamily,
   type PortInfo,
   type PortScope,
@@ -354,7 +354,7 @@ function joinPorts(
       claimed: foldPorts([...byPid.values()].flat()),
       unclaimed: unclaimedBlind
         ? { status: "unknown" }
-        : { status: "known", list: foldUnclaimedPorts(unclaimed) },
+        : { status: "known", list: foldBinds(unclaimed) },
     },
   };
 }

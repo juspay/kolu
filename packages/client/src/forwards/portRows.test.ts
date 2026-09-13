@@ -15,10 +15,15 @@ import type {
   HostListeners,
   KoluForward,
   PortInfo,
-  UnclaimedPort,
+  PortBind,
 } from "kolu-common/surface";
 import { describe, expect, it } from "vitest";
-import { heldByNoTerminal, portGroups } from "./portRows";
+import {
+  bindOf,
+  heldByNoTerminal,
+  listenerLabel,
+  portGroups,
+} from "./portRows";
 
 const LOCAL = { kind: "local" as const };
 
@@ -30,7 +35,7 @@ const port = (p: number, command = "node vite"): PortInfo => ({
   family: "v4",
 });
 
-const bind = (p: number): UnclaimedPort => ({
+const bind = (p: number): PortBind => ({
   port: p,
   scope: "loopback",
   family: "v4",
@@ -51,7 +56,7 @@ const forward = (
 
 const hostOf = (
   claimed: PortInfo[],
-  unclaimed: UnclaimedPort[] = [],
+  unclaimed: PortBind[] = [],
 ): HostListeners => ({
   status: "known",
   claimed,
@@ -85,6 +90,20 @@ describe("heldByNoTerminal — what detached rests on", () => {
 
   it("is never true while a terminal is unscanned — unknown is not no", () => {
     expect(heldByNoTerminal("unknown", 18440)).toBe(false);
+  });
+});
+
+describe("bindOf / listenerLabel — one reading of either listener arm", () => {
+  it("reads the bind off a claimed listener and an unclaimed one alike", () => {
+    expect(bindOf({ info: port(5173) })).toMatchObject(bind(5173));
+    expect(bindOf({ bind: bind(631) })).toEqual(bind(631));
+  });
+
+  it("names a claimed owner by its command, an unclaimed one honestly", () => {
+    expect(listenerLabel({ info: port(18440, "bun odu web-daemon") })).toBe(
+      "bun odu web-daemon",
+    );
+    expect(listenerLabel({ bind: bind(631) })).toBe("owner not visible");
   });
 });
 

@@ -154,6 +154,30 @@ export function portCommand(argv: readonly string[], name: string): string {
     : `${joined.slice(0, PORT_COMMAND_MAX_CHARS - 1)}…`;
 }
 
+/** WHERE one listening TCP socket is bound — the port, and the two facts a
+ *  consumer acts on ({@link PortScope}, {@link PortFamily}).
+ *
+ *  A bind is the same fact whoever holds the socket, so it is named for what it
+ *  IS rather than for where it sits. A socket NO readable process claims (another
+ *  user's server — a system daemon, a container proxy — seen from a same-user
+ *  scanner) is carried as exactly this: whose it is, is what could not be read,
+ *  so there is no `name` to carry rather than an empty one. A claimed listener
+ *  ({@link PortInfoSchema}) is a bind plus its owner, built from these same field
+ *  schemas, so any reader that needs only the bind reads it off either.
+ *
+ *  Not `PortInfo` with optional owner fields, for the reason `PortRow`'s arms are
+ *  separate: a render site reading an absent name as `""` would print a blank
+ *  where the honest word is "owner not visible". */
+export const PortBindSchema = Schema.Struct({
+  /** The TCP port the socket is listening on. */
+  port: TcpPortSchema,
+  /** Where it is bound — see {@link PortScopeSchema}. */
+  scope: PortScopeSchema,
+  /** Which IP family it is bound on — see {@link PortFamilySchema}. */
+  family: PortFamilySchema,
+});
+export type PortBind = typeof PortBindSchema.Type;
+
 /** One listening TCP port and the program holding it — "what is this thing
  *  serving?".
  *
@@ -168,8 +192,10 @@ export function portCommand(argv: readonly string[], name: string): string {
  *  a pid here would name an arbitrary one of them. Attribution is to a SUBTREE
  *  (a terminal's) or to the HOST, which are the questions a caller asks. */
 export const PortInfoSchema = Schema.Struct({
-  /** The TCP port the socket is listening on. */
-  port: TcpPortSchema,
+  // The bind's own field schemas, in the PERSISTED key order — `port` first,
+  // `scope`/`family` last. Spreading `PortBindSchema.fields` up front would
+  // reorder the encoded keys of every stored snapshot (schemaByteCompat pins it).
+  port: PortBindSchema.fields.port,
   /** The PROGRAM holding the listener (`node`, `workerd`, …), for a glanceable
    *  "who is this?" beside the number — `argv[0]`'s basename on linux, the
    *  executable path's basename on darwin. Deliberately not linux's `comm`: that
@@ -183,27 +209,10 @@ export const PortInfoSchema = Schema.Struct({
    *  `bun` by name. Folded TOGETHER with `name` (see {@link foldPorts}), so the
    *  two always describe the same process. */
   command: Schema.String,
-  /** Where it is bound — see {@link PortScopeSchema}. */
-  scope: PortScopeSchema,
-  /** Which IP family it is bound on — see {@link PortFamilySchema}. */
-  family: PortFamilySchema,
+  scope: PortBindSchema.fields.scope,
+  family: PortBindSchema.fields.family,
 });
 export type PortInfo = typeof PortInfoSchema.Type;
-
-/** A listening TCP socket the OS reported but NO readable process claims — the
- *  shape of another user's server (a system daemon, a container proxy) seen from
- *  a same-user scanner. Only the bind: whose it is, is exactly what could not be
- *  read, so there is no `name` to carry rather than an empty one.
- *
- *  A separate schema rather than `PortInfo` with optional owner fields for the
- *  reason `PortRow`'s arms are separate: a render site reading an absent name as
- *  `""` would print a blank where the honest word is "owner not visible". */
-export const UnclaimedPortSchema = Schema.Struct({
-  port: TcpPortSchema,
-  scope: PortScopeSchema,
-  family: PortFamilySchema,
-});
-export type UnclaimedPort = typeof UnclaimedPortSchema.Type;
 
 /** Collapse listening sockets into the one row per PORT that a reader wants —
  *  sorted by port, deduplicated, with `scope` folded to the widest bind.
@@ -249,12 +258,11 @@ export function foldPorts(rows: readonly PortInfo[]): PortInfo[] {
   });
 }
 
-/** {@link foldPorts} for the sockets no readable process claims — one row per
- *  port, the widest bind, sorted. The same bind rule, because an unclaimed socket
- *  is still a bind a door has to dial correctly. */
-export function foldUnclaimedPorts(
-  rows: readonly UnclaimedPort[],
-): UnclaimedPort[] {
+/** {@link foldPorts} for bare binds — one row per port, the widest bind, sorted.
+ *  The same bind rule, because every bind is one a door has to dial correctly:
+ *  the sockets no readable process claims, and a claimed + unclaimed union read
+ *  for its binds alone (a `PortInfo` IS a bind, so it passes as one). */
+export function foldBinds(rows: readonly PortBind[]): PortBind[] {
   return foldByPort(rows, (prior, row) => ({
     port: prior.port,
     ...mergeBind(prior, row),

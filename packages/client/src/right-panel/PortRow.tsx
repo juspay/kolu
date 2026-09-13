@@ -22,11 +22,13 @@ import { Effect } from "effect";
 import type { HostKey } from "kolu-common/hostKey";
 import { type Component, createSignal, Show } from "solid-js";
 import { toast } from "solid-sonner";
-import { match } from "ts-pattern";
 import { DetachedBadge } from "../forwards/DetachedBadge";
 import { ForwardControls, ForwardPill } from "../forwards/ForwardPill";
 import type { PortAction } from "../forwards/portAction";
-import type { PortRow as PortRowData } from "../forwards/portRows";
+import {
+  listenerLabel,
+  type PortRow as PortRowData,
+} from "../forwards/portRows";
 import { ensureDoor, urlForPort } from "../forwards/openPort";
 import { ServingTerminalLink } from "../forwards/ServingTerminalLink";
 import { runAction, type UiAction } from "../runAction";
@@ -47,17 +49,14 @@ export const PortRow: Component<{
   const [opening, setOpening] = createSignal(false);
   const forward = () => props.row.forward;
 
-  /** What is behind the number, in words: the owning program's full command
-   *  line for a claimed listener (the program NAME alone cannot tell four
-   *  `bun …/main.ts web <dir>` servers apart), the honest "owner not visible"
-   *  for a socket the scanner could not attribute, and the door sentence for an
-   *  orphan. */
-  const label = (): string =>
-    match(props.row)
-      .with({ kind: "port" }, (row) => row.info.command)
-      .with({ kind: "unclaimed" }, () => "owner not visible")
-      .with({ kind: "orphan" }, () => "also forwarded on this host")
-      .exhaustive();
+  /** What is behind the number, in words: who holds a listener
+   *  ({@link listenerLabel}), and the door sentence for an orphan. */
+  const label = (): string => {
+    const row = props.row;
+    return row.kind === "orphan"
+      ? "also forwarded on this host"
+      : listenerLabel(row);
+  };
 
   /** A server this tile printed that NO terminal's subtree holds — the join only
    *  files a claimed listener as `printed` on that positive fact. */

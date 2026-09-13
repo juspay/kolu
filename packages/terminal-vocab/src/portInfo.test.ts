@@ -10,7 +10,7 @@
 import { describe, expect, it } from "vitest";
 import {
   foldPorts,
-  foldUnclaimedPorts,
+  foldBinds,
   PORT_COMMAND_MAX_CHARS,
   type PortFamily,
   type PortInfo,
@@ -275,10 +275,10 @@ describe("foldPorts — the owner pair", () => {
   });
 });
 
-describe("foldUnclaimedPorts", () => {
+describe("foldBinds", () => {
   it("collapses binds per port with the same scope and family rule", () => {
     expect(
-      foldUnclaimedPorts([
+      foldBinds([
         { port: 631, scope: "loopback", family: "v6" },
         { port: 22, scope: "any", family: "v6" },
         { port: 631, scope: "loopback", family: "v4" },

@@ -38,7 +38,7 @@ import {
   type KoluForward,
   listenerAt,
   type PortInfo,
-  type UnclaimedPort,
+  type PortBind,
 } from "kolu-common/surface";
 
 /** Why a row is in the group it is in. */
@@ -61,6 +61,26 @@ export function heldByNoTerminal(
   port: number,
 ): boolean {
   return held !== "unknown" && !held.has(port);
+}
+
+/** Anything that names one listener — a `PortRow` listener arm, a printed-URL
+ *  join's listening arm, a `listenerAt` hit: a claimed listener carries its
+ *  `info`, an unclaimed one only its `bind`. */
+type Listener = { bind: PortBind } | { info: PortInfo };
+
+/** The bind behind a listener, whoever holds it — a `PortInfo` IS a bind, so a
+ *  reader that needs only the bind (scope, family) asks this rather than
+ *  re-projecting the two arms at its own call site. */
+export function bindOf(x: Listener): PortBind {
+  return "bind" in x ? x.bind : x.info;
+}
+
+/** Who holds a listener, in words: the owner's full command line (the program
+ *  NAME alone cannot tell four `bun …/main.ts web <dir>` servers apart), or the
+ *  honest "owner not visible" for a socket the scanner could not attribute. The
+ *  ONE spelling, so the Ports row and the printed-URL card say the same thing. */
+export function listenerLabel(x: Listener): string {
+  return "bind" in x ? "owner not visible" : x.info.command;
 }
 
 /** One row of the section.
@@ -86,7 +106,7 @@ export type PortRow =
   | {
       kind: "unclaimed";
       port: number;
-      bind: UnclaimedPort;
+      bind: PortBind;
       origin: Exclude<PortOrigin, "subtree">;
       forward: KoluForward | undefined;
     }

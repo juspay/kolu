@@ -39,7 +39,11 @@ import {
 } from "../forwards/joinPrintedUrl";
 import { ensureDoor, urlForPort } from "../forwards/openPort";
 import { portAction } from "../forwards/portAction";
-import { heldByNoTerminal } from "../forwards/portRows";
+import {
+  bindOf,
+  heldByNoTerminal,
+  listenerLabel,
+} from "../forwards/portRows";
 import { forwardsForHost, viewerHost } from "../forwards/useForwards";
 import { activeHostListeners } from "../forwards/useHostListeners";
 import { DetachedBadge } from "../forwards/DetachedBadge";
@@ -163,7 +167,7 @@ export const PrintedUrlCard: Component<{ target: PrintedUrlCardTarget }> = (
     const j = listening();
     if (j === undefined) return undefined;
     const reach = portReach({
-      scope: j.kind === "unclaimed" ? j.bind.scope : j.info.scope,
+      scope: bindOf(j).scope,
       onKoluHost: isActiveHostLocal(),
     });
     return portAction({ reach, viewerOnHost: viewerOnHost() });
@@ -482,12 +486,10 @@ export const PrintedUrlCard: Component<{ target: PrintedUrlCardTarget }> = (
                       class="min-w-0 truncate font-mono text-fg-3"
                       classList={{ italic: j.kind === "unclaimed" }}
                       title={
-                        j.kind === "unclaimed" ? undefined : j.info.command
+                        j.kind === "unclaimed" ? undefined : listenerLabel(j)
                       }
                     >
-                      {j.kind === "unclaimed"
-                        ? "owner not visible"
-                        : j.info.command}
+                      {listenerLabel(j)}
                     </span>
                   </div>
                   <p class="text-fg-3 text-[11px] mb-2">{prose()}</p>

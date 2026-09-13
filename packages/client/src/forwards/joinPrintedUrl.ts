@@ -25,7 +25,7 @@ import {
   listenerAt,
   type PortInfo,
   type TerminalPorts,
-  type UnclaimedPort,
+  type PortBind,
 } from "kolu-common/surface";
 import { parseLoopbackUrl } from "@kolu/url-shape";
 
@@ -52,7 +52,7 @@ export type PrintedUrlJoin =
   | {
       kind: "unclaimed";
       port: number;
-      bind: UnclaimedPort;
+      bind: PortBind;
       forward: KoluForward | undefined;
     };
 

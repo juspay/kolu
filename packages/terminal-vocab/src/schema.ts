@@ -165,21 +165,21 @@ export const ForegroundSchema = Schema.Struct({
 // two-way) and what kolu's UI decides from them (`portReach`).
 
 export {
+  foldBinds,
   foldPorts,
-  foldUnclaimedPorts,
   PORT_COMMAND_MAX_CHARS,
   type PortFamily,
   PortFamilySchema,
   type PortInfo,
   PortInfoSchema,
+  type PortBind,
+  PortBindSchema,
   portCommand,
   type PortScope,
   PortScopeSchema,
   preferredFamily,
   samePortList,
   TcpPortSchema,
-  type UnclaimedPort,
-  UnclaimedPortSchema,
   widerScope,
 } from "./ports.ts";
 
@@ -187,12 +187,12 @@ export {
 // and the ones below are used right here to build `TerminalPortsSchema`,
 // `HostListenersSchema` and `portReach`.
 import {
+  type PortBind,
+  PortBindSchema,
   type PortInfo,
   PortInfoSchema,
   type PortScope,
   samePortList,
-  type UnclaimedPort,
-  UnclaimedPortSchema,
 } from "./ports.ts";
 
 /** What a terminal is serving, as an HONEST two-way — not a bare `PortInfo[]` that
@@ -354,7 +354,7 @@ export function portsEqual(a: TerminalPorts, b: TerminalPorts): boolean {
 export const UnclaimedPortsSchema = Schema.Union([
   Schema.Struct({
     status: Schema.Literal("known"),
-    list: Schema.Array(UnclaimedPortSchema),
+    list: Schema.Array(PortBindSchema),
   }),
   Schema.Struct({ status: Schema.Literal("unknown") }),
 ]);
@@ -416,7 +416,7 @@ export const hostListenersEqual: (
  *     claimed and the unclaimed half is blind (it may be another user's). */
 export type ListenerAt =
   | { kind: "claimed"; info: PortInfo }
-  | { kind: "unclaimed"; bind: UnclaimedPort }
+  | { kind: "unclaimed"; bind: PortBind }
   | { kind: "absent" }
   | { kind: "unknown" };
 

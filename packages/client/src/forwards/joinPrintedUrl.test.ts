@@ -12,7 +12,7 @@ import type {
   HostListeners,
   KoluForward,
   PortInfo,
-  UnclaimedPort,
+  PortBind,
 } from "kolu-common/surface";
 import { describe, expect, it } from "vitest";
 import {
@@ -31,7 +31,7 @@ const info = (port: number, name = "node"): PortInfo => ({
 
 const hostOf = (
   claimed: PortInfo[],
-  unclaimed: UnclaimedPort[] | "blind" = [],
+  unclaimed: PortBind[] | "blind" = [],
 ): HostListeners => ({
   status: "known",
   claimed,
