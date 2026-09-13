@@ -52,7 +52,6 @@ describe("portsInText", () => {
 function fakeTerminal(viewport = 3) {
   const rows: Array<[string, boolean]> = [];
   let onWrite: (() => void) | undefined;
-  let onScroll: (() => void) | undefined;
   const markers: Array<{ line: number; isDisposed: boolean }> = [];
   let type: "normal" | "alternate" = "normal";
   const term: ScannableTerminal = {
@@ -85,10 +84,6 @@ function fakeTerminal(viewport = 3) {
       onWrite = listener;
       return { dispose: () => (onWrite = undefined) };
     },
-    onScroll: (listener) => {
-      onScroll = listener;
-      return { dispose: () => (onScroll = undefined) };
-    },
     registerMarker: (offset = 0) => {
       const base = Math.max(0, rows.length - viewport);
       const cursor = Math.min(rows.length, viewport) - 1;
@@ -120,12 +115,12 @@ function fakeTerminal(viewport = 3) {
         if (m.line < 0) m.isDisposed = true;
       }
     },
-    /** A scrollback backfill: rows spliced in above everything, every marker
-     *  shifted down, and a scroll — never a write — fired. */
+    /** A scrollback backfill: rows spliced in above everything and every
+     *  marker shifted down — no write. The caller reports it to the tracker, as
+     *  the backfill controller's `onPrepended` does. */
     prepend: (...lines: string[]) => {
       rows.unshift(...lines.map((l): [string, boolean] => [l, false]));
       for (const m of markers) m.line += lines.length;
-      onScroll?.();
     },
     setType: (t: "normal" | "alternate") => {
       type = t;
@@ -181,35 +176,35 @@ describe("trackPrintedPorts", () => {
     f.write("ready at http://localhost:5173/");
     const clock = manual();
     const id = nextId();
-    const stop = trackPrintedPorts(f.term, id, clock.schedule);
+    const tracker = trackPrintedPorts(f.term, id, clock.schedule);
     clock.flush();
     expect(printedPortsOf(id)).toEqual([5173]);
-    stop();
+    tracker.dispose();
   });
 
   it("indexes new output, coalescing a burst into one scan", () => {
     const f = fakeTerminal();
     const clock = manual();
     const id = nextId();
-    const stop = trackPrintedPorts(f.term, id, clock.schedule);
+    const tracker = trackPrintedPorts(f.term, id, clock.schedule);
     clock.flush();
     f.write("a");
     f.write("odu · http://127.0.0.1:18440/runs/x");
     f.write("b");
     clock.flush();
     expect(printedPortsOf(id)).toEqual([18440]);
-    stop();
+    tracker.dispose();
   });
 
   it("reads a soft-wrapped URL whole", () => {
     const f = fakeTerminal();
     const clock = manual();
     const id = nextId();
-    const stop = trackPrintedPorts(f.term, id, clock.schedule);
+    const tracker = trackPrintedPorts(f.term, id, clock.schedule);
     f.write("see http://localhost:51", ["73/app", true]);
     clock.flush();
     expect(printedPortsOf(id)).toEqual([5173]);
-    stop();
+    tracker.dispose();
   });
 
   it("catches a URL a program redraws INSIDE the viewport above the cursor", () => {
@@ -218,27 +213,27 @@ describe("trackPrintedPorts", () => {
     const f = fakeTerminal(4);
     const clock = manual();
     const id = nextId();
-    const stop = trackPrintedPorts(f.term, id, clock.schedule);
+    const tracker = trackPrintedPorts(f.term, id, clock.schedule);
     f.write("1", "2", "working…", "prompt");
     clock.flush();
     f.rewrite(2, "└ odu · http://127.0.0.1:18440/runs/x");
     clock.flush();
     expect(printedPortsOf(id)).toEqual([18440]);
-    stop();
+    tracker.dispose();
   });
 
   it("keeps its place across a scrollback trim", () => {
     const f = fakeTerminal(2);
     const clock = manual();
     const id = nextId();
-    const stop = trackPrintedPorts(f.term, id, clock.schedule);
+    const tracker = trackPrintedPorts(f.term, id, clock.schedule);
     f.write("a", "b", "c", "d");
     clock.flush();
     f.trim(2);
     f.write("http://localhost:3000/");
     clock.flush();
     expect(printedPortsOf(id)).toEqual([3000]);
-    stop();
+    tracker.dispose();
   });
 
   it("reads a long scrollback in chunks without splitting a URL at the edge", () => {
@@ -252,10 +247,10 @@ describe("trackPrintedPorts", () => {
     f.write(...filler, "http://localhost:51", ["73/", true], "tail");
     const clock = manual();
     const id = nextId();
-    const stop = trackPrintedPorts(f.term, id, clock.schedule);
+    const tracker = trackPrintedPorts(f.term, id, clock.schedule);
     clock.flush();
     expect(printedPortsOf(id)).toEqual([5173]);
-    stop();
+    tracker.dispose();
   });
 
   it("reads rows a scrollback BACKFILL splices in above everything", () => {
@@ -265,13 +260,14 @@ describe("trackPrintedPorts", () => {
     f.write("recent", "prompt");
     const clock = manual();
     const id = nextId();
-    const stop = trackPrintedPorts(f.term, id, clock.schedule);
+    const tracker = trackPrintedPorts(f.term, id, clock.schedule);
     clock.flush();
     expect(printedPortsOf(id)).toEqual([]);
     f.prepend("odu · http://127.0.0.1:18440/runs/x", "older output");
+    tracker.notePrepended();
     clock.flush();
     expect(printedPortsOf(id)).toEqual([18440]);
-    stop();
+    tracker.dispose();
   });
 
   it("reads a backfill that lands DURING the first multi-chunk pass", () => {
@@ -283,12 +279,13 @@ describe("trackPrintedPorts", () => {
     );
     const q = stepper();
     const id = nextId();
-    const stop = trackPrintedPorts(f.term, id, q.schedule);
+    const tracker = trackPrintedPorts(f.term, id, q.schedule);
     q.runOne(); // first chunk only
     f.prepend("http://localhost:18440/", "older");
+    tracker.notePrepended();
     q.drain();
     expect(printedPortsOf(id)).toEqual([18440]);
-    stop();
+    tracker.dispose();
   });
 
   it("reads a SECOND backfill that lands during the pass reading the first", () => {
@@ -296,16 +293,18 @@ describe("trackPrintedPorts", () => {
     f.write("recent", "prompt");
     const q = stepper();
     const id = nextId();
-    const stop = trackPrintedPorts(f.term, id, q.schedule);
+    const tracker = trackPrintedPorts(f.term, id, q.schedule);
     q.drain();
     f.prepend(
       ...Array.from({ length: SCAN_CHUNK_LINES * 2 }, (_, i) => `older ${i}`),
     );
+    tracker.notePrepended();
     q.runOne(); // the pass that reads the first backfill, one chunk in
     f.prepend("http://localhost:5173/", "oldest");
+    tracker.notePrepended();
     q.drain();
     expect(printedPortsOf(id)).toEqual([5173]);
-    stop();
+    tracker.dispose();
   });
 
   it("keeps its place when output trims the buffer BETWEEN two chunks", () => {
@@ -325,26 +324,26 @@ describe("trackPrintedPorts", () => {
     };
     const runOne = () => queue.shift()?.();
     const id = nextId();
-    const stop = trackPrintedPorts(f.term, id, schedule);
+    const tracker = trackPrintedPorts(f.term, id, schedule);
     runOne(); // first chunk only
     expect(printedPortsOf(id)).toEqual([]);
     f.trim(100);
     f.write("more");
     for (let i = 0; i < 20 && queue.length > 0; i++) runOne();
     expect(printedPortsOf(id)).toEqual([4321]);
-    stop();
+    tracker.dispose();
   });
 
   it("ignores the alternate buffer", () => {
     const f = fakeTerminal();
     const clock = manual();
     const id = nextId();
-    const stop = trackPrintedPorts(f.term, id, clock.schedule);
+    const tracker = trackPrintedPorts(f.term, id, clock.schedule);
     f.setType("alternate");
     f.write("http://localhost:9999/");
     clock.flush();
     expect(printedPortsOf(id)).toEqual([]);
-    stop();
+    tracker.dispose();
   });
 
   it("forgets the terminal on dispose", () => {
@@ -352,10 +351,10 @@ describe("trackPrintedPorts", () => {
     f.write("http://localhost:5173/");
     const clock = manual();
     const id = nextId();
-    const stop = trackPrintedPorts(f.term, id, clock.schedule);
+    const tracker = trackPrintedPorts(f.term, id, clock.schedule);
     clock.flush();
     expect(printedPortsOf(id)).toEqual([5173]);
-    stop();
+    tracker.dispose();
     expect(printedPortsOf(id)).toEqual([]);
   });
 });

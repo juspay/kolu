@@ -37,7 +37,7 @@
  * The index is as long as the browser's buffer, and a remounted terminal (a
  * reload, a host switch, a wake) holds only the attach snapshot's recent rows
  * until the user scrolls back — scrolling back backfills older rows, and those
- * are read as they arrive. A detached server whose URL was printed further
+ * are read as they arrive (the backfill controller reports each splice). A detached server whose URL was printed further
  * up than that is still listed — under "elsewhere on this host" instead of under
  * the terminal — and the printed-URL card still finds it on click. Keeping the
  * claim across a remount needs the index where the output lives, host-side
@@ -54,7 +54,7 @@ import { createStore, produce } from "solid-js/store";
 export const SCAN_CHUNK_LINES = 2_000;
 
 /** At most one scan per this many ms while output flows — a burst is one scan. */
-export const SCAN_DELAY_MS = 250;
+const SCAN_DELAY_MS = 250;
 
 /** The slice of xterm this module reads, so the scanner is testable without a
  *  DOM. `@xterm/xterm`'s `Terminal` satisfies it structurally. */
@@ -74,7 +74,6 @@ export interface ScannableTerminal {
     };
   };
   onWriteParsed(listener: () => void): { dispose(): void };
-  onScroll(listener: () => void): { dispose(): void };
   registerMarker(
     cursorYOffset?: number,
   ):
@@ -105,17 +104,28 @@ export function printedPortsOf(id: TerminalId): readonly number[] {
 }
 
 function record(id: TerminalId, found: ReadonlySet<number>): void {
-  if (found.size === 0) return;
   const prior = printed[id] ?? [];
-  const next = [...new Set([...prior, ...found])].sort((a, b) => a - b);
-  // A re-scan of an already-indexed line finds nothing new; writing the same
-  // list would still notify every reader.
-  if (next.length !== prior.length) setPrinted(id, next);
+  // The steady state — a URL still on screen, re-read every pass — finds
+  // nothing new, and must allocate nothing and notify no reader.
+  if ([...found].every((port) => prior.includes(port))) return;
+  setPrinted(
+    id,
+    [...new Set([...prior, ...found])].sort((a, b) => a - b),
+  );
 }
 
-/** Index what `term` prints, for as long as the returned disposer is not called.
- *  Disposing forgets the terminal's index; a remount re-reads whatever its
- *  buffer holds by then (see "What it cannot see" above). */
+/** What a tracked terminal's owner can tell the index. */
+export interface PrintedPortsTracker {
+  /** Rows were spliced in above everything — a scrollback backfill. A splice
+   *  fires no write, so the backfill controller says so (`onPrepended`). */
+  notePrepended(): void;
+  /** Stop, and forget this terminal's index. */
+  dispose(): void;
+}
+
+/** Index what `term` prints, until `dispose`. Disposing forgets the terminal's
+ *  index; a remount re-reads whatever its buffer holds by then (see "What it
+ *  cannot see" above). */
 export function trackPrintedPorts(
   term: ScannableTerminal,
   id: TerminalId,
@@ -123,15 +133,11 @@ export function trackPrintedPorts(
     const t = setTimeout(run, ms);
     return () => clearTimeout(t);
   },
-): () => void {
+): PrintedPortsTracker {
   type Marker = NonNullable<ReturnType<ScannableTerminal["registerMarker"]>>;
   /** Where the next pass resumes: the viewport top at the last completed pass. */
   let resume: Marker | undefined;
-  /** Sits on row 0. Rows spliced in ABOVE it (a scrollback backfill) push it
-   *  down, which is how a prepend is noticed at all: a backfill fires no write,
-   *  only a scroll. Re-armed on row 0 after every sighting and every trim. */
-  let top: Marker | undefined;
-  /** Prepends seen, and prepends a completed pass has read past. A pass clears
+  /** Prepends reported, and prepends a completed pass has read past. A pass clears
    *  a prepend only if it STARTED at row 0 after that prepend was seen — so a
    *  prepend landing mid-pass (its rows above a continuation that has already
    *  moved on) is still owed a pass from the top. */
@@ -152,11 +158,6 @@ export function trackPrintedPorts(
   };
   const live = (m: Marker | undefined): m is Marker =>
     m !== undefined && !m.isDisposed;
-  const armTop = (): void => {
-    if (term.buffer.active.type !== "normal") return;
-    top?.dispose();
-    top = markAt(0);
-  };
 
   const request = (ms: number): void => {
     if (cancelPending === undefined) cancelPending = schedule(scan, ms);
@@ -184,6 +185,11 @@ export function trackPrintedPorts(
     }
     const end = Math.min(buf.length, start + SCAN_CHUNK_LINES);
     const found = new Set<number>();
+    const take = (text: string): void => {
+      // Most rows hold no URL; skip the pattern for them.
+      if (!text.includes("://")) return;
+      for (const port of portsInText(text)) found.add(port);
+    };
     let line = "";
     let lineStart = start;
     for (let y = start; y < end; y++) {
@@ -193,7 +199,7 @@ export function trackPrintedPorts(
         line += row.translateToString(true);
         continue;
       }
-      for (const port of portsInText(line)) found.add(port);
+      take(line);
       line = row.translateToString(true);
       lineStart = y;
     }
@@ -202,16 +208,17 @@ export function trackPrintedPorts(
       // inside this chunk, it is NOT read here — half a URL can name the wrong
       // port (`:51` of `:5173`) — and the next slice starts at its first row.
       // Only a single logical line longer than a whole chunk is read in halves.
-      const next = lineStart > start ? lineStart : end;
-      if (next === end) {
-        for (const port of portsInText(line)) found.add(port);
+      if (lineStart === start) {
+        take(line);
+        cont = markAt(end);
+      } else {
+        cont = markAt(lineStart);
       }
       record(id, found);
-      cont = markAt(next);
       cancelPending = schedule(scan, 0);
       return;
     }
-    for (const port of portsInText(line)) found.add(port);
+    take(line);
     record(id, found);
     if (passFromTop !== undefined) {
       prependsRead = Math.max(prependsRead, passFromTop);
@@ -224,39 +231,30 @@ export function trackPrintedPorts(
     // immutable. Re-reading one screenful per scan is the price, and it is small.
     resume?.dispose();
     resume = markAt(snapToWrapHead(buf, buf.baseY));
-    if (!live(top)) armTop();
     // A prepend that landed while this pass ran is still owed its rows.
     if (prependsSeen > prependsRead) request(0);
   }
 
   const writes = term.onWriteParsed(() => request(SCAN_DELAY_MS));
-  // A backfill splices older rows in above everything and fires only a scroll.
-  // Most scrolls are the user's; they cost one marker read here.
-  const scrolls = term.onScroll(() => {
-    if (live(top) && top.line > 0) {
-      prependsSeen += 1;
-      armTop();
-      request(SCAN_DELAY_MS);
-    } else if (!live(top)) {
-      armTop();
-    }
-  });
-  armTop();
   // The buffer may already hold a restored scrollback before the first write.
   request(0);
 
-  return () => {
-    writes.dispose();
-    scrolls.dispose();
-    cancelPending?.();
-    cancelPending = undefined;
-    resume?.dispose();
-    top?.dispose();
-    cont?.dispose();
-    setPrinted(
-      produce((index) => {
-        delete index[id];
-      }),
-    );
+  return {
+    notePrepended: () => {
+      prependsSeen += 1;
+      request(SCAN_DELAY_MS);
+    },
+    dispose: () => {
+      writes.dispose();
+      cancelPending?.();
+      cancelPending = undefined;
+      resume?.dispose();
+      cont?.dispose();
+      setPrinted(
+        produce((index) => {
+          delete index[id];
+        }),
+      );
+    },
   };
 }
