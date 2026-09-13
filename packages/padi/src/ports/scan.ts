@@ -75,7 +75,7 @@ export type { ProcessRow };
  * read the same per-pid directory.
  *
  * This is the SINGLE statement of what this scan reads: it is passed to
- * `snapshotSubtree` *and* run through `snapshotFacetNames` to get the wire
+ * `snapshotHost` *and* run through `snapshotFacetNames` to get the wire
  * facet names the gates below use. Those two used to be one hand-written
  * literal each, in two vocabularies (camelCase flags vs snake_case wire
  * names), with nothing keeping them in step — so widening the ask silently
@@ -445,6 +445,12 @@ export function foldScan(
     reading.unreadable,
     new Set(rootPids),
   );
+  // An unreadable REQUESTED root still blinds the whole pass, host list included
+  // — deliberately. The pass is all-or-nothing (the sampler's contract), so a
+  // blind pass re-serves the last reading for every terminal AND the host rather
+  // than publishing a mix whose halves came from different moments. The case is
+  // a terminal rooted in another user's process (a `sudo -i` as the PTY's first
+  // command), which the subtree ask was already blind to.
   if (fatal !== null) {
     return Effect.fail(
       new PortScanError(

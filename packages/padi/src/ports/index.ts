@@ -1,10 +1,11 @@
 /**
- * Port detection — osfacts scan + host-wide sampler cadence.
+ * Port detection — one host-wide osfacts scan + its sampler cadence.
  *
- * Not port-forwarding (`@kolu/port-forward` is its own package). This subdir is
- * "which TCP listeners belong to which terminal subtrees?": the OS ask
- * (`scan.ts`) and the 5 s / nudge poll (`sampler.ts`) that feed the
- * terminalWorkspace ports channel.
+ * Not port-forwarding (`@kolu/port-forward` is its own package). This subdir
+ * answers two questions from one pass: "which TCP listeners does each terminal's
+ * subtree hold?" (each terminal's `ports` channel) and "which listeners are on
+ * this host at all?" (padi's `hostListeners` cell). `scan.ts` is the OS ask and
+ * its folds; `sampler.ts` is the 5 s / nudge poll that publishes both.
  */
 
 export {

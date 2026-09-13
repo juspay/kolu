@@ -74,6 +74,23 @@ describe("hostPortsOf — what the reaper may act on", () => {
     ).toEqual([[5432, "v6"]]);
   });
 
+  it("folds a claimed and an unclaimed bind of one port by SCOPE first, then family", () => {
+    // Our `[::1]:5173` beside another user's `192.168.1.5:5173`: the loopback
+    // bind is the one a door can dial, so its family wins over the v4 interface.
+    expect(
+      knownOf(
+        hostPortsOf({
+          status: "known",
+          claimed: [claimed(5173, "v6")],
+          unclaimed: {
+            status: "known",
+            list: [{ port: 5173, scope: "interface", family: "v4" }],
+          },
+        }),
+      ),
+    ).toEqual([[5173, "v6"]]);
+  });
+
   it("folds a port claimed on one family and unclaimed on the other — v4 wins", () => {
     expect(
       knownOf(

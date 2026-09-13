@@ -17,17 +17,18 @@ import { firstFrameOrThrow } from "@kolu/surface/first-frame";
 import { Effect, Option, type Stream } from "effect";
 import { encodeHostKey, type HostKey } from "kolu-common/hostKey";
 import {
+  foldUnclaimedPorts,
   type HostListeners,
   type PortFamily,
-  preferredFamily,
 } from "kolu-common/surface";
 
 /** What a host's listening ports look like to the forward subsystem — each port
  *  mapped to the IP family it is bound on, or the honest "we could not look".
  *
  *  A DISCRIMINATED UNION rather than a sentinel beside a map, matching the shape
- *  `HostListeners` sets one package over for this very two-way: it is the same
- *  fact, derived from that one, for the same rule. The tag is what makes
+ *  `HostListeners` sets one package over for this very two-way: it is derived
+ *  from that fact, under the reaper's own rule (see {@link hostPortsOf}). The tag
+ *  is what makes
  *  `for (const [p, f] of hostPorts)` a compile error instead of a runtime one.
  *
  *  `unknown` is not "none", and that distinction is the whole of the auto-cancel
@@ -65,22 +66,19 @@ export type HostPorts =
  *  the claimed set is its death, not a change of owner kolu missed. */
 export function hostPortsOf(reading: HostListeners): HostPorts {
   if (reading.status !== "known") return { status: "unknown" };
-  const ports = new Map<number, PortFamily>();
-  const add = (port: number, family: PortFamily): void => {
-    const prior = ports.get(port);
-    // A port can be claimed by us AND bound by another user on the other family
-    // (rare, legitimate). The family folds by the scanner's own rule — v4 wins —
-    // rather than last-write, because it decides which loopback the door dials.
-    ports.set(
-      port,
-      prior === undefined ? family : preferredFamily(prior, family),
-    );
+  // A port can be claimed by us AND bound by another user (rare, legitimate), so
+  // the two halves fold through the vocabulary's own bind rule: the most useful
+  // SCOPE wins and the family is read off the binds holding it. A family-only
+  // merge would pick v4 from another user's interface bind over our `[::1]`
+  // loopback one, and the door would dial 127.0.0.1 where nothing listens.
+  const binds = foldUnclaimedPorts([
+    ...reading.claimed,
+    ...(reading.unclaimed.status === "known" ? reading.unclaimed.list : []),
+  ]);
+  return {
+    status: "known",
+    ports: new Map(binds.map((b) => [b.port, b.family])),
   };
-  for (const p of reading.claimed) add(p.port, p.family);
-  if (reading.unclaimed.status === "known") {
-    for (const p of reading.unclaimed.list) add(p.port, p.family);
-  }
-  return { status: "known", ports };
 }
 
 /** The ports currently listening on `host`, as its port scanner sees them — the

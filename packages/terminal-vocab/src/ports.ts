@@ -336,22 +336,3 @@ export function samePortList(
     })
   );
 }
-
-const UNCLAIMED_PORT_KEYS = Object.keys(
-  UnclaimedPortSchema.fields,
-) as (keyof UnclaimedPort)[];
-
-/** {@link samePortList} for {@link UnclaimedPort} lists — the same dedup gate,
- *  over the same schema-derived key discipline. */
-export function sameUnclaimedList(
-  a: readonly UnclaimedPort[],
-  b: readonly UnclaimedPort[],
-): boolean {
-  return (
-    a.length === b.length &&
-    a.every((p, i) => {
-      const q = b[i]!;
-      return UNCLAIMED_PORT_KEYS.every((k) => p[k] === q[k]);
-    })
-  );
-}

@@ -177,7 +177,6 @@ export {
   PortScopeSchema,
   preferredFamily,
   samePortList,
-  sameUnclaimedList,
   TcpPortSchema,
   type UnclaimedPort,
   UnclaimedPortSchema,
@@ -192,7 +191,6 @@ import {
   PortInfoSchema,
   type PortScope,
   samePortList,
-  sameUnclaimedList,
   type UnclaimedPort,
   UnclaimedPortSchema,
 } from "./ports.ts";
@@ -391,24 +389,25 @@ export const UNKNOWN_HOST_LISTENERS: HostListeners = { status: "unknown" };
 
 /** Are two host readings the same fact? The wire dedup gate for the cell that
  *  carries them — same contract as {@link portsEqual}: a status flip (on either
- *  level) is always a change, and an unchanged host publishes nothing. */
-export function hostListenersEqual(
+ *  level) is always a change, and an unchanged host publishes nothing.
+ *
+ *  DERIVED from the schema rather than walked by hand: a hand-written walk of a
+ *  two-level union is one more place a new arm or field has to be remembered, and
+ *  a dedup gate that forgets one swallows that field's changes with nothing to
+ *  say why. Arrays compare in order, which is the producer's contract (every
+ *  list is sorted by port). */
+export const hostListenersEqual: (
   a: HostListeners,
   b: HostListeners,
-): boolean {
-  if (a.status !== b.status) return false;
-  if (a.status !== "known" || b.status !== "known") return true;
-  if (!samePortList(a.claimed, b.claimed)) return false;
-  if (a.unclaimed.status !== b.unclaimed.status) return false;
-  if (a.unclaimed.status !== "known" || b.unclaimed.status !== "known") {
-    return true;
-  }
-  return sameUnclaimedList(a.unclaimed.list, b.unclaimed.list);
-}
+) => boolean = Schema.toEquivalence(HostListenersSchema);
 
 /** What a host reading says about ONE port — the four answers a reader acts on,
- *  and the ONE place they are derived, so the printed-URL card and the forward
- *  reaper cannot disagree about when "nothing is listening" may be said.
+ *  and the ONE place they are derived, so the printed-URL card and the Ports
+ *  section cannot disagree about when "nothing is listening" may be said.
+ *
+ *  The forward reaper deliberately does NOT read it: it asks a looser question
+ *  (may this door close?) and counts the claimed half alone as an observation
+ *  when the unclaimed half is blind — kolu-server's `hostPortsOf` says why.
  *
  *   - `claimed`   — a readable program holds it.
  *   - `unclaimed` — something holds it; its owner is not visible.

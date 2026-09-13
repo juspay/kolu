@@ -179,8 +179,10 @@ export {
   TerminalIdSchema,
   type TerminalPorts,
   TerminalSnapshotSchema,
+  foldUnclaimedPorts,
   UNKNOWN_HOST_LISTENERS,
   type UnclaimedPort,
+  type UnclaimedPorts,
 } from "@kolu/terminal-vocab/schema";
 
 // ── User preferences (server-side, shared with client) ────────────────
