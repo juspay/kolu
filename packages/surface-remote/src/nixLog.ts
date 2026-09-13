@@ -103,6 +103,14 @@ export interface NixLogReader {
    *  ({@link sshReportsTransportFailure})? Kept apart from Nix's headline: what
    *  it proves depends on the seat, which {@link runNix} decides. */
   readonly sshReportedTransportFailure: () => boolean;
+  /** Did any raw line look like a bare network-connectivity failure
+   *  ({@link looksLikeNetworkError}) — narrower than
+   *  {@link sshReportedTransportFailure}: it excludes an ssh REFUSAL (a
+   *  credential or host-key rejection). The local seat trusts only this one
+   *  without exit-code corroboration (see {@link runNix}); a refusal needs
+   *  that corroboration and the local seat structurally cannot supply it (Nix
+   *  owns the exit code there, not ssh). */
+  readonly sshReportedNetworkFailure: () => boolean;
   /** The first refusal ssh's own untagged stderr reported ({@link sshRefusalOf}),
    *  with the line that said it, or `null`. Read off the reader — the component
    *  that knows which lines are ssh's own voice — never off the narration. */
@@ -213,6 +221,7 @@ export function nixLogReader(narrate: (line: string) => void): NixLogReader {
   let narratedAfterRoot = false;
   let nixTransport = false;
   let sshTransport = false;
+  let sshNetworkError = false;
   let refusal: SshRefusalEvidence | null = null;
   const builds = new QuickLRU<number, { drv: string; tail: string[] }>({
     maxSize: BUILDS_RETAINED,
@@ -261,6 +270,7 @@ export function nixLogReader(narrate: (line: string) => void): NixLogReader {
       if (event === "ignored") return;
       if (event === "raw") {
         if (sshReportsTransportFailure(line)) sshTransport = true;
+        if (looksLikeNetworkError(line)) sshNetworkError = true;
         if (refusal === null) {
           const kind = sshRefusalOf(line);
           if (kind !== null) refusal = { kind, line };
@@ -295,6 +305,7 @@ export function nixLogReader(narrate: (line: string) => void): NixLogReader {
     rootError,
     nixReportedTransportFailure: () => nixTransport,
     sshReportedTransportFailure: () => sshTransport,
+    sshReportedNetworkFailure: () => sshNetworkError,
     sshRefusal: () => refusal,
     recap: () => {
       const error = narratedAfterRoot ? rootError() : null;
@@ -326,10 +337,14 @@ export type NixRunLifetime =
 export type NixRun = CaptureResult & {
   /** The run's root error, or `null` when Nix reported none. */
   readonly error: NixError | null;
-  /** The connection failed: Nix's own error headline said so, or ssh did —
-   *  on the local seat its forked ssh's stderr alone (Nix exits with its own
-   *  code), on an ssh-wrapped seat only through {@link sshExitIsTransport} (the
-   *  ssh we spawned exited 255 AND said why), the same rule as the agent dial. */
+  /** The connection failed: Nix's own error headline said so, or ssh did — on
+   *  the local seat a bare network-connectivity line in its forked ssh's
+   *  stderr alone (Nix exits with its own code, so there is no exit-code
+   *  corroboration to ask for; see {@link NixLogReader.sshReportedNetworkFailure}
+   *  for why an ssh REFUSAL is excluded there), on an ssh-wrapped seat only
+   *  through {@link sshExitIsTransport} (the ssh we spawned exited 255 AND said
+   *  why — a refusal included, since ssh's own 255 IS the corroboration), the
+   *  same rule as the agent dial. */
   readonly transportFailure: boolean;
   /** See {@link NixLogReader.sshRefusal}. */
   readonly sshRefusal: SshRefusalEvidence | null;
@@ -385,13 +400,19 @@ export async function runNix(
   });
   if (!res.ok) for (const l of reader.recap()) narrate(l);
   // See `NixRun.transportFailure` for why the two seats read ssh differently.
-  const sshSaid = reader.sshReportedTransportFailure();
+  // The local seat trusts only the bare network-error signal, never a
+  // refusal alone: `runNix("localhost", …)` also runs a source flake's own
+  // evaluation (`resolveAgentDrv`) and a declared cache's own copy
+  // (`prefetchAgentClosure`), whose forked ssh (if any) is not provably
+  // talking to THIS dial's target host — an unrelated ssh's "Permission
+  // denied" would otherwise misclassify a permanent local config fault as
+  // the untyped, retry-forever "network" cause.
   const sshFailed = isLocalHost(targetOf(target).host)
-    ? sshSaid
+    ? reader.sshReportedNetworkFailure()
     : sshExitIsTransport({
         usesSsh: true,
         code: res.kind === "exit" ? res.code : null,
-        sshReportedTransportFailure: sshSaid,
+        sshReportedTransportFailure: reader.sshReportedTransportFailure(),
       });
   return {
     ...res,

@@ -184,4 +184,14 @@ describe("runNix", () => {
     );
     expect((await runAt("localhost", [], 1)).transportFailure).toBe(false);
   });
+
+  it("on the local seat, a bare ssh REFUSAL is never trusted as transport — it needs exit-code corroboration the local seat cannot supply", async () => {
+    // `runNix("localhost", …)` also evaluates a source flake and prefetches a
+    // declared cache: the forked ssh (if any) is not provably the dial's
+    // target host, so an unrelated credential rejection must not retry-forever
+    // a permanent local config fault.
+    expect((await runAt("localhost", [SSH_REFUSED], 1)).transportFailure).toBe(
+      false,
+    );
+  });
 });
