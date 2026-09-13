@@ -11,7 +11,7 @@
  *    check.
  *  - {@link PadiEntryStatus}'s `contract-skew-refused` failure arm carries the typed
  *    `running`/`expected` version pair; every OTHER cause does not (unrepresentable
- *    to invent a version pair for e.g. `"link-failed"`).
+ *    to invent a version pair for e.g. `"host-setup-failed"`).
  *  - `membershipId` is a BRANDED `MembershipId` (PR3), NOT a bare `string`: an empty
  *    `""` or a client-fabricated literal is a COMPILE ERROR (the `@ts-expect-error`
  *    below), so an opaque never-reused identity cannot be spelled by a consumer — it
@@ -83,8 +83,8 @@ const linkFailed: PadiEntryStatus = {
   membershipId: testMembershipId(),
   evidence: [],
   failure: {
-    cause: "link-failed",
-    reason: "host unreachable",
+    cause: "host-setup-failed",
+    reason: "nix build failed",
     // @ts-expect-error — `running`/`expected` are NOT representable on any cause
     // other than `contract-skew-refused` (a version pair only means something for a
     // skew refusal) — if this compiles, the per-cause narrowing has regressed to a

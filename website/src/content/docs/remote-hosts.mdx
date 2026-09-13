@@ -45,10 +45,11 @@ already running.
     with a card that [names which one and how to fix it](#when-a-host-is-down).
   </Card>
   <Card title="Nix on the remote">
-    The host has [Nix installed](https://nixos.asia/en/install) and your user is
-    **trusted by its nix-daemon** — kolu provisions [padi](/padi) there with Nix
-    over ssh. It must be runnable from a *non-interactive* ssh session, not only
-    from a login shell.
+    The host has [Nix installed](https://nixos.asia/en/install) — kolu provisions
+    [padi](/padi) there with Nix over ssh. It must be runnable from a
+    *non-interactive* ssh session, not only from a login shell. Make your user
+    **trusted by its nix-daemon** (`trusted-users`) too: kolu then copies padi's
+    binaries from this machine instead of the host building them itself.
   </Card>
   <Card title="A Nix-wrapped kolu">
     Launch kolu through its Nix wrapper, which bakes in its exact agent source.
@@ -132,7 +133,7 @@ kolu is running on; remotes show the ssh target. Every tab carries a
 | green pip | the whole chain is live — kolu reaches this host **and** its terminal daemon is serving |
 | amber pip (pulsing) | connecting or provisioning — coming up |
 | amber pip, "kaval down" | kolu reaches the host, but its terminal daemon is not serving. [padi restarts it for you](/padi#steady-state-supervision); the tooltip carries the daemon's own verdict |
-| red pip + struck label | unreachable — open diagnostics for the real error and **retry** |
+| red pip + struck label | failed — open diagnostics for the real error and **retry** |
 
 The pip reports the **whole chain** (kolu → this host's padi → its kaval), not
 just the first link. A host you can reach whose terminal daemon is dead is not
@@ -164,7 +165,7 @@ hover-opened.
   card tells the truth about **who can fix it**:
 
   - While a **remote** machine is still **setting itself up** — probing or provisioning
-    its agent over ssh — the card stays **non-terminal**: it says kolu is **still retrying**
+    its agent over ssh — the card stays **non-terminal**: it says kolu **hasn't given up** and is still working on it
     (naming the phase it's on), and its recovery verb is **Retry connection**, which recycles
     the **server-side** connection — the only thing that can move a stuck dial, where a browser
     reload can't. There's also a **campaign backstop**: after about half an hour of a setup that
@@ -188,9 +189,11 @@ hover-opened.
   (A **local** machine whose own agent fails to start is a different case with its own
   ["kaval didn't start" card](/kaval) and a **Restart** action, unchanged.)
 
-  The canvas shows a **tail**; the full firehose still lives in the **kolu server logs** —
-  the complete Nix provisioning output, and the actual reason if a connect genuinely
-  fails. Under systemd that's `journalctl` for your kolu service — started by hand, it is
+  The canvas shows a **tail**; the **kolu server logs** keep every line it narrates —
+  Nix's own messages, each path copied and each build started, and, when a connect fails,
+  Nix's error with the failed build's last lines. They are not the build's complete
+  output: to read all of a failed build's log, run the `nix log` command the error names
+  on the host. Under systemd that's `journalctl` for your kolu service — started by hand, it is
   only in the terminal you launched it from unless you [redirected
   it](/operations#three-things-to-know-first). padi also keeps its own log in its
   state-root on the host.
@@ -243,9 +246,10 @@ hatch).
 
 When the failed attempt produced any output, **the card shows the last lines of it** beneath
 the cause — the same running log the canvas shows you while a host is coming up, kept
-where it is most useful. That output is usually what tells you which kind of failure you
-have: a machine that is genuinely unreachable looks nothing like one whose remote build
-failed to compile, and only the log distinguishes them. Those lines travel with the
+where it is most useful. The line just above that output is the error that stopped the
+attempt, in the words of the tool that hit it: for a failed Nix build, Nix's own error and
+the last thing the build printed (say, a download that was refused) — never just an exit
+code. Those lines travel with the
 failure itself, not alongside it — so they survive a browser whose connection to kolu has
 gone quiet (a laptop that slept, a tab left open on flaky wifi): you get the reason and
 its evidence together, or the card simply shows no output block, which now means the
@@ -263,9 +267,10 @@ The causes it distinguishes:
 | **This host needs passwordless ssh** | the host asked for a password. kolu connects non-interactively and never types one — set up key-based access (`ssh-copy-id`), then reconnect |
 | **This host isn't trusted yet** | ssh doesn't recognise the host's identity key. Run `ssh <host>` once in a terminal to review and accept it — or clear a changed-key warning — then reconnect |
 | **This host has no Nix that kolu can run** | ssh worked, but the host's shell couldn't run `nix-instantiate`. Either Nix isn't [installed](https://nixos.asia/en/install) there, or it isn't on the PATH of a non-interactive ssh session |
-| **Can't reach this host** | unreachable over ssh, or provisioning failed partway. These look identical from the outside, so read the output on the card: silence or an ssh error means the machine; a compiler or build error means the host was fine and its build wasn't |
+| **Connecting to this host kept stalling** | a step of connecting — the ssh link, a copy, a build — went quiet for too long, too many times. The detail names the step: usually the machine is asleep or off the network, or a download stalled |
+| **Kolu couldn't set up this host** | the host answered, but bringing padi up there kept failing — a Nix build, or the agent refusing or dying before it started. The detail is the error that stopped it |
 | **This kolu run is missing its agent source** | kolu wasn't launched through its Nix wrapper, so it has nothing to deploy |
-| **Kolu couldn't prepare padi for this host** | the baked source could not resolve padi; the detail shows the Nix error, including an unsupported CPU/OS pair when that is the cause |
+| **Kolu couldn't prepare padi for this host** | kolu couldn't work out which padi build the host needs: the host's Nix failed to report its CPU/OS pair (or printed something that isn't one — often a shell startup file writing to stdout), or the baked source couldn't resolve padi for it. The detail shows the error |
 | **This host's padi never settled** | a contract upgrade's drain never provably finished |
 
 A related — but distinct — card covers the host's **[kaval](/kaval)**: if the

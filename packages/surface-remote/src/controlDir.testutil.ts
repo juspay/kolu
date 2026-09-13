@@ -123,6 +123,7 @@ export const socketLeaf = (
 export function provArgs(budgets: ProvisionBudgets = makeProvisionBudgets()): {
   budgets: ProvisionBudgets;
   keepalive: SshKeepalive;
+  onActivity: () => void;
 } {
-  return { budgets, keepalive: DEFAULT_SSH_KEEPALIVE };
+  return { budgets, keepalive: DEFAULT_SSH_KEEPALIVE, onActivity: () => {} };
 }

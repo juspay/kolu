@@ -153,10 +153,15 @@ describe("resolveSystem ssh-refusal classification", () => {
     // ssh reports its own failures with 255; any other code came from the
     // remote command, whose stderr rides the same stream. Terminality must not
     // hinge on text alone, or a remote-side hiccup would strand a good host.
+    // (The host answered, so it is the bounded remote class — never terminal.)
     probeEmitting(PERMISSION_DENIED, 1);
-    const err = await failureOf("petit");
-    expect(err).not.toBeInstanceOf(ResolveDrvError);
-    expect(err).toBeInstanceOf(Error);
+    expect(await failureOf("petit")).toMatchObject({
+      resolution: {
+        kind: "unavailable",
+        failureCause: "remote",
+        terminal: false,
+      },
+    });
   });
 
   it("still forwards the refusal line to the caller's progress sink", async () => {
@@ -212,9 +217,23 @@ describe("resolveSystem ssh-refusal classification", () => {
 
   it("a nix that RAN and failed stays retryable — 127 is not any nonzero exit", async () => {
     // nix-instantiate exiting 1 means Nix is present and something else went
-    // wrong; that is not this cause and must not be made terminal.
-    probeEmitting("error: some transient nix failure", 1);
-    expect(await failureOf("petit")).not.toBeInstanceOf(ResolveDrvError);
+    // wrong; that is not this cause and must not be made terminal. But the host
+    // ANSWERED, so it is bounded `"remote"` (never "unreachable, retry forever"),
+    // and the reason carries what Nix said rather than an exit code.
+    probeEmitting(
+      `@nix ${JSON.stringify({ action: "msg", level: 0, msg: "error: some transient nix failure" })}`,
+      1,
+    );
+    const err = await failureOf("petit");
+    expect(err).toMatchObject({
+      resolution: {
+        kind: "unavailable",
+        failureCause: "remote",
+        terminal: false,
+      },
+    });
+    expect((err as Error).message).toContain("some transient nix failure");
+    expect((err as Error).message).not.toMatch(/exited with code/);
   });
 
   /** Mock one probe whose spawn FAILS (no exit code is ever produced). */
@@ -271,6 +290,27 @@ describe("resolveSystem ssh-refusal classification", () => {
     // the errno — not merely `kind: "spawn-error"` — is what decides.
     probeSpawnFailing("spawn nix-instantiate EMFILE", "EMFILE");
     expect(await failureOf("localhost")).not.toBeInstanceOf(ResolveDrvError);
+  });
+
+  it("an externally killed probe is bounded, exactly as the agent evaluation classifies it", async () => {
+    // One resolver table (`resolverErrorOf`): a signal from outside is a local
+    // fault, not a transport fact, so it must not retry forever here while the
+    // sibling resolver bounds it.
+    vi.mocked(runCapture).mockImplementationOnce(
+      async (): Promise<CaptureResult> => ({
+        ok: false,
+        kind: "signal",
+        signal: "SIGKILL",
+        stdout: "",
+      }),
+    );
+    expect(await failureOf("petit")).toMatchObject({
+      resolution: {
+        kind: "unavailable",
+        failureCause: "remote",
+        terminal: false,
+      },
+    });
   });
 
   it("keeps a refusal PER DIAL — a later clean probe resolves normally", async () => {

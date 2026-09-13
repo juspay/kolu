@@ -34,7 +34,7 @@ const h = vi.hoisted(() => ({
   host: { kind: "ssh", host: "zest" } as unknown as HostKey,
   entry: {
     kind: "failed",
-    failure: { cause: "link-failed", reason: "" },
+    failure: { cause: "host-setup-failed", reason: "" },
     evidence: [],
   } as FailedEntry | OtherEntry,
 }));
@@ -78,7 +78,10 @@ const mount = (props: {
 }): void => {
   h.entry = {
     kind: "failed",
-    failure: { cause: props.cause ?? "link-failed", reason: props.reason },
+    failure: {
+      cause: props.cause ?? "host-setup-failed",
+      reason: props.reason,
+    },
     evidence: props.log,
   };
   dispose = render(() => <HostDownCanvas />, document.body);

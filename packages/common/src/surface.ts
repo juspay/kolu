@@ -584,8 +584,9 @@ export const PadiConvergenceSchema = Schema.Union([
     detail: Schema.String,
   }),
   Schema.Struct({
-    /** The ssh link gave up (host unreachable / provisioning failed). App-only;
-     *  not a framework convergence verdict. */
+    /** The ssh link gave up for good. App-only; not a framework convergence
+     *  verdict. WHY it gave up (stalled vs setup kept failing) is the session's
+     *  own `cause` on its `failed` state — read there, never copied here. */
     kind: Schema.Literal("link-failed"),
     detail: Schema.String,
   }),

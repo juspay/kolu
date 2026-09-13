@@ -76,7 +76,11 @@ import { probeSurfaceLive } from "@kolu/surface/liveness";
 import type { SurfaceClientLike } from "@kolu/surface/project";
 import { inMemoryCell } from "@kolu/surface/server";
 import type { LogEntry } from "./connection";
-import { MAX_PROGRESS_LINES } from "./progressTail";
+
+/** One framework policy for diagnostic progress retained in memory on a session's
+ *  log tail. A bounded tail keeps a noisy Nix subprocess from growing the
+ *  long-lived server heap without hiding its latest evidence. */
+const MAX_PROGRESS_LINES = 20;
 
 /**
  * THE session's probe edge — the ONE place a framework-reserved probe becomes a
@@ -480,6 +484,12 @@ export interface ConnectContext<Prov extends string = never> {
   localProgress(line: string): void;
   /** Push a `remote`-tagged forwarded remote-agent stderr line. */
   remoteProgress(line: string): void;
+  /** A liveness signal with no log line: the connector's child produced output it
+   *  deliberately does not narrate (a structured log's build lines, transfer
+   *  progress). Resets the pre-connected backstop exactly as a progress line does,
+   *  so the backstop keeps dominating the connector's own per-step silence bound
+   *  (#1908 C1) even when most of a step's output is filtered from the log. */
+  activity(): void;
   /** Advance to one of the connector's OWN provisioning phases (e.g. the ssh
    *  connector's `probing → provisioning`, each at its real command boundary). The
    *  session opens at the connector's first provisioning phase; this moves it
@@ -908,8 +918,16 @@ export function makeSession<
     return ph === "connected" || ph === "disconnected" || ph === "failed";
   };
   const armPreConnected = (): void => {
-    clearPreConnected();
-    if (backstopInert()) return;
+    if (backstopInert()) {
+      clearPreConnected();
+      return;
+    }
+    // Re-arming on every line of a large transfer (hundreds of thousands of
+    // `activity()` calls) restarts the existing timer rather than allocating one.
+    if (preConnectedTimer !== null) {
+      preConnectedTimer.refresh();
+      return;
+    }
     preConnectedTimer = armInternalTimer(preConnectedLivenessMs, () => {
       preConnectedTimer = null;
       if (destroyed || backstopInert()) return;
@@ -1201,13 +1219,19 @@ export function makeSession<
   const scheduleReconnect = (
     cause: "network" | "remote",
     reason: string,
-    // A GENUINELY-TERMINAL fault gives up NOW, regardless of any run (#1908 C5) —
-    // a budget-exhausted silent provisioning step, which the pre-connected backstop
-    // would otherwise reset before the remote run ever reached its ceiling. The flag
-    // stays ORTHOGONAL to the ledger: the recording still happens (matching the
-    // increment-then-gate order), only the message comes from the terminal arm.
-    terminal = false,
+    how: {
+      // A GENUINELY-TERMINAL fault gives up NOW, regardless of any run (#1908 C5) —
+      // a budget-exhausted silent provisioning step, which the pre-connected backstop
+      // would otherwise reset before the remote run ever reached its ceiling. The flag
+      // stays ORTHOGONAL to the ledger: the recording still happens (matching the
+      // increment-then-gate order), only the message comes from the terminal arm.
+      readonly terminal?: boolean;
+      // The session tore the link down ON PURPOSE (a recheck cycle, a
+      // replace-after-drain): nothing failed, so the narration must not say so.
+      readonly selfInitiated?: boolean;
+    } = {},
   ): void => {
+    const { terminal = false, selfInitiated = false } = how;
     if (destroyed || pendingTimer !== null) return;
     // A stale (rejected) `clientPromise` during backoff keeps `launchAttempt`
     // idempotent — an acquire/pin during the wait won't start a second concurrent
@@ -1223,8 +1247,11 @@ export function makeSession<
           ? `gave up — ${reason}`
           : // Derived from the verdict, so it can only ever name the true remote
             // run — the incident's "gave up after 5 consecutive failures" after ONE
-            // remote failure is now unspellable.
-            `gave up after ${verdict.run} consecutive remote failures — fix the underlying issue (often: remote nix-daemon needs your user in 'trusted-users' to accept unsigned closures), then reconnect`,
+            // remote failure is now unspellable. It names the LAST failure's own
+            // reason and nothing else: a remedy guessed here ("often: trusted-users")
+            // is a claim about a cause this loop cannot see, and it once sent an
+            // operator to fix trust for a host whose crate fetch got a 403.
+            `gave up after ${verdict.run} consecutive remote failures — last: ${reason}`,
       );
       clientPromise = null;
       // `failed` carries the HONEST transport cause, orthogonal to terminality (F3): a
@@ -1236,12 +1263,18 @@ export function makeSession<
       return;
     }
     const delay = Math.min(reconnectDelayMs * 2 ** attemptsSoFar, 60_000);
+    // Both arms say what the attempt ran into — its own `reason` — rather than a
+    // fixed label. `"network"` is a RETRY class, not proof the host is gone: a
+    // wake cycle, a replace-after-drain and a silence kill all ride it, and a
+    // fixed "host unreachable" printed for those is false.
     localProgress(
-      cause === "network"
-        ? `host unreachable — retrying in ${delay}ms… (attempt ${failures.attempts()})`
-        : // The remote arm reports the REMOTE run — the number the ceiling actually
-          // reads — not the cross-class attempt total.
-          `reconnecting in ${delay}ms… (attempt ${verdict.run}/${MAX_CONSECUTIVE_FAILURES})`,
+      selfInitiated
+        ? `${reason} — reconnecting in ${delay}ms…`
+        : cause === "network"
+          ? `attempt ${failures.attempts()} failed: ${reason} — retrying in ${delay}ms…`
+          : // The remote arm reports the REMOTE run — the number the ceiling actually
+            // reads — not the cross-class attempt total.
+            `attempt ${verdict.run}/${MAX_CONSECUTIVE_FAILURES} failed: ${reason} — retrying in ${delay}ms…`,
     );
     armTimer(delay, () => {
       if (destroyed || refCount === 0) return;
@@ -1268,6 +1301,7 @@ export function makeSession<
     if (wasConnected && !cyclingForRecheck) startEpisode();
     let reason: string;
     let cause: "network" | "remote";
+    const selfInitiated = cyclingForRecheck;
     if (cyclingForRecheck) {
       // We tore this down ourselves to re-probe after a wake/network change — a
       // transient recovery, retry as `"network"` so it never counts toward the
@@ -1293,7 +1327,9 @@ export function makeSession<
     // The link is down — identity() must report `disconnected`, and the next
     // connect re-polls (a respawned server may be a different build).
     cachedIdentity = null;
-    if (!destroyed && refCount > 0) scheduleReconnect(cause, reason);
+    if (!destroyed && refCount > 0) {
+      scheduleReconnect(cause, reason, { selfInitiated });
+    }
   };
 
   /** EXIT-SAFETY INVARIANT (docs/atlas session-timer-unref): the reconnect
@@ -1336,6 +1372,7 @@ export function makeSession<
       conn = await opts.connectOnce({
         localProgress: gated(localProgress),
         remoteProgress: gated(remoteProgress),
+        activity: gated(armPreConnected),
         provisioning: gated((phase: Prov) => setUp(phase)),
         connecting: gated(() => setUp("connecting")),
         signal: abort.signal,
@@ -1352,7 +1389,7 @@ export function makeSession<
       const reason = err instanceof Error ? err.message : String(err);
       const terminal = err instanceof ConnectError ? err.terminal : false;
       setDown("disconnected", reason, cause);
-      scheduleReconnect(cause, reason, terminal);
+      scheduleReconnect(cause, reason, { terminal });
       throw err instanceof Error ? err : new Error(reason);
     }
     // "This dial was superseded while an await ran" — a `recheck()`/backstop abort the
@@ -1445,7 +1482,7 @@ export function makeSession<
         failures.success();
         conn.teardown();
         setDown("disconnected", verdict.reason, "network");
-        scheduleReconnect("network", verdict.reason);
+        scheduleReconnect("network", verdict.reason, { selfInitiated: true });
         throw new Error(verdict.reason);
       }
       // adopt: the hello proved the link live. Take the connection, wire its death,

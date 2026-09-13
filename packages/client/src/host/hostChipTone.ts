@@ -46,7 +46,7 @@ export type HostGlance = {
   stripDot: string | null;
   /** Always-on pip for detail surfaces (popover header); green only when connected. */
   detailDot: string;
-  /** Unreachable / failed — desaturate + strike. */
+  /** Failed — desaturate + strike. */
   down: boolean;
   /** Compact one-word label (switcher subline, popover state row). */
   short: string;
@@ -85,7 +85,10 @@ const GLANCE: Record<
     stripDot: "bg-red-400",
     detailDot: "bg-red-400",
     down: true,
-    short: "unreachable",
+    // "failed", never "unreachable": most failures (a refused key, a failed
+    // build, a host with no Nix) come from a host that answered. The title and
+    // the host-down card say which.
+    short: "failed",
     title: (s) =>
       s.kind === "failed" ? `failed: ${s.failure.reason}` : "failed",
     labelDecoration: STRIKE,

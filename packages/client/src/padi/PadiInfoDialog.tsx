@@ -121,7 +121,7 @@ const CONVERGENCE_PRESENTATION: Record<
     title: "Another supervisor owns this host",
     tone: "down",
   },
-  "link-failed": { title: "Remote link failed", tone: "down" },
+  "link-failed": { title: "Remote host gave up", tone: "down" },
 };
 
 function buildIdLabel(

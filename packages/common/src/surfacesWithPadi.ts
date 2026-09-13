@@ -137,18 +137,26 @@ export type SkewVersionPair = typeof SkewVersionPairSchema.Type;
  *     `nix-instantiate` (exit 127): no Nix installed, or none on a
  *     non-interactive PATH. padi is provisioned with the host's own Nix, so
  *     there is nothing to proceed with — terminal.
- *   - `link-failed`           — a REMOTE transport gave up (host unreachable /
- *     provisioning failed / a remote terminal give-up). Set by the remote arm's
- *     convergence machine (`remotePadiBinding`, on the `failed` phase).
+ *   - `connect-stalled`       — a REMOTE give-up of the transport class: a step of
+ *     the dial (the ssh link, a copy, a build, the local evaluation) went silent
+ *     past its bound too many times. The only way a `"network"` session ever
+ *     stops retrying, so it names THAT fact — never "unreachable", which it
+ *     cannot know.
+ *   - `host-setup-failed`     — a REMOTE give-up of the remote class: the host
+ *     answered, and bringing padi up there kept failing (a Nix build, the agent
+ *     refusing or dying before it greeted). Both remote arms are minted by
+ *     `padiFailureOf` for a provisioning arm's terminal give-up with no finer
+ *     detail, split on the session's own transport `cause` — a structural fact,
+ *     never read from the reason text.
  *   - `local-start-failed`    — the LOCAL padi couldn't start on THIS machine (a
  *     terminal give-up with no convergence channel — the local arm's
- *     `entryFailedDetail()` is always null). A DISTINCT producer from `link-failed`
- *     (a spawn/connect failure here, not a network reach), with a distinct remedy
- *     (check the local install/logs), so it earns its own arm rather than
- *     collapsing into `link-failed` — which would be `"other"` wearing a better
+ *     `entryFailedDetail()` is always null). A DISTINCT producer from the two remote
+ *     give-ups (a spawn/connect failure here, not a remote host), with a distinct
+ *     remedy (check the local install/logs), so it earns its own arm rather than
+ *     collapsing into one of them — which would be `"other"` wearing a better
  *     name. `padiFailureOf` mints it for the `detail === null && phase === "failed"`
- *     case, which is uniquely the local arm (the remote arm always carries a
- *     `link-failed` detail on a terminal give-up). */
+ *     case on a NON-provisioning arm (`session.provisions === false`), which is
+ *     uniquely the local arm. */
 export const PadiEntryFailureSchema = Schema.Union([
   Schema.Struct({
     cause: Schema.Literal("contract-skew-refused"),
@@ -196,7 +204,11 @@ export const PadiEntryFailureSchema = Schema.Union([
     reason: Schema.String,
   }),
   Schema.Struct({
-    cause: Schema.Literal("link-failed"),
+    cause: Schema.Literal("connect-stalled"),
+    reason: Schema.String,
+  }),
+  Schema.Struct({
+    cause: Schema.Literal("host-setup-failed"),
     reason: Schema.String,
   }),
   Schema.Struct({

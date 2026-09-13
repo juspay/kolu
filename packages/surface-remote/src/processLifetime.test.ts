@@ -196,3 +196,34 @@ describe("D1b — group reap (#1908 F1)", () => {
     expect(res.stdout).toContain("out");
   });
 });
+
+describe("stderr line bound", () => {
+  // One 131072-character stderr line then a clean exit — what a Nix build under
+  // `--log-format internal-json` writes when a builder prints one long line.
+  const LONG_LINE = [
+    "-e",
+    // Exit only once the write has flushed: stderr to a pipe is asynchronous, and
+    // an immediate `process.exit` truncates it (at 64 KiB on macOS).
+    "process.stderr.write('x'.repeat(131072) + '\\n', () => process.exit(0))",
+  ] as const;
+
+  it("the default text bound kills a child past it, loudly", async () => {
+    const res = await runCapture(process.execPath, LONG_LINE, {
+      policy: { kind: "deadline", ms: 10_000 },
+    });
+    expect(res.kind).toBe("output-error");
+  });
+
+  it("a caller-stated bound for a structured stream lets the child finish", async () => {
+    let longest = 0;
+    const res = await runCapture(process.execPath, LONG_LINE, {
+      policy: { kind: "deadline", ms: 10_000 },
+      maxLineLength: 16 * 1024 * 1024,
+      onProgress: (line) => {
+        longest = Math.max(longest, line.length);
+      },
+    });
+    expect(res).toMatchObject({ ok: true, kind: "exit", code: 0 });
+    expect(longest).toBe(131072);
+  });
+});

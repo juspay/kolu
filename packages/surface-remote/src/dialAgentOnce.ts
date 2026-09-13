@@ -208,9 +208,9 @@ export async function dialAgentOnce<S extends SurfaceSpec>(
   // the oldest) — captured FROM the last prefixed line THROUGH the end, not just
   // that one line. The retired pulam's ambiguity error was multi-line (the "more than one kaval"
   // header plus each `--kaval <socket>` candidate the user needs to recover):
-  // `forEachLine` splits it into separate remote `log` entries where only the first
-  // carries the prefix, so matching a single prefixed line would drop the
-  // candidates. We read the WHOLE current tail once, on the catch path, off the
+  // the connector's whole-line stderr reader splits it into separate remote `log`
+  // entries where only the first carries the prefix, so matching a single
+  // prefixed line would drop the candidates. We read the WHOLE current tail once, on the catch path, off the
   // session's freshest frame (`currentState()`) — no `onState` accumulator (a cached
   // partial block could otherwise short-circuit a later full read under stderr
   // fragmentation).

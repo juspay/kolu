@@ -39,16 +39,10 @@
  *   });
  */
 
-import {
-  buildSshProbeCommand,
-  isLocalHost,
-  ResolveDrvError,
-  type SshRefusal,
-  sshRefusalOf,
-} from "./host";
+import { isLocalHost, ResolveDrvError, sshExitIsTransport } from "./host";
 import type { SshKeepalive } from "./keepalive";
 import { probePolicy } from "./nixCopy";
-import { describeExit, runCapture } from "./process";
+import { describeNixRun, resolverErrorOf, runNix } from "./nixLog";
 
 /** Sanity-guard shape for a nix-system identifier: `<cpu>-<os>`, e.g.
  *  `x86_64-linux`, `aarch64-darwin`. Deliberately NOT a closed
@@ -91,45 +85,39 @@ export async function resolveSystem(
   // Which arm we are on decides how a missing executable surfaces, and which
   // executable a spawn fault is even ABOUT — see the failure classification below.
   const local = isLocalHost(host);
-  const { command, args } = buildSshProbeCommand(
-    { host, keepalive: opts.keepalive },
-    "nix-instantiate",
-    "--eval",
-    "--expr",
-    "builtins.currentSystem",
-  );
-  // Watch the probe's stderr for an ssh REFUSAL as the lines stream past — the
+  // The probe's stderr is read for an ssh REFUSAL (`NixRun.sshRefusal`) — the
   // probe is every dial's FIRST ssh contact, so classifying here covers all of
   // them: any refusal a LATER step hits (nix's own ssh fork, the agent dial)
   // kills that dial, and the redial's probe meets the same refusal
   // un-multiplexed and lands in this one classifier within a single retry.
-  let refusal: { kind: SshRefusal; line: string } | null = null;
-  const res = await runCapture(command, args, {
-    // The arch probe (#1908 D1b) is a quick `nix-instantiate --eval` round-trip — never a
-    // build — so it rides the shared QUICK-step deadline `probePolicy()` (as does the
-    // warm check). The "how long a quick nix/ssh round-trip may run" policy shape lives
-    // in ONE place, not re-spelled here.
-    policy: probePolicy(),
-    signal: opts.signal,
-    onProgress: (line) => {
-      if (refusal === null) {
-        const kind = sshRefusalOf(line);
-        if (kind !== null) refusal = { kind, line };
-      }
-      opts.onProgress(line);
+  const res = await runNix(
+    { host, keepalive: opts.keepalive },
+    ["nix-instantiate", "--eval", "--expr", "builtins.currentSystem"],
+    {
+      // The arch probe (#1908 D1b) is a quick `nix-instantiate --eval` round-trip — never a
+      // build — so it rides the shared QUICK-step deadline `probePolicy()` (as does the
+      // warm check). The "how long a quick nix/ssh round-trip may run" policy shape lives
+      // in ONE place, not re-spelled here.
+      policy: probePolicy(),
+      signal: opts.signal,
+      narrate: opts.onProgress,
     },
-  });
+  );
   if (!res.ok) {
     // A refusal line alone is not proof — the remote COMMAND's stderr also rides
-    // ssh's stderr. ssh exits 255 for its OWN failures, so require both: the
-    // refusal text AND the ssh-255 exit. (A localhost probe never sshs, so its
-    // stderr can't match; a refusal that slips this guard merely stays an
-    // untyped, retried error — the safe default, never a wrong terminal verdict.
-    // NB 255 is ssh's CONVENTION for its own failures, not a guarantee — a remote
-    // command may legitimately exit 255 too. The text match is what carries the
-    // classification; the code is the corroborating guard.)
-    if (refusal !== null && res.kind === "exit" && res.code === 255) {
-      const { kind, line } = refusal;
+    // ssh's stderr — so it counts only under the package's one ssh exit rule
+    // (`sshExitIsTransport`: ssh's own 255 AND ssh saying why). A localhost probe
+    // never sshs; a refusal that slips this guard merely stays an untyped,
+    // retried error — the safe default, never a wrong terminal verdict.
+    if (
+      res.sshRefusal !== null &&
+      sshExitIsTransport({
+        usesSsh: !local,
+        code: res.kind === "exit" ? res.code : null,
+        sshReportedTransportFailure: true,
+      })
+    ) {
+      const { kind, line } = res.sshRefusal;
       throw new ResolveDrvError(
         kind === "auth-refused"
           ? `${host}: ssh refused our credentials — this client connects non-interactively and can never answer a password or passphrase prompt. Set up key-based ssh (e.g. \`ssh-copy-id ${host}\`) so plain \`ssh ${host}\` connects without prompting: ${line}`
@@ -165,7 +153,7 @@ export async function resolveSystem(
       // a local setup fault, not a statement about the far end.
       if (res.kind === "spawn-error" && !local) {
         // Bounded rather than terminal, matching how the sibling resolver treats a
-        // spawn fault (`agentDrv`'s `evaluationError`): it ends instead of
+        // spawn fault (`nixLog`'s `resolverErrorOf`): it ends instead of
         // retrying forever, without claiming a verdict about the remote host.
         throw new ResolveDrvError(
           `${host}: could not run \`ssh\` on THIS machine (${res.message}) — a remote host is reached by spawning ssh locally, so it cannot be dialled until ssh is installed and on kolu's PATH.`,
@@ -185,25 +173,41 @@ export async function resolveSystem(
         { kind: "nix-unavailable", failureCause: "remote", terminal: true },
       );
     }
-    throw new Error(
-      `${host}: \`nix-instantiate --eval builtins.currentSystem\` ${describeExit(res)}`,
-    );
+    const failure = `${host}: \`nix-instantiate --eval builtins.currentSystem\` failed: ${describeNixRun(res)}`;
+    // The probe's one exception to the shared resolver table: a spawn fault
+    // other than ENOENT (handled above) is transient local resource exhaustion
+    // (EMFILE, EAGAIN) that a later dial may well clear, so it keeps the untyped
+    // retry-forever class rather than ending the host.
+    if (res.kind === "spawn-error") throw new Error(failure);
+    // Everything else classifies exactly as the agent evaluation does. An EXIT
+    // with no transport evidence means ssh RAN the probe and the host's Nix
+    // failed it (a broken nix.conf, a daemon that is down): the host answered,
+    // so it is bounded and carries Nix's own error. The transport (Nix's
+    // headline saying so, or ssh's own 255 WITH its reason) and our own kills
+    // stay retry-forever.
+    throw resolverErrorOf(failure, res);
   }
   // nix-instantiate prints the Nix string repr — `"x86_64-linux"\n` —
   // which is valid JSON for a plain string, so JSON.parse strips the
   // surrounding quotes.
+  //
+  // Output that is not a system string is a fact about the HOST (commonly a
+  // shell rc that prints to stdout on a non-interactive ssh), and it repeats on
+  // every dial — so it is a bounded remote fault naming what came back, never a
+  // "network" error retried forever.
+  const notASystem = (what: string): ResolveDrvError =>
+    new ResolveDrvError(
+      `${host}: the system probe ${what}, not a nix-system string — something on the host (often a shell startup file) may be printing to stdout on non-interactive ssh`,
+      { kind: "unavailable", failureCause: "remote", terminal: false },
+    );
   let sys: unknown;
   try {
     sys = JSON.parse(res.stdout.trim());
   } catch {
-    throw new Error(
-      `${host}: could not parse nix-system from probe output ${JSON.stringify(res.stdout.trim())}`,
-    );
+    throw notASystem(`printed ${JSON.stringify(res.stdout.trim())}`);
   }
   if (typeof sys !== "string" || !NIX_SYSTEM_RE.test(sys)) {
-    throw new Error(
-      `${host}: probe returned ${JSON.stringify(sys)}, not a nix-system string`,
-    );
+    throw notASystem(`returned ${JSON.stringify(sys)}`);
   }
   return sys;
 }

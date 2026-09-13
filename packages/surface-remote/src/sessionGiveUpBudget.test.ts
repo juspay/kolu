@@ -213,7 +213,12 @@ describe("the give-up budget counts only failures of the class it bounds", () =>
     const gaveUp = lines.filter((l) => l.includes("gave up"));
     expect(gaveUp).toHaveLength(1);
     expect(gaveUp[0]).toContain(`gave up after ${MAX_CONSECUTIVE_FAILURES}`);
-    expect(gaveUp[0]).toContain("trusted-users");
+    // It names what actually failed, and never guesses a cause it does not know
+    // (the incident's card sent the user to `trusted-users` for a failed build).
+    expect(gaveUp[0]).toContain(
+      "stream ended before a readiness banner arrived (scripted)",
+    );
+    expect(gaveUp[0]).not.toContain("trusted-users");
 
     session.destroy();
   });

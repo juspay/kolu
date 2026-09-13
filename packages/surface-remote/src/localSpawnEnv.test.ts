@@ -53,6 +53,7 @@ function fakeChild() {
 const noopCtx: ConnectContext<SshProv> = {
   localProgress: () => {},
   remoteProgress: () => {},
+  activity: () => {},
   provisioning: () => {},
   connecting: () => {},
   signal: new AbortController().signal,
