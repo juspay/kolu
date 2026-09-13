@@ -12,16 +12,15 @@
  *  right now" — and a component per row is how that stays per row rather than
  *  becoming a map keyed by port number.
  *
- *  Open flow is the three-layer composition ({@link urlForPort} ·
- *  {@link ensureDoor} · `window.open` at this edge) — the same pieces the
- *  printed-URL card and "copy door URL" use.
+ *  Open flow is {@link claimBlankTab} · {@link openThroughDoor} — the shared
+ *  fourth layer over {@link urlForPort} and `ensureDoor` — composed with this
+ *  row's own busy signal; the printed-URL card composes the same two
+ *  functions for its "forward & open".
  */
 
-import { toError } from "@kolu/surface/run-stream";
 import { Effect } from "effect";
 import type { HostKey } from "kolu-common/hostKey";
 import { type Component, createSignal, Show } from "solid-js";
-import { toast } from "solid-sonner";
 import { DetachedBadge } from "../forwards/DetachedBadge";
 import { ForwardControls, ForwardPill } from "../forwards/ForwardPill";
 import type { PortAction } from "../forwards/portAction";
@@ -30,7 +29,11 @@ import {
   type PortRow as PortRowData,
   rowGroup,
 } from "../forwards/portRows";
-import { ensureDoor, urlForPort } from "../forwards/openPort";
+import {
+  claimBlankTab,
+  openThroughDoor,
+  urlForPort,
+} from "../forwards/openPort";
 import { ServingTerminalLink } from "../forwards/ServingTerminalLink";
 import { runAction, type UiAction } from "../runAction";
 import { OpenIcon } from "../ui/Icons";
@@ -75,67 +78,22 @@ export const PortRow: Component<{
     return decided.kind === "ready" ? decided.url : undefined;
   };
 
-  /** Open the door, then the page. The window is opened SYNCHRONOUSLY inside the
-   *  click — before the await — because a popup blocker judges a `window.open`
-   *  by whether it descends from a user gesture, and one issued after an await
-   *  does not. So the tab is claimed first and pointed at the URL once the door
-   *  is up; a failure closes it again rather than leaving a blank tab behind.
-   *
-   *  Deliberately NOT `"noopener"` in the feature string, and the `opener = null`
-   *  below is why: `window.open` with `noopener` returns **null** by spec, so
-   *  there would be no handle to navigate once the forward is up — the flag and
-   *  this flow are mutually exclusive. Severing `opener` on the blank tab (while
-   *  it is still same-origin `about:blank`, the one moment this is possible)
-   *  reaches the same posture the anchor path gets from `rel="noopener"`. */
+  /** Open the door, then the page — {@link claimBlankTab} · {@link openThroughDoor}
+   *  composed at this edge with the row's own busy signal; the printed-URL
+   *  card composes the same two functions for its own "forward & open". */
   const openThroughForward = (): UiAction =>
     Effect.suspend(() => {
       if (opening()) return Effect.void;
       setOpening(true);
-      // Claimed on the CALLING stack — `runAction` forks synchronously up to the
-      // first suspension, and `Effect.suspend`'s body runs there, so the popup
-      // blocker still sees this `window.open` as descending from the click.
-      const tab = window.open("", "_blank");
-      if (tab !== null) {
-        try {
-          tab.opener = null;
-        } catch {
-          // Electron can throw; ignore.
-        }
-      }
-      return ensureDoor({
+      // `runAction` forks synchronously up to the first suspension, and
+      // `Effect.suspend`'s body runs there, so the popup blocker still sees
+      // this claim as descending from the click.
+      const tab = claimBlankTab();
+      return openThroughDoor({
         host: props.host,
         port: props.row.port,
-        origin: "auto",
+        tab,
       }).pipe(
-        Effect.tap((localPort) =>
-          Effect.sync(() => {
-            const decided = urlForPort({
-              action: { kind: "forward" },
-              remotePort: props.row.port,
-              doorPort: localPort,
-              pageHost: window.location.hostname,
-            });
-            if (decided.kind !== "ready") {
-              tab?.close();
-              return;
-            }
-            if (tab === null) {
-              toast.info(`Forward open on port ${localPort}`, {
-                description: "Your browser blocked the new tab.",
-              });
-              return;
-            }
-            tab.location.replace(decided.url);
-          }),
-        ),
-        Effect.catch((err) =>
-          Effect.sync(() => {
-            tab?.close();
-            toast.error(
-              `Could not forward port ${props.row.port}: ${toError(err).message}`,
-            );
-          }),
-        ),
         // The `finally` of the old shape, and now total: a finalizer runs on
         // interruption too, so a row unmounted mid-open does not stay "opening".
         Effect.ensuring(Effect.sync(() => setOpening(false))),

@@ -33,7 +33,12 @@ import { toast } from "solid-sonner";
 import { match } from "ts-pattern";
 import { FORWARD_PILL } from "../forwards/forwardTone";
 import { joinPrintedUrl } from "../forwards/joinPrintedUrl";
-import { ensureDoor, urlForPort } from "../forwards/openPort";
+import {
+  claimBlankTab,
+  ensureDoor,
+  openThroughDoor,
+  urlForPort,
+} from "../forwards/openPort";
 import { portAction } from "../forwards/portAction";
 import { bindOf, listenerLabel } from "../forwards/portRows";
 import { forwardsForHost, viewerHost } from "../forwards/useForwards";
@@ -217,51 +222,13 @@ export const PrintedUrlCard: Component<{ target: PrintedUrlCardTarget }> = (
       }
       // needs-door — claim the tab on the CALLING stack (popup-blocker rule);
       // `runAction` forks synchronously into this `suspend` body.
-      const tab = window.open("", "_blank");
-      if (tab !== null) {
-        try {
-          tab.opener = null;
-        } catch {
-          // Electron can throw; ignore.
-        }
-      }
-      return ensureDoor({
+      const tab = claimBlankTab();
+      return openThroughDoor({
         host: host(),
         port: props.target.port,
-        origin: "auto",
-      }).pipe(
-        Effect.tap((localPort) =>
-          Effect.sync(() => {
-            const ready = urlForPort({
-              action: { kind: "forward" },
-              remotePort: props.target.port,
-              doorPort: localPort,
-              pageHost: window.location.hostname,
-              remainder: remainder(),
-            });
-            if (ready.kind !== "ready") {
-              tab?.close();
-              return;
-            }
-            if (tab === null) {
-              toast.info(`Forward open on port ${localPort}`, {
-                description: "Your browser blocked the new tab.",
-              });
-              return;
-            }
-            tab.location.replace(ready.url);
-          }),
-        ),
-        Effect.catch((err) =>
-          Effect.sync(() => {
-            tab?.close();
-            toast.error(
-              `Could not forward port ${props.target.port}: ${toError(err).message}`,
-            );
-          }),
-        ),
-        Effect.ensuring(Effect.sync(() => setBusy(false))),
-      );
+        tab,
+        remainder: remainder(),
+      }).pipe(Effect.ensuring(Effect.sync(() => setBusy(false))));
     });
 
   /** Copy = decision (+ act when a door is already ready). Never clipboard-write
