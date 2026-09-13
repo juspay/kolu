@@ -30,7 +30,7 @@ const hostOf = (
   unclaimed: PortBind[] | "blind" = [],
 ): HostListeners => ({
   status: "known",
-  claimed,
+  claimed: claimed.map((c) => ({ ...c, heldByTerminal: false })),
   unclaimed:
     unclaimed === "blind"
       ? { status: "unknown" }
@@ -89,7 +89,7 @@ describe("joinPrintedPort — the decision table", () => {
     ).toEqual({
       kind: "elsewhere",
       port: 18440,
-      info: daemon,
+      info: { ...daemon, heldByTerminal: false },
       forward: forward(18440, 61004),
     });
   });

@@ -35,7 +35,7 @@ import { FORWARD_PILL } from "../forwards/forwardTone";
 import { joinPrintedUrl } from "../forwards/joinPrintedUrl";
 import { ensureDoor, urlForPort } from "../forwards/openPort";
 import { portAction } from "../forwards/portAction";
-import { bindOf, heldByNoTerminal, listenerLabel } from "../forwards/portRows";
+import { bindOf, listenerLabel } from "../forwards/portRows";
 import { forwardsForHost, viewerHost } from "../forwards/useForwards";
 import { activeHostListeners } from "../forwards/useHostListeners";
 import { DetachedBadge } from "../forwards/DetachedBadge";
@@ -357,11 +357,9 @@ export const PrintedUrlCard: Component<{ target: PrintedUrlCardTarget }> = (
                 j.kind === "elsewhere"
                   ? terminals.servingFor(j.port)
                   : undefined;
-              /** No terminal's subtree holds it — said only on a positive
-               *  reading of every terminal, never from a missing link. */
+              /** No terminal's subtree holds it — the scanner's own fact. */
               const detached = () =>
-                j.kind === "elsewhere" &&
-                heldByNoTerminal(terminals.heldPorts(), j.port);
+                j.kind === "elsewhere" && !j.info.heldByTerminal;
               const action = () => actionForListening();
               const primaryLabel = () => {
                 const a = action();

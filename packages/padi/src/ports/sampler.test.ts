@@ -55,7 +55,10 @@ function scanOf(
     byRoot,
     host: {
       status: "known",
-      claimed: [...held, ...elsewhere].sort((a, b) => a.port - b.port),
+      claimed: [
+        ...held.map((p) => ({ ...p, heldByTerminal: true })),
+        ...elsewhere.map((p) => ({ ...p, heldByTerminal: false })),
+      ].sort((a, b) => a.port - b.port),
       unclaimed: { status: "known", list: [] },
     },
   };
@@ -295,7 +298,9 @@ describe("the port sampler's cadence", () => {
     await h.advance(PORT_SCAN_INTERVAL_MS * 3);
     expect(h.passes()).toBe(4);
     expect(h.published).toEqual([]);
-    expect(h.hostPublished.at(-1)).toMatchObject({ claimed: [DAEMON] });
+    expect(h.hostPublished.at(-1)).toMatchObject({
+      claimed: [{ ...DAEMON, heldByTerminal: false }],
+    });
     h.sampler.dispose();
   });
 
@@ -415,7 +420,10 @@ describe("the host's listeners ride the same pass", () => {
     expect(h.lastPublished("A")).toEqual([PORT]);
     expect(h.hostPublished.at(-1)).toEqual({
       status: "known",
-      claimed: [PORT, DAEMON],
+      claimed: [
+        { ...PORT, heldByTerminal: true },
+        { ...DAEMON, heldByTerminal: false },
+      ],
       unclaimed: { status: "known", list: [] },
     });
     h.sampler.dispose();
@@ -471,7 +479,9 @@ describe("the host's listeners ride the same pass", () => {
       },
     });
     await settle();
-    expect(hostPublished.at(-1)).toMatchObject({ claimed: [DAEMON] });
+    expect(hostPublished.at(-1)).toMatchObject({
+      claimed: [{ ...DAEMON, heldByTerminal: false }],
+    });
 
     targets.length = 0;
     elsewhere = [];

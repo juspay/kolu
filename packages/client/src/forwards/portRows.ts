@@ -36,6 +36,7 @@
 import {
   type HostListeners,
   type KoluForward,
+  type ListenerAt,
   listenerAt,
   type PortInfo,
   type PortBind,
@@ -45,23 +46,11 @@ import {
 export type PortOrigin =
   /** In one of this tile's process subtrees. */
   | "subtree"
-  /** Printed by this tile, held by no terminal's subtree — detached. */
+  /** Printed by this tile, held by no terminal's subtree (the scanner's
+   *  `heldByTerminal`) — detached. */
   | "printed"
   /** On the host, with a story, and not this tile's. */
   | "host";
-
-/** No terminal's subtree holds `port` — true only on a positive reading of
- *  every terminal; `unknown` is never "no one holds it".
- *
- *  This is what "detached" rests on, and the ONE place it is spelled: the Ports
- *  section files a printed server under `printed` on it and the printed-URL card
- *  marks its server detached on it, so the two cannot disagree. */
-export function heldByNoTerminal(
-  held: ReadonlySet<number> | "unknown",
-  port: number,
-): boolean {
-  return held !== "unknown" && !held.has(port);
-}
 
 /** Anything that names one listener — a `PortRow` listener arm, a printed-URL
  *  join's listening arm, a `listenerAt` hit: a claimed listener carries its
@@ -127,9 +116,6 @@ export interface TerminalsView {
   tilePorts: readonly PortInfo[];
   /** Ports whose URLs this tile's panes printed. */
   printedHere: ReadonlySet<number>;
-  /** Every port some terminal subtree on this host holds, or `unknown` while a
-   *  pane is unscanned — a print claims a server only when no terminal can. */
-  heldPorts: ReadonlySet<number> | "unknown";
   /** Ports whose URLs any terminal on this host printed. */
   printedOnHost: ReadonlySet<number>;
 }
@@ -159,7 +145,23 @@ export function portGroups(opts: {
   const byPort = (a: PortRow, b: PortRow) => a.port - b.port;
 
   // ── From this terminal ────────────────────────────────────────────────
-  const { tilePorts, printedHere, heldPorts, printedOnHost } = opts.terminals;
+  const { tilePorts, printedHere, printedOnHost } = opts.terminals;
+
+  /** The row for what `listenerAt` found, or `undefined` when nothing listens. */
+  const rowAt = (
+    at: ListenerAt,
+    port: number,
+    origin: "printed" | "host",
+  ): PortRow | undefined => {
+    const forward = doorOf.get(port);
+    if (at.kind === "claimed") {
+      return { kind: "port", port, info: at.info, origin, forward };
+    }
+    if (at.kind === "unclaimed") {
+      return { kind: "unclaimed", port, bind: at.bind, origin, forward };
+    }
+    return undefined;
+  };
   const here: PortRow[] = tilePorts.map((info) => {
     taken.add(info.port);
     return {
@@ -172,30 +174,16 @@ export function portGroups(opts: {
   });
   for (const port of printedHere) {
     if (taken.has(port) || opts.doorPorts.has(port)) continue;
-    if (!heldByNoTerminal(heldPorts, port)) continue;
     const at = listenerAt(opts.host, port);
-    if (at.kind === "claimed") {
-      here.push({
-        kind: "port",
-        port,
-        info: at.info,
-        origin: "printed",
-        forward: doorOf.get(port),
-      });
-      taken.add(port);
-    } else if (at.kind === "unclaimed") {
-      here.push({
-        kind: "unclaimed",
-        port,
-        bind: at.bind,
-        origin: "printed",
-        forward: doorOf.get(port),
-      });
-      taken.add(port);
-    }
-    // `absent` / `unknown`: the print promised a server the host does not
-    // (or cannot be seen to) hold. No row — the printed-URL card is where that
-    // promise is discussed, and a row here would be a chip made from text.
+    // A print claims a server only when no terminal's subtree holds it — that
+    // is what "detached" means, and the scanner states it on the row. A server
+    // another terminal runs stays that terminal's, below. `absent`/`unknown`
+    // make no row: a row here would be a chip made from text.
+    if (at.kind === "claimed" && at.info.heldByTerminal) continue;
+    const row = rowAt(at, port, "printed");
+    if (row === undefined) continue;
+    here.push(row);
+    taken.add(port);
   }
   here.sort(byPort);
 
@@ -213,36 +201,20 @@ export function portGroups(opts: {
     for (const port of hostPorts) {
       if (taken.has(port) || opts.doorPorts.has(port)) continue;
       const at = listenerAt(opts.host, port);
-      const forward = doorOf.get(port);
-      if (at.kind === "claimed") {
-        elsewhere.push({
-          kind: "port",
-          port,
-          info: at.info,
-          origin: "host",
-          forward,
-        });
-      } else if (at.kind === "unclaimed") {
-        // Another user's socket has a story only when printed, forwarded, or
-        // sharing its port with one of our own listeners (whose narrower bind
-        // it out-ranked — dropping the port would hide our program too).
-        if (
-          forward === undefined &&
-          !printedOnHost.has(port) &&
-          !claimedPorts.has(port)
-        ) {
-          continue;
-        }
-        elsewhere.push({
-          kind: "unclaimed",
-          port,
-          bind: at.bind,
-          origin: "host",
-          forward,
-        });
-      } else {
+      // Another user's socket has a story only when printed, forwarded, or
+      // sharing its port with one of our own listeners (whose narrower bind it
+      // out-ranked — dropping the port would hide our program too).
+      if (
+        at.kind === "unclaimed" &&
+        !doorOf.has(port) &&
+        !printedOnHost.has(port) &&
+        !claimedPorts.has(port)
+      ) {
         continue;
       }
+      const row = rowAt(at, port, "host");
+      if (row === undefined) continue;
+      elsewhere.push(row);
       taken.add(port);
     }
   }

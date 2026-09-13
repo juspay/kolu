@@ -303,13 +303,18 @@ describe("foldScan — one host-wide reading, two folds", () => {
 
   it("puts the detached server on the host list, with its command line", () => {
     expect(fold(HOST).host.claimed).toEqual([
-      expect.objectContaining({ port: 5173, command: "node vite" }),
+      expect.objectContaining({
+        port: 5173,
+        command: "node vite",
+        heldByTerminal: true,
+      }),
       {
         port: 18440,
         name: "bun",
         command: "bun odu web-daemon",
         scope: "loopback",
         family: "v4",
+        heldByTerminal: false,
       },
     ]);
   });
@@ -347,6 +352,18 @@ describe("foldScan — one host-wide reading, two folds", () => {
     // neither list rather than being smuggled into one.
     const scan = fold([...HOST, "U\t9001\tports\tEACCES"]);
     expect(scan.host.claimed.map((p) => p.port)).toEqual([5173]);
+  });
+
+  it("marks a listener held by a terminal even when that terminal's ROOT is unreadable", () => {
+    // Membership comes from the process TABLE, which stays readable where a
+    // root's sockets are not — so "detached" stays exact beside a sudo terminal.
+    const scan = fold([...HOST, "U\t4200\tports\tEACCES"]);
+    expect(scan.host.claimed).toContainEqual(
+      expect.objectContaining({ port: 5173, heldByTerminal: true }),
+    );
+    expect(scan.host.claimed).toContainEqual(
+      expect.objectContaining({ port: 18440, heldByTerminal: false }),
+    );
   });
 
   it("blinds only the unreadable root — the host fold still answers", () => {

@@ -20,7 +20,6 @@ import type {
 import { describe, expect, it } from "vitest";
 import {
   bindOf,
-  heldByNoTerminal,
   listenerLabel,
   portGroups,
   rowGroup,
@@ -56,12 +55,18 @@ const forward = (
   createdAt: 0,
 });
 
+/** A host reading; `inTerminal` names the claimed ports some terminal's
+ *  subtree holds (the scanner's `heldByTerminal`). */
 const hostOf = (
   claimed: PortInfo[],
   unclaimed: PortBind[] = [],
+  inTerminal: readonly number[] = [],
 ): HostListeners => ({
   status: "known",
-  claimed,
+  claimed: claimed.map((c) => ({
+    ...c,
+    heldByTerminal: inTerminal.includes(c.port),
+  })),
   unclaimed: { status: "known", list: unclaimed },
 });
 
@@ -77,11 +82,10 @@ function groups(
     tilePorts = [],
     printedHere = none,
     printedOnHost = none,
-    heldPorts = none,
     ...rest
   } = opts;
   return portGroups({
-    terminals: { tilePorts, printedHere, printedOnHost, heldPorts },
+    terminals: { tilePorts, printedHere, printedOnHost },
     host: { status: "unknown" },
     forwards: [],
     doorPorts: none,
@@ -91,17 +95,6 @@ function groups(
 
 const shape = (rows: ReturnType<typeof portGroups>["here"]) =>
   rows.map((r) => [r.kind, r.port, r.kind === "orphan" ? null : r.origin]);
-
-describe("heldByNoTerminal — what detached rests on", () => {
-  it("is true only on a positive reading that holds no such port", () => {
-    expect(heldByNoTerminal(new Set([5173]), 18440)).toBe(true);
-    expect(heldByNoTerminal(new Set([18440]), 18440)).toBe(false);
-  });
-
-  it("is never true while a terminal is unscanned — unknown is not no", () => {
-    expect(heldByNoTerminal("unknown", 18440)).toBe(false);
-  });
-});
 
 describe("bindOf / listenerLabel — one reading of either listener arm", () => {
   it("reads the bind off a claimed listener and an unclaimed one alike", () => {
@@ -166,23 +159,22 @@ describe("from this terminal", () => {
   it("leaves a printed server another terminal runs with THAT terminal", () => {
     // An agent echoing another tile's vite URL does not make this tile its home.
     const g = groups({
-      host: hostOf([port(5173)]),
+      host: hostOf([port(5173)], [], [5173]),
       printedHere: new Set([5173]),
-      heldPorts: new Set([5173]),
     });
     expect(g.here).toEqual([]);
     expect(shape(g.elsewhere)).toEqual([["port", 5173, "host"]]);
   });
 
-  it("does not claim a printed server while a terminal is unscanned", () => {
-    // "No terminal holds it" is what detached MEANS; an unscanned pane might.
+  it("claims a printed server even while some OTHER terminal is unscanned", () => {
+    // Held-by-terminal is the scanner's fact from one pass — a terminal whose
+    // own record has not landed (or whose root is unreadable) cannot make every
+    // detached server on the host unclaimable.
     const g = groups({
       host: hostOf([port(18440, "bun odu web-daemon")]),
       printedHere: new Set([18440]),
-      heldPorts: "unknown",
     });
-    expect(g.here).toEqual([]);
-    expect(shape(g.elsewhere)).toEqual([["port", 18440, "host"]]);
+    expect(shape(g.here)).toEqual([["port", 18440, "printed"]]);
   });
 
   it("makes no row from a print while the host is unknown", () => {

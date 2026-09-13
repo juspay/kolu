@@ -309,8 +309,12 @@ function joinPorts(
   rootPids: readonly number[],
   skipPids: ReadonlySet<number>,
   blindRoots: ReadonlySet<number>,
-  unclaimedBlind: boolean,
 ): PortScan {
+  // `ports_unclaimed` is TOLERATED (see TOLERATED_SOURCE_FACETS), not ignored:
+  // the sockets it costs are exactly the unclaimed half, which says so.
+  const unclaimedBlind = reading.errors.some(
+    ({ facet }) => facet === "ports_unclaimed",
+  );
   const { claimed, unclaimed } = classifyListeners(reading.ports);
   const names = new Map(reading.procs.map((row) => [row.pid, row.name]));
   const argvs = new Map(reading.argv.map((row) => [row.pid, row.argv]));
@@ -337,7 +341,14 @@ function joinPorts(
   }
 
   const byRoot = new Map<number, PortInfo[] | "blind">();
+  /** Every port some terminal subtree holds — blind roots included: the
+   *  process TABLE is readable even where a root's sockets are not, so
+   *  membership is exact either way. */
+  const terminalPorts = new Set<number>();
   for (const [rootPid, pids] of partitionSubtrees(reading.procs, rootPids)) {
+    for (const pid of pids) {
+      for (const row of byPid.get(pid) ?? []) terminalPorts.add(row.port);
+    }
     // `[]` here would render byte-identically to "this terminal serves nothing"
     // (`caught-error-must-not-collapse-to-empty`).
     if (blindRoots.has(rootPid)) {
@@ -356,7 +367,10 @@ function joinPorts(
     byRoot,
     host: {
       status: "known",
-      claimed: foldPorts([...byPid.values()].flat()),
+      claimed: foldPorts([...byPid.values()].flat()).map((info) => ({
+        ...info,
+        heldByTerminal: terminalPorts.has(info.port),
+      })),
       unclaimed: unclaimedBlind
         ? { status: "unknown" }
         : { status: "known", list: foldBinds(unclaimed) },
@@ -456,13 +470,5 @@ export function foldScan(
   // host-wide read lists every live pid, so its absence IS the exit race the
   // subtree ask used to report as an ENOENT `U` row — an empty subtree, which
   // `partitionSubtrees` already answers for a pid it does not find.
-  return Effect.succeed(
-    joinPorts(
-      reading,
-      rootPids,
-      skipPids,
-      blindRoots,
-      reading.errors.some(({ facet }) => facet === "ports_unclaimed"),
-    ),
-  );
+  return Effect.succeed(joinPorts(reading, rootPids, skipPids, blindRoots));
 }

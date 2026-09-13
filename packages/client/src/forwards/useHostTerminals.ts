@@ -1,8 +1,7 @@
 /**
  * The active host's terminals, as the port surfaces ask about them — "which
- * terminal serves this port, and how do I get there?", "which ports does ANY
- * terminal's subtree hold?", "what does THIS tile hold and print?" and "which
- * ports did any terminal print?".
+ * terminal serves this port, and how do I get there?", "what does THIS tile hold
+ * and print?" and "which ports did any terminal print?".
  *
  * Every walk of "every pane of every tile" the Ports section and the printed-URL
  * card need lives here, so the sets `portGroups` joins arrive from ONE source
@@ -41,10 +40,6 @@ export interface HostTerminals {
   /** The tile serving `port` and the way to it, or `undefined` when no KNOWN
    *  terminal subtree holds it. */
   servingFor: (port: number) => { name: string; jump: () => void } | undefined;
-  /** Every port some terminal subtree holds — or `unknown` while any pane has
-   *  not been scanned yet, because then "no terminal holds it" cannot be said.
-   *  That sentence is what "detached" means, so it must be earned positively. */
-  heldPorts: () => ReadonlySet<number> | "unknown";
   /** A tile's subtree ports, folded across every pane of it. `knownPorts` is
    *  the ONE place "we never looked" reads as no ports: a pane whose first scan
    *  has not landed contributes nothing rather than asserting it serves nothing.
@@ -79,14 +74,6 @@ export function useHostTerminals(): HostTerminals {
       }),
     ),
   );
-  const heldPorts = createMemo((): ReadonlySet<number> | "unknown" => {
-    const held = new Set<number>();
-    for (const c of candidates()) {
-      if (c.ports.status !== "known") return "unknown";
-      for (const p of c.ports.list) held.add(p.port);
-    }
-    return held;
-  });
   const printedBy = (tileId: TerminalId): ReadonlySet<number> =>
     new Set(store.getTilePaneIds(tileId).flatMap((id) => printedPortsOf(id)));
   const printedOnHost = createMemo(
@@ -108,13 +95,11 @@ export function useHostTerminals(): HostTerminals {
         },
         activate: (id) => store.activate(id),
       }),
-    heldPorts,
     tilePorts: (tileId) =>
       foldPorts(
-        store.getTilePaneIds(tileId).flatMap((id) => {
-          const arm = activeArm(store.getMetadata(id));
-          return arm === undefined ? [] : knownPorts(arm.ports);
-        }),
+        candidates()
+          .filter((c) => c.id === tileId || c.parentId === tileId)
+          .flatMap((c) => knownPorts(c.ports)),
       ),
     printedBy,
     printedOnHost,

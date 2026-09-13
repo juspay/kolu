@@ -10,7 +10,7 @@
 
 import type { Logger } from "@kolu/log";
 import { Stream } from "effect";
-import type { HostListeners, PortInfo } from "kolu-common/surface";
+import type { HostListeners, HostPort } from "kolu-common/surface";
 import { describe, expect, it, vi } from "vitest";
 import {
   type HostPorts,
@@ -33,12 +33,13 @@ function stream<T>(frames: readonly T[]): Stream.Stream<T> {
   return Stream.concat(Stream.fromArray(frames), Stream.never);
 }
 
-const claimed = (port: number, family: "v4" | "v6" = "v4"): PortInfo => ({
+const claimed = (port: number, family: "v4" | "v6" = "v4"): HostPort => ({
   port,
   name: "bun",
   command: "bun odu web-daemon",
   scope: "loopback",
   family,
+  heldByTerminal: false,
 });
 
 function knownOf(ports: HostPorts): [number, string][] {
@@ -91,7 +92,10 @@ describe("hostPortsOf — what the reaper may act on", () => {
     ).toEqual([[5173, "v6"]]);
   });
 
-  it("folds a port claimed on one family and unclaimed on the other — v4 wins", () => {
+  it("dials the listener the user was SHOWN when both halves hold one scope", () => {
+    // Our `[::1]:3000` beside another user's `127.0.0.1:3000`, both loopback:
+    // the card and the Ports row name our program, so the door dials v6 — never
+    // the other user's server on the other family.
     expect(
       knownOf(
         hostPortsOf({
@@ -103,7 +107,7 @@ describe("hostPortsOf — what the reaper may act on", () => {
           },
         }),
       ),
-    ).toEqual([[3000, "v4"]]);
+    ).toEqual([[3000, "v6"]]);
   });
 
   it("keeps the claimed half an observation when the unclaimed half is blind", () => {

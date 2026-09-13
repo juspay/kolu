@@ -167,14 +167,11 @@ export const ForegroundSchema = Schema.Struct({
 export {
   foldBinds,
   foldPorts,
-  PORT_COMMAND_MAX_CHARS,
   type PortFamily,
   PortFamilySchema,
   type PortInfo,
   PortInfoSchema,
   type PortBind,
-  PortBindSchema,
-  portCommand,
   type PortScope,
   PortScopeSchema,
   preferredFamily,
@@ -361,11 +358,23 @@ export const UnclaimedPortsSchema = Schema.Union([
 ]);
 export type UnclaimedPorts = typeof UnclaimedPortsSchema.Type;
 
+/** A listener a readable program holds on the host, and whether a TERMINAL's
+ *  process subtree holds it. The scanner knows the second from the same pass
+ *  that found the listener, so "detached" — held by no terminal — is a fact on
+ *  the row, never re-derived by joining this reading against every terminal's
+ *  separately delivered `ports` (where one unscanned or unreadable terminal
+ *  would make it unanswerable for the whole host). */
+export const HostPortSchema = Schema.Struct({
+  ...PortInfoSchema.fields,
+  heldByTerminal: Schema.Boolean,
+});
+export type HostPort = typeof HostPortSchema.Type;
+
 /** Every TCP listener on a host, as its scanner saw it.
  *
  *   - `claimed` — sockets a readable (same-user) process holds, with the program
- *     and command line holding each. Terminal subtrees and detached daemons
- *     alike: this list does not know about terminals, `TerminalPorts` does.
+ *     and command line holding each, and whether any terminal's subtree holds it
+ *     (a detached daemon: no).
  *   - `unclaimed` — sockets the OS showed with no readable owner.
  *   - `{ status: "unknown" }` — no pass has succeeded yet: padi has never run a
  *     terminal (its sampler arms on the first one), or the first pass has not
@@ -378,7 +387,7 @@ export type UnclaimedPorts = typeof UnclaimedPortsSchema.Type;
 export const HostListenersSchema = Schema.Union([
   Schema.Struct({
     status: Schema.Literal("known"),
-    claimed: Schema.Array(PortInfoSchema),
+    claimed: Schema.Array(HostPortSchema),
     unclaimed: UnclaimedPortsSchema,
   }),
   Schema.Struct({ status: Schema.Literal("unknown") }),
@@ -422,7 +431,7 @@ export const hostListenersEqual: (
  *   - `unknown`   — cannot say: the host is not scanned, or the port is not
  *     claimed and the unclaimed half is blind (it may be another user's). */
 export type ListenerAt =
-  | { kind: "claimed"; info: PortInfo }
+  | { kind: "claimed"; info: HostPort }
   | { kind: "unclaimed"; bind: PortBind }
   | { kind: "absent" }
   | { kind: "unknown" };

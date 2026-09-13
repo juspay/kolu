@@ -111,7 +111,6 @@ const PortsSection: Component<{ terminalId: TerminalId }> = (props) => {
       terminals: {
         tilePorts: ports(),
         printedHere: printedHere(),
-        heldPorts: terminals.heldPorts(),
         printedOnHost: terminals.printedOnHost(),
       },
       host: activeHostListeners(),

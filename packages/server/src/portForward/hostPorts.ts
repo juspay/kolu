@@ -17,8 +17,8 @@ import { firstFrameOrThrow } from "@kolu/surface/first-frame";
 import { Effect, Option, type Stream } from "effect";
 import { encodeHostKey, type HostKey } from "kolu-common/hostKey";
 import {
-  foldBinds,
   type HostListeners,
+  listenerAt,
   type PortFamily,
 } from "kolu-common/surface";
 
@@ -66,19 +66,23 @@ export type HostPorts =
  *  the claimed set is its death, not a change of owner kolu missed. */
 export function hostPortsOf(reading: HostListeners): HostPorts {
   if (reading.status !== "known") return { status: "unknown" };
-  // A port can be claimed by us AND bound by another user (rare, legitimate), so
-  // the two halves fold through the vocabulary's own bind rule: the most useful
-  // SCOPE wins and the family is read off the binds holding it. A family-only
-  // merge would pick v4 from another user's interface bind over our `[::1]`
-  // loopback one, and the door would dial 127.0.0.1 where nothing listens.
-  const binds = foldBinds([
+  // A port can be claimed by us AND bound by another user (rare, legitimate).
+  // WHICH bind the door dials is `listenerAt`'s answer — the same one the
+  // printed-URL card and the Ports row show — so a door never dials a different
+  // listener than the one the user was shown. The claimed half alone still
+  // decides a port when the unclaimed half is blind (see above).
+  const ports = new Map<number, PortFamily>();
+  const candidates = [
     ...reading.claimed,
     ...(reading.unclaimed.status === "known" ? reading.unclaimed.list : []),
-  ]);
-  return {
-    status: "known",
-    ports: new Map(binds.map((b) => [b.port, b.family])),
-  };
+  ];
+  for (const { port } of candidates) {
+    if (ports.has(port)) continue;
+    const at = listenerAt(reading, port);
+    if (at.kind === "claimed") ports.set(port, at.info.family);
+    else if (at.kind === "unclaimed") ports.set(port, at.bind.family);
+  }
+  return { status: "known", ports };
 }
 
 /** The ports currently listening on `host`, as its port scanner sees them — the

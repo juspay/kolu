@@ -163,13 +163,17 @@ describe("hostListeners", () => {
   const known = (
     claimed: PortInfo[],
     unclaimed: UnclaimedPorts = { status: "known", list: [] },
-  ): HostListeners => ({ status: "known", claimed, unclaimed });
+  ): HostListeners => ({
+    status: "known",
+    claimed: claimed.map((c) => ({ ...c, heldByTerminal: false })),
+    unclaimed,
+  });
 
   describe("listenerAt — the four answers", () => {
     it("names a claimed listener with its owner", () => {
       expect(listenerAt(known([p(18440)]), 18440)).toEqual({
         kind: "claimed",
-        info: p(18440),
+        info: { ...p(18440), heldByTerminal: false },
       });
     });
 

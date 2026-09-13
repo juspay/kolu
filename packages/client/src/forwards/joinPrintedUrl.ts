@@ -20,6 +20,7 @@
 
 import {
   type HostListeners,
+  type HostPort,
   type KoluForward,
   listenerAt,
   type PortInfo,
@@ -42,9 +43,16 @@ export type PrintedUrlJoin =
   | { kind: "blind"; port: number }
   | { kind: "unbacked"; port: number }
   | {
-      kind: "joined" | "elsewhere";
+      kind: "joined";
       port: number;
       info: PortInfo;
+      forward: KoluForward | undefined;
+    }
+  | {
+      kind: "elsewhere";
+      port: number;
+      /** Carries `heldByTerminal`: false is a DETACHED server. */
+      info: HostPort;
       forward: KoluForward | undefined;
     }
   | {
