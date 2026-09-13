@@ -144,10 +144,10 @@ export type SkewVersionPair = typeof SkewVersionPairSchema.Type;
  *     cannot know.
  *   - `host-setup-failed`     — a REMOTE give-up of the remote class: the host
  *     answered, and bringing padi up there kept failing (a Nix build, the agent
- *     refusing or dying before it greeted). Both remote arms are set by the remote
- *     arm's convergence machine (`remotePadiBinding`, on the `failed` phase), split
- *     on the session's own transport `cause` — a structural fact, never read from
- *     the reason text.
+ *     refusing or dying before it greeted). Both remote arms are minted by
+ *     `padiFailureOf` for a provisioning arm's terminal give-up with no finer
+ *     detail, split on the session's own transport `cause` — a structural fact,
+ *     never read from the reason text.
  *   - `local-start-failed`    — the LOCAL padi couldn't start on THIS machine (a
  *     terminal give-up with no convergence channel — the local arm's
  *     `entryFailedDetail()` is always null). A DISTINCT producer from the two remote
@@ -155,8 +155,8 @@ export type SkewVersionPair = typeof SkewVersionPairSchema.Type;
  *     remedy (check the local install/logs), so it earns its own arm rather than
  *     collapsing into one of them — which would be `"other"` wearing a better
  *     name. `padiFailureOf` mints it for the `detail === null && phase === "failed"`
- *     case, which is uniquely the local arm (the remote arm always carries a
- *     `link-failed` convergence detail on a terminal give-up). */
+ *     case on a NON-provisioning arm (`session.provisions === false`), which is
+ *     uniquely the local arm. */
 export const PadiEntryFailureSchema = Schema.Union([
   Schema.Struct({
     cause: Schema.Literal("contract-skew-refused"),

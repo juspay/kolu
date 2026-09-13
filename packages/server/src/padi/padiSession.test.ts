@@ -93,10 +93,10 @@ describe("padiFailureOf — detail + transport state → published PadiEntryFail
     });
   });
 
-  // The remote arm normally rides the detail branch (its convergence sets a `link-failed`
-  // detail). This pins the fallback: if a remote path ever reaches a terminal give-up
-  // WITHOUT that detail, it still classifies correctly off the arm — a remote give-up
-  // named by its transport cause, never mislabeled `local-start-failed`.
+  // The remote arm's generic give-up carries no finer detail (its `link-failed`
+  // convergence is not copied into one): it classifies off the arm and the session's
+  // own state — a remote give-up named by its transport cause, never mislabeled
+  // `local-start-failed`.
   it("classifies a REMOTE (provisioning) terminal give-up with no detail by its transport cause", () => {
     expect(
       padiFailureOf(REMOTE, null, failed("ssh gave up after 5 dials")),

@@ -579,12 +579,9 @@ export const PadiConvergenceSchema = Schema.Union([
   }),
   Schema.Struct({
     /** The ssh link gave up for good. App-only; not a framework convergence
-     *  verdict. `cause` is the session's own transport class for the give-up —
-     *  `"network"` (a step went silent too many times) or `"remote"` (the host
-     *  answered and setup kept failing) — carried so the card can say which
-     *  without reading `detail`. */
+     *  verdict. WHY it gave up (stalled vs setup kept failing) is the session's
+     *  own `cause` on its `failed` state — read there, never copied here. */
     kind: Schema.Literal("link-failed"),
-    cause: Schema.Literals(["network", "remote"]),
     detail: Schema.String,
   }),
 ]);

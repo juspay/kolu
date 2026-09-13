@@ -59,7 +59,7 @@ import { Effect } from "effect";
 import { LOCAL_HOST } from "kolu-common/surfacesWithPadi";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { padiConvergencePolicyForBinding } from "./padiConvergence.ts";
-import type { PadiSession } from "./padiSession.ts";
+import { type PadiSession, padiFailureOf } from "./padiSession.ts";
 import {
   composePadiExtraArgs,
   ensureRemotePadiBinding,
@@ -567,6 +567,15 @@ describe("remote padi arm — the ssh arm's handshake + scope + drain", () => {
     const conv = session.convergence();
     expect(conv?.kind).toBe("link-failed");
     expect(conv?.detail).toMatch(/nix build|exited with code/i);
+    // WHY it gave up is the session's own state, never a copy on the convergence:
+    // the generic give-up carries no finer detail, and the published failure is
+    // named from the `failed` state's transport cause.
+    expect(session.entryFailedDetail()).toBeNull();
+    const state = session.currentState();
+    if (state.phase !== "failed") throw new Error("expected a failed session");
+    expect(
+      padiFailureOf(true, session.entryFailedDetail(), state),
+    ).toMatchObject({ cause: "host-setup-failed" });
   });
 
   // ── The epoch gate, at the binder seam (juspay/kolu#2101) ──────────────────
@@ -1247,8 +1256,8 @@ describe("remote padi arm — build/contract convergence at the bind (over ssh)"
     // returns `null`. On a still-retrying `disconnected` state `padiFailureOf` projects
     // that `null` straight through (the single-meaning absent, PR4), and `serveHostMap`
     // reads the absent failure as RETRIABLE warming (coming back up), never a masked-
-    // standing `failed`. (A terminal give-up is the OTHER case — `padiFailureOf` floors
-    // it to `link-failed` off the transport reason; see `padiSession.test.ts`.)
+    // standing `failed`. (A terminal give-up is the OTHER case — `padiFailureOf` names
+    // it by the session's transport cause; see `padiSession.test.ts`.)
     const { session, enqueue, handles } = makeArm({ binderBuildId: "build-X" });
     enqueue(serve(helloVals({ buildId: "build-X" }))); // same build → clean ADOPT
     await pinAdopt(session);
