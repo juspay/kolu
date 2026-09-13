@@ -215,6 +215,7 @@ describe("PadiConvergenceSchema — framework-shaped arms, no null padding", () 
     expect(
       accepts(PadiConvergenceSchema)({
         kind: "link-failed",
+        cause: "remote",
         detail: "ssh died",
       }),
     ).toBe(true);

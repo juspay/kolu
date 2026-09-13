@@ -80,6 +80,7 @@ import {
   asPadiSession,
   type PadiEntryFailedDetail,
   type PadiSession,
+  remoteGiveUpCause,
 } from "./padiSession.ts";
 
 /** How long the build/contract-mismatch drain waits for the ssh-bridged link to die
@@ -497,7 +498,7 @@ export function ensureRemotePadiBinding(
       case undefined:
         if (drvFaultCause !== null) return { cause: drvFaultCause };
         if (convergence?.kind === "link-failed") {
-          return { cause: "link-failed" };
+          return { cause: remoteGiveUpCause(convergence.cause) };
         }
         return null;
       default: {
@@ -827,6 +828,7 @@ export function ensureRemotePadiBinding(
         // so there is no invented fallback text left to write here.
         convergence = {
           kind: "link-failed",
+          cause: s.cause,
           detail: s.error,
         };
       }

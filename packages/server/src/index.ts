@@ -496,7 +496,8 @@ export async function bootKoluWeb(flags: KoluBootFlags): Promise<void> {
     // absent); and a terminal give-up (`state.phase === "failed"`) that carries no finer
     // detail is classified off the ARM via `session.provisions` — a non-provisioning
     // (LOCAL) give-up is `local-start-failed` (its own named producer, distinct from the
-    // remote arm's `link-failed`), a provisioning (remote) one is `link-failed` — rather
+    // remote arm's give-ups), a provisioning (remote) one is `connect-stalled` /
+    // `host-setup-failed` by its transport cause — rather
     // than yielding `null` into `serveHostMap`'s fail-loud `UnclassifiedHostFailureError`
     // seam. So a genuinely-failed entry always classifies.
     failureOf: (_host, session, state): PadiEntryFailure | null =>

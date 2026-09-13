@@ -291,8 +291,12 @@ describe("resolveAgentDrv", () => {
       "padi",
       resolutionOptions,
     );
-    await expect(failure).rejects.toThrow(/nix eval failed: attribute 'padi' missing/);
-    await expect(failure).rejects.toThrow(/while evaluating the attribute 'padi'/);
+    await expect(failure).rejects.toThrow(
+      /nix eval failed: attribute 'padi' missing/,
+    );
+    await expect(failure).rejects.toThrow(
+      /while evaluating the attribute 'padi'/,
+    );
     await expect(failure).rejects.not.toThrow(/noise/);
     await expect(failure).rejects.not.toThrow(/exited with code/);
   });

@@ -504,11 +504,11 @@ async function prefetchAgentClosure(opts: {
     // miss). The give-up verdict belongs AFTER the loop — another declared
     // cache may still deliver, and announcing a fall back before trying it is
     // simply false.
-    opts.narrate(`could not fetch the agent closure from ${url}: ${describeNixRun(res)}`);
+    opts.narrate(
+      `could not fetch the agent closure from ${url}: ${describeNixRun(res)}`,
+    );
   }
-  opts.narrate(
-    "no declared cache delivered the agent closure",
-  );
+  opts.narrate("no declared cache delivered the agent closure");
   return "missed";
 }
 

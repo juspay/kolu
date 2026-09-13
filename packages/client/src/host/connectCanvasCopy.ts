@@ -35,17 +35,39 @@ export interface ConnectCopy {
  *  flicker srid saw dies WITHOUT hiding the state machine (real `provisioning` still
  *  gets its distinct title, and its tail/elapsed render off the frame's data). */
 export function connectCanvasCopy(
-  phase: ConnectPhase | undefined,
+  phase: NarratedPhase | undefined,
   host: string,
 ): ConnectCopy {
-  return match(phase)
-    .with(P.union(undefined, "probing", "connecting"), () => ({
-      title: `Connecting to ${host}…`,
-    }))
-    .with("provisioning", () => ({
-      title: `Provisioning kolu on ${host}… this can take a few minutes`,
-    }))
-    .exhaustive();
+  return (
+    match(phase)
+      .with(P.union(undefined, "probing", "connecting"), () => ({
+        title: `Connecting to ${host}…`,
+      }))
+      .with("provisioning", () => ({
+        title: `Provisioning kolu on ${host}… this can take a few minutes`,
+      }))
+      // Between attempts. Saying "Connecting…" here hid that an attempt had just
+      // ended; the tail under this title carries the session's own "attempt N
+      // failed: <reason> — retrying in …" line, so the title only has to say that
+      // kolu is going round again.
+      .with("disconnected", () => ({
+        title: `Reconnecting to ${host}…`,
+      }))
+      .exhaustive()
+  );
+}
+
+/** What the overlay narrates: the coming-up phases, plus the reconnect BACKOFF
+ *  between attempts. A `disconnected` session reaches this overlay only while it
+ *  is retrying — the map projects a standing refusal or a terminal give-up to
+ *  `failed`, which the host-down card owns — so narrating it here is not a second
+ *  failure surface; it is the pause between two attempts, with the reason the
+ *  last one ended. */
+export type NarratedPhase = ConnectPhase | "disconnected";
+
+/** Is this a phase the overlay narrates (see {@link NarratedPhase})? */
+export function isNarratedPhase(phase: string): phase is NarratedPhase {
+  return isConnectPhase(phase) || phase === "disconnected";
 }
 
 /** Is this a phase the connect overlay narrates? (The provisioning phases + the

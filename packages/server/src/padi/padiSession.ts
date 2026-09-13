@@ -61,8 +61,9 @@ export type PadiEntryFailedDetail =
  *    endpoint, `true` for a provisioning ssh arm): a NON-provisioning (local) give-up
  *    is `local-start-failed` (the padi couldn't start on this machine — a distinct
  *    producer from a remote reach, with a distinct remedy, so it gets its own named
- *    arm rather than collapsing into `link-failed`, which would be `"other"` wearing a
- *    better name); a provisioning (remote) give-up is `link-failed`. The remote arm
+ *    arm rather than collapsing into a remote give-up, which would be `"other"` wearing a
+ *    better name); a provisioning (remote) give-up is `connect-stalled` or
+ *    `host-setup-failed` by its transport cause (see {@link remoteGiveUpCause}). The remote arm
  *    normally rides the `detail` branch above (its convergence machine sets a
  *    `link-failed` detail), so this remote fallback only fires if a remote path ever
  *    reaches a terminal `failed` WITHOUT that detail — and it still classifies
@@ -79,8 +80,19 @@ export function padiFailureOf(
   if (detail !== null) return { ...detail, reason: state.error };
   if (state.phase !== "failed") return null;
   return provisions
-    ? { cause: "link-failed", reason: state.error }
+    ? { cause: remoteGiveUpCause(state.cause), reason: state.error }
     : { cause: "local-start-failed", reason: state.error };
+}
+
+/** A REMOTE arm's terminal give-up, named by the session's own transport class:
+ *  a `"network"` session only ever stops retrying when a step went silent too
+ *  many times (`connect-stalled`); a `"remote"` one gave up because the host
+ *  answered and setup kept failing (`host-setup-failed`). The ONE mapping, shared
+ *  by the convergence branch and the no-detail fallback. */
+export function remoteGiveUpCause(
+  cause: "network" | "remote",
+): "connect-stalled" | "host-setup-failed" {
+  return cause === "network" ? "connect-stalled" : "host-setup-failed";
 }
 
 /** A bound padi, LOCAL or REMOTE — a daemon session over the padi surface, its

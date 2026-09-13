@@ -13,7 +13,7 @@
  *  BootStalledCopy>` makes the client map EXHAUSTIVE by construction: adding a future client leg
  *  fails THIS build until its copy is written, so the card can never fall back to a generic
  *  message for a leg the resolver has named. Episode-honest (R5): the phrasing says only what is
- *  true of a stalled boot episode ("hasn't finished" / "still retrying", not "failed"), and the
+ *  true of a stalled boot episode ("hasn't finished" / "still working", not "failed"), and the
  *  connector card names the live phase (rendered beside its static body from `mode.recovery.phase`)
  *  rather than pretending a long, still-running campaign failed the instant the ceiling passed. */
 
@@ -39,7 +39,7 @@ export const CONNECTOR_STALLED_COPY: BootStalledCopy = {
   title: "kolu is still setting up this host",
   body:
     "Setting up this host's agent over ssh is taking longer than usual, but kolu hasn't given " +
-    "up — it is still retrying. You can keep waiting, retry the connection now, or switch back " +
+    "up — it is still working on it. You can keep waiting, retry the connection now, or switch back " +
     "to your local host.",
 };
 

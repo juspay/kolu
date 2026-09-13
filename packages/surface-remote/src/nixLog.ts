@@ -109,7 +109,12 @@ type NixEvent =
       readonly text: string;
       readonly fields: readonly unknown[];
     }
-  | { readonly kind: "result"; readonly id: number; readonly type: number; readonly fields: readonly unknown[] }
+  | {
+      readonly kind: "result";
+      readonly id: number;
+      readonly type: number;
+      readonly fields: readonly unknown[];
+    }
   | { readonly kind: "ignored" };
 
 const NIX_PREFIX = "@nix ";

@@ -636,9 +636,7 @@ describe("cache prefetch + ship (steps 2 and 3)", () => {
     expect(res.ok).toBe(true);
     expect(
       onProgress.mock.calls.some(([line]) =>
-        /no declared cache delivered the agent closure/.test(
-          String(line),
-        ),
+        /no declared cache delivered the agent closure/.test(String(line)),
       ),
     ).toBe(true);
   });
@@ -1132,8 +1130,7 @@ describe("honest failure reporting (the sheetal-codex incident)", () => {
     flakeAgentDerivation(DRV, FLAKE_INSTALLABLE, TEST_BINARY_CACHE);
   const CRATE_DRV =
     "/nix/store/d44gl7h40dgahrrg3w8n3rg9d6bp1kxf-crate-humantime-2.4.0.tar.gz.drv";
-  const KOLU_DRV =
-    "/nix/store/rz6j476k358bj3madirm98i34bb7ykl7-kolu-2.2.0.drv";
+  const KOLU_DRV = "/nix/store/rz6j476k358bj3madirm98i34bb7ykl7-kolu-2.2.0.drv";
 
   /** A remote build that failed the way it did on the incident host: the crate
    *  fetch's own curl output (a builder LOG), then Nix's root error, then a

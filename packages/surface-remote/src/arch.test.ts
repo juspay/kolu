@@ -156,7 +156,11 @@ describe("resolveSystem ssh-refusal classification", () => {
     // (The host answered, so it is the bounded remote class — never terminal.)
     probeEmitting(PERMISSION_DENIED, 1);
     expect(await failureOf("petit")).toMatchObject({
-      resolution: { kind: "unavailable", failureCause: "remote", terminal: false },
+      resolution: {
+        kind: "unavailable",
+        failureCause: "remote",
+        terminal: false,
+      },
     });
   });
 
@@ -222,7 +226,11 @@ describe("resolveSystem ssh-refusal classification", () => {
     );
     const err = await failureOf("petit");
     expect(err).toMatchObject({
-      resolution: { kind: "unavailable", failureCause: "remote", terminal: false },
+      resolution: {
+        kind: "unavailable",
+        failureCause: "remote",
+        terminal: false,
+      },
     });
     expect((err as Error).message).toContain("some transient nix failure");
     expect((err as Error).message).not.toMatch(/exited with code/);

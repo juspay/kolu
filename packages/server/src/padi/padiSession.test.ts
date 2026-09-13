@@ -79,7 +79,7 @@ describe("padiFailureOf — detail + transport state → published PadiEntryFail
   // never respawns). A null detail on a terminal give-up must NOT ride into the map's
   // `UnclassifiedHostFailureError` seam. Classified off the ARM (`provisions`): a
   // non-provisioning give-up is `local-start-failed` (a distinct producer: the padi
-  // couldn't start on this machine), never collapsed into the remote `link-failed`.
+  // couldn't start on this machine), never collapsed into a remote give-up.
   it("classifies a LOCAL (non-provisioning) terminal give-up with no detail as local-start-failed", () => {
     expect(
       padiFailureOf(
@@ -95,14 +95,25 @@ describe("padiFailureOf — detail + transport state → published PadiEntryFail
 
   // The remote arm normally rides the detail branch (its convergence sets a `link-failed`
   // detail). This pins the fallback: if a remote path ever reaches a terminal give-up
-  // WITHOUT that detail, it still classifies correctly off the arm — `link-failed`, never
-  // mislabeled `local-start-failed`.
-  it("classifies a REMOTE (provisioning) terminal give-up with no detail as link-failed", () => {
+  // WITHOUT that detail, it still classifies correctly off the arm — a remote give-up
+  // named by its transport cause, never mislabeled `local-start-failed`.
+  it("classifies a REMOTE (provisioning) terminal give-up with no detail by its transport cause", () => {
     expect(
       padiFailureOf(REMOTE, null, failed("ssh gave up after 5 dials")),
     ).toEqual({
-      cause: "link-failed",
+      cause: "host-setup-failed",
       reason: "ssh gave up after 5 dials",
+    });
+    // A `"network"` give-up is the silence budget running out — it never learned
+    // the host is unreachable, and the cause says only what it knows.
+    expect(
+      padiFailureOf(REMOTE, null, {
+        ...failed("'nix build' no output for 960000ms — giving up"),
+        cause: "network",
+      }),
+    ).toEqual({
+      cause: "connect-stalled",
+      reason: "'nix build' no output for 960000ms — giving up",
     });
   });
 });

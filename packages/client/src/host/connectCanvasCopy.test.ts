@@ -39,6 +39,12 @@ describe("connectCanvasCopy", () => {
     expect(gap.title).toContain("Connecting to zest");
   });
 
+  it("the reconnect backoff says kolu is going round again, never a bare 'Connecting…'", () => {
+    expect(connectCanvasCopy("disconnected", "zest").title).toBe(
+      "Reconnecting to zest…",
+    );
+  });
+
   it("interpolates the real host name into every phase", () => {
     for (const phase of ["provisioning", "connecting"] as const) {
       expect(connectCanvasCopy(phase, "alice@bob.example").title).toContain(

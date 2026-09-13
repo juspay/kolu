@@ -175,10 +175,12 @@ system/org.nixos.nix-daemon` on macOS).
 Machines you [add as another machine](/remote-hosts) can inherit the cache
 through kolu: provisioning copies the agent's binaries out of **this** machine's
 store onto the host, cross-architecture included. That copy lands only if the
-host trusts it — your ssh user is in the host's `trusted-users`, or the host
-trusts the cache's signing key. When it doesn't, kolu says so in the connect
-log and the host builds the agent itself; the fix is the same `nix.conf` block
-above, applied on that machine.
+host trusts it — your ssh user is in the host's `trusted-users`, or the copied
+binaries carry a signature the host trusts (the cache's, when this machine
+downloaded them rather than building them). When it doesn't, kolu shows Nix's
+refusal in the connect log and the host realises the agent itself; the fix is
+`trusted-users` on that machine, or the same `nix.conf` block above applied
+there so it downloads the agent instead of building it.
 
 Whether this machine has those binaries to copy depends on how you installed
 kolu. If you run kolu as a service through the **home-manager module**, it
