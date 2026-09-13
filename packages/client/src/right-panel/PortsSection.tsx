@@ -59,6 +59,7 @@ import {
 import { useHostListeners } from "../forwards/useHostListeners";
 import { sameSet, useHostTerminals } from "../forwards/useHostTerminals";
 import { isActiveHostLocal } from "../kaval/useDaemonStatus";
+import { isTouch } from "../useMobile";
 import { ChevronRightIcon } from "../ui/Icons";
 import Section from "../ui/Section";
 import { activeHost } from "../wire";
@@ -178,6 +179,9 @@ const PortsSection: Component<{ terminalId: TerminalId }> = (props) => {
                 type="button"
                 class="-mx-1 flex items-center gap-1 rounded px-1 py-0.5 text-left text-[10px] text-fg-3/70 transition-colors hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 motion-reduce:transition-none"
                 aria-expanded={elsewhereOpen()}
+                // A coarse pointer gets the WCAG 2.2 24px tap floor, like the
+                // Code-tab toolbar; a mouse keeps the compact header.
+                classList={{ "min-h-6": isTouch() }}
                 data-testid="inspector-ports-elsewhere-toggle"
                 onClick={() => setElsewhereOpen((open) => !open)}
               >
