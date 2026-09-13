@@ -601,10 +601,15 @@ async function shipAgentClosure(opts: {
  *  local/remote difference (it returns the bare command for a local host), so
  *  the same question does not need two implementations that can drift.
  *
- *  Three outcomes, not two: an ABORTED probe is not an absent closure. Folding
+ *  Four outcomes, not two: an ABORTED probe is not an absent closure. Folding
  *  it into `false` would narrate "no local copy of the agent to ship" for a dial
  *  the user just cancelled — a false statement about the store, and the same
- *  class of lie the other copy steps take care to avoid.
+ *  class of lie the other copy steps take care to avoid. Likewise a
+ *  `lifetime-expired` kill of this cheap round-trip is `"timed-out"`, never
+ *  folded into `"absent"`: the query hit `probePolicy()`'s deadline instead of
+ *  answering, which is the strongest evidence available that the seat is
+ *  already degraded — the caller narrates it explicitly rather than silently
+ *  proceeding as though the store had cleanly reported "not cached".
  *
  *  `target` is a bare host string or an `SshDestination` naming the dial's
  *  policy — the same argument `buildSshProbeCommand` takes, forwarded whole. The
@@ -615,13 +620,15 @@ async function checkValidity(
   target: string | SshDestination,
   outPath: string,
   opts: { signal: AbortSignal | undefined },
-): Promise<"valid" | "absent" | "aborted"> {
+): Promise<"valid" | "absent" | "aborted" | "timed-out"> {
   const res = await runNix(target, ["nix-store", "--check-validity", outPath], {
     policy: probePolicy(),
     signal: opts.signal,
   });
   if (res.ok) return "valid";
-  return res.kind === "aborted" ? "aborted" : "absent";
+  if (res.kind === "aborted") return "aborted";
+  if (res.kind === "lifetime-expired") return "timed-out";
+  return "absent";
 }
 
 /** Steps 2 and 3 as ONE decision: get the agent closure into the target store
@@ -663,7 +670,12 @@ async function stageAgentClosure(opts: {
       onTarget: false,
     };
   }
-  if (held === "absent") {
+  if (held === "timed-out") {
+    opts.narrate(
+      `local validity check timed out after ${PROVISION_PROBE_DEADLINE_MS}ms — treating the agent closure as not yet cached locally`,
+    );
+  }
+  if (held === "absent" || held === "timed-out") {
     const prefetch = await prefetchAgentClosure({
       outPath: opts.outPath,
       binaryCache: opts.binaryCache,
@@ -807,11 +819,21 @@ export async function provisionAgent(
       // Ask the host, bounded, whether the output is already valid there. This is a pure
       // store query — it NEVER substitutes (verified: `--check-validity` on an absent path
       // returns non-zero instantly, no fetch).
-      if (
-        (await checkValidity({ host: opts.host, keepalive }, localAgentPath, {
-          signal,
-        })) === "valid"
-      ) {
+      const cached = await checkValidity(
+        { host: opts.host, keepalive },
+        localAgentPath,
+        { signal },
+      );
+      if (cached === "timed-out") {
+        // The cheapest possible round-trip to this host didn't even answer —
+        // say so, rather than silently falling through as if it had cleanly
+        // reported "not cached" (the strongest evidence yet that the seat is
+        // already degraded, and it would otherwise be thrown away).
+        opts.onProgress(
+          `${opts.host}: cached-agent check timed out after ${PROVISION_PROBE_DEADLINE_MS}ms — host may be degraded; continuing without the warm fast-path`,
+        );
+      }
+      if (cached === "valid") {
         // Warm hit. The shared root operation is the commit point: only a rooted,
         // still-valid target may short-circuit as success.
         opts.onProvisioning?.();
