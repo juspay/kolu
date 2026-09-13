@@ -152,16 +152,20 @@ describe("planSupervision", () => {
     });
   });
 
-  it.each([["30m/0"], ["30m/2x"], ["30m/1.5"], ["30m/"], ["/3"], ["30m/3/2"]])(
-    "refuses `--nag %s` — the slash carries an interval and a whole count, nothing else",
-    (nag) => {
-      const plan = planSupervision(args({ nag }));
-      expect(plan.kind, nag).toBe("error");
-      // Refused for the SLASH's reason — not the generic "not a duration" a
-      // grammar that never knew the slash would give.
-      expect(plan.kind === "error" && plan.message).toMatch(/after the slash/);
-    },
-  );
+  it.each([
+    ["30m/0"],
+    ["30m/2x"],
+    ["30m/1.5"],
+    ["30m/"],
+    ["/3"],
+    ["30m/3/2"],
+  ])("refuses `--nag %s` — the slash carries an interval and a whole count, nothing else", (nag) => {
+    const plan = planSupervision(args({ nag }));
+    expect(plan.kind, nag).toBe("error");
+    // Refused for the SLASH's reason — not the generic "not a duration" a
+    // grammar that never knew the slash would give.
+    expect(plan.kind === "error" && plan.message).toMatch(/after the slash/);
+  });
 
   it("spells the refusal in the flag's own grammar — the count lives after the slash", () => {
     const plan = planSupervision(args({ nag: "30m/0" }));

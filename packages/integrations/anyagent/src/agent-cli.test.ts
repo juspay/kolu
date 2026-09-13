@@ -572,12 +572,9 @@ describe("resumeAgentCommand by session id (juspay/kolu#1495)", () => {
       { kind: "pi", sessionId: PI_ID },
       `pi --session ${PI_ID} --model kimi-k3`,
     ],
-  ] as const)(
-    "resumes the exact conversation: %j + %j → %j",
-    (normalized, session, expected) => {
-      expect(resumeAgentCommand(normalized, session)).toBe(expected);
-    },
-  );
+  ] as const)("resumes the exact conversation: %j + %j → %j", (normalized, session, expected) => {
+    expect(resumeAgentCommand(normalized, session)).toBe(expected);
+  });
 
   // The id is spliced as a single safe token, and the rest of the tail keeps its
   // existing quoting — so a quoted flag value survives alongside the id splice.
@@ -617,12 +614,9 @@ describe("resumeAgentCommand by session id (juspay/kolu#1495)", () => {
       "opencode",
       { kind: "opencode", sessionId: "11111111-2222-3333-4444-555555555555" },
     ],
-  ] as const)(
-    "refuses to resume on a malformed same-agent id (returns null): %j + %j",
-    (normalized, session) => {
-      expect(resumeAgentCommand(normalized, session)).toBeNull();
-    },
-  );
+  ] as const)("refuses to resume on a malformed same-agent id (returns null): %j + %j", (normalized, session) => {
+    expect(resumeAgentCommand(normalized, session)).toBeNull();
+  });
 
   // pi's exact-resume prefers the transcript PATH (pi's own `--session`
   // accepts it, and it bypasses the session-store lookup that a moved store

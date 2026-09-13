@@ -1079,18 +1079,15 @@ describe("daemonEnv — the server → padi forwarding hop for the run-bind pid"
   it.each([
     ["KAVAL_BUILD_ID", "build-only"],
     ["KAVAL_COMMIT_HASH", "commit-only"],
-  ])(
-    "rejects a half-baked kaval identity at the binder (%s only)",
-    (name, value) => {
-      vi.stubEnv("KAVAL_BUILD_ID", undefined);
-      vi.stubEnv("KAVAL_COMMIT_HASH", undefined);
-      vi.stubEnv(name, value);
+  ])("rejects a half-baked kaval identity at the binder (%s only)", (name, value) => {
+    vi.stubEnv("KAVAL_BUILD_ID", undefined);
+    vi.stubEnv("KAVAL_COMMIT_HASH", undefined);
+    vi.stubEnv(name, value);
 
-      expect(() => daemonEnv("/state/root", false)).toThrow(
-        "incomplete baked identity: KAVAL_BUILD_ID and KAVAL_COMMIT_HASH must be set together",
-      );
-    },
-  );
+    expect(() => daemonEnv("/state/root", false)).toThrow(
+      "incomplete baked identity: KAVAL_BUILD_ID and KAVAL_COMMIT_HASH must be set together",
+    );
+  });
 
   it("is EXACTLY every allowlist key + every padi-operational input — no dropped base key, no leaked ambient key (#1872 2a parity)", () => {
     // The supervisor's detached spawn branch passes `cfg.env` ALONE (macOS launchd,

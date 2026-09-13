@@ -207,26 +207,25 @@ describe("buildCreateInput", () => {
       mode: "command mode (`create -- claude`, the #1872 field repro)",
       command: ["claude"],
     },
-  ])(
-    "does not forward the caller's CLAUDE_CODE_* identity vars — $mode (data-loss guard, #1872)",
-    ({ command }) => {
-      const input = buildCreateInput({
-        id: "x",
-        cwd: "/",
-        env: {
-          SHELL: "/bin/bash",
-          CLAUDE_CODE_CHILD_SESSION: "1",
-          CLAUDECODE: "1",
-          CLAUDE_CODE_SESSION_ID: "abc",
-        },
-        command,
-        kavalSocket: SOCK,
-      });
-      expect("CLAUDE_CODE_CHILD_SESSION" in input.env).toBe(false);
-      expect("CLAUDECODE" in input.env).toBe(false);
-      expect("CLAUDE_CODE_SESSION_ID" in input.env).toBe(false);
-    },
-  );
+  ])("does not forward the caller's CLAUDE_CODE_* identity vars — $mode (data-loss guard, #1872)", ({
+    command,
+  }) => {
+    const input = buildCreateInput({
+      id: "x",
+      cwd: "/",
+      env: {
+        SHELL: "/bin/bash",
+        CLAUDE_CODE_CHILD_SESSION: "1",
+        CLAUDECODE: "1",
+        CLAUDE_CODE_SESSION_ID: "abc",
+      },
+      command,
+      kavalSocket: SOCK,
+    });
+    expect("CLAUDE_CODE_CHILD_SESSION" in input.env).toBe(false);
+    expect("CLAUDECODE" in input.env).toBe(false);
+    expect("CLAUDE_CODE_SESSION_ID" in input.env).toBe(false);
+  });
 });
 
 describe("buildRemoteCreateInput", () => {

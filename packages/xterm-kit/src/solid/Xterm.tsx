@@ -161,10 +161,8 @@ export const Xterm: Component<
   // prop wins instead of intersecting into an unusable handler; everything else
   // (including the DOM `onResize` UIEvent handler, which the kit no longer
   // shadows) spreads onto the div.
-  XtermOwnProps &
-    Omit<JSX.HTMLAttributes<HTMLDivElement>, keyof XtermOwnProps>> = (
-  props,
-) => {
+  XtermOwnProps & Omit<JSX.HTMLAttributes<HTMLDivElement>, keyof XtermOwnProps>
+> = (props) => {
   const [own, rest] = splitProps(props, OWN_KEYS);
   let container!: HTMLDivElement;
   let fitRaf = 0;

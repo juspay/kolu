@@ -49,8 +49,8 @@ let
   # hosted terminals, where node, npm, npx, and corepack are part of the existing
   # environment.
   runtimeNode = pkgs.nodejs;
-  # nixpkgs tsx and the full Node command set share the same Node 24 core.
-  runtimeTsx = pkgs.tsx;
+  # Point tsx at the same Node 24 core as the full command set above.
+  runtimeTsx = pkgs.tsx.override { nodejs-slim_22 = pkgs.nodejs-slim; };
   runtimeTsxLoader = "${runtimeTsx}/lib/tsx/dist/loader.mjs";
 
   # Build uses a placeholder so docs-only commits don't bust the derivation

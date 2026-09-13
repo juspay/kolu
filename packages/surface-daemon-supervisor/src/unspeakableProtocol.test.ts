@@ -222,84 +222,84 @@ const GATE_SHAPES = [
 ] as const;
 
 describeDaemon("unspeakable-protocol — the TAKEOVER disposition (padi)", () => {
-  it.each(GATE_SHAPES)(
-    "stops the verified gate holder and spawns this build's daemon in its place — $label",
-    async ({ bytes }) => {
-      // A REAL child process holds the gate, because this disposition really does
-      // stop it — the one arm that cannot be proven against a fake pid. This is
-      // the arm that used to REFUSE: padi's ordered `drain-newer-else-refuse`
-      // reasoned from "the drain verb is unreachable" to "leave it standing",
-      // which left a cross-epoch upgrade permanently unconverged.
-      const survivor = await plantYesterdayDaemon({
-        gateFile: "daemon.pid",
-        socketFile: "daemon.sock",
-        assertSpawnAllowed: assertDaemonSpawnAllowed,
-        plantState: () => {},
-        withSocket: true,
-      });
-      fixtures.push({ dispose: survivor.dispose });
-      if (survivor.process.kind !== "live") {
-        throw new Error("expected a live survivor process");
-      }
-      if (survivor.listener.kind !== "listening") {
-        throw new Error("expected a listening survivor socket");
-      }
-      const survivorPid = survivor.process.pid;
-      const survivorServer = survivor.listener.server;
-      // The fixture plants the one-field shape; this rewrites the SAME holder's
-      // gate in the shape under test, so the two arms differ in nothing but the
-      // bytes the corroboration has to read.
-      writeFileSync(survivor.gatePath, bytes(survivorPid), { mode: 0o600 });
+  it.each(
+    GATE_SHAPES,
+  )("stops the verified gate holder and spawns this build's daemon in its place — $label", async ({
+    bytes,
+  }) => {
+    // A REAL child process holds the gate, because this disposition really does
+    // stop it — the one arm that cannot be proven against a fake pid. This is
+    // the arm that used to REFUSE: padi's ordered `drain-newer-else-refuse`
+    // reasoned from "the drain verb is unreachable" to "leave it standing",
+    // which left a cross-epoch upgrade permanently unconverged.
+    const survivor = await plantYesterdayDaemon({
+      gateFile: "daemon.pid",
+      socketFile: "daemon.sock",
+      assertSpawnAllowed: assertDaemonSpawnAllowed,
+      plantState: () => {},
+      withSocket: true,
+    });
+    fixtures.push({ dispose: survivor.dispose });
+    if (survivor.process.kind !== "live") {
+      throw new Error("expected a live survivor process");
+    }
+    if (survivor.listener.kind !== "listening") {
+      throw new Error("expected a listening survivor socket");
+    }
+    const survivorPid = survivor.process.pid;
+    const survivorServer = survivor.listener.server;
+    // The fixture plants the one-field shape; this rewrites the SAME holder's
+    // gate in the shape under test, so the two arms differ in nothing but the
+    // bytes the corroboration has to read.
+    writeFileSync(survivor.gatePath, bytes(survivorPid), { mode: 0o600 });
 
-      let spawned = 0;
-      const statuses: EndpointStatus<{ v: string }>[] = [];
-      const endpoint = createEndpoint<string, { v: string }>({
-        hostId: "test",
-        home: {
-          dir: survivor.dir,
-          gatePath: survivor.gatePath,
-          socketPath: survivor.socketPath,
-        },
-        policy: padiPolicy,
-        probe: unspeakableProbe,
-        driver: {
-          spawn: fromAsync(async () => {
-            spawned += 1;
-            // The stopped daemon's socket goes with it; the "fresh daemon" binds a
-            // new one at the same rendezvous.
-            survivorServer.close();
-            await listenSilently(survivor.socketPath);
-          }),
-        },
-        connect: () =>
-          fromAsync(async () => ({
-            client: "fresh",
-            identity: { v: "2.0" },
-            startedAt: 7,
-            dispose: () => {},
-            onClose: () => {},
-          })),
-        log: silent,
-        onStatus: (_h, s) => statuses.push(s),
-        socketReadyMs: 2_000,
-        socketPollMs: 5,
-        adoptConnectAttempts: 1,
-        adoptConnectRetryMs: 1,
-      });
+    let spawned = 0;
+    const statuses: EndpointStatus<{ v: string }>[] = [];
+    const endpoint = createEndpoint<string, { v: string }>({
+      hostId: "test",
+      home: {
+        dir: survivor.dir,
+        gatePath: survivor.gatePath,
+        socketPath: survivor.socketPath,
+      },
+      policy: padiPolicy,
+      probe: unspeakableProbe,
+      driver: {
+        spawn: fromAsync(async () => {
+          spawned += 1;
+          // The stopped daemon's socket goes with it; the "fresh daemon" binds a
+          // new one at the same rendezvous.
+          survivorServer.close();
+          await listenSilently(survivor.socketPath);
+        }),
+      },
+      connect: () =>
+        fromAsync(async () => ({
+          client: "fresh",
+          identity: { v: "2.0" },
+          startedAt: 7,
+          dispose: () => {},
+          onClose: () => {},
+        })),
+      log: silent,
+      onStatus: (_h, s) => statuses.push(s),
+      socketReadyMs: 2_000,
+      socketPollMs: 5,
+      adoptConnectAttempts: 1,
+      adoptConnectRetryMs: 1,
+    });
 
-      const out = await Effect.runPromise(converge(endpoint));
-      // The same outcome kaval's arm reports, because it is the same act: the
-      // holder was replaced, not adopted.
-      expect(out.kind).toBe("recycled");
-      expect(outcomeAnomaly(out)).toBeNull();
-      expect(spawned).toBe(1);
-      expect(statuses.at(-1)?.state).toBe("connected");
-      expect(endpoint.current()).toBeDefined();
-      // Mutate-to-prove: the survivor really is gone.
-      expect(() => process.kill(survivorPid, 0)).toThrow();
-    },
-    40_000,
-  );
+    const out = await Effect.runPromise(converge(endpoint));
+    // The same outcome kaval's arm reports, because it is the same act: the
+    // holder was replaced, not adopted.
+    expect(out.kind).toBe("recycled");
+    expect(outcomeAnomaly(out)).toBeNull();
+    expect(spawned).toBe(1);
+    expect(statuses.at(-1)?.state).toBe("connected");
+    expect(endpoint.current()).toBeDefined();
+    // Mutate-to-prove: the survivor really is gone.
+    expect(() => process.kill(survivorPid, 0)).toThrow();
+  }, 40_000);
 
   it("NEVER touches a holder it did not classify — the gate changed under us", async () => {
     // The irreducible window: between the probe that classified pid P and the

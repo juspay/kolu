@@ -281,16 +281,23 @@ describe("WorktreeName", () => {
     expect(Result.isFailure(decode(""))).toBe(true);
   });
 
-  it.each(["a b", "a..b", "a~b", "a^b", "a:b", "a?b", "a*b", "a[b", "a\\b"])(
-    "rejects %j with the user-visible message",
-    (name) => {
-      const result = decode(name);
-      expect(Result.isFailure(result)).toBe(true);
-      if (Result.isFailure(result)) {
-        expect(String(result.failure)).toContain(WORKTREE_NAME_MESSAGE);
-      }
-    },
-  );
+  it.each([
+    "a b",
+    "a..b",
+    "a~b",
+    "a^b",
+    "a:b",
+    "a?b",
+    "a*b",
+    "a[b",
+    "a\\b",
+  ])("rejects %j with the user-visible message", (name) => {
+    const result = decode(name);
+    expect(Result.isFailure(result)).toBe(true);
+    if (Result.isFailure(result)) {
+      expect(String(result.failure)).toContain(WORKTREE_NAME_MESSAGE);
+    }
+  });
 
   it("exposes the same rule as a bare predicate for live client validation", () => {
     expect(isValidWorktreeName("feat/thing")).toBe(true);

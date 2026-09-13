@@ -300,54 +300,55 @@ describe("a DEAD entry link's transport death crosses the map hop typed (not fla
       ctor: SurfaceRelayTransportLost,
       tag: "SurfaceRelayTransportLost",
     },
-  ])(
-    "arrives as the same tagged error over a real wire — $what",
-    async ({ error, ctor, tag }) => {
-      const map = buildTestMap({
-        key: HostKeySchema,
-        entry: daemonSurface,
-        codec: identityCodec,
-      });
-      const reg = makeRegistry();
-      const served = serveSurfaceMap(map, reg.registry);
-      const pair = createLoopbackPair();
-      const serving = serveOverStdio({
-        group: served.group,
-        handlers: served.handlers,
-        transport: pair.server,
-      });
-      const mapLink = await stdioLink({
-        group: served.group,
-        read: pair.client.read,
-        write: pair.client.write,
-        readiness: await greetLoopback(pair),
-      });
-      reg.addSession(A, deadLink(error()), connected(0));
-      await settle();
+  ])("arrives as the same tagged error over a real wire — $what", async ({
+    error,
+    ctor,
+    tag,
+  }) => {
+    const map = buildTestMap({
+      key: HostKeySchema,
+      entry: daemonSurface,
+      codec: identityCodec,
+    });
+    const reg = makeRegistry();
+    const served = serveSurfaceMap(map, reg.registry);
+    const pair = createLoopbackPair();
+    const serving = serveOverStdio({
+      group: served.group,
+      handlers: served.handlers,
+      transport: pair.server,
+    });
+    const mapLink = await stdioLink({
+      group: served.group,
+      read: pair.client.read,
+      write: pair.client.write,
+      readiness: await greetLoopback(pair),
+    });
+    reg.addSession(A, deadLink(error()), connected(0));
+    await settle();
 
-      // BOTH arms of `foldedError`: `recycle` threads an ENTRY-declared error
-      // (`DemoContractSkew`) into the union, `boom` does not — a transport death must
-      // survive either way, or the declaration would only hold for members that
-      // happen to declare a domain error of their own.
-      for (const memberTag of [RECYCLE_TAG, BOOM_TAG]) {
-        const exit = await runExit(
-          mapLink.dispatch.unary(memberTag, fold("a", { id: "x" })),
-        );
-        expect(Exit.isFailure(exit)).toBe(true);
-        if (!Exit.isFailure(exit)) continue;
-        // A declared FAILURE, not a die: the caller is entitled to branch on it.
-        expect(Cause.hasFails(exit.cause)).toBe(true);
-        expect(Cause.hasDies(exit.cause)).toBe(false);
-        const err = Cause.squash(exit.cause);
-        expect(err).toBeInstanceOf(ctor);
-        expect(err).toMatchObject({ _tag: tag });
-      }
+    // BOTH arms of `foldedError`: `recycle` threads an ENTRY-declared error
+    // (`DemoContractSkew`) into the union, `boom` does not — a transport death must
+    // survive either way, or the declaration would only hold for members that
+    // happen to declare a domain error of their own.
+    for (const memberTag of [RECYCLE_TAG, BOOM_TAG]) {
+      const exit = await runExit(
+        mapLink.dispatch.unary(memberTag, fold("a", { id: "x" })),
+      );
+      expect(Exit.isFailure(exit)).toBe(true);
+      if (!Exit.isFailure(exit)) continue;
+      // A declared FAILURE, not a die: the caller is entitled to branch on it.
+      expect(Cause.hasFails(exit.cause)).toBe(true);
+      expect(Cause.hasDies(exit.cause)).toBe(false);
+      const err = Cause.squash(exit.cause);
+      expect(err).toBeInstanceOf(ctor);
+      expect(err).toMatchObject({ _tag: tag });
+    }
 
-      await mapLink.dispose();
-      pair.client.write.end();
-      pair.server.write.end();
-      await serving;
-      served.dispose();
-    },
-  );
+    await mapLink.dispose();
+    pair.client.write.end();
+    pair.server.write.end();
+    await serving;
+    served.dispose();
+  });
 });

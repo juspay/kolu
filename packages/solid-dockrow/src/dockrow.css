@@ -185,7 +185,7 @@
  * `hover:bg-surface-2/40`, so a washed row would otherwise go dead under the
  * pointer. Deepen the hue instead of replacing it with the neutral hover. */
 :is(.dock-cards-section, .dock-needs-you-strip)
-> [data-dock-row]:is([data-unread], [data-asking]):not([data-active]):hover {
+  > [data-dock-row]:is([data-unread], [data-asking]):not([data-active]):hover {
   background: color-mix(in oklab, var(--attn) 20%, transparent);
 }
 /* Dark mode: the same mix over near-black reads as sludge — lift it, exactly
