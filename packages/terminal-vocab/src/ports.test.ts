@@ -180,6 +180,25 @@ describe("hostListeners", () => {
       ).toEqual({ kind: "unclaimed", bind });
     });
 
+    it("answers with the unclaimed bind when its SCOPE is the one a door can use", () => {
+      // Our interface-only 5173 beside another user's loopback 5173: the loopback
+      // bind is dialable, so the reader must not say "not reachable".
+      const bind = { port: 5173, scope: "loopback", family: "v6" } as const;
+      expect(
+        listenerAt(
+          known([p(5173, "interface")], { status: "known", list: [bind] }),
+          5173,
+        ),
+      ).toEqual({ kind: "unclaimed", bind });
+      // …and the claimed listener keeps the answer at an equal or wider scope.
+      expect(
+        listenerAt(
+          known([p(5173, "loopback")], { status: "known", list: [bind] }),
+          5173,
+        ).kind,
+      ).toBe("claimed");
+    });
+
     it("says ABSENT only when both halves were read", () => {
       expect(listenerAt(known([p(1)]), 18440)).toEqual({ kind: "absent" });
     });

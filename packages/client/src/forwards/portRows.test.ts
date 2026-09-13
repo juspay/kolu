@@ -249,6 +249,19 @@ describe("elsewhere on this host", () => {
     });
   });
 
+  it("shows a port by the bind a door can use when both halves hold it", () => {
+    // Our interface-only 5173 and another user's loopback 5173: the row carries
+    // the loopback bind (reachable through a door) and does not borrow our
+    // program's command — matching the printed-URL card's answer.
+    const g = groups({
+      host: hostOf(
+        [{ ...port(5173), scope: "interface" }],
+        [{ port: 5173, scope: "loopback", family: "v6" }],
+      ),
+    });
+    expect(shape(g.elsewhere)).toEqual([["unclaimed", 5173, "host"]]);
+  });
+
   it("leaves out kolu's own relay listeners", () => {
     // A door is shown as the row it serves. Its local listener as a second row
     // is the double rendering the one-row rule removed.

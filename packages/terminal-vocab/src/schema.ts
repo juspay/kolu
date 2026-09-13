@@ -193,6 +193,7 @@ import {
   PortInfoSchema,
   type PortScope,
   samePortList,
+  widerScope,
 } from "./ports.ts";
 
 /** What a terminal is serving, as an HONEST two-way — not a bare `PortInfo[]` that
@@ -366,9 +367,10 @@ export type UnclaimedPorts = typeof UnclaimedPortsSchema.Type;
  *     and command line holding each. Terminal subtrees and detached daemons
  *     alike: this list does not know about terminals, `TerminalPorts` does.
  *   - `unclaimed` — sockets the OS showed with no readable owner.
- *   - `{ status: "unknown" }` — this host is not being scanned: no pass has
- *     succeeded yet, or it has no terminals (the sampler does no OS work then,
- *     and a reading it stopped refreshing must not stay on the wire as current).
+ *   - `{ status: "unknown" }` — no pass has succeeded yet: padi has never run a
+ *     terminal (its sampler arms on the first one), or the first pass has not
+ *     landed. Once armed, the sampler keeps reading the host after the last
+ *     terminal closes, so a detached server's door is still reaped when it dies.
  *
  *  A blind pass does NOT flip this to `unknown`: like `TerminalPorts`, the last
  *  good reading is re-served, because one pass that could not see is not news
@@ -383,8 +385,7 @@ export const HostListenersSchema = Schema.Union([
 ]);
 export type HostListeners = typeof HostListenersSchema.Type;
 
-/** The value before any reading — and the value a host with nothing to scan
- *  publishes. */
+/** The value before any reading has landed. */
 export const UNKNOWN_HOST_LISTENERS: HostListeners = { status: "unknown" };
 
 /** Are two host readings the same fact? The wire dedup gate for the cell that
@@ -411,6 +412,12 @@ export const hostListenersEqual: (
  *
  *   - `claimed`   — a readable program holds it.
  *   - `unclaimed` — something holds it; its owner is not visible.
+ *
+ *  When BOTH halves hold the port, the answer is the bind a reader can act on —
+ *  the same scope-first rule `foldBinds` gives the reaper: the unclaimed bind
+ *  wins only when its scope is strictly more useful (another user's `127.0.0.1`
+ *  beside our interface-only bind is the one a door can dial). Its owner stays
+ *  "not visible"; it never borrows the claimed listener's command.
  *   - `absent`    — positively not listening anywhere on this host.
  *   - `unknown`   — cannot say: the host is not scanned, or the port is not
  *     claimed and the unclaimed half is blind (it may be another user's). */
@@ -423,9 +430,20 @@ export type ListenerAt =
 export function listenerAt(host: HostListeners, port: number): ListenerAt {
   if (host.status !== "known") return { kind: "unknown" };
   const info = host.claimed.find((p) => p.port === port);
-  if (info !== undefined) return { kind: "claimed", info };
+  const bind =
+    host.unclaimed.status === "known"
+      ? host.unclaimed.list.find((p) => p.port === port)
+      : undefined;
+  if (info !== undefined) {
+    const unclaimedWins =
+      bind !== undefined &&
+      bind.scope !== info.scope &&
+      widerScope(info.scope, bind.scope) === bind.scope;
+    return unclaimedWins
+      ? { kind: "unclaimed", bind }
+      : { kind: "claimed", info };
+  }
   if (host.unclaimed.status !== "known") return { kind: "unknown" };
-  const bind = host.unclaimed.list.find((p) => p.port === port);
   return bind === undefined ? { kind: "absent" } : { kind: "unclaimed", bind };
 }
 

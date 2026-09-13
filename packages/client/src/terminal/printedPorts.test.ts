@@ -52,6 +52,7 @@ describe("portsInText", () => {
 function fakeTerminal(viewport = 3) {
   const rows: Array<[string, boolean]> = [];
   let onWrite: (() => void) | undefined;
+  let onScroll: (() => void) | undefined;
   const markers: Array<{ line: number; isDisposed: boolean }> = [];
   let type: "normal" | "alternate" = "normal";
   const term: ScannableTerminal = {
@@ -84,6 +85,10 @@ function fakeTerminal(viewport = 3) {
       onWrite = listener;
       return { dispose: () => (onWrite = undefined) };
     },
+    onScroll: (listener) => {
+      onScroll = listener;
+      return { dispose: () => (onScroll = undefined) };
+    },
     registerMarker: (offset = 0) => {
       const base = Math.max(0, rows.length - viewport);
       const cursor = Math.min(rows.length, viewport) - 1;
@@ -114,6 +119,13 @@ function fakeTerminal(viewport = 3) {
         m.line -= n;
         if (m.line < 0) m.isDisposed = true;
       }
+    },
+    /** A scrollback backfill: rows spliced in above everything, every marker
+     *  shifted down, and a scroll — never a write — fired. */
+    prepend: (...lines: string[]) => {
+      rows.unshift(...lines.map((l): [string, boolean] => [l, false]));
+      for (const m of markers) m.line += lines.length;
+      onScroll?.();
     },
     setType: (t: "normal" | "alternate") => {
       type = t;
@@ -225,6 +237,49 @@ describe("trackPrintedPorts", () => {
     const stop = trackPrintedPorts(f.term, id, clock.schedule);
     clock.flush();
     expect(printedPortsOf(id)).toEqual([5173]);
+    stop();
+  });
+
+  it("reads rows a scrollback BACKFILL splices in above everything", () => {
+    // After a reload the buffer holds only recent rows; scrolling back prepends
+    // older ones through a splice that fires a scroll, not a write.
+    const f = fakeTerminal();
+    f.write("recent", "prompt");
+    const clock = manual();
+    const id = nextId();
+    const stop = trackPrintedPorts(f.term, id, clock.schedule);
+    clock.flush();
+    expect(printedPortsOf(id)).toEqual([]);
+    f.prepend("odu · http://127.0.0.1:18440/runs/x", "older output");
+    clock.flush();
+    expect(printedPortsOf(id)).toEqual([18440]);
+    stop();
+  });
+
+  it("keeps its place when output trims the buffer BETWEEN two chunks", () => {
+    // A continuation that remembered a row NUMBER would start past rows that
+    // moved up under it, and never read them.
+    const f = fakeTerminal();
+    const rows = Array.from({ length: SCAN_CHUNK_LINES * 2 }, (_, i) =>
+      i === SCAN_CHUNK_LINES + 50 ? "http://localhost:4321/" : `line ${i}`,
+    );
+    f.write(...rows);
+    let queue: Array<() => void> = [];
+    const schedule = (run: () => void) => {
+      queue.push(run);
+      return () => {
+        queue = queue.filter((r) => r !== run);
+      };
+    };
+    const runOne = () => queue.shift()?.();
+    const id = nextId();
+    const stop = trackPrintedPorts(f.term, id, schedule);
+    runOne(); // first chunk only
+    expect(printedPortsOf(id)).toEqual([]);
+    f.trim(100);
+    f.write("more");
+    for (let i = 0; i < 20 && queue.length > 0; i++) runOne();
+    expect(printedPortsOf(id)).toEqual([4321]);
     stop();
   });
 

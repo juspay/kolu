@@ -202,33 +202,48 @@ export function portGroups(opts: {
   // ── Elsewhere on this host ────────────────────────────────────────────
   const elsewhere: PortRow[] = [];
   if (opts.host.status === "known") {
-    for (const info of opts.host.claimed) {
-      if (taken.has(info.port) || opts.doorPorts.has(info.port)) continue;
-      elsewhere.push({
-        kind: "port",
-        port: info.port,
-        info,
-        origin: "host",
-        forward: doorOf.get(info.port),
-      });
-      taken.add(info.port);
-    }
+    // Every port either half holds, each judged by `listenerAt` — the same bind
+    // choice the printed-URL card makes, so a port never reads reachable in one
+    // place and not reachable in the other.
+    const claimedPorts = new Set(opts.host.claimed.map((p) => p.port));
+    const hostPorts = new Set(claimedPorts);
     if (opts.host.unclaimed.status === "known") {
-      for (const bind of opts.host.unclaimed.list) {
-        if (taken.has(bind.port) || opts.doorPorts.has(bind.port)) continue;
-        const forward = doorOf.get(bind.port);
-        if (forward === undefined && !printedOnHost.has(bind.port)) {
+      for (const b of opts.host.unclaimed.list) hostPorts.add(b.port);
+    }
+    for (const port of hostPorts) {
+      if (taken.has(port) || opts.doorPorts.has(port)) continue;
+      const at = listenerAt(opts.host, port);
+      const forward = doorOf.get(port);
+      if (at.kind === "claimed") {
+        elsewhere.push({
+          kind: "port",
+          port,
+          info: at.info,
+          origin: "host",
+          forward,
+        });
+      } else if (at.kind === "unclaimed") {
+        // Another user's socket has a story only when printed, forwarded, or
+        // sharing its port with one of our own listeners (whose narrower bind
+        // it out-ranked — dropping the port would hide our program too).
+        if (
+          forward === undefined &&
+          !printedOnHost.has(port) &&
+          !claimedPorts.has(port)
+        ) {
           continue;
         }
         elsewhere.push({
           kind: "unclaimed",
-          port: bind.port,
-          bind,
+          port,
+          bind: at.bind,
           origin: "host",
           forward,
         });
-        taken.add(bind.port);
+      } else {
+        continue;
       }
+      taken.add(port);
     }
   }
   elsewhere.sort(byPort);

@@ -1912,7 +1912,8 @@ export const padiSurface = defineSurfaceWithPolicy<ClientErrorPolicy>()({
      *  on each record cannot see: a server that detached from the terminal that
      *  started it. Read-only on the client; padi's port sampler is the sole writer,
      *  from the same scan pass that feeds every terminal's `ports`. `unknown` until
-     *  a pass lands and whenever the host has no terminals to scan for. */
+     *  the first pass lands; padi's sampler arms on its first terminal and keeps
+     *  reading the host after the last one closes. */
     hostListeners: {
       schema: HostListenersSchema,
       default: UNKNOWN_HOST_LISTENERS,
