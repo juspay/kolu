@@ -379,6 +379,7 @@ release note:
 | PRT3 | embedded in-kolu preview | PRT2 | parked — <PrLink pr={2001} /> closed at the HTTPS-page × HTTP-door browser wall |
 | PRT4 ✅ | printed URLs join the scanner — click `localhost:5173`, get the door — <PrLink pr={2004} /> | PRT2 | e2e: printed URL → door → path preserved; live card upgrade; join unit table |
 | PRT5 ✅ | the host, not just the subtree — detached servers found, claimed by the printing tile, never reaped — <PrLink pr={2236} /> | PRT4 | e2e: a detached listener's printed URL → card "elsewhere" · detached row in Ports · door survives two reap intervals |
+| PRT6 | host-side printed-URL index — the detached claim survives a remount | PRT5 | reload kolu with a detached server's URL scrolled past the snapshot window → still under "from this terminal" |
 
 PRT0 shipped in <PrLink pr={1975} /> and PRT1 in <PrLink pr={1982} />;
 PRT2 shipped in <PrLink pr={1991} />; **PRT3 is parked** at a browser
@@ -651,7 +652,20 @@ evidence was the union of the terminals' own ports.
   buffer (`printedPorts.ts`) — text that only ever says which tile, never whether.
   A folded "elsewhere on this host" lists the user's other listeners, unclaimed
   sockets with a story (printed or forwarded), and orphan doors; kolu's own relay
-  listeners are excluded.
+  listeners are excluded. A print claims a server only when no terminal's subtree
+  holds it — "detached" is that positive fact, not a missing link.
+
+**What PRT5 leaves open — PRT6, a host-side printed-URL index.** The index lives
+in the browser's buffer, and a remounted terminal (reload, host switch, wake)
+holds only the attach snapshot's recent rows until the user scrolls back. A
+detached server printed further up than that drops from "from this terminal" to
+"elsewhere on this host" — still listed, still openable, and still found by the
+card on click, which joins at click time. Keeping the claim needs the index where
+the output lives: padi reading each terminal's printed loopback ports off kaval's
+mirror and carrying them on the terminal record beside `ports`, judged by the same
+`@kolu/url-shape` pattern. User-visible delta: the detached mark survives a
+reload. Separate because it is a kaval/padi contract change with its own cost
+(a per-terminal output read), not a client refinement.
 
 **Cost, measured on a ~900-process linux box:** a host-wide pass takes ~35 ms
 against ~9 ms for the subtree ask. The duty-cycle floor

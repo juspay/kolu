@@ -86,7 +86,10 @@ Some servers leave the terminal that started them: a tool that daemonizes itself
 reparents away from the shell and keeps serving. When the terminal **printed
 that server's URL**, the server is still listed under the terminal, marked
 **detached** — the printed URL says which terminal it belongs with, and the
-host's socket table says it is really listening.
+host's socket table says it is really listening. The claim is read from what the
+browser has loaded of the terminal's output, so after a reload a server whose URL
+scrolled far back shows under **elsewhere on this host** instead, until you
+scroll back to the URL.
 
 Below the terminal's own rows, a folded **elsewhere on this host** group counts
 everything else with a story on that machine: your other servers, another
