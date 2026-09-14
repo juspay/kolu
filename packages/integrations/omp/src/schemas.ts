@@ -69,8 +69,8 @@ export const OmpInfoSchema = Schema.Struct({
 export type OmpInfo = typeof OmpInfoSchema.Type;
 
 /** oh-my-pi's mark — the EXACT glyph from omp's own site favicon, scaled
- *  0.375 from its 64×64 canvas onto the contract's 24×24 one: a top bar with
- *  three uneven stems (a stylized π), source
+ * 0.375 from its 64×64 canvas onto the contract's 24×24 one: a top bar with
+ * two uneven stems hanging off it (a stylized π), source
  *  `packages/collab-web/public/favicon.svg` in oh-my-pi's repo, byte-identical
  *  to https://omp.sh/favicon.svg. The upstream branding paints this glyph in
  *  a pink→purple→cyan diagonal gradient over a dark rounded square; the
