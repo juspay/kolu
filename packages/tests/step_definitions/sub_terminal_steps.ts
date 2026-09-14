@@ -451,10 +451,22 @@ Then(
 Then(
   "every dock split sub-entry should be a direct child of its section",
   async function (this: KoluWorld) {
+    // The cascade laws (`dock-cards-section > [data-dock-row]` and its
+    // `.dock-cluster` twin) define "inside the section's grid": with branch
+    // clusters (#2247), a split row's legal home is EITHER the section root
+    // or a DIRECT `.dock-cluster` child of it — nothing deeper.
     const direct = await this.page
       .locator('[data-testid="dock-sub-row"]')
       .evaluateAll((rows) =>
-        rows.every((row) => row.parentElement?.matches(".dock-cards-section")),
+        rows.every((row) => {
+          const p = row.parentElement;
+          const inCluster = p?.parentElement;
+          return (
+            (p?.matches(".dock-cards-section") ?? false) ||
+            ((p?.matches(".dock-cluster") ?? false) &&
+              (inCluster?.matches(".dock-cards-section") ?? false))
+          );
+        }),
       );
     assert.ok(direct, "Expected every split row directly under its section");
   },
