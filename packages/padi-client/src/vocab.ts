@@ -31,7 +31,7 @@ import {
   type TerminalSnapshot,
   TerminalSnapshotSchema,
 } from "@kolu/terminal-vocab/schema";
-import { exactRestoreTarget } from "anyagent/cli";
+import { exactRestoreTarget } from "kolu-agents/vocab";
 import { type PrInfo, prValue } from "anyforge/schemas";
 import { Effect, Result, Schema, Struct } from "effect";
 import {
@@ -1112,6 +1112,7 @@ export function backfillSnapshotCutover(
           ? exactRestoreTarget(command, {
               kind: kind.success,
               sessionId: ref.id,
+              resumeRef: ref.id,
             })
           : null;
       next.restoreTarget = exact ?? { kind: "legacyMostRecent", command };

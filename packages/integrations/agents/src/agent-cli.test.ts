@@ -3,15 +3,15 @@
 import { shellJoin, shellSplit } from "@kolu/shell-quote";
 import { parseArgsStringToArgv } from "string-argv";
 import { describe, expect, it } from "vitest";
+import type { RestoreTarget } from "anyagent/schemas";
 import {
   agentKindFromCommand,
   exactRestoreTarget,
   parseAgentCommand,
+  resumableCommand,
   resumeAgentCommand,
   resumeFormFor,
-} from "./agent-cli.ts";
-import type { RestoreTarget } from "./schemas.ts";
-import { resumableCommand } from "./schemas.ts";
+} from "./vocab.ts";
 
 describe("parseAgentCommand", () => {
   // Table from juspay/kolu#452
@@ -536,50 +536,62 @@ describe("resumeAgentCommand by session id (juspay/kolu#1495)", () => {
   it.each([
     [
       "claude",
-      { kind: "claude-code", sessionId: CLAUDE_ID },
+      { kind: "claude-code", sessionId: CLAUDE_ID, resumeRef: CLAUDE_ID },
       `claude --resume ${CLAUDE_ID}`,
     ],
     [
       "claude --model sonnet",
-      { kind: "claude-code", sessionId: CLAUDE_ID },
+      { kind: "claude-code", sessionId: CLAUDE_ID, resumeRef: CLAUDE_ID },
       `claude --resume ${CLAUDE_ID} --model sonnet`,
     ],
     [
       "codex",
-      { kind: "codex", sessionId: CODEX_ID },
+      { kind: "codex", sessionId: CODEX_ID, resumeRef: CODEX_ID },
       `codex resume ${CODEX_ID}`,
     ],
     [
       "codex --yolo",
-      { kind: "codex", sessionId: CODEX_ID },
+      { kind: "codex", sessionId: CODEX_ID, resumeRef: CODEX_ID },
       `codex resume ${CODEX_ID} --yolo`,
     ],
     [
       "opencode",
-      { kind: "opencode", sessionId: OPENCODE_ID },
+      { kind: "opencode", sessionId: OPENCODE_ID, resumeRef: OPENCODE_ID },
       `opencode --session ${OPENCODE_ID}`,
     ],
     [
       "opencode --agent build --pure",
-      { kind: "opencode", sessionId: OPENCODE_ID },
+      { kind: "opencode", sessionId: OPENCODE_ID, resumeRef: OPENCODE_ID },
       `opencode --session ${OPENCODE_ID} --agent build --pure`,
     ],
-    ["grok", { kind: "grok", sessionId: GROK_ID }, `grok --resume ${GROK_ID}`],
+    [
+      "grok",
+      { kind: "grok", sessionId: GROK_ID, resumeRef: GROK_ID },
+      `grok --resume ${GROK_ID}`,
+    ],
     [
       "grok -m grok-4.5",
-      { kind: "grok", sessionId: GROK_ID },
+      { kind: "grok", sessionId: GROK_ID, resumeRef: GROK_ID },
       `grok --resume ${GROK_ID} -m grok-4.5`,
     ],
-    ["pi", { kind: "pi", sessionId: PI_ID }, `pi --session ${PI_ID}`],
+    [
+      "pi",
+      { kind: "pi", sessionId: PI_ID, resumeRef: PI_ID },
+      `pi --session ${PI_ID}`,
+    ],
     [
       "pi --model kimi-k3",
-      { kind: "pi", sessionId: PI_ID },
+      { kind: "pi", sessionId: PI_ID, resumeRef: PI_ID },
       `pi --session ${PI_ID} --model kimi-k3`,
     ],
-    ["xyne", { kind: "xyne", sessionId: XYNE_ID }, `xyne --session ${XYNE_ID}`],
+    [
+      "xyne",
+      { kind: "xyne", sessionId: XYNE_ID, resumeRef: XYNE_ID },
+      `xyne --session ${XYNE_ID}`,
+    ],
     [
       "xyne --debug",
-      { kind: "xyne", sessionId: XYNE_ID },
+      { kind: "xyne", sessionId: XYNE_ID, resumeRef: XYNE_ID },
       `xyne --session ${XYNE_ID} --debug`,
     ],
   ] as const)("resumes the exact conversation: %j + %j → %j", (normalized, session, expected) => {
@@ -593,6 +605,7 @@ describe("resumeAgentCommand by session id (juspay/kolu#1495)", () => {
       resumeAgentCommand(`claude --settings '{"ultracode": true}'`, {
         kind: "claude-code",
         sessionId: CLAUDE_ID,
+        resumeRef: CLAUDE_ID,
       }),
     ).toBe(`claude --resume ${CLAUDE_ID} --settings '{"ultracode": true}'`);
   });
@@ -601,7 +614,11 @@ describe("resumeAgentCommand by session id (juspay/kolu#1495)", () => {
   // never aimed at this CLI — fall back to the most-recent marker.
   it("falls back to most-recent when the ref names a different agent", () => {
     expect(
-      resumeAgentCommand("claude", { kind: "codex", sessionId: CODEX_ID }),
+      resumeAgentCommand("claude", {
+        kind: "codex",
+        sessionId: CODEX_ID,
+        resumeRef: CODEX_ID,
+      }),
     ).toBe("claude -c");
   });
 
@@ -611,18 +628,36 @@ describe("resumeAgentCommand by session id (juspay/kolu#1495)", () => {
   // conversation either. `resumeAgentCommand` returns null so the terminal wakes
   // to a bare shell rather than landing in a stranger's conversation.
   it.each([
-    ["claude", { kind: "claude-code", sessionId: "not-a-uuid" }],
-    ["claude", { kind: "claude-code", sessionId: "" }],
+    [
+      "claude",
+      { kind: "claude-code", sessionId: "not-a-uuid", resumeRef: "not-a-uuid" },
+    ],
+    ["claude", { kind: "claude-code", sessionId: "", resumeRef: "" }],
     [
       // a hostile id carrying shell metacharacters never reaches the command
       "claude",
-      { kind: "claude-code", sessionId: "$(rm -rf ~)" },
+      {
+        kind: "claude-code",
+        sessionId: "$(rm -rf ~)",
+        resumeRef: "$(rm -rf ~)",
+      },
     ],
-    ["codex", { kind: "codex", sessionId: "ses_wrongshape" }],
+    [
+      "codex",
+      {
+        kind: "codex",
+        sessionId: "ses_wrongshape",
+        resumeRef: "ses_wrongshape",
+      },
+    ],
     [
       // an opencode ref whose id is UUID-shaped (codex/claude format, not `ses_…`)
       "opencode",
-      { kind: "opencode", sessionId: "11111111-2222-3333-4444-555555555555" },
+      {
+        kind: "opencode",
+        sessionId: "11111111-2222-3333-4444-555555555555",
+        resumeRef: "11111111-2222-3333-4444-555555555555",
+      },
     ],
   ] as const)("refuses to resume on a malformed same-agent id (returns null): %j + %j", (normalized, session) => {
     expect(resumeAgentCommand(normalized, session)).toBeNull();
@@ -638,14 +673,14 @@ describe("resumeAgentCommand by session id (juspay/kolu#1495)", () => {
       resumeAgentCommand("pi", {
         kind: "pi",
         sessionId: PI_ID,
-        sessionPath: PI_PATH,
+        resumeRef: PI_PATH,
       }),
     ).toBe(`pi --session ${PI_PATH}`);
     expect(
       resumeAgentCommand("pi --model kimi-k3", {
         kind: "pi",
         sessionId: PI_ID,
-        sessionPath: PI_PATH,
+        resumeRef: PI_PATH,
       }),
     ).toBe(`pi --session ${PI_PATH} --model kimi-k3`);
   });
@@ -656,21 +691,21 @@ describe("resumeAgentCommand by session id (juspay/kolu#1495)", () => {
       resumeAgentCommand("pi", {
         kind: "pi",
         sessionId: PI_ID,
-        sessionPath: "/tmp/pi agent x/$(pwn).jsonl",
+        resumeRef: "/tmp/pi agent x/$(pwn).jsonl",
       }),
     ).toBeNull();
     expect(
       resumeAgentCommand("pi", {
         kind: "pi",
         sessionId: PI_ID,
-        sessionPath: "relative/file.jsonl",
+        resumeRef: "relative/file.jsonl",
       }),
     ).toBeNull();
     expect(
       resumeAgentCommand("pi", {
         kind: "pi",
         sessionId: PI_ID,
-        sessionPath: "/tmp/no-suffix",
+        resumeRef: "/tmp/no-suffix",
       }),
     ).toBeNull();
   });
@@ -680,7 +715,7 @@ describe("resumeAgentCommand by session id (juspay/kolu#1495)", () => {
       resumeAgentCommand("pi", {
         kind: "pi",
         sessionId: PI_ID,
-        sessionPath: "/w/work dir/x (1)/2026-01-01T00-00-00-000Z_a.jsonl",
+        resumeRef: "/w/work dir/x (1)/2026-01-01T00-00-00-000Z_a.jsonl",
       }),
     ).toBe("pi --session '/w/work dir/x (1)/2026-01-01T00-00-00-000Z_a.jsonl'");
   });
@@ -700,6 +735,7 @@ describe("resumeAgentCommand by session id (juspay/kolu#1495)", () => {
       resumeAgentCommand("aider", {
         kind: "claude-code",
         sessionId: CLAUDE_ID,
+        resumeRef: CLAUDE_ID,
       }),
     ).toBeNull();
   });
@@ -720,7 +756,11 @@ describe("resumeFormFor — switches on the discriminated RestoreTarget", () => 
     const target: RestoreTarget = {
       kind: "exact",
       command: "opencode --model sonnet",
-      agent: { kind: "opencode", sessionId: OPENCODE_ID },
+      agent: {
+        kind: "opencode",
+        sessionId: OPENCODE_ID,
+        resumeRef: OPENCODE_ID,
+      },
     };
     expect(resumeFormFor(target)).toBe(
       `opencode --session ${OPENCODE_ID} --model sonnet`,
@@ -731,7 +771,11 @@ describe("resumeFormFor — switches on the discriminated RestoreTarget", () => 
     const target: RestoreTarget = {
       kind: "exact",
       command: "claude",
-      agent: { kind: "claude-code", sessionId: "not-a-uuid" },
+      agent: {
+        kind: "claude-code",
+        sessionId: "not-a-uuid",
+        resumeRef: "not-a-uuid",
+      },
     };
     expect(resumeFormFor(target)).toBeNull();
   });
@@ -753,11 +797,16 @@ describe("exactRestoreTarget — refuses a command/agent KIND mismatch", () => {
       exactRestoreTarget("claude --model sonnet", {
         kind: "claude-code",
         sessionId: CLAUDE_ID,
+        resumeRef: CLAUDE_ID,
       }),
     ).toEqual({
       kind: "exact",
       command: "claude --model sonnet",
-      agent: { kind: "claude-code", sessionId: CLAUDE_ID },
+      agent: {
+        kind: "claude-code",
+        sessionId: CLAUDE_ID,
+        resumeRef: CLAUDE_ID,
+      },
     });
   });
 
@@ -767,6 +816,7 @@ describe("exactRestoreTarget — refuses a command/agent KIND mismatch", () => {
       exactRestoreTarget("opencode --model sonnet", {
         kind: "claude-code",
         sessionId: CLAUDE_ID,
+        resumeRef: CLAUDE_ID,
       }),
     ).toBeNull();
   });
@@ -776,6 +826,7 @@ describe("exactRestoreTarget — refuses a command/agent KIND mismatch", () => {
       exactRestoreTarget("ls -la", {
         kind: "claude-code",
         sessionId: CLAUDE_ID,
+        resumeRef: CLAUDE_ID,
       }),
     ).toBeNull();
   });
@@ -794,7 +845,11 @@ describe("resumableCommand — the DISPLAY/COUNT projection, gated on resumeForm
     const target: RestoreTarget = {
       kind: "exact",
       command: "opencode --model sonnet",
-      agent: { kind: "opencode", sessionId: OPENCODE_ID },
+      agent: {
+        kind: "opencode",
+        sessionId: OPENCODE_ID,
+        resumeRef: OPENCODE_ID,
+      },
     };
     // The DISPLAY string is the raw command, NOT `opencode --session … --model …`.
     expect(resumableCommand(target)).toBe("opencode --model sonnet");
@@ -816,7 +871,11 @@ describe("resumableCommand — the DISPLAY/COUNT projection, gated on resumeForm
     const target: RestoreTarget = {
       kind: "exact",
       command: "claude",
-      agent: { kind: "claude-code", sessionId: "not-a-uuid" },
+      agent: {
+        kind: "claude-code",
+        sessionId: "not-a-uuid",
+        resumeRef: "not-a-uuid",
+      },
     };
     expect(resumeFormFor(target)).toBeNull();
     expect(resumableCommand(target)).toBeNull();
@@ -835,7 +894,11 @@ describe("resumableCommand — the DISPLAY/COUNT projection, gated on resumeForm
     const target: RestoreTarget = {
       kind: "exact",
       command: "aider --model opus",
-      agent: { kind: "claude-code", sessionId: CLAUDE_ID2 },
+      agent: {
+        kind: "claude-code",
+        sessionId: CLAUDE_ID2,
+        resumeRef: CLAUDE_ID2,
+      },
     };
     expect(resumeFormFor(target)).toBeNull();
     expect(resumableCommand(target)).toBeNull();

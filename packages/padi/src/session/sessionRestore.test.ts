@@ -103,6 +103,7 @@ const subRecord: SavedActiveTerminal = {
     agent: {
       kind: "claude-code",
       sessionId: "12341234-1234-1234-1234-123412341234",
+      resumeRef: "12341234-1234-1234-1234-123412341234",
     },
   },
 };
@@ -340,6 +341,7 @@ describe("restoreSession — parked→active restore (the W1.R6 gate)", () => {
     agent: {
       kind: "claude-code",
       sessionId: "12341234-1234-1234-1234-123412341234",
+      resumeRef: "12341234-1234-1234-1234-123412341234",
     },
   } as const;
   const w12AgentRecord: SavedActiveTerminal = {
@@ -411,6 +413,7 @@ describe("restoreSession — parked→active restore (the W1.R6 gate)", () => {
       agent: {
         kind: "claude-code" as const,
         sessionId: "12341234-1234-1234-1234-123412341234",
+        resumeRef: "12341234-1234-1234-1234-123412341234",
       },
     };
     const orphan: SavedActiveTerminal = {

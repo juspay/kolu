@@ -8,8 +8,13 @@ import path from "node:path";
  *  `active_sessions.json`, `sessions/<urlencode(cwd)>/<uuid>/`, auth,
  *  config, and skills. Overridable via `KOLU_GROK_DIR` so e2e fixtures
  *  and unit tests never scan the developer's real `~/.grok`. */
+export const GROK_DIR_ENV = "KOLU_GROK_DIR";
+
+/** The env key the e2e harness sets to point detection at fixtures. */
+export const GROK_ENV_KEYS = [GROK_DIR_ENV] as const;
+
 export const GROK_DIR =
-  process.env.KOLU_GROK_DIR ?? path.join(os.homedir(), ".grok");
+  process.env[GROK_DIR_ENV] ?? path.join(os.homedir(), ".grok");
 
 /** Live process map: `[{ session_id, pid, cwd, opened_at }, …]`. */
 export const ACTIVE_SESSIONS_PATH = path.join(GROK_DIR, "active_sessions.json");

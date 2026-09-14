@@ -32,7 +32,7 @@ import {
   LOCAL_LOCATION,
   SavedTerminalSchema,
 } from "@kolu/padi-client/surface";
-import { resumeFormFor } from "anyagent/cli";
+import { resumeFormFor } from "kolu-agents/vocab";
 import { Schema } from "effect";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { setDaemonProcessId } from "../koluRoot.ts";
@@ -441,6 +441,7 @@ describe("seedSleepingTerminal — boot seed with per-record tolerance", () => {
       agent: {
         kind: "claude-code",
         sessionId: "9b2f1c34-5a6d-4e7f-8a90-b1c2d3e4f567",
+        resumeRef: "9b2f1c34-5a6d-4e7f-8a90-b1c2d3e4f567",
       },
     } as const,
   });
@@ -463,6 +464,7 @@ describe("seedSleepingTerminal — boot seed with per-record tolerance", () => {
       agent: {
         kind: "claude-code",
         sessionId: "9b2f1c34-5a6d-4e7f-8a90-b1c2d3e4f567",
+        resumeRef: "9b2f1c34-5a6d-4e7f-8a90-b1c2d3e4f567",
       },
     });
     // The restore-relevant snapshot (cwd + the persisted pr) rode into the entry

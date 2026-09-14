@@ -21,6 +21,7 @@ import {
   type Transcript,
   type TranscriptEvent,
 } from "kolu-transcript-core";
+import { codexVocab } from "./schemas.ts";
 import { openDb } from "./core.ts";
 
 interface RolloutLine {
@@ -423,7 +424,7 @@ export const loadCodexTranscript: Fetcher = (input, log) => {
   if (!rolloutPath) return null;
   const raw = fs.readFileSync(rolloutPath, "utf8");
   const transcript: Transcript = {
-    agentKind: "codex",
+    agentName: codexVocab.displayName,
     sessionId: input.sessionId,
     title: input.title,
     repoName: input.repoName,

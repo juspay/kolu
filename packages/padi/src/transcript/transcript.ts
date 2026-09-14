@@ -18,18 +18,11 @@ import {
 import type {
   ExportTranscriptHtmlInput,
   ExportTranscriptHtmlOutput,
-  Transcript,
   TranscriptPr,
 } from "@kolu/padi-client/surface";
 import { prValue } from "anyforge/schemas";
-import { loadClaudeCodeTranscript } from "kolu-claude-code";
-import { loadCodexTranscript } from "kolu-codex";
-import { loadGrokTranscript } from "kolu-grok";
-import { loadOpenCodeTranscript } from "kolu-opencode";
-import { loadPiTranscript } from "kolu-pi";
-import { loadXyneTranscript } from "kolu-xyne";
+import { AGENT_PLUGINS } from "kolu-agents";
 import { transcriptToHtml } from "kolu-transcript-html";
-import { match } from "ts-pattern";
 import { log } from "../log.ts";
 import { requireActiveTerminal } from "../terminal-registry.ts";
 
@@ -55,80 +48,22 @@ export async function exportTranscriptHtml(
   const pr: TranscriptPr | null = prInfo
     ? { number: prInfo.number, url: prInfo.url }
     : null;
-  const transcript = match<typeof agent, Transcript | null>(agent)
-    .with({ kind: "claude-code" }, (a) =>
-      loadClaudeCodeTranscript({
-        sessionId: a.sessionId,
-        cwd,
-        title: a.summary,
-        repoName,
-        model: a.model,
-        contextTokens: a.contextTokens,
-        pr,
-      }),
-    )
-    .with({ kind: "opencode" }, (a) =>
-      loadOpenCodeTranscript(
-        {
-          sessionId: a.sessionId,
-          title: a.summary,
-          repoName,
-          cwd,
-          model: a.model,
-          contextTokens: a.contextTokens,
-          pr,
-        },
-        log,
-      ),
-    )
-    .with({ kind: "codex" }, (a) =>
-      loadCodexTranscript(
-        {
-          sessionId: a.sessionId,
-          title: a.summary,
-          repoName,
-          cwd,
-          model: a.model,
-          contextTokens: a.contextTokens,
-          pr,
-        },
-        log,
-      ),
-    )
-    .with({ kind: "grok" }, (a) =>
-      loadGrokTranscript({
-        sessionId: a.sessionId,
-        title: a.summary,
-        repoName,
-        cwd,
-        model: a.model,
-        contextTokens: a.contextTokens,
-        pr,
-      }),
-    )
-    .with({ kind: "pi" }, (a) =>
-      loadPiTranscript({
-        sessionId: a.sessionId,
-        title: a.summary,
-        repoName,
-        cwd,
-        model: a.model,
-        contextTokens: a.contextTokens,
-        pr,
-      }),
-    )
-    .with({ kind: "xyne" }, (a) =>
-      loadXyneTranscript({
-        sessionId: a.sessionId,
-        title: a.summary,
-        repoName,
-        cwd,
-        model: a.model,
-        contextTokens: a.contextTokens,
-        pr,
-      }),
-    )
-    .exhaustive();
+  // ONE dispatch, via the registry — every loader takes the same `FetcherInput`
+  // and returns a `Transcript | null`, so the per-kind `.with(...)` arms that
+  // used to spell this five times are gone. A new agent's fetcher is reached
+  // through its plugin, with no edit here.
+  const transcript = AGENT_PLUGINS[agent.kind].fetcher(
+    {
+      sessionId: agent.sessionId,
+      title: agent.summary,
+      repoName,
+      cwd,
+      model: agent.model,
+      contextTokens: agent.contextTokens,
+      pr,
+    },
+    log,
+  );
   if (!transcript) {
     throw new TranscriptNotFound({
       agentKind: agent.kind,

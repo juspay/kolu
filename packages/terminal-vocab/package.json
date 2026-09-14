@@ -24,14 +24,9 @@
     "anyagent": "workspace:*",
     "anyforge": "workspace:*",
     "effect": "4.0.0-rc.112",
-    "kolu-claude-code": "workspace:*",
-    "kolu-codex": "workspace:*",
+    "kolu-agents": "workspace:*",
     "kolu-git": "workspace:*",
     "kolu-github": "workspace:*",
-    "kolu-grok": "workspace:*",
-    "kolu-opencode": "workspace:*",
-    "kolu-pi": "workspace:*",
-    "kolu-xyne": "workspace:*",
     "ts-pattern": "^5.9.0"
   },
   "devDependencies": {

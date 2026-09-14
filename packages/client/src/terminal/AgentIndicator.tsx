@@ -8,7 +8,7 @@ import type { AgentInfo } from "kolu-common/surface";
 import { type Component, Show } from "solid-js";
 import {
   type AgentStateTone,
-  agentNames,
+  agentName,
   formatContextTokens,
   stateLabels,
   stateTones,
@@ -42,7 +42,7 @@ function contextTokensTooltip(tokens: number, model: string | null): string {
 
 const AgentIndicator: Component<{ agent: AgentInfo }> = (props) => {
   const color = () => stateColor(props.agent.state);
-  const name = () => agentNames[props.agent.kind];
+  const name = () => agentName(props.agent.kind);
   const label = () => stateLabels[props.agent.state];
   // Live elapsed-since formatter for the running-for badge; ticks every second
   // off the shared clock, the same readout the inspector's "Running for" uses.

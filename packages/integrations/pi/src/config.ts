@@ -20,6 +20,9 @@ export const AGENT_DIR = process.env.KOLU_PI_DIR
   ? process.env.KOLU_PI_DIR
   : path.join(os.homedir(), ".pi", "agent");
 
+/** The env key the e2e harness sets to point detection at fixtures. */
+export const PI_ENV_KEYS = ["KOLU_PI_DIR"] as const;
+
 /** kolu's default session-store root: `<agent dir>/sessions`, matching pi's
  *  own default (`getAgentDir() + "/sessions"`). Per-terminal overrides are
  *  followed in `session-root.ts`; this is the fallback every other answer

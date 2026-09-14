@@ -35,6 +35,7 @@ import type {
   Transcript,
   TranscriptEvent,
 } from "kolu-transcript-core";
+import { opencodeVocab } from "./schemas.ts";
 import { openDb } from "./core.ts";
 
 interface PartData {
@@ -448,7 +449,7 @@ export const loadOpenCodeTranscript: Fetcher = (input, log) => {
       const rootDisplay =
         rootId === input.sessionId ? null : fetchSessionDisplay(db, rootId);
       const transcript: Transcript = {
-        agentKind: "opencode",
+        agentName: opencodeVocab.displayName,
         sessionId: rootId,
         title: rootDisplay?.title ?? input.title,
         repoName: input.repoName,

@@ -23,6 +23,7 @@ import getPort from "get-port";
 import { composeSpawnEnv, NIX_ENV_WHITELIST, pickEnv } from "kolu-pty";
 import type { Browser, BrowserContext, Page } from "playwright";
 import { chromium } from "playwright";
+import { AGENT_DIR_VARS, FAKE_BIN_NAMES } from "./agentHarnessLists.ts";
 import * as engine from "../screencast/engine.ts";
 import { getRecording } from "../screencast/recordings/index.ts";
 import {
@@ -170,14 +171,6 @@ if (fixtureHome) {
   );
 }
 
-const AGENT_DIR_VARS = [
-  "KOLU_CLAUDE_SESSIONS_DIR",
-  "KOLU_CLAUDE_PROJECTS_DIR",
-  "KOLU_CODEX_DIR",
-  "KOLU_GROK_DIR",
-  "KOLU_PI_DIR",
-  "KOLU_XYNE_DIR",
-] as const;
 const grokDir = RECORDING ? undefined : mkSubDir("grok");
 const piDir = RECORDING ? undefined : mkSubDir("pi");
 const xyneDir = RECORDING ? undefined : mkSubDir("xyne");
@@ -241,15 +234,7 @@ else process.env.KOLU_OPENCODE_DB = opencodeDbPath;
 const fakeBinDir = mkSubDir("bin");
 const bashPath = execSync("command -v bash", { encoding: "utf8" }).trim();
 const fakeBins: Record<string, string> = {};
-for (const name of [
-  "codex",
-  "opencode",
-  "grok",
-  "xyne",
-  "claude",
-  "node",
-  "pi",
-]) {
+for (const name of FAKE_BIN_NAMES) {
   const target = path.join(fakeBinDir, name);
   fs.copyFileSync(bashPath, target);
   fs.chmodSync(target, 0o755);

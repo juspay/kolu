@@ -13,3 +13,6 @@ export const XYNE_DIR =
 /** Per-cwd session files live under this directory
  *  (`sessions/<encoded-cwd>/<timestamp>_<session-id>.jsonl`). */
 export const SESSIONS_DIR = path.join(XYNE_DIR, "agent", "sessions");
+
+/** The env key the e2e harness sets to point detection at fixtures. */
+export const XYNE_ENV_KEYS = ["KOLU_XYNE_DIR"] as const;

@@ -35,6 +35,7 @@ const SESSION_ID = "ses_118316090ffewMmbj6bsfKwj4R";
 const RESUME_AGENT: AgentIdentity = {
   kind: "opencode",
   sessionId: SESSION_ID,
+  resumeRef: SESSION_ID,
 };
 
 /** The fold-derived `restoreTarget` the fixture seeds — an `exact` target carrying

@@ -39,3 +39,19 @@ export {
 export { type CodexWatcher, createCodexWatcher } from "./session-watcher.ts";
 export { loadCodexTranscript, parseCodexRollout } from "./transcript.ts";
 export { subscribeCodexDb } from "./wal-watcher.ts";
+
+// ── The plugin — the ONE contribution the registry (`kolu-agents`) folds. ──
+import type { AgentPlugin } from "anyagent";
+import type { Fetcher } from "kolu-transcript-core";
+import { codexAdapter } from "./agent-adapter.ts";
+import { CODEX_ENV_KEYS } from "./config.ts";
+import type { CodexSession } from "./core.ts";
+import { type CodexInfo, codexVocab } from "./schemas.ts";
+import { loadCodexTranscript } from "./transcript.ts";
+
+export const codexPlugin: AgentPlugin<CodexSession, CodexInfo, Fetcher> = {
+  vocab: codexVocab,
+  adapter: codexAdapter,
+  fetcher: loadCodexTranscript,
+  envKeys: CODEX_ENV_KEYS,
+};

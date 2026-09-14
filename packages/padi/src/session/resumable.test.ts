@@ -18,7 +18,7 @@ const CLAUDE_ID = "12341234-1234-1234-1234-123412341234";
 const exactTarget = (command: string): SavedTerminal["restoreTarget"] => ({
   kind: "exact",
   command,
-  agent: { kind: "claude-code", sessionId: CLAUDE_ID },
+  agent: { kind: "claude-code", sessionId: CLAUDE_ID, resumeRef: CLAUDE_ID },
 });
 
 const activeWithAgent: SavedTerminal = {
@@ -95,7 +95,11 @@ describe("resumableTerminalIds (host-owned)", () => {
       restoreTarget: {
         kind: "exact",
         command: "claude",
-        agent: { kind: "claude-code", sessionId: "not-a-uuid" },
+        agent: {
+          kind: "claude-code",
+          sessionId: "not-a-uuid",
+          resumeRef: "not-a-uuid",
+        },
       },
     };
     expect(resumableTerminalIds([brokenId])).toEqual([]);

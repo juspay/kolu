@@ -191,7 +191,8 @@ const THREAD_TWO_ROW: ThreadRow = {
 
 seedThreads([THREAD_ONE_ROW]);
 
-const { codexAdapter } = await import("kolu-codex");
+const { AGENT_PLUGINS } = await import("kolu-agents");
+const codexAdapter = AGENT_PLUGINS.codex.adapter;
 const { startAgentSensor, freshAgentEngineState } = await import(
   "./sensors.ts"
 );

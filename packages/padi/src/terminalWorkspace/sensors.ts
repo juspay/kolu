@@ -44,22 +44,13 @@ import type {
   AgentTerminalState,
   AgentWatcher,
 } from "anyagent";
-import {
-  agentInfoEqual,
-  agentNameFromCommand,
-  parseAgentCommand,
-} from "anyagent";
+import { agentInfoEqual, agentNameFromCommand } from "anyagent";
 import type { ForgeAdapter, PrResult } from "anyforge";
 import { parseRemoteHost, subscribePr } from "anyforge";
-import { claudeCodeAdapter } from "kolu-claude-code";
-import { codexAdapter } from "kolu-codex";
-import { grokAdapter } from "kolu-grok";
+import { AGENT_PLUGINS, parseAgentCommand } from "kolu-agents";
 import { subscribeGitInfo } from "kolu-git";
 import type { GitInfo } from "kolu-git/schemas";
 import { githubForgeAdapter } from "kolu-github";
-import { opencodeAdapter } from "kolu-opencode";
-import { piAdapter } from "kolu-pi";
-import { xyneAdapter } from "kolu-xyne";
 import type { ForegroundSample } from "kaval";
 import { type Channel, inMemoryChannel } from "@kolu/surface/server";
 import type { Logger } from "pino";
@@ -1179,9 +1170,12 @@ export function startSensors(
     log,
   );
   const stopPr = startPrSensor(terminalId, gitChannel, emit, log);
-  const startAgent = <Session, Info extends AgentInfoShape>(
-    adapter: AgentAdapter<Session, Info>,
-  ) =>
+  // Every registered agent's detector — the list is the registry, not a
+  // hand-maintained set of imports. A new agent joins by adding its plugin to
+  // `kolu-agents`, with no edit here. `Info` is erased to `AgentInfoShape` at
+  // this call: each plugin's concrete adapter is compatible, and the sensor
+  // below is generic over the shape.
+  const startAgent = (adapter: AgentAdapter<unknown, AgentInfoShape>) =>
     startAgentSensor(
       adapter,
       agentState,
@@ -1194,20 +1188,9 @@ export function startSensors(
       log,
       commandRooted,
     );
-  // The heterogeneous adapter list — per-kind generics erased the way
-  // anyagent's own heterogeneous tables erase them. A union of the
-  // concrete instantiations doesn't generalize to the Nth agent (the
-  // F4 volatility this list owns), so `any` is the honest type here.
-  // biome-ignore lint/suspicious/noExplicitAny: the heterogeneous adapter list erases the per-kind generics; anyagent's own tables share the shape.
-  const AGENTS: AgentAdapter<unknown, any>[] = [
-    claudeCodeAdapter,
-    codexAdapter,
-    opencodeAdapter,
-    grokAdapter,
-    piAdapter,
-    xyneAdapter,
-  ];
-  const agentStops = AGENTS.map(startAgent);
+  const stopAgents = Object.values(AGENT_PLUGINS).map((plugin) =>
+    startAgent(plugin.adapter),
+  );
   const stopProcess = startForegroundSensor(terminalId, signals, emit, log);
   const stopPorts = startPortSensor(terminalId, signals, emit, log);
   const stopGrid = startGridSensor(terminalId, signals, emit, log);
@@ -1216,7 +1199,7 @@ export function startSensors(
     stopAgentCommand();
     stopGit();
     stopPr();
-    for (const stop of agentStops) stop();
+    for (const stop of stopAgents) stop();
     stopProcess();
     stopPorts();
     stopGrid();

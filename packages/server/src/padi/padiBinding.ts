@@ -207,7 +207,7 @@ export function daemonEnv(
     env.KAVAL_COMMIT_HASH = kavalIdentity.navigableCommit;
   }
   // Agent-detection dir/db OVERRIDES that padi's sensors read from their own env (via
-  // the `kolu-*` agent packages — codex/claude-code/grok/opencode/xyne) to
+  // the `@kolu/integrations-*` agent packages — codex/claude-code/grok/opencode) to
   // LOCATE agent session state. Unset in production, where they default to `~/.codex`,
   // `~/.claude`, … — set by the e2e harness to point detection at its fixtures. They
   // used to reach padi INCIDENTALLY via the survivable-spawn driver's old
@@ -224,17 +224,10 @@ export function daemonEnv(
 }
 
 /** The agent-detection dir/db override env keys padi's sensors read (see `daemonEnv`).
- *  Exported so `padiBinding.test.ts` can pin that the server→padi hop forwards them. */
-export const AGENT_DIR_ENV_KEYS = [
-  "KOLU_CLAUDE_SESSIONS_DIR",
-  "KOLU_CLAUDE_PROJECTS_DIR",
-  "KOLU_CODEX_DIR",
-  "KOLU_CODEX_DB",
-  "KOLU_GROK_DIR",
-  "KOLU_XYNE_DIR",
-  "KOLU_OPENCODE_DB",
-  "KOLU_PI_DIR",
-] as const;
+ *  Owned by the agent registry (each agent's plugin declares its own keys);
+ *  re-exported so `padiBinding.test.ts` can pin that the server→padi hop forwards them. */
+import { AGENT_DIR_ENV_KEYS } from "kolu-agents";
+export { AGENT_DIR_ENV_KEYS };
 
 /** Resolve how to launch padi: the built wrapper in production (`KOLU_PADI_BIN`),
  *  or the from-source `node --import <tsx> packages/padi/src/daemonBoot/bin.ts` shape in

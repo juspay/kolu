@@ -25,6 +25,7 @@ import type {
 } from "kolu-transcript-core";
 import { SESSIONS_DIR } from "./config.ts";
 import { encodeCwd } from "./core.ts";
+import { xyneVocab } from "./schemas.ts";
 
 interface XyneUsage {
   input: number;
@@ -318,7 +319,7 @@ export const loadXyneTranscript: Fetcher = (input) => {
     throw err;
   }
   const transcript: Transcript = {
-    agentKind: "xyne",
+    agentName: xyneVocab.displayName,
     sessionId: input.sessionId,
     title: input.title,
     repoName: input.repoName,

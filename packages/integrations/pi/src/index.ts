@@ -50,3 +50,19 @@ export {
   normalizePiToolInput,
   parsePiTranscript,
 } from "./transcript.ts";
+
+// ── The plugin — the ONE contribution the registry (`kolu-agents`) folds. ──
+import type { AgentPlugin } from "anyagent";
+import type { Fetcher } from "kolu-transcript-core";
+import { piAdapter } from "./agent-adapter.ts";
+import { PI_ENV_KEYS } from "./config.ts";
+import type { PiSession } from "./core.ts";
+import { type PiInfo, piVocab } from "./schemas.ts";
+import { loadPiTranscript } from "./transcript.ts";
+
+export const piPlugin: AgentPlugin<PiSession, PiInfo, Fetcher> = {
+  vocab: piVocab,
+  adapter: piAdapter,
+  fetcher: loadPiTranscript,
+  envKeys: PI_ENV_KEYS,
+};

@@ -81,7 +81,7 @@ describe("composeTerminalMetadata — the sleeping arm is the restore-relevant p
       restoreTarget: {
         kind: "exact",
         command: "claude",
-        agent: { kind: "claude-code", sessionId: "ses-A" },
+        agent: { kind: "claude-code", sessionId: "ses-A", resumeRef: "ses-A" },
       },
       state: "sleeping",
       sleptAt: 123,
@@ -97,7 +97,7 @@ describe("composeTerminalMetadata — the sleeping arm is the restore-relevant p
     expect(wire.restoreTarget).toEqual({
       kind: "exact",
       command: "claude",
-      agent: { kind: "claude-code", sessionId: "ses-A" },
+      agent: { kind: "claude-code", sessionId: "ses-A", resumeRef: "ses-A" },
     });
   });
 

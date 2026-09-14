@@ -86,7 +86,7 @@ export function sessionDirFor(
  *  `2026-08-23T19-48-21-451Z`. The id is a UUID today; kept unpinned in
  *  shape (any non-empty token) so an upstream id-format change degrades to
  *  a different id, not a lost session — the shell-splice gate
- *  (`AGENT_RESUME.idPattern`) refuses a shape it can't splice, so no unsafe
+ *  (`piVocab.resume.idPattern`) refuses a shape it can't splice, so no unsafe
  *  id ever crosses into a command line. */
 const SESSION_FILE_RE = /^(\d{4}-\d\d-\d\dT\d\d-\d\d-\d\d-\d+Z)_(.+)\.jsonl$/i;
 
