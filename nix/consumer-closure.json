@@ -864,7 +864,7 @@
         "kolu-transcript-core"
       ],
       "external": {
-        "effect": "catalog:"
+        "effect": "4.0.0-rc.112"
       }
     },
     "memorable-names": {

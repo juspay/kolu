@@ -18,7 +18,7 @@
   "dependencies": {
     "anyagent": "workspace:*",
     "kolu-io": "workspace:*",
-    "effect": "catalog:",
+    "effect": "4.0.0-rc.112",
     "kolu-shared": "workspace:*",
     "kolu-transcript-core": "workspace:*"
   },
