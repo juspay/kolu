@@ -120,7 +120,13 @@ export function agentIdentityChanged(
 export function seedRecencyBaseline(
   restoreTarget: RestoreTarget | undefined,
 ): AgentIdentityRef | null {
-  return restoreTarget?.kind === "exact" ? restoreTarget.agent : null;
+  // The baseline is the identity WITHOUT its resume ref: it only answers "did
+  // the conversation change?", and comparing on `{ kind, sessionId }` (not the
+  // full persisted `AgentIdentity`, which also carries `resumeRef`) keeps the
+  // survivor's identity stable across a restore that re-derives the ref.
+  return restoreTarget?.kind === "exact"
+    ? { kind: restoreTarget.agent.kind, sessionId: restoreTarget.agent.sessionId }
+    : null;
 }
 
 /** Advance the RECENCY BASELINE for one observation and decide `live` — the frame
