@@ -5,13 +5,6 @@ id = ""
 
 [mcp_servers.chrome-devtools.env]
 
-[mcp_servers.odu]
-command = ".agents/skills/odu/serve"
-args = []
-id = ""
-
-[mcp_servers.odu.env]
-
 [mcp_servers.kolu]
 command = "kolu"
 args = ["mcp"]

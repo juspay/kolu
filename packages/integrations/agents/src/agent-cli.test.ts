@@ -210,6 +210,7 @@ describe("parseAgentCommand", () => {
       "grok",
       "pi",
       "omp",
+      "xyne",
     ]) {
       expect(parseAgentCommand(agent)).toBe(agent);
     }
@@ -528,6 +529,8 @@ describe("resumeAgentCommand", () => {
     ["pi --model kimi-k3", "pi -c --model kimi-k3"],
     ["omp", "omp -c"],
     ["omp --model opus", "omp -c --model opus"],
+    ["xyne", "xyne --continue"],
+    ["xyne --debug", "xyne --continue --debug"],
   ])("resume form of %j → %j", (normalized, expected) => {
     expect(resumeAgentCommand(normalized)).toBe(expected);
   });
@@ -590,6 +593,7 @@ describe("resumeAgentCommand by session id (juspay/kolu#1495)", () => {
   const GROK_ID = "019f4782-7854-7592-8d87-3ba3a205a0a1";
   const PI_ID = "01a0302a-b94b-7b18-a3c3-b3f83dfe6fe8";
   const OMP_ID = "01a0a0e3-1843-701b-bfde-c9c816e3e92f";
+  const XYNE_ID = "019fca61-be8e-75b0-b72f-b68984e0d3c0";
 
   it.each([
     [
@@ -651,6 +655,16 @@ describe("resumeAgentCommand by session id (juspay/kolu#1495)", () => {
       "omp --profile work",
       { kind: "omp", sessionId: OMP_ID, resumeRef: OMP_ID },
       `omp --resume ${OMP_ID} --profile work`,
+    ],
+    [
+      "xyne",
+      { kind: "xyne", sessionId: XYNE_ID, resumeRef: XYNE_ID },
+      `xyne --session ${XYNE_ID}`,
+    ],
+    [
+      "xyne --debug",
+      { kind: "xyne", sessionId: XYNE_ID, resumeRef: XYNE_ID },
+      `xyne --session ${XYNE_ID} --debug`,
     ],
   ] as const)("resumes the exact conversation: %j + %j → %j", (normalized, session, expected) => {
     expect(resumeAgentCommand(normalized, session)).toBe(expected);
@@ -1021,11 +1035,17 @@ describe("agentKindFromCommand", () => {
     );
   });
 
-  it("maps codex, opencode, and grok basenames to matching kinds", () => {
+  it("maps codex, opencode, grok, and xyne basenames to matching kinds", () => {
     expect(agentKindFromCommand("codex")).toBe("codex");
     expect(agentKindFromCommand("codex --yolo --model gpt-5.5")).toBe("codex");
     expect(agentKindFromCommand("opencode --continue")).toBe("opencode");
     expect(agentKindFromCommand("grok -m grok-4.5")).toBe("grok");
+    expect(agentKindFromCommand("xyne")).toBe("xyne");
+    expect(
+      agentKindFromCommand(
+        "xyne --session a7e1c76e-cf2b-4c63-801d-5f0b1f2a4f6e",
+      ),
+    ).toBe("xyne");
   });
 
   it("strips a path prefix on the agent binary", () => {

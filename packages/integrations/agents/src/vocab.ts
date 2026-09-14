@@ -34,6 +34,7 @@ import { grokVocab } from "kolu-grok/schemas";
 import { ompVocab } from "kolu-omp/schemas";
 import { opencodeVocab } from "kolu-opencode/schemas";
 import { piVocab } from "kolu-pi/schemas";
+import { xyneVocab } from "kolu-xyne/schemas";
 
 /** The detect-only agents — binaries kolu recognizes for the recent-agents MRU
  *  but has no session/agent discriminator for. They carry CLI grammar ONLY (no
@@ -80,6 +81,7 @@ export const AGENT_VOCABS = {
   grok: grokVocab,
   pi: piVocab,
   omp: ompVocab,
+  xyne: xyneVocab,
 } as const satisfies Record<string, AnyAgentVocab>;
 
 /** The closed agent-kind union, derived from the registry — not a hand-copied
@@ -209,4 +211,5 @@ export type { GrokInfo } from "kolu-grok/schemas";
 export type { OpenCodeInfo } from "kolu-opencode/schemas";
 export type { OmpInfo } from "kolu-omp/schemas";
 export type { PiInfo } from "kolu-pi/schemas";
+export type { XyneInfo } from "kolu-xyne/schemas";
 export type { TaskProgress } from "anyagent/schemas";

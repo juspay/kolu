@@ -551,7 +551,8 @@
         "kolu-omp",
         "kolu-opencode",
         "kolu-pi",
-        "kolu-transcript-core"
+        "kolu-transcript-core",
+        "kolu-xyne"
       ],
       "external": {
         "effect": "4.0.0-rc.112"
@@ -866,6 +867,19 @@
       ],
       "external": {
         "marked": "^18.0.2"
+      }
+    },
+    "kolu-xyne": {
+      "dir": "packages/integrations/xyne",
+      "vendored": true,
+      "workspace": [
+        "anyagent",
+        "kolu-io",
+        "kolu-shared",
+        "kolu-transcript-core"
+      ],
+      "external": {
+        "effect": "4.0.0-rc.112"
       }
     },
     "memorable-names": {

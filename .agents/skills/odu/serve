@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+# Launch odu's MCP face — the shared-service bridge, and the only MCP face odu
+# has. `odu mcp` speaks the one public vocabulary (run_start, run_wait,
+# run_retry, run_cancel, log_read, plus the `service`, `runs` and `logTails`
+# resources) that the browser and `odu surface` also project; it owns no verb of
+# its own and no run authority of its own.
+#
+# The bridge dials the singleton web service and addresses EVERY registered run
+# by run id, and `run_start` takes the checkout to run in as an explicit
+# absolute path — so the directory an MCP host happens to launch this from is
+# not load-bearing. If no service is listening it starts one in the background
+# and waits for it to be ready, so a cold machine needs no separate setup step.
+#
+# odu itself is resolved through Nix, UNPINNED: `github:juspay/odu` at its
+# current master, so the agent face tracks upstream rather than ageing behind a
+# consumer-side pin. Self-contained — no surrounding devshell, no override.
+#
+# There is deliberately no `ODU_FLAKE` knob any more. It let a consumer point
+# this at a pinned output of their own, which is a second supported build
+# reachable by environment variable — an alternate adoption route, which is
+# exactly what one launcher is supposed to end. A consumer that must pin odu
+# pins the whole skill, rather than keeping the skill and quietly swapping the
+# binary under it.
+#
+# `--accept-flake-config` is load-bearing: odu's flake declares a binary cache,
+# and without it `nix run` stops on an interactive trust prompt no MCP host can
+# answer. Requires flakes (`experimental-features = nix-command flakes`).
+set -euo pipefail
+exec nix run --accept-flake-config github:juspay/odu -- mcp "$@"

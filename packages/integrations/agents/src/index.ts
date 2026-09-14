@@ -14,6 +14,7 @@ import { grokPlugin } from "kolu-grok";
 import { ompPlugin } from "kolu-omp";
 import { opencodePlugin } from "kolu-opencode";
 import { piPlugin } from "kolu-pi";
+import { xynePlugin } from "kolu-xyne";
 import type { AgentInfoOf, AgentKind } from "./vocab.ts";
 
 export * from "./vocab.ts";
@@ -30,6 +31,7 @@ export const AGENT_PLUGINS: {
   grok: grokPlugin,
   pi: piPlugin,
   omp: ompPlugin,
+  xyne: xynePlugin,
 };
 
 /** Every agent-detection dir/db override env key, flattened from the plugins.

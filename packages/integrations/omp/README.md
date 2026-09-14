@@ -3,8 +3,8 @@
 **What it is** — the [oh-my-pi](https://github.com/can1357/oh-my-pi) coding-agent
 integration: a pure-observer agent adapter that detects a running `omp` TUI and
 folds its on-disk session transcript into an `AgentInfo` for Kolu's terminal
-tiles. The sixth agent alongside `kolu-claude-code`, `kolu-codex`,
-`kolu-opencode`, `kolu-grok`, and `kolu-pi`.
+tiles. The seventh agent alongside `kolu-claude-code`, `kolu-codex`,
+`kolu-opencode`, `kolu-grok`, `kolu-pi`, and `kolu-xyne`.
 
 ## What it owns
 
