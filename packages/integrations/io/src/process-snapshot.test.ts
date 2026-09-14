@@ -25,11 +25,12 @@ describe("readProcessSnapshot", () => {
         expect(snap).not.toBeNull();
         expect(snap?.argv.length).toBeGreaterThan(0);
         if (process.platform === "linux") {
-          expect(snap?.env.KOLU_SNAPSHOT_MARKER).toBe("present");
+          expect(snap?.env?.KOLU_SNAPSHOT_MARKER).toBe("present");
         } else {
-          // Darwin: macOS redacts even same-user environment maps from ps
-          // — env is {} by OS policy (documented in process-snapshot.ts).
-          expect(snap?.env.KOLU_SNAPSHOT_MARKER).toBeUndefined();
+          // Darwin: macOS redacts even same-user environments from ps, so the
+          // env is `null` (explicitly unreadable, NOT an empty map) by OS
+          // policy — documented in process-snapshot.ts.
+          expect(snap?.env).toBeNull();
         }
       } finally {
         child.kill();

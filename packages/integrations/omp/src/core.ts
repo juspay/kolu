@@ -93,13 +93,11 @@ export function deriveOmpState(lines: string[]): {
   for (let i = lines.length - 1; i >= 0; i--) {
     const raw = lines[i];
     if (raw === undefined) continue;
-    // Once the turn signals are settled the walk only hunts the model — a
-    // cheap substring pre-filter means the common case (a model already known)
-    // skips JSON.parse for the rest of the window entirely.
-    if (state !== null && contextTokens !== null) {
-      if (model !== null) break;
-      if (!raw.includes('"model_change"')) continue;
-    }
+    // The walk's terminal condition, stated once: every independent projection
+    // has an answer. Below, each line is offered to whichever projection is
+    // still unset — three "first unset slot wins" readers of one parsed line,
+    // each verifiable without the others.
+    if (state !== null && model !== null && contextTokens !== null) break;
     let entry: OmpEntry;
     try {
       entry = JSON.parse(raw) as OmpEntry;

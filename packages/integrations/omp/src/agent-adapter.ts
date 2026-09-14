@@ -63,16 +63,27 @@ import { createOmpWatcher } from "./session-watcher.ts";
  *
  *  (This "known set + watched set + late-bound fan-out + drain-at-install"
  *  bookkeeping is the shape `externalChanges` forces on every adapter — pi
- *  spells the same thing around its session stores. With two adapters now
- *  carrying it, the receptacle that would delete the second copy is `anyagent`,
- *  which owns the at-most-once contract that creates it; recorded here rather
- *  than extracted on one consumer's evidence.)
+ *  spells the same thing around its session stores, with different value types.
+ *  Two concrete copies compose more honestly than a premature generic, so both
+ *  stay until a THIRD adapter needs the shape: that is the extraction trigger,
+ *  and the home is `anyagent` (it owns the at-most-once contract that creates
+ *  the constraint). The helper then is a `createInstallHub(keyOf)(subscribe)`
+ *  over a known `Map<K, V>` + watched `Set<K>` — the Key/Value split is what
+ *  keeps pi's store-valued arm and omp's bare-dir arm both expressible.)
  */
 const knownBreadcrumbDirs = new Set<string>();
 const watchedBreadcrumbDirs = new Set<string>();
-let fanOut: (() => void) | null = null;
-let watchOnError: ((err: unknown) => void) | null = null;
-let watchLog: Logger | null = null;
+/** The install fan-out, as ONE value: `externalChanges.install` runs at most
+ *  once per process, so its three callbacks are born together and read together
+ *  — holding them in separate `| null` slots would make "one set, another null"
+ *  representable and force a non-null assertion at every read site. `null` until
+ *  install, and the ONE guard for everything downstream. */
+interface InstalledWatch {
+  onChange: () => void;
+  onError: (err: unknown) => void;
+  log?: Logger;
+}
+let installed: InstalledWatch | null = null;
 
 /**
  * Session id → absolute transcript path, recorded by every `resolveSessions`
@@ -97,20 +108,15 @@ export function knownOmpSessionPath(sessionId: string): string | null {
   return sessionFiles.get(sessionId) ?? null;
 }
 
-function watchBreadcrumbDir(dir: string): void {
+function watchBreadcrumbDir(dir: string, watch: InstalledWatch): void {
   if (watchedBreadcrumbDirs.has(dir)) return;
   watchedBreadcrumbDirs.add(dir);
-  subscribeBreadcrumbDir(
-    dir,
-    fanOut!,
-    (err) => watchOnError?.(err),
-    watchLog ?? undefined,
-  );
+  subscribeBreadcrumbDir(dir, watch.onChange, watch.onError, watch.log);
 }
 
 function noteBreadcrumbDir(dir: string): void {
   knownBreadcrumbDirs.add(dir);
-  if (fanOut) watchBreadcrumbDir(dir);
+  if (installed) watchBreadcrumbDir(dir, installed);
 }
 
 /** Fold THIS terminal's omp invocation through omp's agent-directory chain.
@@ -136,7 +142,10 @@ function agentDirFor(
   if (proc === null) return null;
   const resolved = resolveAgentDir({
     argv: proc.argv,
-    env: proc.env,
+    // `null` env = this platform redacts it (macOS) — a DIFFERENT fact from an
+    // empty map. Either way nothing is named, so the fold's own defaults apply
+    // and `agentDirFor`'s header says what that costs there.
+    env: proc.env ?? undefined,
     home: os.homedir(),
     agentDirOverride: AGENT_DIR_OVERRIDE,
     cwd: state.cwd,
@@ -192,14 +201,14 @@ export const ompAdapter: AgentAdapter<OmpSession, OmpInfo> = {
       return matchesAgent(state, "omp") || fs.existsSync(BREADCRUMB_DIR);
     },
     install(onChange, onError, log) {
-      fanOut = onChange;
-      watchOnError = onError;
-      watchLog = log ?? null;
+      installed = { onChange, onError, log: log ?? undefined };
       // Drain every directory known so far (any resolved before install —
       // resolveSessions runs in the same reconcile pass AFTER install in the
       // sensors, but the ordering belt needs braces).
       noteBreadcrumbDir(BREADCRUMB_DIR);
-      for (const dir of knownBreadcrumbDirs) watchBreadcrumbDir(dir);
+      for (const dir of knownBreadcrumbDirs) {
+        watchBreadcrumbDir(dir, installed);
+      }
     },
   },
 

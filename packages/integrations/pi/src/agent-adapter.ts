@@ -103,7 +103,11 @@ function sessionStoreFor(
     if (proc) {
       const resolved = resolveSessionDir({
         argv: proc.argv,
-        env: proc.env,
+        // `null` = this platform redacts the environment (macOS), which is a
+        // different fact from an empty env map; `undefined` is what pi's chain
+        // spells "nothing named a store", so the default root applies — the
+        // documented Darwin blind spot in this module's header.
+        env: proc.env ?? undefined,
         home: os.homedir(),
         defaultAgentDir: AGENT_DIR,
         cwd: state.cwd,

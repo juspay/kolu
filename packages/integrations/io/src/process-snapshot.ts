@@ -22,7 +22,12 @@ import type { Logger } from "@kolu/log";
 
 export interface ProcessSnapshot {
   argv: string[];
-  env: Record<string, string>;
+  /** The process's environment, or `null` when this platform cannot report it
+   *  (macOS redacts even a same-user process's env — see below). `null` and
+   *  `{}` are DIFFERENT facts: "unreadable by policy" vs "started with no
+   *  environment", and a consumer that resolves paths from env vars must know
+   *  which one it is holding. */
+  env: Record<string, string> | null;
 }
 
 /** The live process's argv + environment — the one place a launched agent
@@ -50,9 +55,9 @@ export function readProcessSnapshot(
       // Modern macOS (>=10.13) redacts even a SAME-USER process's
       // environment from ps: `-E` is accepted but prints the command line
       // only (verified live on a macOS 15 host — the env row simply does
-      // not appear), so the env map is {} here by OS policy. An env-var
-      // store/agent-dir redirect is a permanent Darwin blind spot; flags
-      // and on-disk settings still resolve. argv stays the full command line.
+      // not appear). So `env` here is null by OS policy, not empty: an
+      // env-var redirect is a permanent Darwin blind spot, while argv stays
+      // the full command line and every flag-only override still resolves.
       const out = execFileSync(
         "ps",
         ["-ww", "-p", String(pid), "-o", "command="],
@@ -60,7 +65,7 @@ export function readProcessSnapshot(
       ).trim();
       const argv = out.split(/\s+/).filter((s) => s.length > 0);
       if (argv.length === 0) return null;
-      return { argv, env: {} };
+      return { argv, env: null };
     }
     return null;
   } catch (err) {

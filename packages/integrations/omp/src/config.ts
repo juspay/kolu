@@ -1,5 +1,6 @@
 import os from "node:os";
 import path from "node:path";
+import { BREADCRUMB_SUBDIR } from "./agent-dir.ts";
 
 /** kolu's default oh-my-pi agent directory — `KOLU_OMP_DIR` when the harness
  *  set it, else omp's own `~/.omp/agent`. omp's agent dir is the root of its
@@ -36,4 +37,4 @@ export const OMP_ENV_KEYS = ["KOLU_OMP_DIR"] as const;
  *  id>` crumb. Two consumers only — the `externalChanges.isPresent` probe, and
  *  the e2e fixture. Per-terminal resolution never uses it (it goes through
  *  `resolveAgentDir`). */
-export const BREADCRUMB_DIR = path.join(AGENT_DIR, "terminal-sessions");
+export const BREADCRUMB_DIR = path.join(AGENT_DIR, BREADCRUMB_SUBDIR);

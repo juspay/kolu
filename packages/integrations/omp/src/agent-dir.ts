@@ -48,9 +48,14 @@ const PROFILE_NAME_RE = /^[a-z0-9][a-z0-9._-]{0,63}$/;
 const WINDOWS_RESERVED_BASENAME_RE =
   /^(?:CON|PRN|AUX|NUL|COM[0-9]|LPT[0-9])(?:\..*)?$/i;
 
-/** omp's APP_NAME — the XDG app root is `$XDG_*_HOME/omp` regardless of
+/** omp's APP_NAME — the XDG app root is `$XDG_STATE_HOME/omp` regardless of
  *  `PI_CONFIG_DIR`. */
 const XDG_APP_NAME = "omp";
+
+/** The breadcrumb ("state") subdirectory name — part of the directory-layout
+ *  volatility this module exists to encapsulate, so it is spelled once here and
+ *  consumed by every arm below AND by `config.ts`'s default `BREADCRUMB_DIR`. */
+export const BREADCRUMB_SUBDIR = "terminal-sessions";
 
 export type AgentDirSource =
   | "profile"
@@ -155,7 +160,7 @@ export function resolveAgentDir(opts: {
     const agentDir = path.join(configRoot, "profiles", profile, "agent");
     return {
       agentDir,
-      breadcrumbDir: path.join(xdgProfileRoot ?? agentDir, "terminal-sessions"),
+      breadcrumbDir: path.join(xdgProfileRoot ?? agentDir, BREADCRUMB_SUBDIR),
       source: xdgProfileRoot ? "profile-xdg" : "profile",
     };
   }
@@ -168,7 +173,7 @@ export function resolveAgentDir(opts: {
     const agentDir = path.resolve(cwd, envDir);
     return {
       agentDir,
-      breadcrumbDir: path.join(agentDir, "terminal-sessions"),
+      breadcrumbDir: path.join(agentDir, BREADCRUMB_SUBDIR),
       source: "env",
     };
   }
@@ -176,7 +181,7 @@ export function resolveAgentDir(opts: {
   if (agentDirOverride !== undefined) {
     return {
       agentDir: agentDirOverride,
-      breadcrumbDir: path.join(agentDirOverride, "terminal-sessions"),
+      breadcrumbDir: path.join(agentDirOverride, BREADCRUMB_SUBDIR),
       source: "override",
     };
   }
@@ -185,7 +190,7 @@ export function resolveAgentDir(opts: {
   const agentDir = path.join(configRoot, "agent");
   return {
     agentDir,
-    breadcrumbDir: path.join(xdgRoot ?? agentDir, "terminal-sessions"),
+    breadcrumbDir: path.join(xdgRoot ?? agentDir, BREADCRUMB_SUBDIR),
     source: xdgRoot ? "xdg" : "default",
   };
 }
