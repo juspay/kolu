@@ -41,6 +41,8 @@ const parent: RankedDockRow = {
 const group: DockGroup = {
   name: "kolu",
   color: "oklch(50% 0.1 100)",
+  clusters: [{ label: "main", rows: [parent] }],
+  labels: ["main"],
   topRows: [parent],
   allTopRows: [parent],
   railEntries: [],

@@ -83,6 +83,49 @@ export const DockSection: Component<{
  *  renders it only when something is blocked — a state the dock enters, not
  *  furniture it carries), and a container that decided that for its consumer
  *  would be deciding a product question from inside a stylesheet. */
+
+/** Event-listener dict a consumer's drag library (solid-dnd's `dragActivators`,
+ *  slots any pointer-sensor) spreads onto an element: keys are the sensor's
+ *  event names (`onpointerdown`, …). The package invents no library of its
+ *  own, so the socket is as narrow as "a dict of functions". */
+export type DockDragHandlers = Record<string, (event: Event) => void>;
+
+/** A first-class div for the branch/intent cluster — the sortable's boundary (kolu's #2247
+ *  drag-to-rearrange). An anonymous fragment has no node a sortable can register;
+ *  this is the element the gesture lands on.
+ *
+ *  The slot ITSELF ships the minimum the rows around it demand, and no more:
+ *  `grid grid-cols-subgrid col-span-full` — pass the section's tracks through
+ *  to its rows (subgrid reads the direct parent only), spanning the full row
+ *  and a handful of sockets so the consumer's drag wiring can attach
+ *  without the package knowing its library: `ref`, `style`, and a generic
+ *  `handlers` passthrough the caller spells itself. Paint stays the css's:
+ *  the wash scope, dividers and `--attn` binds read `.dock-cluster` along
+ *  the `>` edge — a direct child of the section *either way*. */
+export const DockCluster: Component<{
+  /** The cluster's branch/intent label — `data-label`, an e2e/debug handle. */
+  label: string;
+  /** Consumer's sortable ref — the package ships no drag lib of its own. */
+  ref?: HTMLDivElement | ((el: HTMLDivElement) => void);
+  /** Consumer's sortable transform — during a drag, the wrapper moves; rows never do. */
+  style?: JSX.CSSProperties;
+  /** Consumer's activator listeners, spread onto the element (e.g. pointerdown). */
+  handlers?: DockDragHandlers;
+  testId?: string;
+  children: JSX.Element;
+}> = (props) => (
+  <div
+    ref={props.ref}
+    style={props.style}
+    {...props.handlers}
+    data-testid={props.testId}
+    data-label={props.label}
+    class="dock-cluster grid grid-cols-subgrid col-span-full"
+  >
+    {props.children}
+  </div>
+);
+
 export const DockNeedsYouStrip: Component<{
   density: NeedsYouDensity;
   testId?: string;

@@ -63,14 +63,29 @@
  *  canvas as well as the populated one. */
 import { activeArm } from "@kolu/padi-client/surface";
 
-import { DockRow as DockRowView, DockSection } from "@kolu/solid-dockrow";
+import {
+  DockCluster,
+  type DockDragHandlers,
+  DockRow as DockRowView,
+  DockSection,
+} from "@kolu/solid-dockrow";
 import type { DockRowBucket } from "@kolu/solid-dockrow/rowValues";
+import {
+  closestCenter,
+  createSortable,
+  DragDropProvider,
+  DragDropSensors,
+  type DragEvent,
+  SortableProvider,
+  maybeTransformStyle,
+} from "@thisbeyond/solid-dnd";
 import { AttentionTriplet } from "@kolu/solid-statepip";
 import { cwdBasename } from "@kolu/terminal-vocab/terminalKey";
 import { createElementSize } from "@solid-primitives/resize-observer";
 import type { TerminalId } from "kolu-common/surface";
 import {
   type Component,
+  createEffect,
   createMemo,
   createSignal,
   For,
@@ -87,6 +102,7 @@ import { intentLeadGlyph } from "../../intent/text";
 import { persistedPref } from "../../persistedPref";
 import LiveActivityDot from "../../terminal/LiveActivityDot";
 import type { TerminalDisplayInfo } from "../../terminal/terminalDisplay";
+import { setDockOrder } from "../../terminal/dockOrder";
 import { useTerminalStore } from "../../terminal/useTerminalStore";
 import { useStatePip } from "../../terminal/statePipBind";
 import { useTileStore } from "../../tile/useTileStore";
@@ -108,10 +124,13 @@ import {
 } from "./dockCardsWidth";
 import { useDockRowBag } from "./useDockRowBag";
 import { createDockRowData } from "./dockRowData";
-import type { DockGroup, DockTree } from "./dockTree";
+import type { DockClusterSection, DockGroup, DockTree } from "./dockTree";
+import { effectiveOrder } from "./dockTree";
 import { HiddenFooter } from "./HiddenFooter";
 import { NeedsYouStrip } from "./NeedsYouStrip";
 import { SubTerminalRow } from "./SubTerminalRow";
+import { CONTEXTUAL_TIPS } from "../../settings/tips";
+import { useTips } from "../../settings/useTips";
 import { useDockFocus } from "./useDockFocus";
 import { useDockOrder } from "./useDockOrder";
 import { useSectionAttention } from "./useSectionAttention";
@@ -240,6 +259,11 @@ const Dock: Component<{
   // (shared with tile resize / canvas pan) wires window pointermove/up+cancel
   // and auto-unwires on release. The drag starts from the RENDERED width (not
   // the raw stored value) so a host-capped dock doesn't jump on grab.
+  //
+  // Two drag idioms live in this dock, deliberately distinct: *geometry*
+  // (resize — continuous, frame-by-frame) goes through `capturePointerGesture`;
+  // *rearrangement* (move a section / cluster — discrete, semantically
+  // versioned) goes through solid-dnd. The two never share a gesture.
   let abortDockResize: AbortController | null = null;
   function startDockResize(e: PointerEvent) {
     // Primary button only — a right/middle-button drag on the edge shouldn't
@@ -362,6 +386,17 @@ const RailOrCards: Component<{
   // composes canvas centering. The touch surfaces pass their own (see
   // `NeedsYouStrip`), which are split-aware too.
   const dockFocus = useDockFocus();
+  const { showTipOnce } = useTips();
+
+  // The first tree that could be rearranged (2+ sections, or a repo whose
+  // branch clusters have split) — the tip announces the gesture there, then
+  // never again.
+  createEffect(() => {
+    const t = props.tree;
+    const rearrangeable =
+      t.groups.length > 1 || t.groups.some((g) => g.clusters.length > 1);
+    if (rearrangeable) showTipOnce(CONTEXTUAL_TIPS.dockRearrange);
+  });
   // Pre-built `id → flat position` map. RepoSection used to compute
   // each row's flat index via `findIndex` over `flatShortcutRows`, costing
   // O(rows²) per render. The map is rebuilt only when the tree
@@ -369,6 +404,26 @@ const RailOrCards: Component<{
   const flatIndexOf = createMemo(
     () => new Map(props.tree.flatShortcutRows.map((r, i) => [r.id, i])),
   );
+  // Drag ends by writing the FULL effective order: every visible slot plus
+  // every still-pinned hidden one — so the next write never rearranges,
+  // and the pinned drop-site lands exactly where you let go.
+  const dropSection = ({ draggable, droppable }: DragEvent) => {
+    if (!droppable || draggable.id === droppable.id) return;
+    const order = effectiveOrder(props.tree);
+    const names = order.map((n) => n.repo);
+    const from = names.indexOf(String(draggable.id));
+    const to = names.indexOf(String(droppable.id));
+    if (from === -1 || to === -1) return;
+    setDockOrder(arrayMove(order, from, to));
+  };
+  const dropCluster = (repo: string, labels: readonly string[]) => {
+    const order = effectiveOrder(props.tree);
+    const idx = order.findIndex((n) => n.repo === repo);
+    if (idx === -1) return;
+    const next = order.slice();
+    next[idx] = { repo, labels };
+    setDockOrder(next);
+  };
   return (
     <div class="flex flex-col w-full min-h-0">
       <DockHeader
@@ -394,13 +449,35 @@ const RailOrCards: Component<{
         <Show
           when={props.mode === "rail"}
           fallback={
-            <div class="flex flex-col gap-2.5 p-2">
-              <For each={props.tree.groups}>
-                {(group) => (
-                  <RepoSection group={group} flatIndexOf={flatIndexOf()} />
-                )}
-              </For>
-            </div>
+            <>
+              {/* The dock's OWN drag context, nested inside the canvas's:
+               *  a sortable here must never surface to a canvas listener —
+               *  sortables bind their drag to the NEAREST DragDropProvider,
+               *  so the nest is the isolation. Mode-level: only the cards
+               *  list is rearrangeable — rail rows are icon swatches, not
+               *  draggable units (#2247). */}
+              <DragDropProvider
+                collisionDetector={closestCenter}
+                onDragEnd={dropSection}
+              >
+                <DragDropSensors />
+                <SortableProvider ids={props.tree.groups.map((g) => g.name)}>
+                  <div class="flex flex-col gap-2.5 p-2">
+                    <For each={props.tree.groups}>
+                      {(group) => (
+                        <SortableSection
+                          group={group}
+                          flatIndexOf={flatIndexOf()}
+                          onClusterDrop={(labels) =>
+                            dropCluster(group.name, labels)
+                          }
+                        />
+                      )}
+                    </For>
+                  </div>
+                </SortableProvider>
+              </DragDropProvider>
+            </>
           }
         >
           <For each={props.tree.groups}>
@@ -511,6 +588,43 @@ const DockHeader: Component<{
   );
 };
 
+/** Move the element at `from` to index `to`, preserving every other slot. */
+const arrayMove = <T,>(list: readonly T[], from: number, to: number): T[] => {
+  const next = list.slice();
+  const [moved] = next.splice(from, 1);
+  next.splice(to, 0, moved as T);
+  return next;
+};
+
+/** Wrap one repo section so its whole card is ONE draggable unit — the
+ *  section in the outer sequence, the cluster grip INSIDE the header (the
+ *  name + monogram pair, never the attention capsules). The shape is the
+ *  only wedge a consumer's solid-dnd logic needs: `createSortable` owns its
+ *  `ref` (the wrapped div) and its `dragActivators` land in the header by
+ *  name-binding, not by div-count trickery. */
+const SortableSection: Component<{
+  group: DockGroup;
+  flatIndexOf: ReadonlyMap<TerminalId, number>;
+  onClusterDrop: (labels: readonly string[]) => void;
+}> = (props) => {
+  const sortable = createSortable(props.group.name);
+  return (
+    <div ref={sortable.ref} style={maybeTransformStyle(sortable.transform)}>
+      {/* Each section ships its OWN inner drag context for its clusters —
+       *  giving the nest two isolated levels: a cluster physically cannot
+       *  land in another repo: sortables bind their drag to the NEAREST
+       *  DragDropProvider, so it's the nest, not any runtime check, that
+       *  blocks the crossover. */}
+      <RepoSection
+        group={props.group}
+        flatIndexOf={props.flatIndexOf}
+        grip={sortable.dragActivators}
+        onClusterDrop={props.onClusterDrop}
+      />
+    </div>
+  );
+};
+
 /** Repo section — monogram tile + uppercase name + bare row tally +
  *  attention triplet over the group's rows. Always rendered, even for
  *  single-repo workspaces — a consistent structure beats a degenerate-case
@@ -522,6 +636,11 @@ const RepoSection: Component<{
    *  index is an O(1) read instead of an O(rows) `findIndex` scan per
    *  row per render. Built once per tree update by `RailOrCards`. */
   flatIndexOf: ReadonlyMap<TerminalId, number>;
+  /** Section-level drag activators from `createSortable(name)` — landed on
+   *  the monogram + name pair (NEVER the attention capsules: a button has
+   *  its own pointerdown story and spreading activators there would fight it). */
+  grip: DockDragHandlers;
+  onClusterDrop: (labels: readonly string[]) => void;
 }> = (props) => {
   const store = useTerminalStore();
   const focus = useDockFocus();
@@ -551,54 +670,109 @@ const RepoSection: Component<{
   // Each DockRow is a subgrid
   // item that inherits these columns, keeping the icons aligned
   // vertically across rows in one section.
+  const dropCluster = ({ draggable, droppable }: DragEvent) => {
+    if (!droppable || draggable.id === droppable.id) return;
+    const labels = props.group.clusters.map((k) => k.label);
+    const from = labels.indexOf(String(draggable.id));
+    const to = labels.indexOf(String(droppable.id));
+    if (from === -1 || to === -1) return;
+    props.onClusterDrop(arrayMove(labels, from, to));
+  };
   return (
-    <DockSection
-      surface="desktop"
-      testId="dock-section"
-      repo={props.group.name}
-      repoColor={props.group.color}
-      headerTestId="dock-section-header"
-      header={
-        <>
-          {/* Sticky repo header — monogram + uppercase name + bare tally +
-           *  attention triplet (styles in `@kolu/solid-dockrow/dockrow.css`). The tally
-           *  deliberately BARE text, not a capsule: the capsule silhouette is
-           *  reserved for actionable attention counts, so a number in a pill
-           *  always means "act on this" (fucknotif — the old count capsule
-           *  read as six decoy notification badges). Monogram is the shared
-           *  `<RepoMonogram />` atom — same paint as palette / restore. */}
-          <RepoMonogram
-            group={props.group.name}
-            color={props.group.color}
-            data-testid="dock-section-monogram"
-          />
-          <span
-            data-testid="dock-section-name"
-            class="dock-cards-section-name font-mono text-[0.7rem] font-extrabold uppercase tracking-[0.1em] truncate min-w-0"
-            title={props.group.name}
-          >
-            {props.group.name}
-          </span>
-          <span
-            class="dock-cards-section-count font-mono text-[0.6rem]"
-            title={`${props.group.railEntries.length} terminals`}
-          >
-            {props.group.railEntries.length}
-          </span>
-          <AttentionTriplet
-            active={attn().activeIds.length}
-            asking={attn().askingIds.length}
-            unseen={attn().unseenIds.length}
-            sizeClass="min-w-4 px-1 h-4"
-            scopeLabel={props.group.name}
-            onAsking={() => jumpTo(attn().askingIds)}
-            onUnseen={() => jumpTo(attn().unseenIds)}
-            class="ml-auto"
-          />
-        </>
-      }
+    <DragDropProvider collisionDetector={closestCenter} onDragEnd={dropCluster}>
+      <DragDropSensors />
+      <SortableProvider ids={props.group.clusters.map((c) => c.label)}>
+        <DockSection
+          surface="desktop"
+          testId="dock-section"
+          repo={props.group.name}
+          repoColor={props.group.color}
+          headerTestId="dock-section-header"
+          header={
+            <>
+              {/* Sticky repo header — monogram + uppercase name + bare tally +
+               *  attention triplet (styles in `@kolu/solid-dockrow/dockrow.css`). The tally
+               *  deliberately BARE text, not a capsule: the capsule silhouette is
+               *  reserved for actionable attention counts, so a number in a pill
+               *  always means "act on this" (fucknotif — the old count capsule
+               *  read as six decoy notification badges). Monogram is the shared
+               *  `<RepoMonogram />` atom — same paint as palette / restore.
+               *
+               *  The GRIP is the monogram + name pair — the ONLY two touches in
+               *  the header that have no click of their own — so the card drags
+               *  from its identity chrome, never its data. */}
+              <span
+                class="flex items-center gap-1.5 min-w-0 shrink cursor-grab"
+                {...props.grip}
+              >
+                <RepoMonogram
+                  group={props.group.name}
+                  color={props.group.color}
+                  data-testid="dock-section-monogram"
+                />
+                <span
+                  data-testid="dock-section-name"
+                  class="dock-cards-section-name font-mono text-[0.7rem] font-extrabold uppercase tracking-[0.1em] truncate min-w-0"
+                  title={props.group.name}
+                >
+                  {props.group.name}
+                </span>
+                <span
+                  class="dock-cards-section-count font-mono text-[0.6rem]"
+                  title={`${props.group.railEntries.length} terminals`}
+                >
+                  {props.group.railEntries.length}
+                </span>
+              </span>
+              <AttentionTriplet
+                active={attn().activeIds.length}
+                asking={attn().askingIds.length}
+                unseen={attn().unseenIds.length}
+                sizeClass="min-w-4 px-1 h-4"
+                scopeLabel={props.group.name}
+                onAsking={() => jumpTo(attn().askingIds)}
+                onUnseen={() => jumpTo(attn().unseenIds)}
+                class="ml-auto"
+              />
+            </>
+          }
+        >
+          <For each={props.group.clusters}>
+            {(cluster) => (
+              <SortableCluster
+                cluster={cluster}
+                flatIndexOf={props.flatIndexOf}
+              />
+            )}
+          </For>
+        </DockSection>
+      </SortableProvider>
+    </DragDropProvider>
+  );
+};
+
+/** One branch cluster — the sortable's physical unit inside a repo section:
+ *  dragging it lifts its rows wholesale. Layout paint lives entirely in the
+ *  package (`dock-cluster` in `dockrow.css`); the wrapper below is what the
+ *  gesture settles on — the plain `div` the sortable registers and moves.
+ *
+ *  A cluster cannot be dropped in another repo: the SortableProvider is
+ *  per-section (see `SortableSection`), and solid-dnd keys every sortable to
+ *  its NEAREST SortableProvider — the nest is the isolation, no runtime check. */
+const SortableCluster: Component<{
+  cluster: DockClusterSection;
+  flatIndexOf: ReadonlyMap<TerminalId, number>;
+}> = (props) => {
+  const sortable = createSortable(props.cluster.label);
+  const focus = useDockFocus();
+  return (
+    <DockCluster
+      label={props.cluster.label}
+      ref={sortable.ref}
+      style={maybeTransformStyle(sortable.transform)}
+      handlers={sortable.dragActivators}
     >
-      <For each={props.group.topRows}>
+      <For each={props.cluster.rows}>
         {(row) => (
           <>
             <DockRow
@@ -616,7 +790,7 @@ const RepoSection: Component<{
           </>
         )}
       </For>
-    </DockSection>
+    </DockCluster>
   );
 };
 

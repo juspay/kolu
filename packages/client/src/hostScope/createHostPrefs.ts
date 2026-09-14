@@ -15,14 +15,30 @@
  *      sticky filter survives reload without two hosts colliding on one global key.
  *      (The right-panel collapsed bit is NOT here — it's finer-grained still: it
  *      travels with the TERMINAL via `TerminalMetadata.rightPanel`, so the panel
- *      follows the terminal, #959.) */
+ *      follows the terminal, #959.)
+ *    - `dockOrder` — the user's drag arrangement of dock sections and their
+ *      branch clusters, persisted PER HOST (`kolu-dockOrder:<host>`) exactly like
+ *      the two filters above. `perHostPref` evicts the key when the host is removed
+ *      from the pool — accepted, and identical to what removing a host does to its
+ *      sibling prefs: removing a host destroys its scope, and the arrangement was
+ *      a view of THAT host's content.
+ *
+ *      Keying the arrangement by NAMES (repo + branch label) rather than ids has
+ *      two known edges, both intended:
+ *        (a) two clones sharing a repo name already share one dock section today,
+ *            so they share one stored slot — the arrangement cannot tell them apart;
+ *        (b) a branch rename or re-checkout produces a NEW label that appends at
+ *            the bottom of its repo — the pinned position of the OLD name is gone
+ *            with it, exactly as if the old terminal had been closed. */
 
+import type { DockOrder } from "../canvas/dock/dockTree";
 import type { HostKey } from "kolu-common/hostKey";
 import type { Accessor, Setter } from "solid-js";
 import {
   perHostBoolPref,
   perHostName,
   perHostPref,
+  parseTolerantList,
   readWithFallback,
 } from "../persistedPref";
 import {
@@ -34,6 +50,29 @@ import {
 /** Storage key base for the per-host activity-window pref — the ONE spelling
  *  (createHostPrefs + fleet index reader share this). */
 export const ACTIVITY_WINDOW_PREF_BASE = "kolu-activityWindow";
+
+/** The storage key base for the per-host dock-arrangement pref — the ONE
+ *  spelling (createHostPrefs + any stored-order reader share this). */
+export const DOCK_ORDER_PREF_BASE = "kolu-dockOrder";
+
+/** Accept a stored dock-order node: a `{ repo, labels }` pair with deduped
+ *  labels, or `undefined` so the tolerant-array parse drops one bad node without
+ *  throwing away the user's whole arrangement. */
+function acceptDockOrderNode(item: unknown): DockOrder[number] | undefined {
+  if (typeof item !== "object" || item === null) return undefined;
+  const { repo, labels } = item as { repo?: unknown; labels?: unknown };
+  if (typeof repo !== "string" || repo.length === 0) return undefined;
+  if (!Array.isArray(labels)) return undefined;
+  const seen = new Set<string>();
+  const deduped: string[] = [];
+  for (const l of labels) {
+    if (typeof l !== "string") continue;
+    if (seen.has(l)) continue;
+    seen.add(l);
+    deduped.push(l);
+  }
+  return { repo, labels: deduped };
+}
 
 function parseActivityWindow(raw: string): ActivityWindow {
   if (isActivityWindow(raw)) return raw;
@@ -79,13 +118,33 @@ export interface HostPrefs {
    *  `kolu-showSleeping:<encoded host>`, same rationale as `activityWindow`. */
   showSleeping: Accessor<boolean>;
   setShowSleeping: Setter<boolean>;
+  /** The user's drag arrangement of dock sections and their branch clusters —
+   *  persisted per host under `kolu-dockOrder:<encoded host>`, the same device-
+   *  local, host-keyed policy as the two filters above. Empty means "pure
+   *  structural order" (nothing ever dragged). */
+  dockOrder: Accessor<DockOrder>;
+  setDockOrder: Setter<DockOrder>;
+}
+
+/** Accept one stored `{ repo, labels }` node of the user's dock arrangement and
+ *  tighten it. Runs inside {@link parseDockOrder}'s tolerant loop, so a bad node
+ *  is dropped, never allowed to eat the whole order. */
+function parseDockOrder(raw: string): DockOrder {
+  return parseTolerantList(
+    raw,
+    "dockOrder",
+    acceptDockOrderNode,
+    (n) => n.repo,
+    200,
+  );
 }
 
 export function createHostPrefs(host: HostKey): HostPrefs {
-  // Dock filters: persisted PER HOST — a dock filter is a sticky preference (it must
-  // survive reload), but keyed by host so two hosts don't share one filter.
-  // `perHostPref`/`perHostBoolPref` own the `<base>:<host>` key composition + the
-  // evict-on-host-exit cleanup (see their docstrings); this factory just names each base.
+  // Dock filters + arrangement: persisted PER HOST — a dock filter is a sticky
+  // preference (it must survive reload), but keyed by host so two hosts don't
+  // share one filter. `perHostPref`/`perHostBoolPref` own the `<base>:<host>`
+  // key composition + the evict-on-host-exit cleanup (see their docstrings);
+  // this factory just names each base.
   const [activityWindow, setActivityWindow] = perHostPref<ActivityWindow>({
     host,
     base: ACTIVITY_WINDOW_PREF_BASE,
@@ -97,11 +156,19 @@ export function createHostPrefs(host: HostKey): HostPrefs {
     base: "kolu-showSleeping",
     fallback: true,
   });
+  const [dockOrder, setDockOrder] = perHostPref<DockOrder>({
+    host,
+    base: DOCK_ORDER_PREF_BASE,
+    fallback: [],
+    parse: parseDockOrder,
+  });
 
   return {
     activityWindow,
     setActivityWindow,
     showSleeping,
     setShowSleeping,
+    dockOrder,
+    setDockOrder,
   };
 }

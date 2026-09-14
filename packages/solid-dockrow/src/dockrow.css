@@ -113,12 +113,20 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-/* Soft row dividers — mockup-quiet; last row has none. */
-.dock-cards-section > [data-dock-row] {
+/* Soft row dividers — mockup-quiet; last row has none.
+ * A row is a direct child of either its SECTION (ungrouped) or its first-class
+ * CLUSTER (`.dock-cluster`, DockCluster) — the `>` boundary reads each
+ * equally. The `:last-child` bare rule no longer reaches the last row of the
+ * last CLUSTER — the section's last child is the cluster `div`, not the row —
+ * so the "row borders read off the wrapper boundary" spelling: the last row of
+ * a LAST cluster is the section's last rowhood lifted one level. */
+.dock-cards-section > [data-dock-row],
+.dock-cards-section > .dock-cluster > [data-dock-row] {
   border-bottom: 1px solid
     color-mix(in oklab, var(--color-edge) 28%, transparent);
 }
-.dock-cards-section > [data-dock-row]:last-child {
+.dock-cards-section > [data-dock-row]:last-child,
+.dock-cards-section > .dock-cluster:last-child > [data-dock-row]:last-child {
   border-bottom: 0;
 }
 
@@ -165,18 +173,29 @@
  * keeps them in step — enumerating a second container and copying the values
  * across would reintroduce, one level up, exactly the failure this block's own
  * comment records: a surface silently outside the wash rather than by anyone's
- * decision. Retune a mix here and both containers follow. */
-:is(.dock-cards-section, .dock-needs-you-strip) > [data-dock-row][data-active] {
+ * decision. Retune a mix here and both containers follow.
+ *
+ * The CLUSTER is the third path to a row: a direct child of `.dock-cards-section`
+ * is a row (ungrouped list) or a cluster `div` (a sortable wrapper), so every
+ * selector below admits BOTH shapes. Strips never carry clusters — the cluster
+ * halves read strip-only when named for the strip. */
+:is(.dock-cards-section, .dock-needs-you-strip) > [data-dock-row][data-active],
+.dock-cards-section > .dock-cluster > [data-dock-row][data-active] {
   background: color-mix(in oklab, var(--color-accent) 15%, transparent);
   border-left-color: var(--color-accent);
 }
-:is(.dock-cards-section, .dock-needs-you-strip) > [data-dock-row][data-unread] {
+:is(.dock-cards-section, .dock-needs-you-strip) > [data-dock-row][data-unread],
+.dock-cards-section > .dock-cluster > [data-dock-row][data-unread] {
   --attn: var(--color-attention);
 }
-:is(.dock-cards-section, .dock-needs-you-strip) > [data-dock-row][data-asking] {
+:is(.dock-cards-section, .dock-needs-you-strip) > [data-dock-row][data-asking],
+.dock-cards-section > .dock-cluster > [data-dock-row][data-asking] {
   --attn: var(--color-alert);
 }
 .dock-cards-section
+  > [data-dock-row]:is([data-unread], [data-asking]):not([data-active]),
+.dock-cards-section
+  > .dock-cluster
   > [data-dock-row]:is([data-unread], [data-asking]):not([data-active]) {
   background: color-mix(in oklab, var(--attn) 13%, transparent);
   border-left-color: var(--attn);
@@ -185,6 +204,9 @@
  * `hover:bg-surface-2/40`, so a washed row would otherwise go dead under the
  * pointer. Deepen the hue instead of replacing it with the neutral hover. */
 :is(.dock-cards-section, .dock-needs-you-strip)
+  > [data-dock-row]:is([data-unread], [data-asking]):not([data-active]):hover,
+.dock-cards-section
+  > .dock-cluster
   > [data-dock-row]:is([data-unread], [data-asking]):not([data-active]):hover {
   background: color-mix(in oklab, var(--attn) 20%, transparent);
 }
@@ -192,11 +214,19 @@
  * as the host tab does. */
 :root.dark
   .dock-cards-section
+  > [data-dock-row]:is([data-unread], [data-asking]):not([data-active]),
+:root.dark
+  .dock-cards-section
+  > .dock-cluster
   > [data-dock-row]:is([data-unread], [data-asking]):not([data-active]) {
   background: color-mix(in oklab, var(--attn) 20%, transparent);
 }
 :root.dark
   :is(.dock-cards-section, .dock-needs-you-strip)
+  > [data-dock-row]:is([data-unread], [data-asking]):not([data-active]):hover,
+:root.dark
+  .dock-cards-section
+  > .dock-cluster
   > [data-dock-row]:is([data-unread], [data-asking]):not([data-active]):hover {
   background: color-mix(in oklab, var(--attn) 27%, transparent);
 }

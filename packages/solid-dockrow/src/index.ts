@@ -5,7 +5,12 @@
  *  stylesheet is `@kolu/solid-dockrow/dockrow.css`. See the README. */
 
 export { DockNeedsYouRow } from "./DockNeedsYouRow.tsx";
-export { DockNeedsYouStrip, DockSection } from "./DockSection.tsx";
+export {
+  DockCluster,
+  type DockDragHandlers,
+  DockNeedsYouStrip,
+  DockSection,
+} from "./DockSection.tsx";
 export {
   DockRow,
   type DockRowProps,

@@ -9,9 +9,11 @@
  *
  *  Row order mirrors the desktop dock: same `useDockOrder` singleton, so every
  *  surface (desktop dock, phone drawer, compact rail) agrees on group order, row
- *  order, and which rows the activity window hides — creation order throughout,
- *  never a clock. The pinned needs-you strip rides that same singleton, so a
- *  blocked agent is as findable on a phone as it is on the desktop.
+ *  order, and which rows the activity window hides — creation order within a
+ *  dragged arrangement, never a clock. The pinned needs-you strip rides that
+ *  same singleton, so a blocked agent is as findable on a phone as it is on the
+ *  desktop. The drag GESTURE itself is desktop-only for now (#2247) — the
+ *  arrangement it persists shows through everywhere.
  *
  *  Renders as a fragment (header · scroll list · hidden footer); the host
  *  supplies a `flex flex-col h-full` container and decides selection semantics —
