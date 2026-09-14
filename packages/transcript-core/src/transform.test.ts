@@ -8,7 +8,7 @@ import {
 
 function transcriptWith(overrides: Partial<Transcript>): Transcript {
   return {
-    agentKind: "claude-code",
+    agentName: "Claude Code",
     sessionId: "s1",
     title: null,
     repoName: null,

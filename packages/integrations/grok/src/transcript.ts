@@ -14,6 +14,7 @@ import type {
   Transcript,
   TranscriptEvent,
 } from "kolu-transcript-core";
+import { grokVocab } from "./schemas.ts";
 import { chatHistoryPathFor } from "./core.ts";
 
 interface GrokHistoryLine {
@@ -343,7 +344,7 @@ export const loadGrokTranscript: Fetcher = (input) => {
     throw err;
   }
   const transcript: Transcript = {
-    agentKind: "grok",
+    agentName: grokVocab.displayName,
     sessionId: input.sessionId,
     title: input.title,
     repoName: input.repoName,

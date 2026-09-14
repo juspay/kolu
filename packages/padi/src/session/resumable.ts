@@ -17,7 +17,7 @@
  */
 
 import type { SavedTerminal } from "@kolu/padi-client/surface";
-import { resumableCommand } from "anyagent/schemas";
+import { resumableCommand } from "kolu-agents/vocab";
 
 /** Ids of saved terminals that will resume an agent on restore (host-owned). */
 export function resumableTerminalIds(

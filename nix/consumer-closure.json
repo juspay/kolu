@@ -56,13 +56,9 @@
         "anyagent",
         "anyforge",
         "kaval",
-        "kolu-claude-code",
-        "kolu-codex",
+        "kolu-agents",
         "kolu-git",
         "kolu-github",
-        "kolu-grok",
-        "kolu-opencode",
-        "kolu-pi",
         "kolu-pty",
         "kolu-shared",
         "kolu-transcript-core",
@@ -92,6 +88,7 @@
         "@kolu/terminal-vocab",
         "anyagent",
         "anyforge",
+        "kolu-agents",
         "kolu-git",
         "kolu-transcript-core"
       ],
@@ -199,7 +196,8 @@
       "vendored": true,
       "workspace": [
         "@kolu/terminal-vocab",
-        "@kolu/theme"
+        "@kolu/theme",
+        "kolu-agents"
       ],
       "external": {
         "solid-js": "^1.9.0"
@@ -438,13 +436,9 @@
       "workspace": [
         "anyagent",
         "anyforge",
-        "kolu-claude-code",
-        "kolu-codex",
+        "kolu-agents",
         "kolu-git",
-        "kolu-github",
-        "kolu-grok",
-        "kolu-opencode",
-        "kolu-pi"
+        "kolu-github"
       ],
       "external": {
         "effect": "4.0.0-rc.112",
@@ -546,6 +540,22 @@
         "effect": "catalog:"
       }
     },
+    "kolu-agents": {
+      "dir": "packages/integrations/agents",
+      "vendored": true,
+      "workspace": [
+        "anyagent",
+        "kolu-claude-code",
+        "kolu-codex",
+        "kolu-grok",
+        "kolu-opencode",
+        "kolu-pi",
+        "kolu-transcript-core"
+      ],
+      "external": {
+        "effect": "4.0.0-rc.112"
+      }
+    },
     "kolu-claude-code": {
       "dir": "packages/integrations/claude-code",
       "vendored": true,
@@ -608,6 +618,7 @@
         "@kolu/theme",
         "@kolu/url-shape",
         "@kolu/xterm-kit",
+        "kolu-agents",
         "memorable-names",
         "nonempty",
         "terminal-snapshot"
@@ -664,13 +675,8 @@
         "@kolu/terminal-vocab",
         "anyagent",
         "anyforge",
-        "kolu-claude-code",
-        "kolu-codex",
         "kolu-git",
-        "kolu-github",
-        "kolu-grok",
-        "kolu-opencode",
-        "kolu-transcript-core"
+        "kolu-github"
       ],
       "external": {
         "effect": "catalog:",
@@ -798,13 +804,10 @@
         "anyagent",
         "anyforge",
         "kaval",
-        "kolu-claude-code",
-        "kolu-codex",
+        "kolu-agents",
         "kolu-common",
         "kolu-git",
         "kolu-github",
-        "kolu-grok",
-        "kolu-opencode",
         "kolu-pty",
         "kolu-shared",
         "kolu-transcript-html",

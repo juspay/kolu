@@ -61,9 +61,7 @@ export function createPiWatcher(
       kind: "pi",
       state: derived.state,
       sessionId: session.id,
-      ...(session.transcriptPath !== undefined
-        ? { sessionPath: session.transcriptPath }
-        : {}),
+      sessionPath: session.transcriptPath,
       model: derived.model,
       summary,
       taskProgress: null,

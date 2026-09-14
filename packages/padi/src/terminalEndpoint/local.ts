@@ -41,7 +41,6 @@ import {
 import type { WireSchema } from "@kolu/surface/define";
 import { type Channel, inMemoryChannel } from "@kolu/surface/server";
 import type {
-  AgentIdentity,
   TerminalEvent,
   TerminalGrid,
   TerminalId,
@@ -50,7 +49,7 @@ import type {
   TerminalState,
 } from "@kolu/terminal-vocab/schema";
 import { seedSnapshot, TerminalIdSchema } from "@kolu/terminal-vocab/schema";
-import { resumeFormFor } from "anyagent/cli";
+import { resumeFormFor } from "kolu-agents/vocab";
 import { Effect, Result, Schema, Stream } from "effect";
 import type { ForegroundSample, PtyHostClient, PtyHostListEntry } from "kaval";
 import type { SnapshotGrid } from "terminal-snapshot";
@@ -94,6 +93,7 @@ import {
 } from "../terminalScratch.ts";
 import { createTerminalWorkspaceEndpoint } from "../terminalWorkspace/endpoint.ts";
 import {
+  type AgentIdentityRef,
   type FoldCtx,
   fold,
   restoreTargetEqual,
@@ -1218,7 +1218,7 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
     // recency tracks its output instead of freezing. `runStartedAt` floors that
     // throttle so the survivor-settle burst can't false-bump the saved recency. This
     // replaces the old 1.5 s timer whose race could restamp saved recency.
-    let recencyBaseline: AgentIdentity | null = seedRecencyBaseline(
+    let recencyBaseline: AgentIdentityRef | null = seedRecencyBaseline(
       seedEntry.meta.restoreTarget,
     );
     const runStartedAt = Date.now();

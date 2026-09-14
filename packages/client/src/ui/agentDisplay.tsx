@@ -1,35 +1,32 @@
 /** Shared display strings for agent kinds and states.
- *  Used by both AgentIndicator (compact header) and MetadataInspector (detail panel). */
+ *  Used by both AgentIndicator (compact header) and MetadataInspector (detail panel).
+ *
+ *  Per-agent facts (display name, brand mark) are read from the agent registry
+ *  (`kolu-agents/vocab`) rather than hand-maintained `Record<AgentKind, …>`
+ *  tables — adding an agent touches only its own package plus the registry. */
 
-import { agentKindFromCommand } from "anyagent/cli";
+import {
+  agentKindFromCommand,
+  agentVocab,
+  isAgentKind,
+} from "kolu-agents/vocab";
 import type { AgentInfo } from "kolu-common/surface";
 import type { Component } from "solid-js";
-import {
-  ClaudeCodeIcon,
-  CodexIcon,
-  GrokIcon,
-  OpenCodeIcon,
-  PiIcon,
-} from "../ui/Icons";
+import { MarkIcon } from "./Icons";
 
-export const agentIcons: Record<
-  AgentInfo["kind"],
-  Component<{ class?: string }>
-> = {
-  "claude-code": ClaudeCodeIcon,
-  codex: CodexIcon,
-  opencode: OpenCodeIcon,
-  grok: GrokIcon,
-  pi: PiIcon,
-};
+/** The agent's human display name (`"Claude Code"`, `"OpenCode"`). */
+export function agentName(kind: AgentInfo["kind"]): string {
+  return agentVocab(kind).displayName;
+}
 
-export const agentNames: Record<AgentInfo["kind"], string> = {
-  "claude-code": "Claude Code",
-  codex: "Codex",
-  opencode: "OpenCode",
-  grok: "Grok",
-  pi: "Pi",
-};
+/** A component that renders the agent's brand mark, sized to the caller's
+ *  `class`. The ONE mark per agent serves both the tile chrome and the dock pip. */
+export function agentIcon(
+  kind: AgentInfo["kind"],
+): Component<{ class?: string }> {
+  const mark = agentVocab(kind).mark;
+  return (props) => <MarkIcon mark={mark} class={props.class} />;
+}
 
 // The per-state display WORDS live with the dock row (`@kolu/solid-dockrow`),
 // not here. They were duplicated for a moment when the row was extracted, which
@@ -89,12 +86,11 @@ export function agentWorkflow(agent: AgentInfo | null | undefined) {
 
 /** Resolve the icon for a raw agent command string (e.g. `"claude --model
  *  sonnet"`). Returns `undefined` for detection-only agents that have no
- *  AgentInfo discriminator (aider/goose/gemini/cursor-agent) and for
- *  unknown commands. Grouped with `agentIcons`/`agentNames` because it
- *  bridges the basename axis to this module's per-kind display tables. */
+ *  `AgentInfo` discriminator (aider/goose/gemini/cursor-agent) and for
+ *  unknown commands. Bridges the basename axis to the per-kind marks. */
 export function iconForCommand(
   command: string,
 ): Component<{ class?: string }> | undefined {
   const kind = agentKindFromCommand(command);
-  return kind ? agentIcons[kind] : undefined;
+  return kind !== null && isAgentKind(kind) ? agentIcon(kind) : undefined;
 }

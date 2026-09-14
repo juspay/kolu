@@ -2,7 +2,7 @@
  *
  *  Each vendor's `loadXxxTranscript` function is typed as `Fetcher` so the
  *  seam between core and integrations is mechanical, not implicit. The
- *  router dispatches on `agentKind`; each branch calls a `Fetcher` and
+ *  registry dispatches through each agent's plugin; each plugin owns a `Fetcher` and
  *  gets a `Transcript | null` back. */
 
 import type { Logger } from "@kolu/log";

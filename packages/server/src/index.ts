@@ -34,7 +34,7 @@ import { sessionConnection } from "@kolu/surface-remote/connection";
 import { Cause, Effect, Layer, Option, Scope, Stream } from "effect";
 import { HttpRouter } from "effect/unstable/http";
 import { discoverKavalDaemons, legacyKavalSocketPath } from "kaval";
-import { getPendingSummaryFetches } from "kolu-claude-code";
+import { agentDiagnostics } from "kolu-agents";
 import { decodeHostKey, encodeHostKey } from "kolu-common/hostKey";
 import {
   type HostKey,
@@ -1211,7 +1211,7 @@ export async function bootKoluWeb(flags: KoluBootFlags): Promise<void> {
     logPrefix: "diag",
     extraColumns: () => ({
       publisherSize: publisherSize(),
-      pendingSummaryFetches: getPendingSummaryFetches(),
+      ...agentDiagnostics(),
     }),
   });
 }

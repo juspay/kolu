@@ -13,7 +13,6 @@
 import { Schema } from "effect";
 import { describe, expect, it } from "vitest";
 import {
-  AGENT_KINDS,
   type ToolInput,
   ToolInputSchema,
   type Transcript,
@@ -201,7 +200,7 @@ describe("TranscriptEventSchema", () => {
 
 describe("TranscriptSchema", () => {
   const transcript: Transcript = {
-    agentKind: "claude-code",
+    agentName: "Claude Code",
     sessionId: "sess-1",
     title: "A session",
     repoName: "juspay/kolu",
@@ -215,7 +214,7 @@ describe("TranscriptSchema", () => {
 
   it("pins the encoded document bytes", () => {
     expect(JSON.stringify(encodeTranscript(transcript))).toBe(
-      '{"agentKind":"claude-code","sessionId":"sess-1","title":"A session","repoName":"juspay/kolu","cwd":"/repo","model":"claude-opus-5","contextTokens":1234,"pr":{"number":42,"url":"https://github.com/juspay/kolu/pull/42"},"exportedAt":1700000000000,"events":' +
+      '{"agentName":"Claude Code","sessionId":"sess-1","title":"A session","repoName":"juspay/kolu","cwd":"/repo","model":"claude-opus-5","contextTokens":1234,"pr":{"number":42,"url":"https://github.com/juspay/kolu/pull/42"},"exportedAt":1700000000000,"events":' +
         JSON.stringify(EVENTS) +
         "}",
     );
@@ -230,7 +229,7 @@ describe("TranscriptSchema", () => {
     expect(
       JSON.stringify(
         encodeTranscript({
-          agentKind: "codex",
+          agentName: "Codex",
           sessionId: "s",
           title: null,
           repoName: null,
@@ -243,33 +242,14 @@ describe("TranscriptSchema", () => {
         }),
       ),
     ).toBe(
-      '{"agentKind":"codex","sessionId":"s","title":null,"repoName":null,"cwd":null,"model":null,"contextTokens":null,"pr":null,"exportedAt":0,"events":[]}',
+      '{"agentName":"Codex","sessionId":"s","title":null,"repoName":null,"cwd":null,"model":null,"contextTokens":null,"pr":null,"exportedAt":0,"events":[]}',
     );
   });
 
-  it("accepts every agent kind", () => {
-    for (const agentKind of AGENT_KINDS) {
-      expect(
-        decodeTranscript({
-          agentKind,
-          sessionId: "s",
-          title: null,
-          repoName: null,
-          cwd: null,
-          model: null,
-          contextTokens: null,
-          pr: null,
-          exportedAt: 0,
-          events: [],
-        }).agentKind,
-      ).toBe(agentKind);
-    }
-  });
-
-  it("rejects an unlisted agent kind", () => {
+  it("accepts any agent display name (the IR names no vendor)", () => {
     expect(
-      Schema.decodeUnknownResult(TranscriptSchema)({
-        agentKind: "cursor",
+      decodeTranscript({
+        agentName: "A Brand New Agent",
         sessionId: "s",
         title: null,
         repoName: null,
@@ -279,8 +259,8 @@ describe("TranscriptSchema", () => {
         pr: null,
         exportedAt: 0,
         events: [],
-      })._tag,
-    ).toBe("Failure");
+      }).agentName,
+    ).toBe("A Brand New Agent");
   });
 });
 

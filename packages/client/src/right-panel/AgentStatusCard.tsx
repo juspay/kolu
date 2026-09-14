@@ -19,8 +19,8 @@ import { Dynamic } from "solid-js/web";
 import { useDuration } from "../terminal/staleness";
 import {
   type AgentStateTone,
-  agentIcons,
-  agentNames,
+  agentIcon,
+  agentName,
   agentWorkflow,
   formatContextTokens,
   stateLabels,
@@ -54,11 +54,11 @@ const AgentStatusCard: Component<{ agent: AgentInfo }> = (props) => {
     >
       <div class="flex min-w-0 items-center gap-2">
         <Dynamic
-          component={agentIcons[props.agent.kind]}
+          component={agentIcon(props.agent.kind)}
           class="h-3.5 w-3.5 shrink-0"
         />
         <span class="truncate text-[12px] font-semibold text-fg">
-          {agentNames[props.agent.kind] ?? props.agent.kind}
+          {agentName(props.agent.kind)}
         </span>
         <span
           class={`ml-auto inline-flex shrink-0 items-center gap-1.5 rounded-full px-2 py-0.5 font-mono text-[10px] font-semibold ${tone().chip}`}

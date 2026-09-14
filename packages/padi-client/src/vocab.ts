@@ -31,7 +31,7 @@ import {
   type TerminalSnapshot,
   TerminalSnapshotSchema,
 } from "@kolu/terminal-vocab/schema";
-import { exactRestoreTarget } from "anyagent/cli";
+import { exactRestoreTarget } from "kolu-agents/vocab";
 import { type PrInfo, prValue } from "anyforge/schemas";
 import { Effect, Result, Schema, Struct } from "effect";
 import {
@@ -1112,6 +1112,7 @@ export function backfillSnapshotCutover(
           ? exactRestoreTarget(command, {
               kind: kind.success,
               sessionId: ref.id,
+              resumeRef: ref.id,
             })
           : null;
       next.restoreTarget = exact ?? { kind: "legacyMostRecent", command };
@@ -1120,14 +1121,52 @@ export function backfillSnapshotCutover(
   return next;
 }
 
+/** Backfill the `resumeRef` field onto a PERSISTED `exact` restore target
+ *  (#2241). Earlier kolu persisted `agent: { kind, sessionId, sessionPath? }`;
+ *  the resume ref was implicit (`sessionId`, or pi's `sessionPath`). Now the
+ *  identity carries it explicitly so a consumer never has to know which agent
+ *  spells its ref as a path. A pre-change record has neither `resumeRef` nor a
+ *  known-agent gate problem: the ref is `sessionPath ?? sessionId`. Idempotent
+ *  and presence-keyed — a record that already carries `resumeRef` passes
+ *  through untouched, and the now-redundant `sessionPath` is dropped.
+ *
+ *  Refuses (leaves unchanged) when it cannot derive a string ref, so the
+ *  caller's decode surfaces the malformed record rather than this shim guessing
+ *  an arm. */
+export function backfillResumeRef(
+  t: Record<string, unknown>,
+): Record<string, unknown> {
+  const target = t.restoreTarget;
+  if (!target || typeof target !== "object") return t;
+  const rt = target as Record<string, unknown>;
+  const agent = rt.agent;
+  if (rt.kind !== "exact" || !agent || typeof agent !== "object") return t;
+  const a = agent as Record<string, unknown>;
+  if (typeof a.resumeRef === "string") return t;
+  const resumeRef =
+    typeof a.sessionPath === "string"
+      ? a.sessionPath
+      : typeof a.sessionId === "string"
+        ? a.sessionId
+        : undefined;
+  if (resumeRef === undefined) return t;
+  const { sessionPath: _dropped, ...agentRest } = a;
+  return {
+    ...t,
+    restoreTarget: { ...rt, agent: { ...agentRest, resumeRef } },
+  };
+}
+
 /** Bring one legacy saved-terminal record up to the current
  *  `SavedTerminalSchema` by composing every field backfill above. Order-free
  *  (each is idempotent + presence-keyed); spelled in ladder order for reading. */
 export function backfillSavedTerminal(
   t: Record<string, unknown>,
 ): Record<string, unknown> {
-  return backfillSnapshotCutover(
-    backfillTerminalState(backfillLocation(backfillRemoteUrl(t))),
+  return backfillResumeRef(
+    backfillSnapshotCutover(
+      backfillTerminalState(backfillLocation(backfillRemoteUrl(t))),
+    ),
   );
 }
 

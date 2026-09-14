@@ -21,7 +21,6 @@ import { Result, Schema } from "effect";
 import { describe, expect, it } from "vitest";
 import {
   AgentIdentitySchema,
-  AgentKindSchema,
   type RestoreTarget,
   RestoreTargetSchema,
   TaskProgressSchema,
@@ -32,44 +31,61 @@ const decodeIdentity = Schema.decodeUnknownSync(AgentIdentitySchema);
 const encodeTarget = Schema.encodeSync(RestoreTargetSchema);
 const decodeTarget = Schema.decodeUnknownSync(RestoreTargetSchema);
 const decodeTargetResult = Schema.decodeUnknownResult(RestoreTargetSchema);
-const decodeKindResult = Schema.decodeUnknownResult(AgentKindSchema);
+const decodeIdentityResult = Schema.decodeUnknownResult(AgentIdentitySchema);
 const encodeProgress = Schema.encodeSync(TaskProgressSchema);
 const decodeProgressResult = Schema.decodeUnknownResult(TaskProgressSchema);
 
 /** A real claude-code session id shape (the UUID `resumeAgentCommand` gates on). */
 const SESSION_ID = "0192f3a1-4c5b-7d8e-9f01-23456789abcd";
 
-describe("AgentKindSchema — the exact discriminator vocabulary", () => {
-  it.each([
-    "claude-code",
-    "codex",
-    "opencode",
-    "grok",
-  ])("accepts %s", (kind) => {
-    expect(Schema.decodeUnknownSync(AgentKindSchema)(kind)).toBe(kind);
-  });
-
-  it("rejects a basename that is not a kind (the two axes differ for Claude)", () => {
-    expect(Result.isFailure(decodeKindResult("claude"))).toBe(true);
-    expect(Result.isFailure(decodeKindResult("aider"))).toBe(true);
-  });
-});
-
 describe("AgentIdentitySchema — the persisted resume identity, byte for byte", () => {
   it("encodes to the exact on-disk JSON", () => {
     expect(
       JSON.stringify(
-        encodeIdentity({ kind: "claude-code", sessionId: SESSION_ID }),
+        encodeIdentity({
+          kind: "claude-code",
+          sessionId: SESSION_ID,
+          resumeRef: SESSION_ID,
+        }),
       ),
-    ).toBe(`{"kind":"claude-code","sessionId":"${SESSION_ID}"}`);
+    ).toBe(
+      `{"kind":"claude-code","sessionId":"${SESSION_ID}","resumeRef":"${SESSION_ID}"}`,
+    );
   });
 
   it("decodes a record already on disk", () => {
     expect(
-      decodeIdentity(
-        JSON.parse(`{"kind":"opencode","sessionId":"ses_abc123XYZ"}`),
+      decodeIdentity({
+        kind: "opencode",
+        sessionId: "ses_abc123XYZ",
+        resumeRef: "ses_abc123XYZ",
+      }),
+    ).toStrictEqual({
+      kind: "opencode",
+      sessionId: "ses_abc123XYZ",
+      resumeRef: "ses_abc123XYZ",
+    });
+  });
+
+  it("accepts an OPEN kind — anyagent names no agent, so a record for an agent this build does not know still decodes", () => {
+    // The kind is a plain string here by design: the refusal for an unknown
+    // agent happens at the point of use (`resumeAgentCommand`'s registry gate),
+    // not at the decode boundary — a decode throw would drop the whole terminal.
+    expect(
+      decodeIdentity({
+        kind: "a-new-agent",
+        sessionId: "x",
+        resumeRef: "x",
+      }).kind,
+    ).toBe("a-new-agent");
+  });
+
+  it("refuses a record missing `resumeRef` — the migration (not a default) supplies it", () => {
+    expect(
+      Result.isFailure(
+        decodeIdentityResult({ kind: "claude-code", sessionId: SESSION_ID }),
       ),
-    ).toStrictEqual({ kind: "opencode", sessionId: "ses_abc123XYZ" });
+    ).toBe(true);
   });
 });
 
@@ -86,10 +102,14 @@ describe("RestoreTargetSchema — every arm, byte for byte", () => {
     const target: RestoreTarget = {
       kind: "exact",
       command: "claude --model sonnet",
-      agent: { kind: "claude-code", sessionId: SESSION_ID },
+      agent: {
+        kind: "claude-code",
+        sessionId: SESSION_ID,
+        resumeRef: SESSION_ID,
+      },
     };
     expect(JSON.stringify(encodeTarget(target))).toBe(
-      `{"kind":"exact","command":"claude --model sonnet","agent":{"kind":"claude-code","sessionId":"${SESSION_ID}"}}`,
+      `{"kind":"exact","command":"claude --model sonnet","agent":{"kind":"claude-code","sessionId":"${SESSION_ID}","resumeRef":"${SESSION_ID}"}}`,
     );
   });
 
@@ -104,7 +124,7 @@ describe("RestoreTargetSchema — every arm, byte for byte", () => {
   it("round-trips each arm's on-disk bytes unchanged", () => {
     for (const bytes of [
       `{"kind":"none"}`,
-      `{"kind":"exact","command":"claude --model sonnet","agent":{"kind":"claude-code","sessionId":"${SESSION_ID}"}}`,
+      `{"kind":"exact","command":"claude --model sonnet","agent":{"kind":"claude-code","sessionId":"${SESSION_ID}","resumeRef":"${SESSION_ID}"}}`,
       `{"kind":"legacyMostRecent","command":"codex --yolo"}`,
     ]) {
       expect(
@@ -127,6 +147,7 @@ describe("RestoreTargetSchema — reader tolerance and refusal", () => {
         agent: {
           kind: "claude-code",
           sessionId: SESSION_ID,
+          resumeRef: SESSION_ID,
           workspace: "/tmp/x",
         },
         capturedAt: 1767225600000,
@@ -134,7 +155,11 @@ describe("RestoreTargetSchema — reader tolerance and refusal", () => {
     ).toStrictEqual({
       kind: "exact",
       command: "claude --model sonnet",
-      agent: { kind: "claude-code", sessionId: SESSION_ID },
+      agent: {
+        kind: "claude-code",
+        sessionId: SESSION_ID,
+        resumeRef: SESSION_ID,
+      },
     });
   });
 
@@ -147,25 +172,17 @@ describe("RestoreTargetSchema — reader tolerance and refusal", () => {
       Result.isFailure(
         decodeTargetResult({
           kind: "exact",
-          agent: { kind: "claude-code", sessionId: SESSION_ID },
+          agent: {
+            kind: "claude-code",
+            sessionId: SESSION_ID,
+            resumeRef: SESSION_ID,
+          },
         }),
       ),
     ).toBe(true);
     expect(
       Result.isFailure(
         decodeTargetResult({ kind: "exact", command: "claude --model sonnet" }),
-      ),
-    ).toBe(true);
-  });
-
-  it("refuses an `exact` arm whose identity names no known agent kind", () => {
-    expect(
-      Result.isFailure(
-        decodeTargetResult({
-          kind: "exact",
-          command: "aider --model sonnet",
-          agent: { kind: "aider", sessionId: SESSION_ID },
-        }),
       ),
     ).toBe(true);
   });

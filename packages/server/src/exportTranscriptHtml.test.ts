@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 const bigToolOutput = `secret-output\n${"x".repeat(20_000)}`;
 
 const transcript: Transcript = {
-  agentKind: "codex",
+  agentName: "Codex",
   sessionId: "thread-1234567890",
   title: null,
   repoName: "juspay/kolu",

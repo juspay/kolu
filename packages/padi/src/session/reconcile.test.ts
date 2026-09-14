@@ -25,7 +25,11 @@ function term(id: string): SavedTerminal {
     restoreTarget: {
       kind: "exact",
       command: "claude",
-      agent: { kind: "claude-code", sessionId: `${id}-sess` },
+      agent: {
+        kind: "claude-code",
+        sessionId: `${id}-sess`,
+        resumeRef: `${id}-sess`,
+      },
     },
   };
 }
@@ -42,7 +46,11 @@ function sleepingTerm(id: string): SavedTerminal {
     restoreTarget: {
       kind: "exact",
       command: "claude",
-      agent: { kind: "claude-code", sessionId: `${id}-sess` },
+      agent: {
+        kind: "claude-code",
+        sessionId: `${id}-sess`,
+        resumeRef: `${id}-sess`,
+      },
     },
   };
 }

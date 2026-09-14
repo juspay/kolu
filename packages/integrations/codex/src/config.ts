@@ -5,10 +5,17 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
+/** The env keys the e2e harness sets to point detection at fixtures. Named so
+ *  the plugin's `envKeys` (forwarded server→padi) and the reads below share one
+ *  spelling. */
+export const CODEX_DIR_ENV = "KOLU_CODEX_DIR";
+export const CODEX_DB_ENV = "KOLU_CODEX_DB";
+export const CODEX_ENV_KEYS = [CODEX_DIR_ENV, CODEX_DB_ENV] as const;
+
 /** Root of Codex's per-user state directory. Contains the threads
  *  SQLite DB, session JSONL rollouts, auth, and config. */
 export const CODEX_DIR =
-  process.env.KOLU_CODEX_DIR ?? path.join(os.homedir(), ".codex");
+  process.env[CODEX_DIR_ENV] ?? path.join(os.homedir(), ".codex");
 
 /** Find the highest-numbered `state_<N>.sqlite` under `dir`. Codex bumps
  *  this suffix on incompatible schema changes (current is v5;
@@ -51,7 +58,7 @@ export function findCodexStateDbPath(dir: string = CODEX_DIR): string | null {
  *  that don't have Codex installed yet (preserves the old ENOENT-silent
  *  behavior in `openDb`). */
 export const CODEX_DB_PATH =
-  process.env.KOLU_CODEX_DB ??
+  process.env[CODEX_DB_ENV] ??
   findCodexStateDbPath() ??
   path.join(CODEX_DIR, "state_5.sqlite");
 

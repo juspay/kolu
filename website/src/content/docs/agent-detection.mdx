@@ -115,8 +115,10 @@ that marker, so kolu instead **remembers the exact command the terminal was
 spawned with** and uses it as the recognition hint (and reads that root's
 foreground as busy, since the agent *is* the root). kolu never scrapes a running
 process's argv from `/proc`; it uses only the shell's marks and the command it was
-handed at spawn. Adding a new agent is one small adapter and one line of
-registration; nothing server-wide changes.
+handed at spawn. Adding a new agent is one small package that declares its
+`AgentVocab` (name, mark, CLI grammar, resume policy, info schema) and its
+`AgentPlugin` (detection adapter, transcript fetcher, env keys), plus one row in
+the agent registry; nothing else in the tree changes.
 
 <Aside type="note" title="One conversation belongs to one terminal">
   Claude Code and Grok stamp a process id kolu can match a terminal against, so a
@@ -361,9 +363,27 @@ unusual setups, never a replacement for the per-terminal resolution above.
 Because detection is agent-agnostic, a new CLI doesn't wait on kolu. Once you've
 run a known agent in any terminal it also surfaces in the [command palette](/concepts)
 — as a launch option in the worktree-naming flow and in the **Recent agents**
-group. Teaching kolu to read a brand-new agent's state is a single adapter that
-reads its session store and emits the same five states; everything downstream —
-the dock, the tile border, the minimap, the fleet view — lights up unchanged.
+group.
+
+Every fact about an agent lives in that agent's own package
+(`packages/integrations/<agent>/`), as two values:
+
+- **`<agent>Vocab`** (browser-safe) — the display name, the brand mark (one 24×24
+  mark serves both the tile chrome and the dock pip), the CLI grammar that
+  recognizes and normalizes an invocation, the resume policy, and the agent's
+  `AgentInfo` schema.
+- **`<agent>Plugin`** (node) — the detection adapter, the transcript fetcher, and
+  the env keys that point detection at fixtures.
+
+They are folded in by **`kolu-agents`**, the one registry that lists kolu's
+agents. Adding an agent is therefore one package plus **one row** in that
+registry. Everything downstream — the kind enum, the `AgentInfo` union, the CLI
+tables, the tile icon, the dock pip, the transcript dispatch, the sensor
+registration, the env-key forwarding — is *derived* from the registry and edited
+by no one. Because `AgentVocab` requires every facet, an agent that forgets its
+resume policy or its mark fails to compile **in its own package**; and a
+`governance` test forbids any other package from depending on an agent package
+directly (`anyagent`, the kernel, names no agent at all).
 
 <CardGrid>
   <LinkCard title="Core concepts" href="/concepts" description="the dock, tiles, and how state reaches every navigator" />

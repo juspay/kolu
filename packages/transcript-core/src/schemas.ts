@@ -4,22 +4,11 @@
  *  opencode, codex) and presentation packages (transcript-html, future
  *  markdown/terminal renderers). Loaders parse their vendor's wire
  *  format INTO this shape; renderers consume it without ever looking at
- *  vendor specifics. */
+ *  vendor specifics. The IR names no agent: `agentName` is the human display
+ *  name the loader fills from its own vocab, so the IR neither enumerates the
+ *  agent set nor exposes an internal kind. */
 
 import { Schema } from "effect";
-
-/** Canonical list of supported agent kinds. Single source for the IR's
- *  `agentKind` enum, the renderer's friendly-label map, and the router
- *  dispatch table — adding a new vendor is one edit here plus the
- *  loader. */
-export const AGENT_KINDS = [
-  "claude-code",
-  "opencode",
-  "codex",
-  "grok",
-  "pi",
-] as const;
-export type AgentKindLiteral = (typeof AGENT_KINDS)[number];
 
 /** Tool-call inputs, decoded into a typed union at parse time.
  *
@@ -290,7 +279,10 @@ export const TranscriptPrSchema = Schema.Struct({
 export type TranscriptPr = typeof TranscriptPrSchema.Type;
 
 export const TranscriptSchema = Schema.Struct({
-  agentKind: Schema.Literals(AGENT_KINDS),
+  /** Human display name of the agent the loader represents (e.g. "Claude
+   *  Code"), filled from that agent's own vocab. The IR names no vendor
+   *  internally — this is the one vendor-presentation datum it carries. */
+  agentName: Schema.String,
   /** Stable id from the source store (Claude session UUID, OpenCode
    *  `ses_…`, Codex thread UUID). Shown in the export header. */
   sessionId: Schema.String,

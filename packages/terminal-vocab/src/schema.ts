@@ -29,21 +29,16 @@
  * with zero dependency on any kolu-app package.
  */
 
-import {
-  AgentIdentitySchema,
-  AgentKindSchema,
-  RestoreTargetSchema,
-  resumableCommand,
-} from "anyagent/schemas";
+import { AgentIdentitySchema, RestoreTargetSchema } from "anyagent/schemas";
 import { PrInfoSchema } from "anyforge/schemas";
 import { Effect, Schema } from "effect";
-import { ClaudeCodeInfoSchema } from "kolu-claude-code/schemas";
-import { CodexInfoSchema } from "kolu-codex/schemas";
+import {
+  AgentInfoSchema,
+  AgentKindSchema,
+  resumableCommand,
+} from "kolu-agents/vocab";
 import { type GitInfo, GitInfoSchema } from "kolu-git/schemas";
 import { GhUnavailableSchema, reasonForGhCode } from "kolu-github/schemas";
-import { GrokInfoSchema } from "kolu-grok/schemas";
-import { OpenCodeInfoSchema } from "kolu-opencode/schemas";
-import { PiInfoSchema } from "kolu-pi/schemas";
 import { match, P } from "ts-pattern";
 
 // ── Terminal identity ─────────────────────────────────────────────────
@@ -75,26 +70,20 @@ export const DEFAULT_SCROLLBACK = 50_000;
 
 // ── Agent status ──────────────────────────────────────────────────────
 
-// `AgentKindSchema` + the resume vocabulary (`AgentIdentitySchema`,
-// `RestoreTargetSchema`, and the `resumableCommand` projection) are OWNED by
-// anyagent/schemas (the lower layer that owns the `AgentKind` vocabulary and the
-// `resumeAgentCommand`/`resumeFormFor` receptacles consuming them). Re-exported
-// here so the wake/restore path and kolu-common/surface keep resolving them from
-// this schema home — one declaration, validated once.
+// `AgentKindSchema`, `AgentInfoSchema` (the closed union of every agent's info
+// schema), the resume vocabulary (`AgentIdentitySchema`, `RestoreTargetSchema`),
+// and the `resumableCommand` projection are OWNED by the registry
+// (`kolu-agents/vocab`, for the closed union) and `anyagent/schemas` (for the
+// agent-name-free identity/target shapes). Re-exported here so the wake/restore
+// path and kolu-common/surface keep resolving them from this schema home — one
+// declaration, validated once.
 export {
   AgentIdentitySchema,
+  AgentInfoSchema,
   AgentKindSchema,
   RestoreTargetSchema,
   resumableCommand,
 };
-
-export const AgentInfoSchema = Schema.Union([
-  ClaudeCodeInfoSchema,
-  CodexInfoSchema,
-  OpenCodeInfoSchema,
-  GrokInfoSchema,
-  PiInfoSchema,
-]);
 
 // ── PR resolution — closed forge union + wire result ──────────────────
 //
@@ -696,10 +685,13 @@ export const TERMINAL_IDLE_AFTER_MS = 1000;
 
 export type AgentKind = typeof AgentKindSchema.Type;
 export type AgentInfo = typeof AgentInfoSchema.Type;
-export type ClaudeCodeInfo = typeof ClaudeCodeInfoSchema.Type;
-export type CodexInfo = typeof CodexInfoSchema.Type;
-export type OpenCodeInfo = typeof OpenCodeInfoSchema.Type;
-export type GrokInfo = typeof GrokInfoSchema.Type;
+export type {
+  ClaudeCodeInfo,
+  CodexInfo,
+  GrokInfo,
+  OpenCodeInfo,
+  PiInfo,
+} from "kolu-agents/vocab";
 export type Foreground = typeof ForegroundSchema.Type;
 
 // ── fs/git wire schemas (the Code tab's raw reads + change-pulses) ─────────

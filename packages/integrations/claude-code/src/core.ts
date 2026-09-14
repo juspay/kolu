@@ -39,12 +39,22 @@ import {
 
 // --- Configuration ---
 
+/** The env keys the e2e harness sets to point detection at fixtures. Named so
+ *  the plugin's `envKeys` (forwarded server→padi) and the reads below share one
+ *  spelling. */
+export const CLAUDE_SESSIONS_DIR_ENV = "KOLU_CLAUDE_SESSIONS_DIR";
+export const CLAUDE_PROJECTS_DIR_ENV = "KOLU_CLAUDE_PROJECTS_DIR";
+export const CLAUDE_ENV_KEYS = [
+  CLAUDE_SESSIONS_DIR_ENV,
+  CLAUDE_PROJECTS_DIR_ENV,
+] as const;
+
 /** Configurable via env for testing. */
 export const SESSIONS_DIR =
-  process.env.KOLU_CLAUDE_SESSIONS_DIR ??
+  process.env[CLAUDE_SESSIONS_DIR_ENV] ??
   path.join(os.homedir(), ".claude", "sessions");
 export const PROJECTS_DIR =
-  process.env.KOLU_CLAUDE_PROJECTS_DIR ??
+  process.env[CLAUDE_PROJECTS_DIR_ENV] ??
   path.join(os.homedir(), ".claude", "projects");
 
 /** True when the e2e harness has redirected the projects/sessions dirs at
@@ -53,8 +63,8 @@ export const PROJECTS_DIR =
  *  inotify pressure that has been observed to race with the mock harness
  *  on Linux. Skip summary fetching entirely under test. */
 export const SUMMARY_FETCH_ENABLED =
-  process.env.KOLU_CLAUDE_PROJECTS_DIR === undefined &&
-  process.env.KOLU_CLAUDE_SESSIONS_DIR === undefined;
+  process.env[CLAUDE_PROJECTS_DIR_ENV] === undefined &&
+  process.env[CLAUDE_SESSIONS_DIR_ENV] === undefined;
 
 /** Tail window for `tailJsonlLines` — must exceed the largest single JSONL
  *  entry so that at least one complete line is present after dropping the

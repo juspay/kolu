@@ -35,14 +35,6 @@ const SRC_DIR = dirname(fileURLToPath(import.meta.url));
 const STYLES = readFileSync(join(SRC_DIR, "styles.css"), "utf8");
 const SCRIPT = readFileSync(join(SRC_DIR, "script.js"), "utf8");
 
-const AGENT_LABEL: Record<Transcript["agentKind"], string> = {
-  "claude-code": "Claude Code",
-  opencode: "OpenCode",
-  codex: "Codex",
-  grok: "Grok",
-  pi: "Pi",
-};
-
 const mdProse = makeMarked({ breaks: false });
 const mdUser = makeMarked({ breaks: true });
 
@@ -206,7 +198,7 @@ function humanMessageCount(events: readonly TranscriptEvent[]): number {
 function metaParts(transcript: Transcript, mode: TranscriptHtmlMode): string[] {
   const counts = eventCounts(transcript.events);
   const parts = [
-    AGENT_LABEL[transcript.agentKind],
+    transcript.agentName,
     MODE_LABEL[mode],
     `${counts.user} prompts`,
     `${counts.assistant} replies`,

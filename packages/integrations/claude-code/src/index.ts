@@ -70,3 +70,24 @@ export {
   loadClaudeCodeTranscript,
   parseClaudeCodeJsonl,
 } from "./transcript.ts";
+
+// ── The plugin — the ONE contribution the registry (`kolu-agents`) folds. ──
+import type { AgentPlugin } from "anyagent";
+import type { Fetcher } from "kolu-transcript-core";
+import { claudeCodeAdapter } from "./agent-adapter.ts";
+import { CLAUDE_ENV_KEYS, type SessionFile } from "./core.ts";
+import { type ClaudeCodeInfo, claudeCodeVocab } from "./schemas.ts";
+import { getPendingSummaryFetches } from "./session-watcher.ts";
+import { loadClaudeCodeTranscript } from "./transcript.ts";
+
+export const claudeCodePlugin: AgentPlugin<
+  SessionFile,
+  ClaudeCodeInfo,
+  Fetcher
+> = {
+  vocab: claudeCodeVocab,
+  adapter: claudeCodeAdapter,
+  fetcher: loadClaudeCodeTranscript,
+  envKeys: CLAUDE_ENV_KEYS,
+  diagnostics: () => ({ pendingSummaryFetches: getPendingSummaryFetches() }),
+};

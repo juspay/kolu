@@ -128,7 +128,11 @@ describe("parseSavedSession", () => {
           restoreTarget: {
             kind: "exact",
             command: "claude --model sonnet",
-            agent: { kind: "claude-code", sessionId: "sess-123" },
+            agent: {
+              kind: "claude-code",
+              sessionId: "sess-123",
+              resumeRef: "sess-123",
+            },
           },
         },
       ],
