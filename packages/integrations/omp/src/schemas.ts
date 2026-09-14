@@ -68,23 +68,21 @@ export const OmpInfoSchema = Schema.Struct({
 
 export type OmpInfo = typeof OmpInfoSchema.Type;
 
-/** oh-my-pi's mark — traced from omp's own `assets/icon.svg` (MIT): a π whose
- *  right leg ends in a **plug connector**, here flattened to one 24×24
- *  monochrome path set. The plug (a plate with two prongs where the right leg
- *  meets it) is what tells it apart from `PI_MARK` at dock size — omp's own
- *  favicon π alone is too close to pi's to read as a different agent. ONE mark
- *  for both the tile-chrome icon and the dock pip. */
+/** oh-my-pi's mark — the EXACT glyph from omp's own site favicon, scaled
+ *  0.375 from its 64×64 canvas onto the contract's 24×24 one: a top bar with
+ *  three uneven stems (a stylized π), source
+ *  `packages/collab-web/public/favicon.svg` in oh-my-pi's repo, byte-identical
+ *  to https://omp.sh/favicon.svg. The upstream branding paints this glyph in
+ *  a pink→purple→cyan diagonal gradient over a dark rounded square; the
+ *  `AgentMark` contract is one-ink (`currentColor`) BY DESIGN — the dock pip's
+ *  color is agent STATE, not brand — so what carries here is the silhouette.
+ *  The uneven stem heights (not π's equal legs) are also the detail that keeps
+ *  it readable apart from `PI_MARK` at dock size. ONE mark for both the
+ *  tile-chrome icon and the dock pip. */
 const OMP_MARK = {
   viewBox: "0 0 24 24",
   paint: "fill" as const,
-  paths: [
-    "M2 4.5h20v2.6H2z", // π crossbar
-    "M5 7.1h2.6v12.5H5z", // left leg, full height
-    "M15 7.1h2.6v7.5H15z", // right leg, ends on the plug plate
-    "M12.6 14.6h7.4v3.4h-7.4z", // plug plate
-    "M14 18h2.2v2.6H14z", // prong
-    "M16.8 18h2.2v2.6h-2.2z", // prong
-  ],
+  paths: ["M5.25 6h13.5v3H15v12h-3V9H9.75v8.25H6.75V9H5.25z"],
 };
 
 /** omp's resume ref admits a session id or an absolute session PATH, restricted
