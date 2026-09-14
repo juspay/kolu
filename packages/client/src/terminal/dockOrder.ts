@@ -1,22 +1,24 @@
-/** The user's drag arrangement of the dock — per-device, persisted PER HOST.
+/** User arrangement of the dock — names, not ids, so the order survives
+ *  terminal recreation: repos are `info.key.group`, cluster labels are
+ *  `info.key.label`. A name that no longer exists is SKIPPED at merge time
+ *  (its slot is NOT returned to the structural order — the merge keeps the
+ *  stored sequence of what remains); a name never seen appends at the end.
  *
- *  A sibling to `showSleeping` / `activityWindow`: the same `activeScope().prefs`
- *  window onto one host's sticky per-host preference. Empty (the default) means
- *  the dock is in pure structural order — creation order, nothing ever dragged.
- *  `buildDockTree` consumes it as an OVERLAY: anything never dragged keeps
- *  behaving exactly as before (a new repo/branch appends at the bottom). */
-import { activeScope } from "../hostScope/hostScopes";
-import type { DockOrder } from "../canvas/dock/dockTree";
-
-/** The ACTIVE host's dock arrangement — read through the facade; floors the
- *  removal race to `[]` (the empty/structural default). */
-export function dockOrder(): DockOrder {
-  return activeScope()?.prefs.dockOrder() ?? [];
-}
-
-/** Set the ACTIVE host's dock arrangement (a no-op during the removal race).
- *  `buildDockTree` merges this over the structural order, so writing the FULL
- *  `effectiveOrder` after a drop keeps exactly one merge rule at read time. */
-export function setDockOrder(next: DockOrder): void {
-  activeScope()?.prefs.setDockOrder(next);
-}
+ *  This leaf is the VOCABULARY only: no imports, no persistence, no SolidJS.
+ *  The per-host STORED face lives one sibling up in the same directory at
+ *  `dockOrderPref.ts` — the same triple `activityWindow.ts` /
+ *  `activityWindowFilter.ts` established: the least-volatile vocab leaf has NO
+ *  back-edge into the host-scope owner (`createHostPrefs` imports only this
+ *  leaf), so layering stays downward and no import cycle can form.
+ *
+ *  Two known edges of keying by names, both intended (carried where the
+ *  persisted reader lives, `hostScope/createHostPrefs.ts`):
+ *    (a) two clones sharing a repo name already share one dock section today,
+ *        so they share one stored slot — the arrangement cannot tell them apart;
+ *    (b) a branch rename or re-checkout produces a NEW label that appends at
+ *        the bottom of its repo — the pinned position of the OLD name is gone
+ *        with it, exactly as if the old terminal had been closed. */
+export type DockOrder = readonly {
+  repo: string;
+  labels: readonly string[];
+}[];

@@ -36,7 +36,7 @@
  *            the bottom of its repo — the pinned position of the OLD name is gone
  *            with it, exactly as if the old terminal had been closed. */
 
-import type { DockOrder } from "../canvas/dock/dockTree";
+import type { DockOrder } from "../terminal/dockOrder";
 import type { HostKey } from "kolu-common/hostKey";
 import type { Accessor, Setter } from "solid-js";
 import {
@@ -60,9 +60,10 @@ export const ACTIVITY_WINDOW_PREF_BASE = "kolu-activityWindow";
  *  spelling (createHostPrefs + any stored-order reader share this). */
 export const DOCK_ORDER_PREF_BASE = "kolu-dockOrder";
 
-/** Accept a stored dock-order node: a `{ repo, labels }` pair with deduped
- *  labels, or `undefined` so the tolerant-array parse drops one bad node without
- *  throwing away the user's whole arrangement. */
+/** Tighten ONE stored node into the shape a consumer reads: a `{ repo,
+ *  labels }` pair with strings-only, deduped labels — or `undefined` so the
+ *  tolerant-array loop below drops one bad node without throwing away the
+ *  user's whole arrangement. */
 function acceptDockOrderNode(item: unknown): DockOrder[number] | undefined {
   if (typeof item !== "object" || item === null) return undefined;
   const { repo, labels } = item as { repo?: unknown; labels?: unknown };
@@ -131,9 +132,9 @@ export interface HostPrefs {
   setDockOrder: Setter<DockOrder>;
 }
 
-/** Accept one stored `{ repo, labels }` node of the user's dock arrangement and
- *  tighten it. Runs inside {@link parseDockOrder}'s tolerant loop, so a bad node
- *  is dropped, never allowed to eat the whole order. */
+/** The whole-order parse: tolerant-list over stored nodes — bad nodes dropped
+ *  by {@link acceptDockOrderNode}, nodes deduped by `repo` identity, capped at
+ *  200 — so one corrupt entry never eats the arrangement. */
 function parseDockOrder(raw: string): DockOrder {
   return parseTolerantList(
     raw,

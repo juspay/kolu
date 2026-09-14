@@ -14,7 +14,7 @@
 import { type Accessor, createMemo } from "solid-js";
 import { useAttentionFacts } from "../../attention/useAttentionFacts";
 import { createSharedRoot } from "../../createSharedRoot";
-import { dockOrder } from "../../terminal/dockOrder";
+import { dockOrder } from "../../terminal/dockOrderPref";
 import { showSleeping } from "../../terminal/showSleeping";
 import { useStaleCheck } from "../../terminal/staleness";
 import { useTerminalStore } from "../../terminal/useTerminalStore";

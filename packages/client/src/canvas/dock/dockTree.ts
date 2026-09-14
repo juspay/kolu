@@ -61,6 +61,7 @@
  *  so the dock's "what counts as one repo" agrees with the canvas. */
 
 import type { TerminalId } from "kolu-common/surface";
+import type { DockOrder } from "../../terminal/dockOrder";
 import type { TerminalDisplayInfo } from "../../terminal/terminalDisplay";
 import {
   type NeedsYouEntry,
@@ -68,17 +69,13 @@ import {
   type RankedDockRow,
 } from "./dockRowRanking";
 
-/** User arrangement of the dock — names, not ids, so the order survives
- *  restarts and terminal churn. The READ shape `buildDockTree` merges as an
- *  overlay over structural (creation) order; `effectiveOrder` produces it from
- *  a rendered tree, and a drop handler writes the moved result back through
- *  `setDockOrder`. One node per repo, its branches in display order.
- *
- *  Two known edges keying by names, both intended: two clones sharing a repo
- *  name already share one dock section, so they share one slot; and a branch
- *  rename/re-checkout yields a new label that appends at the bottom of its
- *  repo (the old name's pinned position is gone with it). */
-export type DockOrder = readonly { repo: string; labels: readonly string[] }[];
+// `DockOrder` — the user-arrangement vocabulary — lives at
+// `terminal/dockOrder.ts` (pure leaf, per the `activityWindow.ts` triple:
+// hostScope's prefs owner and the terminal facade both point downward, never
+// up at a canvas view module). The READ shape: `buildDockTree` merges it as an
+// overlay over structural (creation) order, and the tree carries the
+// arrangement as one derived value (`tree.order`); a drop handler writes the
+// moved result back through `setDockOrder`.
 
 /** One branch/intent cluster — the draggable unit inside a repo section:
  *  a named group of rows that drag together. Named "branch cluster" (not
@@ -104,10 +101,6 @@ export type DockGroup = {
    *  (rendering never sees a hidden row); a cluster is dropped only when
    *  every row failed the filters. Dragging a cluster lifts its rows. */
   clusters: readonly DockBranchCluster[];
-  /** Cluster labels in display order, INCLUDING ones whose every row is
-   *  filtered out — a filter hides ROWS, it must never erase the slot a
-   *  drag pinned. Written back on the next drop via `effectiveOrder`. */
-  labels: readonly string[];
   /** Top-level rows inside this group, in creation order within their branch
    *  cluster, same-branch siblings kept adjacent. Derived from `clusters`
    *  after the filters — literally `clusters.flatMap(rows)`. */
@@ -140,13 +133,14 @@ export type DockNeedsYouEntry = NeedsYouEntry & {
 
 export type DockTree = {
   groups: readonly DockGroup[];
-  /** Every repo in sequenced (display) order, INCLUDING those whose rows are
-   *  all filtered out — the pre-`groups` view. The renderer uses `groups`
-   *  (a repo with no visible rows has no header to hang its attention on), but
-   *  {@link effectiveOrder} walks THIS list so a filter can never drop a
-   *  repo's stored slot from the arrangement: the filters only hide rows, they
-   *  must not erase a repo's place in it. */
-  allGroups: readonly DockGroup[];
+  /** The arrangement this tree is showing, as a VALUE — every sequenced repo
+   *  and every cluster label inside it, INCLUDING ones whose rows are all
+   *  filtered out. The drop gesture's write side reads this, never `groups`
+   *  (which drops the all-hidden repos and clusters): the filters only hide
+   *  rows, they must not erase a repo's or a cluster's slot in the
+   *  arrangement. Derived in the same pass as the rest of the tree — one
+   *  value, no parallel bucket a consumer can pick wrong. */
+  order: DockOrder;
 
   /** Flat top-level order across all groups. `App.tsx` projects ids from this
    *  list for `Cmd+1..9`; splits are intentionally absent because the rail's
@@ -249,7 +243,6 @@ export function buildDockTree(
     {
       color: string;
       byLabel: Map<string, RankedDockRow[]>;
-      needsYou: DockNeedsYouEntry[];
     }
   >();
   let parkedCount = 0;
@@ -264,7 +257,6 @@ export function buildDockTree(
       group = {
         color: info.repoColor,
         byLabel: new Map(),
-        needsYou: [],
       };
       byName.set(info.key.group, group);
     }
@@ -297,26 +289,36 @@ export function buildDockTree(
   const sequencedRepos = [...byName.entries()].sort(([a], [b]) => {
     const ia = repoIdx.get(a) ?? Infinity;
     const ib = repoIdx.get(b) ?? Infinity;
-    return ia - ib;
+    // Explicit three-way: `ia - ib` would produce NaN on Infinity−Infinity
+    // (coerced to +0 by SortCompare — the law is only "true by ECMA arcana"
+    // otherwise); the explicit form makes the pin-tie read as a pin-tie.
+    // The rest of the guarantee is an ordinary, ES2019-stated one: sort()
+    // is stable, so equal ranks keep first-appearance order.
+    return ia === ib ? 0 : ia < ib ? -1 : 1;
   });
 
   // ---- Step 3: Derive -----------------------------------------------
   // ONE pass over the sequenced buckets; every projection reads the same
-  // sequence. `allGroups` carries every repo INCLUDING those with all rows
-  // filtered out, so a filter can never drop a repo's stored slot — while the
-  // `groups` handed to the renderer drops the all-hidden ones (no header with
-  // no rows). The needs-you entries are folded here, in sequence, beside the
-  // rows they mirror.
+  // sequence. `groups` is the renderer's count (a repo with no visible rows
+  // has no header to hang its attention on), and `order` is the arrangement
+  // VALUE the drop gesture's write side reads — the same pass produces both,
+  // so "the arrangement covers everything, the renderer's list is a subset"
+  // is a property of a stored value rather than a rule consumers must honor
+  // by picking the right collection. The needs-you entries fold beside the
+  // rows they mirror, in sequence.
+  const treeOrder: { repo: string; labels: readonly string[] }[] = [];
+  const needsYou: DockNeedsYouEntry[] = [];
   const allGroups: DockGroup[] = sequencedRepos.map(([name, g]) => {
     const labelRank = labelIdx.get(name);
     const sequenced = [...g.byLabel.entries()].sort(([a], [b]) => {
       const ia = labelRank?.get(a) ?? Infinity;
       const ib = labelRank?.get(b) ?? Infinity;
-      return ia - ib;
+      return ia === ib ? 0 : ia < ib ? -1 : 1;
     });
     // `labels` keeps every slot — including clusters whose every row is
     // hidden — so a filter can never re-arrange what a drop pinned.
     const labels = sequenced.map(([label]) => label);
+    treeOrder.push({ repo: name, labels });
     const clusters = sequenced
       .map(([label, rows]) => ({
         label,
@@ -335,14 +337,13 @@ export function buildDockTree(
     for (const row of allTopRows) {
       const hidden = filteredOut(row);
       for (const entry of needsYouEntries(row)) {
-        g.needsYou.push({ ...entry, hiddenByFilter: hidden });
+        needsYou.push({ ...entry, hiddenByFilter: hidden });
       }
     }
     return {
       name,
       color: g.color,
       clusters,
-      labels,
       allTopRows,
       topRows,
       railEntries,
@@ -353,19 +354,12 @@ export function buildDockTree(
   // The strip still walks `allGroups` below — a repo whose ONLY row is a
   // parked blocked agent must not lose it along with its header.
   const groups = allGroups.filter((g) => g.topRows.length > 0);
-
   const flatShortcutRows = groups.flatMap((g) => g.topRows);
   return {
     groups,
-    allGroups,
+    order: treeOrder,
     flatShortcutRows,
-    // Folded in the derive pass above, over the UNFILTERED sequenced rows and
-    // in the same order they appear — walked from `sequencedRepos` (the
-    // SEQUENCED buckets), so a repo pinned later in the arrangement, or one
-    // whose every row is filtered out, still contributes its entries in
-    // displayed order. Same set and same `asking` test the section headers
-    // count with.
-    needsYou: sequencedRepos.flatMap(([, g]) => g.needsYou),
+    needsYou,
     parkedCount,
     sleepingCount,
     hiddenCount,
@@ -374,21 +368,30 @@ export function buildDockTree(
   };
 }
 
-/** The order the tree is currently showing, in {@link DockOrder} shape — what
- *  a drop writes back via `setDockOrder`. Built from `tree.allGroups` (the
- *  SEQUENCED buckets, including groups whose rows are all filtered out), not
- *  the filtered `groups` — a filter never erases a repo's or cluster's place
- *  from the arrangement, it only hides the rows. */
-export function effectiveOrder(tree: DockTree): DockOrder {
-  return tree.allGroups.map((g) => ({ repo: g.name, labels: g.labels }));
-}
+/** Move the element at `from` to index `to`, preserving every other slot —
+ *  the one place any drop-related list is permuted. The gesture also uses it
+ *  to move a cluster within its repo's VISIBLE id list before the verb splices
+ *  it home; it's exported for exactly that, and otherwise the only list that
+ *  every drop writes is `DockOrder`. */
+export const arrayMove = <T>(
+  list: readonly T[],
+  from: number,
+  to: number,
+): T[] => {
+  const next = list.slice();
+  const [moved] = next.splice(from, 1);
+  next.splice(to, 0, moved as T);
+  return next;
+};
 
 /** Fold a drag's VISIBLE permutation back over the ALL-slots label list:
  *  every filter-hidden label stays pinned to its index; the permuted visible
- *  labels fill the visible slots in sequence. The write half of the invariant
- *  `effectiveOrder` documents: a filter never erases a slot a drag pinned, so
- *  the DROP side must never lose one either. The drag itself supplies the
- *  `visible` order in the section's own SortableProvider ids. */
+ *  labels fill the visible slots in sequence.
+ *
+ *  Exported ONLY for the unit test that pins the pinning law — the gesture
+ *  code consumes it through {@link moveCluster}. The two returns are always
+ *  permutations of each other's contents; anything else (a lost or invented
+ *  slot) is a bug in the fold. */
 export function spliceVisiblePermutation(
   all: readonly string[],
   permuted: readonly string[],
@@ -396,4 +399,40 @@ export function spliceVisiblePermutation(
   const visible = new Set(permuted);
   let i = 0;
   return all.map((l) => (visible.has(l) ? (permuted[i++] as string) : l));
+}
+
+/** THE section-drop verb: move repo `from` onto repo `to`'s slot inside an
+ *  already-effective `order` (a tree's `order` — NEVER a partial list, or a
+ *  write-back would silently erase every filtered-out repo's slot). Unknown
+ *  names — a drop event's ids referencing a closed repo — return the order
+ *  unchanged: the gesture is a no-op, never a rewrite. */
+export function moveRepo(
+  order: DockOrder,
+  from: string,
+  to: string,
+): DockOrder {
+  const names = order.map((n) => n.repo);
+  const i = names.indexOf(from);
+  const j = names.indexOf(to);
+  return i === -1 || j === -1 ? order.slice() : arrayMove(order, i, j);
+}
+
+/** THE cluster-drop verb: splice a VISIBLE cluster permutation over the
+ *  repo's ALL-slots labels (a filter-hidden cluster keeps its pinned slot —
+ *  {@link spliceVisiblePermutation}), then write the node back into the full
+ *  order. A missing repo returns the order unchanged, same no-op law as
+ *  {@link moveRepo}. */
+export function moveCluster(
+  order: DockOrder,
+  repo: string,
+  permutedVisible: readonly string[],
+): DockOrder {
+  const node = order.find((n) => n.repo === repo);
+  if (!node) return order.slice();
+  const next = order.slice();
+  next[order.indexOf(node)] = {
+    repo,
+    labels: spliceVisiblePermutation(node.labels, permutedVisible),
+  };
+  return next;
 }

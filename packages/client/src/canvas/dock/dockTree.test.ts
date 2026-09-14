@@ -2,10 +2,11 @@ import type { TerminalId } from "kolu-common/surface";
 import { describe, expect, it } from "vitest";
 import type { TerminalDisplayInfo } from "../../terminal/terminalDisplay";
 import type { RankedDockRow } from "./dockRowRanking";
+import type { DockOrder } from "../../terminal/dockOrder";
 import {
-  type DockOrder,
   buildDockTree,
-  effectiveOrder,
+  moveCluster,
+  moveRepo,
   spliceVisiblePermutation,
 } from "./dockTree";
 
@@ -840,7 +841,7 @@ describe("buildDockTree — user order overlay (#2247)", () => {
     expect(tree.needsYou.map((e) => e.tile.id)).toEqual(["f", "m"]);
   });
 
-  it("effectiveOrder round-trips, including fully-filtered groups", () => {
+  it("the tree's `order` round-trips, including fully-filtered groups", () => {
     const ranked = [
       row("a", "idle", 1), // kolu, main
       row("b", "parked", 2), // pierre, main — fully filtered
@@ -856,9 +857,9 @@ describe("buildDockTree — user order overlay (#2247)", () => {
       { repo: "kolu", labels: ["main"] },
     ];
     const tree = buildDockTree(ranked, getInfo, false, order);
-    // pierre's only row is parked → dropped from `groups`, but `effectiveOrder`
-    // still reports its slot so a filter never erases its arrangement.
-    expect(effectiveOrder(tree)).toEqual(order);
+    // pierre's only row is parked → dropped from `groups`, but the tree's
+    // `order` still reports its slot: a filter never erases its arrangement.
+    expect(tree.order).toEqual(order);
   });
 
   it("spliceVisiblePermutation pins hidden clusters to their slots (#2247 arch review)", () => {
@@ -869,5 +870,34 @@ describe("buildDockTree — user order overlay (#2247)", () => {
     expect(
       spliceVisiblePermutation(["main", "winhba", "feat"], ["feat", "main"]),
     ).toEqual(["feat", "winhba", "main"]);
+  });
+
+  it("moveRepo moves the named slot and keeps everything else put", () => {
+    const order: DockOrder = [
+      { repo: "a", labels: ["main"] },
+      { repo: "b", labels: ["main"] },
+      { repo: "c", labels: ["main"] },
+    ];
+    expect(moveRepo(order, "c", "a")).toEqual([
+      { repo: "c", labels: ["main"] },
+      { repo: "a", labels: ["main"] },
+      { repo: "b", labels: ["main"] },
+    ]);
+    // Unknown ids (a drop referencing a closed repo) are a no-op move —
+    // never a rewrite.
+    expect(moveRepo(order, "ghost", "a")).toEqual(order);
+  });
+
+  it("moveCluster splices a visible permutation over the all-slots labels", () => {
+    const order: DockOrder = [
+      { repo: "kolu", labels: ["main", "hidden-branch", "feat"] },
+      { repo: "pierre", labels: ["main"] },
+    ];
+    // feat dragged above main while hidden-branch's rows are filtered out —
+    // its slot stays pinned; pierre's node is untouched.
+    expect(moveCluster(order, "kolu", ["feat", "main"])).toEqual([
+      { repo: "kolu", labels: ["feat", "hidden-branch", "main"] },
+      { repo: "pierre", labels: ["main"] },
+    ]);
   });
 });
