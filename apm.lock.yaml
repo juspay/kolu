@@ -1,6 +1,6 @@
 lockfile_version: '1'
-generated_at: '2026-09-13T19:00:53.860755+00:00'
-apm_version: 0.29.0
+generated_at: '2026-09-14T18:06:05.954528+00:00'
+apm_version: 0.30.0
 dependencies:
 - repo_url: _local/agents
   name: agents
@@ -161,17 +161,19 @@ dependencies:
 - repo_url: juspay/odu
   name: odu
   host: github.com
-  resolved_commit: 6f7de52edb7f20c356a5e059031cab1955b0ca79
-  version: 1.0.0
-  package_type: apm_package
+  resolved_commit: 1fd9f7d216ddfaa32dfeb022e585d23f5cc172ab
+  version: unknown
+  virtual_path: .apm/skills/odu
+  is_virtual: true
+  package_type: claude_skill
   deployed_files:
-  - .claude/skills/odu
-  - .claude/skills/odu/SKILL.md
-  - .claude/skills/odu/serve
+  - .agents/skills/odu
+  - .agents/skills/odu/SKILL.md
+  - .agents/skills/odu/serve
   deployed_file_hashes:
-    .claude/skills/odu/SKILL.md: sha256:4fa8286e4fb19920c1e997c0cc326a21da8d074ec0a8de65f3101bcd3d7f8a6c
-    .claude/skills/odu/serve: sha256:723ec470f7fcf2a59b8fb8cce15bd90e0055640dcef3336ec6dbd0ee29d49433
-  content_hash: sha256:93ddf39031c8b4321490012a83dca2f171850c3509c65ef7c2fdece8d2293598
+    .agents/skills/odu/SKILL.md: sha256:66811eff2a1cd55c9a3b7251972ba6b637fd0f576192c6df3b639241213954d7
+    .agents/skills/odu/serve: sha256:723ec470f7fcf2a59b8fb8cce15bd90e0055640dcef3336ec6dbd0ee29d49433
+  content_hash: sha256:6f9c5f9e027a75df83296116abed06999d67b28ba37b3c455cebe91a191e03d6
 - repo_url: juspay/project-unknown
   name: project-unknown
   host: github.com
@@ -350,277 +352,23 @@ dependencies:
     .opencode/agents/lowy.md: sha256:05aff7f6a91149a42c1fb9a3ca382a6f77bc39ac8a8d45436d443dd3349fb11e
   content_hash: sha256:e158c9989787393d84f9a1f5fac8e6ddac6eae00b1cac772910d3fb22378594a
   declared_license: MIT
+- repo_url: juspay/odu
+  name: odu
+  host: github.com
+  resolved_commit: 1fd9f7d216ddfaa32dfeb022e585d23f5cc172ab
+  version: 1.0.0
+  depth: 2
+  resolved_by: _local/agents
+  package_type: apm_package
+  deployed_files:
+  - .claude/skills/odu
+  - .claude/skills/odu/SKILL.md
+  - .claude/skills/odu/serve
+  deployed_file_hashes:
+    .claude/skills/odu/SKILL.md: sha256:66811eff2a1cd55c9a3b7251972ba6b637fd0f576192c6df3b639241213954d7
+    .claude/skills/odu/serve: sha256:723ec470f7fcf2a59b8fb8cce15bd90e0055640dcef3336ec6dbd0ee29d49433
+  content_hash: sha256:41a8465bc98f9e1e6b436b778bb6d0e09bb77b8fa608bfbc71011d66f9613d72
 deployments:
-- kind: project-relative
-  target: agents
-  value: .agents/skills/atlas
-  runtime: null
-  scope: project
-  owners:
-  - .
-  active_owner: .
-  content_hash: null
-- kind: project-relative
-  target: agents
-  value: .agents/skills/atlas/SKILL.md
-  runtime: null
-  scope: project
-  owners:
-  - .
-  active_owner: .
-  content_hash: sha256:c43ef7cb6b93eb08d554bf7036849e24393fe37ad3440bd526b7bfffa27365cb
-- kind: project-relative
-  target: agents
-  value: .agents/skills/blog-post
-  runtime: null
-  scope: project
-  owners:
-  - .
-  active_owner: .
-  content_hash: null
-- kind: project-relative
-  target: agents
-  value: .agents/skills/blog-post/SKILL.md
-  runtime: null
-  scope: project
-  owners:
-  - .
-  active_owner: .
-  content_hash: sha256:617654848591f41e9c41f23f404ab3fa0318bdfbd4e70b21ae2ba42921a86c1a
-- kind: project-relative
-  target: agents
-  value: .agents/skills/ci
-  runtime: null
-  scope: project
-  owners:
-  - .
-  active_owner: .
-  content_hash: null
-- kind: project-relative
-  target: agents
-  value: .agents/skills/ci/SKILL.md
-  runtime: null
-  scope: project
-  owners:
-  - .
-  active_owner: .
-  content_hash: sha256:5e1a73886b4988d96175e6ca309287e68b2a5f541342b7ddeaceea5e8918aa5e
-- kind: project-relative
-  target: agents
-  value: .agents/skills/ci/pu/diagnose.sh
-  runtime: null
-  scope: project
-  owners:
-  - .
-  active_owner: .
-  content_hash: sha256:7e33aa16ca3a8fb4a52aa35d423bbaf014621564da65b718e68a233efbef89b3
-- kind: project-relative
-  target: agents
-  value: .agents/skills/ci/pu/lease.sh
-  runtime: null
-  scope: project
-  owners:
-  - .
-  active_owner: .
-  content_hash: sha256:5e5ca3de9a41d247f5a7be66044cb5811e15c26f9da2127c299f6939db5275ee
-- kind: project-relative
-  target: agents
-  value: .agents/skills/ci/pu/pool.sh
-  runtime: null
-  scope: project
-  owners:
-  - .
-  active_owner: .
-  content_hash: sha256:5f8b42d5aaf4b87dcbdcc91f785c1b476f3e7c131dedb66e7e7de0080d9e9c80
-- kind: project-relative
-  target: agents
-  value: .agents/skills/ci/pu/report.sh
-  runtime: null
-  scope: project
-  owners:
-  - .
-  active_owner: .
-  content_hash: sha256:2bcce1c13acfd168ed70e0793e49eef5cd051864e4bea7b17833b889e3129bb3
-- kind: project-relative
-  target: agents
-  value: .agents/skills/ci/smoke.sh
-  runtime: null
-  scope: project
-  owners:
-  - .
-  active_owner: .
-  content_hash: sha256:f10b7bde4ae8814aa6b6d9a2c1bfc2547b903b27aa0410c4f3b989a7b22f24df
-- kind: project-relative
-  target: agents
-  value: .agents/skills/dev-server
-  runtime: null
-  scope: project
-  owners:
-  - .
-  active_owner: .
-  content_hash: null
-- kind: project-relative
-  target: agents
-  value: .agents/skills/dev-server/SKILL.md
-  runtime: null
-  scope: project
-  owners:
-  - .
-  active_owner: .
-  content_hash: sha256:741b9c44068dd35500e0d88a8299240ec154b476b1fbb2a0bcdc79e2d03e3e4f
-- kind: project-relative
-  target: agents
-  value: .agents/skills/evidence
-  runtime: null
-  scope: project
-  owners:
-  - .
-  active_owner: .
-  content_hash: null
-- kind: project-relative
-  target: agents
-  value: .agents/skills/evidence/CAPTURE.md
-  runtime: null
-  scope: project
-  owners:
-  - .
-  active_owner: .
-  content_hash: sha256:2fbf0b30b264a91ab156807d1e6d32a4782fcf2c6afd32466ec32a3df3be7ef7
-- kind: project-relative
-  target: agents
-  value: .agents/skills/evidence/SKILL.md
-  runtime: null
-  scope: project
-  owners:
-  - .
-  active_owner: .
-  content_hash: sha256:8534468a198e753fa9ed6d95477444d418083d92fa7853f1cd6d1c3f93dd1228
-- kind: project-relative
-  target: agents
-  value: .agents/skills/overnight-ci-flakes
-  runtime: null
-  scope: project
-  owners:
-  - .
-  active_owner: .
-  content_hash: null
-- kind: project-relative
-  target: agents
-  value: .agents/skills/overnight-ci-flakes/SKILL.md
-  runtime: null
-  scope: project
-  owners:
-  - .
-  active_owner: .
-  content_hash: sha256:f06c0d8399431d777647faf63c3cb9b86e7b1112758e9db00fd86f8322db4b9c
-- kind: project-relative
-  target: agents
-  value: .agents/skills/parcel
-  runtime: null
-  scope: project
-  owners:
-  - .
-  active_owner: .
-  content_hash: null
-- kind: project-relative
-  target: agents
-  value: .agents/skills/parcel/SKILL.md
-  runtime: null
-  scope: project
-  owners:
-  - .
-  active_owner: .
-  content_hash: sha256:a080a71004a542b6c1994ac46fa2a1cb68936f5fc8e49ac6cadb2b9b9770199b
-- kind: project-relative
-  target: agents
-  value: .agents/skills/perf-diagnose
-  runtime: null
-  scope: project
-  owners:
-  - .
-  active_owner: .
-  content_hash: null
-- kind: project-relative
-  target: agents
-  value: .agents/skills/perf-diagnose/SKILL.md
-  runtime: null
-  scope: project
-  owners:
-  - .
-  active_owner: .
-  content_hash: sha256:253d7e174344b2481b2f0a8f0f12ffe206c5f84974bff02b48db297e5023aa0c
-- kind: project-relative
-  target: agents
-  value: .agents/skills/pierre
-  runtime: null
-  scope: project
-  owners:
-  - .
-  active_owner: .
-  content_hash: null
-- kind: project-relative
-  target: agents
-  value: .agents/skills/pierre/SKILL.md
-  runtime: null
-  scope: project
-  owners:
-  - .
-  active_owner: .
-  content_hash: sha256:0c9e0f6c6cb93518bc0fbf5edf22dd57ba0038a35bb6dc757200e0e2327070e8
-- kind: project-relative
-  target: agents
-  value: .agents/skills/release
-  runtime: null
-  scope: project
-  owners:
-  - .
-  active_owner: .
-  content_hash: null
-- kind: project-relative
-  target: agents
-  value: .agents/skills/release/SKILL.md
-  runtime: null
-  scope: project
-  owners:
-  - .
-  active_owner: .
-  content_hash: sha256:7451962e4ce6479935d1ffb17013cf5f55c2d5cbe30f0b20e0c3ded533473b28
-- kind: project-relative
-  target: agents
-  value: .agents/skills/remote-host-testing
-  runtime: null
-  scope: project
-  owners:
-  - .
-  active_owner: .
-  content_hash: null
-- kind: project-relative
-  target: agents
-  value: .agents/skills/remote-host-testing/SKILL.md
-  runtime: null
-  scope: project
-  owners:
-  - .
-  active_owner: .
-  content_hash: sha256:3eeb95d2fffad5f40a3449bad1b981d8b265f7e8d439f7741663921573efeaaf
-- kind: project-relative
-  target: agents
-  value: .agents/skills/test
-  runtime: null
-  scope: project
-  owners:
-  - .
-  active_owner: .
-  content_hash: null
-- kind: project-relative
-  target: agents
-  value: .agents/skills/test/SKILL.md
-  runtime: null
-  scope: project
-  owners:
-  - .
-  active_owner: .
-  content_hash: sha256:028bf746254fd136f3bcc779c4ba32200e658880c52ad48a5c609442f2d4969f
 - kind: project-relative
   target: claude
   value: .claude/agents/hickey.md
@@ -1521,7 +1269,7 @@ deployments:
   owners:
   - juspay/odu
   active_owner: juspay/odu
-  content_hash: sha256:4fa8286e4fb19920c1e997c0cc326a21da8d074ec0a8de65f3101bcd3d7f8a6c
+  content_hash: sha256:66811eff2a1cd55c9a3b7251972ba6b637fd0f576192c6df3b639241213954d7
 - kind: project-relative
   target: claude
   value: .claude/skills/odu/serve
@@ -2316,6 +2064,33 @@ deployments:
   content_hash: sha256:cd771d988edb89b88b233c7b799f3816c9982d669419d75fb409dd38103b1962
 - kind: project-relative
   target: codex
+  value: .agents/skills/odu
+  runtime: null
+  scope: project
+  owners:
+  - juspay/odu/.apm/skills/odu
+  active_owner: juspay/odu/.apm/skills/odu
+  content_hash: null
+- kind: project-relative
+  target: codex
+  value: .agents/skills/odu/SKILL.md
+  runtime: null
+  scope: project
+  owners:
+  - juspay/odu/.apm/skills/odu
+  active_owner: juspay/odu/.apm/skills/odu
+  content_hash: sha256:66811eff2a1cd55c9a3b7251972ba6b637fd0f576192c6df3b639241213954d7
+- kind: project-relative
+  target: codex
+  value: .agents/skills/odu/serve
+  runtime: null
+  scope: project
+  owners:
+  - juspay/odu/.apm/skills/odu
+  active_owner: juspay/odu/.apm/skills/odu
+  content_hash: sha256:723ec470f7fcf2a59b8fb8cce15bd90e0055640dcef3336ec6dbd0ee29d49433
+- kind: project-relative
+  target: codex
   value: .agents/skills/perfection-review
   runtime: null
   scope: project
@@ -2440,6 +2215,276 @@ deployments:
   - srid/agency
   active_owner: srid/agency
   content_hash: sha256:cb033f86c15ffd3d09d8e4b74a61f55a70def4cc4131cc013b7368a2d23f3f33
+- kind: project-relative
+  target: legacy
+  value: .agents/skills/atlas
+  runtime: null
+  scope: project
+  owners:
+  - .
+  active_owner: .
+  content_hash: null
+- kind: project-relative
+  target: legacy
+  value: .agents/skills/atlas/SKILL.md
+  runtime: null
+  scope: project
+  owners:
+  - .
+  active_owner: .
+  content_hash: sha256:c43ef7cb6b93eb08d554bf7036849e24393fe37ad3440bd526b7bfffa27365cb
+- kind: project-relative
+  target: legacy
+  value: .agents/skills/blog-post
+  runtime: null
+  scope: project
+  owners:
+  - .
+  active_owner: .
+  content_hash: null
+- kind: project-relative
+  target: legacy
+  value: .agents/skills/blog-post/SKILL.md
+  runtime: null
+  scope: project
+  owners:
+  - .
+  active_owner: .
+  content_hash: sha256:617654848591f41e9c41f23f404ab3fa0318bdfbd4e70b21ae2ba42921a86c1a
+- kind: project-relative
+  target: legacy
+  value: .agents/skills/ci
+  runtime: null
+  scope: project
+  owners:
+  - .
+  active_owner: .
+  content_hash: null
+- kind: project-relative
+  target: legacy
+  value: .agents/skills/ci/SKILL.md
+  runtime: null
+  scope: project
+  owners:
+  - .
+  active_owner: .
+  content_hash: sha256:5e1a73886b4988d96175e6ca309287e68b2a5f541342b7ddeaceea5e8918aa5e
+- kind: project-relative
+  target: legacy
+  value: .agents/skills/ci/pu/diagnose.sh
+  runtime: null
+  scope: project
+  owners:
+  - .
+  active_owner: .
+  content_hash: sha256:7e33aa16ca3a8fb4a52aa35d423bbaf014621564da65b718e68a233efbef89b3
+- kind: project-relative
+  target: legacy
+  value: .agents/skills/ci/pu/lease.sh
+  runtime: null
+  scope: project
+  owners:
+  - .
+  active_owner: .
+  content_hash: sha256:5e5ca3de9a41d247f5a7be66044cb5811e15c26f9da2127c299f6939db5275ee
+- kind: project-relative
+  target: legacy
+  value: .agents/skills/ci/pu/pool.sh
+  runtime: null
+  scope: project
+  owners:
+  - .
+  active_owner: .
+  content_hash: sha256:5f8b42d5aaf4b87dcbdcc91f785c1b476f3e7c131dedb66e7e7de0080d9e9c80
+- kind: project-relative
+  target: legacy
+  value: .agents/skills/ci/pu/report.sh
+  runtime: null
+  scope: project
+  owners:
+  - .
+  active_owner: .
+  content_hash: sha256:2bcce1c13acfd168ed70e0793e49eef5cd051864e4bea7b17833b889e3129bb3
+- kind: project-relative
+  target: legacy
+  value: .agents/skills/ci/smoke.sh
+  runtime: null
+  scope: project
+  owners:
+  - .
+  active_owner: .
+  content_hash: sha256:f10b7bde4ae8814aa6b6d9a2c1bfc2547b903b27aa0410c4f3b989a7b22f24df
+- kind: project-relative
+  target: legacy
+  value: .agents/skills/dev-server
+  runtime: null
+  scope: project
+  owners:
+  - .
+  active_owner: .
+  content_hash: null
+- kind: project-relative
+  target: legacy
+  value: .agents/skills/dev-server/SKILL.md
+  runtime: null
+  scope: project
+  owners:
+  - .
+  active_owner: .
+  content_hash: sha256:741b9c44068dd35500e0d88a8299240ec154b476b1fbb2a0bcdc79e2d03e3e4f
+- kind: project-relative
+  target: legacy
+  value: .agents/skills/evidence
+  runtime: null
+  scope: project
+  owners:
+  - .
+  active_owner: .
+  content_hash: null
+- kind: project-relative
+  target: legacy
+  value: .agents/skills/evidence/CAPTURE.md
+  runtime: null
+  scope: project
+  owners:
+  - .
+  active_owner: .
+  content_hash: sha256:2fbf0b30b264a91ab156807d1e6d32a4782fcf2c6afd32466ec32a3df3be7ef7
+- kind: project-relative
+  target: legacy
+  value: .agents/skills/evidence/SKILL.md
+  runtime: null
+  scope: project
+  owners:
+  - .
+  active_owner: .
+  content_hash: sha256:8534468a198e753fa9ed6d95477444d418083d92fa7853f1cd6d1c3f93dd1228
+- kind: project-relative
+  target: legacy
+  value: .agents/skills/overnight-ci-flakes
+  runtime: null
+  scope: project
+  owners:
+  - .
+  active_owner: .
+  content_hash: null
+- kind: project-relative
+  target: legacy
+  value: .agents/skills/overnight-ci-flakes/SKILL.md
+  runtime: null
+  scope: project
+  owners:
+  - .
+  active_owner: .
+  content_hash: sha256:f06c0d8399431d777647faf63c3cb9b86e7b1112758e9db00fd86f8322db4b9c
+- kind: project-relative
+  target: legacy
+  value: .agents/skills/parcel
+  runtime: null
+  scope: project
+  owners:
+  - .
+  active_owner: .
+  content_hash: null
+- kind: project-relative
+  target: legacy
+  value: .agents/skills/parcel/SKILL.md
+  runtime: null
+  scope: project
+  owners:
+  - .
+  active_owner: .
+  content_hash: sha256:a080a71004a542b6c1994ac46fa2a1cb68936f5fc8e49ac6cadb2b9b9770199b
+- kind: project-relative
+  target: legacy
+  value: .agents/skills/perf-diagnose
+  runtime: null
+  scope: project
+  owners:
+  - .
+  active_owner: .
+  content_hash: null
+- kind: project-relative
+  target: legacy
+  value: .agents/skills/perf-diagnose/SKILL.md
+  runtime: null
+  scope: project
+  owners:
+  - .
+  active_owner: .
+  content_hash: sha256:253d7e174344b2481b2f0a8f0f12ffe206c5f84974bff02b48db297e5023aa0c
+- kind: project-relative
+  target: legacy
+  value: .agents/skills/pierre
+  runtime: null
+  scope: project
+  owners:
+  - .
+  active_owner: .
+  content_hash: null
+- kind: project-relative
+  target: legacy
+  value: .agents/skills/pierre/SKILL.md
+  runtime: null
+  scope: project
+  owners:
+  - .
+  active_owner: .
+  content_hash: sha256:0c9e0f6c6cb93518bc0fbf5edf22dd57ba0038a35bb6dc757200e0e2327070e8
+- kind: project-relative
+  target: legacy
+  value: .agents/skills/release
+  runtime: null
+  scope: project
+  owners:
+  - .
+  active_owner: .
+  content_hash: null
+- kind: project-relative
+  target: legacy
+  value: .agents/skills/release/SKILL.md
+  runtime: null
+  scope: project
+  owners:
+  - .
+  active_owner: .
+  content_hash: sha256:7451962e4ce6479935d1ffb17013cf5f55c2d5cbe30f0b20e0c3ded533473b28
+- kind: project-relative
+  target: legacy
+  value: .agents/skills/remote-host-testing
+  runtime: null
+  scope: project
+  owners:
+  - .
+  active_owner: .
+  content_hash: null
+- kind: project-relative
+  target: legacy
+  value: .agents/skills/remote-host-testing/SKILL.md
+  runtime: null
+  scope: project
+  owners:
+  - .
+  active_owner: .
+  content_hash: sha256:3eeb95d2fffad5f40a3449bad1b981d8b265f7e8d439f7741663921573efeaaf
+- kind: project-relative
+  target: legacy
+  value: .agents/skills/test
+  runtime: null
+  scope: project
+  owners:
+  - .
+  active_owner: .
+  content_hash: null
+- kind: project-relative
+  target: legacy
+  value: .agents/skills/test/SKILL.md
+  runtime: null
+  scope: project
+  owners:
+  - .
+  active_owner: .
+  content_hash: sha256:028bf746254fd136f3bcc779c4ba32200e658880c52ad48a5c609442f2d4969f
 - kind: uri
   target: mcp
   value: chrome-devtools
@@ -2460,15 +2505,6 @@ deployments:
   content_hash: null
 - kind: uri
   target: mcp
-  value: odu
-  runtime: claude
-  scope: project
-  owners:
-  - .
-  active_owner: .
-  content_hash: null
-- kind: uri
-  target: mcp
   value: chrome-devtools
   runtime: codex
   scope: project
@@ -2479,15 +2515,6 @@ deployments:
 - kind: uri
   target: mcp
   value: kolu
-  runtime: codex
-  scope: project
-  owners:
-  - .
-  active_owner: .
-  content_hash: null
-- kind: uri
-  target: mcp
-  value: odu
   runtime: codex
   scope: project
   owners:
@@ -2506,15 +2533,6 @@ deployments:
 - kind: uri
   target: mcp
   value: kolu
-  runtime: opencode
-  scope: project
-  owners:
-  - .
-  active_owner: .
-  content_hash: null
-- kind: uri
-  target: mcp
-  value: odu
   runtime: opencode
   scope: project
   owners:
@@ -2542,7 +2560,6 @@ deployments:
 mcp_servers:
 - chrome-devtools
 - kolu
-- odu
 mcp_configs:
   chrome-devtools:
     name: chrome-devtools
@@ -2558,28 +2575,19 @@ mcp_configs:
     command: kolu
     env_vars:
     - PADI_SOCKET
-  odu:
-    name: odu
-    transport: stdio
-    registry: false
-    command: .agents/skills/odu/serve
 mcp_target_servers:
   claude:
   - chrome-devtools
   - kolu
-  - odu
   codex:
   - chrome-devtools
   - kolu
-  - odu
   opencode:
   - chrome-devtools
   - kolu
-  - odu
 mcp_config_provenance:
   chrome-devtools: nix-chrome-devtools-mcp
   kolu: agents
-  odu: odu
 local_deployed_files:
 - .agents/skills/atlas
 - .agents/skills/atlas/SKILL.md
