@@ -19,6 +19,7 @@
 import fs from "node:fs";
 import type { Logger } from "kolu-shared";
 import {
+  contentToText,
   type Fetcher,
   parseIsoTimestamp,
   type ToolInput,
@@ -43,19 +44,6 @@ interface PiEntry {
     toolCallId?: string;
     isError?: boolean;
   };
-}
-
-/** Pull plain text out of pi's `content` string-or-block-array field. */
-function contentToText(content: unknown): string {
-  if (typeof content === "string") return content;
-  if (!Array.isArray(content)) return "";
-  const parts: string[] = [];
-  for (const block of content) {
-    if (!block || typeof block !== "object") continue;
-    const b = block as Record<string, unknown>;
-    if (b.type === "text" && typeof b.text === "string") parts.push(b.text);
-  }
-  return parts.join("\n");
 }
 
 /** Map a pi toolCall name + its already-parsed arguments onto the typed

@@ -22,6 +22,7 @@ export {
   TranscriptPrSchema,
   TranscriptSchema,
 } from "./schemas.ts";
+export { contentToText } from "./content.ts";
 export { parseIsoTimestamp } from "./timestamp.ts";
 
 export {

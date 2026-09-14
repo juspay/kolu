@@ -23,16 +23,17 @@
  *
  *  This loader is a near-copy of `kolu-pi`'s, and by intention: the mock parses
  *  the SAME forked wire format but the dependency fence forbids
- *  `kolu-omp` → `kolu-pi`. One piece of it is genuinely agent-neutral and has a
- *  fence-legal home — `contentToText` (three identical copies, and it reads only
- *  the shared `{ type: "text", text }` block) — which belongs in
- *  `kolu-transcript-core` when someone graduates it; the rest
- *  (`eventsFromEntry`'s role/stopReason vocabulary, the toolCall argument keys)
- *  is pi's wire format, and naming it in the neutral core would move a vendor
- *  format the core's header deliberately keeps on this side of `Fetcher`. */
+ *  `kolu-omp` → `kolu-pi`. The one genuinely agent-neutral piece —
+ *  `contentToText`, which reads only the shared `{ type: "text", text }` block
+ *  — lives in `kolu-transcript-core` (grok / pi / omp's three identical copies
+ *  graduated there); the rest (`eventsFromEntry`'s role/stopReason vocabulary,
+ *  the toolCall argument keys) is pi's wire format, and naming it in the
+ *  neutral core would move a vendor format the core's header deliberately
+ *  keeps on this side of `Fetcher`. */
 
 import fs from "node:fs";
 import {
+  contentToText,
   type Fetcher,
   parseIsoTimestamp,
   type ToolInput,
@@ -57,19 +58,6 @@ interface OmpEntry {
     toolCallId?: string;
     isError?: boolean;
   };
-}
-
-/** Pull plain text out of omp's `content` string-or-block-array field. */
-function contentToText(content: unknown): string {
-  if (typeof content === "string") return content;
-  if (!Array.isArray(content)) return "";
-  const parts: string[] = [];
-  for (const block of content) {
-    if (!block || typeof block !== "object") continue;
-    const b = block as Record<string, unknown>;
-    if (b.type === "text" && typeof b.text === "string") parts.push(b.text);
-  }
-  return parts.join("\n");
 }
 
 /** Map an omp toolCall name + its already-parsed arguments onto the typed
@@ -228,12 +216,14 @@ export function parseOmpTranscript(content: string): TranscriptEvent[] {
 /** Read the session JSONL and normalize to the unified IR, or null when kolu
  *  never observed this session live (no path recorded, so there is nothing to
  *  read — the same "transcript not available" answer the other integrations
- *  give for a session they cannot locate). Throws only on a genuine read
- *  failure after the file was positively recorded: a race mid-export must not
- *  render as "session does not exist". (A session whose JSONL never
- *  materialized cannot reach here at all — the loader `stat`s the file on every
- *  fold and publishes no state until it exists, and the export path requires a
- *  published agent — so the only read failure left is a real one.)
+ *  give for a session they cannot locate). One file-level fact collapses the
+ *  same way: ENOENT. A `fresh` breadcrumb for omp's lazy session publishes the
+ *  path BEFORE the JSONL exists (resolveSessions records every found crumb),
+ *  so a fetch in that window — or a race with an `omp` that just moved the
+ *  store — is "not available", not a crash. Every OTHER read failure after a
+ *  path was positively recorded still THROWS: a race mid-export must not
+ *  render as "session does not exist", and a real I/O fault must not render
+ *  as "transcript not available".
  *
  *  The title is read from the file's own line-1 title slot rather than taken
  *  from `input.title` — the export renders the FILE, and the live summary the
@@ -242,7 +232,14 @@ export const loadOmpTranscript: Fetcher = (input, log) => {
   const path = knownOmpSessionPath(input.sessionId);
   if (path === null) return null;
   const title = readTitleSlot(path, log);
-  const raw = fs.readFileSync(path, "utf8");
+  let raw: string;
+  try {
+    raw = fs.readFileSync(path, "utf8");
+  } catch (err) {
+    // Only absence is "not available" — everything else is a real read fault.
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") return null;
+    throw err;
+  }
   const transcript: Transcript = {
     agentName: ompVocab.displayName,
     sessionId: input.sessionId,
