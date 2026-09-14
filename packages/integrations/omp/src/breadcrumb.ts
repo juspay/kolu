@@ -38,7 +38,11 @@ import type { Logger } from "kolu-shared";
  *  shape (any non-empty token) so an upstream id-format change degrades to a
  *  different id, not a lost session — the shell-splice gate
  *  (`ompVocab.resume.idPattern`) refuses a shape it can't splice. */
-const SESSION_FILE_RE = /^(\d{4}-\d\d-\d\dT\d\d-\d\d-\d\d-\d+Z)_(.+)\.jsonl$/i;
+/** Case-SENSITIVE on purpose: omp writes `T`/`Z` uppercase, and the
+ *  reconstruction below can only parse that spelling — a case-flagged gate
+ *  would admit a name (`…z`, `…t…`) it then cannot restore, degrading the
+ *  whole crumb to `unusable` for a name kolu should simply not claim. */
+const SESSION_FILE_RE = /^(\d{4}-\d\d-\d\dT\d\d-\d\d-\d\d-\d+Z)_(.+)\.jsonl$/;
 
 export interface OmpSession {
   /** Session UUID from the transcript filename. */

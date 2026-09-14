@@ -56,20 +56,18 @@ interface OmpEntry {
   };
 }
 
-/** Assistant stop reasons that end the turn: the agent yielded and sits at its
- *  prompt. `toolUse` is the only *working* terminal reason. */
-const TURN_ENDED = new Set(["stop", "length", "error", "aborted"]);
-
 /** Derive omp state + telemetry from a transcript's tail lines (oldest first).
  *  One backward walk tracking three independent signals with different
  *  stopping conditions —
  *
  *   - state: first `message` entry that participates in a model turn.
- *     `assistant stopReason toolUse` → `tool_use`; any other terminal reason →
- *     `waiting`; a `user` or `toolResult` tail → `thinking` (the model is
- *     running or about to be re-invoked). Interactive roles are walked past, so
- *     a trailing compaction or extension entry while omp sits idle reads the
- *     prior turn rather than fabricating work.
+ *     `assistant stopReason toolUse` → `tool_use`; ANY other recorded reason →
+ *     `waiting` (omp persists an assistant entry only on completion, so the
+ *     record's existence IS the answer); an assistant entry with no reason
+ *     recorded (a torn write) or a `user` / `toolResult` tail → `thinking`
+ *     (the model is running or about to be re-invoked). Interactive roles are
+ *     walked past, so a trailing compaction or extension entry while omp sits
+ *     idle reads the prior turn rather than fabricating work.
  *   - model: newest of a `model_change` entry's `model` (the user's explicit
  *     switch, which is also written at an idle prompt) and the newest assistant
  *     entry's own `message.model`. Read on every entry, independent of the
@@ -133,12 +131,17 @@ export function deriveOmpState(lines: string[]): {
       const role = entry.message?.role;
       if (role === "assistant") {
         const stopReason = entry.message?.stopReason;
+        // omp persists an assistant entry only on COMPLETION, so any recorded
+        // stopReason means the turn ended and `toolUse` is the only WORKING
+        // reason. No table to drift against: a vocabulary upstream adds still
+        // classifies as the turn ended. NO reason is the torn write — a
+        // completion record caught mid-append genuinely means in flight.
         state =
           stopReason === "toolUse"
             ? "tool_use"
-            : stopReason !== undefined && TURN_ENDED.has(stopReason)
-              ? "waiting"
-              : "thinking";
+            : stopReason === undefined
+              ? "thinking"
+              : "waiting";
       } else if (role === "user" || role === "toolResult") {
         // A human prompt just landed, or a tool returned and the model is
         // about to be re-invoked — omp persists assistant messages only on

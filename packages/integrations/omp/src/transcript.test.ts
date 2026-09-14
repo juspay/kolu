@@ -349,5 +349,65 @@ describe("loadOmpTranscript", () => {
         text: "hello",
       });
     });
+
+    it("nulls — never throws — for a fresh crumb whose JSONL has not landed", () => {
+      if (process.platform !== "linux") return;
+      let stdinTty: string;
+      try {
+        stdinTty = fs.readlinkSync("/proc/self/fd/0");
+      } catch {
+        return;
+      }
+      if (!stdinTty.startsWith("/dev/")) return;
+
+      // The lazy-session window: omp has written the crumb but not the first
+      // JSONL line, so resolveSessions PUBLISHES a path that does not exist
+      // yet. A fetch inside that window is "transcript not available".
+      const sessionId = "01a0a0e3-1843-701b-bfde-c9c816e3e921";
+      const transcriptPath = path.join(
+        tmpHome,
+        "sessions",
+        "-work-proj",
+        `2026-09-14T17-07-12-579Z_${sessionId}.jsonl`,
+      );
+      const child = spawn(process.execPath, ["-e", "process.stdin.resume()"], {
+        stdio: ["inherit", "ignore", "ignore"],
+        env: { PATH: process.env.PATH },
+      });
+      try {
+        const ttyId = stdinTty.slice("/dev/".length).replace(/\//g, "-");
+        fs.mkdirSync(path.join(tmpHome, "terminal-sessions"), {
+          recursive: true,
+        });
+        fs.writeFileSync(
+          path.join(tmpHome, "terminal-sessions", ttyId),
+          `/work/proj\n${transcriptPath}\nfresh\n`,
+        );
+        const offered = ompAdapter.resolveSessions(
+          {
+            foregroundPid: child.pid,
+            cwd: "/work/proj",
+            readForegroundBasename: () => "omp",
+            lastAgentCommandName: "omp",
+          },
+          log,
+        );
+        expect(offered?.map((s) => s.id)).toEqual([sessionId]);
+      } finally {
+        child.kill();
+      }
+
+      expect(
+        loadOmpTranscript({
+          sessionId,
+          title: null,
+          repoName: null,
+          cwd: "/work/proj",
+          model: null,
+          contextTokens: null,
+          pr: null,
+        }),
+      ).toBeNull();
+    });
   });
 });

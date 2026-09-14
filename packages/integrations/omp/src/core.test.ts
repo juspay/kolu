@@ -77,6 +77,13 @@ describe("deriveOmpState", () => {
       "waiting",
     );
     expect(deriveOmpState([user(), assistant("error")])?.state).toBe("waiting");
+    // Vocabulary drift: a reason kolu has never recorded still means the turn
+    // ENDED — the persistence invariant, not an enumeration, does the
+    // classifying, so upstream adding a terminal reason cannot repaint a
+    // settled turn as in-flight.
+    expect(deriveOmpState([user(), assistant("max_tokens")])?.state).toBe(
+      "waiting",
+    );
   });
 
   it("reads a trailing prompt or tool result as work in flight", () => {
