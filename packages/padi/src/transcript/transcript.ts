@@ -1,5 +1,5 @@
 /**
- * `@kolu/padi/transcript` — the host-side transcript-export backing behind
+ * `@kolu/padi/assembly`'s host-side transcript-export backing behind
  * `padiSurface.procedures.transcript.exportHtml`. Loads the per-agent transcript
  * (Claude Code JSONL, codex/opencode SQLite) for a terminal's LIVE agent session
  * and renders it to a standalone HTML document.
@@ -11,23 +11,27 @@
  * is the home.
  */
 
-import { prValue } from "anyforge/schemas";
-import { loadClaudeCodeTranscript } from "kolu-claude-code";
-import { loadCodexTranscript } from "kolu-codex";
-import { loadGrokTranscript } from "kolu-grok";
-import { loadOpenCodeTranscript } from "kolu-opencode";
-import { loadXyneTranscript } from "kolu-xyne";
-import { transcriptToHtml } from "kolu-transcript-html";
-import { match } from "ts-pattern";
-import { TranscriptNoAgent, TranscriptNotFound } from "../errors.ts";
-import { log } from "../log.ts";
-import { requireActiveTerminal } from "../terminal-registry.ts";
+import {
+  TranscriptNoAgent,
+  TranscriptNotFound,
+} from "@kolu/padi-client/surface";
 import type {
   ExportTranscriptHtmlInput,
   ExportTranscriptHtmlOutput,
   Transcript,
   TranscriptPr,
-} from "./transcriptSchema.ts";
+} from "@kolu/padi-client/surface";
+import { prValue } from "anyforge/schemas";
+import { loadClaudeCodeTranscript } from "kolu-claude-code";
+import { loadCodexTranscript } from "kolu-codex";
+import { loadGrokTranscript } from "kolu-grok";
+import { loadOpenCodeTranscript } from "kolu-opencode";
+import { loadPiTranscript } from "kolu-pi";
+import { loadXyneTranscript } from "kolu-xyne";
+import { transcriptToHtml } from "kolu-transcript-html";
+import { match } from "ts-pattern";
+import { log } from "../log.ts";
+import { requireActiveTerminal } from "../terminal-registry.ts";
 
 /** Export a terminal's live agent session as an HTML transcript.
  *
@@ -93,6 +97,17 @@ export async function exportTranscriptHtml(
     )
     .with({ kind: "grok" }, (a) =>
       loadGrokTranscript({
+        sessionId: a.sessionId,
+        title: a.summary,
+        repoName,
+        cwd,
+        model: a.model,
+        contextTokens: a.contextTokens,
+        pr,
+      }),
+    )
+    .with({ kind: "pi" }, (a) =>
+      loadPiTranscript({
         sessionId: a.sessionId,
         title: a.summary,
         repoName,

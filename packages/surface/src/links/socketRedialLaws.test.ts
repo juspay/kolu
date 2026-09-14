@@ -36,7 +36,7 @@
  * Law 2 is why `reattachingStream.ts` needs a FIRST-FRAME DEADLINE at all for the
  * class law 3 does NOT cover (an upstream that stalls with the wire genuinely
  * open): there is no failure to retry on, so silence is the only signal left.
- * This file is the measuring law for that module's `BETA-ASSUMPTION(rc.110)`
+ * This file is the measuring law for that module's `BETA-ASSUMPTION(rc.112)`
  * marker AND for `websocket.ts`'s — bump the pin, re-run this file, re-stamp.
  */
 
@@ -375,7 +375,7 @@ describe("re-dial law 1 — a CLOSE fails registered entries, so the fence re-dr
 });
 
 describe("re-dial law 2 — a pre-open DIAL FAILURE is swallowed, so a registered stream learns nothing", () => {
-  it("BETA-ASSUMPTION(rc.110): repeated SocketOpenError re-dials never fail an in-flight stream", async () => {
+  it("BETA-ASSUMPTION(rc.112): repeated SocketOpenError re-dials never fail an in-flight stream", async () => {
     // `retryTransientErrors: true` (websocketLink) makes RpcClient's `tapCause`
     // return early for a `SocketOpenError` WITHOUT broadcasting
     // `ClientProtocolError` — and that broadcast is the only thing that fails
@@ -431,7 +431,7 @@ describe("re-dial law 2 — a pre-open DIAL FAILURE is swallowed, so a registere
     await link.dispose();
   });
 
-  it("BETA-ASSUMPTION(rc.110): every swallowed attempt still publishes a connecting → closed pair", async () => {
+  it("BETA-ASSUMPTION(rc.112): every swallowed attempt still publishes a connecting → closed pair", async () => {
     // The OBSERVABILITY the fix rests on. `Effect.ensuring(hooks.onDisconnect)`
     // wraps the whole attempt in `RpcClient.makeProtocolSocket`, OUTSIDE the
     // `tapCause` that swallows a `SocketOpenError` — so an attempt whose failure

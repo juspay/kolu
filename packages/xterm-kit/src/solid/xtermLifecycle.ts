@@ -19,6 +19,7 @@
  *  The consumer's policy — which addons beyond these, the stream, keybindings,
  *  the `__xterm` e2e bridge — is wired in `onReady`, inside that owner. */
 
+import { WEB_URL_PATTERN } from "@kolu/url-shape";
 import { getOwner, onCleanup, runWithOwner } from "solid-js";
 import { FitAddon } from "@xterm/addon-fit";
 import { ImageAddon } from "@xterm/addon-image";
@@ -43,7 +44,12 @@ export interface XtermCore {
  *  `webLinkHandler` is the injected click seam for {@link WebLinksAddon} —
  *  generic only (no app policy). When absent, the addon's default open runs.
  *  A consumer that wants to intercept loopback URLs (or anything else) passes
- *  its own handler; the kit never imports app code. */
+ *  its own handler; the kit never imports app code.
+ *
+ *  What COUNTS as a web link is not a seam: it is always `@kolu/url-shape`'s
+ *  `WEB_URL_PATTERN`, so a consumer that reads URLs out of the buffer with that
+ *  same pattern agrees with the underline by construction, not by remembering
+ *  to pass it. */
 export interface XtermLifecycleOptions {
   terminalOptions: ITerminalOptions & { fontFamily: string };
   /** Optional override for web-link activation. `(event, uri) => void`. */
@@ -109,11 +115,10 @@ export function createXtermLifecycle(
         // Re-read options here (post-await) so a late-bound handler is current.
         // The constructor's first arg is the activate callback; omit it to keep
         // the addon's default `window.open` path.
-        const webLinkHandler = getOptions().webLinkHandler;
         term.loadAddon(
-          webLinkHandler === undefined
-            ? new WebLinksAddon()
-            : new WebLinksAddon(webLinkHandler),
+          new WebLinksAddon(getOptions().webLinkHandler, {
+            urlRegex: WEB_URL_PATTERN,
+          }),
         );
         const search = new SearchAddon();
         term.loadAddon(search);

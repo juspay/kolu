@@ -247,6 +247,7 @@ export function servePtyHost(deps: InProcessPtyHostDeps) {
                 data: att.snapshot,
                 topLine: att.topLine,
                 reflowEpoch: att.reflowEpoch,
+                grid: att.grid,
               }).pipe(
                 Stream.concat(
                   att.deltas.pipe(

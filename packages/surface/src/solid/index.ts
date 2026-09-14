@@ -134,6 +134,7 @@ export {
   resolveTransport,
   type SurfaceClient,
   type SurfaceClients,
+  type SurfaceClientsBundle,
   surfaceClient,
   surfaceClients,
   surfaceClientsHealth,

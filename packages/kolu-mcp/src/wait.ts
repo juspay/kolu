@@ -32,22 +32,22 @@
  * outcome the agent can retry.
  */
 
-import {
-  awaitAgentState,
-  awaitOutputSettled,
-  type PadiSurfaceClient,
-  WAIT_STATES,
-} from "@kolu/padi/dial";
 // The tail slice is padi's — the same fold `screen_text`'s `tail` and `kolu
 // wait --snapshot` use, so "the last N lines" means one thing on every face.
-import { tailLines } from "@kolu/padi/render";
+import { padiOf } from "./bundleClient.ts";
+import { tailLines } from "@kolu/padi-client/screenTail";
+// The dial kit arrives dynamically, INSIDE the handlers: this module is on the
+// static tree-build path of every `kolu` invocation (the surface face mounts
+// the table), so the waiters' socket/mirror closure may only load at call
+// time. WAIT_STATES has a schema home of its own and belongs here statically.
 import {
   MAX_TIMER_MS,
   type WaitMet,
   type WaitOutcome,
   waitOutcomeJson,
 } from "@kolu/surface/wait";
-import type { BespokeTool } from "@kolu/surface-mcp";
+import type { BespokeTool } from "@kolu/surface-mcp/tools";
+import { WAIT_STATES } from "@kolu/terminal-vocab/agentProjection";
 import type { AgentInfo } from "@kolu/terminal-vocab/schema";
 import { TerminalIdSchema } from "@kolu/terminal-vocab/schema";
 import { Effect, Schema } from "effect";
@@ -57,13 +57,18 @@ import { Effect, Schema } from "effect";
 /** A milliseconds field: a positive integer inside the shared `setTimeout`
  *  ceiling, carrying the blurb an MCP host renders.
  *
- *  ANNOTATE FIRST, CHECK SECOND — `SchemaAST.annotate` attaches to a schema's
- *  LAST CHECK when it has one, and a check's annotations are emitted inside an
- *  `allOf` branch where no host reads a property description (`Schema.Int` is
- *  itself `Schema.Number.check(isInt())`, so it is already "checked"). Adding
- *  `isInt` as a check instead keeps the blurb on the node AND still advertises
- *  the field as an integer rather than as bare `Schema.Number`, whose encoded
- *  form admits the strings `"NaN"`/`"Infinity"` (D8/#14 divergence 2). Pinned
+ *  `isInt()` is load-bearing, not decoration. Bare `Schema.Number`'s ENCODED
+ *  form is the Infinity/NaN-tolerant union (`jsonSchemaBridge.ts` divergence
+ *  2), and a `description` or a bound placed on the decoded number never
+ *  reaches it — the bridge collapses the union to a naked `{"type":"number"}`
+ *  with no blurb and no bounds, whichever order they were written in.
+ *  `isInt()` is what puts the field on a representable `integer` node, which
+ *  is the only node the blurb and `exclusiveMinimum`/`maximum` can ride on.
+ *
+ *  There used to be a second rule here — ANNOTATE FIRST, CHECK SECOND — because
+ *  up to effect rc.110 an annotation on an already-checked schema was emitted
+ *  inside an `allOf` branch no host reads. rc.111 compacts a check onto the
+ *  node it constrains, so the order no longer matters. Both halves are pinned
  *  in `argSchemas.test.ts`. */
 export const MillisecondsSchema = (description: string) =>
   Schema.Number.annotate({ description }).check(
@@ -86,7 +91,6 @@ const TimeoutMsSchema = Schema.optionalKey(
  *  says both "yes, capture" and "this much", so there is no way to ask for a
  *  screen and forget to bound it. */
 const ScreenTailSchema = Schema.optionalKey(
-  // Annotate first, check second — see `MillisecondsSchema` above.
   Schema.Number.annotate({
     description:
       "Also return the terminal's last N rendered lines on the met, read INSIDE this wait — so no second screen_text call can race the terminal between the signal and the read.",
@@ -105,7 +109,8 @@ const ScreenTailSchema = Schema.optionalKey(
  *  the face's one met→frame projection, rather than in each handler, because it
  *  is one rendering decision about one wire: the engine hands back the WHOLE
  *  rendered buffer by design (bounding it is the caller's call), and both wait
- *  tools bound it identically. The slice is `@kolu/padi/render`'s `tailLines` —
+ *  tools bound it identically. The slice is `@kolu/padi-client/screenTail`'s
+ *  `tailLines` —
  *  the same fold `screen_text`'s own `tail` and `kolu wait --snapshot` use, so
  *  "the last N lines" means one thing across every face. */
 export function waitJson<Met extends WaitMet>(
@@ -161,16 +166,24 @@ export const waitOutputSettledTool: BespokeTool = {
   // so this LIFTS it rather than composing it. That is why `signal` survives on
   // `BespokeTool.handler` at all — it is forwarded to the scaffold, and the
   // request edge's own interruption is what aborts it.
+  //
+  // The `tryPromise` is the OPTIONS form on purpose: a zero-arg `async` fn
+  // mints no AbortSignal, and a fiber interrupt can then never reach the
+  // waiter — on the argv face, where `signal` arrives as `undefined`, a
+  // Ctrl-C against an unbounded wait would hang instead of the matrix's 130.
+  // `signal ?? fiberSignal`: the MCP edge's request signal when one was
+  // handed, the fiber's own interrupt handle in every other case.
   handler: (args, client, signal) =>
-    Effect.tryPromise(async () => {
+    Effect.tryPromise(async (fiberSignal) => {
       const { id, idleMs, screenTail, timeoutMs } =
         args as WaitOutputSettledArgs;
-      const outcome = await awaitOutputSettled(client as PadiSurfaceClient, {
+      const { awaitOutputSettled } = await import("@kolu/padi-client/watch");
+      const outcome = await awaitOutputSettled(padiOf(client), {
         id,
         idleMs,
         captureScreen: screenTail !== undefined,
         timeoutMs,
-        signal,
+        signal: signal ?? fiberSignal,
       });
       return waitJson<{ fired: "idle"; elapsedMs: number; screen?: string }>(
         id,
@@ -184,7 +197,6 @@ export const waitOutputSettledTool: BespokeTool = {
 
 export const WaitAgentStateArgsSchema = Schema.Struct({
   id: TerminalIdSchema,
-  // Annotate first, check second — see `MillisecondsSchema` above.
   until: Schema.Array(Schema.Literals(WAIT_STATES))
     .annotate({
       description:
@@ -213,18 +225,21 @@ export const waitAgentStateTool: BespokeTool = {
   // them into a home both faces reach, for defaults each face can just state.
   description:
     'Block until a terminal\'s detected agent state enters a target bucket (working / awaiting / waiting) — the precise agent-state done-signal. An agent ALREADY in a target bucket resolves immediately. To ask "is this worker\'s turn REALLY over, and what did it say?" in ONE race-free call — the `kolu debrief` protocol — pass until: ["awaiting","waiting"], settledMs: 15000, screenTail: 40; the three-call version (wait for the bucket, wait for quiet, read the screen) has a hole in each gap. Returns {result: "met", met: {agent, elapsedMs, screen?}} or {result: "timeout"|"gone"|"closed", elapsedMs?, error?}. ONLY "gone" means the terminal is dead: "closed" means this subscription dropped while the terminal was still live, so retry rather than concluding anything about the agent. To supervise several terminals without re-arming a wait per turn, prefer watch_open + watch_next.',
-  // Lifted, not composed — same reason as `wait_outputSettled` above.
+  // Lifted, not composed — same reason as `wait_outputSettled` above,
+  // including the AbortSignal the one-form `tryPromise` would leave unmilled
+  // (a Ctrl-C on an unbounded argv wait would hang, never the matrix's 130).
   handler: (args, client, signal) =>
-    Effect.tryPromise(async () => {
+    Effect.tryPromise(async (fiberSignal) => {
       const { id, until, settledMs, screenTail, timeoutMs } =
         args as WaitAgentStateArgs;
-      const outcome = await awaitAgentState(client as PadiSurfaceClient, {
+      const { awaitAgentState } = await import("@kolu/padi-client/watch");
+      const outcome = await awaitAgentState(padiOf(client), {
         id,
         targets: new Set(until),
         settledMs,
         captureScreen: screenTail !== undefined,
         timeoutMs,
-        signal,
+        signal: signal ?? fiberSignal,
       });
       return waitJson<{
         agent: AgentInfo;

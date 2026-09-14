@@ -116,8 +116,13 @@ export function startX11Grab(opts: {
       "libx264",
       "-crf",
       "16",
+      // ultrafast, not veryfast: the raw grab must keep 30fps at 3200×1800
+      // even while agents and builds load the box. veryfast starved once and
+      // silently dropped ~2/3 of frames — the published clip came out as an
+      // accidental ~3× timelapse. The transcode re-encodes anyway, so the
+      // raw preset only costs disk, never final quality.
       "-preset",
-      "veryfast",
+      "ultrafast",
       "-pix_fmt",
       "yuv420p",
       "-r",

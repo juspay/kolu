@@ -28,21 +28,21 @@
  * Standing kaval `resubscribeStream` is **daemon-lifetime**.
  */
 
+import type { PadiTerminal, PadiUrgency } from "@kolu/padi-client/surface";
 import { source } from "@kolu/surface/reactor";
 import { agentBucket } from "@kolu/terminal-vocab/agentProjection";
-import { Effect, Stream } from "effect";
 import type { TerminalId } from "@kolu/terminal-vocab/schema";
+import { Effect, Stream } from "effect";
 import type { Logger } from "pino";
-import type { PadiTerminal, PadiUrgency } from "../surface.ts";
 import { ptyHostClient } from "../ptyHost/index.ts";
-import {
-  createActivityTracker,
-  type ActivityTracker,
-} from "./terminalActivityTracker.ts";
 import {
   ACTIVITY_RESUBSCRIBE_DELAY_MS,
   resubscribeStream,
 } from "../terminalEndpoint/local.ts";
+import {
+  type ActivityTracker,
+  createActivityTracker,
+} from "./terminalActivityTracker.ts";
 import { recomputeUrgency } from "./urgency.ts";
 
 /** Quiet window for the effective-finish fold — Padi attention policy, not shared

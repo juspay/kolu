@@ -16,8 +16,8 @@
  * valid); the read/query guard `requireTerminal` keeps ACCEPTING parked.
  */
 
+import { LOCAL_LOCATION, TerminalNotFound } from "@kolu/padi-client/surface";
 import type { TerminalId, TerminalSnapshot } from "@kolu/terminal-vocab/schema";
-import { TerminalNotFound } from "./errors.ts";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   type ActiveTerminalProcess,
@@ -27,7 +27,6 @@ import {
   terminalEntries,
   unregisterTerminal,
 } from "./terminal-registry.ts";
-import { LOCAL_LOCATION } from "./vocab.ts";
 
 const ID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa" as TerminalId;
 

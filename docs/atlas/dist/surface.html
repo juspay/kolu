@@ -6,8 +6,8 @@
 <li><strong><code>@kolu/surface-remote</code></strong> — the ssh leg: sessions, host fan-out, connection state.</li>
 <li><strong><code>@kolu/surface-daemon</code></strong> / <strong><code>-supervisor</code></strong> — the daemon spine (socket lifecycle, contract handshake, identity) and the side that supervises daemons (convergence, drain/recycle).</li>
 <li><strong><code>@kolu/surface-app</code></strong> — the app shell for browser apps run against your own server (delivery, identity, connection lifecycle).</li>
-<li><strong><code>@kolu/surface-mcp</code></strong> — any surface re-exposed as an MCP server.</li>
-<li><strong><code>@kolu/surface-cli</code></strong> — any surface projected as command-line verbs (the argv sibling of the MCP adapter: one expose map, one verb table, one set of names).</li>
+<li><strong><code>@kolu/surface-mcp</code></strong> — a rooted bundle (core + siblings, live roster) re-exposed as an MCP server.</li>
+<li><strong><code>@kolu/surface-cli</code></strong> — the same rooted bundle projected as command-line verbs, the sibling key as the first argv word (the argv sibling of the MCP adapter: one expose map, one verb table, one set of names).</li>
 </ul>
 <h2 id="how-the-runtime-is-shaped">How the runtime is shaped</h2>
 <ul>

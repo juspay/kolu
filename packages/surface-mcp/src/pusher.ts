@@ -32,7 +32,10 @@
  * keeps this class runnable from the SDK's synchronous request handlers.
  */
 
-import type { OwnedSurfaceConnection } from "@kolu/surface/client";
+import {
+  disposeQuietly,
+  type OwnedSurfaceConnection,
+} from "@kolu/surface/client";
 import { Cause, Effect, type Exit, type Fiber, Stream } from "effect";
 
 /** Opens the streaming `get` for a subscribable URI on a given client. The
@@ -94,35 +97,15 @@ export type StreamFor<Client> = (
  *  that CAN reach its close must supply it. */
 export type PusherConnection<Client> = OwnedSurfaceConnection<Client>;
 
-/** Release a connection and SWALLOW whatever the release does about it — the
- *  one way this face lets go of a socket, at every one of the five sites that
- *  do.
+/** Release a connection and swallow whatever the release does about it — the
+ *  FRAMEWORK's {@link disposeQuietly}, beside the `OwnedSurfaceConnection` whose
+ *  property it is, re-exported here under the name this package publishes.
  *
- *  `dispose` may be async (one shape for both faces, and the real one — a unix
- *  socket link — is), so it can REJECT: a finalizer that fails while a daemon
- *  restarts races a socket close every day of the week. A bare `conn.dispose()`
- *  leaves that rejection unhandled, and Node's default for an unhandled
- *  rejection is to TERMINATE the process — killing a long-lived MCP server at
- *  exactly the moment this code is trying to be resilient about a transport
- *  going away. `void conn.dispose()` silences the lint that would have pointed
- *  at it and changes nothing about the rejection.
- *
- *  Ignoring is safe, and it is the only thing that is: every call site has
- *  already stopped pointing at this connection (a lost dial race, a teardown, a
- *  drop, the server closing), so a failed release has nothing left to tell
- *  anyone — while a THROWN one would replace an answer the caller already has.
- *  The socket is going away with the process either way. The CLI face states the
- *  same reason at its own release (`withConnection`, `Effect.ignore`). */
-export function disposeQuietly(conn: {
-  readonly dispose: () => void | Promise<void>;
-}): void {
-  try {
-    void Promise.resolve(conn.dispose()).catch(() => {});
-  } catch {
-    // A `dispose` that throws SYNCHRONOUSLY never produces a promise to attach
-    // the handler above to, and is the same non-event for the same reason.
-  }
-}
+ *  It was one concept with two implementations, one per face, already differing
+ *  in signature (this one sync, the argv face's async) while both files argued
+ *  for it in near-identical prose — the same drift `OwnedSurfaceConnection` was
+ *  unified to prevent one level up. */
+export { disposeQuietly };
 
 /** Lazily produce a live connection. Returns `null` when the source isn't live
  *  yet (subscribe-before-serve); the pusher retries. */
@@ -187,6 +170,25 @@ export class ResourcePusher<Client> {
     if (this.subscribed.size === 0) this.detach();
   }
 
+  /** Drop the current attachment and re-open every SURVIVING subscription on a
+   *  freshly obtained connection.
+   *
+   *  What the adapter calls when the served bundle's sibling roster moves: the
+   *  held connection carries a client map for the roster it was dialled for, so
+   *  a subscription re-opened on it would stream from a generation the adapter
+   *  no longer serves. Distinct from {@link stop}, which is terminal — this
+   *  endpoint keeps serving, and the subscriptions it keeps are the caller's to
+   *  decide (the adapter unsubscribes the departed ones first, then calls this).
+   *
+   *  Detach-then-attach rather than a swap: `detach` bumps the generation, which
+   *  is what tells each in-flight stream fiber's exit handler that it was torn
+   *  down rather than that its source settled. */
+  reattach(): void {
+    if (this.stopped) return;
+    this.detach();
+    void this.ensureAttached();
+  }
+
   stop(): void {
     this.stopped = true;
     this.subscribed.clear();
@@ -200,9 +202,34 @@ export class ResourcePusher<Client> {
     return this.conn !== null;
   }
 
+  /** WHICH URIs are live right now — the ONE copy of that fact.
+   *
+   *  Visible to the adapter because a roster move has to ask a question this
+   *  class cannot answer ("which of these does the new roster still serve") and
+   *  end the rest. That is a reason to READ the set, not to keep a second one:
+   *  the adapter mirrored it and kept the two aligned by four paired call sites,
+   *  and they already diverged — after {@link stop}, `subscribe` returns early
+   *  while the mirror recorded the URI anyway. The roster question is the
+   *  adapter's; the set is this class's. */
+  get subscriptions(): ReadonlySet<string> {
+    return this.subscribed;
+  }
+
   private async ensureAttached(): Promise<void> {
     if (this.conn !== null || this.stopped) return;
     if (this.subscribed.size === 0) return;
+    /** WHICH attachment this dial is for. Captured before the await and checked
+     *  after it, because `detach` bumps the counter and every reason to detach is
+     *  a reason this dial's answer is stale — a {@link reattach} above all, whose
+     *  entire purpose is that the NEXT connection is dialled after some change
+     *  the current one predates. Without it the dial in flight wins the empty
+     *  slot on its way back and re-attaches the very connection the reattach
+     *  existed to replace, silently and for as long as it lives.
+     *
+     *  The counter is the one already here. It was minted to tell a stream
+     *  fiber's exit handler "you were torn down" from "your source settled", and
+     *  a dial crossing a teardown is the same question one frame out. */
+    const attach = this.generation;
     let conn: PusherConnection<Client> | null;
     try {
       conn = await this.deps.client();
@@ -220,13 +247,31 @@ export class ResourcePusher<Client> {
       return;
     }
     // A concurrent ensureAttached won the race, or we were stopped, or the
-    // last subscriber left while we were dialing — in every case there's no
-    // owner for this freshly-opened connection, so dispose it rather than
-    // store an attachment nobody will ever tear down. Disposing the CONNECTION
-    // (not a disposer looked up by client identity) is what makes this correct
-    // when a factory hands back the same client object on both dials.
-    if (this.conn !== null || this.stopped || this.subscribed.size === 0) {
-      disposeQuietly(conn);
+    // last subscriber left while we were dialing, or a detach superseded this
+    // dial — in every case there's no owner for this freshly-opened connection,
+    // so dispose it rather than store an attachment nobody will ever tear down.
+    // Disposing the CONNECTION (not a disposer looked up by client identity) is
+    // what makes this correct when a factory hands back the same client object
+    // on both dials.
+    if (
+      this.conn !== null ||
+      this.stopped ||
+      this.subscribed.size === 0 ||
+      attach !== this.generation
+    ) {
+      void disposeQuietly(conn);
+      // ONLY the superseded-dial arm schedules. It is the one that can leave
+      // subscribers with no attachment and nothing in flight; the other three
+      // each mean somebody else owns the outcome (a winner attached, we
+      // stopped, nobody is waiting).
+      //
+      // Scheduling on all four read as harmless and was not: `scheduleRetry`
+      // bails on `stopped`, on an empty subscription set, and on an
+      // already-armed timer — NOT on `this.conn !== null`. So a dial that merely
+      // lost a race armed a timer, and a later `onAnnouncedClose` found that
+      // timer already set and returned, leaving the loser's timer as the thing
+      // the real recovery depended on. It recovered, on somebody else's clock.
+      if (attach !== this.generation) this.scheduleRetry();
       return;
     }
     this.conn = conn;
@@ -351,7 +396,7 @@ export class ResourcePusher<Client> {
     for (const fiber of fibers) fiber.interruptUnsafe();
     const conn = this.conn;
     this.conn = null;
-    if (conn !== null) disposeQuietly(conn);
+    if (conn !== null) void disposeQuietly(conn);
   }
 
   private scheduleRetry(): void {

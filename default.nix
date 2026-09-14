@@ -49,10 +49,8 @@ let
   # hosted terminals, where node, npm, npx, and corepack are part of the existing
   # environment.
   runtimeNode = pkgs.nodejs;
-  # This nixpkgs revision builds tsx against Node 22. Point only tsx at the
-  # stock, cache.nixos.org-substitutable Node 24 runtime so the shipped closure
-  # carries one Node core.
-  runtimeTsx = pkgs.tsx.override { nodejs_22 = runtimeNode; };
+  # Point tsx at the same Node 24 core as the full command set above.
+  runtimeTsx = pkgs.tsx.override { nodejs-slim_22 = pkgs.nodejs-slim; };
   runtimeTsxLoader = "${runtimeTsx}/lib/tsx/dist/loader.mjs";
 
   # Build uses a placeholder so docs-only commits don't bust the derivation
@@ -93,7 +91,7 @@ let
   # which bake the flake ref), so it is exposed but NOT proven.
   #
   # Be honest about what that costs. `padi-agent` IS what both dial paths now
-  # resolve (`@kolu/padi/dial`'s `PADI_REMOTE_DIAL`), so the build-input gate no
+  # resolve (`@kolu/padi/remote-dial`'s `PADI_REMOTE_DIAL`), so the build-input gate no
   # longer covers the dialed attr — it covers the daemon graph that closure is
   # composed out of, which is where a thin fileset actually shows up. What covers
   # the exposed attrs themselves is `ci::agent-flake-nix`, which evaluates every

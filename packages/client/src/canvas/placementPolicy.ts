@@ -18,7 +18,7 @@
  *  module is the shared seam Lowy flagged in the PR #844 fourth-pass
  *  review. */
 
-import type { TerminalMetadata } from "@kolu/padi/surface";
+import type { TerminalMetadata } from "@kolu/padi-client/surface";
 import type { TerminalId } from "kolu-common/surface";
 import type { TerminalStore } from "../terminal/useTerminalStore";
 

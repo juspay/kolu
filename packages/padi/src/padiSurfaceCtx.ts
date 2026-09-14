@@ -14,8 +14,8 @@
  * invariant, `server/src/seal.test.ts`).
  */
 
+import type { padiSurface } from "@kolu/padi-client/surface";
 import { createLateBoundSurfaceCtx } from "./lateBoundSurfaceCtx.ts";
-import type { padiSurface } from "./surface.ts";
 
 export const {
   proxy: padiSurfaceCtx,

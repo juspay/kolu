@@ -1,8 +1,8 @@
 ---
 title: The Code Tab
 description: "The Code tab is a file browser scoped to the active terminal's repo: a Pierre tree with git-status tinting, Local/Branch/All views with live diffs, rendered Markdown, inline HTML/SVG/PDF/image/video previews, and file comments."
-order: 46
-section: Use Kolu
+order: 55
+section: "Files & Code"
 koluHero:
   eyebrow: read the repo
   headline: The files, {beside the work}.
@@ -60,6 +60,11 @@ polling — and the same loop works when the Code tab is pointed at
 [another machine](/remote-hosts), so your status and diffs stay live over the
 ssh hop too.
 
+<figure class="doc-shot">
+  <img src="/shots/diff-live.webp" alt="The Code tab's file view showing an agent's edit as a live diff, with the file marked modified." loading="lazy" />
+  <figcaption>An agent's edit lands and the open file repaints itself — the diff is live.</figcaption>
+</figure>
+
 ## Markdown and artifacts
 
 - **Markdown** (`.md`, `.markdown`, and **`.mdx`**) renders as a reading
@@ -78,6 +83,11 @@ ssh hop too.
 Select text in source, a branch diff, or a rendered artifact and pin a quoted
 note to it. The comment tray flushes to Markdown you paste straight back into the
 agent — a way to review a change and hand the agent your notes in its own words.
+
+<figure class="doc-shot">
+  <img src="/shots/comment-handoff.webp" alt="A code-review comment pasted into a Claude Code terminal, quoting the file and line it was left on in the Code tab." loading="lazy" />
+  <figcaption>Select a line, leave a note, paste it to the agent — the comment carries the file and line with it.</figcaption>
+</figure>
 
 ## Next
 

@@ -25,6 +25,7 @@ import { PortInfoSchema, TcpPortSchema } from "./ports.ts";
 import {
   AgentMemorySchema,
   ForegroundSchema,
+  HostListenersSchema,
   ProcessRssSchema,
   PrResultSchema,
   PrUnavailableSourceSchema,
@@ -133,6 +134,8 @@ describe("TerminalSnapshot — the persisted + served producer emission", () => 
           state: "open",
           checks: "pass",
           checkRuns: [{ name: "unit", outcome: "pass" }],
+          reviewDecision: "APPROVED",
+          mergeStateStatus: "CLEAN",
         },
       },
       agent: {
@@ -149,7 +152,15 @@ describe("TerminalSnapshot — the persisted + served producer emission", () => 
       foreground: { name: "claude", title: "user@host: ~/code" },
       ports: {
         status: "known",
-        list: [{ port: 5173, name: "node", scope: "loopback", family: "v4" }],
+        list: [
+          {
+            port: 5173,
+            name: "node",
+            command: "node vite",
+            scope: "loopback",
+            family: "v4",
+          },
+        ],
       },
     } as const satisfies typeof TerminalSnapshotSchema.Type;
 
@@ -160,18 +171,19 @@ describe("TerminalSnapshot — the persisted + served producer emission", () => 
         '"remoteUrl":"https://github.com/juspay/kolu"},' +
         '"pr":{"kind":"ok","value":{"number":2100,"title":"Wave 3",' +
         '"url":"https://github.com/juspay/kolu/pull/2100","state":"open","checks":"pass",' +
-        '"checkRuns":[{"name":"unit","outcome":"pass"}]}},' +
+        '"checkRuns":[{"name":"unit","outcome":"pass"}],' +
+        '"reviewDecision":"APPROVED","mergeStateStatus":"CLEAN"}},' +
         '"agent":{"kind":"claude-code","state":"thinking",' +
         '"sessionId":"f47ac10b-58cc-4372-a567-0e02b2c3d479","model":"claude-opus-5",' +
         '"summary":null,"taskProgress":null,"workflow":null,"contextTokens":47000,' +
         '"startedAt":1712345678901},' +
         '"foreground":{"name":"claude","title":"user@host: ~/code"},' +
-        '"ports":{"status":"known","list":[{"port":5173,"name":"node","scope":"loopback","family":"v4"}]}}',
+        '"ports":{"status":"known","list":[{"port":5173,"name":"node","command":"node vite","scope":"loopback","family":"v4"}]}}',
     );
   });
 
-  it("decodes an OLDER producer's payload whose PR carries no checkRuns", () => {
-    // Rolling deploy: the anyforge leaf's `checkRuns` backfill has to survive
+  it("decodes an OLDER producer's payload whose PR carries no checkRuns / review / merge keys", () => {
+    // Rolling deploy: the anyforge leaf's field backfills have to survive
     // being composed into this snapshot, not just decoded standalone.
     const decoded = Schema.decodeUnknownSync(TerminalSnapshotSchema)({
       cwd: "/w",
@@ -199,8 +211,44 @@ describe("TerminalSnapshot — the persisted + served producer emission", () => 
         state: "open",
         checks: null,
         checkRuns: [],
+        reviewDecision: null,
+        mergeStateStatus: "UNKNOWN",
       },
     });
+  });
+
+  it("omits an ABSENT grid and appends a PRESENT one, key last", () => {
+    // The record's grid is what a viewer that lost last-attach-wins observes to
+    // learn it lost — so both spellings are load-bearing across a rolling
+    // deploy. ABSENT is the older padi and the terminal nobody has resized yet;
+    // it must stay off the bytes entirely (the seed fixture above pins that),
+    // never a null a consumer would read as a fact. PRESENT appends after
+    // `ports`, so an older consumer's decode is unchanged.
+    expect(
+      encodeJson(TerminalSnapshotSchema)({
+        ...seedSnapshot("/w"),
+        grid: { cols: 120, rows: 40 },
+      }),
+    ).toBe(
+      '{"cwd":"/w","git":null,"pr":{"kind":"pending"},"agent":null,' +
+        '"foreground":null,"ports":{"status":"unknown"},' +
+        '"grid":{"cols":120,"rows":40}}',
+    );
+  });
+
+  it("refuses half a grid and refuses a grid no pty can have", () => {
+    // ONE composite, both sides positive integers: half a grid is not a size,
+    // and a consumer sizing a renderer by a zero or a fraction renders nothing
+    // or garbage. The refusal is the boundary's, so no consumer re-checks it.
+    const decode = (grid: unknown) =>
+      Schema.decodeUnknownExit(TerminalSnapshotSchema)({
+        ...seedSnapshot("/w"),
+        grid,
+      })._tag;
+    expect(decode({ cols: 120 })).toBe("Failure");
+    expect(decode({ cols: 120, rows: 0 })).toBe("Failure");
+    expect(decode({ cols: 120.5, rows: 40 })).toBe("Failure");
+    expect(decode({ cols: 120, rows: 40 })).toBe("Success");
   });
 
   it("drops unknown keys rather than carrying a newer producer's fields through", () => {
@@ -259,10 +307,18 @@ describe("discriminants — the five unions keep their field and values", () => 
     expect(
       encode({
         status: "known",
-        list: [{ port: 8080, name: "node", scope: "any", family: "v6" }],
+        list: [
+          {
+            port: 8080,
+            name: "node",
+            command: "node server.js",
+            scope: "any",
+            family: "v6",
+          },
+        ],
       }),
     ).toBe(
-      '{"status":"known","list":[{"port":8080,"name":"node","scope":"any","family":"v6"}]}',
+      '{"status":"known","list":[{"port":8080,"name":"node","command":"node server.js","scope":"any","family":"v6"}]}',
     );
   });
 
@@ -312,15 +368,42 @@ describe("leaf schemas", () => {
     );
   });
 
-  it("PortInfo encodes its four fields in declaration order", () => {
+  it("PortInfo encodes its five fields in declaration order", () => {
     expect(
       encodeJson(PortInfoSchema)({
         port: 1,
         name: "sshd",
+        command: "sshd -D",
         scope: "interface",
         family: "v4",
       }),
-    ).toBe('{"port":1,"name":"sshd","scope":"interface","family":"v4"}');
+    ).toBe(
+      '{"port":1,"name":"sshd","command":"sshd -D","scope":"interface","family":"v4"}',
+    );
+  });
+
+  it("HostListeners: status ∈ known|unknown, known carries claimed + an unclaimed two-way", () => {
+    const encode = encodeJson(HostListenersSchema);
+    expect(encode({ status: "unknown" })).toBe('{"status":"unknown"}');
+    expect(
+      encode({
+        status: "known",
+        claimed: [],
+        unclaimed: { status: "unknown" },
+      }),
+    ).toBe('{"status":"known","claimed":[],"unclaimed":{"status":"unknown"}}');
+    expect(
+      encode({
+        status: "known",
+        claimed: [],
+        unclaimed: {
+          status: "known",
+          list: [{ port: 631, scope: "loopback", family: "v6" }],
+        },
+      }),
+    ).toBe(
+      '{"status":"known","claimed":[],"unclaimed":{"status":"known","list":[{"port":631,"scope":"loopback","family":"v6"}]}}',
+    );
   });
 
   it("TcpPort holds the 1..65535 range", () => {

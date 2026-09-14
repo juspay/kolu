@@ -4,7 +4,7 @@ import {
   isAllowedUploadName,
   MAX_UPLOAD_BYTES,
   rejectionFor,
-} from "@kolu/padi/upload";
+} from "@kolu/padi-client/upload";
 import { VIDEO_EXTENSIONS } from "kolu-common/preview";
 import { describe, expect, it } from "vitest";
 

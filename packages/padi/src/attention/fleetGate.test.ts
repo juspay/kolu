@@ -7,9 +7,9 @@
  * exited, and every consumer must be told.
  */
 
+import type { PadiTerminal } from "@kolu/padi-client/surface";
 import type { TerminalId } from "@kolu/terminal-vocab/schema";
 import { describe, expect, it } from "vitest";
-import type { PadiTerminal } from "../surface.ts";
 import { createFleetGate } from "./fleetGate.ts";
 
 /** A frame of N terminals — the gate reads only the SIZE, so the records need

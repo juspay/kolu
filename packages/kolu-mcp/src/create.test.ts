@@ -12,10 +12,10 @@
  *      (`stopped-partway` + `landed`) instead of erasing them.
  */
 
-import { padiSurface } from "@kolu/padi/surface";
+import { padiSurface } from "@kolu/padi-client/surface";
 import {
-  serveSurfaceAsMcp,
   type SurfaceClientCallable,
+  serveSurfaceAsMcp,
   ToolFailure,
 } from "@kolu/surface-mcp";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
@@ -24,7 +24,7 @@ import { Effect } from "effect";
 import { afterEach, describe, expect, it } from "vitest";
 import { refuseBlankFields, resolveCreateDirectory } from "./create.ts";
 import { KOLU_MCP_EXPOSE } from "./expose.ts";
-import { KOLU_MCP_TOOLS } from "./serve.ts";
+import { KOLU_MCP_TOOLS } from "./tools.ts";
 
 const ID = "00000000-0000-4000-8000-000000000000";
 const PARENT_ID = "11111111-1111-4111-8111-111111111111";
@@ -162,9 +162,8 @@ describe("lifecycle_create at the wire — the CLI composition, one tool call", 
     const [clientTransport, serverTransport] =
       InMemoryTransport.createLinkedPair();
     const { close } = await serveSurfaceAsMcp({
-      surface: padiSurface,
-      client: () => client,
-      expose: KOLU_MCP_EXPOSE,
+      core: { surface: padiSurface, expose: KOLU_MCP_EXPOSE },
+      client: () => ({ core: client }),
       tools: KOLU_MCP_TOOLS,
       transport: serverTransport,
     });

@@ -9,19 +9,20 @@
   "types": "./src/index.ts",
   "exports": {
     ".": "./src/index.ts",
+    "./dial": "./src/daemonDial.ts",
     "./states": "./src/endpointStates.ts",
     "./createEndpoint.testlib": "./src/createEndpoint.testlib.ts",
     "./createEndpoint.kolu.testlib": "./src/createEndpoint.kolu.testlib.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "test:unit": "vitest run"
+    "test:daemon": "vitest run"
   },
   "dependencies": {
-    "@effect/platform-node": "4.0.0-rc.110",
+    "@effect/platform-node": "4.0.0-rc.112",
     "@kolu/surface": "workspace:*",
     "@kolu/surface-daemon": "workspace:*",
-    "effect": "4.0.0-rc.110",
+    "effect": "4.0.0-rc.112",
     "osfacts-client": "workspace:*",
     "ts-pattern": "^5.9.0"
   },

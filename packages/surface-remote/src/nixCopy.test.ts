@@ -6,11 +6,8 @@
  * builds the argv so the assertions see exactly what would hit the wire. The
  * ask-only warm-check SHAPE (D1a) is pinned in `warmProbeCheck.test.ts`.
  */
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { __resetControlMemo } from "./controlMaster";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { CI_KEEPALIVE, provArgs, useControlDir } from "./controlDir.testutil";
 import { agentBinaryCache } from "./agentBinaryCache";
 import { directAgentDerivation, flakeAgentDerivation } from "./agentDerivation";
 import {
@@ -23,7 +20,9 @@ import {
   provisionAgent,
 } from "./nixCopy";
 import { type CaptureResult, runCapture } from "./process";
+import { sshKeepalive } from "./keepalive";
 import { TEST_BINARY_CACHE } from "./agentDerivation.testutil";
+import { nixJsonLine } from "./nixLog.testutil";
 
 vi.mock("./process", async (importOriginal) => ({
   // Keep the real pure helpers (`describeExit`) and mock only the two
@@ -54,13 +53,6 @@ const isPrefetch = (args: readonly string[]): boolean =>
 const isShip = (args: readonly string[]): boolean =>
   isCopy(args) && args.includes("--to");
 
-/** The fused budgets a `provisionAgent` call needs (the connector reconciles the
- *  campaign reset itself, so `provisionAgent` takes no epoch). Pass a custom `budgets`
- *  (e.g. a tight-terminal one) to override. */
-function provArgs(budgets: ProvisionBudgets = makeProvisionBudgets()) {
-  return { budgets };
-}
-
 /** Route the mocked `runCapture` by the command it was handed (robust to call
  *  order): the sender-local `-q --outputs`, the ssh `--check-validity`, the
  *  `--realise … --add-root` pin, and the atomic `nix build` provision. */
@@ -84,7 +76,7 @@ function mockNix(over?: {
     // (a bare `nix-store`, unlike the remote warm check's `ssh …`). Default:
     // we don't — so a total prefetch miss skips the ship instead of narrating
     // trust levers about a path we never had.
-    if (cmd === "nix-store" && args[0] === "--check-validity")
+    if (cmd === "nix-store" && args.includes("--check-validity"))
       return over?.localValidity ?? failOut;
     if (args.includes("--check-validity"))
       return over?.checkValidity ?? failOut; // cold: not on host yet
@@ -100,19 +92,9 @@ function mockNix(over?: {
   });
 }
 
-const tmpDirs: string[] = [];
-beforeEach(() => {
-  const xdg = mkdtempSync(join(tmpdir(), "kolu-ssh-nixcopy-test-"));
-  tmpDirs.push(xdg);
-  vi.stubEnv("XDG_RUNTIME_DIR", xdg);
-  __resetControlMemo();
-});
+useControlDir("kolu-ssh-nixcopy-");
 afterEach(() => {
   vi.clearAllMocks();
-  vi.unstubAllEnvs();
-  __resetControlMemo();
-  for (const d of tmpDirs.splice(0))
-    rmSync(d, { recursive: true, force: true });
 });
 
 describe("provisionAgent GC-root pinning (cold path)", () => {
@@ -161,9 +143,70 @@ describe("provisionAgent GC-root pinning (cold path)", () => {
     const opts = provisionCall![2];
     const nixSshOpts = opts.env?.NIX_SSHOPTS ?? "";
     expect(nixSshOpts).toContain("-o ControlMaster=auto");
-    expect(nixSshOpts).toMatch(/-o ControlPath=\S+\/%C(\s|$)/);
+    // The socket is keyed by the keepalive policy — `10x3` is the default.
+    expect(nixSshOpts).toMatch(/-o ControlPath=\S+\/%C-10x3(\s|$)/);
     expect(nixSshOpts).toContain("-o ControlPersist=10m");
     expect(nixSshOpts).toContain("-o ServerAliveInterval=10");
+    expect(nixSshOpts).toContain("-o ServerAliveCountMax=3");
+  });
+
+  it("threads a custom keepalive into EVERY ssh the provisioning spawns", async () => {
+    // The provisioning steps are where a long CI lane is most exposed to a
+    // blip: a cold build can sit idle for minutes. So the dial's policy has to
+    // reach the argv we spawn AND the `NIX_SSHOPTS` Nix's own ssh reads.
+    mockNix();
+    await provisionAgent({
+      host: "testhost",
+      derivation: directAgentDerivation(DRV, TEST_BINARY_CACHE),
+      onProgress: () => {},
+      ...provArgs(),
+      keepalive: CI_KEEPALIVE,
+    });
+    const calls = vi.mocked(runCapture).mock.calls;
+
+    // Every ssh argv we build ourselves (the warm check, the GC-root pin).
+    const sshCalls = calls.filter(([command]) => command === "ssh");
+    expect(sshCalls.length).toBeGreaterThan(0);
+    for (const [, args] of sshCalls) {
+      expect(args).toContain("ServerAliveInterval=30");
+      expect(args).toContain("ServerAliveCountMax=10");
+    }
+
+    // …and every Nix command that MAY fork an ssh, whose fork is out of reach of
+    // our argv. That includes the cache prefetch: `agentBinaryCache` restricts no
+    // substituter scheme, so `ssh://` is a spellable declared cache and a
+    // prefetch with no NIX_SSHOPTS would have zero dead-peer detection.
+    const nixCalls = calls.filter(([command]) => command === "nix");
+    expect(nixCalls.length).toBeGreaterThan(0);
+    for (const [, args, o] of nixCalls) {
+      // Localhost-only invocations legitimately pass no env; every call that can
+      // reach another machine must carry the policy.
+      if (o?.env === undefined) {
+        throw new Error(
+          `a nix invocation reached the wire with no NIX_SSHOPTS: ${args.join(" ")}`,
+        );
+      }
+    }
+    const envs = calls
+      .map(([, , opts]) => opts?.env?.NIX_SSHOPTS)
+      .filter((v): v is string => typeof v === "string");
+    expect(envs.length).toBeGreaterThan(0);
+    for (const env of envs) {
+      expect(env).toContain("-o ServerAliveInterval=30");
+      expect(env).toContain("-o ServerAliveCountMax=10");
+      // Its own master, never the interactive one (the opener wins for life).
+      expect(env).toMatch(/-o ControlPath=\S+\/%C-30x10(\s|$)/);
+    }
+  });
+
+  it("REFUSES an out-of-range keepalive rather than clamping it", () => {
+    // The refusal now lands at the LITERAL rather than several provisioning
+    // steps in: `sshKeepalive` is the only producer of the branded value
+    // `ProvisionOptions.keepalive` requires, so an out-of-range policy cannot
+    // reach `provisionAgent` at all — it never becomes a value, so it is not an
+    // escape from the otherwise-total `ProvisionResult` either.
+    // 300 × 60 = 5 hours — no longer dead-peer detection at all.
+    expect(() => sshKeepalive(300, 60)).toThrow(/ssh keepalive/);
   });
 
   it("uses one remote-store Nix build for transfer and realisation", async () => {
@@ -180,7 +223,9 @@ describe("provisionAgent GC-root pinning (cold path)", () => {
       .find((args) => args.includes("--print-out-paths"));
     expect(buildArgs).toBeDefined();
     expect(buildArgs).toContain("-v");
-    expect(buildArgs).not.toContain("--log-format");
+    // Nix's tagged log is what the failure report and the transport verdict
+    // are read from (`nixLog.ts`) — never raw `-v` text.
+    expect(buildArgs?.slice(0, 2)).toEqual(["--log-format", "internal-json"]);
     expect(buildArgs).toContain("build");
     expect(buildArgs).toEqual(
       expect.arrayContaining([
@@ -299,8 +344,27 @@ describe("provisionAgent GC-root pinning (cold path)", () => {
 });
 
 describe("provisionAgent cause classification", () => {
-  it("classifies a transport 255 on the build as network", async () => {
-    mockNix({ realise: { ok: false, kind: "exit", code: 255, stdout: "" } });
+  it("classifies the build's ssh-ng connection failure as network", async () => {
+    // What real nix does when its ssh to the remote store fails: ssh's own raw
+    // stderr, Nix's own error, and exit 1 — never 255 (that is OUR ssh's code).
+    vi.mocked(runCapture).mockImplementation(async (_cmd, args, opts) => {
+      if (args.includes("--outputs")) return okOut(`${STORE}\n`);
+      if (args.includes("--print-out-paths")) {
+        opts?.onProgress?.(
+          "ssh: connect to host testhost port 22: Connection timed out",
+        );
+        opts?.onProgress?.(
+          nixJsonLine({
+            action: "msg",
+            level: 0,
+            msg: "error: failed to start SSH connection to 'testhost'",
+            raw_msg: "failed to start SSH connection to 'testhost'",
+          }),
+        );
+        return failOut;
+      }
+      return failOut;
+    });
     const res = await provisionAgent({
       host: "testhost",
       derivation: directAgentDerivation(DRV, TEST_BINARY_CACHE),
@@ -568,6 +632,8 @@ describe("cache prefetch + ship (steps 2 and 3)", () => {
     // The exact wire shape: closure of the LOCAL output path, from the
     // declared substituter, with the declared keys trusted for this copy.
     expect(calls[copyIdx]?.[1]).toEqual([
+      "--log-format",
+      "internal-json",
       "-v",
       "copy",
       "--from",
@@ -590,9 +656,7 @@ describe("cache prefetch + ship (steps 2 and 3)", () => {
     expect(res.ok).toBe(true);
     expect(
       onProgress.mock.calls.some(([line]) =>
-        /no declared cache had the agent closure — realising from source instead/.test(
-          String(line),
-        ),
+        /no declared cache delivered the agent closure/.test(String(line)),
       ),
     ).toBe(true);
   });
@@ -614,12 +678,15 @@ describe("cache prefetch + ship (steps 2 and 3)", () => {
       ...provArgs(),
     });
     const lines = onProgress.mock.calls.map(([l]) => String(l));
-    const giveUps = lines.filter((l) => /realising from source/.test(l));
+    const giveUps = lines.filter((l) =>
+      /no declared cache delivered the agent closure/.test(l),
+    );
     expect(giveUps).toHaveLength(1);
-    expect(giveUps[0]).toMatch(/no declared cache had the agent closure/);
     // The per-URL lines stay factual about that one URL.
     expect(
-      lines.filter((l) => /no agent closure at https:\/\//.test(l)),
+      lines.filter((l) =>
+        /could not fetch the agent closure from https:\/\//.test(l),
+      ),
     ).toHaveLength(2);
   });
 
@@ -683,8 +750,11 @@ describe("cache prefetch + ship (steps 2 and 3)", () => {
     const shipIdx = calls.findIndex(([, args]) => isShip(args));
     expect(shipIdx).toBeGreaterThanOrEqual(0);
     expect(calls[shipIdx]?.[1]).toEqual([
+      "--log-format",
+      "internal-json",
       "-v",
       "copy",
+      "--no-check-sigs",
       "--to",
       "ssh-ng://build-host",
       STORE,
@@ -746,7 +816,7 @@ describe("cache prefetch + ship (steps 2 and 3)", () => {
     expect(calls.some(([, args]) => isShip(args))).toBe(false);
   });
 
-  it("a ship refusal narrates the real levers and the dial still succeeds", async () => {
+  it("a ship refusal narrates what failed and the dial still succeeds", async () => {
     mockNix({ copy: okOut("") }); // ship defaults to failure
     const onProgress = vi.fn();
     const res = await provisionAgent({
@@ -758,7 +828,7 @@ describe("cache prefetch + ship (steps 2 and 3)", () => {
     expect(res.ok).toBe(true);
     expect(
       onProgress.mock.calls.some(([line]) =>
-        /could not ship the agent closure.*host will realise it itself/s.test(
+        /could not ship the agent closure: .*the host will realise it with its own substituters/s.test(
           String(line),
         ),
       ),
@@ -863,6 +933,39 @@ describe("cache prefetch + ship (steps 2 and 3)", () => {
       kind: "progress-liveness",
       silenceMs: PROVISION_STEP_SILENCE_BASE_MS * 2 ** 3,
     });
+  });
+
+  it("names why the local output query failed, in Nix's own words", async () => {
+    // The query runs through `runNix` like every other Nix step, so a GC'd or
+    // unreadable `.drv` is on record rather than thrown away.
+    vi.mocked(runCapture).mockImplementation(async (_cmd, args, opts) => {
+      if (args.includes("--outputs")) {
+        opts.onProgress?.(
+          nixJsonLine({
+            action: "msg",
+            level: 0,
+            msg: "error: path '/nix/store/zzz-agent.drv' is not valid",
+            raw_msg: "path '/nix/store/zzz-agent.drv' is not valid",
+          }),
+        );
+        return failOut;
+      }
+      if (args.includes("--print-out-paths")) return okOut(`${STORE}\n`);
+      if (args.includes("--add-root")) return okOut("/home/u/link\n");
+      return failOut;
+    });
+    const onProgress = vi.fn();
+    await provisionAgent({
+      host: "testhost",
+      derivation: directAgentDerivation(DRV, TEST_BINARY_CACHE),
+      onProgress,
+      ...provArgs(),
+    });
+    expect(onProgress).toHaveBeenCalledWith(
+      expect.stringMatching(
+        /agent output path unknown locally \(path '\/nix\/store\/zzz-agent\.drv' is not valid\)/,
+      ),
+    );
   });
 
   it("skips the prefetch when the local output query fails — the build owns realisation", async () => {
@@ -1064,5 +1167,182 @@ describe("staging replaces the build when it can (steps 2/3 → 4a)", () => {
     expect(calls.some(([, args]) => args.includes("--print-out-paths"))).toBe(
       false,
     );
+  });
+});
+
+/** An ANSI SGR sequence, the way Nix colours its messages even into a pipe. */
+const sgr = (code: string): string => `\u001b[${code}m`;
+
+describe("honest failure reporting (the sheetal-codex incident)", () => {
+  const flakeDrv = () =>
+    flakeAgentDerivation(DRV, FLAKE_INSTALLABLE, TEST_BINARY_CACHE);
+  const CRATE_DRV =
+    "/nix/store/d44gl7h40dgahrrg3w8n3rg9d6bp1kxf-crate-humantime-2.4.0.tar.gz.drv";
+  const KOLU_DRV = "/nix/store/rz6j476k358bj3madirm98i34bb7ykl7-kolu-2.2.0.drv";
+
+  /** A remote build that failed the way it did on the incident host: the crate
+   *  fetch's own curl output (a builder LOG), then Nix's root error, then a
+   *  dependent's cascade. */
+  const failedCrateBuild = (line: (l: string) => void): void => {
+    line(
+      nixJsonLine({
+        action: "start",
+        id: 7,
+        level: 3,
+        parent: 0,
+        type: 105,
+        text: `building '${CRATE_DRV}'`,
+        fields: [CRATE_DRV, "", 1, 1],
+      }),
+    );
+    line(
+      nixJsonLine({
+        action: "result",
+        id: 7,
+        type: 101,
+        fields: [
+          "curl: (7) Failed to connect to crates.io port 443 after 2 ms: Couldn't connect to server",
+        ],
+      }),
+    );
+    line(
+      nixJsonLine({
+        action: "result",
+        id: 7,
+        type: 101,
+        fields: [
+          "error: cannot download crate-humantime-2.4.0.tar.gz from any mirror",
+        ],
+      }),
+    );
+    line(
+      nixJsonLine({
+        action: "msg",
+        level: 0,
+        msg: `${sgr("31;1")}error:${sgr("0")} Cannot build '${sgr("35;1")}${CRATE_DRV}${sgr("0")}'.\n       Reason: ${sgr("31;1")}builder failed with exit code 1${sgr("0")}.`,
+      }),
+    );
+    line(
+      nixJsonLine({
+        action: "msg",
+        level: 0,
+        msg: `${sgr("31;1")}error:${sgr("0")} Cannot build '${KOLU_DRV}'.\n       Reason: 1 dependency failed.`,
+        raw_msg: `Cannot build '${KOLU_DRV}'.\nReason: 1 dependency failed.`,
+      }),
+    );
+  };
+
+  /** Route a cold build that fails like the incident's. */
+  const mockFailedBuild = (): void => {
+    vi.mocked(runCapture).mockImplementation(async (_cmd, args, opts) => {
+      if (args.includes("--outputs")) return okOut(`${STORE}\n`);
+      if (args.includes("--print-out-paths")) {
+        failedCrateBuild((l) => opts?.onProgress?.(l));
+        return failOut;
+      }
+      return failOut;
+    });
+  };
+
+  it("every stderr line of a long step reaches onActivity — even the ones never narrated", async () => {
+    // The session's pre-connected backstop listens to narration AND activity; the
+    // child's own silence policy listens to raw bytes. Filtered build-log lines and
+    // transfer progress must feed the backstop, or a healthy long build is cycled.
+    const filtered = [
+      nixJsonLine({ action: "result", id: 7, type: 105, fields: [1, 2, 0, 0] }),
+      nixJsonLine({
+        action: "result",
+        id: 7,
+        type: 101,
+        fields: ["compiling…"],
+      }),
+      nixJsonLine({ action: "msg", level: 4, msg: "evaluating file 'x'" }),
+    ];
+    vi.mocked(runCapture).mockImplementation(async (_cmd, args, opts) => {
+      if (args.includes("--outputs")) return okOut(`${STORE}\n`);
+      if (args.includes("--print-out-paths")) {
+        for (const l of filtered) opts?.onProgress?.(l);
+        return okOut(`${STORE}\n`);
+      }
+      if (args.includes("--add-root")) return okOut("/home/u/link\n");
+      return failOut;
+    });
+    const onProgress = vi.fn();
+    const onActivity = vi.fn();
+    const res = await provisionAgent({
+      host: "build-host",
+      derivation: flakeDrv(),
+      onProgress,
+      ...provArgs(),
+      onActivity,
+    });
+    expect(res.ok).toBe(true);
+    expect(onActivity.mock.calls.length).toBeGreaterThanOrEqual(
+      filtered.length,
+    );
+    for (const l of ["compiling…", "evaluating file 'x'"]) {
+      expect(onProgress).not.toHaveBeenCalledWith(l);
+    }
+  });
+
+  it("ships with --no-check-sigs, so a host that trusts the ssh user accepts the closure", async () => {
+    mockNix({ localValidity: okOut(""), ship: okOut("") });
+    const res = await provisionAgent({
+      host: "build-host",
+      derivation: flakeDrv(),
+      onProgress: vi.fn(),
+      ...provArgs(),
+    });
+    expect(res.ok).toBe(true);
+    const ship = vi
+      .mocked(runCapture)
+      .mock.calls.find(([, args]) => isShip(args));
+    expect(ship?.[1]).toContain("--no-check-sigs");
+  });
+
+  it("a failed build reports Nix's root error, never an exit code", async () => {
+    mockFailedBuild();
+    const res = await provisionAgent({
+      host: "build-host",
+      derivation: flakeDrv(),
+      onProgress: vi.fn(),
+      ...provArgs(),
+    });
+    const reason = res.ok ? "" : res.reason;
+    expect(reason).not.toMatch(/exited with code/);
+    expect(reason).toContain(`Cannot build '${CRATE_DRV}'`);
+    expect(reason).toContain(
+      "cannot download crate-humantime-2.4.0.tar.gz from any mirror",
+    );
+    // The dependent's cascade is fallout, never the headline.
+    expect(reason).not.toContain(KOLU_DRV);
+  });
+
+  it("a builder's own curl output never makes the host 'unreachable'", async () => {
+    mockFailedBuild();
+    const res = await provisionAgent({
+      host: "build-host",
+      derivation: flakeDrv(),
+      onProgress: vi.fn(),
+      ...provArgs(),
+    });
+    expect(res.ok === false && res.cause).toBe("remote");
+  });
+
+  it("the root error is the last thing narrated, so the failure card's tail keeps it", async () => {
+    mockFailedBuild();
+    const onProgress = vi.fn();
+    await provisionAgent({
+      host: "build-host",
+      derivation: flakeDrv(),
+      onProgress,
+      ...provArgs(),
+    });
+    const lines = onProgress.mock.calls.map(([l]) => String(l));
+    expect(lines.at(-1)).toContain(
+      "cannot download crate-humantime-2.4.0.tar.gz from any mirror",
+    );
+    // Nix's colour codes never reach the screen.
+    expect(lines.some((l) => l.includes("\u001b"))).toBe(false);
   });
 });

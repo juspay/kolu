@@ -31,6 +31,7 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { dirname, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
+import { declaredDependencyClosure } from "@kolu/daemon-test-gate/runtimeDepEdges";
 import { Effect } from "effect";
 import { parse } from "@babel/parser";
 import { contract } from "kolu-common/contract";
@@ -243,56 +244,34 @@ function serverTestFiles(): string[] {
 // remains in the app for padi to reach for.
 
 const PADI_SRC = resolve(SRC, "..", "..", "padi", "src");
+/** The terminal domain's CLIENT half. It is padi's — the spec padi serves, the
+ *  dial its clients share — carved into its own package only so a consumer can
+ *  hydrate it without the daemon (juspay/kolu#2216). So every reverse seal below
+ *  covers it too: a `koluSurface` reference or an app import here would be the
+ *  exact inversion arms (d)/(e) exist to forbid, and carving the files out must
+ *  not be a way to leave the seal. */
+const PADI_CLIENT_SRC = resolve(SRC, "..", "..", "padi-client", "src");
 
-/** Every `.ts` under `packages/padi/src` INCLUDING tests — the whole cone must be
- *  app-free, not just production (a test importing the app is still a reverse edge). */
+/** Every `.ts` under the terminal domain's two package roots, INCLUDING tests —
+ *  the whole cone must be app-free, not just production (a test importing the app
+ *  is still a reverse edge). */
 function padiSrcFilesAll(): string[] {
-  return readdirSync(PADI_SRC, { recursive: true })
-    .map((f) => String(f).split(sep).join("/"))
-    .filter((f) => f.endsWith(".ts"))
-    .map((f) => resolve(PADI_SRC, f));
+  return [PADI_SRC, PADI_CLIENT_SRC].flatMap((root) =>
+    readdirSync(root, { recursive: true })
+      .map((f) => String(f).split(sep).join("/"))
+      .filter((f) => f.endsWith(".ts"))
+      .map((f) => resolve(root, f)),
+  );
 }
 
 const PACKAGES_DIR = resolve(PADI_SRC, "..", "..");
+const REPO_ROOT = resolve(PACKAGES_DIR, "..");
 const PADI_PKG = resolve(PADI_SRC, "..", "package.json");
+const PADI_CLIENT_PKG = resolve(PADI_CLIENT_SRC, "..", "package.json");
 
 /** The app packages @kolu/padi (the terminal-domain AUTHORITY) must never depend
  *  on — the arrow points OUT. `@kolu/padi/*` is not among them (it IS padi). */
 const APP_PACKAGES = ["kolu-common", "kolu-server", "kolu-client"];
-
-/** Map every workspace package NAME → its `package.json` path, so a workspace
- *  dep (`@kolu/terminal-vocab`, `kaval`, `kolu-pty`, …) resolves to its dir
- *  even when the dir name differs from the package name.
- *
- *  Discovery is RECURSIVE, mirroring the ROOT `pnpm-workspace.yaml`, whose sole
- *  workspace glob is a fully-recursive `packages/**`: a workspace package may live
- *  at ANY depth under `packages/` — top-level (`packages/kaval`), nested
- *  (`packages/integrations/kolu-pty`), an `example/*` sub-package, and so on. The
- *  old top-level-only `readdirSync(PACKAGES_DIR)` silently DROPPED
- *  `packages/integrations/*` — ~7 of padi's OWN deps (kolu-pty, kolu-git,
- *  anyagent, anyforge, kolu-claude-code, kolu-codex, kolu-opencode) — so arm (e)'s
- *  cone walk never reached them and passed vacuously. We prune `node_modules`
- *  (pnpm never treats it as a workspace root) and dot-dirs; every remaining
- *  `package.json` is a workspace member, keyed by its declared `name`. */
-function workspacePkgJsonByName(): Map<string, string> {
-  const byName = new Map<string, string>();
-  const walk = (dir: string): void => {
-    const pj = resolve(dir, "package.json");
-    if (existsSync(pj)) {
-      try {
-        const name = JSON.parse(readFileSync(pj, "utf8")).name;
-        if (typeof name === "string" && name) byName.set(name, pj);
-      } catch {}
-    }
-    for (const ent of readdirSync(dir, { withFileTypes: true })) {
-      if (!ent.isDirectory()) continue;
-      if (ent.name === "node_modules" || ent.name.startsWith(".")) continue;
-      walk(resolve(dir, ent.name));
-    }
-  };
-  walk(PACKAGES_DIR);
-  return byName;
-}
 
 function declaredDeps(pkgJsonPath: string): string[] {
   const p = JSON.parse(readFileSync(pkgJsonPath, "utf8"));
@@ -416,6 +395,25 @@ function koluSurfaceBindings(file: string): string[] {
 
 // ── (b) The @kolu/padi import-boundary walk ───────────────────────────────
 
+/** The packages that ARE the terminal domain, listed. Membership is what arms
+ *  (b) and (f) police, so it must be a fact a reviewer edits rather than a shape
+ *  a name happens to have: `startsWith("@kolu/padi")` reads like a rule and is a
+ *  coincidence, and it fails silently in both directions — a third domain
+ *  package under a different name (`@kolu/terminal-domain`) would slip out of the
+ *  seal while the arrow it polices inverts, and an unrelated `@kolu/padi-foo`
+ *  would slip in. */
+const TERMINAL_DOMAIN = ["@kolu/padi", "@kolu/padi-client"] as const;
+
+/** True for a specifier naming the terminal domain — the package itself or one
+ *  of its subpaths.
+ *
+ *  The exact-or-`root/` shape is spelled again in `packages/kolu-mcp/src/tools.test.ts`.
+ *  That duplication is DELIBERATE: sharing three lines would cost kolu-mcp a new
+ *  devDependency on this package's home, which is a worse trade than typing them twice. */
+function inTerminalDomain(spec: string): boolean {
+  return TERMINAL_DOMAIN.some((n) => spec === n || spec.startsWith(`${n}/`));
+}
+
 /** The `@kolu/padi` specifiers kolu-server's PRODUCTION code (everything reachable
  *  from `index.ts`) may import — the TIGHT boundary. A DELIBERATE subset of padi's
  *  published `exports` (arm f asserts the subset relation): production reaches the
@@ -423,12 +421,21 @@ function koluSurfaceBindings(file: string): string[] {
  *  `supervisorClaim` routes through `/assembly` rather than importing
  *  `@kolu/padi/stateRoot` directly (its own header records that choice). Each entry
  *  earns its place:
- *   - `/surface` — the terminal VOCABULARY (schemas · records · pure helpers);
+ *   - `@kolu/padi-client/surface` — the terminal VOCABULARY (schemas · records ·
+ *     pure helpers). It moved to the client package at juspay/kolu#2216 so a
+ *     consumer can hydrate the contract without the daemon; the DOOR is the same
+ *     door, and the seal counts `@kolu/padi-client` as part of the terminal
+ *     domain (`TERMINAL_DOMAIN` names both), never as a way out of it;
  *   - `/assembly` — the padi binder's assembly surface (socket paths, preview, the
  *     kaval/padi probe types) — the one production door for state-root-adjacent needs;
- *   - `/dial` — the shared dial kit (`connectPadi`), so `padi-tui` and the binder
- *     share ONE state-root→socket resolve + control-core handshake (the kaval precedent);
+ *   - `@kolu/padi-client/dial` — the shared dial kit (`connectPadi`), so `padi-tui`
+ *     and the binder share ONE control-core handshake (the kaval precedent);
  *   - `/log` — padi's pino logger, so a server log line joins padi's stream;
+ *   - `/remote-dial` — the ssh half of the dial: the closure this build
+ *     provisions onto a host (`PADI_REMOTE_DIAL`) and the one-shot dial through
+ *     it. It stayed in `@kolu/padi` when the local dial left, because what it
+ *     names is a nix package and a binary — the daemon, not the contract — and
+ *     the binder is the one production caller that genuinely ships a padi;
  *   - `/convergence-policy` — padi's own declaration of WHO IT IS and how a
  *     supervisor of it converges (juspay/kolu#2101). It earned a door of its own
  *     rather than riding `/assembly` precisely because of the rule above: it is
@@ -441,21 +448,32 @@ function koluSurfaceBindings(file: string): string[] {
 const ALLOWED_PADI = [
   "@kolu/padi/assembly",
   "@kolu/padi/convergence-policy",
-  "@kolu/padi/dial",
-  "@kolu/padi/surface",
   "@kolu/padi/log",
+  "@kolu/padi/remote-dial",
+  "@kolu/padi-client/dial",
+  "@kolu/padi-client/surface",
 ];
 
-/** padi's PUBLISHED subpaths, derived from its `package.json` `exports` (so this
- *  can't drift from the real contract) as `@kolu/padi/<name>` specifiers. This is
- *  the deliberate published surface — the set a TEST file may reach (arm f), and
- *  the superset `ALLOWED_PADI` (the production door) is a documented subset of. */
+/** The terminal domain's PUBLISHED subpaths, derived from BOTH package.jsons'
+ *  `exports` (so this can't drift from the real contract). This is the deliberate
+ *  published surface — the set a TEST file may reach (arm f), and the superset
+ *  `ALLOWED_PADI` (the production door) is a documented subset of.
+ *
+ *  Two manifests, one door set: the split into `@kolu/padi-client` is about what a
+ *  consumer HYDRATES, not about how many contracts the server may reach past. */
 function padiPublishedSubpaths(): Set<string> {
-  const exportsMap = JSON.parse(readFileSync(PADI_PKG, "utf8"))
-    .exports as Record<string, unknown>;
-  return new Set(
-    Object.keys(exportsMap).map((k) => k.replace(/^\.\//, "@kolu/padi/")),
-  );
+  const published = new Set<string>();
+  for (const [pkgJson, name] of [
+    [PADI_PKG, "@kolu/padi/"],
+    [PADI_CLIENT_PKG, "@kolu/padi-client/"],
+  ] as const) {
+    const exportsMap = JSON.parse(readFileSync(pkgJson, "utf8"))
+      .exports as Record<string, unknown>;
+    for (const key of Object.keys(exportsMap)) {
+      published.add(key.replace(/^\.\//, name));
+    }
+  }
+  return published;
 }
 
 function importsOf(file: string): string[] {
@@ -554,18 +572,20 @@ describe("packages/server package-boundary seal (W1.R7)", () => {
     expect(serverSrcTsFiles().length).toBeGreaterThan(0);
   });
 
-  it("(b) reaches @kolu/padi only through /assembly, /dial, /surface, /log — no deep src import", () => {
+  it("(b) reaches the terminal domain only through its named doors — no deep src import", () => {
     const padiSpecs = [...externalsFromEntry()]
-      .filter((s) => s.startsWith("@kolu/padi"))
+      .filter((s) => inTerminalDomain(s))
       .sort();
     // Every @kolu/padi edge is one of the ALLOWED_PADI published entry points; a
     // `@kolu/padi/src/...` deep import (or any other subpath) fails here.
     const illegal = padiSpecs.filter((s) => !ALLOWED_PADI.includes(s));
     expect(
       illegal,
-      `illegal @kolu/padi import(s) from packages/server: ${illegal.join(
+      `illegal terminal-domain import(s) from packages/server: ${illegal.join(
         ", ",
-      )}. kolu-server must reach the terminal domain only via @kolu/padi/{assembly,dial,surface,log}.`,
+      )}. kolu-server must reach the terminal domain only via ` +
+        `@kolu/padi/{assembly,convergence-policy,log,remote-dial} and ` +
+        `@kolu/padi-client/{surface,dial}.`,
     ).toEqual([]);
     // And it genuinely reaches the barrel (not a vacuous pass).
     expect(padiSpecs.length).toBeGreaterThan(0);
@@ -577,7 +597,7 @@ describe("packages/server package-boundary seal (W1.R7)", () => {
     // left open (W4 ledger L13). A test legitimately needs MORE of padi than
     // production does (it drives internals: `padi/padiBinding.test` reaches
     // `@kolu/padi/stateRoot`, `exportTranscriptHtml.test` reaches
-    // `@kolu/padi/transcript` — both PUBLISHED entry points other packages
+    // `@kolu/padi-client/surface` — both PUBLISHED entry points other packages
     // (`tests`, `client`) consume too, so narrowing them out of padi's exports
     // would break real consumers). But a test must still go through the PUBLISHED
     // contract, never a deep `@kolu/padi/src/...` that bypasses the barrel.
@@ -599,7 +619,7 @@ describe("packages/server package-boundary seal (W1.R7)", () => {
     let sawPadiImport = false;
     for (const file of serverTestFiles()) {
       for (const spec of importsOf(file)) {
-        if (!spec.startsWith("@kolu/padi")) continue;
+        if (!inTerminalDomain(spec)) continue;
         sawPadiImport = true;
         if (!published.has(spec)) {
           offenders.push(
@@ -664,7 +684,12 @@ describe("packages/server package-boundary seal (W1.R7)", () => {
     expect(
       offenders.map(
         (o) =>
-          `${o.f.replace(PADI_SRC, "@kolu/padi/src")}: ${o.refs.join(", ")}`,
+          `${o.f
+            .replace(PADI_SRC, "@kolu/padi/src")
+            .replace(
+              PADI_CLIENT_SRC,
+              "@kolu/padi-client/src",
+            )}: ${o.refs.join(", ")}`,
       ),
       "a @kolu/padi src file references the koluSurface SPEC/ctx — a reverse-" +
         "direction dependency the forward seal can't see. It's caught in ALL forms: " +
@@ -680,12 +705,16 @@ describe("packages/server package-boundary seal (W1.R7)", () => {
     // domain AUTHORITY) must not depend on the kolu APP. Three checks pin the
     // cone — package.json, the import graph, and one transitive hop.
 
-    // (1) padi/package.json declares no app package (runtime OR dev).
-    expect(
-      declaredDeps(PADI_PKG).filter((d) => APP_PACKAGES.includes(d)),
-      "packages/padi/package.json lists an app package (kolu-common/server/client) " +
-        "as a dependency — padi owns its vocabulary; the app depends on padi, not the reverse.",
-    ).toEqual([]);
+    // (1) NEITHER terminal-domain package.json declares an app package (runtime
+    //     OR dev). Both, because the vocabulary lives in the client half now and a
+    //     manifest edge there would invert the arrow just as surely.
+    for (const pkgJson of [PADI_PKG, PADI_CLIENT_PKG]) {
+      expect(
+        declaredDeps(pkgJson).filter((d) => APP_PACKAGES.includes(d)),
+        `${pkgJson} lists an app package (kolu-common/server/client) as a ` +
+          "dependency — padi owns its vocabulary; the app depends on padi, not the reverse.",
+      ).toEqual([]);
+    }
 
     // (2) no @kolu/padi src file (INCLUDING tests) imports an app package.
     const APP_SPEC = new RegExp(`^(${APP_PACKAGES.join("|")})($|/)`);
@@ -694,7 +723,9 @@ describe("packages/server package-boundary seal (W1.R7)", () => {
       for (const spec of importsOf(file)) {
         if (APP_SPEC.test(spec)) {
           importOffenders.push(
-            `${file.replace(PADI_SRC, "@kolu/padi/src")}: ${spec}`,
+            `${file
+              .replace(PADI_SRC, "@kolu/padi/src")
+              .replace(PADI_CLIENT_SRC, "@kolu/padi-client/src")}: ${spec}`,
           );
         }
       }
@@ -707,44 +738,36 @@ describe("packages/server package-boundary seal (W1.R7)", () => {
         "The terminal vocabulary lives in @kolu/padi now; import it locally, not from the app.",
     ).toEqual([]);
 
-    // (3) transitive: walk padi's WHOLE workspace dependency cone to a FIXPOINT —
-    //     follow every workspace runtime dep (integrations included, at any
-    //     nesting under `packages/**`) until no new package appears — and flag any
-    //     node that declares an app package. A one-hop check saw only padi's
-    //     DIRECT deps, so `padi → <lib> → <lib2> → app` slipped through; and with
-    //     the old top-level-only discovery, padi's integrations deps (kolu-pty,
-    //     kolu-git, …) weren't even in the map, so this arm passed vacuously.
-    const byName = workspacePkgJsonByName();
-    // The discovery fix as a CI-enforced fact: a known `packages/integrations/*`
-    // package IS in scope now, so the cone walk below is non-vacuous.
-    expect(
-      byName.has("kolu-pty"),
-      "workspace discovery is missing packages/integrations/* (e.g. kolu-pty) — " +
-        "the cone walk would skip ~7 of padi's own deps and pass vacuously.",
-    ).toBe(true);
+    // (3) transitive: padi's WHOLE workspace dependency cone — every workspace
+    //     runtime dep (integrations included, at any nesting under `packages/**`)
+    //     reachable from either terminal-domain manifest — must be free of app
+    //     packages. A one-hop check saw only padi's DIRECT deps, so
+    //     `padi → <lib> → <lib2> → app` slipped through.
+    //
+    //     The cone itself is `declaredDependencyClosure`'s, not a third
+    //     hand-rolled fixpoint beside it and nix's `depClosure` — "the transitive
+    //     workspace-dependency closure" is one derivation and this file consumes
+    //     it. That also retires the old vacuity guard here (`byName.has("kolu-pty")`,
+    //     which existed because a top-level-only discovery once silently dropped
+    //     `packages/integrations/*`): the shared walk THROWS on an entry that is
+    //     not a workspace member, so a stale seed can no longer be answered with a
+    //     quiet empty closure.
+    //
+    //     Seeded from BOTH manifests. `@kolu/padi-client` is a declared dep of
+    //     padi, so the walk would reach it anyway — naming it keeps the arm honest
+    //     if that edge ever inverts (the client half is the one an out-of-repo
+    //     consumer hydrates alone, so its cone matters on its own terms).
+    const cone = declaredDependencyClosure({
+      repoRoot: REPO_ROOT,
+      entries: TERMINAL_DOMAIN,
+    });
     const transitiveOffenders: string[] = [];
-    const expanded = new Set<string>(); // package NAMES already expanded
-    const worklist = Object.keys(
-      JSON.parse(readFileSync(PADI_PKG, "utf8")).dependencies ?? {},
-    );
-    while (worklist.length > 0) {
-      const dep = worklist.pop() as string;
-      if (expanded.has(dep)) continue;
-      expanded.add(dep);
-      const depPkg = byName.get(dep);
-      if (!depPkg) continue; // non-workspace (registry) dep — can't reach app workspaces
-      for (const a of declaredDeps(depPkg).filter((d) =>
+    for (const manifestPath of cone.manifestPaths) {
+      const pkgJson = resolve(REPO_ROOT, manifestPath);
+      for (const a of declaredDeps(pkgJson).filter((d) =>
         APP_PACKAGES.includes(d),
       )) {
-        transitiveOffenders.push(`${dep} → ${a}`);
-      }
-      // Follow this node's own RUNTIME deps — the runtime cone that determines
-      // padi's staleKey/closure. Registry deps aren't in `byName`, so the worklist
-      // only ever grows by workspace packages and the fixpoint terminates.
-      for (const next of Object.keys(
-        JSON.parse(readFileSync(depPkg, "utf8")).dependencies ?? {},
-      )) {
-        if (!expanded.has(next) && byName.has(next)) worklist.push(next);
+        transitiveOffenders.push(`${manifestPath} → ${a}`);
       }
     }
     expect(

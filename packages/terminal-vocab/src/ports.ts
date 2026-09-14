@@ -128,33 +128,89 @@ export function widerScope(a: PortScope, b: PortScope): PortScope {
   return SCOPE_RANK[a] >= SCOPE_RANK[b] ? a : b;
 }
 
-/** One listening TCP port inside a process subtree — "what is this thing
+/** The longest command line a {@link PortInfo} carries, in characters.
+ *
+ *  A BOUND, not a presentation choice: the command rides the wire on every port
+ *  sample, and a `node -e '<a whole script>'` server has a multi-kilobyte argv.
+ *  Every render site truncates to one line anyway; what this bounds is the payload
+ *  a seconds-cadence scanner republishes. 512 kept every server invocation on a
+ *  busy dev box whole (the longest vite/bun/racket command there was ~300) and
+ *  cuts only the inline-script case, whose head is the part that identifies it. */
+export const PORT_COMMAND_MAX_CHARS = 512;
+
+/** The command line a listener's process is shown by: its argv joined by spaces,
+ *  cut at {@link PORT_COMMAND_MAX_CHARS} with a trailing `…`.
+ *
+ *  An EMPTY argv is shown by `name`. That covers two cases the scanner passes
+ *  identically: a process the kernel gave no argv, and one whose argv could not
+ *  be read. The second is deliberate, not a silent fallback — the command is a
+ *  LABEL, and dropping a listener because its label was unreadable would trade a
+ *  fact for a string (padi's scan says so where it makes the call). One home, so
+ *  the scanner and every fixture agree. */
+export function portCommand(argv: readonly string[], name: string): string {
+  const joined = argv.length === 0 ? name : argv.join(" ");
+  return joined.length <= PORT_COMMAND_MAX_CHARS
+    ? joined
+    : `${joined.slice(0, PORT_COMMAND_MAX_CHARS - 1)}…`;
+}
+
+/** WHERE one listening TCP socket is bound — the port, and the two facts a
+ *  consumer acts on ({@link PortScope}, {@link PortFamily}).
+ *
+ *  A bind is the same fact whoever holds the socket, so it is named for what it
+ *  IS rather than for where it sits. A socket NO readable process claims (another
+ *  user's server — a system daemon, a container proxy — seen from a same-user
+ *  scanner) is carried as exactly this: whose it is, is what could not be read,
+ *  so there is no `name` to carry rather than an empty one. A claimed listener
+ *  ({@link PortInfoSchema}) is a bind plus its owner, built from these same field
+ *  schemas, so any reader that needs only the bind reads it off either.
+ *
+ *  Not `PortInfo` with optional owner fields, for the reason `PortRow`'s arms are
+ *  separate: a render site reading an absent name as `""` would print a blank
+ *  where the honest word is "owner not visible". */
+export const PortBindSchema = Schema.Struct({
+  /** The TCP port the socket is listening on. */
+  port: TcpPortSchema,
+  /** Where it is bound — see {@link PortScopeSchema}. */
+  scope: PortScopeSchema,
+  /** Which IP family it is bound on — see {@link PortFamilySchema}. */
+  family: PortFamilySchema,
+});
+export type PortBind = typeof PortBindSchema.Type;
+
+/** One listening TCP port and the program holding it — "what is this thing
  *  serving?".
  *
- *  Four fields, and deliberately not a fifth: the raw BIND ADDRESS is reduced to
- *  the two facts a consumer acts on — the {@link PortScope} that decides whether
- *  a door is needed and the {@link PortFamily} that decides which loopback it
- *  dials. Carrying the address itself
- *  would invite every render site to re-derive that classification (and to
+ *  The raw BIND ADDRESS is reduced to the two facts a consumer acts on — the
+ *  {@link PortScope} that decides whether a door is needed and the
+ *  {@link PortFamily} that decides which loopback it dials. Carrying the address
+ *  itself would invite every render site to re-derive that classification (and to
  *  disagree about `::ffff:0.0.0.0`), which is the bug the single judge exists to
  *  prevent.
  *
- *  No pid either: a fork-inherited listening socket belongs to several pids at
- *  once, so a pid here would name an arbitrary one of them. Attribution is to
- *  the SUBTREE, which is the question a caller asks. */
+ *  No pid: a fork-inherited listening socket belongs to several pids at once, so
+ *  a pid here would name an arbitrary one of them. Attribution is to a SUBTREE
+ *  (a terminal's) or to the HOST, which are the questions a caller asks. */
 export const PortInfoSchema = Schema.Struct({
-  /** The TCP port the socket is listening on. */
-  port: TcpPortSchema,
+  // The bind's own field schemas, in the PERSISTED key order — `port` first,
+  // `scope`/`family` last. Spreading `PortBindSchema.fields` up front would
+  // reorder the encoded keys of every stored snapshot (schemaByteCompat pins it).
+  port: PortBindSchema.fields.port,
   /** The PROGRAM holding the listener (`node`, `workerd`, …), for a glanceable
    *  "who is this?" beside the number — `argv[0]`'s basename on linux, the
    *  executable path's basename on darwin. Deliberately not linux's `comm`: that
    *  is the THREAD name, which Node overwrites, so a plain `node` dev server
    *  would read `MainThread`. */
   name: Schema.String,
-  /** Where it is bound — see {@link PortScopeSchema}. */
-  scope: PortScopeSchema,
-  /** Which IP family it is bound on — see {@link PortFamilySchema}. */
-  family: PortFamilySchema,
+  /** The full command line of that program — see {@link portCommand}. `name`
+   *  says WHICH program; this says which RUN of it, which is the question once a
+   *  port is no longer attributed to the terminal on screen: a detached daemon
+   *  (`odu web-daemon`) and four `bun …/main.ts web <dir>` servers are all just
+   *  `bun` by name. Folded TOGETHER with `name` (see {@link foldPorts}), so the
+   *  two always describe the same process. */
+  command: Schema.String,
+  scope: PortBindSchema.fields.scope,
+  family: PortBindSchema.fields.family,
 });
 export type PortInfo = typeof PortInfoSchema.Type;
 
@@ -184,42 +240,75 @@ export type PortInfo = typeof PortInfoSchema.Type;
  *  through the fold, the registry, the wire and into a store write, forever.
  *  Naming either program is honest; naming a DIFFERENT one each pass is not. */
 export function foldPorts(rows: readonly PortInfo[]): PortInfo[] {
-  const byPort = new Map<number, PortInfo>();
+  return foldByPort(rows, (prior, row) => {
+    // The OWNER folds as one pair, like scope and family below: a `name` from
+    // one row beside a `command` from another would describe a process that
+    // does not exist. The pair compares name-first so the glanceable half is
+    // the lexicographic minimum exactly as it was before `command` existed.
+    const rowFirst =
+      row.name < prior.name ||
+      (row.name === prior.name && row.command < prior.command);
+    const owner = rowFirst ? row : prior;
+    return {
+      port: prior.port,
+      name: owner.name,
+      command: owner.command,
+      ...mergeBind(prior, row),
+    };
+  });
+}
+
+/** {@link foldPorts} for bare binds — one row per port, the widest bind, sorted.
+ *  The same bind rule, because every bind is one a door has to dial correctly:
+ *  the sockets no readable process claims, and a claimed + unclaimed union read
+ *  for its binds alone (a `PortInfo` IS a bind, so it passes as one). */
+export function foldBinds(rows: readonly PortBind[]): PortBind[] {
+  return foldByPort(rows, (prior, row) => ({
+    port: prior.port,
+    ...mergeBind(prior, row),
+  }));
+}
+
+/** The fold's skeleton, shared by both row shapes: first row per port wins
+ *  until `merge` is asked to combine it with the next, then sort by port. */
+function foldByPort<T extends { readonly port: number }>(
+  rows: readonly T[],
+  merge: (prior: T, row: T) => T,
+): T[] {
+  const byPort = new Map<number, T>();
   for (const row of rows) {
     const prior = byPort.get(row.port);
-    if (prior === undefined) {
-      byPort.set(row.port, row);
-      continue;
-    }
-    // Scope and family fold TOGETHER, because the family is a property OF a
-    // bind rather than of the port. Folded independently they can come from
-    // different rows: `192.168.1.5:5173` (v4) beside `[::1]:5173` (v6) folds to
-    // scope=loopback — right, the doorable bind wins — and family=v4, so the
-    // door dials 127.0.0.1 where nothing listens. It opens, reports success and
-    // serves nothing, which is the exact failure `family` was added to stop.
-    //
-    // So: the winning scope decides, and the family is read off the rows that
-    // hold that scope. Within one scope the v4 preference still applies.
-    //
-    // Rebuilt rather than mutated in place: a decoded `PortInfo` is readonly, so
-    // the accumulator is a fresh row per merge — which also means the caller's
-    // own rows are never written through, as the old defensive `{...row}` copy
-    // ensured.
-    const scope = widerScope(prior.scope, row.scope);
-    const family =
-      scope !== prior.scope
-        ? row.family
-        : row.scope === scope
-          ? preferredFamily(prior.family, row.family)
-          : prior.family;
-    byPort.set(row.port, {
-      port: prior.port,
-      name: row.name < prior.name ? row.name : prior.name,
-      scope,
-      family,
-    });
+    // Rebuilt rather than mutated in place: a decoded row is readonly, so the
+    // accumulator is a fresh row per merge — which also means the caller's own
+    // rows are never written through.
+    byPort.set(row.port, prior === undefined ? row : merge(prior, row));
   }
   return [...byPort.values()].sort((a, b) => a.port - b.port);
+}
+
+/** Two binds of one port, as the one bind a reader acts on.
+ *
+ *  Scope and family fold TOGETHER, because the family is a property OF a bind
+ *  rather than of the port. Folded independently they can come from different
+ *  rows: `192.168.1.5:5173` (v4) beside `[::1]:5173` (v6) folds to scope=loopback
+ *  — right, the doorable bind wins — and family=v4, so the door dials 127.0.0.1
+ *  where nothing listens. It opens, reports success and serves nothing, which is
+ *  the exact failure `family` was added to stop.
+ *
+ *  So: the winning scope decides, and the family is read off the rows that hold
+ *  that scope. Within one scope the v4 preference still applies. */
+function mergeBind(
+  prior: { readonly scope: PortScope; readonly family: PortFamily },
+  row: { readonly scope: PortScope; readonly family: PortFamily },
+): { scope: PortScope; family: PortFamily } {
+  const scope = widerScope(prior.scope, row.scope);
+  const family =
+    scope !== prior.scope
+      ? row.family
+      : row.scope === scope
+        ? preferredFamily(prior.family, row.family)
+        : prior.family;
+  return { scope, family };
 }
 
 /** The comparison keys, READ OFF the schema so a new `PortInfo` field is covered

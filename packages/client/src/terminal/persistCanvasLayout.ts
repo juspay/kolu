@@ -7,7 +7,7 @@
  *  `TerminalMetadata.canvasLayout` (no schema change); this is just where the
  *  write itself lives. */
 
-import type { CanvasLayout } from "@kolu/padi/surface";
+import type { CanvasLayout } from "@kolu/padi-client/surface";
 import { toError } from "@kolu/surface/run-stream";
 import { Effect } from "effect";
 import type { TerminalId } from "kolu-common/surface";

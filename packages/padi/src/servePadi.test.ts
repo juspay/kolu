@@ -15,31 +15,42 @@
 
 import { existsSync, readFileSync } from "node:fs";
 import { dirname } from "node:path";
-import { inMemoryStore } from "@kolu/surface/server";
-import type { TerminalSnapshot } from "@kolu/terminal-vocab/schema";
-import { Cause, Effect, Exit, Schema } from "effect";
-import { availableThemes, getThemeByName, themeMode } from "terminal-themes";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { DEFAULT_NEW_TERMINAL_POLICY } from "./newTerminalPolicy.ts";
-import { newTerminalPolicyStore, shufflePeerBgs } from "./newTerminalTheme.ts";
-import { setActiveTerminalId } from "./terminals.ts";
-import { setPadiSessionStore } from "./session/confStores.ts";
-import { setDaemonProcessId } from "./koluRoot.ts";
 import {
-  __resetPadiSurfaceCtxForTest,
-  noopPadiSurfaceCtxForTest,
-  setPadiSurfaceCtx,
-} from "./padiSurfaceCtx.ts";
-import { buildPadiSurfaceDeps } from "./servePadi.ts";
-import { fakeEndpoint, stubLog } from "./servePadi.testlib.ts";
-import { getSavedSession, setSavedSession } from "./session/session.ts";
-import {
+  type AuthoredActiveTerminal,
+  AuthoredParkedSchema,
+  type AuthoredParkedTerminal,
+  AuthoredSleepingSchema,
+  type AuthoredSleepingTerminal,
+  composeTerminalMetadata,
+  DEFAULT_NEW_TERMINAL_POLICY,
+  LOCAL_LOCATION,
   PADI_SURFACE_VERSION,
   type PadiIdentity,
   PadiParkedTerminalSchema,
   type PadiStatus,
   PadiStatusSchema,
-} from "./surface.ts";
+  PersistedSnapshotSchema,
+  type SavedActiveTerminal,
+  type SavedSession,
+  type TerminalPlacement,
+  TOPLEVEL_PLACEMENT,
+} from "@kolu/padi-client/surface";
+import { inMemoryStore } from "@kolu/surface/server";
+import type { TerminalSnapshot } from "@kolu/terminal-vocab/schema";
+import { Cause, Effect, Exit, Schema } from "effect";
+import { availableThemes, getThemeByName, themeMode } from "terminal-themes";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { setDaemonProcessId } from "./koluRoot.ts";
+import { newTerminalPolicyStore, shufflePeerBgs } from "./newTerminalTheme.ts";
+import {
+  __resetPadiSurfaceCtxForTest,
+  noopPadiSurfaceCtxForTest,
+  setPadiSurfaceCtx,
+} from "./padiSurfaceCtx.ts";
+import { fakeEndpoint, stubLog } from "./servePadi.testlib.ts";
+import { buildPadiSurfaceDeps } from "./servePadi.ts";
+import { setPadiSessionStore } from "./session/confStores.ts";
+import { getSavedSession, setSavedSession } from "./session/session.ts";
 import {
   type ActiveTerminalProcess,
   getTerminal,
@@ -49,22 +60,9 @@ import {
   terminalEntries,
   unregisterTerminal,
 } from "./terminal-registry.ts";
-import { MAX_UPLOAD_BYTES } from "./upload.ts";
 import { cleanupTerminalScratch } from "./terminalScratch.ts";
-import {
-  type AuthoredActiveTerminal,
-  AuthoredParkedSchema,
-  type AuthoredParkedTerminal,
-  AuthoredSleepingSchema,
-  type AuthoredSleepingTerminal,
-  composeTerminalMetadata,
-  LOCAL_LOCATION,
-  PersistedSnapshotSchema,
-  type SavedActiveTerminal,
-  type SavedSession,
-  type TerminalPlacement,
-  TOPLEVEL_PLACEMENT,
-} from "./vocab.ts";
+import { setActiveTerminalId } from "./terminals.ts";
+import { MAX_UPLOAD_BYTES } from "@kolu/padi-client/upload";
 
 // The parked-forfeit path drives `cleanupTerminalScratch`, which reads the
 // per-instance scratch root; boot injects the server id before any of this runs.

@@ -17,8 +17,20 @@
  * `setPadiActivityFeedStore`, see `./confStores.ts`); the wire members live here.
  */
 
-import { renderScreenImage } from "./screenImage.ts";
 import { rmSync } from "node:fs";
+import {
+  DEFAULT_PADI_VERSION,
+  isPadiDeclaredError,
+  KavalContractSkew,
+  PADI_SURFACE_VERSION,
+  type PadiIdentity,
+  type PadiStatus,
+  type PadiTerminal,
+  type PadiWatchStatesInput,
+  type padiSurface,
+  ScratchWriteRejected,
+} from "@kolu/padi-client/surface";
+import { watchScopeOf } from "@kolu/padi-client/watchScope";
 import { base64DecodedLength } from "@kolu/surface/frame-chunking";
 import { derived, everyMsOr, source } from "@kolu/surface/reactor";
 import {
@@ -28,8 +40,11 @@ import {
 } from "@kolu/surface/server";
 import type { DaemonLifetimeInfo } from "@kolu/surface-daemon";
 import { isContractSkewError } from "@kolu/surface-daemon-supervisor";
+import {
+  DEFAULT_SCROLLBACK,
+  UNKNOWN_HOST_LISTENERS,
+} from "@kolu/terminal-vocab/schema";
 import { terminalCaption } from "@kolu/terminal-vocab/terminalKey";
-import { DEFAULT_SCROLLBACK } from "@kolu/terminal-vocab/schema";
 import { Effect } from "effect";
 import {
   currentPtyHostIdentity,
@@ -39,27 +54,21 @@ import {
 import { worktreeCreate, worktreeRemove } from "kolu-git";
 import type { Logger } from "pino";
 import { createFinishQuiet } from "./activity/finishQuiet.ts";
-import { EMPTY_URGENCY } from "./activity/urgency.ts";
 import { createLiveActivitySource } from "./activity/liveActivity.ts";
+import { EMPTY_URGENCY } from "./activity/urgency.ts";
 import { createEdgeMemory } from "./attention/edgeMemory.ts";
-import { createFleetGate } from "./attention/fleetGate.ts";
 import { createEventSeq } from "./attention/eventSeq.ts";
+import { createFleetGate } from "./attention/fleetGate.ts";
 import { createSettleEvents } from "./attention/settleEvents.ts";
 import { createStateWatchHub } from "./attention/stateWatch.ts";
-import { createWatchRegistry } from "./attention/watchRegistry.ts";
 import { stateWatchSource } from "./attention/stateWatchStream.ts";
+import { createWatchRegistry } from "./attention/watchRegistry.ts";
 import { specOf, watchFilterOf, watchSpecOf } from "./attention/watchSpec.ts";
-import { watchScopeOf } from "./attention/watchScope.ts";
 import type {
   EndpointGrid,
   TerminalAttachFrame,
   TerminalEndpoint,
 } from "./endpoint.ts";
-import {
-  isPadiDeclaredError,
-  KavalContractSkew,
-  ScratchWriteRejected,
-} from "./errors.ts";
 import { padiFsGitDeps } from "./fsGitDeps.ts";
 import {
   HOST_INVENTORY_SAMPLE_INTERVAL_MS,
@@ -81,6 +90,7 @@ import {
 } from "./ptyHost/daemonStatus.ts";
 import { recycleLocalKaval } from "./ptyHost/restartLocal.ts";
 import { pulseSource } from "./pulseSource.ts";
+import { renderScreenImage } from "./screenImage.ts";
 import { cancelPendingAutosave } from "./session/autosaveGate.ts";
 import {
   requirePadiActivityFeedStore,
@@ -96,15 +106,6 @@ import {
   listPadiStateBackups,
   restorePadiStateBackup,
 } from "./session/stateBackups.ts";
-import {
-  DEFAULT_PADI_VERSION,
-  PADI_SURFACE_VERSION,
-  type PadiIdentity,
-  type PadiStatus,
-  type PadiTerminal,
-  type PadiWatchStatesInput,
-  type padiSurface,
-} from "./surface.ts";
 import {
   getActiveTerminal,
   getTerminal,
@@ -136,7 +137,7 @@ import {
 } from "./terminals.ts";
 import { unwrapGit } from "./terminalWorkspace/endpoint.ts";
 import { exportTranscriptHtml } from "./transcript/transcript.ts";
-import { rejectionFor } from "./upload.ts";
+import { rejectionFor } from "@kolu/padi-client/upload";
 
 // Baked scrollback-backfill invariant, asserted at daemon startup (fail fast, no
 // degrade): a client's own scrollback must hold the ENTIRE reachable history —
@@ -230,13 +231,13 @@ async function* attachFrames(
   signal: AbortSignal,
 ): AsyncGenerator<TerminalAttachFrame> {
   const entry = requireActiveTerminal(id);
-  const { snapshot, topLine, reflowEpoch, deltas } =
+  const { snapshot, topLine, reflowEpoch, grid, deltas } =
     await resolveTerminalEndpoint(entry.meta.location).attach(
       id,
       signal,
       resizeTo,
     );
-  yield { kind: "snapshot", data: snapshot, topLine, reflowEpoch };
+  yield { kind: "snapshot", data: snapshot, topLine, reflowEpoch, grid };
   for await (const frame of deltas) yield frame;
 }
 
@@ -328,10 +329,11 @@ export function buildPadiSurfaceDeps(deps: {
     seq: watchSeq,
     edges: watchEdges,
   });
-  // The agent-STATE watch — `--states`/`--held-for`/`--nag`, implemented once
-  // and served to both faces: the `watchStates` stream below is `kolu watch`'s
-  // subscription, and a `watch.open` that names any of the three knobs is an MCP
-  // orchestrator's. It reads the adapter's own agent state, never output bytes.
+  // The agent-STATE watch — `--states`/`--held-for`/`--nag` (a count after the
+  // slash caps the last), implemented once and served to both faces: the
+  // `watchStates` stream below is `kolu watch`'s subscription, and a
+  // `watch.open` that names any of the knobs is an MCP orchestrator's. It
+  // reads the adapter's own agent state, never output bytes.
   const stateWatch = createStateWatchHub({
     log,
     seq: watchSeq,
@@ -345,11 +347,11 @@ export function buildPadiSurfaceDeps(deps: {
     // no future event could climb past).
     daemonSeq: () => watchSeq.last(),
     // The composition root joins the two halves the registry keeps apart: the
-    // three knobs the caller named, and the scope the SUBSCRIPTION owns. The
+    // knobs the caller named, and the scope the SUBSCRIPTION owns. The
     // queue never mints a spec, so the state watch's scoping is the only
     // scoping there is for a state feed.
-    subscribeStates: (filter, scope, emit) =>
-      stateWatch.subscribe(specOf(filter, scope), emit),
+    subscribeStates: (filter, scope, emit, seed) =>
+      stateWatch.subscribe(specOf(filter, scope), emit, seed),
   });
   const unsubscribeSettle = settleEvents.onFrame((events) =>
     watchRegistry.acceptSettle(events),
@@ -424,6 +426,11 @@ export function buildPadiSurfaceDeps(deps: {
       // The SAME module store `resolveNewTerminalTheme` reads — that identity is
       // what makes `lifecycle.create` resolve against the wire-written authority.
       newTerminalPolicy: { store: newTerminalPolicyStore },
+      // Every TCP listener on THIS padi's host — written by the port sampler (the
+      // same pass that feeds each terminal's `ports`), read by the printed-URL
+      // card, the Ports section's "elsewhere on this host" group, and kolu-server's
+      // forward reaper. In-memory: a reading is re-derived within a pass of boot.
+      hostListeners: { store: inMemoryStore(UNKNOWN_HOST_LISTENERS) },
       // The running kaval + padi daemons on THIS padi's host — the "Running daemons"
       // leak diagnostic. A DERIVED member fed by a POLL source: `samplePadiHostInventory`
       // scans the host (reading padi's serve socket from the module global set at boot),
@@ -702,9 +709,17 @@ export function buildPadiSurfaceDeps(deps: {
             // that can know it without a race, and it seeds a fresh
             // subscription's watermark from the `daemonSeq` it was built with.
             // `watchFilterOf` returns a filter only when the caller named one of
-            // the three knobs — the presence of a knob IS the choice of source,
-            // so there is no mode flag here to contradict them.
+            // the knobs — the presence of a knob IS the choice of source,
+            // so there is no mode flag here to contradict them. A refusal it
+            // hands BACK is turned into this entry's throw here — same shape
+            // as the scope's below.
             const filter = watchFilterOf(input);
+            if (filter.kind === "error") {
+              throw new Error(
+                `standing subscription "${input.name}": ${filter.message}`,
+              );
+            }
+            const filterValue = filter.value;
             // The scope is built ONCE, by the only constructor there is, and a
             // never-match one is refused here — where the subscription's NAME is
             // in hand to say which one. The registry is a queue and never mints
@@ -726,7 +741,7 @@ export function buildPadiSurfaceDeps(deps: {
             }
             const { sub, reattached } = watchRegistry.open(input.name, {
               scope: scope.value,
-              ...(filter === undefined ? {} : { filter }),
+              ...(filterValue === undefined ? {} : { filter: filterValue }),
             });
             log.info(
               {
@@ -734,12 +749,12 @@ export function buildPadiSurfaceDeps(deps: {
                 reattached,
                 scope: input.ids === undefined ? "all" : input.ids.length,
                 // The filter IS the knobs, so it is spread rather than
-                // re-listed — a fourth knob is logged by existing. `states` is
-                // a Set, which a log serializer renders as `{}`, so that one
-                // field is spelled as the array it is on the wire.
-                ...(filter === undefined
+                // re-listed — a knob is logged by existing. `states` is a Set,
+                // which a log serializer renders as `{}`, so that one field is
+                // spelled as the array it is on the wire.
+                ...(filterValue === undefined
                   ? {}
-                  : { ...filter, states: [...filter.states] }),
+                  : { ...filterValue, states: [...filterValue.states] }),
               },
               reattached
                 ? "watch subscription re-attached"
@@ -837,10 +852,18 @@ export function buildPadiSurfaceDeps(deps: {
         // against a size nothing has, silently.
         resize: ({ input }) =>
           handle(async () => {
-            await getActiveTerminal(input.id)?.handle.resize(
-              input.cols,
-              input.rows,
-            );
+            const entry = getActiveTerminal(input.id);
+            if (!entry) return;
+            await entry.handle.resize(input.cols, input.rows);
+            // The resize LANDED — publish the new grid onto the record. The
+            // other attached clients cannot see it any other way: a resize
+            // reflows the mirror they share but sends them no frame, so
+            // without this a second viewer keeps rendering deltas laid out for
+            // a grid it never learned about (`TerminalEndpoint.noteGrid`).
+            resolveTerminalEndpoint(entry.meta.location).noteGrid(input.id, {
+              cols: input.cols,
+              rows: input.rows,
+            });
           }),
         sendInput: ({ input }) =>
           handle(() => {

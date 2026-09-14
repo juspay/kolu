@@ -7,9 +7,12 @@
  * someone forgetting to extend the omit list. These pins fail loudly if that regresses.
  */
 
+import {
+  PadiCreateInputSchema,
+  TOPLEVEL_PLACEMENT,
+} from "@kolu/padi-client/surface";
 import { Schema } from "effect";
 import { describe, expect, it } from "vitest";
-import { PadiCreateInputSchema, TOPLEVEL_PLACEMENT } from "./surface.ts";
 import { createTerminal, restoreSpawn } from "./terminals.ts";
 
 describe("create-input fence — restore-only facts never ride an ordinary create", () => {

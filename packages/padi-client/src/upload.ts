@@ -1,0 +1,152 @@
+/**
+ * Shared policy for file drops onto a terminal — WHAT may be dropped and how
+ * big it may be. Both the client (pre-flight gate before encoding/sending) and
+ * the server (authoritative gate before writing to disk) consume these
+ * constants, so the two sides cannot drift on the rejection threshold.
+ *
+ * That is why it rides the CLIENT package rather than the daemon: a sender has
+ * to know the gate BEFORE it encodes a file, and this module imports nothing at
+ * all, so saying so costs a hydrating consumer no closure whatsoever. padi
+ * imports it back for the authoritative check — the arrow points out, and one
+ * threshold serves both ends of the wire.
+ *
+ * The other half of a drop — how the bytes are cut so no single frame kills the
+ * socket — is NOT here. That arithmetic was derived in this file, and then
+ * re-derived in another repo, which is one derivation too many: it now lives
+ * beside the cap it is derived from, in `@kolu/surface/frame-chunking`
+ * (`FRAME_CHUNK_BASE64_CHARS`, `chunkBase64`, `base64DecodedLength`). This file
+ * keeps the gate; the framework keeps the arithmetic.
+ */
+
+/** Hard cap on a single dropped file. This leaves room for a useful bug-repro
+ *  video. It is a POLICY cap on the file, and deliberately larger than any one
+ *  wire frame: the upload is chunked (`FRAME_CHUNK_BYTES`), so the file size
+ *  and the frame size are independent numbers. Before chunking they were the
+ *  same number, and a 26 MB drop killed the tab's socket. */
+export const MAX_UPLOAD_BYTES = 50 * 1024 * 1024;
+
+/** The video containers a dropped file may carry — padi's OWN list, in extension
+ *  form (no leading dot). The CANONICAL source (L17): padi owns the upload/file
+ *  domain, so this is the one home for the playable-container set. The app's
+ *  `kolu-common/preview` `VIDEO_EXTENSIONS` (the formats the Code browser plays
+ *  back) is DERIVED from this by prepending a dot — the app→padi arrow the seal
+ *  sanctions — so the droppable set and the playable set can't drift. The former
+ *  hand-kept copy + drift-guard test are gone; the type system carries what the
+ *  test policed. */
+export const UPLOAD_VIDEO_EXTENSIONS: readonly string[] = [
+  "mp4",
+  "m4v",
+  "webm",
+  "mov",
+  "ogv",
+];
+
+/** Lowercase file extensions (without leading dot) that may be dropped.
+ *  Curated to text, code, structured data, common docs, images, and video.
+ *  The video entries are the canonical `UPLOAD_VIDEO_EXTENSIONS` above (padi owns
+ *  the container set; preview.ts derives its playable list from it); the
+ *  image/doc/code entries are listed inline here. New entries land here, not at
+ *  the call sites. */
+export const ALLOWED_UPLOAD_EXTENSIONS: readonly string[] = [
+  // Text & docs
+  "txt",
+  "md",
+  "rst",
+  "pdf",
+  // Structured data
+  "json",
+  "jsonc",
+  "yaml",
+  "yml",
+  "toml",
+  "xml",
+  "csv",
+  "tsv",
+  "log",
+  "ini",
+  "env",
+  "lock",
+  // Web
+  "html",
+  "htm",
+  "css",
+  // Code
+  "ts",
+  "tsx",
+  "js",
+  "jsx",
+  "mjs",
+  "cjs",
+  "py",
+  "rb",
+  "go",
+  "rs",
+  "java",
+  "kt",
+  "kts",
+  "scala",
+  "c",
+  "h",
+  "cpp",
+  "hpp",
+  "cs",
+  "swift",
+  "sh",
+  "bash",
+  "zsh",
+  "fish",
+  "sql",
+  "nix",
+  "hs",
+  "elm",
+  "lua",
+  "vim",
+  // Images
+  "png",
+  "jpg",
+  "jpeg",
+  "gif",
+  "webp",
+  "svg",
+  // Video — the containers Kolu can play back in the Code browser (padi's own
+  // canonical `UPLOAD_VIDEO_EXTENSIONS`; the app's preview list derives from it,
+  // so they can't drift). The 50 MB cap above still applies — video is allowed,
+  // not exempted.
+  ...UPLOAD_VIDEO_EXTENSIONS,
+];
+
+/** Return the lowercase extension (no dot) of `name`, or `null` if there
+ *  isn't one. `.DS_Store` → `ds_store`; `Cargo.lock` → `lock`; `README` →
+ *  `null`. */
+export function extensionOf(name: string): string | null {
+  const dot = name.lastIndexOf(".");
+  if (dot <= 0 || dot === name.length - 1) return null;
+  return name.slice(dot + 1).toLowerCase();
+}
+
+/** Whether a dropped filename is permitted by the extension allowlist. */
+export function isAllowedUploadName(name: string): boolean {
+  const ext = extensionOf(name);
+  return ext !== null && ALLOWED_UPLOAD_EXTENSIONS.includes(ext);
+}
+
+/** Human-readable rejection reason for a dropped file, or `null` if it
+ *  passes. Shared so the client toast and the server `ORPCError` message
+ *  match verbatim. */
+export function rejectionFor(name: string, bytes: number): string | null {
+  if (!isAllowedUploadName(name)) {
+    return `File type not allowed: "${name}". Allowed extensions: ${ALLOWED_UPLOAD_EXTENSIONS.join(", ")}`;
+  }
+  return sizeRejectionFor(name, bytes);
+}
+
+/** Size-only rejection — for upload surfaces that have no filename to
+ *  validate (clipboard image paste). Same wording as the full
+ *  `rejectionFor` size branch so the message is consistent. */
+export function sizeRejectionFor(label: string, bytes: number): string | null {
+  if (bytes > MAX_UPLOAD_BYTES) {
+    const mb = (MAX_UPLOAD_BYTES / (1024 * 1024)).toFixed(0);
+    return `File too large: "${label}" exceeds the ${mb} MB limit`;
+  }
+  return null;
+}

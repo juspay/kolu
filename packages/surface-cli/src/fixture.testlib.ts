@@ -20,7 +20,7 @@ import {
   type SurfaceClientCallable,
 } from "@kolu/surface/client";
 import { defineSurface } from "@kolu/surface/define";
-import { exposeFace, type ExposeMap } from "@kolu/surface/expose";
+import { type ExposeMap, exposeFace } from "@kolu/surface/expose";
 import { unixSocketLink } from "@kolu/surface/links/unix-socket";
 import { implementSurface, inMemoryStore } from "@kolu/surface/server";
 import {
@@ -35,8 +35,10 @@ import {
   type ProjectedCommand,
   surfaceCommands,
   type SurfaceCliConnection,
+  surfaceHelp,
   type VerbAnnotation,
 } from "./commands";
+import type { SurfaceCliHelp } from "./help";
 
 // ── The surface ──────────────────────────────────────────────────────────
 
@@ -93,6 +95,17 @@ const KillArgs = Schema.Struct({
   reason: Schema.optionalKey(Schema.String),
   /** Not a scalar, so it takes the field's own JSON: `--trace '{"id":"x"}'`. */
   trace: Schema.optionalKey(Schema.Struct({ id: Schema.String })),
+  /** `<scalar> | null` — the shape a surface uses for a field that can be
+   *  CLEARED, and the one that used to fall through to the JSON flag: a plain
+   *  line of text wanted `--note '"like this"'`. */
+  note: Schema.optionalKey(Schema.NullOr(Schema.String)),
+  /** The same, one type over, because the typed parsers refuse the word
+   *  `null` before the mapping could see it — so a nullable NUMBER is a
+   *  different code path from a nullable string and needs its own case. */
+  every: Schema.optionalKey(Schema.NullOr(Schema.Int)),
+  /** A nullable ENUM keeps its choice list and gains the word, so `--help`
+   *  lists every value the flag takes. */
+  mode: Schema.optionalKey(Schema.NullOr(Schema.Literals(["fast", "slow"]))),
 });
 
 export const surface = defineSurface({
@@ -174,7 +187,12 @@ export const EXPOSE = {
  *  bare scalar, so it also drives the `wrapped` (positional) arm. */
 export const VERBS: Record<string, SurfaceVerb> = {
   echo: {
-    description: "Echo one line back — a hand-authored verb over the client.",
+    // A TITLE and a long DESCRIPTION, because the help page has to choose
+    // between them: an app that has thought about its agents writes paragraphs
+    // here, and a page that printed one per row would be a wall.
+    title: "Echo a line",
+    description:
+      "Echo one line back — a hand-authored verb over the client. IT TAKES A BARE SCALAR, so it also drives the wrapped-input arm of the bridge, which is the one shape that binds to a positional rather than to a flag. There is a great deal more that could be said about it, and an agent reading a tool listing is exactly who it would be said to.",
     mutates: false,
     input: Schema.String,
     handler: (args, _client: SurfaceClientCallable) =>
@@ -198,6 +216,15 @@ const TABLE = new Map<number, typeof Proc.Type>([
   [102, { command: "spendable", cpuPct: 0, memPct: 0 }],
   [103, { command: "spendable", cpuPct: 0, memPct: 0 }],
   [104, { command: "spendable", cpuPct: 0, memPct: 0 }],
+  // …and one each for the nullable-flag cases, which read `saw` the same way.
+  [105, { command: "spendable", cpuPct: 0, memPct: 0 }],
+  [106, { command: "spendable", cpuPct: 0, memPct: 0 }],
+  [107, { command: "spendable", cpuPct: 0, memPct: 0 }],
+  [108, { command: "spendable", cpuPct: 0, memPct: 0 }],
+  [109, { command: "spendable", cpuPct: 0, memPct: 0 }],
+  [110, { command: "spendable", cpuPct: 0, memPct: 0 }],
+  [111, { command: "spendable", cpuPct: 0, memPct: 0 }],
+  [112, { command: "spendable", cpuPct: 0, memPct: 0 }],
 ]);
 
 /** The `{ group, handlers }` pair this fixture is served from. */
@@ -308,13 +335,18 @@ export function resolveFixture(values: { readonly socket: string }) {
       unixSocketLink({
         group: surface.group,
         socketPath: values.socket,
-      }).then((link) => ({
-        client: buildSurfaceFace(
-          surface,
-          link.dispatch,
-        ) as SurfaceClientCallable,
-        dispose: () => link.dispose(),
-      })),
+      }).then(
+        (link): SurfaceCliConnection => ({
+          // The degenerate rooted bundle: one unprefixed core, no siblings.
+          client: {
+            core: buildSurfaceFace(
+              surface,
+              link.dispatch,
+            ) as SurfaceClientCallable,
+          },
+          dispose: () => link.dispose(),
+        }),
+      ),
   });
 }
 
@@ -331,21 +363,41 @@ const ANNOTATE: Record<string, VerbAnnotation> = {
   proc_count: { render: (out) => `processes: ${(out as { n: number }).n}` },
 };
 
-/** The projection over ONE endpoint seam — everything the three roots below
- *  share, so what is left at each of them is the one thing it is there to
- *  prove. */
+/** The projection over ONE endpoint seam — everything the roots below share, so
+ *  what is left at each of them is the one thing it is there to prove. */
 function commandsWith<F extends Command.Command.FlagConfig, R>(
   endpoint: EndpointSeam<F, R>,
+  help?: SurfaceCliHelp,
 ) {
   return surfaceCommands({
-    surface,
-    expose: EXPOSE,
+    core: { surface, expose: EXPOSE },
     verbs: VERBS,
     endpoint,
     annotate: ANNOTATE,
+    help,
     info: { name: "demo" },
   });
 }
+
+/** The fixture's HELP WORDING — the app's half of the page, which is the half
+ *  the framework cannot write. Deliberately incomplete: `echo` is in no group,
+ *  so the trailing catch-all group is exercised by the same fixture that
+ *  exercises the ones an author did write. */
+export const HELP: SurfaceCliHelp = {
+  command: "surface",
+  purpose: "Drive the demo surface from a shell.",
+  groups: [
+    { title: "Read", verbs: ["get", "keys", "watch", "list"] },
+    { title: "Write", verbs: ["proc_kill"] },
+    { title: "Ask", verbs: ["proc_count"] },
+  ],
+  examples: {
+    get: "get processes 1",
+    proc_kill: "proc_kill 4241 --signal HUP",
+  },
+  flags: [{ spelling: "--socket <path>", description: "the socket to dial" }],
+  answer: "Answers go to stdout; anything else goes to stderr.",
+};
 
 /** The projected commands, as the fixture host mounts them. */
 export function fixtureCommands(): ReadonlyArray<ProjectedCommand> {
@@ -380,6 +432,47 @@ export function fixtureRootWithParentFlags() {
   return root.pipe(Command.withSubcommands([...commands]));
 }
 
+/** The SAME projection over a transport that CANNOT PUSH — `streaming: false`.
+ *
+ *  What it proves is a subtraction: no `watch` command is mounted and no
+ *  `--follow` is declared, so a caller finds out from `--help` rather than from
+ *  a subscription that ends after one frame. The seam still dials the same live
+ *  socket, because the point is the PROJECTION's shape and not the link's — a
+ *  fixture that also broke the link could not tell a missing command from a dead
+ *  endpoint. */
+export function fixtureRootOneShot() {
+  return Command.make("demo").pipe(
+    Command.withDescription("the surface-cli fixture host (one-shot endpoint)"),
+    Command.withSubcommands([
+      ...commandsWith({
+        flags: endpointFlags,
+        resolve: resolveFixture,
+        streaming: false,
+      }),
+    ]),
+  );
+}
+
+/** The same projection WITH a help page — the parent's description is the page,
+ *  and the verbs are unlisted because the page has already listed them. */
+export function fixtureRootWithHelp() {
+  return Command.make("demo").pipe(
+    Command.withDescription(
+      surfaceHelp({
+        core: { surface, expose: EXPOSE },
+        verbs: VERBS,
+        endpoint: { flags: endpointFlags, resolve: resolveFixture },
+        annotate: ANNOTATE,
+        help: HELP,
+        info: { name: "demo" },
+      }),
+    ),
+    Command.withSubcommands([
+      ...commandsWith({ flags: endpointFlags, resolve: resolveFixture }, HELP),
+    ]),
+  );
+}
+
 /** A projection whose endpoint RESOLUTION refuses — the arm an app with a
  *  resolution order that can come up empty needs ("no `$DEMO_SOCKET`, no runtime
  *  dir, nothing to dial"). `how` picks the two ways a host can say it, because
@@ -397,6 +490,102 @@ export function fixtureRootWithUnresolvableEndpoint(how: "fail" | "throw") {
   });
   return Command.make("demo").pipe(
     Command.withDescription("the surface-cli fixture host (no endpoint)"),
+    Command.withSubcommands([...commands]),
+  );
+}
+
+/** A projection whose endpoint RESOLVES but whose `open` never completes —
+ *  the ssh-provision shape a real host can sit inside for minutes. It exists
+ *  to measure one thing: a Ctrl-C during the dial must exit 130 at the speed
+ *  the user typed it, not after the dial, so the acquire is interruptible
+ *  (`commands.ts`'s `withConnection`) rather than masked-waiting on the
+ *  promise. `list` is the cheapest verb to drive it with — the dial precedes
+ *  even the listing path's data. */
+export function fixtureRootWithHungOpen() {
+  const commands = commandsWith({
+    flags: endpointFlags,
+    resolve: (values: { readonly socket: string }) =>
+      Effect.succeed({
+        where: values.socket,
+        open: () => new Promise(() => {}),
+      }),
+  });
+  return Command.make("demo").pipe(
+    Command.withDescription(
+      "the surface-cli fixture host (a dial that never lands)",
+    ),
+    Command.withSubcommands([...commands]),
+  );
+}
+
+/** The SAME projection as a ROOTED BUNDLE: the fixture surface as the core, and
+ *  the same surface again as a SIBLING keyed `tenant`.
+ *
+ *  Deliberately the same surface on both sides. What the argv composition has to
+ *  prove is that a member reachable at `demo get load` is ALSO reachable at
+ *  `demo tenant get load` and that the two are different addresses — using two
+ *  different surfaces would let a case pass on the difference between them
+ *  rather than on the composition.
+ *
+ *  The sibling carries its own verbs and its own annotations, so a case can see
+ *  that they arrive behind its word and nowhere else. Its client is a second
+ *  face over the same link, which is what a real bundle's dial hands back — one
+ *  connection, a client per sibling over it. */
+export function fixtureRootBundle() {
+  const commands = surfaceCommands({
+    core: { surface, expose: EXPOSE },
+    surfaces: {
+      tenant: {
+        surface,
+        expose: EXPOSE,
+        verbs: { echo: VERBS.echo as SurfaceVerb },
+        annotate: {
+          echo: {
+            render: (out) => `tenant echoed ${(out as { said: string }).said}`,
+          },
+        },
+      },
+    },
+    verbs: VERBS,
+    endpoint: {
+      flags: endpointFlags,
+      resolve: (values: { readonly socket: string }) =>
+        Effect.map(resolveFixture(values), (resolved) => ({
+          ...resolved,
+          open: async (): Promise<SurfaceCliConnection> => {
+            const conn = await resolved.open();
+            return {
+              ...conn,
+              client: { ...conn.client, clients: { tenant: conn.client.core } },
+            } as SurfaceCliConnection;
+          },
+        })),
+    },
+    annotate: ANNOTATE,
+    info: { name: "demo" },
+  });
+  return Command.make("demo").pipe(
+    Command.withDescription("the surface-cli fixture host (rooted bundle)"),
+    Command.withSubcommands([...commands]),
+  );
+}
+
+/** The same bundle whose dial carries NO client for the sibling — the shape a
+ *  face standing on a roster that moved under it meets. The projection still
+ *  mounts `tenant`, because the tree is built from the surfaces the host
+ *  declared; what is missing is on the far side, which is why it is exit 3 and
+ *  not a usage error. */
+export function fixtureRootBundleWithoutSibling() {
+  const commands = surfaceCommands({
+    core: { surface, expose: EXPOSE },
+    surfaces: { tenant: { surface, expose: EXPOSE } },
+    verbs: VERBS,
+    endpoint: { flags: endpointFlags, resolve: resolveFixture },
+    annotate: ANNOTATE,
+    info: { name: "demo" },
+  });
+  return Command.make("demo").pipe(
+    Command.withDescription("the surface-cli fixture host (sibling missing)"),
     Command.withSubcommands([...commands]),
   );
 }

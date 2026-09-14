@@ -13,7 +13,7 @@
  * no wrapper class — the session is a base `Session` + the daemon members by spread).
  *
  * The DIAL itself (`connectPadi` / `dialPadiHello` — dial + control-core
- * handshake + typed skew refusal) is imported from `@kolu/padi/dial`: W2.3 carved
+ * handshake + typed skew refusal) is imported from `@kolu/padi-client/dial`: W2.3 carved
  * it into padi's package as the client-side dial kit `padi-tui` shares. And padi's
  * CONVERGENCE declaration into the shared daemon-convergence kit
  * ({@link padiConvergencePolicy} plus the framework's frozen-control-core probe
@@ -47,7 +47,7 @@ import {
   resolvePadiStateRoot,
 } from "@kolu/padi/assembly";
 // The client-side dial kit — carved out of THIS module in W2.3 so `padi-tui` and
-// the binder share it (`@kolu/padi/dial`). What stays here is SUPERVISION: the
+// the binder share it (`@kolu/padi-client/dial`). What stays here is SUPERVISION: the
 // drivers, the reconnect-mirror session, and the re-serve — everything that mutates
 // padi's lifecycle, never a mere dial. (padi's convergence policy + probe + drain
 // carved out to `./padiConvergence.ts` in L6.)
@@ -58,7 +58,7 @@ import {
   type PadiHelloIdentity,
   type PadiSurfaceClient,
   scopePadiSurface,
-} from "@kolu/padi/dial";
+} from "@kolu/padi-client/dial";
 import {
   anchorGone,
   DAEMON_BIND_PID_ENV,
@@ -68,8 +68,8 @@ import {
 } from "@kolu/surface-daemon";
 import {
   buildLabel,
-  type ConvergenceProbe,
   type ConvergenceOutcome,
+  type ConvergenceProbe,
   converge,
   createEndpoint,
   type DaemonDriver,
@@ -79,7 +79,6 @@ import {
   scrubDaemonNodeOptions,
   survivableSpawnDriver,
 } from "@kolu/surface-daemon-supervisor";
-import type { PadiConvergence } from "kolu-common/surface";
 import {
   type ClosedInfo,
   ConnectError,
@@ -90,6 +89,7 @@ import {
 } from "@kolu/surface-remote";
 import { Effect } from "effect";
 import { assertDaemonSpawnAllowed } from "kaval";
+import type { PadiConvergence } from "kolu-common/surface";
 import { AGENT_TOOLS_BAKE_ENV, composeSpawnEnv } from "kolu-pty";
 import {
   bakedOsFactsBin,
@@ -233,6 +233,7 @@ export const AGENT_DIR_ENV_KEYS = [
   "KOLU_GROK_DIR",
   "KOLU_XYNE_DIR",
   "KOLU_OPENCODE_DB",
+  "KOLU_PI_DIR",
 ] as const;
 
 /** Resolve how to launch padi: the built wrapper in production (`KOLU_PADI_BIN`),

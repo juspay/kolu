@@ -441,9 +441,9 @@ copy of the real reader, 573-process box, 12 runs:
 | **total `scanSubtreePorts`** | **13.91 ms** | |
 
 That settles a claim the module header had been asserting: the dominant cost really is
-the HOST pid table, and it scales with the host rather than with the question. It is also
-the measurement that makes `u-port-scan-subtree-descent` the right next move — 96% of
-the pass is the thing subtree descent would eliminate.
+the HOST pid table, and it scales with the host rather than with the question. Subtree
+descent would have eliminated it — until PRT5 made the host the question
+(`b-port-scan-host-wide`).
 
 **Steady state, both platforms.** Worst case is the duty-cycle floor's fast end, one pass
 per second (`nudgeFloorMs` keeps a fast pass at the 1 s minimum):
@@ -488,30 +488,19 @@ adopting a maintained tool through nix — and whichever wins, the duty cycle is
 already capped.
 </Finding>
 
-<Finding sev="medium" id="u-port-scan-subtree-descent" title="Scan a terminal's subtree, not the whole host process table">
-padi's port sensor reads **every** `/proc/<pid>/stat` on the host to build a
-pid→ppid table, because procfs has no children index — except it does:
-`/proc/<pid>/task/<tid>/children`. So the pass costs what the HOST costs
-(515 processes here) rather than what the question costs (a terminal's subtree,
-typically a handful). **Measured** on a 515-process box, through the shipped
-module: **35-57 ms** per pass before batching, **14-18 ms** after (the pid table in
-bounded groups, the fd walk concurrent per pid — <PrLink pr={1982} />), and
-**&lt;1 ms** for a `children`-descent prototype over two subtrees.
-
-That last order of magnitude is worth taking because the cadence is not what it
-looks like: kaval throttles its activity edge to one per PTY per 200 ms, so one
-streaming agent delivers ~5 edges/s and the sampler's ≥1 s nudge floor — not the
-5 s baseline — becomes the real period. ~16 ms every second for the life of a
-padi is ~1.6% of a core; the pre-batching ~40 ms was ~4%.
-
-**Why it is not done yet:** descending `children` is a redesign of the walk (it
-must iterate `/proc/<pid>/task/*` so a multithreaded parent's children are not
-missed), and `proc(5)` warns the list may be incomplete if the process list
-changes mid-read. That is the same exit race the scanner already tolerates by
-policy (`procReadFailure` → skip), and the current `readdir("/proc")`-then-`stat`
-shape has the identical hazard — so this is a deliberate decision to write down,
-not a blocker. **Measure:** a pass on a 500-process box with 1 vs 30 terminals,
-table-walk vs `children`-descent.
+<Finding sev="low" id="b-port-scan-host-wide" title="The port scan reads the whole host on purpose, and pays ~4× the subtree ask">
+**Banked** in <PrLink pr={2236} />. A former finding here proposed descending `/proc/<pid>/task/*/children` so a pass
+cost what the terminals' subtrees cost rather than what the host costs. PRT5
+([port forwarding](./port-forwarding.html)) reversed the premise: a server that
+detaches from its terminal is exactly the one a subtree read cannot see, and the
+forward reaper needs "is this port listening on the machine?", which only the host
+answers. **Measured** with the shipped osfacts binary on a linux box with ~900
+processes: `--roots <shell>` ~9 ms, host-wide `--procs --ports` ~34 ms,
+`--argv` adding ~1 ms (same per-pid directory), `--uid` ~12 ms more — which is why
+the ask omits it. One host-wide pass replaces the subtree pass rather than joining
+it. At the 5 s baseline that is ~0.7% of a core; under a streaming agent the
+duty-cycle floor (`b-port-scan-duty-cycle`) keeps the nudge floor at 1 s up to a
+50 ms pass and caps the scan at 5% of a core beyond that.
 </Finding>
 
 <Finding sev="low" id="u-activity-edge-fanout" title="One kaval activity subscription, fanned out in padi">

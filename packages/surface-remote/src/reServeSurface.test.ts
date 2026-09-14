@@ -866,7 +866,7 @@ describe("reServeSurface — end-to-end over a toy surface", () => {
 
   it("translates a link drop during cell and procedure forwards to upstream-unavailable, keeping the raw error as `cause`", async () => {
     const cell = setup(1);
-    await delay(15);
+    await mirrored(cell.downstream, 1);
     cell.upstream.setCounterWriter(async () => {
       cell.session.setDisconnected();
       throw new Error("transport closed during cell write");
@@ -882,7 +882,7 @@ describe("reServeSurface — end-to-end over a toy surface", () => {
     await teardown(cell.session, cell.done, cell.upstream);
 
     const procedure = setup(1);
-    await delay(15);
+    await mirrored(procedure.downstream, 1);
     procedure.upstream.setEchoCaller(async () => {
       procedure.session.setDisconnected();
       throw new Error("transport closed during procedure call");
@@ -903,7 +903,7 @@ describe("reServeSurface — end-to-end over a toy surface", () => {
     // member), so an application rejection crosses on the crash-loudly channel —
     // carrying its own message, never re-labelled as an upstream outage.
     const cell = setup(1);
-    await delay(15);
+    await mirrored(cell.downstream, 1);
     cell.upstream.setCounterWriter(async () => {
       throw new Error("cell value rejected");
     });
@@ -916,7 +916,7 @@ describe("reServeSurface — end-to-end over a toy surface", () => {
     // `_tag`, data intact — so a downstream caller narrows on `_tag` rather than
     // reading a magic code off an opaque wrapper (D4).
     const procedure = setup(1);
-    await delay(15);
+    await mirrored(procedure.downstream, 1);
     procedure.upstream.setEchoCaller(async () => {
       throw new EchoRejected({ detail: "procedure input rejected" });
     });

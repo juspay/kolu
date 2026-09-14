@@ -52,10 +52,10 @@
  *  the two `.active()` re-keys are not one atomic transition. No consumer may assume
  *  they flip together within a single reactive tick. */
 
-import type { CodeTabView } from "@kolu/padi/surface";
-import { Effect } from "effect";
-import { scopedByEntry } from "@kolu/surface-map/client";
+import type { CodeTabView } from "@kolu/padi-client/surface";
 import type { Subscription } from "@kolu/surface/solid";
+import { scopedByEntry } from "@kolu/surface-map/client";
+import { Effect } from "effect";
 import { encodeHostKey, type HostKey } from "kolu-common/hostKey";
 import { buildTerminalFileUrl, isBinaryPreviewable } from "kolu-common/preview";
 import type { TerminalId } from "kolu-common/surface";
@@ -73,12 +73,12 @@ import {
   activeHost,
   activePadiRpc,
   activePadiStreams,
-  padiRpcOf,
   padiMap,
+  padiRpcOf,
 } from "../wire";
-import { createPolledQuery, type PolledQueryConfig } from "./createPolledQuery";
 import { mergeBrowseInventory } from "./browseInventory";
 import type { CodeTabScope } from "./codeTabOpenController";
+import { createPolledQuery, type PolledQueryConfig } from "./createPolledQuery";
 import { showIgnoredFiles } from "./showIgnoredFiles";
 import { useRightPanel } from "./useRightPanel";
 

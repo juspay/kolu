@@ -5,7 +5,10 @@
  * exit event, gone via feed-end + absent key, closed via feed-end + present
  * key (loud, never a false met), and timeout. Plus the tool's JSON frame.
  */
-import { awaitOutputSettled, type PadiSurfaceClient } from "@kolu/padi/dial";
+
+import type { PadiSurfaceClient } from "@kolu/padi-client/dial";
+import type { KoluSurfaceClients } from "./bundleClient.ts";
+import { awaitOutputSettled } from "@kolu/padi-client/watch";
 import { SurfaceStdioTransportClosed } from "@kolu/surface/errors";
 import { type Cause, Effect, Queue, Stream } from "effect";
 import { describe, expect, it } from "vitest";
@@ -81,6 +84,15 @@ function fakeClient(
     },
   } as unknown as PadiSurfaceClient;
 }
+
+/** The value a BUNDLE-ROOT verb is handed: kolu's rooted bundle, padi as its
+ *  unprefixed core — the same shape `serveKoluMcp`'s injected factory produces.
+ *  The `awaitOutputSettled` cases below call the PRIMITIVE, which takes padi's
+ *  client directly, so the two are kept apart rather than one standing in for
+ *  the other. */
+const bundle = (padi: PadiSurfaceClient): KoluSurfaceClients => ({
+  core: padi,
+});
 
 const ID = "t1";
 const snapshot: AttachFrame = { kind: "snapshot", data: "screen", topLine: 0 };
@@ -272,7 +284,7 @@ describe("waitOutputSettledTool — the JSON frame", () => {
     const result = (await Effect.runPromise(
       waitOutputSettledTool.handler(
         { id: ID, idleMs: 25 },
-        fakeClient(s),
+        bundle(fakeClient(s)),
         undefined,
       ),
     )) as Record<string, unknown>;
@@ -297,7 +309,7 @@ describe("waitOutputSettledTool — the JSON frame", () => {
     const result = (await Effect.runPromise(
       waitOutputSettledTool.handler(
         { id: ID, idleMs: 25, screenTail: 2 },
-        fakeClient(s, whole),
+        bundle(fakeClient(s, whole)),
         undefined,
       ),
     )) as Record<string, unknown>;
@@ -318,7 +330,7 @@ describe("waitOutputSettledTool — the JSON frame", () => {
     const result = (await Effect.runPromise(
       waitOutputSettledTool.handler(
         { id: ID, idleMs: 25 },
-        fakeClient(s),
+        bundle(fakeClient(s)),
         undefined,
       ),
     )) as Record<string, unknown>;
@@ -376,7 +388,7 @@ describe("waitAgentStateTool — the modifiers reach padi", () => {
             settledMs: 300,
             timeoutMs: 400,
           },
-          agentClient(attach),
+          bundle(agentClient(attach)),
           undefined,
         ),
       )) as Record<string, unknown>;
@@ -397,7 +409,7 @@ describe("waitAgentStateTool — the modifiers reach padi", () => {
       const result = (await Effect.runPromise(
         waitAgentStateTool.handler(
           { id: ID, until: ["awaiting", "waiting"], timeoutMs: 400 },
-          agentClient(attach),
+          bundle(agentClient(attach)),
           undefined,
         ),
       )) as Record<string, unknown>;

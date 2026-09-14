@@ -16,7 +16,7 @@ import http from "node:http";
 import os from "node:os";
 import path from "node:path";
 import { NodeHttpServer } from "@effect/platform-node";
-import { padiClientOver } from "@kolu/padi/dial";
+import { padiClientOver } from "@kolu/padi-client/dial";
 import { contentTypeForPath, serveFile } from "@kolu/serve-dir";
 import type { RemotePool } from "@kolu/surface-remote";
 import { Effect, Exit, Scope, Stream } from "effect";

@@ -23,7 +23,7 @@ import {
   type Session,
   type SessionState,
 } from "./session";
-import type { SshProv } from "./sshConnector";
+import { type SshProv, sshClosedInfo } from "./sshConnector";
 
 /** The latest state frame the session has published (snapshot-then-delta). */
 function latest<C>(session: Session<C, SshProv>): SessionState<SshProv> {
@@ -115,5 +115,40 @@ describe("ClosedInfo non-exit transport deaths", () => {
     expect(d.error).toMatch(/ssh transport connection failed/i);
 
     session.destroy();
+  });
+});
+
+describe("sshClosedInfo — an ssh 255 is a transport failure only when ssh said so", () => {
+  it("ssh's own reason on stderr + 255 → transport-failed", () => {
+    expect(
+      sshClosedInfo({
+        usesSsh: true,
+        code: 255,
+        signal: null,
+        sshReportedTransportFailure: true,
+      }),
+    ).toEqual({ kind: "transport-failed" });
+  });
+
+  it("a remote agent exiting 255 with no ssh reason is its own exit, never 'host unreachable'", () => {
+    expect(
+      sshClosedInfo({
+        usesSsh: true,
+        code: 255,
+        signal: null,
+        sshReportedTransportFailure: false,
+      }),
+    ).toEqual({ kind: "exit", code: 255, signal: null });
+  });
+
+  it("a localhost 255 has no ssh in play", () => {
+    expect(
+      sshClosedInfo({
+        usesSsh: false,
+        code: 255,
+        signal: null,
+        sshReportedTransportFailure: true,
+      }),
+    ).toEqual({ kind: "exit", code: 255, signal: null });
   });
 });

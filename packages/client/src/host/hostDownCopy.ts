@@ -57,9 +57,11 @@ export const HOST_DOWN_COPY = {
   "agent-drv-unavailable": {
     title: "Kolu couldn't prepare padi for this host",
     body:
-      "The baked agent source could not resolve padi for this host. The detail " +
-      "below has the Nix error, including an unsupported CPU/OS pair when that " +
-      "is the cause. Fix that source error, or switch back to your local host.",
+      "Kolu couldn't work out which padi build this host needs. The detail " +
+      "below has the error: the host's own Nix failing to report its CPU/OS " +
+      "pair, output that isn't one, or the baked source failing to resolve " +
+      "padi for it (including an unsupported CPU/OS pair). Fix that, or switch " +
+      "back to your local host.",
   },
   unconverged: {
     title: "This host's padi never settled",
@@ -115,22 +117,32 @@ export const HOST_DOWN_COPY = {
       "single-user install. Check with ssh <host> nix-instantiate --version, " +
       "and install it from https://nixos.asia/en/install if it's missing.",
   },
-  // Two causes, so the copy must not give one remedy as if it were the answer: the
-  // card now carries the failed episode's own output, which is what tells the two
-  // apart. Point at it rather than sending everyone to check ssh — the case this fix
-  // came from had a reachable host and a build that failed on a type error.
-  "link-failed": {
-    title: "Can't reach this host",
+  // The two REMOTE give-ups, split on the session's transport class — so neither
+  // card claims what it cannot know. A `"network"` session only stops retrying when
+  // a step went silent too many times; it never learned the host is "unreachable".
+  // A `"remote"` one gave up because the host ANSWERED and setup kept failing — the
+  // case that shipped "Can't reach this host" over a crate fetch's HTTP 403. Neither
+  // names a remedy: the detail line is the actual error, and it is the remedy.
+  "connect-stalled": {
+    title: "Connecting to this host kept stalling",
     body:
-      "The connection to this host gave up — it may be unreachable, or its " +
-      "provisioning failed partway. The output below says which: check the host " +
-      "is up and reachable over ssh, or fix what the build reported. You can also " +
-      "switch back to your local host.",
+      "A step of connecting to this host went quiet for too long, too many " +
+      "times, so kolu stopped retrying. The detail below names the step. The " +
+      "host may be asleep or off the network, or a download may have stalled — " +
+      "reconnect once it's reachable, or switch back to your local host.",
+  },
+  "host-setup-failed": {
+    title: "Kolu couldn't set up this host",
+    body:
+      "The host answered, but bringing padi up there kept failing, so kolu " +
+      "stopped retrying. The detail below is the error that stopped it, and the " +
+      "output under it is what led up to it. Fix that, then reconnect, or switch " +
+      "back to your local host.",
   },
   // The LOCAL padi couldn't start on this machine — a distinct producer from the
-  // remote `link-failed` (a local spawn/connect give-up, not a network reach). Its
+  // two remote give-ups (a local spawn/connect give-up, not a remote host). Its
   // copy is master's pre-PR4 catch-all card verbatim: that card only ever rendered
-  // for a local terminal give-up (a remote give-up always classified `link-failed`),
+  // for a local terminal give-up (a remote give-up always classified remote),
   // so reusing it keeps this reachable case byte-identical on screen (PR4 neutrality).
   "local-start-failed": {
     title: "This host's padi couldn't start",

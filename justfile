@@ -25,14 +25,12 @@ pnpm_vendored_filter := '--filter=!osfacts-client'
 # source tree so a remote dial can resolve padi for the host's arch. A run from
 # source has no wrapper, so it sources the SAME (name, value) set Nix builds the
 # wrapper's `--set` args from (`default.nix`'s `agentBakedEnv`) — one definition,
-# no parallel path. Kept as ONE snippet because both working-tree entrypoints
-# need it — `dev` before its parallel fork, and the standalone `server` — and
+# no parallel path. Kept as ONE snippet for the working-tree entrypoints
+# (`dev`, standalone `server`, and the dev smoke harness), and
 # `ci::agent-bake` runs this exact string to prove it still exports (#2039).
 #
-# Two entrypoints bake, not one, because `_dev-parallel` must stay nix-free:
-# ci::dev-smoke enters there (packages/tests/devSmoke.ts) and has no `nix` dep.
-# So `dev` bakes once in its sequential body and forks `_server-raw`, while the
-# standalone `server` bakes for itself. Nothing bakes twice.
+# Each entrypoint bakes before starting the server.
+# The parallel recipes stay nix-free, and no entrypoint bakes twice.
 agent_bake := 'set -a; . "$(nix build --no-link --print-out-paths --accept-flake-config .#agent-flake-env)"; set +a'
 
 mod ai 'agents/ai.just'
@@ -288,19 +286,30 @@ test-agent-bake:
     }
     check_bakes dev 1
     check_bakes server 1
+    check_bakes test-dev 1
     check_bakes _dev-parallel 0
-    echo "agent-bake: dev + server bake once each; _dev-parallel does not bake"
+    echo "agent-bake: dev + server + test-dev bake once each; _dev-parallel does not bake"
 
 # Run client with Vite dev server (HMR)
 client:
     cd packages/client && {{ nix_shell }} pnpm dev
 
-# Run unit tests (vitest) — FORK-FREE by default and bounded to one workspace
-# package at a time. The daemon-forking suites are gated OFF (`describeDaemon`
-# keys on KOLU_DAEMON_TESTS); this is the safe reach a workstation can run beside
-# a live kolu. Use `test-daemon` for the gated suites.
+# Run the FORK-FREE half of the workspace (vitest), one package at a time. The
+# lane a package belongs to is the SCRIPT IT DECLARES: a package that forks real
+# daemons declares `test:daemon` instead of `test:unit`, so `pnpm -r` skips it
+# here and picks it up in `test-daemon` — each suite runs in exactly one lane
+# instead of twice. `no-ungated-forks.test.ts` fails loudly if a package holding
+# a gate call site declares the wrong one, or a test-bearing package declares
+# neither. This is the safe reach a workstation can run beside a live kolu.
 test-unit: install
     {{ nix_shell }} pnpm -r {{ pnpm_vendored_filter }} --workspace-concurrency=1 test:unit
+
+# Regenerate `nix/consumer-closure.json` — the workspace adjacency an out-of-repo
+# consumer walks to turn its SEED list into the package set it hydrates. Derived
+# from every manifest in the tree; `test-e2e-governance` fails if it is stale.
+# Run this after adding a package or changing any manifest's dependencies.
+emit-consumer-closure: install
+    cd packages/tests && {{ nix_shell }} npx tsx ../../scripts/emit-consumer-closure.ts
 
 # Enforce the append-only E2E scenario inventory and coverage ledger. This is
 # deliberately separate from test-unit: it reads every committed inventory
@@ -314,15 +323,20 @@ test-e2e-governance: install
 _reap-ci-run:
     {{ nix_shell }} env KOLU_CI_REAP_ROOT="${KOLU_CI_REAP_ROOT:-${TMPDIR:-/tmp}}" node --experimental-strip-types {{ justfile_directory() }}/packages/daemon-test-gate/src/ciReap.cli.ts
 
-# CI/pu-ONLY: the daemon-forking unit suites (KOLU_DAEMON_TESTS=1). These fork real
-# kaval/padi daemons + PTYs; a bare run on a workstation OOM-reaped the production
-# kaval (juspay/kolu#1375). NEVER run this on a machine hosting a live kolu — it
-# belongs on CI or a `pu` box. Leash (Q4 — reuse the shipped run-bind, no new
-# rlimit): KOLU_DAEMON_BIND_PID binds every spawned daemon's lifetime to THIS run so
-# none can leak past it (the 182-leaked-dirs state becomes unrepresentable), and
+# CI/pu-ONLY: the daemon-forking packages' suites (KOLU_DAEMON_TESTS=1). These fork
+# real kaval/padi daemons + PTYs; a bare run on a workstation OOM-reaped the
+# production kaval (juspay/kolu#1375). NEVER run this on a machine hosting a live
+# kolu — it belongs on CI or a `pu` box. Leash (Q4 — reuse the shipped run-bind, no
+# new rlimit): KOLU_DAEMON_BIND_PID binds every spawned daemon's lifetime to THIS run
+# so none can leak past it (the 182-leaked-dirs state becomes unrepresentable), and
 # `--workspace-concurrency=1` runs one package's suite at a time so a fork storm
-# can't pile up across packages. `test-unit` stays the fork-free default. EXIT
-# trap reaps leftovers the in-process poll cannot (a wedged kaval, #2178).
+# can't pile up across packages. EXIT trap reaps leftovers the in-process poll
+# cannot (a wedged kaval, #2178).
+#
+# `test:daemon` — not `test:unit` — is what selects the packages: a daemon-forking
+# package declares that script name and nothing else, so `pnpm -r` runs it HERE and
+# skips it in `test-unit`. Before that split both recipes traversed all 54 suites
+# and every fork-free test ran twice per CI run.
 test-daemon: install
     #!/usr/bin/env bash
     set -euo pipefail
@@ -336,7 +350,7 @@ test-daemon: install
         exit "$st"
     }
     trap cleanup EXIT
-    KOLU_DAEMON_TESTS=1 KOLU_DAEMON_BIND_PID=$$ {{ nix_shell }} pnpm -r {{ pnpm_vendored_filter }} --workspace-concurrency=1 test:unit
+    KOLU_DAEMON_TESTS=1 KOLU_DAEMON_BIND_PID=$$ {{ nix_shell }} pnpm -r {{ pnpm_vendored_filter }} --workspace-concurrency=1 test:daemon
 
 # W3.1 ssh-leg e2e — bind padiSurface over a REAL ssh hop, round-trip a terminal,
 # bench typing-echo latency, and prove drain->converge. TURNKEY on a `pu` box: with no
@@ -632,6 +646,7 @@ test-quick *args: install
 test-dev: install
     #!/usr/bin/env bash
     set -euo pipefail
+    {{ agent_bake }}
     cd packages/tests
     {{ nix_shell_e2e }} pnpm test:dev-smoke
 
@@ -651,9 +666,24 @@ record name="": install
     wrapper="$PWD/scripts/kolu-source-wrapper.sh"
     name_filter=""
     [ -n "{{ name }}" ] && name_filter="--name {{ name }}"
+    # Bake the agent source ref (SURFACE_AGENT_FLAKE_REF) so the from-source
+    # server can provision the kolu-bot remote host — the same bake `just dev`
+    # does; hooks.ts forwards the var to the server child.
+    {{ agent_bake }}
     cd packages/tests
     {{ nix_shell_e2e }} pnpm install
+    # The hero-demo recording needs the `kolu-bot` remote host seeded at server
+    # boot so it is already connecting while the fleet builds off-camera.
+    # KOLU_E2E_PADI_HOST_SEED is the pool-seed forwarding knob (a bare
+    # KOLU_PADI_HOST is stripped by the server-child env allowlist, and the
+    # W3.1 KOLU_E2E_PADI_HOST would retarget the harness's own padi verbs at
+    # kolu-bot — see hooks.ts).
+    # KOLU_REMOTE_PADI_STATE_DIR keeps the recording's kolu-bot padi in its own
+    # state-root — the production kolu on this machine converges kolu-bot's
+    # default root, and two servers on one root drain each other mid-run.
     KOLU_SERVER="$wrapper" KOLU_X11CAP=1 CUCUMBER_PARALLEL=1 \
+        KOLU_E2E_PADI_HOST_SEED="localhost,kolu-bot" \
+        KOLU_REMOTE_PADI_STATE_DIR="/home/toor/.local/state/kolu-hero-demo-padi" \
         {{ nix_shell_e2e }} nix-shell screencast/shell.nix --run \
         "node --import tsx ./node_modules/@cucumber/cucumber/bin/cucumber-js --profile ui features/recordings.feature $name_filter"
 

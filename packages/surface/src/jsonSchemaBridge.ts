@@ -379,8 +379,14 @@ const NON_FINITE_SENTINELS = ["Infinity", "-Infinity", "NaN"];
  *  Matched STRUCTURALLY and exactly — a two-member `anyOf` whose first member is
  *  numeric and whose second is precisely the sentinel string enum — so a
  *  hand-written union that merely resembles it is left alone. The numeric arm's
- *  own keywords (a `Schema.Number.check(...)`'s `allOf` bounds) survive, and so
- *  do the node's siblings (`description`, `default`), which win over the arm's. */
+ *  own keywords survive, and so do the node's siblings (`description`,
+ *  `default`), which win over the arm's.
+ *
+ *  What reaches here is a bare or non-integer `Schema.Number`: since effect
+ *  rc.111 a numeric carrying an `isInt()` check is emitted as `{type:"integer"}`
+ *  with its bounds compacted onto the node, and never takes the union form at
+ *  all. That is why an MCP-facing numeric spells `isInt()` — see `kolu-mcp`'s
+ *  `MillisecondsSchema`. */
 function normalizeNumeric(node: JsonSchema): JsonSchema {
   const anyOf = node.anyOf;
   if (!Array.isArray(anyOf) || anyOf.length !== 2) return node;

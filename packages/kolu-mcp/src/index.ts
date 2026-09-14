@@ -9,10 +9,17 @@
  * connected client.
  */
 
+// WHAT the injected factory must hand back — kolu's rooted bundle, padi as its
+// core — and the one hop a bundle-root verb takes to reach padi through it.
+export { type KoluSurfaceClients, padiOf } from "./bundleClient.ts";
 export { KOLU_MCP_DENIED, KOLU_MCP_EXPOSE } from "./expose.ts";
 export {
   type KoluMcpConnection,
-  KOLU_MCP_TOOLS,
   type ServeKoluMcpOptions,
   serveKoluMcp,
 } from "./serve.ts";
+// The tool table's home: `tools.ts`, NOT serve.ts — it is also `kolu
+// surface`'s verb table, and must stay loadable without the MCP SDK (see that
+// module's header). The same name reaches the `kolu-mcp/tools` subpath
+// without this barrel's SDK chain, as those tools mount it.
+export { KOLU_MCP_TOOLS } from "./tools.ts";

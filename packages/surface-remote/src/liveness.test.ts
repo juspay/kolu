@@ -64,7 +64,6 @@ function healthyChild() {
   child.stdin = pair.client.write;
   child.stdout = pair.client.read;
   child.stderr = new PassThrough();
-  child.pid = 1234;
   const kill = vi.fn(() => {
     pair.server.write.end();
     (child as unknown as EventEmitter).emit("exit", null, "SIGTERM");
@@ -91,7 +90,6 @@ function wedgedChild() {
   // liveness probe to notice. What is left here — and what this pin measures — is
   // a daemon that proved its epoch at boot and hung afterwards.
   writeStdioReadiness(stdout, { verdict: "ready" });
-  child.pid = 4321;
   const kill = vi.fn(() => {
     (child as unknown as EventEmitter).emit("exit", null, "SIGTERM");
     return true;

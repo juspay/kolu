@@ -1,7 +1,7 @@
 /**
  * kolu-cli's LOCAL padi dial — the connect layer the CLI faces (`kolu mcp`,
  * later `kolu tui`) share, owned by the composition root: resolve the running
- * padi's digest-keyed socket, dial it through the shared `@kolu/padi/dial` kit
+ * padi's digest-keyed socket, dial it through the shared `@kolu/padi-client/dial` kit
  * (control-core handshake + the typed compatibility gate), and scope to the padi
  * sibling — the ONE padi client both faces ride. The remote `--host` dial lives
  * in `hostConnect.ts`; both return the same `KoluCliConnection` shape so a face
@@ -37,16 +37,15 @@
  * never was.
  */
 
+import { type LocalPadiTarget, localPadiSocket } from "@kolu/padi/stateRoot";
 import {
   connectPadi,
-  type LocalPadiTarget,
-  localPadiSocket,
   type PadiConnection,
   scopePadiSurface,
-} from "@kolu/padi/dial";
+} from "@kolu/padi-client/dial";
 import { isContractSkewError } from "@kolu/surface-daemon-supervisor";
-import type { KoluMcpConnection } from "kolu-mcp";
 import { Data, Effect } from "effect";
+import type { KoluMcpConnection } from "kolu-mcp";
 import { errorMessage } from "./exit.ts";
 
 /** The transport-blind handle a CLI face is written against — the padi-scoped
@@ -183,7 +182,9 @@ export function connectKoluCliLocal(
  *  back; `hostConnect.ts`'s `koluCliConnectionOfAgentDial` is its ssh mirror. */
 export function koluCliConnectionOf(conn: PadiConnection): KoluCliConnection {
   return {
-    client: scopePadiSurface(conn.client),
+    // The rooted bundle this face dials: padi is the unprefixed CORE, and
+    // there are no siblings — see `kolu-mcp`'s `bundleClient.ts`.
+    client: { core: scopePadiSurface(conn.client) },
     // Both transport members go across through a closure, not as bare method
     // references: `DaemonConnection` declares `dispose()` and `onClose()` as
     // METHODS, so a detached `conn.dispose` would call with no receiver and

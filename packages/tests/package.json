@@ -7,6 +7,7 @@
     "@cucumber/messages": "32.2.0",
     "@kolu/daemon-test-gate": "workspace:*",
     "@kolu/padi": "workspace:*",
+    "@kolu/padi-client": "workspace:*",
     "@kolu/shell-quote": "workspace:*",
     "@kolu/surface": "workspace:*",
     "@kolu/surface-app": "workspace:*",

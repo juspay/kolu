@@ -15,15 +15,15 @@
  * truth for "apply an observation to the snapshot state."
  */
 
-import { exactRestoreTarget } from "anyagent/cli";
-import { match, P } from "ts-pattern";
 import type {
   AgentIdentity,
-  TerminalEvent,
-  TerminalState,
-  TerminalSnapshot,
   RestoreTarget,
+  TerminalEvent,
+  TerminalSnapshot,
+  TerminalState,
 } from "@kolu/terminal-vocab/schema";
+import { exactRestoreTarget } from "anyagent/cli";
+import { match, P } from "ts-pattern";
 
 /** How often a same-identity OUTPUT tick may re-stamp recency. The agent-detail
  *  firehose ticks ~1×/s while an agent works; stamping every tick would restore
@@ -64,6 +64,11 @@ export function foldSnapshot(
       // structurally equal to the one before it (`portsEqual`), so anything that
       // reaches here is a real change.
       .with({ kind: "ports" }, ({ ports }) => ({ ...snapshot, ports }))
+      // Same shape and same guarantee as `ports` above: the grid sensor drops a
+      // sample equal to the one before it, so anything reaching here is a real
+      // resize — which matters because every attach republishes the grid it was
+      // served at and almost none of those are a change.
+      .with({ kind: "grid" }, ({ grid }) => ({ ...snapshot, grid }))
       // `unknown` returns the SAME reference (no clobber) — callers rely on the
       // identity to detect "nothing changed"; `{ value }` applies authoritatively.
       .with({ kind: "agent", agent: "unknown" }, () => snapshot)
@@ -163,6 +168,14 @@ export function restoreTargetOf(aw: TerminalState): RestoreTarget {
     exactRestoreTarget(command, {
       kind: agent.kind,
       sessionId: agent.sessionId,
+      // Pi's robust resume ref: the transcript PATH opens regardless of where
+      // pi's session store has been moved (an id alone is only findable by pi's
+      // OWN current store resolution — a harness's per-run PI_CODING_AGENT_DIR
+      // defeats it). Only pi's producer fills it; other agents' ids are their
+      // resume refs.
+      ...(agent.kind === "pi" && agent.sessionPath !== undefined
+        ? { sessionPath: agent.sessionPath }
+        : {}),
     }) ?? { kind: "none" }
   );
 }

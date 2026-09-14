@@ -7,7 +7,7 @@
  *  mobile-Safari tab eviction). Imports the pure module only — no daemonStatus
  *  subscription, no DOM. See juspay/kolu#1365. */
 
-import type { DaemonState, DaemonStatus } from "@kolu/padi/surface";
+import type { DaemonState, DaemonStatus } from "@kolu/padi-client/surface";
 import { describe, expect, it, vi } from "vitest";
 import { persistedPref } from "../persistedPref";
 import {

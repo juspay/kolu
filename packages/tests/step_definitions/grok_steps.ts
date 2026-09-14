@@ -151,15 +151,8 @@ When(
   },
 );
 
-/** padi's command-run reconcile ladder is [0, 75, 300, 1000] ms. Waiting
- *  past that forces any later match to come from externalChanges (the
- *  active_sessions watcher), not from a delayed command-run tick. */
-When(
-  "{int} ms elapse past the command-run reconcile window",
-  async function (this: KoluWorld, ms: number) {
-    await new Promise((r) => setTimeout(r, ms));
-  },
-);
+// NOTE: "{int} ms elapse past the command-run reconcile window" lives in
+// spawn_detection_steps.ts — agent-agnostic, shared with pi's feature.
 
 When(
   "the active_sessions entry is written for the running Grok process with state {string}",

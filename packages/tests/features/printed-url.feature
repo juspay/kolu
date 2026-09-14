@@ -33,6 +33,26 @@ Feature: Printed URL joins the scanner (PRT4)
     Then the printed-url card should upgrade to join state "joined"
     And there should be no page errors
 
+  Scenario: A detached server's printed URL is found on the host
+    # `odu web-daemon` and anything under `setsid` leave the terminal's process
+    # tree and keep serving the URL the terminal printed. The card used to say
+    # "nothing is listening yet" about them; the host-wide scan finds the server,
+    # the terminal's Ports section claims it (marked detached), and the door the
+    # card opens is not reaped out from under it.
+    When I start a detached path-aware listener on port 8133 bound to loopback only
+    And I print the URL "http://localhost:8133/detached"
+    And I click the terminal web link "http://localhost:8133/detached"
+    Then the printed-url card should be open with join state "elsewhere"
+    And the printed-url card should mark the server detached
+    When I click forward-and-open on the printed-url card
+    Then the forwarded tab should load the listener path "/detached"
+    When I press the toggle inspector shortcut
+    Then the right panel should be visible
+    When I click the right panel tab "inspector"
+    Then the inspector should show port 8133 as a detached server of this terminal
+    And the forward for port 8133 should survive the reaper
+    And there should be no page errors
+
   Scenario: Cmd-click bypasses the card and opens the raw URL
     # A live listener so the raw open is a real navigation, not chrome-error
     # from a refused connection (nothing was bound on the prior cut).

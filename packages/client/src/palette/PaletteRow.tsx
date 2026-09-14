@@ -8,7 +8,8 @@
  *  Kind tags appear only during cross-kind root search (`showKindTag`); scoped
  *  drill-ins drop them as noise. */
 
-import type { TerminalMetadata } from "@kolu/padi/surface";
+import { compactDelta } from "@kolu/terminal-vocab/duration";
+import type { TerminalMetadata } from "@kolu/padi-client/surface";
 import { StatePip } from "@kolu/solid-statepip";
 import { TITLE_PIP_BOX } from "@kolu/solid-statepip/pipVariant";
 import {
@@ -20,7 +21,7 @@ import { DASH, type TerminalId } from "kolu-common/surface";
 import { type Component, For, Show } from "solid-js";
 import { Dynamic } from "solid-js/web";
 import type { PaletteCommand, PaletteLabel } from "../CommandPalette";
-import { rowSubline } from "../canvas/dock/rowSubline";
+import { rowSubline } from "@kolu/solid-dockrow/rowValues";
 import { HostIdentityLabel } from "../host/HostIdentityLabel";
 import {
   dotClass,
@@ -35,7 +36,6 @@ import { IntentMarkdownInline } from "../intent/IntentMarkdown";
 import { annotationLine } from "../intent/text";
 import { useStatePip } from "../terminal/statePipBind";
 import { useTerminalStore } from "../terminal/useTerminalStore";
-import { compactDelta } from "../time/duration";
 import Kbd from "../ui/Kbd";
 import RepoMonogram from "../ui/RepoMonogram";
 import { activeHost, padiMap } from "../wire";
@@ -226,7 +226,7 @@ const PaletteRow: Component<{
       // keeps branch off the headline in the same case). Otherwise the
       // Dock subline (agent summary / foreground).
       if (r.terminalMeta?.intent) return r.branchLabel ?? "";
-      if (r.terminalMeta) return rowSubline(r.terminalMeta);
+      if (r.terminalMeta) return rowSubline(r.terminalMeta).text;
       if (r.context) return r.context;
       return props.cmd.description ?? "";
     }

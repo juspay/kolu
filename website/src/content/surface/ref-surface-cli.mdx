@@ -36,12 +36,58 @@ name at all.
 
 | Option | Meaning |
 | --- | --- |
-| `surface` | the `Surface<S>` being projected (`expose` is checked against its `spec` at build) |
-| `expose` | the default-deny allowlist — the same [`ExposeMap`](/surface/ref-surface#per-face-expose-kolusurfaceexpose) every other face takes |
-| `verbs?` | hand-authored [`SurfaceVerb`](/surface/ref-surface#the-projection-vocabulary-kolusurfaceverbs)s, by name — the same record `serveSurfaceAsMcp` takes as `tools` |
+| `core?` | the unprefixed root — `{ surface, expose }`. Its verbs and readers sit at the TOP of the mounted tree. Its `expose` is the default-deny allowlist, the same [`ExposeMap`](/surface/ref-surface#per-face-expose-kolusurfaceexpose) every other face takes, checked against **its own** `spec` at build |
+| `surfaces?` | the siblings, keyed — `{ [key]: { surface, expose, verbs?, annotate? } }`. Each is mounted **behind its key as the first argv word**, and each `expose` is checked against that sibling's own spec. There is no top-level `expose`: one map per surface |
+| `verbs?` | hand-authored [`SurfaceVerb`](/surface/ref-surface#the-projection-vocabulary-kolusurfaceverbs)s at the BUNDLE ROOT, by name — the same record `serveSurfaceAsMcp` takes as its top-level `tools` |
 | `endpoint` | the transport seam: `{ flags?, resolve }` — see below |
-| `annotate?` | CLI-only ergonomics by verb name: `{ positional?, render? }` |
-| `info` | the **binary's** identity: `name`, which fronts every diagnostic, because a user reads `olai: no surface at …` and never the package's name |
+| `annotate?` | CLI-only ergonomics by verb name, for the core's and the bundle root's verbs: `{ positional?, render? }`. A sibling's live on the sibling |
+| `info` | the **binary's** identity: `name`, which fronts every **prose** diagnostic — the usage and unreachable sentences — because a user reads `olai: no surface at …` and never the package's name. The refusal body is verbatim JSON with **no** prefix: an `olai: ` in front of it would stop it being JSON |
+
+### A rooted bundle, with the sibling key as the first argv word
+
+This face takes the same **rooted bundle** the MCP face does, and composes it the
+way argv already composes: a sibling's whole projection is mounted under a
+subcommand named by its key.
+
+```sh
+example who_get                 # the core, bare
+example outlines ops_run …      # the sibling "outlines"
+example outlines get entries    # its readers, under the same word
+```
+
+That is the MCP face's `outlines_ops_run` in argv's own separator, exactly as
+`<ns>.<verb>` is already `<ns>_<verb>` on both faces: one composition, spelled
+once per face in the separator that face has. A shell has a real hierarchy, so
+using it beats gluing the key on with an underscore and reproducing MCP's
+constraint where it does not apply.
+
+`list` stays at the **top** and describes the whole bundle — one authoritative
+"what can I address" per face. Each row's `name` is what a caller *types*, in
+both arms: `outlines ops_run` for a verb, and the full address for a readable
+member — `outlines get nodes`, plus a `keys` / `watch` row wherever the
+collection declares them, since those are different addresses. The sibling is
+repeated as a `surface` field and the member key as a `member` field, so a script
+can group by either without re-splitting a string this face composed.
+
+A sibling's own `verbs` are mounted behind its word like everything else it
+contributes, so `outlines read` is here what `outlines_read` is on the MCP
+face — one composition, spelled once per face in the separator that face has.
+Only the bundle-root `verbs` sit bare at the top.
+
+A **verb receives the client of the thing it is declared on**: a sibling's
+`verbs` are handed `clients[key]`, and the bundle-root `verbs` are handed the
+whole `{ core, clients }` bundle.
+
+Four refusals, all at BUILD:
+
+- a bundle with neither a core nor a sibling — that is not a bundle;
+- a sibling that exposes nothing and declares no verbs — it would mount an argv word a user can only ever be refused at;
+- a sibling key that would be mounted beside a reader command or a root verb of the same name, which the parser would answer with whichever it met first;
+- everything the single-surface projection already refuses, per scope.
+
+A dialled bundle that carries **no client** for a sibling is exit `3`, not a
+usage error: the command line was right, and what is missing is on the far side —
+the same arm a dead socket lands on.
 
 ### The endpoint seam
 
@@ -56,7 +102,9 @@ with nothing holding them together.
 | `flags?` | the flags every generated command carries (`--socket`, `--url`, `--host`). **Optional**: omit it when your binary declares them on its own parent instead — see below |
 | `resolve(values)` | → `Effect<{ where, open }>`. `values` is **typed from `flags`**, so renaming a flag is a compile error here rather than an `undefined` your app dials. `where` names the endpoint in the app's own words; `open()` dials it, returning `{ client, dispose }`. `open` rejecting is the honest answer for "nothing is serving there", and the rejection's own words reach the user beside `where` |
 
-`client` is a [`SurfaceClientCallable`](/surface/ref-surface#the-face-and-its-retry-fence-kolusurfaceclient) —
+`client` is a [`RootedSurfaceClients`](/surface/ref-surface#the-face-and-its-retry-fence-kolusurfaceclient)
+bundle — `{ core?, clients? }`, each leg a
+[`SurfaceClientCallable`](/surface/ref-surface#the-face-and-its-retry-fence-kolusurfaceclient),
 what `buildSurfaceFace(surface, link.dispatch)` mints. `dispose` is
 **required**: a CLI dials, does one thing and exits, and the failure that costs a
 user something is a socket left open in a shell loop. An in-process host passes
@@ -90,13 +138,21 @@ from the parent's context here.
 | cell | `get <member> [--follow]` |
 | stream · event | `get <member> [input] [--follow]` |
 | collection | `get <member> <key> [--follow]` · `keys <member> [--follow]` (only when it declares `keys`) · `watch <member>` (only when it declares `deltas`) |
-| always | `list` — this face's `tools/list`. It takes **no `--json` of its own**: the aligned table on a terminal, JSON through a pipe, exactly like a verb with a renderer — so `--json` means ONE thing across the whole mounted set, the input |
+| always | `list` — this face's `tools/list`, answered from the projection itself, so it dials nothing. Its aligned table is a summary like any other, so `--json` asks for the data |
 
 `--follow` turns a one-shot read into the subscription itself: one ndjson line
 per frame, until the stream ends or you interrupt it. Without it a read takes
 the **opening snapshot frame** and stops — which is what every snapshot-then-
 deltas member opens with. `watch` is a delta stream with no one-shot reading, so
 it takes no `--follow` and always streams.
+
+A host whose transport **cannot push** declares `endpoint.streaming: false`, and
+then `watch` is not mounted and `--follow` is not declared anywhere. That is a
+subtraction at build rather than a refusal at run time: a caller finds out what a
+face can do from `--help`, and a flag that parses and then always fails is a flag
+whose help is untrue. Every other reader still works, because each of them takes
+the opening snapshot frame and interrupts the rest — a door that answers once
+answers all of them.
 
 An **event** is the one member with no snapshot to take: it is occurrences over
 time, so a one-shot `get` of it would wait for ever. It is refused (exit 2)
@@ -154,21 +210,33 @@ the other's idea of what the verb takes.
 | `boolean` | `--name` / `--no-name` — a **tristate**, so "I did not say" and "I said false" stay different |
 | array of scalars | `--name <v>`, repeated |
 | `Record<string, string>` | `--name k=v`, repeated |
+| `<scalar> \| null` | `--name <value>`, plus the word `null` to clear it |
 | anything deeper | `--name '<json>'` — the field's own JSON |
 | a non-object input | the bare `<value>` positional |
 
 Every param is **optional to the parser**, and that is load-bearing rather than
-lax: `--json` carries the whole input *as an alternative to the field flags*, so
+lax: `--input` carries the whole input *as an alternative to the field flags*, so
 a required field projected as a parser-required param would make the escape hatch
 unspellable — the command would be refused before the assembler could see that
-`--json` was the answer. Requiredness is enforced one layer up instead, where
+`--input` was the answer. Requiredness is enforced one layer up instead, where
 both inputs are in view: a missing required field is named by this face, on
-**exit 2**, and only when `--json` is absent. A `default` is likewise applied at
+**exit 2**, and only when `--input` is absent. A `default` is likewise applied at
 assembly rather than by the parser, because `Flag.withDefault` makes a field the
 caller never typed indistinguishable from one they did.
 
 Both facts reach `--help` in the line rather than in the shape: a required field
 says `(required)`, a defaulted one says `(default: …)`.
+
+**A field that can be CLEARED takes the value, or the word.** A removable field
+is usually spelled `<scalar> | null`, which is a union — so it used to fall to
+the JSON flag, and a plain line of text wanted `--desc '"the brass ones"'` on
+the four or five verbs a person types most. Now it takes the scalar's own
+spelling, and the bare word `null` clears it. That is a magic word, and the
+ambiguity is bounded and named on the flag's own help line: a string whose value
+is literally `null` goes through `--input`, which takes the field's JSON and has
+no ambiguity at all. A nullable ENUM keeps its choice list and gains the word, so
+`--help` lists everything the flag takes. Only exactly `<scalar> | null` moves —
+a wider union has no one obvious spelling and keeps the JSON flag.
 
 **Names are not transformed.** The flag is the field, spelled the same:
 `--filePath`, not `--file-path`. A transformation would be a second name for one
@@ -176,10 +244,15 @@ thing, and it is not reversible for every field name. A field that cannot be
 spelled as a command-line name is refused when the tree is built, naming the
 field — never shipped as a command nobody can type.
 
-Every verb also takes `--json '{…}'` — the whole input, as data — or `--json -`
+Every verb also takes `--input '{…}'` — the whole input, as data — or `--input -`
 to read it from stdin. It is an **alternative** to the field flags, never a
 supplement: passing both is a usage error naming them, rather than a silent
 precedence nobody can see.
+
+It was spelled `--json` and was renamed, because that name is now the **answer's**:
+`--json` on any command asks for its full JSON output instead of the summary a
+renderer would print. One name cannot mean the input on the way in and the output
+on the way out.
 
 <Aside type="note" title="Input is validated locally, before the round trip">
   The assembled input is decoded against the verb's own schema in your process,
@@ -191,8 +264,8 @@ precedence nobody can see.
 
 - **stdout is data.** One JSON value for a one-shot read; one **compact** JSON
   line per frame for anything streamed. Indented only when stdout is a terminal,
-  so a pipe always gets machine-shaped output — which is why there is no flag to
-  force it, and why `--json` on a verb keeps its single meaning (the input).
+  which decides the SPACING of a JSON answer and nothing else — never which
+  answer it is.
   *The one exception is not this package's:* a refusal from the CLI **library**
   (a rejected flag, an unknown subcommand, a value outside a choice) is rendered
   by Effect CLI itself, which prints the usage document on **stdout** and the
@@ -204,9 +277,15 @@ precedence nobody can see.
   the verb's answer.
 - **A hung-up reader is a complete run.** `watch nodes | head -1` closes the
   pipe under a live subscription; that is the reader getting what it asked for,
-  so it exits 0. Every other write failure is reported.
+  so it exits 0. Every other write failure is reported. The predicate this arm
+  decides on is exported as `isConsumerHangup` (below), for a host whose own
+  writes sit outside this projection and answer the same question of a sink
+  failure.
 - An `annotate.render` renders a verb's output as text **for a human**, applied
-  only when stdout is a terminal.
+  unless the caller passed `--json`. **The flag is the only thing that decides.**
+  It used to be the descriptor — prose to a terminal, data through a pipe — so
+  one command answered with two different things depending on what it happened to
+  be attached to, and neither could be asked for on purpose.
 
 ## Exit codes
 
@@ -280,19 +359,27 @@ print and return success, so they never reach it.)
 | --- | --- |
 | `EXIT` | the matrix above, as data |
 | `READER_NAMES` | the four names this face mounts that are not verbs (`get` · `keys` · `watch` · `list`) — the fact a host needs to check its own subcommands against, since `surfaceCommands` cannot see them |
-| `flagsOf(schema, opts?)` | the argv half of the bridge — an input schema to an `InputProjection`: the command config, the `advertised` document it was built from (handed back so a caller that wants it does not walk the schema a second time), plus the `assemble(values, stdin)` that reads a parsed config back into the verb's encoded input. `stdin` is an **Effect**, described rather than read, so the descriptor is touched only on the `--json -` path and no caller has to ask first |
+| `surfaceHelp(opts)` | the parent command's DESCRIPTION — the help page a person reads. Pure over the same options, so it cannot describe a verb the projection does not mount: a group naming a command nothing answers to is refused at build. Pipe it through `Command.withDescription`; passing `help` to `surfaceCommands` then unlists the verbs, so the page is the listing rather than one of two |
+| `JSON_FLAG` · `INPUT_FLAG` | the two flag names, as data: the whole ANSWER as JSON, and the whole INPUT as JSON |
+| `flagsOf(schema, opts?)` | the argv half of the bridge — an input schema to an `InputProjection`: the command config, the `advertised` document it was built from (handed back so a caller that wants it does not walk the schema a second time), plus the `assemble(values, stdin)` that reads a parsed config back into the verb's encoded input. `stdin` is an **Effect**, described rather than read, so the descriptor is touched only on the `--input -` path and no caller has to ask first |
 | `reportingRunEdge` | the whole run edge as one combinator — pipe your program through it, so the exit matrix is true of a real binary |
 | `runEdge(error)` | → `RunEdgeReport`: `{ kind: "write", stderr, failure }` or `{ kind: "silent", failure }` — the decision underneath, for a host that owns its own catch |
+| `isConsumerHangup(failure)` | did the consumer hang up (`… \| head -1`) or did the write genuinely fail — the predicate behind the complete-run discipline above. Reads the errno BOTH flat (`{code:"EPIPE"}`) and nested (`{cause:{code:"EPIPE"}}`, the shape a wrapped sink failure actually raises), so a host's own stdout writes ask the one question once |
 | `SurfaceCliFailure` | the failure class carrying both the text and the code |
 | `SurfaceCliBuildError` | a malformed projection, refused when the tree is built (a positional naming no field, a flag-name collision, a field that cannot be a flag) |
-| `SurfaceCliOptions` · `EndpointSeam` · `ResolvedEndpoint` · `SurfaceCliConnection` · `VerbAnnotation` · `InputProjection` · `Assembled` · `ProjectedCommand` · `RunEdgeReport` | types |
+| `SurfaceCliOptions` · `SurfaceCliCore` · `SurfaceCliSibling` · `EndpointSeam` · `ResolvedEndpoint` · `SurfaceCliConnection` · `VerbAnnotation` · `InputProjection` · `Assembled` · `ProjectedCommand` · `RunEdgeReport` | types |
 
-This package re-exports nothing of the framework's: `messageOf` is
+The framework's rules stay the framework's: `messageOf` is
 [`@kolu/surface/errors`](/surface/ref-surface#the-tagged-error-vocabulary-kolusurfaceerrors)'s
-and `SurfaceClientCallable` — the client shape `resolve`'s `open` must return —
-is [`@kolu/surface/client`](/surface/ref-surface#the-face-and-its-retry-fence-kolusurfaceclient)'s.
+and `SurfaceClientCallable` — the shape each leg of the bundle `resolve`'s `open`
+returns has — is
+[`@kolu/surface/client`](/surface/ref-surface#the-face-and-its-retry-fence-kolusurfaceclient)'s.
 One concept, one import path; a face that published the framework's rules under
-its own name would be a second place to look for them. `SurfaceCliConnection` is
+its own name would be a second place to look for them. The one exception is
+`RootedSurfaceClients`, re-exported here for the same reason the MCP face
+re-exports it: `SurfaceCliConnection` below carries it, and a host writing an
+`endpoint.open` has to be able to import the name it names.
+`SurfaceCliConnection` is
 an alias of that module's `OwnedSurfaceConnection`, which is the same shape the
 MCP face holds — so one connection factory can feed both faces.
 

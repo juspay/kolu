@@ -26,7 +26,7 @@
  * What does NOT belong here: what a given app will *accept*. A file-size policy
  * cap, an extension allowlist, a rejection sentence, where the bytes land on
  * disk — those are the house's gate, and they stay in the house (kolu's
- * `rejectionFor` / `MAX_UPLOAD_BYTES` in `@kolu/padi/upload`; olai's
+ * `rejectionFor` / `MAX_UPLOAD_BYTES` in `@kolu/padi-client/upload`; olai's
  * `attachmentRejection`). This module pays the arithmetic, not the gate.
  *
  * ## The derivation

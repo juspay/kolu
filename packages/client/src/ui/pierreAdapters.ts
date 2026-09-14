@@ -10,17 +10,17 @@
  *  pure porcelain→word git-status mapping lives in `gitStatusEntries.ts`, kept
  *  toast-free so it stays unit-testable in a plain node env.) */
 
-import { toError } from "@kolu/surface/run-stream";
-import { Effect } from "effect";
 import {
   CODE_TAB_VIEW_ORDER,
   type CodeTabView,
   viewLabel,
-} from "@kolu/padi/surface";
+} from "@kolu/padi-client/surface";
 import type {
   ContextMenuItem,
   ContextMenuOpenContext,
 } from "@kolu/solid-pierre";
+import { toError } from "@kolu/surface/run-stream";
+import { Effect } from "effect";
 import { toast } from "solid-sonner";
 import { runAction } from "../runAction";
 import { writeTextToClipboard } from "./clipboard";

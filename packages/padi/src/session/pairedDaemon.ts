@@ -24,10 +24,10 @@
  * would have nothing to compare against).
  */
 
+import type { SavedSession } from "@kolu/padi-client/surface";
 import { Schema } from "effect";
 import type { PtyHostListEntry } from "kaval";
 import { requirePadiLastPairedDaemonStore } from "./confStores.ts";
-import type { SavedSession } from "../vocab.ts";
 
 /** The persisted identity of the kaval kolu-server last CONVERGED onto as its
  *  survivor. `startedAt` is the per-process boot timestamp the next boot compares

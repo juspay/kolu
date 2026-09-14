@@ -28,6 +28,8 @@ import { describe, expect, it } from "vitest";
 import {
   composeSurfaceContracts,
   defineSurface,
+  isStandaloneRoot,
+  notStandaloneRootDetail,
   scopeSiblingTag,
   type SurfaceTags,
 } from "./define";
@@ -410,5 +412,43 @@ describe("scopeSiblingTag", () => {
     expect(() => scopeSiblingTag("terminal/create", "host1")).toThrow(
       /is not a surface tag/,
     );
+  });
+});
+
+describe("the rooted-root law", () => {
+  it("reads a standalone surface as a root and a sibling-scoped one as not", () => {
+    const standalone = defineSurface({
+      cells: { a: { schema: Schema.String, default: "" } },
+    });
+    expect(isStandaloneRoot(standalone)).toBe(true);
+    expect(
+      isStandaloneRoot(composeSurfaceContracts({ k: standalone }).siblings.k),
+    ).toBe(false);
+  });
+
+  it("says the same sentence for every door, differing only in the door's own words", () => {
+    // ONE reading of one law. The three doors that carry a root — the serve side,
+    // the gate and the browser — kept three hand-synced copies of this sentence,
+    // and the third arrived without amending the two that cite each other.
+    const serve = notStandaloneRootDetail(
+      "implementRootedSurfaces",
+      "the root surface",
+      "surface/kolu/",
+      "serve it as a sibling with `implementSurfaces`",
+    );
+    const dial = notStandaloneRootDetail(
+      "connectSurfaces",
+      "`core.surface`",
+      "surface/kolu/",
+      "make it a sibling in `surfaces`",
+    );
+    for (const detail of [serve, dial]) {
+      expect(detail).toMatch(
+        /the root of a rooted bundle is the UNPREFIXED one/,
+      );
+      expect(detail).toContain('"surface/kolu/"');
+    }
+    expect(serve).toMatch(/^implementRootedSurfaces: the root surface/);
+    expect(dial).toMatch(/^connectSurfaces: `core.surface`/);
   });
 });

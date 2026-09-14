@@ -24,22 +24,22 @@
  */
 
 import { currentPadiBuildId } from "@kolu/padi/assembly";
+import { PADI_REMOTE_DIAL } from "@kolu/padi/remote-dial";
 import {
-  PADI_REMOTE_DIAL,
   type PadiDaemonClient,
-  padiClientOver,
   type PadiSurfaceClient,
+  padiClientOver,
   scopePadiSurface,
-} from "@kolu/padi/dial";
+} from "@kolu/padi-client/dial";
 import {
+  PADI_SURFACE_VERSION,
   padiDaemonGroup,
   type padiSurface,
-  PADI_SURFACE_VERSION,
   padiSurfaceSibling,
-} from "@kolu/padi/surface";
+} from "@kolu/padi-client/surface";
 import {
-  convergeAdmit,
   type ControlCoreProbeClient,
+  convergeAdmit,
   createConnectorDrainBudget,
   probeDaemonIdentityFrom,
 } from "@kolu/surface-daemon-supervisor";
@@ -53,11 +53,10 @@ import {
   resolveBakedAgentDrv,
   type Session,
   type SshConnectorOptions,
-  sshConnector,
   type SshProv,
+  sshConnector,
 } from "@kolu/surface-remote";
 import { Effect, Schema } from "effect";
-import { composeSpawnEnv } from "kolu-pty";
 import { encodeHostKey, parseHostInput } from "kolu-common/hostKey";
 import {
   type PadiConvergence,
@@ -68,6 +67,7 @@ import {
   type HostKey,
   LOCAL_HOST,
 } from "kolu-common/surfacesWithPadi";
+import { composeSpawnEnv } from "kolu-pty";
 import { log } from "../log.ts";
 // padi's convergence policy — ONE declaration for BOTH arms. The remote arm enacts
 // via `convergeAdmit` (same decision table + budget as the local `converge(endpoint)`).
@@ -495,11 +495,10 @@ export function ensureRemotePadiBinding(
         return null;
       case "link-failed":
       case undefined:
-        if (drvFaultCause !== null) return { cause: drvFaultCause };
-        if (convergence?.kind === "link-failed") {
-          return { cause: "link-failed" };
-        }
-        return null;
+        // The generic give-up carries no finer detail: `padiFailureOf` names it
+        // from the session's own `failed` state (its transport `cause`), the one
+        // source of truth for why the link gave up.
+        return drvFaultCause !== null ? { cause: drvFaultCause } : null;
       default: {
         const _exhaustive: never = convergence;
         throw new Error(
@@ -811,12 +810,12 @@ export function ensureRemotePadiBinding(
   base.onState((s) => {
     if (s.phase === "failed") {
       // The EPOCH verdict outranks the generic give-up banner (juspay/kolu#2101).
-      // `link-failed` means "we could not reach it"; an `unspeakable-protocol`
-      // standing verdict means "we reached it and it is from another epoch" — a
-      // strictly more specific fact about the SAME give-up, which the gate stood
-      // up on the very dials that exhausted the budget. Overwriting it here would
-      // put the operator back in front of a "can't reach this host" card for a
-      // host that answered every time.
+      // `link-failed` means "the link gave up" (stalled, or setup kept failing);
+      // an `unspeakable-protocol` standing verdict means "we reached it and it is
+      // from another epoch" — a strictly more specific fact about the SAME
+      // give-up, which the gate stood up on the very dials that exhausted the
+      // budget. Overwriting it here would put the operator back in front of a
+      // generic give-up card for a host whose real problem is known.
       //
       // Deliberately narrow: every OTHER standing anomaly (adopted-stale, a skew
       // the admit refused) describes a bind that WAS working, so a later terminal

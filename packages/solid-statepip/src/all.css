@@ -1,0 +1,22 @@
+/* `@kolu/solid-statepip`, whole — the pip's sheet AND its prerequisites.
+ *
+ * Import THIS after `tailwindcss` and you owe nothing else: the token sheet
+ * every colour below resolves, the sheet itself, and the `@source` that keeps
+ * the component's utility classes from being tree-shaken away.
+ *
+ * WHY THIS EXISTS rather than three lines in a README. The README's instruction
+ * cannot be written correctly for every consumer, because the path is not
+ * portable: the sibling package is `../../solid-statepip/src` from kolu's own
+ * client, `../solid-statepip/src` from inside a node_modules copy, and a
+ * four-level climb from a consumer's app directory. A `@source` relative to THIS
+ * file is right from all three, because each package points Tailwind at ITSELF.
+ * So the order stops being an instruction a reader can follow wrongly and
+ * becomes an invariant they cannot. The failure it prevents is not cosmetic: a
+ * wrong order renders a row with no layout at all, silently.
+ *
+ * The granular `./statepip.css` door stays. It is not a fallback or an override
+ * knob — it is the piece this file is composed FROM, and a surface assembling a
+ * different set legitimately reaches for it. */
+@import "@kolu/theme/theme.css";
+@import "./statepip.css";
+@source "./";

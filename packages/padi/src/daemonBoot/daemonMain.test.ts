@@ -10,13 +10,10 @@
 import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+import { padiGatePath, padiSocketPath } from "@kolu/padi-client/rendezvous";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { padiKavalSocketPath } from "../stateRoot.ts";
 import { runPadiDaemon } from "./daemonMain.ts";
-import {
-  padiGatePath,
-  padiKavalSocketPath,
-  padiSocketPath,
-} from "../stateRoot.ts";
 
 const log = {
   debug() {},

@@ -15,6 +15,11 @@
  *     is a compile error.
  */
 
+import {
+  composeTerminalMetadata,
+  LOCAL_LOCATION,
+  SavedTerminalSchema,
+} from "@kolu/padi-client/surface";
 import type { TerminalSnapshot } from "@kolu/terminal-vocab/schema";
 import { Schema } from "effect";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -30,11 +35,6 @@ import {
   registerTerminal,
   unregisterTerminal,
 } from "../terminal-registry.ts";
-import {
-  composeTerminalMetadata,
-  LOCAL_LOCATION,
-  SavedTerminalSchema,
-} from "../vocab.ts";
 import {
   commitSnapshot,
   installSnapshot,

@@ -3,7 +3,7 @@ import {
   activeArm,
   LOCAL_LOCATION,
   type TerminalMetadata,
-} from "@kolu/padi/surface";
+} from "@kolu/padi-client/surface";
 import {
   type AgentInfo,
   type AttentionClass,

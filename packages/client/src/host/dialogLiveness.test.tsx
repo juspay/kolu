@@ -24,7 +24,7 @@
  * `document.body`, so assertions read `document.body.textContent`.
  */
 
-import type { DaemonStatus, PadiIdentity } from "@kolu/padi/surface";
+import type { DaemonStatus, PadiIdentity } from "@kolu/padi-client/surface";
 import { type ControlPlane, SurfaceAppProvider } from "@kolu/surface-app/solid";
 import type { KoluBuildInfo, PadiLink } from "kolu-common/surface";
 import { render } from "solid-js/web";

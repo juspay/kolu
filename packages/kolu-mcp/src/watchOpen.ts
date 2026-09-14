@@ -20,25 +20,53 @@
  */
 
 import {
-  confirmInFleet,
   CONTAINING_TERMINAL_ENV,
+  confirmInFleet,
   containingTerminalId,
-  type PadiSurfaceClient,
-  type WatchScopeRefusal,
-  watchScopeOf,
-} from "@kolu/padi/dial";
+} from "@kolu/padi/containingTerminal";
+// Every top-level VALUE import here is schema-level — this module is on the
+// static tree-build path of every `kolu` invocation (the surface face mounts
+// the table). The two pure concept modules have homes of their own under padi
+// subpaths; the one transport-shaped reach — `readTerminalKeys`, whose closure
+// carries the mirror — arrives dynamically inside the handler instead.
 import {
+  PadiWatchNagMsSchema,
   type PadiWatchOpenInput,
   PadiWatchOpenInputSchema,
-} from "@kolu/padi/surface";
-import { readTerminalKeys } from "@kolu/padi/read";
-import { type BespokeTool, ToolFailure } from "@kolu/surface-mcp";
+} from "@kolu/padi-client/surface";
+import { padiOf } from "./bundleClient.ts";
+import { parseNag } from "@kolu/padi-client/watchDuration";
+import {
+  type WatchScopeRefusal,
+  watchScopeOf,
+} from "@kolu/padi-client/watchScope";
+import { type BespokeTool, ToolFailure } from "@kolu/surface-mcp/tools";
 import type { TerminalId } from "@kolu/terminal-vocab/schema";
 import { Effect, Schema } from "effect";
 import { match } from "ts-pattern";
 
+// The interval and its cap are ONE argument here, after the same slash the
+// CLI's `--nag 30m/3` reads — a count can never be named apart from the
+// repetition it caps, so the tool has no `nagCount` param to orphan.
+const {
+  nagMs: _wireNagMs,
+  nagCount: _wireNagCount,
+  ...watchOpenFields
+} = PadiWatchOpenInputSchema.fields;
 export const WatchOpenArgsSchema = Schema.Struct({
-  ...PadiWatchOpenInputSchema.fields,
+  ...watchOpenFields,
+  nagMs: Schema.optionalKey(
+    Schema.Union([
+      // The numeric rule is the wire field's own (`PadiWatchNagMsSchema`) —
+      // this face's grammar is the UNION around it: a bare number is the
+      // historic spelling, a string adds the units and the slash.
+      PadiWatchNagMsSchema,
+      Schema.String,
+    ]).annotate({
+      description:
+        'RE-report a terminal every this many milliseconds for as long as it keeps holding a matching state. A string spells the same in duration form — "30m" — and suffixing a count caps it: "30m/3" is three reminders past the first report, then quiet about that terminal until the state changes (a bare interval repeats forever). Omit to be told once.',
+    }),
+  ),
   ignoreSelf: Schema.optionalKey(
     Schema.Boolean.annotate({
       description:
@@ -112,7 +140,24 @@ export function resolveWatchOpenInput(
   live: readonly TerminalId[],
   env: { readonly [key: string]: string | undefined } = process.env,
 ): ParsedWatchOpen {
-  const { ignoreSelf, ignoreIds, ids, ...rest } = args;
+  // argv-grammar first, before anything the roster could answer: the nag's
+  // interval-and-count slash is spelled by THIS face and refused here, the
+  // same words the CLI's `--nag` gets — the pairing itself can never be
+  // orphaned, because a count only parses inside an interval.
+  const nag =
+    args.nagMs === undefined
+      ? undefined
+      : typeof args.nagMs === "number"
+        ? ({ kind: "ok", value: { ms: args.nagMs } } as const)
+        : parseNag("nagMs", args.nagMs);
+  if (nag !== undefined && nag.kind === "error") {
+    return {
+      kind: "error",
+      message: nag.message,
+      detail: { kind: "bad-nag-arg", raw: args.nagMs },
+    };
+  }
+  const { ignoreSelf, ignoreIds, ids, nagMs: _parsed, ...rest } = args;
   // ONE assembly, both branches: `ignoreSelf` decides whether there is an EXTRA
   // id in the mute, never how the mute is built. (The two used to be separate
   // paths and had already diverged on the empty list.)
@@ -172,6 +217,14 @@ export function resolveWatchOpenInput(
     kind: "ok",
     value: {
       ...rest,
+      ...(nag === undefined
+        ? {}
+        : {
+            nagMs: nag.value.ms,
+            ...(nag.value.count === undefined
+              ? {}
+              : { nagCount: nag.value.count }),
+          }),
       ...(scope.value.include === undefined
         ? {}
         : { ids: [...scope.value.include] }),
@@ -187,9 +240,9 @@ export const watchOpenTool: BespokeTool = {
   mutates: true,
   title: "Open a terminal watch",
   description:
-    "Start (or re-attach to) a named standing subscription. Omit ids to watch the WHOLE fleet — a list you forget to update goes blind to a lane nobody added. ignoreIds mutes known terminals (fail-open: a stale id costs nothing). ignoreSelf mutes the terminal this MCP server is running inside. Naming any of states/heldForMs/nagMs turns the subscription into an agent-state watch (snapshot · transition · nag); naming none leaves the settle detector (asking · finished · gone). Re-open the SAME name after a restart to reattach to the queue.",
+    'Start (or re-attach to) a named standing subscription. Omit ids to watch the WHOLE fleet — a list you forget to update goes blind to a lane nobody added. ignoreIds mutes known terminals (fail-open: a stale id costs nothing). ignoreSelf mutes the terminal this MCP server is running inside. Naming any of states/heldForMs/nagMs turns the subscription into an agent-state watch (snapshot · transition · nag) — nagMs may carry a cap after a slash ("60000/3"): three reminders past the first report, then quiet; a bare interval repeats forever. Naming none leaves the settle detector (asking · finished · gone). Re-open the SAME name after a restart to reattach to the queue — the snapshotted standing truth and the nag budget you left come with it.',
   handler: (args, client) => {
-    const padi = client as PadiSurfaceClient;
+    const padi = padiOf(client);
     const asked = args as WatchOpenArgs;
     return Effect.gen(function* () {
       // The roster, and ONLY when the stamp needs confirming against it: `kolu
@@ -197,9 +250,19 @@ export const watchOpenTool: BespokeTool = {
       // machine's fleet, in which case the stamp names a terminal nobody there
       // has heard of and the mute would mute nobody and return success. Every
       // other id on this call is a full id off the wire, so a caller who never
-      // asked `ignoreSelf` pays no round trip.
-      const live =
-        asked.ignoreSelf === true ? yield* readTerminalKeys(padi) : [];
+      // asked `ignoreSelf` pays no round trip — and the module loading the
+      // read pays for it only too (the tree-build fence at the file head).
+      // One bridge per crossing: the LAZY IMPORT inside `Effect.promise`
+      // (module acquisition), then the read's own `Effect` composed into this
+      // generator (execution) — a `runPromise` between them would allocate a
+      // second run edge inside a handler and drop the failure's typing.
+      const live: readonly TerminalId[] =
+        asked.ignoreSelf === true
+          ? yield* Effect.flatMap(
+              Effect.promise(() => import("@kolu/padi/read")),
+              ({ readTerminalKeys }) => readTerminalKeys(padi),
+            )
+          : [];
       const parsed = resolveWatchOpenInput(asked, live);
       // On the ERROR channel, not thrown: a throw inside a generator is a
       // DEFECT, and `failFrom` reads a `ToolFailure`'s own detail off the

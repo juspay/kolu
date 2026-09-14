@@ -66,7 +66,7 @@ const mcpFaceLine = (message: string): string => `kolu mcp: ${message}\n`;
 /** The MCP face's one-line diagnostic + exit-1 value — same shape verbs use,
  *  with the face-prefixed line spawn-and-check consumers already see. */
 const mcpFaceFailure = (message: string): CliFailure =>
-  new CliFailure({ stderr: mcpFaceLine(message), code: 1 });
+  new CliFailure({ reason: message, stderr: mcpFaceLine(message), code: 1 });
 
 /** Mid-session only: kill the process from the Promise connect factory, where
  *  a `CliFailure` cannot reach `runMain`. Open-time failures use

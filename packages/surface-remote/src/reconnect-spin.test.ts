@@ -96,7 +96,6 @@ function flakyChild(liveMs: number) {
   child.stdin = pair.client.write;
   child.stdout = pair.client.read;
   child.stderr = new PassThrough();
-  child.pid = 4321;
   child.kill = () => true;
   setTimeout(() => {
     pair.server.write.end(); // agent stdout EOF → link closed (fast-fail)

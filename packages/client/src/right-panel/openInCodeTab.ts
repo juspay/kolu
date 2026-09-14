@@ -23,7 +23,7 @@
  *  reference, which is what lets `CodeTab` tell them apart even when
  *  their `ref` content matches and re-paint the highlight. */
 
-import type { CodeTabView } from "@kolu/padi/surface";
+import type { CodeTabView } from "@kolu/padi-client/surface";
 import type { TerminalId } from "kolu-common/surface";
 import { batch, createSignal } from "solid-js";
 import { useTerminalStore } from "../terminal/useTerminalStore";

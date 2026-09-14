@@ -6,7 +6,7 @@
  *  `attention` inside the fold, so no test (and no caller) can hand the
  *  diagnostic a boolean that contradicts the class it is diagnosing. */
 
-import { type ActiveTerminal, LOCAL_LOCATION } from "@kolu/padi/surface";
+import { type ActiveTerminal, LOCAL_LOCATION } from "@kolu/padi-client/surface";
 import type { AgentInfo } from "kolu-common/surface";
 import { describe, expect, it } from "vitest";
 import { attentionDiagnostic, titleShowsSpinner } from "./attentionDiagnostics";

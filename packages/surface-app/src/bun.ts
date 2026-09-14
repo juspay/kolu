@@ -70,7 +70,12 @@
 import { existsSync } from "node:fs";
 import { cp, mkdir } from "node:fs/promises";
 import { basename, join, resolve } from "node:path";
-import { assertAssetPrefix, assetDirOf, injectShellHead } from "./index";
+import {
+  assertAssetPrefix,
+  assetDirOf,
+  HASHED_NAMING,
+  injectShellHead,
+} from "./index";
 import { type ChunkGraph, staticImportChunks } from "./modulePreload";
 import {
   type AssetReport,
@@ -290,10 +295,14 @@ export async function buildSurfaceClient(
   const jsResult = await Bun.build({
     entrypoints: [resolve(opts.entrypoint)],
     outdir: assetsDir,
+    // READ, never re-spelled: `./index`'s `chunkPattern` is this same template
+    // backwards, and a consumer names a chunk with it before this build has run.
+    // Two spellings of one rule is the drift that goes QUIET — the matcher stops
+    // matching and the caller concludes the page never asked for the chunk.
     naming: {
-      entry: "[name]-[hash].[ext]",
-      chunk: "[name]-[hash].[ext]",
-      asset: "[name]-[hash].[ext]",
+      entry: HASHED_NAMING,
+      chunk: HASHED_NAMING,
+      asset: HASHED_NAMING,
     },
     target: "browser",
     format: "esm",

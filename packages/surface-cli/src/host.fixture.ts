@@ -23,6 +23,11 @@ import { Command } from "effect/unstable/cli";
 import { reportingRunEdge } from "./exit";
 import {
   fixtureRoot,
+  fixtureRootBundle,
+  fixtureRootBundleWithoutSibling,
+  fixtureRootOneShot,
+  fixtureRootWithHelp,
+  fixtureRootWithHungOpen,
   fixtureRootWithParentFlags,
   fixtureRootWithUnresolvableEndpoint,
 } from "./fixture.testlib";
@@ -35,12 +40,24 @@ import {
 //   parent-flags     declared once on the PARENT, read back in `resolve`
 //   resolve-fails    a resolution that refuses, as a typed failure
 //   resolve-throws   the same refusal as a bare throw out of the seam
+//   one-shot         a transport that cannot push: no `watch`, no `--follow`
+//   helped           a host that wrote a help page, so the verbs are unlisted
+//   open-hangs       resolution answers, but `open` never completes (the
+//                    ssh-provision shape — a Ctrl-C during it must still be 130)
+//   bundle           a ROOTED BUNDLE: the same surface as the core AND as a
+//                    sibling keyed `tenant`, so a case can drive both addresses
+//   bundle-no-client the same tree over a dial that carries no sibling client
 const root = ((mode) => {
+  if (mode === "one-shot") return fixtureRootOneShot();
+  if (mode === "helped") return fixtureRootWithHelp();
   if (mode === "parent-flags") return fixtureRootWithParentFlags();
   if (mode === "resolve-fails")
     return fixtureRootWithUnresolvableEndpoint("fail");
   if (mode === "resolve-throws")
     return fixtureRootWithUnresolvableEndpoint("throw");
+  if (mode === "open-hangs") return fixtureRootWithHungOpen();
+  if (mode === "bundle") return fixtureRootBundle();
+  if (mode === "bundle-no-client") return fixtureRootBundleWithoutSibling();
   return fixtureRoot();
 })(process.env.SURFACE_CLI_FIXTURE);
 

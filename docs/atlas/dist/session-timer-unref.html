@@ -15,9 +15,13 @@ census with the verdict and argument for each. Implemented in
 <p>All non-test timers in the package live in <code>session.ts</code>. <code>controlMaster.ts</code>
 has none (its <code>ControlPersist=10m</code> is ssh’s own lifecycle, outside Node’s
 loop), and the connectors (<code>sshConnector</code>/<code>dialAgentOnce</code>) arm none — their
-children are event-loop holds, but bounded ones (ssh’s <code>ConnectTimeout</code> /
-<code>ServerAlive</code> opts, ~30s), so an in-flight dial can only <em>delay</em> exit, never
-prevent it.<span class="fn" data-fn data-astro-cid-2yjzt2l5><button type="button" class="fn-ref" aria-expanded="false" aria-label="Footnote" data-astro-cid-2yjzt2l5><span class="fn-num" aria-hidden="true" data-astro-cid-2yjzt2l5></span></button><span class="fn-pop" role="tooltip" data-astro-cid-2yjzt2l5><span class="fn-pop-inner" data-astro-cid-2yjzt2l5>Grounded by grep over <code>packages/surface-remote/src</code>
+children are event-loop holds, but bounded ones (ssh’s <code>ConnectTimeout</code> / the
+dial’s own <code>SshKeepalive</code> — <code>intervalS × countMax</code>, ~30s at the default and at
+most <code>MAX_SSH_KEEPALIVE_TOLERANCE_S</code> = 1h), so an in-flight dial can only <em>delay</em>
+exit, never prevent it. The invariant is the BOUND, not the number: since the
+keepalive became per-dial the delay a CI-tuned dial can impose is minutes rather
+than seconds, and it is the existence of a hard ceiling — not its size — that
+keeps “delay, never prevent” true.<span class="fn" data-fn data-astro-cid-2yjzt2l5><button type="button" class="fn-ref" aria-expanded="false" aria-label="Footnote" data-astro-cid-2yjzt2l5><span class="fn-num" aria-hidden="true" data-astro-cid-2yjzt2l5></span></button><span class="fn-pop" role="tooltip" data-astro-cid-2yjzt2l5><span class="fn-pop-inner" data-astro-cid-2yjzt2l5>Grounded by grep over <code>packages/surface-remote/src</code>
 (non-test): <code>setTimeout</code>/<code>setInterval</code> occur only in <code>session.ts</code>; <code>.unref(</code>
 occurs nowhere. The one <code>setImmediate</code> (<code>dialAgentOnce.ts</code>) holds the loop for
 a single turn.</span></span></span></p>

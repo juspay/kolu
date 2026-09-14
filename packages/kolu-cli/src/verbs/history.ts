@@ -28,12 +28,12 @@
  * reported with.
  */
 
-import { shortId } from "@kolu/padi/render";
 import {
   isPadiHistoryStale,
   readHistoryPage,
   readWholeHistory,
 } from "@kolu/padi/read";
+import { shortId } from "@kolu/padi/render";
 import type { TerminalId } from "@kolu/terminal-vocab/schema";
 import { Effect } from "effect";
 import type { Command } from "effect/unstable/cli";

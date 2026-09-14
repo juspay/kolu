@@ -15,9 +15,21 @@
  * state-reads + lifecycle from this file as a single module.
  */
 
+import type { RightPanelPerTerminalState } from "@kolu/padi-client/surface";
+import {
+  type CreateTerminalInput,
+  composeTerminalMetadata,
+  LOCAL_LOCATION,
+  parentIdOf,
+  type RestoreOnlyMetadata,
+  type SavedTerminal,
+  SavedTerminalSchema,
+  type TerminalInfo,
+  TerminalParentCycle,
+  type TerminalPlacement,
+} from "@kolu/padi-client/surface";
 import type { TerminalId } from "@kolu/terminal-vocab/schema";
 import { Schema } from "effect";
-import { TerminalParentCycle } from "./errors.ts";
 import { notifyDirty } from "./publisher.ts";
 import { type SessionSnapshot, saveSession } from "./session/session.ts";
 import { getTerminal, terminalEntries } from "./terminal-registry.ts";
@@ -37,18 +49,6 @@ import { updateClientMetadata } from "./terminalEndpoint/metadata.ts";
 // `resolve.ts` re-imports the already-evaluated `local.ts`, so it stays AFTER it
 // to preserve the metadata→local order the TDZ note above depends on.
 import { resolveTerminalEndpoint } from "./terminalEndpoint/resolve.ts";
-import type { RightPanelPerTerminalState } from "./chromeVocab.ts";
-import {
-  composeTerminalMetadata,
-  type CreateTerminalInput,
-  LOCAL_LOCATION,
-  parentIdOf,
-  type RestoreOnlyMetadata,
-  type SavedTerminal,
-  SavedTerminalSchema,
-  type TerminalInfo,
-  type TerminalPlacement,
-} from "./vocab.ts";
 
 // biome-ignore-end assist/source/organizeImports: cycle-sensitive load order
 

@@ -1,9 +1,9 @@
 /** Empty state — shown when no terminals exist. Offers session restore + key shortcuts. */
 
-import type { SavedSession, SavedTerminal } from "@kolu/padi/surface";
+import type { SavedSession, SavedTerminal } from "@kolu/padi-client/surface";
 import type { PwaInstall } from "@kolu/solid-pwa-install";
-import { resumableCommand } from "kolu-common/surface";
 import { terminalKey } from "@kolu/terminal-vocab/terminalKey";
+import { resumableCommand } from "kolu-common/surface";
 import { type Component, createMemo, createSignal, For, Show } from "solid-js";
 import { showsWelcome } from "./capabilities";
 import ForfeitSessionButton from "./ForfeitSessionButton";

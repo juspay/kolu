@@ -70,7 +70,7 @@ describe("hostGlance — exception strip + detail co-defined", () => {
       {
         kind: "failed",
         membershipId: testMembershipId(),
-        failure: { cause: "link-failed", reason: "ssh refused" },
+        failure: { cause: "host-setup-failed", reason: "ssh refused" },
         evidence: [],
       },
       SERVING,
@@ -78,7 +78,7 @@ describe("hostGlance — exception strip + detail co-defined", () => {
     expect(g.stripDot).toContain("red");
     expect(g.detailDot).toContain("red");
     expect(g.down).toBe(true);
-    expect(g.short).toBe("unreachable");
+    expect(g.short).toBe("failed");
     expect(g.title).toBe("failed: ssh refused");
     expect(g.labelDecoration).toContain("line-through");
   });
@@ -94,7 +94,7 @@ describe("hostGlance — exception strip + detail co-defined", () => {
       {
         kind: "failed",
         membershipId: testMembershipId(),
-        failure: { cause: "link-failed", reason: "no drv" },
+        failure: { cause: "host-setup-failed", reason: "no drv" },
         evidence: [],
       },
       { kind: "not-a-member" },
@@ -124,7 +124,7 @@ describe("hostGlance — exception strip + detail co-defined", () => {
       {
         kind: "failed",
         membershipId: testMembershipId(),
-        failure: { cause: "link-failed", reason: "no drv" },
+        failure: { cause: "host-setup-failed", reason: "no drv" },
         evidence: [],
       },
       { kind: "not-a-member" },
@@ -179,7 +179,7 @@ describe("hostRowContext — palette host status vocabulary", () => {
   const failed = {
     kind: "failed" as const,
     membershipId: testMembershipId(),
-    failure: { cause: "link-failed" as const, reason: "down" },
+    failure: { cause: "host-setup-failed" as const, reason: "down" },
     evidence: [],
   };
 
@@ -194,8 +194,8 @@ describe("hostRowContext — palette host status vocabulary", () => {
 
   it("surfaces exception states only", () => {
     expect(hostRowContext(warming, false)).toBe("connecting");
-    expect(hostRowContext(failed, false)).toBe("unreachable");
-    expect(statusLabelShort(failed, SERVING)).toBe("unreachable");
+    expect(hostRowContext(failed, false)).toBe("failed");
+    expect(statusLabelShort(failed, SERVING)).toBe("failed");
   });
 });
 

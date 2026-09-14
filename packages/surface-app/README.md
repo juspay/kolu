@@ -15,7 +15,9 @@ layers, the bind, and a teardown registered on the enclosing scope:
 import { serveSurfaceApp } from "@kolu/surface-app/serve";
 
 // `{ group, handlers }` is what `implementSurface` returned; the runtime's own
-// close/done stay with the composition root that built it.
+// close/done stay with the composition root that built it. Pass
+// `live: () => ({ group: runtime.group, handlers: runtime.handlers })` when
+// the served set moves while the listener is up.
 const url = yield* serveSurfaceApp({
   group, handlers, clientDist, host, port, allowedOrigins,
   upgradeHeaders: ["Tailscale-User-Login"], // an ALLOWLIST — empty by default
@@ -37,8 +39,13 @@ socket, an MCP adapter — still serves it.
 is the upgrade, so a header a proxy stamps there is the only per-connection claim
 about who is calling that the wire can carry. It **reports** that header, it does
 not authenticate it: naming one is sound only if the proxy in front *owns* it —
-strips or overwrites any copy a client sent. Why it is an allowlist and not the
-request, what an absent name means, and what a misspelling costs:
+strips or overwrites any copy a client sent. Pass a **thunk**
+(`upgradeHeaders: (): ReadonlyArray<"Tailscale-User-Login"> => identity().headers`)
+when the list itself moves while the listener is up, and the next accept reads
+it — annotated as a literal union, because `H` is only as narrow as the list's
+element type and a plain `string[]` makes every header read compile. Why it is
+an allowlist and not the request, what an absent name means, what a misspelling
+costs, and why a bad live list refuses *itself* rather than the socket:
 [Reference](https://kolu.dev/surface/ref-surface-app).
 
 Connecting is one call too:

@@ -11,17 +11,17 @@
  *  Ports import `../wire` directly; Attach reaches it transitively through
  *  `useTerminalStore`). */
 
-import { activeArm, type TerminalMetadata } from "@kolu/padi/surface";
+import { activeArm, type TerminalMetadata } from "@kolu/padi-client/surface";
+import { terminalKey } from "@kolu/terminal-vocab/terminalKey";
 import { type CheckStatus, type PrInfo, prValue } from "anyforge/schemas";
 import { prUnavailableSource } from "kolu-common/surface";
-import { terminalKey } from "@kolu/terminal-vocab/terminalKey";
 import { type Component, createMemo, For, Show } from "solid-js";
-import ChecksIndicator from "../terminal/ChecksIndicator";
+import { ChecksIndicator, PrStateIcon } from "@kolu/solid-dockrow";
 import { ProviderUnavailableContent } from "../terminal/PrUnavailablePopover";
 import { assignColors } from "../terminal/terminalDisplay";
 import Chip from "../ui/Chip";
 import Disclosure from "../ui/Disclosure";
-import { PrStateIcon, WorktreeIcon } from "../ui/Icons";
+import { WorktreeIcon } from "../ui/Icons";
 import RepoMonogram from "../ui/RepoMonogram";
 import Row from "../ui/Row";
 import Section from "../ui/Section";

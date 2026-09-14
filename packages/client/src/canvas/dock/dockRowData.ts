@@ -1,6 +1,6 @@
 /** Reactive pairing for a Dock row's stable display identity and live metadata. */
 
-import type { TerminalMetadata } from "@kolu/padi/surface";
+import type { TerminalMetadata } from "@kolu/padi-client/surface";
 import type { TerminalId } from "kolu-common/surface";
 import { createMemo } from "solid-js";
 import {

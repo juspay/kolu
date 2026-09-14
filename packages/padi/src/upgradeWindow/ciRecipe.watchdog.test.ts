@@ -24,6 +24,9 @@ const REPO_ROOT = join(
 );
 const CI = readFileSync(join(REPO_ROOT, "ci", "mod.just"), "utf8");
 
+/** The one file `ci::upgrade-window` owns — named once, asserted from both ends. */
+const WINDOW_TEST = "src/upgradeWindow/previousRelease.e2e.test.ts";
+
 test("ci/mod.just wires `upgrade-window` into the default DAG", () => {
   const defaultTarget = CI.split("\n").find((l) => l.startsWith("default:"));
   expect(defaultTarget).toBeDefined();
@@ -33,7 +36,7 @@ test("ci/mod.just wires `upgrade-window` into the default DAG", () => {
 test("the `upgrade-window` recipe requires the previous binary + anti-collapse rules", () => {
   assertRecipeWired(CI, "upgrade-window", [
     "KOLU_UPGRADE_WINDOW_REQUIRE=1",
-    "previousRelease.e2e.test.ts",
+    WINDOW_TEST,
     "KOLU_DAEMON_TESTS=1",
     "git ls-remote --tags",
     "https://github.com/juspay/kolu",
@@ -50,4 +53,29 @@ test("the `upgrade-window` recipe requires the previous binary + anti-collapse r
     "KOLU_PREVIOUS_KAVAL_STORE",
     "KOLU_CURRENT_KAVAL_STORE",
   ]);
+});
+
+test("the ordinary daemon lane leaves the window to that recipe", () => {
+  // The window boots a previous-release kaval and drives a real restart — ~3
+  // minutes, measured, and the single most expensive thing in the `daemon` CI
+  // node. It has its OWN node for exactly that reason (see this file's header
+  // and the suite's), but `padi`'s suite collected it anyway and paid for a
+  // second, WEAKER copy every run: no KOLU_PREVIOUS_* env, so it re-derived the
+  // previous tag and nix-built it again, and no KOLU_UPGRADE_WINDOW_REQUIRE, so
+  // a collapse there would not even have failed. The `test:daemon` script
+  // excludes it; `upgrade-window` names it explicitly and keeps running it,
+  // which the assertion above pins from the other end.
+  const manifest = JSON.parse(
+    readFileSync(join(REPO_ROOT, "packages", "padi", "package.json"), "utf8"),
+  ) as { scripts?: Record<string, string> };
+  const lane = manifest.scripts?.["test:daemon"];
+  expect(
+    lane,
+    "padi is a daemon-lane package — it must declare `test:daemon`",
+  ).toBeDefined();
+  expect(
+    lane,
+    `\`test:daemon\` must exclude ${WINDOW_TEST}: \`upgrade-window\` owns it, and running ` +
+      `it in the lane too costs ~3 minutes per CI run for a strictly weaker copy`,
+  ).toContain(`--exclude ${WINDOW_TEST}`);
 });

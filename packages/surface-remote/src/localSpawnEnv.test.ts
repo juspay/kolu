@@ -40,7 +40,6 @@ function fakeChild() {
   const stdout = new PassThrough();
   child.stdout = stdout;
   child.stderr = new PassThrough();
-  child.pid = 4321;
   child.kill = vi.fn(() => true);
   // GREET (juspay/kolu#2101). The connector now waits for the agent's readiness
   // banner before it builds a link, so a fake agent that never speaks would park
@@ -54,6 +53,7 @@ function fakeChild() {
 const noopCtx: ConnectContext<SshProv> = {
   localProgress: () => {},
   remoteProgress: () => {},
+  activity: () => {},
   provisioning: () => {},
   connecting: () => {},
   signal: new AbortController().signal,
@@ -64,6 +64,11 @@ const noopCtx: ConnectContext<SshProv> = {
 function spawnEnv(): NodeJS.ProcessEnv | undefined {
   const call = vi.mocked(spawn).mock.calls[0];
   return (call?.[2] as { env?: NodeJS.ProcessEnv } | undefined)?.env;
+}
+
+function spawnDetached(): boolean | undefined {
+  const call = vi.mocked(spawn).mock.calls[0];
+  return (call?.[2] as { detached?: boolean } | undefined)?.detached;
 }
 
 describe("sshConnector localhost arm env (PR1.5 / #1872)", () => {
@@ -115,5 +120,8 @@ describe("sshConnector localhost arm env (PR1.5 / #1872)", () => {
     await connector(noopCtx);
     // No `env` override → Node inherits, which is correct for the LOCAL ssh client.
     expect(spawnEnv()).toBeUndefined();
+    // The connector owns the complete SSH activity, including ProxyCommand
+    // descendants, so teardown can signal its exact process group.
+    expect(spawnDetached()).toBe(true);
   });
 });

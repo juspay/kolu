@@ -2,7 +2,7 @@
  * The wire's frame cap — juspay/kolu#2101 G9b/G9c(ii).
  *
  * These are the MEASUREMENT behind `frameLimit.ts`'s
- * `BETA-ASSUMPTION(rc.110)` marker. The marker claims two things about
+ * `BETA-ASSUMPTION(rc.112)` marker. The marker claims two things about
  * Effect's ndjson serialization that only its behavior can settle: that
  * `maxBufferSize` is a real, honored option (not one we pass into the void),
  * and that busting it is a socket-closing 1009 rather than a per-call failure.

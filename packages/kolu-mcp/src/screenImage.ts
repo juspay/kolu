@@ -17,31 +17,35 @@
  * diff, a chart, "what does the screen actually look like right now".
  *
  * The result is an MCP IMAGE content block, not base64 inside JSON, so a host
- * renders it and the model sees pixels (see `okImage`). The arg schema follows
- * the same annotate-first-check-second law `screen_text` documents at length —
- * the per-field blurbs are what teach an agent that `lines` counts ROWS.
+ * renders it and the model sees pixels (see `okImage`). The per-field blurbs
+ * are what teach an agent that `lines` counts ROWS, and they must sit on the
+ * encoded-side node for a host to render them — the placement law
+ * `screen_text` documents at length.
  */
 
-import type { PadiSurfaceClient } from "@kolu/padi/dial";
-import type { PadiScreenImageOutput } from "@kolu/padi/surface";
+import { padiOf } from "./bundleClient.ts";
+import type { PadiScreenImageOutput } from "@kolu/padi-client/surface";
 import {
-  SCREEN_IMAGE_LINES_CHECKS,
   SCREEN_IMAGE_MAX_ROWS,
-} from "@kolu/padi/surface";
-import type { BespokeTool } from "@kolu/surface-mcp";
-import { okImage } from "@kolu/surface-mcp";
+  ScreenImageLinesSchema,
+} from "@kolu/padi-client/surface";
+import type { BespokeTool } from "@kolu/surface-mcp/tools";
+import { okImage } from "@kolu/surface-mcp/tools";
 import { TerminalIdSchema } from "@kolu/terminal-vocab/schema";
 import { Schema } from "effect";
 
 export const ScreenImageArgsSchema = Schema.Struct({
   id: TerminalIdSchema,
   // The RULE comes from padi, which owns it; this face adds only the blurb
-  // that teaches an agent what the number counts — annotate-first, checks
-  // spread after, which is what keeps the description on the property node.
+  // that teaches an agent what the number counts. Padi's finished schema is
+  // reused whole — it used to hand out a bare CHECK ARRAY for this face to
+  // spread onto its own annotated base, because up to effect rc.110 an
+  // annotation on a checked schema was emitted in an `allOf` branch no host
+  // reads. rc.111 compacts it onto the node, so one schema serves both.
   lines: Schema.optionalKey(
-    Schema.Number.annotate({
+    ScreenImageLinesSchema.annotate({
       description: `Capture only the last N rendered rows (1-${SCREEN_IMAGE_MAX_ROWS}). Omit for the visible screen, which is almost always what you want.`,
-    }).check(...SCREEN_IMAGE_LINES_CHECKS),
+    }),
   ),
 });
 export type ScreenImageArgs = typeof ScreenImageArgsSchema.Type;
@@ -54,7 +58,7 @@ export const screenImageTool: BespokeTool = {
     "A terminal's screen as a PNG image, themed and rendered the way the user sees it — colours, box drawing, highlights and all. Use it when the answer is visual (a TUI's state, a rendered diff, a chart); use screen_text when plain characters will do, since it is much cheaper.",
   handler: (args, client) => {
     const { id, lines } = args as ScreenImageArgs;
-    return (client as PadiSurfaceClient).surface.screen.image({
+    return padiOf(client).surface.screen.image({
       id,
       // SPREAD, never spell: `lines` is `Schema.optionalKey` on padi's wire and
       // that input is DECODED, so an absent key is accepted where a

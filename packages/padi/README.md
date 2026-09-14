@@ -13,7 +13,8 @@ durable authority without a second relocation.
 
 ## W1 is ONE PR, in three commit stages (C → M → R)
 
-- **W1.C — the contract** (this file's `./surface`). `padiSurface` 1.0: the
+- **W1.C — the contract** (then `./surface` here; the spec lives in
+  [`@kolu/padi-client`](../padi-client) now). `padiSurface` 1.0: the
   composed `terminals` collection (`authored ⋈ snapshot`, one writer), a
   recency-free `urgency` fold, `activity`, the repo/file `{seq}` pulses, fs/git +
   worktree + byte (`scratch.write` / range-capable `preview.read`) procedures,
@@ -26,7 +27,7 @@ durable authority without a second relocation.
 - **W1.M — the motion**. The terminal domain relocates OUT of `packages/server`
   INTO this package, verbatim (registry · lifecycle · fold + metadata · endpoint
   bindings · scratch/transcript/worktree · session persistence · MRU trackers).
-  This adds a **node-only side** beside `./surface`. Pure relocation — no logic,
+  This adds a **node-only side** beside the contract. Pure relocation — no logic,
   wire, or UX change; git detects the moves as renames.
 - **W1.R — the rewiring**. The package serves `padiSurface` COMPLETE, natively
   (`implementSurface` is fail-fast — no member may stub, because every backing
@@ -91,7 +92,7 @@ The package graduated to a **process**: `package = process = restart-hash`.
   kaval alike via its manifest) instead of leaking forever, and the kolu-server
   binder treats the gone root as terminal rather than respawning into it.
 - **The frozen control core** (`@kolu/surface-daemon`'s identity/drain fragment,
-  extended by `./surface`'s padi-only version + clock members) — hello · version
+  extended by `@kolu/padi-client/surface`'s padi-only version + clock members) — hello · version
   · drain · clock.now — is served BESIDE
   `padiSurface` (sibling key `control`), so a binder reaches it even when
   `padiSurface` is version-skewed. It never versions.
@@ -141,7 +142,7 @@ remote host — reusing the local arm's seam, not a parallel one:
   **`KOLU_PADI_HOST=<ssh host>`** — OFF by default, no UI (the picker is W3.2) —
   branches kolu-server onto a Surface Remote `makeSession` +
   `sshConnector({ binary: "padi", extraArgs: ["--stdio"] })` composition (the
-  exact stack `kaval-tui --host` rides). It re-runs `@kolu/padi/dial`'s
+  exact stack `kaval-tui --host` rides). It re-runs `@kolu/padi/remote-dial`'s
   control-core `hello` + skew refusal over the ssh-bridged link, scopes to
   `.surface.padi`, and re-serves through the SAME `RemoteMirrorSession` seam the
   local `PadiBindingSession` plugs into. Unset → today's local binding,
@@ -201,20 +202,21 @@ generations) or `ssh <host> cat ~/.local/state/padi/padi.stderr.log` for a detac
 
 ## The export map
 
-- **`@kolu/padi/surface`** — BROWSER-SAFE. The current `padiSurface` Effect
-  Schema contract, the per-member **forwarding-policy** annotations (`value` =
-  hold-open vs `delta` = fail-through), and the padi control types (version ·
-  drain · clock.now). Its read-only `processMemory` cell carries padi and kaval RSS as
-  the honest `ok | absent | error` three-way: one osfacts snapshot samples the
-  endpoint-owned process target and rejects a result from a superseded kaval
-  generation. The browser-safe entry imports no `node:` runtime.
+- **The CONTRACT is [`@kolu/padi-client`](../padi-client)** — `padiSurface`
+  itself, the vocabulary it speaks, the local `connectPadi` dial, the rendezvous
+  path algebra, and the terminal watch kit all live in a sibling package now, so
+  a consumer can hydrate the contract WITHOUT the daemon: hydration is
+  per-package, and this manifest names kaval, which names `node-pty`. padi
+  depends on it and serves it; the arrow never points back, and there is exactly
+  one spec. What a client reaches for is documented there — this file is the
+  daemon.
 
-- **Node-only entries** — the daemon main, dial/binding, state-root, endpoint,
-  log, transcript, and upload modules compose and serve that contract. Padi is
-  the native authority; kolu-server binds or mirrors it rather than supplying a
-  backing shim.
+- **Node-only entries** — the daemon main, binding, state-root discovery,
+  endpoint, log and transcript modules compose and serve that contract.
+  Padi is the native authority; kolu-server binds or mirrors it rather than
+  supplying a backing shim.
 
-- **The `dial` entry's wait kit** — `awaitTerminalCondition` is the ONE
+- **The `@kolu/padi-client/watch` wait kit** — `awaitTerminalCondition` is the ONE
   block-on-a-terminal-condition engine every face rides. It takes the condition
   as data (`idle` · `match` · `agent`) plus two orthogonal modifiers: a
   `settledMs` **conjunct** (met only once output has also been quiet that long,
@@ -247,9 +249,14 @@ generations) or `ssh <host> cat ~/.local/state/padi/padi.stderr.log` for a detac
 - **`@kolu/padi/render`** and **`@kolu/padi/read`** — the CLI faces' shared
   view + data layers. `render` is pure formatting (the roster table's
   `ID · STATE · REPO·BRANCH · PR · AGENT · FOREGROUND` columns, the PR/checks
-  and agent-status folds, plus `shortId` and `resolveTerminalId` — the
-  id-prefix resolution every `<id>` argument accepts, which is a pure fold over
-  an id list and so belongs on this side of the line) with no I/O. It also owns
+  and agent-status folds, plus `shortId`, the short form the roster prints) with
+  no I/O. The id-prefix RESOLUTION every `<id>` argument accepts is no longer
+  here: it is `@kolu/padi-client/terminalId`, a zero-import leaf, because the
+  rule is a property of padi's addressing rather than of any face that renders
+  it — and a client that only wants to turn a user's `7f3e` into an id should
+  not install a PTY host to do it. `render` does NOT re-export it: every face
+  imports it from where it lives, so this module is the door for exactly what it
+  still holds. It also owns
   `parsePlacementFlags`, the `--toplevel` / `--parent` decision BOTH CLI faces
   run: same reason as the roster table, one rule up from formatting — two faces
   that must answer a create identically may not each hand-roll the answer. `read`
@@ -264,10 +271,15 @@ generations) or `ssh <host> cat ~/.local/state/padi/padi.stderr.log` for a detac
   vocabulary with two faces reading it, not two copies held in lockstep by
   JSDoc cross-reference. They stay here rather than in `@kolu/surface` because
   they speak **padi's** records — the generic wait scaffold went the other way.
-  All of it lives under `src/cliClient/` — `render.ts`, `read.ts`, `tail.ts`
-  (the tail-mode screen slice, a zero-import leaf `render.ts` re-exports so the
-  wait kit can reuse it without dragging `columnify` into every dial consumer),
-  and the `watch.ts` wait kit the `dial` entry re-exports — the same
+  Both live under `src/cliClient/` — `render.ts` and `read.ts`, and nothing
+  else: the wait kit a reader of this paragraph used to be sent here for is
+  `@kolu/padi-client/watch`, one package down, and this package has no `./dial`
+  entry to re-export it through (the dial is `@kolu/padi-client/dial`). The
+  tail-mode screen slice
+  went the whole way it was always headed and is now
+  `@kolu/padi-client/screenTail`, a genuinely zero-import leaf: it folds padi's
+  `screen.text` REPLY, so it belongs beside that reply's schema and not behind a
+  manifest naming `columnify` — the same
   one-cluster-one-directory shape as `terminalEndpoint/` and
   `terminalWorkspace/`. The pure `terminalVocab.ts` they all fold over sits one
   level UP, at the package root: the SERVER speaks it too (supervision-edge
@@ -275,6 +287,18 @@ generations) or `ssh <host> cat ~/.local/state/padi/padi.stderr.log` for a detac
   mailbox), and a daemon module reaching into a `cliClient/` directory would
   point the arrow backwards. The **subpaths above are unchanged**: the directory
   is padi's internal layout, not its public one.
+- **`@kolu/padi/containingTerminal`** and
+  **`@kolu/padi-client/watchScope`** — the two PURE concept modules a static
+  consumer imports when the dial entry is too heavy: the self-stamp sum
+  (`containingTerminalId` + `confirmInFleet` + `CONTAINING_TERMINAL_ENV`) and
+  the watch-scope constructor (`watchScopeOf` + `scopeAdmits` + the never-match
+  refusal types). Both import nothing beyond `kolu-pty`'s env-name constant and
+  `@kolu/terminal-vocab` schemas, so a command tree can hold a face's verb table
+  statically without a socket ever reaching its parse path — `kolu-mcp`'s tool
+  modules are the first-party consumer. They are two packages because the scope
+  vocabulary is CONTRACT (a client states a scope; the daemon's registry reads
+  it) while "am I inside a kolu terminal" is a question only something inside one
+  asks.
 
 ## `screen.image` — padi is where the picture gets made
 
@@ -351,8 +375,14 @@ agent buckets do I care about* (`states`), *how long must one hold before I hear
 about it* (`heldForMs`), and *how often should I be told again while it keeps
 holding* (`nagMs`). Those three knobs are the whole of `kolu watch --states /
 --held-for / --nag` and of the same-named `watch.open` params — one engine, two
-faces. `--ignore` / `ignoreIds` (and `--ignore-self` / `ignoreSelf`, resolved at
-the face from `$KAVAL_TERMINAL_ID`) mute known terminals fail-open: a stale id
+faces — and the CAP rides inside the interval, never as a fourth knob:
+`--nag 30m/3` (or `nagMs: "60000/3"`) is three reminders past the first report,
+then quiet about that terminal until the state changes. (The wire carries the
+pair as `nagMs` + `nagCount`, and padi's decode refuses the count without the
+interval — the pairing is unspellable at the faces, refused at the one
+entrance that could still spell it.) `--ignore` / `ignoreIds` (and
+`--ignore-self` / `ignoreSelf`, resolved at the face from `$KAVAL_TERMINAL_ID`)
+mute known terminals fail-open: a stale id
 costs nothing, and a new terminal is always watched. Contrast `ids`, which fails
 closed.
 
@@ -363,18 +393,22 @@ gate forever). `heldForMs` debounces the STATE.
 
 Its events are `snapshot` (already matching when you subscribed — the standing
 set, handed over before anything that changed since), `transition` (entered a
-state and held it), and `nag` (still holding, one interval later). The nag is the
+state and held it), and `nag` (still holding, one interval later, and capped
+when the interval carried a count — each stamped `nag.index` and `nag.left`,
+so a script can tell the last one). The nag is the
 level trigger, and the difference between a doorbell you can miss and one that
 keeps ringing.
 
 **A subscription is fed by exactly one source**, chosen by whether it named any
-of the three knobs — never merged, because the two answer different questions in
+of the knobs — never merged, because the two answer different questions in
 different vocabularies. It follows that the state feed carries no `gone`: a
 level-triggered subscriber is not blocked on anything, so a terminal that leaves
 simply stops being reported. It follows too that re-opening a name with a
 DIFFERENT filter empties its queue — those buffered answers belong to a question
 the caller has stopped asking, and the new attachment's snapshot is the standing
-truth that replaces them.
+truth that replaces them. The question's CAP survives either kind of re-open:
+the attachment hands its per-episode nag counts to its successor, because the
+budget is the episode's — only a state change re-arms it.
 
 Both sources stamp from ONE daemon sequence (`eventSeq.ts`), because a
 subscription's acknowledgement watermark is a single number and has to mean the

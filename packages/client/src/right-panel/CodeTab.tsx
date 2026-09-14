@@ -14,18 +14,17 @@
  * Pierre lifecycle; this component is just data flow + chrome. */
 
 import Resizable from "@corvu/resizable";
-import { toError } from "@kolu/surface/run-stream";
-import { Effect } from "effect";
 import {
   CODE_TAB_VIEW_ORDER,
   type CodeTabView,
   type TerminalMetadata,
   viewLabel,
-} from "@kolu/padi/surface";
+} from "@kolu/padi-client/surface";
 import { attachBackForwardMouse } from "@kolu/solid-browser";
 import { FileTree, rowPathsCss } from "@kolu/solid-pierre";
-
+import { toError } from "@kolu/surface/run-stream";
 import { makeEventListener } from "@solid-primitives/event-listener";
+import { Effect } from "effect";
 import type { TerminalId } from "kolu-common/surface";
 import type { GitDiffMode } from "kolu-git/schemas";
 import {
@@ -47,6 +46,7 @@ import { CommentsTray } from "../comments/CommentsTray";
 import { CommentTextSurface } from "../comments/CommentTextSurface";
 import { useComposer } from "../comments/composerState";
 import { useCommentScrollRequest } from "../comments/scrollRequest";
+import { runActionPromise } from "../runAction";
 import { useColorScheme } from "../settings/useColorScheme";
 import { realSizes } from "../ui/corvuResizable";
 import { filterChipAccent } from "../ui/filterChip";
@@ -70,7 +70,6 @@ import SegmentedControl, {
   type SegmentedControlOption,
 } from "../ui/SegmentedControl";
 import { Z_HANDLE_INNER } from "../ui/stackLayers";
-import { runActionPromise } from "../runAction";
 import { requestDeepLinkNavigation } from "../useDeepLinks";
 import { isDesktop, isTouch } from "../useMobile";
 import { activeHost, activePadiRpc } from "../wire";
@@ -90,6 +89,8 @@ import {
   createCodeTabOpenController,
   type OpenInCodeTabRequest,
 } from "./codeTabOpenController";
+import FileSearchInput from "./FileSearchInput";
+import { projectFileTreeSearch } from "./fileSearch";
 import {
   codeActiveStatus,
   codeAllPaths,
@@ -99,8 +100,6 @@ import {
   codeLocalStatus,
   readFreshCodePaths,
 } from "./hostCodeTab";
-import FileSearchInput from "./FileSearchInput";
-import { projectFileTreeSearch } from "./fileSearch";
 import { openInCodeTab, pendingOpen } from "./openInCodeTab";
 import { attachPierreTouchScroll } from "./pierreTouchScroll";
 import { setShowIgnoredFiles, showIgnoredFiles } from "./showIgnoredFiles";

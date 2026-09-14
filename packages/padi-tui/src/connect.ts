@@ -1,5 +1,5 @@
 /**
- * padi-tui's dial — a thin wrapper over the SHARED `@kolu/padi/dial` kit (the same
+ * padi-tui's dial — a thin wrapper over the SHARED `@kolu/padi-client/dial` kit (the same
  * `connectPadi` the kolu-server binder uses). It resolves a state-root to its
  * digest-keyed socket (the caller runs {@link resolveRunningPadiSocket}), dials it,
  * handshakes padi's FROZEN control core, and hands back the padi-SIBLING-scoped
@@ -10,7 +10,7 @@ import {
   connectPadi,
   type PadiSurfaceClient,
   scopePadiSurface,
-} from "@kolu/padi/dial";
+} from "@kolu/padi-client/dial";
 import { Effect, type Scope } from "effect";
 
 /** The typed `padiSurface` client the verbs speak — `.surface.terminals`,

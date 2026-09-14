@@ -15,14 +15,26 @@ import { surfaceCommands } from "@kolu/surface-cli";
 import { Command } from "effect/unstable/cli";
 
 const verbs = surfaceCommands({
-  surface,
-  expose: { load: "resource", "proc.kill": "tool" },
+  // The unprefixed core — its verbs and readers sit at the top.
+  core: { surface, expose: { load: "resource", "proc.kill": "tool" } },
+  // A sibling's whole projection is mounted behind its key as the first argv
+  // word: `example outlines ops_run`, `example outlines get entries`.
+  surfaces: { outlines: { surface: outlines, expose: { entries: "resource" } } },
   endpoint: { flags, resolve },
   info: { name: "example" },
 });
 
 export const cli = Command.make("example").pipe(Command.withSubcommands(verbs));
 ```
+
+## A rooted bundle, spelled in argv
+
+This face takes the same **rooted bundle** the MCP face does — a bare core beside
+a keyed set of siblings — and composes it the way argv already composes: the
+sibling key is the first word. That is the MCP face's `outlines_ops_run` in
+argv's own separator, exactly as `<ns>.<verb>` is already `<ns>_<verb>` on both.
+`list` stays at the top and describes the whole bundle, each row tagged with the
+surface it belongs to.
 
 ## What it knows nothing about
 
@@ -41,6 +53,27 @@ parent of its own (`app surface …`) or check your names against them. stdout i
 and the exit code says which happened: `0` done · `1` the verb's declared
 refusal · `2` a usage error that never left the process · `3` nothing serving ·
 `130` interrupted.
+
+Two flags are this face's own, one per direction: `--input '{…}'` (or `--input -`)
+carries the whole input where the field flags would, and `--json` asks for the
+whole answer where a host's renderer would have summarised it. **The flag is the
+only thing that decides the answer's shape** — what stdout happens to be attached
+to decides nothing.
+
+## The help page
+
+Pass `help` — a purpose line, the verbs grouped by what they do, an example each
+— and `surfaceHelp(opts)` builds the page for `Command.withDescription`, while
+`surfaceCommands` unlists the verbs so the page is the listing rather than one of
+two. The layout is this package's; the wording is yours. A group naming a command
+this surface has none of is refused when the tree is built.
+
+## A transport that cannot push
+
+`endpoint.streaming: false` says the far side answers questions and pushes
+nothing — a request/response door. `watch` is then not mounted and `--follow` is
+not declared, rather than parsing and always failing. Every other reader still
+works: each takes the opening snapshot frame and interrupts the rest.
 
 Part of the kolu monorepo — `"@kolu/surface-cli": "workspace:*"`.
 

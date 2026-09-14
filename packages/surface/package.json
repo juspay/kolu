@@ -34,23 +34,26 @@
     "./viewer-identity": "./src/viewerIdentity.ts",
     "./server": "./src/server.ts",
     "./subscriptions": "./src/subscriptions.ts",
+    "./teardown": "./src/teardown.ts",
     "./time": "./src/time.ts",
     "./ws-origin": "./src/wsOrigin.ts",
     "./solid": "./src/solid/index.ts",
     "./solid/SurfaceGate": "./src/solid/SurfaceGate.tsx",
     "./solid/HostStatusPip": "./src/solid/HostStatusPip.tsx",
+    "./links/following": "./src/links/following.ts",
     "./links/websocket": "./src/links/websocket.ts",
     "./links/stdio": "./src/links/stdio.ts",
     "./links/readiness": "./src/links/readiness.ts",
     "./links/direct": "./src/links/direct.ts",
     "./links/unix-socket": "./src/links/unix-socket.ts",
+    "./links/wire": "./src/links/wire.ts",
     "./peer-server": "./src/peer-server.ts",
     "./unix-socket": "./src/unix-socket.ts",
     "./verbs": "./src/verbs.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "test:unit": "vitest run"
+    "test:daemon": "vitest run"
   },
   "devDependencies": {
     "@kolu/daemon-test-gate": "workspace:*",
@@ -62,12 +65,12 @@
     "vitest": "^4.1.0"
   },
   "dependencies": {
-    "@effect/platform-browser": "4.0.0-rc.110",
-    "@effect/platform-node": "4.0.0-rc.110",
+    "@effect/platform-browser": "4.0.0-rc.112",
+    "@effect/platform-node": "4.0.0-rc.112",
     "@kolu/log": "workspace:*",
     "@solid-primitives/rootless": "^1.5.3",
     "@solid-primitives/scheduled": "^1.5.3",
-    "effect": "4.0.0-rc.110",
+    "effect": "4.0.0-rc.112",
     "solid-js": "^1.9.0"
   }
 }

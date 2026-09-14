@@ -1,6 +1,6 @@
 /** Canvas minimap — spatial overview of all tiles + integrated zoom controls. */
 
-import { sleepingArm, type TerminalMetadata } from "@kolu/padi/surface";
+import { sleepingArm, type TerminalMetadata } from "@kolu/padi-client/surface";
 import {
   type Component,
   createMemo,

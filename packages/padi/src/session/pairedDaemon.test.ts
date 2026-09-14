@@ -9,15 +9,15 @@
  * case (our survivor whose actives all exited vs a replaced empty daemon).
  */
 
-import type { PtyHostListEntry } from "kaval";
-import { describe, expect, it } from "vitest";
-import { isReplacedDaemon, type PairedDaemon } from "./pairedDaemon.ts";
 import {
   LOCAL_LOCATION,
   type SavedActiveTerminal,
   type SavedSession,
   type SavedTerminal,
-} from "../vocab.ts";
+} from "@kolu/padi-client/surface";
+import type { PtyHostListEntry } from "kaval";
+import { describe, expect, it } from "vitest";
+import { isReplacedDaemon, type PairedDaemon } from "./pairedDaemon.ts";
 
 const A = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const B = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";

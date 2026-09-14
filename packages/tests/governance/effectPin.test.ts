@@ -8,18 +8,26 @@
  */
 
 import assert from "node:assert/strict";
+import { resolve } from "node:path";
 import { test } from "node:test";
+import { fileURLToPath } from "node:url";
 import {
   catalogPins,
   type EffectPin,
   isEffectFamily,
   isGraftedManifest,
-  isVendoredManifest,
   literalReason,
   manifestPins,
   overridePins,
   validateEffectPins,
 } from "./effectPin";
+import { vendoredManifests } from "./vendorEntries";
+
+/** `packages/tests/governance/` → the repo root. */
+const REPO_ROOT = resolve(
+  fileURLToPath(new URL(".", import.meta.url)),
+  "../../..",
+);
 
 const V = "4.0.0-beta.102";
 
@@ -39,7 +47,7 @@ const overrides = (...pkgs: string[]): EffectPin[] =>
     spec: V,
   }));
 
-const vendored: EffectPin = {
+const vendoredPin: EffectPin = {
   path: "packages/surface/package.json",
   where: "dependencies",
   pkg: "effect",
@@ -60,10 +68,28 @@ const member: EffectPin = {
   spec: "catalog:",
 };
 
+/** The vendored set as DATA — what `vendoredManifests(repoRoot)` would have
+ *  walked, stated here so these pins exercise the rule without reading the tree.
+ *  A closure member (`@kolu/terminal-vocab`) is included deliberately: what
+ *  vendoring costs is the whole `dependencies` closure of the copied directory,
+ *  not just its root. */
+const VENDORED = new Set([
+  "packages/surface/package.json",
+  "packages/surface-daemon-supervisor/package.json",
+  "packages/padi-client/package.json",
+  "packages/terminal-vocab/package.json",
+]);
+
+/** `validateEffectPins` keeps its two-arg signature on purpose — every test
+ *  below hands it the vendored set as DATA, so none of them touches the tree.
+ *  This just spares each call site from repeating the one constant. */
+const validate = (pins: readonly EffectPin[]): string =>
+  validateEffectPins(pins, VENDORED);
+
 const agreeing = (...extra: EffectPin[]): EffectPin[] => [
   ...catalog("effect"),
   ...overrides("effect"),
-  vendored,
+  vendoredPin,
   member,
   ...extra,
 ];
@@ -75,13 +101,16 @@ test("the family is `effect` plus the whole @effect scope, nothing else", () => 
   assert.ok(!isEffectFamily("@effectful/core"));
 });
 
-test("only a surface package ROOT is vendored — its example tree is not", () => {
-  assert.ok(isVendoredManifest("packages/surface/package.json"));
-  assert.ok(
-    isVendoredManifest("packages/surface-daemon-supervisor/package.json"),
-  );
-  assert.ok(!isVendoredManifest("packages/surface/example/package.json"));
-  assert.ok(!isVendoredManifest("packages/padi/package.json"));
+test("the vendored set is an entry's whole dependency closure, walked off the real tree", () => {
+  // The claim is about the CLOSURE, so it is made against the live walk rather
+  // than a set literal: `@kolu/terminal-vocab` is nobody's vendored ENTRY — it is
+  // reached only through `@kolu/padi-client`'s manifest — and it owes a literal
+  // anyway, because a consumer installs it from its own workspace exactly as it
+  // installs the entry. `@kolu/padi` is the daemon the client was carved OUT of,
+  // and its absence is the whole point of the carve.
+  const vendored = vendoredManifests(REPO_ROOT);
+  assert.ok(vendored.has("packages/terminal-vocab/package.json"));
+  assert.ok(!vendored.has("packages/padi/package.json"));
 });
 
 test("a manifest's pins are read from every dependency section", () => {
@@ -127,13 +156,13 @@ test("the catalog is read out of pnpm-workspace.yaml", () => {
 });
 
 test("an agreeing tree passes and hands back the one version", () => {
-  assert.equal(validateEffectPins(agreeing()), V);
+  assert.equal(validate(agreeing()), V);
 });
 
 test("a catalog that says two things fails before anything else is judged", () => {
   assert.throws(
     () =>
-      validateEffectPins([
+      validate([
         ...catalog("effect"),
         {
           path: "pnpm-workspace.yaml",
@@ -149,7 +178,7 @@ test("a catalog that says two things fails before anything else is judged", () =
 test("an override left at the old version fails", () => {
   assert.throws(
     () =>
-      validateEffectPins([
+      validate([
         ...catalog("effect"),
         {
           path: "package.json",
@@ -157,7 +186,7 @@ test("an override left at the old version fails", () => {
           pkg: "effect",
           spec: "4.0.0-beta.101",
         },
-        vendored,
+        vendoredPin,
       ]),
     /pnpm\.overrides.*must be 4\.0\.0-beta\.102/s,
   );
@@ -166,10 +195,10 @@ test("an override left at the old version fails", () => {
 test("a catalogued package with no override fails — a transitive copy could resolve alone", () => {
   assert.throws(
     () =>
-      validateEffectPins([
+      validate([
         ...catalog("effect", "@effect/vitest"),
         ...overrides("effect"),
-        vendored,
+        vendoredPin,
       ]),
     /@effect\/vitest — catalogued but not overridden/,
   );
@@ -178,12 +207,12 @@ test("a catalogued package with no override fails — a transitive copy could re
 test("a vendored manifest that switched to `catalog:` fails — it does not resolve for drishti/odu", () => {
   assert.throws(
     () =>
-      validateEffectPins([
+      validate([
         ...catalog("effect"),
         ...overrides("effect"),
-        { ...vendored, spec: "catalog:" },
+        { ...vendoredPin, spec: "catalog:" },
       ]),
-    /must spell the literal 4\.0\.0-beta\.102: it is a vendored @kolu\/surface\* manifest/,
+    /must spell the literal 4\.0\.0-beta\.102: it is in a vendored package's dependency closure/,
   );
 });
 
@@ -197,30 +226,30 @@ test("each literal-owing manifest gives its OWN reason, and a member gives none"
   // The two reasons are mirror images and must not be conflated: one manifest
   // is vendored OUT of this workspace, the other is grafted IN from another.
   assert.match(
-    literalReason("packages/surface/package.json") ?? "",
-    /drishti\/odu/,
+    literalReason("packages/surface/package.json", VENDORED) ?? "",
+    /drishti\/odu, olai/,
   );
   assert.match(
-    literalReason("osfacts-client/package.json") ?? "",
+    literalReason("osfacts-client/package.json", VENDORED) ?? "",
     /juspay\/osfacts' own workspace/,
   );
-  assert.equal(literalReason("packages/padi/package.json"), null);
+  assert.equal(literalReason("packages/padi/package.json", VENDORED), null);
 });
 
 test("the grafted osfacts-client manifest is policed, not skipped", () => {
   // It used to be excluded outright — the client was zero-dependency, so there
   // was nothing to disagree about. It declares `effect` now, and a graft on a
   // different Effect than this workspace would put two copies in one process.
-  assert.equal(validateEffectPins(agreeing(grafted)), V);
+  assert.equal(validate(agreeing(grafted)), V);
   assert.throws(
-    () => validateEffectPins(agreeing({ ...grafted, spec: "4.0.0-beta.101" })),
+    () => validate(agreeing({ ...grafted, spec: "4.0.0-beta.101" })),
     /osfacts-client\/package\.json.*must spell the literal 4\.0\.0-beta\.102/s,
   );
 });
 
 test("the grafted manifest owes a LITERAL — `catalog:` does not resolve in osfacts' workspace", () => {
   assert.throws(
-    () => validateEffectPins(agreeing({ ...grafted, spec: "catalog:" })),
+    () => validate(agreeing({ ...grafted, spec: "catalog:" })),
     /osfacts-client\/package\.json.*grafted from the `osfacts` pin/s,
   );
 });
@@ -228,16 +257,16 @@ test("the grafted manifest owes a LITERAL — `catalog:` does not resolve in osf
 test("an ABSENT graft still passes — the vendored literals are the required ones", () => {
   // A bare checkout has not materialised `osfacts-client/` yet, and osfacts is
   // free to stop depending on Effect. Neither is a version split.
-  assert.equal(validateEffectPins(agreeing()), V);
+  assert.equal(validate(agreeing()), V);
 });
 
 test("a stale literal in a vendored manifest fails against the catalog", () => {
   assert.throws(
     () =>
-      validateEffectPins([
+      validate([
         ...catalog("effect"),
         ...overrides("effect"),
-        { ...vendored, spec: "4.0.0-beta.101" },
+        { ...vendoredPin, spec: "4.0.0-beta.101" },
       ]),
     /packages\/surface\/package\.json/,
   );
@@ -245,14 +274,14 @@ test("a stale literal in a vendored manifest fails against the catalog", () => {
 
 test("a literal that crept into an ordinary member fails — that is a fourth place to forget", () => {
   assert.throws(
-    () => validateEffectPins(agreeing({ ...member, spec: V })),
+    () => validate(agreeing({ ...member, spec: V })),
     /packages\/padi\/package\.json.*must be `catalog:`/s,
   );
 });
 
 test("a range in an ordinary member fails just as hard as a literal", () => {
   assert.throws(
-    () => validateEffectPins(agreeing({ ...member, spec: "^4.0.0" })),
+    () => validate(agreeing({ ...member, spec: "^4.0.0" })),
     /must be `catalog:`/,
   );
 });
@@ -260,7 +289,7 @@ test("a range in an ordinary member fails just as hard as a literal", () => {
 test("a family package with no catalog entry fails, wherever it is declared", () => {
   assert.throws(
     () =>
-      validateEffectPins(
+      validate(
         agreeing({
           path: "packages/padi/package.json",
           where: "dependencies",
@@ -274,19 +303,14 @@ test("a family package with no catalog entry fails, wherever it is declared", ()
 
 test("losing every vendored literal fails — the external-consumer pins would be gone", () => {
   assert.throws(
-    () =>
-      validateEffectPins([
-        ...catalog("effect"),
-        ...overrides("effect"),
-        member,
-      ]),
+    () => validate([...catalog("effect"), ...overrides("effect"), member]),
     /external-consumer pins have vanished/,
   );
 });
 
 test("no catalog at all is a hard stop, not a pass", () => {
   assert.throws(
-    () => validateEffectPins([vendored]),
+    () => validate([vendoredPin]),
     /declares no effect-family catalog entry/,
   );
 });

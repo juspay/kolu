@@ -25,11 +25,11 @@
  * plant).
  */
 
+import { PreviewTooLarge } from "@kolu/padi-client/surface";
 import type { RealpathGuard, ServeResult } from "@kolu/serve-dir";
 import { getHeaderCI, serveFile } from "@kolu/serve-dir";
 import { Effect } from "effect";
 import { assertRealpathUnder } from "kolu-git";
-import { PreviewTooLarge } from "./errors.ts";
 
 /** The filesystem-authority guard padi injects into `@kolu/serve-dir` for a
  *  given root: resolve symlinks and reject anything whose real path escapes the

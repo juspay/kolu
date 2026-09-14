@@ -445,4 +445,133 @@ describe("ResourcePusher", () => {
 
     pusher.stop();
   });
+
+  // ── reattach(): the live roster's spine ────────────────────────────────
+  // `reattach` is what a roster move calls: the held connection was dialled for
+  // the roster before the move, so it must be replaced without losing the
+  // subscriptions that survived. Its correctness under an overlapping dial is
+  // entirely the generation-token guard in `ensureAttached`, which nothing pinned.
+
+  it("reattach keeps the subscriptions, replaces the connection, disposes the old one", async () => {
+    const first = makeSource();
+    const second = makeSource();
+    const opened: number[] = [];
+    const disposed: number[] = [];
+    let dial = 0;
+    const pusher = new ResourcePusher<{ id: number }>({
+      notify: () => {},
+      client: () => {
+        dial += 1;
+        const id = dial;
+        opened.push(id);
+        return {
+          client: { id },
+          dispose: () => {
+            disposed.push(id);
+          },
+        };
+      },
+      stream: (client) => (client.id === 1 ? first.stream : second.stream),
+    });
+
+    pusher.subscribe(URI);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(pusher.attached).toBe(true);
+    expect(opened).toEqual([1]);
+
+    pusher.reattach();
+    await vi.advanceTimersByTimeAsync(0);
+    // The subscription survived the move and is open on the NEW connection…
+    expect(pusher.attached).toBe(true);
+    expect(opened).toEqual([1, 2]);
+    expect(second.isLive()).toBe(true);
+    // …and the connection the move superseded is released, not orphaned.
+    expect(disposed).toEqual([1]);
+
+    pusher.stop();
+  });
+
+  it("reattach notifies on the NEW connection's frames", async () => {
+    // The integration case asserts a departed URI is refused and a survivor is
+    // still subscribable. Neither says the survivor's stream still PUSHES after
+    // the move, which is the whole point of keeping it.
+    const first = makeSource();
+    const second = makeSource();
+    const notified: string[] = [];
+    let dial = 0;
+    const pusher = new ResourcePusher<{ id: number }>({
+      notify: (uri) => notified.push(uri),
+      client: () => {
+        dial += 1;
+        return { client: { id: dial }, dispose: () => {} };
+      },
+      stream: (client) => (client.id === 1 ? first.stream : second.stream),
+    });
+
+    pusher.subscribe(URI);
+    await vi.advanceTimersByTimeAsync(0);
+    first.push("before");
+    await vi.advanceTimersByTimeAsync(500);
+    expect(notified).toEqual([URI]);
+
+    pusher.reattach();
+    await vi.advanceTimersByTimeAsync(0);
+    second.push("after");
+    await vi.advanceTimersByTimeAsync(500);
+    expect(notified).toEqual([URI, URI]);
+
+    pusher.stop();
+  });
+
+  it("a dial in flight across a reattach is discarded, and the retry recovers", async () => {
+    // The superseded dial wins the EMPTY slot on its way back unless the
+    // generation it was started under is checked. Both dials are held open so
+    // the stale one lands while the slot is still empty — that is the only
+    // window in which the guard is the thing deciding, and a test that lets the
+    // replacement land first proves nothing (the `this.conn !== null` arm
+    // disposes it for unrelated reasons).
+    const source = makeSource();
+    const opened: number[] = [];
+    const disposed: number[] = [];
+    const gates = new Map<number, () => void>();
+    let dial = 0;
+    const pusher = new ResourcePusher<{ id: number }>({
+      notify: () => {},
+      client: async () => {
+        dial += 1;
+        const id = dial;
+        opened.push(id);
+        await new Promise<void>((r) => gates.set(id, r));
+        return {
+          client: { id },
+          dispose: () => {
+            disposed.push(id);
+          },
+        };
+      },
+      stream: () => source.stream,
+    });
+
+    pusher.subscribe(URI);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(opened).toEqual([1]);
+
+    pusher.reattach();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(opened).toEqual([1, 2]);
+
+    // The STALE dial lands first, into an empty slot with a live subscriber.
+    gates.get(1)?.();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(disposed).toEqual([1]);
+    expect(pusher.attached).toBe(false);
+
+    // The replacement lands and becomes the attachment.
+    gates.get(2)?.();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(pusher.attached).toBe(true);
+    expect(disposed).toEqual([1]);
+
+    pusher.stop();
+  });
 });

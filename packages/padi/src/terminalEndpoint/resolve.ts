@@ -31,9 +31,9 @@
  * There is no `RemoteTerminalEndpoint` yet.
  */
 
+import type { HostLocation } from "@kolu/padi-client/surface";
 import { match } from "ts-pattern";
 import type { TerminalEndpoint } from "../endpoint.ts";
-import type { HostLocation } from "../vocab.ts";
 import { localTerminalEndpoint } from "./local.ts";
 
 export function resolveTerminalEndpoint(

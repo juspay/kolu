@@ -10,10 +10,12 @@ import type { KoluWorld } from "../support/world";
 //
 // Long timeout: a recording drives a real flow — including waiting for a live
 // agent to finish answering (dock → awaiting) — which far exceeds the harness's
-// default per-step budget.
+// default per-step budget. The hero-demo now pre-builds a multi-host fleet
+// behind trimStart and ends on a full reload, so drive() legitimately runs for
+// several minutes before the first on-camera frame.
 When(
   "I record {string}",
-  { timeout: 240_000 },
+  { timeout: 360_000 },
   async function (this: KoluWorld, name: string) {
     const recording = getRecording(name);
     setActiveTheme(recording.theme);

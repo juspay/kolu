@@ -51,6 +51,16 @@ const FIXTURE = fileURLToPath(
  *  a loaded box. */
 const EXIT_WAIT_MS = 4_000;
 
+/** Vitest's 5s default is SMALLER than the deadlines these tests already carry
+ *  — `awaitStdioReadiness` alone is given 10s, and {@link EXIT_WAIT_MS} another
+ *  4s — so the default never bounded the assertion; it only ever bounded how
+ *  fast the child booted. That held while some earlier lane had already warmed
+ *  the transform caches this child's `node --import tsx` boot reads; once the
+ *  `daemon` lane stopped re-running a suite `unit` had just run, a cold boot ate
+ *  the ~1s of slack and the file timed out at 5s with nothing actually wrong.
+ *  Budget the whole spawn→settle round with room over its own deadlines. */
+const SPAWN_TEST_TIMEOUT_MS = 30_000;
+
 const children: ChildProcessWithoutNullStreams[] = [];
 afterEach(() => {
   // Exact-handle teardown only: kill the PIDs we spawned, never a pattern.
@@ -143,66 +153,78 @@ async function waitExit(
 describeDaemon(
   "serveOverStdio lifetime — default transport (the process IS the agent)",
   () => {
-    it("exits 0 when the parent closes the link, despite a live interval", async () => {
-      const child = spawnAgent();
-      const stderr = watchStderr(child);
-      await stderr.waitFor("fixture: serving");
+    it(
+      "exits 0 when the parent closes the link, despite a live interval",
+      async () => {
+        const child = spawnAgent();
+        const stderr = watchStderr(child);
+        await stderr.waitFor("fixture: serving");
 
-      child.stdin.end(); // parent death, read half: EOF on the agent's stdin
+        child.stdin.end(); // parent death, read half: EOF on the agent's stdin
 
-      const { code } = await waitExit(child, EXIT_WAIT_MS);
-      expect(code).toBe(0);
-      // Post-settle sync work (step 4) ran before the framework exit.
-      expect(stderr.seen()).toContain("fixture: settled reason=end");
-    });
+        const { code } = await waitExit(child, EXIT_WAIT_MS);
+        expect(code).toBe(0);
+        // Post-settle sync work (step 4) ran before the framework exit.
+        expect(stderr.seen()).toContain("fixture: settled reason=end");
+      },
+      SPAWN_TEST_TIMEOUT_MS,
+    );
 
-    it("exits 0 when the parent's read side dies mid-push (benign write EPIPE)", async () => {
-      const child = spawnAgent();
-      const stderr = watchStderr(child);
-      await stderr.waitFor("fixture: serving");
+    it(
+      "exits 0 when the parent's read side dies mid-push (benign write EPIPE)",
+      async () => {
+        const child = spawnAgent();
+        const stderr = watchStderr(child);
+        await stderr.waitFor("fixture: serving");
 
-      // Subscribe the forever-stream so the agent is continuously PUSHING,
-      // then kill the parent's read side only: the agent's next push EPIPEs
-      // while its stdin never sees EOF — clean teardown from the write
-      // direction, which must exit 0 exactly like the EOF leg.
-      // The REAL gate over a REAL child: the fixture calls `serveOverStdio`
-      // with no transport override, so the process IS the agent and greets
-      // before its first frame. Nothing here fabricates a proof.
-      const readiness = await awaitStdioReadiness({
-        read: child.stdout,
-        deadlineMs: 10_000,
-        describe: "lifetime fixture agent",
-      });
-      const link = await stdioLink({
-        group: lifetimeSurface.group,
-        read: child.stdout,
-        write: child.stdin,
-        readiness,
-      });
-      const first = await Effect.runPromise(
-        Stream.runHead(
-          link.dispatch.stream(LIFETIME_TICK_TAG, undefined) as Stream.Stream<
-            { n: number },
-            unknown
-          >,
-        ),
-      );
-      expect(first).toBeDefined(); // one push round-tripped
+        // Subscribe the forever-stream so the agent is continuously PUSHING,
+        // then kill the parent's read side only: the agent's next push EPIPEs
+        // while its stdin never sees EOF — clean teardown from the write
+        // direction, which must exit 0 exactly like the EOF leg.
+        // The REAL gate over a REAL child: the fixture calls `serveOverStdio`
+        // with no transport override, so the process IS the agent and greets
+        // before its first frame. Nothing here fabricates a proof.
+        const readiness = await awaitStdioReadiness({
+          read: child.stdout,
+          deadlineMs: 10_000,
+          describe: "lifetime fixture agent",
+        });
+        const link = await stdioLink({
+          group: lifetimeSurface.group,
+          read: child.stdout,
+          write: child.stdin,
+          readiness,
+        });
+        const first = await Effect.runPromise(
+          Stream.runHead(
+            link.dispatch.stream(LIFETIME_TICK_TAG, undefined) as Stream.Stream<
+              { n: number },
+              unknown
+            >,
+          ),
+        );
+        expect(first).toBeDefined(); // one push round-tripped
 
-      child.stdout.destroy(); // parent read side gone
+        child.stdout.destroy(); // parent read side gone
 
-      const { code } = await waitExit(child, EXIT_WAIT_MS);
-      expect(code).toBe(0);
-      expect(stderr.seen()).toContain("fixture: settled reason=end");
-    });
+        const { code } = await waitExit(child, EXIT_WAIT_MS);
+        expect(code).toBe(0);
+        expect(stderr.seen()).toContain("fixture: settled reason=end");
+      },
+      SPAWN_TEST_TIMEOUT_MS,
+    );
 
-    it("exits 1 on a genuinely abnormal read-stream error", async () => {
-      const child = spawnAgent("--self-error");
-      await watchStderr(child).waitFor("fixture: serving");
+    it(
+      "exits 1 on a genuinely abnormal read-stream error",
+      async () => {
+        const child = spawnAgent("--self-error");
+        await watchStderr(child).waitFor("fixture: serving");
 
-      const { code } = await waitExit(child, EXIT_WAIT_MS);
-      expect(code).toBe(1);
-    });
+        const { code } = await waitExit(child, EXIT_WAIT_MS);
+        expect(code).toBe(1);
+      },
+      SPAWN_TEST_TIMEOUT_MS,
+    );
   },
 );
 

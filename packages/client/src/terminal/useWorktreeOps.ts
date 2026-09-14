@@ -1,6 +1,6 @@
 /** Worktree operations — create and remove git worktrees with associated terminals. */
 
-import { sleepingArm } from "@kolu/padi/surface";
+import { sleepingArm } from "@kolu/padi-client/surface";
 import { toError } from "@kolu/surface/run-stream";
 import { Effect } from "effect";
 import type { TerminalId } from "kolu-common/surface";

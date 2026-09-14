@@ -1,8 +1,8 @@
 ---
 title: Add another machine
 description: "Run terminals on other machines as first-class canvas tiles — add hosts from the host row (or pre-seed with KOLU_PADI_HOST), switch between them live, and the ssh-session limitations (including gh's 'The token in default is invalid')."
-order: 52
-section: Use Kolu
+order: 62
+section: "Anywhere"
 koluHero:
   eyebrow: "another computer"
   headline: |
@@ -25,6 +25,11 @@ pull-down chrome sheet on a phone — and switching swaps the whole canvas **liv
 with no reload**. Each host keeps its own arrangement, so `you@box` looks the same
 from your laptop, your desktop, or your phone.
 
+<figure class="doc-shot">
+  <img src="/shots/remote-host.webp" alt="The canvas switched to a remote host's tab: an opencode agent running in /home/toor on another machine, with that host's own dock group." loading="lazy" />
+  <figcaption>Another machine's tab: the same canvas, running on a different box.</figcaption>
+</figure>
+
 This is the other direction from [From another device](/remote-access) (and from
 [From a Mac](/from-a-mac)): those pages are about **reaching the kolu app**.
 This page is about kolu **reaching another machine** over ssh, once the app is
@@ -40,10 +45,11 @@ already running.
     with a card that [names which one and how to fix it](#when-a-host-is-down).
   </Card>
   <Card title="Nix on the remote">
-    The host has [Nix installed](https://nixos.asia/en/install) and your user is
-    **trusted by its nix-daemon** — kolu provisions [padi](/padi) there with Nix
-    over ssh. It must be runnable from a *non-interactive* ssh session, not only
-    from a login shell.
+    The host has [Nix installed](https://nixos.asia/en/install) — kolu provisions
+    [padi](/padi) there with Nix over ssh. It must be runnable from a
+    *non-interactive* ssh session, not only from a login shell. Make your user
+    **trusted by its nix-daemon** (`trusted-users`) too: kolu then copies padi's
+    binaries from this machine instead of the host building them itself.
   </Card>
   <Card title="A Nix-wrapped kolu">
     Launch kolu through its Nix wrapper, which bakes in its exact agent source.
@@ -127,7 +133,7 @@ kolu is running on; remotes show the ssh target. Every tab carries a
 | green pip | the whole chain is live — kolu reaches this host **and** its terminal daemon is serving |
 | amber pip (pulsing) | connecting or provisioning — coming up |
 | amber pip, "kaval down" | kolu reaches the host, but its terminal daemon is not serving. [padi restarts it for you](/padi#steady-state-supervision); the tooltip carries the daemon's own verdict |
-| red pip + struck label | unreachable — open diagnostics for the real error and **retry** |
+| red pip + struck label | failed — open diagnostics for the real error and **retry** |
 
 The pip reports the **whole chain** (kolu → this host's padi → its kaval), not
 just the first link. A host you can reach whose terminal daemon is dead is not
@@ -159,7 +165,7 @@ hover-opened.
   card tells the truth about **who can fix it**:
 
   - While a **remote** machine is still **setting itself up** — probing or provisioning
-    its agent over ssh — the card stays **non-terminal**: it says kolu is **still retrying**
+    its agent over ssh — the card stays **non-terminal**: it says kolu **hasn't given up** and is still working on it
     (naming the phase it's on), and its recovery verb is **Retry connection**, which recycles
     the **server-side** connection — the only thing that can move a stuck dial, where a browser
     reload can't. There's also a **campaign backstop**: after about half an hour of a setup that
@@ -183,9 +189,11 @@ hover-opened.
   (A **local** machine whose own agent fails to start is a different case with its own
   ["kaval didn't start" card](/kaval) and a **Restart** action, unchanged.)
 
-  The canvas shows a **tail**; the full firehose still lives in the **kolu server logs** —
-  the complete Nix provisioning output, and the actual reason if a connect genuinely
-  fails. Under systemd that's `journalctl` for your kolu service — started by hand, it is
+  The canvas shows a **tail**; the **kolu server logs** keep every line it narrates —
+  Nix's own messages, each path copied and each build started, and, when a connect fails,
+  Nix's error with the failed build's last lines. They are not the build's complete
+  output: to read all of a failed build's log, run the `nix log` command the error names
+  on the host. Under systemd that's `journalctl` for your kolu service — started by hand, it is
   only in the terminal you launched it from unless you [redirected
   it](/operations#three-things-to-know-first). padi also keeps its own log in its
   state-root on the host.
@@ -238,9 +246,10 @@ hatch).
 
 When the failed attempt produced any output, **the card shows the last lines of it** beneath
 the cause — the same running log the canvas shows you while a host is coming up, kept
-where it is most useful. That output is usually what tells you which kind of failure you
-have: a machine that is genuinely unreachable looks nothing like one whose remote build
-failed to compile, and only the log distinguishes them. Those lines travel with the
+where it is most useful. The line just above that output is the error that stopped the
+attempt, in the words of the tool that hit it: for a failed Nix build, Nix's own error and
+the last thing the build printed (say, a download that was refused) — never just an exit
+code. Those lines travel with the
 failure itself, not alongside it — so they survive a browser whose connection to kolu has
 gone quiet (a laptop that slept, a tab left open on flaky wifi): you get the reason and
 its evidence together, or the card simply shows no output block, which now means the
@@ -258,9 +267,10 @@ The causes it distinguishes:
 | **This host needs passwordless ssh** | the host asked for a password. kolu connects non-interactively and never types one — set up key-based access (`ssh-copy-id`), then reconnect |
 | **This host isn't trusted yet** | ssh doesn't recognise the host's identity key. Run `ssh <host>` once in a terminal to review and accept it — or clear a changed-key warning — then reconnect |
 | **This host has no Nix that kolu can run** | ssh worked, but the host's shell couldn't run `nix-instantiate`. Either Nix isn't [installed](https://nixos.asia/en/install) there, or it isn't on the PATH of a non-interactive ssh session |
-| **Can't reach this host** | unreachable over ssh, or provisioning failed partway. These look identical from the outside, so read the output on the card: silence or an ssh error means the machine; a compiler or build error means the host was fine and its build wasn't |
+| **Connecting to this host kept stalling** | a step of connecting — the ssh link, a copy, a build — went quiet for too long, too many times. The detail names the step: usually the machine is asleep or off the network, or a download stalled |
+| **Kolu couldn't set up this host** | the host answered, but bringing padi up there kept failing — a Nix build, or the agent refusing or dying before it started. The detail is the error that stopped it |
 | **This kolu run is missing its agent source** | kolu wasn't launched through its Nix wrapper, so it has nothing to deploy |
-| **Kolu couldn't prepare padi for this host** | the baked source could not resolve padi; the detail shows the Nix error, including an unsupported CPU/OS pair when that is the cause |
+| **Kolu couldn't prepare padi for this host** | kolu couldn't work out which padi build the host needs: the host's Nix failed to report its CPU/OS pair (or printed something that isn't one — often a shell startup file writing to stdout), or the baked source couldn't resolve padi for it. The detail shows the error |
 | **This host's padi never settled** | a contract upgrade's drain never provably finished |
 
 A related — but distinct — card covers the host's **[kaval](/kaval)**: if the
@@ -318,9 +328,11 @@ wears a **thin teal ring** while that host has doors open.
 Each row also **names the terminal serving that port**, and the name is a link:
 click it and you land on the agent that started the thing.
 
-A door you opened by hand, or one whose server has since died, trails the Ports
-list under **"also forwarded on this host"** — a door belongs to the machine, not
-to whichever terminal you happen to be looking at.
+A door onto a server no terminal holds — one you opened by hand, one whose
+server has since died, one onto a server running elsewhere on the machine — sits
+in the Ports list under **elsewhere on this host**, and stays visible while that
+group is folded: a door belongs to the machine, not to whichever terminal you
+happen to be looking at.
 
 <Steps>
 
@@ -330,8 +342,8 @@ to whichever terminal you happen to be looking at.
 
 2. **Or forward a port kolu never saw.** `⌘K` → **Forward a port…**, then
    `host:port` (or just a port, for the host you're looking at). Useful for a
-   service outside any terminal's process tree, or one that was already running
-   before kolu started.
+   port kolu's scan cannot see — another user's service on a host whose socket
+   table hides it — or when you want a door that no scan may close.
 
 3. **Close it when you're done.** `⨯` on the row. A forward you asked for by
    hand stays until you cancel it or its host leaves — there is no listener for
@@ -347,10 +359,11 @@ timer, so a deploy or a crash never leaves an orphaned door open.
 Agents constantly print `http://localhost:5173/` (and `127.*`, `[::1]`,
 `0.0.0.0`). In your browser that hostname is the **wrong machine** — the laptop
 you are reading kolu from, not the host running the server. Click a loopback URL
-in the terminal and a small card appears at the cursor: when the scanner already
-sees that port on this terminal it offers **forward &amp; open** (and copy), with
-the printed path carried through the door; when nothing is listening yet it says
-so instead of inventing a forward from text. ⌘/Ctrl-click opens the raw URL with
+in the terminal and a small card appears at the cursor: when anything on the
+host is listening on that port — in this terminal, in another one, or a server
+that detached from all of them — it says which and offers **forward &amp; open**
+(and copy), with the printed path carried through the door; only when nothing on
+the host listens there does it say so, instead of inventing a forward from text. ⌘/Ctrl-click opens the raw URL with
 no card. Non-loopback links keep the usual open behaviour.
 
 The card is **live** — leave it open while a server starts and it upgrades the

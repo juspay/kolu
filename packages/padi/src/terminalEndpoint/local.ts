@@ -22,12 +22,28 @@
  * `terminal-workspace` surface over the link, so there is one fs/git impl.
  */
 
-import type { SnapshotGrid } from "terminal-snapshot";
+import type {
+  AuthoredActiveTerminal,
+  SavedActiveTerminal,
+  SavedSleepingTerminal,
+  TerminalInfo,
+} from "@kolu/padi-client/surface";
+import {
+  AuthoredActiveSchema,
+  AuthoredParkedSchema,
+  AuthoredSleepingSchema,
+  createAuthoredActive,
+  LOCAL_LOCATION,
+  PersistedSnapshotSchema,
+  SavedActiveTerminalSchema,
+  SavedSleepingTerminalSchema,
+} from "@kolu/padi-client/surface";
 import type { WireSchema } from "@kolu/surface/define";
 import { type Channel, inMemoryChannel } from "@kolu/surface/server";
 import type {
   AgentIdentity,
   TerminalEvent,
+  TerminalGrid,
   TerminalId,
   TerminalPorts,
   TerminalSnapshot,
@@ -37,6 +53,7 @@ import { seedSnapshot, TerminalIdSchema } from "@kolu/terminal-vocab/schema";
 import { resumeFormFor } from "anyagent/cli";
 import { Effect, Result, Schema, Stream } from "effect";
 import type { ForegroundSample, PtyHostClient, PtyHostListEntry } from "kaval";
+import type { SnapshotGrid } from "terminal-snapshot";
 import { abortableDelay } from "../abortableDelay.ts";
 import { trackRecentAgent, trackRecentRepo } from "../activity/activity.ts";
 import type {
@@ -89,22 +106,6 @@ import {
   type SensorSignals,
   startSensors,
 } from "../terminalWorkspace/sensors.ts";
-import type {
-  AuthoredActiveTerminal,
-  SavedActiveTerminal,
-  SavedSleepingTerminal,
-  TerminalInfo,
-} from "../vocab.ts";
-import {
-  AuthoredActiveSchema,
-  AuthoredParkedSchema,
-  AuthoredSleepingSchema,
-  createAuthoredActive,
-  LOCAL_LOCATION,
-  PersistedSnapshotSchema,
-  SavedActiveTerminalSchema,
-  SavedSleepingTerminalSchema,
-} from "../vocab.ts";
 import {
   commitSnapshot,
   dropSnapshot,
@@ -589,6 +590,10 @@ interface TerminalLifecycle {
   /** OS pid of the PTY's root process — the port scan's walk origin. */
   rootPid: number;
   ports: Channel<TerminalPorts>;
+  /** Where {@link LocalTerminalEndpoint.noteGrid} and the attach's own resize
+   *  publish the PTY's current grid — the record's route, exactly as `ports`
+   *  is the port sampler's. */
+  grid: Channel<TerminalGrid>;
 }
 
 /** Best-effort `foreground` seed from a live `list` entry's `foregroundProcess`
@@ -703,6 +708,11 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
       // `unknown`, which is a different fact from `known: []`.
       publish: (id, ports) => this.lifecycles.get(id)?.ports.publish(ports),
       rootPidOf: (id) => this.lifecycles.get(id)?.rootPid,
+      // The host's listeners, from the same pass, into padi's own read-only
+      // `hostListeners` cell — whose spec `equals` is the one dedup point, so a
+      // re-served or unchanged reading publishes nothing downstream.
+      publishHost: (listeners) =>
+        padiSurfaceCtx.cells.hostListeners.set(listeners),
       log,
     });
     this.portSampler = sampler;
@@ -1174,6 +1184,10 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
       foreground: inMemoryChannel<ForegroundSample>(),
       // Fed by the host-wide port sampler (below), not by a pty-host tap.
       ports: inMemoryChannel<TerminalPorts>(),
+      // Fed by padi's own resize path (`noteGrid` / the attach's `resizeTo`),
+      // not by a pty-host tap — padi performs every resize, so padi is the only
+      // thing that knows one happened.
+      grid: inMemoryChannel<TerminalGrid>(),
     };
     // Arm the host-wide port sampler (once per process) up front, so the nudge is
     // in hand for the command-mark bridge below. Its first pass can only run after
@@ -1337,6 +1351,7 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
       stopAwareness,
       rootPid: pid,
       ports: signals.ports,
+      grid: signals.grid,
     });
     // Brand new to the scan — read now rather than up to a baseline later. An
     // ADOPTED survivor is the case that needs it: its server has been serving for
@@ -1663,6 +1678,16 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
     // and its own repro, not a tail-end edit on this one.
   }
 
+  /** See {@link TerminalEndpoint.noteGrid}. Straight into the terminal's own
+   *  `grid` channel — its grid sensor owns the dedup and the fold, so a resize
+   *  reaches the record through the SAME emit → fold → snapshot path as every
+   *  other field rather than a second write seam into the registry (a direct
+   *  `commitSnapshot` here would be clobbered by the next sensor commit, which
+   *  holds its own accumulator). */
+  noteGrid(id: TerminalId, grid: EndpointGrid): void {
+    this.lifecycles.get(id)?.grid.publish(grid);
+  }
+
   async attach(
     id: TerminalId,
     signal: AbortSignal | undefined,
@@ -1733,10 +1758,19 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
           `attach(${id}): expected a snapshot first frame, got "${first.value.kind}"`,
         );
       }
+      // An attach IS a resize whenever `resizeTo` differs from the PTY's
+      // current grid (last-attach-wins), and kaval answers with the grid it
+      // actually serialized at. Publish it here rather than at the call site so
+      // EVERY open is covered — the initial attach and each overflow re-attach
+      // — and so the other attached clients, who cannot see this resize in
+      // their byte stream, observe it on the record. Absent from an older
+      // kaval, and absent is honest: nothing here can invent the grid.
+      if (first.value.grid) this.noteGrid(id, first.value.grid);
       return {
         snapshot: first.value.data,
         topLine: first.value.topLine,
         reflowEpoch: first.value.reflowEpoch,
+        grid: first.value.grid,
         iter,
       };
     };
@@ -1751,6 +1785,7 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
       snapshot: initial.snapshot,
       topLine: initial.topLine,
       reflowEpoch: initial.reflowEpoch,
+      grid: initial.grid,
       // Re-attaches carry NO resize (see above) — `open()` with no argument.
       // `signal` rides along so the loop can tell OUR teardown (the abort that
       // ends the kaval iterator through the `iter.return()` bridge above) from an

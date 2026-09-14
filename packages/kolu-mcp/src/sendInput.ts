@@ -25,7 +25,8 @@
  * give the same answer to the same intent.
  */
 
-import { TerminalIdSchema } from "@kolu/terminal-vocab/schema";
+import { padiOf } from "./bundleClient.ts";
+import { type BespokeTool, ToolFailure } from "@kolu/surface-mcp/tools";
 import {
   ACCEPTED_KEY_NAMES,
   encodeSend,
@@ -33,17 +34,14 @@ import {
   type SendVocabulary,
   sendShapeRefusal,
 } from "@kolu/terminal-protocol";
-import type { PadiSurfaceClient } from "@kolu/padi/dial";
-import { type BespokeTool, ToolFailure } from "@kolu/surface-mcp";
+import { TerminalIdSchema } from "@kolu/terminal-vocab/schema";
 import { Effect, Schema } from "effect";
 
 export const SendInputArgsSchema = Schema.Struct({
   id: TerminalIdSchema,
   // The per-field blurb an MCP host renders is the `description` ANNOTATION,
   // and it must sit on the encoded-side node INSIDE `optionalKey` for the
-  // converter to see it (`@kolu/surface-mcp`'s `jsonschema.ts` law). These two
-  // are CHECK-FREE, so a plain `.annotate` lands on the node; a CHECKED schema
-  // needs the annotate-first order `wait.ts`'s `MillisecondsSchema` explains.
+  // converter to see it (`@kolu/surface-mcp`'s `jsonschema.ts` law).
   text: Schema.optionalKey(
     Schema.String.annotate({
       description:
@@ -198,7 +196,7 @@ export const sendInputTool: BespokeTool = {
     const { id, ...rest } = args as SendInputArgs;
     const plan = resolveSendInputData(rest);
     return Effect.as(
-      (client as PadiSurfaceClient).surface.lifecycle.sendInput({
+      padiOf(client).surface.lifecycle.sendInput({
         id,
         data: plan.write,
       }),

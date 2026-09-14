@@ -94,6 +94,13 @@ export type PipGlyphDef = {
 // Real brand marks — do not hand-draw approximations. Attribution per path.
 // claude / opencode / openai(codex): simple-icons (CC0).
 // grok: lobehub icon set (xAI/grok is NOT in simple-icons).
+// pi: geometric π letterform — pi ships no flat vector mark (its assets are
+// the "clankolas" mascot), and the agent IS named for the constant, so the
+// glyph is the literal sign rather than an approximation of one. The SAME
+// path renders the client chrome's PiIcon (packages/client/src/ui/Icons.tsx) —
+// one shape, two render contexts.
+// xyne: hand-drawn X monogram — xyne-cli ships no flat vector mark either, so
+// the initial is the mark (see its GLYPH_XYNE note below).
 
 function fillMark(viewBox: string, d: string): PipGlyphDef {
   return { viewBox, paint: "fill", paths: [d] };
@@ -121,6 +128,13 @@ const GLYPH_CODEX = fillMark(
 const GLYPH_OPENCODE = fillMark(
   "0 0 24 24",
   "M22 24H2V0h20zM17 4.8H7v14.4h10z",
+);
+
+/** Pi letterform — geometric π, uniform strokes, filled like the brands so
+ *  spin weight matches at 16px (see the attribution note above). */
+const GLYPH_PI = fillMark(
+  "0 0 24 24",
+  "M5 6h14v2.5H16V18h-2.5V8.5h-3V18H8V8.5H5V6z",
 );
 
 /** Xyne "X" monogram — xyne-cli ships no brand mark in simple-icons, so a
@@ -151,30 +165,33 @@ const GLYPH_SHELL: PipGlyphDef = {
   ],
 };
 
-/** Agent-kind → brand mark. Exhaustive over `AgentKind` so a new kind forces
- *  a glyph decision here — never a silent shell fallback. */
+/** Identity glyph per core — agent brand mark or the shell prompt.
+ *
+ *  A fenced `Record`, not a switch: a new `AgentKind` stops this object
+ *  compiling until it has a mark, exactly as a `satisfies never` arm would —
+ *  AND the record is enumerable, which a switch is not. That matters because
+ *  the vocabulary has to cross a wire: a fleet mirror whose transport carries
+ *  the glyph as a plain string narrows it against {@link PIP_GLYPH_IDS} rather
+ *  than declaring its own copy of the literals, which is how two surfaces stop
+ *  agreeing about the same agent. */
+const PIP_GLYPHS: Record<PipGlyphId, PipGlyphDef> = {
+  "claude-code": GLYPH_CLAUDE,
+  codex: GLYPH_CODEX,
+  opencode: GLYPH_OPENCODE,
+  grok: GLYPH_GROK,
+  pi: GLYPH_PI,
+  xyne: GLYPH_XYNE,
+  shell: GLYPH_SHELL,
+};
+
+/** Agent-kind → brand mark. */
 export function agentGlyph(kind: AgentKind): PipGlyphDef {
-  switch (kind) {
-    case "claude-code":
-      return GLYPH_CLAUDE;
-    case "codex":
-      return GLYPH_CODEX;
-    case "opencode":
-      return GLYPH_OPENCODE;
-    case "grok":
-      return GLYPH_GROK;
-    case "xyne":
-      return GLYPH_XYNE;
-    default:
-      kind satisfies never;
-      return GLYPH_SHELL;
-  }
+  return PIP_GLYPHS[kind];
 }
 
 /** Identity glyph for a pip core — agent brand or shell prompt. */
 export function pipGlyph(id: PipGlyphId): PipGlyphDef {
-  if (id === "shell") return GLYPH_SHELL;
-  return agentGlyph(id);
+  return PIP_GLYPHS[id];
 }
 
 /** The rendered LOOK for each variant — Tailwind colour + motion class tokens
@@ -309,3 +326,66 @@ export const ALERT_BADGE_CLASS = "statepip-alert-badge";
 /** Glyph size inside the 20 px dock pip box — 16 px mark, 2 px inset each side.
  *  Reads at a glance next to dock row text (14 px was a touch shy). */
 export const GLYPH_SVG_CLASS = "block w-[16px] h-[16px]";
+
+/** Dormancy's caller-side treatment — the opacity a sleeping terminal's ROW or
+ *  TITLE recedes to, applied by the caller beside the `sleeping` pip it pairs
+ *  with. The fourth axis of the pip contract (identity · state · activity ·
+ *  obligation, then dormancy) is the one the leaf cannot render itself: the pip
+ *  paints moonlit, the surface AROUND it fades, and the two must agree.
+ *
+ *  Here rather than in either surface for the same reason `DOCK_ROW_PIP_BOX`
+ *  and `TITLE_PIP_BOX` are: it is caller geometry that belongs beside the
+ *  vocabulary it completes, so the dock row (`@kolu/solid-dockrow`) and kolu's
+ *  tile title read ONE token and a retune cannot reach one and miss the other.
+ *
+ *  Deliberately the only opacity channel the dock spends: read-vs-unread is
+ *  carried by a colour wash, never by a second opacity at a neighbouring value,
+ *  which would make "read" and "asleep" the same mark. */
+export const SLEEPING_RECEDE_CLASS = "opacity-55";
+
+// ── The vocabulary as VALUES — narrowing for a wire that carries it as text ──
+//
+// A surface that draws these marks does not always receive them typed. A fleet
+// mirror's own transport deliberately carries agent state as a plain nullable
+// string: importing kolu's per-agent schema graph into an outline wire spec
+// would compile five agent packages into it, and the literals do not exist as
+// an array anywhere upstream (they live per-agent-package and compose as a
+// union). So the consumer has a string and needs one of these unions.
+//
+// The answer is NOT for the consumer to declare its own copy of the literals —
+// that is a second closed set for one vocabulary, and two closed sets drift.
+// The answer is that the vocabulary exports its own narrowing, here, beside the
+// records that already fence it. Every array below is `Object.keys` of a
+// `Record` keyed by the union itself, so a new member cannot slip out of the
+// list: it stops the record compiling first.
+
+/** Every `PipVariant`, from the paint record that already fences the union. */
+export const PIP_VARIANTS = Object.keys(PIP_BODY) as readonly PipVariant[];
+
+/** Every `PipMotionKind`, from the motion-class record. */
+export const PIP_MOTION_KINDS = Object.keys(
+  PIP_MOTION_CLASS,
+) as readonly PipMotionKind[];
+
+/** Every `PipGlyphId` — the six agent brands and the shell. */
+export const PIP_GLYPH_IDS = Object.keys(PIP_GLYPHS) as readonly PipGlyphId[];
+
+/** Is this string a pip variant?
+ *
+ *  `Object.hasOwn`, never `in`: `in` walks the prototype chain, so a wire word
+ *  of `"toString"` or `"constructor"` would narrow as a member of a set it is
+ *  not in — and then index the record to `undefined` at render time. A guard
+ *  that lies about its own vocabulary is worse than no guard. */
+export function isPipVariant(raw: string): raw is PipVariant {
+  return Object.hasOwn(PIP_BODY, raw);
+}
+
+/** Is this string a motion kind? */
+export function isPipMotionKind(raw: string): raw is PipMotionKind {
+  return Object.hasOwn(PIP_MOTION_CLASS, raw);
+}
+
+/** Is this string an identity glyph id? */
+export function isPipGlyphId(raw: string): raw is PipGlyphId {
+  return Object.hasOwn(PIP_GLYPHS, raw);
+}

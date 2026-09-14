@@ -32,7 +32,9 @@ import {
 } from "./agentDrv";
 import { ResolveDrvError } from "./host";
 import { makeProvisionBudgets } from "./nixCopy";
+import { DEFAULT_SSH_KEEPALIVE } from "./keepalive";
 import { TEST_BINARY_CACHE } from "./agentDerivation.testutil";
+import { nixErrorLine } from "./nixLog.testutil";
 
 const success = (stdout: string) => ({
   ok: true,
@@ -52,7 +54,12 @@ const resolutionOptions = {
   signal: new AbortController().signal,
   onProgress: vi.fn(),
   onEvaluation: vi.fn(),
+  onActivity: vi.fn(),
   budget: makeProvisionBudgets().evaluation,
+  // REQUIRED on this internal seam: the resolver's one ssh (the arch probe)
+  // must carry the dial's own policy, or it opens the host's shared
+  // ControlMaster under a different one.
+  keepalive: DEFAULT_SSH_KEEPALIVE,
 };
 
 beforeEach(() => {
@@ -104,6 +111,8 @@ describe("resolveAgentDrv", () => {
     expect(h.runCapture).toHaveBeenCalledWith(
       "nix",
       [
+        "--log-format",
+        "internal-json",
         "eval",
         "--accept-flake-config",
         "--raw",
@@ -159,7 +168,7 @@ describe("resolveAgentDrv", () => {
         _args: readonly string[],
         opts: { onProgress?: (line: string) => void },
       ) => {
-        opts.onProgress?.("attribute 'padi' missing");
+        opts.onProgress?.(nixErrorLine("error: attribute 'padi' missing"));
         return { ok: false, kind: "exit", code: 1, stdout: "" };
       },
     );
@@ -173,7 +182,7 @@ describe("resolveAgentDrv", () => {
     await expect(failure).rejects.toBeInstanceOf(ResolveDrvError);
     await expect(failure).rejects.toThrow(/attribute 'padi' missing/);
     expect(resolutionOptions.onProgress).toHaveBeenCalledWith(
-      "attribute 'padi' missing",
+      "error: attribute 'padi' missing",
     );
   });
 
@@ -254,7 +263,7 @@ describe("resolveAgentDrv", () => {
     await expect(failure).rejects.toBeInstanceOf(ResolveDrvError);
   });
 
-  it("keeps only the bounded diagnostic tail", async () => {
+  it("reports Nix's root error and its trace, not whatever was printed last", async () => {
     h.resolveSystem.mockResolvedValue("x86_64-linux");
     h.runCapture.mockImplementation(
       async (
@@ -262,8 +271,13 @@ describe("resolveAgentDrv", () => {
         _args: readonly string[],
         opts: { onProgress?: (line: string) => void },
       ) => {
+        opts.onProgress?.(
+          nixErrorLine(
+            "error:\n       … while evaluating the attribute 'padi'\n\n       error: attribute 'padi' missing",
+          ),
+        );
         for (let line = 1; line <= 25; line += 1) {
-          opts.onProgress?.(`diagnostic ${line}`);
+          opts.onProgress?.(`noise ${line}`);
         }
         return { ok: false, kind: "exit", code: 1, stdout: "" };
       },
@@ -275,9 +289,14 @@ describe("resolveAgentDrv", () => {
       "padi",
       resolutionOptions,
     );
-    await expect(failure).rejects.not.toThrow(/diagnostic 5(?:\D|$)/);
-    await expect(failure).rejects.toThrow(/diagnostic 6/);
-    await expect(failure).rejects.toThrow(/diagnostic 25/);
+    await expect(failure).rejects.toThrow(
+      /nix eval failed: attribute 'padi' missing/,
+    );
+    await expect(failure).rejects.toThrow(
+      /while evaluating the attribute 'padi'/,
+    );
+    await expect(failure).rejects.not.toThrow(/noise/);
+    await expect(failure).rejects.not.toThrow(/exited with code/);
   });
 
   it("does not share host-specific failures across hosts", async () => {

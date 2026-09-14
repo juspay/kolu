@@ -87,6 +87,11 @@ export const AMBIENT_TIPS: readonly Tip[] = [
     doc: "remote-hosts",
   },
   {
+    id: "amb-inspector-ports-detached",
+    text: 'A server that detached from its terminal still shows up — the Inspector\'s Ports lists it under that terminal when the terminal printed its URL, and every other server on the host is one click away under "elsewhere on this host"',
+    doc: "right-panel",
+  },
+  {
     id: "amb-shuffle-theme",
     text: `${formatKeybind(ACTIONS.shuffleTheme.keybind)} shuffles the terminal color theme`,
     doc: "theming",
@@ -98,7 +103,7 @@ export const AMBIENT_TIPS: readonly Tip[] = [
   },
   {
     id: "amb-export-session",
-    text: `${formatKeybind(ACTIONS.commandPalette.keybind)} → "Export agent session as HTML" saves the active Claude/OpenCode/Codex transcript as a chat log, a full transcript, or both`,
+    text: `${formatKeybind(ACTIONS.commandPalette.keybind)} → "Export agent session as HTML" saves the active Claude/Codex/OpenCode/Grok/Pi transcript as a chat log, a full transcript, or both`,
     doc: "power-features",
   },
   {

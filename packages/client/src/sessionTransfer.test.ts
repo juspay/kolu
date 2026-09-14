@@ -1,4 +1,4 @@
-import { LOCAL_LOCATION, type SavedSession } from "@kolu/padi/surface";
+import { LOCAL_LOCATION, type SavedSession } from "@kolu/padi-client/surface";
 import { describe, expect, it, vi } from "vitest";
 
 // `sessionTransfer` imports `solid-sonner` (for toast) at module scope, which

@@ -7,8 +7,10 @@
  * which top-level tile contains the keyboard, while `isFocused` answers which
  * terminal actually owns it. A split nests inside its parent, so both rows are
  * active while typing in that split. Keeping the matrix at the rendered-row
- * boundary makes it impossible for `dockRowAttrs` and its callers to quietly
- * disagree about either fold again.
+ * boundary makes it impossible for `isActiveRow` and its callers to quietly
+ * disagree about either fold again — it renders the SAME pair the dock renders,
+ * `isActiveRow` feeding `@kolu/solid-dockrow`'s `dockRowAttrs`, so the hoisted
+ * read and the attribute it becomes are tested together rather than apart.
  */
 
 import type { AgentInfo, TerminalId } from "kolu-common/surface";
@@ -33,7 +35,8 @@ vi.mock("../../tile/useTileStore", () => ({
   }),
 }));
 
-const { dockRowAttrs } = await import("./dockRowAttrs");
+const { dockRowAttrs } = await import("@kolu/solid-dockrow/rowValues");
+const { isActiveRow } = await import("./activeRow");
 
 /** Render both rows the way the dock does, and report who is lit. */
 function litRows(
@@ -50,8 +53,8 @@ function litRows(
             id: PARENT,
             bucket: "idle",
             agentState: undefined,
-            asking: false,
-            unread: false,
+            pip: { asking: false, alert: false },
+            active: isActiveRow(PARENT),
           })}
         />
         <div
@@ -60,8 +63,8 @@ function litRows(
             id: SPLIT,
             bucket: splitAgentState ? "working" : "idle",
             agentState: splitAgentState,
-            asking: false,
-            unread: false,
+            pip: { asking: false, alert: false },
+            active: isActiveRow(SPLIT),
           })}
         />
       </>

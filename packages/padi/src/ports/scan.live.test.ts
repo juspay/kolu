@@ -30,7 +30,7 @@ import {
 } from "@kolu/daemon-test-gate";
 import { afterEach, expect, it, vi } from "vitest";
 import { Effect } from "effect";
-import { scanSubtreePorts } from "./scan.ts";
+import { scanPorts } from "./scan.ts";
 
 const children: ChildProcess[] = [];
 
@@ -54,17 +54,35 @@ function listener(
   // skip the fork leash above and the exit-rejection below.
   const bind = host === undefined ? "0" : `0,"${host}"`;
   const script = `require("http").createServer((_,r)=>r.end("ok")).listen(${bind},function(){console.log(this.address().port)})`;
-  // `viaShell` puts a shell between us and the server, so the listener is a
-  // GRANDCHILD — the ordinary shape of this feature (a shell in a PTY, an agent
-  // running a dev server inside it), and the reason attribution is a subtree walk
-  // rather than a direct-children check.
+  // `viaShell` puts a shell between us and the server — the ordinary shape of
+  // this feature (a shell in a PTY, an agent running a dev server inside it),
+  // and the reason attribution is a subtree walk rather than a direct-children
+  // check. The `exec` replaces the shell's image with node's (keeping the pid),
+  // so the listener lands at the same tree depth as a direct spawn: what this
+  // test actually pins is that the spawn-through-a-shell hop is INVISIBLE to
+  // the scan, which is exactly the guarantee a PTY session relies on.
   //
-  // The node path and the script ride as POSITIONAL ARGUMENTS (`$0`, `$1`) rather
-  // than interpolated into the command string. Nothing is quoted by hand, so a
-  // path containing a space — `/Users/My Name/…`, entirely ordinary on macOS —
-  // cannot split into two words and turn this into a different command.
+  // The node path and the script reach the shell as ENVIRONMENT VALUES, never
+  // interpolated into the command text: the `-c` string is a constant and both
+  // expansions are quoted, so a path containing a space — `/Users/My Name/…`,
+  // entirely ordinary on macOS — cannot split into two words and turn this
+  // into a different command. They cannot ride as `$0`/`$1` positionals either
+  // (the shape this used to have): `js/shell-command-injection-from-environment`
+  // (code-scanning alert 49) taints EVERY argv element of an `sh -c` call —
+  // however safely quoted — because the analyzer cannot see how the command
+  // text uses them. The env channel is the one it can prove stays data.
   const child = opts.viaShell
-    ? spawn("/bin/sh", ["-c", 'exec "$0" -e "$1"', process.execPath, script])
+    ? spawn(
+        "/bin/sh",
+        ["-c", 'exec "$KOLU_SCAN_LIVE_NODE" -e "$KOLU_SCAN_LIVE_SRC"'],
+        {
+          env: {
+            ...process.env,
+            KOLU_SCAN_LIVE_NODE: process.execPath,
+            KOLU_SCAN_LIVE_SRC: script,
+          },
+        },
+      )
     : spawn(process.execPath, ["-e", script]);
   children.push(child);
   return new Promise((resolve, reject) => {
@@ -98,10 +116,12 @@ function routableAddress(): string | undefined {
 /** Scan for this process's own subtree — the test process stands in for a
  *  terminal's root shell, which is exactly the relationship padi has to a PTY. */
 async function scanSelf() {
-  const result = await Effect.runPromise(scanSubtreePorts([process.pid]));
-  const ports = result.get(process.pid);
-  if (ports === undefined) {
-    throw new Error("the scan returned no sample for the requested root pid");
+  const result = await Effect.runPromise(scanPorts([process.pid]));
+  const ports = result.byRoot.get(process.pid);
+  if (ports === undefined || ports === "blind") {
+    throw new Error(
+      `the scan returned ${ports === undefined ? "no sample" : "blind"} for its own pid`,
+    );
   }
   return ports;
 }
@@ -197,7 +217,13 @@ describeDaemon(`the port scan on this host (${process.platform})`, () => {
     // disagree about the family while agreeing about the scope. Both are
     // dialable — that is what `any` means — so this case has no stake in which.
     expect(ports.filter((p) => p.port === port)).toEqual([
-      { port, name: "node", scope: "any", family: expect.any(String) },
+      {
+        port,
+        name: "node",
+        command: expect.stringContaining("-e"),
+        scope: "any",
+        family: expect.any(String),
+      },
     ]);
 
     // The dual-stack BYTE fidelity — that `::` is read from the v6 slot and not
@@ -264,27 +290,85 @@ describeDaemon(`the port scan on this host (${process.platform})`, () => {
     await new Promise((done) => setTimeout(done, 200));
 
     const result = await Effect.runPromise(
-      scanSubtreePorts([child.pid!, stranger.pid!]),
+      scanPorts([child.pid!, stranger.pid!]),
     );
-    expect(result.get(child.pid!)).toContainEqual(
+    expect(result.byRoot.get(child.pid!)).toContainEqual(
       expect.objectContaining({ port }),
     );
-    expect(result.get(stranger.pid!)).toEqual([]);
+    expect(result.byRoot.get(stranger.pid!)).toEqual([]);
+    // …and the HOST reading holds it regardless of which subtree does.
+    expect(result.host.claimed).toContainEqual(
+      expect.objectContaining({ port }),
+    );
+  });
+
+  it("names the listener's command line, not just its program", async () => {
+    // Four `bun …/main.ts web <dir>` servers are all `bun` by name; the command
+    // is what tells them apart once a port is not in the terminal on screen.
+    const { port } = await listener("127.0.0.1");
+    const found = (await scanSelf()).find((p) => p.port === port);
+    expect(found?.command).toContain("createServer");
+    expect(found?.command.startsWith(process.execPath)).toBe(true);
+  });
+
+  it("sees a DETACHED listener on the host that no requested subtree holds", async () => {
+    // The feature's whole premise, against the real OS: a server whose parent
+    // exits reparents out of the subtree (to init, or the nearest subreaper),
+    // keeps listening — and must still be on the host reading.
+    assertDaemonSpawnAllowed("a detached test HTTP listener");
+    const script = `require("http").createServer((_,r)=>r.end("ok")).listen(0,"127.0.0.1",function(){console.log(process.pid+" "+this.address().port)})`;
+    // The shell backgrounds node and exits at once, so node's parent is gone
+    // before it binds. Same env-channel discipline as `listener` above.
+    const shell = spawn(
+      "/bin/sh",
+      ["-c", '"$KOLU_SCAN_LIVE_NODE" -e "$KOLU_SCAN_LIVE_SRC" &'],
+      {
+        env: {
+          ...process.env,
+          KOLU_SCAN_LIVE_NODE: process.execPath,
+          KOLU_SCAN_LIVE_SRC: script,
+        },
+      },
+    );
+    const { pid, port } = await new Promise<{ pid: number; port: number }>(
+      (resolve, reject) => {
+        let out = "";
+        shell.stdout?.on("data", (chunk: Buffer) => {
+          out += chunk.toString();
+          const [pidText, portText] = out.trim().split(" ");
+          const pid = Number.parseInt(pidText ?? "", 10);
+          const port = Number.parseInt(portText ?? "", 10);
+          if (pid > 0 && port > 0) resolve({ pid, port });
+        });
+        shell.on("error", reject);
+      },
+    );
+    try {
+      const result = await Effect.runPromise(scanPorts([process.pid]));
+      expect(result.byRoot.get(process.pid)).not.toContainEqual(
+        expect.objectContaining({ port }),
+      );
+      expect(result.host.claimed).toContainEqual(
+        expect.objectContaining({ port, scope: "loopback", name: "node" }),
+      );
+    } finally {
+      process.kill(pid, "SIGKILL");
+    }
   });
 
   // Gated NON-ROOT: root can inspect pid 1, so the blind spot does not exist
   // for it. Both platforms: osfacts returns U for launchd / init when the
   // caller cannot inspect it.
   it.skipIf(process.getuid?.() === 0)(
-    "THROWS rather than reporting no ports when it cannot see a requested subtree",
+    "reports a requested subtree it cannot see as BLIND, not as no ports",
     async () => {
       // pid 1 is unreadable as a normal user (linux EACCES / darwin EPERM) —
       // a real, unfakeable blind spot. Reporting `[]` here would render byte
       // -identically to "this terminal serves nothing"
-      // (`caught-error-must-not-collapse-to-empty`).
-      await expect(Effect.runPromise(scanSubtreePorts([1]))).rejects.toThrow(
-        /cannot inspect requested root pid 1/,
-      );
+      // (`caught-error-must-not-collapse-to-empty`). The host fold still answers.
+      const result = await Effect.runPromise(scanPorts([1]));
+      expect(result.byRoot.get(1)).toBe("blind");
+      expect(result.host.status).toBe("known");
     },
   );
 
@@ -292,8 +376,8 @@ describeDaemon(`the port scan on this host (${process.platform})`, () => {
     // The contract the sampler relies on to tell "serves nothing" from "could not
     // see": every requested pid comes back.
     const dead = 0x7f_ff_ff_ff;
-    const result = await Effect.runPromise(scanSubtreePorts([dead]));
-    expect(result.has(dead)).toBe(true);
-    expect(result.get(dead)).toEqual([]);
+    const result = await Effect.runPromise(scanPorts([dead]));
+    expect(result.byRoot.has(dead)).toBe(true);
+    expect(result.byRoot.get(dead)).toEqual([]);
   });
 });

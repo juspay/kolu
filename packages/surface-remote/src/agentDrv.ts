@@ -11,19 +11,18 @@
  */
 
 import { resolveSystem } from "./arch";
-import { looksLikeNetworkError, ResolveDrvError } from "./host";
+import { ResolveDrvError } from "./host";
+import type { SshKeepalive } from "./keepalive";
 import {
   type AgentBinaryCache,
   readBakedBinaryCache,
 } from "./agentBinaryCache";
 import { type AgentDerivation, flakeAgentDerivation } from "./agentDerivation";
 import type { StepBudget } from "./nixCopy";
-import { describeExit, type ExitResult, runCapture } from "./process";
-import { appendProgressLine } from "./progressTail";
+import { describeNixRunWithDetail, resolverErrorOf, runNix } from "./nixLog";
 import agentEnv from "../agent-env.json" with { type: "json" };
 import { err, ok, type Result } from "neverthrow";
 import QuickLRU from "quick-lru";
-import { match, P } from "ts-pattern";
 
 /** The framework-owned wrapper boundary for an agent source flake. */
 export const SURFACE_AGENT_FLAKE_REF_ENV = agentEnv.flakeRef;
@@ -107,11 +106,23 @@ export interface AgentDrvResolutionOptions {
   /** Forward evaluation output into the session's liveness and visible progress
    * path while retaining only a bounded private tail for a final error. */
   onProgress: (line: string) => void;
+  /** Every stderr line of the evaluation, narrated or not — the owner's silence
+   *  watchdog's liveness (see `ProvisionOptions.onActivity`). */
+  onActivity: () => void;
   /** Advance the owning connector into its long-running provisioning phase
    * immediately before an uncached Nix evaluation starts. */
   onEvaluation: () => void;
   /** Connector-owned campaign budget for the local Nix evaluation. */
   budget: StepBudget;
+  /** The owning dial's ssh dead-peer policy, forwarded to this resolver's ONE
+   *  ssh — the {@link resolveSystem} arch probe. (The Nix `eval` below is local;
+   *  it opens no ssh.)
+   *
+   *  REQUIRED, with no default: this is an INTERNAL seam (the connector is its
+   *  only caller), and every ssh of one dial must carry the SAME policy — they
+   *  share a `ControlMaster` keyed by it. A forgotten thread is a compile error
+   *  here rather than a silently-second warm master at the default policy. */
+  keepalive: SshKeepalive;
 }
 
 /** Stable capability exposed to a source resolver. The connector owns the
@@ -122,39 +133,6 @@ export interface AgentResolutionContext {
     flakeRef: string,
     packageName: string,
   ): Promise<AgentDerivation>;
-}
-
-function evaluationError(
-  message: string,
-  result: ExitResult,
-  sawNetworkError: boolean,
-): Error {
-  return match(result)
-    .with({ kind: "exit" }, () =>
-      sawNetworkError
-        ? new Error(message)
-        : new ResolveDrvError(message, {
-            kind: "unavailable",
-            failureCause: "remote",
-            terminal: false,
-          }),
-    )
-    .with({ kind: P.union("spawn-error", "output-error", "signal") }, () => {
-      // These are local resource/setup faults, not transport facts. Retrying a
-      // missing executable or externally OOM-killed evaluator inside the host
-      // reconnect loop would respawn the same failure indefinitely; keep it
-      // terminal until an explicit recheck or a new process starts a campaign.
-      return new ResolveDrvError(message, {
-        kind: "unavailable",
-        failureCause: "remote",
-        terminal: false,
-      });
-    })
-    .with(
-      { kind: P.union("lifetime-expired", "aborted") },
-      () => new Error(message),
-    )
-    .exhaustive();
 }
 
 /**
@@ -183,6 +161,7 @@ export async function resolveAgentDrv(
   const system = await resolveSystem(host, {
     signal: opts.signal,
     onProgress: opts.onProgress,
+    keepalive: opts.keepalive,
   });
   const installable = `${flakeRef}#packages.${system}.${packageName}`;
   const cached = drvCache.get(installable);
@@ -191,29 +170,24 @@ export async function resolveAgentDrv(
     return cached;
   }
 
-  const diagnostics: string[] = [];
-  let sawNetworkError = false;
   opts.onEvaluation();
-  const result = await runCapture(
-    "nix",
-    ["eval", "--accept-flake-config", "--raw", `${installable}.drvPath`],
+  const result = await runNix(
+    "localhost",
+    ["nix", "eval", "--accept-flake-config", "--raw", `${installable}.drvPath`],
     {
       // Evaluating a fresh exact source may fetch and build its Nix graph.
       // Treat it like the other long-running Nix steps: output proves
       // liveness, while a genuinely silent process is retried by the session.
       policy: opts.budget.policy(),
+      onActivity: opts.onActivity,
       signal: opts.signal,
-      onProgress: (line) => {
-        sawNetworkError ||= looksLikeNetworkError(line);
-        appendProgressLine(diagnostics, line);
-        opts.onProgress(line);
-      },
+      narrate: opts.onProgress,
     },
   );
   if (!result.ok) {
-    const detail =
-      diagnostics.length === 0 ? "" : `\n${diagnostics.join("\n")}`;
-    const message = `${host}: could not resolve ${packageName} for system=${system} from the baked agent flake: nix eval ${describeExit(result)}${detail}`;
+    // Nix's own root error, then its detail (an evaluation trace, or a failed
+    // fetch's last log lines) — never a scrolled tail of whatever came last.
+    const message = `${host}: could not resolve ${packageName} for system=${system} from the baked agent flake: nix eval failed: ${describeNixRunWithDetail(result)}`;
     if (result.kind === "lifetime-expired") {
       throw opts.budget.recordExpiry()
         ? new AgentResolutionExhaustedError(
@@ -221,7 +195,7 @@ export async function resolveAgentDrv(
           )
         : new Error(message);
     }
-    throw evaluationError(message, result, sawNetworkError);
+    throw resolverErrorOf(message, result);
   }
   const drv = result.stdout.trim();
   if (!drv.endsWith(".drv")) {

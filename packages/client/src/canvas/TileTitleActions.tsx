@@ -8,12 +8,12 @@
  *  search singletons — per `no-preference-prop-drilling`. The only prop is the
  *  tile `id`. Extracted from App.tsx per kolu#626. */
 
-import { runAction, type UiAction } from "../runAction";
-import { activeArm, sleepingArm } from "@kolu/padi/surface";
+import { activeArm, sleepingArm } from "@kolu/padi-client/surface";
 import type { TerminalId } from "kolu-common/surface";
 import { type Component, Show } from "solid-js";
 import { ACTIONS } from "../input/actions";
 import { useRightPanel } from "../right-panel/useRightPanel";
+import { runAction, type UiAction } from "../runAction";
 import { screenshotTerminal } from "../screenshotTerminal";
 import { CONTEXTUAL_TIPS } from "../settings/tips";
 import { useTips } from "../settings/useTips";

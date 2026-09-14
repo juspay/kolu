@@ -108,6 +108,56 @@
  * app saying it trusts the proxy that writes that header, which is the one part
  * of this nothing downstream can decide.
  *
+ * ### The allowlist can be LIVE, and a bad live list refuses itself
+ *
+ * `upgradeHeaders` takes an array OR a thunk of one. The array is the app's own
+ * composition root and is checked at the bind. The thunk is a live fact — an app
+ * whose identity part offers a header only while it is switched on — and is read,
+ * and checked, at each accept, the way the served generation is.
+ *
+ * A live list this seam cannot serve is the OFFERING part's defect, not the
+ * wire's, so it does not travel: the socket is accepted and served with NO named
+ * headers — every request on it reads as nobody, which is the state an app
+ * already defines for "no identity" — and the fault is reported as
+ * `UpgradeHeadersRefused`. Terminating instead would let one part's bad list take
+ * every connection down with it, and throwing would take the process; both are
+ * the failure a live allowlist exists to survive. An app that wants the defect
+ * louder calls {@link checkUpgradeHeaders} where it MINTS the list, so that part
+ * fails there and the accept-time arm is only the offer/accept race.
+ *
+ * What this does NOT close, and an app should know it: a listener whose roster
+ * moves now holds TWO live facts that have to agree — the served generation and
+ * this list. If the identity part reaches the roster before its thunk starts
+ * offering the header, the app is back in the original symptom (the part answers
+ * its own procedures while every socket reads as nobody), one level up, and
+ * narrated by nothing, because an empty allowlist is legitimate by design and
+ * stays deliberately quiet. Deriving the list from the roster here would leak an
+ * HTTP-only fact into the generation `serveOverUnixSocket` shares, so the answer
+ * is the app's: derive the thunk from the SAME row its generation is derived
+ * from, and the two cannot disagree.
+ *
+ * "Cannot serve" is the WHOLE of it, and that is deliberate: a name outside the
+ * grammar and a thunk that simply THREW take the same path, because the rule is
+ * about blast radius rather than cause. A part whose thunk crashes mid-reload is
+ * as bad a part as one that named `set-cookie`, and terminating for the crash
+ * while serving through the bad name would be an inconsistency nothing could
+ * justify to an operator. The event's `error` carries which one it was.
+ *
+ * The ruling is written where it is TAKEN — at the accept, beside the served
+ * generation's own refusal, because the difference between the two (a refused
+ * generation terminates the socket; a refused allowlist serves it anonymously)
+ * is the design. The report fires at EACH accept that reads a bad list, for as
+ * long as the offering part keeps minting one: each of those accepts really did
+ * serve an anonymous connection, and suppressing repeats would leave a refusal
+ * that started after the first one unnarrated.
+ *
+ * The empty list is NOT a caught error collapsing into "no data": a legitimate
+ * empty allowlist and a refused one are distinguishable, because the refused one
+ * emits a typed {@link SurfaceAppEvent} arm a consumer's own `onEvent` receives
+ * as a value (the `console.error` is only the DEFAULT policy's answer to it).
+ * What is deliberately absent is any way to ask for the other behaviours — no
+ * knob restores the bind-once read, and no option silences the arm.
+ *
  * ### Naming a header says who may WRITE it, and that is a precondition, not a check
  *
  * What arrives on {@link SurfaceAppConnection.headers} is whatever was on the
@@ -141,12 +191,29 @@
  *   `WebSocketServer`. There is no `server` handle to re-bind, and there is
  *   nothing to clean up by hand — the abandoned first listener never bound, and
  *   its finalizer is already on the scope.
+ *
+ * ## The served set is read at each accept
+ *
+ * The generation is {@link ServedGenerationSource} (`@kolu/surface/expose`):
+ * `{ group, handlers, expose? }` is the generation written at the call, and
+ * `{ live: () => ({ group, handlers, expose? }) }` is re-read at each accept,
+ * as a pair. The per-connection `serveSurfaceSocket` is built over that
+ * generation, so a runtime whose served set MOVES (`implementRootedSurfaces`)
+ * is served the roster that is current then — a socket accepted after a mount
+ * is indistinguishable from one accepted on a boot that already had that
+ * sibling.
+ *
+ * A connection accepted BEFORE the roster moved keeps the generation it was
+ * built over until the client redials. That is the honest half of Effect RPC:
+ * an `RpcServer` is baked over a group at construction, and a drop still
+ * reaches it (the refusing wrapper rides the captured record). The client's
+ * redial is what brings a new accept. `serveOverUnixSocket` takes the same
+ * source.
  */
 
 import {
   createServer as createHttpServer,
   type IncomingMessage,
-  validateHeaderName,
 } from "node:http";
 import {
   createServer as createHttpsServer,
@@ -154,9 +221,16 @@ import {
 } from "node:https";
 import type { AddressInfo, Server as NetServer } from "node:net";
 import { NodeHttpServer } from "@effect/platform-node";
-import { type FaceExposure, restrictHandlers } from "@kolu/surface/expose";
+import {
+  restrictServedGeneration,
+  type ServedGenerationSource,
+} from "@kolu/surface/expose";
 import { RPC_MAX_FRAME_BYTES } from "@kolu/surface/frame-limit";
-import type { SurfaceHandlers } from "@kolu/surface/server";
+// The framework's own normalise-to-`Error`, not a third spelling of it: the two
+// refusal arms below promise an `Error`, and `toError` is where the rule that a
+// TAGGED surface error passes through with its `_tag` intact — so a consumer can
+// still narrow on it — is written down.
+import { toError } from "@kolu/surface/run-stream";
 import { gateWsOrigin } from "@kolu/surface/ws-origin";
 import { hostAuthority } from "@kolu/url-shape";
 import { Data, Effect, type FileSystem, Layer, type Path, Scope } from "effect";
@@ -166,10 +240,13 @@ import {
   type HttpServerRequest,
   type HttpServerResponse,
 } from "effect/unstable/http";
-import type { Rpc, RpcGroup } from "effect/unstable/rpc";
 import { WebSocketServer } from "ws";
 import { SURFACE_WS_PATH } from "./index";
-import { pickUpgradeHeaders } from "./pickUpgradeHeaders";
+import {
+  checkUpgradeHeaders,
+  pickUpgradeHeaders,
+  type UpgradeHeadersSource,
+} from "./upgradeHeaders";
 import {
   acceptSurfaceSocket,
   type ServableSocket,
@@ -233,58 +310,46 @@ export interface SurfaceAppConnection<H extends string = never> {
   readonly headers: Readonly<Partial<Record<H, string>>>;
 }
 
-/** The allowlist, checked once at serve time — and handed back UNCHANGED, so
- *  `H` reaches {@link pickUpgradeHeaders} straight off the app's own array and
- *  the picked record's keys are CHECKED against it rather than asserted.
+/** The allowlist's grammar, and the shape a listener takes its list in — both
+ *  re-exported at the door an app already imports from. Why an app calls the
+ *  check directly, and why an accept cannot afford to throw it:
+ *  `@kolu/surface-app/upgrade-headers`, where they are declared. */
+export {
+  checkUpgradeHeaders,
+  type UpgradeHeadersSource,
+} from "./upgradeHeaders";
+
+/** How an accept obtains its allowlist, resolved ONCE at the bind.
  *
- *  The grammar is `node:http`'s own `validateHeaderName` — the same check the
- *  runtime applies to a header it writes, so this seam cannot drift from what a
- *  request can carry. A name outside it can never match, so an app asking for
- *  one would read a permanent, silent absence as "my proxy never sends this".
+ *  A FIXED array is checked HERE and handed back unchanged at every accept: a
+ *  name no header can match is a defect the app wrote into its own composition
+ *  root, and a defect belongs at the bind rather than at the first upgrade that
+ *  happens to arrive hours later. That check THROWS, taking the bind with it —
+ *  the array IS the app, so there is nothing else to blame, and this arm can
+ *  never throw again.
  *
- *  Two spellings of ONE wire header (`X-Forwarded-For` beside
- *  `x-forwarded-for`) are the same class of defect and are refused the same
- *  way: they would file one wire value under two keys, with nothing saying the
- *  two reads agree.
+ *  A THUNK is a LIVE fact, read and checked at each accept, and it THROWS there
+ *  rather than answering — the call site catches it beside the served
+ *  generation's own refusal, so the one interesting thing about that pair is
+ *  legible where both are decided. What a refusal COSTS is not this function's
+ *  business; WHEN the list is read, is. Why a live thunk is not also probed at
+ *  the BIND, where the generation is: the call site, which is the only place
+ *  both reads are visible at once.
  *
- *  `set-cookie` is refused for a third reason of the same kind: it is the ONE
- *  header node hands over as an array, and its values contain commas of their
- *  own (`Expires=Wed, 21 Oct 2026 …`), so the comma-joined string this seam
- *  reports every other header as cannot be split back apart — RFC 6265 §5.2
- *  forbids folding it for exactly that reason. A name whose value this seam
- *  cannot state honestly is refused rather than reported wrongly. (It is a
- *  RESPONSE header; a request that carries one is already odd.)
+ *  The check deliberately wraps `asked()` rather than sitting after it — see
+ *  {@link SurfaceAppEvent}'s `UpgradeHeadersRefused` for why a thunk that threw
+ *  and a thunk that named a bad header are one fact here.
  *
- *  Throws rather than failing with {@link SurfaceAppListenFailed}: a bad name is
- *  the app's own defect, not a condition of the machine, and handing it to a
- *  consumer's `EADDRINUSE` port policy would have it retry forever against
- *  something no port can fix — the same reason the non-TCP address below throws. */
-const checkUpgradeHeaders = <H extends string>(
-  names: ReadonlyArray<H>,
-): ReadonlyArray<H> => {
-  const seen = new Set<string>();
-  for (const asked of names) {
-    try {
-      validateHeaderName(asked);
-    } catch {
-      throw new Error(
-        `serveSurfaceApp: ${JSON.stringify(asked)} is not an HTTP header name — a connection's headers can only carry names a request can actually carry`,
-      );
-    }
-    const lowercased = asked.toLowerCase();
-    if (lowercased === "set-cookie") {
-      throw new Error(
-        `serveSurfaceApp: ${JSON.stringify(asked)} cannot be read off an upgrade — set-cookie is the one header that arrives as a list, and its values carry commas, so the joined string this seam reports cannot be split back apart`,
-      );
-    }
-    if (seen.has(lowercased)) {
-      throw new Error(
-        `serveSurfaceApp: ${JSON.stringify(asked)} names a header already in upgradeHeaders — one wire header cannot be read under two names`,
-      );
-    }
-    seen.add(lowercased);
+ *  Returned as a closure rather than branched at each accept so the fixed arm
+ *  pays its check exactly once. */
+const upgradeHeadersReader = <H extends string>(
+  asked: UpgradeHeadersSource<H> | undefined,
+): (() => ReadonlyArray<H>) => {
+  if (typeof asked !== "function") {
+    const checked = checkUpgradeHeaders(asked ?? []);
+    return () => checked;
   }
-  return names;
+  return () => checkUpgradeHeaders(asked());
 };
 
 /** Something the listener wants narrated. ONE sink, because every consumer has
@@ -292,13 +357,18 @@ const checkUpgradeHeaders = <H extends string>(
  *  pino / `log` threaded four times, with their defaults scattered across three
  *  modules.
  *
- *  The phase distinction is structural: an arm carries a
- *  {@link SurfaceAppConnection} exactly when it fires after the gates and the
- *  enrolment, because only then is there a connection to describe. The arms in
- *  front of that (`DisallowedOrigin`, `StaleTab`, and `SocketError` — whose
- *  handler the stale gate installs before enrolment) carry the `url` instead,
- *  parsed one line before the origin gate runs, so the sink never has to say
- *  "some upgrade, somewhere". */
+ *  What an arm carries says WHOSE fault it describes, and that is structural.
+ *  An arm carries a {@link SurfaceAppConnection} when its subject IS that
+ *  connection. The arms carrying a `url` instead are two kinds, and neither has
+ *  a connection to name: the ones that fire before there is one at all
+ *  (`DisallowedOrigin`, `StaleTab`, and `SocketError` — whose handler the stale
+ *  gate installs before enrolment), and the ones whose subject is what the
+ *  LISTENER was handed rather than the socket in front of it
+ *  (`GenerationRefused`, `UpgradeHeadersRefused`). A live generation or a live
+ *  allowlist that named something unservable is wrong for every accept, so
+ *  filing it against the one socket that happened to arrive would read as that
+ *  socket being at fault. Either way the `url` is parsed one line before the
+ *  origin gate runs, so the sink never has to say "some upgrade, somewhere". */
 export type SurfaceAppEvent<H extends string = never> =
   /** Gated, enrolled, and about to be served. The place a live-connection count
    *  increments and a consumer writes its `connected` line. */
@@ -318,6 +388,35 @@ export type SurfaceAppEvent<H extends string = never> =
     }
   /** A transport error on an accepted socket. */
   | { readonly _tag: "SocketError"; readonly error: Error; readonly url: URL }
+  /** A live generation `restrictHandlers` refused — the expose no longer
+   *  describes the served group. The socket is TERMINATED: there is no honest
+   *  reduced thing to serve when the served set itself is unservable, and a
+   *  `Connected` for a socket we then refuse would be a count that cannot pair. */
+  | {
+      readonly _tag: "GenerationRefused";
+      readonly error: Error;
+      readonly url: URL;
+    }
+  /** A live `upgradeHeaders` could not be PRODUCED for this accept — either it
+   *  named something this seam cannot read off an upgrade, or the thunk itself
+   *  threw. Unlike a refused generation the connection IS served — with no named
+   *  headers, so every request on it reads as nobody — because either way it is
+   *  the OFFERING part's defect and must not reach the wire's other tenants.
+   *
+   *  ONE arm for both, deliberately. A part whose thunk crashes is as bad a part
+   *  as one that named `set-cookie`, and the rule that decides this arm is about
+   *  the BLAST RADIUS, not the cause: terminating for the crash would be exactly
+   *  what serving anonymously exists to avoid. `error` says which happened, and
+   *  that is the honest place for the distinction — a second arm would ask every
+   *  consumer to hold a difference that changes nothing it does.
+   *
+   *  The `url` rather than the connection, for the reason above: what could not
+   *  be produced is the listener's allowlist, not this socket. */
+  | {
+      readonly _tag: "UpgradeHeadersRefused";
+      readonly error: Error;
+      readonly url: URL;
+    }
   /** A tab bound to a PREVIOUS process, closed at the handshake. */
   | {
       readonly _tag: "StaleTab";
@@ -366,6 +465,18 @@ export const reportSurfaceAppEvent = (event: SurfaceAppEvent<string>): void => {
         event.error,
       );
       return;
+    case "GenerationRefused":
+      console.error(
+        `serveSurfaceApp: live generation refused on ${event.url.href}`,
+        event.error,
+      );
+      return;
+    case "UpgradeHeadersRefused":
+      console.error(
+        `serveSurfaceApp: live upgradeHeaders could not be produced for ${event.url.href} — this connection carries no named headers`,
+        event.error,
+      );
+      return;
     case "ServingFailed":
       console.error(
         `serveSurfaceApp: serving stack faulted for ${event.connection.url.href}`,
@@ -395,22 +506,15 @@ export type SurfaceAppHttpMiddleware = <E, R>(
   R | HttpServerRequest.HttpServerRequest
 >;
 
-/** Everything `serveSurfaceApp` needs. The required half is the app's identity —
- *  what is served on the wire, what is served over HTTP, and where. Every option
- *  below it is observational or a shell-freshness passthrough. */
-export interface ServeSurfaceAppOptions<Svc = never, H extends string = never>
-  extends SurfaceAppLayerOptions {
-  /** The served surface's flat `RpcGroup` — `runtime.group`. */
-  readonly group: RpcGroup.RpcGroup<Rpc.Any>;
-  /** Every bound member handler keyed by wire tag — `runtime.handlers`. */
-  readonly handlers: SurfaceHandlers;
-  /** THIS face's default-deny allowlist — `exposeFace(surface, { … })` (or
-   *  `exposeFaces` for a sibling bundle). Omit and the websocket serves the
-   *  whole surface; declare one and every member it does not name is refused to
-   *  BROWSERS while a trusted face — the unix socket, the MCP adapter — may
-   *  still serve it. The rule, and which faces take one, live in
-   *  `@kolu/surface/expose`. */
-  readonly expose?: FaceExposure;
+/** Everything `serveSurfaceApp` needs besides the served generation. The
+ *  required half is the app's identity — what is served over HTTP, and where.
+ *  The generation is {@link ServedGenerationSource}, so `{ group, handlers }`
+ *  is today's call and `{ live: () => ({ group, handlers, expose? }) }` is
+ *  a live roster. */
+type ServeSurfaceAppShell<
+  Svc = never,
+  H extends string = never,
+> = SurfaceAppLayerOptions & {
   /** The app's OWN routes, merged alongside the shell — an MCP endpoint, a
    *  media route, anything answering with bytes the bundle does not hold.
    *  MERGED, not ordered: `HttpRouter` ranks by specificity, so a literal or
@@ -455,11 +559,29 @@ export interface ServeSurfaceAppOptions<Svc = never, H extends string = never>
    *  Matched case-insensitively (HTTP field names are) and read back under the
    *  spelling used HERE — these strings are the KEYS of the connection's
    *  `headers`, and `H` infers from them, so a read that does not match one does
-   *  not compile. A name outside HTTP's grammar, or one wire header named twice,
-   *  takes the bind down.
+   *  not compile.
    *
-   *  Why it is an ALLOWLIST: this module's header. */
-  readonly upgradeHeaders?: ReadonlyArray<H>;
+   *  That guarantee is only as narrow as the list's ELEMENT type, on EITHER arm:
+   *  a `ReadonlyArray<string>` — however it is supplied, a widely-typed variable
+   *  as much as a thunk returning one — infers `H = string`, and then every read
+   *  of `connection.headers` compiles and answers `string | undefined` forever.
+   *  An app that wants the compile-time guarantee types its list as a LITERAL
+   *  UNION: a literal array written here, an `as const`, or a thunk with a
+   *  narrowed return annotation
+   *  (`(): ReadonlyArray<"Tailscale-User-Login"> => identity().headers`).
+   *
+   *  An ARRAY is this app's own composition root, read once: a name outside
+   *  HTTP's grammar, or one wire header named twice, takes the bind down. A
+   *  THUNK is a LIVE list — an app whose identity part offers a header only
+   *  while it is switched on — re-read at each accept, where a bad name refuses
+   *  the ALLOWLIST (`UpgradeHeadersRefused`, no named headers on that
+   *  connection) rather than the socket or the process. The two arms are told
+   *  apart by `typeof`: an array is never callable, so unlike the served
+   *  generation there is nothing here to mistake for a thunk.
+   *
+   *  Why it is an ALLOWLIST, and why a live one refuses itself: this module's
+   *  header. */
+  readonly upgradeHeaders?: UpgradeHeadersSource<H>;
   /** Services this ONE connection's handlers require — kolu's per-viewer
    *  address, taken off the upgrade request. Effect's socket-server protocol
    *  carries no per-request headers, so a per-connection serving stack simply
@@ -468,7 +590,16 @@ export interface ServeSurfaceAppOptions<Svc = never, H extends string = never>
   /** Narrate a listener event — connects, disconnects, and every fault, on ONE
    *  sink. Defaults to {@link reportSurfaceAppEvent}. */
   readonly onEvent?: (event: SurfaceAppEvent<H>) => void;
-}
+};
+
+/** Everything `serveSurfaceApp` needs: the shell, plus
+ *  {@link ServedGenerationSource} — `{ group, handlers, expose? }` snapshotted
+ *  at the call, or `{ live: () => ({ group, handlers, expose? }) }` re-read at
+ *  each accept. */
+export type ServeSurfaceAppOptions<
+  Svc = never,
+  H extends string = never,
+> = ServeSurfaceAppShell<Svc, H> & ServedGenerationSource;
 
 /**
  * Serve a surface app: the shell over HTTP, the surface over ONE websocket, in
@@ -487,17 +618,25 @@ export const serveSurfaceApp = <Svc = never, H extends string = never>(
     // so "what does this listener do when nobody is listening" has exactly one
     // answer and it is readable in one place.
     const report = options.onEvent ?? reportSurfaceAppEvent;
-    // This face's gate, before anything binds — unconditionally, because
-    // `restrictHandlers` owns what an absent policy means (`@kolu/surface/expose`).
-    const handlers = restrictHandlers(
-      options.group,
-      options.handlers,
-      options.expose,
-    );
-    // The header allowlist, resolved once here for the same reason: a name no
-    // header can match is a defect, and a defect belongs at the bind and not at
-    // the first upgrade that happens to arrive hours later.
-    const upgradeHeaders = checkUpgradeHeaders(options.upgradeHeaders ?? []);
+    // One generation, one turn — `restrictServedGeneration` reads the source
+    // as a pair. Snapshot arm is the objects written at this call; live arm
+    // is re-read at each accept. Applied here so a static mismatch still
+    // fails before anyone connects.
+    const servedAtAccept = () => restrictServedGeneration(options);
+    servedAtAccept();
+    // How an accept obtains its allowlist, resolved once here. A fixed array is
+    // checked NOW, for the same reason a snapshot generation is applied now: a
+    // name no header can match is a defect, and a defect belongs at the bind and
+    // not at the first upgrade that happens to arrive hours later. A LIVE list is
+    // NOT probed here, which is where this parts company with the live
+    // generation: `restrictServedGeneration` calls its thunk at the bind on the
+    // line above and lets a bad one take the bind down, because a generation the
+    // listener cannot serve makes the listener pointless. A live allowlist is
+    // legitimately EMPTY at the bind — the offering part has not switched on yet
+    // — so a bind-time read proves nothing about the list any accept will
+    // actually see, and refusing there would fail the very use case a thunk
+    // exists for. It is read, and refuses itself, per accept — see there.
+    const upgradeHeadersAt = upgradeHeadersReader(options.upgradeHeaders);
     // The HTTP handler's own scope: `makeHandler` forks each request as a fiber
     // in it, so it must outlive every in-flight request and die with the
     // listener. `Scope.fork` is the library contract for exactly that —
@@ -605,13 +744,58 @@ export const serveSurfaceApp = <Svc = never, H extends string = never>(
       }
       sockets.handleUpgrade(request, socket, head, (peer) => {
         acceptor.accept(peer, url, () => {
+          // The generation is read BEFORE there is a connection to narrate: a
+          // mismatched live expose is an author defect, and a Connected event
+          // for a socket we then refuse to serve would be a count that cannot
+          // pair. The socket is terminated rather than left half-upgraded; the
+          // error is reported rather than swallowed — existing connections
+          // keep the generation they were accepted with.
+          // A live allowlist broken on this SAME accept goes unreported when the
+          // generation is also broken: this `return` fires before the headers
+          // block below ever runs, so no `UpgradeHeadersRefused` follows. That is
+          // not a second bug to fix here — a terminated socket has no headers to
+          // narrate a fault about — but it does mean fixing a reported
+          // `GenerationRefused` can uncover a second, previously-invisible
+          // `UpgradeHeadersRefused` on the very next accept, for a live thunk
+          // that was broken all along.
+          let served: ReturnType<typeof restrictServedGeneration>;
+          try {
+            served = servedAtAccept();
+          } catch (cause) {
+            peer.terminate();
+            report({ _tag: "GenerationRefused", error: toError(cause), url });
+            return;
+          }
           // Gated and enrolled — so this is the first instant at which there IS a
           // connection to narrate, and the pair a live-connection count needs.
+          //
+          // The allowlist is read HERE, in the same turn as the generation: both
+          // are what this listener serves at this accept, and the two refusals
+          // are written side by side because their DIFFERENCE is the design. A
+          // refused generation leaves nothing honest to serve, so the socket
+          // goes. An allowlist this seam cannot serve — a bad name, or a thunk
+          // that threw — is the OFFERING part's defect, and one part's bad row
+          // must touch no sibling — the transport is a sibling — so the socket
+          // is SERVED with no named headers, reading as nobody, which is the
+          // state an app already defines for "no identity".
+          // Reported before `Connected`, so the log reads in the order it
+          // happened: why this connection is anonymous, then the connection.
+          let named: ReadonlyArray<H>;
+          try {
+            named = upgradeHeadersAt();
+          } catch (cause) {
+            report({
+              _tag: "UpgradeHeadersRefused",
+              error: toError(cause),
+              url,
+            });
+            named = [];
+          }
           const connection: SurfaceAppConnection<H> = Object.freeze({
             id: ++accepted,
             url,
             remoteAddress: request.socket.remoteAddress,
-            headers: pickUpgradeHeaders(request, upgradeHeaders),
+            headers: pickUpgradeHeaders(request, named),
           });
           report({ _tag: "Connected", connection });
           peer.once("close", (code: number, reason: Buffer) =>
@@ -623,8 +807,8 @@ export const serveSurfaceApp = <Svc = never, H extends string = never>(
             }),
           );
           const serving = serveSurfaceSocket({
-            group: options.group,
-            handlers,
+            group: served.group,
+            handlers: served.handlers,
             // `ws`'s socket satisfies `ServableSocket` structurally; its typings
             // narrow `addEventListener` per event name, which the seam does not.
             socket: peer as unknown as ServableSocket,

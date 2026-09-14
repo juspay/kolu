@@ -8,7 +8,7 @@ Project-specific substance for the base `architecture-first-principles` skill (s
 - SolidJS-native libraries are the house default (conventions.md). Check **@solid-primitives/*** first — `rootless` (createSingletonRoot/createSubRoot), `storage`, `event-listener`, `scheduled`, `media`, `resize-observer`, `trigger`, `memo`, `static-store`, `deep`. Several are already direct or transitive deps — **check `pnpm-lock.yaml`, not just package.json** (a transitive dep costs zero to promote).
 - **solid-js built-ins** are ecosystem too: `mapArray`/`indexArray` (keyed roots with owner-tied disposal), `on`, `untrack`, `createMemo`, `mergeProps`.
 - **node built-ins**: `node:events` `once(emitter, event, {signal})`, `AbortSignal.timeout`.
-- In-repo framework exports before hand-rolling: `@kolu/surface*`, `@kolu/padi/dial`, `createSharedRoot` (NOT a `createSingletonRoot` duplicate — audited 2026-07-06: rootless ref-counts, all 18 kolu consumers require never-teardown; the semantic distinction is documented in its header).
+- In-repo framework exports before hand-rolling: `@kolu/surface*`, `@kolu/padi-client/dial`, `createSharedRoot` (NOT a `createSingletonRoot` duplicate — audited 2026-07-06: rootless ref-counts, all 18 kolu consumers require never-teardown; the semantic distinction is documented in its header).
 
 ## C3 — the layer ladder (lowest honest layer wins)
 `solid-generic (no surface concept)` < `@kolu/surface` (+ `/solid`, `/server`) < `@kolu/surface-app` (app-shell glue) < `@kolu/surface-nix-host` (ssh/Nix hosting) < `@kolu/surface-daemon(-supervisor)` (daemon lifecycle) < app policy (`packages/client`, `packages/server`). A pure-solid helper in surface-app is a placement smell; app policy in surface-app is a leak.

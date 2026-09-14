@@ -26,7 +26,11 @@
  *  — each facade floors that to its empty form, exactly as the pre-W9 readouts floored a
  *  pending sub. */
 
-import type { RecentAgent, RecentRepo, SavedSession } from "@kolu/padi/surface";
+import type {
+  RecentAgent,
+  RecentRepo,
+  SavedSession,
+} from "@kolu/padi-client/surface";
 import type { Subscription } from "@kolu/surface/solid";
 import type { TerminalId } from "kolu-common/surface";
 import { activeScope } from "./hostScopes.ts";

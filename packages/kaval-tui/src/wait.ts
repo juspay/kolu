@@ -51,7 +51,7 @@
  * terminal (a plain `kaval-tui create`'d `claude`/`codex`/`grok`/`opencode`).
  */
 
-import { isDeadTransportError } from "@kolu/surface/errors";
+import { isDeadTransportError, messageOf } from "@kolu/surface/errors";
 import {
   isValidTimerMs,
   MAX_TIMER_MS,
@@ -198,10 +198,6 @@ function matchedLineAt(buffer: string, index: number): string {
   return cleanLine(buffer.slice(start, end));
 }
 
-function errMessage(err: unknown): string {
-  return err instanceof Error ? err.message : String(err);
-}
-
 /** One thing that happened on the output feed, as a value.
  *
  *  The feed ENDING is a `Tick` like any other rather than the queue's own end,
@@ -273,7 +269,7 @@ export function awaitOutputCondition(
         ).pipe(
           Effect.catchCause((cause) =>
             Effect.sync(() => {
-              feedError ??= errMessage(cause);
+              feedError ??= messageOf(cause);
             }),
           ),
           Effect.andThen(
@@ -303,7 +299,7 @@ export function awaitOutputCondition(
               // (a CLI wait dials its own link and exits, but the discrimination
               // stays in lockstep with padi's watcher, the port-not-extract twin).
               if (isDeadTransportError(err)) return Effect.fail(err);
-              feedError ??= errMessage(err);
+              feedError ??= messageOf(err);
               // Unknown liveness: fall through to `closed`, which is the honest
               // report — never a fabricated `gone`.
               return Effect.succeed(true);

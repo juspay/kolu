@@ -17,9 +17,30 @@
  *   - an Event    → resource `surface://events/<key>`
  *   - a procedure → tool `<ns>_<verb>` (`.` is illegal in a tool name; the
  *                   wire path stays `<ns>.<verb>`)
+ *
+ * ## A ROOTED BUNDLE composes by PREFIX, never by merge
+ *
+ * A bundle is an unprefixed CORE beside a keyed set of SIBLINGS — the one shape
+ * the serve seam (`implementRootedSurfaces`), the consume seam
+ * (`connectSurfaces`) and the gate (`exposeRootedFaces`) already compose on. Here
+ * it means one extra SEGMENT, and only for a sibling: `surface://collections/
+ * <sibling>/<member>` and `<sibling>_<ns>_<verb>`, with the core keeping the bare
+ * spellings above. That is `composeSurfaceContracts`' rule applied to MCP's own
+ * names, and it makes two siblings that expose the same member key disjoint by
+ * construction rather than by a merge nobody checked.
+ *
+ * The rule is the same for a sibling's hand-authored tools, which `./bundle.ts`
+ * puts through {@link scopedToolName}: one rule for every name a sibling
+ * contributes. Only a BUNDLE-ROOT tool is bare, having no row to be relative to.
+ *
+ * Each sibling's map is resolved against ITS OWN spec, so `resolveExpose` runs
+ * per surface and this module never needs a composed top-level spec — the same
+ * per-surface reading `exposeRootedFaces` takes.
  */
 
+import type { SiblingKey } from "@kolu/surface/client";
 import type { SurfaceSpec, WireSchemaAny } from "@kolu/surface/define";
+import { resolveCollectionVerbs } from "@kolu/surface/define";
 import {
   classifyExpose,
   type ExposeMap,
@@ -44,6 +65,12 @@ import { ADAPTER_NAME, brand } from "./tools";
 
 // ── Resolved registration lists ─────────────────────────────────────────
 
+/** WHICH surface of a rooted bundle an entry came from — the FRAMEWORK's
+ *  {@link SiblingKey}, beside `clientAt` and the fold, because the argv face
+ *  needs exactly the same one and could not import this face's without pointing a
+ *  face at a face. Re-exported under the name this package publishes. */
+export type { SiblingKey };
+
 /** A static resource (cell / collection key-set / stream / event). */
 export interface ResourceEntry {
   uri: string;
@@ -52,6 +79,10 @@ export interface ResourceEntry {
   kind: "cell" | "collection" | "stream" | "event";
   /** The surface key (e.g. `nodes`), independent of the URI encoding. */
   key: string;
+  /** Which surface of the bundle answers it — see {@link SiblingKey}. The
+   *  READ path resolves the client through this, so an entry that outlives its
+   *  sibling is refused by name rather than resolving nothing. */
+  sibling: SiblingKey;
   name: string;
   mimeType: string;
 }
@@ -61,6 +92,7 @@ export interface ResourceEntry {
 export interface ResourceTemplateEntry {
   uriTemplate: string;
   key: string;
+  sibling: SiblingKey;
   name: string;
   mimeType: string;
   /** The collection's key schema — used to decode an item-template URI's
@@ -68,15 +100,27 @@ export interface ResourceTemplateEntry {
    *  before calling `.get({ key })`. A `keySchema: Schema.Finite` collection
    *  must turn the string `"42"` into `42`, not address item `"42"`. */
   keySchema: WireSchemaAny;
+  /** Does the collection DECLARE a `keys` verb? The bounded item read races the
+   *  item's first frame against a live membership watch, and whether there is
+   *  one to watch is a fact about the CONTRACT — the framework's
+   *  `resolveCollectionVerbs`, which documents itself as the single runtime
+   *  source of that rule, and which the argv face already asks. Read here, once,
+   *  where the spec is in hand; the read path used to duck-type the DIALLED
+   *  client instead, which answered "no membership signal" for a collection whose
+   *  leg was merely narrower than the roster. */
+  listable: boolean;
 }
 
 /** A tool backed by an exposed procedure. */
 export interface ToolEntry {
-  /** MCP tool name (`<ns>_<verb>`). */
+  /** MCP tool name — `<ns>_<verb>` on the core, `<sibling>_<ns>_<verb>` on a
+   *  sibling. */
   name: string;
   /** Surface namespace + verb — the wire call `client.surface[ns][verb]`. */
   ns: string;
   verb: string;
+  /** Which surface of the bundle answers it — see {@link SiblingKey}. */
+  sibling: SiblingKey;
   mutates: boolean;
   inputSchema: Record<string, unknown>;
   /** Whether the procedure declares an input. A no-input procedure's payload
@@ -99,25 +143,111 @@ export interface ResolvedExpose {
 
 // ── URI helpers ─────────────────────────────────────────────────────────
 
-export const CELL_PREFIX = "surface://cells/";
-export const COLLECTION_PREFIX = "surface://collections/";
-export const STREAM_PREFIX = "surface://streams/";
-export const EVENT_PREFIX = "surface://events/";
+// PRIVATE to this module, all four. The published spellings are the BUILDERS
+// below (`cellUri`/`collectionUri`/`collectionItemTemplate`/`streamUri`/
+// `eventUri`) and the one reader (`parseCollectionItem`); a consumer that
+// concatenated a prefix by hand would be spelling the segment rule a second
+// time, which is exactly what `memberUri` exists to stop. The last external
+// reader went when `parseCollectionItem` moved in here beside the writer whose
+// encoding makes it sound.
+const CELL_PREFIX = "surface://cells/";
+const COLLECTION_PREFIX = "surface://collections/";
+const STREAM_PREFIX = "surface://streams/";
+const EVENT_PREFIX = "surface://events/";
 
-export function cellUri(key: string): string {
-  return `${CELL_PREFIX}${encodeURIComponent(key)}`;
+/** The address of one member of a bundle, under a kind's prefix: the sibling key
+ *  as a leading SEGMENT where there is one, and nothing at all for the core.
+ *
+ *  ONE builder behind all four kinds, because the prefix rule is one rule and
+ *  four hand-written spellings of it are four places for the core's "no segment"
+ *  case to be forgotten. Every segment is `encodeURIComponent`-ed on its own, so
+ *  a member key containing a slash cannot forge an extra segment — which is what
+ *  lets {@link parseCollectionItem}'s reader count segments and know what it has. */
+function memberUri(prefix: string, sibling: SiblingKey, key: string): string {
+  const member = encodeURIComponent(key);
+  return sibling === undefined
+    ? `${prefix}${member}`
+    : `${prefix}${encodeURIComponent(sibling)}/${member}`;
 }
-export function collectionUri(key: string): string {
-  return `${COLLECTION_PREFIX}${encodeURIComponent(key)}`;
+
+export function cellUri(sibling: SiblingKey, key: string): string {
+  return memberUri(CELL_PREFIX, sibling, key);
 }
-export function collectionItemTemplate(key: string): string {
-  return `${COLLECTION_PREFIX}${encodeURIComponent(key)}/{id}`;
+export function collectionUri(sibling: SiblingKey, key: string): string {
+  return memberUri(COLLECTION_PREFIX, sibling, key);
 }
-export function streamUri(key: string): string {
-  return `${STREAM_PREFIX}${encodeURIComponent(key)}`;
+export function collectionItemTemplate(
+  sibling: SiblingKey,
+  key: string,
+): string {
+  return `${collectionUri(sibling, key)}/{id}`;
 }
-export function eventUri(key: string): string {
-  return `${EVENT_PREFIX}${encodeURIComponent(key)}`;
+/** A collection-item URI, split into the bundle address it names.
+ *
+ *  Segment counting is the whole rule, and it is sound because every segment was
+ *  `encodeURIComponent`-ed on the way out by {@link memberUri} above: TWO segments is a CORE
+ *  collection's item, THREE is a sibling's. A two-segment URI that is really a
+ *  sibling's key-set resource never reaches here — the caller answers those from
+ *  the resource index first — and the one case where the two readings would
+ *  genuinely overlap is refused at boot by {@link assertItemSpaceUnshadowed}.
+ *
+ *  `null` for anything else, including a URI with four or more segments: a rooted
+ *  bundle is one level deep, so a deeper address names nothing rather than being
+ *  folded into the last segment.
+ *
+ *  It lives HERE, directly below the builders, because the reader's soundness is a
+ *  precondition on the WRITER — one axis, "how a bundle address is spelled in a
+ *  `surface://` URI", and the segment-counting rule is only sound because
+ *  {@link memberUri} encodes each segment on its own. Split across two modules
+ *  that was a promise a caller had to keep, held together by this comment across a
+ *  boundary. */
+export function parseCollectionItem(
+  uri: string,
+): { sibling: SiblingKey; key: string; id: string } | null {
+  if (!uri.startsWith(COLLECTION_PREFIX)) return null;
+  const raw = uri.slice(COLLECTION_PREFIX.length).split("/");
+  if (raw.length !== 2 && raw.length !== 3) return null;
+  let parts: string[];
+  try {
+    parts = raw.map((segment) => decodeURIComponent(segment));
+  } catch {
+    return null;
+  }
+  if (parts.some((segment) => segment === "")) return null;
+  return parts.length === 2
+    ? { sibling: undefined, key: parts[0] as string, id: parts[1] as string }
+    : {
+        sibling: parts[0] as string,
+        key: parts[1] as string,
+        id: parts[2] as string,
+      };
+}
+
+export function streamUri(sibling: SiblingKey, key: string): string {
+  return memberUri(STREAM_PREFIX, sibling, key);
+}
+export function eventUri(sibling: SiblingKey, key: string): string {
+  return memberUri(EVENT_PREFIX, sibling, key);
+}
+
+/** The TOOL name one member of a bundle answers to — the same prefix rule in
+ *  MCP's own separator. `.` is illegal in a tool name and `/` is not a tool name
+ *  at all, so where the URI takes a segment the tool name takes the `_` it
+ *  already uses to join `<ns>` to `<verb>`.
+ *
+ *  Applied to a sibling's HAND-AUTHORED tools as well as its generated ones —
+ *  one rule for every name, so a reader of a `tools/list` never has to know which
+ *  kind they are looking at. That is why it takes a finished name rather than an
+ *  `(ns, verb)` pair.
+ *
+ *  It does NOT make the space unique on its own: `_` is legal inside a tag
+ *  segment, so `a_b_c` can be spelled by more than one `(sibling, ns, verb)`
+ *  triple, and a bundle-root tool is bare and shares the space with every scoped
+ *  one. The one-pass collision check over the FINISHED namespace is what
+ *  guarantees uniqueness — and, for the same reason, a name is not a sound
+ *  reading of WHICH sibling owns it. */
+export function scopedToolName(sibling: SiblingKey, name: string): string {
+  return sibling === undefined ? name : `${sibling}_${name}`;
 }
 
 /** Reject an input-bearing stream/event exposed as a STATIC resource — the one gate
@@ -146,6 +276,17 @@ function assertExposableAsResource(
   }
 }
 
+/** What a host SHOWS for a resource — the member key on the core, and
+ *  `<sibling>/<member>` on a sibling.
+ *
+ *  A resource `name` is display text, not an address, and two siblings exposing
+ *  the same member key would otherwise offer an agent two rows reading `entries`
+ *  with nothing to tell them apart. The URI already carries the segment; this is
+ *  the same fact where a person reads it. */
+function displayName(sibling: SiblingKey, key: string): string {
+  return sibling === undefined ? key : `${sibling}/${key}`;
+}
+
 // ── Resolver ─────────────────────────────────────────────────────────────
 
 /** Walk a spec + expose map, producing the concrete lists to register.
@@ -169,6 +310,19 @@ function assertExposableAsResource(
 export function resolveExpose<S extends SurfaceSpec>(
   spec: S,
   expose: ExposeMap<S>,
+  /** Which surface of a rooted bundle this map belongs to — a sibling's key, or
+   *  `undefined` for the core (and for a bundle that is one surface). It is
+   *  folded into every name this resolver mints, which is the whole of the
+   *  prefix composition (see the module header).
+   *
+   *  REQUIRED, with no default. `undefined` here is not "the argument was
+   *  omitted" — it is the ADDRESS, the bare core. With a default the two readings
+   *  were the same call, so a caller walking a sibling and forgetting the key
+   *  would silently mint bare, core-shaped names for it: a composition bug the
+   *  collision pass catches only sometimes, because `_` is legal inside a
+   *  segment. Saying `undefined` out loud costs one word and cannot be
+   *  forgotten. */
+  sibling: SiblingKey,
 ): ResolvedExpose {
   const resources: ResourceEntry[] = [];
   const resourceTemplates: ResourceTemplateEntry[] = [];
@@ -188,9 +342,10 @@ export function resolveExpose<S extends SurfaceSpec>(
         // safety default spelled twice is one that can be relaxed in one place.
         const built = inputSchema(procSpec.input);
         tools.push({
-          name: toolName(ns, verb),
+          name: scopedToolName(sibling, toolName(ns, verb)),
           ns,
           verb,
+          sibling,
           mutates: exposureMutates(exposure),
           inputSchema: built.schema,
           hasInput: procSpec.input !== undefined,
@@ -199,27 +354,31 @@ export function resolveExpose<S extends SurfaceSpec>(
       })
       .with({ kind: "cell" }, ({ key }) => {
         resources.push({
-          uri: cellUri(key),
+          uri: cellUri(sibling, key),
           kind: "cell",
           key,
-          name: key,
+          sibling,
+          name: displayName(sibling, key),
           mimeType: "application/json",
         });
       })
       .with({ kind: "collection" }, ({ key, spec: collSpec }) => {
         resources.push({
-          uri: collectionUri(key),
+          uri: collectionUri(sibling, key),
           kind: "collection",
           key,
-          name: key,
+          sibling,
+          name: displayName(sibling, key),
           mimeType: "application/json",
         });
         resourceTemplates.push({
-          uriTemplate: collectionItemTemplate(key),
+          uriTemplate: collectionItemTemplate(sibling, key),
           key,
-          name: `${key} item`,
+          sibling,
+          name: `${displayName(sibling, key)} item`,
           mimeType: "application/json",
           keySchema: collSpec.keySchema,
+          listable: resolveCollectionVerbs(collSpec).includes("keys"),
         });
       })
       .with({ kind: P.union("stream", "event") }, ({ kind, key, spec: io }) => {
@@ -231,10 +390,14 @@ export function resolveExpose<S extends SurfaceSpec>(
         // calls `.get(undefined)`.
         assertExposableAsResource(kind, key, io.inputSchema);
         resources.push({
-          uri: kind === "stream" ? streamUri(key) : eventUri(key),
+          uri:
+            kind === "stream"
+              ? streamUri(sibling, key)
+              : eventUri(sibling, key),
           kind,
           key,
-          name: key,
+          sibling,
+          name: displayName(sibling, key),
           mimeType: "application/json",
         });
       })
@@ -242,7 +405,9 @@ export function resolveExpose<S extends SurfaceSpec>(
   }
 
   // Tool-name uniqueness (proc-vs-proc, proc-vs-bespoke, bespoke-vs-bespoke) is
-  // checked in one pass in `serveSurfaceAsMcp`, where the full namespace — the
-  // exposed procedures here plus the bespoke tools — is in view.
+  // checked in one pass in `resolveBundle` (`./bundle.ts`), where the full
+  // namespace — every surface's exposed procedures plus every bespoke table — is
+  // in view. `serveSurfaceAsMcp` only calls it; a reader chasing the invariant
+  // wants the module that owns it.
   return { resources, resourceTemplates, tools };
 }

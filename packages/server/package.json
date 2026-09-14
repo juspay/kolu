@@ -7,7 +7,7 @@
   "main": "./src/index.ts",
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "test:unit": "KOLU_STATE_DIR=\"${TMPDIR:-/tmp}/kolu-unit-test-$$/state\" KOLU_PADI_STATE_DIR=\"${TMPDIR:-/tmp}/kolu-unit-test-$$/padi\" vitest run --fileParallelism=false"
+    "test:daemon": "KOLU_STATE_DIR=\"${TMPDIR:-/tmp}/kolu-unit-test-$$/state\" KOLU_PADI_STATE_DIR=\"${TMPDIR:-/tmp}/kolu-unit-test-$$/padi\" vitest run --fileParallelism=false"
   },
   "dependencies": {
     "@effect/platform-node": "catalog:",
@@ -15,6 +15,7 @@
     "@kolu/heap-diag": "workspace:*",
     "@kolu/log": "workspace:*",
     "@kolu/padi": "workspace:*",
+    "@kolu/padi-client": "workspace:*",
     "@kolu/port-forward": "workspace:*",
     "@kolu/serve-dir": "workspace:*",
     "@kolu/surface": "workspace:*",

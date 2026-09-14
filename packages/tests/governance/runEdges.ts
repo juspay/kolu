@@ -111,19 +111,24 @@ export const RUN_EDGE_ALLOWLIST: readonly RunEdge[] = [
     why: "the MCP-SDK's connect callback — `serveSurfaceAsMcp` asks for `() => Promise<Connection>` and OWNS the connection it gets, re-invoking it on its own redial path, so the crossing cannot be composed away without changing kolu-mcp's face",
   },
   {
+    path: "packages/kolu-cli/src/surfaceFace.ts",
+    sites: 1,
+    why: "the kindred of `mcp.ts`'s entry one seam over: `@kolu/surface-cli`'s `ResolvedEndpoint.open` is `() => Promise<Connection>` and the FRAMEWORK owns its invocation (a dial per subscription inside `surfaceCommands`), exactly the connect-callback shape `mcp.ts` lists — the `endpoint.resolve` Effect ends at the value the face hands over, and `dialOf`'s own Effect cannot compose into a repo caller that does not exist",
+  },
+  {
     path: "packages/kolu-cli/src/verbs/stdoutPump.fixture.ts",
     sites: 2,
     why: "a CHILD PROCESS, not a module: `shared.flush.test.ts` spawns this file so the pump it drives writes to a real pipe(2) that a real `head` reads. It is that child's process edge, and there is no Effect caller on this side of the fork to compose into — the caller is `spawn`. Two runs because the queue and the drain are two lifetimes: one creates the queue the fixture then offers into, the other drains it through `shared.ts`'s `stdoutSink` for as long as the child lives. Deliberately the SHIPPED sink and not a hand-written write, because a fixture that writes to the fd itself passes whatever the verb does — which is how the previous version of this fixture came to pin nothing",
   },
   {
+    path: "packages/padi-client/src/watch.ts",
+    sites: 2,
+    why: "both crossings are into `@kolu/surface/wait`'s `runWait`, and both are PROCEDURES. The scaffold is Promise+AbortSignal shaped BY DESIGN, so a watcher body is a non-Effect runtime with no Effect caller above it to compose into; a stream is consumed through this file's own `iterateUntilAborted` bridge, but a procedure has nowhere else to be run. One site is `awaitWatchEvents`' `watch.drain`. The other is `awaitTerminalCondition`'s `screen.text` — the `--snapshot` / `kolu debrief` stamp (kolu#2139), which cannot move outside the wait: it is read while the subscriptions that decide whether it is STILL the screen that settled are live, and it passes `{ signal: ctx.signal }` so a settled timeout is never held open by an unanswered reply",
+  },
+  {
     path: "packages/padi-tui/src/main.ts",
     sites: 1,
     why: "padi-tui's process edge; a Promise rather than `NodeRuntime.runMain` because that turns SIGINT into fiber interruption, and this CLI's stop semantics are PER COMMAND — a `watch` the user stopped is a clean 0, a `wait` interrupted is a 130 that must still print which terminal was left waiting",
-  },
-  {
-    path: "packages/padi/src/cliClient/watch.ts",
-    sites: 2,
-    why: "both crossings are into `@kolu/surface/wait`'s `runWait`, and both are PROCEDURES. The scaffold is Promise+AbortSignal shaped BY DESIGN, so a watcher body is a non-Effect runtime with no Effect caller above it to compose into; a stream is consumed through this file's own `iterateUntilAborted` bridge, but a procedure has nowhere else to be run. One site is `awaitWatchEvents`' `watch.drain`. The other is `awaitTerminalCondition`'s `screen.text` — the `--snapshot` / `kolu debrief` stamp (kolu#2139), which cannot move outside the wait: it is read while the subscriptions that decide whether it is STILL the screen that settled are live, and it passes `{ signal: ctx.signal }` so a settled timeout is never held open by an unanswered reply",
   },
   {
     path: "packages/padi/src/daemonBoot/daemonMain.ts",

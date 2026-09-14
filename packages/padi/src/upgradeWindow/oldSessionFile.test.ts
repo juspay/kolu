@@ -28,14 +28,17 @@
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Schema } from "effect";
-import { describe, expect, it } from "vitest";
+import {
+  backfillSavedSession,
+  SavedSessionSchema,
+} from "@kolu/padi-client/surface";
 import {
   pinPreviousShapeRecovery,
   plantYesterdayDaemon,
 } from "@kolu/surface-daemon/upgrade-window.testlib";
+import { Schema } from "effect";
+import { describe, expect, it } from "vitest";
 import { requirePadiStateStores as openPadiStateStores } from "../session/stateStore.ts";
-import { backfillSavedSession, SavedSessionSchema } from "../vocab.ts";
 import { padiYesterdayDaemonOptions } from "./yesterdayDaemon.fixture.testlib.ts";
 
 /** `SavedSessionSchema.parse`'s Effect successor — compiled once, exactly as the

@@ -33,6 +33,12 @@
  * readers — the scan (which publishes) and the supervisor (which acts).
  */
 
+import type {
+  PadiHostInventory,
+  RunningKaval,
+  RunningPadi,
+} from "@kolu/padi-client/surface";
+import { encodeHostLocation, LOCAL_LOCATION } from "@kolu/padi-client/surface";
 import { buildSurfaceFace } from "@kolu/surface/client";
 import { unixSocketLink } from "@kolu/surface/links/unix-socket";
 import {
@@ -57,12 +63,6 @@ import {
   type PadiDaemon,
   padiKavalSocketPath,
 } from "./stateRoot.ts";
-import type {
-  PadiHostInventory,
-  RunningKaval,
-  RunningPadi,
-} from "./surface.ts";
-import { encodeHostLocation, LOCAL_LOCATION } from "./vocab.ts";
 
 /** The read-only status a kaval socket answered — fields are null only where the
  *  daemon/listener is honestly absent, never because a failure was swallowed. */

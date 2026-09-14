@@ -43,6 +43,7 @@ import { type GitInfo, GitInfoSchema } from "kolu-git/schemas";
 import { GhUnavailableSchema, reasonForGhCode } from "kolu-github/schemas";
 import { GrokInfoSchema } from "kolu-grok/schemas";
 import { OpenCodeInfoSchema } from "kolu-opencode/schemas";
+import { PiInfoSchema } from "kolu-pi/schemas";
 import { XyneInfoSchema } from "kolu-xyne/schemas";
 import { match, P } from "ts-pattern";
 
@@ -93,6 +94,7 @@ export const AgentInfoSchema = Schema.Union([
   CodexInfoSchema,
   OpenCodeInfoSchema,
   GrokInfoSchema,
+  PiInfoSchema,
   XyneInfoSchema,
 ]);
 
@@ -165,11 +167,13 @@ export const ForegroundSchema = Schema.Struct({
 // two-way) and what kolu's UI decides from them (`portReach`).
 
 export {
+  foldBinds,
   foldPorts,
   type PortFamily,
   PortFamilySchema,
   type PortInfo,
   PortInfoSchema,
+  type PortBind,
   type PortScope,
   PortScopeSchema,
   preferredFamily,
@@ -179,13 +183,16 @@ export {
 } from "./ports.ts";
 
 // Imported as well as re-exported: `export … from` re-publishes without binding,
-// and the three below are used right here to build `TerminalPortsSchema` and
-// `portReach`.
+// and the ones below are used right here to build `TerminalPortsSchema`,
+// `HostListenersSchema` and `portReach`.
 import {
+  type PortBind,
+  PortBindSchema,
   type PortInfo,
   PortInfoSchema,
   type PortScope,
   samePortList,
+  widerScope,
 } from "./ports.ts";
 
 /** What a terminal is serving, as an HONEST two-way — not a bare `PortInfo[]` that
@@ -330,6 +337,127 @@ export function portsEqual(a: TerminalPorts, b: TerminalPorts): boolean {
   return samePortList(a.list, b.list);
 }
 
+// ── The HOST's listeners ────────────────────────────────────────────────
+//
+// `TerminalPorts` answers "what is THIS terminal serving?", and a process that
+// detaches (a `setsid` daemon, an `odu web-daemon` coordinator that reparents to
+// init) leaves every terminal's subtree while its server keeps answering. A
+// printed URL for it then read "nothing is listening yet" — a claim about the
+// whole machine made from a look at one subtree. `HostListeners` is the look at
+// the whole machine, from the SAME scan pass.
+
+/** The unclaimed half of a host reading, as its own honest two-way. `unknown`
+ *  is a real state on darwin: macOS 27 gates the host-wide socket table, so the
+ *  sockets nobody claims are exactly the ones that go missing while every
+ *  claimed listener survives. Folding that into `known: []` would say "no other
+ *  user's server is on this port" when the truth is "we could not see". */
+export const UnclaimedPortsSchema = Schema.Union([
+  Schema.Struct({
+    status: Schema.Literal("known"),
+    list: Schema.Array(PortBindSchema),
+  }),
+  Schema.Struct({ status: Schema.Literal("unknown") }),
+]);
+export type UnclaimedPorts = typeof UnclaimedPortsSchema.Type;
+
+/** A listener a readable program holds on the host, and whether a TERMINAL's
+ *  process subtree holds it. The scanner knows the second from the same pass
+ *  that found the listener, so "detached" — held by no terminal — is a fact on
+ *  the row, never re-derived by joining this reading against every terminal's
+ *  separately delivered `ports` (where one unscanned or unreadable terminal
+ *  would make it unanswerable for the whole host). */
+export const HostPortSchema = Schema.Struct({
+  ...PortInfoSchema.fields,
+  heldByTerminal: Schema.Boolean,
+});
+export type HostPort = typeof HostPortSchema.Type;
+
+/** Every TCP listener on a host, as its scanner saw it.
+ *
+ *   - `claimed` — sockets a readable (same-user) process holds, with the program
+ *     and command line holding each, and whether any terminal's subtree holds it
+ *     (a detached daemon: no).
+ *   - `unclaimed` — sockets the OS showed with no readable owner.
+ *   - `{ status: "unknown" }` — no pass has succeeded yet: padi has never run a
+ *     terminal (its sampler arms on the first one), or the first pass has not
+ *     landed. Once armed, the sampler keeps reading the host after the last
+ *     terminal closes, so a detached server's door is still reaped when it dies.
+ *
+ *  A blind pass does NOT flip this to `unknown`: like `TerminalPorts`, the last
+ *  good reading is re-served, because one pass that could not see is not news
+ *  that every server stopped. */
+export const HostListenersSchema = Schema.Union([
+  Schema.Struct({
+    status: Schema.Literal("known"),
+    claimed: Schema.Array(HostPortSchema),
+    unclaimed: UnclaimedPortsSchema,
+  }),
+  Schema.Struct({ status: Schema.Literal("unknown") }),
+]);
+export type HostListeners = typeof HostListenersSchema.Type;
+
+/** The value before any reading has landed. */
+export const UNKNOWN_HOST_LISTENERS: HostListeners = { status: "unknown" };
+
+/** Are two host readings the same fact? The wire dedup gate for the cell that
+ *  carries them — same contract as {@link portsEqual}: a status flip (on either
+ *  level) is always a change, and an unchanged host publishes nothing.
+ *
+ *  DERIVED from the schema rather than walked by hand: a hand-written walk of a
+ *  two-level union is one more place a new arm or field has to be remembered, and
+ *  a dedup gate that forgets one swallows that field's changes with nothing to
+ *  say why. Arrays compare in order, which is the producer's contract (every
+ *  list is sorted by port). */
+export const hostListenersEqual: (
+  a: HostListeners,
+  b: HostListeners,
+) => boolean = Schema.toEquivalence(HostListenersSchema);
+
+/** What a host reading says about ONE port — the four answers a reader acts on,
+ *  and the ONE place they are derived, so the printed-URL card and the Ports
+ *  section cannot disagree about when "nothing is listening" may be said.
+ *
+ *  The forward reaper deliberately does NOT read it: it asks a looser question
+ *  (may this door close?) and counts the claimed half alone as an observation
+ *  when the unclaimed half is blind — kolu-server's `hostPortsOf` says why.
+ *
+ *   - `claimed`   — a readable program holds it.
+ *   - `unclaimed` — something holds it; its owner is not visible.
+ *
+ *  When BOTH halves hold the port, the answer is the bind a reader can act on —
+ *  the same scope-first rule `foldBinds` gives the reaper: the unclaimed bind
+ *  wins only when its scope is strictly more useful (another user's `127.0.0.1`
+ *  beside our interface-only bind is the one a door can dial). Its owner stays
+ *  "not visible"; it never borrows the claimed listener's command.
+ *   - `absent`    — positively not listening anywhere on this host.
+ *   - `unknown`   — cannot say: the host is not scanned, or the port is not
+ *     claimed and the unclaimed half is blind (it may be another user's). */
+export type ListenerAt =
+  | { kind: "claimed"; info: HostPort }
+  | { kind: "unclaimed"; bind: PortBind }
+  | { kind: "absent" }
+  | { kind: "unknown" };
+
+export function listenerAt(host: HostListeners, port: number): ListenerAt {
+  if (host.status !== "known") return { kind: "unknown" };
+  const info = host.claimed.find((p) => p.port === port);
+  const bind =
+    host.unclaimed.status === "known"
+      ? host.unclaimed.list.find((p) => p.port === port)
+      : undefined;
+  if (info !== undefined) {
+    const unclaimedWins =
+      bind !== undefined &&
+      bind.scope !== info.scope &&
+      widerScope(info.scope, bind.scope) === bind.scope;
+    return unclaimedWins
+      ? { kind: "unclaimed", bind }
+      : { kind: "claimed", info };
+  }
+  if (host.unclaimed.status !== "known") return { kind: "unknown" };
+  return bind === undefined ? { kind: "absent" } : { kind: "unclaimed", bind };
+}
+
 // ── The TerminalSnapshot — what a host PRODUCER emits ──────────────────────
 //
 // The de-entanglement (awareness-derive-store.mdx): a host PRODUCER emits one
@@ -346,6 +474,46 @@ export function portsEqual(a: TerminalPorts, b: TerminalPorts): boolean {
  *  `pr` and `agent` ride here too — both re-samplable; `pr` is restore-relevant
  *  (true-when-dead, persisted like `git`), the live `agent` detail is RAM-only
  *  (lie-when-dead, re-derived on (re)spawn). */
+/** A pty grid — cols × rows, both positive. ONE composite, never two optional
+ *  scalars: half a grid is not a size. */
+export const TerminalGridSchema = Schema.Struct({
+  cols: Schema.Int.check(Schema.isGreaterThan(0)),
+  rows: Schema.Int.check(Schema.isGreaterThan(0)),
+});
+export type TerminalGrid = typeof TerminalGridSchema.Type;
+
+/** Do two grids describe the same layout?
+ *
+ *  Beside {@link portsEqual} and for its reason: a record on this wire that is
+ *  compared per frame needs its comparison stated once, here, rather than
+ *  re-spelled at each dedup gate. Both readers ask the same question — the pane
+ *  asks whether its measured size still matches what it published, and a holder
+ *  of bytes laid out FOR a grid (a serialized screen, a snapshot frame) asks
+ *  whether those bytes still describe the pane.
+ *
+ *  TWO other spellings of this comparison survive, and both are argued rather
+ *  than forgotten — read them before adding a third:
+ *
+ *    · `@kolu/xterm-kit/solid`'s `sameGrid`, over its own structurally-identical
+ *      `TerminalGrid`. That kit's manifest declares one dependency-free
+ *      workspace leaf (`@kolu/url-shape`) and nothing else, which is the property
+ *      that makes it cheap to consume; importing this one would take its closure
+ *      from two members to thirteen to share four tokens.
+ *    · `@kolu/padi-client/attach`'s `snapshotAnswersGrid`, over `EndpointGrid` —
+ *      a THIRD declaration of `{ cols, rows }`, on padi's own surface, with its
+ *      own header claiming to be "the ONE grid rule on this surface". It is
+ *      structurally identical and its comparison is not: it answers `true` for a
+ *      nullable pair, because "nobody asserted a size" is not "the sizes differ".
+ *      Collapsing the two RECORDS is a wire-schema change and wants its own
+ *      sitting; until then this fold would only be its last line.
+ *
+ *  What this one is, meanwhile, is the comparison for the grid a padi frame
+ *  carries as a terminal FACT — which is what a dedup gate over the record
+ *  compares, and what a consumer holding one off the wire compares. */
+export function gridsEqual(a: TerminalGrid, b: TerminalGrid): boolean {
+  return a.cols === b.cols && a.rows === b.rows;
+}
+
 export const TerminalSnapshotSchema = Schema.Struct({
   cwd: Schema.String,
   git: Schema.NullOr(GitInfoSchema),
@@ -357,6 +525,25 @@ export const TerminalSnapshotSchema = Schema.Struct({
   foreground: Schema.NullOr(ForegroundSchema),
   /** What this terminal is serving — see {@link TerminalPortsSchema}. */
   ports: TerminalPortsSchema,
+  /** The pty's CURRENT grid — cols × rows.
+   *
+   *  It exists so a viewer can learn it LOST last-attach-wins. Attaching is a
+   *  write on a shared pty and the policy is last-attach-wins, so a second
+   *  viewer's terminal is reflowed under it — and the byte stream cannot say so:
+   *  a snapshot rides only the initial attach and an overflow re-attach, never a
+   *  foreign resize, so the loser goes on receiving DELTAS laid out for a grid no
+   *  frame ever named. Its screen garbles and nothing tells it to re-attach.
+   *
+   *  On the RECORD rather than the frame because that is the channel a mirror
+   *  already watches: this collection is reactive, so a consumer observes the
+   *  change and re-attaches, and the fresh snapshot then carries its own
+   *  `grid` (contract 5.5) to size against. The alternative — pushing a snapshot
+   *  to every attached client on every resize — would repaint the world during a
+   *  drag and needs a coalescing design this does not.
+   *
+   *  Optional: a padi predating it omits the key, and a consumer that never sees
+   *  one behaves exactly as it did before. */
+  grid: Schema.optionalKey(TerminalGridSchema),
 });
 export type TerminalSnapshot = typeof TerminalSnapshotSchema.Type;
 
@@ -436,6 +623,7 @@ export type TerminalEvent =
   | { kind: "foreground"; foreground: Foreground | null }
   | { kind: "agent"; agent: Known<AgentInfo | null> }
   | { kind: "ports"; ports: TerminalPorts }
+  | { kind: "grid"; grid: TerminalGrid }
   | { kind: "commandRun"; command: string; replayed: boolean };
 
 /** A fresh terminal's initial `TerminalSnapshot`: spawn-time cwd, everything else at
@@ -479,7 +667,7 @@ export function seedMemory(): AgentMemory {
  *  "error AND a stale rss".
  *
  *  Lives on this browser-safe shared-vocab leaf (beside `AgentMemory`/`seedMemory`)
- *  because BOTH `kolu-common/surface` and `@kolu/padi/surface` compose it —
+ *  because BOTH `kolu-common/surface` and `@kolu/padi-client/surface` compose it —
  *  kolu-server's memory sampler folds padi's reading into its own `processMemory`
  *  cell — and the package-boundary seal forbids either importing the other. One
  *  declaration, imported both sides: no lockstep copy held together by a comment. */
@@ -520,7 +708,7 @@ export type Foreground = typeof ForegroundSchema.Type;
 //
 // These three shapes back the host-side fs/git reads and their live watcher
 // streams. They live on this browser-safe schema-only leaf (beside the terminal
-// vocabulary) because `@kolu/padi/surface` composes them — the Code tab's
+// vocabulary) because `@kolu/padi-client/surface` composes them — the Code tab's
 // `fs.readFile` / `subscribeRepoChange` / `subscribeFileChange` members — and the
 // package-boundary seal forbids padi importing them from a node-coupled module.
 

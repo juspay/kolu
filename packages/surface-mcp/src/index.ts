@@ -19,8 +19,23 @@ export {
   type ResourceEntry,
   type ResourceTemplateEntry,
   resolveExpose,
+  scopedToolName,
   type ToolEntry,
 } from "./expose";
+// `SiblingKey` is the FRAMEWORK's — it was declared once per face until it moved
+// beside `clientAt`, where both faces read it. Re-exported here under the name
+// this package has always published it as.
+export type { SiblingKey } from "@kolu/surface/client";
+// The ROOTED BUNDLE this face composes on — the option shapes a consumer writes,
+// and the resolver both the boot and every `reroster` run through.
+export {
+  type McpBundle,
+  type McpCore,
+  type McpSibling,
+  type ResolvedBespokeTool,
+  type ResolvedBundle,
+  resolveBundle,
+} from "./bundle";
 // `OwnedSurfaceConnection` IS this type at the adapter's client shape, and the
 // public doc links to it — so a consumer reading that doc has to be able to
 // import the name it names.
@@ -28,10 +43,16 @@ export type { PusherConnection } from "./pusher";
 export {
   type ClientOrConnection,
   type OwnedSurfaceConnection,
+  type ServedSurfaceMcp,
   type ServeSurfaceAsMcpOptions,
   serveSurfaceAsMcp,
   type SurfaceClientCallable,
 } from "./server";
+// The client BUNDLE a rooted face dials — the framework's shape
+// (`@kolu/surface/client`), re-exported because `ClientOrConnection` above is
+// that type and a consumer reading the doc has to be able to import the name it
+// names.
+export type { RootedSurfaceClients } from "@kolu/surface/client";
 export {
   // The adapter's own "name what broke" derivation. Exported because a bespoke
   // tool that folds a failure INTO its answer (rather than raising it) has to

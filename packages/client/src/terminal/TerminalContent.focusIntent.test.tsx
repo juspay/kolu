@@ -78,7 +78,7 @@ vi.mock("@corvu/resizable", () => {
   return { default: Object.assign(Root, { Panel, Handle }) };
 });
 
-vi.mock(import("@kolu/padi/surface"), async (importOriginal) => ({
+vi.mock(import("@kolu/padi-client/surface"), async (importOriginal) => ({
   ...(await importOriginal()),
   sleepingArm: () => undefined,
 }));

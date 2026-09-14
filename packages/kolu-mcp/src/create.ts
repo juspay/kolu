@@ -72,13 +72,21 @@
  * — there is no base to resolve it against that the caller meant.
  */
 
-import type { PadiSurfaceClient } from "@kolu/padi/dial";
-import { PadiCreateInputSchema, PLACEMENT_REQUIRED } from "@kolu/padi/surface";
-import { type BespokeTool, messageOf, ToolFailure } from "@kolu/surface-mcp";
+import { padiOf } from "./bundleClient.ts";
+import { isAbsolute } from "node:path";
+import type { PadiSurfaceClient } from "@kolu/padi-client/dial";
+import {
+  PadiCreateInputSchema,
+  PLACEMENT_REQUIRED,
+} from "@kolu/padi-client/surface";
+import {
+  type BespokeTool,
+  messageOf,
+  ToolFailure,
+} from "@kolu/surface-mcp/tools";
 import type { TerminalId } from "@kolu/terminal-vocab/schema";
 import { Effect, Schema } from "effect";
 import { isValidWorktreeName, WORKTREE_NAME_MESSAGE } from "kolu-git/schemas";
-import { isAbsolute } from "node:path";
 
 export const CreateArgsSchema = Schema.Struct({
   // The verb's existing fields, spread from the wire schema itself so this
@@ -96,10 +104,16 @@ export const CreateArgsSchema = Schema.Struct({
   placement: PadiCreateInputSchema.fields.placement.annotate({
     description: PLACEMENT_REQUIRED,
   }),
-  // Per-field blurbs sit on the encoded-side node INSIDE `optionalKey`, and
-  // ANNOTATE-FIRST-CHECK-SECOND where there is a check — otherwise the blurb
-  // lands on the check and the converter buries it in `allOf`, where no host
-  // reads it (`argSchemas.test.ts` pins both halves).
+  // Per-field blurbs sit on the encoded-side node INSIDE `optionalKey`
+  // (`argSchemas.test.ts` pins them). `worktree` additionally has to be
+  // annotated BEFORE its check: the wire's git-ref rule is a
+  // `Schema.makeFilter`, which contributes no JSON-Schema keyword and is
+  // therefore dropped WHOLE by the converter — annotation included. Since
+  // effect rc.111 an ordinary check compacts onto the node it constrains and
+  // the order is free, but a dropped filter takes its annotation with it
+  // either way. That is also why `worktree` cannot simply reuse padi's
+  // finished schema the way `screenImage.ts` and `watchNext.ts` now do: the
+  // blurb would vanish from tools/list.
   repo: Schema.optionalKey(
     Schema.String.annotate({
       description:
@@ -379,6 +393,6 @@ export const createTool: BespokeTool = {
     // Refusals are raised synchronously, BEFORE anything dials padi.
     refuseBlankFields(a);
     const directory = resolveCreateDirectory(a);
-    return composeCreate(directory, a, client as PadiSurfaceClient);
+    return composeCreate(directory, a, padiOf(client));
   },
 };

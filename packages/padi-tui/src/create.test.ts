@@ -5,7 +5,7 @@
  * `argv.join(" ")` that would let the shell re-split a spaces/quotes/metachar token.
  */
 
-import { TOPLEVEL_PLACEMENT } from "@kolu/padi/surface";
+import { TOPLEVEL_PLACEMENT } from "@kolu/padi-client/surface";
 import { shellSplit } from "@kolu/shell-quote";
 import type { TerminalId } from "@kolu/terminal-vocab/schema";
 import { Cause, Effect, Exit } from "effect";

@@ -18,14 +18,15 @@
  *  a SILENT wait. The warm path still reads calm: a warm host short-circuits FAST, so `sinceMs`
  *  stays under the 1s elapsed threshold (no "0s" flash) and its tail is reassuring real output,
  *  not a scary build. Genuine cold `provisioning` shows the same tail + a climbing
- *  elapsed as it runs. Failure is deliberately NOT handled here:
- *  `disconnected`/`failed` are owned by the Skew-UX host-down card (a `host-failed`
- *  CanvasMode), so this overlay renders only the up-but-not-yet-connected phases and
- *  never a second failure surface. */
+ *  elapsed as it runs. Failure is deliberately NOT handled here: a standing refusal and
+ *  a terminal `failed` are owned by the Skew-UX host-down card (a `host-failed`
+ *  CanvasMode). The one down phase this overlay DOES narrate is the reconnect backoff
+ *  between attempts (`disconnected` with no standing failure, which the map keeps
+ *  `warming`) — as "Reconnecting…" with the tail that says why the last attempt
+ *  ended, instead of a mute "Connecting…" that hid it. */
 
-import type { DaemonState } from "@kolu/padi/surface";
+import type { DaemonState } from "@kolu/padi-client/surface";
 import { encodeHostKey } from "kolu-common/hostKey";
-import type { ConnectPhase } from "kolu-common/surfacesWithPadi";
 import {
   createEffect,
   createMemo,
@@ -41,7 +42,11 @@ import { formatElapsedShort } from "../time/duration";
 import DocLink from "../ui/DocLink";
 import { LOG_TAIL_SURFACE } from "../ui/logTailChrome";
 import { activeHost, connectionInfo } from "../wire";
-import { connectCanvasCopy, isConnectPhase } from "./connectCanvasCopy";
+import {
+  connectCanvasCopy,
+  isNarratedPhase,
+  type NarratedPhase,
+} from "./connectCanvasCopy";
 
 export function ConnectCanvas(props: { daemonState: DaemonState | undefined }) {
   const info = () => connectionInfo();
@@ -52,10 +57,10 @@ export function ConnectCanvas(props: { daemonState: DaemonState | undefined }) {
   // (subscription pending / floored / narrowed-out) with the SAME copy as `probing`, so no
   // flicker.
   const host = () => encodeHostKey(activeHost());
-  const phase = createMemo<ConnectPhase | undefined>(() => {
+  const phase = createMemo<NarratedPhase | undefined>(() => {
     if (props.daemonState !== undefined) return undefined;
     const p = info()?.phase;
-    return p !== undefined && isConnectPhase(p) ? p : undefined;
+    return p !== undefined && isNarratedPhase(p) ? p : undefined;
   });
   const copy = createMemo(() =>
     props.daemonState !== undefined
@@ -100,7 +105,8 @@ export function ConnectCanvas(props: { daemonState: DaemonState | undefined }) {
     // Residual `connecting` mode can still have a live connection cell with a
     // long-lived connected campaign (reload of a warm host). Title-only "Connecting…"
     // is fine; elapsed/tail must not show that campaign's uptime as connect progress.
-    if (c === null || frame === undefined || !isConnectPhase(frame.phase)) {
+    // Whether a phase times itself at all is the copy table's call (`showsElapsed`).
+    if (c === null || frame === undefined || !c.showsElapsed) {
       setAnchor(null);
       return;
     }
@@ -135,7 +141,7 @@ export function ConnectCanvas(props: { daemonState: DaemonState | undefined }) {
 
   const tail = createMemo(() => {
     const frame = info();
-    if (frame === undefined || !isConnectPhase(frame.phase)) return [];
+    if (frame === undefined || !isNarratedPhase(frame.phase)) return [];
     return tailOf(frame.log);
   });
 

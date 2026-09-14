@@ -37,7 +37,7 @@
 
 import type { Logger } from "@kolu/log";
 import { previewFile } from "@kolu/padi/assembly";
-import type { PadiPreviewReadOutputSchema } from "@kolu/padi/surface";
+import type { PadiPreviewReadOutputSchema } from "@kolu/padi-client/surface";
 import type { ServeResult } from "@kolu/serve-dir";
 import {
   getHeaderCI,

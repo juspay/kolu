@@ -474,6 +474,85 @@ export const SURFACE_TAG_ROOT = "surface";
 /** The tag prefix of a STANDALONE surface: `"surface/"`. */
 export const SURFACE_TAG_PREFIX = "surface/";
 
+/** The first member of `spec` that DECLARES a `client.onError` policy, or
+ *  `undefined` when none does — the scan behind "a declared policy may never route
+ *  nowhere".
+ *
+ *  A member that declares one and reaches a client built with no interpreter is
+ *  refused; `buildSurfaceClient` (`./solid/surfaceClient`) is where that refusal
+ *  has to LAND, because it is the one door every client crosses. But the scan
+ *  itself needs nothing a client has — it reads a spec and an interpreter, both of
+ *  which a caller holds before it dials anything — and a door that can decide a
+ *  refusal EARLIER owes its caller that.
+ *
+ *  `connectSurfaces` is the case that made it matter (juspay/kolu#2227). Its
+ *  `redial` must build an arriving sibling's client AFTER the new wire is adopted
+ *  (an arriving client can open a standing subscription at construction, and its
+ *  tags are ones the OUTGOING generation never minted), so a construction throw
+ *  there lands with the wire already moved and the clients not — a state nothing
+ *  can make honest, whose only answer is to release the whole connection. Running
+ *  this scan at PLAN time instead puts the one roster-triggerable throw back under
+ *  the law that seam states everywhere else: every refusal a roster earns is
+ *  raised before anything is dialled.
+ *
+ *  Returns the member's KEY, because the refusal's whole value is naming which
+ *  member declared the policy. */
+export function policyBearingMember(spec: SurfaceSpec): string | undefined {
+  const declaresPolicy = ([, member]: [
+    string,
+    { readonly client?: { readonly onError?: unknown } },
+  ]): boolean => member.client?.onError !== undefined;
+  return (
+    Object.entries(
+      (spec.cells ?? {}) as Record<
+        string,
+        { readonly client?: { readonly onError?: unknown } }
+      >,
+    ).find(declaresPolicy)?.[0] ??
+    Object.entries(
+      (spec.collections ?? {}) as Record<
+        string,
+        { readonly client?: { readonly onError?: unknown } }
+      >,
+    ).find(declaresPolicy)?.[0]
+  );
+}
+
+/** Is this the STANDALONE surface a ROOTED bundle's root must be?
+ *
+ *  ONE READING OF ONE LAW, for the three doors that carry a root: the serve side
+ *  (`implementRootedSurfaces`), the gate (`exposeRootedFaces`) and the browser
+ *  (`connectSurfaces`' `core`). A root is standalone or it is not a root — a
+ *  sibling-scoped surface handed in as the root binds its members at
+ *  `surface/<key>/…` while every sibling mounted beside it prefixes ITS key on
+ *  top of nothing, so the bundle serves a root nobody can address.
+ *
+ *  It lives here, beside {@link SURFACE_TAG_PREFIX} — the value the law is about
+ *  — rather than at any one of the three doors, because two hand-synced copies
+ *  of a rule is something a reader can hold in their head and three across three
+ *  modules is not. Each door keeps its own ERROR CLASS and its own wording for
+ *  the alternative it can offer; only the predicate and the sentence are
+ *  shared. */
+export function isStandaloneRoot(surface: { tagPrefix: string }): boolean {
+  return surface.tagPrefix === SURFACE_TAG_PREFIX;
+}
+
+/** The refusal the three rooted doors say when {@link isStandaloneRoot} is
+ *  false, differing only in the seam's own name, what it was handed, and the
+ *  alternative that seam can offer. */
+export function notStandaloneRootDetail(
+  seam: string,
+  what: string,
+  tagPrefix: string,
+  alternative: string,
+): string {
+  return (
+    `${seam}: ${what} carries the tag prefix "${tagPrefix}", not the standalone ` +
+    `"${SURFACE_TAG_PREFIX}" — the root of a rooted bundle is the UNPREFIXED one. ` +
+    `Pass the standalone surface (\`defineSurface(spec)\`), or ${alternative}.`
+  );
+}
+
 /** The tag prefix of one sibling inside a {@link composeSurfaceContracts} bundle:
  *  `"surface/<key>/"`. Sibling composition prefixes per sibling and NEVER merges
  *  bare groups — the three reserved `system/*` members exist on EVERY surface, so
@@ -1455,9 +1534,15 @@ function assembleGroup(
 
 /** Build a surface from a spec. The returned `.group` is a flat `RpcGroup` whose
  *  tags all begin `surface/`; a host merges it with its own hand-written group
- *  for the RPCs the surface can't model:
+ *  for the RPCs the surface can't model — through the COUNTED merge, never a bare
+ *  `RpcGroup.merge` (which is last-writer-wins and would drop a colliding tag in
+ *  silence; see {@link mergeDisjointGroups}):
  *
- *      const hostGroup = surface.group.merge(rawTerminalGroup, rawGitGroup);
+ *      const hostGroup = mergeDisjointGroups({
+ *        surface: surface.group,
+ *        rawTerminal: rawTerminalGroup,
+ *        rawGit: rawGitGroup,
+ *      });
  *
  *  Consumers feed the group to `implementSurface` (server) and to the client face
  *  builder (`surfaceClient`). */
@@ -1561,18 +1646,11 @@ export function composeSurfaceContracts<
   const E extends Record<string, Surface<any>>,
 >(entries: E): ComposedSurfaces<E> {
   const siblings: Record<string, Surface<SurfaceSpec>> = {};
-  const byTag = new Map<string, Rpc.Any>();
+  const scopedGroups: Record<string, RpcGroup.RpcGroup<Rpc.Any>> = {};
   for (const [key, sib] of Object.entries(entries)) {
     assertTagSegment("sibling", key);
     const scoped = buildSurface(sib.spec, siblingTagPrefix(key));
-    for (const [tag, rpc] of scoped.group.requests) {
-      if (byTag.has(tag)) {
-        throw new Error(
-          `composeSurfaceContracts: duplicate wire tag "${tag}" while composing sibling "${key}".`,
-        );
-      }
-      byTag.set(tag, rpc);
-    }
+    scopedGroups[key] = scoped.group;
     // Reuse the sibling's OWN descriptors: they are pure data keyed by member
     // name and carry no tag, so re-deriving them would only mint equal twins.
     siblings[key] = {
@@ -1583,7 +1661,99 @@ export function composeSurfaceContracts<
     };
   }
   return {
-    group: assembleGroup(byTag),
+    // The counted merge, labelled by SIBLING KEY — so the composition's own
+    // disjointness proof is the framework's one spelling of it, and a collision
+    // (structurally unreachable while every sibling is prefixed by its unique
+    // record key, but the proof is what makes that a fact rather than a belief)
+    // names both siblings rather than only the second one to arrive.
+    group: mergeDisjointGroups(scopedGroups),
     siblings,
   } as unknown as ComposedSurfaces<E>;
+}
+
+/** Merge several flat groups into ONE and PROVE nothing was swallowed — the
+ *  counted merge every consumer of a composed wire needs and, until now, spelled
+ *  privately six times over: {@link composeSurfaceContracts}' own sibling walk
+ *  right above, `connectSurfaces`' `extraGroups` fold, kolu-server's
+ *  `servedGroup`, kolu-common's `contract`, kaval's daemon group, and — one repo
+ *  over — olai's `fuseGroups`.
+ *
+ *  `RpcGroup.merge` is a last-writer-wins `Map.set` with NO collision detection,
+ *  so a tag two groups both spell survives exactly once and the survivor answers
+ *  under the OTHER one's schema. That failure presents as "the wire is up, and
+ *  this one call answers the wrong shape" — invisible to every downstream check,
+ *  because the merged group is well-formed, just one member short. It is the
+ *  quiet kind of wrong, which is why the proof is not optional and why a merge
+ *  that is merely *believed* disjoint is not a merge this framework performs.
+ *
+ *  The groups arrive LABELLED, keyed by whatever the caller calls each half
+ *  (`{ root, siblings, padiMap }`), because the useful half of a collision report
+ *  is not the tag — it is WHICH TWO of the caller's own halves both claimed it.
+ *  Disjointness is established by claiming every tag into one map before any
+ *  merge runs, so a collision is named (tag AND both labels) rather than inferred
+ *  from a size that came up short; the count afterwards is then the framework's
+ *  own self-check that `RpcGroup.merge` did what the walk proved it could.
+ *
+ *  It lives here, beside {@link composeSurfaceContracts} and the `claim` walk, for
+ *  the same reason those do: this file owns the invariant that no tag is minted
+ *  twice, and a second statement of it elsewhere is a rule that can be relaxed in
+ *  one place and noticed in neither. Its sibling primitive is `assembleGroup`,
+ *  which proves the same thing about a walk that CLAIMS tags one at a time (one
+ *  surface's spec); this one proves it about N groups already built. */
+export function mergeDisjointGroups(
+  // The value type is left OPEN, and the erasure is this function's rather than its
+  // callers'. `RpcGroup<in out Rpcs>` is invariant, so a precisely-typed group — a
+  // contract spelled member by member — is not assignable to `RpcGroup<Rpc.Any>` even
+  // though every element IS an `Rpc.Any`; a parameter that demanded it would make the
+  // `as unknown as` double-cast the standard idiom at this function's own call sites,
+  // which is a poor thing for a safety proof to teach. The body reads only `requests`
+  // and `merge`, and the RESULT is honestly erased — the shape every serving and
+  // transport seam takes.
+  groups: Readonly<Record<string, RpcGroup.RpcGroup<any>>>,
+): RpcGroup.RpcGroup<Rpc.Any> {
+  const entries = Object.entries(groups);
+  const claimedBy = new Map<string, string>();
+  const collisions: string[] = [];
+  for (const [label, group] of entries) {
+    for (const tag of group.requests.keys()) {
+      const owner = claimedBy.get(tag);
+      if (owner !== undefined) {
+        collisions.push(`"${tag}" (claimed by "${owner}" and "${label}")`);
+        continue;
+      }
+      claimedBy.set(tag, label);
+    }
+  }
+  if (collisions.length > 0) {
+    throw new Error(
+      `mergeDisjointGroups: ${collisions.length} wire tag(s) are carried by more than one ` +
+        `group — ${collisions.join(", ")}. \`RpcGroup.merge\` is last-writer-wins, so one ` +
+        "spelling would be dropped in silence and its tag would then answer with the other's " +
+        "schema. Rename the member, or merge the two halves as one group.",
+    );
+  }
+  // `merge` is VARIADIC and drains every argument into ONE copied map, so the whole
+  // record costs one copy rather than one per half — which matters because the
+  // caller's half-count is unbounded (`connectSurfaces` labels each `extraGroups`
+  // entry). Starting from the EMPTY group rather than from the first half is what
+  // makes 0..N uniform: a merge of nothing is then the identity — the empty group —
+  // which falls out instead of being branched for, and a composer whose input map is
+  // empty this run (a rooted wire with no siblings) legitimately produces one.
+  // The seed carries the function's ONE cast: `RpcGroup.make()` with no members is
+  // `RpcGroup<never>`, and the group type is invariant in its element union, so the
+  // empty group is not assignable to the erased one it is about to become. Spending
+  // the cast here — once, internally, on a value with no members to misdescribe — is
+  // the trade this function exists to make on its callers' behalf.
+  const merged = (
+    RpcGroup.make() as unknown as RpcGroup.RpcGroup<Rpc.Any>
+  ).merge(...entries.map(([, group]) => group as RpcGroup.RpcGroup<Rpc.Any>));
+  if (merged.requests.size !== claimedBy.size) {
+    throw new Error(
+      `mergeDisjointGroups: the merge carries ${merged.requests.size} tag(s), but the walk ` +
+        `claimed ${claimedBy.size} across [${entries.map(([l]) => l).join(", ")}] and proved ` +
+        "them disjoint — so `RpcGroup.merge` dropped a tag no collision explains. That is a " +
+        "framework bug, not a caller error.",
+    );
+  }
+  return merged;
 }

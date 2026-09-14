@@ -54,11 +54,13 @@
  */
 
 import {
+  connectPadi,
   type PadiConnectionMetadata,
   type PadiDaemonClient,
   type PadiHelloIdentity,
-  connectPadi,
-} from "../dial.ts";
+} from "@kolu/padi-client/dial";
+import { padiRuntimeHome } from "@kolu/padi-client/rendezvous";
+import type { StdioReadinessVerdict } from "@kolu/surface/links/readiness";
 import { reExecAsDetachedDaemon, stderrLogger } from "@kolu/surface-daemon";
 import {
   converge,
@@ -67,7 +69,6 @@ import {
   outcomeAnomaly,
   probeDaemonIdentity,
 } from "@kolu/surface-daemon-supervisor";
-import type { StdioReadinessVerdict } from "@kolu/surface/links/readiness";
 import { Effect } from "effect";
 import { AGENT_TOOLS_BAKE_ENV } from "kolu-pty";
 import {
@@ -77,7 +78,7 @@ import {
 } from "osfacts-client";
 import { drainResidentOnAgentToolsBakeDrift } from "../agentToolsBake.ts";
 import { padiConvergencePolicy } from "../convergencePolicy.ts";
-import { padiRuntimeHome, padiStderrLogPath } from "../stateRoot.ts";
+import { padiStderrLogPath } from "../stateRoot.ts";
 import { currentPadiBuildId } from "./buildId.ts";
 
 /** How long the front's own drain waits for a survivor's socket to close after

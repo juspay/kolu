@@ -35,6 +35,7 @@ kolu watch [id] [--json]      stream terminal changes and output activity
 kolu web [flags]              the web server (the browser face)
 kolu mcp [--socket|--state-root|--host]
                               serve a padi's terminals to a coding agent over MCP (stdio)
+kolu surface <verb> [flags]   the `kolu mcp` tool table as shell verbs (via @kolu/surface-cli)
 kolu tui                      reserved — the terminal canvas (a later PR)
 ```
 
@@ -116,6 +117,16 @@ interrupt of the main fiber. Anything else — `SIGHUP`, `SIGQUIT` — keeps Nod
 own default disposition: the process dies on the signal and the shell reports
 `128 + signum` (129 for a SIGHUP), never 130. Listing a signal here that nothing
 intercepts would send a driving loop watching for a code kolu never writes.
+
+The one face outside this table is **`kolu surface`**: its matrix is
+`@kolu/surface-cli`'s own — `1` is the daemon's typed refusal, verbatim JSON on
+**stderr** for a script to branch on; `2` a usage error; `3` the endpoint
+unreachable, the message naming it as spelled; `130` unchanged. One carve-out,
+binary-wide: a CLI-library refusal (a typo'd subcommand, a rejected flag) exits
+`1` on EVERY face, because it never reaches one. And the direction a surface
+`2` promises is opposite that: the request **never left this process** — the
+face itself rejected the input before dialing; `1` is always a DAEMON answer
+on that face.
 
 ## Three breaking changes
 

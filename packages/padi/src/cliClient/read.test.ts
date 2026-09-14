@@ -32,11 +32,12 @@
  *     terminals meant a full `maxMs` wait for a frame that never comes.
  */
 
+import type { PadiSurfaceClient } from "@kolu/padi-client/dial";
+import type { PadiTerminal } from "@kolu/padi-client/surface";
+import { awaitAgentState } from "@kolu/padi-client/watch";
 import type { AgentInfo, TerminalId } from "@kolu/terminal-vocab/schema";
 import { Effect, Stream } from "effect";
 import { describe, expect, it } from "vitest";
-import { awaitAgentState, type PadiSurfaceClient } from "../dial.ts";
-import type { PadiTerminal } from "../surface.ts";
 import { readTerminalKeys, settledSnapshot } from "./read.ts";
 
 const id = (s: string): TerminalId => s as TerminalId;

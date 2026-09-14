@@ -21,18 +21,19 @@
  * green. The live-padi wall-clock capture in the PR is the SUPPORTING artifact.
  */
 
+import {
+  type AuthoredActiveTerminal,
+  LOCAL_LOCATION,
+  PadiTerminalSchema,
+  PadiUrgencySchema,
+  urgencyEqual,
+} from "@kolu/padi-client/surface";
 import { defineSurface } from "@kolu/surface/define";
 import { derived } from "@kolu/surface/reactor";
 import { implementSurface } from "@kolu/surface/server";
 import type { TerminalSnapshot } from "@kolu/terminal-vocab/schema";
 import { TerminalIdSchema } from "@kolu/terminal-vocab/schema";
 import { describe, expect, it } from "vitest";
-import {
-  PadiTerminalSchema,
-  PadiUrgencySchema,
-  urgencyEqual,
-} from "../surface.ts";
-import { composePadiTerminal } from "../terminalEndpoint/metadata.ts";
 import {
   type ActiveTerminalProcess,
   getTerminal,
@@ -41,8 +42,8 @@ import {
   type TerminalProcess,
   unregisterTerminal,
 } from "../terminal-registry.ts";
+import { composePadiTerminal } from "../terminalEndpoint/metadata.ts";
 import { recomputeUrgency } from "./urgency.ts";
-import { type AuthoredActiveTerminal, LOCAL_LOCATION } from "../vocab.ts";
 
 /** A busy dev host runs ~16 live terminals; 24 keeps the O(M²)/O(M) gap
  *  unmistakable (24 vs 600) while staying a fast unit test. */

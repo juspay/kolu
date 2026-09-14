@@ -28,7 +28,7 @@ import {
   padiConvergencePolicy,
   padiConvergencePolicyForBinding,
 } from "@kolu/padi/convergence-policy";
-import type { PadiDaemonClient } from "@kolu/padi/dial";
+import type { PadiDaemonClient } from "@kolu/padi-client/dial";
 import {
   drainAndAwaitExit,
   drainRejectionSuffix,
@@ -37,12 +37,11 @@ import { Effect } from "effect";
 
 // Re-export the framework drain skeleton so the remote arm's existing import path
 // (`./padiConvergence`) keeps working; the implementation lives in the supervisor.
-export { drainAndAwaitExit };
-
 // padi's own declaration of who it is and how it converges, re-exported so both
 // binding arms keep importing it from here while the source of truth sits beside
 // the daemon it describes (`@kolu/padi/convergence-policy`).
 export {
+  drainAndAwaitExit,
   MAX_BUILD_DRAINS_PER_INSTANCE,
   padiConvergencePolicy,
   padiConvergencePolicyForBinding,

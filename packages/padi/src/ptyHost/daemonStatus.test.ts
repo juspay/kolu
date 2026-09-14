@@ -15,6 +15,10 @@
  * lifetime" has to be spelled as an ABSENT key or the whole collection push dies.
  */
 
+import {
+  type DaemonStatus,
+  DaemonStatusSchema,
+} from "@kolu/padi-client/surface";
 import type { EndpointStatus } from "@kolu/surface-daemon-supervisor";
 import { Schema } from "effect";
 import { afterEach, describe, expect, it } from "vitest";
@@ -23,10 +27,9 @@ import {
   noopPadiSurfaceCtxForTest,
   setPadiSurfaceCtx,
 } from "../padiSurfaceCtx.ts";
-import { DaemonStatusSchema, type DaemonStatus } from "../vocab.ts";
 import type { KavalConnectionMetadata } from "./connect.ts";
-import { unreachableDispatch } from "./dispatch.testlib.ts";
 import { publishDaemonStatus, readDaemonStatus } from "./daemonStatus.ts";
+import { unreachableDispatch } from "./dispatch.testlib.ts";
 
 type Connected = EndpointStatus<
   DaemonStatus["identity"],

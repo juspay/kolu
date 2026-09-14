@@ -21,8 +21,8 @@
  * boot establishes.
  */
 
-import type { PtyHostListEntry } from "kaval";
 import { Effect } from "effect";
+import type { PtyHostListEntry } from "kaval";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { unreachableDispatch } from "../ptyHost/dispatch.testlib.ts";
 
@@ -58,29 +58,29 @@ vi.mock("../log.ts", () => ({
   },
 }));
 
-import { inMemoryStore } from "@kolu/surface/server";
-import { setPadiLastPairedDaemonStore } from "../session/confStores.ts";
-import { setDaemonProcessId } from "../koluRoot.ts";
-import {
-  __resetPadiSurfaceCtxForTest,
-  noopPadiSurfaceCtxForTest,
-  setPadiSurfaceCtx,
-} from "../padiSurfaceCtx.ts";
-import type { PairedDaemon } from "../session/pairedDaemon.ts";
-import { publishDaemonStatus } from "../ptyHost/daemonStatus.ts";
-import { getSavedSession, setSavedSession } from "../session/session.ts";
-import {
-  getTerminal,
-  terminalEntries,
-  unregisterTerminal,
-} from "../terminal-registry.ts";
 import {
   encodeHostLocation,
   LOCAL_LOCATION,
   type SavedActiveTerminal,
   type SavedSession,
   type SavedTerminal,
-} from "../vocab.ts";
+} from "@kolu/padi-client/surface";
+import { inMemoryStore } from "@kolu/surface/server";
+import { setDaemonProcessId } from "../koluRoot.ts";
+import {
+  __resetPadiSurfaceCtxForTest,
+  noopPadiSurfaceCtxForTest,
+  setPadiSurfaceCtx,
+} from "../padiSurfaceCtx.ts";
+import { publishDaemonStatus } from "../ptyHost/daemonStatus.ts";
+import { setPadiLastPairedDaemonStore } from "../session/confStores.ts";
+import type { PairedDaemon } from "../session/pairedDaemon.ts";
+import { getSavedSession, setSavedSession } from "../session/session.ts";
+import {
+  getTerminal,
+  terminalEntries,
+  unregisterTerminal,
+} from "../terminal-registry.ts";
 import { adoptSurvivingSession } from "./reattach.ts";
 
 setDaemonProcessId("reattach-test-server");

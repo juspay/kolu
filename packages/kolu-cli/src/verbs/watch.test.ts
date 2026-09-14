@@ -5,13 +5,13 @@
  * decided here BEFORE anything dials a daemon.
  */
 
-import type { PadiSurfaceClient } from "@kolu/padi/dial";
 import {
   formatStateEvent,
   formatStateEventJson,
   shortId,
 } from "@kolu/padi/render";
-import type { PadiStateEvent } from "@kolu/padi/surface";
+import type { PadiSurfaceClient } from "@kolu/padi-client/dial";
+import type { PadiStateEvent } from "@kolu/padi-client/surface";
 import type { TerminalId } from "@kolu/terminal-vocab/schema";
 import { Effect, Stream } from "effect";
 import { describe, expect, it } from "vitest";
@@ -132,6 +132,44 @@ describe("planSupervision", () => {
 
   it("refuses an empty --states rather than silently watching everything", () => {
     expect(planSupervision(args({ states: " , " })).kind).toBe("error");
+  });
+
+  it("reads `30m/3` as the interval AND its cap — the count rides the interval it caps", () => {
+    expect(planSupervision(args({ nag: "30m/3" }))).toEqual({
+      kind: "ok",
+      value: { nagMs: 1_800_000, nagCount: 3 },
+    });
+  });
+
+  it("reads a bare `--nag 30m` as the same interval, un-capped — the count is optional", () => {
+    expect(planSupervision(args({ nag: "30m" }))).toEqual({
+      kind: "ok",
+      value: { nagMs: 1_800_000 },
+    });
+    expect(planSupervision(args({ nag: "60000" }))).toEqual({
+      kind: "ok",
+      value: { nagMs: 60_000 },
+    });
+  });
+
+  it.each([
+    ["30m/0"],
+    ["30m/2x"],
+    ["30m/1.5"],
+    ["30m/"],
+    ["/3"],
+    ["30m/3/2"],
+  ])("refuses `--nag %s` — the slash carries an interval and a whole count, nothing else", (nag) => {
+    const plan = planSupervision(args({ nag }));
+    expect(plan.kind, nag).toBe("error");
+    // Refused for the SLASH's reason — not the generic "not a duration" a
+    // grammar that never knew the slash would give.
+    expect(plan.kind === "error" && plan.message).toMatch(/after the slash/);
+  });
+
+  it("spells the refusal in the flag's own grammar — the count lives after the slash", () => {
+    const plan = planSupervision(args({ nag: "30m/0" }));
+    expect(plan.kind === "error" && plan.message).toMatch(/--nag/);
   });
 
   it("does NOT switch feed for --ignore / --ignore-self / --heartbeat alone — they are not supervision knobs", () => {

@@ -17,7 +17,7 @@
  *  reset with the JS context and re-fired the toast. A genuinely newer adoption
  *  (a later update) stamps a greater adoptedAt and announces again. */
 
-import type { DaemonState, DaemonStatus } from "@kolu/padi/surface";
+import type { DaemonState, DaemonStatus } from "@kolu/padi-client/surface";
 
 /** The reattach decision WITH its payload — `{ count, at }` to announce, or
  *  `null` to stay silent. Returns the announce-this payload when a NOT-yet-

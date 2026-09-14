@@ -26,6 +26,7 @@ import type {
   TerminalPorts,
   TerminalEvent,
   TerminalId,
+  TerminalGrid,
 } from "@kolu/terminal-vocab/schema";
 import {
   type CommandRunSample,
@@ -98,6 +99,7 @@ function startHarness(): Harness {
     commandRun: inMemoryChannel<CommandRunSample>(),
     foreground: inMemoryChannel<ForegroundSample>(),
     ports: inMemoryChannel<TerminalPorts>(),
+    grid: inMemoryChannel<TerminalGrid>(),
   };
   const stop = startAgentSensor(
     fakeAdapter,

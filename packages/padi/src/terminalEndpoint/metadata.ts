@@ -42,6 +42,13 @@
  *     there is no per-seam prose to keep in sync.
  */
 
+import {
+  composeTerminalMetadata,
+  PadiParkedTerminalSchema,
+  type PadiTerminal,
+  PersistedSnapshotSchema,
+  type TerminalClientMetadata,
+} from "@kolu/padi-client/surface";
 import type {
   AgentMemory,
   RestoreTarget,
@@ -51,13 +58,7 @@ import { Schema } from "effect";
 import { log } from "../log.ts";
 import { padiSurfaceCtx } from "../padiSurfaceCtx.ts";
 import { notifyDirty } from "../publisher.ts";
-import { PadiParkedTerminalSchema, type PadiTerminal } from "../surface.ts";
 import { getTerminal, type TerminalProcess } from "../terminal-registry.ts";
-import {
-  composeTerminalMetadata,
-  PersistedSnapshotSchema,
-  type TerminalClientMetadata,
-} from "../vocab.ts";
 
 // zod's `.parse` in Effect terms, bound once at module scope — these run on the
 // ~150 ms observation firehose, and `decodeUnknownSync` compiles the schema on

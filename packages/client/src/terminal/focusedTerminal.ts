@@ -11,7 +11,7 @@ export interface TerminalFocus {
 
 /** A terminal's live placement in the retained metadata collection.
  *
- *  `Live`, not `Terminal`, because `@kolu/padi/surface` now exports a
+ *  `Live`, not `Terminal`, because `@kolu/padi-client/surface` now exports a
  *  `TerminalPlacement` too and the two answer DIFFERENT questions in the same
  *  domain — one directory over, in `useTerminalCrud.ts`, both are in scope. That
  *  one is the create-time INTENT a caller states and the wire requires: two arms,

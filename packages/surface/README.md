@@ -37,3 +37,9 @@ The four-quadrant home is **[kolu.dev/surface](https://kolu.dev/surface)**:
 - Tutorial — [Your first surface](https://kolu.dev/surface/your-first-surface)
 - Reference — [@kolu/surface](https://kolu.dev/surface/ref-surface)
 - Explanation — [Why surfaces](https://kolu.dev/surface/why-surfaces) · [Reactive honesty](https://kolu.dev/surface/reactive-honesty)
+
+Parameterized snapshot/delta streams also expose
+`client.streams.X.useCollection(input, descriptor)`: a read-only collection
+view shared by equal static inputs and released with its last Solid owner.
+It uses the existing delta fold, retry fence, subscription cache and health
+registry; ordinary accessor-input `.use()` remains per consumer.

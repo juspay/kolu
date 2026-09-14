@@ -28,10 +28,13 @@ import * as assert from "node:assert";
 import * as os from "node:os";
 import * as path from "node:path";
 import { Given, Then, When } from "@cucumber/cucumber";
-import { LOCAL_LOCATION, type SavedSleepingTerminal } from "@kolu/padi/surface";
+import {
+  LOCAL_LOCATION,
+  type SavedSleepingTerminal,
+} from "@kolu/padi-client/surface";
 import { readBufferText, waitForBufferContains } from "../support/buffer.ts";
-import { padiCall } from "../support/rpcWire.ts";
 import { pollFor } from "../support/poll.ts";
+import { padiCall } from "../support/rpcWire.ts";
 import {
   ACTIVE_CANVAS_TILE_SELECTOR,
   CANVAS_TILE_SELECTOR,

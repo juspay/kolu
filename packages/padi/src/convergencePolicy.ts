@@ -23,11 +23,11 @@
  * import path is unchanged; what moved is the source of truth, not the API.
  */
 
+import { PADI_SURFACE_VERSION } from "@kolu/padi-client/surface";
 import {
   type ConvergencePolicy,
   daemonBuild,
 } from "@kolu/surface-daemon-supervisor";
-import { PADI_SURFACE_VERSION } from "./surface.ts";
 
 /**
  * How many BUILD-axis drains one supervisor instance may spend on one padi

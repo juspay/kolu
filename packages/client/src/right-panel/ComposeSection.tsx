@@ -20,7 +20,7 @@
  *  command in that section. The parent gates this on the ACTIVE arm, so the
  *  target is always a live PTY — `sendInput` would otherwise quiet-drop. */
 
-import { activeArm } from "@kolu/padi/surface";
+import { activeArm } from "@kolu/padi-client/surface";
 import { toError } from "@kolu/surface/run-stream";
 import { Effect } from "effect";
 import type { TerminalId } from "kolu-common/surface";

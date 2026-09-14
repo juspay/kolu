@@ -4,13 +4,13 @@
  *  Used by CanvasTile (desktop) and MobileTileView (mobile). Owns
  *  sub-panel state internally — callers provide only the shell. */
 
-import { Effect } from "effect";
-import { runAction } from "../runAction";
 import Resizable from "@corvu/resizable";
-import { sleepingArm } from "@kolu/padi/surface";
+import { sleepingArm } from "@kolu/padi-client/surface";
 import type { ITheme } from "@xterm/xterm";
+import { Effect } from "effect";
 import type { TerminalId } from "kolu-common/surface";
 import { type Component, For, type JSX, Show } from "solid-js";
+import { runAction } from "../runAction";
 import { realSizes } from "../ui/corvuResizable";
 import { Z_HANDLE_INNER } from "../ui/stackLayers";
 import DormantTileBody from "./DormantTileBody";

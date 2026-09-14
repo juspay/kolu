@@ -24,6 +24,12 @@
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import {
+  LOCAL_LOCATION,
+  type SavedActiveTerminal,
+  type SavedSession,
+  type SavedTerminal,
+} from "@kolu/padi-client/surface";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { setDaemonProcessId } from "../koluRoot.ts";
 import {
@@ -31,14 +37,6 @@ import {
   noopPadiSurfaceCtxForTest,
   setPadiSurfaceCtx,
 } from "../padiSurfaceCtx.ts";
-import { getSavedSession, setSavedSession } from "./session.ts";
-import {
-  forfeitSession,
-  persistSettledRestoreSnapshot,
-  restoreSession,
-  settleRestoreRespawns,
-} from "./sessionRestore.ts";
-import { padiConfigPath, padiStateBackupRing } from "./stateStore.ts";
 import {
   type ActiveTerminalProcess,
   getTerminal,
@@ -52,12 +50,14 @@ import {
   TerminalSpawnRacedError,
 } from "../terminalEndpoint/local.ts";
 import { setTerminalTheme } from "../terminals.ts";
+import { getSavedSession, setSavedSession } from "./session.ts";
 import {
-  LOCAL_LOCATION,
-  type SavedActiveTerminal,
-  type SavedSession,
-  type SavedTerminal,
-} from "../vocab.ts";
+  forfeitSession,
+  persistSettledRestoreSnapshot,
+  restoreSession,
+  settleRestoreRespawns,
+} from "./sessionRestore.ts";
+import { padiConfigPath, padiStateBackupRing } from "./stateStore.ts";
 
 // Restore drives the discard path (`cleanupTerminalScratch`), which reads the
 // per-instance scratch root. Boot injects the server id before any of this runs;

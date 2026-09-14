@@ -17,9 +17,8 @@
  *  one signal so every consumer (dock buckets, minimap fade, badge gate)
  *  agrees on what "stale" means. */
 
-import { DASH } from "kolu-common/surface";
+import { agoPhrase, compactPhrase } from "@kolu/terminal-vocab/duration";
 import { getClockNow, makeTickingClock } from "../time/clock";
-import { compactDelta } from "../time/duration";
 import { type IdleBucketKey, idleBucketFor } from "./activityWindow";
 import { activityWindowThresholdMs } from "./activityWindowFilter";
 
@@ -84,44 +83,29 @@ export function useIdleClassifier(): (
   };
 }
 
-/** Compact forward duration: "12s" / "5m" / "2h" / "3d". Single-unit and
- *  coarse — it renders only the dominant tier of the shared {@link compactDelta}
- *  ladder. Driven live by `useDuration`'s 1s clock, so the sub-minute seconds
- *  tier counts up; the coarser tiers change at most once a minute.
- *
- *  An untrustworthy delta (host clock skew — see {@link compactDelta}) renders
- *  as the dash. The policy is the ladder's, not this formatter's: as a local
- *  guard it contradicted the clamp `compactDelta` applied for every OTHER
- *  formatter, and the two answers appeared side by side in the same dock row. */
-export function formatDuration(ms: number): string {
-  const d = compactDelta(ms);
-  if (d.kind === "unknown") return DASH;
-  return `${d.value}${d.unit}`;
-}
-
 /** Reactive elapsed-since formatter. Returns a function consumers call with a
  *  start timestamp — invoking it inside a tracking context (JSX, `createMemo`)
  *  subscribes to the shared **1s** clock, so a "Running for" readout counts up
  *  live (`1s → 2s → …`) through its sub-minute window. The 1s cadence (not
- *  staleness's 60s `getNowTicker`) is what `formatDuration`'s seconds tier
- *  needs; past a minute the per-second recompute yields the same string, a
- *  no-op SolidJS skips, and the clock is the one the chrome-bar uptime already
- *  runs — no new timer. */
+ *  staleness's 60s `getNowTicker`) is what the phrase's seconds tier needs;
+ *  past a minute the per-second recompute yields the same string, a no-op
+ *  SolidJS skips, and the clock is the one the chrome-bar uptime already runs —
+ *  no new timer.
+ *
+ *  The WORDS are `@kolu/terminal-vocab/duration`'s; what is kolu-client's here,
+ *  and the only thing that ever was, is the clock. */
 export function useDuration(): (startedAtMs: number) => string {
   const tick = getClockNow();
-  return (startedAtMs) => formatDuration(tick() - startedAtMs);
+  return (startedAtMs) => compactPhrase(tick() - startedAtMs);
 }
 
 /** Compact "5m ago" / "2h ago" / "3d ago" — empty string for `null`
- *  (= "no agent transition observed yet"), "just now" under a minute. Single-
- *  unit "ago" suffix over the shared {@link compactDelta} ladder. Plain
- *  `Date.now()` read, not reactive: tooltips and hover panels recompute on
- *  mount, which is finer-grained than the 60s tick anyway. */
+ *  (= "no agent transition observed yet"), "just now" under a minute.
+ *
+ *  The phrase is `@kolu/terminal-vocab/duration`'s `agoPhrase`; this binds it to
+ *  a plain `Date.now()` read, not a reactive one, because tooltips and hover
+ *  panels recompute on mount — finer-grained than the 60s tick anyway. The clock
+ *  is the only thing this adds, which is why the phrase is not here. */
 export function formatTimeAgo(ts: number | null): string {
-  if (ts === null) return "";
-  const d = compactDelta(Date.now() - ts);
-  // Same skew answer the wait chip beside it gives — the two share this row.
-  if (d.kind === "unknown") return DASH;
-  if (d.unit === "s") return "just now";
-  return `${d.value}${d.unit} ago`;
+  return agoPhrase(ts, Date.now());
 }

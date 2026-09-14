@@ -4,10 +4,11 @@
  * ignore id, or refuses the param.
  */
 
-import type { PadiWatchOpenInput } from "@kolu/padi/surface";
-import type { TerminalId } from "@kolu/terminal-vocab/schema";
-import type { PadiSurfaceClient } from "@kolu/padi/dial";
+import type { PadiSurfaceClient } from "@kolu/padi-client/dial";
+import type { KoluSurfaceClients } from "./bundleClient.ts";
+import type { PadiWatchOpenInput } from "@kolu/padi-client/surface";
 import { ToolFailure } from "@kolu/surface-mcp";
+import type { TerminalId } from "@kolu/terminal-vocab/schema";
 import { Effect, Stream } from "effect";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { resolveWatchOpenInput, watchOpenTool } from "./watchOpen.ts";
@@ -47,6 +48,28 @@ describe("resolveWatchOpenInput", () => {
     );
     expect([...(input.ignoreIds ?? [])].sort()).toEqual([LANE, SELF].sort());
     expect(Object.hasOwn(input, "ignoreSelf")).toBe(false);
+  });
+
+  it('reads `nagMs: "30m/3"` as the interval AND its cap — one param, the count after the slash', () => {
+    const input = plan({ name: "campaign", nagMs: "30m/3" }, [], {});
+    expect(input.nagMs).toBe(1_800_000);
+    expect(input.nagCount).toBe(3);
+
+    // A bare interval — number or string — keeps today's meaning: forever.
+    const bare = plan({ name: "campaign", nagMs: "30m" }, [], {});
+    expect(bare.nagMs).toBe(1_800_000);
+    expect(Object.hasOwn(bare, "nagCount")).toBe(false);
+    const numeric = plan({ name: "campaign", nagMs: 1_800_000 }, [], {});
+    expect(numeric.nagMs).toBe(1_800_000);
+    expect(Object.hasOwn(numeric, "nagCount")).toBe(false);
+  });
+
+  it("refuses a garbled slash before it dials, in tool-arg grammar", () => {
+    for (const nagMs of ["30m/0", "30m/2x", "30m/", "30m/3/2"]) {
+      const parsed = resolveWatchOpenInput({ name: "campaign", nagMs }, [], {});
+      expect(parsed.kind, nagMs).toBe("error");
+      expect(parsed.kind === "error" && parsed.message).toMatch(/nagMs/);
+    }
   });
 
   it("refuses ignoreSelf when the transport cannot identify the caller", () => {
@@ -143,7 +166,9 @@ const fakePadi = (live: readonly TerminalId[]) => {
       },
     },
   } as unknown as PadiSurfaceClient;
-  return { client, opened };
+  // What a BUNDLE-ROOT verb is handed: kolu's rooted bundle, padi as its
+  // unprefixed core — the same value `serveKoluMcp`'s injected factory produces.
+  return { client: { core: client } satisfies KoluSurfaceClients, opened };
 };
 
 describe("watch_open — ignoreSelf against a fleet that has never heard of us", () => {
@@ -216,7 +241,11 @@ describe("watch_open — ignoreSelf against a fleet that has never heard of us",
       },
     } as unknown as PadiSurfaceClient;
     await Effect.runPromise(
-      watchOpenTool.handler({ name: "campaign" }, client, undefined),
+      watchOpenTool.handler(
+        { name: "campaign" },
+        { core: client } satisfies KoluSurfaceClients,
+        undefined,
+      ),
     );
   });
 });

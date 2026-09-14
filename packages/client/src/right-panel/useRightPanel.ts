@@ -31,20 +31,20 @@
  *  Callers read/write for the *active* terminal — the API is parameterless,
  *  resolving the current terminal id from `useTerminalStore` internally. */
 
-import { toError } from "@kolu/surface/run-stream";
-import { Effect } from "effect";
 import {
   type CodeTabView,
   DEFAULT_RIGHT_PANEL_PER_TERMINAL,
   type RightPanelPerTerminalState,
   type RightPanelTab,
   rightPanelView,
-} from "@kolu/padi/surface";
+} from "@kolu/padi-client/surface";
 import {
   type Browser,
   createBrowser,
   DEFAULT_MAX_ENTRIES,
 } from "@kolu/solid-browser";
+import { toError } from "@kolu/surface/run-stream";
+import { Effect } from "effect";
 import type { TerminalId } from "kolu-common/surface";
 import { createSignal } from "solid-js";
 import { createStore, produce } from "solid-js/store";

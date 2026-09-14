@@ -1,8 +1,8 @@
 ---
 title: Troubleshooting
 description: "Common setup snags: install prompts, notifications, supported agents, updates, and the welcome overlay."
-order: 70
-section: Use Kolu
+order: 71
+section: Operate
 koluHero:
   eyebrow: help
   headline: Common {snags}.
@@ -64,14 +64,16 @@ see [From another device](/remote-access).
 Run any agent. The terminal is the interface, so `aider`, `gemini`, or whatever
 ships next week works the moment you run it.
 
-Five agents get first-class state today: `claude`, `codex`, `opencode`,
-`grok` (Grok Build), and `xyne`. For these, kolu reads live agent state into the dock
-(thinking · tools · waiting · **awaiting you** — including Grok's
-`ask_user_question` prompts). Xyne's on-disk transcript carries no live phase,
-so a Xyne tile lights up with its badge, session title, and last-used
-model, but stays in the plain waiting state. Claude, Codex, OpenCode, and Grok can also export
-the session as a self-contained HTML chat log or full transcript. Other agents
-still run in tiles; they just do not light up the dock.
+Six agents get first-class state today: `claude`, `codex`, `opencode`,
+`grok` (Grok Build), `pi`, and `xyne`. For these, kolu reads live agent state
+into the dock (thinking · tools · waiting · **awaiting you** — where the
+agent's own store carries a signal for it, e.g. Grok's `ask_user_question`
+prompts; pi's gates live in its TUI, so its dock row shows the other three).
+Xyne's on-disk transcript carries no live phase, so a Xyne tile lights up
+with its badge, session title, and last-used model, but stays in the plain
+waiting state. All six can also export the session as a self-contained HTML
+chat log or full transcript. Other agents still run in tiles; they just do
+not light up the dock.
 
 For launching the first one, see [First Five Minutes](/first-five-minutes).
 For running many and exporting transcripts, see [Power Features](/power-features).

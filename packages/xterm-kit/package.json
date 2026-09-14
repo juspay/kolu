@@ -23,6 +23,7 @@
     "solid-js": "^1.9.0"
   },
   "dependencies": {
+    "@kolu/url-shape": "workspace:*",
     "@solid-primitives/event-listener": "^2.4.5",
     "@solid-primitives/media": "^2.3.5",
     "@solid-primitives/resize-observer": "^2.1.5",

@@ -13,12 +13,12 @@
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "test:unit": "vitest run"
+    "test:daemon": "vitest run"
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.2.96",
     "anyagent": "workspace:*",
-    "effect": "catalog:",
+    "effect": "4.0.0-rc.112",
     "kolu-io": "workspace:*",
     "kolu-shared": "workspace:*",
     "kolu-transcript-core": "workspace:*",

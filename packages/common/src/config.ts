@@ -17,8 +17,12 @@ export { DEFAULT_PORT } from "./defaultPort.ts";
 // `STALE_PROCESS_CLOSE_CODE`) graduated to `@kolu/surface-app`'s framework-free
 // core — both ends import them from there, so the wire contract has one home.
 
-/** Default font size for the terminal (px). */
-export const DEFAULT_FONT_SIZE = 14;
+// `DEFAULT_FONT_SIZE` graduated to `terminal-themes`, beside `FONT_FAMILY` —
+// the two are one fact (what a kolu terminal is drawn in) and both of kolu's
+// readers already import the other from there. NOT re-exported back through this
+// door: this module's manifest names eighteen workspace packages, and routing a
+// terminal-rendering integer through it is what cost a consumer twenty-eight
+// hydrated directories for one number, and so cost it the number.
 
 /** The CLIENT's visible scrollback, in lines — what the browser xterm retains
  *  and what `exportScrollbackAsPdf.ts` serializes. Re-exported from its home in

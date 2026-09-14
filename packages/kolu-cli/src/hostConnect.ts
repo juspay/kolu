@@ -24,11 +24,8 @@
  * bytes, no cast, and the tags can only agree with what the daemon serves.
  */
 
-import {
-  dialPadiViaHost,
-  padiClientOver,
-  scopePadiSurface,
-} from "@kolu/padi/dial";
+import { dialPadiViaHost } from "@kolu/padi/remote-dial";
+import { padiClientOver, scopePadiSurface } from "@kolu/padi-client/dial";
 import type { SurfaceDispatch } from "@kolu/surface/link";
 import { Effect } from "effect";
 import {
@@ -49,7 +46,7 @@ function koluCliConnectionOfAgentDial(
   dispose: () => void,
 ): KoluCliConnection {
   return {
-    client: scopePadiSurface(padiClientOver(dispatch)),
+    client: { core: scopePadiSurface(padiClientOver(dispatch)) },
     dispose,
     // NO close announcement, stated rather than omitted. `AgentDial` carries no
     // close-shaped field, so there is nothing here to pass on — even though the

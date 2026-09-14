@@ -1,4 +1,4 @@
-import type { Transcript } from "@kolu/padi/transcript";
+import type { Transcript } from "@kolu/padi-client/surface";
 import { transcriptToHtml } from "kolu-transcript-html";
 import { describe, expect, it } from "vitest";
 

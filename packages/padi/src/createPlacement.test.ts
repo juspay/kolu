@@ -17,14 +17,14 @@
  * hierarchy just went flat. A required sum cannot express that silence.
  */
 
-import { Schema } from "effect";
-import { describe, expect, it } from "vitest";
 import {
   PadiCreateInputSchema,
-  parentIdOf,
   PLACEMENT_REQUIRED,
+  parentIdOf,
   TOPLEVEL_PLACEMENT,
-} from "./surface.ts";
+} from "@kolu/padi-client/surface";
+import { Schema } from "effect";
+import { describe, expect, it } from "vitest";
 
 const PARENT = "11111111-1111-4111-8111-111111111111";
 

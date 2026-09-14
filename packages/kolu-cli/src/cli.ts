@@ -45,14 +45,21 @@
 // re-typed: a `--help` line that hand-copies a constant is a sentence nothing
 // stops from going quietly false. (`@kolu/terminal-vocab/agentProjection` is a
 // pure fold module, so this costs the dynamic-import fence nothing.)
-import { isScreenImageLines, SCREEN_IMAGE_MAX_ROWS } from "@kolu/padi/surface";
+import {
+  isScreenImageLines,
+  SCREEN_IMAGE_MAX_ROWS,
+} from "@kolu/padi-client/surface";
+import { isValidTimerMs, timerRangeMessage } from "@kolu/surface/wait";
 import {
   WAIT_STATES,
   WATCH_DEFAULT_STATES,
 } from "@kolu/terminal-vocab/agentProjection";
-import { isValidTimerMs, timerRangeMessage } from "@kolu/surface/wait";
 import { Effect, Option } from "effect";
 import { Argument, Command, Flag } from "effect/unstable/cli";
+// The ONE version accessor (`hostname.ts` is a leaf: node built-ins + the
+// server's package.json, which `/release` bumps and nix reads too) — so
+// `kolu --version` can never diverge from the version the server reports.
+import { serverVersion } from "kolu-server/src/hostname.ts";
 // The `kolu debrief` contract — a zero-import leaf, read HERE for the flags'
 // defaults and the `--help` line, and by `verbs/debrief.ts` to perform the
 // expansion. See that module's header for why it is not spelled twice.
@@ -61,10 +68,6 @@ import {
   DEBRIEF_QUIET_MS,
   DEBRIEF_TAIL_LINES,
 } from "./debriefProtocol.ts";
-// The ONE version accessor (`hostname.ts` is a leaf: node built-ins + the
-// server's package.json, which `/release` bumps and nix reads too) — so
-// `kolu --version` can never diverge from the version the server reports.
-import { serverVersion } from "kolu-server/src/hostname.ts";
 import {
   type Endpoint,
   endpointFlags,
@@ -73,6 +76,11 @@ import {
 } from "./endpoint.ts";
 // Every exit-code-bearing error, and the sentence each one carries.
 import { reservedFace } from "./exit.ts";
+// The surface face — the ONE static import that names a face: Effect CLI's
+// tree must hold its subcommands on every invocation, and `surfaceFace.ts`'s
+// header is the record of what that costs (schema-level only) and what it
+// refuses to cost (no socket, no MCP SDK).
+import { koluSurfaceFace } from "./surfaceFace.ts";
 // The web face's flags and their projection onto the server's boot contract.
 // They live in THIS package because they are part of the command tree: how argv
 // is parsed is the CLI's volatility, and a flag declaration is a runtime call
@@ -237,7 +245,7 @@ const positiveLines = (name: string): Flag.Flag<number> =>
 const timerMsFlag = (name: string, effect: string): Flag.Flag<number> =>
   Flag.integer(name).pipe(
     Flag.filter(isValidTimerMs, (n) =>
-      timerRangeMessage(name, effect, String(n)),
+      timerRangeMessage(`--${name}`, effect, String(n)),
     ),
   );
 
@@ -700,7 +708,7 @@ export const watchFlags = {
   nag: opt(
     Flag.string("nag").pipe(
       Flag.withDescription(
-        "RE-report every interval the state keeps holding, so an ignored terminal comes back instead of vanishing after one line — 300000, or 5m",
+        "RE-report every interval the state keeps holding, so an ignored terminal comes back instead of vanishing after one line — 300000, or 5m. Suffix a count to make it finite: 30m/3 is three reminders past the first report, then quiet until the state changes",
       ),
     ),
   ),
@@ -737,7 +745,7 @@ const watch = Command.make(
   }),
 ).pipe(
   Command.withDescription(
-    "Stream terminal changes and live output activity — or, with --states/--held-for/--nag, supervise: report agents that have been sitting in a state, and keep reporting them.",
+    "Stream terminal changes and live output activity — or, with --states/--held-for/--nag, supervise: report agents that have been sitting in a state, and keep reporting them (finitely, when the interval carries a count, --nag 30m/3).",
   ),
   Command.withExamples([
     {
@@ -759,7 +767,7 @@ const watch = Command.make(
 );
 
 /** The whole binary. Verbs first — they are what a user reaches for — then the
- *  two server-ish faces and the reserved one. */
+ *  two server-ish faces, the padi projection, and the reserved one. */
 export const koluCli = koluRoot.pipe(
   Command.withSubcommands([
     ls,
@@ -774,6 +782,7 @@ export const koluCli = koluRoot.pipe(
     watch,
     web,
     mcp,
+    koluSurfaceFace(koluRoot),
     tui,
   ]),
 );

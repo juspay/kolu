@@ -16,7 +16,7 @@
  *    owns what it shows and how it folds).
  *  - **Reference** folds: the whole Attach section lives behind a disclosure. */
 
-import { activeArm, type TerminalMetadata } from "@kolu/padi/surface";
+import { activeArm, type TerminalMetadata } from "@kolu/padi-client/surface";
 import type { TerminalId } from "kolu-common/surface";
 import { type Component, Show } from "solid-js";
 import { TerminalIcon } from "../ui/Icons";

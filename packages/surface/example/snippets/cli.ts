@@ -67,10 +67,15 @@ const endpoint: EndpointSeam<typeof endpointFlags> = {
           socketPath: values.socket,
         });
         return {
-          client: buildSurfaceFace(
-            surface,
-            link.dispatch,
-          ) as SurfaceClientCallable,
+          // The rooted bundle this face dials: one unprefixed `core`, no
+          // siblings — the degenerate bundle, whose argv spellings are the bare
+          // ones.
+          client: {
+            core: buildSurfaceFace(
+              surface,
+              link.dispatch,
+            ) as SurfaceClientCallable,
+          },
           // Required, not optional: a CLI dials, does one thing and exits, and
           // the one failure that costs a user something is a socket left open in
           // a shell loop.
@@ -96,12 +101,17 @@ const verbs: Record<string, SurfaceVerb> = {
 
 // #region project
 const commands = surfaceCommands({
-  surface,
-  // The default-deny map — the same one the MCP face and the wire faces read.
-  expose: {
-    load: "resource",
-    processes: "resource",
-    "proc.kill": "tool",
+  // The unprefixed CORE — its verbs and readers sit at the top of the mounted
+  // tree. A sibling would go in `surfaces`, and its whole projection would be
+  // mounted under its key as the first argv word (`example outlines ops_run`).
+  core: {
+    surface,
+    // The default-deny map — the same one the MCP face and the wire faces read.
+    expose: {
+      load: "resource",
+      processes: "resource",
+      "proc.kill": "tool",
+    },
   },
   verbs,
   endpoint,

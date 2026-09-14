@@ -60,7 +60,6 @@ function healthyChild() {
   child.stdin = pair.client.write;
   child.stdout = pair.client.read;
   child.stderr = new PassThrough();
-  child.pid = 1234;
   child.kill = vi.fn(() => {
     pair.server.write.end();
     (child as unknown as EventEmitter).emit("exit", null, "SIGTERM");

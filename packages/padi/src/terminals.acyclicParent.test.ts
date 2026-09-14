@@ -1,8 +1,8 @@
 /** Unit coverage for the two parent-edge guards that any tree model needs:
  *  no self-parent, no cycle. Nested depth is allowed (#2059). */
 
+import { TerminalParentCycle } from "@kolu/padi-client/surface";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { TerminalParentCycle } from "./errors.ts";
 
 const getTerminal = vi.fn();
 

@@ -21,11 +21,16 @@ vi.mock("./useTerminalStore", () => ({
   useTerminalStore: () => ({
     getTilePaneIds: () => [],
     getMetadata: () => undefined,
+    terminalIds: () => [],
+    activate: () => {},
   }),
 }));
 vi.mock("../forwards/useForwards", () => ({
   forwardsForHost: () => [],
   viewerHost: () => null,
+}));
+vi.mock("../forwards/useHostListeners", () => ({
+  useHostListeners: () => () => ({ status: "unknown" as const }),
 }));
 vi.mock("../kaval/useDaemonStatus", () => ({
   isActiveHostLocal: () => true,
@@ -37,7 +42,7 @@ vi.mock("../forwards/openPort", () => ({
 vi.mock("./handleWebLink", () => ({
   openRawUrl: vi.fn(),
 }));
-vi.mock(import("@kolu/padi/surface"), async (importOriginal) => {
+vi.mock(import("@kolu/padi-client/surface"), async (importOriginal) => {
   const actual = await importOriginal();
   return { ...actual, activeArm: () => undefined };
 });

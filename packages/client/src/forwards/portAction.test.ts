@@ -144,6 +144,7 @@ describe("rowAction — the row KIND decides before any reach is judged", () => 
   const info = (scope: PortInfo["scope"]): PortInfo => ({
     port: 5173,
     name: "node",
+    command: "node vite",
     scope,
     family: "v4",
   });
@@ -180,6 +181,7 @@ describe("rowAction — the row KIND decides before any reach is judged", () => 
       kind: "port",
       port: 5173,
       info: info("loopback"),
+      origin: "subtree",
       forward: undefined,
     };
     expect(rowAction({ row, onKoluHost: true, viewerOnHost: false })).toEqual({
@@ -193,6 +195,7 @@ describe("rowAction — the row KIND decides before any reach is judged", () => 
       kind: "port",
       port: 5173,
       info: info("interface"),
+      origin: "subtree",
       forward: undefined,
     };
     for (const onKoluHost of [true, false]) {
@@ -201,6 +204,22 @@ describe("rowAction — the row KIND decides before any reach is judged", () => 
         reason: NO_MECHANISM_REASON["interface-bind"],
       });
     }
+  });
+});
+
+describe("rowAction — an unclaimed bind", () => {
+  it("is judged by its bind exactly like a claimed port", () => {
+    const row: PortRow = {
+      kind: "unclaimed",
+      port: 8443,
+      bind: { port: 8443, scope: "loopback", family: "v4" },
+      origin: "printed",
+      forward: undefined,
+    };
+    expect(rowAction({ row, onKoluHost: true, viewerOnHost: false })).toEqual({
+      action: { kind: "forward" },
+      reason: FORWARD_REASON.loopback,
+    });
   });
 });
 

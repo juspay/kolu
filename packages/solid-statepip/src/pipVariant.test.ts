@@ -117,7 +117,13 @@ describe("PIP_MOTION_CLASS — activity channel tokens", () => {
 // Identity glyph record — fenced over AgentKind. A new kind without a mark is a
 // compile error in agentGlyph; this test pins that every current kind has a
 // non-empty path and that shell is the stroked prompt.
-const AGENT_KINDS: AgentKind[] = ["claude-code", "codex", "opencode", "grok"];
+const AGENT_KINDS: AgentKind[] = [
+  "claude-code",
+  "codex",
+  "opencode",
+  "grok",
+  "pi",
+];
 
 describe("pipGlyph / agentGlyph — identity marks", () => {
   for (const kind of AGENT_KINDS) {

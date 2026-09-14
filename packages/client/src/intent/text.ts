@@ -1,7 +1,12 @@
-/** First display line for compact intent tabs. */
-export function firstIntentLine(intent: string): string {
-  return intent.split(/\r?\n/, 1)[0] ?? "";
-}
+// `firstIntentLine` and `annotationLine` live with the dock row
+// (`@kolu/solid-dockrow/rowValues`), not here: the annotation SLOT is the row's,
+// and its rule — intent line 1 when set, the fallback otherwise, never both
+// stacked — is one a consumer rendering that row must not re-derive. This module
+// keeps the folds that are genuinely about intent TEXT rather than about the
+// slot, and re-exports the two so the ~7 client call sites keep one door.
+import { annotationLine, firstIntentLine } from "@kolu/solid-dockrow/rowValues";
+
+export { annotationLine, firstIntentLine };
 
 /** Stateless. Hoisted to module scope so `firstGrapheme` doesn't
  *  allocate a new segmenter on every reactive update. `Intl.Segmenter`
@@ -40,19 +45,6 @@ const MARKDOWN_CHROME = /^[\s*_`#>~]+/;
  *  has nothing renderable. */
 export function intentLeadGlyph(intent: string): string {
   return firstGrapheme(firstIntentLine(intent).replace(MARKDOWN_CHROME, ""));
-}
-
-/** The annotation line for a render site: intent line-1 when the user
- *  set one, otherwise the supplied fallback (typically the branch name
- *  or sub-tab label). One slot per render site — never both stacked,
- *  so the intent's first-grapheme glyph appears only here and not as a
- *  separate chip elsewhere on the same card. */
-export function annotationLine(
-  intent: string | undefined,
-  fallback: string,
-): string {
-  if (intent) return firstIntentLine(intent);
-  return fallback;
 }
 
 /** Lines 2+ of the intent — the body that renders in `IntentBody`,

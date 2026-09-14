@@ -13,10 +13,10 @@
  *  `canvas/TileTitleActions`. The header is intentionally minimal. */
 
 import Resizable from "@corvu/resizable";
-import { Effect } from "effect";
-import { activeArm, sleepingArm } from "@kolu/padi/surface";
+import { activeArm, sleepingArm } from "@kolu/padi-client/surface";
 import { createPwaInstall } from "@kolu/solid-pwa-install";
 import { Meta, Title } from "@solidjs/meta";
+import { Effect } from "effect";
 import type { TerminalId } from "kolu-common/surface";
 import {
   type Component,
@@ -29,20 +29,19 @@ import {
 import { Toaster } from "solid-sonner";
 import { match, P } from "ts-pattern";
 import AboutDialog from "./AboutDialog";
-import { useDockFocus } from "./canvas/dock/useDockFocus";
 import { useAttention } from "./attention/useAttention";
 import ChromeBar from "./ChromeBar";
 import CloseConfirm, { type CloseConfirmTarget } from "./CloseConfirm";
 import CommandPalette from "./CommandPalette";
 import CompactTileView from "./CompactTileView";
 import Dock from "./canvas/dock/Dock";
+import { useDockFocus } from "./canvas/dock/useDockFocus";
 import { useDockOrder } from "./canvas/dock/useDockOrder";
 import TerminalCanvas from "./canvas/TerminalCanvas";
 import TileTitleActions from "./canvas/TileTitleActions";
 import { useCanvasArrange } from "./canvas/useCanvasArrange";
 import { createCommands } from "./commands";
 import DiagnosticInfo from "./DiagnosticInfo";
-import StateBackupsDialog from "./StateBackupsDialog";
 import EmptyState from "./EmptyState";
 import ExportSessionDialog, {
   exportSessionDialog,
@@ -53,7 +52,6 @@ import HostDownCanvas from "./host/HostDownCanvas";
 import { hostHue, hostLabel } from "./host/hostChipTone";
 import { savedSession as serverSavedSession } from "./hostScope/activeWire";
 import { createImportSessionAction } from "./importSessionAction";
-import { runAction } from "./runAction";
 import { useShortcuts } from "./input/useShortcuts";
 import IntentEditorDialog from "./intent/IntentEditorDialog";
 import { useIntentEditor } from "./intent/useIntentEditor";
@@ -70,7 +68,9 @@ import RightPanelDrawer from "./right-panel/RightPanelDrawer";
 import { useRightPanel } from "./right-panel/useRightPanel";
 import { wsStatus } from "./rpc/rpc";
 import TransportOverlay from "./rpc/TransportOverlay";
+import { runAction } from "./runAction";
 import ShortcutsHelp from "./ShortcutsHelp";
+import StateBackupsDialog from "./StateBackupsDialog";
 import { exportSession, importSession } from "./sessionTransfer";
 import TipBanner from "./settings/TipBanner";
 import { useColorScheme } from "./settings/useColorScheme";

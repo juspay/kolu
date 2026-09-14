@@ -26,15 +26,22 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Effect, Schema, Stream } from "effect";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+import type { Logger } from "@kolu/log";
 import { silentLogger } from "@kolu/log/loggerStubs.testutil";
 import { defineSurface } from "./define";
+import { exposeRootedFaces, type ServedGeneration } from "./expose";
 import { unixSocketLink } from "./links/unix-socket";
 import { duplexWireLink, type WireLink } from "./links/wire";
 import {
   LIFETIME_TICK_TAG,
   lifetimeSurface,
 } from "./peer-server.lifetime.contract";
-import { implementSurface, type SurfaceHandlers } from "./server";
+import {
+  implementRootedSurfaces,
+  implementSurface,
+  inMemoryStore,
+  type SurfaceHandlers,
+} from "./server";
 import {
   getRuntimeSocketPath,
   isPrivateOwnedDir,
@@ -501,5 +508,118 @@ describe("close() disconnects established peers (surface-lifetime-audit step 3)"
     // Peer B was disconnected by the close.
     await expect(double(b, 4)).rejects.toThrow();
     await b.dispose();
+  });
+});
+
+describe("serveOverUnixSocket — the live generation", () => {
+  const coreSurface = defineSurface({
+    cells: { errors: { schema: Schema.String, default: "" } },
+    procedures: {
+      core: {
+        ping: { input: Schema.Struct({}), output: Schema.String },
+      },
+    },
+  });
+  const pluginSurface = defineSurface({
+    procedures: {
+      plugin: {
+        ping: { input: Schema.Struct({}), output: Schema.String },
+      },
+    },
+  });
+
+  function rooted() {
+    return implementRootedSurfaces(
+      coreSurface,
+      {},
+      {
+        cells: { errors: { store: inMemoryStore("") } },
+        procedures: { core: { ping: () => Effect.succeed("pong") } },
+      },
+    );
+  }
+
+  async function bootLive(
+    live: (runtime: ReturnType<typeof rooted>) => ServedGeneration,
+    log: Logger = silentLogger,
+  ) {
+    const runtime = rooted();
+    const socketPath = join(
+      mkdtempSync(join(tmpdir(), "surface-usock-live-")),
+      "a.sock",
+    );
+    const listener = await serveOverUnixSocket({
+      socketPath,
+      live: () => live(runtime),
+      log,
+    });
+    expect(listener.outcome).toEqual({ kind: "listening" });
+    return { runtime, socketPath, listener };
+  }
+
+  it("a socket accepted AFTER a mount is served the new sibling", async () => {
+    const { runtime, socketPath, listener } = await bootLive((r) => ({
+      group: r.group,
+      handlers: r.handlers,
+    }));
+    try {
+      runtime.mount("kolu", pluginSurface, {
+        procedures: { plugin: { ping: () => Effect.succeed("plugin") } },
+      });
+      const link = await unixSocketLink({
+        group: runtime.group,
+        socketPath,
+      });
+      expect(
+        await Effect.runPromise(
+          link.dispatch.unary("surface/kolu/plugin/ping", {}),
+        ),
+      ).toBe("plugin");
+      await link.dispose();
+    } finally {
+      listener.close();
+      await runtime.close();
+    }
+  });
+
+  it("a stale expose after mount refuses that peer and leaves the listener up", async () => {
+    const errors: string[] = [];
+    const log: Logger = {
+      ...silentLogger,
+      error: (_obj, msg) => errors.push(msg),
+    };
+    const { runtime, socketPath, listener } = await bootLive(
+      (r) => ({
+        group: r.group,
+        handlers: r.handlers,
+        expose: exposeRootedFaces(coreSurface, { "core.ping": "tool" }, {}, {}),
+      }),
+      log,
+    );
+    try {
+      const before = await unixSocketLink({
+        group: runtime.group,
+        socketPath,
+      });
+      expect(
+        await Effect.runPromise(before.dispatch.unary("surface/core/ping", {})),
+      ).toBe("pong");
+
+      runtime.mount("kolu", pluginSurface, {
+        procedures: { plugin: { ping: () => Effect.succeed("plugin") } },
+      });
+      void unixSocketLink({ group: runtime.group, socketPath });
+      await expect
+        .poll(() => errors, { timeout: 2_000 })
+        .toContain("unix-socket live generation refused");
+
+      expect(
+        await Effect.runPromise(before.dispatch.unary("surface/core/ping", {})),
+      ).toBe("pong");
+      await before.dispose();
+    } finally {
+      listener.close();
+      await runtime.close();
+    }
   });
 });

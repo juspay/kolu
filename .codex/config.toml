@@ -6,7 +6,7 @@ id = ""
 [mcp_servers.chrome-devtools.env]
 
 [mcp_servers.odu]
-command = ".agents/skills/odu-mcp/bin/serve"
+command = ".agents/skills/odu/serve"
 args = []
 id = ""
 

@@ -18,8 +18,8 @@
  * recycle is never reached.
  */
 
-import type { PtyHostListEntry } from "kaval";
 import { Effect } from "effect";
+import type { PtyHostListEntry } from "kaval";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const listEntries = vi.hoisted(() => ({ value: [] as PtyHostListEntry[] }));
@@ -66,29 +66,29 @@ vi.mock("../log.ts", () => ({
   },
 }));
 
+import {
+  encodeHostLocation,
+  LOCAL_LOCATION,
+  type SavedActiveTerminal,
+  type SavedSession,
+} from "@kolu/padi-client/surface";
 import { inMemoryStore } from "@kolu/surface/server";
-import { setPadiLastPairedDaemonStore } from "../session/confStores.ts";
 import { setDaemonProcessId } from "../koluRoot.ts";
 import {
   __resetPadiSurfaceCtxForTest,
   noopPadiSurfaceCtxForTest,
   setPadiSurfaceCtx,
 } from "../padiSurfaceCtx.ts";
-import type { PairedDaemon } from "../session/pairedDaemon.ts";
 import { publishDaemonStatus } from "../ptyHost/daemonStatus.ts";
 import { unreachableDispatch } from "../ptyHost/dispatch.testlib.ts";
+import { setPadiLastPairedDaemonStore } from "../session/confStores.ts";
+import type { PairedDaemon } from "../session/pairedDaemon.ts";
 import { getSavedSession, setSavedSession } from "../session/session.ts";
 import {
   getTerminal,
   terminalEntries,
   unregisterTerminal,
 } from "../terminal-registry.ts";
-import {
-  encodeHostLocation,
-  LOCAL_LOCATION,
-  type SavedActiveTerminal,
-  type SavedSession,
-} from "../vocab.ts";
 import { adoptSurvivingSession } from "./reattach.ts";
 
 setDaemonProcessId("adopt-tolerance-test-server");

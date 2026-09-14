@@ -127,14 +127,16 @@ async function connect(over: ReturnType<typeof buildSurface>) {
     InMemoryTransport.createLinkedPair();
 
   const served = await serveSurfaceAsMcp({
-    surface: over.surface,
-    client: () => over.client,
-    expose: {
-      count: "resource",
-      ticks: "resource",
-      "counter.bump": { tool: { mutates: true } },
-      // "admin.nuke" deliberately omitted — default-deny.
+    core: {
+      surface: over.surface,
+      expose: {
+        count: "resource",
+        ticks: "resource",
+        "counter.bump": { tool: { mutates: true } },
+        // "admin.nuke" deliberately omitted — default-deny.
+      },
     },
+    client: () => ({ core: over.client }),
     tools: {
       greet: {
         input: Schema.Struct({ name: Schema.String }),
@@ -278,7 +280,7 @@ describe("serveSurfaceAsMcp — end to end over the in-memory transport", () => 
     expect(res.isError).toBeFalsy();
 
     // The bump actually moved the cell — a subsequent read reflects it.
-    const read = await mcp.readResource({ uri: cellUri("count") });
+    const read = await mcp.readResource({ uri: cellUri(undefined, "count") });
     const body = (read.contents[0] as { text: string }).text;
     expect(JSON.parse(body)).toBe(1);
   });
@@ -324,9 +326,9 @@ describe("serveSurfaceAsMcp — end to end over the in-memory transport", () => 
 
     const { resources } = await mcp.listResources();
     const uris = resources.map((r) => r.uri);
-    expect(uris).toContain(cellUri("count"));
+    expect(uris).toContain(cellUri(undefined, "count"));
 
-    const read = await mcp.readResource({ uri: cellUri("count") });
+    const read = await mcp.readResource({ uri: cellUri(undefined, "count") });
     const body = (read.contents[0] as { text: string }).text;
     expect(JSON.parse(body)).toBe(0);
   });
@@ -351,9 +353,10 @@ describe("serveSurfaceAsMcp — end to end over the in-memory transport", () => 
     const [clientTransport, serverTransport] =
       InMemoryTransport.createLinkedPair();
     const served = await serveSurfaceAsMcp({
-      surface,
-      client: () => droppedBridge as unknown as SurfaceClientCallable,
-      expose: { count: "resource" },
+      core: { surface, expose: { count: "resource" } },
+      client: () => ({
+        core: droppedBridge as unknown as SurfaceClientCallable,
+      }),
       serverInfo: { name: "empty-snapshot-test", version: "0.0.0" },
       transport: serverTransport,
     });
@@ -364,9 +367,9 @@ describe("serveSurfaceAsMcp — end to end over the in-memory transport", () => 
       () => served.close(),
     );
 
-    await expect(mcp.readResource({ uri: cellUri("count") })).rejects.toThrow(
-      /no snapshot frame|link\/protocol failure/,
-    );
+    await expect(
+      mcp.readResource({ uri: cellUri(undefined, "count") }),
+    ).rejects.toThrow(/no snapshot frame|link\/protocol failure/);
   });
 
   it("a member that resolves NO streaming source at all also throws (the dropped-face arm)", async () => {
@@ -383,9 +386,8 @@ describe("serveSurfaceAsMcp — end to end over the in-memory transport", () => 
     const [clientTransport, serverTransport] =
       InMemoryTransport.createLinkedPair();
     const served = await serveSurfaceAsMcp({
-      surface,
-      client: () => brokenFace as unknown as SurfaceClientCallable,
-      expose: { count: "resource" },
+      core: { surface, expose: { count: "resource" } },
+      client: () => ({ core: brokenFace as unknown as SurfaceClientCallable }),
       serverInfo: { name: "no-source-test", version: "0.0.0" },
       transport: serverTransport,
     });
@@ -396,9 +398,9 @@ describe("serveSurfaceAsMcp — end to end over the in-memory transport", () => 
       () => served.close(),
     );
 
-    await expect(mcp.readResource({ uri: cellUri("count") })).rejects.toThrow(
-      /resolved no streaming source/,
-    );
+    await expect(
+      mcp.readResource({ uri: cellUri(undefined, "count") }),
+    ).rejects.toThrow(/resolved no streaming source/);
   });
 
   it("a STREAM that opens EMPTY also throws — streams are snapshot-first too (StreamHandlerDeps), not empty-to-null", async () => {
@@ -417,9 +419,10 @@ describe("serveSurfaceAsMcp — end to end over the in-memory transport", () => 
     const [clientTransport, serverTransport] =
       InMemoryTransport.createLinkedPair();
     const served = await serveSurfaceAsMcp({
-      surface,
-      client: () => droppedBridge as unknown as SurfaceClientCallable,
-      expose: { ticks: "resource" },
+      core: { surface, expose: { ticks: "resource" } },
+      client: () => ({
+        core: droppedBridge as unknown as SurfaceClientCallable,
+      }),
       serverInfo: { name: "empty-stream-test", version: "0.0.0" },
       transport: serverTransport,
     });
@@ -430,9 +433,9 @@ describe("serveSurfaceAsMcp — end to end over the in-memory transport", () => 
       () => served.close(),
     );
 
-    await expect(mcp.readResource({ uri: streamUri("ticks") })).rejects.toThrow(
-      /no snapshot frame|link\/protocol failure/,
-    );
+    await expect(
+      mcp.readResource({ uri: streamUri(undefined, "ticks") }),
+    ).rejects.toThrow(/no snapshot frame|link\/protocol failure/);
   });
 
   it("reads a stream resource snapshot (void-input source)", async () => {
@@ -444,7 +447,7 @@ describe("serveSurfaceAsMcp — end to end over the in-memory transport", () => 
     );
 
     // The `ticks` stream's snapshot is the current count (0).
-    const read = await mcp.readResource({ uri: streamUri("ticks") });
+    const read = await mcp.readResource({ uri: streamUri(undefined, "ticks") });
     const body = (read.contents[0] as { text: string }).text;
     expect(JSON.parse(body)).toBe(0);
   });
@@ -462,7 +465,7 @@ describe("serveSurfaceAsMcp — end to end over the in-memory transport", () => 
       updates.push(n.params.uri);
     });
 
-    await mcp.subscribeResource({ uri: cellUri("count") });
+    await mcp.subscribeResource({ uri: cellUri(undefined, "count") });
 
     // Drive a change through the exposed procedure — the cell delta should
     // produce an `updated` for the cell URI (debounced, hence waitFor).
@@ -470,7 +473,7 @@ describe("serveSurfaceAsMcp — end to end over the in-memory transport", () => 
 
     await vi.waitFor(
       () => {
-        expect(updates).toContain(cellUri("count"));
+        expect(updates).toContain(cellUri(undefined, "count"));
       },
       { timeout: 2000 },
     );
@@ -527,10 +530,9 @@ describe("serveSurfaceAsMcp — end to end over the in-memory transport", () => 
     const [clientTransport, serverTransport] =
       InMemoryTransport.createLinkedPair();
     const served = await serveSurfaceAsMcp({
-      surface,
+      core: { surface, expose: {} },
       // `peek` never touches the client and `listTools` doesn't invoke it.
-      client: () => ({ surface: {} }) as SurfaceClientCallable,
-      expose: {},
+      client: () => ({ core: { surface: {} } as SurfaceClientCallable }),
       tools: {
         peek: {
           mutates: false,
@@ -613,13 +615,15 @@ async function connectEdge(over: ReturnType<typeof buildEdgeSurface>) {
     InMemoryTransport.createLinkedPair();
 
   const served = await serveSurfaceAsMcp({
-    surface: over.surface,
-    client: () => over.client,
-    expose: {
-      rows: "resource",
-      pinged: "resource",
-      "echo.shout": "tool",
+    core: {
+      surface: over.surface,
+      expose: {
+        rows: "resource",
+        pinged: "resource",
+        "echo.shout": "tool",
+      },
     },
+    client: () => ({ core: over.client }),
     tools: {
       // An array-input bespoke tool — also wrapped under `value` (F3).
       sum: {
@@ -789,9 +793,8 @@ describe("serveSurfaceAsMcp — boot-time guards", () => {
     const [, serverTransport] = InMemoryTransport.createLinkedPair();
     await expect(
       serveSurfaceAsMcp({
-        surface: over.surface,
-        client: () => over.client,
-        expose: { "counter.bump": "tool" },
+        core: { surface: over.surface, expose: { "counter.bump": "tool" } },
+        client: () => ({ core: over.client }),
         // `counter_bump` collides with the generated name for counter.bump.
         tools: { counter_bump: { handler: () => Effect.succeed("x") } },
         transport: serverTransport,
@@ -812,9 +815,8 @@ describe("serveSurfaceAsMcp — boot-time guards", () => {
     const [, serverTransport] = InMemoryTransport.createLinkedPair();
     await expect(
       serveSurfaceAsMcp({
-        surface,
-        client: () => ({ surface: {} }) as SurfaceClientCallable,
-        expose: { "a.b_c": "tool", "a_b.c": "tool" },
+        core: { surface, expose: { "a.b_c": "tool", "a_b.c": "tool" } },
+        client: () => ({ core: { surface: {} } as SurfaceClientCallable }),
         transport: serverTransport,
       }),
     ).rejects.toThrow(/tool name "a_b_c" is produced by both/);
@@ -848,7 +850,8 @@ describe("serveSurfaceAsMcp — boot-time guards", () => {
 
   type ConcurrencyOver = ReturnType<typeof concurrencySurface>;
   type ConcurrencyOptions = ServeSurfaceAsMcpOptions<
-    ConcurrencyOver["surface"]["spec"]
+    ConcurrencyOver["surface"]["spec"],
+    Record<string, SurfaceSpec>
   >;
 
   /** The spine every case in this block drives: one in-memory pair, one adapter
@@ -860,13 +863,15 @@ describe("serveSurfaceAsMcp — boot-time guards", () => {
   async function connectConcurrency(
     over: ConcurrencyOver,
     opts: Pick<ConcurrencyOptions, "client"> &
-      Partial<Pick<ConcurrencyOptions, "expose" | "tools">>,
+      Partial<Pick<ConcurrencyOptions, "core" | "tools">>,
   ) {
     const [clientTransport, serverTransport] =
       InMemoryTransport.createLinkedPair();
     const served = await serveSurfaceAsMcp({
-      surface: over.surface,
-      expose: { "ok.ping": { tool: { mutates: false } } },
+      core: {
+        surface: over.surface,
+        expose: { "ok.ping": { tool: { mutates: false } } },
+      },
       ...opts,
       serverInfo: { name: "t", version: "0" },
       transport: serverTransport,
@@ -888,15 +893,18 @@ describe("serveSurfaceAsMcp — boot-time guards", () => {
       client: () => {
         dials += 1;
         return {
-          client: over.client,
+          client: { core: over.client },
           dispose: () => {
             disposes += 1;
           },
         };
       },
-      expose: {
-        "ok.ping": { tool: { mutates: false } },
-        "bad.boom": { tool: { mutates: false } },
+      core: {
+        surface: over.surface,
+        expose: {
+          "ok.ping": { tool: { mutates: false } },
+          "bad.boom": { tool: { mutates: false } },
+        },
       },
       // A bespoke tool that rejects with a recognized TRANSPORT death — the one
       // shape that SHOULD reset the shared connection.
@@ -960,7 +968,7 @@ describe("serveSurfaceAsMcp — boot-time guards", () => {
       client: () => {
         const n = (dials += 1);
         return {
-          client: over.client,
+          client: { core: over.client },
           dispose: () => {
             disposed.push(n);
           },
@@ -1004,7 +1012,7 @@ describe("serveSurfaceAsMcp — boot-time guards", () => {
       client: () => {
         const n = (dials += 1);
         return {
-          client: over.client,
+          client: { core: over.client },
           dispose: () => {
             disposed.push(n);
           },
@@ -1033,7 +1041,7 @@ describe("serveSurfaceAsMcp — boot-time guards", () => {
       client: () => {
         dials += 1;
         return {
-          client: over.client,
+          client: { core: over.client },
           dispose: () => {},
           onClose: (cb: () => void) => cb(),
         };
@@ -1069,7 +1077,7 @@ describe("serveSurfaceAsMcp — boot-time guards", () => {
     const { mcp, server } = await connectConcurrency(over, {
       client: () => {
         dials += 1;
-        return { client: over.client, dispose: () => {} };
+        return { client: { core: over.client }, dispose: () => {} };
       },
     });
 
@@ -1103,7 +1111,7 @@ describe("serveSurfaceAsMcp — boot-time guards", () => {
       client: () => {
         const n = (dials += 1);
         return {
-          client: over.client,
+          client: { core: over.client },
           dispose: () => {
             disposed.push(n);
           },
@@ -1150,7 +1158,7 @@ describe("serveSurfaceAsMcp — boot-time guards", () => {
         // either resolves, so a check-then-act getConn would open two sockets.
         await new Promise((r) => setTimeout(r, 10));
         return {
-          client: over.client,
+          client: { core: over.client },
           dispose: () => {
             disposes += 1;
           },
@@ -1180,7 +1188,7 @@ describe("serveSurfaceAsMcp — boot-time guards", () => {
       client: async () => {
         await dialGate; // hold the dial open until we release it
         return {
-          client: over.client,
+          client: { core: over.client },
           dispose: () => {
             disposes += 1;
           },
@@ -1359,9 +1367,8 @@ describe("serveSurfaceAsMcp — the structured arm", () => {
     const [clientTransport, serverTransport] =
       InMemoryTransport.createLinkedPair();
     const served = await serveSurfaceAsMcp({
-      surface,
-      client: () => brokenRead as unknown as SurfaceClientCallable,
-      expose: { count: "resource" },
+      core: { surface, expose: { count: "resource" } },
+      client: () => ({ core: brokenRead as unknown as SurfaceClientCallable }),
       serverInfo: { name: "read-tagged-test", version: "0.0.0" },
       transport: serverTransport,
     });
@@ -1372,9 +1379,9 @@ describe("serveSurfaceAsMcp — the structured arm", () => {
       () => served.close(),
     );
 
-    await expect(mcp.readResource({ uri: cellUri("count") })).rejects.toThrow(
-      /surface-mcp: OutlineBroken/,
-    );
+    await expect(
+      mcp.readResource({ uri: cellUri(undefined, "count") }),
+    ).rejects.toThrow(/surface-mcp: OutlineBroken/);
   });
 
   it("a non-Error failure value is described, not stringified to [object Object]", async () => {
@@ -1469,9 +1476,8 @@ describe("serveSurfaceAsMcp — the structured arm", () => {
     const [clientTransport, serverTransport] =
       InMemoryTransport.createLinkedPair();
     const served = await serveSurfaceAsMcp({
-      surface,
-      client: () => ({ surface: {} }) as SurfaceClientCallable,
-      expose: {},
+      core: { surface, expose: {} },
+      client: () => ({ core: { surface: {} } as SurfaceClientCallable }),
       tools: {
         dateDetail: {
           handler: () =>
@@ -1539,9 +1545,8 @@ describe("serveSurfaceAsMcp — the structured arm", () => {
     const [clientTransport, serverTransport] =
       InMemoryTransport.createLinkedPair();
     const served = await serveSurfaceAsMcp({
-      surface,
-      client: () => ({ surface: {} }) as SurfaceClientCallable,
-      expose: {},
+      core: { surface, expose: {} },
+      client: () => ({ core: { surface: {} } as SurfaceClientCallable }),
       tools: {
         echoUnion: {
           input: Schema.Union([

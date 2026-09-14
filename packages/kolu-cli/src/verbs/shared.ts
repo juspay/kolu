@@ -4,25 +4,31 @@
  * onto stdout/stderr under the CLI's output discipline.
  *
  * The pure halves already live one layer down and are NOT re-implemented here —
- * `resolveTerminalId` (the prefix/exact/ambiguous decision) and `shortId` are
+ * `resolveTerminalId` (the prefix/exact/ambiguous decision, on
+ * `@kolu/padi-client/terminalId`) and `shortId` are
  * `@kolu/padi/render`'s, shared with padi-tui. What this module adds is the
  * kolu-CLI-shaped wrapper around them: the sentences a user reads when the id
  * was wrong, which name `kolu ls` as the way to see the live ones.
  */
 
-import {
-  isWaitState,
-  type WaitState,
-} from "@kolu/terminal-vocab/agentProjection";
-import type { PadiSurfaceClient } from "@kolu/padi/dial";
-import { readTerminalKeys } from "@kolu/padi/read";
-import { resolveTerminalId, shortId } from "@kolu/padi/render";
-import type { TerminalId } from "@kolu/terminal-vocab/schema";
-import { Data, Effect, type Sink, Stream } from "effect";
 // The SUBPATH, not the `@effect/platform-node` barrel — see `main.ts`'s import
 // header. Every verb goes through this module, so a barrel here would hand each
 // one the HTTP server and cluster transports on the way to a writable stream.
 import * as NodeSink from "@effect/platform-node/NodeSink";
+import { readTerminalKeys } from "@kolu/padi/read";
+import { shortId } from "@kolu/padi/render";
+import { resolveTerminalId } from "@kolu/padi-client/terminalId";
+import type { PadiSurfaceClient } from "@kolu/padi-client/dial";
+// The ONE reading of "the reader hung up" — `@kolu/surface-cli`'s own, imported
+// (not re-spelled) since this binary mounted the projection: see the export
+// block below for why it is this package's.
+import { isConsumerHangup } from "@kolu/surface-cli";
+import {
+  isWaitState,
+  type WaitState,
+} from "@kolu/terminal-vocab/agentProjection";
+import type { TerminalId } from "@kolu/terminal-vocab/schema";
+import { Data, Effect, type Sink, Stream } from "effect";
 import { type CliFailure, errorMessage, failure } from "../exit.ts";
 
 /** How a bucket list is SPELLED on a command line: comma-separated, any-of,
@@ -56,10 +62,10 @@ export function waitStateTokens(raw: string): readonly WaitState[] | undefined {
  *  `kolu wait`'s `--until`, `kolu watch`'s `--states`/`--held-for`/`--nag`. The
  *  shape is the whole point (a rejection is a VALUE here, not a throw, so the
  *  refusal happens before a `--host` has ssh-provisioned a cold box), and one
- *  concept spelled twice in sibling verbs is the copy that drifts. */
-export type Parsed<T> =
-  | { readonly kind: "ok"; readonly value: T }
-  | { readonly kind: "error"; readonly message: string };
+ *  concept spelled twice in sibling verbs is the copy that drifts — which is
+ *  why this re-EXPORTS the parser layer's own `Parsed`, the same shape this
+ *  used to declare by hand. */
+export type { Parsed } from "@kolu/padi-client/watchDuration";
 
 /** Widen a user-typed id-or-prefix to the one full id it names, or fail with the
  *  sentence that says which kind of "no" this was.
@@ -154,14 +160,20 @@ export class StdoutWriteFailed extends Data.TaggedError("StdoutWriteFailed")<{
  *  asked for and left; anything else is a real failure that must be said out
  *  loud rather than folded into the same silent success.
  *
- *  EXPORTED, and so is {@link stdoutSink} and {@link stdoutLost} beside it: a
- *  one-shot block and a live feed differ in SHAPE, not in what can go wrong with
- *  a descriptor, so `watch.ts` plugs the same three values into a streaming
- *  consumption. It used to say exactly that in a comment while writing them out
- *  a second time — and a comment asserting two things are the same is a
- *  convention, not a constraint. */
-export const isConsumerHangup = (cause: unknown): boolean =>
-  (cause as { readonly code?: unknown })?.code === "EPIPE";
+ *  THE predicate is `@kolu/surface-cli`'s `io.ts`, re-exported here — it reads
+ *  the errno on the platform error's `cause` as well as flat, which is the one
+ *  Node actually produces. It used to be spelled locally, reading only the
+ *  flat `code`: two half-right EPIPE tests is the recorded divergence
+ *  `@kolu/surface-cli` documented until this face mounted the projection, and
+ *  one question ("is stdout's data channel gone?") has one answer now.
+ *
+ *  EXPORTED further, and so are {@link stdoutSink} and {@link stdoutLost}
+ *  beside it: a one-shot block and a live feed differ in SHAPE, not in what
+ *  can go wrong with a descriptor, so `watch.ts` plugs the same values into a
+ *  streaming consumption. It used to say exactly that in a comment while
+ *  writing them out a second time — and a comment asserting two things are
+ *  the same is a convention, not a constraint. */
+export { isConsumerHangup };
 
 /** Backpressure-aware stdout, as a SINK.
  *

@@ -19,8 +19,8 @@
  * frames".
  */
 
+import type { PadiTerminal } from "@kolu/padi-client/surface";
 import type { TerminalId } from "@kolu/terminal-vocab/schema";
-import type { PadiTerminal } from "../surface.ts";
 
 export interface FleetGate {
   /** Should this frame reach the attention consumers? `false` only for the

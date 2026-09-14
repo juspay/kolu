@@ -48,9 +48,18 @@ export {
   buildSshProbeCommand,
   forEachLine,
   isLocalHost,
+  nixSshOpts,
   ResolveDrvError,
   SSH_COMMON_OPTS,
+  sshDialOpts,
+  type SshDestination,
 } from "./host";
+export {
+  DEFAULT_SSH_KEEPALIVE,
+  MAX_SSH_KEEPALIVE_TOLERANCE_S,
+  type SshKeepalive,
+  sshKeepalive,
+} from "./keepalive";
 export {
   buildRemotePool,
   type ClosableSocket,

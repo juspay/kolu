@@ -12,7 +12,7 @@
  *  (a skewed kaval is never connected). Imports the pure module only — no
  *  daemonStatus subscription, no DOM. */
 
-import type { DaemonStatus } from "@kolu/padi/surface";
+import type { DaemonStatus } from "@kolu/padi-client/surface";
 import { describe, expect, it } from "vitest";
 import { kavalAttention } from "./kavalCurrency";
 

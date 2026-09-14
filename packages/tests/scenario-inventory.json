@@ -7516,6 +7516,54 @@
       "firstSeenSha": "1be13ca552dbddf44e112ff6f368fea611dfbd0c"
     },
     {
+      "revisionId": "revision-998932d093494c48c5be",
+      "scenarioKey": "scenario-4649e6f85c0f1692f701",
+      "feature": "features/pi.feature",
+      "scenario": "Tile chrome lights up for a Pi session and follows a live state transition",
+      "kind": "scenario",
+      "tags": ["@pi-mock"],
+      "bodyHash": "7f22f3a9c87df96f19596a2f1e805d3727ea863b9516b28cea18de53fa4172b6",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "d9fb92798bbf064993b4fea99b5c94acb64d127f"
+    },
+    {
+      "revisionId": "revision-a8b89c6517938e034ee6",
+      "scenarioKey": "scenario-603d2f47e09b445324f2",
+      "feature": "features/pi.feature",
+      "scenario": "Tile chrome lights up when the session file lands after the reconcile ladder",
+      "kind": "scenario",
+      "tags": ["@pi-mock"],
+      "bodyHash": "618b6a120a71baac5af0f2750386ee9b214a1529eda36a610a4713e26eeb8662",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "d9fb92798bbf064993b4fea99b5c94acb64d127f"
+    },
+    {
+      "revisionId": "revision-024ebc7e5cf5c71778b2",
+      "scenarioKey": "scenario-ef480b4cc963533eff5b",
+      "feature": "features/worktree-agent.feature",
+      "scenario": "Mouse submission survives a live palette refresh",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "c686e7a76153b1a121d13663a284cc2853554e3a64e4f9265ad94241020abced",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "39d76c97988542ca7a43109d65135df71b063690"
+    },
+    {
+      "revisionId": "revision-b88ae7e124084a8ed302",
+      "scenarioKey": "scenario-18a56f653b558b7b816d",
+      "feature": "features/printed-url.feature",
+      "scenario": "A detached server's printed URL is found on the host",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "c8408dd14213993dc7df9c470beac874b3c105d250f953f59ee473f57766b2e7",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "29c8d0d4fecf78f444754d8c5a1c3ec961c2424f"
+    },
+    {
       "revisionId": "revision-5ff5cea3e93fef1e1167",
       "scenarioKey": "scenario-b9ba4e0547586de5e32b",
       "feature": "features/xyne.feature",

@@ -14,10 +14,10 @@
  * retired with its TUI.
  */
 
+import type { PadiSurfaceClient } from "@kolu/padi-client/dial";
 import type { TerminalId } from "@kolu/terminal-vocab/schema";
 import { Cause, Effect, Exit } from "effect";
 import { describe, expect, it } from "vitest";
-import type { PadiSurfaceClient } from "../dial.ts";
 import {
   isPadiHistoryStale,
   materializeHistoryPage,

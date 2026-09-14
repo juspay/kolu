@@ -5,7 +5,7 @@
 **padi-tui** is the terminal-side client for [`padi`](../padi), the per-host
 workspace daemon (registry · fold · lifecycle · fs/git · kaval supervision). It
 dials padi's digest-keyed unix socket — through the shared
-[`@kolu/padi/dial`](../padi/src/dial.ts) kit — and reads its `padiSurface`: what
+[`@kolu/padi-client/dial`](../padi-client/src/dial.ts) kit — and reads its `padiSurface`: what
 each terminal *is in* (record state · repo·branch · PR · agent state ·
 foreground) and, crucially, the precise agent-state **done-signal** for driving
 an agent that drives another agent.

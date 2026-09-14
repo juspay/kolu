@@ -11,9 +11,15 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { koluRootGroup } from "kolu-common/contract";
+import {
+  koluNonSiblingGroups,
+  koluWireGroup,
+  padiHostMap,
+} from "kolu-common/surfacesWithPadi";
 import { describe, expect, it } from "vitest";
 import { servedGroup } from "./surface.ts";
-import { parseArgs, rpcFor, wireGroup } from "./wireCall.ts";
+import { parseArgs, rpcFor } from "./wireCall.ts";
 
 const BASE = "http://127.0.0.1:7681";
 
@@ -70,16 +76,24 @@ describe("parseArgs", () => {
 // where it lives (`packages/surface-app/src/index.test.ts`).
 
 describe("the caller's group", () => {
-  // `wireGroup` is ASSEMBLED from the three sources `surface.ts` merges, not imported
-  // from it (importing `surface.ts` builds the Conf store, which a one-shot caller must
-  // not do). That means it can silently fall BEHIND: a fourth source merged into
-  // `servedGroup` would leave `kolu-rpc` answering "no member is served at tag" for a
-  // tag the server does serve. A test may import `surface.ts` (the unit lane points
-  // KOLU_STATE_DIR at a temp dir), so the equality is pinned here instead.
-  it("spells exactly the tag set kolu-server serves", () => {
-    expect([...wireGroup.requests.keys()].sort()).toEqual(
-      [...servedGroup.requests.keys()].sort(),
-    );
+  // This used to pin two independently-assembled copies of one merge EQUAL — a rule
+  // a test remembered, because `wireCall.ts` re-derived the group rather than
+  // importing `surface.ts` (whose import builds the Conf store, which a one-shot
+  // caller must not do). Both now alias the ONE assembly, `koluWireGroup`
+  // (`kolu-common/surfacesWithPadi`), so "the caller can spell exactly what the
+  // server serves" is true by construction and a tag-set comparison would be `x ===
+  // x`. What is worth pinning instead is that the two modules still READ the one
+  // constant rather than growing a second derivation: identity, not equality.
+  it("dials the ONE wire assembly the server serves — the same value, not a copy", () => {
+    // `kolu-rpc` reads `koluWireGroup` directly (it kept no local alias — a second
+    // NAME for one value is the thing that drifts), so what is left to pin is that
+    // the SERVER still reads the same value rather than growing a derivation of its
+    // own, and that the browser's `extraGroups` come from the same list.
+    expect(servedGroup).toBe(koluWireGroup);
+    expect(Object.values(koluNonSiblingGroups)).toEqual([
+      koluRootGroup,
+      padiHostMap.group,
+    ]);
   });
 });
 

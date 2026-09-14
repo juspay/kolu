@@ -21,7 +21,7 @@ import {
   type DaemonStatus,
   encodeHostLocation,
   LOCAL_LOCATION,
-} from "@kolu/padi/surface";
+} from "@kolu/padi-client/surface";
 import type { EntryState } from "@kolu/surface-map";
 import { encodeHostKey, type HostKey } from "kolu-common/hostKey";
 import type { PadiLink } from "kolu-common/surface";
@@ -33,9 +33,9 @@ import type {
 import { createEffect, createMemo, createRoot } from "solid-js";
 import { toast } from "solid-sonner";
 import { createSharedRoot } from "../createSharedRoot";
-import type { LogLine } from "../ui/logTailChrome";
 import { activeScope } from "../hostScope/hostScopes";
 import { persistedPref } from "../persistedPref";
+import type { LogLine } from "../ui/logTailChrome";
 import { activeHost, app, padiMap } from "../wire";
 import {
   channelLive,

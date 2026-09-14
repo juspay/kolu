@@ -1,5 +1,5 @@
+import type { TerminalInfo, TerminalMetadata } from "@kolu/padi-client/surface";
 import { Stream } from "effect";
-import type { TerminalInfo, TerminalMetadata } from "@kolu/padi/surface";
 import { decodeHostKey, encodeHostKey, LOCAL_HOST } from "kolu-common/hostKey";
 import type { TerminalId } from "kolu-common/surface";
 import { createEffect, createRoot, createSignal } from "solid-js";

@@ -33,7 +33,8 @@ vi.mock("../../wire", async () => {
 import { activeScope } from "../../hostScope/hostScopes";
 import { addHost, resetHosts } from "../../hostScope/mockHostMap.testlib";
 import { useSubPanel } from "../../terminal/useSubPanel";
-import { dockRowAttrs } from "./dockRowAttrs";
+import { dockRowAttrs } from "@kolu/solid-dockrow/rowValues";
+import { isActiveRow } from "./activeRow";
 
 const [activeHost, setActiveHost] = createSignal<HostKey>(HOST);
 bag.activeHost = activeHost;
@@ -66,8 +67,8 @@ it("clears a split's unread dock dot when its sub-entry lands", async () => {
               id: SPLIT,
               bucket: "working",
               agentState: "thinking",
-              asking: false,
-              unread: view.isUnread(SPLIT),
+              pip: { asking: false, alert: view.isUnread(SPLIT) },
+              active: isActiveRow(SPLIT),
             })}
             onClick={() => useSubPanel().focusSubTab(PARENT, SPLIT)}
           />

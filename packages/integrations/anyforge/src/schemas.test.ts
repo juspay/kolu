@@ -3,9 +3,11 @@ import { describe, expect, it } from "vitest";
 import {
   CheckStatusSchema,
   foldCheckOutcomes,
+  MergeStateStatusSchema,
   PrInfoSchema,
   PrStateSchema,
   prResultEqual,
+  ReviewDecisionSchema,
 } from "./schemas.ts";
 import type { PrInfo, PrResult } from "./schemas.ts";
 
@@ -17,7 +19,7 @@ describe("PrInfo wire format", () => {
   const decode = Schema.decodeUnknownSync(PrInfoSchema);
   const encode = Schema.encodeSync(PrInfoSchema);
 
-  it("encodes to the exact legacy JSON bytes", () => {
+  it("encodes number/title/url/state/checks/checkRuns/reviewDecision/mergeStateStatus in that key order", () => {
     const pr: PrInfo = {
       number: 148,
       title: "Decomplect PR resolution state",
@@ -28,13 +30,16 @@ describe("PrInfo wire format", () => {
         { name: "ci::biome@x86_64-linux", outcome: "fail" },
         { name: "ci::unit@x86_64-linux", outcome: "pass" },
       ],
+      reviewDecision: "CHANGES_REQUESTED",
+      mergeStateStatus: "BLOCKED",
     };
     expect(JSON.stringify(encode(pr))).toBe(
       '{"number":148,"title":"Decomplect PR resolution state",' +
         '"url":"https://github.com/juspay/kolu/pull/148","state":"open",' +
         '"checks":"fail","checkRuns":[' +
         '{"name":"ci::biome@x86_64-linux","outcome":"fail"},' +
-        '{"name":"ci::unit@x86_64-linux","outcome":"pass"}]}',
+        '{"name":"ci::unit@x86_64-linux","outcome":"pass"}],' +
+        '"reviewDecision":"CHANGES_REQUESTED","mergeStateStatus":"BLOCKED"}',
     );
   });
 
@@ -49,16 +54,19 @@ describe("PrInfo wire format", () => {
       state: "merged",
       checks: null,
       checkRuns: [],
+      reviewDecision: null,
+      mergeStateStatus: "UNKNOWN",
     };
     expect(JSON.stringify(encode(pr))).toBe(
       '{"number":1,"title":"t","url":"https://example.invalid/pull/1",' +
-        '"state":"merged","checks":null,"checkRuns":[]}',
+        '"state":"merged","checks":null,"checkRuns":[],' +
+        '"reviewDecision":null,"mergeStateStatus":"UNKNOWN"}',
     );
   });
 
-  it("decodes an OLD server payload with no checkRuns key (rolling deploy)", () => {
+  it("decodes an OLD server payload with no checkRuns / review / merge keys (rolling deploy)", () => {
     // Rolling-deploy tolerance, not a fallback: an older server emitting
-    // payloads without this field must still parse on a newer client.
+    // payloads without these fields must still parse on a newer client.
     expect(
       decode({
         number: 7,
@@ -74,6 +82,8 @@ describe("PrInfo wire format", () => {
       state: "open",
       checks: "pending",
       checkRuns: [],
+      reviewDecision: null,
+      mergeStateStatus: "UNKNOWN",
     });
   });
 
@@ -88,21 +98,25 @@ describe("PrInfo wire format", () => {
     expect(JSON.stringify(encode(decode(wire)))).toBe(
       '{"number":7,"title":"old server",' +
         '"url":"https://example.invalid/pull/7","state":"open",' +
-        '"checks":"pending","checkRuns":[]}',
+        '"checks":"pending","checkRuns":[],' +
+        '"reviewDecision":null,"mergeStateStatus":"UNKNOWN"}',
     );
   });
 
-  it("decodes a NEW server payload with checkRuns verbatim", () => {
-    expect(
-      decode({
-        number: 8,
-        title: "new server",
-        url: "https://example.invalid/pull/8",
-        state: "closed",
-        checks: null,
-        checkRuns: [{ name: "gate", outcome: "pass" }],
-      }).checkRuns,
-    ).toEqual([{ name: "gate", outcome: "pass" }]);
+  it("decodes a NEW server payload with checkRuns / review / merge verbatim", () => {
+    const decoded = decode({
+      number: 8,
+      title: "new server",
+      url: "https://example.invalid/pull/8",
+      state: "closed",
+      checks: null,
+      checkRuns: [{ name: "gate", outcome: "pass" }],
+      reviewDecision: "APPROVED",
+      mergeStateStatus: "CLEAN",
+    });
+    expect(decoded.checkRuns).toEqual([{ name: "gate", outcome: "pass" }]);
+    expect(decoded.reviewDecision).toBe("APPROVED");
+    expect(decoded.mergeStateStatus).toBe("CLEAN");
   });
 
   it("rejects an unknown state / outcome rather than defaulting it", () => {
@@ -127,6 +141,30 @@ describe("PrInfo wire format", () => {
           state: "open",
           checks: null,
           checkRuns: [{ name: "gate", outcome: "skipped" }],
+        }),
+      ),
+    ).toBe(true);
+    expect(
+      Result.isFailure(
+        attempt({
+          number: 9,
+          title: "t",
+          url: "u",
+          state: "open",
+          checks: null,
+          reviewDecision: "approved",
+        }),
+      ),
+    ).toBe(true);
+    expect(
+      Result.isFailure(
+        attempt({
+          number: 9,
+          title: "t",
+          url: "u",
+          state: "open",
+          checks: null,
+          mergeStateStatus: "clean",
         }),
       ),
     ).toBe(true);
@@ -157,6 +195,40 @@ describe("enum wire vocabularies", () => {
       Result.isFailure(Schema.decodeUnknownResult(PrStateSchema)("draft")),
     ).toBe(true);
   });
+
+  it("decodes every ReviewDecision member and rejects a friendlier spelling", () => {
+    const decode = Schema.decodeUnknownSync(ReviewDecisionSchema);
+    expect(
+      ["APPROVED", "CHANGES_REQUESTED", "REVIEW_REQUIRED"].map((m) =>
+        decode(m),
+      ),
+    ).toEqual(["APPROVED", "CHANGES_REQUESTED", "REVIEW_REQUIRED"]);
+    expect(
+      Result.isFailure(
+        Schema.decodeUnknownResult(ReviewDecisionSchema)("approved"),
+      ),
+    ).toBe(true);
+  });
+
+  it("decodes every MergeStateStatus member and rejects a friendlier spelling", () => {
+    const decode = Schema.decodeUnknownSync(MergeStateStatusSchema);
+    const members = [
+      "BEHIND",
+      "BLOCKED",
+      "CLEAN",
+      "DIRTY",
+      "DRAFT",
+      "HAS_HOOKS",
+      "UNKNOWN",
+      "UNSTABLE",
+    ] as const;
+    expect(members.map((m) => decode(m))).toEqual([...members]);
+    expect(
+      Result.isFailure(
+        Schema.decodeUnknownResult(MergeStateStatusSchema)("clean"),
+      ),
+    ).toBe(true);
+  });
 });
 
 describe("foldCheckOutcomes", () => {
@@ -185,6 +257,8 @@ describe("prResultEqual", () => {
     state: "open",
     checks: "pass",
     checkRuns: [],
+    reviewDecision: null,
+    mergeStateStatus: "UNKNOWN",
   };
   const ok: PrResult = { kind: "ok", value: pr };
 
@@ -214,6 +288,8 @@ describe("prResultEqual", () => {
     { field: "title", value: "other" },
     { field: "state", value: "merged" },
     { field: "checks", value: "fail" },
+    { field: "reviewDecision", value: "APPROVED" },
+    { field: "mergeStateStatus", value: "CLEAN" },
   ] as const)("detects different $field", ({ field, value }) => {
     expect(
       prResultEqual(ok, { kind: "ok", value: { ...pr, [field]: value } }),

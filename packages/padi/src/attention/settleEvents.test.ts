@@ -6,14 +6,14 @@
  * stack (every assertion below waits a microtask first, which IS the pin).
  */
 
+import type { PadiTerminal, PadiUrgency } from "@kolu/padi-client/surface";
 import type { TerminalId } from "@kolu/terminal-vocab/schema";
 import { describe, expect, it } from "vitest";
-import type { PadiTerminal, PadiUrgency } from "../surface.ts";
 import {
-  anchored as terminals,
   makeAgent,
   settled,
   silentLogger,
+  anchored as terminals,
 } from "./attentionFixture.testlib.ts";
 import { createEdgeMemory } from "./edgeMemory.ts";
 import { createEventSeq } from "./eventSeq.ts";

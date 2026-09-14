@@ -13,7 +13,7 @@ import {
   parsePlacementFlags,
   type StatedPlacementFlags,
 } from "@kolu/padi/render";
-import type { TerminalPlacement } from "@kolu/padi/surface";
+import type { TerminalPlacement } from "@kolu/padi-client/surface";
 import { shellJoin } from "@kolu/shell-quote";
 import { Effect } from "effect";
 import type { PadiTuiClient } from "./connect.ts";

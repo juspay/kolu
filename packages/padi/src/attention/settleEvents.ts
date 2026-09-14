@@ -41,6 +41,11 @@
  * the fold rather than re-derived by each consumer.
  */
 
+import type {
+  PadiSettleEvent,
+  PadiTerminal,
+  PadiUrgency,
+} from "@kolu/padi-client/surface";
 import {
   type AttentionTransitions,
   createAttentionTransitions,
@@ -48,7 +53,6 @@ import {
 import type { TerminalId } from "@kolu/terminal-vocab/schema";
 import type { Logger } from "pino";
 import { attentionFrameOf } from "../activity/urgency.ts";
-import type { PadiSettleEvent, PadiTerminal, PadiUrgency } from "../surface.ts";
 import type { EdgeMemory } from "./edgeMemory.ts";
 import type { EventSeq } from "./eventSeq.ts";
 import type { SupervisionEdge } from "./supervisionEdge.ts";

@@ -18,12 +18,12 @@ import {
   PADI_FORWARDING_POLICY,
   type PadiProcessMemory,
   padiSurface,
-} from "@kolu/padi/surface";
+} from "@kolu/padi-client/surface";
 import { directDispatch } from "@kolu/surface/links/direct";
 import { surfaceClientRef } from "@kolu/surface/project";
 import { parseAllowedOrigins } from "@kolu/surface/ws-origin";
-import type { ManifestOptions } from "@kolu/surface-app/server";
 import { serveSurfaceApp } from "@kolu/surface-app/serve";
+import type { ManifestOptions } from "@kolu/surface-app/server";
 import {
   buildRemotePool,
   type ReServedSurface,
@@ -72,18 +72,15 @@ import {
 } from "./padi/supervisorClaim.ts";
 import { padiMemoryReadable } from "./padiMemoryGate.ts";
 import { createKoluForwards } from "./portForward/forwards.ts";
-import {
-  makeHostPortsReader,
-  type TerminalsFace,
-} from "./portForward/hostPorts.ts";
+import { makeHostPortsReader } from "./portForward/hostPorts.ts";
 import { makeViewerHostResolver } from "./portForward/resolveViewerHost.ts";
 import { pwaIdentityForHostname } from "./pwaIdentity.ts";
 import { buildAppRouter, CurrentViewer } from "./router.ts";
+import { stateBackupRing } from "./state.ts";
 import {
   listServerStateBackups,
   restoreServerStateBackup,
 } from "./stateBackups.ts";
-import { stateBackupRing } from "./state.ts";
 import {
   assembleServedHandlers,
   currentNewTerminalPolicy,
@@ -496,7 +493,8 @@ export async function bootKoluWeb(flags: KoluBootFlags): Promise<void> {
     // absent); and a terminal give-up (`state.phase === "failed"`) that carries no finer
     // detail is classified off the ARM via `session.provisions` — a non-provisioning
     // (LOCAL) give-up is `local-start-failed` (its own named producer, distinct from the
-    // remote arm's `link-failed`), a provisioning (remote) one is `link-failed` — rather
+    // remote arm's give-ups), a provisioning (remote) one is `connect-stalled` /
+    // `host-setup-failed` by its transport cause — rather
     // than yielding `null` into `serveHostMap`'s fail-loud `UnclassifiedHostFailureError`
     // seam. So a genuinely-failed entry always classifies.
     failureOf: (_host, session, state): PadiEntryFailure | null =>
@@ -702,23 +700,17 @@ export async function bootKoluWeb(flags: KoluBootFlags): Promise<void> {
    *  reader itself lives in `portForward/` — this only hands it the padi seam. */
   const readHostPorts = makeHostPortsReader({
     log,
-    terminalsOf: (host) => {
+    // The host's `hostListeners` cell off its re-serve mirror — a CELL, so the
+    // spec's typed read face reaches it directly (the terminals collection this
+    // used to walk needed a structural cast, because that face declines
+    // collections).
+    listenersOf: (host) => {
       const session = pool.getSession(encodeHostKey(host));
       if (session === undefined) return null;
       const served = reServeFor(host, session);
-      // `surfaceClientRef` types its result as the spec's READ face, which
-      // deliberately DECLINES collections (it exists for a projection's `deps`,
-      // which never walks one) — while the runtime face `buildSurfaceFace` mints
-      // carries every member, `terminals` included. So the member is reached
-      // structurally, the ONE place kolu-server does so, and the shape it is read
-      // AT (`TerminalsFace`) states the two verbs with bivariant methods so a
-      // `keys`/`get` rename upstream is still a compile error where they are
-      // called. Same deliberate structural gap padi's own dial spells out.
-      const face = surfaceClientRef(served.surface, served)
-        .surface as unknown as {
-        terminals: TerminalsFace;
-      };
-      return face.terminals;
+      return surfaceClientRef(served.surface, served).surface.hostListeners.get(
+        undefined,
+      );
     },
   });
 
@@ -1159,6 +1151,9 @@ export async function bootKoluWeb(flags: KoluBootFlags): Promise<void> {
             return;
           case "SocketError":
             log.error({ err: event.error }, "ws error");
+            return;
+          case "GenerationRefused":
+            log.error({ err: event.error }, "ws live generation refused");
             return;
           case "StaleTab":
             log.info(

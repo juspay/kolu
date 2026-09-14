@@ -23,21 +23,18 @@
  *  DOES reach descendants, but by shelling out to `ps`/`pgrep` and matching a process
  *  TREE — a pattern-match kill this lane's law forbids (exact recorded PIDs only, no
  *  pattern kills). A detached process GROUP + `process.kill(-pid)` is the exact, no-`ps`
- *  primitive that reaps the grandchild; and the settle-AT-expiry, the distinct
- *  `lifetime-expired`/`aborted` arms, and the progress-liveness policy are ours regardless
- *  of who spawns. So the ~90 lines below are irreducible, not an un-surveyed hand-roll.
- *
- *  Out of scope: the long-lived bidirectional agent spawn in `sshConnector.ts`
- *  — that subprocess outlives a single round-trip and is owned by `makeSession`
- *  (teardown + watchdogs). It is a distinct activity, not a user of these
- *  helper.
+ *  primitive that reaps the grandchild. {@link spawnOwnedProcessGroup} owns that
+ *  process volatility once for this helper and the long-lived ssh connector.
+ *  The settle-AT-expiry, the distinct `lifetime-expired`/`aborted` arms, and the
+ *  progress-liveness policy remain specific to this fire-and-collect activity.
  *
  *  New fire-and-collect callers should reach for `runCapture` rather than
  *  open-coding a fresh `spawn` dance. */
 
-import { spawn } from "node:child_process";
+import type { Readable, Transform } from "node:stream";
 import split from "split2";
 import { match } from "ts-pattern";
+import { spawnOwnedProcessGroup } from "./processGroup";
 
 /** The lifetime policy every fire-and-collect spawn MUST carry (#1908 D1b) — a
  *  CLOSED union that carves a real joint (the gate PROVED it; do not collapse it):
@@ -53,9 +50,12 @@ import { match } from "ts-pattern";
  *                           genuinely silent (wedged) child trips it. The CALLER owns
  *                           the doubling / kill-budget across retries (R4) — this seam
  *                           enforces exactly the one `silenceMs` it is handed. */
-export type LifetimePolicy =
-  | { kind: "deadline"; ms: number }
-  | { kind: "progress-liveness"; silenceMs: number };
+export type LifetimePolicy = DeadlinePolicy | ProgressLivenessPolicy;
+export type DeadlinePolicy = { kind: "deadline"; ms: number };
+export type ProgressLivenessPolicy = {
+  kind: "progress-liveness";
+  silenceMs: number;
+};
 
 /** How a fire-and-collect child settled — a CLOSED union over the ways a run ends,
  *  so each cause has ONE honest shape (no magic exit-code sentinel, no both-null
@@ -115,9 +115,33 @@ export interface RunOptions {
   signal?: AbortSignal;
 }
 
-/** How long a group waits after `SIGTERM` before we escalate to `SIGKILL` — a child
- *  that IGNORES `SIGTERM` (or whose ssh grandchild does) is still reaped. */
-const TERM_GRACE_MS = 2000;
+/** {@link RunOptions} plus what only this package's own runners state. Kept OFF
+ *  the published `RunOptions` (the package index re-exports that type, and this
+ *  field is not part of its API). */
+export interface CaptureOptions extends RunOptions {
+  /** The longest stderr line (in characters) the child may write before it is
+   *  killed as `output-error`. Defaults to the stream's own buffering bound
+   *  (`readableHighWaterMark`, 64 KiB) — right for a child whose stderr is human
+   *  text. A child whose stderr is a STRUCTURED stream that legitimately carries
+   *  long records (Nix's `--log-format internal-json`, one JSON event per line,
+   *  builder log lines included) states its own bound. */
+  maxLineLength?: number;
+}
+
+/** A child's stderr as whole, bounded lines — the ONE reader every spawned
+ *  child's stderr goes through. Child streams split at arbitrary byte
+ *  boundaries; `split2` owns the trailing partial line so classification never
+ *  depends on libuv chunks, while its bound prevents a newline-free child from
+ *  retaining an ever-growing fragment (the transform errors past it; each
+ *  caller decides what that means for its child). The bound defaults to the
+ *  stream's own buffering contract (`readableHighWaterMark`) instead of a
+ *  second magic size — unless the caller states one for a structured stream
+ *  (see {@link CaptureOptions.maxLineLength}). */
+export function stderrLinesOf(stream: Readable, maxLength?: number): Transform {
+  return stream
+    .setEncoding("utf-8")
+    .pipe(split({ maxLength: maxLength ?? stream.readableHighWaterMark }));
+}
 
 /** A human-readable tail describing how a run ended — honest across every
  *  {@link ExitResult} arm (never "code null" for a signal/spawn/policy/abort case). */
@@ -164,6 +188,7 @@ interface LifetimeSpawn {
   onProgress: (line: string) => void;
   policy: LifetimePolicy;
   signal?: AbortSignal;
+  maxLineLength?: number;
 }
 
 /** Spawn a child that OWNS its lifetime: forward stderr lines to `onProgress`,
@@ -181,22 +206,17 @@ function runWithLifetime(
       return;
     }
 
-    const proc = spawn(o.cmd, [...o.args], {
-      // DETACHED so the child leads its OWN process group — a policy/abort kill then
-      // targets the whole group (`-pid`), reaping the ssh grandchild that inherited
-      // the stderr pipe. Without this, `process.kill(-pid)` would hit the PARENT's
-      // group. (#1908 R2.)
-      detached: true,
+    const processGroup = spawnOwnedProcessGroup(o.cmd, o.args, {
       // PIPE stdout so it can be returned and can bump progress-liveness. A
       // stdout-only child must never be killed as silent (F11).
       stdio: ["ignore", "pipe", "pipe"],
       env: o.env ? { ...process.env, ...o.env } : undefined,
     });
+    const proc = processGroup.child;
 
     let stdout = "";
     let settled = false;
     let policyTimer: ReturnType<typeof setTimeout> | null = null;
-    let killTimer: ReturnType<typeof setTimeout> | null = null;
 
     const clearPolicyTimer = (): void => {
       if (policyTimer !== null) {
@@ -214,48 +234,10 @@ function runWithLifetime(
       resolve({ result, stdout });
     };
 
-    // Is the child's process GROUP still alive? A signal-0 probe: `process.kill(-pid, 0)`
-    // succeeds (does nothing) while any member survives, throws `ESRCH` once the group is
-    // empty. Used to decide whether the SIGKILL escalation is still needed after the
-    // leader's `close` (F1).
-    const groupAlive = (pid: number): boolean => {
-      try {
-        process.kill(-pid, 0);
-        return true;
-      } catch {
-        return false;
-      }
-    };
-
-    // Kill the whole group: SIGTERM now, escalate to SIGKILL after a grace so a member
-    // that IGNORES SIGTERM is still reaped (C8/F1). The escalation is REF'D and fires
-    // independently of `settle` (which already fired) — it must reach a TERM-ignoring ssh
-    // grandchild, which a caller with no other handles would otherwise outrun. It is
-    // cleared only when the whole GROUP is provably gone (see `close`), never on the
-    // leader's exit alone (the leader closing proves nothing about a surviving grandchild).
-    const killGroup = (): void => {
-      const pid = proc.pid;
-      if (pid === undefined) return;
-      try {
-        process.kill(-pid, "SIGTERM");
-      } catch {
-        /* group already gone — nothing to escalate */
-        return;
-      }
-      killTimer = setTimeout(() => {
-        killTimer = null;
-        try {
-          process.kill(-pid, "SIGKILL");
-        } catch {
-          /* group exited during the grace — done */
-        }
-      }, TERM_GRACE_MS);
-    };
-
     function onAbort(): void {
       // A USER verb (recheck abort-in-flight): its own settle arm, exempt from every
       // budget (C3), and a group-kill of the in-flight children + ssh grandchild.
-      killGroup();
+      processGroup.terminate();
       settle({ ok: false, kind: "aborted" });
     }
 
@@ -266,7 +248,7 @@ function runWithLifetime(
         // Lifetime expired: group-kill and settle NOW — never wait for `close` (which
         // may never fire while the ssh grandchild holds the pipe). Best-effort drain:
         // whatever stderr already arrived was forwarded; `stdout` is what we have.
-        killGroup();
+        processGroup.terminate();
         settle({
           ok: false,
           kind: "lifetime-expired",
@@ -292,34 +274,17 @@ function runWithLifetime(
       stdout += chunk;
       bumpLiveness();
     });
-    proc.stderr?.setEncoding("utf-8");
     if (proc.stderr !== null) {
-      // Child streams split at arbitrary byte boundaries. `split2` owns the
-      // trailing partial line so classification never depends on libuv chunks,
-      // while its bound prevents a newline-free child from retaining an
-      // ever-growing fragment. Use the stream's own buffering contract as the
-      // bound instead of inventing a second magic size.
-      const lines = proc.stderr.pipe(
-        split({ maxLength: proc.stderr.readableHighWaterMark }),
-      );
+      const lines = stderrLinesOf(proc.stderr, o.maxLineLength);
       lines.on("data", (line: string) => o.onProgress(line));
       lines.on("error", (err: Error) => {
-        killGroup();
+        processGroup.terminate();
         settle({ ok: false, kind: "output-error", message: err.message });
       });
       proc.stderr.on("data", bumpLiveness);
     }
 
-    // The child (the group LEADER) exited. Settle from its `close`, but clear the SIGKILL
-    // escalation ONLY if the whole GROUP is gone — a grandchild that ignored SIGTERM and
-    // closed the inherited pipe can still be alive, and the escalation is the one thing
-    // that reaps it (F1). If the group survives, leave the escalation to fire.
     proc.on("close", (code, signal) => {
-      const pid = proc.pid;
-      if (killTimer !== null && (pid === undefined || !groupAlive(pid))) {
-        clearTimeout(killTimer);
-        killTimer = null;
-      }
       settle(exitFromClose(code, signal));
     });
     proc.on("error", (err) => {
@@ -347,7 +312,7 @@ function runWithLifetime(
 export function runCapture(
   cmd: string,
   args: readonly string[],
-  opts: RunOptions,
+  opts: CaptureOptions,
 ): Promise<CaptureResult> {
   return runWithLifetime({
     cmd,
@@ -356,5 +321,6 @@ export function runCapture(
     onProgress: opts.onProgress ?? (() => {}),
     policy: opts.policy,
     signal: opts.signal,
+    maxLineLength: opts.maxLineLength,
   }).then(({ result, stdout }) => ({ ...result, stdout }));
 }

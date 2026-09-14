@@ -24,6 +24,11 @@ import { mkdtempSync } from "node:fs";
 import { createServer, type Server, type Socket } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import {
+  DEFAULT_PADI_HOST_INVENTORY,
+  type PadiHostInventory,
+  PadiHostInventorySchema,
+} from "@kolu/padi-client/surface";
 import { defineSurface } from "@kolu/surface/define";
 import { derived, source } from "@kolu/surface/reactor";
 import { implementSurface } from "@kolu/surface/server";
@@ -35,11 +40,6 @@ import {
   type KavalProbe,
   probeKavalStatus,
 } from "./hostInventory.ts";
-import {
-  DEFAULT_PADI_HOST_INVENTORY,
-  type PadiHostInventory,
-  PadiHostInventorySchema,
-} from "./surface.ts";
 
 /** The probe deadline this test drives the real `probeKavalStatus` with. Small so
  *  the suite is fast; the MECHANISM under it is production's — the same

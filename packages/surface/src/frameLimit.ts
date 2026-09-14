@@ -21,7 +21,7 @@
  *
  * ## Why the value is what it is
  *
- * `RPC_MAX_FRAME_BYTES` is set to Effect's own rc.110 default, 16 MiB, and
+ * `RPC_MAX_FRAME_BYTES` is set to Effect's own rc.112 default, 16 MiB, and
  * that equality is the POINT rather than a coincidence: passing it explicitly
  * at every site means a future bump that changes the default cannot move
  * kolu's wire silently. The number stops being Effect's and starts being ours.
@@ -34,9 +34,9 @@
  *
  * ## The measurement behind the marker
  *
- * BETA-ASSUMPTION(rc.110): an ndjson frame over `maxBufferSize` closes the socket with code 1009 rather than failing the single oversized call.
+ * BETA-ASSUMPTION(rc.112): an ndjson frame over `maxBufferSize` closes the socket with code 1009 rather than failing the single oversized call.
  *
- * Measured against `effect@4.0.0-rc.110`:
+ * Measured against `effect@4.0.0-rc.112`:
  *   - `dist/unstable/rpc/RpcSerialization.js` — `defaultMaxBufferSize = 16 * 1024 * 1024`,
  *     `isBufferSizeExceeded(size, max) => max !== "unbounded" && size > max`
  *     (strictly greater, so a frame EXACTLY at the cap is accepted).

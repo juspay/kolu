@@ -32,6 +32,12 @@
       // writer (multiline arrays), which fights biome's format on every
       // regeneration — the machine that owns the file owns its formatting.
       "!.mcp.json",
+      // Emitted by `just emit-consumer-closure` with its own JSON writer, and
+      // compared BYTE-for-byte by the governance gate so a stale artifact has a
+      // readable diff. Biome collapses its single-element arrays, which would
+      // make the formatter and the emitter fight on every regeneration — the
+      // machine that owns the file owns its formatting, same as `.mcp.json`.
+      "!nix/consumer-closure.json",
       // Claude Code dynamic-workflow scripts use top-level return/await and
       // runtime-injected globals (agent/phase/log/...) — they aren't valid
       // standalone ES modules, so biome can't parse them. Authored, not linted.

@@ -15,10 +15,9 @@
  * terminals" writer.
  */
 
+import type { PadiStateBackup, SavedSession } from "@kolu/padi-client/surface";
 import type { StateBackupEntry } from "kolu-shared/state-backup";
 import { log } from "../log.ts";
-import type { PadiStateBackup } from "../surface.ts";
-import type { SavedSession } from "../vocab.ts";
 import { importSession } from "./sessionRestore.ts";
 import { padiStateBackupRing } from "./stateStore.ts";
 

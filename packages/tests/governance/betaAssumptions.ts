@@ -117,7 +117,7 @@ export const BETA_ASSUMPTION_SITES: readonly string[] = [
   // marker names the law that MEASURES it — `socketRedialLaws.test.ts` — so the
   // re-verification is "run that law", never "read the code and hope".
   "packages/client/src/terminal/reattachingStream.ts",
-  "packages/padi/src/vocab.ts",
+  "packages/padi-client/src/vocab.ts",
   "packages/surface-daemon-supervisor/src/probeDaemonIdentity.ts",
   "packages/surface/src/frameLimit.ts",
   // The websocket link's re-dial EPOCH and its DIAL HISTORY (juspay/kolu#2101 J1).

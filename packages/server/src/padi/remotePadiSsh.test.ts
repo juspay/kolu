@@ -32,26 +32,26 @@ import { randomUUID } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { collectLogger } from "@kolu/log/loggerStubs.testutil";
+import type { TerminalAttachFrame } from "@kolu/padi/endpoint";
 import {
   type PadiDaemonClient,
-  padiClientOver,
   type PadiSurfaceClient,
+  padiClientOver,
   scopePadiSurface,
-} from "@kolu/padi/dial";
+} from "@kolu/padi-client/dial";
 import {
-  padiDaemonGroup,
   PADI_SURFACE_VERSION,
   type PadiHostInventory,
-  padiSurfaceSibling,
   type PadiTerminal,
+  padiDaemonGroup,
+  padiSurfaceSibling,
   TOPLEVEL_PLACEMENT,
-} from "@kolu/padi/surface";
-import type { SurfaceDispatch } from "@kolu/surface/link";
-import type { AgentClient } from "@kolu/surface-remote";
-import { Effect, Stream } from "effect";
-import type { TerminalAttachFrame } from "@kolu/padi/endpoint";
+} from "@kolu/padi-client/surface";
 import { isContractVersionCompatible } from "@kolu/surface/define";
 import { firstFrameOrUndefined } from "@kolu/surface/first-frame";
+import type { SurfaceDispatch } from "@kolu/surface/link";
+import type { AgentClient } from "@kolu/surface-remote";
 import {
   directAgentDerivation,
   isLocalHost,
@@ -60,8 +60,8 @@ import {
   sshConnector,
 } from "@kolu/surface-remote";
 import { TEST_BINARY_CACHE } from "@kolu/surface-remote/agentDerivation.testutil";
-import { collectLogger } from "@kolu/log/loggerStubs.testutil";
 import type { TerminalId } from "@kolu/terminal-vocab/schema";
+import { Effect, Stream } from "effect";
 import { afterAll, describe, expect, it } from "vitest";
 
 const SSH_HOST = process.env.KOLU_E2E_SSH_HOST;

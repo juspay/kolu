@@ -15,6 +15,33 @@ summary: >-
   agent needs you, amber means finished work you haven't seen.
 ---
 
+import ChangeHighlights from "../../components/ChangeHighlights.astro";
+
+<ChangeHighlights
+  items={[
+    {
+      title: "Every split has a row in the Dock",
+      note: "Every pane, agent or plain shell, is its own dock entry now.",
+    },
+    {
+      title: "Tiles land, finish, work, and sleep like things in a place",
+      note: "Tiles land, work, exhale, and fold, so the canvas reads at a glance.",
+    },
+    {
+      title: "One attention vocabulary — and the count you can click",
+      note: "Violet means blocked on you, amber means finished — and counts are clickable.",
+    },
+    {
+      title: "Agents on a remote host can drive kolu, with nothing installed there",
+      note: "kolu's tools travel with the daemon, so a remote agent joins the loop.",
+    },
+    {
+      title: "Click a port on any host, get the page",
+      note: "Click a dev server's port, loopback or remote, and the page opens.",
+    },
+  ]}
+/>
+
 ### [The Dock](/dock)
 
 - <Change kind="added" title="Every split has a row in the Dock" prs={[2046, 2056, 2090]}>Every split now appears as an indented entry beneath its parent terminal — including a plain shell, not only an agent. Click it and the keyboard lands in that pane; the parent stays highlighted as the active tile while the split highlights as the focused terminal. Every sub-entry carries the same status indicator as a top-level row — the shell identity glyph and activity motion for a plain shell, the agent brand mark and violet/amber attention wash when an agent is present — so shell and agent splits cannot drift. The old split-count chip is gone because the entries themselves are the inventory. A split of a split gets its own entry too, indented one notch further under the split it belongs to — and a split whose agent has only just started no longer blanks the Dock for a frame while its first activity timestamp catches up.</Change>

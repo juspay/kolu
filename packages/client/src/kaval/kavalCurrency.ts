@@ -20,7 +20,10 @@
  *  that NEVER connects; its verdict arrives on the `incompatible` status arm
  *  with both versions as typed fields (never re-parsed from message prose). */
 
-import type { DaemonStatus, KavalSkewVersions } from "@kolu/padi/surface";
+import type {
+  DaemonStatus,
+  KavalSkewVersions,
+} from "@kolu/padi-client/surface";
 
 /** The attention verdict — one of the two axes, or none. */
 export type KavalAttention =

@@ -80,12 +80,15 @@
  * needs the transport and is checked just after it.
  */
 
-import { type TerminalPlacement, TOPLEVEL_PLACEMENT } from "@kolu/padi/surface";
 import {
   parsePlacementFlags,
-  shortId,
   type StatedPlacementFlags,
+  shortId,
 } from "@kolu/padi/render";
+import {
+  type TerminalPlacement,
+  TOPLEVEL_PLACEMENT,
+} from "@kolu/padi-client/surface";
 import { shellJoin } from "@kolu/shell-quote";
 import type { TerminalId } from "@kolu/terminal-vocab/schema";
 import { Effect } from "effect";

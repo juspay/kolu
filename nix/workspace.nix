@@ -25,7 +25,7 @@ let
   inherit ((import ../packages/surface-daemon/nix/workspace-closure.nix {
     inherit lib;
   }).mkWorkspaceClosure { members = rawMembers; pinned = pinnedNames; })
-    members identityInputs;
+    members identityInputs depClosure;
 
   # The members that are PINS, not directories in this repo — spelled ONCE, and
   # read by both things that must agree about it: `mkWorkspaceClosure` (which
@@ -33,6 +33,14 @@ let
   # `identityInputs.pinnedSources` instead of the hashed fileset) and the
   # repo-rooted `fileset` below (which cannot carry a store path, so `src`
   # grafts it in instead).
+  #
+  # It is a MAPPING rather than a list because the name → PIN is the one fact
+  # about a pinned member that nothing can derive. By the time anything reads
+  # `members."osfacts-client"` it is already a plain store-path STRING —
+  # `sources.osfacts + "/client-ts"` coerces the attrset away — and a store path
+  # carries neither a revision nor the name of the pin it came from. Everything
+  # else IS derivable and is derived below, so this stays a mapping and never
+  # grows into a second hand-kept list.
   #
   # DECLARED, never sniffed from how the value is spelled. Two location tests
   # were tried before this list existed and both were wrong: `lib.isStorePath`
@@ -43,7 +51,8 @@ let
   # store path, so the filter emptied the whole workspace and the agent source
   # lost every package. A declaration does not depend on where the evaluation
   # is rooted; see workspace-closure.nix's doorstep note.
-  pinnedNames = [ "osfacts-client" ];
+  pinnedPins = { "osfacts-client" = "osfacts"; };
+  pinnedNames = builtins.attrNames pinnedPins;
 
   # Workspace membership: package name → package directory, the ONE Nix-side
   # index of the pnpm workspace. Everything below derives from it — the build
@@ -72,6 +81,7 @@ let
     "@kolu/solid-fileview" = ../packages/solid-fileview;
     "@kolu/solid-browser" = ../packages/solid-browser;
     "@kolu/solid-statepip" = ../packages/solid-statepip;
+    "@kolu/solid-dockrow" = ../packages/solid-dockrow;
     "kolu-common" = ../packages/common;
     "@kolu/daemon-test-gate" = ../packages/daemon-test-gate;
     "anyagent" = ../packages/integrations/anyagent;
@@ -83,6 +93,7 @@ let
     "kolu-grok" = ../packages/integrations/grok;
     "kolu-io" = ../packages/integrations/io;
     "kolu-opencode" = ../packages/integrations/opencode;
+    "kolu-pi" = ../packages/integrations/pi;
     "kolu-pty" = ../packages/integrations/pty;
     "kolu-xyne" = ../packages/integrations/xyne;
     "nonempty" = ../packages/nonempty;
@@ -98,6 +109,7 @@ let
     "kolu-cli" = ../packages/kolu-cli;
     "kolu-mcp" = ../packages/kolu-mcp;
     "@kolu/padi" = ../packages/padi;
+    "@kolu/padi-client" = ../packages/padi-client;
     "padi-tui" = ../packages/padi-tui;
     "@kolu/port-forward" = ../packages/port-forward;
     # NOT a path in this repo: the tool left at OSF5 and its client went with
@@ -121,6 +133,43 @@ let
     "@kolu/log" = ../packages/log;
     "@kolu/xterm-kit" = ../packages/xterm-kit;
   };
+  # member → { name = <npins pin>; revision; subdir } for every pinned member.
+  #
+  # WHY A CONSUMER NEEDS IT. A pinned member is absent from the archive a
+  # consumer fetches, so the consumer grafts it from ITS OWN pin — and then
+  # compiles the result against packages copied from KOLU's. Two revisions of one
+  # package in one `tsc`, and nothing holding them together: it typechecks right
+  # up until a field moves. Consumers have been holding that pairing by hand,
+  # one 63-line shell script per repo, each re-deriving kolu's revision by
+  # jq-ing kolu's INTERNAL `npins/sources.json` — a file layout kolu never
+  # promised to keep. The revision is a fact this tree knows, so it is emitted
+  # into `consumer-closure.json` and checked at eval by `nix/consumer.nix`.
+  #
+  # READ BACK out of `members` and `sources` rather than re-spelled, so the graft
+  # that supplies the BYTES and the revision a consumer is checked against can
+  # never name two different things. `members`, not `rawMembers`: the doorstep in
+  # `mkWorkspaceClosure` has already asserted this value is a string under the
+  # store — the path-literal mistake its own note records — so the only thing
+  # left for the assert below to say is the one thing it can say, "wrong pin".
+  pinnedProvenance = lib.mapAttrs
+    (member: pin:
+      let
+        root = "${sources.${pin}}";
+        dir = members.${member};
+      in
+      assert lib.assertMsg (lib.hasPrefix "${root}/" dir) ''
+        nix/workspace.nix: member '${member}' is declared in `pinnedPins` as coming from
+        the `${pin}` pin, but its path '${dir}' is not under that pin's store path
+        '${root}'. A pinned member's directory must be a subpath of the pin it names —
+        otherwise the `subdir` every consumer is told to graft would be a lie.
+      '';
+      {
+        name = pin;
+        inherit (sources.${pin}) revision;
+        subdir = lib.removePrefix "${root}/" dir;
+      })
+    pinnedPins;
+
   # Only members that are paths in THIS repo can ride a repo-rooted fileset; the
   # pins are grafted into the build tree by `src` below instead. Split off
   # `members` (not `rawMembers`) so building the source forces the doorstep
@@ -178,10 +227,44 @@ let
     pnpm = pkgs.pnpm-build;
     # Platform-independent. `just ci::pnpm-hash-fresh` forces this fetcher to
     # re-execute so a changed lockfile cannot ride a stale binary-cache result.
-    hash = "sha256-0Ytw8DAOufMlkLeqQTaUxXaL+cZ/puFhOWW9HB0w0bQ=";
+    hash = "sha256-mQVtbej4fc+iPfRFiUpBiOAfrVm0rbTWND8dywqwx38=";
     fetcherVersion = 3;
   };
 in
 {
   inherit version src fileset pnpmDeps identityInputs;
+
+  # The manifest walk itself, answered by name. `depClosure` has a TS mirror —
+  # `declaredDependencyClosure` in `@kolu/daemon-test-gate` — and one walk
+  # spelled in two languages is one walk that drifts: the nix answer decides
+  # daemon IDENTITY (a member missed here ships a rebuilt daemon under an
+  # unchanged id) while the TS answer decides what a vendoring consumer pays
+  # for, so a silent disagreement is wrong in both directions and visible in
+  # neither. Exposing it lets `packages/tests/governance/closureWalk.ts` ask
+  # both sides the same question and fail when they answer differently.
+  closureNamesFor = entries: depClosure { inherit entries; };
+
+  # The pin-grafted members, exposed for the same reason `closureNamesFor` is:
+  # a TS reader needs this declaration, and the alternative was regex-parsing
+  # this file's bytes. `packages/tests/governance/consumerClosure.ts` asks for
+  # it through the `nix eval` route `closureWalk.ts` already uses, so the
+  # declaration has one reader-facing spelling and a rename cannot silently
+  # change what the emitter believes.
+  #
+  # `pinnedProvenance` carries what the emitter cannot see: which pin, at which
+  # revision, from which subdirectory. A consumer is checked against that
+  # revision at eval (`nix/consumer.nix`), which is what retires the per-consumer
+  # shell script that used to hold the two pins in step.
+  #
+  # ONE reader-facing spelling, which is why `pinnedNames` is not beside it:
+  # `builtins.attrNames pinnedProvenance` is the same set, and exporting both
+  # made one declaration two exported facts — with only this one ever read. It
+  # stays a local binding, for `treeMembers` and `mkWorkspaceClosure`.
+  #
+  # And PROVENANCE rather than `pinnedMembers`, because `@kolu/daemon-test-gate`
+  # already means something else by that name (`{ name: absolute dir }`): two
+  # differently-shaped things called `pinnedMembers`, both about pinned workspace
+  # members, is the concept multiplication this file's headers hunt everywhere
+  # else. The name here says what it carries that the other one does not.
+  inherit pinnedProvenance;
 }

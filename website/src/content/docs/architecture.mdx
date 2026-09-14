@@ -415,12 +415,20 @@ _out_. The map, grouped:
   `kolu-cli` (the `kolu` binary itself — the composition root that owns
   subcommand dispatch, the padi connect layer, and boots whichever face was
   asked for, plus the terminal verbs `ls`/`create`/`send`/`wait`/`snapshot`/
-  `history`/`kill`/`watch`, each a pure padi client), and `kolu-mcp` (the
+  `history`/`kill`/`watch`, each a pure padi client, and the `kolu surface`
+  face — `surfaceFace.ts` mounts `@kolu/surface-cli`'s projection of the same
+  agent API as argv verbs), and `kolu-mcp` (the
   `kolu mcp` agent face — `padiSurface` re-exposed to coding agents over MCP,
   also with no kolu-server behind it; `kolu tui` is reserved for a later face).
 - **Daemons** — [`padi`](/padi) (the per-host workspace daemon that owns the
   terminal domain and serves `padiSurface`) and [`kaval`](/kaval) (the standalone
   PTY daemon). Each ships a thin shell CLI — `padi-tui`, `kaval-tui`.
+  `padi-client` is padi's other half: the `padiSurface` contract, the dial that
+  reaches a running padi, and the terminal watch kit, split out so a program can
+  speak the surface without installing the daemon, its attention fold (`./attention`) and the terminal-attach consumer contract (`./attach`). Packages are copied whole by
+  the repos that consume kolu from a pin, so sharing a manifest with the daemon
+  meant sharing its PTY engine and its native bindings. padi depends on it and
+  serves it — one contract, one home.
 - **Reachability** — `port-forward` hides ssh forward lifetime and local
   binding: one dedicated ssh connection per forward, so a forwarded port dies
   with the process that opened it rather than outliving it on a shared master.
@@ -441,13 +449,17 @@ _out_. The map, grouped:
   and the daemon's PNG (`kolu screenshot`, the `screen_image` MCP tool) draw
   the same picture from one layout decision.
 - **Agent & forge integrations** — one leaf each for `claude-code`, `codex`,
-  `grok`, `opencode`, `xyne`, plus the agent-agnostic `anyagent` contract;
-  `github` behind the forge-agnostic `anyforge` kernel; and `git` for pure git
-  operations.
+  `grok`, `opencode`, `pi`, `xyne`, plus the agent-agnostic `anyagent`
+  contract; `github` behind the forge-agnostic `anyforge` kernel; and `git`
+  for pure git operations.
 - **Shared UI leaves** — `theme`, `solid-statepip` (the status indicator),
-  `solid-pierre` (file tree + diffs), `solid-markdown`, `solid-fileview`,
-  `solid-browser`, `serve-dir`, and `artifact-sdk` (comments-on-files). Several are
-  shared with a sibling app, [drishti](https://github.com/srid/drishti).
+  `solid-dockrow` (the whole Dock terminal row the indicator sits in — pip,
+  annotation, status words, recency, PR badge and attention wash, so a fleet
+  mirror renders kolu's row rather than inventing one), `solid-pierre` (file
+  tree + diffs), `solid-markdown`, `solid-fileview`, `solid-browser`,
+  `serve-dir`, and `artifact-sdk` (comments-on-files). Several are shared with
+  sibling apps — [drishti](https://github.com/srid/drishti), and olai, which
+  vendors `padi-client` + `solid-dockrow` out of a content-addressed pin.
 - **Contracts & small leaves** — `common` (the shared surface contract), `terminal-vocab`,
   `terminal-protocol`, `transcript-core` / `transcript-html`, and a set of
   zero-dependency utilities (`log`, `nonempty`, `shell-quote`, `html-escape`, …).

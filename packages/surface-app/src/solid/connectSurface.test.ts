@@ -11,7 +11,7 @@
  *     instead of dialling a fabricated address.
  */
 
-import { defineSurface } from "@kolu/surface/define";
+import { defineSurface, defineSurfaceWithPolicy } from "@kolu/surface/define";
 import { Schema } from "effect";
 import { createRoot } from "solid-js";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -89,5 +89,89 @@ describe("connectSurface() — the url default", () => {
     // BEFORE allocation: the throw happens while the socket seam's arguments
     // are still being built — nothing was ever dialled.
     expect(connect).not.toHaveBeenCalled();
+  });
+});
+
+describe("connectSurface() — the client-error interpreter", () => {
+  /** A surface whose cell DECLARES a `client.onError` policy. `buildSurfaceClient`
+   *  refuses to construct a client for it with no interpreter threaded (a declared
+   *  policy may never route nowhere), so this surface is the one that can tell
+   *  whether the door forwards the slot or drops it. */
+  const policied = defineSurfaceWithPolicy<{ kind: "toast"; label: string }>()({
+    cells: {
+      conn: {
+        schema: Schema.Struct({ s: Schema.String }),
+        default: { s: "x" },
+        verbs: ["get"],
+        client: { onError: { kind: "toast", label: "Conn" } },
+      },
+    },
+  });
+
+  it("threads onClientError to the client — a policy-bearing surface is reachable through the SINGULAR door", async () => {
+    const d = dialRecorder();
+    await createRoot(async (dispose) => {
+      const conn = await connectSurface({
+        surface: policied,
+        url: "wss://box.example/rpc/ws",
+        retired: () => {},
+        connect: d.connect,
+        onClientError: () => {},
+      });
+      expect(conn.client).toBeDefined();
+      await conn.dispose();
+      dispose();
+    });
+  });
+
+  it("still CRASHES at construction when the policy would route nowhere", async () => {
+    // The slot is optional at the type (a policy-free surface needs none), so the
+    // enforcement stays `buildSurfaceClient`'s construction scan — and it must keep
+    // firing at this door, or the slot would have turned a loud refusal into a
+    // silent swallow.
+    const d = dialRecorder();
+    await createRoot(async (dispose) => {
+      await expect(
+        connectSurface({
+          surface: policied,
+          url: "wss://box.example/rpc/ws",
+          retired: () => {},
+          connect: d.connect,
+        }),
+      ).rejects.toThrow(/no `onClientError` interpreter was threaded/);
+      dispose();
+    });
+  });
+
+  it("gives the wire back when that crash happens AFTER the dial", async () => {
+    // The crash above lands past the `await`: the socket is dialled and the
+    // watchdog armed before `surfaceClient` refuses. A rejection that left them
+    // running would hand the caller no `dispose` to stop them with — the same leak
+    // the plural door is pinned against, pinned here too, because the tracker lives
+    // in both seams and an untested one is an unmaintained one.
+    //
+    // The WATCHDOG is what this asserts on: the link dials on its own fiber, so the
+    // throw and the unwind can both complete before `connect` is ever called (the
+    // socket assertion reads a vacuous truth), while the heartbeat is armed
+    // synchronously one step before the throw and has no other way home.
+    const d = dialRecorder();
+    await createRoot(async (dispose) => {
+      await expect(
+        connectSurface({
+          surface: policied,
+          url: "wss://box.example/rpc/ws",
+          retired: () => {},
+          connect: d.connect,
+        }),
+      ).rejects.toThrow(/no `onClientError` interpreter was threaded/);
+      // Nothing the seam allocated is still open: every socket it reached is
+      // closed, and it reached at most one.
+      await expect
+        .poll(() => d.dialled.every((ws) => ws.readyState === 3), {
+          timeout: 3_000,
+        })
+        .toBe(true);
+      dispose();
+    });
   });
 });

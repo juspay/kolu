@@ -84,7 +84,6 @@ function crashingChild(code: number) {
   child.stdin = new PassThrough();
   child.stdout = new PassThrough();
   child.stderr = new PassThrough();
-  child.pid = 999;
   child.kill = vi.fn(() => true);
   setTimeout(
     () => (child as unknown as EventEmitter).emit("exit", code, null),
@@ -115,7 +114,6 @@ function controllableChild() {
   child.stdin = pair.client.write;
   child.stdout = pair.client.read;
   child.stderr = new PassThrough();
-  child.pid = 1234;
   const kill = vi.fn(() => {
     pair.server.write.end();
     (child as unknown as EventEmitter).emit("exit", null, "SIGTERM");

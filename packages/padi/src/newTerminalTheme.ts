@@ -13,6 +13,10 @@
  * Same preference, two sites, on purpose.
  */
 
+import {
+  DEFAULT_NEW_TERMINAL_POLICY,
+  type NewTerminalPolicy,
+} from "@kolu/padi-client/surface";
 import { type CellStore, inMemoryStore } from "@kolu/surface/server";
 import {
   availableThemes,
@@ -21,10 +25,6 @@ import {
   type ThemePickMode,
 } from "terminal-themes";
 import { match } from "ts-pattern";
-import {
-  DEFAULT_NEW_TERMINAL_POLICY,
-  type NewTerminalPolicy,
-} from "./newTerminalPolicy.ts";
 import { getTerminal, terminalEntries } from "./terminal-registry.ts";
 import { getActiveTerminalId } from "./terminals.ts";
 

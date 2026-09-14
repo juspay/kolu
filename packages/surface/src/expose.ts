@@ -13,10 +13,12 @@
  *
  *   1. **{@link classifyExpose}** — spec + map → what each key NAMES. The one
  *      authority on the key grammar, shared by every face.
- *   2. **{@link exposeFace} / {@link exposeFaces}** — surface + map →
- *      {@link FaceExposure}, the concrete set of wire tags this face serves.
- *      Parse, don't validate: a face is handed a checked VALUE, never a map it
- *      has to re-interpret.
+ *   2. **{@link exposeFace} / {@link exposeFaces} / {@link exposeRootedFaces}** —
+ *      surface(s) + map(s) → {@link FaceExposure}, the concrete set of wire tags
+ *      this face serves. One constructor per SHAPE of served surface (standalone,
+ *      sibling bundle, rooted bundle), never one with a mode flag. Parse, don't
+ *      validate: a face is handed a checked VALUE, never a map it has to
+ *      re-interpret.
  *   3. **{@link restrictHandlers}** — group + handlers + exposure → the handler
  *      record that face serves.
  *
@@ -77,14 +79,18 @@
  * ## Which faces take one — THE authority on this rule
  *
  * `serveSurfaceApp` (`@kolu/surface-app/serve`) and `serveOverUnixSocket`
- * (`@kolu/surface/unix-socket`) take `expose` directly, and apply it once at
- * bind. A HAND-BUILT serve path — `serveSurfaceSocket` under drishti's per-host
- * dispatch, `serveOverStdio` — restricts its own handlers with
- * {@link restrictHandlers} and serves the result; there is nothing else to it,
- * and that is why the filter is exported. Nothing enforces this split, so it is
- * stated HERE and only here: every other home for it (those faces' docblocks,
- * the reference page, the skill) points back rather than restating, because
- * four independently-worded copies of one rule are four places it can go stale.
+ * (`@kolu/surface/unix-socket`) take the generation through
+ * {@link ServedGenerationSource}: `{ group, handlers, expose? }` is the
+ * generation written at the call; `{ live: () => ({ group, handlers, expose? }) }`
+ * is re-read at each accept, as a pair, and `restrictHandlers` runs on that
+ * generation. A HAND-BUILT serve path — `serveSurfaceSocket` under drishti's
+ * per-host dispatch, `serveOverStdio` — restricts its own handlers with
+ * {@link restrictHandlers} and serves the result; there is nothing else to
+ * it, and that is why the filter is exported. Nothing enforces this split, so
+ * it is stated HERE and only here: every other home for it (those faces'
+ * docblocks, the reference page, the skill) points back rather than restating,
+ * because four independently-worded copies of one rule are four places it can
+ * go stale.
  *
  * The two PROJECTING faces take the MAP itself, not a {@link FaceExposure}: a
  * tag set is lossy for them, since each needs the member kind and `mutates` to
@@ -100,12 +106,16 @@
  * server ANSWERS. Both gates exist, and only the second one is a gate.
  */
 
-import { Data, Effect, Stream } from "effect";
+import { Data } from "effect";
 import type { Rpc, RpcGroup } from "effect/unstable/rpc";
 import { RpcSchema } from "effect/unstable/rpc";
 import {
+  type ComposedSurfaces,
   composeSurfaceContracts,
   isReservedSurfaceTag,
+  isStandaloneRoot,
+  mergeDisjointGroups,
+  notStandaloneRootDetail,
   READ_VERBS,
   type Surface,
   type SurfaceSpec,
@@ -114,6 +124,7 @@ import {
 import {
   assertHandlersMatchGroup,
   emptyHandlers,
+  refusingHandler,
   type SurfaceHandler,
   type SurfaceHandlers,
 } from "./server";
@@ -182,8 +193,8 @@ export const exposureMutates = (exposure: ToolExposure): boolean =>
  *  a procedure to a `ToolExposure`.
  *
  *  Typed against `S`, with NO string index: write the map where `S` is
- *  inferable — `exposeFace(surface, { … })`, `serveSurfaceAsMcp({ surface,
- *  expose })`, `satisfies ExposeMap<MySpec>` — and a typo'd key is a type
+ *  inferable — `exposeFace(surface, { … })`, `serveSurfaceAsMcp({ core: {
+ *  surface, expose } })`, `satisfies ExposeMap<MySpec>` — and a typo'd key is a type
  *  error rather than a boot crash. A loosening index signature would take that
  *  away on exactly the paths that have it (excess-property checking never fires
  *  when every string key is assignable) and buy nothing on the paths that
@@ -580,6 +591,23 @@ export function exposeFaces<M extends Record<string, Surface<SurfaceSpec>>>(
   expose: { [K in keyof M]?: ExposeMap<M[K]["spec"]> },
 ): FaceExposure {
   const composed = composeSurfaceContracts(surfaces);
+  return {
+    universe: new Set(composed.group.requests.keys()),
+    tags: siblingTagsAt("exposeFaces", surfaces, composed, expose),
+  };
+}
+
+/** Bind one map PER SIBLING to the bundle they were composed into, collecting the
+ *  tags they grant — the fold {@link exposeFaces} and {@link exposeRootedFaces}
+ *  share, so the two constructors read a sibling map by ONE rule and a third
+ *  constructor cannot arrive with a fourth reading of `expose`. */
+function siblingTagsAt<M extends Record<string, Surface<SurfaceSpec>>>(
+  seam: string,
+  surfaces: M,
+  composed: ComposedSurfaces<M>,
+  expose: { [K in keyof M]?: ExposeMap<M[K]["spec"]> },
+): Set<string> {
+  const into = new Set<string>();
   const maps = expose as Record<string, ExposeMap<SurfaceSpec> | undefined>;
   // A map keyed by a sibling this bundle does not have is {@link
   // classifyExpose}'s "names nothing" refusal one level UP, and it needs the
@@ -595,15 +623,92 @@ export function exposeFaces<M extends Record<string, Surface<SurfaceSpec>>>(
   );
   if (strays.length > 0) {
     throw new ExposeMapError({
-      detail: `exposeFaces: expose names sibling(s) [${strays.sort().join(", ")}] this bundle does not have; its siblings are [${Object.keys(surfaces).sort().join(", ")}]`,
+      detail: `${seam}: expose names sibling(s) [${strays.sort().join(", ")}] this bundle does not have; its siblings are [${Object.keys(surfaces).sort().join(", ")}]`,
     });
   }
-  const tags = new Set<string>();
   for (const key of Object.keys(surfaces)) {
     const sibling = composed.siblings[key] as Surface<SurfaceSpec>;
-    tagsAt(sibling, maps[key] ?? {}, tags);
+    tagsAt(sibling, maps[key] ?? {}, into);
   }
-  return { universe: new Set(composed.group.requests.keys()), tags };
+  return into;
+}
+
+/** {@link exposeFaces} for a ROOTED bundle — an unprefixed ROOT surface beside the
+ *  sibling map, gated as ONE face. The third member of the family
+ *  (`exposeFace` → one surface, `exposeFaces` → siblings, this → root + siblings),
+ *  a distinct constructor rather than a mode flag, exactly as
+ *  `implementSurface`/`implementSurfaces` are.
+ *
+ *  It exists so the two halves are never unioned by HAND. A face over root +
+ *  siblings is otherwise spelled `{ universe: a.universe ∪ b.universe, tags: a.tags
+ *  ∪ b.tags }` over an `exposeFace` and an `exposeFaces` — and a set union carries
+ *  an unwritten precondition its caller has to promise: it is only sound while the
+ *  two groups are DISJOINT. When they are not, the union silently keeps one copy of
+ *  the shared tag, the `universe` still set-equals a served group merged just as
+ *  carelessly, {@link restrictHandlers} sees nothing wrong, and the face serves one
+ *  member under the other's policy.
+ *
+ *  Two things replace that promise. The universe is `mergeDisjointGroups` of the
+ *  two halves — the SAME counted composition the serve path runs — so disjointness
+ *  is established rather than assumed. And the root is REFUSED unless it is
+ *  standalone, which is the reachable half of the same law: `tagsAt` reads a
+ *  surface's prefix off the value (by design — a scoped sibling and a standalone
+ *  surface are the same shape there), so a sibling-scoped surface handed in as the
+ *  root carries `surface/<key>/…` tags. Those collide with the sibling of that key
+ *  when it is present, and when it is NOT they quietly describe a bundle nobody
+ *  serves — an exposure `restrictHandlers` then refuses far from the mistake. The
+ *  same refusal `connectSurfaces` makes about its own `core`, made here so the
+ *  rule holds at both doors rather than only the one an app happens to use.
+ *
+ *  The maps are per surface: the root's against the root's own spec, one per
+ *  sibling against that sibling's, which is what keeps every `S` inferable and what
+ *  stops one dotted path meaning two things. A sibling with no map is fully denied
+ *  (default-deny is the contract); a map for a sibling that does not exist is an
+ *  {@link ExposeMapError}, the same refusal {@link exposeFaces} raises. */
+export function exposeRootedFaces<
+  S extends SurfaceSpec,
+  M extends Record<string, Surface<SurfaceSpec>>,
+>(
+  core: Surface<S>,
+  coreExpose: ExposeMap<S>,
+  siblings: M,
+  siblingExpose: { [K in keyof M]?: ExposeMap<M[K]["spec"]> },
+): FaceExposure {
+  // The predicate and the sentence are `./define`'s — ONE reading of "is this the
+  // root of a bundle", shared with the serve door and the browser door. The error
+  // CLASS stays this module's own: `ExposeMapError` is what a caller here
+  // recognises a malformed exposure by.
+  if (!isStandaloneRoot(core)) {
+    throw new ExposeMapError({
+      detail: notStandaloneRootDetail(
+        "exposeRootedFaces",
+        "the root surface",
+        core.tagPrefix,
+        "gate it as a sibling with `exposeFaces`",
+      ),
+    });
+  }
+  const composed = composeSurfaceContracts(siblings);
+  // The siblings enter as ONE labelled half, where `connectSurfaces` labels each
+  // sibling separately — a deliberate difference, not an oversight. That seam also
+  // multiplexes `extraGroups` it did not build (a keyed map's group, a host's
+  // hand-written procedures), so naming WHICH sibling an outside group collided
+  // with is the whole value of the report. Here both halves are ours and
+  // `composeSurfaceContracts` has already proved the siblings disjoint among
+  // themselves, so the only collision left to report is root-against-siblings, and
+  // one label says it exactly.
+  const universe = mergeDisjointGroups({
+    core: core.group,
+    siblings: composed.group,
+  });
+  const tags = siblingTagsAt(
+    "exposeRootedFaces",
+    siblings,
+    composed,
+    siblingExpose,
+  );
+  tagsAt(core, coreExpose, tags);
+  return { universe: new Set(universe.requests.keys()), tags };
 }
 
 // ── Step 3: the refusal, and applying it ────────────────────────────────
@@ -625,13 +730,56 @@ export class SurfaceMemberNotExposed extends Data.TaggedError(
   }
 }
 
-/** A handler that refuses, in the shape its member's `Rpc` promises. A caller
- *  subscribing to a streaming member gets a stream that dies rather than a value
- *  the protocol cannot run — which is why this needs the group, and not just the
- *  handler record. */
+/** This face's refusal, in the shape its member's `Rpc` promises. The SHAPE rule
+ *  is `./server`'s {@link refusingHandler} — the one place the framework decides
+ *  what "answer in the member's own shape" means, shared with a rooted bundle's
+ *  dropped-sibling refusal. What is this module's own is the error CLASS. */
 function refuse(tag: string, streaming: boolean): SurfaceHandler {
+  // HOISTED, once per denied tag. A policy refusal carries nothing per call —
+  // `tag` is fixed when the face binds — and `SurfaceMemberNotExposed` extends
+  // `Error`, so minting it inside the thunk captured a fresh stack on every
+  // refused call to buy nothing. (A LIFETIME refusal is the same shape; see
+  // `refusingHandler`'s note.)
   const refusal = new SurfaceMemberNotExposed({ tag });
-  return streaming ? () => Stream.die(refusal) : () => Effect.die(refusal);
+  return refusingHandler(streaming, () => refusal);
+}
+
+/** The triple a listener serves: the pair plus this face's gate.
+ *
+ *  One generation, one turn. A live roster (`implementRootedSurfaces`)
+ *  replaces this as a whole; a listener that read `group`, `handlers` and
+ *  `expose` as three independently-timed options could mix generations. */
+export type ServedGeneration = {
+  readonly group: RpcGroup.RpcGroup<Rpc.Any>;
+  readonly handlers: SurfaceHandlers;
+  readonly expose?: FaceExposure;
+};
+
+/** How a listener obtains {@link ServedGeneration}. The snapshot arm is
+ *  today's call (`{ group, handlers, expose? }`). The live arm is one thunk
+ *  of that triple, so mixed liveness is unspellable and Effect's
+ *  function-object `RpcGroup` is never mistaken for a thunk. */
+export type ServedGenerationSource =
+  | (ServedGeneration & { readonly live?: never })
+  | { readonly live: () => ServedGeneration };
+
+/** Read the generation a {@link ServedGenerationSource} names, in one
+ *  synchronous turn. */
+export function readServedGeneration(
+  source: ServedGenerationSource,
+): ServedGeneration {
+  return source.live !== undefined ? source.live() : source;
+}
+
+/** Apply this face's gate to the generation a source names. The two listener
+ *  doors call this at bind (so a static mismatch still fails before anyone
+ *  connects) and again at each accept. */
+export function restrictServedGeneration(source: ServedGenerationSource): {
+  readonly group: RpcGroup.RpcGroup<Rpc.Any>;
+  readonly handlers: SurfaceHandlers;
+} {
+  const { group, handlers, expose } = readServedGeneration(source);
+  return { group, handlers: restrictHandlers(group, handlers, expose) };
 }
 
 /** Apply one face's {@link FaceExposure} to a served surface's handlers,
@@ -640,11 +788,11 @@ function refuse(tag: string, streaming: boolean): SurfaceHandler {
  *
  *  TOTAL over "no declared policy": an `undefined` exposure returns `handlers`
  *  unchanged, so the "omit `expose` and the face serves the whole surface" rule
- *  has ONE implementation and a face cannot get the default wrong. It applies
- *  ONCE, at bind, not per connection — the allowlist is a property of the
- *  LISTENER (of who can reach it), so every connection serves the identical
- *  record and a mismatched exposure crashes at construction rather than behind
- *  whoever connects first.
+ *  has ONE implementation and a face cannot get the default wrong. The two
+ *  listener doors call it through {@link restrictServedGeneration} per
+ *  accepted generation (and once at bind). A mismatched exposure crashes
+ *  rather than gating silently, which is the failure a default-deny gate is
+ *  uniquely good at hiding.
  *
  *  The two wire faces call this for you (`serveSurfaceApp`,
  *  `serveOverUnixSocket`); a hand-built serve path calls it itself and serves

@@ -51,7 +51,7 @@
  *  shows its degraded state structurally (an errored `terminals`/`session` reads empty
  *  → the canvas's connecting/empty surface). */
 
-import { encodeHostLocation, LOCAL_LOCATION } from "@kolu/padi/surface";
+import { encodeHostLocation, LOCAL_LOCATION } from "@kolu/padi-client/surface";
 import { unenrolledStreamCall } from "@kolu/surface/client";
 import {
   createReactiveSubscription,

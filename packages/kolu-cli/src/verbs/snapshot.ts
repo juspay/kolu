@@ -33,7 +33,8 @@
  *
  * ## Why the tail is sliced HERE
  *
- * The slice happens beside the padi hop, and `tailLines` is `@kolu/padi/render`'s
+ * The slice happens beside the padi hop, and `tailLines` is
+ * `@kolu/padi-client/screenTail`'s
  * rather than re-derived: it also drops the trailing run of whitespace-only
  * rows, which is what a rendered buffer ends in (the empty viewport below the
  * cursor). Without that, `--tail 6` on a fresh shell prints six blank lines — a
@@ -44,7 +45,8 @@
  * loading this verb built an MCP argument schema it would never use.
  */
 
-import { shortId, tailLines } from "@kolu/padi/render";
+import { shortId } from "@kolu/padi/render";
+import { tailLines } from "@kolu/padi-client/screenTail";
 import { Effect } from "effect";
 import type { Command } from "effect/unstable/cli";
 // `import type` — fully erased, so this does NOT re-enter the command tree at

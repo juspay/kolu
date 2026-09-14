@@ -39,12 +39,12 @@
  *  the fixture is refactored to the real owner. See the commit message for the
  *  fixture old→new map + that red-run record.) */
 
-import { Effect } from "effect";
 import type {
   SavedSession,
   TerminalInfo,
   TerminalMetadata,
-} from "@kolu/padi/surface";
+} from "@kolu/padi-client/surface";
+import { Effect } from "effect";
 import type { HostKey } from "kolu-common/hostKey";
 import type { TerminalId } from "kolu-common/surface";
 import { batch, createRoot, createSignal } from "solid-js";
@@ -146,6 +146,7 @@ vi.mock("./rpc/rpc", () => ({ lifecycle: () => ({ kind: "connected" }) }));
 vi.mock("./right-panel/useRightPanel", () => ({
   useRightPanel: () => ({ seedPanel: () => {} }),
 }));
+
 import { addHost, resetHosts } from "./hostScope/mockHostMap.testlib";
 import { useSessionRestore } from "./terminal/useSessionRestore";
 import { useSubPanel } from "./terminal/useSubPanel";

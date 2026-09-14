@@ -53,12 +53,13 @@ import type { ForgeAdapter, PrResult } from "anyforge";
 import { parseRemoteHost, subscribePr } from "anyforge";
 import { claudeCodeAdapter } from "kolu-claude-code";
 import { codexAdapter } from "kolu-codex";
-import { xyneAdapter } from "kolu-xyne";
 import { grokAdapter } from "kolu-grok";
 import { subscribeGitInfo } from "kolu-git";
 import type { GitInfo } from "kolu-git/schemas";
 import { githubForgeAdapter } from "kolu-github";
 import { opencodeAdapter } from "kolu-opencode";
+import { piAdapter } from "kolu-pi";
+import { xyneAdapter } from "kolu-xyne";
 import type { ForegroundSample } from "kaval";
 import { type Channel, inMemoryChannel } from "@kolu/surface/server";
 import type { Logger } from "pino";
@@ -66,10 +67,11 @@ import type {
   AgentInfo,
   TerminalEvent,
   PrUnavailableSource,
+  TerminalGrid,
   TerminalId,
   TerminalPorts,
 } from "@kolu/terminal-vocab/schema";
-import { portsEqual } from "@kolu/terminal-vocab/schema";
+import { gridsEqual, portsEqual } from "@kolu/terminal-vocab/schema";
 import { claimSession, releaseTerminal } from "./sessionOwnership.ts";
 
 /** The engine's transient agent working state — the last-emitted agent value (the
@@ -166,6 +168,11 @@ export interface SensorSignals {
    *  sample folds through the SAME emit → fold → snapshot path as every other
    *  field instead of a second write seam into the registry. */
   ports: Channel<TerminalPorts>;
+  /** This terminal's pty grid, published by padi's own resize path — not a
+   *  pty-host tap. Same shape as `ports`: fed by the host rather than observed
+   *  from the child, because padi performs every resize and is therefore the
+   *  only thing that knows one happened. */
+  grid: Channel<TerminalGrid>;
 }
 
 /** Read the terminal's current rendered screen as VT-resolved plain text — the
@@ -270,6 +277,37 @@ function startForegroundSensor(
  *  guard is the whole point of the sensor, and driving it through the full
  *  `startSensors` would drag in git watchers and four agent adapters to observe one
  *  channel. */
+/** Emit this terminal's pty grid, dropping a sample equal to the last emitted.
+ *
+ *  Same shape and same reason as {@link startPortSensor}: the feed is padi's own
+ *  (every resize goes through it), and the dedup lives per-terminal so the
+ *  baseline dies WITH the terminal rather than in a map somebody has to prune.
+ *
+ *  What it is FOR is the viewer that lost last-attach-wins. Attaching is a write
+ *  on a shared pty, so a second viewer gets reflowed under the first — and the
+ *  byte stream cannot say so, because a snapshot rides the initial attach and an
+ *  overflow re-attach and nothing else. Publishing the grid on the RECORD gives
+ *  every mirror a fact to observe, so it can re-attach and be sized honestly. */
+export function startGridSensor(
+  terminalId: TerminalId,
+  signals: SensorSignals,
+  emit: (o: TerminalEvent) => void,
+  log: Logger,
+): () => void {
+  const glog = log.child({ provider: "grid", terminal: terminalId });
+  let published: TerminalGrid | undefined;
+  const cleanup = signals.grid.consume({
+    onEvent: (grid) => {
+      if (published !== undefined && gridsEqual(published, grid)) return;
+      glog.debug({ cols: grid.cols, rows: grid.rows }, "pty grid changed");
+      published = grid;
+      emit({ kind: "grid", grid });
+    },
+    onError: (err) => glog.error({ err }, "grid subscription failed"),
+  });
+  return cleanup;
+}
+
 export function startPortSensor(
   terminalId: TerminalId,
   signals: SensorSignals,
@@ -1157,8 +1195,8 @@ export function startSensors(
       commandRooted,
     );
   // The heterogeneous adapter list — per-kind generics erased the way
-  // anyagent's own heterogeneous tables erase them. A union of the five
-  // concrete instantiations doesn't generalize to the sixth agent (the
+  // anyagent's own heterogeneous tables erase them. A union of the
+  // concrete instantiations doesn't generalize to the Nth agent (the
   // F4 volatility this list owns), so `any` is the honest type here.
   // biome-ignore lint/suspicious/noExplicitAny: the heterogeneous adapter list erases the per-kind generics; anyagent's own tables share the shape.
   const AGENTS: AgentAdapter<unknown, any>[] = [
@@ -1166,11 +1204,13 @@ export function startSensors(
     codexAdapter,
     opencodeAdapter,
     grokAdapter,
+    piAdapter,
     xyneAdapter,
   ];
   const agentStops = AGENTS.map(startAgent);
   const stopProcess = startForegroundSensor(terminalId, signals, emit, log);
   const stopPorts = startPortSensor(terminalId, signals, emit, log);
+  const stopGrid = startGridSensor(terminalId, signals, emit, log);
   return () => {
     stopCwd();
     stopAgentCommand();
@@ -1179,5 +1219,6 @@ export function startSensors(
     for (const stop of agentStops) stop();
     stopProcess();
     stopPorts();
+    stopGrid();
   };
 }

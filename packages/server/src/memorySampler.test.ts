@@ -1,4 +1,4 @@
-import type { PadiProcessMemory } from "@kolu/padi/surface";
+import type { PadiProcessMemory } from "@kolu/padi-client/surface";
 import { BYTES_PER_MB as MB } from "kolu-common/surface";
 import { describe, expect, it, vi } from "vitest";
 import { sampleServerMemory } from "./memorySampler.ts";

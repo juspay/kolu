@@ -8,15 +8,18 @@
  * to `@kolu/padi`'s `vocab.test.ts` with the schemas they exercise.)
  */
 
-import { DEFAULT_NEW_TERMINAL_POLICY, padiSurface } from "@kolu/padi/surface";
+import {
+  DEFAULT_NEW_TERMINAL_POLICY,
+  padiSurface,
+} from "@kolu/padi-client/surface";
 import { Result, Schema } from "effect";
 import { describe, expect, it } from "vitest";
 import {
   DaemonInventorySchema,
   DEFAULT_PREFERENCES,
   type KoluForward,
-  koluSurface,
   KoluForwardSchema,
+  koluSurface,
   PadiConvergenceSchema,
   type Preferences,
   resolveIsDark,

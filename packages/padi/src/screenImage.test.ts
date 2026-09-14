@@ -10,10 +10,10 @@
  *  hand-assembles the pipeline it is meant to be checking stays green while the
  *  pipeline rots. */
 
-import { describe, expect, it } from "vitest";
-import type { SnapshotGrid } from "terminal-snapshot";
+import { SCREEN_IMAGE_MAX_ROWS } from "@kolu/padi-client/surface";
 import { SCREEN_CELLS_MAX_ROWS } from "kaval";
-import { SCREEN_IMAGE_MAX_ROWS } from "./surface.ts";
+import type { SnapshotGrid } from "terminal-snapshot";
+import { describe, expect, it } from "vitest";
 import { renderScreenImage } from "./screenImage.ts";
 
 const gridWith = (fg: number): SnapshotGrid => ({

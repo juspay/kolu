@@ -45,24 +45,35 @@
  * for the needs-you strip + footer aggregate colours and the "needs you" labels.
  */
 
+import { DASH } from "./dash.ts";
+import { compactPhrase } from "./duration.ts";
 import type { AgentInfo, TerminalSnapshot } from "./schema.ts";
 
 /** The em-dash sentinel for "no value / never observed" — the recency cell's
- *  empty state, spelled once here so every renderer (and any direct read) shares
- *  the one glyph. */
-export const DASH = "—";
+ *  empty state, and the answer this file gives for a terminal in no git repo,
+ *  with no agent, or with no PR check.
+ *
+ *  Defined in `./dash.ts` (see its header) and re-exported HERE, because this is
+ *  the door every consumer already knows. */
+export { DASH } from "./dash.ts";
 
 /** Compact relative age (`3s`/`5m`/`2h`/`4d`) of an epoch-millis against `now`;
- *  `0` (no agent activity ever observed) renders as a dash. */
+ *  `0` (no agent activity ever observed) renders as a dash.
+ *
+ *  The LADDER is `./duration`'s, not a second one. This walked its own
+ *  identical sec<60 / min<60 / hr<24 ladder until the shared one landed sixty
+ *  lines away in the same package, which is one ladder too many to leave in a
+ *  file a reader reaches for "the terminal-vocab compact duration formatter".
+ *
+ *  What it kept is its own sentinel — `ms <= 0` is "never observed", which is a
+ *  fact about the TIMESTAMP and not about the delta, so it cannot live in the
+ *  ladder. What it LOST is a clamp: `Math.max(0, …)` rendered a host running
+ *  ahead of this clock as `0s`, a confident number for a reading that is
+ *  provably wrong. It now says the dash, which is what every other kolu
+ *  duration says under the same skew — see `./duration`'s header for the row
+ *  that once showed both answers at once. */
 export function relativeTime(ms: number, now: number): string {
-  if (ms <= 0) return DASH;
-  const secs = Math.max(0, Math.floor((now - ms) / 1000));
-  if (secs < 60) return `${secs}s`;
-  const mins = Math.floor(secs / 60);
-  if (mins < 60) return `${mins}m`;
-  const hours = Math.floor(mins / 60);
-  if (hours < 24) return `${hours}h`;
-  return `${Math.floor(hours / 24)}d`;
+  return ms <= 0 ? DASH : compactPhrase(now - ms);
 }
 
 /** The agent vendor's short label — `claude-code` reads as `claude`. */

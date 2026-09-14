@@ -10,18 +10,20 @@
   "exports": {
     ".": "./src/index.ts",
     "./control-core": "./src/controlCore.ts",
+    "./home": "./src/daemonHome.ts",
+    "./lifetime": "./src/daemonLifetime.ts",
     "./pidGate.testlib": "./src/pidGate.testlib.ts",
     "./upgrade-window.testlib": "./src/upgradeWindow.testlib.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "test:unit": "vitest run"
+    "test:daemon": "vitest run"
   },
   "dependencies": {
-    "@effect/platform-node": "4.0.0-rc.110",
+    "@effect/platform-node": "4.0.0-rc.112",
     "@kolu/log": "workspace:*",
     "@kolu/surface": "workspace:*",
-    "effect": "4.0.0-rc.110",
+    "effect": "4.0.0-rc.112",
     "ts-pattern": "^5.9.0"
   },
   "devDependencies": {

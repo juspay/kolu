@@ -77,6 +77,13 @@ CLI-only ergonomics ride in `annotate`, *beside* the verb table rather than
 inside it: a `positional` is a shell concern, and the verb record has to stay a
 value the MCP face can take verbatim.
 
+The `core` is the unprefixed root — its verbs and readers sit at the top of the
+mounted tree. Several surfaces on one binary go in `surfaces`, and each is
+mounted **behind its key as the first argv word**: `example outlines ops_run`,
+`example outlines get entries`. That is the MCP face's `outlines_ops_run` in
+argv's own separator. `list` stays at the top and describes the whole bundle,
+each row named the way a caller types it.
+
 ## 5. Mount them in your binary
 
 <Snippet src="packages/surface/example/snippets/cli.ts" region="mount" />
@@ -127,17 +134,20 @@ example get load --follow                # the live subscription as ndjson
 example list                             # what this face offers
 ```
 
-Every verb also takes `--json '{…}'` (or `--json -` to read it from stdin) as
+Every verb also takes `--input '{…}'` (or `--input -` to read it from stdin) as
 the alternative to the field flags — the whole input, as data, for the cases a
-shell would fight you over.
+shell would fight you over. And every verb takes `--json`, which asks for the
+whole **answer** as data instead of whatever summary the host wrote for it.
 
 ## Read it from a script
 
 The two facts a script needs are the shape of the output and the exit code.
 
 - **stdout is data**: one JSON value for a read, one compact JSON line per frame
-  for anything streamed. Indented only when stdout is a terminal, so a pipe
-  always gets machine-shaped output and nothing has to be flagged.
+  for anything streamed. Indented only when stdout is a terminal — which decides
+  the SPACING and nothing else. What the answer *is* is decided by `--json` and
+  by nothing about the descriptor, so a command prints the same thing in a pipe,
+  in a CI log and in front of a person.
 - **stderr is prose**, with one exception that proves the rule: a verb's
   declared refusal is JSON on stderr, because it is data you can act on but is
   not the verb's answer.
