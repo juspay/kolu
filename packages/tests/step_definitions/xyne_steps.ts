@@ -51,10 +51,13 @@ async function cdTerminalInto(world: KoluWorld, cwd: string): Promise<void> {
  *  comm="xyne" so `readForegroundBasename() === "xyne"` matches. Wait for
  *  the PID line the PROCESS prints (not the echoed command line — only its
  *  own output carries the `XYNE_PID=<digits>` shape). */
-async function startFakeAgent(world: KoluWorld): Promise<void> {
+async function startFakeAgent(
+  world: KoluWorld,
+  body = "sleep 99999",
+): Promise<void> {
   const bin = process.env.KOLU_FAKE_XYNE_BIN;
   if (!bin) throw new Error("KOLU_FAKE_XYNE_BIN must be set");
-  await world.page.keyboard.type(`${bin} -c 'echo XYNE_PID=$$; sleep 99999'`);
+  await world.page.keyboard.type(`${bin} -c 'echo XYNE_PID=$$; ${body}'`);
   await world.page.keyboard.press("Enter");
   await pollFor({
     observe: () => readBufferText(world.page, ACTIVE_TERMINAL),
@@ -65,7 +68,15 @@ async function startFakeAgent(world: KoluWorld): Promise<void> {
   });
 }
 
-When("a Xyne session is mocked", async function (this: KoluWorld) {
+/** Xyne's idle frame, recorded verbatim from a real `xyne` in a PTY: sync
+ *  begin, hide cursor, reset pen, park the cursor in the input box, show
+ *  cursor, sync end — no cell changes. Repainted at Xyne's ~30 fps. */
+const XYNE_IDLE_REPAINT_LOOP = String.raw`while :; do printf "\033[?2026h\033[?25l\033[0m\033[5;6H\033[?25h\033[?2026l"; sleep 0.033; done`;
+
+async function mockXyneSession(
+  world: KoluWorld,
+  agentBody?: string,
+): Promise<void> {
   const xyneDir = getXyneDir();
   if (!xyneDir) throw new Error("KOLU_XYNE_DIR must be set");
   cleanup();
@@ -79,9 +90,20 @@ When("a Xyne session is mocked", async function (this: KoluWorld) {
     model: "juspay/kimi-k3",
     title: "Mock Xyne session",
   });
-  await cdTerminalInto(this, mockCwd);
-  await startFakeAgent(this);
+  await cdTerminalInto(world, mockCwd);
+  await startFakeAgent(world, agentBody);
+}
+
+When("a Xyne session is mocked", async function (this: KoluWorld) {
+  await mockXyneSession(this);
 });
+
+When(
+  "a Xyne session is mocked with an idle cursor repaint loop",
+  async function (this: KoluWorld) {
+    await mockXyneSession(this, XYNE_IDLE_REPAINT_LOOP);
+  },
+);
 
 async function observeXyneIndicator(world: KoluWorld): Promise<{
   state: string | null;
@@ -107,6 +129,31 @@ Then(
       onTimeout: (last, ms) =>
         new Error(
           `Expected Xyne indicator state "${expectedState}" (kind=xyne), got state="${last?.state ?? null}" kind="${last?.kind ?? null}" after ${ms}ms`,
+        ),
+      timeoutMs: POLL_TIMEOUT,
+    });
+  },
+);
+
+Then(
+  "the tile title state pip should stop moving",
+  async function (this: KoluWorld) {
+    // The pip moves while padi calls the terminal active. A waiting agent
+    // settles once its output goes quiet for the finish window (~5s), so an
+    // idle repaint loop that is still spinning after POLL_TIMEOUT is the bug.
+    await pollFor({
+      observe: () =>
+        this.page.evaluate(() =>
+          document
+            .querySelector(
+              '[data-testid="canvas-tile-titlebar"] [data-testid="state-pip"]',
+            )
+            ?.getAttribute("data-motion"),
+        ),
+      isDone: (motion) => motion === "none",
+      onTimeout: (last, ms) =>
+        new Error(
+          `Expected the title state pip to stop moving, data-motion="${last ?? null}" after ${ms}ms`,
         ),
       timeoutMs: POLL_TIMEOUT,
     });

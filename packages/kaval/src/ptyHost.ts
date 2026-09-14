@@ -27,7 +27,10 @@
 import { randomUUID } from "node:crypto";
 import { createRequire } from "node:module";
 import { shellJoin } from "@kolu/shell-quote";
-import { shouldForwardHeadlessReply } from "@kolu/terminal-protocol";
+import {
+  isCursorOnlyOutput,
+  shouldForwardHeadlessReply,
+} from "@kolu/terminal-protocol";
 import type { Logger } from "@kolu/surface-daemon";
 import {
   createMirrorAnchor,
@@ -717,16 +720,20 @@ const RESIZE_ACTIVITY_MUTE_MS = 600;
 const ACTIVITY_EDGE_THROTTLE_MS = 200;
 
 /** Whether an output chunk at `now` should publish a meaningful-output edge:
- *  NOT inside a resize-mute window (the SIGWINCH repaint is not work) AND not
- *  throttle-coalesced with the last edge. Pure so the resize-exclusion + throttle
- *  are unit-testable without a real PTY or a wall clock. */
+ *  NOT cursor-only (an idle TUI's frame-loop repaint that changes no cell — see
+ *  `isCursorOnlyOutput`), NOT inside a resize-mute window (the SIGWINCH repaint
+ *  is not work) AND not throttle-coalesced with the last edge. Pure so every
+ *  exclusion is unit-testable without a real PTY or a wall clock. */
 export function shouldEmitActivityEdge(
+  data: string,
   now: number,
   resizeMuteUntil: number,
   lastEdgeAt: number,
 ): boolean {
   return (
-    now >= resizeMuteUntil && now - lastEdgeAt >= ACTIVITY_EDGE_THROTTLE_MS
+    now >= resizeMuteUntil &&
+    now - lastEdgeAt >= ACTIVITY_EDGE_THROTTLE_MS &&
+    !isCursorOnlyOutput(data)
   );
 }
 
@@ -1073,9 +1080,11 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
         const now = Date.now();
         entry.lastActivity = now;
         // Meaningful-output edge — the resize-aware activity signal every consumer
-        // reads. Resize repaint excluded + throttled (see `shouldEmitActivityEdge`).
+        // reads. Cursor-only repaints and resize repaints excluded + throttled
+        // (see `shouldEmitActivityEdge`).
         if (
           shouldEmitActivityEdge(
+            data,
             now,
             entry.resizeMuteUntil,
             entry.lastActivityEdgeAt,

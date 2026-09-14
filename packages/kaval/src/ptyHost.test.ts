@@ -1082,3 +1082,51 @@ describeDaemon("attach() reconnect-storm defenses", () => {
     expect(second).not.toBe(first); // reflects the new 120-col layout
   });
 });
+
+// An idle TUI that repaints NOTHING must not read as activity. Xyne CLI
+// (OpenTUI, v0.4.1's fixed frame loop; v0.4.8's landing screen) re-emits a
+// cursor-park frame ~30×/s while visually idle — no cell changes. Every one of
+// those chunks used to publish a meaningful-output edge, so padi's finish-quiet
+// window never closed and the dock pip spun forever after Xyne stopped
+// responding. The frame below is Xyne's bytes verbatim, recorded from a real
+// `xyne` in a PTY.
+describeDaemon("meaningful-output edge ignores cursor-only repaints", () => {
+  let host: PtyHost;
+
+  afterEach(() => {
+    host?.dispose();
+  });
+
+  it("an idle cursor-park frame loop publishes no edge; real output does", async () => {
+    host = createPtyHost({ log: silentLog });
+    const frame = String.raw`\033[?2026h\033[?25l\033[0m\033[36;6H\033[?25h\033[?2026l`;
+    const IDLE_MS = 1500;
+    await Effect.runPromise(
+      Effect.scoped(
+        Effect.gen(function* () {
+          // Subscribe BEFORE spawn so no edge can fall in a gap.
+          const frames = subscribeFrames(host.subscribeActivity());
+          const spawnedAt = Date.now();
+          const { id } = host.spawn({
+            shell: "/bin/sh",
+            args: [
+              "-c",
+              // ~45 idle frames at ~30 fps, then one line of real output.
+              `i=0; while [ $i -lt 45 ]; do printf '${frame}'; sleep 0.033; i=$((i+1)); done; printf 'REAL_WORK\\n'; sleep 2`,
+            ],
+            env: shellEnv,
+            cwd: "/tmp",
+          });
+          const edge = yield* Effect.promise(() =>
+            frames.until((e) => e.id === id, 8000),
+          );
+          const firstEdgeAfterMs = Date.now() - spawnedAt;
+          frames.close();
+          // The first edge is the REAL_WORK line, not the idle loop's first frame.
+          expect(edge.id).toBe(id);
+          expect(firstEdgeAfterMs).toBeGreaterThanOrEqual(IDLE_MS - 300);
+        }),
+      ),
+    );
+  });
+});

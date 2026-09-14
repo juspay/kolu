@@ -17,6 +17,8 @@
  *  - `sendPolicy`      — WHAT a named send writes: text-XOR-keys, the
  *    unknown-key refusal, and the auto bracketed-paste rule, one layer up from
  *    the two tables above and shared by `kolu send` and the MCP send tool.
+ *  - `cursorOnlyOutput` — output that moves the cursor but changes no cell
+ *    (an idle TUI's frame-loop repaint), which is not activity.
  *  - `snapshotReset`   — the reciprocal reset for modes a replayed
  *    `@xterm/addon-serialize` snapshot can switch on.
  *
@@ -39,6 +41,7 @@ export {
   type DeviceQueryProbe,
   SILENT_DEVICE_QUERIES,
 } from "./deviceQueries.ts";
+export { isCursorOnlyOutput } from "./cursorOnlyOutput.ts";
 export { shouldForwardHeadlessReply } from "./headlessReplies.ts";
 export {
   ACCEPTED_KEY_NAMES,
