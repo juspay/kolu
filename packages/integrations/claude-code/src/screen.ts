@@ -151,8 +151,9 @@ export function isScreenPollable(info: ClaudeCodeInfo): boolean {
  *  gate) is on screen, otherwise return `info` unchanged (same reference).
  *  Promote-only —
  *  it never lowers a state; a genuine state change flows back through the JSONL
- *  watcher. The returned reference identity is the "did anything change?" signal
- *  the poller checks. */
+ *  watcher. The orchestrator compares the result to the published info
+ *  STRUCTURALLY (`isDeepStrictEqual`, `padi/terminalWorkspace/sensors.ts`), so
+ *  returning the same reference is a convenience, not the change signal. */
 export function promoteFromScreen(
   info: ClaudeCodeInfo,
   screenText: string,

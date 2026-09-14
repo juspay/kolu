@@ -14,9 +14,12 @@
  *  dir — omp 18.1.21's chain, see `agent-dir.ts`), and those overrides live in
  *  the omp process's own argv/env. So the adapter reads the terminal's
  *  FOREGROUND process each reconcile and folds it. Unlike pi there is NO
- *  fallback to kolu's default directory: a breadcrumb is the only anchor, so an
- *  unresolvable directory answers `null` ("keep what was published") rather than
- *  pointing at a tree this terminal does not write to.
+ *  fallback to kolu's default directory when the PROCESS cannot be read: a
+ *  breadcrumb is the only anchor, so an unreadable snapshot (or a profile name
+ *  omp itself would refuse) answers `null` — "keep what was published" — rather
+ *  than pointing at a tree this terminal does not write to. The one place a
+ *  default IS used is macOS's redacted environment; `agentDirFor` documents why
+ *  and what it costs.
  *
  *  `externalChanges` IS implemented — omp writes its breadcrumb when a session
  *  is created or switched, which can be AFTER the preexec hint named `omp`
@@ -52,26 +55,39 @@ import {
 import { createOmpWatcher } from "./session-watcher.ts";
 
 /**
- * Every breadcrumb directory kolu has resolved, plus the ones it watches. Both
+ * Every breadcrumb directory kolu has resolved, and the ones it watches. Both
  * are process-wide and growing: the `externalChanges` install contract is
- * at-most-once (no uninstall). The KNOWN set is recorded even before install;
- * the WATCHED set subscribes each known directory once the install fan-out
- * exists. Keyed by directory.
+ * at-most-once (no uninstall, `anyagent`), so nothing is ever torn down. The
+ * KNOWN set is recorded even before install; the WATCHED set holds the
+ * directories already subscribed once the install fan-out exists.
+ *
+ *  (This "known set + watched set + late-bound fan-out + drain-at-install"
+ *  bookkeeping is the shape `externalChanges` forces on every adapter — pi
+ *  spells the same thing around its session stores. With two adapters now
+ *  carrying it, the receptacle that would delete the second copy is `anyagent`,
+ *  which owns the at-most-once contract that creates it; recorded here rather
+ *  than extracted on one consumer's evidence.)
  */
 const knownBreadcrumbDirs = new Set<string>();
-const watchedBreadcrumbDirs = new Map<string, () => void>();
+const watchedBreadcrumbDirs = new Set<string>();
 let fanOut: (() => void) | null = null;
 let watchOnError: ((err: unknown) => void) | null = null;
 let watchLog: Logger | null = null;
 
 /**
  * Session id → absolute transcript path, recorded by every `resolveSessions`
- * call. The breadcrumb is the ONE source of truth for where a session's file
- * lives, so the transcript exporter reads this map rather than re-deriving a
- * path from a cwd (which would be a second, lossier answer — omp's session
- * directory key is lossy, and the store can move per invocation). A session
- * this padi never observed live is simply absent, which the `Fetcher` contract
- * spells "transcript not available".
+ * call.
+ *
+ * This is a PROJECTION of the breadcrumb, not a second authority: its only
+ * writer is a breadcrumb read, and the id it is keyed by is parsed from the
+ * recorded path's own filename, so a path can never answer for a different
+ * session. It exists because the exporter cannot re-read a crumb — it knows a
+ * session id, and `FetcherInput` carries no pid or tty. Entries are per distinct
+ * session this padi has observed and are re-written in place on every reconcile
+ * (a session's file never moves — an absolute path fixed at creation), and the
+ * map lives no longer than the padi generation. A session this padi never
+ * observed live is simply absent, which the `Fetcher` contract spells
+ * "transcript not available".
  */
 const sessionFiles = new Map<string, string>();
 
@@ -83,14 +99,12 @@ export function knownOmpSessionPath(sessionId: string): string | null {
 
 function watchBreadcrumbDir(dir: string): void {
   if (watchedBreadcrumbDirs.has(dir)) return;
-  watchedBreadcrumbDirs.set(
+  watchedBreadcrumbDirs.add(dir);
+  subscribeBreadcrumbDir(
     dir,
-    subscribeBreadcrumbDir(
-      dir,
-      fanOut!,
-      (err) => watchOnError?.(err),
-      watchLog ?? undefined,
-    ),
+    fanOut!,
+    (err) => watchOnError?.(err),
+    watchLog ?? undefined,
   );
 }
 
@@ -101,7 +115,18 @@ function noteBreadcrumbDir(dir: string): void {
 
 /** Fold THIS terminal's omp invocation through omp's agent-directory chain.
  *  `null` means the directory could not be determined (an unreadable process, a
- *  profile name omp itself would refuse) — never a substituted default. */
+ *  profile name omp itself would refuse) — never a substituted default.
+ *
+ *  One platform caveat, inherited from the shared snapshot and documented the
+ *  same way pi documents it: on macOS the kernel redacts even a same-user
+ *  process's environment, so `proc.env` is EMPTY by OS policy and every
+ *  env-derived link (`OMP_PROFILE` / `PI_PROFILE` / `PI_CODING_AGENT_DIR` /
+ *  `PI_CONFIG_DIR` / `XDG_STATE_HOME`) is invisible. An `--profile` flag still
+ *  resolves (argv is readable); an env-ONLY redirect folds to omp's default
+ *  directory, where kolu reads whatever crumb is there. That is the honest
+ *  answer available on that platform — refusing to resolve would blind every
+ *  plain macOS `omp` — but it is not a claim: a macOS user who moved omp's
+ *  state with an env var gets no detection for that run. */
 function agentDirFor(
   state: AgentTerminalState,
   pid: number,

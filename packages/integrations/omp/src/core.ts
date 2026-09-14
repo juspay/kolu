@@ -174,27 +174,46 @@ export const TITLE_SLOT_BYTES = 256;
  *  `null` when the slot carries none (a session omp has not titled yet, or one
  *  launched with `--no-title`), and `null` when the file is absent — the lazy
  *  session whose breadcrumb says `fresh`, which is why absence is not an error
- *  here. A slot that cannot be parsed is a fault and IS logged. */
+ *  here. A slot that cannot be parsed, or that parses to something other than an
+ *  object, is a fault and IS logged — the difference between "not titled yet"
+ *  and "corrupt slot" must not be invisible. */
 export function readTitleSlot(file: string, log?: Logger): string | null {
-  let fd: number | null = null;
+  let size: number;
   try {
-    fd = fs.openSync(file, "r");
-    const buf = Buffer.alloc(TITLE_SLOT_BYTES);
-    const n = fs.readSync(fd, buf, 0, TITLE_SLOT_BYTES, 0);
-    const line = buf.subarray(0, n).toString("utf8").split("\n", 1)[0];
-    if (!line) return null;
-    const slot: unknown = JSON.parse(line);
-    if (typeof slot !== "object" || slot === null) return null;
-    const title = (slot as { title?: unknown }).title;
-    return typeof title === "string" && title.length > 0 ? title : null;
+    size = fs.statSync(file).size;
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
       log?.error({ err, path: file }, "omp: title slot unreadable");
     }
     return null;
-  } finally {
-    if (fd !== null) fs.closeSync(fd);
   }
+  // Clamp the window to the head: `readTailLines` starts at `size - maxBytes`,
+  // so a size of at most one slot makes byte 0 the window's start and the FIRST
+  // line the slot (the claude-code precedent for a head read). The shared helper
+  // owns the FD lifetime — the hand-rolled open/read/close this replaces leaked
+  // the descriptor on a throwing read.
+  const lines = readTailLines({
+    path: file,
+    size: Math.min(size, TITLE_SLOT_BYTES),
+    maxBytes: TITLE_SLOT_BYTES,
+    onError: (err) =>
+      log?.error({ err, path: file }, "omp: title slot unreadable"),
+  });
+  const line = lines?.[0];
+  if (!line) return null;
+  let slot: unknown;
+  try {
+    slot = JSON.parse(line);
+  } catch (err) {
+    log?.error({ err, path: file }, "omp: title slot is not JSON");
+    return null;
+  }
+  if (typeof slot !== "object" || slot === null) {
+    log?.error({ path: file, slot }, "omp: title slot is not an object");
+    return null;
+  }
+  const title = (slot as { title?: unknown }).title;
+  return typeof title === "string" && title.length > 0 ? title : null;
 }
 
 /** Read the transcript tail, fold it, and read the title slot. Returns null

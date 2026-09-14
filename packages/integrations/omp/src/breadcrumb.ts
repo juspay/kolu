@@ -74,7 +74,13 @@ export function parseSessionFileName(
  *  not under `/dev/` (a pipe, a socket), a `??` (no controlling terminal), or
  *  any read failure yields null — and the caller then resolves NO session
  *  rather than a guessed one, which is the honest answer for an id kolu cannot
- *  reproduce. */
+ *  reproduce.
+ *
+ *  The read half (which tty a pid's stdin is) is process introspection of the
+ *  same class `kolu-io`'s `readProcessSnapshot` already owns, and would belong
+ *  beside it the moment a second consumer anchors on a tty. Population one
+ *  today (omp is the only tty-anchored agent), so it stays here with its
+ *  renderer — the `/dev/` strip and `/`→`-` ARE omp's id shape. */
 export function ttyIdForPid(pid: number, log?: Logger): string | null {
   try {
     if (process.platform === "linux") {

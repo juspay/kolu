@@ -32,7 +32,7 @@ export {
   readBreadcrumb,
   ttyIdForPid,
 } from "./breadcrumb.ts";
-export { AGENT_DIR, BREADCRUMB_DIR, OMP_ENV_KEYS } from "./config.ts";
+export { AGENT_DIR_OVERRIDE, BREADCRUMB_DIR, OMP_ENV_KEYS } from "./config.ts";
 export {
   deriveOmpInfo,
   deriveOmpState,
@@ -48,18 +48,16 @@ export {
   type TaskProgress,
   TaskProgressSchema,
 } from "./schemas.ts";
-export {
-  isOmpScreenPollable,
-  promoteOmpFromScreen,
-  screenHasOmpPrompt,
-  TAIL_REGION_LINES,
-} from "./screen-scrape.ts";
 export { createOmpWatcher, type OmpWatcher } from "./session-watcher.ts";
 export {
   loadOmpTranscript,
   normalizeOmpToolInput,
   parseOmpTranscript,
 } from "./transcript.ts";
+// The screen-scrape detector + promote policy stays INTERNAL (claude-code keeps
+// its own `screen.ts` private too): its only consumer is this package's
+// adapter, which imports the leaf directly. A public policy surface with no
+// consumer is surface a reader has to classify and maintain for nothing.
 
 // ── The plugin — the ONE contribution the registry (`kolu-agents`) folds. ──
 import type { AgentPlugin } from "anyagent";

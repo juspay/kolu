@@ -52,15 +52,27 @@ const WINDOWS_RESERVED_BASENAME_RE =
  *  `PI_CONFIG_DIR`. */
 const XDG_APP_NAME = "omp";
 
-export type AgentDirSource = "profile" | "env" | "override" | "xdg" | "default";
+export type AgentDirSource =
+  | "profile"
+  | "profile-xdg"
+  | "env"
+  | "override"
+  | "xdg"
+  | "default";
 
 export interface AgentDirResolution {
-  /** The agent directory omp runs with for this invocation. */
+  /** The agent directory omp runs with for this invocation. NOTE it is not
+   *  always the breadcrumb's parent: omp's XDG state redirect moves the
+   *  breadcrumbs (and only them) out of the agent directory, so every consumer
+   *  must read `breadcrumbDir` — the anchor — rather than deriving it. */
   agentDir: string;
   /** Where THIS invocation writes its `terminal-sessions/<tty id>` breadcrumb
    *  — the directory kolu reads to find the session. */
   breadcrumbDir: string;
-  /** Which link of the chain produced it (logging/diagnostics). */
+  /** Which link of the chain decided the resolution (logging/diagnostics).
+   *  Every arm names ALL of its provenance: `profile-xdg` is a named profile
+   *  whose breadcrumbs live in the XDG state tree, not a `profile` with a
+   *  detail only the breadcrumb path reveals. */
   source: AgentDirSource;
 }
 
@@ -144,7 +156,7 @@ export function resolveAgentDir(opts: {
     return {
       agentDir,
       breadcrumbDir: path.join(xdgProfileRoot ?? agentDir, "terminal-sessions"),
-      source: "profile",
+      source: xdgProfileRoot ? "profile-xdg" : "profile",
     };
   }
 

@@ -40,6 +40,9 @@ tiles. The sixth agent alongside `kolu-claude-code`, `kolu-codex`,
   `model_change` entry's `model` (omp spells that field `model`; pi's fork says
   `modelId`) and the newest assistant entry's own model; `contextTokens` from the
   newest usage object's disjoint `input + cacheRead + cacheWrite`.
+  `deriveOmpInfo` (`core.ts`) is the IO wrapper the watcher uses: it stats the
+  session file, reads the tail, folds it with `deriveOmpState`, and adds the
+  title slot below — `deriveOmpState` is the piece that is pure.
 - **The title** (`readTitleSlot`) — omp's line 1 is a fixed 256-byte **title
   slot**, rewritten in place, holding the user's name or the auto-generated one.
   Read as one 256-byte read per fold; an empty title publishes nothing rather
@@ -51,7 +54,12 @@ tiles. The sixth agent alongside `kolu-claude-code`, `kolu-codex`,
   `awaiting_user`.
 - **Transcript export** (`transcript.ts`) — renders the ACTIVE branch of omp's
   entry tree (the `parentId` chain from the file's last entry, in file order).
-  The path comes from the breadcrumb kolu recorded, never a re-derived one.
+  The path comes from the breadcrumb kolu recorded: `resolveSessions` files it
+  under the session id, and `knownOmpSessionPath` reads it back for the export
+  path, which knows only an id — `null` until this padi has observed that
+  session live, which the exporter renders as "transcript not available".
+  `normalizeOmpToolInput` and `parseOmpTranscript` are exported for tests
+  alongside the loader, mirroring `kolu-pi`'s package shape.
 - **Schemas** (`schemas.ts`) — `OmpInfoSchema`, browser-safe, re-exported into
   the `terminal-vocab` `AgentInfoSchema` union.
 - **Paths** (`config.ts`) — the default `~/.omp/agent` layout only;
@@ -63,9 +71,11 @@ tiles. The sixth agent alongside `kolu-claude-code`, `kolu-codex`,
 
 - **The RPC wire / the server** — it hands back plain `OmpInfo` values; padi
   bridges them.
-- **The client / UI** — the π-and-plug mark and the "Oh My Pi" label live in
-  `packages/client` (+ the pip glyph in `@kolu/solid-statepip`); this package
-  renders nothing.
+- **The client / UI** — the mark (`OMP_MARK`) and the display name are declared
+  **here**, in `schemas.ts`/`ompVocab`, and reach every surface through the
+  agent registry; `packages/client` only *renders* them (plus the generic pip
+  glyph in `@kolu/solid-statepip`, which draws the registry's mark). This
+  package renders nothing.
 - **Mutating the omp agent dir** — a **pure observer**: it never `mkdir`s omp's
   tree; watchers wait for omp to create paths and re-arm on appearance.
 - **The omp binary itself** — kolu neither packages, pins, nor vendors `omp`; it
@@ -80,6 +90,13 @@ tiles. The sixth agent alongside `kolu-claude-code`, `kolu-codex`,
   does not fold it yet.
 - **Titles are omp's own** — a `--no-title` session shows none, and kolu never
   derives one from the first message.
+- **What an env-var redirect did, on macOS only** — `ps` has redacted even
+  same-user process environments since macOS 10.13, so an `OMP_PROFILE` /
+  `PI_PROFILE` / `PI_CODING_AGENT_DIR` set on the `omp` process is invisible
+  there and the default directory is read instead (the blind spot pi documents
+  for the same reason). `--profile` flags still resolve (argv is readable), and
+  `--session-dir` never mattered here: the crumb carries the session's absolute
+  path whatever store it landed in.
 
 ## Transcript HTML export
 

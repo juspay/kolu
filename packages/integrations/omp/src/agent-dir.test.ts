@@ -255,7 +255,7 @@ describe("resolveAgentDir — the XDG state dir", () => {
     ).toEqual({
       agentDir: "/home/u/.omp/profiles/work/agent",
       breadcrumbDir: `${profileRoot}/terminal-sessions`,
-      source: "profile",
+      source: "profile-xdg",
     });
     // The BASE app root existing does not move a profile that was never
     // migrated: its location is pinned at first activation.

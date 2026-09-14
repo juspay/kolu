@@ -90,8 +90,10 @@ export function isOmpScreenPollable(info: OmpInfo): boolean {
  *  screen, otherwise return `info` unchanged (same reference). Promote-only —
  *  it never lowers a state; the orchestrator self-demotes once the dialog
  *  clears, because the watcher's change gate drops the structurally-identical
- *  settle-back. The returned reference identity is the "did anything change?"
- *  signal the poller checks. */
+ *  settle-back. The orchestrator compares the result to the published info
+ *  STRUCTURALLY (`isDeepStrictEqual`, `padi/terminalWorkspace/sensors.ts`), so
+ *  returning the same reference is a convenience, not the change signal — a
+ *  fresh-but-equal object would be published no more often than this one. */
 export function promoteOmpFromScreen(
   info: OmpInfo,
   screenText: string,

@@ -14,12 +14,22 @@
  *  order. Abandoned branches, which a dead file cannot present as anything but
  *  confusion, are dropped.
  *
- *  WHERE the file is: the breadcrumb, and nothing else. `resolveSessions`
+ *  Where the file is: the breadcrumb, and nothing else. `resolveSessions`
  *  records the absolute path omp itself handed kolu, keyed by session id; this
  *  loader reads that map and returns `null` — the `Fetcher` contract's
  *  "transcript not available" value — for a session this padi never observed
  *  live. No cwd glob, no second lookup: omp's session-directory key is lossy,
- *  and the store moves per invocation, so any re-derivation would be a guess. */
+ *  and the store moves per invocation, so any re-derivation would be a guess.
+ *
+ *  This loader is a near-copy of `kolu-pi`'s, and by intention: the mock parses
+ *  the SAME forked wire format but the dependency fence forbids
+ *  `kolu-omp` → `kolu-pi`. One piece of it is genuinely agent-neutral and has a
+ *  fence-legal home — `contentToText` (three identical copies, and it reads only
+ *  the shared `{ type: "text", text }` block) — which belongs in
+ *  `kolu-transcript-core` when someone graduates it; the rest
+ *  (`eventsFromEntry`'s role/stopReason vocabulary, the toolCall argument keys)
+ *  is pi's wire format, and naming it in the neutral core would move a vendor
+ *  format the core's header deliberately keeps on this side of `Fetcher`. */
 
 import fs from "node:fs";
 import {
@@ -220,7 +230,10 @@ export function parseOmpTranscript(content: string): TranscriptEvent[] {
  *  read — the same "transcript not available" answer the other integrations
  *  give for a session they cannot locate). Throws only on a genuine read
  *  failure after the file was positively recorded: a race mid-export must not
- *  render as "session does not exist".
+ *  render as "session does not exist". (A session whose JSONL never
+ *  materialized cannot reach here at all — the loader `stat`s the file on every
+ *  fold and publishes no state until it exists, and the export path requires a
+ *  published agent — so the only read failure left is a real one.)
  *
  *  The title is read from the file's own line-1 title slot rather than taken
  *  from `input.title` — the export renders the FILE, and the live summary the

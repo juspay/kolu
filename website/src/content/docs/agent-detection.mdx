@@ -410,8 +410,10 @@ session JSONL, rendering the active branch of omp's entry tree.
   and can't be restored on wake).
 - **A redirected store, on macOS only** — a `PI_CODING_AGENT_DIR` (or
   `OMP_PROFILE`) set on the `omp` process is unrecoverable there, because `ps`
-  redacts even same-user process environments since macOS 10.13. `--profile`
-  flags and `--session-dir` still resolve, since those live in argv.
+  redacts even same-user process environments since macOS 10.13, so kolu reads
+  the default directory. A `--profile` flag still resolves — it lives in argv —
+  and `--session-dir` never mattered here: the breadcrumb carries the session's
+  absolute path whatever store it landed in.
 
 ### Oh My Pi's agent-directory locations
 
@@ -426,12 +428,15 @@ kolu follows **omp's own precedence**, per terminal, reading the foreground
 | none of the above, and `$XDG_STATE_HOME/omp` exists | `$XDG_STATE_HOME/omp` (a profile uses `$XDG_STATE_HOME/omp/profiles/<name>`) |
 | _(none)_ | `~/.omp/agent` |
 
-Unlike pi, an unresolvable directory is **not** replaced by a default: the
-breadcrumb is the only anchor kolu has, so a run whose directory cannot be read
+Unlike pi, an unresolvable directory is **not** replaced by a kolu default: the
+breadcrumb is the only anchor kolu has, so a run whose process cannot be read
 simply publishes nothing rather than pointing at a tree this terminal does not
 write to. A named profile that omp itself would refuse (an invalid name) is the
-same answer. kolu's own default can be forced with `KOLU_OMP_DIR=<dir>` — the
-escape hatch for tests and unusual setups.
+same answer. The one exception is macOS's redacted environment — an env-var
+redirect (`OMP_PROFILE`, `PI_CODING_AGENT_DIR`) cannot be seen there, so the
+default directory is read and only a plain default-profile `omp` is found, the
+same blind spot pi has. kolu's own default can be forced with
+`KOLU_OMP_DIR=<dir>` — the escape hatch for tests and unusual setups.
 
 ## Adding an agent
 
