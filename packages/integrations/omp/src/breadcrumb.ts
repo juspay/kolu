@@ -81,19 +81,24 @@ export function parseSessionFileName(
  *  beside it the moment a second consumer anchors on a tty. Population one
  *  today (omp is the only tty-anchored agent), so it stays here with its
  *  renderer — the `/dev/` strip and `/`→`-` ARE omp's id shape. */
+/** omp's id shape, spelled once: `/dev/` stripped, `/` → `-`. */
+function renderTtyId(raw: string): string {
+  return raw.replace(/^\/dev\//, "").replace(/\//g, "-");
+}
+
 export function ttyIdForPid(pid: number, log?: Logger): string | null {
   try {
     if (process.platform === "linux") {
       const link = fs.readlinkSync(`/proc/${pid}/fd/0`);
       if (!link.startsWith("/dev/")) return null;
-      return link.slice("/dev/".length).replace(/\//g, "-");
+      return renderTtyId(link);
     }
     if (process.platform === "darwin") {
       const out = execFileSync("ps", ["-o", "tty=", "-p", String(pid)], {
         encoding: "utf8",
       }).trim();
       if (out.length === 0 || out === "??" || out.startsWith("-")) return null;
-      return out.replace(/^\/dev\//, "").replace(/\//g, "-");
+      return renderTtyId(out);
     }
     return null;
   } catch (err) {

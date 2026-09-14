@@ -81,9 +81,15 @@ async function startFakeAgent(
   await world.page.keyboard.press("Enter");
 }
 
+/** Mock an omp session in the terminal: a temp cwd, the session file (when
+ *  `state` is given), the fake process that writes its own breadcrumb.
+ *
+ *  `state` OMITTED is a real production state, not a convenience default: it is
+ *  omp's lazy session, whose crumb is written `fresh` before any JSONL exists —
+ *  the race the "no session file yet" scenario exercises. */
 async function mockOmpSession(
   world: KoluWorld,
-  state: AgentLifecycleState,
+  state?: AgentLifecycleState,
 ): Promise<void> {
   const ompDir = getOmpDir();
   if (!ompDir) throw new Error("KOLU_OMP_DIR must be set");
@@ -91,7 +97,7 @@ async function mockOmpSession(
   cleanup();
   mockCwd = fs.mkdtempSync(path.join(os.tmpdir(), `kolu-omp-${process.pid}-`));
   mockFixture = ompTranscriptPath({ ompDir, cwd: mockCwd });
-  writeOmpFixture(mockFixture, state);
+  if (state) writeOmpFixture(mockFixture, state);
 
   await cdTerminalInto(world, mockCwd);
   await startFakeAgent(world, mockFixture);
@@ -112,15 +118,7 @@ When(
 When(
   "an Oh My Pi process is running with no session file yet",
   async function (this: KoluWorld) {
-    const ompDir = getOmpDir();
-    if (!ompDir) throw new Error("KOLU_OMP_DIR must be set");
-    cleanup();
-    mockCwd = fs.mkdtempSync(
-      path.join(os.tmpdir(), `kolu-omp-${process.pid}-`),
-    );
-    mockFixture = ompTranscriptPath({ ompDir, cwd: mockCwd });
-    await cdTerminalInto(this, mockCwd);
-    await startFakeAgent(this, mockFixture);
+    await mockOmpSession(this);
   },
 );
 
