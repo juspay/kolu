@@ -18,10 +18,15 @@
  *      follows the terminal, #959.)
  *    - `dockOrder` — the user's drag arrangement of dock sections and their
  *      branch clusters, persisted PER HOST (`kolu-dockOrder:<host>`) exactly like
- *      the two filters above. `perHostPref` evicts the key when the host is removed
- *      from the pool — accepted, and identical to what removing a host does to its
- *      sibling prefs: removing a host destroys its scope, and the arrangement was
- *      a view of THAT host's content.
+ *      the two filters above. Eviction rides the same seam as the sibling prefs:
+ *      `perHostPref` sweeps the key when the host's created scope DISPOSES —
+ *      which means a host removed cold (pooled but never activated this
+ *      session) leaves an orphaned key behind. Accepted, and no different from
+ *      the sibling prefs: an orphan is a few KB of dead names, where the
+ *      REAL leak would be a set of knobs reappearing where the user didn't
+ *      put them. Moving eviction to the membership seam (`hosts.remove`)
+ *      would close it; that is a seam redesign all three prefs would share,
+ *      not a per-arrangement fix.
  *
  *      Keying the arrangement by NAMES (repo + branch label) rather than ids has
  *      two known edges, both intended:

@@ -128,15 +128,15 @@ inherit your dashboard's ordering.
 
 **Eviction is graceful:** a name that no longer exists (a closed repo, a branch
 checked out elsewhere) simply drops out of the dock — nothing fails — while its
-slot in the order stays put: the slot just stops being occupied. Drop a bullet
-then undo it and the rest of the order behind it stays in place.
+slot in the order stays put: the slot just stops being occupied. Re-open the
+same name and it lands right back in its old slot.
 
 The two other drag idioms in kolu stay in separate lanes: resizing the dock (a
 continuous *geometry* change) goes through the `capturePointerGesture` pointer
 variant, while rearranging (a discrete *order* change) goes through solid-dnd.
-The same(PointerSensor's 250 ms/10 px) pointer-activation distance the canvas
-tile relies on keeps clicking a row from firing a cluster drag, and the
-capsules in the header never become the grip.
+The same pointer-activation distance the canvas tile relies on (solid-dnd's
+250&nbsp;ms / 10&nbsp;px) keeps clicking a row from firing a cluster drag, and
+the capsules in the header never become the grip.
 
 ## The Needs-you strip
 

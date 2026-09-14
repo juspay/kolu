@@ -134,30 +134,40 @@ When(
 );
 
 /** Record the present row order of a cluster to compare after a move. A fresh
- *  terminal appears in the dock as soon as its id exists, but its repo/label
- *  projection takes another tick (`getDisplayInfo`) — wait for the newest
- *  created terminal to be inside SOME section before snapping, so a pending
- *  project cannot slip a row between snapshot and drag. */
+ *  terminal's row appears as soon as its id exists, but its repo/label
+ *  projection lands in waves (cwd first, git root later) — it can hop
+ *  BETWEEN clusters for a beat. A once-read snapshot can latch that beat; so
+ *  read the cluster twice, 500 ms apart, and only accept a list that did not
+ *  change. */
 When(
   "I snapshot the {string} cluster's rows",
   async function (this: KoluWorld, label: string) {
-    const latest = this.createdTerminalIds.at(-1);
-    if (latest) {
-      await this.page.waitForFunction(
-        (id) =>
-          document.querySelector(`.dock-cluster [data-terminal-id="${id}"]`) !==
-          null,
-        latest,
-        { timeout: POLL_TIMEOUT },
+    const readRows = () =>
+      this.page.evaluate((label) => {
+        const el = document.querySelector(
+          `.dock-cluster[data-label="${label}"]`,
+        );
+        if (!el) throw new Error(`no cluster for label "${label}"`);
+        return Array.from(el.querySelectorAll("[data-terminal-id]")).map(
+          (row) => row.getAttribute("data-terminal-id") ?? "",
+        );
+      }, label);
+    let rows = await readRows();
+    const steadyDeadline = Date.now() + POLL_TIMEOUT;
+    for (;;) {
+      {
+        const { promise, resolve } = Promise.withResolvers<void>();
+        setTimeout(resolve, 500);
+        await promise;
+      }
+      const again = await readRows();
+      if (JSON.stringify(rows) === JSON.stringify(again)) break;
+      assert.ok(
+        Date.now() < steadyDeadline,
+        `cluster "${label}" rows never settled: ${JSON.stringify(again)}`,
       );
+      rows = again;
     }
-    const rows = await this.page.evaluate((label) => {
-      const el = document.querySelector(`.dock-cluster[data-label="${label}"]`);
-      if (!el) throw new Error(`no cluster for label "${label}"`);
-      return Array.from(el.querySelectorAll("[data-terminal-id]")).map(
-        (row) => row.getAttribute("data-terminal-id") ?? "",
-      );
-    }, label);
     this.savedClusterRows.set(label, rows);
   },
 );

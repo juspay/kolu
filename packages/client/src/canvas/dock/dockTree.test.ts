@@ -2,7 +2,12 @@ import type { TerminalId } from "kolu-common/surface";
 import { describe, expect, it } from "vitest";
 import type { TerminalDisplayInfo } from "../../terminal/terminalDisplay";
 import type { RankedDockRow } from "./dockRowRanking";
-import { type DockOrder, buildDockTree, effectiveOrder } from "./dockTree";
+import {
+  type DockOrder,
+  buildDockTree,
+  effectiveOrder,
+  spliceVisiblePermutation,
+} from "./dockTree";
 
 /** A row whose folds AGREE — the ordinary case, where the attention frame has
  *  landed and metadata, paint and attention say the same thing.
@@ -854,5 +859,15 @@ describe("buildDockTree — user order overlay (#2247)", () => {
     // pierre's only row is parked → dropped from `groups`, but `effectiveOrder`
     // still reports its slot so a filter never erases its arrangement.
     expect(effectiveOrder(tree)).toEqual(order);
+  });
+
+  it("spliceVisiblePermutation pins hidden clusters to their slots (#2247 arch review)", () => {
+    // Stored: [main, winhba(hidden), feat]; the user drags feat ABOVE main
+    // while winhba's rows are parked out of `clusters`. The visible permutation
+    // is [feat, main]; the write-back's full label list must keep winhba pinned
+    // to its stored slot — anything else erases a slot a drag pinned.
+    expect(
+      spliceVisiblePermutation(["main", "winhba", "feat"], ["feat", "main"]),
+    ).toEqual(["feat", "winhba", "main"]);
   });
 });

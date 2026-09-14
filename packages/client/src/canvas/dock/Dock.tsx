@@ -124,8 +124,8 @@ import {
 } from "./dockCardsWidth";
 import { useDockRowBag } from "./useDockRowBag";
 import { createDockRowData } from "./dockRowData";
-import type { DockClusterSection, DockGroup, DockTree } from "./dockTree";
-import { effectiveOrder } from "./dockTree";
+import type { DockBranchCluster, DockGroup, DockTree } from "./dockTree";
+import { effectiveOrder, spliceVisiblePermutation } from "./dockTree";
 import { HiddenFooter } from "./HiddenFooter";
 import { NeedsYouStrip } from "./NeedsYouStrip";
 import { SubTerminalRow } from "./SubTerminalRow";
@@ -416,7 +416,13 @@ const RailOrCards: Component<{
     if (from === -1 || to === -1) return;
     setDockOrder(arrayMove(order, from, to));
   };
-  const dropCluster = (repo: string, labels: readonly string[]) => {
+  /** The cluster-DROP's write to storage: takes the section's spliced
+   *  ALL-slots labels (hidden clusters keep their pinned slots — the
+   *  section's `reorderClusters` merges them) and puts them back through the
+   *  WHOLE effective order, so a filtered-out REPO's fixed slot also survives.
+   *  Two closures named `dropCluster` used to split these levels, which is
+   *  exactly how a hidden-cluster slot once got dropped. */
+  const writeClusterArrangement = (repo: string, labels: readonly string[]) => {
     const order = effectiveOrder(props.tree);
     const idx = order.findIndex((n) => n.repo === repo);
     if (idx === -1) return;
@@ -469,7 +475,7 @@ const RailOrCards: Component<{
                           group={group}
                           flatIndexOf={flatIndexOf()}
                           onClusterDrop={(labels) =>
-                            dropCluster(group.name, labels)
+                            writeClusterArrangement(group.name, labels)
                           }
                         />
                       )}
@@ -670,16 +676,30 @@ const RepoSection: Component<{
   // Each DockRow is a subgrid
   // item that inherits these columns, keeping the icons aligned
   // vertically across rows in one section.
-  const dropCluster = ({ draggable, droppable }: DragEvent) => {
+  // The drag's permutation lives over the VISIBLE clusters only (the
+  // SortableProvider's ids are just the visible ones), but the write must carry
+  // the ALL-slots label list: a cluster whose every row is filtered out still
+  // has a pinned slot, and splicing the permutation back over `group.labels`
+  // keeps it. Anything else erases a slot a drag pinned — the same law the
+  // tree's derive step enforces as it re-projects the stored order.
+  const reorderClusters = ({ draggable, droppable }: DragEvent) => {
     if (!droppable || draggable.id === droppable.id) return;
-    const labels = props.group.clusters.map((k) => k.label);
-    const from = labels.indexOf(String(draggable.id));
-    const to = labels.indexOf(String(droppable.id));
+    const visible = props.group.clusters.map((k) => k.label);
+    const from = visible.indexOf(String(draggable.id));
+    const to = visible.indexOf(String(droppable.id));
     if (from === -1 || to === -1) return;
-    props.onClusterDrop(arrayMove(labels, from, to));
+    props.onClusterDrop(
+      spliceVisiblePermutation(
+        props.group.labels,
+        arrayMove(visible, from, to),
+      ),
+    );
   };
   return (
-    <DragDropProvider collisionDetector={closestCenter} onDragEnd={dropCluster}>
+    <DragDropProvider
+      collisionDetector={closestCenter}
+      onDragEnd={reorderClusters}
+    >
       <DragDropSensors />
       <SortableProvider ids={props.group.clusters.map((c) => c.label)}>
         <DockSection
@@ -760,7 +780,7 @@ const RepoSection: Component<{
  *  per-section (see `SortableSection`), and solid-dnd keys every sortable to
  *  its NEAREST SortableProvider — the nest is the isolation, no runtime check. */
 const SortableCluster: Component<{
-  cluster: DockClusterSection;
+  cluster: DockBranchCluster;
   flatIndexOf: ReadonlyMap<TerminalId, number>;
 }> = (props) => {
   const sortable = createSortable(props.cluster.label);

@@ -111,14 +111,12 @@ export const DockCluster: Component<{
   style?: JSX.CSSProperties;
   /** Consumer's activator listeners, spread onto the element (e.g. pointerdown). */
   handlers?: DockDragHandlers;
-  testId?: string;
   children: JSX.Element;
 }> = (props) => (
   <div
     ref={props.ref}
     style={props.style}
     {...props.handlers}
-    data-testid={props.testId}
     data-label={props.label}
     class="dock-cluster grid grid-cols-subgrid col-span-full"
   >

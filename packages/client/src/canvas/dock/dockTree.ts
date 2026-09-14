@@ -81,8 +81,10 @@ import {
 export type DockOrder = readonly { repo: string; labels: readonly string[] }[];
 
 /** One branch/intent cluster — the draggable unit inside a repo section:
- *  a named group of rows that drag together. */
-export type DockClusterSection = {
+ *  a named group of rows that drag together. Named "branch cluster" (not
+ *  "section") so the data type never reads like `DockSection` — the repo
+ *  card's component. */
+export type DockBranchCluster = {
   /** The cluster's branch/intent label — `info.key.label`. */
   label: string;
   /** Rows in creation order, ALREADY filtered by the dock's two filters —
@@ -101,7 +103,7 @@ export type DockGroup = {
    *  cluster are in creation order and FILTERED by the dock's two filters
    *  (rendering never sees a hidden row); a cluster is dropped only when
    *  every row failed the filters. Dragging a cluster lifts its rows. */
-  clusters: readonly DockClusterSection[];
+  clusters: readonly DockBranchCluster[];
   /** Cluster labels in display order, INCLUDING ones whose every row is
    *  filtered out — a filter hides ROWS, it must never erase the slot a
    *  drag pinned. Written back on the next drop via `effectiveOrder`. */
@@ -379,4 +381,19 @@ export function buildDockTree(
  *  from the arrangement, it only hides the rows. */
 export function effectiveOrder(tree: DockTree): DockOrder {
   return tree.allGroups.map((g) => ({ repo: g.name, labels: g.labels }));
+}
+
+/** Fold a drag's VISIBLE permutation back over the ALL-slots label list:
+ *  every filter-hidden label stays pinned to its index; the permuted visible
+ *  labels fill the visible slots in sequence. The write half of the invariant
+ *  `effectiveOrder` documents: a filter never erases a slot a drag pinned, so
+ *  the DROP side must never lose one either. The drag itself supplies the
+ *  `visible` order in the section's own SortableProvider ids. */
+export function spliceVisiblePermutation(
+  all: readonly string[],
+  permuted: readonly string[],
+): readonly string[] {
+  const visible = new Set(permuted);
+  let i = 0;
+  return all.map((l) => (visible.has(l) ? (permuted[i++] as string) : l));
 }
