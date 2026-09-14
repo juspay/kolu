@@ -54,12 +54,21 @@ export const DockSection: Component<{
   /** The repo this card is for — `data-repo`, an e2e/debug handle. */
   repo?: string;
   testId?: string;
+  /** Consumer's sortable ref — the package's section-level drag socket is
+   *  `ref` + `styleProp` (no `handlers`: activators land inside the
+   *  consumer-filled HEADER slot, so the section's wrapper never carries
+   *  them). When the style carries the same wiring the ref does, the
+   *  `--repo-color` still lands first: a socket that costs the card its hue
+   *  is a trap. */
+  ref?: HTMLElement | ((el: HTMLElement) => void);
+  styleProp?: JSX.CSSProperties;
   children: JSX.Element;
 }> = (props) => (
   <section
     data-testid={props.testId}
     data-repo={props.repo}
-    style={{ "--repo-color": props.repoColor }}
+    ref={props.ref}
+    style={{ "--repo-color": props.repoColor, ...props.styleProp }}
     class={`${DOCK_SECTION_CLASS} grid ${DOCK_ROW_GRID} ${DOCK_ROW_GAP} ${DOCK_ROW_SURFACE[props.surface].sectionPad}`}
   >
     <Show when={props.header}>

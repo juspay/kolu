@@ -4,39 +4,11 @@
 
 import * as assert from "node:assert";
 import { Then, When } from "@cucumber/cucumber";
+import { dragCenterTo } from "../support/pointerDrag.ts";
 import { type KoluWorld, POLL_TIMEOUT } from "../support/world.ts";
 
 /** One repo section, by its canonical git repo name / cwd basename. */
 const sectionSelector = (repo: string) => `[data-repo="${repo}"]`;
-
-/** Drive a sortable drag: grip on from → onto the middle of to. Pointer
- *  activation distance is 10 (solid-dnd PointerSensor) — stepped frames. Enjoy
- *  the same layout-translate a user does, tested from DOM. */
-async function dragGrip(
-  world: KoluWorld,
-  fromSelector: string,
-  toSelector: string,
-): Promise<void> {
-  const from = world.page.locator(fromSelector);
-  const to = world.page.locator(toSelector);
-  await from.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
-  await to.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
-  const fromBox = await from.boundingBox();
-  const toBox = await to.boundingBox();
-  assert.ok(fromBox, `${fromSelector} has no bounding box`);
-  assert.ok(toBox, `${toSelector} has no bounding box`);
-  const cx = fromBox.x + fromBox.width / 2;
-  const cy = fromBox.y + fromBox.height / 2;
-  const tx = toBox.x + toBox.width / 2;
-  const ty = toBox.y + toBox.height / 2;
-  await world.page.mouse.move(cx, cy);
-  await world.page.mouse.down();
-  // Stepped move so PointerSensor's 250ms/distance-10 activation and every
-  // intermediate `pointermove` land with real frames.
-  await world.page.mouse.move(tx, ty, { steps: 16 });
-  await world.page.mouse.up();
-  await world.waitForFrame();
-}
 
 Then(
   "the dock should show the {string} repo section",
@@ -112,9 +84,9 @@ Then(
 When(
   "I drag the dock section {string} above the dock section {string}",
   async function (this: KoluWorld, a: string, b: string) {
-    // The OUTER sortable's grip is the monogram+name pair — the header's own
-    // root (its padding/capsule area) is not inside `dragActivators`.
-    await dragGrip(
+    // The OUTER sortable's grip is the monogram — the header's own root
+    // (its padding/capsule area) is not inside `dragActivators`.
+    await dragCenterTo(
       this,
       `${sectionSelector(a)} [data-testid="dock-section-monogram"]`,
       `${sectionSelector(b)} [data-testid="dock-section-monogram"]`,
@@ -125,7 +97,7 @@ When(
 When(
   "I drag the dock cluster {string} above the dock cluster {string}",
   async function (this: KoluWorld, a: string, b: string) {
-    await dragGrip(
+    await dragCenterTo(
       this,
       `.dock-cluster[data-label="${a}"]`,
       `.dock-cluster[data-label="${b}"]`,

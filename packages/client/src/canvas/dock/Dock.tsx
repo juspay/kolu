@@ -89,6 +89,7 @@ import {
   createMemo,
   createSignal,
   For,
+  type JSX,
   onCleanup,
   onMount,
   Show,
@@ -587,12 +588,11 @@ const DockHeader: Component<{
   );
 };
 
-/** Wrap one repo section so its whole card is ONE draggable unit — the
- *  section in the outer sequence, the cluster grip INSIDE the header (the
- *  name + monogram pair, never the attention capsules). The shape is the
- *  only wedge a consumer's solid-dnd logic needs: `createSortable` owns its
- *  `ref` (the wrapped div) and its `dragActivators` land in the header by
- *  name-binding, not by div-count trickery. */
+/** One repo section as ONE draggable unit — the whole card is the sortable:
+ *  `createSortable`'s `ref` + `style` land on the DockSection ROOT through
+ *  its own sockets (the package's answer, so a second consumer never re-spells
+ *  the wrapper), and its `dragActivators` land inside the consumer-filled
+ *  header slot — the identity chrome, never the attention capsules. */
 const SortableSection: Component<{
   group: DockGroup;
   flatIndexOf: ReadonlyMap<TerminalId, number>;
@@ -600,19 +600,19 @@ const SortableSection: Component<{
 }> = (props) => {
   const sortable = createSortable(props.group.name);
   return (
-    <div ref={sortable.ref} style={maybeTransformStyle(sortable.transform)}>
-      {/* Each section ships its OWN inner drag context for its clusters —
-       *  giving the nest two isolated levels: a cluster physically cannot
-       *  land in another repo: sortables bind their drag to the NEAREST
-       *  DragDropProvider, so it's the nest, not any runtime check, that
-       *  blocks the crossover. */}
-      <RepoSection
-        group={props.group}
-        flatIndexOf={props.flatIndexOf}
-        grip={sortable.dragActivators}
-        onClusterDrop={props.onClusterDrop}
-      />
-    </div>
+    // Each section ships its OWN inner drag context for its clusters —
+    // giving the nest two isolated levels: a cluster physically cannot
+    // land in another repo: sortables bind their drag to the NEAREST
+    // DragDropProvider, so it's the nest, not any runtime check, that blocks
+    // the crossover.
+    <RepoSection
+      group={props.group}
+      flatIndexOf={props.flatIndexOf}
+      sectionRef={sortable.ref}
+      sectionStyle={maybeTransformStyle(sortable.transform)}
+      grip={sortable.dragActivators}
+      onClusterDrop={props.onClusterDrop}
+    />
   );
 };
 
@@ -627,6 +627,11 @@ const RepoSection: Component<{
    *  index is an O(1) read instead of an O(rows) `findIndex` scan per
    *  row per render. Built once per tree update by `RailOrCards`. */
   flatIndexOf: ReadonlyMap<TerminalId, number>;
+  /** Section-level sortable wiring: `ref + style` from the consumer's
+   *  `createSortable(name)`, forwarded to the DockSection root via the
+   *  package's own sockets — the package's layout, our drag. */
+  sectionRef: HTMLElement | ((el: HTMLElement) => void);
+  sectionStyle: JSX.CSSProperties;
   /** Section-level drag activators from `createSortable(name)` — landed on
    *  the header's identity chrome (monogram, name, tally: the touches that
    *  have no click of their own; NEVER the attention capsules: a button has
@@ -689,6 +694,8 @@ const RepoSection: Component<{
           repo={props.group.name}
           repoColor={props.group.color}
           headerTestId="dock-section-header"
+          ref={props.sectionRef}
+          styleProp={props.sectionStyle}
           header={
             <>
               {/* Sticky repo header — monogram + uppercase name + bare tally +
