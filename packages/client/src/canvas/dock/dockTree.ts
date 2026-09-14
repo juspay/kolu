@@ -85,9 +85,9 @@ export type DockBranchCluster = {
   /** The cluster's branch/intent label — `info.key.label`. */
   label: string;
   /** Rows in creation order, ALREADY filtered by the dock's two filters —
-   *  the rows the section renders. $(ref: `DockGroup.labels`) is the
-   *  broader, order-ranking source of truth for a cluster whose every row
-   *  is hidden. */
+   *  the rows the section renders. `DockTree.order` is the arrangement's
+   *  one ranking source: a cluster whose EVERY row is hidden keeps its
+   *  slot there. */
   rows: readonly RankedDockRow[];
 };
 

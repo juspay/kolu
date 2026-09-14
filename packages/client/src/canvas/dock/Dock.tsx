@@ -415,15 +415,6 @@ const RailOrCards: Component<{
       moveRepo(props.tree.order, String(draggable.id), String(droppable.id)),
     );
   };
-  /** The cluster-drop's write through the same verb family as `dropSection`:
-   *  the all-slots splice (hidden clusters keep their pinned slots) lives in
-   *  `moveCluster`; this closure is event plumbing only. */
-  const writeClusterArrangement = (
-    repo: string,
-    visiblePermuted: readonly string[],
-  ) => {
-    setDockOrder(moveCluster(props.tree.order, repo, visiblePermuted));
-  };
   return (
     <div class="flex flex-col w-full min-h-0">
       <DockHeader
@@ -469,7 +460,11 @@ const RailOrCards: Component<{
                           group={group}
                           flatIndexOf={flatIndexOf()}
                           onClusterDrop={(labels) =>
-                            writeClusterArrangement(group.name, labels)
+                            // Like `dropSection`: the all-slots splice is the
+                            // verb's (`moveCluster`); this is event plumbing.
+                            setDockOrder(
+                              moveCluster(props.tree.order, group.name, labels),
+                            )
                           }
                         />
                       )}

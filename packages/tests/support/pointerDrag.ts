@@ -5,9 +5,10 @@
  *  Stepped so the pointermove listeners see real frames — solid-dnd's
  *  PointerSensor (250 ms / 10 px activation) needs the drag to live in the DOM
  *  the way a user's does. Both in-canvas gestures (resize, selection,
- *  rearrange) and the dock's gestures feed the same engine. The suite used to
- *  spell this driver by hand in every drag feature (dock_arrange_steps,
- *  dock_steps's resize, canvas_selection_steps, code_tab_steps). */
+ *  rearrange) and the dock's gestures feed the same engine. The dock
+ *  features (dock_arrange_steps, dock_steps's resize) were migrated off
+ *  hand-spelled frames onto this driver; the canvas/code-tab drivers spell
+ *  them the old way until they adopt it. */
 
 import type { KoluWorld } from "./world.ts";
 
