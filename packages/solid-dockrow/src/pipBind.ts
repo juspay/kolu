@@ -345,6 +345,20 @@ export function bindStatePip(input: {
   // missed.
   const active = isActive(input.attention);
   const motion = pipMotionKind({ variant, active });
+  // Xyne's pip is still while waiting — and Xyne is ALWAYS waiting (its
+  // persisted transcript carries no live phase, so the adapter reports
+  // `waiting` for the session's whole life). Neither motion channel can tell
+  // the truth for it: the settle class (`linger`) is active unconditionally,
+  // and the live byte edge is held open by Xyne's own TUI animation — which
+  // a hung Xyne paints forever, leaving the mark spinning after Xyne will
+  // never answer again (see `xynePipMotion.test.ts`). The badge stays the
+  // honest dim dot until Xyne publishes a real phase; the day it reports
+  // `thinking`, this lift expires by itself (state ≠ waiting).
+  const xyneWaiting =
+    activeArm(input.meta)?.agent?.kind === "xyne" &&
+    activeArm(input.meta)?.agent?.state === "waiting";
+  const finalMotion: PipMotionKind =
+    xyneWaiting && motion === "spin" ? "none" : motion;
   // Live shell keeps idle *variant* (title/a11y stay "Idle") but busy-orange
   // paint via shellLive — not agent "Working".
   const shellLive = pipShellLive({
@@ -355,7 +369,7 @@ export function bindStatePip(input: {
   return {
     variant,
     glyph: pipGlyphFor(input.meta),
-    motion,
+    motion: finalMotion,
     active,
     asking: input.attention.klass === "asking",
     bytesLive: input.attention.live,
