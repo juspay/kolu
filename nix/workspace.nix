@@ -96,6 +96,7 @@ let
     "kolu-opencode" = ../packages/integrations/opencode;
     "kolu-pi" = ../packages/integrations/pi;
     "kolu-pty" = ../packages/integrations/pty;
+    "kolu-xyne" = ../packages/integrations/xyne;
     "nonempty" = ../packages/nonempty;
     "kolu-shared" = ../packages/shared;
     "terminal-snapshot" = ../packages/terminal-snapshot;

@@ -81,8 +81,8 @@ function publishedEntries(): string[] {
  *    shared framework tier every surface consumer installs (drishti's gate list).
  *  - `@kolu/terminal-vocab` — the terminal ids, agent info and snapshot schemas
  *    the surface's records are made of, plus the agent-detection integrations it
- *    declares (`anyagent`, `kolu-{claude-code,codex,grok,opencode,pi}`), which
- *    are pure schema/parse leaves.
+ *    declares (`anyagent`, `kolu-{claude-code,codex,grok,opencode,pi,xyne}`),
+ *    which are pure schema/parse leaves.
  *  - `kolu-git` / `kolu-github` / `anyforge` — the git and PR shapes padi's
  *    per-terminal sensor puts on every terminal record (`pr`, `git`), and the
  *    fs/git procedure schemas.
@@ -121,6 +121,7 @@ const DECLARED_ALLOWED = new Set([
   "kolu-pty",
   "kolu-shared",
   "kolu-transcript-core",
+  "kolu-xyne",
   "memorable-names",
   "nonempty",
   // NOT an npm package and NOT in this repo: grafted from the `juspay/osfacts`
@@ -177,6 +178,7 @@ const IMPORTED_ALLOWED = new Set([
   "kolu-opencode",
   "kolu-pi",
   "kolu-transcript-core",
+  "kolu-xyne",
 ]);
 
 /** Names whose PRESENCE would mean the daemon tier came back.

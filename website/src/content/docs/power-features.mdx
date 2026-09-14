@@ -48,7 +48,10 @@ edits collapsed under disclosure blocks), or both.
 Each file is a **self-contained `.html`** — no external assets, no upload — that
 opens in any browser offline. Under the hood each agent's storage (Claude's JSONL,
 Codex's rollout, OpenCode's SQLite, Grok's `chat_history.jsonl`) normalizes to one
-shape, so the same document design renders every vendor.
+shape, so the same document design renders all four supported vendors. The
+command appears for Claude, Codex, OpenCode, and Grok sessions — **not yet for
+Xyne**, whose pi-format transcript needs a kolu-side loader before the exporter
+can normalize it.
 
 ## Record the workspace
 
