@@ -125,7 +125,10 @@ export function seedRecencyBaseline(
   // full persisted `AgentIdentity`, which also carries `resumeRef`) keeps the
   // survivor's identity stable across a restore that re-derives the ref.
   return restoreTarget?.kind === "exact"
-    ? { kind: restoreTarget.agent.kind, sessionId: restoreTarget.agent.sessionId }
+    ? {
+        kind: restoreTarget.agent.kind,
+        sessionId: restoreTarget.agent.sessionId,
+      }
     : null;
 }
 
