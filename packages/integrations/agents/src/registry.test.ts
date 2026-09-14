@@ -105,17 +105,19 @@ describe("the CLI registry", () => {
 });
 
 describe("AGENT_DIR_ENV_KEYS", () => {
-  it("equals the legacy hand-list padiBinding forwarded (set, order-free)", () => {
-    expect([...AGENT_DIR_ENV_KEYS].sort()).toEqual(
-      [
-        "KOLU_CLAUDE_SESSIONS_DIR",
-        "KOLU_CLAUDE_PROJECTS_DIR",
-        "KOLU_CODEX_DIR",
-        "KOLU_CODEX_DB",
-        "KOLU_GROK_DIR",
-        "KOLU_OPENCODE_DB",
-        "KOLU_PI_DIR",
-      ].sort(),
-    );
+  it("is the unique, KOLU_-prefixed union of every plugin's env keys", () => {
+    // Structural invariants, NOT a pinned list: a pinned list is the old
+    // padiBinding table moved into a test, and the next agent with a
+    // `KOLU_<AGENT>_DIR` key would have to edit it — the per-agent edit the
+    // registry exists to remove.
+    const keys = [...AGENT_DIR_ENV_KEYS];
+    expect(new Set(keys).size).toBe(keys.length);
+    for (const key of keys) expect(key.startsWith("KOLU_")).toBe(true);
+    for (const kind of KINDS) {
+      const pluginKeys = AGENT_PLUGINS[kind].envKeys;
+      // Every agent contributes at least one detection dir/db override.
+      expect(pluginKeys.length).toBeGreaterThan(0);
+      for (const key of pluginKeys) expect(keys).toContain(key);
+    }
   });
 });

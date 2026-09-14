@@ -44,7 +44,7 @@
  *  points are a deliberate value/JSX split, not redundancy. */
 
 import type { AgentPaintClass } from "@kolu/terminal-vocab/agentProjection";
-import { AGENT_VOCABS, type AgentKind } from "kolu-agents/vocab";
+import { type AgentKind, mapAgentVocabs } from "kolu-agents/vocab";
 
 export type PipVariant =
   | "awaiting" // blocked on you (`awaiting_user`): full needs-you violet + glow
@@ -90,15 +90,10 @@ export type PipGlyphDef = {
   strokeWidth?: number;
 };
 
-// ── Identity glyph paths ────────────────────────────────────────────────
-// Real brand marks — do not hand-draw approximations. Attribution per path.
-// claude / opencode / openai(codex): simple-icons (CC0).
-// grok: lobehub icon set (xAI/grok is NOT in simple-icons).
-// pi: geometric π letterform — pi ships no flat vector mark (its assets are
-// the "clankolas" mascot), and the agent IS named for the constant, so the
-// glyph is the literal sign rather than an approximation of one. The SAME
-// path renders the client chrome's PiIcon (packages/client/src/ui/Icons.tsx) —
-// one shape, two render contexts.
+// ── Identity glyphs ────────────────────────────────────────────────────
+// Each agent's brand mark is declared in that agent's own vocab and folded by
+// the registry (see `PIP_GLYPHS` below). The shell prompt is the one non-agent
+// mark, defined here.
 
 /** Shell — filled `#` prompt.
  *
@@ -129,11 +124,9 @@ const GLYPH_SHELL: PipGlyphDef = {
  *  (`PIP_GLYPH_IDS`) a fleet mirror narrows against. The shell is the one
  *  non-agent mark, defined here. */
 const PIP_GLYPHS: Record<PipGlyphId, PipGlyphDef> = {
-  ...Object.fromEntries(
-    Object.entries(AGENT_VOCABS).map(([kind, vocab]) => [kind, vocab.mark]),
-  ),
+  ...mapAgentVocabs((vocab) => vocab.mark),
   shell: GLYPH_SHELL,
-} as Record<PipGlyphId, PipGlyphDef>;
+};
 
 /** Agent-kind → brand mark. */
 export function agentGlyph(kind: AgentKind): PipGlyphDef {

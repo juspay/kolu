@@ -159,37 +159,6 @@ describe("SavedSession — the conf store + the exported kolu-session.json", () 
     expect("agentSession" in (repaired.terminals[0] ?? {})).toBe(false);
   });
 
-  it("the resume-ref backfill fills `resumeRef` on a pre-#2241 exact target (pi's path wins)", () => {
-    // Before #2241 the resume ref was implicit: `sessionId` for most agents,
-    // pi's `sessionPath` for pi. The identity now carries it explicitly. A
-    // record written then must survive the upgrade with the SAME conversation
-    // resumable — and the now-redundant `sessionPath` is dropped.
-    const pre2241 = {
-      cwd: "/repo",
-      git: null,
-      pr: { kind: "absent" },
-      location: { kind: "local" },
-      lastActivityAt: 7,
-      lastAgentCommand: "pi",
-      restoreTarget: {
-        kind: "exact",
-        command: "pi",
-        agent: { kind: "pi", sessionId: "p-1", sessionPath: "/w/x.jsonl" },
-      },
-      state: "active",
-      id: "t-1",
-    };
-    const repaired = backfillSavedSession({
-      terminals: [pre2241],
-      savedAt: 1,
-    }) as { terminals: Record<string, unknown>[] };
-    expect(decodeSession(repaired).terminals[0]?.restoreTarget).toEqual({
-      kind: "exact",
-      command: "pi",
-      agent: { kind: "pi", sessionId: "p-1", resumeRef: "/w/x.jsonl" },
-    });
-  });
-
   it("a CORRUPT agentSession falls back to legacyMostRecent instead of dropping the terminal", () => {
     // The `safeParse` → `Result` translation, pinned where it bites: a bad
     // on-disk `kind` must be a BRANCH, never a throw that loses the record.

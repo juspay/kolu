@@ -126,9 +126,22 @@ export function isAgentKind(raw: string): raw is AgentKind {
   return Object.hasOwn(AGENT_VOCABS, raw);
 }
 
+/** Map every registered vocab to a uniform value, preserving the kind key — a
+ *  typed `Object.fromEntries` whose call sites need no cast. The ONE cast lives
+ *  here, where the key set is the registry itself. */
+export function mapAgentVocabs<R>(
+  f: (vocab: AnyAgentVocab, kind: AgentKind) => R,
+): Record<AgentKind, R> {
+  const out = {} as Record<AgentKind, R>;
+  for (const kind of Object.keys(AGENT_VOCABS) as AgentKind[]) {
+    out[kind] = f(AGENT_VOCABS[kind], kind);
+  }
+  return out;
+}
+
 /** The persisted resume ref for a LIVE agent's info — `vocab.resume.ref(info)`.
  *  The single place the kind↔Info correlation lost at a union-typed
- *  `agent.kind` is re-asserted (the one `AgentVocab<any>` widening in the
+ *  `agent.kind` is re-asserted (the one `AnyAgentVocab` widening in the
  *  registry). */
 export function resumeRefFor(agent: AgentInfo): string {
   const vocab: AnyAgentVocab = AGENT_VOCABS[agent.kind];
@@ -164,8 +177,12 @@ export const resumableCommand = (
   target: RestoreTarget | undefined,
 ): string | null => cliResumableCommand(AGENT_CLI, target);
 
-export const agentKindFromCommand = (command: string): string | null =>
-  cliAgentKindFromCommand(AGENT_CLI, command);
+/** Resolve an agent command string to its kind, narrowed to `AgentKind | null`
+ *  at the registry boundary — callers never re-narrow. */
+export const agentKindFromCommand = (command: string): AgentKind | null => {
+  const kind = cliAgentKindFromCommand(AGENT_CLI, command);
+  return kind !== null && isAgentKind(kind) ? kind : null;
+};
 
 export const exactRestoreTarget = (
   command: string,

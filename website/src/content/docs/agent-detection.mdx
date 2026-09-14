@@ -118,7 +118,8 @@ process's argv from `/proc`; it uses only the shell's marks and the command it w
 handed at spawn. Adding a new agent is one small package that declares its
 `AgentVocab` (name, mark, CLI grammar, resume policy, info schema) and its
 `AgentPlugin` (detection adapter, transcript fetcher, env keys), plus one row in
-the agent registry; nothing else in the tree changes.
+the agent registry and the build wiring (`nix/workspace.nix`, lockfile) — no
+shared table anywhere in the tree changes.
 
 <Aside type="note" title="One conversation belongs to one terminal">
   Claude Code and Grok stamp a process id kolu can match a terminal against, so a

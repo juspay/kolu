@@ -28,19 +28,6 @@ const REPO_ROOT = resolve(
 const PACKAGES_DIR = join(REPO_ROOT, "packages");
 const INTEGRATIONS_DIR = join(PACKAGES_DIR, "integrations");
 
-/** Integrations that are NOT agents — the kernel (anyagent), the forge leaf
- *  (anyforge), the registry itself (kolu-agents), and the non-agent
- *  integrations. Everything else under `integrations/` is an agent package. */
-const NON_AGENT_INTEGRATIONS = new Set([
-  "anyagent",
-  "anyforge",
-  "kolu-agents",
-  "kolu-git",
-  "kolu-github",
-  "kolu-io",
-  "kolu-pty",
-]);
-
 interface Manifest {
   /** Path relative to the repo root, for a readable failure. */
   path: string;
@@ -85,19 +72,43 @@ function allManifests(): Manifest[] {
   return out;
 }
 
-/** The `kolu-<agent>` package names, derived from the integrations tree. */
-function agentPackageNames(): Set<string> {
-  const names = new Set<string>();
+/** Every `packages/integrations/<dir>/package.json` name → its directory. */
+function integrationPackageNames(): Map<string, string> {
+  const names = new Map<string, string>();
   for (const entry of readdirSync(INTEGRATIONS_DIR, {
     withFileTypes: true,
   })) {
     if (!entry.isDirectory()) continue;
-    const manifest = readManifest(
-      join(INTEGRATIONS_DIR, entry.name, "package.json"),
-    );
-    if (!NON_AGENT_INTEGRATIONS.has(manifest.name)) names.add(manifest.name);
+    try {
+      const manifest = readManifest(
+        join(INTEGRATIONS_DIR, entry.name, "package.json"),
+      );
+      names.set(manifest.name, entry.name);
+    } catch {
+      // Not a package dir — skip.
+    }
   }
   return names;
+}
+
+/** The `kolu-<agent>` package set, DERIVED from what the registry actually
+ *  folds: the `kolu-*` workspace dependencies of `packages/integrations/agents`
+ *  that live under `packages/integrations/`. Registering an agent in the
+ *  registry fences it automatically, and a non-agent integration (a forge leaf,
+ *  say) is never misclassified. */
+function agentPackageNames(): Set<string> {
+  const integrations = integrationPackageNames();
+  const registry = readManifest(
+    join(INTEGRATIONS_DIR, "agents", "package.json"),
+  );
+  return new Set(
+    registry.dependencies.filter(
+      (dep) =>
+        dep.startsWith("kolu-") &&
+        dep !== "kolu-agents" &&
+        integrations.has(dep),
+    ),
+  );
 }
 
 /** A dependency is an agent package if it is a workspace `kolu-<agent>`. */
