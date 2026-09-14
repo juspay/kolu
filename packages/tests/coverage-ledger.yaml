@@ -2048,3 +2048,16 @@ retirements:
       file: packages/tests/features/code-tab.feature
       symbol: "Scenario: Tree/content split survives switching to another terminal and back"
       test: Same split-fraction round-trip and the same non-git-fallback unmount it guards; only the fallback-mounted wait changed spelling back, because the fallback is the "not a git repository" message again rather than the collapsed browse-root node. The survivor is the pre-#2138 revision restored verbatim (same revisionId).
+  - id: revise-9a11e0878aabc09c4d09
+    revisionId: revision-9a11e0878aabc09c4d09
+    action: revised
+    status: landed
+    promise: Dragging a branch cluster moves it; rows inside stay in creation order
+    defectSurface: [dock, drag-and-drop]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-c1d88535e7993b728404]
+    sameCodePathEvidence:
+      file: packages/tests/features/dock-arrange.feature
+      symbol: "Scenario: Dragging a branch cluster moves it; rows inside stay in creation order"
+      test: Same scenario name, same assertions; the superseded body is this PR's own in-flight recording (the scenario's step text was edited during development before the feature landed) — not a separate scenario. The survivor is the landed spelling. The 9a11 record's merge-time disappearance from the inventory was a merge-resolution artifact, and the record was restored verbatim (append-only law).

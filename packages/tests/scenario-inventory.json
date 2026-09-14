@@ -7634,6 +7634,18 @@
       "exampleRows": [],
       "executions": 1,
       "firstSeenSha": "b96a17f024573deef2b25324dca1f216ae1b9c6e"
+    },
+    {
+      "revisionId": "revision-9a11e0878aabc09c4d09",
+      "scenarioKey": "scenario-0ab09d04441ac28f4225",
+      "feature": "features/dock-arrange.feature",
+      "scenario": "Dragging a branch cluster moves it; rows inside stay in creation order",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "e04477cb1b9e74963c332c072ae6226abd75ea5284a70ac70da57344ba494c11",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "0b944dcf02693fe75239b6e9cc03e6259b9885b7"
     }
   ]
 }
