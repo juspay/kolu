@@ -176,7 +176,11 @@ describe("metadata publish routing", () => {
       {
         kind: "exact",
         command: "claude",
-        agent: { kind: "claude-code", sessionId: "sess-A" },
+        agent: {
+          kind: "claude-code",
+          sessionId: "sess-A",
+          resumeRef: "sess-A",
+        },
       },
     );
     await settle();

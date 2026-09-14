@@ -47,3 +47,23 @@ export {
   loadOpenCodeTranscript,
 } from "./transcript.ts";
 export { subscribeOpenCodeDb } from "./wal-watcher.ts";
+
+// ── The plugin — the ONE contribution the registry (`kolu-agents`) folds. ──
+import type { AgentPlugin } from "anyagent";
+import type { Fetcher } from "kolu-transcript-core";
+import { opencodeAdapter } from "./agent-adapter.ts";
+import { OPENCODE_ENV_KEYS } from "./config.ts";
+import type { OpenCodeSession } from "./core.ts";
+import { type OpenCodeInfo, opencodeVocab } from "./schemas.ts";
+import { loadOpenCodeTranscript } from "./transcript.ts";
+
+export const opencodePlugin: AgentPlugin<
+  OpenCodeSession,
+  OpenCodeInfo,
+  Fetcher
+> = {
+  vocab: opencodeVocab,
+  adapter: opencodeAdapter,
+  fetcher: loadOpenCodeTranscript,
+  envKeys: OPENCODE_ENV_KEYS,
+};

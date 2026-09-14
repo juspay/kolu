@@ -13,8 +13,6 @@ export {
   type TranscriptHtmlMode,
 } from "./mode.ts";
 export {
-  AGENT_KINDS,
-  type AgentKindLiteral,
   type ToolInput,
   ToolInputSchema,
   type Transcript,

@@ -15,12 +15,12 @@
 
 import type { AgentInfo } from "kolu-common/surface";
 import { type Component, Show } from "solid-js";
-import { Dynamic } from "solid-js/web";
 import { useDuration } from "../terminal/staleness";
+import { MarkIcon } from "../ui/Icons";
 import {
   type AgentStateTone,
-  agentIcons,
-  agentNames,
+  agentMark,
+  agentName,
   agentWorkflow,
   formatContextTokens,
   stateLabels,
@@ -53,12 +53,12 @@ const AgentStatusCard: Component<{ agent: AgentInfo }> = (props) => {
       data-agent-state={props.agent.state}
     >
       <div class="flex min-w-0 items-center gap-2">
-        <Dynamic
-          component={agentIcons[props.agent.kind]}
+        <MarkIcon
+          mark={agentMark(props.agent.kind)}
           class="h-3.5 w-3.5 shrink-0"
         />
         <span class="truncate text-[12px] font-semibold text-fg">
-          {agentNames[props.agent.kind] ?? props.agent.kind}
+          {agentName(props.agent.kind)}
         </span>
         <span
           class={`ml-auto inline-flex shrink-0 items-center gap-1.5 rounded-full px-2 py-0.5 font-mono text-[10px] font-semibold ${tone().chip}`}

@@ -25,6 +25,7 @@ import {
   type Transcript,
   type TranscriptEvent,
 } from "kolu-transcript-core";
+import { piVocab } from "./schemas.ts";
 import { match } from "ts-pattern";
 import { knownSessionStores } from "./agent-adapter.ts";
 import { defaultSessionStore, findSessionsByDirectory } from "./core.ts";
@@ -253,7 +254,7 @@ export const loadPiTranscript: Fetcher = (input, log) => {
   if (!path) return null;
   const raw = fs.readFileSync(path, "utf8");
   const transcript: Transcript = {
-    agentKind: "pi",
+    agentName: piVocab.displayName,
     sessionId: input.sessionId,
     title: input.title,
     repoName: input.repoName,

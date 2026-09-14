@@ -237,7 +237,7 @@ describe("loadPiTranscript", () => {
       contextTokens: null,
       pr: null,
     });
-    expect(t?.agentKind).toBe("pi");
+    expect(t?.agentName).toBe("Pi");
     expect(t?.sessionId).toBe(id);
     expect(t?.events[0]).toMatchObject({ kind: "user", text: "hi" });
   });

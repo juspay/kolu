@@ -16,13 +16,12 @@
  */
 
 import type {
-  AgentIdentity,
   RestoreTarget,
   TerminalEvent,
   TerminalSnapshot,
   TerminalState,
 } from "@kolu/terminal-vocab/schema";
-import { exactRestoreTarget } from "anyagent/cli";
+import { exactRestoreTarget, resumeRefFor } from "kolu-agents/vocab";
 import { match, P } from "ts-pattern";
 
 /** How often a same-identity OUTPUT tick may re-stamp recency. The agent-detail
@@ -36,6 +35,12 @@ import { match, P } from "ts-pattern";
  *  run's start): right after an adopt, same-identity output is held for one window
  *  before it may re-stamp, so the settle burst can't false-bump the saved recency. */
 export const RECENCY_THROTTLE_MS = 60_000;
+
+/** The identity the recency baseline tracks — kind + session id. A structural
+ *  subset of the persisted `AgentIdentity` (which also carries `resumeRef`):
+ *  the baseline only ever answers "did the conversation change?", so it needs
+ *  no resume ref. */
+export type AgentIdentityRef = { kind: string; sessionId: string };
 
 /** Apply one observation to the OBSERVED half (last-write-wins). Shared by kolu's
  *  full {@link fold} and a memory-less dashboard accumulator, so "apply an
@@ -92,8 +97,8 @@ export function foldSnapshot(
  *  carried: a genuinely-new agent started after a prior one finished is no longer
  *  wrongly suppressed. */
 export function agentIdentityChanged(
-  prev: AgentIdentity | null,
-  next: AgentIdentity | null,
+  prev: AgentIdentityRef | null,
+  next: AgentIdentityRef | null,
 ): boolean {
   return prev?.kind !== next?.kind || prev?.sessionId !== next?.sessionId;
 }
@@ -114,7 +119,7 @@ export function agentIdentityChanged(
  *  like `current`. */
 export function seedRecencyBaseline(
   restoreTarget: RestoreTarget | undefined,
-): AgentIdentity | null {
+): AgentIdentityRef | null {
   return restoreTarget?.kind === "exact" ? restoreTarget.agent : null;
 }
 
@@ -129,9 +134,9 @@ export function seedRecencyBaseline(
  *  phase's step, exercised by the producer ({@link fold}'s caller, padi's `emit`) and
  *  its conformance test alike, so the unknown guard lives once. */
 export function stepRecencyBaseline(
-  baseline: AgentIdentity | null,
+  baseline: AgentIdentityRef | null,
   o: TerminalEvent,
-): { live: boolean; baseline: AgentIdentity | null } {
+): { live: boolean; baseline: AgentIdentityRef | null } {
   if (o.kind !== "agent" || o.agent === "unknown")
     return { live: false, baseline };
   const next = o.agent.value;
@@ -168,14 +173,11 @@ export function restoreTargetOf(aw: TerminalState): RestoreTarget {
     exactRestoreTarget(command, {
       kind: agent.kind,
       sessionId: agent.sessionId,
-      // Pi's robust resume ref: the transcript PATH opens regardless of where
-      // pi's session store has been moved (an id alone is only findable by pi's
-      // OWN current store resolution — a harness's per-run PI_CODING_AGENT_DIR
-      // defeats it). Only pi's producer fills it; other agents' ids are their
-      // resume refs.
-      ...(agent.kind === "pi" && agent.sessionPath !== undefined
-        ? { sessionPath: agent.sessionPath }
-        : {}),
+      // The agent's OWN resume ref (juspay/kolu#1495): for most agents the
+      // session id; for pi the transcript PATH (which opens regardless of where
+      // pi's session store has moved). Derived by the agent's own vocab, so this
+      // fold knows nothing about which agent spells its ref as a path.
+      resumeRef: resumeRefFor(agent),
     }) ?? { kind: "none" }
   );
 }
@@ -201,7 +203,8 @@ export function restoreTargetEqual(
         b.kind === "exact" &&
         a.command === b.command &&
         a.agent.kind === b.agent.kind &&
-        a.agent.sessionId === b.agent.sessionId
+        a.agent.sessionId === b.agent.sessionId &&
+        a.agent.resumeRef === b.agent.resumeRef
       );
   }
 }

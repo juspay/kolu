@@ -219,7 +219,7 @@ describe("loadGrokTranscript", () => {
       pr: null,
     });
     expect(tx).not.toBeNull();
-    expect(tx?.agentKind).toBe("grok");
+    expect(tx?.agentName).toBe("Grok");
     expect(tx?.contextTokens).toBe(12_345);
     expect(tx?.events).toEqual([{ kind: "user", text: "hi", ts: null }]);
   });

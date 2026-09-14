@@ -21,6 +21,7 @@ import {
   type Transcript,
   type TranscriptEvent,
 } from "kolu-transcript-core";
+import { claudeCodeVocab } from "./schemas.ts";
 import { encodeProjectPath, PROJECTS_DIR } from "./core.ts";
 
 interface AssistantContentBlock {
@@ -418,7 +419,7 @@ export const loadClaudeCodeTranscript: Fetcher = (input) => {
     throw err;
   }
   const transcript: Transcript = {
-    agentKind: "claude-code",
+    agentName: claudeCodeVocab.displayName,
     sessionId: input.sessionId,
     title: input.title,
     repoName: input.repoName,

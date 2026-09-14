@@ -45,6 +45,7 @@
  * for the needs-you strip + footer aggregate colours and the "needs you" labels.
  */
 
+import { agentVocab, isAgentKind } from "kolu-agents/vocab";
 import { DASH } from "./dash.ts";
 import { compactPhrase } from "./duration.ts";
 import type { AgentInfo, TerminalSnapshot } from "./schema.ts";
@@ -76,9 +77,12 @@ export function relativeTime(ms: number, now: number): string {
   return ms <= 0 ? DASH : compactPhrase(now - ms);
 }
 
-/** The agent vendor's short label — `claude-code` reads as `claude`. */
+/** The agent vendor's short label — `claude-code` reads as `claude`. Reads the
+ *  agent's own CLI basename from the registry (the two axes differ only for
+ *  Claude), so no hidden basename table lives here. An unknown kind reads
+ *  verbatim. */
 export function agentShortName(kind: string): string {
-  return kind === "claude-code" ? "claude" : kind;
+  return isAgentKind(kind) ? agentVocab(kind).cli.basename : kind;
 }
 
 /** The coarse bucket an agent's fine-grained state falls in. The closed union

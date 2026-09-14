@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  type AgentIdentityRef,
   agentIdentityChanged,
   type FoldCtx,
   fold,
@@ -10,7 +11,6 @@ import {
   stepRecencyBaseline,
 } from "./fold.ts";
 import {
-  type AgentIdentity,
   type AgentInfo,
   type RestoreTarget,
   seedMemory,
@@ -236,7 +236,7 @@ describe("fold — a stable session's OUTPUT advances recency, THROTTLED (the fr
 const EXACT_TARGET: RestoreTarget = {
   kind: "exact",
   command: "claude --model sonnet",
-  agent: { kind: "claude-code", sessionId: "A" },
+  agent: { kind: "claude-code", sessionId: "A", resumeRef: "A" },
 };
 
 /** Simulate the producer's recency path (padi's `emit`): seed the identity BASELINE
@@ -251,7 +251,7 @@ function driveRecency(
   runStartedAt: number,
   ticks: { agent: AgentInfo | null; at: number }[],
 ): TerminalState {
-  let baseline: AgentIdentity | null = seedRecencyBaseline(restoreTarget);
+  let baseline: AgentIdentityRef | null = seedRecencyBaseline(restoreTarget);
   let state = from;
   for (const t of ticks) {
     const o = agentObs(t.agent);
@@ -355,7 +355,7 @@ describe("restoreTargetOf — the fold owns the discriminated resume target", ()
     expect(restoreTargetOf(cur)).toEqual({
       kind: "exact",
       command: "claude --model sonnet",
-      agent: { kind: "claude-code", sessionId: "A" },
+      agent: { kind: "claude-code", sessionId: "A", resumeRef: "A" },
     });
   });
 
@@ -404,7 +404,7 @@ describe("W12 — the two absences persist the resume target differently (twin p
   const exact: RestoreTarget = {
     kind: "exact",
     command: "claude --model sonnet",
-    agent: { kind: "claude-code", sessionId: "A" },
+    agent: { kind: "claude-code", sessionId: "A", resumeRef: "A" },
   };
 
   it("PIN #1 — an UNOBSERVABLE terminal (sensor emits `unknown`) KEEPS the exact target", () => {

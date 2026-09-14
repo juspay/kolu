@@ -86,6 +86,7 @@ let
     "@kolu/daemon-test-gate" = ../packages/daemon-test-gate;
     "anyagent" = ../packages/integrations/anyagent;
     "anyforge" = ../packages/integrations/anyforge;
+    "kolu-agents" = ../packages/integrations/agents;
     "kolu-claude-code" = ../packages/integrations/claude-code;
     "kolu-codex" = ../packages/integrations/codex;
     "kolu-git" = ../packages/integrations/git;

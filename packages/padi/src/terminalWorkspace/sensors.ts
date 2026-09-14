@@ -44,21 +44,13 @@ import type {
   AgentTerminalState,
   AgentWatcher,
 } from "anyagent";
-import {
-  agentInfoEqual,
-  agentNameFromCommand,
-  parseAgentCommand,
-} from "anyagent";
+import { agentInfoEqual, agentNameFromCommand } from "anyagent";
 import type { ForgeAdapter, PrResult } from "anyforge";
 import { parseRemoteHost, subscribePr } from "anyforge";
-import { claudeCodeAdapter } from "kolu-claude-code";
-import { codexAdapter } from "kolu-codex";
-import { grokAdapter } from "kolu-grok";
+import { AGENT_PLUGINS, parseAgentCommand } from "kolu-agents";
 import { subscribeGitInfo } from "kolu-git";
 import type { GitInfo } from "kolu-git/schemas";
 import { githubForgeAdapter } from "kolu-github";
-import { opencodeAdapter } from "kolu-opencode";
-import { piAdapter } from "kolu-pi";
 import type { ForegroundSample } from "kaval";
 import { type Channel, inMemoryChannel } from "@kolu/surface/server";
 import type { Logger } from "pino";
@@ -1178,9 +1170,12 @@ export function startSensors(
     log,
   );
   const stopPr = startPrSensor(terminalId, gitChannel, emit, log);
-  const startAgent = <Session, Info extends AgentInfoShape>(
-    adapter: AgentAdapter<Session, Info>,
-  ) =>
+  // Every registered agent's detector — the list is the registry, not a
+  // hand-maintained set of imports. A new agent joins by adding its plugin to
+  // `kolu-agents`, with no edit here. `Info` is erased to `AgentInfoShape` at
+  // this call: each plugin's concrete adapter is compatible, and the sensor
+  // below is generic over the shape.
+  const startAgent = (adapter: AgentAdapter<unknown, AgentInfoShape>) =>
     startAgentSensor(
       adapter,
       agentState,
@@ -1193,11 +1188,9 @@ export function startSensors(
       log,
       commandRooted,
     );
-  const stopClaude = startAgent(claudeCodeAdapter);
-  const stopCodex = startAgent(codexAdapter);
-  const stopOpenCode = startAgent(opencodeAdapter);
-  const stopGrok = startAgent(grokAdapter);
-  const stopPi = startAgent(piAdapter);
+  const stopAgents = Object.values(AGENT_PLUGINS).map((plugin) =>
+    startAgent(plugin.adapter),
+  );
   const stopProcess = startForegroundSensor(terminalId, signals, emit, log);
   const stopPorts = startPortSensor(terminalId, signals, emit, log);
   const stopGrid = startGridSensor(terminalId, signals, emit, log);
@@ -1206,11 +1199,7 @@ export function startSensors(
     stopAgentCommand();
     stopGit();
     stopPr();
-    stopClaude();
-    stopCodex();
-    stopOpenCode();
-    stopGrok();
-    stopPi();
+    for (const stop of stopAgents) stop();
     stopProcess();
     stopPorts();
     stopGrid();

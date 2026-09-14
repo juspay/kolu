@@ -23,7 +23,7 @@ import {
   SavedSessionSchema,
 } from "@kolu/padi-client/surface";
 import type { TerminalId } from "@kolu/terminal-vocab/schema";
-import { resumeFormFor } from "anyagent/cli";
+import { resumeFormFor } from "kolu-agents/vocab";
 import { Schema } from "effect";
 import { getActiveTerminal, getTerminal } from "../terminal-registry.ts";
 import {

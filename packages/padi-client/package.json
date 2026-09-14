@@ -33,6 +33,7 @@
     "anyagent": "workspace:*",
     "anyforge": "workspace:*",
     "effect": "4.0.0-rc.112",
+    "kolu-agents": "workspace:*",
     "kolu-git": "workspace:*",
     "kolu-transcript-core": "workspace:*"
   },

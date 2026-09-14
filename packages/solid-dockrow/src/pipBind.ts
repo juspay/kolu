@@ -30,7 +30,10 @@ import type {
   PipMotionKind,
   PipVariant,
 } from "@kolu/solid-statepip/pipVariant";
-import { pipForPaintClass } from "@kolu/solid-statepip/pipVariant";
+import {
+  isPipGlyphId,
+  pipForPaintClass,
+} from "@kolu/solid-statepip/pipVariant";
 import {
   type AgentPaintClass,
   type AttentionClass,
@@ -244,7 +247,11 @@ export function pipGlyphFor(meta: TerminalMetadata): PipGlyphId {
   const live = activeArm(meta)?.agent?.kind;
   if (live) return live;
   const target = meta.restoreTarget;
-  if (target?.kind === "exact") return target.agent.kind;
+  // The persisted identity's kind is an OPEN string (a record naming an agent
+  // this build no longer knows must not fail its decode), so narrow it to a
+  // known glyph; an unknown kind falls back to the shell prompt.
+  if (target?.kind === "exact" && isPipGlyphId(target.agent.kind))
+    return target.agent.kind;
   return FALLBACK_PIP_GLYPH;
 }
 

@@ -54,3 +54,19 @@ export {
   parseGrokChatHistory,
   unwrapGrokUserText,
 } from "./transcript.ts";
+
+// ── The plugin — the ONE contribution the registry (`kolu-agents`) folds. ──
+import type { AgentPlugin } from "anyagent";
+import type { Fetcher } from "kolu-transcript-core";
+import { grokAdapter } from "./agent-adapter.ts";
+import { GROK_ENV_KEYS } from "./config.ts";
+import type { GrokSession } from "./core.ts";
+import { type GrokInfo, grokVocab } from "./schemas.ts";
+import { loadGrokTranscript } from "./transcript.ts";
+
+export const grokPlugin: AgentPlugin<GrokSession, GrokInfo, Fetcher> = {
+  vocab: grokVocab,
+  adapter: grokAdapter,
+  fetcher: loadGrokTranscript,
+  envKeys: GROK_ENV_KEYS,
+};

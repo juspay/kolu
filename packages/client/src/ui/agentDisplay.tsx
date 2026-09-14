@@ -1,35 +1,42 @@
 /** Shared display strings for agent kinds and states.
- *  Used by both AgentIndicator (compact header) and MetadataInspector (detail panel). */
+ *  Used by both AgentIndicator (compact header) and MetadataInspector (detail panel).
+ *
+ *  Per-agent facts (display name, brand mark) are read from the agent registry
+ *  (`kolu-agents/vocab`) rather than hand-maintained `Record<AgentKind, …>`
+ *  tables — adding an agent touches only its own package plus the registry. */
 
-import { agentKindFromCommand } from "anyagent/cli";
+import {
+  type AgentMark,
+  agentKindFromCommand,
+  agentVocab,
+  mapAgentVocabs,
+} from "kolu-agents/vocab";
 import type { AgentInfo } from "kolu-common/surface";
 import type { Component } from "solid-js";
-import {
-  ClaudeCodeIcon,
-  CodexIcon,
-  GrokIcon,
-  OpenCodeIcon,
-  PiIcon,
-} from "../ui/Icons";
+import { MarkIcon } from "./Icons";
 
-export const agentIcons: Record<
+/** The agent's human display name (`"Claude Code"`, `"OpenCode"`). */
+export function agentName(kind: AgentInfo["kind"]): string {
+  return agentVocab(kind).displayName;
+}
+
+/** The agent's brand mark (viewBox + paths), for a caller that renders
+ *  `<MarkIcon mark={…}/>` directly. The ONE mark per agent serves both the tile
+ *  chrome and the dock pip. */
+export function agentMark(kind: AgentInfo["kind"]): AgentMark {
+  return agentVocab(kind).mark;
+}
+
+/** Stable per-kind icon components for the command palette, which carries an
+ *  `icon: Component`. Built ONCE — a fresh component per call would make
+ *  `<Dynamic>` tear down and recreate the SVG on every re-render. */
+const AGENT_ICONS: Record<
   AgentInfo["kind"],
   Component<{ class?: string }>
-> = {
-  "claude-code": ClaudeCodeIcon,
-  codex: CodexIcon,
-  opencode: OpenCodeIcon,
-  grok: GrokIcon,
-  pi: PiIcon,
-};
-
-export const agentNames: Record<AgentInfo["kind"], string> = {
-  "claude-code": "Claude Code",
-  codex: "Codex",
-  opencode: "OpenCode",
-  grok: "Grok",
-  pi: "Pi",
-};
+> = mapAgentVocabs(
+  (vocab): Component<{ class?: string }> =>
+    (props) => <MarkIcon mark={vocab.mark} class={props.class} />,
+);
 
 // The per-state display WORDS live with the dock row (`@kolu/solid-dockrow`),
 // not here. They were duplicated for a moment when the row was extracted, which
@@ -89,12 +96,12 @@ export function agentWorkflow(agent: AgentInfo | null | undefined) {
 
 /** Resolve the icon for a raw agent command string (e.g. `"claude --model
  *  sonnet"`). Returns `undefined` for detection-only agents that have no
- *  AgentInfo discriminator (aider/goose/gemini/cursor-agent) and for
- *  unknown commands. Grouped with `agentIcons`/`agentNames` because it
- *  bridges the basename axis to this module's per-kind display tables. */
+ *  `AgentInfo` discriminator (aider/goose/gemini/cursor-agent) and for
+ *  unknown commands. Bridges the basename axis to the per-kind marks; the
+ *  component is a STABLE per-kind reference (see `AGENT_ICONS`). */
 export function iconForCommand(
   command: string,
 ): Component<{ class?: string }> | undefined {
   const kind = agentKindFromCommand(command);
-  return kind ? agentIcons[kind] : undefined;
+  return kind === null ? undefined : AGENT_ICONS[kind];
 }
