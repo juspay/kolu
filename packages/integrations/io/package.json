@@ -13,12 +13,13 @@
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "test:unit": "vitest run --passWithNoTests"
+    "test:daemon": "vitest run --passWithNoTests"
   },
   "dependencies": {
     "@kolu/log": "workspace:*"
   },
   "devDependencies": {
+    "@kolu/daemon-test-gate": "workspace:*",
     "@types/node": "^22.0.0",
     "typescript": "^7.0.2",
     "vitest": "^4.1.0"

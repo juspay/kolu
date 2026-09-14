@@ -47,7 +47,6 @@ export {
 } from "./schemas.ts";
 export { type GrokWatcher, createGrokWatcher } from "./session-watcher.ts";
 export {
-  contentToText,
   eventsFromGrokLine,
   loadGrokTranscript,
   normalizeGrokToolInput,

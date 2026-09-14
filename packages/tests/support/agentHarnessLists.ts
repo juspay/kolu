@@ -15,6 +15,7 @@ export const AGENT_DIR_VARS = [
   "KOLU_CODEX_DIR",
   "KOLU_GROK_DIR",
   "KOLU_PI_DIR",
+  "KOLU_OMP_DIR",
   "KOLU_XYNE_DIR",
 ] as const;
 
@@ -27,5 +28,6 @@ export const FAKE_BIN_NAMES = [
   "claude",
   "node",
   "pi",
+  "omp",
   "xyne",
 ] as const;

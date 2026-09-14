@@ -11,6 +11,7 @@ import type { Fetcher } from "kolu-transcript-core";
 import { claudeCodePlugin } from "kolu-claude-code";
 import { codexPlugin } from "kolu-codex";
 import { grokPlugin } from "kolu-grok";
+import { ompPlugin } from "kolu-omp";
 import { opencodePlugin } from "kolu-opencode";
 import { piPlugin } from "kolu-pi";
 import { xynePlugin } from "kolu-xyne";
@@ -29,6 +30,7 @@ export const AGENT_PLUGINS: {
   opencode: opencodePlugin,
   grok: grokPlugin,
   pi: piPlugin,
+  omp: ompPlugin,
   xyne: xynePlugin,
 };
 

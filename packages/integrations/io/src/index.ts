@@ -25,3 +25,8 @@ export {
 } from "./coalesce-schedule.ts";
 
 export { watchDirWhenReady } from "./dir-appear-watcher.ts";
+
+export {
+  type ProcessSnapshot,
+  readProcessSnapshot,
+} from "./process-snapshot.ts";

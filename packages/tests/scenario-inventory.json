@@ -7574,6 +7574,42 @@
       "exampleRows": [],
       "executions": 1,
       "firstSeenSha": "47e7066f9ba9c8f4d3ddd02035d16b4f7f9e52f7"
+    },
+    {
+      "revisionId": "revision-5e7006f9f35e12521388",
+      "scenarioKey": "scenario-90025c3c2ad3a5bf27ce",
+      "feature": "features/omp.feature",
+      "scenario": "An approval dialog on screen promotes tool use to awaiting (screen scrape)",
+      "kind": "scenario",
+      "tags": ["@omp-mock"],
+      "bodyHash": "19e20344c5cf6a2663c33371f4a1bc3570e19684241a2aec43a316b6895b602f",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "25baed247b657095071ff93ae622c7ca3bd6f6a3"
+    },
+    {
+      "revisionId": "revision-b39d8af0160a23299dca",
+      "scenarioKey": "scenario-663ea323d5fc39181b6a",
+      "feature": "features/omp.feature",
+      "scenario": "Tile chrome lights up for an Oh My Pi session and follows a live state transition",
+      "kind": "scenario",
+      "tags": ["@omp-mock"],
+      "bodyHash": "34348084ecaa04706dd1990380f8d6d150192da45481d06f81605e7f19ed91dc",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "25baed247b657095071ff93ae622c7ca3bd6f6a3"
+    },
+    {
+      "revisionId": "revision-886337e8cb3beabf9e2e",
+      "scenarioKey": "scenario-25d6b8e8f48bd110e0d9",
+      "feature": "features/omp.feature",
+      "scenario": "Tile chrome lights up when the session file lands after the reconcile ladder",
+      "kind": "scenario",
+      "tags": ["@omp-mock"],
+      "bodyHash": "5d52f9c5fb92e6a3d46aeb1be9ed767ad70daa5958c4ed27caddcdb5ef9d16e1",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "25baed247b657095071ff93ae622c7ca3bd6f6a3"
     }
   ]
 }

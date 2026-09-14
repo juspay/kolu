@@ -31,6 +31,7 @@ import { Schema } from "effect";
 import { claudeCodeVocab } from "kolu-claude-code/schemas";
 import { codexVocab } from "kolu-codex/schemas";
 import { grokVocab } from "kolu-grok/schemas";
+import { ompVocab } from "kolu-omp/schemas";
 import { opencodeVocab } from "kolu-opencode/schemas";
 import { piVocab } from "kolu-pi/schemas";
 import { xyneVocab } from "kolu-xyne/schemas";
@@ -79,6 +80,7 @@ export const AGENT_VOCABS = {
   opencode: opencodeVocab,
   grok: grokVocab,
   pi: piVocab,
+  omp: ompVocab,
   xyne: xyneVocab,
 } as const satisfies Record<string, AnyAgentVocab>;
 
@@ -207,6 +209,7 @@ export type { ClaudeCodeInfo } from "kolu-claude-code/schemas";
 export type { CodexInfo } from "kolu-codex/schemas";
 export type { GrokInfo } from "kolu-grok/schemas";
 export type { OpenCodeInfo } from "kolu-opencode/schemas";
+export type { OmpInfo } from "kolu-omp/schemas";
 export type { PiInfo } from "kolu-pi/schemas";
 export type { XyneInfo } from "kolu-xyne/schemas";
 export type { TaskProgress } from "anyagent/schemas";

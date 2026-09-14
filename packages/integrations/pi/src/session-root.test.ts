@@ -1,14 +1,10 @@
-import { spawn } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { describeDaemon } from "@kolu/daemon-test-gate";
 import { afterAll, describe, expect, it } from "vitest";
+import { parseSessionDirFlag, resolveSessionDir } from "./session-root.ts";
 
 const tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), "kolu-pi-root-test-"));
-
-const { parseSessionDirFlag, readProcessSnapshot, resolveSessionDir } =
-  await import("./session-root.ts");
 
 afterAll(() => {
   fs.rmSync(tmpHome, { recursive: true, force: true });
@@ -138,43 +134,6 @@ describe("resolveSessionDir", () => {
       source: "default",
       layout: "tree",
     });
-  });
-});
-
-describe("readProcessSnapshot", () => {
-  describeDaemon("reads a child's exec-time argv + env", () => {
-    // NOTE: /proc/<pid>/environ reflects the EXEC-TIME env only (a setenv
-    // after start does not reach it) — which is also exactly the pi-launch env
-    // kolu needs. Tests therefore spawn a child carrying the marker rather
-    // than mutating this process's own env. (describeDaemon-gated: the child
-    // is a real fork, so this case runs only where forks are allowed.)
-    it("returns the launch env and argv", () => {
-      if (process.platform !== "linux" && process.platform !== "darwin") return;
-      const child = spawn(
-        process.execPath,
-        ["-e", "setTimeout(()=>{}, 30_000)"],
-        { env: { ...process.env, KOLU_PI_SNAPSHOT_MARKER: "present" } },
-      );
-      try {
-        expect(child.pid).toBeDefined();
-        const snap = readProcessSnapshot(child.pid!);
-        expect(snap).not.toBeNull();
-        expect(snap?.argv.length).toBeGreaterThan(0);
-        if (process.platform === "linux") {
-          expect(snap?.env.KOLU_PI_SNAPSHOT_MARKER).toBe("present");
-        } else {
-          // Darwin: macOS redacts even same-user environment maps from ps
-          // — env is {} by OS policy (documented in session-root.ts).
-          expect(snap?.env.KOLU_PI_SNAPSHOT_MARKER).toBeUndefined();
-        }
-      } finally {
-        child.kill();
-      }
-    });
-  });
-
-  it("returns null for a pid that does not exist", () => {
-    expect(readProcessSnapshot(2 ** 22)).toBeNull();
   });
 });
 
