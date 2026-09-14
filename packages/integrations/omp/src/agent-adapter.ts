@@ -122,6 +122,13 @@ function noteBreadcrumbDir(dir: string): void {
 /** Fold THIS terminal's omp invocation through omp's agent-directory chain.
  *  `null` means the directory could not be determined (an unreadable process, a
  *  profile name omp itself would refuse) — never a substituted default.
+ *  `"no-session"` means this is an `omp --no-session` run: omp's
+ *  `#resetToNewSession` leaves `#sessionFile` undefined and never re-stamps
+ *  this tty's breadcrumb, so whatever crumb the tty already carries belongs to
+ *  an EARLIER run — a stale answer that must not stand for this one
+ *  (session-manager.ts in omp's source). The fold refuses it here rather than
+ *  in the vocab's `nonSessionFlags`, because a `--no-session` launch still
+ *  matches `omp` on the kernel basename and ends up here.
  *
  *  One platform caveat, inherited from the shared snapshot and documented the
  *  same way pi documents it: on macOS the kernel redacts even a same-user
@@ -137,9 +144,10 @@ function agentDirFor(
   state: AgentTerminalState,
   pid: number,
   log?: Logger,
-): AgentDirResolution | null {
+): AgentDirResolution | "no-session" | null {
   const proc = readProcessSnapshot(pid, log);
   if (proc === null) return null;
+  if (proc.argv.includes("--no-session")) return "no-session";
   const resolved = resolveAgentDir({
     argv: proc.argv,
     // `null` env = this platform redacts it (macOS) — a DIFFERENT fact from an
@@ -174,6 +182,9 @@ export const ompAdapter: AgentAdapter<OmpSession, OmpInfo> = {
     if (pid === undefined) return null;
     const dir = agentDirFor(state, pid, log);
     if (dir === null) return null;
+    // A persistence-off run is bound to no session — certainly not to whatever
+    // this tty's crumb still says (it belongs to an earlier run).
+    if (dir === "no-session") return [];
     noteBreadcrumbDir(dir.breadcrumbDir);
     const ttyId = ttyIdForPid(pid, log);
     if (ttyId === null) return null;

@@ -409,5 +409,58 @@ describe("loadOmpTranscript", () => {
         }),
       ).toBeNull();
     });
+
+    it("answers no session for a `--no-session` run, ignoring the tty's stale crumb", () => {
+      if (process.platform !== "linux") return;
+      // Fable's scenario (review #5202486673): `omp --no-session` never
+      // re-stamps the tty's breadcrumb, so a crumb an earlier run left still
+      // points at a real, existing transcript. The crumb must lose.
+      //
+      // No tty needed: the `--no-session` guard runs on the foreground
+      // process's argv (readable from /proc on any stdin) BEFORE the adapter
+      // derives a tty id — so unlike its neighbours this test genuinely runs
+      // wherever vitest does, never early-returning on a pipe stdin.
+      const sessionId = "01a0a0e3-1843-701b-bfde-c9c816e3e930";
+      const dir = path.join(tmpHome, "sessions", "-work-proj");
+      fs.mkdirSync(dir, { recursive: true });
+      const transcriptPath = path.join(
+        dir,
+        `2026-09-14T17-07-12-579Z_${sessionId}.jsonl`,
+      );
+      fs.writeFileSync(
+        transcriptPath,
+        `${titleSlot("An earlier run")}\n${header}\n`,
+      );
+      fs.mkdirSync(path.join(tmpHome, "terminal-sessions"), {
+        recursive: true,
+      });
+      fs.writeFileSync(
+        path.join(tmpHome, "terminal-sessions", "pts-9"),
+        `/work/proj\n${transcriptPath}\n`,
+      );
+
+      const child = spawn(
+        process.execPath,
+        ["-e", "process.stdin.resume()", "--no-session"],
+        {
+          stdio: ["inherit", "ignore", "ignore"],
+          env: { PATH: process.env.PATH },
+        },
+      );
+      try {
+        const offered = ompAdapter.resolveSessions(
+          {
+            foregroundPid: child.pid,
+            cwd: "/work/proj",
+            readForegroundBasename: () => "omp",
+            lastAgentCommandName: "omp",
+          },
+          log,
+        );
+        expect(offered).toEqual([]);
+      } finally {
+        child.kill();
+      }
+    });
   });
 });

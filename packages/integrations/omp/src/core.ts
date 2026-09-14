@@ -134,8 +134,12 @@ export function deriveOmpState(lines: string[]): {
         // omp persists an assistant entry only on COMPLETION, so any recorded
         // stopReason means the turn ended and `toolUse` is the only WORKING
         // reason. No table to drift against: a vocabulary upstream adds still
-        // classifies as the turn ended. NO reason is the torn write — a
-        // completion record caught mid-append genuinely means in flight.
+        // classifies as the turn ended. NO reason is an entry that parsed yet
+        // carries none — a shape omp's writer cannot produce (`stopReason` is
+        // a REQUIRED field of its assistant message type; a line cut mid-append
+        // fails JSON.parse above and never gets here). Kept because some
+        // answer must be given: an unverifiable entry reads as in flight
+        // rather than a falsely completed turn.
         state =
           stopReason === "toolUse"
             ? "tool_use"

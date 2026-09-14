@@ -386,7 +386,12 @@ transcript, exactly as with pi.
 Awaiting-you works here because omp paints it: an approval gate or an `ask`
 question renders a bordered dialog kolu recognizes on the **rendered screen**
 (the same mechanism Claude Code uses), while the transcript behind it stays on
-the in-flight tool call.
+the in-flight tool call. The recognition keys on the default theme's border
+corner (`╭─ Allow tool: …`, `╭─ Ask …`): with a non-default box preset (omp's
+`symbolPreset: ascii`, which draws `+-` corners) the dialog is not recognized
+and the tile stays on **running tools** for the duration of the prompt. A
+recognition loose enough to take any corner risks reading prose as a prompt,
+so the default corner is what kolu commits to recognizing.
 
 **Resume** uses `omp -c` (this terminal's breadcrumb, else the most recent
 conversation in the directory) or `omp --resume` with the transcript's
@@ -408,7 +413,9 @@ session JSONL, rendering the active branch of omp's entry tree.
   traffic rather than a first-class count kolu reads today.
 - **An ephemeral session** — `omp --no-session` writes nothing to disk and no
   breadcrumb, so there is nothing to bind to (it never enters **Recent agents**
-  and can't be restored on wake).
+  and can't be restored on wake). A breadcrumb an *earlier* run left behind in
+  that terminal is ignored too, rather than re-binding the tile to the stale
+  conversation's session.
 - **A redirected store, on macOS only** — a `PI_CODING_AGENT_DIR` (or
   `OMP_PROFILE`) set on the `omp` process is unrecoverable there, because `ps`
   redacts even same-user process environments since macOS 10.13, so kolu reads

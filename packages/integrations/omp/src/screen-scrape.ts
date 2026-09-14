@@ -33,6 +33,13 @@
  *  `Ask` also covers the timed variant, since the title renders as
  *  `Ask (30s)` — the `\b` after `Ask` admits the space that follows.
  *
+ *  The corner literal is the DEFAULT theme's (`theme.boxRound`, `╭`). omp's
+ *  `symbolPreset: ascii` renders `+-` corners, which these markers miss — a
+ *  documented limitation (agent-detection.mdx): loosening the anchor to "any
+ *  1–2 chars before the title" would let typed input prose like `> Ask me`
+ *  promote a tile with no dialog on it. A false `awaiting_user` costs more
+ *  than a missed one, so the corner stays literal.
+ *
  *  Re-confirm both literals from a live capture (`tmux capture-pane`, the same
  *  VT-resolved text `readScreenText` returns) on any omp UI change — never from
  *  a guess. */

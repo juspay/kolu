@@ -41,8 +41,6 @@ const OMP_TOOL = "oh-my-pi";
  *  change of its own. */
 const OMP_CTRL_LETTERS: readonly (readonly [string, string])[] = [
   ["a", "Start of line"],
-  ["c", "Clear screen or cancel"],
-  ["d", "Exit application / delete character"],
   ["e", "End of line"],
   ["g", "Open the draft in $EDITOR"],
   ["l", "Start or stop live voice mode"],
@@ -55,7 +53,6 @@ const OMP_CTRL_LETTERS: readonly (readonly [string, string])[] = [
   ["v", "Paste from the clipboard"],
   ["w", "Delete the previous word"],
   ["y", "Yank"],
-  ["z", "Suspend the application"],
 ];
 
 const OMP_CTRL_KEYBINDS: readonly ProhibitedKeybind[] = OMP_CTRL_LETTERS.map(
@@ -81,6 +78,24 @@ export const PROHIBITED_KEYBINDS: readonly ProhibitedKeybind[] = [
     tool: "POSIX terminal / readline",
     reason:
       "LF (0x0A) — newline byte every shell and readline-based program consumes",
+  },
+  // Ctrl+C / Ctrl+D / Ctrl+Z are line-discipline signals (SIGINT / EOF /
+  // SIGTSTP) every PTY program relies on: they belong here, not under a
+  // particular tool — even though omp's keybinding tables also claim them.
+  {
+    keybind: { key: "c", code: "KeyC", ctrl: true },
+    tool: "POSIX terminal / readline",
+    reason: "SIGINT — interrupt the foreground process",
+  },
+  {
+    keybind: { key: "d", code: "KeyD", ctrl: true },
+    tool: "POSIX terminal / readline",
+    reason: "EOF — end of input / delete character under the cursor",
+  },
+  {
+    keybind: { key: "z", code: "KeyZ", ctrl: true },
+    tool: "POSIX terminal / readline",
+    reason: "SIGTSTP — suspend the foreground process",
   },
   // A readline-family chord omp binds in its editor: Ctrl+B is also omp's
   // "move cursor left" — the Claude Code entry above already fences it.
