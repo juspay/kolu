@@ -38,9 +38,7 @@ export {
   TaskProgressSchema,
 } from "./schemas.ts";
 export {
-  type ProcessSnapshot,
   parseSessionDirFlag,
-  readProcessSnapshot,
   resolveSessionDir,
   type SessionDirResolution,
 } from "./session-root.ts";

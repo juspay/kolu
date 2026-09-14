@@ -35,6 +35,7 @@ import {
   type AgentTerminalState,
   matchesAgent,
 } from "anyagent";
+import { readProcessSnapshot } from "kolu-io";
 import type { Logger } from "kolu-shared";
 import { AGENT_DIR } from "./config.ts";
 import {
@@ -46,7 +47,7 @@ import {
   subscribeSessionsTree,
 } from "./core.ts";
 import type { PiInfo } from "./schemas.ts";
-import { readProcessSnapshot, resolveSessionDir } from "./session-root.ts";
+import { resolveSessionDir } from "./session-root.ts";
 import { createPiWatcher } from "./session-watcher.ts";
 
 /**

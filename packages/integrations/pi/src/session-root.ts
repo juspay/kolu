@@ -15,17 +15,18 @@
  *  every harness-launched pi on the machine.
  *
  *  These overrides live in the pi process's own argv/environment, not in
- *  padi's, so resolution reads the foreground process (`readProcessSnapshot`)
- *  and folds it through the chain. A snapshot that can't be read (the pi
- *  exited mid-read — routine; a host mounted `hidepid` — deliberate op
- *  policy) resolves to kolu's DEFAULT root: never an error, never a wrong
- *  `[]` answer from the arbiter — only the per-invocation overrides are
- *  forfeited, which is the honest information available.
+ *  padi's, so resolution reads the foreground process (`kolu-io`'s
+ *  `readProcessSnapshot`, shared with every integration that needs a live
+ *  process's argv/env) and folds it through the chain. A snapshot that
+ *  can't be read (the pi exited mid-read — routine; a host mounted
+ *  `hidepid` — deliberate op policy) resolves to kolu's DEFAULT root: never
+ *  an error, never a wrong `[]` answer from the arbiter — only the
+ *  per-invocation overrides are forfeited, which is the honest information
+ *  available.
  *
  *  `--no-session` produces no store at all; anyagent's command grammar
  *  already refuses it, so no case for it exists here. */
 
-import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import type { Logger } from "kolu-shared";
@@ -156,61 +157,4 @@ export function resolveSessionDir(opts: {
     source: "default",
     layout: "tree",
   };
-}
-
-export interface ProcessSnapshot {
-  argv: string[];
-  env: Record<string, string>;
-}
-
-/** The foreground process's argv + environment — the one place a pi
- *  invocation's `--session-dir` / `PI_CODING_AGENT_SESSION_DIR` /
- *  `PI_CODING_AGENT_DIR` genuinely live. Linux reads `/proc/<pid>` (argv
- *  AND env); Darwin reads the argv from `ps` but the env map comes back
- *  EMPTY — modern macOS redacts even same-user envs (see the Darwin branch
- *  below), so a config-env redirect is unrecoverable there. Any failure —
- *  exited process (routine), hidden proc (a `hidepid` host), an
- *  unsupported platform — yields null and the caller resolves the default
- *  root; those are genuinely unknowable overrides, not errors to surface. */
-export function readProcessSnapshot(
-  pid: number,
-  log?: Logger,
-): ProcessSnapshot | null {
-  try {
-    if (process.platform === "linux") {
-      const argv = fs
-        .readFileSync(`/proc/${pid}/cmdline`, "utf8")
-        .split("\0")
-        .filter((s) => s.length > 0);
-      const env: Record<string, string> = {};
-      for (const pair of fs
-        .readFileSync(`/proc/${pid}/environ`, "utf8")
-        .split("\0")) {
-        const eq = pair.indexOf("=");
-        if (eq > 0) env[pair.slice(0, eq)] = pair.slice(eq + 1);
-      }
-      return { argv, env };
-    }
-    if (process.platform === "darwin") {
-      // Modern macOS (>=10.13) redacts even a SAME-USER process's
-      // environment from ps: `-E` is accepted but prints the command line
-      // only (verified live on a macOS 15 host — the env row simply does
-      // not appear), so the env map is {} here by OS policy. A
-      // PI_CODING_AGENT_* store redirect is a permanent Darwin blind spot —
-      // flags (`--session-dir`) and the default-root settings.json still
-      // resolve. argv stays the full command line.
-      const out = execFileSync(
-        "ps",
-        ["-ww", "-p", String(pid), "-o", "command="],
-        { encoding: "utf8" },
-      ).trim();
-      const argv = out.split(/\s+/).filter((s) => s.length > 0);
-      if (argv.length === 0) return null;
-      return { argv, env: {} };
-    }
-    return null;
-  } catch (err) {
-    log?.debug({ err, pid }, "pi: process snapshot unavailable");
-    return null;
-  }
 }

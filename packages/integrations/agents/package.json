@@ -21,6 +21,7 @@
     "kolu-claude-code": "workspace:*",
     "kolu-codex": "workspace:*",
     "kolu-grok": "workspace:*",
+    "kolu-omp": "workspace:*",
     "kolu-opencode": "workspace:*",
     "kolu-pi": "workspace:*",
     "kolu-transcript-core": "workspace:*"

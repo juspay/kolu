@@ -209,6 +209,7 @@ describe("parseAgentCommand", () => {
       "cursor-agent",
       "grok",
       "pi",
+      "omp",
     ]) {
       expect(parseAgentCommand(agent)).toBe(agent);
     }
@@ -286,6 +287,64 @@ describe("parseAgentCommand", () => {
     ).toBe("pi --thinking high");
     // …while a lowercase -v elsewhere stays untouched territory.
     expect(parseAgentCommand("pi")).toBe("pi");
+  });
+
+  it("preserves omp stable flags and strips positionals", () => {
+    expect(parseAgentCommand("omp --model opus fix the bug")).toBe(
+      "omp --model opus",
+    );
+    expect(
+      parseAgentCommand("omp --approval-mode always-ask --thinking high"),
+    ).toBe("omp --approval-mode always-ask --thinking high");
+    // A boolean launch flag does not swallow the positional behind it.
+    expect(parseAgentCommand("omp --auto-approve ship it")).toBe(
+      "omp --auto-approve",
+    );
+    // Unknown flags (`--cwd`, `--max-time`, `--add-dir`, prompt text) drop.
+    expect(parseAgentCommand("omp --tools read,bash --model kimi-k3 run")).toBe(
+      "omp --model kimi-k3",
+    );
+  });
+
+  it("treats omp's one-shot invocations as exits, never sessions", () => {
+    expect(parseAgentCommand("omp -v")).toBeNull();
+    expect(parseAgentCommand("omp --version")).toBeNull();
+    expect(parseAgentCommand("omp --help")).toBeNull();
+    expect(parseAgentCommand("omp --export /tmp/out.html")).toBeNull();
+    expect(parseAgentCommand('omp -p "summarize"')).toBeNull();
+    expect(parseAgentCommand('omp --print "summarize"')).toBeNull();
+    // A `--profile` alias creates a shell shortcut and exits.
+    expect(parseAgentCommand("omp --profile work --alias omp-work")).toBeNull();
+    // Management subcommands are not sessions.
+    expect(parseAgentCommand("omp models list")).toBeNull();
+    expect(parseAgentCommand("omp config get model")).toBeNull();
+    expect(parseAgentCommand("omp worktree list")).toBeNull();
+    expect(parseAgentCommand("omp wt list")).toBeNull();
+    expect(parseAgentCommand("omp update")).toBeNull();
+    // …but the three that DRIVE a real session are sessions, not carved out:
+    // `cleanse` and `commit` create a persisted session in this terminal, and
+    // `join` launches the TUI — each writes a breadcrumb kolu binds. Their
+    // subcommand word and arguments are positionals, so they normalize to the
+    // bare launch shape, exactly as `pi --provider google list` does.
+    expect(parseAgentCommand("omp cleanse ts errors")).toBe("omp");
+    expect(parseAgentCommand("omp commit")).toBe("omp");
+    expect(parseAgentCommand("omp join <link>")).toBe("omp");
+    // Subcommand words kill ONLY in argv position 0; a later occurrence is
+    // prompt text for an interactive session.
+    expect(parseAgentCommand("omp --model kimi-k3 config the knobs")).toBe(
+      "omp --model kimi-k3",
+    );
+    // `--no-session` is ephemeral — nothing on disk, no breadcrumb.
+    expect(parseAgentCommand("omp --no-session")).toBeNull();
+    // `--session-dir` is NOT a non-session flag for omp: it moves the session
+    // FILE, but the breadcrumb still carries its absolute path, so kolu binds
+    // that session exactly as it binds a default-store one. (Unlisted, so the
+    // flag itself is stripped from the MRU form like any unknown flag — the
+    // command stays a session, which is the part that matters.)
+    expect(parseAgentCommand("omp --session-dir /elsewhere")).toBe("omp");
+    // `--profile` changes omp's agent dir (where the breadcrumb lands) but is
+    // still an interactive session, and is a launch-shape flag.
+    expect(parseAgentCommand("omp --profile work")).toBe("omp --profile work");
   });
 
   // Regression (living-clue): a BOOLEAN stable flag must never consume the
@@ -467,6 +526,8 @@ describe("resumeAgentCommand", () => {
     ["grok -m grok-4.5", "grok -c -m grok-4.5"],
     ["pi", "pi -c"],
     ["pi --model kimi-k3", "pi -c --model kimi-k3"],
+    ["omp", "omp -c"],
+    ["omp --model opus", "omp -c --model opus"],
   ])("resume form of %j → %j", (normalized, expected) => {
     expect(resumeAgentCommand(normalized)).toBe(expected);
   });
@@ -528,6 +589,7 @@ describe("resumeAgentCommand by session id (juspay/kolu#1495)", () => {
   const OPENCODE_ID = "ses_118316090ffewMmbj6bsfKwj4R";
   const GROK_ID = "019f4782-7854-7592-8d87-3ba3a205a0a1";
   const PI_ID = "01a0302a-b94b-7b18-a3c3-b3f83dfe6fe8";
+  const OMP_ID = "01a0a0e3-1843-701b-bfde-c9c816e3e92f";
 
   it.each([
     [
@@ -579,6 +641,16 @@ describe("resumeAgentCommand by session id (juspay/kolu#1495)", () => {
       "pi --model kimi-k3",
       { kind: "pi", sessionId: PI_ID, resumeRef: PI_ID },
       `pi --session ${PI_ID} --model kimi-k3`,
+    ],
+    [
+      "omp",
+      { kind: "omp", sessionId: OMP_ID, resumeRef: OMP_ID },
+      `omp --resume ${OMP_ID}`,
+    ],
+    [
+      "omp --profile work",
+      { kind: "omp", sessionId: OMP_ID, resumeRef: OMP_ID },
+      `omp --resume ${OMP_ID} --profile work`,
     ],
   ] as const)("resumes the exact conversation: %j + %j → %j", (normalized, session, expected) => {
     expect(resumeAgentCommand(normalized, session)).toBe(expected);
@@ -704,6 +776,55 @@ describe("resumeAgentCommand by session id (juspay/kolu#1495)", () => {
         resumeRef: "/w/work dir/x (1)/2026-01-01T00-00-00-000Z_a.jsonl",
       }),
     ).toBe("pi --session '/w/work dir/x (1)/2026-01-01T00-00-00-000Z_a.jsonl'");
+  });
+
+  // omp's exact-resume is ALWAYS the breadcrumb's absolute path: kolu never
+  // holds an id without it, and `omp --resume <path>` is the one ref that
+  // survives a moved store (a `--session-dir` run, a profile switch).
+  const OMP_PATH =
+    "/home/u/.omp/agent/sessions/-code-proj/2026-09-14T17-07-12-579Z_01a0a0e3-1843-701b-bfde-c9c816e3e92f.jsonl";
+  it("omp resumes by the transcript path the breadcrumb carries", () => {
+    expect(
+      resumeAgentCommand("omp", {
+        kind: "omp",
+        sessionId: OMP_ID,
+        resumeRef: OMP_PATH,
+      }),
+    ).toBe(`omp --resume ${OMP_PATH}`);
+    expect(
+      resumeAgentCommand("omp --profile work", {
+        kind: "omp",
+        sessionId: OMP_ID,
+        resumeRef: OMP_PATH,
+      }),
+    ).toBe(`omp --resume ${OMP_PATH} --profile work`);
+  });
+
+  it("omp refuses a ref that fails its shape gate — bare shell, never -c", () => {
+    // A relative path, a non-`.jsonl` suffix, and a shell-active path all fail
+    // the gate: the terminal wakes to a bare shell rather than landing in the
+    // most-recent conversation, which is a stranger's.
+    expect(
+      resumeAgentCommand("omp", {
+        kind: "omp",
+        sessionId: OMP_ID,
+        resumeRef: "relative/file.jsonl",
+      }),
+    ).toBeNull();
+    expect(
+      resumeAgentCommand("omp", {
+        kind: "omp",
+        sessionId: OMP_ID,
+        resumeRef: "/tmp/omp agent x/$(pwn).jsonl",
+      }),
+    ).toBeNull();
+    expect(
+      resumeAgentCommand("omp", {
+        kind: "omp",
+        sessionId: OMP_ID,
+        resumeRef: "/tmp/no-suffix",
+      }),
+    ).toBeNull();
   });
 
   // No ref at all → unchanged most-recent behavior (back-compat with callers

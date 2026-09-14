@@ -5,6 +5,7 @@
 
 import { Result, Schema } from "effect";
 import { buildCliRegistry } from "anyagent";
+import type { OmpInfo } from "kolu-omp/schemas";
 import type { PiInfo } from "kolu-pi/schemas";
 import { describe, expect, it } from "vitest";
 import { AGENT_DIR_ENV_KEYS, AGENT_PLUGINS } from "./index.ts";
@@ -59,6 +60,31 @@ describe("AgentInfoSchema — a closed discriminated union", () => {
       ? true
       : false = true;
     expect(check).toBe(true);
+    // …and the `omp` arm IS `OmpInfo`.
+    const ompCheck: Extract<AgentInfo, { kind: "omp" }> extends OmpInfo
+      ? true
+      : false = true;
+    expect(ompCheck).toBe(true);
+  });
+
+  it("decodes an oh-my-pi payload through the union on its `kind`", () => {
+    const decoded = Schema.decodeUnknownSync(AgentInfoSchema)({
+      kind: "omp",
+      state: "awaiting_user",
+      sessionId: "01a0a0e3-1843-701b-bfde-c9c816e3e92f",
+      sessionPath:
+        "/home/u/.omp/agent/sessions/-code-proj/2026-09-14T17-07-12-579Z_01a0a0e3-1843-701b-bfde-c9c816e3e92f.jsonl",
+      model: "deepseek-v4.1-flash",
+      summary: "Run echo hello bash command",
+      taskProgress: null,
+      contextTokens: 30676,
+      startedAt: 1787509701451,
+    });
+    expect(decoded).toMatchObject({
+      kind: "omp",
+      state: "awaiting_user",
+      summary: "Run echo hello bash command",
+    });
   });
 });
 

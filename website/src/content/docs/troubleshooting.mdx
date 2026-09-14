@@ -64,13 +64,15 @@ see [From another device](/remote-access).
 Run any agent. The terminal is the interface, so `aider`, `gemini`, or whatever
 ships next week works the moment you run it.
 
-Five agents get first-class state today: `claude`, `codex`, `opencode`,
-`grok` (Grok Build), and `pi`. For these, kolu reads live agent state into the dock
-(thinking · tools · waiting · **awaiting you** — where the agent's own store
-carries a signal for it, e.g. Grok's `ask_user_question` prompts; pi's
-gates live in its TUI, so its dock row shows the other three). All five can also
-export the session as a self-contained HTML chat log or full transcript. Other agents
-still run in tiles; they just do not light up the dock.
+Six agents get first-class state today: `claude`, `codex`, `opencode`,
+`grok` (Grok Build), `pi`, and `omp` (Oh My Pi). For these, kolu reads live
+agent state into the dock (thinking · tools · waiting · **awaiting you** —
+where the agent's own store carries a signal for it, e.g. Grok's
+`ask_user_question` prompts or Oh My Pi's approval / `ask` dialogs, which kolu
+reads off the rendered screen; pi's gates live in its TUI, so its dock row shows
+the other three). All six can also export the session as a self-contained HTML
+chat log or full transcript. Other agents still run in tiles; they just do not
+light up the dock.
 
 For launching the first one, see [First Five Minutes](/first-five-minutes). For
 running many and exporting transcripts, see [Power Features](/power-features).

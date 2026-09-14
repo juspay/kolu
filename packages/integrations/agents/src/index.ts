@@ -11,6 +11,7 @@ import type { Fetcher } from "kolu-transcript-core";
 import { claudeCodePlugin } from "kolu-claude-code";
 import { codexPlugin } from "kolu-codex";
 import { grokPlugin } from "kolu-grok";
+import { ompPlugin } from "kolu-omp";
 import { opencodePlugin } from "kolu-opencode";
 import { piPlugin } from "kolu-pi";
 import type { AgentInfoOf, AgentKind } from "./vocab.ts";
@@ -28,6 +29,7 @@ export const AGENT_PLUGINS: {
   opencode: opencodePlugin,
   grok: grokPlugin,
   pi: piPlugin,
+  omp: ompPlugin,
 };
 
 /** Every agent-detection dir/db override env key, flattened from the plugins.

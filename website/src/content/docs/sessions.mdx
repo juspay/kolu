@@ -71,9 +71,11 @@ for all of them.
 ## Wake — on the exact conversation
 
 Wake respawns the terminal in the same directory and resumes the agent on the
-**exact conversation it was running** — resumed by id (`claude --resume <id>`,
-`codex resume <id>`, `opencode --session <id>`, and the Grok equivalent), not
-merely the most-recent conversation in that folder. The launch line it replays
+**exact conversation it was running** — resumed by its own exact-conversation
+form (`claude --resume <id>`, `codex resume <id>`, `opencode --session <id>`,
+the Grok equivalent, and for pi and Oh My Pi the transcript's absolute path,
+which those two accept verbatim), not merely the most-recent conversation in
+that folder. The launch line it replays
 — flags included — is the one kolu's [shell integration](/shell-integration)
 captured when you started the agent. The one exception is
 deliberate: if you'd **quit** the agent to a bare shell before sleeping, waking

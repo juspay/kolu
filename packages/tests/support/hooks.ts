@@ -173,6 +173,7 @@ if (fixtureHome) {
 
 const grokDir = RECORDING ? undefined : mkSubDir("grok");
 const piDir = RECORDING ? undefined : mkSubDir("pi");
+const ompDir = RECORDING ? undefined : mkSubDir("omp");
 const serverModeEnv: Record<
   (typeof AGENT_DIR_VARS)[number],
   string | undefined
@@ -183,6 +184,7 @@ const serverModeEnv: Record<
       KOLU_CODEX_DIR: undefined,
       KOLU_GROK_DIR: undefined,
       KOLU_PI_DIR: undefined,
+      KOLU_OMP_DIR: undefined,
     }
   : {
       KOLU_CLAUDE_SESSIONS_DIR: claudeSessionsDir,
@@ -190,6 +192,7 @@ const serverModeEnv: Record<
       KOLU_CODEX_DIR: codexDir,
       KOLU_GROK_DIR: grokDir,
       KOLU_PI_DIR: piDir,
+      KOLU_OMP_DIR: ompDir,
       HOME: fixtureHome,
     };
 for (const name of AGENT_DIR_VARS) {
@@ -240,6 +243,7 @@ process.env.KOLU_FAKE_CODEX_BIN = fakeBins.codex;
 process.env.KOLU_FAKE_OPENCODE_BIN = fakeBins.opencode;
 process.env.KOLU_FAKE_GROK_BIN = fakeBins.grok;
 process.env.KOLU_FAKE_PI_BIN = fakeBins.pi;
+process.env.KOLU_FAKE_OMP_BIN = fakeBins.omp;
 // The `claude` and `node` stubs are ROOT processes for the command-rooted spawn
 // repro (`spawn_detection_steps.ts`), run as the PTY's argv[0] with no shell,
 // exactly as `kaval-tui create -- <agent> …` does. `claude` (comm="claude")

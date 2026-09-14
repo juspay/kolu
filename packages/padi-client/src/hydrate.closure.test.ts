@@ -112,6 +112,7 @@ const DECLARED_ALLOWED = new Set([
   "kolu-github",
   "kolu-grok",
   "kolu-io",
+  "kolu-omp",
   "kolu-opencode",
   "kolu-pi",
   // Zero-dependency leaves, both reached only through `kolu-git`'s manifest
@@ -174,6 +175,7 @@ const IMPORTED_ALLOWED = new Set([
   "kolu-git",
   "kolu-github",
   "kolu-grok",
+  "kolu-omp",
   "kolu-opencode",
   "kolu-pi",
   "kolu-transcript-core",
