@@ -76,6 +76,9 @@ function acceptDockOrderNode(item: unknown): DockOrder[number] | undefined {
     if (seen.has(l)) continue;
     seen.add(l);
     deduped.push(l);
+    // Same bound as the node list: one pathological stored node never
+    // inflates the arrangement it rides.
+    if (deduped.length >= 200) break;
   }
   return { repo, labels: deduped };
 }
