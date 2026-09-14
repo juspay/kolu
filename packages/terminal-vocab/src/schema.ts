@@ -689,6 +689,7 @@ export type {
   ClaudeCodeInfo,
   CodexInfo,
   GrokInfo,
+  OmpInfo,
   OpenCodeInfo,
   PiInfo,
 } from "kolu-agents/vocab";

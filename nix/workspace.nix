@@ -93,6 +93,7 @@ let
     "kolu-github" = ../packages/integrations/github;
     "kolu-grok" = ../packages/integrations/grok;
     "kolu-io" = ../packages/integrations/io;
+    "kolu-omp" = ../packages/integrations/omp;
     "kolu-opencode" = ../packages/integrations/opencode;
     "kolu-pi" = ../packages/integrations/pi;
     "kolu-pty" = ../packages/integrations/pty;

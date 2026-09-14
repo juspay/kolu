@@ -8,6 +8,7 @@
  *  system lines). */
 
 import fs from "node:fs";
+import { contentToText } from "kolu-transcript-core";
 import type {
   Fetcher,
   ToolInput,
@@ -33,20 +34,6 @@ interface GrokHistoryLine {
   /** Present on some rows; Grok chat_history often omits timestamps. */
   ts?: string;
   timestamp?: string;
-}
-
-/** Pull plain text out of Grok's multi-shape `content` field:
- *  a bare string, or `[{type:"text", text:"…"}, …]`. */
-export function contentToText(content: unknown): string {
-  if (typeof content === "string") return content;
-  if (!Array.isArray(content)) return "";
-  const parts: string[] = [];
-  for (const block of content) {
-    if (!block || typeof block !== "object") continue;
-    const b = block as Record<string, unknown>;
-    if (b.type === "text" && typeof b.text === "string") parts.push(b.text);
-  }
-  return parts.join("\n");
 }
 
 /**

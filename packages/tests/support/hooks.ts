@@ -173,6 +173,7 @@ if (fixtureHome) {
 
 const grokDir = RECORDING ? undefined : mkSubDir("grok");
 const piDir = RECORDING ? undefined : mkSubDir("pi");
+const ompDir = RECORDING ? undefined : mkSubDir("omp");
 const xyneDir = RECORDING ? undefined : mkSubDir("xyne");
 const serverModeEnv: Record<
   (typeof AGENT_DIR_VARS)[number],
@@ -184,6 +185,7 @@ const serverModeEnv: Record<
       KOLU_CODEX_DIR: undefined,
       KOLU_GROK_DIR: undefined,
       KOLU_PI_DIR: undefined,
+      KOLU_OMP_DIR: undefined,
       KOLU_XYNE_DIR: undefined,
     }
   : {
@@ -192,6 +194,7 @@ const serverModeEnv: Record<
       KOLU_CODEX_DIR: codexDir,
       KOLU_GROK_DIR: grokDir,
       KOLU_PI_DIR: piDir,
+      KOLU_OMP_DIR: ompDir,
       KOLU_XYNE_DIR: xyneDir,
       HOME: fixtureHome,
     };
@@ -227,8 +230,9 @@ else process.env.KOLU_OPENCODE_DB = opencodeDbPath;
  *  binary and copies cleanly.
  *
  *  Paths are surfaced to step definitions via KOLU_FAKE_CODEX_BIN,
- *  KOLU_FAKE_OPENCODE_BIN, KOLU_FAKE_GROK_BIN, KOLU_FAKE_PI_BIN, and
- *  KOLU_FAKE_XYNE_BIN env vars (on this worker's process env, not
+ *  KOLU_FAKE_OPENCODE_BIN, KOLU_FAKE_GROK_BIN, KOLU_FAKE_PI_BIN,
+ *  KOLU_FAKE_OMP_BIN, and KOLU_FAKE_XYNE_BIN env vars (on this worker's
+ *  process env, not
  *  forwarded to the spawned server — the step defs read them directly
  *  and type the absolute path into the pty). */
 const fakeBinDir = mkSubDir("bin");
@@ -244,6 +248,7 @@ process.env.KOLU_FAKE_CODEX_BIN = fakeBins.codex;
 process.env.KOLU_FAKE_OPENCODE_BIN = fakeBins.opencode;
 process.env.KOLU_FAKE_GROK_BIN = fakeBins.grok;
 process.env.KOLU_FAKE_PI_BIN = fakeBins.pi;
+process.env.KOLU_FAKE_OMP_BIN = fakeBins.omp;
 process.env.KOLU_FAKE_XYNE_BIN = fakeBins.xyne;
 // The `claude` and `node` stubs are ROOT processes for the command-rooted spawn
 // repro (`spawn_detection_steps.ts`), run as the PTY's argv[0] with no shell,

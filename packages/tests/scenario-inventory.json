@@ -7860,28 +7860,46 @@
       "firstSeenSha": "47e7066f9ba9c8f4d3ddd02035d16b4f7f9e52f7"
     },
     {
-      "revisionId": "revision-9a11e0878aabc09c4d09",
-      "scenarioKey": "scenario-0ab09d04441ac28f4225",
-      "feature": "features/dock-arrange.feature",
-      "scenario": "Dragging a branch cluster moves it; rows inside stay in creation order",
+      "revisionId": "revision-5e7006f9f35e12521388",
+      "scenarioKey": "scenario-90025c3c2ad3a5bf27ce",
+      "feature": "features/omp.feature",
+      "scenario": "An approval dialog on screen promotes tool use to awaiting (screen scrape)",
       "kind": "scenario",
-      "tags": [],
-      "bodyHash": "e04477cb1b9e74963c332c072ae6226abd75ea5284a70ac70da57344ba494c11",
+      "tags": [
+        "@omp-mock"
+      ],
+      "bodyHash": "19e20344c5cf6a2663c33371f4a1bc3570e19684241a2aec43a316b6895b602f",
       "exampleRows": [],
       "executions": 1,
-      "firstSeenSha": "0b944dcf02693fe75239b6e9cc03e6259b9885b7"
+      "firstSeenSha": "25baed247b657095071ff93ae622c7ca3bd6f6a3"
     },
     {
-      "revisionId": "revision-8d87f4a60762713169c1",
-      "scenarioKey": "scenario-be9d9863b2e5d0089c81",
-      "feature": "features/dock-arrange.feature",
-      "scenario": "Dragging a repo section pins it first across a reload",
+      "revisionId": "revision-b39d8af0160a23299dca",
+      "scenarioKey": "scenario-663ea323d5fc39181b6a",
+      "feature": "features/omp.feature",
+      "scenario": "Tile chrome lights up for an Oh My Pi session and follows a live state transition",
       "kind": "scenario",
-      "tags": [],
-      "bodyHash": "e8fb0f6f6305e18100ea81e6b2d177d4818d0768512be0bfd950c81c2a2bbb1a",
+      "tags": [
+        "@omp-mock"
+      ],
+      "bodyHash": "34348084ecaa04706dd1990380f8d6d150192da45481d06f81605e7f19ed91dc",
       "exampleRows": [],
       "executions": 1,
-      "firstSeenSha": "0b944dcf02693fe75239b6e9cc03e6259b9885b7"
+      "firstSeenSha": "25baed247b657095071ff93ae622c7ca3bd6f6a3"
+    },
+    {
+      "revisionId": "revision-886337e8cb3beabf9e2e",
+      "scenarioKey": "scenario-25d6b8e8f48bd110e0d9",
+      "feature": "features/omp.feature",
+      "scenario": "Tile chrome lights up when the session file lands after the reconcile ladder",
+      "kind": "scenario",
+      "tags": [
+        "@omp-mock"
+      ],
+      "bodyHash": "5d52f9c5fb92e6a3d46aeb1be9ed767ad70daa5958c4ed27caddcdb5ef9d16e1",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "25baed247b657095071ff93ae622c7ca3bd6f6a3"
     },
     {
       "revisionId": "revision-c1d88535e7993b728404",
@@ -7893,7 +7911,19 @@
       "bodyHash": "67784ab75f2b9cc34f65e2cfb70731c06edf192845353b317acfb7a54d72a5ba",
       "exampleRows": [],
       "executions": 1,
-      "firstSeenSha": "0b944dcf02693fe75239b6e9cc03e6259b9885b7"
+      "firstSeenSha": "b96a17f024573deef2b25324dca1f216ae1b9c6e"
+    },
+    {
+      "revisionId": "revision-8d87f4a60762713169c1",
+      "scenarioKey": "scenario-be9d9863b2e5d0089c81",
+      "feature": "features/dock-arrange.feature",
+      "scenario": "Dragging a repo section pins it first across a reload",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "e8fb0f6f6305e18100ea81e6b2d177d4818d0768512be0bfd950c81c2a2bbb1a",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "b96a17f024573deef2b25324dca1f216ae1b9c6e"
     }
   ]
 }

@@ -7,7 +7,6 @@ const tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), "kolu-grok-tx-"));
 process.env.KOLU_GROK_DIR = tmpHome;
 
 const {
-  contentToText,
   loadGrokTranscript,
   normalizeGrokToolInput,
   parseGrokChatHistory,
@@ -19,21 +18,6 @@ const { SESSIONS_DIR } = await import("./config.ts");
 afterEach(() => {
   fs.rmSync(tmpHome, { recursive: true, force: true });
   fs.mkdirSync(tmpHome, { recursive: true });
-});
-
-describe("contentToText", () => {
-  it("joins text blocks from array content", () => {
-    expect(
-      contentToText([
-        { type: "text", text: "hello" },
-        { type: "text", text: "world" },
-      ]),
-    ).toBe("hello\nworld");
-  });
-
-  it("returns a bare string content", () => {
-    expect(contentToText("plain")).toBe("plain");
-  });
 });
 
 describe("unwrapGrokUserText", () => {

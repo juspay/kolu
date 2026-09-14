@@ -548,6 +548,7 @@
         "kolu-claude-code",
         "kolu-codex",
         "kolu-grok",
+        "kolu-omp",
         "kolu-opencode",
         "kolu-pi",
         "kolu-transcript-core",
@@ -748,6 +749,20 @@
         "@effect/platform-node": "catalog:",
         "@modelcontextprotocol/sdk": "^1.29.0",
         "effect": "catalog:",
+        "ts-pattern": "^5.9.0"
+      }
+    },
+    "kolu-omp": {
+      "dir": "packages/integrations/omp",
+      "vendored": true,
+      "workspace": [
+        "anyagent",
+        "kolu-io",
+        "kolu-shared",
+        "kolu-transcript-core"
+      ],
+      "external": {
+        "effect": "4.0.0-rc.112",
         "ts-pattern": "^5.9.0"
       }
     },
