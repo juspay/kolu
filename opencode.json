@@ -8,19 +8,15 @@
         ".agents/skills/nix-chrome-devtools-mcp/bin/serve"
       ]
     },
-    "odu": {
-      "type": "local",
-      "enabled": true,
-      "command": [
-        ".agents/skills/odu/serve"
-      ]
-    },
     "kolu": {
       "type": "local",
       "enabled": true,
       "command": [
         "kolu",
         "mcp"
+      ],
+      "env_vars": [
+        "PADI_SOCKET"
       ]
     }
   }
