@@ -145,9 +145,8 @@ When(
     if (latest) {
       await this.page.waitForFunction(
         (id) =>
-          document.querySelector(
-            `.dock-cluster [data-terminal-id="${id}"]`,
-          ) !== null,
+          document.querySelector(`.dock-cluster [data-terminal-id="${id}"]`) !==
+          null,
         latest,
         { timeout: POLL_TIMEOUT },
       );
