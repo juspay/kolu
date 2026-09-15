@@ -14,6 +14,9 @@ const AWAITING_ROW_SELECTOR =
   '[data-testid="dock-row"][data-bucket="awaiting"]';
 const WORKING_ROW_SELECTOR = '[data-testid="dock-row"][data-bucket="working"]';
 const QUIET_FOREGROUND_SELECTOR = '[data-testid="dock-quiet-foreground"]';
+// Line 2's trailing model tag — the shared hook the row component sets on it
+// (the same kind of hook `data-dock-subline` is), not a per-surface test id.
+const MODEL_TAG_SELECTOR = '[data-testid="dock-row"] [data-dock-model]';
 const CHROME_DOCK_TOGGLE_SELECTOR = '[data-testid="dock-toggle"]';
 const DOCK_WINDOW_TRIGGER_SELECTOR = '[data-testid="dock-window-trigger"]';
 const HIDDEN_FOOTER_SELECTOR = '[data-testid="dock-hidden-footer"]';
@@ -575,6 +578,23 @@ Then(
     await this.page
       .locator(DOCK_WINDOW_TRIGGER_SELECTOR)
       .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+  },
+);
+
+Then(
+  "the dock row should name the model {string}",
+  async function (this: KoluWorld, model: string) {
+    // Line 2's trailing tag. Polled, not read once: the model arrives from the
+    // agent's own session file through the watcher, so it lands a beat after
+    // the row itself does.
+    await this.page.waitForFunction(
+      ({ sel, want }: { sel: string; want: string }) =>
+        Array.from(document.querySelectorAll(sel)).some(
+          (el) => el.textContent?.trim() === want,
+        ),
+      { sel: MODEL_TAG_SELECTOR, want: model },
+      { timeout: POLL_TIMEOUT },
+    );
   },
 );
 

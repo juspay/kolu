@@ -1,8 +1,8 @@
-/** The nine props a dock row takes that BOTH kolu surfaces answer identically —
+/** The ten props a dock row takes that BOTH kolu surfaces answer identically —
  *  assembled once per row, as GETTERS.
  *
  *  `Dock.tsx` and `DockList.tsx` are one component now, but their CALL SITES had
- *  become the new copy: the same `useStatePip` block and the same nine prop
+ *  become the new copy: the same `useStatePip` block and the same ten prop
  *  bindings, byte for byte, in two files with nothing holding them together.
  *
  *  TWO THINGS ABOUT THE SHAPE, both load-bearing, both learned the hard way when
@@ -30,9 +30,9 @@
  *  silently and dismisses itself), the e2e handles, the desktop-only ⌘N overlay,
  *  and the touch-only pointer trap.
  *
- *  Three of the nine come from `dockRowFacts` — the row package's own fused read
- *  of one terminal record — so a row's words and its PR cannot come from two
- *  different terminals. */
+ *  Four of the ten come from `dockRowFacts` — the row package's own fused read
+ *  of one terminal record — so a row's words, its model and its PR cannot come
+ *  from two different terminals. */
 
 import type { DockRowProps } from "@kolu/solid-dockrow";
 import { dockRowFacts } from "@kolu/solid-dockrow/rowValues";
@@ -56,6 +56,7 @@ export type SharedDockRowProps = Pick<
   | "pip"
   | "bucket"
   | "agentState"
+  | "model"
   | "active"
   | "label"
   | "labelColor"
@@ -93,13 +94,13 @@ export function useDockRowBag(): (input: {
     // note 1 warns about: the bag runs inside the <Show> owner where
     // `useStatePip`'s memo already lives, so the lifetime is the same.
     //
-    // Not a micro-optimisation. `dockRowFacts` derives agentState, subline AND
-    // pr from one record, and `agentState` is read inside the `dockRowAttrs`
-    // spread — a render effect. Computing the other two in that effect
-    // subscribed it to `arm.pr.*` and `arm.foreground.title`, so a PR resolving,
-    // or the foreground title changing on EVERY command the user runs, rewrote
-    // all seven data-* attributes. The memo is the boundary that keeps the
-    // attribute effect tracking only what it renders.
+    // Not a micro-optimisation. `dockRowFacts` derives agentState, the model,
+    // subline AND pr from one record, and `agentState` is read inside the
+    // `dockRowAttrs` spread — a render effect. Computing the other three in that
+    // effect subscribed it to `arm.pr.*` and `arm.foreground.title`, so a PR
+    // resolving, or the foreground title changing on EVERY command the user
+    // runs, rewrote all seven data-* attributes. The memo is the boundary that
+    // keeps the attribute effect tracking only what it renders.
     const facts = createMemo(() => dockRowFacts(input.combined().meta));
     // Memoised for `facts`' reason, one line up: `RecencyCell` reads this prop
     // in four separate tracking contexts (both `Switch` conditions, then
@@ -122,6 +123,9 @@ export function useDockRowBag(): (input: {
       },
       get agentState() {
         return facts().agentState;
+      },
+      get model() {
+        return facts().model;
       },
       get active() {
         return isActiveRow(input.id);

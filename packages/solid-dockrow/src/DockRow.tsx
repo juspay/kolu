@@ -2,7 +2,7 @@
  *  the thing this package exists to hand a fleet mirror whole.
  *
  *    Line 1: `indicator · annotation · recency`
- *    Line 2: `[PR pip] status words`   (branch col → end)
+ *    Line 2: `[PR pip] status words · model`   (branch col → end)
  *
  *  One leading status indicator (`StatePip`) folds identity · paint · motion ·
  *  unread into one glyph; the annotation column starts at col 2, and line 2's
@@ -18,11 +18,12 @@
  *  the desktop-only ⌘N hint) are the four props below, not a second component.
  *
  *  What is REQUIRED here is the whole visible row: pip, annotation, status
- *  words, recency, the PR badge, the repo stripe, the sleeping recede. What is
- *  OPTIONAL is what a consumer may simply not have — an active tile
- *  (`active`), an overlay affordance (`overlay`), e2e handles (`testIds`), a
- *  hover title, a pointer trap. Each defaults to off with no visual damage; none
- *  of them is a degraded rendering of something that should have been there.
+ *  words, the model tag, recency, the PR badge, the repo stripe, the sleeping
+ *  recede. What is OPTIONAL is what a consumer may simply not have — an active
+ *  tile (`active`), an overlay affordance (`overlay`), e2e handles (`testIds`),
+ *  a hover title, a pointer trap. Each defaults to off with no visual damage;
+ *  none of them is a degraded rendering of something that should have been
+ *  there.
  *
  *  Row is `<div role="button">` rather than `<button>` so the `<a>` PR pip on
  *  line 2 stays valid HTML. Nested interactive elements (`<a>` inside
@@ -83,6 +84,12 @@ export type DockRowProps = {
    *  consumer whose wire carries it as text narrows the closed literal out with
    *  `narrowAgentState` and passes the raw word here, known or not. */
   agentState: string | undefined;
+  /** The model the live agent reported running on, or `undefined` — no live
+   *  agent, or one that has not pinned a model yet. Rendered as the quiet tag
+   *  at the END of line 2: the status words say *doing what*, this says *on
+   *  what*. Both absences draw nothing, rather than an "unknown" that would be
+   *  noise on every shell row. */
+  model: string | undefined;
   /** The annotation line as markdown source — intent line 1, else the branch. */
   label: string;
   /** The per-branch annotation ink. */
@@ -191,6 +198,24 @@ export const DockRow: Component<DockRowProps> = (props) => {
               title={line()}
             >
               {line()}
+            </span>
+          )}
+        </Show>
+        {/* The model — `ml-auto` puts it in the column the recency cell owns
+         *  on line 1, so a sweep down the rows' right edge reads what every
+         *  agent is running on. `shrink-0` + a `max-w` cap means the WORDS
+         *  yield first (they already truncate, and a summary is what the
+         *  tooltip is for), and a harness reporting a long pinned id
+         *  (`claude-sonnet-4-5-20250929`) ellipsises in its own half-width
+         *  slot rather than pushing the words out or wrapping the row. */}
+        <Show when={props.model}>
+          {(model) => (
+            <span
+              data-dock-model=""
+              title={model()}
+              class={`ml-auto shrink-0 max-w-[50%] truncate font-mono ${s().textSubline} leading-snug text-fg-3/60`}
+            >
+              {model()}
             </span>
           )}
         </Show>

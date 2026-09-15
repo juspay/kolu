@@ -7646,6 +7646,18 @@
       "exampleRows": [],
       "executions": 1,
       "firstSeenSha": "0b944dcf02693fe75239b6e9cc03e6259b9885b7"
+    },
+    {
+      "revisionId": "revision-bdcd7a5aa7e827fa40ce",
+      "scenarioKey": "scenario-246005bbe6efd300828b",
+      "feature": "features/dock.feature",
+      "scenario": "A dock row names the model its agent is running on",
+      "kind": "scenario",
+      "tags": ["@claude-mock"],
+      "bodyHash": "c12b33058a98e288ae56b0a13b6c44f4e5009357d1fcf561723de553b9e070f4",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "1089497577045c7907006e3286e1215d8548b8ce"
     }
   ]
 }
