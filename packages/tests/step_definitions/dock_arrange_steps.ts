@@ -190,18 +190,56 @@ Then(
   async function (this: KoluWorld) {
     const last = this.createdTerminalIds.at(-1);
     assert.ok(last, "no created terminal #last to compare");
-    await this.page.waitForFunction(
-      (id) => {
-        const row = document.querySelector(`[data-terminal-id="${id}"]`);
-        const section = row?.closest("[data-repo]");
-        if (!section) return false;
-        const rows = Array.from(
-          section.querySelectorAll("[data-terminal-id]"),
-        ).map((el) => el.getAttribute("data-terminal-id") ?? "");
-        return rows.length > 0 && rows[rows.length - 1] === id;
-      },
-      last,
-      { timeout: POLL_TIMEOUT },
-    );
+    // The arrangement law: the new row lands INSIDE its own cluster
+    // (creation order appends to the cluster's BOTTOM), and its cluster is
+    // where the user put it — never resequenced by the creation. Assert the
+    // row's cluster + its position INSIDE that cluster, not a flat last-slot
+    // across the whole section: a moved cluster genuinely changes a flat
+    // order without touching the law.
+    await this.page
+      .waitForFunction(
+        (id) => {
+          const row = document.querySelector(
+            `[data-repo] [data-dock-row][data-terminal-id="${id}"]`,
+          );
+          const cluster = row?.closest("[data-label]");
+          if (!cluster) return false;
+          const rows = Array.from(
+            cluster.querySelectorAll("[data-dock-row][data-terminal-id]"),
+          ).map((el) => el.getAttribute("data-terminal-id") ?? "");
+          return rows[rows.length - 1] === id;
+        },
+        last,
+        { timeout: POLL_TIMEOUT },
+      )
+      .catch(async () => {
+        // The failure dump the neighbouring cluster-snapshot steps carry:
+        // name the shapes the DOM actually shows — per cluster, plus the
+        // ACTIVE surface: when the step reds, the reading splits into two
+        // truths: the row landed in the WRONG cluster (create inherited an
+        // unexpected cwd), or it landed last in the WRONG ORDER — and the
+        // dump must show which without a second round-trip.
+        const live = await this.page.evaluate(() => ({
+          clusters: Array.from(
+            document.querySelectorAll("[data-repo] [data-label]"),
+          ).map((cluster) => ({
+            label: cluster.getAttribute("data-label"),
+            rows: Array.from(
+              cluster.querySelectorAll("[data-dock-row][data-terminal-id]"),
+            ).map((el) => el.getAttribute("data-terminal-id") ?? ""),
+          })),
+          activeDockRow: document
+            .querySelector("[data-repo] [data-dock-row][data-active]")
+            ?.getAttribute("data-terminal-id"),
+          activeCanvas: Array.from(
+            document.querySelectorAll(
+              "[data-canvas-tile][data-active] [data-terminal-id]",
+            ),
+          ).map((el) => el.getAttribute("data-terminal-id") ?? ""),
+        }));
+        assert.fail(
+          `newest terminal never landed at its cluster's bottom: ${JSON.stringify(live)}`,
+        );
+      });
   },
 );
