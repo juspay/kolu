@@ -1,6 +1,7 @@
 /** Dock — step definitions. */
 
 import { Then, When } from "@cucumber/cucumber";
+import { dragFromCenter } from "../support/pointerDrag.ts";
 import { type KoluWorld, MOD_KEY, POLL_TIMEOUT } from "../support/world.ts";
 
 const DOCK_SELECTOR = '[data-testid="dock"]';
@@ -196,17 +197,9 @@ When(
   async function (this: KoluWorld, dx: number) {
     // Capture the pre-drag width so the follow-up can prove the drag widened it.
     this.savedDockWidth = await dockWidth(this);
-    const handle = this.page.locator(DOCK_RESIZE_HANDLE_SELECTOR);
-    const box = await handle.boundingBox();
-    if (!box) throw new Error("dock resize handle has no bounding box");
-    const cx = box.x + box.width / 2;
-    const cy = box.y + box.height / 2;
-    await this.page.mouse.move(cx, cy);
-    await this.page.mouse.down();
-    // Stepped move so the pointermove listeners fire like a real drag.
-    await this.page.mouse.move(cx + dx, cy, { steps: 12 });
-    await this.page.mouse.up();
-    await this.waitForFrame();
+    await dragFromCenter(this, DOCK_RESIZE_HANDLE_SELECTOR, dx, 0, {
+      steps: 12,
+    });
   },
 );
 

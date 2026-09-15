@@ -167,6 +167,11 @@ export class KoluWorld extends World {
    *  socket) rather than merely unlisted in the UI. */
   forwardedUrl?: string;
   createdTerminalIds: string[] = [];
+
+  /** The row-ids a cluster step has `I snapshot...`d, keyed by cluster label —
+   *  surface for asserting a drag reorders CARRIERS (clusters/sections), never
+   *  the rows inside one. */
+  savedClusterRows: Map<string, string[]> = new Map();
   shuffleHistory: string[] = [];
   /** A sub-terminal (split) id captured by the deep-links steps, so a
    *  `#/t/local/<subId>` link can target it after focus has moved away. */

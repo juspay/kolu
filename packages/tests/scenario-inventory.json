@@ -7610,6 +7610,42 @@
       "exampleRows": [],
       "executions": 1,
       "firstSeenSha": "25baed247b657095071ff93ae622c7ca3bd6f6a3"
+    },
+    {
+      "revisionId": "revision-c1d88535e7993b728404",
+      "scenarioKey": "scenario-0ab09d04441ac28f4225",
+      "feature": "features/dock-arrange.feature",
+      "scenario": "Dragging a branch cluster moves it; rows inside stay in creation order",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "67784ab75f2b9cc34f65e2cfb70731c06edf192845353b317acfb7a54d72a5ba",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "b96a17f024573deef2b25324dca1f216ae1b9c6e"
+    },
+    {
+      "revisionId": "revision-8d87f4a60762713169c1",
+      "scenarioKey": "scenario-be9d9863b2e5d0089c81",
+      "feature": "features/dock-arrange.feature",
+      "scenario": "Dragging a repo section pins it first across a reload",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "e8fb0f6f6305e18100ea81e6b2d177d4818d0768512be0bfd950c81c2a2bbb1a",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "b96a17f024573deef2b25324dca1f216ae1b9c6e"
+    },
+    {
+      "revisionId": "revision-9a11e0878aabc09c4d09",
+      "scenarioKey": "scenario-0ab09d04441ac28f4225",
+      "feature": "features/dock-arrange.feature",
+      "scenario": "Dragging a branch cluster moves it; rows inside stay in creation order",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "e04477cb1b9e74963c332c072ae6226abd75ea5284a70ac70da57344ba494c11",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "0b944dcf02693fe75239b6e9cc03e6259b9885b7"
     }
   ]
 }

@@ -109,6 +109,35 @@ agent brand mark and violet/amber attention wash when an agent is present — so
 shell and agent splits cannot drift. The entries are the inventory, so there is
 no separate split-count chip on the parent row.
 
+## Your own arrangement
+
+The default sort is structural; the dock is also *yours*: **drag a repo card by
+its header** (the monogram + name pair) to move it, and **drag any row of a
+branch cluster inside its repo** to move the whole cluster. The rows inside a
+cluster never re-order — a dragged cluster lifts its branches' rows wholesale —
+and a cluster can never land in another repo.
+
+Your arrangement is an **overlay**, not a reset. Anything you never dragged
+keeps behaving exactly as before: a brand-new repo or branch still *appends at
+the bottom* of the list, the filters only hide rows (they never move the slots
+of survivors), and <kbd>Cmd/Ctrl</kbd> + <kbd>1..9</kbd> names stay stable —
+your drag writes the **full** order of what was visible when you let go, so a
+filter can never lose a cluster you pinned far earlier. The arrangement is a
+sticky preference, surviving a reload, **per host**: your work laptop does not
+inherit your dashboard's ordering.
+
+**Eviction is graceful:** a name that no longer exists (a closed repo, a branch
+checked out elsewhere) simply drops out of the dock — nothing fails — while its
+slot in the order stays put: the slot just stops being occupied. Re-open the
+same name and it lands right back in its old slot.
+
+The two other drag idioms in kolu stay in separate lanes: resizing the dock (a
+continuous *geometry* change) goes through the `capturePointerGesture` pointer
+variant, while rearranging (a discrete *order* change) goes through solid-dnd.
+The same pointer-activation distance the canvas tile relies on (solid-dnd's
+250&nbsp;ms / 10&nbsp;px) keeps clicking a row from firing a cluster drag, and
+the capsules in the header never become the grip.
+
 ## The Needs-you strip
 
 When an agent is genuinely blocked on your input, it appears in a small **Needs

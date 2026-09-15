@@ -2,7 +2,13 @@ import type { TerminalId } from "kolu-common/surface";
 import { describe, expect, it } from "vitest";
 import type { TerminalDisplayInfo } from "../../terminal/terminalDisplay";
 import type { RankedDockRow } from "./dockRowRanking";
-import { buildDockTree } from "./dockTree";
+import type { DockOrder } from "../../terminal/dockOrder";
+import {
+  buildDockTree,
+  moveCluster,
+  moveRepo,
+  spliceVisiblePermutation,
+} from "./dockTree";
 
 /** A row whose folds AGREE — the ordinary case, where the attention frame has
  *  landed and metadata, paint and attention say the same thing.
@@ -603,5 +609,295 @@ describe("buildDockTree — allTopRows", () => {
     );
     expect(tree.groups).toEqual([]);
     expect(tree.parkedCount).toBe(1);
+  });
+});
+
+describe("buildDockTree — user order overlay (#2247)", () => {
+  it("pins repos first in pinned order, trailing unpinned in creation order", () => {
+    // Creation order is kolu, pierre, justci; the user dragged pierre to the
+    // top. only pierre is pinned; kolu and justci stay in creation order.
+    const ranked = [
+      row("a", "idle", 1), // kolu
+      row("b", "idle", 2), // pierre
+      row("c", "idle", 3), // justci
+    ];
+    const getInfo = makeGetInfo({
+      a: { group: "kolu", color: "#1" },
+      b: { group: "pierre", color: "#2" },
+      c: { group: "justci", color: "#3" },
+    });
+    const tree = buildDockTree(ranked, getInfo, false, [
+      { repo: "pierre", labels: [] },
+    ]);
+    expect(tree.groups.map((g) => g.name)).toEqual([
+      "pierre",
+      "kolu",
+      "justci",
+    ]);
+    expect(tree.flatShortcutRows.map((r) => r.id)).toEqual(["b", "a", "c"]);
+  });
+
+  it("uses the FULL pinned order, including repos already in structural order", () => {
+    const ranked = [
+      row("a", "idle", 1), // kolu
+      row("b", "idle", 2), // pierre
+      row("c", "idle", 3), // justci
+      row("d", "idle", 4), // nix
+    ];
+    const getInfo = makeGetInfo({
+      a: { group: "kolu", color: "#1" },
+      b: { group: "pierre", color: "#2" },
+      c: { group: "justci", color: "#3" },
+      d: { group: "nix", color: "#4" },
+    });
+    const tree = buildDockTree(ranked, getInfo, false, [
+      { repo: "justci", labels: [] },
+      { repo: "kolu", labels: [] },
+      { repo: "nix", labels: [] },
+      { repo: "pierre", labels: [] },
+    ]);
+    expect(tree.groups.map((g) => g.name)).toEqual([
+      "justci",
+      "kolu",
+      "nix",
+      "pierre",
+    ]);
+  });
+
+  it("orders clusters within a repo by stored label, unpinned trailing", () => {
+    // Clusters: main {m1,m2}, feat {f}; user dragged feat above main.
+    const ranked = [
+      row("m1", "idle", 1, "working"), // main
+      row("f", "idle", 2, "working"), // feat
+      row("m2", "idle", 3, "working"), // main
+    ];
+    const getInfo = makeGetInfo({
+      m1: { group: "kolu", color: "#1", label: "main" },
+      f: { group: "kolu", color: "#1", label: "feat" },
+      m2: { group: "kolu", color: "#1", label: "main" },
+    });
+    const tree = buildDockTree(ranked, getInfo, false, [
+      { repo: "kolu", labels: ["feat", "main"] },
+    ]);
+    // feat cluster leads, then main (m1 before m2 — creation order INSIDE a cluster).
+    expect(tree.groups[0]?.clusters.map((c) => c.label)).toEqual([
+      "feat",
+      "main",
+    ]);
+    expect(tree.groups[0]?.topRows.map((r) => r.id)).toEqual(["f", "m1", "m2"]);
+  });
+
+  it("keeps rows inside a dragged cluster in creation order", () => {
+    const ranked = [
+      row("m1", "idle", 3, "working"), // main — created last, newest clock
+      row("m0", "idle", 1, "working"), // main — created first
+    ];
+    const getInfo = makeGetInfo({
+      m1: { group: "kolu", color: "#1", label: "main" },
+      m0: { group: "kolu", color: "#1", label: "main" },
+    });
+    const tree = buildDockTree(ranked, getInfo, false, [
+      { repo: "kolu", labels: ["main"] },
+    ]);
+    // The cluster was dragged but the rows never move out of creation order.
+    expect(tree.groups[0]?.topRows.map((r) => r.id)).toEqual(["m1", "m0"]);
+  });
+
+  it("ignores unknown repos and labels in the stored order", () => {
+    const ranked = [
+      row("a", "idle", 1), // kolu, main
+      row("b", "idle", 2), // kolu, feat
+    ];
+    const getInfo = makeGetInfo({
+      a: { group: "kolu", color: "#1", label: "main" },
+      b: { group: "kolu", color: "#1", label: "feat" },
+    });
+    const tree = buildDockTree(ranked, getInfo, false, [
+      { repo: "kolu", labels: ["ghost-label", "feat"] },
+      { repo: "ghost-repo", labels: [] },
+    ]);
+    // Unknown label skipped; unknown repo does not surface a section.
+    expect(tree.groups.map((g) => g.name)).toEqual(["kolu"]);
+    expect(tree.groups[0]?.clusters.map((c) => c.label)).toEqual([
+      "feat",
+      "main",
+    ]);
+  });
+
+  it("new rows still append under order: nothing pinned moves what never existed before", () => {
+    const ranked = [
+      row("a", "idle", 1), // kolu
+      row("b", "idle", 2), // pierre
+    ];
+    const getInfo = makeGetInfo({
+      a: { group: "kolu", color: "#1" },
+      b: { group: "pierre", color: "#2" },
+    });
+    const base = buildDockTree(ranked, getInfo, false, [
+      { repo: "pierre", labels: [] },
+    ]);
+    // A new repo appears LAST in creation order; it is not pinned, so it trails
+    // every pinned repo (pierre) but keeps first-appearance order with the
+    // other unpinned one (kolu) — kolu appeared first, so it leads.
+    const newRow = [...ranked, row("c", "idle", 3)];
+    const grown = buildDockTree(
+      newRow,
+      makeGetInfo({
+        a: { group: "kolu", color: "#1" },
+        b: { group: "pierre", color: "#2" },
+        c: { group: "nix", color: "#3" },
+      }),
+      false,
+      [{ repo: "pierre", labels: [] }],
+    );
+    expect(base.groups.map((g) => g.name)).toEqual(["pierre", "kolu"]);
+    expect(grown.groups.map((g) => g.name)).toEqual(["pierre", "kolu", "nix"]);
+    // A new branch inside a pinned repo appends at its bottom (not pinned).
+    const newBranch = [...ranked, row("m", "idle", 4)];
+    const grownBranch = buildDockTree(
+      newBranch,
+      makeGetInfo({
+        a: { group: "kolu", color: "#1", label: "main" },
+        b: { group: "pierre", color: "#2" },
+        m: { group: "kolu", color: "#1", label: "new-feat" },
+      }),
+      false,
+      [
+        { repo: "pierre", labels: [] },
+        { repo: "kolu", labels: ["main"] },
+      ],
+    );
+    expect(
+      grownBranch.groups
+        .find((g) => g.name === "kolu")
+        ?.clusters.map((c) => c.label),
+    ).toEqual(["main", "new-feat"]);
+  });
+
+  it("filters never move survivors — hiding a row only removes it", () => {
+    const ranked = [
+      row("a", "idle", 1), // kolu, main
+      row("b", "parked", 2), // kolu, feat — parked
+      row("c", "idle", 3), // pierre
+    ];
+    const getInfo = makeGetInfo({
+      a: { group: "kolu", color: "#1", label: "main" },
+      b: { group: "kolu", color: "#1", label: "feat" },
+      c: { group: "pierre", color: "#2" },
+    });
+    const order: DockOrder = [
+      { repo: "pierre", labels: [] },
+      { repo: "kolu", labels: ["feat", "main"] },
+    ];
+    const visible = buildDockTree(ranked, getInfo, false, order);
+    expect(visible.flatShortcutRows.map((r) => r.id)).toEqual(["c", "a"]);
+    // Now b is no longer parked — the surviving rows keep relative order.
+    const allVisible = buildDockTree(
+      [row("a", "idle", 1), row("b", "idle", 2), row("c", "idle", 3)],
+      getInfo,
+      false,
+      order,
+    );
+    expect(allVisible.flatShortcutRows.map((r) => r.id)).toEqual([
+      "c",
+      "b",
+      "a",
+    ]);
+  });
+
+  it("flatShortcutRows follows the sequenced order", () => {
+    const ranked = [
+      row("a", "idle", 1), // kolu, main
+      row("b", "idle", 2), // kolu, feat
+      row("c", "idle", 3), // pierre
+    ];
+    const getInfo = makeGetInfo({
+      a: { group: "kolu", color: "#1", label: "main" },
+      b: { group: "kolu", color: "#1", label: "feat" },
+      c: { group: "pierre", color: "#2" },
+    });
+    const tree = buildDockTree(ranked, getInfo, false, [
+      { repo: "pierre", labels: [] },
+      { repo: "kolu", labels: ["feat", "main"] },
+    ]);
+    expect(tree.flatShortcutRows.map((r) => r.id)).toEqual(["c", "b", "a"]);
+  });
+
+  it("needsYou is cluster-ordered within a group (no intra-group drift)", () => {
+    // Two clusters: main with a blocked row appearing first in creation order,
+    // feat with one blocked. User dragged feat above main.
+    const getInfo = makeGetInfo({
+      m: { group: "kolu", color: "#1", label: "main" },
+      f: { group: "kolu", color: "#1", label: "feat" },
+    });
+    const tree = buildDockTree(
+      [row("f", "awaiting", 1), row("m", "awaiting", 2)],
+      getInfo,
+      false,
+      [{ repo: "kolu", labels: ["feat", "main"] }],
+    );
+    // feat cluster is now first, so its blocked row leads the strip — the
+    // pre-#2247 drift accumulated the strip in creation order (m first).
+    expect(tree.needsYou.map((e) => e.tile.id)).toEqual(["f", "m"]);
+  });
+
+  it("the tree's `order` round-trips, including fully-filtered groups", () => {
+    const ranked = [
+      row("a", "idle", 1), // kolu, main
+      row("b", "parked", 2), // pierre, main — fully filtered
+    ];
+    const getInfo = makeGetInfo({
+      a: { group: "kolu", color: "#1", label: "main" },
+      b: { group: "pierre", color: "#2", label: "main" },
+    });
+    // D2 writes store the FULL order — every repo, every cluster inside it —
+    // so a round-trip is exact.
+    const order: DockOrder = [
+      { repo: "pierre", labels: ["main"] },
+      { repo: "kolu", labels: ["main"] },
+    ];
+    const tree = buildDockTree(ranked, getInfo, false, order);
+    // pierre's only row is parked → dropped from `groups`, but the tree's
+    // `order` still reports its slot: a filter never erases its arrangement.
+    expect(tree.order).toEqual(order);
+  });
+
+  it("spliceVisiblePermutation pins hidden clusters to their slots (#2247 arch review)", () => {
+    // Stored: [main, winhba(hidden), feat]; the user drags feat ABOVE main
+    // while winhba's rows are parked out of `clusters`. The visible permutation
+    // is [feat, main]; the write-back's full label list must keep winhba pinned
+    // to its stored slot — anything else erases a slot a drag pinned.
+    expect(
+      spliceVisiblePermutation(["main", "winhba", "feat"], ["feat", "main"]),
+    ).toEqual(["feat", "winhba", "main"]);
+  });
+
+  it("moveRepo moves the named slot and keeps everything else put", () => {
+    const order: DockOrder = [
+      { repo: "a", labels: ["main"] },
+      { repo: "b", labels: ["main"] },
+      { repo: "c", labels: ["main"] },
+    ];
+    expect(moveRepo(order, "c", "a")).toEqual([
+      { repo: "c", labels: ["main"] },
+      { repo: "a", labels: ["main"] },
+      { repo: "b", labels: ["main"] },
+    ]);
+    // Unknown ids (a drop referencing a closed repo) are a no-op move —
+    // never a rewrite.
+    expect(moveRepo(order, "ghost", "a")).toEqual(order);
+  });
+
+  it("moveCluster splices a visible permutation over the all-slots labels", () => {
+    const order: DockOrder = [
+      { repo: "kolu", labels: ["main", "hidden-branch", "feat"] },
+      { repo: "pierre", labels: ["main"] },
+    ];
+    // feat dragged above main while hidden-branch's rows are filtered out —
+    // its slot stays pinned; pierre's node is untouched.
+    expect(moveCluster(order, "kolu", ["feat", "main"])).toEqual([
+      { repo: "kolu", labels: ["feat", "hidden-branch", "main"] },
+      { repo: "pierre", labels: ["main"] },
+    ]);
   });
 });

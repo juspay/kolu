@@ -14,6 +14,7 @@
 import { type Accessor, createMemo } from "solid-js";
 import { useAttentionFacts } from "../../attention/useAttentionFacts";
 import { createSharedRoot } from "../../createSharedRoot";
+import { dockOrder } from "../../terminal/dockOrderPref";
 import { showSleeping } from "../../terminal/showSleeping";
 import { useStaleCheck } from "../../terminal/staleness";
 import { useTerminalStore } from "../../terminal/useTerminalStore";
@@ -39,9 +40,11 @@ export const useDockOrder = createSharedRoot<Accessor<DockTree>>(() => {
   //
   // Split across two memos so the ☾ toggle doesn't re-do the classification:
   // that pass is O(n) over the tiles and staleness, and is memoized on its own.
-  // Flipping `showSleeping` invalidates only the outer `buildDockTree` grouping.
-  // (There is no sort on either side any more — #2141 made row order structural,
-  // so the cost this split protects is the classify pass, not a comparator.)
+  // Flipping `showSleeping` OR the dragged arrangement (both read as arguments
+  // below) invalidates only the outer `buildDockTree` grouping. (#2141 made row
+  // order structural; #2247 adds ONE user-order stable sort in `buildDockTree`,
+  // so the cost this split protects is still the classify pass, not a
+  // comparator.)
   //
   // A row's PAINT is its attention class — the same value its motion and every
   // count read — so the dock reads it from the mirror rather than re-deriving a
@@ -62,6 +65,6 @@ export const useDockOrder = createSharedRoot<Accessor<DockTree>>(() => {
     ),
   );
   return createMemo(() =>
-    buildDockTree(ranked(), store.getDisplayInfo, !showSleeping()),
+    buildDockTree(ranked(), store.getDisplayInfo, !showSleeping(), dockOrder()),
   );
 });

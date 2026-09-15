@@ -60,10 +60,19 @@ Part of the kolu monorepo — `"@kolu/solid-dockrow": "workspace:*"`.
   real parent.
 - **`<DockNeedsYouRow>`** — an entry in the pinned needs-you strip, at `full` or
   `icon` density.
-- **`<DockSection>` · `<DockNeedsYouStrip>`** — the two CONTAINERS. They carry
-  the classes the stylesheet scopes every wash and divider to, and declare the
-  grid the rows subgrid into. Not optional sugar: a row outside them loses its
-  attention wash silently.
+- **`<DockSection>` · `<DockNeedsYouStrip>`** — the two outer CONTAINERS. They
+  carry the classes the stylesheet scopes every wash and divider to, and
+  declare the grid the rows subgrid into. Not optional sugar: a row outside
+  them loses its attention wash silently.
+- **`<DockCluster>`** — the third container: the first-class `div` for one
+  branch/intent cluster (a named group of rows that drag as one). An anonymous
+  fragment has no node a sortable can register; this is the element a drag
+  gesture lands on. The package ships no drag lib of its own — `label` /
+  `ref` / `style` / `handlers` are the sockets the consumer wires its own
+  library through (e.g. solid-dnd's `createSortable` triple), while the paint
+  contract (the `.dock-cluster` scope the washes and dividers key on) stays in
+  `dockrow.css`. `DockDragHandlers` is the narrow `Record<string, (e) => void>`
+  shape `handlers` takes — just far enough from any one library's emit.
 - **`<PrPip>` · `<PrStateIcon>` · `<ChecksIndicator>` · `prTooltip`** — the PR
   badge and its glyphs. The row's, and the repo's only copy of them.
 - **`<RecencyCell>` · `<RowLabel>`** — the two leaves the three rows share.
@@ -317,7 +326,9 @@ type says so rather than a comment.
 
    ```tsx
    <DockSection surface="desktop" repoColor={hue} header={<YourHeaderContents />}>
-     <DockRow … />
+     <DockCluster label="main" ref={sortable.ref} handlers={activators}>
+       <DockRow … />
+     </DockCluster>
    </DockSection>
 
    <DockNeedsYouStrip density="full">
@@ -331,6 +342,12 @@ type says so rather than a comment.
    ship rather than being described here. There is no second door: the class names are
    deliberately NOT exported, because a receptacle that ships the step it says
    you must not miss is offering you the miss.
+
+   The sheet's `.dock-cluster > [data-dock-row]` rules make the cluster shape
+   wash-equivalent to a bare row list — dividers, the blocked-on-you wash, the
+   dark lifts all key on the direct-child edge — so wrapping (or not wrapping)
+   a repo's rows in clusters never changes the paint, only whether the gesture
+   can rearrange them.
 
 ## Why it depends on `@kolu/padi-client`
 

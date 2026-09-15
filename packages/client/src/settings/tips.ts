@@ -19,6 +19,13 @@ export interface Tip {
 }
 
 export const CONTEXTUAL_TIPS = {
+  /** The moment the dock has two sections — the first case where dragging makes a
+   *  difference. Shown as a banner when the tree gains a second section. */
+  dockRearrange: {
+    id: "dock-rearrange",
+    text: "Drag a repo's header to move the whole section; drag a branch cluster by any of its rows inside the repo. Your arrangement is sticky, per host, and never moves what you didn't drag",
+    doc: "dock",
+  },
   themeFromPalette: {
     id: "theme-palette",
     text: `Tip: ${formatKeybind(ACTIONS.commandPalette.keybind)} → Theme for quick switching`,
