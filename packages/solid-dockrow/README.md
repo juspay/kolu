@@ -29,6 +29,7 @@ const pip = bindStatePip({ meta, attention, unread });
   pip={pip}
   bucket={bucket}
   agentState={agent?.state}
+  model={agent?.model ?? undefined}
   label={label}
   labelColor={annotationColor}
   renderLabel={(md) => <Markdown markdown={md} />}
@@ -48,8 +49,9 @@ Part of the kolu monorepo — `"@kolu/solid-dockrow": "workspace:*"`.
 ## What it owns
 
 - **`<DockRow>`** — the full two-line row: `indicator · annotation · recency`
-  over `[PR pip] status words`, on a three-track subgrid. It carries the shared
-  `[data-dock-row]` attribute contract the stylesheet's washes key on, the repo
+  over `[PR pip] status words · model`, on a three-track subgrid. It carries the
+  shared `[data-dock-row]` attribute contract the stylesheet's washes key on, the
+  repo
   stripe, the active highlight, the sleeping recede, and the two-line reserve
   that keeps row height constant so nothing reflows when a row lights up.
   `surface` is `"desktop"` or `"touch"` — the one axis kolu's dock and its phone
@@ -76,9 +78,9 @@ Part of the kolu monorepo — `"@kolu/solid-dockrow": "workspace:*"`.
 - **`<PrPip>` · `<PrStateIcon>` · `<ChecksIndicator>` · `prTooltip`** — the PR
   badge and its glyphs. The row's, and the repo's only copy of them.
 - **`<RecencyCell>` · `<RowLabel>`** — the two leaves the three rows share.
-- **`dockRowFacts(meta)`** — the three facts a row reads off ONE terminal record
-  (`agentState`, `subline`, `pr`), fused so a row's words and its PR cannot come
-  from two different terminals.
+- **`dockRowFacts(meta)`** — the four facts a two-line row reads off ONE terminal
+  record (`agentState`, `model`, `subline`, `pr`), fused so a row's words and its
+  PR cannot come from two different terminals.
 - **`rowValues`** — every pure fold: `bindStatePip` (and the paint / glyph /
   motion / shell-live decisions under it), `dockRowAttrs`, `rowSubline`,
   `annotationLine`, `identityColor`, `rowRecency` and the three pieces it is
@@ -108,6 +110,7 @@ required prop and where its value comes from:
 | `pip` | `bindStatePip({ meta, attention, unread })` on the SERVER (it needs the record), shipped as a flat struct; or built field-by-field in the browser with the guards below |
 | `bucket` | the row's ORDER bucket, NOT a fold of `pip.variant` — the two are different folds and kolu's disagree (a fresh `waiting` agent PAINTS `linger` while the order bucket ranks it `idle`). `bucket` drives `data-bucket` and the row's rank; a surface with no activity window of its own can pass `paintDockRow(meta, klass)`, which is a deliberate substitution rather than a derivation |
 | `agentState` | your wire string, verbatim — `narrowAgentState(raw).attr`, or `dockRowFacts(meta).agentState` |
+| `model` | `dockRowFacts(meta).model`, or your wire's own model field — and `undefined`, never a placeholder, when nothing pinned one |
 | `label` | `annotationLine(intent, branchLabel)` — exported; do not re-derive |
 | `labelColor` | `identityColor(branchLabel)` — exported; do not re-derive |
 | `subline` | `dockRowFacts(meta).subline` server-side (see below). From a flat wire: `{ text: summary ?? narrowAgentState(raw).label, fromAgent: true }` — the `summary ?? label` rule is the row's, do not drop the summary |
@@ -116,14 +119,14 @@ required prop and where its value comes from:
 | `renderLabel` | your markdown renderer, or `(md) => md` |
 
 **If you hold a `TerminalMetadata`** — most likely on your server, where you
-dial padi — take the three record-derived facts in one call:
+dial padi — take the four record-derived facts in one call:
 
 ```ts
-const { agentState, subline, pr } = dockRowFacts(meta);
+const { agentState, model, subline, pr } = dockRowFacts(meta);
 ```
 
-They are three independent derivations over one record, and every row surface
-needs all three. Spelled separately they are three chances to pair one
+They are four independent derivations over one record, and every two-line row
+surface needs all four. Spelled separately they are four chances to pair one
 terminal's words with another terminal's PR; fused, a row's facts come from one
 record by construction.
 

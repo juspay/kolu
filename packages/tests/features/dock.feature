@@ -84,6 +84,21 @@ Feature: Dock
     When I start "sleep 5"
     Then the dock should show 1 foreground row containing "sleep"
 
+  Scenario: A dock row names the model its agent is running on
+    # The right panel has always named the model; the row you actually scan to
+    # ask "who needs me" said only *what* each agent was doing — *on what* cost
+    # a trip to the panel or the tile. Line 2 now carries it, read off the same
+    # agent record the status words beside it come from.
+    #
+    # `tool_use` rather than `thinking`: the model is derived from the very
+    # transcript entry that decides the state, and the thinking mock's newest
+    # entry is a bare user message — no model on it (its tile has no model to
+    # show, and shows none). The mocked assistant turn here reports
+    # `claude-opus-4-6`.
+    When a Claude Code session is mocked with state "tool_use"
+    Then the dock should show 1 working pill
+    And the dock row should name the model "claude-opus-4-6"
+
   Scenario: Cmd+1 activates the first dock row (creation order)
     # `Cmd+1..9` targets dock row order, which is creation order — the
     # background terminal t0 is first because it was made first, and a

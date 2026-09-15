@@ -29,6 +29,14 @@ The dock has two densities. **Rail** is a narrow strip of one chip per terminal.
 `indicator · branch · pips · time`. Toggle between them with
 <kbd>Cmd/Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>B</kbd>.
 
+A cards row is two lines. The first is the identity line above. The second says
+what that terminal is *doing right now* — an agent's own summary, or the live
+phase when it has not given one (`Running tools`, `Awaiting input`), or the
+foreground command in a plain shell — and, at its right end, the **model** that
+agent is running on when it reports one. So a fleet spread across several models
+reads without opening the right panel: the status word answers *doing what*, the
+model beside it answers *on what*.
+
 Rows are grouped by repo, and each repo is a **card**: a continuous
 repo-coloured **spine** down its left edge, a solid **monogram** tile (first
 letter of the repo) plus the uppercase name on a tinted header that stays
