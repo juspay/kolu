@@ -27,7 +27,7 @@ and leaves the consumer in control of *what* is exposed.
 | `client` | a factory `() => bundle` for a live implementation — return an `OwnedSurfaceConnection` (`{ client, dispose, onClose? }`) when the adapter owns a dialled socket, or the bare `RootedSurfaceClients` bundle when there is nothing to dispose. Re-invoked on retry after a drop **and after every `reroster`**, so it must read the host's current roster rather than close over one |
 | `tools?` | hand-authored bespoke tools at the BUNDLE ROOT — bare-named, and handed the whole bundle |
 | `serverInfo?` | MCP server identity |
-| `instructions?` | the server's own `initialize` instructions — where an embedding app teaches an agent its domain ("everything here is about nodes, not files"). The SDK answers `initialize` inside its own `Protocol`, so this option is the only route to the field |
+| `instructions?` | the server's own `initialize` instructions — where an embedding app teaches an agent its domain ("everything here is about nodes, not files"). A **string** is handed to the SDK's `Server` bare, which answers `initialize` inside its own `Protocol`. A **function** `() => string` is read at **each `initialize`** — once per host connection, on the request path, never at construction — so a bundle whose roster moves composes the text from the rows standing when a host asks; an empty result is no `instructions` key, as the SDK already does for an empty string. See [`reroster`](#reroster--the-roster-follows-in-place) for what the function arm does and does not reach. *Pinned to the SDK:* the function arm registers its own `initialize` handler and calls through to `Server`'s private `_oninitialize` (`@modelcontextprotocol/sdk` 1.29.0) for version negotiation and the client-capability capture, overlaying only this field; the string arm never touches it |
 | `transport?` | defaults to `StdioServerTransport`; inject an in-memory half for tests |
 
 A bundle with **neither** a core nor a sibling is refused at boot: that is not a
@@ -118,7 +118,8 @@ What a move does:
 - re-runs the whole boot composition, so a roster the gate would refuse leaves the endpoint exactly as it was;
 - re-dials `client()`, so the bundle carries the arriving siblings' clients;
 - **ends** any `resources/subscribe` the new roster cannot serve, and re-opens the survivors' on the new connection;
-- sends `notifications/tools/list_changed` and `notifications/resources/list_changed`.
+- sends `notifications/tools/list_changed` and `notifications/resources/list_changed`;
+- reaches the **next** host's `instructions`, and only the next: a function-valued `instructions` is read at each `initialize`, so a host that connects after the move is told the roster it gets. A host already connected keeps what it was told — MCP has no `instructions_changed` notification — and `reroster` takes no text of its own; the thunk is how the roster reaches `initialize`.
 
 The face therefore advertises `tools: { listChanged: true }` and
 `resources: { subscribe: true, listChanged: true }` from the first `initialize` —

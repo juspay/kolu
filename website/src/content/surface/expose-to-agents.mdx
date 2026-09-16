@@ -112,6 +112,25 @@ lists changed; a subscription the new roster cannot serve is ended, and a call t
 a departed sibling's name is refused by name rather than as an unknown one. The
 core never moves — serving a different core is a different endpoint.
 
+When each sibling has a sentence of its own to teach — "the `chat` sibling shows
+your answer to a person" is true only while `chat` is standing — pass
+`instructions` as a **function** and compose it from the roster the way the tool
+list already is. It is read at each `initialize`, so a host that connects after a
+move is told the roster it gets:
+
+```ts
+const served = await serveSurfaceAsMcp({
+  core: { surface, expose: EXPOSE },
+  surfaces: roster(),
+  client: () => bundleFor(roster()),
+  instructions: () =>
+    [CORE_CHARTER, ...Object.values(roster()).map((row) => row.charter)].join("\n\n"),
+});
+```
+
+A host **already connected** keeps what it was told at its own `initialize`: MCP
+has no `instructions_changed` notification, so only the next host sees the move.
+
 ## 8. Point the agent at it
 
 The server speaks stdio by default. Register it in the agent's `.mcp.json` and
