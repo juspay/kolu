@@ -1,0 +1,13 @@
+{
+  "name": "kolu",
+  "owner": {
+    "name": "Juspay"
+  },
+  "plugins": [
+    {
+      "name": "kolu",
+      "source": "./agent-plugin",
+      "description": "Drive coding agents through kolu's terminals."
+    }
+  ]
+}

@@ -33,6 +33,7 @@ compilation:
 # and are NOT vendored here (see README → "Using this in your own project").
 dependencies:
   apm:
+    - path: ../agent-plugin/skills/kolu
     - srid/agency#master
     - juspay/project-unknown
     - juspay/odu
