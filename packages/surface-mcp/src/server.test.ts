@@ -32,7 +32,11 @@ import {
 } from "@kolu/surface/server";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
-import { ResourceUpdatedNotificationSchema } from "@modelcontextprotocol/sdk/types.js";
+import {
+  InitializeResultSchema,
+  LATEST_PROTOCOL_VERSION,
+  ResourceUpdatedNotificationSchema,
+} from "@modelcontextprotocol/sdk/types.js";
 import { Effect, Schema, Stream } from "effect";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cellUri, streamUri } from "./expose";
@@ -121,8 +125,13 @@ function buildSurface() {
   return { surface, client: faceFor(surface, served) };
 }
 
-/** Stand up the MCP server + a connected MCP client over an in-memory pair. */
-async function connect(over: ReturnType<typeof buildSurface>) {
+/** Stand up the MCP server + a connected MCP client over an in-memory pair.
+ *  `instructions` is the option verbatim — a string by default, a thunk where a
+ *  case is about the function arm. */
+async function connect(
+  over: ReturnType<typeof buildSurface>,
+  instructions: ServeSurfaceAsMcpOptions["instructions"] = "Everything here is about the counter, not about files. Bump it, don't nuke it.",
+) {
   const [clientTransport, serverTransport] =
     InMemoryTransport.createLinkedPair();
 
@@ -201,8 +210,7 @@ async function connect(over: ReturnType<typeof buildSurface>) {
       },
     },
     serverInfo: { name: "test-surface", version: "0.0.0" },
-    instructions:
-      "Everything here is about the counter, not about files. Bump it, don't nuke it.",
+    instructions,
     transport: serverTransport,
   });
 
@@ -1433,11 +1441,122 @@ describe("serveSurfaceAsMcp — the structured arm", () => {
       () => served.close(),
     );
 
-    // `initialize` is answered inside the SDK's own `Protocol`, so a consumer
-    // cannot re-register it — the option is the only route to this field.
+    // The STRING arm rides the SDK's own `initialize` — the option is passed to
+    // `Server` bare and this face registers nothing for it.
     expect(mcp.getInstructions()).toBe(
       "Everything here is about the counter, not about files. Bump it, don't nuke it.",
     );
+  });
+
+  /** A raw second `initialize` on the SAME transport: what a second host looks
+   *  like to a server whose transport multiplexes hosts (an HTTP route), and
+   *  the only way to ask the field twice over one in-memory pair — the SDK
+   *  `Client` sends its own `initialize` once, at `connect`. */
+  const initializeAgain = (mcp: Client) =>
+    mcp.request(
+      {
+        method: "initialize",
+        params: {
+          protocolVersion: LATEST_PROTOCOL_VERSION,
+          capabilities: {},
+          clientInfo: { name: "second-host", version: "0.0.0" },
+        },
+      },
+      InitializeResultSchema,
+    );
+
+  it("a function-valued `instructions` is answered at initialize, and the rest of the answer is still the SDK's", async () => {
+    const over = buildSurface();
+    const { mcp, served } = await connect(
+      over,
+      () => "Composed when you asked, not when the server was built.",
+    );
+    cleanup.push(
+      () => mcp.close(),
+      () => served.close(),
+    );
+
+    expect(mcp.getInstructions()).toBe(
+      "Composed when you asked, not when the server was built.",
+    );
+    // The overlay delegates to the SDK for everything but the one field: the
+    // negotiated version, the advertised capabilities and the server's name
+    // are what a string-instructed server answers — and the client's own
+    // capabilities were captured on the instance, which is the half a
+    // re-implementation would have dropped.
+    expect(mcp.getServerVersion()).toEqual({
+      name: "test-surface",
+      version: "0.0.0",
+    });
+    expect(mcp.getServerCapabilities()).toEqual({
+      tools: { listChanged: true },
+      resources: { subscribe: true, listChanged: true },
+    });
+    expect(served.server.getClientVersion()).toEqual({
+      name: "test-client",
+      version: "0.0.0",
+    });
+  });
+
+  it("after a reroster, the NEXT host's initialize is told what the thunk now says — read on the request path, not at construction", async () => {
+    const over = buildSurface();
+    let standing = ["core"];
+    const reads: string[] = [];
+    const [clientTransport, serverTransport] =
+      InMemoryTransport.createLinkedPair();
+    const served = await serveSurfaceAsMcp({
+      core: { surface: over.surface, expose: { count: "resource" } },
+      client: () => ({ core: over.client }),
+      instructions: () => {
+        const text = `Standing: ${standing.join(", ")}.`;
+        reads.push(text);
+        return text;
+      },
+      transport: serverTransport,
+    });
+    // Nothing has asked yet, so nothing has been composed: a thunk read at
+    // construction would already hold one entry here, and would hold the boot
+    // roster forever.
+    expect(reads).toEqual([]);
+
+    const mcp = new Client({ name: "test-client", version: "0.0.0" });
+    await mcp.connect(clientTransport);
+    cleanup.push(
+      () => mcp.close(),
+      () => served.close(),
+    );
+    expect(mcp.getInstructions()).toBe("Standing: core.");
+    expect(reads).toEqual(["Standing: core."]);
+
+    // The roster moves. `reroster` takes no text — the thunk is how the new
+    // roster reaches `initialize` — so the caller's composition moves with it.
+    standing = ["core", "tenantA"];
+    await served.reroster({
+      tenantA: { surface: over.surface, expose: { count: "resource" } },
+    });
+    // The host ALREADY connected is not re-told: MCP has no
+    // `instructions_changed`, and the SDK client holds what it was handed.
+    expect(mcp.getInstructions()).toBe("Standing: core.");
+
+    // The next host to initialize is told the roster it actually gets.
+    const second = await initializeAgain(mcp);
+    expect(second.instructions).toBe("Standing: core, tenantA.");
+    expect(reads).toEqual(["Standing: core.", "Standing: core, tenantA."]);
+  });
+
+  it("a thunk that composes to nothing yields NO `instructions` key, as the SDK does for an empty string", async () => {
+    const over = buildSurface();
+    const { mcp, served } = await connect(over, () => "");
+    cleanup.push(
+      () => mcp.close(),
+      () => served.close(),
+    );
+
+    expect(mcp.getInstructions()).toBeUndefined();
+    // Not `""` under the key either — an absent field, the same wire form the
+    // SDK gives a string-instructed server with nothing to say.
+    const answer = await initializeAgain(mcp);
+    expect("instructions" in answer).toBe(false);
   });
 
   it("a bespoke tool's `title` reaches tools/list, and an untitled one has none", async () => {
