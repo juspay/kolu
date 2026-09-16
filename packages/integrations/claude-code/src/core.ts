@@ -436,9 +436,8 @@ function toolUseOrAwaitingUser(content: unknown): "tool_use" | "awaiting_user" {
  *  running value every time the user typed, or — for the model — every time a
  *  tool result made a `user` entry newest, which is most of a tool-heavy turn
  *  (a `tool_result` IS a `user` entry: `isNonPromptUserEntry` skips only
- *  `/compact` summaries and slash-command artifacts). The model is a SESSION
- *  fact, not a per-event one, and `omp`/`pi` derive it with this same
- *  independent-stopping-condition shape.
+ *  `/compact` summaries and slash-command artifacts). A model is a SESSION
+ *  fact, not a per-event one — `AgentInfoShape.model`.
  *
  *  A newest `assistant` `end_turn` normally means `waiting` (the agent
  *  yielded its turn back to the user). But under dynamic workflows the
