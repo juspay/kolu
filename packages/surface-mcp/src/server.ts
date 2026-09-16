@@ -93,6 +93,9 @@ import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 import {
   CallToolRequestSchema,
   type CallToolResult,
+  type InitializeRequest,
+  InitializeRequestSchema,
+  type InitializeResult,
   ListResourcesRequestSchema,
   ListResourceTemplatesRequestSchema,
   ListToolsRequestSchema,
@@ -158,19 +161,65 @@ export interface ServeSurfaceAsMcpOptions<
   serverInfo?: { name: string; version: string };
   /** The server's own `instructions`, answered to a host at `initialize` — where
    *  an embedding app teaches an agent the domain the surface is about ("a node
-   *  is the smallest thing you can name here; there is no file access"). It is
-   *  passed to the SDK's `Server`, which serves `initialize` inside its own
-   *  `Protocol`: a consumer cannot re-register that method, so this option is
-   *  the ONLY way the field is reachable. The SDK itself treats an empty string
-   *  as none (`...(this._instructions && { instructions })`), so there is no
-   *  third state to spell here. */
-  instructions?: string;
+   *  is the smallest thing you can name here; there is no file access").
+   *
+   *  A STRING is handed to the SDK's `Server` bare and served by its own
+   *  `initialize` — exactly what this option always did. The SDK treats an empty
+   *  string as none (`...(this._instructions && { instructions })`), so there is
+   *  no third state to spell here.
+   *
+   *  A FUNCTION is read at EACH `initialize` — once per host connection, on the
+   *  request path, never at construction. It exists because this face serves a
+   *  BUNDLE whose roster moves ({@link ServedSurfaceMcp.reroster}), and a
+   *  sentence a sibling contributes ("the `chat` sibling shows your answer to a
+   *  person") is only true while that sibling is standing: a host that connects
+   *  after a move must be told the roster it actually gets, and `initialize` is
+   *  the only place the field is answered. So the text is composed from the
+   *  rows standing at the moment a host asks, the same way `tools/list` is
+   *  answered from `gen` rather than from the boot arguments. A string could
+   *  only ever describe the boot roster; a `reroster(surfaces, instructions)`
+   *  second parameter would put the sentence's truth in the mover's hands
+   *  instead of the row's.
+   *
+   *  What the thunk does NOT do: re-tell a host that is ALREADY connected. MCP
+   *  has `tools/list_changed` and `resources/list_changed` but no
+   *  `instructions_changed`, so a host holds whatever it was told at its own
+   *  `initialize` until it reconnects. That is the protocol's limit, stated
+   *  here rather than papered over.
+   *
+   *  PINNED-SDK ASSUMPTION. The SDK answers `initialize` in `Server`'s private
+   *  `_oninitialize` and reads the text from its private `_instructions`
+   *  (`@modelcontextprotocol/sdk` 1.29.0, `dist/esm/server/index.js`: the
+   *  constructor's `setRequestHandler(InitializeRequestSchema, …)` and the
+   *  method itself). Neither has a public knob, so the function arm registers
+   *  its own `initialize` handler over the SDK's — `Protocol.setRequestHandler`
+   *  is a plain `Map.set`, and `initialize` needs no capability — and delegates
+   *  to `_oninitialize` for everything but this field, so version negotiation
+   *  and the client-capability capture stay the SDK's. Re-implementing the
+   *  method would have been three public constants and two PRIVATE writes
+   *  (`_clientCapabilities`, `_clientVersion`), which is more of the SDK's
+   *  inside, not less. If a later SDK renames `_oninitialize`, the cast in
+   *  {@link serveSurfaceAsMcp} fails at the first `initialize` with the
+   *  `TypeError` a missing method gives — loudly, not with a silently absent
+   *  field. */
+  instructions?: string | (() => string);
   /** Transport to connect. Defaults to a `StdioServerTransport`; injectable
    *  for tests (an `InMemoryTransport` half). */
   transport?: Transport;
 }
 
 const DEFAULT_SERVER_INFO = { name: "surface-mcp", version: "0.1.0" };
+
+/** The SDK `Server` internal the function arm of
+ *  {@link ServeSurfaceAsMcpOptions.instructions} pins: `Server` registers
+ *  `initialize` in its constructor as `request => this._oninitialize(request)`,
+ *  and that method is where version negotiation happens and the client's
+ *  capabilities and version are captured (`@modelcontextprotocol/sdk` 1.29.0,
+ *  `dist/esm/server/index.js`). Declared `private` in the `.d.ts`, so it is
+ *  reached through this shape rather than the class type. */
+type SdkInitializeInternals = {
+  _oninitialize(request: InitializeRequest): Promise<InitializeResult>;
+};
 
 /** A served bundle: the low-level `Server`, the roster move, and teardown. */
 export interface ServedSurfaceMcp {
@@ -198,6 +247,12 @@ export interface ServedSurfaceMcp {
    *      the new roster does not serve is torn down here, because nothing will ever
    *      push it again and a silently-quiet subscription is the worst of the three
    *      possible answers.
+   *    - **`instructions` move for the NEXT host only.** A function-valued
+   *      {@link ServeSurfaceAsMcpOptions.instructions} is read at each
+   *      `initialize`, so a host that connects after this call is told the new
+   *      roster; one already connected keeps what it was told, because MCP has
+   *      no `instructions_changed` to send. This method takes no text of its
+   *      own — the thunk is how the roster reaches `initialize`.
    *
    *  Afterwards the adapter sends `notifications/tools/list_changed` and
    *  `notifications/resources/list_changed`, which is why it advertises both
@@ -257,11 +312,37 @@ export async function serveSurfaceAsMcp<
       tools: { listChanged: true },
       resources: { subscribe: true, listChanged: true },
     },
-    // Passed bare: the SDK emits `...(this._instructions && { instructions })`,
-    // so an absent option and an omitted key are the same value to it, and a
-    // spread-guard here would only be a second spelling of that.
-    instructions: opts.instructions,
+    // The STRING arm, passed bare: the SDK emits
+    // `...(this._instructions && { instructions })`, so an absent option and an
+    // omitted key are the same value to it, and a spread-guard here would only
+    // be a second spelling of that. The function arm hands the SDK nothing and
+    // answers the field itself, below.
+    instructions:
+      typeof opts.instructions === "string" ? opts.instructions : undefined,
   });
+
+  // ── initialize (the function arm of `instructions`) ────────────────────
+  // Read on the request path, per host connection, so a host dialling after a
+  // reroster is told the roster it gets. The SDK's own handler is REPLACED, not
+  // wrapped — `Protocol` has no before/after hook and `setRequestHandler` is a
+  // `Map.set` — and its `_oninitialize` is called through for everything but
+  // this field. The cast is the ONE pinned-SDK assumption this module makes
+  // and the option's doc records where it breaks; the string arm never reaches
+  // it, so a face with fixed instructions runs on the SDK's path alone.
+  if (typeof opts.instructions === "function") {
+    const compose = opts.instructions;
+    // `server`, seen through the one private member this module pins. Called
+    // AS a method on it (not detached) so the capture of `_clientCapabilities`
+    // and `_clientVersion` inside lands on the same instance
+    // `getClientCapabilities()` later reads.
+    const sdk = server as unknown as SdkInitializeInternals;
+    server.setRequestHandler(InitializeRequestSchema, async (request) => {
+      const answer = await sdk._oninitialize(request);
+      const instructions = compose();
+      // Same rule as the SDK's: empty text is no key, not an empty key.
+      return instructions ? { ...answer, instructions } : answer;
+    });
+  }
 
   // Normalize whatever `opts.client()` returns into an owned connection. The
   // bare-bundle (in-process `directDispatch`) case gets a no-op disposer; the
