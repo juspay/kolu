@@ -36,7 +36,7 @@ import type {
   TranscriptEvent,
 } from "kolu-transcript-core";
 import { opencodeVocab } from "./schemas.ts";
-import { openDb } from "./core.ts";
+import { assistantModelLabel, openDb } from "./core.ts";
 
 interface PartData {
   type?: string;
@@ -414,11 +414,7 @@ function loadSessionEvents(
         continue;
       }
       role = meta.role;
-      modelLabel = meta.modelID
-        ? meta.providerID
-          ? `${meta.providerID}/${meta.modelID}`
-          : meta.modelID
-        : null;
+      modelLabel = assistantModelLabel(meta);
       messageTs = meta.time?.created ?? row.message_time ?? null;
     }
     if (role === null || row.part_data === null) continue;
