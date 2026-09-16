@@ -2,12 +2,7 @@
 
 import { Then, When } from "@cucumber/cucumber";
 import { dragFromCenter } from "../support/pointerDrag.ts";
-import {
-  DOCK_ROW_SELECTOR,
-  type KoluWorld,
-  MOD_KEY,
-  POLL_TIMEOUT,
-} from "../support/world.ts";
+import { type KoluWorld, MOD_KEY, POLL_TIMEOUT } from "../support/world.ts";
 
 const DOCK_SELECTOR = '[data-testid="dock"]';
 const RAIL_SELECTOR = '[data-testid="dock-rail"]';
@@ -20,9 +15,12 @@ const AWAITING_ROW_SELECTOR =
 const WORKING_ROW_SELECTOR = '[data-testid="dock-row"][data-bucket="working"]';
 const QUIET_FOREGROUND_SELECTOR = '[data-testid="dock-quiet-foreground"]';
 // Line 2's trailing model tag — the shared hook the row component sets on it
-// (the same kind of hook `data-dock-subline` is), composed from the shared row
-// selector so a rename of the row's testid cannot leave this one behind.
-const MODEL_TAG_SELECTOR = `${DOCK_ROW_SELECTOR} [data-dock-model]`;
+// (the same kind of hook `data-dock-subline` is), scoped by the row's OTHER
+// shared hook, `data-dock-row`, which `dockRowAttrs` stamps on EVERY row
+// surface. Both hooks come from the package, so this selector works on the
+// desktop row and the touch drawer alike — a surface's own `data-testid` is
+// deliberately not involved, since it differs per surface.
+const MODEL_TAG_SELECTOR = "[data-dock-row] [data-dock-model]";
 const CHROME_DOCK_TOGGLE_SELECTOR = '[data-testid="dock-toggle"]';
 const DOCK_WINDOW_TRIGGER_SELECTOR = '[data-testid="dock-window-trigger"]';
 const HIDDEN_FOOTER_SELECTOR = '[data-testid="dock-hidden-footer"]';

@@ -114,9 +114,10 @@ export function writeOpenCodeFixture(opts: {
 
     if (opts.state === "thinking") {
       // Optional earlier assistant row carrying the running token total —
-      // `getLatestAssistantContextTokens` finds it via a separate query
-      // scoped to `role='assistant'`, so the user message as the newest
-      // row still drives state derivation to `thinking`.
+      // `getLatestAssistantFacts` reads the newest assistant row through a
+      // separate query scoped to `role='assistant'` (that row is also where
+      // the session-scoped model comes from), so the user message as the
+      // newest row still drives state derivation to `thinking`.
       if (opts.contextTokens !== undefined) {
         db.prepare(
           "INSERT INTO message (id, session_id, time_created, data) VALUES (?, ?, ?, ?)",
