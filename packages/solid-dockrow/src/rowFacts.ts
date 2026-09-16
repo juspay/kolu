@@ -32,8 +32,9 @@ import { type RowSubline, rowSubline } from "./rowSubline.ts";
 export type DockRowFacts = {
   /** `data-agent-state` — verbatim, or `undefined` for no live agent. */
   agentState: string | undefined;
-  /** The live agent's session model — {@link agentModel}, for a row that also
-   *  needs the words and the PR. */
+  /** The model the live agent's SESSION is running, or `undefined` for no live
+   *  agent / a session that has not named one. A session fact — see the producer
+   *  note above. */
   model: string | undefined;
   /** The status words on line 2, and whether they are an agent's. */
   subline: RowSubline;
@@ -41,23 +42,11 @@ export type DockRowFacts = {
   pr: PrInfo | null;
 };
 
-/** The live agent's session model, or `undefined`.
- *
- *  Its own door because a row that shows ONLY this fact exists: a split's
- *  single-line sub-entry (`<DockSubRow>`) has no status words and no PR, so
- *  handing it the whole four-fact product would compute three of them to throw
- *  them away. It is also where the wire's `null` becomes `undefined` for every
- *  caller — one absence, in one place, rather than the same `?? undefined` at
- *  each call site. */
-export function agentModel(meta: TerminalMetadata): string | undefined {
-  return activeArm(meta)?.agent?.model ?? undefined;
-}
-
 export function dockRowFacts(meta: TerminalMetadata): DockRowFacts {
   const arm = activeArm(meta);
   return {
     agentState: arm?.agent?.state,
-    model: agentModel(meta),
+    model: arm?.agent?.model ?? undefined,
     subline: rowSubline(meta),
     pr: activePr(meta),
   };

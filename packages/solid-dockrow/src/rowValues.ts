@@ -60,7 +60,7 @@ export {
   firstIntentLine,
   identityColor,
 } from "./rowIdentity.ts";
-export { agentModel, type DockRowFacts, dockRowFacts } from "./rowFacts.ts";
+export { type DockRowFacts, dockRowFacts } from "./rowFacts.ts";
 export { type RowSubline, rowSubline, stateLabels } from "./rowSubline.ts";
 // The PIP trio's narrowing rides through this door too — the guards live with
 // the vocabulary they fence (`@kolu/solid-statepip`, beside the records that

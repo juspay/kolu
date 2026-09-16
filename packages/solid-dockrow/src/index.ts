@@ -16,7 +16,6 @@ export {
   type DockRowProps,
   type DockRowTestIds,
 } from "./DockRow.tsx";
-export { DockSubRow, type DockSubRowProps } from "./DockSubRow.tsx";
 export { ChecksIndicator, PrPip, PrStateIcon } from "./PrPip.tsx";
 export { RecencyCell, type RowRecency } from "./RecencyCell.tsx";
 export { RowLabel } from "./RowLabel.tsx";

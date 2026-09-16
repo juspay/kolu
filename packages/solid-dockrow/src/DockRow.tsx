@@ -95,8 +95,9 @@ export type DockRowProps = {
   model: string | undefined;
   /** The annotation line as markdown source — intent line 1, else the branch. */
   label: string;
-  /** The per-branch annotation ink. */
-  labelColor: string;
+  /** The per-branch annotation ink — `undefined` on a row that has no display
+   *  identity of its own (a split's label is its cwd basename, not a branch). */
+  labelColor: string | undefined;
   /** Renders `label`. Required and injected — see `RowLabel`. */
   renderLabel: (markdown: string) => JSX.Element;
   /** The status words on line 2, and whether they are an agent's. */
@@ -105,6 +106,15 @@ export type DockRowProps = {
   pr: PrInfo | null;
   /** The recency rendering and the string computed for it. */
   recency: RowRecency;
+  /** The terminal this row hangs under — a SPLIT's real parent, which may
+   *  itself be a split. Absent on a top-level row. Stamps `data-parent-id`, the
+   *  handle the dock's own tests navigate the tree by. */
+  parentId?: TerminalId;
+  /** Hops from the top-level tile: 1 for a split, 2 for a split of a split.
+   *  Absent on a top-level row. Stamps `data-depth`, and steps the row's TEXT
+   *  block in one notch per hop — see the label cell below for why the indent
+   *  lives there and not on the row. */
+  depth?: number;
   onSelect: () => void;
   /** The row the user is LOOKING at. Optional: a surface with no notion of an
    *  active tile never sets it. */
@@ -134,6 +144,11 @@ export const DockRow: Component<DockRowProps> = (props) => {
       // its jump are one fact rendered four ways.
       {...dockRowAttrs(props)}
       data-sleeping={props.pip.sleeping ? "" : undefined}
+      // The nest's two facts, stamped where the rest of the row's contract is.
+      // A split's entry is a FLAT sibling in the DOM (the section's grid), so
+      // the tree exists as attributes and an indented text block.
+      data-parent-id={props.parentId}
+      data-depth={props.depth}
       // Attached only when a surface actually traps the gesture. Registering a
       // no-op listener on every row is a real DOM delta the desktop row did not
       // have before the extraction, and "it does nothing" is not the same as
@@ -154,12 +169,40 @@ export const DockRow: Component<DockRowProps> = (props) => {
       <span class="row-span-2 flex self-center">
         <StatePip {...props.pip} class={DOCK_ROW_PIP_BOX} />
       </span>
-      <RowLabel
-        markdown={props.label}
-        render={props.renderLabel}
-        class={s().textLabel}
-        color={props.labelColor}
-      />
+      {/* Annotation cell — plus, on a split, the `└` that says "child" and one
+       *  step of indent per hop. BOTH live here, in the label's own cell,
+       *  because a split's row is the same row as its parent's: the indicator,
+       *  the recency and the model sit in the very columns a top-level row
+       *  puts them in (that IS what makes the dock readable — a nested row
+       *  whose columns wander is a second layout to learn). Only the text block
+       *  steps in, and the DOM keeps every entry a flat sibling, so the marker
+       *  is the tree. */}
+      {props.depth === undefined ? (
+        <RowLabel
+          markdown={props.label}
+          render={props.renderLabel}
+          class={`col-start-2 ${s().textLabel}`}
+          color={props.labelColor}
+        />
+      ) : (
+        <span
+          class="col-start-2 flex items-center gap-1 min-w-0"
+          style={{ "padding-left": `${(props.depth - 1) * 0.75}rem` }}
+        >
+          <span
+            aria-hidden="true"
+            class="font-mono text-[0.6rem] leading-none text-fg-3/70 select-none"
+          >
+            └
+          </span>
+          <RowLabel
+            markdown={props.label}
+            render={props.renderLabel}
+            class={`${s().textLabel} min-w-0`}
+            color={props.labelColor}
+          />
+        </span>
+      )}
       {/* Recency — hidden while active; width reserved. On a blocked row it
        *  flips to the violet WAIT chip: how long the agent has waited on you IS
        *  the signal (a 20 h wait must be legible). */}
@@ -171,6 +214,14 @@ export const DockRow: Component<DockRowProps> = (props) => {
        *  an invisible placeholder keeping the row two lines tall. */}
       <div
         class={`${DOCK_ROW_BRANCH_COL} col-end-[-1] flex items-center gap-1.5 min-w-0 mt-0.5`}
+        // The same step the label takes, so a split's two lines read as one
+        // block. (Padding on this div moves its children — it is a flex
+        // container inside the row's subgrid, not a track of its own.)
+        style={
+          props.depth === undefined
+            ? undefined
+            : { "padding-left": `${(props.depth - 1) * 0.75}rem` }
+        }
       >
         <PrPip pr={props.pr} />
         <Show

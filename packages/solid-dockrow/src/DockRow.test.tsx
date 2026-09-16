@@ -105,3 +105,36 @@ describe("DockRow's model tag", () => {
     }
   });
 });
+
+describe("DockRow's tree contract", () => {
+  const rowEl = (host: HTMLElement) =>
+    host.querySelector("[data-dock-row]") as HTMLElement;
+
+  it("stamps the nest and draws its marker on a split's row", () => {
+    const { host, dispose } = renderRow(
+      rowProps({ parentId: "tile-1" as TerminalId, depth: 2 }),
+    );
+    try {
+      expect(rowEl(host).getAttribute("data-parent-id")).toBe("tile-1");
+      expect(rowEl(host).getAttribute("data-depth")).toBe("2");
+      // The DOM keeps every entry a flat sibling, so the marker IS the tree.
+      expect(rowEl(host).textContent).toContain("└");
+      // …and the split still renders the whole row: words, model, no ink.
+      expect(subline(host)).toBe("Running tools");
+      expect(modelTag(host)?.textContent).toBe("claude-opus-4-6");
+    } finally {
+      dispose();
+    }
+  });
+
+  it("leaves a top-level row unmarked", () => {
+    const { host, dispose } = renderRow(rowProps());
+    try {
+      expect(rowEl(host).hasAttribute("data-depth")).toBe(false);
+      expect(rowEl(host).hasAttribute("data-parent-id")).toBe(false);
+      expect(rowEl(host).textContent).not.toContain("└");
+    } finally {
+      dispose();
+    }
+  });
+});

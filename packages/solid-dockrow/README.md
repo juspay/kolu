@@ -57,11 +57,13 @@ Part of the kolu monorepo — `"@kolu/solid-dockrow": "workspace:*"`.
   drawer differ by. Room and input both follow from it (a mouse hovers, a finger
   presses; a desktop row wears a focus ring), and every pixel of the difference
   is a column of `DOCK_ROW_SURFACE` rather than a second component.
-- **`<DockSubRow>`** — a split terminal, indented one notch per hop under its
-  real parent. One line, so it takes `model` too (the same `agentModel(meta)`
-  fact the two-line row's tag renders, at a smaller size) — the split's label
-  yields to it, since a sub-agent on a different model is the thing the row
-  cannot otherwise tell you.
+
+  **A split is this same row.** `parentId` + `depth` are the optional nesting
+  facts: they stamp `data-parent-id` / `data-depth` and step the row's TEXT block
+  in one notch per hop, opening it with a `└`. The indicator, the recency and the
+  model stay in the columns a top-level row puts them in — one grid for the whole
+  dock — because a nested row whose columns wander is a second layout to learn,
+  which is exactly what the previous single-line sub-row was.
 - **`<DockNeedsYouRow>`** — an entry in the pinned needs-you strip, at `full` or
   `icon` density.
 - **`<DockSection>` · `<DockNeedsYouStrip>`** — the two outer CONTAINERS. They
@@ -79,12 +81,11 @@ Part of the kolu monorepo — `"@kolu/solid-dockrow": "workspace:*"`.
   shape `handlers` takes — just far enough from any one library's emit.
 - **`<PrPip>` · `<PrStateIcon>` · `<ChecksIndicator>` · `prTooltip`** — the PR
   badge and its glyphs. The row's, and the repo's only copy of them.
-- **`<RecencyCell>` · `<RowLabel>`** — the two leaves the three rows share.
-- **`dockRowFacts(meta)`** — the four facts a two-line row reads off ONE terminal
-  record (`agentState`, `model`, `subline`, `pr`), fused so a row's words and its
-  PR cannot come from two different terminals. **`agentModel(meta)`** is the same
-  model fact on its own, for a row that shows only that (a split's sub-entry) —
-  and it is where the wire's `null` becomes `undefined` for every caller.
+- **`<RecencyCell>` · `<RowLabel>`** — the two leaves both rows share.
+- **`dockRowFacts(meta)`** — the four facts a row reads off ONE terminal record
+  (`agentState`, `model`, `subline`, `pr`), fused so a row's words and its PR
+  cannot come from two different terminals. A split's row reads the same three
+  it needs (dropping the PR it has none of) and is otherwise the identical row.
 - **`rowValues`** — every pure fold: `bindStatePip` (and the paint / glyph /
   motion / shell-live decisions under it), `dockRowAttrs`, `rowSubline`,
   `annotationLine`, `identityColor`, `rowRecency` and the three pieces it is
