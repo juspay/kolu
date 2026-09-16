@@ -2,7 +2,7 @@ import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it, vi } from "vitest";
 import {
   deriveSessionState,
-  getLatestAssistantContextTokens,
+  getLatestAssistantFacts,
   getSessionTaskProgress,
   parseMessageState,
   runningToolsBucket,
@@ -74,10 +74,7 @@ describe("parseMessageState", () => {
       role: "user",
       time: { created: 1775861127582 },
     });
-    expect(parseMessageState(data)).toEqual({
-      state: "thinking",
-      model: null,
-    });
+    expect(parseMessageState(data)).toEqual({ state: "thinking" });
   });
 
   it("returns waiting for a completed assistant message with finish=stop", () => {
@@ -88,10 +85,7 @@ describe("parseMessageState", () => {
       finish: "stop",
       time: { created: 1775861127596, completed: 1775861130376 },
     });
-    expect(parseMessageState(data)).toEqual({
-      state: "waiting",
-      model: "litellm/glm-latest",
-    });
+    expect(parseMessageState(data)).toEqual({ state: "waiting" });
   });
 
   it("returns thinking for an assistant message without time.completed", () => {
@@ -101,10 +95,7 @@ describe("parseMessageState", () => {
       providerID: "litellm",
       time: { created: 1775861127596 },
     });
-    expect(parseMessageState(data)).toEqual({
-      state: "thinking",
-      model: "litellm/glm-latest",
-    });
+    expect(parseMessageState(data)).toEqual({ state: "thinking" });
   });
 
   it("returns thinking for assistant with non-stop finish reason", () => {
@@ -115,23 +106,7 @@ describe("parseMessageState", () => {
       finish: "tool-calls",
       time: { created: 1, completed: 2 },
     });
-    expect(parseMessageState(data)).toEqual({
-      state: "thinking",
-      model: "anthropic/claude-sonnet-4-5",
-    });
-  });
-
-  it("falls back to modelID alone if providerID is missing", () => {
-    const data = JSON.stringify({
-      role: "assistant",
-      modelID: "glm-latest",
-      finish: "stop",
-      time: { created: 1, completed: 2 },
-    });
-    expect(parseMessageState(data)).toEqual({
-      state: "waiting",
-      model: "glm-latest",
-    });
+    expect(parseMessageState(data)).toEqual({ state: "thinking" });
   });
 
   it("returns null for unknown role", () => {
@@ -200,19 +175,23 @@ describe("deriveSessionState", () => {
     ]);
     expect(deriveSessionState("s1", undefined, db)).toEqual({
       state: "waiting",
-      model: null,
       messageId: "m1",
     });
   });
 });
 
-describe("getLatestAssistantContextTokens", () => {
-  it("keeps the latest assistant total when a newer user prompt starts the next turn", () => {
+describe("getLatestAssistantFacts", () => {
+  it("keeps the latest assistant's model and total when a newer user prompt starts the next turn", () => {
+    // The regression this guards: both facts used to be read off the single
+    // newest message, so a user prompt (or a tool result) as the newest row
+    // blanked the published model and token count for that whole window.
     const db = withMessages([
       {
         id: "m0",
         data: JSON.stringify({
           role: "assistant",
+          modelID: "glm-latest",
+          providerID: "litellm",
           tokens: { total: 11_000 },
         }),
         time_created: 1,
@@ -221,6 +200,8 @@ describe("getLatestAssistantContextTokens", () => {
         id: "m1",
         data: JSON.stringify({
           role: "assistant",
+          modelID: "claude-opus-4-6",
+          providerID: "anthropic",
           tokens: { total: 23_000 },
         }),
         time_created: 2,
@@ -232,14 +213,31 @@ describe("getLatestAssistantContextTokens", () => {
       },
     ]);
 
-    expect(getLatestAssistantContextTokens("s1", undefined, db)).toBe(23_000);
+    expect(getLatestAssistantFacts("s1", undefined, db)).toEqual({
+      model: "anthropic/claude-opus-4-6",
+      contextTokens: 23_000,
+    });
+  });
+
+  it("falls back to modelID alone if providerID is missing", () => {
+    const db = withMessages([
+      {
+        id: "m0",
+        data: JSON.stringify({ role: "assistant", modelID: "glm-latest" }),
+        time_created: 1,
+      },
+    ]);
+    expect(getLatestAssistantFacts("s1", undefined, db)).toEqual({
+      model: "glm-latest",
+      contextTokens: null,
+    });
   });
 
   it("returns null before the first assistant message", () => {
     const db = withMessages([
       { id: "m0", data: JSON.stringify({ role: "user" }), time_created: 1 },
     ]);
-    expect(getLatestAssistantContextTokens("s1", undefined, db)).toBeNull();
+    expect(getLatestAssistantFacts("s1", undefined, db)).toBeNull();
   });
 });
 

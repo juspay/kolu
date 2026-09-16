@@ -421,16 +421,24 @@ function toolUseOrAwaitingUser(content: unknown): "tool_use" | "awaiting_user" {
 
 /** Derive Claude Code state from the last relevant JSONL message.
  *
- *  Walks backwards once, tracking two independent signals with different
+ *  Walks backwards once, tracking three independent signals with different
  *  stopping conditions:
- *   - state + model: first `assistant` OR `user` entry (the newest event)
+ *   - state: first `assistant` OR `user` entry (the newest event)
+ *   - model: first `assistant` entry's `message.model` — read on EVERY entry,
+ *     independent of the state gate
  *   - contextTokens: first `assistant` entry carrying `message.usage` (the
  *     most recent accounting snapshot)
  *
- *  They diverge during Thinking — the newest line is a `user` prompt, so
- *  state is thinking, but the meaningful token total lives one hop back on
- *  the previous assistant reply. Blanking it there (as an earlier version
- *  did) masked a valid running count every time the user typed.
+ *  The two telemetry signals diverge from state during Thinking — the newest
+ *  line is a `user` prompt, so state is thinking, but the session's model and
+ *  the meaningful token total live one hop back on the previous assistant
+ *  reply. Blanking either there (as earlier versions did) masked a valid
+ *  running value every time the user typed, or — for the model — every time a
+ *  tool result made a `user` entry newest, which is most of a tool-heavy turn
+ *  (a `tool_result` IS a `user` entry: `isNonPromptUserEntry` skips only
+ *  `/compact` summaries and slash-command artifacts). The model is a SESSION
+ *  fact, not a per-event one, and `omp`/`pi` derive it with this same
+ *  independent-stopping-condition shape.
  *
  *  A newest `assistant` `end_turn` normally means `waiting` (the agent
  *  yielded its turn back to the user). But under dynamic workflows the
@@ -455,10 +463,8 @@ export function deriveState(
    *  (the resumed-vs-live discriminator — see the #1017 module note). */
   timestampMs: number | null;
 } | null {
-  let stateAndModel: {
-    state: ClaudeCodeInfo["state"];
-    model: string | null;
-  } | null = null;
+  let state: ClaudeCodeInfo["state"] | null = null;
+  let model: string | null = null;
   let timestampMs: number | null = null;
   let contextTokens: number | null = null;
 
@@ -486,6 +492,16 @@ export function deriveState(
         if (tokens !== null) contextTokens = tokens;
       }
 
+      // The session's model, read on EVERY entry and independent of the state
+      // gate below — so a tail whose newest entry is a `user` prompt or a
+      // `tool_result` still names the model the session is running. An
+      // assistant entry that carries no `message.model` (a synthetic restore
+      // line) leaves the slot unset for an older entry to fill.
+      if (model === null && entry.type === "assistant") {
+        const m = entry.message?.model;
+        if (typeof m === "string") model = m;
+      }
+
       // Walk past transcript-only `user` entries the human never typed — the
       // `/compact` summary and slash-command bookkeeping/output (the
       // `<command-name>` + `<local-command-stdout>` pair a `/compact` appends
@@ -499,46 +515,39 @@ export function deriveState(
       // `isNonPromptUserEntry`.)
       if (isNonPromptUserEntry(entry)) continue;
 
-      if (stateAndModel === null) {
-        const model = entry.message?.model ?? null;
-        stateAndModel = match({
+      if (state === null) {
+        state = match({
           type: entry.type,
           stopReason: entry.message?.stop_reason ?? null,
         })
-          .with({ type: "assistant", stopReason: "end_turn" }, () => ({
-            state: "waiting" as const,
-            model,
-          }))
-          .with({ type: "assistant", stopReason: "tool_use" }, () => ({
-            state: toolUseOrAwaitingUser(entry.message?.content),
-            model,
-          }))
-          .with({ type: "assistant" }, () => ({
-            state: "thinking" as const,
-            model,
-          }))
-          .with({ type: "user" }, () => ({
-            state: isInterruptMarker(entry.message?.content)
+          .with({ type: "assistant", stopReason: "end_turn" }, () =>
+            "waiting" as const,
+          )
+          .with({ type: "assistant", stopReason: "tool_use" }, () =>
+            toolUseOrAwaitingUser(entry.message?.content),
+          )
+          .with({ type: "assistant" }, () => "thinking" as const)
+          .with({ type: "user" }, () =>
+            isInterruptMarker(entry.message?.content)
               ? ("waiting" as const)
               : ("thinking" as const),
-            model: null,
-          }))
+          )
           .otherwise(() => null);
         // Capture the timestamp of the very entry the state derives from — the
         // newest `user`/`assistant` — so the orphaned-prompt age check reads the
         // same entry, not a parallel walk (null if absent/unparseable).
-        if (stateAndModel !== null) {
+        if (state !== null) {
           timestampMs = parseIsoTimestamp(entry.timestamp);
         }
       }
 
-      if (stateAndModel !== null && contextTokens !== null) break;
+      if (state !== null && model !== null && contextTokens !== null) break;
     } catch {
       // Skip malformed lines
     }
   }
 
-  if (stateAndModel === null) return null;
+  if (state === null) return null;
 
   // Promote a bare `end_turn` (`waiting`) to `running_background` only when the
   // agent is busy-waiting on a task kolu can actually observe: a `Workflow` run
@@ -553,13 +562,13 @@ export function deriveState(
   // case is promoted — an
   // in-flight `thinking`/`tool_use` already reads as working, and an
   // `awaiting_user` prompt is a genuine human gate.
-  let state = stateAndModel.state;
-  if (state === "waiting") {
+  let publishedState = state;
+  if (publishedState === "waiting") {
     const bg = outstanding ?? outstandingBackgroundTasks(lines);
-    if (bg.some((t) => t.runId !== null)) state = "running_background";
+    if (bg.some((t) => t.runId !== null)) publishedState = "running_background";
   }
 
-  return { state, model: stateAndModel.model, contextTokens, timestampMs };
+  return { state: publishedState, model, contextTokens, timestampMs };
 }
 
 // --- Background-task detection (dynamic workflows) ---
