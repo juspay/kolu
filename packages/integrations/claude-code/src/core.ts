@@ -563,7 +563,9 @@ export function deriveState(
   // case is promoted — an
   // in-flight `thinking`/`tool_use` already reads as working, and an
   // `awaiting_user` prompt is a genuine human gate.
-  let publishedState = state;
+  // The promotion below writes a state the derivation above cannot produce, so
+  // this carries the FIELD's type rather than the match's narrower union.
+  let publishedState: ClaudeCodeInfo["state"] = state;
   if (publishedState === "waiting") {
     const bg = outstanding ?? outstandingBackgroundTasks(lines);
     if (bg.some((t) => t.runId !== null)) publishedState = "running_background";
