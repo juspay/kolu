@@ -233,10 +233,8 @@ export function getSessionTaskProgress(
  * only live on assistant messages — taking them from the single latest
  * message would blank both whenever the user's prompt (or a tool result) is
  * the newest row, i.e. throughout the Thinking window. For the model that is
- * not cosmetic: a `provider/model` is a SESSION fact, and blanking it made the
- * wire's `model` mean two different things depending on which agent produced
- * it (five agents derive it session-scoped; this one and claude-code used to
- * not).
+ * not merely a blank: the wire's `model` means one thing across every
+ * integration — see `AgentInfoShape.model`.
  *
  * One indexed query against (session_id, time_created). `json_extract`
  * forces per-row blob inspection, but the walker stops at the first match
@@ -349,16 +347,16 @@ interface MessageData {
   tokens?: { total?: number };
 }
 
-/** How one assistant message names the model it ran on.
- *
- *  ONE spelling: OpenCode records a provider and a model separately
- *  (`anthropic` + `claude-opus-4-6`) and the wire's `model` is the
- *  `provider/model` pair, falling back to whichever half is present. Read by
- *  the session-scoped assistant query — the ONE place the published model
- *  comes from, since a model is a session fact and a per-message reading of
- *  it blanks on every row that is not an assistant message. `null` when the
- *  row names neither. */
-export function assistantModelLabel(m: MessageData): string | null {
+/** How one message blob names the model it ran on: the `provider/model`
+ *  OpenCode records as two fields (`anthropic` + `claude-opus-4-6`), falling
+ *  back to whichever half is present, `null` when it names neither. The ONE
+ *  spelling shared by its two readers — the session-scoped assistant query
+ *  (the wire's `model`, a session fact) and the transcript loader, which
+ *  labels each message by its own — so it takes the two FIELDS it reads
+ *  rather than either caller's blob type. */
+export function assistantModelLabel(
+  m: Pick<MessageData, "modelID" | "providerID">,
+): string | null {
   if (!m.modelID) return null;
   return m.providerID ? `${m.providerID}/${m.modelID}` : m.modelID;
 }
