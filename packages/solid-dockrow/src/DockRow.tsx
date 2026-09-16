@@ -2,7 +2,7 @@
  *  the thing this package exists to hand a fleet mirror whole.
  *
  *    Line 1: `indicator · annotation · recency`
- *    Line 2: `[PR pip] status words`   (branch col → end)
+ *    Line 2: `[PR pip] status words · model`   (branch col → end)
  *
  *  One leading status indicator (`StatePip`) folds identity · paint · motion ·
  *  unread into one glyph; the annotation column starts at col 2, and line 2's
@@ -18,11 +18,12 @@
  *  the desktop-only ⌘N hint) are the four props below, not a second component.
  *
  *  What is REQUIRED here is the whole visible row: pip, annotation, status
- *  words, recency, the PR badge, the repo stripe, the sleeping recede. What is
- *  OPTIONAL is what a consumer may simply not have — an active tile
- *  (`active`), an overlay affordance (`overlay`), e2e handles (`testIds`), a
- *  hover title, a pointer trap. Each defaults to off with no visual damage; none
- *  of them is a degraded rendering of something that should have been there.
+ *  words, the model tag, recency, the PR badge, the repo stripe, the sleeping
+ *  recede. What is OPTIONAL is what a consumer may simply not have — an active
+ *  tile (`active`), an overlay affordance (`overlay`), e2e handles (`testIds`),
+ *  a hover title, a pointer trap. Each defaults to off with no visual damage;
+ *  none of them is a degraded rendering of something that should have been
+ *  there.
  *
  *  Row is `<div role="button">` rather than `<button>` so the `<a>` PR pip on
  *  line 2 stays valid HTML. Nested interactive elements (`<a>` inside
@@ -43,6 +44,8 @@ import { type Component, type JSX, Show } from "solid-js";
 import {
   DOCK_CARDS_SUBGRID_LEFT_RESTORE,
   DOCK_ROW_BRANCH_COL,
+  DOCK_ROW_GAP,
+  DOCK_ROW_GRID,
   DOCK_ROW_SURFACE,
   DOCK_ROW_STRIPE_CLASS,
   type DockRowSurface,
@@ -83,10 +86,20 @@ export type DockRowProps = {
    *  consumer whose wire carries it as text narrows the closed literal out with
    *  `narrowAgentState` and passes the raw word here, known or not. */
   agentState: string | undefined;
+  /** The model the live agent's SESSION is running on, or `undefined` — no
+   *  live agent, or a session that has not named one yet. Rendered as the quiet
+   *  tag at the END of line 2: the status words say *doing what*, this says *on
+   *  what*. A session fact, not a per-event one: a producer that read it off
+   *  the newest transcript event blanked it on every tool result, which the
+   *  tag's whole "sweep the rows' right edge" premise cannot survive. Both
+   *  absences draw nothing, rather than an "unknown" that would be noise on
+   *  every shell row. */
+  model: string | undefined;
   /** The annotation line as markdown source — intent line 1, else the branch. */
   label: string;
-  /** The per-branch annotation ink. */
-  labelColor: string;
+  /** The per-branch annotation ink — `undefined` on a row that has no display
+   *  identity of its own (a split's label is its cwd basename, not a branch). */
+  labelColor: string | undefined;
   /** Renders `label`. Required and injected — see `RowLabel`. */
   renderLabel: (markdown: string) => JSX.Element;
   /** The status words on line 2, and whether they are an agent's. */
@@ -95,6 +108,15 @@ export type DockRowProps = {
   pr: PrInfo | null;
   /** The recency rendering and the string computed for it. */
   recency: RowRecency;
+  /** The terminal this row hangs under — a SPLIT's real parent, which may
+   *  itself be a split. Absent on a top-level row. Stamps `data-parent-id`, the
+   *  handle the dock's own tests navigate the tree by. */
+  parentId?: TerminalId;
+  /** Hops from the top-level tile: 1 for a split, 2 for a split of a split.
+   *  Absent on a top-level row. Stamps `data-depth`, and steps the row's TEXT
+   *  block in one notch per hop — see the label cell below for why the indent
+   *  lives there and not on the row. */
+  depth?: number;
   onSelect: () => void;
   /** The row the user is LOOKING at. Optional: a surface with no notion of an
    *  active tile never sets it. */
@@ -110,6 +132,12 @@ export type DockRowProps = {
   onPointerDown?: (event: PointerEvent) => void;
 };
 
+/** How far a nested row steps in per hop: 1.25rem clears the `└` marker with a
+ *  gap, and every hop past the first adds 0.75rem. */
+function treeIndent(depth: number): string {
+  return `${1.25 + (depth - 1) * 0.75}rem`;
+}
+
 export const DockRow: Component<DockRowProps> = (props) => {
   const s = () => DOCK_ROW_SURFACE[props.surface];
   return (
@@ -124,6 +152,11 @@ export const DockRow: Component<DockRowProps> = (props) => {
       // its jump are one fact rendered four ways.
       {...dockRowAttrs(props)}
       data-sleeping={props.pip.sleeping ? "" : undefined}
+      // The nest's two facts, stamped where the rest of the row's contract is.
+      // A split's entry is a FLAT sibling in the DOM (the section's grid), so
+      // the tree exists as attributes and an indented text block.
+      data-parent-id={props.parentId}
+      data-depth={props.depth}
       // Attached only when a surface actually traps the gesture. Registering a
       // no-op listener on every row is a real DOM delta the desktop row did not
       // have before the extraction, and "it does nothing" is not the same as
@@ -136,10 +169,51 @@ export const DockRow: Component<DockRowProps> = (props) => {
           props.onSelect();
         }
       }}
-      class={`relative w-full grid grid-cols-subgrid col-span-full items-center ${s().rowPad} ${DOCK_CARDS_SUBGRID_LEFT_RESTORE} ${s().rowGutter} ${DOCK_ROW_STRIPE_CLASS} text-left cursor-pointer transition-colors duration-150 ${s().rowFocus} ${s().rowPress}`}
+      class={`relative grid col-span-full items-center ${s().rowPad} ${DOCK_CARDS_SUBGRID_LEFT_RESTORE} ${s().rowGutter} ${DOCK_ROW_STRIPE_CLASS} text-left cursor-pointer transition-colors duration-150 ${s().rowFocus} ${s().rowPress} ${
+        props.depth === undefined
+          ? "w-full grid-cols-subgrid"
+          : `${DOCK_ROW_GRID} ${DOCK_ROW_GAP}`
+      }`}
+      // A nested row indents by insetting its own tracks, and it CANNOT do that
+      // as a subgrid item: a subgrid shares the parent's lines, so padding the
+      // row slides only its first cell out from under the rest (measured —
+      // label and recency stayed put while the indicator moved). So a nested row
+      // declares the section's own tracks for itself, from the same two
+      // constants the section builds its template from, and pads the left:
+      // indicator, label and line 2 step in together, and the recency column
+      // still lands on the section's right edge.
+      //
+      // It also drops `w-full` in that branch, and that is not cosmetic either:
+      // `width: 100%` resolves against the grid area in a way the bleeds then
+      // double-count, so the box came out one gutter short (264 vs the parent's
+      // 288) and the row's whole right side — background, recency, model —
+      // stopped 24px inside the card. An auto width stretches to the area and
+      // lets `-ml-3`/`-mr-3` do the bleeding, which lands exactly on the
+      // parent's box. Both numbers are measured, not reasoned.
+      style={
+        props.depth === undefined
+          ? undefined
+          : { "padding-left": `calc(0.75rem + ${treeIndent(props.depth)})` }
+      }
       classList={{ [SLEEPING_RECEDE_CLASS]: props.pip.sleeping }}
       title={props.title}
     >
+      {/* The tree marker — a split's row sits directly under its parent in a
+       *  flat sibling list, so this glyph is what says "child". Decorative:
+       *  `data-depth` carries the fact, and the indent carries the depth. It
+       *  sits just left of the indicator, inside the padding the indent
+       *  created. */}
+      <Show when={props.depth}>
+        {(depth) => (
+          <span
+            aria-hidden="true"
+            class="absolute top-1/2 -translate-y-1/2 font-mono text-[0.6rem] leading-none text-fg-3/70 select-none"
+            style={{ left: `calc(0.75rem + ${treeIndent(depth())} - 0.9rem)` }}
+          >
+            └
+          </span>
+        )}
+      </Show>
       {/* Identity status indicator — one binder shared with title/list. */}
       <span class="row-span-2 flex self-center">
         <StatePip {...props.pip} class={DOCK_ROW_PIP_BOX} />
@@ -147,7 +221,11 @@ export const DockRow: Component<DockRowProps> = (props) => {
       <RowLabel
         markdown={props.label}
         render={props.renderLabel}
-        class={s().textLabel}
+        // No ink means "this row has no display identity of its own" (a split's
+        // label is a directory, not a branch) — which is the dock's quiet
+        // secondary ink, NOT an inherited default. Inheriting gave the nested
+        // row the app's heaviest text and made it shout over its parent.
+        class={`col-start-2 ${s().textLabel} ${props.labelColor === undefined ? "text-fg-2" : ""}`}
         color={props.labelColor}
       />
       {/* Recency — hidden while active; width reserved. On a blocked row it
@@ -191,6 +269,24 @@ export const DockRow: Component<DockRowProps> = (props) => {
               title={line()}
             >
               {line()}
+            </span>
+          )}
+        </Show>
+        {/* The model — `ml-auto` puts it in the column the recency cell owns
+         *  on line 1, so a sweep down the rows' right edge reads what every
+         *  agent is running on. `shrink-0` + a `max-w` cap means the WORDS
+         *  yield first (they already truncate, and a summary is what the
+         *  tooltip is for), and a harness reporting a long pinned id
+         *  (`claude-sonnet-4-5-20250929`) ellipsises in its own half-width
+         *  slot rather than pushing the words out or wrapping the row. */}
+        <Show when={props.model}>
+          {(model) => (
+            <span
+              data-dock-model=""
+              title={model()}
+              class={`ml-auto shrink-0 max-w-[50%] truncate font-mono ${s().textSubline} leading-snug text-fg-3/60`}
+            >
+              {model()}
             </span>
           )}
         </Show>

@@ -789,7 +789,12 @@ const SortableCluster: Component<{
             />
             <For each={row.subRows}>
               {(sub) => (
-                <SubTerminalRow row={sub} surface="desktop" onSelect={focus} />
+                <SubTerminalRow
+                  row={sub}
+                  tileId={row.id}
+                  surface="desktop"
+                  onSelect={focus}
+                />
               )}
             </For>
           </>

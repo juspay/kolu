@@ -64,6 +64,13 @@ export interface AgentInfoShape {
   kind: string;
   state: string;
   sessionId: string;
+  /** The model the SESSION is running — one shared meaning across
+   *  integrations: derived from the newest message that NAMES one
+   *  (session-scoped), never from the newest event of any kind, which blanks
+   *  on every tool result — a tool result is a user entry, so an event-scoped
+   *  read loses the tag for most of a working turn. Derivation is
+   *  per-integration (each reads its own on-disk format), the stopping
+   *  condition is not. Null until the session names one. */
   model: string | null;
   summary: string | null;
   taskProgress: TaskProgress | null;

@@ -143,6 +143,7 @@ function DockListSection(props: {
               {(sub) => (
                 <SubTerminalRow
                   row={sub}
+                  tileId={row.id}
                   surface="touch"
                   onSelect={props.onSelect}
                 />

@@ -32,6 +32,7 @@ const WORKFLOW_AGENTS = 5;
 
 type MockState =
   | "thinking"
+  | "thinking_after_reply"
   | "tool_use"
   | "waiting"
   | "awaiting_user"
@@ -126,6 +127,16 @@ export function buildTranscript(state: MockState): string {
     });
 
   const lines = [userMsg];
+  // "thinking_after_reply": a completed assistant turn with a fresh prompt after
+  // it — the tail shape a working agent is in for most of a turn (every tool
+  // result is a `user` entry too). State derives from the newer user entry, and
+  // the session's MODEL has to survive from the assistant entry behind it;
+  // before that was fixed this tail published `model: null` and the dock row's
+  // model tag blinked off while the agent worked.
+  if (state === "thinking_after_reply") {
+    lines.push(assistantMsg("end_turn"));
+    lines.push(interruptTextMsg("u2", "carry on"));
+  }
   if (state === "tool_use") lines.push(assistantMsg("tool_use"));
   if (state === "waiting") lines.push(assistantMsg("end_turn"));
   // "awaiting_user": the turn ended on a user-input tool (AskUserQuestion /

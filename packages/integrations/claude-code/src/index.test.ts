@@ -434,11 +434,14 @@ describe("deriveState", () => {
     });
   });
 
-  it("keeps last-assistant contextTokens sticky when user entry is newest", () => {
+  it("keeps the last-assistant model and contextTokens sticky when a user entry is newest", () => {
     // Thinking state: user just submitted a prompt, so `user` is newer than
     // the previous assistant's reply. State should come from the user entry
-    // (thinking), but contextTokens must be preserved from the prior turn's
-    // usage — otherwise the token count blanks out mid-conversation.
+    // (thinking), but the session's model and its contextTokens must be
+    // preserved from the prior turn — otherwise the model badge blanks on
+    // every tool result and the token count blanks mid-conversation. A
+    // `tool_result` is a `user` entry too, so this tail is also the shape a
+    // tool-heavy turn spends most of its time in.
     const assistant = JSON.stringify({
       type: "assistant",
       message: {
@@ -454,9 +457,35 @@ describe("deriveState", () => {
     const user = JSON.stringify({ type: "user" });
     expect(deriveState([assistant, user])).toEqual({
       state: "thinking",
-      model: null,
+      model: "claude-opus-4-7",
       contextTokens: 29_105,
       timestampMs: null,
+    });
+  });
+
+  it("keeps the model sticky across a tool-result tail, older assistant entry winning", () => {
+    // The regression this guards: `model` used to be read off the single
+    // entry that decided state, so a `user` tail (a prompt, or the
+    // `tool_result` that follows every tool call) published `model: null`
+    // for the whole time the agent was working.
+    const reply = JSON.stringify({
+      type: "assistant",
+      message: { stop_reason: "end_turn", model: "claude-opus-4-7" },
+    });
+    const toolCall = JSON.stringify({
+      type: "assistant",
+      message: { stop_reason: "tool_use", model: "claude-opus-4-7" },
+    });
+    const toolResult = JSON.stringify({
+      type: "user",
+      message: {
+        role: "user",
+        content: [{ type: "tool_result", tool_use_id: "tu_1", content: "ok" }],
+      },
+    });
+    expect(deriveState([reply, toolCall, toolResult])).toMatchObject({
+      state: "thinking",
+      model: "claude-opus-4-7",
     });
   });
 

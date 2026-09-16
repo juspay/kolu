@@ -29,6 +29,7 @@ const pip = bindStatePip({ meta, attention, unread });
   pip={pip}
   bucket={bucket}
   agentState={agent?.state}
+  model={agent?.model ?? undefined}
   label={label}
   labelColor={annotationColor}
   renderLabel={(md) => <Markdown markdown={md} />}
@@ -48,16 +49,25 @@ Part of the kolu monorepo — `"@kolu/solid-dockrow": "workspace:*"`.
 ## What it owns
 
 - **`<DockRow>`** — the full two-line row: `indicator · annotation · recency`
-  over `[PR pip] status words`, on a three-track subgrid. It carries the shared
-  `[data-dock-row]` attribute contract the stylesheet's washes key on, the repo
-  stripe, the active highlight, the sleeping recede, and the two-line reserve
-  that keeps row height constant so nothing reflows when a row lights up.
+  over `[PR pip] status words · model`, on a three-track subgrid. It carries the
+  shared `[data-dock-row]` attribute contract the stylesheet's washes key on, the
+  repo stripe, the active highlight, the sleeping recede, and the two-line
+  reserve that keeps row height constant so nothing reflows when a row lights up.
   `surface` is `"desktop"` or `"touch"` — the one axis kolu's dock and its phone
   drawer differ by. Room and input both follow from it (a mouse hovers, a finger
   presses; a desktop row wears a focus ring), and every pixel of the difference
   is a column of `DOCK_ROW_SURFACE` rather than a second component.
-- **`<DockSubRow>`** — a split terminal, indented one notch per hop under its
-  real parent.
+
+  **A split is this same row.** `parentId` + `depth` are the optional nesting
+  facts: they stamp `data-parent-id` / `data-depth`, draw the `└`, and step the
+  row in one notch per hop. The step is the row's own left padding, and the row
+  therefore declares the section's tracks for itself (`DOCK_ROW_GRID` +
+  `DOCK_ROW_GAP`, the same constants the section builds its template from)
+  rather than subgridding: a subgrid shares the parent's lines, so padding a
+  subgrid row slides only its first cell out from under the rest (measured —
+  label and recency stayed put while the indicator moved). The recency column
+  still lands on the section's right edge, so a nested row indents against its
+  parent while the dock keeps one set of right-hand columns.
 - **`<DockNeedsYouRow>`** — an entry in the pinned needs-you strip, at `full` or
   `icon` density.
 - **`<DockSection>` · `<DockNeedsYouStrip>`** — the two outer CONTAINERS. They
@@ -75,10 +85,11 @@ Part of the kolu monorepo — `"@kolu/solid-dockrow": "workspace:*"`.
   shape `handlers` takes — just far enough from any one library's emit.
 - **`<PrPip>` · `<PrStateIcon>` · `<ChecksIndicator>` · `prTooltip`** — the PR
   badge and its glyphs. The row's, and the repo's only copy of them.
-- **`<RecencyCell>` · `<RowLabel>`** — the two leaves the three rows share.
-- **`dockRowFacts(meta)`** — the three facts a row reads off ONE terminal record
-  (`agentState`, `subline`, `pr`), fused so a row's words and its PR cannot come
-  from two different terminals.
+- **`<RecencyCell>` · `<RowLabel>`** — the two leaves both rows share.
+- **`dockRowFacts(meta)`** — the four facts a row reads off ONE terminal record
+  (`agentState`, `model`, `subline`, `pr`), fused so a row's words and its PR
+  cannot come from two different terminals. A split's row reads the same three
+  it needs (dropping the PR it has none of) and is otherwise the identical row.
 - **`rowValues`** — every pure fold: `bindStatePip` (and the paint / glyph /
   motion / shell-live decisions under it), `dockRowAttrs`, `rowSubline`,
   `annotationLine`, `identityColor`, `rowRecency` and the three pieces it is
@@ -108,6 +119,7 @@ required prop and where its value comes from:
 | `pip` | `bindStatePip({ meta, attention, unread })` on the SERVER (it needs the record), shipped as a flat struct; or built field-by-field in the browser with the guards below |
 | `bucket` | the row's ORDER bucket, NOT a fold of `pip.variant` — the two are different folds and kolu's disagree (a fresh `waiting` agent PAINTS `linger` while the order bucket ranks it `idle`). `bucket` drives `data-bucket` and the row's rank; a surface with no activity window of its own can pass `paintDockRow(meta, klass)`, which is a deliberate substitution rather than a derivation |
 | `agentState` | your wire string, verbatim — `narrowAgentState(raw).attr`, or `dockRowFacts(meta).agentState` |
+| `model` | `dockRowFacts(meta).model`, or your wire's own model field — the model the SESSION is running, and `undefined` (never a placeholder) when the session has not named one |
 | `label` | `annotationLine(intent, branchLabel)` — exported; do not re-derive |
 | `labelColor` | `identityColor(branchLabel)` — exported; do not re-derive |
 | `subline` | `dockRowFacts(meta).subline` server-side (see below). From a flat wire: `{ text: summary ?? narrowAgentState(raw).label, fromAgent: true }` — the `summary ?? label` rule is the row's, do not drop the summary |
@@ -116,14 +128,14 @@ required prop and where its value comes from:
 | `renderLabel` | your markdown renderer, or `(md) => md` |
 
 **If you hold a `TerminalMetadata`** — most likely on your server, where you
-dial padi — take the three record-derived facts in one call:
+dial padi — take the four record-derived facts in one call:
 
 ```ts
-const { agentState, subline, pr } = dockRowFacts(meta);
+const { agentState, model, subline, pr } = dockRowFacts(meta);
 ```
 
-They are three independent derivations over one record, and every row surface
-needs all three. Spelled separately they are three chances to pair one
+They are four independent derivations over one record, and every two-line row
+surface needs all four. Spelled separately they are four chances to pair one
 terminal's words with another terminal's PR; fused, a row's facts come from one
 record by construction.
 

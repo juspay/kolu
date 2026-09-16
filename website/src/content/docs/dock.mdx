@@ -29,6 +29,14 @@ The dock has two densities. **Rail** is a narrow strip of one chip per terminal.
 `indicator · branch · pips · time`. Toggle between them with
 <kbd>Cmd/Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>B</kbd>.
 
+A cards row is two lines. The first is the identity line above. The second says
+what that terminal is *doing right now* — an agent's own summary, or the live
+phase when it has not given one (`Running tools`, `Awaiting input`), or the
+foreground command in a plain shell — and, at its right end, the **model** that
+agent is running on when it reports one. So a fleet spread across several models
+reads without opening the right panel: the status word answers *doing what*, the
+model beside it answers *on what*.
+
 Rows are grouped by repo, and each repo is a **card**: a continuous
 repo-coloured **spine** down its left edge, a solid **monogram** tile (first
 letter of the repo) plus the uppercase name on a tinted header that stays
@@ -97,17 +105,22 @@ band is for; the dock answers *where things are*.
 
 Clicking a row centres its tile on the canvas.
 
-Every split is an indented sub-entry directly beneath its parent row — its real
+Every split is an entry directly beneath its parent row — its real
 parent, which may itself be a split: a split of a split sits one notch further
 in, under the split it belongs to, rather than flattening up to the tile the way
 the canvas tab strip does. Clicking
 one lands in that pane, and both the parent row and the split stay highlighted:
-the parent names the active tile, while the sub-entry names where the keyboard
-is inside it. Every sub-entry carries the same status indicator as a top-level
-row — the shell `#` identity glyph and activity motion for a plain shell, the
-agent brand mark and violet/amber attention wash when an agent is present — so
-shell and agent splits cannot drift. The entries are the inventory, so there is
-no separate split-count chip on the parent row.
+the parent names the active tile, while the entry names where the keyboard
+is inside it.
+
+A split's entry **is the same row** as a top-level one — same status indicator,
+same annotation, same second line with the status words and the **model**, same
+timestamp, same wash, same sizes — stepped in one notch per hop and opened by a
+`└`, so where it hangs is visible without a second layout to learn. It wears its
+worktree's colour like the row above it, and carries no PR badge: a split has no
+display identity of its own (its label is the working directory, and the parent's
+row above already badges the repo). The entries are the inventory, so there is no
+separate split-count chip on the parent row.
 
 ## Your own arrangement
 

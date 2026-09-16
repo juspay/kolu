@@ -23,7 +23,7 @@ export {
   type DerivedState,
   deriveSessionState,
   findSessionsByDirectory,
-  getLatestAssistantContextTokens,
+  getLatestAssistantFacts,
   getSessionTaskProgress,
   getSessionTitle,
   type OpenCodeSession,

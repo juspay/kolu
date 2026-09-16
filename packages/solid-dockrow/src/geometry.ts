@@ -65,11 +65,11 @@ export type DockRowSurface = "desktop" | "touch";
  *  Each field is prefixed with the component that SPENDS it, because the table
  *  does not vary uniformly and pretending otherwise is what makes a shared
  *  table lie. `row*` is `DockRow`'s alone: it is the only component whose focus
- *  ring and pointer feedback change with the surface. `DockSubRow` and
- *  `DockNeedsYouRow` carry the focus ring on BOTH surfaces — they are
- *  single-line and always keyboard-reachable, and that was true before the
- *  extraction too — so they read only their own padding and spell the rest
- *  themselves. `text*` is shared by every component that renders words.
+ *  ring and pointer feedback change with the surface. `DockNeedsYouRow` carries
+ *  the focus ring on BOTH surfaces — it is single-line and always
+ *  keyboard-reachable, and that was true before the extraction too — so it
+ *  reads only its own padding and spells the rest itself. `text*` is shared by
+ *  every component that renders words.
  *
  *  Exhaustive `Record`, so a third surface stops this compiling until every
  *  field is decided for it. */
@@ -92,8 +92,6 @@ export const DOCK_ROW_SURFACE: Record<
     rowPress: string;
     /** `DockRow` keyboard focus ring — desktop only. */
     rowFocus: string;
-    /** `DockSubRow` vertical padding. */
-    subRowPad: string;
     /** `DockSection` left inset + right gutter. */
     sectionPad: string;
     /** `DockSection`'s sticky header BAND — its flex row, its inset, and the
@@ -120,7 +118,6 @@ export const DOCK_ROW_SURFACE: Record<
     rowGutter: `${DOCK_CARDS_GUTTER_NEG_CLASS} ${DOCK_CARDS_GUTTER_CLASS}`,
     rowPress: "hover:bg-surface-2/40",
     rowFocus: DOCK_ROW_FOCUS_RING,
-    subRowPad: "py-1",
     sectionPad: `pl-3 ${DOCK_CARDS_GUTTER_CLASS}`,
     headerPad: `flex items-center gap-2 -ml-3 ${DOCK_CARDS_GUTTER_NEG_CLASS} pl-2.5 pr-3 py-2`,
     textLabel: "text-[0.84rem]",
@@ -132,7 +129,6 @@ export const DOCK_ROW_SURFACE: Record<
     rowGutter: "-mr-3 pr-3",
     rowPress: "active:bg-surface-2",
     rowFocus: "",
-    subRowPad: "py-2",
     sectionPad: "pl-3 pr-3",
     headerPad: "flex items-center gap-2 -ml-3 -mr-3 pl-2.5 pr-3 py-2.5",
     textLabel: "text-[0.9rem]",
