@@ -86,5 +86,6 @@ The generated `.claude/` output is committed to git rather than gitignored. This
 - **GitHub-browsable** — anyone can read `.claude/rules/` on GitHub to understand the agent config without cloning.
 
 The single source of truth remains `apm.yml` + top-level `.apm/` (kolu-local
-skills) plus `agents/apm.yml` + `agents/.apm/` (the reusable package). Edit
-sources there, run `just ai::apm`, and commit the result.
+skills), `agents/apm.yml` + `agents/.apm/` (the reusable package), and
+`agent-plugin/skills/kolu/` (the exported kolu skill). Edit these sources,
+run `just ai::apm`, and commit the result.
