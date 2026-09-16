@@ -44,6 +44,8 @@ import { type Component, type JSX, Show } from "solid-js";
 import {
   DOCK_CARDS_SUBGRID_LEFT_RESTORE,
   DOCK_ROW_BRANCH_COL,
+  DOCK_ROW_GAP,
+  DOCK_ROW_GRID,
   DOCK_ROW_SURFACE,
   DOCK_ROW_STRIPE_CLASS,
   type DockRowSurface,
@@ -130,6 +132,12 @@ export type DockRowProps = {
   onPointerDown?: (event: PointerEvent) => void;
 };
 
+/** How far a nested row steps in per hop: 1.25rem clears the `└` marker with a
+ *  gap, and every hop past the first adds 0.75rem. */
+function treeIndent(depth: number): string {
+  return `${1.25 + (depth - 1) * 0.75}rem`;
+}
+
 export const DockRow: Component<DockRowProps> = (props) => {
   const s = () => DOCK_ROW_SURFACE[props.surface];
   return (
@@ -161,48 +169,57 @@ export const DockRow: Component<DockRowProps> = (props) => {
           props.onSelect();
         }
       }}
-      class={`relative w-full grid grid-cols-subgrid col-span-full items-center ${s().rowPad} ${DOCK_CARDS_SUBGRID_LEFT_RESTORE} ${s().rowGutter} ${DOCK_ROW_STRIPE_CLASS} text-left cursor-pointer transition-colors duration-150 ${s().rowFocus} ${s().rowPress}`}
+      class={`relative w-full grid col-span-full items-center ${s().rowPad} ${DOCK_CARDS_SUBGRID_LEFT_RESTORE} ${s().rowGutter} ${DOCK_ROW_STRIPE_CLASS} text-left cursor-pointer transition-colors duration-150 ${s().rowFocus} ${s().rowPress} ${
+        props.depth === undefined
+          ? "grid-cols-subgrid"
+          : `${DOCK_ROW_GRID} ${DOCK_ROW_GAP}`
+      }`}
+      // A nested row indents by insetting its own tracks, and it CANNOT do that
+      // as a subgrid item: a subgrid shares the parent's lines, so padding the
+      // row slides only its first cell out from under the rest (measured —
+      // label and recency stayed put while the indicator moved). So a nested
+      // row declares the section's own tracks for itself, from the same two
+      // constants the section builds its template from, and pads the left:
+      // indicator, label and line 2 step in together, and the recency column
+      // still lands on the section's right edge.
+      style={
+        props.depth === undefined
+          ? undefined
+          : { "padding-left": `calc(0.75rem + ${treeIndent(props.depth)})` }
+      }
       classList={{ [SLEEPING_RECEDE_CLASS]: props.pip.sleeping }}
       title={props.title}
     >
+      {/* The tree marker — a split's row sits directly under its parent in a
+       *  flat sibling list, so this glyph is what says "child". Decorative:
+       *  `data-depth` carries the fact, and the indent carries the depth. It
+       *  sits just left of the indicator, inside the padding the indent
+       *  created. */}
+      <Show when={props.depth}>
+        {(depth) => (
+          <span
+            aria-hidden="true"
+            class="absolute top-1/2 -translate-y-1/2 font-mono text-[0.6rem] leading-none text-fg-3/70 select-none"
+            style={{ left: `calc(0.75rem + ${treeIndent(depth())} - 0.9rem)` }}
+          >
+            └
+          </span>
+        )}
+      </Show>
       {/* Identity status indicator — one binder shared with title/list. */}
       <span class="row-span-2 flex self-center">
         <StatePip {...props.pip} class={DOCK_ROW_PIP_BOX} />
       </span>
-      {/* Annotation cell — plus, on a split, the `└` that says "child" and one
-       *  step of indent per hop. BOTH live here, in the label's own cell,
-       *  because a split's row is the same row as its parent's: the indicator,
-       *  the recency and the model sit in the very columns a top-level row
-       *  puts them in (that IS what makes the dock readable — a nested row
-       *  whose columns wander is a second layout to learn). Only the text block
-       *  steps in, and the DOM keeps every entry a flat sibling, so the marker
-       *  is the tree. */}
-      {props.depth === undefined ? (
-        <RowLabel
-          markdown={props.label}
-          render={props.renderLabel}
-          class={`col-start-2 ${s().textLabel}`}
-          color={props.labelColor}
-        />
-      ) : (
-        <span
-          class="col-start-2 flex items-center gap-1 min-w-0"
-          style={{ "padding-left": `${(props.depth - 1) * 0.75}rem` }}
-        >
-          <span
-            aria-hidden="true"
-            class="font-mono text-[0.6rem] leading-none text-fg-3/70 select-none"
-          >
-            └
-          </span>
-          <RowLabel
-            markdown={props.label}
-            render={props.renderLabel}
-            class={`${s().textLabel} min-w-0`}
-            color={props.labelColor}
-          />
-        </span>
-      )}
+      <RowLabel
+        markdown={props.label}
+        render={props.renderLabel}
+        // No ink means "this row has no display identity of its own" (a split's
+        // label is a directory, not a branch) — which is the dock's quiet
+        // secondary ink, NOT an inherited default. Inheriting gave the nested
+        // row the app's heaviest text and made it shout over its parent.
+        class={`col-start-2 ${s().textLabel} ${props.labelColor === undefined ? "text-fg-2" : ""}`}
+        color={props.labelColor}
+      />
       {/* Recency — hidden while active; width reserved. On a blocked row it
        *  flips to the violet WAIT chip: how long the agent has waited on you IS
        *  the signal (a 20 h wait must be legible). */}
@@ -214,14 +231,6 @@ export const DockRow: Component<DockRowProps> = (props) => {
        *  an invisible placeholder keeping the row two lines tall. */}
       <div
         class={`${DOCK_ROW_BRANCH_COL} col-end-[-1] flex items-center gap-1.5 min-w-0 mt-0.5`}
-        // The same step the label takes, so a split's two lines read as one
-        // block. (Padding on this div moves its children — it is a flex
-        // container inside the row's subgrid, not a track of its own.)
-        style={
-          props.depth === undefined
-            ? undefined
-            : { "padding-left": `${(props.depth - 1) * 0.75}rem` }
-        }
       >
         <PrPip pr={props.pr} />
         <Show

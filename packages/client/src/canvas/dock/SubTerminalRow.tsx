@@ -26,17 +26,24 @@ import { useStatePip } from "../../terminal/statePipBind";
 import { useTerminalStore } from "../../terminal/useTerminalStore";
 import { encActiveHost } from "../../wire";
 import { isActiveRow } from "./activeRow";
+import { createDockRowData } from "./dockRowData";
 import type { RankedDockRow } from "./dockRowRanking";
 import { renderRowLabel } from "./renderRowLabel";
 import { useRowRecency } from "./rowRecency";
 
 export const SubTerminalRow: Component<{
   row: RankedDockRow["subRows"][number];
+  /** The TILE this split belongs to. A split has no display identity of its
+   *  own — `getDisplayInfo` is keyed on top-level tiles — so its annotation ink
+   *  comes from the tile, the same `{tile, blocked}` pairing the needs-you strip
+   *  carries. */
+  tileId: TerminalId;
   onSelect: (id: TerminalId) => void;
   surface: DockRowSurface;
 }> = (props) => {
   const store = useTerminalStore();
   const rowRecency = useRowRecency();
+  const tile = createDockRowData(props.tileId);
   const meta = () => store.getMetadata(props.row.id);
   const unread = () => store.isUnread(props.row.id);
   return (
@@ -83,9 +90,12 @@ export const SubTerminalRow: Component<{
             depth={props.row.depth}
             active={isActiveRow(props.row.id)}
             label={annotationLine(m().intent, cwdBasename(m().cwd))}
-            // No ink: a split's label is a directory, not a branch, and it has
-            // no display identity of its own to colour.
-            labelColor={undefined}
+            // The tile's branch ink: a split's label is a directory, but it
+            // lives in the same worktree as the row above it, and sharing the
+            // hue is what keeps the label column reading as one family. Falls
+            // back to the dock's quiet ink when the display projection has not
+            // arrived (`DockRow` owns that fallback).
+            labelColor={tile()?.info.annotationColor}
             renderLabel={renderRowLabel}
             subline={facts().subline}
             pr={null}

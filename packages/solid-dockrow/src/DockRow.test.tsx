@@ -110,16 +110,20 @@ describe("DockRow's tree contract", () => {
   const rowEl = (host: HTMLElement) =>
     host.querySelector("[data-dock-row]") as HTMLElement;
 
-  it("stamps the nest and draws its marker on a split's row", () => {
+  it("stamps the nest, indents the row and draws its marker on a split's row", () => {
     const { host, dispose } = renderRow(
       rowProps({ parentId: "tile-1" as TerminalId, depth: 2 }),
     );
     try {
       expect(rowEl(host).getAttribute("data-parent-id")).toBe("tile-1");
       expect(rowEl(host).getAttribute("data-depth")).toBe("2");
+      // The indent is the row's own left padding — the mechanism that steps the
+      // indicator, the label AND line 2 in together (a subgrid row cannot: it
+      // shares the section's lines). Depth 2 is one hop past the first.
+      expect(rowEl(host).style.paddingLeft).toBe("calc(0.75rem + 2rem)");
       // The DOM keeps every entry a flat sibling, so the marker IS the tree.
       expect(rowEl(host).textContent).toContain("└");
-      // …and the split still renders the whole row: words, model, no ink.
+      // …and the split still renders the whole row: words, model.
       expect(subline(host)).toBe("Running tools");
       expect(modelTag(host)?.textContent).toBe("claude-opus-4-6");
     } finally {
@@ -127,12 +131,29 @@ describe("DockRow's tree contract", () => {
     }
   });
 
-  it("leaves a top-level row unmarked", () => {
+  it("leaves a top-level row unmarked and unindented", () => {
     const { host, dispose } = renderRow(rowProps());
     try {
       expect(rowEl(host).hasAttribute("data-depth")).toBe(false);
       expect(rowEl(host).hasAttribute("data-parent-id")).toBe(false);
       expect(rowEl(host).textContent).not.toContain("└");
+      expect(rowEl(host).style.paddingLeft).toBe("");
+      // …and it subgrids into the section rather than declaring its own tracks.
+      expect(rowEl(host).className).toContain("grid-cols-subgrid");
+    } finally {
+      dispose();
+    }
+  });
+
+  it("paints a label with no ink in the dock's quiet ink, not the inherited default", () => {
+    // `labelColor: undefined` means "this row has no display identity of its
+    // own" — a split whose tile has no display row yet. Inheriting gave it the
+    // app's heaviest text colour, louder than the parent it hangs under.
+    const { host, dispose } = renderRow(rowProps({ labelColor: undefined }));
+    try {
+      const label = host.querySelector(".dock-cards-row-label") as HTMLElement;
+      expect(label.style.color).toBe("");
+      expect(label.className).toContain("text-fg-2");
     } finally {
       dispose();
     }

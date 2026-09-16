@@ -9,6 +9,7 @@ import {
   LOCAL_LOCATION,
   type TerminalMetadata,
 } from "@kolu/padi-client/surface";
+import type { TerminalDisplayInfo } from "../../terminal/terminalDisplay";
 import type { AgentInfo } from "kolu-common/surface";
 import type { TerminalId } from "kolu-common/surface";
 import { render } from "solid-js/web";
@@ -20,6 +21,12 @@ const SPLIT = "shell-split" as TerminalId;
 const bag = vi.hoisted(() => ({
   unread: false as boolean,
   meta: null as TerminalMetadata | null,
+  info: {
+    repoColor: "#0ea5e9",
+    annotationColor: "#b45309",
+    subCount: 1,
+    key: { group: "kolu", label: "feat-x" },
+  } as TerminalDisplayInfo | null,
 }));
 
 vi.mock("../../wire", () => ({
@@ -41,8 +48,14 @@ vi.mock("../../tile/useTileStore", () => ({
 
 vi.mock("../../terminal/useTerminalStore", () => ({
   useTerminalStore: () => ({
+    // `pairDisplayRow` needs BOTH halves, so the tile gets a record too — the
+    // same stub: nothing here reads a field off the tile's own metadata.
     getMetadata: (id: TerminalId) =>
-      id === SPLIT ? (bag.meta ?? undefined) : undefined,
+      id === SPLIT || id === PARENT ? (bag.meta ?? undefined) : undefined,
+    // FAITHFUL to the real store: `displayInfos` is keyed on `terminalIds()`,
+    // which is TOP-LEVEL tiles — so the split has no display info of its own and
+    // its label ink comes from the tile it hangs under.
+    getDisplayInfo: (id: TerminalId) => (id === PARENT ? bag.info : undefined),
     isUnread: (id: TerminalId) => id === SPLIT && bag.unread,
   }),
 }));
@@ -87,6 +100,7 @@ function renderSubRow() {
     () => (
       <SubTerminalRow
         row={shellRankedRow()}
+        tileId={PARENT}
         surface="desktop"
         onSelect={() => {}}
       />
@@ -105,6 +119,12 @@ function renderSubRow() {
 beforeEach(() => {
   bag.unread = false;
   bag.meta = splitMeta();
+  bag.info = {
+    repoColor: "#0ea5e9",
+    annotationColor: "#b45309",
+    subCount: 1,
+    key: { group: "kolu", label: "feat-x" },
+  };
 });
 
 afterEach(() => {
@@ -181,6 +201,32 @@ describe("SubTerminalRow — shell split consumes the shared StatePip fold", () 
       const row = host.querySelector('[data-testid="dock-sub-row"]');
       expect(row).not.toBeNull();
       expect(row?.querySelector("[data-dock-model]")).toBeNull();
+    } finally {
+      dispose();
+    }
+  });
+
+  it("paints the split's label with the tile's branch ink", () => {
+    // A split has no display identity of its own (`getDisplayInfo` is keyed on
+    // top-level tiles), so its ink comes from the tile — the label column then
+    // reads as one family down the dock rather than the nested row shouting in
+    // the app's default text colour.
+    const { host, dispose } = renderSubRow();
+    try {
+      const label = host.querySelector(".dock-cards-row-label") as HTMLElement;
+      expect(label.style.color).toBe("#b45309");
+    } finally {
+      dispose();
+    }
+  });
+
+  it("falls back to the dock's quiet ink when the tile has no display row yet", () => {
+    bag.info = null;
+    const { host, dispose } = renderSubRow();
+    try {
+      const label = host.querySelector(".dock-cards-row-label") as HTMLElement;
+      expect(label.style.color).toBe("");
+      expect(label.className).toContain("text-fg-2");
     } finally {
       dispose();
     }

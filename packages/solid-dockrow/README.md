@@ -59,11 +59,15 @@ Part of the kolu monorepo — `"@kolu/solid-dockrow": "workspace:*"`.
   is a column of `DOCK_ROW_SURFACE` rather than a second component.
 
   **A split is this same row.** `parentId` + `depth` are the optional nesting
-  facts: they stamp `data-parent-id` / `data-depth` and step the row's TEXT block
-  in one notch per hop, opening it with a `└`. The indicator, the recency and the
-  model stay in the columns a top-level row puts them in — one grid for the whole
-  dock — because a nested row whose columns wander is a second layout to learn,
-  which is exactly what the previous single-line sub-row was.
+  facts: they stamp `data-parent-id` / `data-depth`, draw the `└`, and step the
+  row in one notch per hop. The step is the row's own left padding, and the row
+  therefore declares the section's tracks for itself (`DOCK_ROW_GRID` +
+  `DOCK_ROW_GAP`, the same constants the section builds its template from)
+  rather than subgridding: a subgrid shares the parent's lines, so padding a
+  subgrid row slides only its first cell out from under the rest (measured —
+  label and recency stayed put while the indicator moved). The recency column
+  still lands on the section's right edge, so a nested row indents against its
+  parent while the dock keeps one set of right-hand columns.
 - **`<DockNeedsYouRow>`** — an entry in the pinned needs-you strip, at `full` or
   `icon` density.
 - **`<DockSection>` · `<DockNeedsYouStrip>`** — the two outer CONTAINERS. They
