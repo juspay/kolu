@@ -520,8 +520,9 @@ export function deriveState(
           type: entry.type,
           stopReason: entry.message?.stop_reason ?? null,
         })
-          .with({ type: "assistant", stopReason: "end_turn" }, () =>
-            "waiting" as const,
+          .with(
+            { type: "assistant", stopReason: "end_turn" },
+            () => "waiting" as const,
           )
           .with({ type: "assistant", stopReason: "tool_use" }, () =>
             toolUseOrAwaitingUser(entry.message?.content),
