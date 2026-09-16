@@ -84,6 +84,46 @@ Feature: Dock
     When I start "sleep 5"
     Then the dock should show 1 foreground row containing "sleep"
 
+  Scenario: A dock row names the model its agent is running on
+    # The right panel has always named the model; the row you actually scan to
+    # ask "who needs me" said only *what* each agent was doing — *on what* cost
+    # a trip to the panel or the tile. Line 2 now carries it, read off the same
+    # agent record the status words beside it come from.
+    #
+    # `tool_use` rather than `thinking`: this mock's model lives on its
+    # assistant turn. A `thinking` tail is a lone user entry with no assistant
+    # entry behind it at all, so there is no model to name — see the scenario
+    # below for the mid-turn case, where there IS one.
+    When a Claude Code session is mocked with state "tool_use"
+    Then the dock should show 1 working pill
+    And the dock row should name the model "claude-opus-4-6"
+
+  Scenario: The model tag survives a turn the agent is still running
+    # A model is a SESSION fact, and the newest transcript entry for most of a
+    # working turn is a `user` one — a fresh prompt, or the tool result that
+    # follows every tool call — which carries no model. Reading the model off
+    # that newest entry blanked the tag for seconds at a time (measured on real
+    # transcripts: median 3.9s, p90 13.3s per tool round-trip), so the one
+    # column the tag exists to make scannable flickered while agents worked.
+    # Pre-fix this scenario fails: state reads `thinking` from the newer user
+    # entry and the model comes back `null`.
+    When a Claude Code session is mocked with state "thinking_after_reply"
+    Then the dock should show 1 working pill
+    And the dock row should name the model "claude-opus-4-6"
+
+  Scenario: A split's dock row is indented inside its parent's box
+    # The split renders the same row, stepped in. Two geometry promises, both
+    # measured in a browser before they were trusted: the split's RIGHT edge
+    # lands where its parent's does (recency and model keep the dock's one set
+    # of right-hand columns), and its LEFT edge sits further in. It has been
+    # wrong twice — a subgrid row padded on the left moves only its first cell,
+    # and a self-templated row carrying `w-full` comes out a gutter short with
+    # its background stopping inside the card.
+    When I create a sub-terminal via command palette
+    Then the dock should show 1 split sub-entry
+    And the split's dock row should sit inside its parent row's box
+    And there should be no page errors
+
   Scenario: Cmd+1 activates the first dock row (creation order)
     # `Cmd+1..9` targets dock row order, which is creation order — the
     # background terminal t0 is first because it was made first, and a

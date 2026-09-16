@@ -159,6 +159,14 @@ kolu finds a Claude session by checking whether `~/.claude/sessions/<foreground-
 exists, then tails its JSONL transcript to derive state. The tile also shows the
 session's title and a running token count.
 
+**Model** and **context tokens** are read from the newest _assistant_ message
+rather than from the newest entry of any kind. A `user` entry is the newest one
+for as long as the agent is generating after a prompt, and again after every
+tool call (a tool result is a `user` entry), so a single-entry reading blanked
+both through most of a working turn — the model tag came and went per tool
+round-trip. State still comes from the newest entry of either kind; the two
+session facts carry forward.
+
 | State | Indicator | Meaning |
 | --- | --- | --- |
 | Thinking | pulsing accent dot | an API call is in flight — Claude is generating |
@@ -263,7 +271,9 @@ updates.
 | Waiting | dim dot | latest assistant message is completed with `finish: "stop"` |
 
 Todo progress comes free from a count over OpenCode's `todo` table, and the tile
-shows the running token count OpenCode pre-sums itself.
+shows the model and the running token count OpenCode pre-sums itself — both read
+from the newest _assistant_ message, since a message of any kind can be the
+newest row and neither fact belongs to one message.
 
 <Aside type="note" title="Why read SQLite, not an HTTP API?">
   The OpenCode TUI doesn't expose an HTTP server by default. Reading the SQLite

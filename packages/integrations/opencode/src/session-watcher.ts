@@ -16,7 +16,7 @@ import type { Logger } from "kolu-shared";
 import { createDebounceWatcher } from "kolu-shared/sqlite";
 import {
   deriveSessionState,
-  getLatestAssistantContextTokens,
+  getLatestAssistantFacts,
   getSessionStartedAt,
   getSessionTaskProgress,
   getSessionTitle,
@@ -87,21 +87,23 @@ export function createOpenCodeWatcher(
     // (e.g. OpenCode auto-generating a title after the first exchange)
     // are picked up live, not stuck at the snapshot from session match.
     const summary = getSessionTitle(session.id, log, db) ?? session.title;
-    // Context-token total comes from its own query — the latest assistant
-    // message's tokens.total, which survives a newer user prompt (Thinking
-    // state). Using derived.state's single-message lens would blank the
-    // count whenever the user is typing.
-    const contextTokens = getLatestAssistantContextTokens(session.id, log, db);
+    // Model and context tokens come from the newest ASSISTANT message, not
+    // from `derived` — `derived` reads the newest message of any role, so its
+    // `model` is null whenever a user prompt or tool result is the newest row,
+    // and its token count is absent on the same rows. Both are session facts:
+    // OpenCode matches a session to a terminal once, and the model it runs is
+    // stable across the turns within it.
+    const assistant = getLatestAssistantFacts(session.id, log, db);
     startedAt ??= getSessionStartedAt(session.id, log, db);
 
     return {
       kind: "opencode",
       state,
       sessionId: session.id,
-      model: derived.model,
+      model: assistant?.model ?? null,
       summary,
       taskProgress,
-      contextTokens,
+      contextTokens: assistant?.contextTokens ?? null,
       startedAt,
     };
   }

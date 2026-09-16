@@ -222,25 +222,39 @@ export function getSessionTaskProgress(
   );
 }
 
-// --- Context-token lookup ---
+// --- Latest assistant message ---
 
 /**
- * Read the latest assistant message's running context-token total from
- * `tokens.total`. Independent of `deriveSessionState` because the signals
- * terminate differently: state pivots on the newest message of any role,
- * but the token total only lives on assistant messages — using the single
- * latest message would blank the count whenever the user's prompt is the
- * newest row (Thinking state).
+ * Read the newest assistant message's session-scoped facts: its running
+ * context-token total (`tokens.total`) and the model it ran on.
+ *
+ * Independent of `deriveSessionState` because the signals terminate
+ * differently: state pivots on the newest message of ANY role, but these two
+ * only live on assistant messages — taking them from the single latest
+ * message would blank both whenever the user's prompt (or a tool result) is
+ * the newest row, i.e. throughout the Thinking window. For the model that is
+ * not merely a blank: the wire's `model` means one thing across every
+ * integration — see `AgentInfoShape.model`.
  *
  * One indexed query against (session_id, time_created). `json_extract`
  * forces per-row blob inspection, but the walker stops at the first match
  * — in practice 1–3 rows.
+ *
+ * `null` is `withDb`'s documented fold and carries THREE causes: the session
+ * has no assistant message yet, the query threw, or the newest assistant blob
+ * would not parse (logged at `error`). The first is an answer — "nothing to
+ * report"; the other two are ignorance, and a caller that must not publish
+ * "this session has no model" on a corrupt row is the case `readDb` exists for
+ * (see `sqlite/with-db.ts`). The watcher publishes this null straight onto the
+ * wire, so a schema-drifted build drops the model tag until a readable row
+ * lands — unchanged for `contextTokens` since before this function existed,
+ * and now true of `model` too.
  */
-export function getLatestAssistantContextTokens(
+export function getLatestAssistantFacts(
   sessionId: string,
   log?: Logger,
   db?: DatabaseSync,
-): number | null {
+): { model: string | null; contextTokens: number | null } | null {
   return withDb(
     (conn) => {
       const row = conn
@@ -261,9 +275,12 @@ export function getLatestAssistantContextTokens(
         );
         return null;
       }
-      return parsed.tokens?.total ?? null;
+      return {
+        model: assistantModelLabel(parsed),
+        contextTokens: parsed.tokens?.total ?? null,
+      };
     },
-    "opencode context-tokens query failed",
+    "opencode assistant-facts query failed",
     { sessionId },
     log,
     db,
@@ -339,13 +356,27 @@ interface MessageData {
   tokens?: { total?: number };
 }
 
-/** State derived from message JSON content only. Token telemetry is a
- *  separate signal (see `getLatestAssistantContextTokens`) because the
- *  latest-message lens this function provides doesn't match the
- *  latest-assistant-message lens that context accounting needs. */
+/** How one message blob names the model it ran on: the `provider/model`
+ *  OpenCode records as two fields (`anthropic` + `claude-opus-4-6`), falling
+ *  back to whichever half is present, `null` when it names neither. The ONE
+ *  spelling shared by its two readers — the session-scoped assistant query
+ *  (the wire's `model`, a session fact) and the transcript loader, which
+ *  labels each message by its own — so it takes the two FIELDS it reads
+ *  rather than either caller's blob type. */
+export function assistantModelLabel(
+  m: Pick<MessageData, "modelID" | "providerID">,
+): string | null {
+  if (!m.modelID) return null;
+  return m.providerID ? `${m.providerID}/${m.modelID}` : m.modelID;
+}
+
+/** State derived from message JSON content only. Telemetry is a separate
+ *  signal (see `getLatestAssistantFacts`) because the latest-message lens this
+ *  function provides doesn't match the latest-assistant-message lens those
+ *  facts need — the same divergence that made a per-message `model` here the
+ *  wrong answer to publish. */
 export type ParsedMessageState = {
   state: OpenCodeInfo["state"];
-  model: string | null;
 };
 
 /** Full derived state including the message ID for scoping
@@ -409,31 +440,23 @@ export function parseMessageState(
     // Distinct from "no row": there IS a latest message, we just can't read
     // it. Surface it as a dropped-state error so the watcher never reports
     // it as the benign "no messages yet". Mirrors
-    // getLatestAssistantContextTokens' handling of the same blob — same
+    // getLatestAssistantFacts' handling of the same blob — same
     // `{ err, sessionId }` shape, same error level.
     log?.error({ err, sessionId }, "opencode message.data parse failed");
     return null;
   }
 
   return match(parsed)
-    .with({ role: "user" }, () => ({
-      state: "thinking" as const,
-      model: null,
-    }))
+    .with({ role: "user" }, () => ({ state: "thinking" as const }))
     .with({ role: "assistant" }, (m) => {
-      const model = m.modelID
-        ? m.providerID
-          ? `${m.providerID}/${m.modelID}`
-          : m.modelID
-        : null;
       // Assistant message with completion timestamp + clean stop = waiting
       if (m.time?.completed && m.finish === "stop") {
-        return { state: "waiting" as const, model };
+        return { state: "waiting" as const };
       }
       // Otherwise still working (no completion yet, or non-stop finish
       // reason like "tool-calls"). The watcher upgrades "thinking" to
       // "tool_use" when hasRunningTools() finds active tool parts.
-      return { state: "thinking" as const, model };
+      return { state: "thinking" as const };
     })
     .otherwise(() => null);
 }

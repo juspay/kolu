@@ -494,6 +494,96 @@ Then(
 );
 
 Then(
+  "the split's dock row should name the model {string}",
+  async function (this: KoluWorld, model: string) {
+    // The SUB-row's own handle, deliberately: both row types carry the shared
+    // `[data-dock-row]` hook (and therefore `[data-dock-model]`), so a selector
+    // built from the hook alone could be satisfied by the parent's tag while
+    // the split showed none. This step is about the split's line, so it names
+    // the split.
+    await this.page.waitForFunction(
+      ({ sel, want }: { sel: string; want: string }) =>
+        Array.from(document.querySelectorAll(sel)).some(
+          (el) => el.textContent?.trim() === want,
+        ),
+      { sel: '[data-testid="dock-sub-row"] [data-dock-model]', want: model },
+      { timeout: POLL_TIMEOUT },
+    );
+  },
+);
+
+Then(
+  "the split's dock row should sit inside its parent row's box",
+  async function (this: KoluWorld) {
+    // Geometry, because no unit test can see it (happy-dom lays nothing out)
+    // and because two properties of the split row are invisible to every other
+    // kind of test:
+    //   · its INDICATOR (and label) sit further in than its parent's — the
+    //     indent that says "child";
+    //   · its box's RIGHT edge lands exactly where its parent's does, so the
+    //     dock keeps ONE set of right-hand columns (the recency and the model),
+    //     and the row's background reaches the card's edge.
+    // It has been wrong twice, both times by a layout mechanism rather than a
+    // typo: a subgrid row padded on the left moves only its first cell, and a
+    // self-templated row carrying `w-full` comes out a gutter short (264 vs
+    // 288) with its background stopping inside the card.
+    // NOTE: no named function expressions inside this predicate — the step
+    // bundle is built with `keepNames`, so esbuild wraps `const f = () => …`
+    // in its `__name(...)` helper, and the serialized predicate then throws
+    // `ReferenceError: __name is not defined` in the browser.
+    const handle = await this.page.waitForFunction(
+      () => {
+        const parent = document.querySelector('[data-testid="dock-row"]');
+        const split = document.querySelector('[data-testid="dock-sub-row"]');
+        if (!parent || !split) return { ok: false, why: "row missing" };
+        const parentBox = parent.getBoundingClientRect();
+        const splitBox = split.getBoundingClientRect();
+        const parentPipEl = parent.querySelector('[data-testid="state-pip"]');
+        const splitPipEl = split.querySelector('[data-testid="state-pip"]');
+        const parentLabelEl = parent.querySelector(".dock-cards-row-label");
+        const splitLabelEl = split.querySelector(".dock-cards-row-label");
+        if (!parentPipEl || !splitPipEl || !parentLabelEl || !splitLabelEl) {
+          return { ok: false, why: "element missing" };
+        }
+        const parentPip = Math.round(parentPipEl.getBoundingClientRect().left);
+        const splitPip = Math.round(splitPipEl.getBoundingClientRect().left);
+        const parentLabel = Math.round(
+          parentLabelEl.getBoundingClientRect().left,
+        );
+        const splitLabel = Math.round(
+          splitLabelEl.getBoundingClientRect().left,
+        );
+        const parentRight = Math.round(parentBox.right);
+        const splitRight = Math.round(splitBox.right);
+        const ok =
+          splitPip > parentPip + 8 &&
+          splitLabel > parentLabel + 8 &&
+          Math.abs(parentRight - splitRight) <= 1;
+        return ok
+          ? { ok, why: "ok" }
+          : {
+              ok,
+              why: "not yet",
+              parentPip,
+              splitPip,
+              parentLabel,
+              splitLabel,
+              parentRight,
+              splitRight,
+            };
+      },
+      undefined,
+      { timeout: POLL_TIMEOUT },
+    );
+    const result = (await handle.jsonValue()) as { ok: boolean } & Record<
+      string,
+      unknown
+    >;
+    assert.ok(result.ok, `split row geometry wrong: ${JSON.stringify(result)}`);
+  },
+);
+
+Then(
   "the dock should show no split count chip",
   async function (this: KoluWorld) {
     const count = await this.page
