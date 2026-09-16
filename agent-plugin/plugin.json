@@ -1,0 +1,8 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "kolu",
+  "description": "Drive coding agents through kolu's terminals: the kolu skill and the kolu MCP server.",
+  "homepage": "https://kolu.dev",
+  "repository": "https://github.com/juspay/kolu",
+  "license": "AGPL-3.0-or-later"
+}

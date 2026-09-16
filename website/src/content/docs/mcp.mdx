@@ -37,6 +37,32 @@ and checking the exit code rather than reimplementing socket discovery. The
 same tool table is also spelled as shell verbs — [`kolu surface`](/terminal-ui)
 projects it to argv for a script, exactly as `kolu mcp` serves it to an agent.
 
+## Install the skill and server together
+
+With `kolu` on PATH and a running kolu daemon, install the plugin in Claude Code:
+
+```text
+/plugin marketplace add juspay/kolu
+/plugin install kolu@kolu
+```
+
+Restart Claude Code, then use `/kolu:kolu` for the terminal-driving skill and
+`/mcp` to check the server connection.
+
+For Oh My Pi, pass the plugin directory from a checkout:
+
+```sh
+omp -e ./agent-plugin
+```
+
+Use `/skill:kolu` to load the skill. The plugin also registers `kolu mcp`.
+Keep your host's environment forwarding configured for `PADI_SOCKET` when
+connecting to the daemon of the current kolu terminal.
+
+Nix consumers can use `${inputs.kolu}/agent-plugin` from a `github:juspay/kolu`
+input. The directory is included in source archives and contains the skill,
+its reference file, and the MCP configuration; no plugin build output is needed.
+
 ## Connect it to your agent
 
 <Steps>
