@@ -24,9 +24,13 @@ Repo-agnostic skills that don't depend on kolu internals:
 | `agent-debate`       | Claude/Codex/Grok peer debate to consensus (review or freeform answer)  |
 | `perfection-review`  | Adversarial "ideal-bar" review, fanned out via Workflow                 |
 | `architecture-first-principles` | The state-and-time lens — 5 grounded CS principles (values, pure core, one-authority/clock, illegal-states-unrepresentable, end-to-end) |
-| `kolu`               | Drive one agent from another through kolu terminals (`kaval-tui`)       |
+| `kolu`               | Drive one agent from another through kolu terminals (`kolu`)       |
 | `orchestrator`       | Coordination rules for a supervisor driving agents on kolu terminals    |
 | `surface`            | Consume the shared `@kolu/surface` stack in a downstream app            |
+
+The `kolu` skill lives in `../agent-plugin/skills/kolu/`, the exported Agent
+Plugins package, and is consumed through a local path dependency. Its content
+and references are shared with standalone plugin consumers.
 
 The package declares the shared packages these skills call
 (`srid/agency`, `juspay/project-unknown`, `juspay/odu`) as its own
