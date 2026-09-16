@@ -16,7 +16,7 @@
 import { StatePip } from "@kolu/solid-statepip";
 import { DOCK_ROW_PIP_BOX } from "@kolu/solid-statepip/pipVariant";
 import type { TerminalId } from "@kolu/terminal-vocab/schema";
-import type { Component, JSX } from "solid-js";
+import { type Component, type JSX, Show } from "solid-js";
 import {
   DOCK_ROW_FOCUS_RING,
   DOCK_ROW_SURFACE,
@@ -27,7 +27,7 @@ import type { DockRowBucket, StatePipBind } from "./pipBind.ts";
 import { dockRowAttrs } from "./rowAttrs.ts";
 import { RowLabel } from "./RowLabel.tsx";
 
-export const DockSubRow: Component<{
+export type DockSubRowProps = {
   id: TerminalId;
   /** The terminal this split hangs under — its real parent, split or tile. */
   parentId: TerminalId;
@@ -40,6 +40,12 @@ export const DockSubRow: Component<{
    *  consumer whose wire carries it as text narrows the closed literal out with
    *  `narrowAgentState` and passes the raw word here, known or not. */
   agentState: string | undefined;
+  /** The model the live agent's SESSION is running, or `undefined` — the same
+   *  fact the two-line row's tag renders, `agentModel(meta)` at the call site.
+   *  A split is where a different model most often hides (a second agent beside
+   *  the parent's), so the single line carries it too: the label had to give up
+   *  room for it rather than the reverse, which is what the cap below says. */
+  model: string | undefined;
   label: string;
   renderLabel: (markdown: string) => JSX.Element;
   onSelect: () => void;
@@ -47,7 +53,12 @@ export const DockSubRow: Component<{
   testId?: string;
   title?: string;
   onPointerDown?: (event: PointerEvent) => void;
-}> = (props) => (
+};
+
+/** The split's single-line row — its props named for the same reason
+ *  {@link DockRowProps} are: a consumer (and this package's own render test)
+ *  names the contract rather than a `Parameters<typeof …>` alias. */
+export const DockSubRow: Component<DockSubRowProps> = (props) => (
   <button
     type="button"
     data-testid={props.testId}
@@ -76,5 +87,23 @@ export const DockSubRow: Component<{
       render={props.renderLabel}
       class="text-[0.72rem] text-fg-2 truncate min-w-0"
     />
+    {/* The model — the same trailing metal the two-line row wears, `ml-auto`
+     *  so it lands in the row's right-edge column and a sweep down the split
+     *  entries reads what each one is running. Monospace and one notch under
+     *  the label (0.72rem) so it reads as metal beside a label, quieter still
+     *  than the row's own tag: a split row has no second line to spend, so the
+     *  cap matters more here — the LABEL yields (`min-w-0 truncate` above), and
+     *  the tag ellipsises within half the row rather than squeezing it out. */}
+    <Show when={props.model}>
+      {(model) => (
+        <span
+          data-dock-model=""
+          title={model()}
+          class="ml-auto shrink-0 max-w-[50%] truncate font-mono text-[0.62rem] text-fg-3/60"
+        >
+          {model()}
+        </span>
+      )}
+    </Show>
   </button>
 );

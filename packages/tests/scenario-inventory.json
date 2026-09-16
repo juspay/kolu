@@ -7670,6 +7670,18 @@
       "exampleRows": [],
       "executions": 1,
       "firstSeenSha": "53a3cd340915297d43e2dcf340d5e0205ddfc6ab"
+    },
+    {
+      "revisionId": "revision-61309bdf7580e336e4e4",
+      "scenarioKey": "scenario-593cb7dbe7bcf4609039",
+      "feature": "features/sub-terminal.feature",
+      "scenario": "A split's dock row names the model its agent is running on",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "131717ece045258a9509c7b6fa213c80dc3409d26fce4e6c2f42823b2de632c6",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "8240e5565675de912483476e614f95d71fed29ba"
     }
   ]
 }

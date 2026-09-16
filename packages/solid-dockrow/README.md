@@ -58,7 +58,10 @@ Part of the kolu monorepo — `"@kolu/solid-dockrow": "workspace:*"`.
   presses; a desktop row wears a focus ring), and every pixel of the difference
   is a column of `DOCK_ROW_SURFACE` rather than a second component.
 - **`<DockSubRow>`** — a split terminal, indented one notch per hop under its
-  real parent.
+  real parent. One line, so it takes `model` too (the same `agentModel(meta)`
+  fact the two-line row's tag renders, at a smaller size) — the split's label
+  yields to it, since a sub-agent on a different model is the thing the row
+  cannot otherwise tell you.
 - **`<DockNeedsYouRow>`** — an entry in the pinned needs-you strip, at `full` or
   `icon` density.
 - **`<DockSection>` · `<DockNeedsYouStrip>`** — the two outer CONTAINERS. They
@@ -79,7 +82,9 @@ Part of the kolu monorepo — `"@kolu/solid-dockrow": "workspace:*"`.
 - **`<RecencyCell>` · `<RowLabel>`** — the two leaves the three rows share.
 - **`dockRowFacts(meta)`** — the four facts a two-line row reads off ONE terminal
   record (`agentState`, `model`, `subline`, `pr`), fused so a row's words and its
-  PR cannot come from two different terminals.
+  PR cannot come from two different terminals. **`agentModel(meta)`** is the same
+  model fact on its own, for a row that shows only that (a split's sub-entry) —
+  and it is where the wire's `null` becomes `undefined` for every caller.
 - **`rowValues`** — every pure fold: `bindStatePip` (and the paint / glyph /
   motion / shell-live decisions under it), `dockRowAttrs`, `rowSubline`,
   `annotationLine`, `identityColor`, `rowRecency` and the three pieces it is

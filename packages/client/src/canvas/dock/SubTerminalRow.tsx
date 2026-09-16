@@ -16,6 +16,7 @@
 import { activeArm } from "@kolu/padi-client/surface";
 import { DockSubRow } from "@kolu/solid-dockrow";
 import type { DockRowSurface } from "@kolu/solid-dockrow/rowValues";
+import { agentModel } from "@kolu/solid-dockrow/rowValues";
 import { cwdBasename } from "@kolu/terminal-vocab/terminalKey";
 import type { TerminalId } from "kolu-common/surface";
 import { type Component, Show } from "solid-js";
@@ -65,6 +66,7 @@ export const SubTerminalRow: Component<{
             pip={pip()}
             bucket={props.row.bucket}
             agentState={activeArm(m())?.agent?.state}
+            model={agentModel(m())}
             active={isActiveRow(props.row.id)}
             label={annotationLine(m().intent, cwdBasename(m().cwd))}
             renderLabel={renderRowLabel}

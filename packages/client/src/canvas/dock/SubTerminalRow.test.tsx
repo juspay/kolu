@@ -9,6 +9,7 @@ import {
   LOCAL_LOCATION,
   type TerminalMetadata,
 } from "@kolu/padi-client/surface";
+import type { AgentInfo } from "kolu-common/surface";
 import type { TerminalId } from "kolu-common/surface";
 import { render } from "solid-js/web";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -48,14 +49,17 @@ vi.mock("../../terminal/useTerminalStore", () => ({
 
 const { SubTerminalRow } = await import("./SubTerminalRow");
 
-function shellMeta(): TerminalMetadata {
+/** The split's record. `agent: null` is a plain shell — the default, because
+ *  that is what most of this file's cases are about; a case that needs an agent
+ *  passes one and gets the SAME record, so the two cannot drift apart. */
+function splitMeta(agent: AgentInfo | null = null): TerminalMetadata {
   return {
     state: "active",
     cwd: "/tmp/work",
     git: null,
     location: LOCAL_LOCATION,
     pr: { kind: "absent" },
-    agent: null,
+    agent,
     foreground: null,
     ports: { status: "unknown" },
     lastActivityAt: 1,
@@ -100,7 +104,7 @@ function renderSubRow() {
 
 beforeEach(() => {
   bag.unread = false;
-  bag.meta = shellMeta();
+  bag.meta = splitMeta();
 });
 
 afterEach(() => {
@@ -140,6 +144,43 @@ describe("SubTerminalRow — shell split consumes the shared StatePip fold", () 
       // Alert badge rides the shared StatePip fold when unread is true.
       const pip = row?.querySelector('[data-testid="state-pip"]');
       expect(pip?.hasAttribute("data-alert")).toBe(true);
+    } finally {
+      dispose();
+    }
+  });
+
+  it("renders the split agent's session model from its own record", () => {
+    // A split is where a different model most often hides: the row shows the
+    // fact off THIS terminal's metadata, so a parent on one model and a split
+    // on another read apart. The wiring under test is `agentModel(meta)`.
+    bag.meta = splitMeta({
+      kind: "claude-code",
+      state: "tool_use",
+      sessionId: "split-session",
+      model: "claude-opus-4-6",
+      summary: null,
+      taskProgress: null,
+      workflow: null,
+      contextTokens: null,
+      startedAt: 1,
+    });
+    const { host, dispose } = renderSubRow();
+    try {
+      const row = host.querySelector('[data-testid="dock-sub-row"]');
+      expect(row?.querySelector("[data-dock-model]")?.textContent).toBe(
+        "claude-opus-4-6",
+      );
+    } finally {
+      dispose();
+    }
+  });
+
+  it("draws no model tag on a plain-shell split", () => {
+    const { host, dispose } = renderSubRow();
+    try {
+      const row = host.querySelector('[data-testid="dock-sub-row"]');
+      expect(row).not.toBeNull();
+      expect(row?.querySelector("[data-dock-model]")).toBeNull();
     } finally {
       dispose();
     }

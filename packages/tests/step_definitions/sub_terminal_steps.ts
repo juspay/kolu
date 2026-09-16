@@ -494,6 +494,25 @@ Then(
 );
 
 Then(
+  "the split's dock row should name the model {string}",
+  async function (this: KoluWorld, model: string) {
+    // The SUB-row's own handle, deliberately: both row types carry the shared
+    // `[data-dock-row]` hook (and therefore `[data-dock-model]`), so a selector
+    // built from the hook alone could be satisfied by the parent's tag while
+    // the split showed none. This step is about the split's line, so it names
+    // the split.
+    await this.page.waitForFunction(
+      ({ sel, want }: { sel: string; want: string }) =>
+        Array.from(document.querySelectorAll(sel)).some(
+          (el) => el.textContent?.trim() === want,
+        ),
+      { sel: '[data-testid="dock-sub-row"] [data-dock-model]', want: model },
+      { timeout: POLL_TIMEOUT },
+    );
+  },
+);
+
+Then(
   "the dock should show no split count chip",
   async function (this: KoluWorld) {
     const count = await this.page

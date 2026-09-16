@@ -208,3 +208,14 @@ Feature: Sub-terminals
     And a Claude Code session is mocked with state "thinking"
     Then the dock section active count should equal the active host tab
     And there should be no page errors
+
+  Scenario: A split's dock row names the model its agent is running on
+    # A split is where a different model most often hides — a second agent
+    # beside its parent's — so the single-line sub-entry wears the same trailing
+    # model tag the two-line row does. The mock attaches to whichever terminal
+    # has focus, which right after creation is the split.
+    When I create a sub-terminal via command palette
+    And a Claude Code session is mocked with state "tool_use"
+    Then the dock should show 1 split sub-entry
+    And the split's dock row should name the model "claude-opus-4-6"
+    And there should be no page errors
