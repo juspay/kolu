@@ -1,8 +1,8 @@
-/** The ten props a dock row takes that BOTH kolu surfaces answer identically —
+/** The twelve props a dock row takes that BOTH kolu surfaces answer identically —
  *  assembled once per row, as GETTERS.
  *
  *  `Dock.tsx` and `DockList.tsx` are one component now, but their CALL SITES had
- *  become the new copy: the same `useStatePip` block and the same ten prop
+ *  become the new copy: the same `useStatePip` block and the same twelve prop
  *  bindings, byte for byte, in two files with nothing holding them together.
  *
  *  TWO THINGS ABOUT THE SHAPE, both load-bearing, both learned the hard way when
@@ -30,9 +30,9 @@
  *  silently and dismisses itself), the e2e handles, the desktop-only ⌘N overlay,
  *  and the touch-only pointer trap.
  *
- *  Four of the ten come from `dockRowFacts` — the row package's own fused read
- *  of one terminal record — so a row's words, its model and its PR cannot come
- *  from two different terminals. */
+ *  Four of the twelve come from `dockRowFacts` — the row package's own fused
+ *  read of one terminal record — so a row's words, its model and its PR cannot
+ *  come from two different terminals. */
 
 import type { DockRowProps } from "@kolu/solid-dockrow";
 import { dockRowFacts } from "@kolu/solid-dockrow/rowValues";

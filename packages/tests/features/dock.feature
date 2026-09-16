@@ -90,12 +90,24 @@ Feature: Dock
     # a trip to the panel or the tile. Line 2 now carries it, read off the same
     # agent record the status words beside it come from.
     #
-    # `tool_use` rather than `thinking`: the model is derived from the very
-    # transcript entry that decides the state, and the thinking mock's newest
-    # entry is a bare user message — no model on it (its tile has no model to
-    # show, and shows none). The mocked assistant turn here reports
-    # `claude-opus-4-6`.
+    # `tool_use` rather than `thinking`: this mock's model lives on its
+    # assistant turn. A `thinking` tail is a lone user entry with no assistant
+    # entry behind it at all, so there is no model to name — see the scenario
+    # below for the mid-turn case, where there IS one.
     When a Claude Code session is mocked with state "tool_use"
+    Then the dock should show 1 working pill
+    And the dock row should name the model "claude-opus-4-6"
+
+  Scenario: The model tag survives a turn the agent is still running
+    # A model is a SESSION fact, and the newest transcript entry for most of a
+    # working turn is a `user` one — a fresh prompt, or the tool result that
+    # follows every tool call — which carries no model. Reading the model off
+    # that newest entry blanked the tag for seconds at a time (measured on real
+    # transcripts: median 3.9s, p90 13.3s per tool round-trip), so the one
+    # column the tag exists to make scannable flickered while agents worked.
+    # Pre-fix this scenario fails: state reads `thinking` from the newer user
+    # entry and the model comes back `null`.
+    When a Claude Code session is mocked with state "thinking_after_reply"
     Then the dock should show 1 working pill
     And the dock row should name the model "claude-opus-4-6"
 

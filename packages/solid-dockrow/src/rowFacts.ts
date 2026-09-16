@@ -10,9 +10,9 @@
  *  construction.
  *
  *  The model rides here rather than being read again at the call site for the
- *  reason above, and because it is the same read: `activeArm` is already
- *  resolved for `agentState`, so the agent's model is a field of a value this
- *  function has in hand. `null` on the wire (no model pinned yet) normalises to
+ *  reason above, and because it is the same read: `activeArm` is resolved once
+ *  for `agentState` and the agent's model is a field of the value in hand.
+ *  `null` on the wire (the session has never named one) normalises to
  *  `undefined` — one absence, not two.
  *
  *  It is deliberately NOT the whole prop bag. The rest of the bag is either the
@@ -32,7 +32,9 @@ import { type RowSubline, rowSubline } from "./rowSubline.ts";
 export type DockRowFacts = {
   /** `data-agent-state` — verbatim, or `undefined` for no live agent. */
   agentState: string | undefined;
-  /** The live agent's model, or `undefined` for no live agent / none pinned. */
+  /** The model the live agent's SESSION is running, or `undefined` for no live
+   *  agent / a session that has not named one. A session fact — see the producer
+   *  note above. */
   model: string | undefined;
   /** The status words on line 2, and whether they are an agent's. */
   subline: RowSubline;
@@ -41,9 +43,10 @@ export type DockRowFacts = {
 };
 
 export function dockRowFacts(meta: TerminalMetadata): DockRowFacts {
+  const arm = activeArm(meta);
   return {
-    agentState: activeArm(meta)?.agent?.state,
-    model: activeArm(meta)?.agent?.model ?? undefined,
+    agentState: arm?.agent?.state,
+    model: arm?.agent?.model ?? undefined,
     subline: rowSubline(meta),
     pr: activePr(meta),
   };

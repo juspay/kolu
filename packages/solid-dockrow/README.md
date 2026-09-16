@@ -51,9 +51,8 @@ Part of the kolu monorepo — `"@kolu/solid-dockrow": "workspace:*"`.
 - **`<DockRow>`** — the full two-line row: `indicator · annotation · recency`
   over `[PR pip] status words · model`, on a three-track subgrid. It carries the
   shared `[data-dock-row]` attribute contract the stylesheet's washes key on, the
-  repo
-  stripe, the active highlight, the sleeping recede, and the two-line reserve
-  that keeps row height constant so nothing reflows when a row lights up.
+  repo stripe, the active highlight, the sleeping recede, and the two-line
+  reserve that keeps row height constant so nothing reflows when a row lights up.
   `surface` is `"desktop"` or `"touch"` — the one axis kolu's dock and its phone
   drawer differ by. Room and input both follow from it (a mouse hovers, a finger
   presses; a desktop row wears a focus ring), and every pixel of the difference
@@ -110,7 +109,7 @@ required prop and where its value comes from:
 | `pip` | `bindStatePip({ meta, attention, unread })` on the SERVER (it needs the record), shipped as a flat struct; or built field-by-field in the browser with the guards below |
 | `bucket` | the row's ORDER bucket, NOT a fold of `pip.variant` — the two are different folds and kolu's disagree (a fresh `waiting` agent PAINTS `linger` while the order bucket ranks it `idle`). `bucket` drives `data-bucket` and the row's rank; a surface with no activity window of its own can pass `paintDockRow(meta, klass)`, which is a deliberate substitution rather than a derivation |
 | `agentState` | your wire string, verbatim — `narrowAgentState(raw).attr`, or `dockRowFacts(meta).agentState` |
-| `model` | `dockRowFacts(meta).model`, or your wire's own model field — and `undefined`, never a placeholder, when nothing pinned one |
+| `model` | `dockRowFacts(meta).model`, or your wire's own model field — the model the SESSION is running, and `undefined` (never a placeholder) when the session has not named one |
 | `label` | `annotationLine(intent, branchLabel)` — exported; do not re-derive |
 | `labelColor` | `identityColor(branchLabel)` — exported; do not re-derive |
 | `subline` | `dockRowFacts(meta).subline` server-side (see below). From a flat wire: `{ text: summary ?? narrowAgentState(raw).label, fromAgent: true }` — the `summary ?? label` rule is the row's, do not drop the summary |

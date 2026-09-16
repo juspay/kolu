@@ -84,11 +84,14 @@ export type DockRowProps = {
    *  consumer whose wire carries it as text narrows the closed literal out with
    *  `narrowAgentState` and passes the raw word here, known or not. */
   agentState: string | undefined;
-  /** The model the live agent reported running on, or `undefined` — no live
-   *  agent, or one that has not pinned a model yet. Rendered as the quiet tag
-   *  at the END of line 2: the status words say *doing what*, this says *on
-   *  what*. Both absences draw nothing, rather than an "unknown" that would be
-   *  noise on every shell row. */
+  /** The model the live agent's SESSION is running on, or `undefined` — no
+   *  live agent, or a session that has not named one yet. Rendered as the quiet
+   *  tag at the END of line 2: the status words say *doing what*, this says *on
+   *  what*. A session fact, not a per-event one: a producer that read it off
+   *  the newest transcript event blanked it on every tool result, which the
+   *  tag's whole "sweep the rows' right edge" premise cannot survive. Both
+   *  absences draw nothing, rather than an "unknown" that would be noise on
+   *  every shell row. */
   model: string | undefined;
   /** The annotation line as markdown source — intent line 1, else the branch. */
   label: string;
