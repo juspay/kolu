@@ -22,7 +22,7 @@ agent over the others.
 Drive the debate from your own turn: spawn the selected peer as a **live split
 terminal beside you** and take turns until consensus. There is no `Workflow`
 tool and no subagent — you are one debater, the split session is the other.
-**All terminal mechanics belong to the [/kolu skill](../../../../agent-plugin/skills/kolu/SKILL.md)**:
+**All terminal mechanics belong to the installed `/kolu` skill**:
 split provisioning, send→settle→submit, done-signals, large-paste files, re-key
 recovery, and teardown. Read it first; this skill adds only the debate protocol.
 
@@ -156,7 +156,7 @@ clear it at the start of every run:
 
 None of the scratch feeds a PR comment except the compact generated
 `comment.md`. There are no workflow or headless-agent scripts; the engine is
-this protocol plus [/kolu](../../../../agent-plugin/skills/kolu/SKILL.md).
+this protocol plus the installed `/kolu` skill.
 
 This skill is generated from `agents/.apm/skills/agent-debate/`; edit the source
 there and keep generated `.claude/` and `.agents/` copies identical in the same
