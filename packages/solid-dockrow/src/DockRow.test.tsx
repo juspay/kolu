@@ -6,9 +6,15 @@
  *  The facts the row is fed come from `dockRowFacts` in production, but what a
  *  consumer observes is what the row RENDERS, so this drives the component with
  *  the props a row is handed. Three promises are worth pinning, and they are the
- *  three ways this could silently be wrong: the name shows up at all; it does
- *  not displace the words it sits beside; and an agent that has not pinned a
- *  model draws nothing rather than an "unknown". */
+ *  three ways this could silently be wrong: the name shows up at all; the words
+ *  it sits beside still render next to it; and an agent that has not named a
+ *  model draws nothing rather than an "unknown".
+ *
+ *  Both are PRESENCE checks, and deliberately so: happy-dom lays nothing out, so
+ *  the geometry the tag defends — the words' `min-w-0 truncate` yielding before
+ *  the tag's capped slot, so a long pinned id cannot squeeze them out — is not
+ *  assertable here. That one is the class list's job on `DockRow.tsx`'s line 2,
+ *  and the e2e scenario's is the rendered tag. */
 
 import type { TerminalId } from "@kolu/terminal-vocab/schema";
 import { render } from "solid-js/web";
@@ -58,10 +64,11 @@ const subline = (host: HTMLElement) =>
   host.querySelector("[data-dock-subline]")?.textContent;
 
 describe("DockRow's model tag", () => {
-  it("names the model beside the status words, not instead of them", () => {
+  it("renders the model tag alongside the status words", () => {
     const { host, dispose } = renderRow(rowProps());
     try {
       expect(modelTag(host)?.textContent).toBe("claude-opus-4-6");
+      // Both are on line 2: the tag did not replace the words.
       expect(subline(host)).toBe("Running tools");
     } finally {
       dispose();

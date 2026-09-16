@@ -238,8 +238,17 @@ export function getSessionTaskProgress(
  *
  * One indexed query against (session_id, time_created). `json_extract`
  * forces per-row blob inspection, but the walker stops at the first match
- * — in practice 1–3 rows. Returns null when the session has no assistant
- * message yet ("nothing to report"), never a fabricated zero.
+ * — in practice 1–3 rows.
+ *
+ * `null` is `withDb`'s documented fold and carries THREE causes: the session
+ * has no assistant message yet, the query threw, or the newest assistant blob
+ * would not parse (logged at `error`). The first is an answer — "nothing to
+ * report"; the other two are ignorance, and a caller that must not publish
+ * "this session has no model" on a corrupt row is the case `readDb` exists for
+ * (see `sqlite/with-db.ts`). The watcher publishes this null straight onto the
+ * wire, so a schema-drifted build drops the model tag until a readable row
+ * lands — unchanged for `contextTokens` since before this function existed,
+ * and now true of `model` too.
  */
 export function getLatestAssistantFacts(
   sessionId: string,
