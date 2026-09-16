@@ -7682,6 +7682,18 @@
       "exampleRows": [],
       "executions": 1,
       "firstSeenSha": "8240e5565675de912483476e614f95d71fed29ba"
+    },
+    {
+      "revisionId": "revision-7627b42950af75142d1d",
+      "scenarioKey": "scenario-8d079ddd1866ab962be0",
+      "feature": "features/dock.feature",
+      "scenario": "A split's dock row is indented inside its parent's box",
+      "kind": "scenario",
+      "tags": ["@claude-mock"],
+      "bodyHash": "beb186cd41ecc8496fc6bbaf5ab049c0d08565c3e4663d9dc5b24a5f6b139222",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "4ab34be1805142c2a9a476482fb18dd70838b51a"
     }
   ]
 }

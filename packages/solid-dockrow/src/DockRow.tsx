@@ -169,19 +169,27 @@ export const DockRow: Component<DockRowProps> = (props) => {
           props.onSelect();
         }
       }}
-      class={`relative w-full grid col-span-full items-center ${s().rowPad} ${DOCK_CARDS_SUBGRID_LEFT_RESTORE} ${s().rowGutter} ${DOCK_ROW_STRIPE_CLASS} text-left cursor-pointer transition-colors duration-150 ${s().rowFocus} ${s().rowPress} ${
+      class={`relative grid col-span-full items-center ${s().rowPad} ${DOCK_CARDS_SUBGRID_LEFT_RESTORE} ${s().rowGutter} ${DOCK_ROW_STRIPE_CLASS} text-left cursor-pointer transition-colors duration-150 ${s().rowFocus} ${s().rowPress} ${
         props.depth === undefined
-          ? "grid-cols-subgrid"
+          ? "w-full grid-cols-subgrid"
           : `${DOCK_ROW_GRID} ${DOCK_ROW_GAP}`
       }`}
       // A nested row indents by insetting its own tracks, and it CANNOT do that
       // as a subgrid item: a subgrid shares the parent's lines, so padding the
       // row slides only its first cell out from under the rest (measured —
-      // label and recency stayed put while the indicator moved). So a nested
-      // row declares the section's own tracks for itself, from the same two
+      // label and recency stayed put while the indicator moved). So a nested row
+      // declares the section's own tracks for itself, from the same two
       // constants the section builds its template from, and pads the left:
       // indicator, label and line 2 step in together, and the recency column
       // still lands on the section's right edge.
+      //
+      // It also drops `w-full` in that branch, and that is not cosmetic either:
+      // `width: 100%` resolves against the grid area in a way the bleeds then
+      // double-count, so the box came out one gutter short (264 vs the parent's
+      // 288) and the row's whole right side — background, recency, model —
+      // stopped 24px inside the card. An auto width stretches to the area and
+      // lets `-ml-3`/`-mr-3` do the bleeding, which lands exactly on the
+      // parent's box. Both numbers are measured, not reasoned.
       style={
         props.depth === undefined
           ? undefined

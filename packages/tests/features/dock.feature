@@ -111,6 +111,19 @@ Feature: Dock
     Then the dock should show 1 working pill
     And the dock row should name the model "claude-opus-4-6"
 
+  Scenario: A split's dock row is indented inside its parent's box
+    # The split renders the same row, stepped in. Two geometry promises, both
+    # measured in a browser before they were trusted: the split's RIGHT edge
+    # lands where its parent's does (recency and model keep the dock's one set
+    # of right-hand columns), and its LEFT edge sits further in. It has been
+    # wrong twice — a subgrid row padded on the left moves only its first cell,
+    # and a self-templated row carrying `w-full` comes out a gutter short with
+    # its background stopping inside the card.
+    When I create a sub-terminal via command palette
+    Then the dock should show 1 split sub-entry
+    And the split's dock row should sit inside its parent row's box
+    And there should be no page errors
+
   Scenario: Cmd+1 activates the first dock row (creation order)
     # `Cmd+1..9` targets dock row order, which is creation order — the
     # background terminal t0 is first because it was made first, and a
