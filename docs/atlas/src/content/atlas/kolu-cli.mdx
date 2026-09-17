@@ -11,6 +11,7 @@ import Svg from "../../components/Svg.astro";
 import Terminal from "../../components/Terminal.astro";
 import Callout from "../../components/Callout.astro";
 import Footnote from "../../components/Footnote.astro";
+import PrLink from "../../components/PrLink.astro";
 import arch from "../../diagrams/kolu-cli-arch.svg?raw";
 
 <Callout kind="accent" title="Amended 2026-08-09 — read the ratified paragraph below with two clauses struck">
@@ -197,8 +198,8 @@ The end state (ratified): the **/kolu skill drives agents through this MCP
 when it's available, falling back to `kaval-tui`/`padi-tui` when it isn't** — so
 the expose map is not a menu, it's a parity contract with what that skill does
 today. The counts below were measured from **both** driving skills, `/kolu` and
-`/bridge`; `/bridge` was deleted 2026-09-17 (with `/be` and the `srid/agency`
-dependency — see the `be-workflow` note), so the contract now binds `/kolu`
+`/bridge`; `/bridge` was deleted (with `/be` and the `srid/agency` dependency — see the
+`be-workflow` note) in <PrLink pr={2254} />, so the contract now binds `/kolu`
 alone and the counts are the record of what the pair used to do.
 
 | skill verb today (uses) | MCP equivalent | parity notes |

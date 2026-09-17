@@ -12,6 +12,7 @@ import Footnote from "../../components/Footnote.astro";
 import split from "../../diagrams/orchestrator-repo-split.svg?raw";
 import stack from "../../diagrams/orchestrator-repo-stack.svg?raw";
 import Callout from "../../components/Callout.astro";
+import PrLink from "../../components/PrLink.astro";
 
 <Callout kind="warn" title="Superseded — the skills this plan would have moved were deleted instead (2026-09-17)">
   The plan below answers "where do our agent skills live?" by extracting the
@@ -20,7 +21,7 @@ import Callout from "../../components/Callout.astro";
   `perfection-review`, `architecture-first-principles`, `bridge`, and
   `coordinator` were **deleted**, together with the `srid/agency` dependency
   they were built on, and the workflow now runs through the `waterfall` skill
-  instead. `agents/` keeps only the skills that are kolu-adjacent or genuinely
+  instead (<PrLink pr={2254} />). `agents/` keeps only the skills that are kolu-adjacent or genuinely
   generic — `surface`, `kolu`, `hostility-review`, `diataxis`.
 
   So read this note as the reasoning that led to that decision, not as a live
