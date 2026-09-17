@@ -1,24 +1,3 @@
 {
-  "hooks": {
-    "Stop": [
-      {
-        "matcher": "*",
-        "hooks": [
-          {
-            "type": "command",
-            "command": ".claude/hooks/agency/scripts/do-stop-guard.sh"
-          }
-        ]
-      },
-      {
-        "matcher": "*",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "\"${CLAUDE_PROJECT_DIR}/.claude/hooks/agency/scripts/do-stop-guard.sh\""
-          }
-        ]
-      }
-    ]
-  }
+  "hooks": {}
 }

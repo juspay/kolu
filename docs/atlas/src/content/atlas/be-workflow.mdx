@@ -45,6 +45,18 @@ export const Skill = (props) => {
   );
 };
 
+<Callout kind="warn" title="Retired — this pipeline no longer exists">
+  `/be`, `/be-review`, and every gauntlet skill the diagram links to were
+  **deleted**, along with the `srid/agency` dependency that supplied the review
+  lenses and `code-police`. What replaced them is not a kolu skill at all: the
+  workflow now runs through the `waterfall` skill, which drives an implementer in
+  a kolu terminal, reviews the PR, and runs CI.
+
+  This note is kept as the map of the pipeline that shipped kolu through 2.2 —
+  read it as history, not as instructions. The skill links still resolve to each
+  skill's source repo, which is the point of keeping it.
+</Callout>
+
 > **`/be` is how kolu ships.** You type `/be <task>`, answer a couple of
 > questions, and walk away — the agent takes it from a fresh branch to a draft
 > PR that has already survived a four-reviewer gauntlet, with green CI and visual
@@ -105,7 +117,7 @@ The spine of the diagram is six phases, run in order. The first is the interview
 above; the rest are fully autonomous.
 
 1. **Set up** — `git fetch`, branch off `origin/HEAD` (never commit to master),
-   and read `.agency/do.md` for the project's check / fmt / test / ci commands.
+   and read `.apm/instructions/implementer.instructions.md` for the project's check / fmt / test / ci commands.
    If "plan first" was chosen, the plan of record is an Atlas note authored via
    <Skill name="atlas" />.
 2. **Implement** — test-first. A bug is *reproduced red* before it's theorized

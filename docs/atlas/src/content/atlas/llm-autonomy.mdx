@@ -16,6 +16,18 @@ import Milestone from "../../components/Milestone.astro";
 import Cite from "../../components/Cite.astro";
 import PrLink from "../../components/PrLink.astro";
 
+<Callout kind="danger" title="Round 1 is closed — the workflow it measured was deleted">
+  Every number below measures `/be` and its gauntlet. That pipeline is gone:
+  `/be`, `/be-review`, `lens-debate`, `agent-debate`, `perfection-review`, and
+  `architecture-first-principles` were deleted together with the `srid/agency`
+  dependency. So the **roadmap targets paths that no longer exist** — keep it as
+  the record of what Round 1 proposed, not as a work queue. Two things survive
+  intact: the **measurement** (88 real runs, 493 human interventions — the
+  evidence that autonomy was enforced by prose alone) and the **runbook**, which
+  was written to be re-run against whatever drives PRs next — today that is the
+  `waterfall` skill.
+</Callout>
+
 Our PR workflow should run autonomously: one decision from the human up front,
 then a shipped, reviewed PR with **zero** further turns. **Today that workflow is
 `/be`** — but the workflow will change, so this note is framed as a recurring
@@ -147,16 +159,16 @@ Fourteen deduplicated improvements, ranked by impact ÷ effort. The program is
 **mechanical, not prose**: the top items convert the most-violated rules into
 exit-code gates. Targets are the `.apm/` sources (they regenerate into
 `.claude/`, `.codex/`, `.agents/` via `just ai::apm` — never edit the generated
-copies), `.agency/do.md`, and `settings.json` hooks.
+copies), `.apm/instructions/implementer.instructions.md`, and `settings.json` hooks.
 
 | # | Improvement | Lever | Effort · Impact |
 | --- | --- | --- | --- |
 | 1 | **Wire `/be` into the existing Stop guard** — write the generic `.do-results.json` the guard already understands | `agents/.apm/skills/be/SKILL.md` §1/§Done; reuse `do/scripts/do-results`. No hook change needed | S · **high** |
 | 2 | **First PreToolUse Bash hook: hard-block prod-kolu kills & prod-port binds** | new `.apm` hook → `settings.json` PreToolUse; cite from `dev-server` skill | M · **high** |
-| 3 <Pill variant="ok">master-sync shipped</Pill> | **Full `/ci` on every touched PR + master-sync at the head of §5** — §5 now fetches + merges `origin/<default>` before CI (kills the "merge latest master" order); the every-touched-PR half is still open | `agents/.apm/skills/be/SKILL.md` §5; `.agency/do.md` `## CI` | S · **high** |
+| 3 <Pill variant="ok">master-sync shipped</Pill> | **Full `/ci` on every touched PR + master-sync at the head of §5** — §5 now fetches + merges `origin/<default>` before CI (kills the "merge latest master" order); the every-touched-PR half is still open | `agents/.apm/skills/be/SKILL.md` §5 *(deleted)*; `.apm/instructions/implementer.instructions.md` `## CI` | S · **high** |
 | 4 <Pill variant="ok">shipped</Pill> <PrLink pr={1418} /> | **Codify design philosophy as an always-loaded rule** (fail-fast/no-fallbacks · electricity boundaries · reuse-existing-source) and force §2 to read it | `.apm/instructions/conventions.instructions.md` → `conventions.md`; `be` §2 | S · **high** |
 | 5 | **Hard-gate Done on real artifacts** — extend the Stop guard with ci-green + evidence-present + gauntlet-comments-present | `do-stop-guard.sh` (apm source); `/be` writes the fields | M · **high** |
-| 6 | **`## CI failure triage` policy** — named flaky lanes + per-node enumerate/fix-or-waive | `.agency/do.md` | S · **high** |
+| 6 | **`## CI failure triage` policy** — named flaky lanes + per-node enumerate/fix-or-waive | `.apm/instructions/implementer.instructions.md` | S · **high** |
 | 7 | **Make §4 a self-driving in-process Skill chain**; forbid handing reviewers back to the user | `agents/.apm/skills/be/SKILL.md` §4; `be-review` | M · **high** |
 | 8 | **§3 deliverable-coverage gate + grep-before-assert** — never report a PR whose diff doesn't match the task; never claim "no fallbacks" unchecked | `be` §3; `code-police` / `fact-check` | M · med |
 | 9 | **Machine-checked RED→GREEN repro & observed-green before Done** (tests passing ≠ verified) | `be` §2; Stop guard `verified` field | M · **high** |
@@ -243,7 +255,7 @@ candidates.
 
 **4 — Feed the agents the levers and verify the claims.** Tell each agent *where
 change is possible* (the `.apm/` skill sources, `settings.json` hooks,
-`.agency/do.md`, the rule files) so `howToPrevent` is actionable, not "be more
+`.apm/instructions/implementer.instructions.md`, the rule files) so `howToPrevent` is actionable, not "be more
 careful." Then — practicing the rigor the note preaches — **confirm every
 load-bearing factual claim** before publishing (this round verified
 `do-stop-guard.sh` is `/do`-only <Cite file=".claude/hooks/agency/scripts/do-stop-guard.sh" lines="1-15" />, that `settings.json` has only a `Stop` hook, and that `conventions.md` has no design-philosophy section).
@@ -263,7 +275,7 @@ method constant so successive runs are comparable.
   `lens-debate`, `simplify`, `code-police`, `evidence`, `ci`, `forge-pr`).
 - **`.apm/instructions/*.md`** → always-loaded `.claude/rules/*.md`
   (`conventions.md` is the home for the design-philosophy rule).
-- **`.agency/do.md`** — the project's check/fmt/test/ci commands + `## PR
+- **`.apm/instructions/implementer.instructions.md`** — the project's check/fmt/test/ci commands + `## PR
   evidence` + `## Documentation` + a new `## CI failure triage`.
 - **`settings.json` hooks** — the only place a rule becomes an *exit code*: the
   `Stop` guard (extend) and new `PreToolUse` guards.

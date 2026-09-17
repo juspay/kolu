@@ -20,7 +20,7 @@ import PrLink from "../../components/PrLink.astro";
 
 - A **content collection** beside the blog (<Cite file="website/src/content.config.ts" lines="4-14" label="blog collection — same shape" />), not a root `CHANGELOG.md`.
 - One entry per release; `unreleased.mdx` is the open one.
-- **Authored per PR by `/be`** — its implement step appends one line under the right `###` heading (prose a user reads + a markdown PR link). No commit-prefix, no bump field.
+- **Authored per PR by the implementer** — the changelog step of the implementer playbook (`.apm/instructions/implementer.instructions.md`) appends one line under the right `###` heading (prose a user reads + a markdown PR link). No commit-prefix, no bump field.
 - **`### Heads-up`** = disruptive changes (removed feature, changed default, migration), written for the user.
 - **Conflict-free** — `unreleased.mdx merge=union` in `.gitattributes` auto-resolves concurrent appends.
 
@@ -44,9 +44,9 @@ version: Unreleased
 
 ## Keeping it filled — two checkpoints, no CI gate
 
-- **Write time** — `/be` authors the entry in its implement phase (<Cite file="agents/.apm/skills/be/SKILL.md" lines="36" label="be §2 — Add a changelog entry" />); every PR rides through `/be`.
+- **Write time** — the implementer authors the entry in the implement phase, per the playbook's changelog rule (<Cite file=".apm/instructions/implementer.instructions.md" label="implementer playbook — the changelog is in scope" />).
 - **Publish time** — `/release X.Y.Z`'s go/no-go preview prints the exact `Unreleased` notes about to publish and waits for confirmation; a thin section is visible right before it ships.
-- Enough for a single-maintainer, `/be`-driven repo. Add a merge-blocking **`changelog` CI check** (diff touches `unreleased.mdx` or `no-changelog` label) only once PRs arrive from contributors who don't run `/be`.
+- Enough for a single-maintainer repo whose PRs are written by a disciplined implementer. Add a merge-blocking **`changelog` CI check** (diff touches `unreleased.mdx` or `no-changelog` label) only once PRs arrive from contributors who don't follow the same discipline.
 
 ## kolu.dev renders it — Unreleased included
 
@@ -70,7 +70,7 @@ Phases 1–3 are read-only; nothing is written before the go/no-go.
 ## Wiring
 
 - **`changelog` collection** — ✓ <PrLink pr={1208} /> (schema, `/changelog` page, seeded `unreleased.mdx`, `merge=union`).
-- **Keep-it-filled** — ✓ the `/be` implement-step entry (<Cite file="agents/.apm/skills/be/SKILL.md" lines="36" />); no CI gate.
+- **Keep-it-filled** — ✓ the implementer's changelog step (<Cite file=".apm/instructions/implementer.instructions.md" />); no CI gate.
 - **Identity rail** — ✓ version sourced once from `packages/server/package.json`, read at runtime via `serverVersion` (<Cite file="packages/server/src/hostname.ts" lines="17-23" label="serverVersion = pkg.version" />) and by Nix for the artifact version (<Cite file="default.nix" lines="15-19" />). No env var, nothing to propagate. `serverVersion` is the single runtime owner — it feeds the `buildInfo` cell → rail (`vX.Y.Z · <hash>`), `--version`, the startup log, and the pty's `TERM_PROGRAM_VERSION`.
 - **`/release` skill** — ✓ <Cite file=".apm/skills/release/SKILL.md" lines="1" />; the steps above.
 

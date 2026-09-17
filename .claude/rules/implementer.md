@@ -1,6 +1,6 @@
 ---
-description: Kolu's implementer playbook — the check/fmt/test/CI commands this repo defines, and the docs, changelog, and PR-evidence discipline that rides the same PR as the code
-applyTo: "**"
+paths:
+  - "**"
 ---
 
 ## Implementer playbook

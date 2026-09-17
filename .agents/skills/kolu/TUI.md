@@ -187,8 +187,8 @@ kolu wait "$id" --until awaiting,waiting --timeout 600000  # the agent's turn en
   > single tool call at ~2 minutes by default — so a `--timeout 1200000` wait is
   > **SIGKILLed at ~2 min (exit 143)** while the agent you're watching is perfectly
   > fine. Two ways out: **prefer ending your turn** and being woken by the other
-  > side's ping (the event-driven loop — see `/agent-debate`) instead of holding a
-  > wait; or, if you *must* hold it, **raise the Bash call's own timeout to exceed
+  > side's ping (the event-driven loop — end the turn, and be woken when the peer
+  > posts) instead of holding a wait; or, if you *must* hold it, **raise the Bash call's own timeout to exceed
   > the `--timeout`** so the harness doesn't kill it first.
 - **`--json`** → one result frame per outcome: `{ id, result, … }`, where
   `result` is `met`/`timeout`/`gone`/`interrupted`/`closed`. A `met` frame adds
@@ -349,7 +349,7 @@ the leanest `kolu create --toplevel --json` is a one-field object.
 
 > **A split tile BESIDE you — `--parent "$KAVAL_TERMINAL_ID"`.** When you want the
 > new terminal to open as a **split beside your own** (a sibling tile on the same
-> canvas — e.g. driving a selected Claude/Codex/Grok peer per `/agent-debate`), pass
+> canvas — e.g. driving a selected Claude/Codex/Grok peer), pass
 > **`--parent <your-terminal-id>`**, using your self-knowledge var
 > `$KAVAL_TERMINAL_ID` (see *Reach*): `kolu create --parent "$KAVAL_TERMINAL_ID"
 > -- <selected-agent> <unrestricted-flags> …`. Add `--worktree`/`--repo` too if the
