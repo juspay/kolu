@@ -30,7 +30,7 @@ export interface DebounceWatcherConfig<Session, Info, Db extends Closable> {
   session: Session;
   /** Lifecycle log label, e.g. `"codex: session"`. Combined with
    *  `installed`/`retired` to emit `<label> watcher installed/retired`
-   *  on subscribe/unsubscribe (see `.agency/code-police.md` →
+   *  on subscribe/unsubscribe (see `.apm/instructions/code-review.instructions.md` →
    *  `watcher-lifecycle-logs`). */
   label: string;
   /** Trailing-edge debounce quiet-window in milliseconds. maxWait is

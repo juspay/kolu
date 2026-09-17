@@ -7,8 +7,8 @@ packages:
   - osfacts-client
   # NOTE: `agents/` (the reusable APM skills package — agents/README.md) is NOT a
   # workspace member. It was one only so the lens-debate engine's unit tests ran
-  # under `pnpm -r test:unit`; the engine is gone (the lens stage is prose + plain
-  # subagents now), so the package is pure markdown with nothing to test or build.
+  # under `pnpm -r test:unit`; the engine and every stage that used it are gone,
+  # so the package is pure markdown with nothing to test or build.
 
 # Effect 4 (release candidate). Every @effect/* package must resolve to the SAME version as
 # `effect` itself, so these are exact pins (no `^`) for kolu-private members.

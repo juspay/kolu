@@ -1,6 +1,13 @@
-# /do config
+---
+description: Kolu's implementer playbook — the check/fmt/test/CI commands this repo defines, and the docs, changelog, and PR-evidence discipline that rides the same PR as the code
+applyTo: "**"
+---
 
-`/do` reads this file at the steps that need a project-defined command (check, fmt, test, ci, docs) and at the evidence step.
+## Implementer playbook
+
+The project-defined commands a task needs (check · fmt · test · ci) and the
+evidence step. Written for whoever implements — an agent driving a task to a PR
+(a `/waterfall` implementer, say) or a human doing the same by hand.
 
 ## Check command
 
@@ -16,14 +23,14 @@ Invoke the `/test` skill. It owns **both** lanes: the unit lane (`just test-unit
 
 ## CI command
 
-Invoke the **`/ci` skill** — it owns the full CI procedure for this repo: the odu MCP front door, the banned opt-out flags (`--no-post` / `--no-strict` / `--no-snapshot`), mandatory two-platform (`x86_64-linux` + `aarch64-darwin`) coverage, odu-native venue-pool leasing across both platforms, live fail-fast surfacing, the `pu`-misbehaviour #1204 log, and the green-gate (`odu protect`). The `/do` CI step is exactly "run the `/ci` skill." Runner mechanics (subcommands, flags, modes, the socket surface) are the `/odu` skill it layers on top of.
+Invoke the **`/ci` skill** — it owns the full CI procedure for this repo: the odu MCP front door, the banned opt-out flags (`--no-post` / `--no-strict` / `--no-snapshot`), mandatory two-platform (`x86_64-linux` + `aarch64-darwin`) coverage, odu-native venue-pool leasing across both platforms, live fail-fast surfacing, the `pu`-misbehaviour #1204 log, and the green-gate (`odu protect`). Running CI is exactly "run the `/ci` skill." Runner mechanics (subcommands, flags, modes, the socket surface) are the `/odu` skill it layers on top of.
 
 ## Documentation
 
 **Keep the docs in lockstep with the code, in the same PR — so the doc changes ride the same review as the code.** This is a principle, not a fixed checklist (a hardcoded file list goes stale and trains you to pattern-match a couple of entries and skip the rest). For any user-facing or architectural change, find every doc the change makes *stale* and update it. **Discover them, don't recall them:**
 
 - **Grep the doc surfaces for what you changed** — the feature, command, flag, type, or term you touched — across `README.md`, every `packages/*/README.md`, `website/`, and `docs/atlas/`. A hit that describes the old behaviour is a doc to fix; judging a hit still-accurate is a *conscious decision to record*, not a silent skip.
-- **Update the home of the change.** The doc nearest to what moved, e.g.: the changed package's **own `README.md`** (the most-overlooked one — a CLI/behaviour change lives there first); the shared-framework contract inventory in **`packages/surface/README.md`** when a descriptor is added/retired/reclassified; the per-host **daemon** READMEs — **`packages/padi/README.md`** for the workspace daemon (session · awareness · restore · kaval ownership) and **`packages/kaval/README.md`** for PTY ownership — when the daemon topology moves; the top-level **`README.md`** architecture prose/diagram (see `.claude/rules/architecture.md`); the **`website/`** marketing page (e.g. `src/pages/index.astro`) when a *browser* surface changes shape — drive the running app via the `dev-server` skill for a reference screenshot, never `just dev`; the **Atlas** plan-of-record in `docs/atlas/` (advance its status / PR link — `/be` §1/§3).
+- **Update the home of the change.** The doc nearest to what moved, e.g.: the changed package's **own `README.md`** (the most-overlooked one — a CLI/behaviour change lives there first); the shared-framework contract inventory in **`packages/surface/README.md`** when a descriptor is added/retired/reclassified; the per-host **daemon** READMEs — **`packages/padi/README.md`** for the workspace daemon (session · awareness · restore · kaval ownership) and **`packages/kaval/README.md`** for PTY ownership — when the daemon topology moves; the top-level **`README.md`** architecture prose/diagram (see `architecture.instructions.md`); the **`website/`** marketing page (e.g. `src/pages/index.astro`) when a *browser* surface changes shape — drive the running app via the `dev-server` skill for a reference screenshot, never `just dev`; the **Atlas** plan-of-record in `docs/atlas/` (advance its status / PR link — `/be` §1/§3).
 
 Default to **over-checking**: enumerate the candidate docs and, for each, either edit it or state why it's untouched. "I updated the README and changelog" is not a doc-sync until the changed package's README, the framework inventory, and any user-facing marketing surface were each *considered* (and the skip, if any, justified).
 
@@ -49,14 +56,14 @@ Post a `## Evidence` PR comment when **any** of these holds — the trigger is "
 
 Desktop-only evidence has already shipped a touch regression (20px segmented-control targets a desktop screenshot looked fine at — and a *width-only* resize would have missed it just the same). When the desktop and mobile layouts differ, post **both**; when they're identical, one line confirming the mobile/coarse-pointer rendering was checked suffices. Skip only for changes with no on-screen surface at all.
 
-**Capture by recording an e2e scenario — the [`evidence`](../.apm/skills/evidence/SKILL.md) skill owns the procedure** (it builds on the [`pu`](../.apm/skills/pu/SKILL.md) skill; everything runs on an ephemeral `pu` box, off-machine, the way CI runs e2e). Kolu's e2e suite (`@cucumber/cucumber` + Playwright) already drives every UI surface through a maintained step library, so you capture a clip by *recording a scenario* — selected **by name**, with no edit to the feature file — never a hand-rolled Playwright script. Pick the scenario that exercises the change (or author a tiny one reusing existing steps); on the box the skill runs it with `KOLU_EVIDENCE=1`, which makes `packages/tests/support/hooks.ts` record the `.webm` (recordVideo + slowMo, animations left on), then transcodes (ffmpeg → GIF/mp4), uploads to the `evidence-assets` release, and links the shared Pages player.
+**Capture by recording an e2e scenario — the [`evidence`](.apm/skills/evidence/SKILL.md) skill owns the procedure** (it builds on the `pu` skill; everything runs on an ephemeral `pu` box, off-machine, the way CI runs e2e). Kolu's e2e suite (`@cucumber/cucumber` + Playwright) already drives every UI surface through a maintained step library, so you capture a clip by *recording a scenario* — selected **by name**, with no edit to the feature file — never a hand-rolled Playwright script. Pick the scenario that exercises the change (or author a tiny one reusing existing steps); on the box the skill runs it with `KOLU_EVIDENCE=1`, which makes `packages/tests/support/hooks.ts` record the `.webm` (recordVideo + slowMo, animations left on), then transcodes (ffmpeg → GIF/mp4), uploads to the `evidence-assets` release, and links the shared Pages player.
 
 ```sh
 KOLU_EVIDENCE=1 just test-quick features/<file>.feature --name "<scenario name>"
 # → packages/tests/reports/videos/<scenario>.webm
 ```
 
-Rationale + the ecosystem survey: [`docs/atlas/src/content/atlas/video-evidence.mdx`](../docs/atlas/src/content/atlas/video-evidence.mdx).
+Rationale + the ecosystem survey: [`docs/atlas/src/content/atlas/video-evidence.mdx`](docs/atlas/src/content/atlas/video-evidence.mdx).
 
 **Capturing a state no scenario reaches (live chrome-devtools path).** When the evidence skill's "drive the state live" step (§A2) runs on *your machine* rather than a `pu` box, launch kolu with the `dev-server` skill — it boots on two random free ports via `just dev-auto`, remembers them for the session, and hands chrome-devtools the right client URL. This is mandatory: an agent that ran a bare `just dev` for evidence on [#1109](https://github.com/juspay/kolu/issues/1109) bound production's fixed ports and disrupted the live `kolu.service`. Never run the app for evidence any other way; never touch the systemd unit.
 

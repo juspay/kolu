@@ -52,7 +52,7 @@ import { LOOPBACK_ADDRESS, type LoopbackFamily } from "./target.ts";
  *  (`@kolu/port-forward` is also deliberately dependency-free, so importing the
  *  renderer is not on the table; if these ever must track a dial, the shared
  *  `{intervalS, countMax}` graduates into a zero-dep receptacle both can read —
- *  the graduation candidate is recorded in `.agency/lowy.md`'s Areas of
+ *  the graduation candidate is recorded in `.apm/instructions/code-review.instructions.md (Löwy — project volatility axes)`'s Areas of
  *  Volatility table under "ssh dead-peer / link-silence policy", so a future
  *  sweep finds it in the ledger rather than only in this comment.)
  *

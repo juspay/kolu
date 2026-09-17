@@ -22,7 +22,7 @@
 #
 # Warming is intentionally NOT done here (it's a full linux-lane run per box).
 # Keep the pool warm by letting real CI runs land on it, plus a periodic
-# master run across idle slots — see .agency/do.md "Keep the pool warm".
+# master run across idle slots — see .apm/instructions/implementer.instructions.md "Keep the pool warm".
 set -uo pipefail
 
 POOL_SIZE="${KOLU_CI_POOL:-8}"

@@ -5,8 +5,8 @@
  *  New reactive primitives (createSignal / createMemo / createEffect) in the
  *  shell are the canary for state that belongs in a `useXxx.ts` singleton.
  *
- *  This is the CI-enforced half of the `app-shell-stays-thin` code-police rule
- *  (.agency/code-police.md). If this fails because you added reactive state to
+ *  This is the CI-enforced half of the `app-shell-stays-thin` rule
+ *  (.apm/instructions/code-review.instructions.md). If this fails because you added reactive state to
  *  App.tsx: move it into a domain `useXxx.ts` singleton (the pattern every
  *  other consumer follows) rather than bumping the budget. Bump the budget ONLY
  *  for genuinely layout-level reactive state, and say why in the PR — the bump

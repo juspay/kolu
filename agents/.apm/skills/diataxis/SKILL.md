@@ -1,6 +1,6 @@
 ---
 name: diataxis
-description: Classify, write, and audit documentation per Diátaxis (diataxis.fr) — the four-quadrant method (tutorials · how-to guides · reference · explanation). Encodes the compass as a decision procedure, each quadrant's contract as hard rules, and an executable mixed-mode audit. Project-agnostic; per-repo doc-location mapping lives in .agency/diataxis.md. Use when writing any user-facing doc, structuring a docs site, or auditing existing docs for mixed modes.
+description: Classify, write, and audit documentation per Diátaxis (diataxis.fr) — the four-quadrant method (tutorials · how-to guides · reference · explanation). Encodes the compass as a decision procedure, each quadrant's contract as hard rules, and an executable mixed-mode audit. Project-agnostic; the per-repo doc-location mapping lives in a repo rule of the project's own (kolu: `.apm/instructions/diataxis.instructions.md`). Use when writing any user-facing doc, structuring a docs site, or auditing existing docs for mixed modes.
 argument-hint: "[classify <doc>|audit <path>|write <quadrant> <topic>]"
 ---
 
@@ -112,9 +112,11 @@ large sets; direct reads for small ones):
 
 ## Project overlay
 
-Read **`.agency/diataxis.md`** if it exists: where each quadrant LIVES in this
-project (paths, site sections, frontmatter conventions), plus any project rules.
-Missing overlay → classify/audit generically and SAY so.
+Read the project's own Diátaxis overlay if it has one — the rule that records
+where each quadrant LIVES in that project (paths, site sections, frontmatter
+conventions), plus any project rules. In kolu that rule is
+`.apm/instructions/diataxis.instructions.md`. Missing overlay → classify/audit
+generically and SAY so.
 
 ## Writing procedure (every new doc)
 

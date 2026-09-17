@@ -1,10 +1,10 @@
 name: agents
 version: 0.1.0
 description: >-
-  Reusable AI-native development skills extracted from kolu — the /be review
-  gauntlet (lens-debate, agent-debate, perfection-review, be, be-review),
-  agent-to-agent driving (kolu), and shared @kolu/surface consumption
-  (surface). Repo-agnostic: a consuming project supplies its own /atlas,
+  Reusable AI-native development skills extracted from kolu — agent-to-agent
+  driving (kolu), shared @kolu/surface consumption (surface), adversarial
+  done-claim auditing (hostility-review), and the Diátaxis documentation method
+  (diataxis). Repo-agnostic: a consuming project supplies its own /atlas,
   /test, /dev-server, and (optionally) /evidence skills.
 type: hybrid
 targets:
@@ -23,10 +23,9 @@ compilation:
     - "**/node_modules/**"
 
 # Skills here call into these shared packages:
-#   srid/agency             — /lowy /hickey /code-police /simplify /forge-pr /fact-check
+#   kolu mcp                — /kolu's typed terminal-driving tools
 #   juspay/project-unknown  — /pu (ephemeral box for heavy work)
 #   juspay/odu              — /odu /odu-mcp
-#   kolu mcp                — /kolu's typed terminal-driving tools
 #
 # A consuming project additionally supplies its OWN /atlas, /test, /dev-server,
 # and (optionally) /evidence skills — these are intentionally project-specific
@@ -34,7 +33,6 @@ compilation:
 dependencies:
   apm:
     - path: ../agent-plugin/skills/kolu
-    - srid/agency#master
     - juspay/project-unknown
     - juspay/odu
   mcp:

@@ -88,7 +88,7 @@ immediately rather than draining the rest of the pipeline.
 | Sibling lanes | — | keep running; agent fixes in parallel |
 
 This is the primary win and it is concretely measured. The Kolu side
-([`.agency/do.md`](../.agency/do.md)) now drives `--progress json` and documents
+([`.apm/instructions/implementer.instructions.md`](../.apm/instructions/implementer.instructions.md)) now drives `--progress json` and documents
 the consume-the-stream loop: tail the backgrounded output, `grep -o '{.*}' | jq
 'select(.status=="failed" or .status=="errored")'`, and on the first failure read
 its `log` and start the fix — no waiting, no polling.
@@ -201,7 +201,7 @@ contention), but the direction and magnitude held on a real two-platform run.
 | PR | Repo | What |
 |---|---|---|
 | [#44](https://github.com/juspay/justci/pull/44) | juspay/justci | `justci run --progress json` — live NDJSON per-node transition stream (new `JustCI.Progress`, composed onto the observer; `ProgressSpec`; README). Default-off, upstream-safe. |
-| this PR | juspay/kolu | `/do` drives `--progress json` + documents the consume-the-stream loop ([`.agency/do.md`](../.agency/do.md)); `ci/mod.just` decouples `e2e`/`smoke`/`home-manager` from the monolithic `nix` node; this report. |
+| this PR | juspay/kolu | `/do` drives `--progress json` + documents the consume-the-stream loop ([`.apm/instructions/implementer.instructions.md`](../.apm/instructions/implementer.instructions.md)); `ci/mod.just` decouples `e2e`/`smoke`/`home-manager` from the monolithic `nix` node; this report. |
 
 ## Dead ends / caveats
 

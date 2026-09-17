@@ -1,29 +1,31 @@
 ---
-description: When any skill the /be pipeline diagram names changes, keep the Atlas note (be-workflow) and its diagram in sync
-applyTo: "{agents/.apm/skills/be/**,agents/.apm/skills/be-review/**,agents/.apm/skills/lens-debate/**,agents/.apm/skills/agent-debate/**,agents/.apm/skills/architecture-first-principles/**,docs/atlas/src/content/atlas/be-workflow.mdx,docs/atlas/src/diagrams/be-workflow.svg}"
+description: The be-workflow Atlas note is a retired-pipeline record — the /be pipeline it maps no longer exists, so treat the note as history
+applyTo: "{docs/atlas/src/content/atlas/be-workflow.mdx,docs/atlas/src/diagrams/be-workflow.svg}"
 ---
 
-## Keep the /be Atlas note in sync
+## The /be Atlas note is retired history
 
 The Atlas note **`docs/atlas/src/content/atlas/be-workflow.mdx`** and its diagram
-**`docs/atlas/src/diagrams/be-workflow.svg`** are the human-readable map of the
-`/be` pipeline — published at <https://kolu.dev/atlas/be-workflow.html>. They
-describe the same flow these skills implement, so an edit here can leave the map
-stale.
+**`docs/atlas/src/diagrams/be-workflow.svg`** (published at
+<https://kolu.dev/atlas/be-workflow.html>) map the `/be` pipeline — the skill
+chain that took a task to a reviewed, CI-green PR.
 
-Whenever you change `/be`, `/be-review`, or **any gauntlet skill the diagram
-links to** (`lens-debate`, `agent-debate`, `architecture-first-principles`) in a
-way a reader would notice — a phase added/removed/reordered, a reviewer added or
-dropped from the gauntlet, a skill swapped in/out of a phase, **a stage's
-protocol changing shape**, the interview questions changing — **update the note
-and the diagram in the same change**:
+**That pipeline no longer exists in this repo.** `/be`, `/be-review`, and every
+gauntlet skill the diagram links to were deleted along with the `srid/agency`
+dependency, which is why this note is now a record rather than a description of
+live machinery. Nothing points at it, and there is nothing for it to track.
 
-- Edit the prose in `be-workflow.mdx` so the phase/skill description matches.
-- Re-author `be-workflow.svg` (it's a hand-authored, layout-dependent SVG — edit
-  it wholesale, don't coordinate-patch). Each skill node links to its
-  `SKILL.md` on GitHub; add/remove/repoint nodes to match.
+So the old sync obligation is gone, and the note is **not** a place to document
+the current workflow. Do not extend it, and do not "fix" it to match a pipeline
+kolu no longer runs — a note that quietly drifts into describing something else
+is worse than one that is honestly dated. It exists so that a reader can still
+see how kolu shipped before, and follow the links to the source of each skill the
+pipeline used.
+
+Edit it only if you are deliberately correcting the historical record, and then
+keep the pair consistent:
+
+- The SVG is **hand-authored and layout-dependent** — re-author it wholesale
+  rather than coordinate-patching.
 - Then run the Atlas sync per `/atlas`: `just atlas::build`, stage
   `docs/atlas/dist/`, and `just atlas::check-sync` (the `ci::atlas-sync` gate).
-
-Skip only when the skill edit is invisible to a reader of the pipeline (a typo
-fix, a reworded internal caution that doesn't change the flow).

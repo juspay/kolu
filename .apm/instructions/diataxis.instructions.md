@@ -1,6 +1,12 @@
-# Kolu Diátaxis overlay
+---
+description: Kolu's Diátaxis overlay — where each of the four documentation quadrants lives in this repo, and the frontmatter claims the audit classifies against
+applyTo: "{website/src/**,docs/atlas/**,README.md,packages/*/README.md}"
+---
 
-Where each quadrant lives in this project (read by the base `diataxis` skill).
+## Kolu Diátaxis overlay
+
+Where each quadrant lives in this project, for anyone classifying or auditing
+kolu's docs per Diátaxis. (`docs.instructions.md` owns the Atlas layout itself.)
 
 | quadrant | home today | notes |
 | --- | --- | --- |

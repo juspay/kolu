@@ -90,7 +90,7 @@ export function publishGridAction(
           // here means the grid claim did not land: the PTY kept its old size while
           // this pane renders against the new one. That is a wrong-grid screen with
           // no other symptom, so it must not collapse to a no-op
-          // (`.agency/code-police.md` → caught-error-must-not-collapse-to-empty).
+          // (`.apm/instructions/code-review.instructions.md` → caught-error-must-not-collapse-to-empty).
           // A PTY that has ALREADY EXITED is not that case: kaval reports `ok: false`
           // and padi returns quietly by design, so nothing reaches here — and the
           // tile tears down via terminalExit anyway. The extra guard below covers the

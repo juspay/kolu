@@ -51,9 +51,9 @@ frontmatter `title`.
 Changelog: `src/content/changelog/*.mdx`, rendered at `/changelog`
 (`src/pages/changelog.astro`), schema in `src/content.config.ts`. One entry
 per release (`1-0-0.mdx`, frontmatter `version` + `date: YYYY-MM-DD`) plus a
-perpetual dateless `unreleased.mdx` (`version: Unreleased`) that `/be` appends
-to under `### Added` / `Fixed` / `Changed` / `Heads-up` on every user-facing
-PR. `/release X.Y.Z` stamps `unreleased.mdx` into a dated entry. The page lists
+perpetual dateless `unreleased.mdx` (`version: Unreleased`) that every
+user-facing PR appends to under `### Added` / `Fixed` / `Changed` / `Heads-up`
+(see `changelog.instructions.md`). `/release X.Y.Z` stamps `unreleased.mdx` into a dated entry. The page lists
 releases newest-first with Unreleased on top; the Pages deploy fires on the
 `website/**` change.
 

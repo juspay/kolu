@@ -97,6 +97,6 @@ not just the obviously visual ones.
 5. **Verify and ship.** Build the site and confirm it renders, then verify every
    figure in **both light and dark themes** against the built output with the
    chrome-devtools MCP — confirm labels are actually placed (`getBBox()`), not
-   merely present in the DOM — before opening the PR with the `forge-pr` skill.
+   merely present in the DOM — before opening the PR.
    Run only the CI lane a docs change can touch (the website build plus formatting
    and lint — see the `ci` skill).

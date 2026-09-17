@@ -11,7 +11,7 @@
 > contention. What changed is the *delivery*: leasing an always-warm pool box
 > sidesteps both `pu fork` bugs entirely (fork is no longer on the hot path), so
 > a run pays no fork/create latency and the box stays warm across leases. See
-> [`.agency/do.md`](../.agency/do.md) for the current model.
+> [`.apm/instructions/implementer.instructions.md`](../.apm/instructions/implementer.instructions.md) for the current model.
 
 
 Measurement-driven reduction of the **`x86_64-linux` CI lane wall-clock** — the
@@ -209,7 +209,7 @@ deliverable here.
 | file | what |
 |---|---|
 | `ci/pu-ci-host.sh` | Provision a warm linux CI host: timeout-guarded fork of `kolu-ci-golden` (with `ssh_config` synth) → cold `pu create` → (empty ⇒ `hosts.json`). Tested end-to-end. |
-| `.agency/do.md` | `/do`'s CI step calls `ci/pu-ci-host.sh`; documents keeping the golden box warm. |
+| `.apm/instructions/implementer.instructions.md` | `/do`'s CI step calls `ci/pu-ci-host.sh`; documents keeping the golden box warm. |
 | `docs/pu-box-ci-ralph-report.md` | this report |
 
 Not changed (deliberately): the `CUCUMBER_PARALLEL` clamp (Lever 2 is noise).

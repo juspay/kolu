@@ -10,43 +10,32 @@ This directory is two things:
    for this repo.
 
 Kolu's own root `apm.yml` consumes the package via a **local path dependency**
-(`- path: ./agents`); other shared skills still come from
-[srid/agency](https://github.com/srid/agency) and the juspay packages.
+(`- path: ./agents`); other shared skills come from the juspay packages.
 
 ## The reusable package (`agents/apm.yml` + `agents/.apm/skills/`)
 
 Repo-agnostic skills that don't depend on kolu internals:
 
-| Skill                | What it does                                                            |
-| -------------------- | ---------------------------------------------------------------------- |
-| `be` / `be-review`   | Take a task end-to-end with a serial AI review gauntlet                 |
-| `lens-debate`        | Parallel lowy + hickey structural review, merged by one reconcile pass  |
-| `agent-debate`       | Claude/Codex/Grok peer debate to consensus (review or freeform answer)  |
-| `perfection-review`  | Adversarial "ideal-bar" review, fanned out via Workflow                 |
-| `architecture-first-principles` | The state-and-time lens — 5 grounded CS principles (values, pure core, one-authority/clock, illegal-states-unrepresentable, end-to-end) |
-| `kolu`               | Drive one agent from another through kolu terminals (`kolu`)       |
-| `orchestrator`       | Coordination rules for a supervisor driving agents on kolu terminals    |
-| `surface`            | Consume the shared `@kolu/surface` stack in a downstream app            |
+| Skill               | What it does                                                           |
+| ------------------- | ---------------------------------------------------------------------- |
+| `kolu`              | Drive one agent from another through kolu terminals (`kolu`)           |
+| `surface`           | Consume the shared `@kolu/surface` stack in a downstream app           |
+| `hostility-review`  | Audit a done-claim against its plan with a hostile peer agent          |
+| `diataxis`          | Classify, write, and audit documentation per Diátaxis                  |
 
 The `kolu` skill lives in `../agent-plugin/skills/kolu/`, the exported Agent
 Plugins package, and is consumed through a local path dependency. Its content
 and references are shared with standalone plugin consumers.
 
 The package declares the shared packages these skills call
-(`srid/agency`, `juspay/project-unknown`, `juspay/odu`) as its own
-dependencies, so they come along transitively. It also registers `kolu mcp`
-for every supported agent runtime because `/kolu` is MCP-first; the `kolu`
-binary must be available on the host's `PATH`.
+(`juspay/project-unknown`, `juspay/odu`) as its own dependencies, so they come
+along transitively. It also registers `kolu mcp` for every supported agent
+runtime because `/kolu` is MCP-first; the `kolu` binary must be available on the
+host's `PATH`.
 
-**Project-supplied skills.** The gauntlet references a few skills that are
-intentionally **not** vendored here because they're inherently
-project-specific — a consuming project supplies its own:
-
-- `/atlas` — the project's design-note / plan-of-record system
-- `/test` — the project's e2e harness entry point
-- `/dev-server` — how the project boots locally
-- `/evidence` — *optional*; how the project captures visual PR evidence
-  (kolu's own lives at `.apm/skills/evidence/`)
+**Project-supplied skills.** A consuming project brings its own `/atlas`,
+`/test`, and `/dev-server` skills — those are inherently project-specific and
+are deliberately not vendored here (kolu's own live at `../.apm/skills/`).
 
 ## Using this in your own project
 
@@ -60,13 +49,8 @@ dependencies:
 ```
 
 Then install with APM (e.g. `apm install`, or your project's equivalent recipe).
-After install you'll have `be`, `be-review`, `lens-debate`, `agent-debate`,
-`perfection-review`, `kolu`, and `surface` available to your runtime.
-
-To make the gauntlet fully functional, **provide your own** `/atlas`, `/test`,
-and `/dev-server` skills. The `/be` flow also calls `/evidence` for visual PR
-evidence — supply your own if you want that step (it's optional; `/be` notes
-when no visual artifact applies).
+After install you'll have `kolu`, `surface`, `hostility-review`, and `diataxis`
+available to your runtime.
 
 ## Recipes (`just ai::*`)
 

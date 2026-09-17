@@ -43,7 +43,7 @@ it collides.
 
 So before launching anything, decide where it runs:
 
-- **Run on a `pu` box (the default for `/be`-style runs)** whenever production
+- **Run on a `pu` box (the default for an implementer run)** whenever production
   kolu is live on this machine — i.e. any time `systemctl --user is-active kolu`
   is `active`. Builds, the dev server, and evidence capture all go on a fresh pu
   box (see the **pu** and **evidence** skills): the box has its own RAM and
@@ -90,7 +90,7 @@ jq -n --arg s "$server_url" --arg c "$client_url" \
   '{server:$s, client:$c}' > .dev-server/ports.json   # gitignored, per-worktree
 ```
 
-`.dev-server/` is gitignored (like `.agent-debate/` / `.lens-debate/`), so the
+`.dev-server/` is gitignored, so the
 scratch never shows up in a diff. Read `.dev-server/ports.json` whenever you need
 the URL again — single source of truth for the session.
 
