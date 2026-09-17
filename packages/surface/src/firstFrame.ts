@@ -30,8 +30,7 @@
  *   - `firstFrameOrUndefined` — empty stream ⇒ `undefined` (benign absence).
  *   - `firstFrameOrThrow`     — empty stream ⇒ fail (a missing snapshot is a
  *                               failure; collapsing it to `undefined` would hide
- *                               a broken link — see `.agency/code-police.md` →
- *                               caught-error-must-not-collapse-to-empty).
+ *                               a broken link).
  *
  * **Both readers are EFFECTS, and that is the interruption story.** A consumer
  * composes the read inside its own program — a concurrent fold, a bounded wait, a

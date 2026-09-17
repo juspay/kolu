@@ -8,14 +8,14 @@ paths:
 APM is not a global CLI — it runs via `uvx` through justfile recipes in `agents/ai.just`. Never try to run `apm` directly; always use the just recipes:
 
 - **Install/regenerate** agent runtime directories from sources: `just ai::apm`
-- **Update a dependency** to its latest ref: `just ai::apm-update <package>` (e.g. `just ai::apm-update srid/agency`)
+- **Update a dependency** to its latest ref: `just ai::apm-update <package>` (e.g. `just ai::apm-update juspay/odu`)
 
 ### Skill/instruction sources
 
 `.claude/skills/<name>/` and `.claude/rules/<name>.md` are generated from the source trees below — grep **all three** before assuming something isn't apm-managed:
 
 - **Root `.apm/`** — this repo's own package: skills like `atlas`, `test`, `dev-server`, `evidence`, `release`; instructions like this file, under `.apm/instructions/`.
-- **`agents/.apm/`** — the reusable `agents/` package (a local `path:` dependency in the root `apm.yml`): the skills `be`, `be-review`, `lens-debate`, `agent-debate`, `perfection-review`, `surface`, `architecture-first-principles`.
+- **`agents/.apm/`** — the reusable `agents/` package (a local `path:` dependency in the root `apm.yml`): the skills `surface`, `hostility-review`, `diataxis`.
 
 - **`agent-plugin/skills/kolu/`** — the exported kolu skill and its `TUI.md` reference, consumed by `agents/apm.yml` as a local path dependency. Edit this source, not a generated runtime copy.
 

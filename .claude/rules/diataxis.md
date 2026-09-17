@@ -1,6 +1,12 @@
-# Kolu Diátaxis overlay
+---
+paths:
+  - "{website/src/**,docs/atlas/**,README.md,packages/*/README.md}"
+---
 
-Where each quadrant lives in this project (read by the base `diataxis` skill).
+## Kolu Diátaxis overlay
+
+Where each quadrant lives in this project, for anyone classifying or auditing
+kolu's docs per Diátaxis. (`docs.instructions.md` owns the Atlas layout itself.)
 
 | quadrant | home today | notes |
 | --- | --- | --- |

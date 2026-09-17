@@ -23,7 +23,7 @@
  * The trade is deliberate. Containing a throw normally risks masking a defect —
  * but here the alternative is not a crash, it is a silent global freeze, so the
  * loud log IS the surfacing the caught-error doctrine asks for
- * (`.agency/code-police.md` → `caught-error-must-not-collapse-to-empty`) and the
+ * (the `caught-error-must-not-collapse-to-empty` rule) and the
  * ruling is `disableFatalDefects`' one layer down: a member's fault is not the
  * frame's.
  */

@@ -31,7 +31,7 @@ Then write the body — *Summary · Motivation · User-facing behavior · Protot
 
 Discuss on the PR. Once **accepted**, a maintainer flips the note to `status: accepted` — that's the whole graduation; the `kind` was right from the start. The note stays a *living* document afterward (git is its record — there is no frozen copy).
 
-Your PR **may optionally bundle an implementation** alongside the proposal — but acceptance merges **only the proposal**. The implementation is reviewed and merged separately (by you or anyone, including a maintainer running `/be`), so the decision to *ship the idea* never rides on the state of the code.
+Your PR **may optionally bundle an implementation** alongside the proposal — but acceptance merges **only the proposal**. The implementation is reviewed and merged separately (by you or anyone else), so the decision to *ship the idea* never rides on the state of the code.
 
 Implementation details are optional — the "Implementation notes" section is for hints; skip it if you don't have an opinion. The implementer figures out the *how*.
 
@@ -51,4 +51,5 @@ Coding agents are great at fleshing out a proposal — motivation, alternatives,
 
 ## Implementer notes
 
-For `/do`, `/test`, `/ci`, formatter, and other implementer-side conventions, see `.agency/do.md`.
+For the check / format / test / CI commands and the doc + PR-evidence discipline, see
+[`.apm/instructions/implementer.instructions.md`](./.apm/instructions/implementer.instructions.md).

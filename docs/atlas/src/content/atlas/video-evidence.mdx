@@ -128,7 +128,7 @@ above is the shipped design.
 | PR | What it shipped |
 | --- | --- |
 | [nix-chrome-devtools-mcp#2](https://github.com/juspay/nix-chrome-devtools-mcp/pull/2) | Screencast capability: the launcher runs `nix shell …#ffmpeg` and passes `--experimentalScreencast=true`, exposing the MCP's `screencast_start/stop`. No host install. |
-| <PrLink pr={1033} /> | The original "video evidence" feature: MCP-screencast capture + the embedding solution + the 3-repo split + the `.agency/do.md` video procedure + this plan. |
+| <PrLink pr={1033} /> | The original "video evidence" feature: MCP-screencast capture + the embedding solution + the 3-repo split + the `.apm/instructions/implementer.instructions.md` video procedure + this plan. |
 | <PrLink pr={1037} /> | Moved capture *off-machine*: PR evidence runs on an ephemeral `pu` box via a bespoke Playwright `capture.mjs`; extracted the reusable `pu` + `evidence` skills. *This is the capture path <PrLink pr={1099} /> replaced.* |
 | <PrLink pr={1080} /> | Let Codex load the `pu` + `evidence` skills. |
 | <PrLink pr={1099} /> | Capture moved onto the Cucumber harness: env-gated `KOLU_EVIDENCE` `recordVideo` in `support/hooks.ts`, scenario selected by `--name`, retiring `capture.mjs` for kolu. |

@@ -28,11 +28,11 @@ The surface-map campaign (PR #1714 → W7) was already a one-orchestrator-many-a
 | **F2** | Terminal **relations**: `chrome.setRelation {to, kind: delegates\|consults\|reviews, label}` — persisted metadata generalizing sub-terminal `parentId`<Footnote>Why relations are kolu data, not skill state: the roster in the orchestrator's context dies at every compaction — it did, repeatedly, during the campaign. A relation on the terminal survives compaction, reconnect, and re-keying, and renders for the human. `parentId` stays separate: containment ≠ collaboration.</Footnote> | **new** (padi surface + schema) | the team existed only in my context window |
 | **F3** | Canvas renders F2: edges + role badges, cluster on the minimap | **new** (client UI; straight lines first, no routing) | same |
 | **F4** | **/goal** — a Stop-hook contract: an agent with an unmet goal cannot end its turn without posting a report or a blocked-notice (escapes: `done: true`, max-nag counter) | **new** (small skill + hook; useful solo, ships first) | the silent mid-stage stall |
-| **/team** | The skill composing F1–F4: convene (spawn + relate + brief by role), messaging contract, lifecycle, disband + reap | **new** (upstreamable to `srid/agency`) | all of the above, today done by hand |
+| **/team** | The skill composing F1–F4: convene (spawn + relate + brief by role), messaging contract, lifecycle, disband + reap | **new** (upstreamable to the `agents/` package) | all of the above, today done by hand |
 
 ## Notes toward /team
 
-- **Role presets are data, not code**: `implementor:worktree` (task brief, test-first, own branch) · `architect:read-only` (consults via /architecture-first-principles) · `watchguard:lowy` (reviews each push, red-flags to the orchestrator). A role names the skills loaded and the write posture.
+- **Role presets are data, not code**: `implementor:worktree` (task brief, test-first, own branch) · `architect:read-only` (consults the architecture-first-principles lens) · `watchguard:lowy` (reviews each push through the Löwy lens, red-flags to the orchestrator). A role names the lenses loaded and the write posture.
 - **The messaging contract encodes the campaign's hardest lesson**: two-step send + Enter; large payloads as file + pointer; *landing verified against the recipient's transcript, never the send's exit code*.
 - **Disband = the teardown discipline**: kill by captured id, reap worktrees, drop relations. Watchdogs stay even with F4 — detection and prevention are belt and suspenders.
 - **Done-when for /team**: a two-teammate team runs a real small task end-to-end — convened, visible on canvas, stage-reported, disbanded clean — zero manual `kaval-tui` by the human.

@@ -2,7 +2,7 @@
  *  components. App.tsx mounts the chrome, the canvas surface (chosen by
  *  `canvasMode`), the dialogs, and the overlays — and holds nothing but the
  *  layout. New domain state belongs in a `useXxx.ts` singleton, NOT here; the
- *  `app-shell-stays-thin` code-police rule + `App.shell.test.ts` enforce it.
+ *  `app-shell-stays-thin` rule + `App.shell.test.ts` enforce it.
  *
  *  The workspace mounts one macro layout chosen by `layoutMode` (useMobile):
  *  desktop is the spatial canvas; phone (below `sm`) is a single fullscreen

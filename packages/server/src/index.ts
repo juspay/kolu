@@ -586,7 +586,7 @@ export async function bootKoluWeb(flags: KoluBootFlags): Promise<void> {
       // The client was live but the cell yielded no frame — an operational anomaly,
       // not "no process to measure". Report `error`, not `absent`, and log at `error`
       // (a live-client read that produced nothing is a failed read, not a degraded-but-
-      // recoverable state — see `.agency/code-police.md` errors-must-log-at-error).
+      // recoverable state — the `errors-must-log-at-error` rule).
       if (Option.isNone(frame)) {
         log.error({}, "padi memory read yielded no frame through the mirror");
         return PADI_MEMORY_READ_ERROR;

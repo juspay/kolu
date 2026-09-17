@@ -29,7 +29,7 @@ just record                    # all recordings
 just record hero-demo    # one, by name
 ```
 
-Per do.md this is meant to run on a **pu box**; today the clips are captured
+Per the implementer playbook (`.apm/instructions/implementer.instructions.md`) this is meant to run on a **pu box**; today the clips are captured
 **locally** because the demo's climax launches a **real, authenticated agent**
 (`hero-demo` runs **both** `codex` and a write-capable `claude` — a clean
 box has no logged-in CLI). Nix
