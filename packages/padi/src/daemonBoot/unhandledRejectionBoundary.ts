@@ -22,7 +22,7 @@
  *      {@link PADI_UNHANDLED_REJECTION_MARKER}, so an operator (or a CI
  *      grep) finds every float the backstop swallowed the crash of. It is
  *      surfaced, never silenced — the caught-error doctrine
- *      (`.apm/instructions/code-review.instructions.md` → `caught-error-must-not-collapse-to-empty`)
+ *      (the `caught-error-must-not-collapse-to-empty` rule)
  *      demands the failure be distinguishable, and a marked ERROR line is.
  *   2. IDENTIFIED floats are still fixed at their SOURCE (the #1719 stdio
  *      teardown mechanism is owned/typed-cancelled at the link + pump). The

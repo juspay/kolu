@@ -43,43 +43,10 @@ Mechanically: add or edit one **Markdown list item** under the matching product-
 
 ## PR evidence
 
-Post a `## Evidence` PR comment when **any** of these holds — the trigger is "is there behavior worth proving?", not "does a pixel change?":
-
-1. **Visible UI impact** — capture screenshots, or **video** when the change is about motion (an animation, a transition, a multi-step interaction a still can't convey). Use judgment — server-only diffs sometimes ripple into rendering.
-2. **Behavioral / round-trip changes** — the diff touches a persistence, restore, session, autosave, debounce/coalesce, or reconnect path, and the proof is *"state survives an interaction or a restart,"* not a pixel change. Capture the before→after **behavior** — often with **zero visual diff** (e.g. resize → stop kolu → start → restore session → the panel returns at the resized width). A video of the round-trip is the proof the fix didn't break recoverability.
-3. **Bug fixes generally** — the default for a fix is *"demonstrate the fixed behavior."* The bug was often a storm, a lost write, or a hang, so a before/after or survives-restart clip is the evidence **even when nothing looks different**. Don't skip evidence just because a fix has no visual diff; skip only when the behavior genuinely can't be observed (e.g. a pure internal refactor with no externally visible effect).
-
-**Cover mobile/touch, not just desktop.** Kolu runs on phones and tablets, and these are **two orthogonal axes** — never conflate them (see `useMobile.ts`): viewport **size** (`isMobile`, the bottom-**drawer** layout) and input **modality** (`isTouch()`, `(pointer: coarse)`, which drives roomier hit targets that must clear the WCAG 2.2 **24px** floor). A desktop browser resized to 390×844 exercises the small-viewport layout but **leaves `(pointer: coarse)` false**, so it does *not* verify touch sizing. So for **any** visible UI change, a desktop-only capture is **not enough**, and you must cover the right axis for what changed:
-
-- **Small-viewport / drawer layout** — drive a phone-width viewport (e.g. `resize_page` to ~390×844 in the chrome-devtools path, or the mobile drawer) and confirm the change is reachable, **not clipped**, and tappable.
-- **Coarse-pointer hit targets** — when sizing is gated on `isTouch()` / `(pointer: coarse)` (touch-roomier rows, the Code-tab toolbar, the segmented control), a width resize alone proves nothing. Actually emulate a coarse pointer: a Playwright mobile context / device profile with `hasTouch`, or assert `matchMedia('(pointer: coarse)').matches` in the captured state. Verify each target measures ≥24px there.
-
-Desktop-only evidence has already shipped a touch regression (20px segmented-control targets a desktop screenshot looked fine at — and a *width-only* resize would have missed it just the same). When the desktop and mobile layouts differ, post **both**; when they're identical, one line confirming the mobile/coarse-pointer rendering was checked suffices. Skip only for changes with no on-screen surface at all.
-
-**Capture by recording an e2e scenario — the `evidence` skill (`.apm/skills/evidence/SKILL.md`) owns the procedure** (it builds on the `pu` skill; everything runs on an ephemeral `pu` box, off-machine, the way CI runs e2e). Kolu's e2e suite (`@cucumber/cucumber` + Playwright) already drives every UI surface through a maintained step library, so you capture a clip by *recording a scenario* — selected **by name**, with no edit to the feature file — never a hand-rolled Playwright script. Pick the scenario that exercises the change (or author a tiny one reusing existing steps); on the box the skill runs it with `KOLU_EVIDENCE=1`, which makes `packages/tests/support/hooks.ts` record the `.webm` (recordVideo + slowMo, animations left on), then transcodes (ffmpeg → GIF/mp4), uploads to the `evidence-assets` release, and links the shared Pages player.
-
-```sh
-KOLU_EVIDENCE=1 just test-quick features/<file>.feature --name "<scenario name>"
-# → packages/tests/reports/videos/<scenario>.webm
-```
-
-Rationale + the ecosystem survey: `docs/atlas/src/content/atlas/video-evidence.mdx`.
-
-**Capturing a state no scenario reaches (live chrome-devtools path).** When the evidence skill's "drive the state live" step (§A2) runs on *your machine* rather than a `pu` box, launch kolu with the `dev-server` skill — it boots on two random free ports via `just dev-auto`, remembers them for the session, and hands chrome-devtools the right client URL. This is mandatory: an agent that ran a bare `just dev` for evidence on [#1109](https://github.com/juspay/kolu/issues/1109) bound production's fixed ports and disrupted the live `kolu.service`. Never run the app for evidence any other way; never touch the systemd unit.
-
-### Agent-state scenarios
-
-When the change touches the Dock, terminal, or any UI surface that reflects agent activity, the capture has to show real states — a blank Dock proves nothing. Kolu's opencode integration is first-class: have the scenario you're recording open a terminal and run opencode in it (an `I run "…"` step); the preexec hook surfaces state in the Dock within ~300ms (states: `thinking`, `tool_use`, `awaiting_user`, `waiting`; bucketed in the Dock as `working ▸`, `awaiting ⏵`, `idle ☾`).
-
-```sh
-# Inside a Kolu terminal on the box — no global install needed
-nix run github:juspay/AI#opencode
-```
-
-Drive distinct states by prompt:
-
-- **thinking / tool_use** (`working ▸`, pulsing border) — send a reasoning- or tool-heavy prompt (`explain the architecture of this repo`, `list every file in src/`); capture during the spinner.
-- **awaiting_user** (`awaiting ⏵`, breathing border) — request an action that needs confirmation (e.g. an edit opencode wants to apply).
-- **waiting / idle** (`idle ☾`) — let the reply finish; the row drops to the idle bucket.
-
-For PRs whose changes affect one state, a single representative capture is fine; capture each when the change spans multiple. The default evidence for any Dock-touching change is **a screenshot of the Dock showing an agent state with a visible opencode reply** — that single frame proves the pipeline (terminal → provider → Dock) is alive end-to-end.
+- **Produce:** write the throwaway section at `.saatchi/evidence.ts`, then
+  `nix run github:juspay/saatchi` — it starts the app, drives it, and lands one
+  shot per `shot()` call in `.saatchi/shots/`.
+- **Publish:** `nix run github:juspay/saatchi#publish` prints a paste-ready
+  markdown block (videos handled); paste it on the PR.
+- The full contract — the `serve` adapter, sections, video, exit codes:
+  [saatchi's README](https://github.com/juspay/saatchi).

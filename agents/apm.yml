@@ -5,7 +5,7 @@ description: >-
   driving (kolu), shared @kolu/surface consumption (surface), adversarial
   done-claim auditing (hostility-review), and the Diátaxis documentation method
   (diataxis). Repo-agnostic: a consuming project supplies its own /atlas,
-  /test, /dev-server, and (optionally) /evidence skills.
+  /test, and /dev-server skills.
 type: hybrid
 targets:
   - claude
@@ -27,9 +27,9 @@ compilation:
 #   juspay/project-unknown  — /pu (ephemeral box for heavy work)
 #   juspay/odu              — /odu /odu-mcp
 #
-# A consuming project additionally supplies its OWN /atlas, /test, /dev-server,
-# and (optionally) /evidence skills — these are intentionally project-specific
-# and are NOT vendored here (see README → "Using this in your own project").
+# A consuming project additionally supplies its OWN /atlas, /test, and
+# /dev-server skills — these are intentionally project-specific and are NOT
+# vendored here (see README → "Using this in your own project").
 dependencies:
   apm:
     - path: ../agent-plugin/skills/kolu

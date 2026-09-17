@@ -654,7 +654,7 @@ export interface MakeSessionOptions<Client, Prov extends string = never> {
    *  has no spellable form here). Per-host context rides child bindings:
    *  `log.child({ host })`.
    *
-   *  The session classifies each line itself (`.apm/instructions/code-review.instructions.md`: genuine
+   *  The session classifies each line itself (genuine
    *  failed I/O logs at `error`, expected-absent conditions at `debug`) — a
    *  GENUINE failure (a wedged `system.clockNow` probe that hit its deadline, a
    *  transport fault) is `"error"`, an expected-absent condition (a dial whose
@@ -1074,7 +1074,7 @@ export function makeSession<
     // A down arm has nothing to back-stop — the reconnect/backoff machinery owns it now.
     clearPreConnected();
     // A terminal `failed` (gave up) is a GENUINE failure → `"error"` severity, so an
-    // error-filtered operator sees it (`.apm/instructions/code-review.instructions.md` errors-must-log-at-error);
+    // error-filtered operator sees it (the `errors-must-log-at-error` rule);
     // a `disconnected` is transient (retrying) → `"info"`.
     emit(`[${label}] error: ${error}`, phase === "failed" ? "error" : "info");
     // Both down arms are `Prov`-independent; the cast lets the generic construct the arm
@@ -1662,7 +1662,7 @@ export function makeSession<
         // reader renders "—"). It is deliberately NOT pushed onto the state `log` overlay
         // tail (`localProgress`) — a structural absence must not paint the connect overlay.
         //
-        // EXPECTED-ABSENT vs GENUINE FAILURE (`.apm/instructions/code-review.instructions.md`: genuine failed I/O
+        // EXPECTED-ABSENT vs GENUINE FAILURE (genuine failed I/O
         // at `error`, expected-absent at `info`). EXPECTED-ABSENT is the missing-member dial:
         // the client in THIS process's own hand has no `system.clockNow` — the route is
         // STRUCTURALLY absent, so `probeSurfaceClockNow` threw a TYPED
