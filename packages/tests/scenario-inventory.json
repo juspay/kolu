@@ -7694,6 +7694,18 @@
       "exampleRows": [],
       "executions": 1,
       "firstSeenSha": "4ab34be1805142c2a9a476482fb18dd70838b51a"
+    },
+    {
+      "revisionId": "revision-67b89c89e91c6857061b",
+      "scenarioKey": "scenario-d6c4efe543a75720742d",
+      "feature": "features/right-panel.feature",
+      "scenario": "New terminals inherit the previous terminal's panel visibility",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "b004a493f933201ca0f4c3ccf163cddd191a806d3891f838a50f44e07bd6edb9",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "325669054d613e9fecf719ae0c7d03359a65f98a"
     }
   ]
 }
