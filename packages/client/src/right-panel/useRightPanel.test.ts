@@ -7,6 +7,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 // mutators can be exercised without a live socket (mocking useTileStore also
 // keeps its persistCanvasLayout → solid-sonner chain out of the test env).
 const h = vi.hoisted(() => ({
+  host: "host-A",
+  saveOnOtherHost: vi.fn((): Effect.Effect<void, Error> => Effect.void),
   updatePreferences: vi.fn(),
   setRightPanel: vi.fn((): Effect.Effect<void, Error> => Effect.void),
   toastError: vi.fn(),
@@ -23,7 +25,19 @@ const h = vi.hoisted(() => ({
 vi.mock("../wire", () => ({
   // `reportToServer` writes via `activePadiRpc.chrome.setRightPanel`
   // (the active host's padi client) — the per-terminal collapsed/tab report path.
-  activePadiRpc: { chrome: { setRightPanel: h.setRightPanel } },
+  activePadiRpc: {
+    chrome: {
+      get setRightPanel() {
+        return h.host === "host-A" ? h.setRightPanel : h.saveOnOtherHost;
+      },
+    },
+  },
+  activeHost: () => h.host,
+  padiRpcOf: (host: string) => ({
+    chrome: {
+      setRightPanel: host === "host-A" ? h.setRightPanel : h.saveOnOtherHost,
+    },
+  }),
   updatePreferences: h.updatePreferences,
   preferences: () => h.prefs,
 }));
@@ -44,6 +58,8 @@ import type { TerminalId } from "kolu-common/surface";
 import { useRightPanel } from "./useRightPanel";
 
 beforeEach(() => {
+  h.host = "host-A";
+  h.saveOnOtherHost.mockClear();
   h.updatePreferences.mockClear();
   h.setRightPanel.mockClear();
   h.toastError.mockClear();
@@ -265,10 +281,12 @@ describe("new terminal panel visibility", () => {
     const next = `new-${collapsed}` as TerminalId;
     h.activeId = previous;
     collapsed ? rp.collapsePanel() : rp.expandPanel();
-    const inherited = rp.collapsed();
+    const initializePanel = rp.captureNewPanelVisibility();
     // A focus change while the create RPC is pending must not change the seed.
     h.activeId = `other-${collapsed}`;
-    rp.initializePanel(next, inherited);
+    h.host = "host-B";
+    initializePanel(next);
+    expect(h.saveOnOtherHost).not.toHaveBeenCalled();
     expect(h.setRightPanel).toHaveBeenLastCalledWith(
       expect.objectContaining({ id: next, collapsed }),
     );
@@ -277,5 +295,33 @@ describe("new terminal panel visibility", () => {
     collapsed ? rp.expandPanel() : rp.collapsePanel();
     h.activeId = previous;
     expect(rp.collapsed()).toBe(collapsed);
+  });
+});
+
+describe("new panel initialization", () => {
+  it.each([
+    true,
+    false,
+  ])("uses the initial preference with no active terminal: %s", (collapsed) => {
+    h.prefs.newTerminalCollapsed = collapsed;
+    const rp = useRightPanel();
+    const initializePanel = rp.captureNewPanelVisibility();
+    const id = `empty-${collapsed}` as TerminalId;
+    initializePanel(id);
+    h.activeId = id;
+    expect(rp.collapsed()).toBe(collapsed);
+    expect(h.setRightPanel).toHaveBeenLastCalledWith(
+      expect.objectContaining({ id, collapsed }),
+    );
+  });
+
+  it("preserves a tab selected before creation completes", () => {
+    const rp = useRightPanel();
+    const initializePanel = rp.captureNewPanelVisibility();
+    const id = "early-panel-interaction" as TerminalId;
+    h.activeId = id;
+    rp.showInspector();
+    initializePanel(id);
+    expect(rp.activeTab()).toEqual({ kind: "inspector" });
   });
 });

@@ -224,7 +224,7 @@ export const useTerminalCrud = createSharedRoot(() => {
       // the echo). Reading the echo alone would inherit the pre-resize size
       // when a create races the echo. `active()` bundles (id, meta) from one
       // glitch-free read.
-      const inheritedPanelCollapsed = rightPanel.collapsed();
+      const initializePanel = rightPanel.captureNewPanelVisibility();
       const { id: activeId, meta } = store.active();
       // `active()` bundles (id, meta): meta is null whenever id is null, so the
       // no-active-tile branch is just `undefined` — there's no metadata to read.
@@ -267,7 +267,7 @@ export const useTerminalCrud = createSharedRoot(() => {
       // `setActiveSilently`: the canvas's cascade-placement effect bumps
       // the centering signal once the new tile's pending layout is set —
       // calling `activate` here would race the layout and read undefined.
-      rightPanel.initializePanel(info.id, inheritedPanelCollapsed);
+      initializePanel(info.id);
       store.setActiveSilently(info.id);
       showTipOnce(CONTEXTUAL_TIPS.themeSwitch);
       return info.id;

@@ -26,8 +26,8 @@
  *    its closed, instead of one global bit forcing both. Unlike `useSubPanel`
  *    (which seeds from a plain static default), a fresh terminal seeds
  *    `collapsed` from the previous active terminal during browser creation,
- *    or the `newTerminalCollapsed` preference when none is active, then owns it. Persisted per-terminal via session restore, so it survives a
- *    reload the same way the active tab does.
+ *    or the `newTerminalCollapsed` preference when none is active, then owns it.
+ *    Persisted per-terminal via session restore, so it survives a reload the same way the active tab does.
  *
  *  Callers read/write for the *active* terminal — the API is parameterless,
  *  resolving the current terminal id from `useTerminalStore` internally. */
@@ -54,7 +54,13 @@ import { runAction } from "../runAction";
 import { useTerminalStore } from "../terminal/useTerminalStore";
 import { useTileStore } from "../tile/useTileStore";
 import { isDesktop } from "../useMobile";
-import { activePadiRpc, preferences, updatePreferences } from "../wire";
+import {
+  activeHost,
+  activePadiRpc,
+  padiRpcOf,
+  preferences,
+  updatePreferences,
+} from "../wire";
 
 /** A spot in the Code tab's navigable space — the unit `@kolu/solid-browser`'s
  *  history records. `mode` is the All/Local/Branch sub-view, carried *inside*
@@ -189,14 +195,17 @@ function ensureState(id: TerminalId): void {
   setPerTerminal(id, freshPerTerminalState());
 }
 
-function reportToServer(id: TerminalId): void {
+function reportToServer(
+  id: TerminalId,
+  rpc: ReturnType<typeof padiRpcOf>,
+): void {
   const s = perTerminal[id];
   if (!s) return;
   // Run at the seam: the caller is a synchronous store mutation echoing a local
   // write that already happened, with nothing to compose into.
   runAction(
     "save panel state",
-    activePadiRpc.chrome
+    rpc.chrome
       .setRightPanel({
         id,
         collapsed: s.collapsed,
@@ -267,29 +276,32 @@ export function useRightPanel() {
     return perTerminal[id] ?? freshPerTerminalState();
   }
 
-  /** Mutate the active terminal's per-terminal record. No-op when no
-   *  terminal is active — clicks on the panel before a terminal exists
-   *  are dropped silently.
-   *
-   *  Accepts either a shallow patch (`Partial<RightPanelPerTerminalState>`)
-   *  or a producer function for nested updates (e.g. mutating one key in
-   *  `selectedFileByMode`). Both paths share the same `ensureState →
-   *  setStore → reportToServer` triplet so future contract changes
-   *  (client-side equality gate, telemetry) land in one place. */
-  function mutateActive(
+  /** All panel writes share local initialization, mutation, and persistence.
+   *  The host is explicit so an in-flight create can retain its destination. */
+  function mutatePanel(
+    id: TerminalId,
     update:
       | Partial<RightPanelPerTerminalState>
       | ((s: RightPanelPerTerminalState) => void),
+    rpc: ReturnType<typeof padiRpcOf>,
   ): void {
-    const id = store.activeId();
-    if (id === null) return;
     ensureState(id);
     if (typeof update === "function") {
       setPerTerminal(id, produce(update));
     } else {
       setPerTerminal(id, update);
     }
-    reportToServer(id);
+    reportToServer(id, rpc);
+  }
+
+  /** UI gestures target the active terminal; an empty workspace has no target. */
+  function mutateActive(
+    update:
+      | Partial<RightPanelPerTerminalState>
+      | ((s: RightPanelPerTerminalState) => void),
+  ): void {
+    const id = store.activeId();
+    if (id !== null) mutatePanel(id, update, activePadiRpc);
   }
 
   /** Write the ACTIVE terminal's `collapsed` bit (per-terminal, reported to the
@@ -498,11 +510,13 @@ export function useRightPanel() {
     },
 
     // ── Session restore + lifecycle ──────────────────────────────────
-    /** Initialize a fresh terminal before activating it, using the visibility
-     *  captured when creation began. Persist it for session restore. */
-    initializePanel: (id: TerminalId, collapsed: boolean) => {
-      setPerTerminal(id, { ...freshPerTerminalState(), collapsed });
-      reportToServer(id);
+    /** Capture visibility and its host before creation yields. Apply only
+     *  visibility when the new ID arrives, preserving any other panel state. */
+    captureNewPanelVisibility: () => {
+      const inheritedCollapsed = collapsed();
+      const rpc = padiRpcOf(activeHost());
+      return (id: TerminalId) =>
+        mutatePanel(id, { collapsed: inheritedCollapsed }, rpc);
     },
     /** Seed per-terminal state from server data — no report-back to
      *  server. Called by `useSessionRestore` during hydration and after
