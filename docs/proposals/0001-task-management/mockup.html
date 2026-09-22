@@ -1,0 +1,1357 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Kolu · Task Management Mockups</title>
+    <style>
+      :root {
+        --bg: #0e1014;
+        --surface: #14181f;
+        --surface-2: #1a2029;
+        --border: #232a36;
+        --border-soft: #1d2330;
+        --text: #d6dee8;
+        --text-dim: #8995a6;
+        --text-faint: #5b6678;
+        --accent: #74c7ec;
+        --accent-soft: #2a3845;
+        --green: #a6e3a1;
+        --green-soft: #1f2e26;
+        --amber: #f9e2af;
+        --red: #f38ba8;
+        --explanation: #f5c2e7;
+        --explanation-soft: #2e1f2a;
+        --mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+        --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, system-ui, sans-serif;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html,
+      body {
+        margin: 0;
+        padding: 0;
+        background: var(--bg);
+        color: var(--text);
+        font-family: var(--sans);
+        font-size: 14px;
+        line-height: 1.5;
+      }
+
+      .page {
+        max-width: 1240px;
+        margin: 0 auto;
+        padding: 56px 32px 96px;
+      }
+
+      .page-header {
+        margin-bottom: 48px;
+      }
+
+      .page-header h1 {
+        font-size: 28px;
+        margin: 0 0 8px;
+        font-weight: 600;
+        letter-spacing: -0.01em;
+      }
+
+      .page-header p {
+        margin: 0;
+        color: var(--text-dim);
+        font-size: 15px;
+      }
+
+      .group-banner {
+        margin: 56px 0 32px;
+        padding: 14px 18px;
+        border-radius: 6px;
+        font-size: 13px;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        font-weight: 600;
+      }
+
+      .group-banner.proposed {
+        background: linear-gradient(to right, var(--accent-soft), transparent);
+        color: var(--accent);
+        border-left: 3px solid var(--accent);
+      }
+
+      .group-banner.explanation {
+        background: linear-gradient(to right, var(--explanation-soft), transparent);
+        color: var(--explanation);
+        border-left: 3px solid var(--explanation);
+      }
+
+      .group-banner .sub {
+        font-weight: 400;
+        text-transform: none;
+        letter-spacing: 0;
+        color: var(--text-dim);
+        margin-left: 12px;
+      }
+
+      .section {
+        margin-bottom: 56px;
+      }
+
+      .section-label {
+        display: flex;
+        align-items: baseline;
+        gap: 12px;
+        margin-bottom: 16px;
+      }
+
+      .section-label .num {
+        font-family: var(--mono);
+        color: var(--text-faint);
+        font-size: 12px;
+      }
+
+      .section-label h2 {
+        margin: 0;
+        font-size: 16px;
+        font-weight: 600;
+      }
+
+      .section-label .note {
+        color: var(--text-dim);
+        font-size: 13px;
+        margin-left: auto;
+        font-style: italic;
+      }
+
+      /* Kolu window chrome ------------------------------------------------- */
+      .frame {
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        overflow: hidden;
+        box-shadow: 0 1px 0 #ffffff04 inset, 0 24px 48px -24px #00000080;
+      }
+
+      .titlebar {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        height: 36px;
+        padding: 0 12px;
+        background: linear-gradient(to bottom, #1a2029, #14181f);
+        border-bottom: 1px solid var(--border);
+        font-family: var(--mono);
+        font-size: 12px;
+        color: var(--text-dim);
+      }
+
+      .traffic {
+        display: inline-flex;
+        gap: 6px;
+      }
+      .traffic span {
+        width: 11px;
+        height: 11px;
+        border-radius: 50%;
+        background: #2a3340;
+      }
+      .traffic span:nth-child(1) {
+        background: #ee6a5f;
+      }
+      .traffic span:nth-child(2) {
+        background: #f5be4f;
+      }
+      .traffic span:nth-child(3) {
+        background: #61c454;
+      }
+
+      .crumbs {
+        display: flex;
+        gap: 6px;
+        align-items: center;
+        flex: 1;
+      }
+      .crumbs .sep {
+        color: var(--text-faint);
+      }
+      .crumbs .active {
+        color: var(--text);
+      }
+
+      .titlebar .keys {
+        font-family: var(--mono);
+        color: var(--text-faint);
+      }
+
+      .url-bar {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 6px 14px;
+        background: #0a0c10;
+        border-bottom: 1px solid var(--border-soft);
+        font-family: var(--mono);
+        font-size: 12px;
+        color: var(--text-dim);
+      }
+      .url-bar .nav {
+        display: inline-flex;
+        gap: 4px;
+        color: var(--text-faint);
+      }
+      .url-bar .nav span {
+        cursor: pointer;
+      }
+      .url-bar .nav span.active {
+        color: var(--text);
+      }
+      .url-bar .lock {
+        font-size: 10px;
+        color: var(--green);
+      }
+      .url-bar .url {
+        flex: 1;
+        color: var(--text);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .url-bar .url .host {
+        color: var(--text-faint);
+      }
+      .url-bar .url .path {
+        color: var(--accent);
+      }
+
+      .updated-chip {
+        display: inline-block;
+        margin-top: 6px;
+        padding: 1px 7px;
+        font-family: var(--mono);
+        font-size: 10.5px;
+        color: var(--text-faint);
+        background: var(--bg);
+        border: 1px solid var(--border-soft);
+        border-radius: 3px;
+      }
+      .card .meta + .updated-chip,
+      .card .desc + .updated-chip {
+        margin-top: 8px;
+      }
+
+      /* Split layout: kanban + on-disk panel ------------------------------- */
+      .split-body {
+        display: grid;
+        grid-template-columns: 1.6fr 1fr;
+        background: var(--bg);
+      }
+
+      .split-pane {
+        padding: 24px;
+        min-height: 460px;
+      }
+
+      .split-pane.disk {
+        background: #0a0c10;
+        border-left: 1px solid var(--border);
+        position: relative;
+      }
+
+      .disk-banner {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        padding: 4px 10px;
+        margin-bottom: 14px;
+        background: var(--explanation-soft);
+        color: var(--explanation);
+        font-family: var(--mono);
+        font-size: 10.5px;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        border-radius: 3px;
+        border: 1px solid #4a2d40;
+      }
+
+      .disk-banner .dot {
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        background: var(--explanation);
+      }
+
+      .disk-path {
+        font-family: var(--mono);
+        font-size: 11.5px;
+        color: var(--text-faint);
+        margin-bottom: 10px;
+      }
+
+      pre.markdown {
+        font-family: var(--mono);
+        font-size: 11.5px;
+        line-height: 1.55;
+        color: var(--text-dim);
+        white-space: pre-wrap;
+        word-break: break-word;
+        margin: 0;
+      }
+      pre.markdown .frontmatter {
+        color: var(--text-faint);
+      }
+      pre.markdown .heading {
+        color: var(--accent);
+        font-weight: 600;
+      }
+      pre.markdown .complete-marker {
+        color: var(--green);
+        font-weight: 600;
+      }
+      pre.markdown .checkbox {
+        color: var(--text-faint);
+      }
+      pre.markdown .checkbox.done {
+        color: var(--green);
+      }
+      pre.markdown .blockid {
+        color: var(--text-faint);
+        opacity: 0.6;
+      }
+      pre.markdown .timestamp {
+        color: var(--amber);
+      }
+
+      /* Lanes -------------------------------------------------------------- */
+      .lanes {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 18px;
+      }
+
+      .lane-head {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 12px;
+        padding-bottom: 8px;
+        border-bottom: 1px solid var(--border-soft);
+      }
+
+      .lane-head .name {
+        font-weight: 600;
+        font-size: 13px;
+        letter-spacing: 0.02em;
+        text-transform: uppercase;
+        color: var(--text);
+      }
+
+      .lane-head .count {
+        font-family: var(--mono);
+        font-size: 11px;
+        color: var(--text-faint);
+      }
+
+      .lane-head .complete-flag {
+        margin-left: auto;
+        font-family: var(--mono);
+        font-size: 10px;
+        background: var(--green-soft);
+        color: var(--green);
+        padding: 2px 6px;
+        border-radius: 3px;
+        letter-spacing: 0.04em;
+      }
+
+      .card {
+        background: var(--surface-2);
+        border: 1px solid var(--border-soft);
+        border-radius: 6px;
+        padding: 10px 28px 10px 12px;
+        margin-bottom: 10px;
+        cursor: grab;
+        transition: border-color 120ms;
+        position: relative;
+      }
+      .card:hover {
+        border-color: var(--border);
+      }
+      .card:hover .card-x {
+        opacity: 1;
+      }
+
+      .card-x {
+        position: absolute;
+        top: 5px;
+        right: 6px;
+        width: 18px;
+        height: 18px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        background: transparent;
+        border: none;
+        color: var(--text-faint);
+        font-size: 13px;
+        line-height: 1;
+        cursor: pointer;
+        border-radius: 3px;
+        opacity: 0.55;
+        transition: color 100ms, background 100ms, opacity 100ms;
+      }
+      .card-x:hover {
+        color: var(--red);
+        background: var(--bg);
+        opacity: 1;
+      }
+
+      .card-chevron {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        margin-top: 8px;
+        padding: 3px 8px;
+        font-family: var(--mono);
+        font-size: 11.5px;
+        color: var(--text-faint);
+        background: var(--bg);
+        border: 1px solid var(--border-soft);
+        border-radius: 3px;
+        cursor: pointer;
+      }
+      .card-chevron:hover {
+        color: var(--text);
+        border-color: var(--border);
+      }
+      .card.collapsed .desc,
+      .card.collapsed .meta {
+        display: none;
+      }
+
+      .card .title {
+        font-size: 13.5px;
+        line-height: 1.4;
+      }
+
+      .card .desc {
+        font-size: 12px;
+        color: var(--text-dim);
+        margin-top: 4px;
+        line-height: 1.4;
+      }
+
+      .card .meta {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+        margin-top: 8px;
+      }
+
+      .card .term-tag {
+        font-family: var(--mono);
+        font-size: 11px;
+        color: var(--text-dim);
+        background: var(--bg);
+        padding: 2px 6px;
+        border-radius: 3px;
+        border: 1px solid var(--border-soft);
+      }
+      .card .term-tag::before {
+        content: "▸ ";
+        color: var(--accent);
+      }
+
+      .card.complete .title {
+        color: var(--text-dim);
+      }
+      .card.complete .check {
+        color: var(--green);
+        font-family: var(--mono);
+        font-size: 11px;
+        margin-left: auto;
+      }
+
+      .lane-add {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        padding: 8px 12px;
+        margin-top: 4px;
+        color: var(--text-faint);
+        font-size: 12.5px;
+        border: 1px dashed var(--border-soft);
+        border-radius: 6px;
+        cursor: text;
+      }
+      .lane-add::before {
+        content: "+";
+        color: var(--text-faint);
+        font-weight: 600;
+      }
+
+      .lane-add.active {
+        color: var(--text);
+        border-style: solid;
+        border-color: var(--accent);
+        background: var(--surface-2);
+      }
+      .lane-add.active::before {
+        color: var(--accent);
+      }
+      .lane-add.active .input-cursor {
+        display: inline-block;
+        width: 7px;
+        height: 14px;
+        background: var(--accent);
+        vertical-align: text-bottom;
+        margin-left: 4px;
+        animation: blink 1.05s step-end infinite;
+      }
+
+      /* Cross-project table ------------------------------------------------ */
+      .table-body {
+        background: var(--bg);
+      }
+
+      .table-toolbar {
+        display: flex;
+        align-items: center;
+        padding: 14px 18px;
+        gap: 12px;
+        border-bottom: 1px solid var(--border-soft);
+      }
+
+      .table-toolbar .label {
+        font-size: 13px;
+        color: var(--text-dim);
+      }
+
+      .table-toolbar .filter-pill {
+        background: var(--surface-2);
+        border: 1px solid var(--border-soft);
+        color: var(--text);
+        padding: 4px 10px;
+        border-radius: 4px;
+        font-size: 12px;
+        font-family: var(--mono);
+        cursor: pointer;
+      }
+
+      .table-toolbar .grow {
+        flex: 1;
+      }
+
+      table.tasks {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 13px;
+      }
+
+      table.tasks th {
+        text-align: left;
+        font-weight: 500;
+        font-size: 11px;
+        color: var(--text-faint);
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        padding: 12px 18px;
+        border-bottom: 1px solid var(--border-soft);
+      }
+
+      table.tasks td {
+        padding: 12px 18px;
+        border-bottom: 1px solid var(--border-soft);
+        vertical-align: top;
+      }
+
+      table.tasks tr:last-child td {
+        border-bottom: none;
+      }
+
+      table.tasks tr:hover td {
+        background: var(--surface);
+      }
+
+      td.updated {
+        font-family: var(--mono);
+        color: var(--text-dim);
+        white-space: nowrap;
+      }
+
+      td.project span.proj-name {
+        font-family: var(--mono);
+        font-size: 12.5px;
+      }
+      td.project span.synthetic {
+        color: var(--text-faint);
+        font-style: italic;
+      }
+
+      td.lane .pill {
+        font-family: var(--mono);
+        font-size: 11.5px;
+        padding: 2px 8px;
+        border-radius: 3px;
+        background: var(--surface-2);
+        color: var(--text);
+        border: 1px solid var(--border-soft);
+      }
+      td.lane .pill.done {
+        background: var(--green-soft);
+        color: var(--green);
+        border-color: transparent;
+      }
+
+      td.task .name {
+        font-size: 13px;
+      }
+      td.task .name.done {
+        color: var(--text-dim);
+        text-decoration: line-through;
+        text-decoration-color: var(--text-faint);
+      }
+
+      /* Terminal canvas ---------------------------------------------------- */
+      .canvas-body {
+        background: var(--bg);
+        padding: 20px;
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 14px;
+        min-height: 320px;
+      }
+
+      .term-tile {
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        overflow: hidden;
+        display: flex;
+        flex-direction: column;
+      }
+      .term-tile.focused {
+        border-color: var(--accent);
+        box-shadow: 0 0 0 1px var(--accent-soft);
+      }
+
+      .term-head {
+        padding: 8px 12px;
+        border-bottom: 1px solid var(--border-soft);
+        font-family: var(--mono);
+        font-size: 12px;
+        background: var(--surface-2);
+      }
+
+      .term-head .row {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+
+      .term-head .agent-dot {
+        color: var(--green);
+      }
+      .term-head .cmd {
+        color: var(--text);
+      }
+      .term-head .cwd {
+        color: var(--text-faint);
+      }
+      .term-head .grow {
+        flex: 1;
+      }
+
+      .term-head .task-link {
+        display: block;
+        margin-top: 4px;
+        font-size: 11.5px;
+        color: var(--accent);
+        cursor: pointer;
+      }
+      .term-head .task-link::before {
+        content: "▸ ";
+      }
+      .term-head .task-link.untagged {
+        color: var(--text-faint);
+        font-style: italic;
+      }
+      .term-head .task-link.untagged::before {
+        content: "+ ";
+      }
+
+      .term-screen {
+        flex: 1;
+        padding: 10px 12px;
+        font-family: var(--mono);
+        font-size: 12px;
+        color: var(--text);
+        background: var(--bg);
+        line-height: 1.55;
+      }
+
+      .term-screen .prompt {
+        color: var(--accent);
+      }
+      .term-screen .out {
+        color: var(--text-dim);
+      }
+      .cursor {
+        display: inline-block;
+        width: 7px;
+        height: 14px;
+        background: var(--accent);
+        vertical-align: text-bottom;
+        animation: blink 1.05s step-end infinite;
+      }
+      @keyframes blink {
+        50% {
+          opacity: 0;
+        }
+      }
+
+      /* Creation UI section ------------------------------------------------ */
+      .creation-body {
+        display: grid;
+        grid-template-columns: 1.2fr 1fr;
+        background: var(--bg);
+      }
+
+      .creation-pane {
+        padding: 24px;
+        min-height: 380px;
+      }
+
+      .creation-pane.modal {
+        background: #08090d;
+        border-left: 1px solid var(--border);
+        display: flex;
+        align-items: flex-start;
+        justify-content: center;
+        padding-top: 56px;
+      }
+
+      .pane-label {
+        display: inline-block;
+        padding: 3px 10px;
+        margin-bottom: 14px;
+        background: var(--accent-soft);
+        color: var(--accent);
+        font-family: var(--mono);
+        font-size: 10.5px;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        border-radius: 3px;
+      }
+
+      .mini-lane {
+        background: var(--surface);
+        border: 1px solid var(--border-soft);
+        border-radius: 6px;
+        padding: 12px;
+        max-width: 280px;
+      }
+
+      .mini-lane .lane-head {
+        margin-bottom: 8px;
+        padding-bottom: 6px;
+      }
+
+      .mini-lane .card {
+        margin-bottom: 8px;
+      }
+
+      .palette-modal {
+        width: 100%;
+        max-width: 460px;
+        background: var(--surface);
+        border: 1px solid var(--accent-soft);
+        border-radius: 8px;
+        box-shadow: 0 24px 48px -8px #00000099;
+        overflow: hidden;
+      }
+
+      .palette-search {
+        display: flex;
+        align-items: center;
+        padding: 12px 14px;
+        gap: 10px;
+        border-bottom: 1px solid var(--border-soft);
+        font-family: var(--mono);
+        font-size: 13px;
+      }
+
+      .palette-search .key {
+        color: var(--text-faint);
+      }
+      .palette-search .input {
+        color: var(--text);
+        flex: 1;
+      }
+      .palette-search .esc {
+        font-size: 10.5px;
+        color: var(--text-faint);
+        font-family: var(--mono);
+        border: 1px solid var(--border-soft);
+        padding: 2px 5px;
+        border-radius: 3px;
+      }
+
+      .palette-form {
+        padding: 14px 16px;
+      }
+
+      .palette-form .form-title {
+        font-size: 12px;
+        color: var(--text-faint);
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        margin-bottom: 10px;
+      }
+
+      .palette-form .field {
+        margin-bottom: 10px;
+      }
+
+      .palette-form label {
+        display: block;
+        font-size: 11px;
+        color: var(--text-faint);
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        margin-bottom: 4px;
+      }
+
+      .palette-form input,
+      .palette-form .select-pill,
+      .palette-form textarea {
+        width: 100%;
+        background: var(--bg);
+        border: 1px solid var(--border-soft);
+        color: var(--text);
+        font-family: var(--sans);
+        font-size: 13px;
+        padding: 7px 10px;
+        border-radius: 4px;
+      }
+
+      .palette-form input:focus {
+        outline: none;
+        border-color: var(--accent);
+      }
+
+      .palette-form .select-pill {
+        font-family: var(--mono);
+        color: var(--text);
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+      }
+      .palette-form .select-pill::after {
+        content: "⌄";
+        margin-left: auto;
+        color: var(--text-faint);
+      }
+
+      .palette-form textarea {
+        resize: none;
+        height: 56px;
+        font-family: var(--sans);
+        line-height: 1.4;
+      }
+
+      .palette-form .actions {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin-top: 12px;
+      }
+
+      .palette-form .submit {
+        padding: 6px 14px;
+        background: var(--accent);
+        color: #0a0c10;
+        font-weight: 600;
+        font-size: 12px;
+        border: none;
+        border-radius: 4px;
+        cursor: pointer;
+      }
+
+      .palette-form .hint {
+        font-family: var(--mono);
+        font-size: 11px;
+        color: var(--text-faint);
+        margin-left: auto;
+      }
+      .palette-form .hint kbd {
+        background: var(--surface-2);
+        border: 1px solid var(--border-soft);
+        padding: 1px 5px;
+        border-radius: 3px;
+        font-family: var(--mono);
+      }
+
+      /* Footer notes ------------------------------------------------------- */
+      .legend {
+        margin-top: 16px;
+        padding: 14px 18px;
+        background: var(--surface);
+        border: 1px solid var(--border-soft);
+        border-radius: 6px;
+        color: var(--text-dim);
+        font-size: 13px;
+        line-height: 1.6;
+      }
+      .legend strong {
+        color: var(--text);
+        font-weight: 600;
+      }
+      .legend code {
+        font-family: var(--mono);
+        background: var(--bg);
+        padding: 1px 5px;
+        border-radius: 3px;
+        font-size: 12px;
+      }
+      .legend.explanation strong {
+        color: var(--explanation);
+      }
+    </style>
+  </head>
+  <body>
+    <main class="page">
+      <header class="page-header">
+        <h1>Kolu — Task Management Mockups</h1>
+        <p>
+          Static views for proposal
+          <a style="color: var(--accent)" href="../0001-task-management.md">0001-task-management</a>. Dark-on-light bands
+          mark proposed Kolu surfaces; pink bands mark explanation-only material that is
+          <em>not</em> proposed for Kolu's UI.
+        </p>
+      </header>
+
+      <!-- ============================================================= -->
+      <div class="group-banner proposed">
+        Proposed views <span class="sub">— Kolu surfaces this proposal asks to add</span>
+      </div>
+
+      <!-- 1. Per-project board (with on-disk side panel) -->
+      <section class="section">
+        <div class="section-label">
+          <span class="num">01</span>
+          <h2>Per-project board</h2>
+          <span class="note">user-defined lanes; status is lane membership</span>
+        </div>
+
+        <div class="frame">
+          <div class="titlebar">
+            <span class="traffic"><span></span><span></span><span></span></span>
+            <div class="crumbs">
+              <span>kolu</span>
+              <span class="sep">▸</span>
+              <span class="active">kolu-board-spec</span>
+            </div>
+            <span class="keys">⌘K</span>
+          </div>
+
+          <div class="url-bar">
+            <span class="nav"><span>←</span><span class="active">→</span></span>
+            <span class="lock">🔒</span>
+            <span class="url"><span class="host">kolu.local</span><span class="path">/projects/7f3e1d2a-9b04-42c1-bc83-5e3d10d0b4a1</span></span>
+          </div>
+
+          <div class="split-body">
+            <div class="split-pane">
+              <div class="lanes">
+                <!-- Todo -->
+                <div class="lane">
+                  <div class="lane-head">
+                    <span class="name">Todo</span>
+                    <span class="count">3</span>
+                  </div>
+                  <div class="card">
+                    <button class="card-x" title="Delete">×</button>
+                    <div class="title">Refactor session module</div>
+                    <div class="desc">Splits the auth and session storage modules.</div>
+                    <span class="updated-chip">@{2026-04-19}</span>
+                  </div>
+                  <div class="card">
+                    <button class="card-x" title="Delete">×</button>
+                    <div class="title">Fix login bug</div>
+                    <div class="meta">
+                      <span class="term-tag">term-1</span>
+                      <span class="term-tag">term-2</span>
+                    </div>
+                    <span class="updated-chip">@{2026-04-20}</span>
+                  </div>
+                  <div class="card collapsed">
+                    <button class="card-x" title="Delete">×</button>
+                    <div class="title">Investigate dropped frames in scrollback</div>
+                    <div class="desc">
+                      Long description spanning several lines about the WebGL
+                      texture atlas growing unbounded in long-running terminals,
+                      with reproduction steps, the suspected cause inside
+                      xterm.js's renderer, the diagnostic dialog's GPU memory
+                      reading, and the workaround the user is currently relying
+                      on. Rendered only when expanded.
+                    </div>
+                    <div class="meta">
+                      <span class="term-tag">term-4</span>
+                    </div>
+                    <span class="card-chevron">▸ show more</span>
+                    <span class="updated-chip">@{2026-04-23}</span>
+                  </div>
+                  <div class="lane-add">add task…</div>
+                </div>
+
+                <!-- Doing -->
+                <div class="lane">
+                  <div class="lane-head">
+                    <span class="name">Doing</span>
+                    <span class="count">1</span>
+                  </div>
+                  <div class="card">
+                    <button class="card-x" title="Delete">×</button>
+                    <div class="title">Learn CRDTs</div>
+                    <div class="desc">Read paper; prototype a tiny LWW register; write up.</div>
+                    <div class="meta">
+                      <span class="term-tag">term-3</span>
+                    </div>
+                    <span class="updated-chip">@{2026-04-22}</span>
+                  </div>
+                  <div class="lane-add">add task…</div>
+                </div>
+
+                <!-- Done -->
+                <div class="lane">
+                  <div class="lane-head">
+                    <span class="name">Done</span>
+                    <span class="count">1</span>
+                    <span class="complete-flag">**Complete**</span>
+                  </div>
+                  <div class="card complete">
+                    <button class="card-x" title="Delete">×</button>
+                    <div class="title" style="display: flex; align-items: center">
+                      Set up dev env
+                      <span class="check">✓</span>
+                    </div>
+                    <span class="updated-chip">@{2026-04-25}</span>
+                  </div>
+                  <div class="lane-add">add task…</div>
+                </div>
+              </div>
+            </div>
+
+            <div class="split-pane disk">
+              <div class="disk-banner">
+                <span class="dot"></span>
+                Explanation only — what's on disk
+              </div>
+              <div class="disk-path">~/.config/kolu/projects/&lt;id&gt;/board.md</div>
+              <pre class="markdown"><span class="frontmatter">---
+kolu-board: v1
+projectId: 7f3e...
+---</span>
+
+<span class="heading">## Todo</span>
+
+<span class="checkbox">- [ ]</span> Refactor session module <span class="blockid">&lt;!-- ^def456 --&gt;</span> <span class="timestamp">@{2026-04-19}</span>
+  Splits the auth and session storage modules.
+<span class="checkbox">- [ ]</span> Fix login bug <span class="blockid">&lt;!-- ^abc123 --&gt;</span> <span class="timestamp">@{2026-04-20}</span>
+<span class="checkbox">- [ ]</span> Investigate dropped frames in scrollback <span class="blockid">&lt;!-- ^mno345 --&gt;</span> <span class="timestamp">@{2026-04-23}</span>
+  Long description spanning several lines about the WebGL texture atlas
+  growing unbounded in long-running terminals, with reproduction steps…
+
+<span class="heading">## Doing</span>
+
+<span class="checkbox">- [ ]</span> Learn CRDTs <span class="blockid">&lt;!-- ^ghi789 --&gt;</span> <span class="timestamp">@{2026-04-22}</span>
+  Read paper; prototype a tiny LWW register; write up.
+
+<span class="heading">## Done</span>
+
+<span class="complete-marker">**Complete**</span>
+
+<span class="checkbox done">- [x]</span> Set up dev env <span class="blockid">&lt;!-- ^jkl012 --&gt;</span> <span class="timestamp">@{2026-04-25}</span></pre>
+            </div>
+          </div>
+        </div>
+
+        <div class="legend">
+          <strong>What's shown (left, proposed):</strong> The URL bar shows the route the board lives at —
+          <code>/projects/&lt;projectId&gt;</code>. Lanes are user-named. The <code>**Complete**</code> badge
+          marks a lane as carrying the <code>complete</code> role; tasks living there are *currently
+          completed*. Each card carries an <code>@{YYYY-MM-DD}</code> chip — that's the task's
+          <code>updatedAt</code>, bumped on lane move or inline edit (not on drag-to-reorder within the same
+          lane). Term-pills under cards are linked terminals; clicking one navigates to <code>/</code>
+          (workspace) and focuses that terminal — browser back returns here. Each card carries a small
+          <code>×</code> in the top-right (visible on hover) that opens a delete-confirm modal. The third
+          Todo card has a long description and starts collapsed with a <code>▸ show more</code> chevron —
+          clicking the chevron expands the card; the state is session-only and not persisted. The
+          <code>+ add task…</code> at the bottom of each lane is one of the two creation affordances (see
+          view 04).
+        </div>
+        <div class="legend explanation">
+          <strong>What's shown (right, explanation only):</strong> The raw markdown that produces the board
+          on the left. <strong>This is not a proposed Kolu surface</strong> — Kolu is not proposing to render
+          a side-by-side raw-source panel. The panel exists in this mockup so reviewers can see the file
+          format concretely. Block-id anchors (<code>&lt;!-- ^abc123 --&gt;</code>) are kolu-managed and
+          intentionally hidden in HTML comments.
+        </div>
+      </section>
+
+      <!-- 2. Cross-project list -->
+      <section class="section">
+        <div class="section-label">
+          <span class="num">02</span>
+          <h2>Cross-project view</h2>
+          <span class="note">time-ordered; no status normalization</span>
+        </div>
+
+        <div class="frame">
+          <div class="titlebar">
+            <span class="traffic"><span></span><span></span><span></span></span>
+            <div class="crumbs">
+              <span class="active">Tasks · all projects</span>
+            </div>
+          </div>
+
+          <div class="url-bar">
+            <span class="nav"><span>←</span><span class="active">→</span></span>
+            <span class="lock">🔒</span>
+            <span class="url"><span class="host">kolu.local</span><span class="path">/tasks</span></span>
+          </div>
+
+          <div class="table-body">
+            <div class="table-toolbar">
+              <span class="label">Filter</span>
+              <span class="filter-pill">project: any ⌄</span>
+              <span class="filter-pill">lane: any ⌄</span>
+              <span class="filter-pill">order: updated ⌄</span>
+              <span class="grow"></span>
+              <span class="label" style="font-family: var(--mono); font-size: 12px">4 tasks</span>
+            </div>
+
+            <table class="tasks">
+              <thead>
+                <tr>
+                  <th>Updated</th>
+                  <th>Project</th>
+                  <th>Lane</th>
+                  <th>Task</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td class="updated">2h ago</td>
+                  <td class="project"><span class="proj-name">kolu-board-spec</span></td>
+                  <td class="lane"><span class="pill">Doing</span></td>
+                  <td class="task"><span class="name">Learn CRDTs</span></td>
+                </tr>
+                <tr>
+                  <td class="updated">5h ago</td>
+                  <td class="project"><span class="proj-name">kolu</span></td>
+                  <td class="lane"><span class="pill">Todo</span></td>
+                  <td class="task"><span class="name">Refactor session module</span></td>
+                </tr>
+                <tr>
+                  <td class="updated">yesterday</td>
+                  <td class="project"><span class="proj-name">kolu-board-spec</span></td>
+                  <td class="lane"><span class="pill done">Done ✓</span></td>
+                  <td class="task"><span class="name done">Set up dev env</span></td>
+                </tr>
+                <tr>
+                  <td class="updated">3d ago</td>
+                  <td class="project"><span class="proj-name synthetic">No Project</span></td>
+                  <td class="lane"><span class="pill">Reading</span></td>
+                  <td class="task"><span class="name">Read CRDT paper X</span></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="legend">
+          <strong>What's shown:</strong> One row per task across every project. <code>Lane</code> is a string
+          per project — note that <em>No Project</em> has a lane called <code>Reading</code> that no other
+          project has, and that's fine. The view does not align lane names across projects. Floating tasks
+          live under the synthetic project displayed as <strong>"No Project"</strong>. That display label is
+          rendered by the UI when a project's <code>id</code> matches the reserved sentinel constant — never
+          by name match — so a user who creates a real project named "No Project" doesn't collide with the
+          synthetic one.
+        </div>
+      </section>
+
+      <!-- 3. Terminal canvas -->
+      <section class="section">
+        <div class="section-label">
+          <span class="num">03</span>
+          <h2>Terminal canvas with task tags</h2>
+          <span class="note">existing canvas; one new title-bar affordance</span>
+        </div>
+
+        <div class="frame">
+          <div class="titlebar">
+            <span class="traffic"><span></span><span></span><span></span></span>
+            <div class="crumbs">
+              <span>kolu</span>
+              <span class="sep">▸</span>
+              <span class="active">2 terminals</span>
+            </div>
+            <span class="keys">⌘K</span>
+          </div>
+
+          <div class="url-bar">
+            <span class="nav"><span class="active">←</span><span>→</span></span>
+            <span class="lock">🔒</span>
+            <span class="url"><span class="host">kolu.local</span><span class="path">/</span></span>
+          </div>
+
+          <div class="canvas-body">
+            <div class="term-tile focused">
+              <div class="term-head">
+                <div class="row">
+                  <span class="agent-dot">●</span>
+                  <span class="cmd">claude</span>
+                  <span class="cwd">~/kolu</span>
+                </div>
+                <div class="task-link">Fix login bug</div>
+              </div>
+              <div class="term-screen">
+                <div><span class="prompt">$</span> claude "investigate the login 500"</div>
+                <div class="out">⎯ thinking …</div>
+                <div class="out">Looking at <span style="color: var(--accent)">auth/session.ts</span>…</div>
+                <div><span class="prompt">$</span> <span class="cursor"></span></div>
+              </div>
+            </div>
+
+            <div class="term-tile">
+              <div class="term-head">
+                <div class="row">
+                  <span style="color: var(--text-dim)">zsh</span>
+                  <span class="cwd">~/kolu</span>
+                </div>
+                <div class="task-link untagged">attach to a task…</div>
+              </div>
+              <div class="term-screen">
+                <div><span class="prompt">$</span> just test-quick</div>
+                <div class="out">120 passed · 0 failed</div>
+                <div><span class="prompt">$</span> <span class="cursor"></span></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="legend">
+          <strong>What's shown:</strong> The left tile (agent running) is tagged with the
+          <em>Fix login bug</em> task — clicking the link jumps to that task in its project board. The right
+          tile is untagged and shows a hint affordance. Untagged is the default; tagging is opt-in. Nothing
+          else about the canvas changes — the title bar gains one line, that's it.
+        </div>
+      </section>
+
+      <!-- 4. Creation UI -->
+      <section class="section">
+        <div class="section-label">
+          <span class="num">04</span>
+          <h2>Creating a task</h2>
+          <span class="note">one operation, two affordances</span>
+        </div>
+
+        <div class="frame">
+          <div class="titlebar">
+            <span class="traffic"><span></span><span></span><span></span></span>
+            <div class="crumbs">
+              <span class="active">creating a task</span>
+            </div>
+          </div>
+
+          <div class="url-bar">
+            <span class="nav"><span class="active">←</span><span>→</span></span>
+            <span class="lock">🔒</span>
+            <span class="url"><span class="host">kolu.local</span><span class="path">/projects/7f3e1d2a-9b04-42c1-bc83-5e3d10d0b4a1</span></span>
+          </div>
+
+          <div class="creation-body">
+            <!-- Left: per-lane inline -->
+            <div class="creation-pane">
+              <span class="pane-label">Per-lane inline</span>
+              <p style="color: var(--text-dim); font-size: 13px; margin: 0 0 18px">
+                Click <code style="font-family: var(--mono); font-size: 12px">+ add task…</code> at the
+                bottom of any lane. Project + lane are inferred; you only type the title.
+              </p>
+              <div class="mini-lane">
+                <div class="lane-head">
+                  <span class="name">Todo</span>
+                  <span class="count">2</span>
+                </div>
+                <div class="card">
+                  <button class="card-x" title="Delete">×</button>
+                  <div class="title">Refactor session module</div>
+                </div>
+                <div class="card">
+                  <button class="card-x" title="Delete">×</button>
+                  <div class="title">Fix login bug</div>
+                </div>
+                <div class="lane-add active">
+                  Investigate flaky test<span class="input-cursor"></span>
+                </div>
+              </div>
+              <p
+                style="
+                  color: var(--text-faint);
+                  font-size: 12px;
+                  margin: 14px 0 0;
+                  font-family: var(--mono);
+                "
+              >
+                ↵ to create · esc to cancel · ⇥ to expand into the modal
+              </p>
+            </div>
+
+            <!-- Right: command palette modal -->
+            <div class="creation-pane modal">
+              <div class="palette-modal">
+                <div class="palette-search">
+                  <span class="key">⌘K</span>
+                  <span class="input">new task<span class="cursor"></span></span>
+                  <span class="esc">esc</span>
+                </div>
+                <div class="palette-form">
+                  <div class="form-title">New task</div>
+                  <div class="field">
+                    <label>Project</label>
+                    <div class="select-pill">kolu-board-spec</div>
+                  </div>
+                  <div class="field">
+                    <label>Lane</label>
+                    <div class="select-pill">Todo</div>
+                  </div>
+                  <div class="field">
+                    <label>Title</label>
+                    <input type="text" value="Investigate flaky test" />
+                  </div>
+                  <div class="field">
+                    <label>Description (optional)</label>
+                    <textarea>Probably a race in the auth setup teardown.</textarea>
+                  </div>
+                  <div class="actions">
+                    <button class="submit">Create</button>
+                    <span class="hint"><kbd>⌘ ↵</kbd> create · <kbd>esc</kbd> cancel</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="legend">
+          <strong>What's shown:</strong> Two affordances calling one underlying
+          <code>createTask(input)</code> operation. The per-lane inline (left) pre-fills project + lane, asks
+          only for title — fast path. The command palette (right) elicits all fields with sensible defaults
+          (last-active project, project's first lane) — works from anywhere, including with no project open.
+          They share the write path; affordances differ only in which fields they ask for.
+        </div>
+      </section>
+    </main>
+  </body>
+</html>
