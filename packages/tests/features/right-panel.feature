@@ -273,10 +273,14 @@ Feature: Right panel (Code + Inspector)
   Scenario: New terminals inherit the previous terminal's panel visibility
     Then the right panel should not be visible
     When I create a terminal with keyboard shortcut
+    Then there should be 2 canvas tiles
+    And I wait for all terminals to settle
     Then the right panel should not be visible
     When I press the toggle inspector shortcut
     Then the right panel should be visible
     When I create a terminal with keyboard shortcut
+    Then there should be 3 canvas tiles
+    And I wait for all terminals to settle
     Then the right panel should be visible
     When I refresh the page
     Then the right panel should be visible
