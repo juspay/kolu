@@ -2061,3 +2061,16 @@ retirements:
       file: packages/tests/features/dock-arrange.feature
       symbol: "Scenario: Dragging a branch cluster moves it; rows inside stay in creation order"
       test: Same scenario name, same assertions; the superseded body is this PR's own in-flight recording (the scenario's step text was edited during development before the feature landed) — not a separate scenario. The survivor is the landed spelling. The 9a11 record's merge-time disappearance from the inventory was a merge-resolution artifact, and the record was restored verbatim (append-only law).
+  - id: revise-panel-inheritance-creation-wait
+    revisionId: revision-67b89c89e91c6857061b
+    action: revised
+    status: landed
+    promise: New browser terminals inherit panel visibility and retain it after refresh
+    defectSurface: [right-panel, terminal-creation]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-6aff9e3d2db290db7d87]
+    sameCodePathEvidence:
+      file: packages/tests/features/right-panel.feature
+      symbol: "Scenario: New terminals inherit the previous terminal's panel visibility"
+      test: Preserves all visibility and refresh assertions while waiting for two and then three canvas tiles and settled terminals, preventing assertions against the previous terminal before creation completes.
