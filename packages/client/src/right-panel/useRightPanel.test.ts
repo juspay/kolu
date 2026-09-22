@@ -254,3 +254,28 @@ describe("useRightPanel — syncRepo scopes history per repo, per terminal", () 
     expect(rp.canNavigateBack()).toBe(false);
   });
 });
+
+describe("new terminal panel visibility", () => {
+  it.each([
+    true,
+    false,
+  ])("inherits collapsed=%s before activation and persists it", (collapsed) => {
+    const rp = useRightPanel();
+    const previous = `previous-${collapsed}` as TerminalId;
+    const next = `new-${collapsed}` as TerminalId;
+    h.activeId = previous;
+    collapsed ? rp.collapsePanel() : rp.expandPanel();
+    const inherited = rp.collapsed();
+    // A focus change while the create RPC is pending must not change the seed.
+    h.activeId = `other-${collapsed}`;
+    rp.initializePanel(next, inherited);
+    expect(h.setRightPanel).toHaveBeenLastCalledWith(
+      expect.objectContaining({ id: next, collapsed }),
+    );
+    h.activeId = next;
+    expect(rp.collapsed()).toBe(collapsed);
+    collapsed ? rp.expandPanel() : rp.collapsePanel();
+    h.activeId = previous;
+    expect(rp.collapsed()).toBe(collapsed);
+  });
+});

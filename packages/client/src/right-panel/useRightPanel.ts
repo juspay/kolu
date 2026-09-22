@@ -7,7 +7,8 @@
  *    `size`/`codeTabTreeSize` drive the desktop Resizable's width + the Code-tab
  *    tree/content split (viewer density taste, tuned once, left put), each with a
  *    real writer (`setPanelSize`/`setCodeTabTreeSize`). The NEW-TERMINAL collapsed
- *    default is a separate top-level `preferences.newTerminalCollapsed` seed (not
+ *    default, used when there is no active terminal to inherit from, is a
+ *    separate top-level `preferences.newTerminalCollapsed` seed (not
  *    on this record) — a copy-on-create default; the LIVE collapsed state follows
  *    the terminal (below).
  *  - **Touch-layout drawer open state** (phone + compact) is session-local, NOT
@@ -24,8 +25,8 @@
  *    a PR-review terminal keeps its panel open while a build-log terminal keeps
  *    its closed, instead of one global bit forcing both. Unlike `useSubPanel`
  *    (which seeds from a plain static default), a fresh terminal seeds
- *    `collapsed` by reading through the `newTerminalCollapsed` preference above,
- *    then owns it. Persisted per-terminal via session restore, so it survives a
+ *    `collapsed` from the previous active terminal during browser creation,
+ *    or the `newTerminalCollapsed` preference when none is active, then owns it. Persisted per-terminal via session restore, so it survives a
  *    reload the same way the active tab does.
  *
  *  Callers read/write for the *active* terminal — the API is parameterless,
@@ -497,6 +498,12 @@ export function useRightPanel() {
     },
 
     // ── Session restore + lifecycle ──────────────────────────────────
+    /** Initialize a fresh terminal before activating it, using the visibility
+     *  captured when creation began. Persist it for session restore. */
+    initializePanel: (id: TerminalId, collapsed: boolean) => {
+      setPerTerminal(id, { ...freshPerTerminalState(), collapsed });
+      reportToServer(id);
+    },
     /** Seed per-terminal state from server data — no report-back to
      *  server. Called by `useSessionRestore` during hydration and after
      *  recreating a saved terminal. */

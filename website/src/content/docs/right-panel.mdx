@@ -147,8 +147,9 @@ Whether the panel is open, and which tab it's on, is remembered **per terminal**
 not as one global switch. Collapse it on a build-log tile and it stays collapsed
 there; leave it open on a branch diff and switching back restores it exactly. It
 rides session restore, so each terminal's panel state survives a reload. New
-terminals open with the panel showing by default; the panel **width** and the
-Code-tab tree/content split stay global.
+terminals created in the browser inherit whether the previous active terminal’s
+panel was open or closed. With no active terminal, the new-terminal default
+applies. The panel **width** and the Code-tab tree/content split stay global.
 
 ## Next
 
