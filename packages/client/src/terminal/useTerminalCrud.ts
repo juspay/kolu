@@ -179,7 +179,7 @@ export const useTerminalCrud = createSharedRoot(() => {
   /** Create a new terminal on the server and make it active.
    *  Returns the new terminal ID.
    *
-   *  This handler seeds NOTHING: the create carries a `cwd` and nothing else.
+   *  This handler inherits panel visibility from the active terminal.
    *  The new-terminal THEME policy (inherit/shuffle) resolves in padi's
    *  `lifecycle.create`, from the policy cell kolu-server pushes, so every face
    *  — browser, MCP, CLI — obeys the same preference (#2045); and session
@@ -224,6 +224,7 @@ export const useTerminalCrud = createSharedRoot(() => {
       // the echo). Reading the echo alone would inherit the pre-resize size
       // when a create races the echo. `active()` bundles (id, meta) from one
       // glitch-free read.
+      const initializePanel = rightPanel.captureNewPanelVisibility();
       const { id: activeId, meta } = store.active();
       // `active()` bundles (id, meta): meta is null whenever id is null, so the
       // no-active-tile branch is just `undefined` — there's no metadata to read.
@@ -266,6 +267,7 @@ export const useTerminalCrud = createSharedRoot(() => {
       // `setActiveSilently`: the canvas's cascade-placement effect bumps
       // the centering signal once the new tile's pending layout is set —
       // calling `activate` here would race the layout and read undefined.
+      initializePanel(info.id);
       store.setActiveSilently(info.id);
       showTipOnce(CONTEXTUAL_TIPS.themeSwitch);
       return info.id;

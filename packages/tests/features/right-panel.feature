@@ -1,13 +1,9 @@
 Feature: Right panel (Code + Inspector)
   Collapsible right panel with a Code browser and a metadata Inspector
   tab, toggled via keyboard shortcut or header icon. The panel's collapsed
-  posture is PER-TERMINAL now — it follows the terminal (#959) — seeded on a
-  new terminal from the new-terminal default (DEFAULT_PREFERENCES
-  .newTerminalCollapsed = false, i.e. open-on-Code for new users); the e2e
-  fixture instead pins that seed collapsed (hooks.ts) so every terminal a
-  scenario spawns starts closed, for deterministic toggle assertions, so these
-  scenarios drive visibility explicitly rather than relying on the
-  open-by-default state.
+  posture is per-terminal. Browser-created terminals inherit the active
+  terminal's visibility; the first terminal uses the new-terminal preference.
+  The test fixture starts the first terminal collapsed.
 
   Background:
     Given the terminal is ready
@@ -226,7 +222,6 @@ Feature: Right panel (Code + Inspector)
     And the inspector directory should contain "/tmp/kolu-inspector-alpha"
     When I create a terminal
     And I run "rm -rf /tmp/kolu-inspector-beta && git init /tmp/kolu-inspector-beta && cd /tmp/kolu-inspector-beta && git checkout -b beta-feature"
-    When I press the toggle inspector shortcut
     Then the right panel should be visible
     When I click the right panel tab "inspector"
     Then the inspector branch chip should contain "beta-feature"
@@ -262,9 +257,10 @@ Feature: Right panel (Code + Inspector)
     # fixture pins). Open its panel, then create terminal 2.
     When I press the toggle inspector shortcut
     Then the right panel should be visible
-    # Terminal 2 seeds the new-terminal default (collapsed), so its panel starts
-    # hidden — independent of terminal 1's open panel.
+    # Terminal 2 inherits the open panel. Close it independently.
     When I create a terminal
+    Then the right panel should be visible
+    When I press the toggle inspector shortcut
     Then the right panel should not be visible
     # Switch back to terminal 1 — its panel is still open (it remembers its own).
     When I press the switch to terminal 1 shortcut
@@ -272,4 +268,20 @@ Feature: Right panel (Code + Inspector)
     # Forward to terminal 2 — still collapsed.
     When I press the switch to terminal 2 shortcut
     Then the right panel should not be visible
+    And there should be no page errors
+
+  Scenario: New terminals inherit the previous terminal's panel visibility
+    Then the right panel should not be visible
+    When I create a terminal with keyboard shortcut
+    Then there should be 2 canvas tiles
+    And I wait for all terminals to settle
+    Then the right panel should not be visible
+    When I press the toggle inspector shortcut
+    Then the right panel should be visible
+    When I create a terminal with keyboard shortcut
+    Then there should be 3 canvas tiles
+    And I wait for all terminals to settle
+    Then the right panel should be visible
+    When I refresh the page
+    Then the right panel should be visible
     And there should be no page errors

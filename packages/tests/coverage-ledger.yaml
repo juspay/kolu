@@ -2061,3 +2061,42 @@ retirements:
       file: packages/tests/features/dock-arrange.feature
       symbol: "Scenario: Dragging a branch cluster moves it; rows inside stay in creation order"
       test: Same scenario name, same assertions; the superseded body is this PR's own in-flight recording (the scenario's step text was edited during development before the feature landed) — not a separate scenario. The survivor is the landed spelling. The 9a11 record's merge-time disappearance from the inventory was a merge-resolution artifact, and the record was restored verbatim (append-only law).
+  - id: revise-panel-inheritance-creation-wait
+    revisionId: revision-67b89c89e91c6857061b
+    action: revised
+    status: landed
+    promise: New browser terminals inherit panel visibility and retain it after refresh
+    defectSurface: [right-panel, terminal-creation]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-6aff9e3d2db290db7d87]
+    sameCodePathEvidence:
+      file: packages/tests/features/right-panel.feature
+      symbol: "Scenario: New terminals inherit the previous terminal's panel visibility"
+      test: Preserves all visibility and refresh assertions while waiting for two and then three canvas tiles and settled terminals, preventing assertions against the previous terminal before creation completes.
+  - id: revise-revision-77762ac33f1cbf2c8bc6
+    revisionId: revision-77762ac33f1cbf2c8bc6
+    action: revised
+    status: landed
+    promise: Inspector Work chips follow the active terminal across repos
+    defectSurface: [right-panel, terminal-creation]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-e74a33a4520fb2b2820a]
+    sameCodePathEvidence:
+      file: packages/tests/features/right-panel.feature
+      symbol: "Scenario: Inspector Work chips follow the active terminal across repos"
+      test: Preserves the scenario's assertions while accounting for newly created terminals inheriting an open panel; collapse is now an explicit independent action rather than an assumed creation default.
+  - id: revise-revision-f29c19afb269e4819b1c
+    revisionId: revision-f29c19afb269e4819b1c
+    action: revised
+    status: landed
+    promise: Collapsed state is per-terminal (the panel follows the terminal)
+    defectSurface: [right-panel, terminal-creation]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-03f5fb70728994883497]
+    sameCodePathEvidence:
+      file: packages/tests/features/right-panel.feature
+      symbol: "Scenario: Collapsed state is per-terminal (the panel follows the terminal)"
+      test: Preserves the scenario's assertions while accounting for newly created terminals inheriting an open panel; collapse is now an explicit independent action rather than an assumed creation default.
