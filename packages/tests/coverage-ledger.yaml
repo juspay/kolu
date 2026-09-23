@@ -2074,3 +2074,29 @@ retirements:
       file: packages/tests/features/right-panel.feature
       symbol: "Scenario: New terminals inherit the previous terminal's panel visibility"
       test: Preserves all visibility and refresh assertions while waiting for two and then three canvas tiles and settled terminals, preventing assertions against the previous terminal before creation completes.
+  - id: revise-revision-77762ac33f1cbf2c8bc6
+    revisionId: revision-77762ac33f1cbf2c8bc6
+    action: revised
+    status: landed
+    promise: Inspector Work chips follow the active terminal across repos
+    defectSurface: [right-panel, terminal-creation]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-e74a33a4520fb2b2820a]
+    sameCodePathEvidence:
+      file: packages/tests/features/right-panel.feature
+      symbol: "Scenario: Inspector Work chips follow the active terminal across repos"
+      test: Preserves the scenario's assertions while accounting for newly created terminals inheriting an open panel; collapse is now an explicit independent action rather than an assumed creation default.
+  - id: revise-revision-f29c19afb269e4819b1c
+    revisionId: revision-f29c19afb269e4819b1c
+    action: revised
+    status: landed
+    promise: Collapsed state is per-terminal (the panel follows the terminal)
+    defectSurface: [right-panel, terminal-creation]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-03f5fb70728994883497]
+    sameCodePathEvidence:
+      file: packages/tests/features/right-panel.feature
+      symbol: "Scenario: Collapsed state is per-terminal (the panel follows the terminal)"
+      test: Preserves the scenario's assertions while accounting for newly created terminals inheriting an open panel; collapse is now an explicit independent action rather than an assumed creation default.

@@ -222,7 +222,6 @@ Feature: Right panel (Code + Inspector)
     And the inspector directory should contain "/tmp/kolu-inspector-alpha"
     When I create a terminal
     And I run "rm -rf /tmp/kolu-inspector-beta && git init /tmp/kolu-inspector-beta && cd /tmp/kolu-inspector-beta && git checkout -b beta-feature"
-    When I press the toggle inspector shortcut
     Then the right panel should be visible
     When I click the right panel tab "inspector"
     Then the inspector branch chip should contain "beta-feature"
@@ -258,9 +257,10 @@ Feature: Right panel (Code + Inspector)
     # fixture pins). Open its panel, then create terminal 2.
     When I press the toggle inspector shortcut
     Then the right panel should be visible
-    # Terminal 2 seeds the new-terminal default (collapsed), so its panel starts
-    # hidden — independent of terminal 1's open panel.
+    # Terminal 2 inherits the open panel. Close it independently.
     When I create a terminal
+    Then the right panel should be visible
+    When I press the toggle inspector shortcut
     Then the right panel should not be visible
     # Switch back to terminal 1 — its panel is still open (it remembers its own).
     When I press the switch to terminal 1 shortcut

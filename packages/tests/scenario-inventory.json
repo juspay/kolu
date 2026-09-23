@@ -7718,6 +7718,30 @@
       "exampleRows": [],
       "executions": 1,
       "firstSeenSha": "3161c8fd359cf590c55faa78d07c940c1ea8966c"
+    },
+    {
+      "revisionId": "revision-03f5fb70728994883497",
+      "scenarioKey": "scenario-126675cb4182dc9f82eb",
+      "feature": "features/right-panel.feature",
+      "scenario": "Collapsed state is per-terminal (the panel follows the terminal)",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "d7824340ede4c89ff4497ea7940ff91cb9cbf6408107b8c26689bf6ddbf2b0c5",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "baccccaaaed777e35cc94b83a71dda3beff8128d"
+    },
+    {
+      "revisionId": "revision-e74a33a4520fb2b2820a",
+      "scenarioKey": "scenario-427bc73b776fff2af71c",
+      "feature": "features/right-panel.feature",
+      "scenario": "Inspector Work chips follow the active terminal across repos",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "0d446e7340e5f9e14d199d02704d40f10c0198adbc08cf9acf490f38248caba2",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "baccccaaaed777e35cc94b83a71dda3beff8128d"
     }
   ]
 }
