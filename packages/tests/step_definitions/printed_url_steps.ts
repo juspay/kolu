@@ -199,13 +199,13 @@ When(
     const popup = this.context.waitForEvent("page", {
       timeout: FORWARD_TIMEOUT,
     });
-    await this.page.keyboard.down(
-      process.platform === "darwin" ? "Meta" : "Control",
-    );
+    // MOD_KEY (Cmd / Ctrl), and the shared constant rather than an inlined copy
+    // of the rule: this is the BROWSER's open-in-new-tab convention, which
+    // `handleWebLink` reads as `metaKey || ctrlKey` — not one of kolu's own
+    // chords, so it does not follow `createTerminal` onto Super.
+    await this.page.keyboard.down(MOD_KEY);
     await this.page.mouse.click(point.x, point.y);
-    await this.page.keyboard.up(
-      process.platform === "darwin" ? "Meta" : "Control",
-    );
+    await this.page.keyboard.up(MOD_KEY);
     this.externalPopup = await popup;
     await this.waitForFrame();
   },

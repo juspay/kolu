@@ -3,6 +3,7 @@ import { Given, Then, When } from "@cucumber/cucumber";
 import { padiCall } from "../support/rpcWire.ts";
 import {
   ACTIVE_CANVAS_TILE_SELECTOR,
+  APP_KEY,
   CANVAS_TILE_SELECTOR,
   type KoluWorld,
   POLL_TIMEOUT,
@@ -255,10 +256,13 @@ Then(
 When(
   "I create a terminal with keyboard shortcut",
   async function (this: KoluWorld) {
-    const modifier = process.platform === "darwin" ? "Meta" : "Control";
-    await this.page.keyboard.down(modifier);
+    // APP_KEY, not MOD_KEY: `createTerminal` is an `"app"` chord (Cmd / Super),
+    // because Ctrl+T belongs to the PTY. This step held its OWN inlined copy of
+    // the platform rule and so kept pressing Ctrl+T after the action moved —
+    // creating nothing, which surfaced as "Expected at least 2 terminals".
+    await this.page.keyboard.down(APP_KEY);
     await this.page.keyboard.press("t");
-    await this.page.keyboard.up(modifier);
+    await this.page.keyboard.up(APP_KEY);
     await this.waitForFrame();
   },
 );
