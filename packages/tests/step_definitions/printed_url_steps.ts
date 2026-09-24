@@ -14,7 +14,7 @@ import {
   waitForBufferContains,
 } from "../support/buffer.ts";
 import { pollFor } from "../support/poll.ts";
-import { type KoluWorld, POLL_TIMEOUT } from "../support/world.ts";
+import { type KoluWorld, MOD_KEY, POLL_TIMEOUT } from "../support/world.ts";
 
 /** Two 5 s scan ticks plus room for the surface round trip. */
 const PORT_SCAN_TIMEOUT = 25_000;
