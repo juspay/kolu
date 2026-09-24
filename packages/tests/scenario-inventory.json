@@ -7742,6 +7742,31 @@
       "exampleRows": [],
       "executions": 1,
       "firstSeenSha": "baccccaaaed777e35cc94b83a71dda3beff8128d"
+    },
+    {
+      "revisionId": "revision-d3d5cd411b110bda54bb",
+      "scenarioKey": "scenario-0a227a2a945fb52caccf",
+      "feature": "features/keyboard-shortcuts.feature",
+      "scenario": "<chord> reaches the shell instead of opening kolu's chrome",
+      "kind": "outline",
+      "tags": [],
+      "bodyHash": "a16fca30520df29c536d0cbacf03241f4ac0d562cbe9ae31ea3a5aa3f6ca44cd",
+      "exampleRows": [
+        {
+          "id": "example-0aca076fac82e0801a85",
+          "name": "Control+k reaches the shell instead of opening kolu's chrome"
+        },
+        {
+          "id": "example-be931ed2d209ba9ead98",
+          "name": "Control+f reaches the shell instead of opening kolu's chrome"
+        },
+        {
+          "id": "example-8ec5ec0f0945180e40a0",
+          "name": "Control+t reaches the shell instead of opening kolu's chrome"
+        }
+      ],
+      "executions": 3,
+      "firstSeenSha": "857c872111771a867827e4274767c1103b29de5a"
     }
   ]
 }
