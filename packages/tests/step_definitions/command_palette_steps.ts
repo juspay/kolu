@@ -1,12 +1,12 @@
 import * as assert from "node:assert";
 import { Then, When } from "@cucumber/cucumber";
 import { pollFor } from "../support/poll.ts";
-import { type KoluWorld, MOD_KEY, POLL_TIMEOUT } from "../support/world.ts";
+import { APP_KEY, type KoluWorld, POLL_TIMEOUT } from "../support/world.ts";
 
 const PALETTE_SELECTOR = '[data-testid="command-palette"]';
 
 When("I open the command palette", async function (this: KoluWorld) {
-  await this.page.keyboard.press(`${MOD_KEY}+k`);
+  await this.page.keyboard.press(`${APP_KEY}+k`);
   await this.waitForFrame();
 });
 

@@ -93,7 +93,7 @@ function dispatch(
     // A focus-scoped action (e.g. findInTerminal) claims the chord ONLY when
     // focus is inside its scope. Outside it, hand the event straight to the
     // browser: return false so the listener skips `preventDefault`, letting the
-    // chord's native default fire (e.g. Cmd/Ctrl+F → find-in-page when focus is
+    // chord's native default fire (e.g. ⌘F → find-in-page on macOS when focus is
     // not in a terminal). Returning (rather than `continue`) keeps the hand-off
     // local to this matched action — it doesn't depend on no later action
     // happening to share the chord.

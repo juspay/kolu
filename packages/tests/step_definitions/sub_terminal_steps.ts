@@ -4,9 +4,9 @@ import { waitForBufferContains } from "../support/buffer.ts";
 import { padiCall } from "../support/rpcWire.ts";
 import {
   ACTIVE_CANVAS_TILE_SELECTOR,
+  APP_KEY,
   COARSE_POINTER_QUERY,
   type KoluWorld,
-  MOD_KEY,
   POLL_TIMEOUT,
 } from "../support/world.ts";
 
@@ -43,7 +43,7 @@ async function paletteCommand(world: KoluWorld, query: string) {
   // Ensure focus is in the app (previous palette close may leave focus nowhere)
   const terminal = world.page.locator("[data-visible] .xterm-screen");
   if ((await terminal.count()) > 0) await terminal.first().click();
-  await world.page.keyboard.press(`${MOD_KEY}+k`);
+  await world.page.keyboard.press(`${APP_KEY}+k`);
   await world.page.waitForFunction(
     (sel) => document.querySelector(`${sel}[data-open]`) !== null,
     PALETTE,

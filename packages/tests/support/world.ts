@@ -43,6 +43,15 @@ const STEP_GUARD = 10_000;
 setDefaultTimeout(Math.max(POLL_TIMEOUT, HYDRATION_TIMEOUT) + STEP_GUARD);
 export const MOD_KEY = process.platform === "darwin" ? "Meta" : "Control";
 
+/** kolu's APPLICATION modifier — Cmd on macOS, Super elsewhere. Mirrors the
+ *  `"app"` `ChordModifier` in `input/keyboard.ts`: the one role a PTY never sees,
+ *  so it is what the chords held over a live terminal use (command palette,
+ *  new terminal, find-in-terminal). Playwright's "Meta" is Cmd/Super/Win on
+ *  every platform, so unlike `MOD_KEY` this needs no platform branch. Reach for
+ *  `MOD_KEY` only for a chord whose Ctrl form is inert in a PTY (digits, zoom,
+ *  Ctrl+Shift+…). */
+export const APP_KEY = "Meta";
+
 /** Locator for the app's settled state: a visible terminal screen, a dormant
  *  (sleeping) tile body, or the empty state tip. A canvas holding only sleeping
  *  tiles is fully settled — its tiles render a PTY-less `dormant-tile-body` (no
@@ -199,7 +208,7 @@ export class KoluWorld extends World {
     return this.page.locator("[data-focused] .xterm-screen").first();
   }
 
-  /** Create a terminal via the keyboard shortcut (`Cmd/Ctrl+Enter`). Works
+  /** Create a terminal via the keyboard shortcut (`Cmd/Super+Enter`). Works
    *  uniformly on desktop and mobile — there is no longer a "+" button on
    *  any surface; the shortcut and the command palette are the only paths.
    *  Returns the new terminal's ID. */
@@ -211,7 +220,7 @@ export class KoluWorld extends World {
     // Snapshot known ids before the shortcut fires.
     const beforeIds = await this.terminalIds();
 
-    await this.page.keyboard.press(`${MOD_KEY}+Enter`);
+    await this.page.keyboard.press(`${APP_KEY}+Enter`);
 
     // Poll until a new id shows up, and return that exact observation. Reading
     // the ids again after the poll is a check/use race: the mobile empty-state

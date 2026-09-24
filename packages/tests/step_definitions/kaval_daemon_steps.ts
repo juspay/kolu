@@ -20,7 +20,7 @@ import {
   identityChipSelector,
   openActiveHostDiagnostics,
 } from "../support/hostChip.ts";
-import { type KoluWorld, MOD_KEY, POLL_TIMEOUT } from "../support/world.ts";
+import { APP_KEY, type KoluWorld, POLL_TIMEOUT } from "../support/world.ts";
 
 async function armWarmingCanvasRecorder(world: KoluWorld): Promise<void> {
   await world.page.evaluate(() => {
@@ -316,7 +316,7 @@ Then(
 When(
   "I press the create terminal shortcut while kaval restarts",
   async function (this: KoluWorld) {
-    await this.page.keyboard.press(`${MOD_KEY}+t`);
+    await this.page.keyboard.press(`${APP_KEY}+t`);
   },
 );
 

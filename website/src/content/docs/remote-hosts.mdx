@@ -203,7 +203,7 @@ hover-opened.
 
 **Click a chip** to make that host active — the whole canvas switches to it live,
 no reload, bindings staying warm server-side. From the keyboard, type a host name
-in **⌘K** (hosts are first-class root results in the
+in **⌘/Super+K** (hosts are first-class root results in the
 [switcher](/switcher)), or press **⌘⇧H** (Ctrl+Shift+H elsewhere) — or the
 **search icon** in the host bar — to deep-link into the scoped host list; pick a
 host and the canvas switches. Once a tab has switched at least once, that list
@@ -229,7 +229,7 @@ host's **canvas** state — selection, camera, saved sessions, activity, and the
 tab's reads (open file content, git status, and diff) — **warm in memory**, so a
 switch-back has nothing to reload. The [switcher](/switcher) is different: it keeps a
 **lightweight fleet index** (terminal keys + metadata, not PTY bytes) live for every
-**connected** pool member, including hosts you have not opened yet, so ⌘K can jump
+**connected** pool member, including hosts you have not opened yet, so ⌘/Super+K can jump
 cross-host without waiting for a first visit. Only the host you're viewing gets a live
 on-screen renderer (its terminals' WebGL/DOM canvases), which re-attaches in a blink when
 you switch back — kolu does not hold a live canvas per background host. Browser memory
@@ -340,7 +340,7 @@ happen to be looking at.
    **forward &amp; open**. Doors open **lazily** — only for ports you actually
    click — and close themselves when the scanner sees the listener die.
 
-2. **Or forward a port kolu never saw.** `⌘K` → **Forward a port…**, then
+2. **Or forward a port kolu never saw.** `⌘/Super+K` → **Forward a port…**, then
    `host:port` (or just a port, for the host you're looking at). Useful for a
    port kolu's scan cannot see — another user's service on a host whose socket
    table hides it — or when you want a door that no scan may close.
