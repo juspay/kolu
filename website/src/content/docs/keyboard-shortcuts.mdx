@@ -1,6 +1,6 @@
 ---
 title: Keyboard Shortcuts
-description: "The complete keyboard reference for kolu: terminal navigation, the palettes and switchers, splits and tabs, zoom, panels, and capture. Mod is Cmd on macOS and Ctrl elsewhere."
+description: "The complete keyboard reference for kolu: terminal navigation, the palettes and switchers, splits and tabs, zoom, panels, and capture. Mod is Cmd on macOS and Ctrl elsewhere; three chords use Cmd/Super so Ctrl reaches your shell."
 order: 46
 section: "The Canvas"
 koluHero:
@@ -15,11 +15,17 @@ The complete set of global shortcuts, from kolu's action registry.
 Press <kbd>Mod</kbd> + <kbd>/</kbd> in the app for the same list as a live
 overlay.
 
+Three chords read <kbd>Cmd</kbd>/<kbd>Super</kbd> instead — the palette, new
+terminal, and find. <kbd>Super</kbd> is the key labelled ⊞ or ✦ next to Alt
+(X11 and Wayland call it Super or Meta; Windows calls it the Windows key), and
+kolu uses it for exactly the chords whose <kbd>Ctrl</kbd> form belongs to
+whatever is running *inside* your terminal — see the note at the end.
+
 ## Terminals
 
 | Action | Shortcut |
 | --- | --- |
-| New terminal | <kbd>Mod</kbd> + <kbd>T</kbd> &nbsp;·&nbsp; <kbd>Mod</kbd> + <kbd>Enter</kbd> |
+| New terminal | <kbd>Cmd</kbd>/<kbd>Super</kbd> + <kbd>T</kbd> &nbsp;·&nbsp; <kbd>Cmd</kbd>/<kbd>Super</kbd> + <kbd>Enter</kbd> |
 | New terminal menu | <kbd>Mod</kbd> + <kbd>Shift</kbd> + <kbd>Enter</kbd> |
 | Switch to terminal 1–9 | <kbd>Mod</kbd> + <kbd>1</kbd> … <kbd>9</kbd> |
 | Next terminal | <kbd>Mod</kbd> + <kbd>Shift</kbd> + <kbd>]</kbd> |
@@ -29,14 +35,15 @@ overlay.
 
 ## Palettes & switchers
 
-One search box finds **commands, terminals, and hosts**. <kbd>Mod</kbd>+<kbd>K</kbd>
+One search box finds **commands, terminals, and hosts**.
+<kbd>Cmd</kbd>/<kbd>Super</kbd>+<kbd>K</kbd>
 opens it at the root; the other two chords deep-link into scoped views of the
 same surface (Backspace on an empty query pops back out). Ranking, row anatomy,
 and the scoped grids are covered under [The Switcher](/switcher).
 
 | Action | Shortcut |
 | --- | --- |
-| Search everything | <kbd>Mod</kbd> + <kbd>K</kbd> |
+| Search everything | <kbd>Cmd</kbd>/<kbd>Super</kbd> + <kbd>K</kbd> |
 | Terminal switcher (scoped) | <kbd>Mod</kbd> + <kbd>Shift</kbd> + <kbd>K</kbd> |
 | Hosts (scoped) | <kbd>Mod</kbd> + <kbd>Shift</kbd> + <kbd>H</kbd> |
 | Shortcuts help | <kbd>Mod</kbd> + <kbd>/</kbd> |
@@ -64,15 +71,34 @@ and the scoped grids are covered under [The Switcher](/switcher).
 
 | Action | Shortcut |
 | --- | --- |
-| Find in terminal | <kbd>Mod</kbd> + <kbd>F</kbd> |
+| Find in terminal | <kbd>Cmd</kbd>/<kbd>Super</kbd> + <kbd>F</kbd> |
 | Copy selection | <kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>C</kbd> |
 | Shuffle theme | <kbd>Mod</kbd> + <kbd>Shift</kbd> + <kbd>J</kbd> |
 | Screenshot terminal | <kbd>Mod</kbd> + <kbd>Shift</kbd> + <kbd>S</kbd> |
 | Pause / resume recording | <kbd>Mod</kbd> + <kbd>Shift</kbd> + <kbd>.</kbd> |
 
 <Aside type="note" title="Find is confined to the terminal">
-  <kbd>Mod</kbd> + <kbd>F</kbd> opens kolu's terminal search only while focus is
-  in a terminal — the one surface the browser's own find-in-page can't reach.
-  Anywhere else (the Code tab, a rendered preview, the palette) the chord defers
-  to the browser's native find.
+  <kbd>Cmd</kbd>/<kbd>Super</kbd> + <kbd>F</kbd> opens kolu's terminal search
+  only while focus is in a terminal — the one surface the browser's own
+  find-in-page can't reach. Anywhere else (the Code tab, a rendered preview, the
+  palette) the chord defers to the browser's native find.
+</Aside>
+
+<Aside type="note" title="Why three chords use Super">
+  Every key you press in a terminal is a byte your shell is owed, and
+  <kbd>Ctrl</kbd> chords are how a shell receives them.
+  <kbd>Ctrl</kbd> + <kbd>K</kbd> deletes to end of line,
+  <kbd>Ctrl</kbd> + <kbd>F</kbd> moves the cursor right,
+  <kbd>Ctrl</kbd> + <kbd>T</kbd> transposes two characters — and coding agents
+  bind them too. An app that claims those chords breaks the tools you opened it
+  to run, so kolu's palette, new-terminal, and find chords sit on
+  <kbd>Cmd</kbd>/<kbd>Super</kbd>, a modifier a terminal program never sees.
+  macOS was always fine — <kbd>Cmd</kbd> is already invisible to a PTY — so
+  nothing changes there.
+
+  The trade is that your desktop may claim a <kbd>Super</kbd> chord first. KDE
+  binds <kbd>Super</kbd> + <kbd>T</kbd> to its tile editor, for instance, in
+  which case <kbd>Super</kbd> + <kbd>Enter</kbd> makes the terminal instead.
+  That one you can rebind in your desktop settings; <kbd>Ctrl</kbd> + <kbd>K</kbd>
+  inside `bash` you cannot.
 </Aside>

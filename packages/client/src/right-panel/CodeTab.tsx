@@ -1298,8 +1298,9 @@ const CodeTab: Component<{
             // the Tab order) so a click on the rendered file content moves focus
             // OUT of the terminal and into the Code tab — Pierre's source/diff
             // rows and the rendered markdown aren't focusable on their own. With
-            // focus no longer in a terminal, Cmd/Ctrl+F defers to the browser's
-            // native find-in-page (input/actions.ts `focusScopeMarker`).
+            // focus no longer in a terminal, ⌘F defers to the browser's native
+            // find-in-page (input/actions.ts `focusScopeMarker`). Off macOS,
+            // Ctrl+F is never kolu's to begin with.
             // `outline-none` since no keyboard user ever tabs here.
             tabindex={-1}
             class="min-h-0 overflow-auto outline-none"

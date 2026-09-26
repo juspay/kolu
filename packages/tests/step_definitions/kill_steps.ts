@@ -1,8 +1,8 @@
 import * as assert from "node:assert";
 import { Then, When } from "@cucumber/cucumber";
 import {
+  APP_KEY,
   type KoluWorld,
-  MOD_KEY,
   POLL_TIMEOUT,
   DOCK_ROW_SELECTOR,
 } from "../support/world.ts";
@@ -50,7 +50,7 @@ When(
 When(
   "I close the active terminal via command palette",
   async function (this: KoluWorld) {
-    await this.page.keyboard.press(`${MOD_KEY}+k`);
+    await this.page.keyboard.press(`${APP_KEY}+k`);
     const palette = this.page.locator('[data-testid="command-palette"]');
     await palette
       .locator("input")

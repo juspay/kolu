@@ -88,3 +88,23 @@ Feature: Keyboard Shortcuts
     And I press Escape
     Then no sendInput call should contain "/"
     And there should be no page errors
+
+  # The chords a terminal program is owed. kolu used to claim all three off
+  # macOS (the palette, find, and new terminal were plain Ctrl there), so the
+  # most-pressed editing keys in every shell inside kolu did nothing but open
+  # kolu's own chrome. They now live on Super, which no PTY can see.
+  Scenario Outline: <chord> reaches the shell instead of opening kolu's chrome
+    Given I intercept oRPC sendInput calls
+    When I focus the terminal
+    And I press <chord>
+    Then the shell should receive the "<byte>" control byte
+    And the command palette should not be visible
+    And the terminal search bar should not be visible
+    And there should be no page errors
+
+    Examples:
+      # readline: kill-line, forward-char, transpose-chars
+      | chord     | byte |
+      | Control+k | 0x0b |
+      | Control+f | 0x06 |
+      | Control+t | 0x14 |

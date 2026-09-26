@@ -13,7 +13,7 @@ import CardGrid from "../../components/docs/CardGrid.astro";
 import LinkCard from "../../components/docs/LinkCard.astro";
 
 The **switcher** is kolu's unified search surface. Press
-<kbd>Cmd/Ctrl</kbd> + <kbd>K</kbd> and type — a branch, a repo, a host, a
+<kbd>Cmd/Super</kbd> + <kbd>K</kbd> and type — a branch, a repo, a host, a
 command — without first deciding which drawer to open. Terminals, hosts, and
 commands share one index and one muscle memory; the extra chords are deep links
 into scoped views of the same surface, not separate apps.
@@ -28,10 +28,10 @@ At the empty root you see:
    working in can lead the band even if you have not opened it. One seat is
    always reserved for the terminal you were last in, so no amount of
    background chatter can push it out of the list; the *highlight* then lands
-   on it, which is what makes ⌘K → Enter a toggle. Cross-host rows show the
+   on it, which is what makes ⌘/Super+K → Enter a toggle. Cross-host rows show the
    same host chip as search hits.
    Because the active tile is omitted and the highlight starts on the first
-   Recent row, **⌘K then Enter** toggles between your last two terminals
+   Recent row, **⌘/Super+K then Enter** toggles between your last two terminals
    (including across hosts) — the same [default-highlight
    rule](#where-the-highlight-lands) every scope follows.
 2. **Hosts** — every machine in the pool (when more than local is configured),
@@ -107,7 +107,7 @@ scoping is the existing drill-in path (below), not a mode character.
 
 ## Where the highlight lands
 
-The three **switcher** scopes — ⌘K, ⌘⇧K, ⌘⇧H — open with the highlight on **the
+The three **switcher** scopes — ⌘/Super+K, ⌘⇧K, ⌘⇧H — open with the highlight on **the
 row you were last on that isn't the one you are on now**. One rule, so all three
 share a muscle memory: **press the chord, press Enter, you are back where you
 just were.** Press it again and you are back — a two-key toggle for terminals
@@ -139,7 +139,7 @@ say where the list is a switcher. And the moment you **type**, recency stops
 mattering: the highlight moves to the top match.
 
 The rule applies to whichever kind **leads** the list, which at root is normally
-Recent. So when no terminal but your own is open, Recent is empty and ⌘K leads
+Recent. So when no terminal but your own is open, Recent is empty and ⌘/Super+K leads
 with machines instead — the highlight falls through to **the machine you came
 from**, and Enter hops hosts rather than tiles.
 
@@ -177,7 +177,7 @@ host re-keys the canvas with no reload — same as the [host strip](/remote-host
 The rows stay in **pool order** (a machine list that reshuffles under the cursor
 is not one you can learn), and the **highlight** opens on the host you switched
 away from, so **⌘⇧H then Enter** hops between the last two machines the same way
-⌘K hops between the last two terminals. Until a tab has switched at least once
+⌘/Super+K hops between the last two terminals. Until a tab has switched at least once
 there is no such machine, so the highlight falls back to the first *other* row.
 The trail is **per browser tab** — two tabs parked on two machines each keep
 their own way back — and it survives a reload of that tab, not a new one.
@@ -218,7 +218,7 @@ Every result kind paints the same four slots so a mixed list stays scannable:
 - The **dock** is still the always-visible navigator down the left edge —
   glanceable without opening anything. The switcher is the jump / search path
   over the **same** terminal set.
-- The **host strip** is still ambient multi-host status; ⌘K does not replace it.
+- The **host strip** is still ambient multi-host status; ⌘/Super+K does not replace it.
 - Sleep, restore, and session memory live under [Sessions](/sessions); the
   switcher only **finds** terminals that already exist on connected hosts.
 

@@ -7,8 +7,11 @@
  *
  * `keyboard.test.ts` iterates `ACTIONS` × `PROHIBITED_KEYBINDS` and
  * fails any collision; that test is the enforcement, this list is
- * the spec. Use physical `ctrl: true` because PTYs see byte-level
- * Ctrl regardless of platform — `mod` would over-narrow to one OS.
+ * the spec. Every entry is `modifier: "ctrl"` — the physical key, on every
+ * platform — because that is what a PTY reads; `"cmdOrCtrl"` would over-narrow
+ * to one OS, and `"app"` (Cmd / Super) is the role a PTY can never see, which
+ * is why it is the remedy for a collision rather than a way to spell one. See
+ * `ChordModifier` in `./keyboard.ts` for that rule.
  */
 import type { Keybind } from "./keyboard";
 
@@ -28,17 +31,7 @@ const OMP_TOOL = "oh-my-pi";
 /** Plain Ctrl+<letter> chords omp's editor and app tables bind, with the action
  *  each one fires inside omp. The letter doubles as the physical-code suffix
  *  (`KeyK`), which is the spelling `matchesKeybind` prefers so a Shift-changed
- *  `event.key` cannot slip past the fence.
- *
- *  Four chords omp claims are deliberately ABSENT, because kolu itself already
- *  intercepts them (each a `mod: true` action, i.e. plain Ctrl on
- *  Linux/Windows): Ctrl+T and Ctrl+Enter → `createTerminal`, Ctrl+K →
- *  `commandPalette`, Ctrl+F → `findInTerminal`. On macOS `mod` is Cmd and omp
- *  sees its own chord, so this is a Linux/Windows-only theft — and a
- *  pre-existing one, not something this list may resolve by itself: listing
- *  them would red `keyboard.test.ts` (the fence's whole job) and the only
- *  remedy it accepts is rebinding kolu's own shortcuts, a user-facing product
- *  change of its own. */
+ *  `event.key` cannot slip past the fence. */
 const OMP_CTRL_LETTERS: readonly (readonly [string, string])[] = [
   ["a", "Start of line"],
   ["e", "End of line"],
@@ -60,7 +53,7 @@ const OMP_CTRL_KEYBINDS: readonly ProhibitedKeybind[] = OMP_CTRL_LETTERS.map(
     keybind: {
       key: letter,
       code: `Key${letter.toUpperCase()}`,
-      ctrl: true,
+      modifier: "ctrl",
     },
     tool: OMP_TOOL,
     reason,
@@ -69,12 +62,12 @@ const OMP_CTRL_KEYBINDS: readonly ProhibitedKeybind[] = OMP_CTRL_LETTERS.map(
 
 export const PROHIBITED_KEYBINDS: readonly ProhibitedKeybind[] = [
   {
-    keybind: { key: "b", code: "KeyB", ctrl: true },
+    keybind: { key: "b", code: "KeyB", modifier: "ctrl" },
     tool: "Claude Code",
     reason: "Background task toggle",
   },
   {
-    keybind: { key: "j", code: "KeyJ", ctrl: true },
+    keybind: { key: "j", code: "KeyJ", modifier: "ctrl" },
     tool: "POSIX terminal / readline",
     reason:
       "LF (0x0A) — newline byte every shell and readline-based program consumes",
@@ -83,19 +76,45 @@ export const PROHIBITED_KEYBINDS: readonly ProhibitedKeybind[] = [
   // SIGTSTP) every PTY program relies on: they belong here, not under a
   // particular tool — even though omp's keybinding tables also claim them.
   {
-    keybind: { key: "c", code: "KeyC", ctrl: true },
+    keybind: { key: "c", code: "KeyC", modifier: "ctrl" },
     tool: "POSIX terminal / readline",
     reason: "SIGINT — interrupt the foreground process",
   },
   {
-    keybind: { key: "d", code: "KeyD", ctrl: true },
+    keybind: { key: "d", code: "KeyD", modifier: "ctrl" },
     tool: "POSIX terminal / readline",
     reason: "EOF — end of input / delete character under the cursor",
   },
   {
-    keybind: { key: "z", code: "KeyZ", ctrl: true },
+    keybind: { key: "z", code: "KeyZ", modifier: "ctrl" },
     tool: "POSIX terminal / readline",
     reason: "SIGTSTP — suspend the foreground process",
+  },
+  // Three readline EDITING chords — bash's own default table (`bind -p`) reports
+  // kill-line / forward-char / transpose-chars — that kolu itself used to eat off
+  // macOS, back when `commandPalette`, `findInTerminal` and `createTerminal` were
+  // `"cmdOrCtrl"` (plain Ctrl there). They are ordinary entries now because those
+  // three moved to `"app"`. The fence, not a comment, is what keeps them free.
+  {
+    keybind: { key: "k", code: "KeyK", modifier: "ctrl" },
+    tool: "POSIX terminal / readline",
+    reason: "kill-line — delete to end of line",
+  },
+  {
+    keybind: { key: "f", code: "KeyF", modifier: "ctrl" },
+    tool: "POSIX terminal / readline",
+    reason: "forward-char — move the cursor right",
+  },
+  {
+    keybind: { key: "t", code: "KeyT", modifier: "ctrl" },
+    tool: "POSIX terminal / readline",
+    reason:
+      "transpose-chars — swap the two characters at the cursor (omp binds it to its thinking-mode toggle)",
+  },
+  {
+    keybind: { key: "Enter", code: "Enter", modifier: "ctrl" },
+    tool: OMP_TOOL,
+    reason: "Send follow-up message",
   },
   // A readline-family chord omp binds in its editor: Ctrl+B is also omp's
   // "move cursor left" — the Claude Code entry above already fences it.
@@ -106,32 +125,32 @@ export const PROHIBITED_KEYBINDS: readonly ProhibitedKeybind[] = [
     reason: "Cycle thinking level",
   },
   {
-    keybind: { key: "Backspace", code: "Backspace", ctrl: true },
+    keybind: { key: "Backspace", code: "Backspace", modifier: "ctrl" },
     tool: OMP_TOOL,
     reason: "Delete the previous word / delete a session in the picker",
   },
   {
-    keybind: { key: "ArrowLeft", code: "ArrowLeft", ctrl: true },
+    keybind: { key: "ArrowLeft", code: "ArrowLeft", modifier: "ctrl" },
     tool: OMP_TOOL,
     reason: "Fold or move up",
   },
   {
-    keybind: { key: "ArrowRight", code: "ArrowRight", ctrl: true },
+    keybind: { key: "ArrowRight", code: "ArrowRight", modifier: "ctrl" },
     tool: OMP_TOOL,
     reason: "Unfold or move down",
   },
   {
-    keybind: { key: "O", code: "KeyO", ctrl: true, shift: true },
+    keybind: { key: "O", code: "KeyO", modifier: "ctrl", shift: true },
     tool: OMP_TOOL,
     reason: "Show or hide tool activity",
   },
   {
-    keybind: { key: "P", code: "KeyP", ctrl: true, shift: true },
+    keybind: { key: "P", code: "KeyP", modifier: "ctrl", shift: true },
     tool: OMP_TOOL,
     reason: "Cycle to the previous model",
   },
   {
-    keybind: { key: "V", code: "KeyV", ctrl: true, shift: true },
+    keybind: { key: "V", code: "KeyV", modifier: "ctrl", shift: true },
     tool: OMP_TOOL,
     reason: "Paste clipboard text without collapsing it",
   },

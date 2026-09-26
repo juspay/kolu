@@ -1,6 +1,11 @@
 import { Then, When } from "@cucumber/cucumber";
 import { ACTIVE_TERMINAL } from "../support/buffer.ts";
-import { type KoluWorld, MOD_KEY, POLL_TIMEOUT } from "../support/world.ts";
+import {
+  APP_KEY,
+  type KoluWorld,
+  MOD_KEY,
+  POLL_TIMEOUT,
+} from "../support/world.ts";
 
 const SHORTCUTS_HELP_SELECTOR = '[data-testid="shortcuts-help"]';
 
@@ -45,7 +50,7 @@ When("I press the create terminal shortcut", async function (this: KoluWorld) {
   const countBefore = await this.page
     .locator('[data-testid="canvas-tile"][data-terminal-id]')
     .count();
-  await this.page.keyboard.press(`${MOD_KEY}+t`);
+  await this.page.keyboard.press(`${APP_KEY}+t`);
   // Wait for a new canvas tile to appear
   await this.page
     .locator('[data-testid="canvas-tile"][data-terminal-id]')
@@ -67,11 +72,11 @@ When("I press the maximize toggle shortcut", async function (this: KoluWorld) {
 });
 
 When("I press the find shortcut", async function (this: KoluWorld) {
-  await this.page.keyboard.press(`${MOD_KEY}+f`);
+  await this.page.keyboard.press(`${APP_KEY}+f`);
   await this.waitForFrame();
 });
 
-// Press Cmd/Ctrl+F and record whether the app claimed it. A bubble-phase
+// Press Cmd/Super+F and record whether the app claimed it. A bubble-phase
 // window listener reads the event's final `defaultPrevented` AFTER the app's
 // capture-phase shortcut listener has run (capture fires before bubble), so it
 // sees the app's verdict. `defaultPrevented === false` means the dispatcher
@@ -80,10 +85,10 @@ When("I press the find shortcut", async function (this: KoluWorld) {
 // chrome, outside the page), so proving the app did NOT eat the chord is the
 // load-bearing assertion. Stashed on `window` for the matching Then to read.
 //
-// The listener is NOT `{ once: true }`: Playwright presses `Control`/`Meta`
-// down before `f`, so a one-shot listener would be consumed by the modifier's
+// The listener is NOT `{ once: true }`: Playwright presses `Meta` down before
+// `f`, so a one-shot listener would be consumed by the modifier's
 // own keydown and never see the `f` event. Instead it stays installed and only
-// records the matching Cmd/Ctrl+F keydown (overwrite-on-match — the lone press
+// records the matching Cmd/Super+F keydown (overwrite-on-match — the lone press
 // yields one matching event; the listener leaks harmlessly on the per-scenario
 // page). It MUST be an anonymous inline arrow: a named inner function/binding
 // makes tsx/esbuild inject a `__name(...)` call that is undefined in the page
@@ -101,7 +106,7 @@ When(
         }
       });
     });
-    await this.page.keyboard.press(`${MOD_KEY}+f`);
+    await this.page.keyboard.press(`${APP_KEY}+f`);
     await this.waitForFrame();
   },
 );
@@ -119,7 +124,7 @@ Then(
     // takes over.
     if (prevented !== false) {
       throw new Error(
-        `expected Cmd/Ctrl+F to reach the browser (defaultPrevented false), got ${String(prevented)}`,
+        `expected Cmd/Super+F to reach the browser (defaultPrevented false), got ${String(prevented)}`,
       );
     }
   },

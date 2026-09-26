@@ -259,6 +259,41 @@ Then(
   },
 );
 
+/** The positive counterpart to the leak assertion above: prove a control byte
+ *  DID reach the PTY. A chord kolu claims is `preventDefault`ed before xterm
+ *  sees it, so no `sendInput` frame carries its byte — which is exactly how
+ *  Ctrl+K, Ctrl+F and Ctrl+T used to disappear off macOS. Naming the byte (not
+ *  the chord) is deliberate: it is the thing the shell is owed, and it is what
+ *  a terminal program reads.
+ *
+ *  The frame is JSON, so the byte travels escaped (``). Both spellings are
+ *  matched rather than assuming the encoder's escaping or hex casing. */
+Then(
+  "the shell should receive the {string} control byte",
+  async function (this: KoluWorld, hex: string) {
+    const code = Number.parseInt(hex, 16);
+    assert.ok(
+      Number.isInteger(code) && code > 0 && code < 32,
+      `not a control byte: ${hex}`,
+    );
+    const spellings = [
+      String.fromCharCode(code),
+      `\\u${code.toString(16).padStart(4, "0")}`,
+      `\\u${code.toString(16).padStart(4, "0").toUpperCase()}`,
+    ];
+    const messages: string[] = await this.page.evaluate(
+      () => window.__wsSent ?? [],
+    );
+    const sendInputs = messages.filter((m) => m.includes("sendInput"));
+    assert.ok(
+      sendInputs.some((m) => spellings.some((s) => m.includes(s))),
+      `no sendInput frame carried the ${hex} control byte — kolu claimed the ` +
+        `chord before xterm could forward it. ${sendInputs.length} sendInput ` +
+        `frame(s) seen: ${JSON.stringify(sendInputs.slice(0, 5))}`,
+    );
+  },
+);
+
 // ── Resize detection (read PTY $COLUMNS via file) ──
 
 Then(

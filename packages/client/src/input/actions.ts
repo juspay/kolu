@@ -41,12 +41,12 @@ export interface ActionContext {
   /** Open the host-switcher palette group (`⌘⇧H`) — a fuzzy picker over the
    *  pool, mirroring `openWorkspaceSwitcher`. */
   openHostSwitcher: () => void;
-  /** Flip the command palette (`Cmd+K`). A stable verb, not the raw signal
-   *  setter — the palette controller owns the open-state. */
+  /** Flip the command palette (`⌘K` / `Super+K`). A stable verb, not the raw
+   *  signal setter — the palette controller owns the open-state. */
   togglePalette: () => void;
   /** Flip the shortcuts-help overlay (`Cmd+/`). */
   toggleShortcutsHelp: () => void;
-  /** Flip the active terminal's find bar (`Cmd+F`). */
+  /** Flip the active terminal's find bar (`⌘F` / `Super+F`). */
   toggleSearch: () => void;
   /** Toggle sub-panel: creates first split if none exist, otherwise toggles visibility. */
   toggleSubPanel: (parentId: TerminalId) => void;
@@ -72,7 +72,7 @@ interface AppActionBase {
    *  set, the dispatcher claims the chord ONLY if the dispatch-time `e.target`
    *  is inside a matching element; anywhere else it declines without running
    *  the handler or `preventDefault`ing, so the chord's native browser action
-   *  proceeds. Used to confine Cmd/Ctrl+F to the terminal — the one surface
+   *  proceeds. Used to confine ⌘/Super+F to the terminal — the one surface
    *  where the browser's own find-in-page is useless (terminal content is
    *  canvas-rendered, invisible to the DOM) — and let it fall through to
    *  find-in-page everywhere else (Code tab, panels, palettes, bare chrome).
@@ -134,7 +134,7 @@ const switchToActions = Object.fromEntries(
     `switchTo${i}`,
     {
       label: `Switch to terminal ${i}`,
-      keybind: { key: String(i), mod: true },
+      keybind: { key: String(i), modifier: "cmdOrCtrl" },
       handler: (ctx) => {
         // Targets dock row order — structural (repo → branch → creation
         // order, #2141), so these numbers are stable enough to learn — and
@@ -149,7 +149,7 @@ const switchToActions = Object.fromEntries(
 ) as { [K in SwitchId]: DispatchableAction };
 
 /** HTML data-attribute name that marks a terminal subtree — the focus scope
- *  Cmd/Ctrl+F is confined to (outside it, the chord defers to the browser's
+ *  ⌘/Super+F is confined to (outside it, the chord defers to the browser's
  *  find-in-page). Place `{...TERMINAL_SEARCH_ATTR_PROP}` on the terminal root
  *  and reference `TERMINAL_SEARCH_MARKER` (the CSS selector derived from it) in
  *  the action registry. Both share this single source of truth so they can't
@@ -172,23 +172,36 @@ const _ACTIONS = {
   ...switchToActions,
   createTerminal: {
     label: "New terminal",
-    keybind: { key: "t", mod: true },
-    altKeybind: { key: "Enter", mod: true },
+    // `"app"`, because the Ctrl form of BOTH chords is spoken for: Ctrl+T is
+    // readline's transpose-chars and omp's thinking toggle, Ctrl+Enter is omp's
+    // "send follow-up message".
+    keybind: { key: "t", code: "KeyT", modifier: "app" },
+    altKeybind: { key: "Enter", code: "Enter", modifier: "app" },
     handler: (ctx) => ctx.handleCreate(ctx.activeMeta()?.cwd ?? undefined),
   },
   newTerminalMenu: {
     label: "New terminal menu",
-    keybind: { key: "Enter", mod: true, shift: true },
+    keybind: { key: "Enter", modifier: "cmdOrCtrl", shift: true },
     handler: (ctx) => ctx.openNewTerminalMenu(),
   },
   nextTerminal: {
     label: "Next terminal",
-    keybind: { key: "]", code: "BracketRight", mod: true, shift: true },
+    keybind: {
+      key: "]",
+      code: "BracketRight",
+      modifier: "cmdOrCtrl",
+      shift: true,
+    },
     handler: (ctx) => cycleTerminalByPosition(ctx, 1),
   },
   prevTerminal: {
     label: "Previous terminal",
-    keybind: { key: "[", code: "BracketLeft", mod: true, shift: true },
+    keybind: {
+      key: "[",
+      code: "BracketLeft",
+      modifier: "cmdOrCtrl",
+      shift: true,
+    },
     handler: (ctx) => cycleTerminalByPosition(ctx, -1),
   },
   cycleTerminalMru: {
@@ -196,17 +209,19 @@ const _ACTIONS = {
     // shiftOptional: shift modulates direction (forward/back) rather than
     // selecting a different chord. alt covers macOS Chrome, which captures
     // Ctrl+Tab. Dispatch is stateful (snapshot/cursor in useShortcuts).
-    keybind: { key: "Tab", code: "Tab", ctrl: true, shiftOptional: true },
+    keybind: { key: "Tab", code: "Tab", modifier: "ctrl", shiftOptional: true },
     altKeybind: { key: "Tab", code: "Tab", alt: true, shiftOptional: true },
   },
   commandPalette: {
     label: "Search everything",
-    keybind: { key: "k", mod: true },
+    // `"app"`, because Ctrl+K is readline's kill-line — the most-pressed editing
+    // key in every shell and TUI kolu hosts.
+    keybind: { key: "k", code: "KeyK", modifier: "app" },
     handler: (ctx) => ctx.togglePalette(),
   },
   openWorkspaceSwitcher: {
     label: "Terminal switcher",
-    keybind: { key: "K", code: "KeyK", mod: true, shift: true },
+    keybind: { key: "K", code: "KeyK", modifier: "cmdOrCtrl", shift: true },
     handler: (ctx) => ctx.openWorkspaceSwitcher(),
   },
   openHostSwitcher: {
@@ -216,45 +231,53 @@ const _ACTIONS = {
     // `⌘⇧K`'s Terminals scope. `H` = host; free of the terminal chords, and
     // (unlike a bare `mod`+letter) never collapses to a terminal-colliding
     // chord off-mac.
-    keybind: { key: "H", code: "KeyH", mod: true, shift: true },
+    keybind: { key: "H", code: "KeyH", modifier: "cmdOrCtrl", shift: true },
     handler: (ctx) => ctx.openHostSwitcher(),
   },
   shortcutsHelp: {
     label: "Shortcuts help",
-    keybind: { key: "/", mod: true },
+    keybind: { key: "/", modifier: "cmdOrCtrl" },
     handler: (ctx) => ctx.toggleShortcutsHelp(),
   },
   findInTerminal: {
     label: "Find in terminal",
-    keybind: { key: "f", mod: true },
-    // Confine Cmd/Ctrl+F to the terminal: kolu's xterm search is the right tool
+    // `"app"`, because Ctrl+F is readline's forward-char — and this chord is
+    // scoped (below) to precisely the place a PTY is guaranteed to be listening.
+    keybind: { key: "f", code: "KeyF", modifier: "app" },
+    // Confine the chord to the terminal: kolu's xterm search is the right tool
     // ONLY there, because terminal content is canvas-rendered and invisible to
     // the browser's own find. Everywhere else — Code tab, previews, panels, the
     // command palette / workspace switcher, bare chrome — focus is in real DOM
-    // or iframes, so the dispatcher declines without `preventDefault` and the
-    // browser's native find-in-page takes over (it even spans the opaque-origin
-    // preview iframe, which xterm search can't reach). The terminal root carries
-    // `data-kolu-terminal-search`; the dispatcher does the `closest()` check and
-    // claims the chord only when focus is inside it (useShortcuts.ts).
+    // or iframes, so the dispatcher declines without `preventDefault`. The
+    // terminal root carries `data-kolu-terminal-search`; the dispatcher does the
+    // `closest()` check and claims the chord only when focus is inside it
+    // (useShortcuts.ts).
+    //
+    // On macOS the scope is what hands ⌘F back to the browser's own
+    // find-in-page (it even spans the opaque-origin preview iframe, which xterm
+    // search can't reach). Off macOS the hand-off is now structural instead:
+    // kolu claims Super+F and never Ctrl+F, so find-in-page is reachable
+    // everywhere — including inside a terminal, where Ctrl+F is readline's
+    // forward-char and reaches the PTY untouched.
     focusScopeMarker: TERMINAL_SEARCH_MARKER,
     handler: (ctx) => ctx.toggleSearch(),
   },
   zoomIn: {
     label: "Zoom in",
-    keybind: { key: "+", mod: true },
+    keybind: { key: "+", modifier: "cmdOrCtrl" },
     // Dispatched by per-terminal createZoom listener.
   },
   zoomOut: {
     label: "Zoom out",
-    keybind: { key: "-", mod: true },
+    keybind: { key: "-", modifier: "cmdOrCtrl" },
   },
   zoomReset: {
     label: "Reset zoom",
-    keybind: { key: "0", mod: true },
+    keybind: { key: "0", modifier: "cmdOrCtrl" },
   },
   toggleSubPanel: {
     label: "Toggle terminal split",
-    keybind: { key: "`", code: "Backquote", ctrl: true },
+    keybind: { key: "`", code: "Backquote", modifier: "ctrl" },
     handler: (ctx) => {
       // Split needs a live PTY — gate on the ACTIVE arm, not bare `activeId()`
       // (also true for a sleeping tile, which would spawn a hidden active child
@@ -265,7 +288,7 @@ const _ACTIONS = {
   },
   createSubTerminal: {
     label: "Split terminal",
-    keybind: { key: "`", code: "Backquote", ctrl: true, shift: true },
+    keybind: { key: "`", code: "Backquote", modifier: "ctrl", shift: true },
     handler: (ctx) => {
       const id = activeLiveId(ctx);
       if (id)
@@ -274,7 +297,7 @@ const _ACTIONS = {
   },
   nextSubTab: {
     label: "Next split tab",
-    keybind: { key: "PageDown", code: "PageDown", ctrl: true },
+    keybind: { key: "PageDown", code: "PageDown", modifier: "ctrl" },
     handler: (ctx) => {
       const id = ctx.activeId();
       if (id) ctx.cycleSubTab(id, 1);
@@ -282,7 +305,7 @@ const _ACTIONS = {
   },
   prevSubTab: {
     label: "Previous split tab",
-    keybind: { key: "PageUp", code: "PageUp", ctrl: true },
+    keybind: { key: "PageUp", code: "PageUp", modifier: "ctrl" },
     handler: (ctx) => {
       const id = ctx.activeId();
       if (id) ctx.cycleSubTab(id, -1);
@@ -295,12 +318,12 @@ const _ACTIONS = {
     // memorable, frees Ctrl+J to reach the PTY, and matches the
     // Mod+Shift+<letter> convention used by openWorkspaceSwitcher
     // and screenshotTerminal. Closes #873.
-    keybind: { key: "J", code: "KeyJ", mod: true, shift: true },
+    keybind: { key: "J", code: "KeyJ", modifier: "cmdOrCtrl", shift: true },
     handler: (ctx) => ctx.handleShuffleTheme(),
   },
   screenshotTerminal: {
     label: "Screenshot terminal",
-    keybind: { key: "S", code: "KeyS", mod: true, shift: true },
+    keybind: { key: "S", code: "KeyS", modifier: "cmdOrCtrl", shift: true },
     handler: (ctx) => ctx.handleScreenshotTerminal(),
   },
   copySelection: {
@@ -310,14 +333,14 @@ const _ACTIONS = {
     // selection lives outside the textarea, so the action only makes
     // sense with a live xterm ref. Registered here for ShortcutsHelp
     // visibility and so matchesAnyShortcut sees it.
-    keybind: { key: "C", code: "KeyC", ctrl: true, shift: true },
+    keybind: { key: "C", code: "KeyC", modifier: "ctrl", shift: true },
   },
   toggleRightPanel: {
     // The action toggles panel *visibility* only; it lands on whichever tab
     // is active (Code by default), so the label is tab-agnostic rather than
     // "inspector".
     label: "Toggle right panel",
-    keybind: { key: "b", code: "KeyB", mod: true, alt: true },
+    keybind: { key: "b", code: "KeyB", modifier: "cmdOrCtrl", alt: true },
     handler: (ctx) => ctx.toggleRightPanel(),
   },
   toggleDock: {
@@ -326,7 +349,7 @@ const _ACTIONS = {
     // which Claude Code claims as its in-PTY background-task chord.
     // The shifted form keeps the B mnemonic for the left panel and
     // frees Ctrl+B to reach the PTY. See `prohibitedKeybinds.ts`.
-    keybind: { key: "B", code: "KeyB", mod: true, shift: true },
+    keybind: { key: "B", code: "KeyB", modifier: "cmdOrCtrl", shift: true },
     handler: (ctx) => ctx.toggleDock(),
   },
   toggleCanvasPosture: {
@@ -335,12 +358,12 @@ const _ACTIONS = {
     // Mod+Shift+<letter> convention shared by toggleDock, shuffleTheme,
     // and screenshotTerminal, and stays clear of the in-PTY chords in
     // `prohibitedKeybinds.ts` (Ctrl+B, Ctrl+J).
-    keybind: { key: "M", code: "KeyM", mod: true, shift: true },
+    keybind: { key: "M", code: "KeyM", modifier: "cmdOrCtrl", shift: true },
     handler: (ctx) => ctx.toggleCanvasPosture(),
   },
   toggleRecordingPause: {
     label: "Pause / resume recording",
-    keybind: { key: ".", code: "Period", mod: true, shift: true },
+    keybind: { key: ".", code: "Period", modifier: "cmdOrCtrl", shift: true },
     handler: (ctx) => ctx.toggleRecordingPause(),
   },
 } satisfies Record<string, AppAction>;
