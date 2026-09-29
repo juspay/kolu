@@ -190,10 +190,11 @@ export function openDb(log?: Logger): DatabaseSync | null {
  *
  * Filters:
  *  - `cwd = ?` — exact match on the thread's starting directory.
- *  - `source = 'cli'` — excludes Codex-spawned sub-agent threads,
- *    whose `source` column is a JSON blob like
- *    `{"subagent":{"thread_spawn":...}}`. Those are not user sessions;
- *    they have no foreground terminal to bind to.
+ *  - `source IN ('cli', 'vscode')` — includes standalone CLI threads and
+ *    daemon-backed TUI threads, stored as `vscode` (observed from Codex 0.158)
+ *    (the VS Code extension uses that source too). Excludes non-interactive
+ *    `exec` and sub-agent JSON sources like `{"subagent":{"thread_spawn":...}}`:
+ *    those are not interactive user sessions to bind to a foreground terminal.
  *  - `archived = 0` — excludes archived threads the user has dismissed.
  *
  * Order: `updated_at_ms DESC` — the active session first. It is a
@@ -219,7 +220,7 @@ export function findSessionsByDirectory(
       (
         conn
           .prepare(
-            `SELECT id, rollout_path FROM threads WHERE cwd = ? AND source = 'cli' AND archived = 0 ORDER BY updated_at_ms DESC LIMIT ${MAX_CANDIDATES}`,
+            `SELECT id, rollout_path FROM threads WHERE cwd = ? AND source IN ('cli', 'vscode') AND archived = 0 ORDER BY updated_at_ms DESC LIMIT ${MAX_CANDIDATES}`,
           )
           .all(directory) as { id: string; rollout_path: string }[]
       ).map((row) => ({

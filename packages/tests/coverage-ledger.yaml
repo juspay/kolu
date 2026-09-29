@@ -2100,3 +2100,29 @@ retirements:
       file: packages/tests/features/right-panel.feature
       symbol: "Scenario: Collapsed state is per-terminal (the panel follows the terminal)"
       test: Preserves the scenario's assertions while accounting for newly created terminals inheriting an open panel; collapse is now an explicit independent action rather than an assumed creation default.
+  - id: revise-zoom-terminal-creation-wait
+    revisionId: revision-0014ed15f857587bc54e
+    action: revised
+    status: landed
+    promise: Zoom changes only the focused canvas tile's font size
+    defectSurface: [terminal-zoom, terminal-creation]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-7b485493a19365aa0f84]
+    sameCodePathEvidence:
+      file: packages/tests/features/terminal.feature
+      symbol: "Scenario: Zoom only affects the focused canvas tile"
+      test: Preserves every zoom assertion and waits for two canvas tiles before reading font sizes, preventing the original terminal alone from satisfying the settle step.
+  - id: revise-printed-url-host-visibility
+    revisionId: revision-8fc40643e36ad48d4720
+    action: revised
+    status: landed
+    promise: An open printed-URL card upgrades live when its listener appears
+    defectSurface: [printed-url, host-port-visibility]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-1604578d08f41d46c438]
+    sameCodePathEvidence:
+      file: packages/tests/features/printed-url.feature
+      symbol: "Scenario: An open card upgrades live when the listener appears"
+      test: The initial card may be unbacked or blind because macOS 27 hides unclaimed host sockets. The same open card must still become joined after the real listener starts; the live transition assertion is unchanged. Exact blind-versus-unbacked semantics remain covered by joinPrintedUrl.test.ts.

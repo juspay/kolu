@@ -28,7 +28,7 @@ Feature: Printed URL joins the scanner (PRT4)
     # the card while nothing is listening, then bind — the card upgrades.
     When I print the URL "http://localhost:8131/soon"
     And I click the terminal web link "http://localhost:8131/soon"
-    Then the printed-url card should be open with join state "unbacked"
+    Then the printed-url card should be open without a known listener
     When I start a path-aware listener on port 8131 bound to loopback only
     Then the printed-url card should upgrade to join state "joined"
     And there should be no page errors

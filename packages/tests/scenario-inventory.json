@@ -7769,6 +7769,18 @@
       "firstSeenSha": "857c872111771a867827e4274767c1103b29de5a"
     },
     {
+      "revisionId": "revision-7b485493a19365aa0f84",
+      "scenarioKey": "scenario-d658cd89cdb288522921",
+      "feature": "features/terminal.feature",
+      "scenario": "Zoom only affects the focused canvas tile",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "8191de783a9bb53bf969ed800e9da8558bcb2733d4304ce79e2a7ce3d29a0be4",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "1c051e17378cc78d3dca000a93500f9e9756cb19"
+    },
+    {
       "revisionId": "revision-a108e75fa96d8d21e2ca",
       "scenarioKey": "scenario-dd9623c1f6acdeaa271f",
       "feature": "features/code-tab.feature",
@@ -7803,6 +7815,18 @@
       "exampleRows": [],
       "executions": 1,
       "firstSeenSha": "e5f457cc5099fc5f64daa7fbf6d770f27c11e3b3"
+    },
+    {
+      "revisionId": "revision-1604578d08f41d46c438",
+      "scenarioKey": "scenario-11459cbbde83adbca078",
+      "feature": "features/printed-url.feature",
+      "scenario": "An open card upgrades live when the listener appears",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "074b92d3764dcb8e1e5843b6b469b23d745705804e0cf5d621300b16c5fee131",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "a86a380bc29684450f46a539f82cca7362be9218"
     }
   ]
 }

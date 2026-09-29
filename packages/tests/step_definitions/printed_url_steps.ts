@@ -235,6 +235,26 @@ Then(
 );
 
 Then(
+  "the printed-url card should be open without a known listener",
+  async function (this: KoluWorld) {
+    // macOS 27 hides unclaimed host sockets: absence is then unknown, not empty.
+    // Both states must still upgrade to joined when our listener appears.
+    await pollFor({
+      observe: () =>
+        this.page
+          .locator('[data-testid="printed-url-card"]')
+          .getAttribute("data-join"),
+      isDone: (join) => join === "unbacked" || join === "blind",
+      timeoutMs: PORT_SCAN_TIMEOUT,
+      onTimeout: (last, ms) =>
+        new Error(
+          `Expected printed-url card without a known listener within ${ms}ms; last=${JSON.stringify(last)}`,
+        ),
+    });
+  },
+);
+
+Then(
   "the printed-url card should upgrade to join state {string}",
   async function (this: KoluWorld, state: string) {
     // Same assertion as open-with-state, sized for a scan tick after bind.

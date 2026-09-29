@@ -204,7 +204,9 @@ database (the highest-numbered `~/.codex/state_<N>.sqlite`) for the live threads
 whose working directory matches the terminal — most recently updated first — takes
 the best one no other terminal already holds, and tails that thread's rollout JSONL
 for state and context-token count. Live updates ride a watch on the SQLite
-write-ahead log.
+write-ahead log. Detection includes standalone CLI sessions and daemon-backed
+TUI sessions; non-interactive `codex exec` runs and
+Codex-spawned sub-agents are excluded.
 
 | State | Indicator | Meaning |
 | --- | --- | --- |
