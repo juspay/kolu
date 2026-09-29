@@ -191,7 +191,7 @@ export function openDb(log?: Logger): DatabaseSync | null {
  * Filters:
  *  - `cwd = ?` — exact match on the thread's starting directory.
  *  - `source IN ('cli', 'vscode')` — includes standalone CLI threads and
- *    daemon-backed TUI threads, stored as `vscode` since Codex 0.158
+ *    daemon-backed TUI threads, stored as `vscode` (observed from Codex 0.158)
  *    (the VS Code extension uses that source too). Excludes non-interactive
  *    `exec` and sub-agent JSON sources like `{"subagent":{"thread_spawn":...}}`:
  *    those are not interactive user sessions to bind to a foreground terminal.
