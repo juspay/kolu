@@ -7767,6 +7767,18 @@
       ],
       "executions": 3,
       "firstSeenSha": "857c872111771a867827e4274767c1103b29de5a"
+    },
+    {
+      "revisionId": "revision-7b485493a19365aa0f84",
+      "scenarioKey": "scenario-d658cd89cdb288522921",
+      "feature": "features/terminal.feature",
+      "scenario": "Zoom only affects the focused canvas tile",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "8191de783a9bb53bf969ed800e9da8558bcb2733d4304ce79e2a7ce3d29a0be4",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "1c051e17378cc78d3dca000a93500f9e9756cb19"
     }
   ]
 }
