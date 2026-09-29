@@ -2100,3 +2100,16 @@ retirements:
       file: packages/tests/features/right-panel.feature
       symbol: "Scenario: Collapsed state is per-terminal (the panel follows the terminal)"
       test: Preserves the scenario's assertions while accounting for newly created terminals inheriting an open panel; collapse is now an explicit independent action rather than an assumed creation default.
+  - id: revise-zoom-terminal-creation-wait
+    revisionId: revision-0014ed15f857587bc54e
+    action: revised
+    status: landed
+    promise: Zoom changes only the focused canvas tile's font size
+    defectSurface: [terminal-zoom, terminal-creation]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-7b485493a19365aa0f84]
+    sameCodePathEvidence:
+      file: packages/tests/features/terminal.feature
+      symbol: "Scenario: Zoom only affects the focused canvas tile"
+      test: Preserves every zoom assertion and waits for two canvas tiles before reading font sizes, preventing the original terminal alone from satisfying the settle step.
