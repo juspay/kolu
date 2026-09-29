@@ -7779,6 +7779,42 @@
       "exampleRows": [],
       "executions": 1,
       "firstSeenSha": "1c051e17378cc78d3dca000a93500f9e9756cb19"
+    },
+    {
+      "revisionId": "revision-a108e75fa96d8d21e2ca",
+      "scenarioKey": "scenario-dd9623c1f6acdeaa271f",
+      "feature": "features/code-tab.feature",
+      "scenario": "A deleted file offers no Download",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "614344673de925fe9d47784bd1919b8e64fc80abd9d828991f3febd255b5514a",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "e5f457cc5099fc5f64daa7fbf6d770f27c11e3b3"
+    },
+    {
+      "revisionId": "revision-74f22c3d04d48cccfe50",
+      "scenarioKey": "scenario-f0699b9d0ad1d079f948",
+      "feature": "features/code-tab.feature",
+      "scenario": "A directory row offers no Download",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "0e54d684531fc7bb874e89b18ec530d6372b15f3265d235d66c3da518892c979",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "e5f457cc5099fc5f64daa7fbf6d770f27c11e3b3"
+    },
+    {
+      "revisionId": "revision-50758fe9229e61831a5d",
+      "scenarioKey": "scenario-f08a2107612beb95a90d",
+      "feature": "features/code-tab.feature",
+      "scenario": "Right-click Download on a file saves it under its base name",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "a8ce23e49ded7561552f2123ba9100304e804e97dbbd31be2670329d7f4c183f",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "e5f457cc5099fc5f64daa7fbf6d770f27c11e3b3"
     }
   ]
 }

@@ -25,6 +25,8 @@ import { FileTree, rowPathsCss } from "@kolu/solid-pierre";
 import { toError } from "@kolu/surface/run-stream";
 import { makeEventListener } from "@solid-primitives/event-listener";
 import { Effect } from "effect";
+import { encodeHostKey } from "kolu-common/hostKey";
+import { buildTerminalFileUrl } from "kolu-common/preview";
 import type { TerminalId } from "kolu-common/surface";
 import type { GitDiffMode } from "kolu-git/schemas";
 import {
@@ -46,6 +48,7 @@ import { CommentsTray } from "../comments/CommentsTray";
 import { CommentTextSurface } from "../comments/CommentTextSurface";
 import { useComposer } from "../comments/composerState";
 import { useCommentScrollRequest } from "../comments/scrollRequest";
+import { triggerDownload } from "../download";
 import { runActionPromise } from "../runAction";
 import { useColorScheme } from "../settings/useColorScheme";
 import { realSizes } from "../ui/corvuResizable";
@@ -219,11 +222,11 @@ const CodeTab: Component<{
   const view = rightPanel.codeMode;
   const setView = rightPanel.setCodeMode;
 
-  // Tree right-click menu: "Copy path" plus view-switch entries (All files ⇄
-  // Local / Branch diff). Built once — `nav.view()` is read fresh on each
-  // right-click, so the closure tracks the live mode even though Pierre
-  // snapshots the menu config at mount. For a file row, navigation seeds the
-  // destination view's selection slot *before* switching so the same file
+  // Tree right-click menu: "Copy path" and "Download", plus view-switch
+  // entries (All files ⇄ Local / Branch diff). Built once — the hooks are read
+  // fresh on each right-click, so the closure tracks the live mode even though
+  // Pierre snapshots the menu config at mount. For a file row, navigation seeds
+  // the destination view's selection slot *before* switching so the same file
   // lands selected there (a file absent from that view's changed set — e.g. an
   // untracked file in Branch mode, or anything in a base-less Branch — falls
   // out and the membership effect clears it; the view still switches, the
@@ -234,7 +237,7 @@ const CodeTab: Component<{
     navigate: (target, path) => {
       // This guard is the *single* enforcement point for the adapter's
       // documented "null = leave the target's slot untouched" contract
-      // (pierreAdapters.ts `TreeContextMenuNav.navigate`): a null path is the
+      // (pierreAdapters.ts `TreeContextMenuHooks.navigate`): a null path is the
       // adapter's "directories aren't selectable" verdict, so the target keeps
       // its own last pick. It is load-bearing, not removable defensive code —
       // the adapter never calls setSelectedFile itself, so the no-op lives only
@@ -251,6 +254,30 @@ const CodeTab: Component<{
       // stepped straight over right-click "Open in <mode>" jumps.)
       if (path !== null) select(target, path);
       setView(target);
+    },
+    // The tree's own decoration, read at right-click time — the adapter uses
+    // its `deleted` rows to withhold Download (a diff view's deleted file has
+    // no bytes left to fetch). Read through a thunk: `treeGitStatus` is declared
+    // below this factory (the hooks are only ever invoked at click time, but the
+    // object literal itself is built now).
+    gitStatus: () => treeGitStatus(),
+    // Save the row's bytes under its base name, through the same per-terminal
+    // file route the preview pipeline streams from (so a remote host's file is
+    // read on THAT host, not the local default). The download must be triggered
+    // synchronously inside the click — an `await` here would spend the user
+    // gesture and the browser could refuse the save.
+    download: (path) => {
+      const scope = currentScope();
+      if (scope === null) {
+        // Surfaced, not swallowed: the menu's click handler closes on return,
+        // so a failure here would otherwise leave the user with nothing at all.
+        toast.error(`Failed to download ${path}: no active terminal`);
+        return;
+      }
+      triggerDownload(
+        buildTerminalFileUrl(encodeHostKey(scope.host), scope.terminalId, path),
+        path.slice(path.lastIndexOf("/") + 1),
+      );
     },
   });
 

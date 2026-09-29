@@ -450,6 +450,45 @@ Feature: Code tab (review + browse)
     And I click the context menu item "Copy path"
     Then the clipboard should contain "api/handler.ts"
 
+  # Download sits beside Copy path on a file row: it saves the row's bytes
+  # through the per-terminal file route, under the file's own base name (not
+  # the repo-relative path the tree row carries). The route serves ANY file
+  # type, so this holds for source files, not only previewable ones.
+  Scenario: Right-click Download on a file saves it under its base name
+    When I run "rm -rf /tmp/kolu-tree-download && git init /tmp/kolu-tree-download && cd /tmp/kolu-tree-download"
+    And I run "git commit --allow-empty -m init"
+    And I run "mkdir -p api && printf 'download-me\n' > api/handler.ts"
+    And I click the Code tab
+    And I click the Code tab mode "local"
+    Then the Code tab should list a changed file "api/handler.ts"
+    When I right-click the changed file "api/handler.ts" in the Code tab
+    And I download the context menu item "Download"
+    Then the downloaded file should be named "handler.ts" containing "download-me"
+
+  # A directory row has no bytes of its own, so the entry is absent — not
+  # present-and-broken.
+  Scenario: A directory row offers no Download
+    When I run "rm -rf /tmp/kolu-tree-download-dir && git init /tmp/kolu-tree-download-dir && cd /tmp/kolu-tree-download-dir"
+    And I run "git commit --allow-empty -m init"
+    And I run "mkdir -p pkg && printf 'x\n' > pkg/a.ts"
+    And I click the Code tab
+    And I click the Code tab mode "local"
+    Then the Code tab should list a changed file "pkg/a.ts"
+    When I right-click the directory node "pkg" in the Code tab
+    Then the tree context menu should not offer "Download"
+
+  # The diff views list CHANGED files, so a deletion is a row with a path but
+  # nothing behind it — the entry is withheld rather than offered and failed.
+  Scenario: A deleted file offers no Download
+    When I run "rm -rf /tmp/kolu-tree-download-gone && git init /tmp/kolu-tree-download-gone && cd /tmp/kolu-tree-download-gone"
+    And I run "printf 'bye\n' > gone.txt && git add . && git commit -m init"
+    And I run "rm gone.txt"
+    And I click the Code tab
+    And I click the Code tab mode "local"
+    Then the Code tab should list a changed file "gone.txt"
+    When I right-click the changed file "gone.txt" in the Code tab
+    Then the tree context menu should not offer "Download"
+
   # ── Pierre tree right-click menu (view switching) ──
   # The menu carries view-switch entries so a right-click on a file row jumps
   # straight to that file in another view: All files → "Open Local diff" /

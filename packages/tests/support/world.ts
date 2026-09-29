@@ -8,7 +8,13 @@ import {
   setWorldConstructor,
   World,
 } from "@cucumber/cucumber";
-import type { Browser, BrowserContext, Locator, Page } from "playwright";
+import type {
+  Browser,
+  BrowserContext,
+  Download,
+  Locator,
+  Page,
+} from "playwright";
 // Side-effect import: pulls in the `Window`/`HTMLDivElement`/`Navigator`
 // augmentations every step definition needs (window.__readXtermBuffer,
 // `__xterm` on tile divs, the Badging API stubs, …) so tests can read
@@ -113,6 +119,9 @@ export class KoluWorld extends World {
   };
   lastResponseText?: string;
   lastResponseOk?: boolean;
+  /** The browser download a Code-tab tree-menu step captured, so a follow-up
+   *  step can assert the saved name and bytes. */
+  lastDownload?: Download;
   terminalCountBeforeRefresh?: number;
   /** The padi + kaval gate pids captured by `I capture the padi and kaval
    *  daemon pids`, read back by the `@kaval-restart` arms to prove a
