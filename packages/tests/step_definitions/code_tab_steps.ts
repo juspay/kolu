@@ -1,4 +1,6 @@
+import { readFile } from "node:fs/promises";
 import { Given, Then, When } from "@cucumber/cucumber";
+import type { Locator } from "playwright";
 import { waitForBufferContains } from "../support/buffer.ts";
 import { nudgeDir, nudgeFiles } from "../support/nudge.ts";
 import { pollFor } from "../support/poll.ts";
@@ -177,18 +179,31 @@ When(
   },
 );
 
-/** Click a top-level item in the tree/file/diff context menu. The diff and
- *  file viewers render `<button role="menuitem">` (`CodeContextMenu`); the
- *  tree's Pierre-slot menu uses plain `<button>`. Match either via a CSS
- *  fallback so callers don't have to know which one fired. */
+/** The context-menu item labelled `label`, inside `scope`, once it is visible.
+ *  The diff and file viewers render `<button role="menuitem">`
+ *  (`CodeContextMenu`); the tree's Pierre-slot menu uses plain `<button>`.
+ *  Match either via a CSS fallback so callers don't have to know which one
+ *  fired. The menu opens asynchronously, so the wait is part of finding it. */
+async function menuItem(
+  world: KoluWorld,
+  scope: string,
+  label: string,
+): Promise<Locator> {
+  const item = world.page
+    .locator(scope)
+    .locator('button, [role="menuitem"]')
+    .filter({ hasText: label })
+    .first();
+  await item.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+  return item;
+}
+
+/** Click a top-level item in the tree/file/diff context menu. */
 When(
   "I click the context menu item {string}",
   async function (this: KoluWorld, label: string) {
-    const btn = this.page
-      .locator('button, [role="menuitem"]')
-      .filter({ hasText: label });
-    await btn.first().waitFor({ state: "visible", timeout: POLL_TIMEOUT });
-    await btn.first().click();
+    const item = await menuItem(this, "body", label);
+    await item.click();
     await this.waitForFrame();
   },
 );
@@ -478,6 +493,72 @@ When(
     await waitTreeReady(this, dirRow(path));
     await this.page.locator(dirRow(path)).click();
     await this.waitForFrame();
+  },
+);
+
+When(
+  "I right-click the directory node {string} in the Code tab",
+  async function (this: KoluWorld, path: string) {
+    await waitTreeReady(this, dirRow(path));
+    await this.page.locator(dirRow(path)).click({ button: "right" });
+    await this.waitForFrame();
+  },
+);
+
+/** Click a tree-menu item that STARTS A DOWNLOAD and capture the download. The
+ *  listener and the click must be armed together: `waitForEvent` only sees
+ *  events after the call, so arming it post-click races the (already started)
+ *  save. */
+When(
+  "I download the context menu item {string}",
+  async function (this: KoluWorld, label: string) {
+    const item = await menuItem(this, "body", label);
+    const [download] = await Promise.all([
+      this.page.waitForEvent("download", { timeout: POLL_TIMEOUT }),
+      item.click(),
+    ]);
+    this.lastDownload = download;
+    await this.waitForFrame();
+  },
+);
+
+Then(
+  "the downloaded file should be named {string} containing {string}",
+  async function (this: KoluWorld, name: string, content: string) {
+    const download = this.lastDownload;
+    if (!download) {
+      throw new Error(
+        "no download was captured — the click step must run first",
+      );
+    }
+    const suggested = download.suggestedFilename();
+    if (suggested !== name) {
+      throw new Error(`download is named "${suggested}", expected "${name}"`);
+    }
+    const filePath = await download.path();
+    const body = await readFile(filePath, "utf8");
+    if (!body.includes(content)) {
+      throw new Error(
+        `downloaded body ${JSON.stringify(body)} does not contain ${JSON.stringify(content)}`,
+      );
+    }
+  },
+);
+
+/** The NEGATIVE counterpart: the tree menu is open, and the named item is not
+ *  in it. The positive control ("Copy path", present on every row) is what
+ *  keeps this from passing vacuously against a closed menu or a mis-scoped
+ *  locator. */
+Then(
+  "the tree context menu should not offer {string}",
+  async function (this: KoluWorld, label: string) {
+    await menuItem(this, TREE, "Copy path");
+    const texts = await this.page.locator(`${TREE} button`).allTextContents();
+    if (texts.some((text) => text.includes(label))) {
+      throw new Error(
+        `tree context menu offers "${label}"; items: ${texts.join(" | ")}`,
+      );
+    }
   },
 );
 
