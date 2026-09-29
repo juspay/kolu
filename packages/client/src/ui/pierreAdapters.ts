@@ -4,11 +4,12 @@
  *  CSS variables and `solid-sonner` toast for clipboard feedback. It's a
  *  factory closing over the Code tab's current view + a navigate callback so
  *  the menu can offer "jump to another view" entries (All files ⇄ git diff)
- *  alongside "Copy path". Pierre snapshots the `contextMenu` config once at
- *  mount, but invokes `render` fresh on every right-click — so reading
- *  `nav.view()` inside `render` reflects the live mode at click time. (The
- *  pure porcelain→word git-status mapping lives in `gitStatusEntries.ts`, kept
- *  toast-free so it stays unit-testable in a plain node env.) */
+ *  alongside "Copy path" and "Download". Pierre snapshots the `contextMenu`
+ *  config once at mount, but invokes `render` fresh on every right-click — so
+ *  reading `nav.view()` / `nav.gitStatus()` inside `render` reflects the live
+ *  mode at click time. (The pure porcelain→word git-status mapping lives in
+ *  `gitStatusEntries.ts`, kept toast-free so it stays unit-testable in a plain
+ *  node env.) */
 
 import {
   CODE_TAB_VIEW_ORDER,
@@ -18,6 +19,7 @@ import {
 import type {
   ContextMenuItem,
   ContextMenuOpenContext,
+  GitStatusEntry,
 } from "@kolu/solid-pierre";
 import { toError } from "@kolu/surface/run-stream";
 import { Effect } from "effect";
@@ -25,8 +27,9 @@ import { toast } from "solid-sonner";
 import { runAction } from "../runAction";
 import { writeTextToClipboard } from "./clipboard";
 
-/** Hooks the menu needs from the Code tab to offer view-switch entries. */
-export type TreeContextMenuNav = {
+/** Hooks the menu needs from the Code tab: the view-switch entries, and the
+ *  two facts that decide a file row's Download entry. */
+export type TreeContextMenuHooks = {
   /** Current Code-tab view — read at right-click time, not factory time. */
   view: () => CodeTabView;
   /** Switch the Code tab to `target`. A non-null `path` becomes that view's
@@ -34,7 +37,27 @@ export type TreeContextMenuNav = {
    *  directories aren't selectable) leaves the target's selection slot
    *  untouched, so it restores its own last pick per the per-slot design. */
   navigate: (target: CodeTabView, path: string | null) => void;
+  /** The active view's git decoration, read at right-click time. A row's
+   *  `deleted` entry is what withholds the Download entry (see
+   *  {@link deletedPaths}) — the file is gone from disk, so there are no bytes
+   *  to save. */
+  gitStatus: () => readonly GitStatusEntry[] | undefined;
+  /** Save a file row's bytes through the browser's download flow. */
+  download: (path: string) => void;
 };
+
+/** The paths `gitStatus` marks `deleted` — the diff-view rows whose bytes are
+ *  gone from disk, so the menu offers no Download for them (a live `fs.listAll`
+ *  listing never contains one: browse lists the disk, not the changes). */
+function deletedPaths(
+  gitStatus: readonly GitStatusEntry[] | undefined,
+): ReadonlySet<string> {
+  return new Set(
+    (gitStatus ?? [])
+      .filter((entry) => entry.status === "deleted")
+      .map((entry) => entry.path),
+  );
+}
 
 /** Menu text for jumping to `target`: "Open in All files" for the browse
  *  view, "Open <Local|Branch> diff" for a git-diff view. */
@@ -74,7 +97,7 @@ function navEntriesFor(
  *  inside that wrapper shifts it off the click point. We pin
  *  `position: fixed` with `context.anchorRect` coords so the menu lands at
  *  the cursor regardless of the wrapper's layout. */
-export function makeTreeContextMenu(nav: TreeContextMenuNav) {
+export function makeTreeContextMenu(nav: TreeContextMenuHooks) {
   return function renderTreeContextMenu(
     item: ContextMenuItem,
     context: ContextMenuOpenContext,
@@ -158,6 +181,13 @@ export function makeTreeContextMenu(nav: TreeContextMenuNav) {
         ),
       );
     });
+
+    // Files only (a directory has no bytes to save), and only when the active
+    // view's git status still has the file on disk — a `deleted` row in a diff
+    // view is a path with nothing behind it.
+    if (item.kind === "file" && !deletedPaths(nav.gitStatus()).has(item.path)) {
+      addItem("Download", () => nav.download(item.path));
+    }
 
     return menu;
   };

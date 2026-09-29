@@ -219,6 +219,11 @@ export const AMBIENT_TIPS: readonly Tip[] = [
     doc: "code-tab",
   },
   {
+    id: "amb-code-tab-download",
+    text: "Right-click a file in the Code tab's tree to download it — the save uses the file's own name, and Copy path sits beside it",
+    doc: "code-tab",
+  },
+  {
     id: "amb-code-tab-show-ignored",
     text: "The eye toggle in the Code tab's All-files toolbar reveals gitignored files as dimmed rows — a fully-ignored folder arrives as one collapsed entry, and expanding it reads that level from disk, so you can walk into node_modules a click at a time",
     doc: "code-tab",

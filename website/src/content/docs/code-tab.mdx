@@ -26,6 +26,11 @@ working on without leaving the terminal beside it.
   and diff views.
 - Big files and diffs highlight on a background worker, so opening a 50k-line
   lockfile paints immediately and never freezes scrolling.
+- Right-click a file in the tree to **Copy path** or **Download** it. The save
+  lands under the file's own name whatever its type, and reads from the same
+  machine the Code tab is pointed at ([remote hosts](/remote-hosts) included).
+  A directory, or a file git reports as deleted, has no bytes to hand over and
+  so offers no Download.
 
 ## Your git changes — live
 

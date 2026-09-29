@@ -1,3 +1,4 @@
+import { readFile } from "node:fs/promises";
 import { Given, Then, When } from "@cucumber/cucumber";
 import { waitForBufferContains } from "../support/buffer.ts";
 import { nudgeDir, nudgeFiles } from "../support/nudge.ts";
@@ -478,6 +479,80 @@ When(
     await waitTreeReady(this, dirRow(path));
     await this.page.locator(dirRow(path)).click();
     await this.waitForFrame();
+  },
+);
+
+When(
+  "I right-click the directory node {string} in the Code tab",
+  async function (this: KoluWorld, path: string) {
+    await waitTreeReady(this, dirRow(path));
+    await this.page.locator(dirRow(path)).click({ button: "right" });
+    await this.waitForFrame();
+  },
+);
+
+/** Click a tree-menu item that STARTS A DOWNLOAD and capture the download. The
+ *  listener and the click must be armed together: `waitForEvent` only sees
+ *  events after the call, so arming it post-click races the (already started)
+ *  save. The menu is Pierre's plain-`<button>` slot menu, same as
+ *  `I click the context menu item`. */
+When(
+  "I download the context menu item {string}",
+  async function (this: KoluWorld, label: string) {
+    const btn = this.page
+      .locator('button, [role="menuitem"]')
+      .filter({ hasText: label });
+    await btn.first().waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    const [download] = await Promise.all([
+      this.page.waitForEvent("download", { timeout: POLL_TIMEOUT }),
+      btn.first().click(),
+    ]);
+    this.lastDownload = download;
+    await this.waitForFrame();
+  },
+);
+
+Then(
+  "the downloaded file should be named {string} containing {string}",
+  async function (this: KoluWorld, name: string, content: string) {
+    const download = this.lastDownload;
+    if (!download) {
+      throw new Error(
+        "no download was captured — the click step must run first",
+      );
+    }
+    const suggested = download.suggestedFilename();
+    if (suggested !== name) {
+      throw new Error(`download is named "${suggested}", expected "${name}"`);
+    }
+    const filePath = await download.path();
+    const body = await readFile(filePath, "utf8");
+    if (!body.includes(content)) {
+      throw new Error(
+        `downloaded body ${JSON.stringify(body)} does not contain ${JSON.stringify(content)}`,
+      );
+    }
+  },
+);
+
+/** The NEGATIVE counterpart: the tree menu is open, and the named item is not
+ *  in it. The positive control ("Copy path", present on every row) is what
+ *  keeps this from passing vacuously against a closed menu or a mis-scoped
+ *  locator. */
+Then(
+  "the tree context menu should not offer {string}",
+  async function (this: KoluWorld, label: string) {
+    const items = this.page.locator(`${TREE} button`);
+    await items
+      .filter({ hasText: "Copy path" })
+      .first()
+      .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    const texts = await items.allTextContents();
+    if (texts.some((text) => text.includes(label))) {
+      throw new Error(
+        `tree context menu offers "${label}"; items: ${texts.join(" | ")}`,
+      );
+    }
   },
 );
 
