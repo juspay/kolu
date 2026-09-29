@@ -38,26 +38,12 @@ export type TreeContextMenuHooks = {
    *  untouched, so it restores its own last pick per the per-slot design. */
   navigate: (target: CodeTabView, path: string | null) => void;
   /** The active view's git decoration, read at right-click time. A row's
-   *  `deleted` entry is what withholds the Download entry (see
-   *  {@link deletedPaths}) — the file is gone from disk, so there are no bytes
-   *  to save. */
+   *  `deleted` entry withholds the Download entry — the file is gone from
+   *  disk, so there are no bytes to save. */
   gitStatus: () => readonly GitStatusEntry[] | undefined;
   /** Save a file row's bytes through the browser's download flow. */
   download: (path: string) => void;
 };
-
-/** The paths `gitStatus` marks `deleted` — the diff-view rows whose bytes are
- *  gone from disk, so the menu offers no Download for them (a live `fs.listAll`
- *  listing never contains one: browse lists the disk, not the changes). */
-function deletedPaths(
-  gitStatus: readonly GitStatusEntry[] | undefined,
-): ReadonlySet<string> {
-  return new Set(
-    (gitStatus ?? [])
-      .filter((entry) => entry.status === "deleted")
-      .map((entry) => entry.path),
-  );
-}
 
 /** Menu text for jumping to `target`: "Open in All files" for the browse
  *  view, "Open <Local|Branch> diff" for a git-diff view. */
@@ -185,7 +171,12 @@ export function makeTreeContextMenu(nav: TreeContextMenuHooks) {
     // Files only (a directory has no bytes to save), and only when the active
     // view's git status still has the file on disk — a `deleted` row in a diff
     // view is a path with nothing behind it.
-    if (item.kind === "file" && !deletedPaths(nav.gitStatus()).has(item.path)) {
+    if (
+      item.kind === "file" &&
+      !(nav.gitStatus() ?? []).some(
+        (entry) => entry.path === item.path && entry.status === "deleted",
+      )
+    ) {
       addItem("Download", () => nav.download(item.path));
     }
 

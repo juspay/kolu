@@ -25,9 +25,9 @@ import { FileTree, rowPathsCss } from "@kolu/solid-pierre";
 import { toError } from "@kolu/surface/run-stream";
 import { makeEventListener } from "@solid-primitives/event-listener";
 import { Effect } from "effect";
-import type { TerminalId } from "kolu-common/surface";
-import { buildTerminalFileUrl } from "kolu-common/preview";
 import { encodeHostKey } from "kolu-common/hostKey";
+import { buildTerminalFileUrl } from "kolu-common/preview";
+import type { TerminalId } from "kolu-common/surface";
 import type { GitDiffMode } from "kolu-git/schemas";
 import {
   batch,
@@ -269,9 +269,10 @@ const CodeTab: Component<{
     download: (path) => {
       const scope = currentScope();
       if (scope === null) {
-        throw new Error(
-          `download: no open Code-tab scope for ${path} (no active terminal)`,
-        );
+        // Surfaced, not swallowed: the menu's click handler closes on return,
+        // so a failure here would otherwise leave the user with nothing at all.
+        toast.error(`Failed to download ${path}: no active terminal`);
+        return;
       }
       triggerDownload(
         buildTerminalFileUrl(encodeHostKey(scope.host), scope.terminalId, path),

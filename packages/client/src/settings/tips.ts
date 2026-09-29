@@ -220,7 +220,7 @@ export const AMBIENT_TIPS: readonly Tip[] = [
   },
   {
     id: "amb-code-tab-download",
-    text: "Right-click a file in the Code tab's tree to download it — the save uses the file's own name, and Copy path sits beside it",
+    text: "Right-click a file in the Code tab's tree to download it — the save uses the file's own name",
     doc: "code-tab",
   },
   {
