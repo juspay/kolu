@@ -1,5 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { Given, Then, When } from "@cucumber/cucumber";
+import type { Locator } from "playwright";
 import { waitForBufferContains } from "../support/buffer.ts";
 import { nudgeDir, nudgeFiles } from "../support/nudge.ts";
 import { pollFor } from "../support/poll.ts";
@@ -178,18 +179,31 @@ When(
   },
 );
 
-/** Click a top-level item in the tree/file/diff context menu. The diff and
- *  file viewers render `<button role="menuitem">` (`CodeContextMenu`); the
- *  tree's Pierre-slot menu uses plain `<button>`. Match either via a CSS
- *  fallback so callers don't have to know which one fired. */
+/** The context-menu item labelled `label`, inside `scope`, once it is visible.
+ *  The diff and file viewers render `<button role="menuitem">`
+ *  (`CodeContextMenu`); the tree's Pierre-slot menu uses plain `<button>`.
+ *  Match either via a CSS fallback so callers don't have to know which one
+ *  fired. The menu opens asynchronously, so the wait is part of finding it. */
+async function menuItem(
+  world: KoluWorld,
+  scope: string,
+  label: string,
+): Promise<Locator> {
+  const item = world.page
+    .locator(scope)
+    .locator('button, [role="menuitem"]')
+    .filter({ hasText: label })
+    .first();
+  await item.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+  return item;
+}
+
+/** Click a top-level item in the tree/file/diff context menu. */
 When(
   "I click the context menu item {string}",
   async function (this: KoluWorld, label: string) {
-    const btn = this.page
-      .locator('button, [role="menuitem"]')
-      .filter({ hasText: label });
-    await btn.first().waitFor({ state: "visible", timeout: POLL_TIMEOUT });
-    await btn.first().click();
+    const item = await menuItem(this, "body", label);
+    await item.click();
     await this.waitForFrame();
   },
 );
@@ -494,18 +508,14 @@ When(
 /** Click a tree-menu item that STARTS A DOWNLOAD and capture the download. The
  *  listener and the click must be armed together: `waitForEvent` only sees
  *  events after the call, so arming it post-click races the (already started)
- *  save. The menu is Pierre's plain-`<button>` slot menu, same as
- *  `I click the context menu item`. */
+ *  save. */
 When(
   "I download the context menu item {string}",
   async function (this: KoluWorld, label: string) {
-    const btn = this.page
-      .locator('button, [role="menuitem"]')
-      .filter({ hasText: label });
-    await btn.first().waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    const item = await menuItem(this, "body", label);
     const [download] = await Promise.all([
       this.page.waitForEvent("download", { timeout: POLL_TIMEOUT }),
-      btn.first().click(),
+      item.click(),
     ]);
     this.lastDownload = download;
     await this.waitForFrame();
@@ -542,12 +552,8 @@ Then(
 Then(
   "the tree context menu should not offer {string}",
   async function (this: KoluWorld, label: string) {
-    const items = this.page.locator(`${TREE} button`);
-    await items
-      .filter({ hasText: "Copy path" })
-      .first()
-      .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
-    const texts = await items.allTextContents();
+    await menuItem(this, TREE, "Copy path");
+    const texts = await this.page.locator(`${TREE} button`).allTextContents();
     if (texts.some((text) => text.includes(label))) {
       throw new Error(
         `tree context menu offers "${label}"; items: ${texts.join(" | ")}`,
