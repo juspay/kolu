@@ -94,6 +94,7 @@ Feature: Terminal
     # terminal at once — two tiles could never be aligned to the same font
     # size. Zoom must touch only the focused tile.
     When I create a terminal with keyboard shortcut
+    Then there should be 2 canvas tiles
     And I wait for all terminals to settle
     And I note the font size of each terminal
     And I zoom in 2 times
