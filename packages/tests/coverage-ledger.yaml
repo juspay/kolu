@@ -2113,3 +2113,16 @@ retirements:
       file: packages/tests/features/terminal.feature
       symbol: "Scenario: Zoom only affects the focused canvas tile"
       test: Preserves every zoom assertion and waits for two canvas tiles before reading font sizes, preventing the original terminal alone from satisfying the settle step.
+  - id: revise-printed-url-host-visibility
+    revisionId: revision-8fc40643e36ad48d4720
+    action: revised
+    status: landed
+    promise: An open printed-URL card upgrades live when its listener appears
+    defectSurface: [printed-url, host-port-visibility]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-1604578d08f41d46c438]
+    sameCodePathEvidence:
+      file: packages/tests/features/printed-url.feature
+      symbol: "Scenario: An open card upgrades live when the listener appears"
+      test: The initial card may be unbacked or blind because macOS 27 hides unclaimed host sockets. The same open card must still become joined after the real listener starts; the live transition assertion is unchanged. Exact blind-versus-unbacked semantics remain covered by joinPrintedUrl.test.ts.

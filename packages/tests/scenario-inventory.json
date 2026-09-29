@@ -7815,6 +7815,18 @@
       "exampleRows": [],
       "executions": 1,
       "firstSeenSha": "e5f457cc5099fc5f64daa7fbf6d770f27c11e3b3"
+    },
+    {
+      "revisionId": "revision-1604578d08f41d46c438",
+      "scenarioKey": "scenario-11459cbbde83adbca078",
+      "feature": "features/printed-url.feature",
+      "scenario": "An open card upgrades live when the listener appears",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "074b92d3764dcb8e1e5843b6b469b23d745705804e0cf5d621300b16c5fee131",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "a86a380bc29684450f46a539f82cca7362be9218"
     }
   ]
 }
