@@ -284,7 +284,11 @@
   color: var(--color-fg-3);
   opacity: 0;
   pointer-events: none;
-  background-color: color-mix(in oklab, var(--color-surface-2) 75%, transparent);
+  background-color: color-mix(
+    in oklab,
+    var(--color-surface-2) 75%,
+    transparent
+  );
   background-image: radial-gradient(currentColor 1px, transparent 1px);
   background-size: 3px 3px;
   background-position: center;
