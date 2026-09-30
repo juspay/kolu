@@ -255,3 +255,72 @@
 [data-dock-row][data-asking] [data-dock-subline] {
   color: var(--color-alert);
 }
+
+/* ── Drag grip, drop verdict ────────────────────────────────────
+ * The dock-re-home gesture's two visible halves, both painted off the row's
+ * own attributes so no surface carries a drop colour of its own.
+ *
+ * The GRIP is the row's right-edge handle. It is revealed on hover or when
+ * anything inside the row has focus — the row is the positioning context (it
+ * is `relative`), so the grip is `position: absolute` and NEVER a grid item:
+ * the row is `grid-cols-subgrid`, and an in-flow child would consume a track
+ * and shift the pip / label / recency columns. Its dots are a `currentColor`
+ * radial-gradient tiled on a 3 px grid — a six-dot grip without an image.
+ *
+ * A drag in flight stamps `[data-drop]` on the row, and the grip must then
+ * stop swallowing the pointer: the drag is past the grip by then, and a hover
+ * over the row beneath would otherwise be eaten by the grip we just left. */
+.dock-row-grip {
+  position: absolute;
+  right: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 0.75rem;
+  height: 0.875rem;
+  padding: 0;
+  border: 0;
+  appearance: none;
+  cursor: grab;
+  color: var(--color-fg-3);
+  opacity: 0;
+  pointer-events: none;
+  background-color: color-mix(in oklab, var(--color-surface-2) 75%, transparent);
+  background-image: radial-gradient(currentColor 1px, transparent 1px);
+  background-size: 3px 3px;
+  background-position: center;
+  border-radius: 3px;
+  transition: opacity 120ms ease;
+}
+[data-dock-row]:hover > .dock-row-grip,
+[data-dock-row]:focus-within > .dock-row-grip {
+  opacity: 1;
+  pointer-events: auto;
+}
+[data-dock-row][data-drop] .dock-row-grip {
+  pointer-events: none;
+}
+
+/* The drop verdict rides `::after`, not the row's own background/box-shadow:
+ * a washed row may already carry the attention mix and its stripe on exactly
+ * those two properties, and a pseudo-element composites OVER them instead of
+ * fighting their specificity — the same "one rule, keyed on the shared hook"
+ * discipline the washes above are built on. `inset: 0` on a `position:
+ * relative` row is the whole row; the box-shadow is the 2 px valid-target ring. */
+[data-dock-row][data-drop="over"]::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: color-mix(in oklab, var(--color-accent) 14%, transparent);
+  box-shadow: inset 0 0 0 2px var(--color-accent);
+}
+[data-dock-row][data-drop="invalid"]::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: color-mix(in oklab, var(--color-fg) 7%, transparent);
+}
+[data-dock-row][data-drop="invalid"] {
+  cursor: no-drop;
+}

@@ -5,7 +5,12 @@
 import * as assert from "node:assert";
 import { Then, When } from "@cucumber/cucumber";
 import { dragCenterTo } from "../support/pointerDrag.ts";
-import { type KoluWorld, POLL_TIMEOUT } from "../support/world.ts";
+import { padiCall } from "../support/rpcWire.ts";
+import {
+  type KoluWorld,
+  DOCK_ROW_SELECTOR,
+  POLL_TIMEOUT,
+} from "../support/world.ts";
 
 /** One repo section, by its canonical git repo name / cwd basename. */
 const sectionSelector = (repo: string) => `[data-repo="${repo}"]`;
@@ -241,5 +246,174 @@ Then(
           `newest terminal never landed at its cluster's bottom: ${JSON.stringify(live)}`,
         );
       });
+  },
+);
+
+/* ── Drag a row to RE-HOME it (nest it, or hand it back its own tile) ──────
+ *  The gesture is the row's own GRIP, not its body: a pointerdown on the body
+ *  still reaches the branch cluster's activator (#2249's reorder), which is
+ *  exactly why the grip stops the event at the row's boundary. */
+
+/** The dock row of a terminal created in this scenario, by 1-based creation
+ *  index — the addressing the workspace-switcher steps already use. */
+const createdRowSelector = (world: KoluWorld, index: number): string => {
+  const id = world.createdTerminalIds[index - 1];
+  assert.ok(id, `No terminal created at index ${index} in this scenario`);
+  return `${DOCK_ROW_SELECTOR}[data-terminal-id="${id}"]`;
+};
+
+/** Drag a row by its grip. The grip is revealed on hover and takes no pointer
+ *  events until it is, so the row is hovered FIRST — otherwise the press lands
+ *  on the row body and reorders the cluster instead of re-homing the terminal. */
+const dragRowGrip = async (
+  world: KoluWorld,
+  fromRow: string,
+  to: string,
+): Promise<void> => {
+  await world.page.locator(fromRow).hover();
+  await dragCenterTo(world, `${fromRow} [data-testid="dock-row-grip"]`, to);
+};
+
+When(
+  "I drag the dock row of terminal {int} onto the dock row of terminal {int}",
+  async function (this: KoluWorld, from: number, to: number) {
+    await dragRowGrip(
+      this,
+      createdRowSelector(this, from),
+      createdRowSelector(this, to),
+    );
+  },
+);
+
+When(
+  "I drag the split's dock row onto the {string} repo header",
+  async function (this: KoluWorld, repo: string) {
+    const subId = this.rememberedSubTerminalId;
+    assert.ok(
+      subId,
+      'no remembered sub-terminal — call "I remember the sub-terminal\'s id" first',
+    );
+    await dragRowGrip(
+      this,
+      `[data-testid="dock-sub-row"][data-terminal-id="${subId}"]`,
+      `${sectionSelector(repo)} [data-testid="dock-header-drop"]`,
+    );
+  },
+);
+
+When("I split terminal {int}", async function (this: KoluWorld, index: number) {
+  const parentId = this.createdTerminalIds[index - 1];
+  assert.ok(parentId, `No terminal created at index ${index} in this scenario`);
+  // Through the daemon, not the product's palette path: the palette's first
+  // click lands on the terminal screen, and a link under the cursor flips
+  // xterm's link layer over that screen — a non-deterministic target for a
+  // scenario that is about the DOCK's drag, not about how a split is born.
+  // (`sub-terminal.feature` owns the palette path.)
+  await padiCall("lifecycle/create", {
+    placement: { kind: "child-of", parentId },
+  });
+  await this.page
+    .locator('[data-testid="dock-sub-row"]')
+    .first()
+    .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+});
+
+Then(
+  "terminal {int} should be a split of terminal {int} in the dock",
+  async function (this: KoluWorld, childIndex: number, parentIndex: number) {
+    const child = this.createdTerminalIds[childIndex - 1];
+    const parent = this.createdTerminalIds[parentIndex - 1];
+    assert.ok(
+      child && parent,
+      `No terminals created at indices ${childIndex} / ${parentIndex}`,
+    );
+    await this.page
+      .locator(
+        `[data-testid="dock-sub-row"][data-terminal-id="${child}"][data-parent-id="${parent}"]`,
+      )
+      .waitFor({ state: "visible", timeout: POLL_TIMEOUT })
+      .catch(async () => {
+        // Dump the whole dock's row shape: "not a split of X" cannot tell an
+        // unchanged dock from one that nested under the WRONG parent, and the
+        // two need different fixes.
+        const shape = await this.page.evaluate(() => ({
+          rows: Array.from(document.querySelectorAll("[data-dock-row]")).map(
+            (el) => ({
+              testid: el.getAttribute("data-testid"),
+              id: el.getAttribute("data-terminal-id"),
+              parent: el.getAttribute("data-parent-id"),
+              drop: el.getAttribute("data-drop"),
+            }),
+          ),
+          grips: document.querySelectorAll('[data-testid="dock-row-grip"]')
+            .length,
+        }));
+        assert.fail(
+          `terminal ${child} is not a split of ${parent}: ${JSON.stringify(shape)}`,
+        );
+      });
+  },
+);
+
+Then(
+  "the split should have its own dock row",
+  async function (this: KoluWorld) {
+    const subId = this.rememberedSubTerminalId;
+    assert.ok(subId, "no remembered sub-terminal id");
+    // A top-level row: it wears the top-level test id and carries NO parent edge.
+    await this.page
+      .locator(
+        `${DOCK_ROW_SELECTOR}[data-terminal-id="${subId}"]:not([data-parent-id])`,
+      )
+      .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+  },
+);
+
+/** The canvas's tile count, read off the DOM — the arrangement fact a re-home
+ *  changes (a nested row's tile goes away; an un-split row's comes back). */
+const canvasTileCount = (world: KoluWorld): Promise<number> =>
+  world.page.evaluate(
+    () => document.querySelectorAll("[data-canvas-tile]").length,
+  );
+
+When("I remember the canvas tile count", async function (this: KoluWorld) {
+  this.canvasTileCount = await canvasTileCount(this);
+});
+
+/** Assert the canvas moved by `delta` from the remembered count. Relative on
+ *  purpose: the scenario's own background terminal is a tile too. */
+const expectTileDelta = async (world: KoluWorld, delta: number) => {
+  const before = world.canvasTileCount;
+  assert.ok(before !== null, 'call "I remember the canvas tile count" first');
+  const expected = before + delta;
+  await world.page
+    .waitForFunction(
+      (n) => document.querySelectorAll("[data-canvas-tile]").length === n,
+      expected,
+      { timeout: POLL_TIMEOUT },
+    )
+    .catch(async () => {
+      const tiles = await world.page.evaluate(() =>
+        Array.from(document.querySelectorAll("[data-canvas-tile]")).map(
+          (el) => el.getAttribute("data-terminal-id") ?? "",
+        ),
+      );
+      assert.fail(
+        `expected ${expected} canvas tiles (${before} ${delta >= 0 ? "+" : ""}${delta}), found ${tiles.length}: ${JSON.stringify(tiles)}`,
+      );
+    });
+};
+
+Then(
+  "the canvas tile count should drop by {int}",
+  async function (this: KoluWorld, delta: number) {
+    await expectTileDelta(this, -delta);
+  },
+);
+
+Then(
+  "the canvas tile count should rise by {int}",
+  async function (this: KoluWorld, delta: number) {
+    await expectTileDelta(this, delta);
   },
 );

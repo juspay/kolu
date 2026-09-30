@@ -194,6 +194,10 @@ export class KoluWorld extends World {
   /** A sub-terminal (split) id captured by the deep-links steps, so a
    *  `#/t/local/<subId>` link can target it after focus has moved away. */
   rememberedSubTerminalId: string | null = null;
+  /** Canvas tile count snapshotted by the dock re-home steps, so a re-home is
+   *  asserted as a DELTA. The scenario's own background terminal is a tile too,
+   *  so an absolute count would silently depend on it. */
+  canvasTileCount: number | null = null;
   /** `history.length` snapshot taken by the deep-links steps, so a scenario can
    *  pin that routing deep links pushes NO history entries (mouse-back must
    *  never replay a stale teleport). */

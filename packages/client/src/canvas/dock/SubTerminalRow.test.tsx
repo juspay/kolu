@@ -84,6 +84,7 @@ function splitMeta(agent: AgentInfo | null = null): TerminalMetadata {
 function shellRankedRow() {
   return {
     id: SPLIT,
+    parentId: PARENT,
     kind: "shell" as const,
     bucket: "idle" as const,
     pip: "idle" as const,

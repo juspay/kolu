@@ -105,6 +105,7 @@ function tileRow() {
 function blockedSplitRow() {
   return {
     id: SPLIT,
+    parentId: PARENT,
     kind: "agent" as const,
     bucket: "awaiting" as const,
     pip: "awaiting" as const,

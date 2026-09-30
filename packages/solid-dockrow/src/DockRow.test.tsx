@@ -159,3 +159,103 @@ describe("DockRow's tree contract", () => {
     }
   });
 });
+
+describe("DockRow's drag sockets", () => {
+  const rowEl = (host: HTMLElement) =>
+    host.querySelector("[data-dock-row]") as HTMLElement;
+  const gripEl = (host: HTMLElement) =>
+    host.querySelector("[data-testid='dock-row-grip']") as HTMLElement | null;
+
+  it("renders no grip without a handle, and a labelled one when wired", () => {
+    // No handle = no grip in the DOM at all (touch rows, rows whose terminal
+    // is not live) — not a hidden one. The package renders the grip itself,
+    // so the consumer never spells the markup.
+    const bare = renderRow(rowProps());
+    try {
+      expect(gripEl(bare.host)).toBeNull();
+    } finally {
+      bare.dispose();
+    }
+
+    const wired = renderRow(rowProps({ handle: { onpointerdown: () => {} } }));
+    try {
+      const grip = gripEl(wired.host);
+      expect(grip).not.toBeNull();
+      expect(grip?.getAttribute("aria-label")).toBe(
+        "Drag to nest this terminal",
+      );
+    } finally {
+      wired.dispose();
+    }
+  });
+
+  it("keeps a grip pointerdown from reaching an ancestor listener", () => {
+    // The stopPropagation contract: the cluster's activator wraps the row, so
+    // a grip drag bubbles through it — and must NOT lift the whole branch.
+    //
+    // Both handlers here are Solid DELEGATED ones (the wrapper's, and the
+    // grip's own), because that is what the cluster's activator is too: the
+    // contract is delegated-handler-to-delegated-handler. A native listener on
+    // an ancestor would fire before the document-level delegated dispatch even
+    // walks the path, so it could not observe the stop. The host is attached
+    // to the document for the same reason — a detached tree never reaches the
+    // delegated listener at all.
+    let gripFired = 0;
+    let ancestorFired = 0;
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const dispose = render(
+      () => (
+        <div
+          onPointerDown={() => {
+            ancestorFired += 1;
+          }}
+        >
+          <DockRow
+            {...rowProps({
+              handle: {
+                onpointerdown: () => {
+                  gripFired += 1;
+                },
+              },
+            })}
+          />
+        </div>
+      ),
+      host,
+    );
+    try {
+      const grip = gripEl(host);
+      expect(grip).not.toBeNull();
+      grip?.dispatchEvent(new Event("pointerdown", { bubbles: true }));
+      expect(gripFired).toBe(1);
+      expect(ancestorFired).toBe(0);
+    } finally {
+      dispose();
+      host.remove();
+    }
+  });
+
+  it("stamps the drop verdict, and omits the attribute with no drop", () => {
+    const over = renderRow(rowProps({ drop: "over" }));
+    try {
+      expect(rowEl(over.host).getAttribute("data-drop")).toBe("over");
+    } finally {
+      over.dispose();
+    }
+
+    const invalid = renderRow(rowProps({ drop: "invalid" }));
+    try {
+      expect(rowEl(invalid.host).getAttribute("data-drop")).toBe("invalid");
+    } finally {
+      invalid.dispose();
+    }
+
+    const neither = renderRow(rowProps());
+    try {
+      expect(rowEl(neither.host).hasAttribute("data-drop")).toBe(false);
+    } finally {
+      neither.dispose();
+    }
+  });
+});

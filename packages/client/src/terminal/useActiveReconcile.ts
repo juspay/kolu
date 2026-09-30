@@ -81,6 +81,40 @@ export interface TerminalEvictionPorts {
   removeSearch: (id: TerminalId) => void;
 }
 
+/** Repair a tile's tab strip once one of its panes is no longer under it:
+ *  clear an `activeSubTab` that would dangle at the pane that left (or collapse
+ *  the panel when nothing remains under the tile), and pick a successor.
+ *
+ *  `remaining` is every OTHER pane still belonging to the tile, in order;
+ *  `leavingWasFocused` picks whether the successor verb also carries the focus
+ *  fact. TWO callers, one rule: the eviction reconcile (`evictTerminal` — the
+ *  pane departed the census) and the Dock's drag re-home (the pane left its tile
+ *  but is still alive). The invariant they both restore — "`activeSubTab` is
+ *  null or a LIVE sub of this tile" — has consumers that trust a plain
+ *  null-check for "no active split" (the adopt don't-steal guard,
+ *  `focusVisiblePane`), so it gets one author rather than one per mutation. */
+export function repairTileTabs(
+  subPanel: TerminalEvictionPorts["subPanel"],
+  tileId: TerminalId,
+  leavingId: TerminalId,
+  remaining: readonly TerminalId[],
+  leavingWasFocused: boolean,
+): void {
+  if (remaining.length === 0) {
+    if (leavingWasFocused) subPanel.collapse(tileId);
+    else subPanel.collapseChrome(tileId);
+    // Clear the active tab too: the tile's last split is gone, so `activeSubTab`
+    // must not dangle at a departed sub.
+    subPanel.setActiveSubTab(tileId, null);
+    return;
+  }
+  if (subPanel.activeSubTab(tileId) === leavingId) {
+    const replacement = remaining[0] ?? null;
+    if (leavingWasFocused) subPanel.selectSubTab(tileId, replacement);
+    else subPanel.setActiveSubTab(tileId, replacement);
+  }
+}
+
 /** Pre-removal parent graph for a split eviction. The list-driven reconcile
  *  runs AFTER the departed id left the live census, so live root/flat walks
  *  see a dangling edge (grandchildren fall out of the root's pane set). The
@@ -154,22 +188,8 @@ export function evictTerminal(
         x !== dest &&
         containingTileOf(x, edge) === dest,
     );
-    if (remaining.length === 0) {
-      if (wasFocused) ports.subPanel.collapse(dest);
-      else ports.subPanel.collapseChrome(dest);
-      // Clear the active tab too: the tile's last split is gone, so `activeSubTab`
-      // must not dangle at a departed sub. Keeping the invariant "`activeSubTab` is
-      // null or a LIVE sub of this tile" global lets consumers trust a plain
-      // null-check for "no active split" instead of each re-deriving liveness —
-      // both the adopt don't-steal guard (useAdoptNewSplit) and restore's hydration
-      // clamp (useSessionRestore) exist only to compensate for this dangling.
-      ports.subPanel.setActiveSubTab(dest, null);
-    } else {
-      if (ports.subPanel.activeSubTab(dest) === id) {
-        const replacement = remaining[0] ?? null;
-        if (wasFocused) ports.subPanel.selectSubTab(dest, replacement);
-        else ports.subPanel.setActiveSubTab(dest, replacement);
-      }
+    repairTileTabs(ports.subPanel, dest, id, remaining, wasFocused);
+    if (remaining.length > 0) {
       // Closing through a tab's button moves DOM focus onto the button no matter
       // which pane owns the focus fact. Bump unconditionally: each pane's nonce
       // consumer is self-gated by its `focused` prop, so background panes ignore

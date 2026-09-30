@@ -10,6 +10,7 @@ import { toast } from "solid-sonner";
 import { activeScope } from "../hostScope/hostScopes";
 import { runAction } from "../runAction";
 import { activePadiRpc } from "../wire";
+import type { TerminalEvictionPorts } from "./useActiveReconcile";
 
 interface SubPanelState {
   collapsed: boolean;
@@ -285,4 +286,31 @@ export function useSubPanel() {
       setState(produce((s) => delete s[parentId]));
     },
   } as const;
+}
+
+/** The sub-panel's seams AS the tree-repair code takes them: the eviction
+ *  reconcile's ports and the Dock's drag re-home repair both read the panel
+ *  through this ONE projection, so a new panel verb cannot be wired for one of
+ *  them and forgotten in the other. The parameter names exactly the panel
+ *  surface consumed (not the panel's whole object) — `activeSubTab` resolves the
+ *  peek, which is the panel's own reader; `remove` is the eviction-only port
+ *  member and no repair calls it. */
+export function subPanelRepairPorts(subPanel: {
+  collapsePanel: (parentId: TerminalId) => void;
+  collapsePanelChrome: (parentId: TerminalId) => void;
+  peekSubPanel: (parentId: TerminalId) => { activeSubTab: TerminalId | null };
+  setActiveSubTab: (parentId: TerminalId, subId: TerminalId | null) => void;
+  selectSubTab: (parentId: TerminalId, subId: TerminalId | null) => void;
+  requestRefocus: (parentId: TerminalId) => void;
+  removePanel: (parentId: TerminalId) => void;
+}): TerminalEvictionPorts["subPanel"] {
+  return {
+    collapse: subPanel.collapsePanel,
+    collapseChrome: subPanel.collapsePanelChrome,
+    activeSubTab: (parentId) => subPanel.peekSubPanel(parentId).activeSubTab,
+    setActiveSubTab: subPanel.setActiveSubTab,
+    selectSubTab: subPanel.selectSubTab,
+    requestRefocus: subPanel.requestRefocus,
+    remove: subPanel.removePanel,
+  };
 }

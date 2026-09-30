@@ -3,9 +3,10 @@
  *  A split renders the same `@kolu/solid-dockrow` two-line row its parent does —
  *  same indicator, same annotation, same status words, same recency, same model
  *  tag — with two facts of its own: it hangs under a parent (so it carries
- *  `parentId` + `depth`, and the row draws the `└` and steps its text block in),
- *  and it has no display identity. That second one is why this module still
- *  assembles its own props instead of reusing `useDockRowBag`: `getDisplayInfo`
+ *  `parentId` + `depth` from the pane tree it was ranked out of, and the row
+ *  draws the `└` and steps its text block in), and it has no display identity.
+ *  That second one is why this module still assembles its own props instead of
+ *  reusing `useDockRowBag`: `getDisplayInfo`
  *  is keyed on TOP-LEVEL tiles, so a split has no repo key, no branch and no
  *  annotation ink — its label is the cwd basename and its PR is nothing (the
  *  parent's row above already badges the repo's).
@@ -30,6 +31,7 @@ import { createDockRowData } from "./dockRowData";
 import type { RankedDockRow } from "./dockRowRanking";
 import { renderRowLabel } from "./renderRowLabel";
 import { useRowRecency } from "./rowRecency";
+import type { DockRowDrag } from "./useDockRowDrag";
 
 export const SubTerminalRow: Component<{
   row: RankedDockRow["subRows"][number];
@@ -40,6 +42,12 @@ export const SubTerminalRow: Component<{
   tileId: TerminalId;
   onSelect: (id: TerminalId) => void;
   surface: DockRowSurface;
+  /** The row's drag sockets, when the surface HAS a drag context — the desktop
+   *  dock's rows are draggable and droppable (nest a split deeper, hand it its
+   *  own tile); the touch drawer renders this row bare. Absent is the honest
+   *  "this surface has no drag", which is exactly how the package's row treats
+   *  a missing `handle`: no grip at all, not a dead one. */
+  drag?: DockRowDrag;
 }> = (props) => {
   const store = useTerminalStore();
   const rowRecency = useRowRecency();
@@ -49,12 +57,6 @@ export const SubTerminalRow: Component<{
   return (
     <Show when={meta()}>
       {(m) => {
-        const parentId = m().parentId;
-        if (!parentId) {
-          throw new Error(
-            `SubTerminalRow: ${props.row.id} has no parent terminal`,
-          );
-        }
         // Same unconditional binder as DockRow / DockListRow — one fold for
         // "what does this row's leading indicator show", kind never re-gates it.
         // Unread passthrough matters when an agent exits while still unread: the
@@ -82,11 +84,21 @@ export const SubTerminalRow: Component<{
           <DockRow
             id={props.row.id}
             surface={props.surface}
+            // A function ref, not `props.drag?.ref`: the JSX transform lowers a
+            // MEMBER-expression ref to an assignment and cannot read through an
+            // optional chain.
+            ref={(el) => props.drag?.ref(el)}
+            handle={props.drag?.handle}
+            drop={props.drag?.drop}
             pip={pip()}
             bucket={props.row.bucket}
             agentState={facts().agentState}
             model={facts().model}
-            parentId={parentId}
+            // The TRUE parent, straight off the pane tree this row was built
+            // out of (see `SubDockRow.parentId`) — the dock's nesting and this
+            // attribute are one fact, so a row can never render under a parent
+            // its own metadata has not caught up with yet.
+            parentId={props.row.parentId}
             depth={props.row.depth}
             active={isActiveRow(props.row.id)}
             label={annotationLine(m().intent, cwdBasename(m().cwd))}

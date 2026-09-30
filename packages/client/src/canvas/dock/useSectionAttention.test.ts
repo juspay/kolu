@@ -17,6 +17,7 @@ const parent: RankedDockRow = {
   subRows: [
     {
       id: shellId,
+      parentId,
       kind: "shell",
       bucket: "idle",
       pip: "idle",
@@ -26,6 +27,7 @@ const parent: RankedDockRow = {
     },
     {
       id: agentId,
+      parentId: shellId,
       kind: "agent",
       bucket: "working",
       pip: "working",

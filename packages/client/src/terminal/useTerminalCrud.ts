@@ -32,7 +32,7 @@ import {
   evictTerminal,
   type TerminalEvictionPorts,
 } from "./useActiveReconcile";
-import { useSubPanel } from "./useSubPanel";
+import { subPanelRepairPorts, useSubPanel } from "./useSubPanel";
 import { useTerminalSearch } from "./useTerminalSearch";
 import { useTerminalStore } from "./useTerminalStore";
 
@@ -106,6 +106,11 @@ export const useTerminalCrud = createSharedRoot(() => {
   // reordering of local state that happens to re-home sub-terminals server-side),
   // so this one runs its effect at the seam rather than pushing the Effect shape
   // through a port type whose every other member is `void`.
+  //
+  // It is also the Dock's drag-to-re-home write, exposed whole as `reparent`:
+  // the ports call it for their own reasons (promote a departing tile's children,
+  // re-home survivors), the dock calls it because YOU said so. One write path, so
+  // a drag cannot grow a second spelling of `chrome.setParent`.
   const setParent = (subId: TerminalId, parentId: TerminalId | null): void => {
     runAction(
       "re-home split",
@@ -122,15 +127,7 @@ export const useTerminalCrud = createSharedRoot(() => {
     dropFromMru: (id) => store.forgetFromMru(id),
     promoteToTopLevel: (subId) => setParent(subId, null),
     rehomeUnder: (subId, newParentId) => setParent(subId, newParentId),
-    subPanel: {
-      collapse: subPanel.collapsePanel,
-      collapseChrome: subPanel.collapsePanelChrome,
-      activeSubTab: (parentId) => subPanel.peekSubPanel(parentId).activeSubTab,
-      setActiveSubTab: subPanel.setActiveSubTab,
-      selectSubTab: subPanel.selectSubTab,
-      requestRefocus: subPanel.requestRefocus,
-      remove: subPanel.removePanel,
-    },
+    subPanel: subPanelRepairPorts(subPanel),
     removeRightPanel: rightPanel.removePanel,
     removeSearch: terminalSearch.removeTerminal,
   };
@@ -533,6 +530,13 @@ export const useTerminalCrud = createSharedRoot(() => {
     evictDeparted: eviction.evictDeparted,
     handleCreate,
     handleCreateSubTerminal,
+    /** Nest a terminal under a new parent, or hand it back its own tile
+     *  (`null`) — the Dock's drag-to-split / drag-to-unsplit write. Fire and
+     *  forget by design: the drop's reconcile (the old tile's tab strip, the
+     *  landing focus) is driven off the parent EDGE arriving on the metadata
+     *  stream, because that push and this RPC's reply are independent
+     *  deliveries and either can land first. */
+    reparent: setParent,
     toggleSubPanel,
     handleKill,
     handleKillWithSubs,
