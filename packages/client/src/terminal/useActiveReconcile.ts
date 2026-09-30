@@ -81,22 +81,27 @@ export interface TerminalEvictionPorts {
   removeSearch: (id: TerminalId) => void;
 }
 
-/** Repair a tile's tab strip once one of its panes is no longer under it:
- *  clear an `activeSubTab` that would dangle at the pane that left (or collapse
- *  the panel when nothing remains under the tile), and pick a successor.
+/** Repair a tile's tab strip once its panes are no longer the ones it had:
+ *  clear an `activeSubTab` that no longer names a pane of this tile (or collapse
+ *  the panel when nothing remains under it), and pick a successor.
  *
- *  `remaining` is every OTHER pane still belonging to the tile, in order;
- *  `leavingWasFocused` picks whether the successor verb also carries the focus
- *  fact. TWO callers, one rule: the eviction reconcile (`evictTerminal` — the
- *  pane departed the census) and the Dock's drag re-home (the pane left its tile
- *  but is still alive). The invariant they both restore — "`activeSubTab` is
- *  null or a LIVE sub of this tile" — has consumers that trust a plain
- *  null-check for "no active split" (the adopt don't-steal guard,
- *  `focusVisiblePane`), so it gets one author rather than one per mutation. */
+ *  The test is MEMBERSHIP IN `remaining`, not "is it the pane that left". A pane
+ *  can take its own splits with it — drag a split that has a split under it and
+ *  the tile's active tab may name the GRANDCHILD, which the leaving id alone
+ *  would miss, leaving exactly the dangling tab this repair exists to forbid.
+ *
+ *  `remaining` is every pane still belonging to the tile, in order; a `null`
+ *  active tab stays null (nothing to repair). `leavingWasFocused` picks whether
+ *  the successor verb also carries the focus fact. TWO callers, one rule: the
+ *  eviction reconcile (`evictTerminal` — panes departed the census) and the Dock's
+ *  drag re-home (a pane left its tile but is still alive). The invariant they
+ *  both restore — "`activeSubTab` is null or a LIVE sub of this tile" — has
+ *  consumers that trust a plain null-check for "no active split" (the adopt
+ *  don't-steal guard, `focusVisiblePane`), so it gets one author rather than one
+ *  per mutation. */
 export function repairTileTabs(
   subPanel: TerminalEvictionPorts["subPanel"],
   tileId: TerminalId,
-  leavingId: TerminalId,
   remaining: readonly TerminalId[],
   leavingWasFocused: boolean,
 ): void {
@@ -108,7 +113,8 @@ export function repairTileTabs(
     subPanel.setActiveSubTab(tileId, null);
     return;
   }
-  if (subPanel.activeSubTab(tileId) === leavingId) {
+  const active = subPanel.activeSubTab(tileId);
+  if (active !== null && !remaining.includes(active)) {
     const replacement = remaining[0] ?? null;
     if (leavingWasFocused) subPanel.selectSubTab(tileId, replacement);
     else subPanel.setActiveSubTab(tileId, replacement);
@@ -188,7 +194,7 @@ export function evictTerminal(
         x !== dest &&
         containingTileOf(x, edge) === dest,
     );
-    repairTileTabs(ports.subPanel, dest, id, remaining, wasFocused);
+    repairTileTabs(ports.subPanel, dest, remaining, wasFocused);
     if (remaining.length > 0) {
       // Closing through a tab's button moves DOM focus onto the button no matter
       // which pane owns the focus fact. Bump unconditionally: each pane's nonce

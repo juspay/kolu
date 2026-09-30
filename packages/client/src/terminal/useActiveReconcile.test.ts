@@ -5,6 +5,7 @@ import {
   createEvictionDedup,
   evictTerminal,
   pickAutoSwitchTarget,
+  repairTileTabs,
   type TerminalEvictionPorts,
   useActiveReconcile,
 } from "./useActiveReconcile";
@@ -246,6 +247,29 @@ describe("evictTerminal — sub-terminal branch", () => {
     expect(calls.requestRefocus).toHaveBeenCalledExactlyOnceWith(T("P"));
   });
 
+  it("repairs a tab dangling at a pane that departed WITH its own parent", () => {
+    // R ← M ← G, and R ← S. Close M and G in one frame; R's active tab was G.
+    // The pre-fix rule asked only "is the active tab the id being evicted?" (M)
+    // and missed G, leaving the strip pointing at a terminal that is gone —
+    // exactly the dangling state the invariant forbids.
+    const { ports, calls } = makePorts({
+      activeSubTab: () => T("G"),
+      focusedTerminalId: () => T("OTHER"),
+    });
+    evictTerminal(
+      ports,
+      T("M"),
+      T("R"),
+      [],
+      new Set([T("M"), T("G")]),
+      graph({ R: null, M: "R", G: "M", S: "R" }),
+    );
+    expect(calls.setActiveSubTab).toHaveBeenCalledExactlyOnceWith(
+      T("R"),
+      T("S"),
+    );
+  });
+
   it("re-homes a middle terminal's children to the root (does not kill them)", () => {
     // R ← M ← G; close M. G must become a child of R, chrome repaired on R.
     const { ports, calls } = makePorts({
@@ -307,6 +331,63 @@ describe("evictTerminal — sub-terminal branch", () => {
       expect.stringMatching(/^(P|G)$/),
     );
     expect(calls.promoteToTopLevel).not.toHaveBeenCalled();
+  });
+});
+
+/** The panel seams `repairTileTabs` writes through, as spies. */
+function panel(active: TerminalId | null) {
+  return {
+    collapse: vi.fn<(id: TerminalId) => void>(),
+    collapseChrome: vi.fn<(id: TerminalId) => void>(),
+    activeSubTab: () => active,
+    setActiveSubTab: vi.fn<(id: TerminalId, sub: TerminalId | null) => void>(),
+    selectSubTab: vi.fn<(id: TerminalId, sub: TerminalId | null) => void>(),
+    requestRefocus: vi.fn<(id: TerminalId) => void>(),
+    remove: vi.fn<(id: TerminalId) => void>(),
+  };
+}
+
+describe("repairTileTabs", () => {
+  it("leaves an active tab that is still a pane of the tile alone", () => {
+    // The same-tile move (a split dropped on its own sibling) arrives here: the
+    // moved terminal is STILL under the tile, so the strip needs nothing.
+    const p = panel(T("S1"));
+    repairTileTabs(p, T("P"), [T("S1"), T("S2")], false);
+    expect(p.setActiveSubTab).not.toHaveBeenCalled();
+    expect(p.selectSubTab).not.toHaveBeenCalled();
+    expect(p.collapse).not.toHaveBeenCalled();
+    expect(p.collapseChrome).not.toHaveBeenCalled();
+  });
+
+  it("leaves a null active tab null", () => {
+    const p = panel(null);
+    repairTileTabs(p, T("P"), [T("S1")], false);
+    expect(p.setActiveSubTab).not.toHaveBeenCalled();
+  });
+
+  it("replaces a tab left dangling at a pane that departed WITH its parent", () => {
+    // R ← M ← G, and R ← S. R's active tab is G. Dragging M away takes G with
+    // it, so the "is the active tab the pane that left?" test (M) would miss G
+    // and leave the strip pointing at a terminal that is no longer under R —
+    // the dangling state this repair exists to forbid.
+    const p = panel(T("G"));
+    repairTileTabs(p, T("R"), [T("S")], false);
+    expect(p.setActiveSubTab).toHaveBeenCalledExactlyOnceWith(T("R"), T("S"));
+    expect(p.selectSubTab).not.toHaveBeenCalled();
+  });
+
+  it("carries the focus fact when the departing pane had it", () => {
+    const p = panel(T("S1"));
+    repairTileTabs(p, T("P"), [T("S2")], true);
+    expect(p.selectSubTab).toHaveBeenCalledExactlyOnceWith(T("P"), T("S2"));
+    expect(p.setActiveSubTab).not.toHaveBeenCalled();
+  });
+
+  it("collapses and clears the tab when no pane remains", () => {
+    const p = panel(T("S1"));
+    repairTileTabs(p, T("P"), [], false);
+    expect(p.collapseChrome).toHaveBeenCalledExactlyOnceWith(T("P"));
+    expect(p.setActiveSubTab).toHaveBeenCalledExactlyOnceWith(T("P"), null);
   });
 });
 

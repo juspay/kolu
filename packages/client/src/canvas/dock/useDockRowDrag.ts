@@ -16,6 +16,7 @@
  *  which is the #2249 behaviour this feature must not break. */
 
 import { activeArm } from "@kolu/padi-client/surface";
+import type { TerminalMetadata } from "@kolu/padi-client/surface";
 import type { DockDragHandlers } from "@kolu/solid-dockrow";
 import {
   createDraggable,
@@ -24,8 +25,10 @@ import {
 } from "@thisbeyond/solid-dnd";
 import type { TerminalId } from "kolu-common/surface";
 import { type Accessor, createMemo } from "solid-js";
+import type { ParentEdge } from "../../terminal/terminalTree";
 import { useTerminalStore } from "../../terminal/useTerminalStore";
 import {
+  type DockDropContext,
   type DockDropTarget,
   dropHighlightOf,
   rowDragId,
@@ -56,6 +59,21 @@ export function useDraggedRowId(): Accessor<TerminalId | null> {
   return () => rowIdOfDragId(state.active.draggableId ?? "");
 }
 
+/** The app facts the drop rules need, built from the store in ONE place: the
+ *  parent edge the tree walks, and the same live-arm gate the split shortcuts
+ *  use. Every reader of the rules goes through this — the row's hover verdict,
+ *  the header's resting affordance, and the write itself — so "is this drop
+ *  allowed" cannot be answered off a differently-assembled context. */
+export function dockDropContext(store: {
+  parentEdge: ParentEdge;
+  getMetadata: (id: TerminalId) => TerminalMetadata | undefined;
+}): DockDropContext {
+  return {
+    parentEdge: store.parentEdge,
+    isLive: (id: TerminalId) => activeArm(store.getMetadata(id)) !== undefined,
+  };
+}
+
 /** The hover verdict for one drop TARGET: `undefined` unless a row drag is
  *  resting on it. ONE fold for every target a dock row can land on — the rows
  *  themselves and the repo card's header — so "would this drop be accepted" is
@@ -71,12 +89,7 @@ export function useDockDropVerdict(
     );
   const [state] = context;
   const store = useTerminalStore();
-  // The app facts the drop rules need, read live off the store: the parent edge
-  // the tree walks, and the same live-arm gate the split shortcuts use.
-  const drop = {
-    parentEdge: store.parentEdge,
-    isLive: (id: TerminalId) => activeArm(store.getMetadata(id)) !== undefined,
-  };
+  const drop = dockDropContext(store);
   return createMemo(() => {
     if (!isActiveTarget()) return undefined;
     const dragged = rowIdOfDragId(state.active.draggableId ?? "");

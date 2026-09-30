@@ -111,12 +111,23 @@ export const useTerminalCrud = createSharedRoot(() => {
   // the ports call it for their own reasons (promote a departing tile's children,
   // re-home survivors), the dock calls it because YOU said so. One write path, so
   // a drag cannot grow a second spelling of `chrome.setParent`.
-  const setParent = (subId: TerminalId, parentId: TerminalId | null): void => {
+  //
+  // `settled` is for that second caller alone: the ports fire and walk away,
+  // while the drag has an INTENT armed on this write landing (see
+  // `useDockReparent`) and must disarm it when the server refuses instead of
+  // waiting forever for an edge that will never arrive.
+  const setParent = (
+    subId: TerminalId,
+    parentId: TerminalId | null,
+    settled?: (applied: boolean) => void,
+  ): void => {
     runAction(
       "re-home split",
-      activePadiRpc.chrome
-        .setParent({ id: subId, parentId })
-        .pipe(toastFailure("Failed to set parent")),
+      activePadiRpc.chrome.setParent({ id: subId, parentId }).pipe(
+        Effect.tap(() => Effect.sync(() => settled?.(true))),
+        Effect.tapError(() => Effect.sync(() => settled?.(false))),
+        toastFailure("Failed to set parent"),
+      ),
     );
   };
 
@@ -531,12 +542,14 @@ export const useTerminalCrud = createSharedRoot(() => {
     handleCreate,
     handleCreateSubTerminal,
     /** Nest a terminal under a new parent, or hand it back its own tile
-     *  (`null`) — the Dock's drag-to-split / drag-to-unsplit write. Fire and
-     *  forget by design: the drop's reconcile (the old tile's tab strip, the
-     *  landing focus) is driven off the parent EDGE arriving on the metadata
-     *  stream, because that push and this RPC's reply are independent
-     *  deliveries and either can land first. */
-    reparent: setParent,
+     *  (`null`) — the Dock's drag-to-split / drag-to-unsplit write. Resolves
+     *  `true` when the server applied it and `false` when it refused (already
+     *  toasted): the drop's reconcile (the old tile's tab strip, the landing
+     *  focus) is armed on the parent EDGE arriving on the metadata stream — not
+     *  on this promise — and a refused write must DISARM it rather than leave it
+     *  waiting for an edge that will never arrive. */
+    reparent: (id: TerminalId, parentId: TerminalId | null) =>
+      new Promise<boolean>((resolve) => setParent(id, parentId, resolve)),
     toggleSubPanel,
     handleKill,
     handleKillWithSubs,

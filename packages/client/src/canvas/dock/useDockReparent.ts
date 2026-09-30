@@ -11,9 +11,12 @@
  *    not chain its follow-up work onto the call. It records an INTENT, and the
  *    effect below runs when the parent EDGE it asked for is the edge it sees.
  *    Waiting on the edge (rather than on the reply) is also what keeps the
- *    follow-up honest about its inputs: `containingTile`, the old tile's tab
- *    strip and the focus landing are all read AFTER the tree moved, so none of
- *    them can act on a half-applied reparent.
+ *    follow-up honest about its inputs: the old tile's tab strip and the focus
+ *    landing are read AFTER the tree moved, so neither can act on a
+ *    half-applied reparent. The reply still matters in the other direction: a
+ *    REFUSED write disarms the intent (`reparent` resolves `false`), or the
+ *    effect would wait forever and then fire its follow-up on some later,
+ *    unrelated edge change.
  *  · A terminal that LEFT a tile can leave that tile's tab strip dangling: the
  *    eviction reconcile's invariant ("`activeSubTab` is null or a LIVE sub of
  *    this tile") is read by consumers that trust a plain null-check, so the same
@@ -23,7 +26,13 @@
  *    it.
  *  · Focus follows the drop: the user put the terminal there, so the tile's
  *    panel opens on it and the keyboard lands in it — `useDockFocus`, which
- *    resolves a split to its tab. */
+ *    resolves a split to its tab.
+ *
+ *  ONE intent slot, deliberately. A drop's landing window is the metadata
+ *  round-trip, and the only writer is a drag — one pointer, one gesture at a
+ *  time — so a second drop inside that window is not reachable; a map keyed by
+ *  terminal would be machinery for a race the input cannot produce. The slot is
+ *  cleared by the landing OR by the refusal, so it cannot outlive its write. */
 
 import type { TerminalId } from "kolu-common/surface";
 import { createEffect, createSignal } from "solid-js";
@@ -74,13 +83,15 @@ export const useDockReparent = createSharedRoot(
       } else {
         // The row left a tile that survives: repair that tile's tab strip so
         // its `activeSubTab` cannot dangle at a pane that is no longer under
-        // it. Focus is about to move to the dragged terminal anyway, so the
-        // repair never carries the focus fact.
+        // it. The panes are handed over UNFILTERED — a same-tile move (a split
+        // dropped on its own sibling) still has the moved terminal under this
+        // tile, and `repairTileTabs`'s membership test then correctly finds
+        // nothing to repair. Focus is about to move to the dragged terminal
+        // anyway, so the repair never carries the focus fact.
         repairTileTabs(
           subPanelRepairPorts(subPanel),
           p.fromTile,
-          p.id,
-          store.getSplitPaneIds(p.fromTile).filter((x) => x !== p.id),
+          store.getSplitPaneIds(p.fromTile),
           false,
         );
       }
@@ -89,7 +100,11 @@ export const useDockReparent = createSharedRoot(
 
     return (id, parentId) => {
       setPending({ id, parentId, fromTile: store.containingTile(id) });
-      crud.reparent(id, parentId);
+      void crud.reparent(id, parentId).then((applied) => {
+        // Refused (the server said no, and the toast already said why): disarm
+        // the intent, or the effect waits for an edge that will never arrive.
+        if (!applied) setPending((cur) => (cur?.id === id ? null : cur));
+      });
     };
   },
 );

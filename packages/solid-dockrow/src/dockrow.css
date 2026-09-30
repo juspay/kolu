@@ -30,6 +30,12 @@
 
 :root {
   --dock-edge-stripe-w: 5px;
+  /* The card's corner radius, and the one its sticky header band wears: the band
+   * sits INSIDE the card's 1px border, so its top corners are a pixel tighter.
+   * Tokens because a consumer that paints inside the band (a drop-target
+   * overlay) must not restate the number and drift from it. */
+  --dock-card-radius: 10px;
+  --dock-card-radius-inner: 9px;
   /* Shared identity paint — every monogram / name / spine / chip that reads
    * `var(--repo-color)` plugs this formula. The dock card's layout is the
    * row's; the *ink atom* is shared, so a consuming app's palette / restore /
@@ -47,7 +53,7 @@
   border: 1px solid
     color-mix(in oklab, var(--repo-color) 22%, var(--color-edge));
   border-left: var(--dock-edge-stripe-w) solid var(--repo-color);
-  border-radius: 10px;
+  border-radius: var(--dock-card-radius);
   background: var(--color-surface-1);
   box-shadow:
     0 1px 0 color-mix(in oklab, var(--repo-color) 8%, transparent),
@@ -64,8 +70,8 @@
   position: sticky;
   top: 0;
   z-index: 10;
-  border-top-left-radius: 9px;
-  border-top-right-radius: 9px;
+  border-top-left-radius: var(--dock-card-radius-inner);
+  border-top-right-radius: var(--dock-card-radius-inner);
   background: linear-gradient(
     90deg,
     color-mix(in oklab, var(--repo-color) 26%, var(--color-surface-1)) 0%,

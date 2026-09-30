@@ -76,6 +76,7 @@ import {
   createSortable,
   DragDropProvider,
   DragDropSensors,
+  DragOverlay,
   type DragEvent,
   SortableProvider,
   maybeTransformStyle,
@@ -145,6 +146,7 @@ import { useDockFocus } from "./useDockFocus";
 import { useDockOrder } from "./useDockOrder";
 import { useDockReparent } from "./useDockReparent";
 import {
+  dockDropContext,
   useDockDropVerdict,
   useDockRowDrag,
   useDraggedRowId,
@@ -402,6 +404,7 @@ const RailOrCards: Component<{
   // composes canvas centering. The touch surfaces pass their own (see
   // `NeedsYouStrip`), which are split-aware too.
   const dockFocus = useDockFocus();
+  const store = useTerminalStore();
   const { showTipOnce } = useTips();
 
   // The first tree that could be rearranged (2+ sections, or a repo whose
@@ -413,12 +416,21 @@ const RailOrCards: Component<{
       t.groups.length > 1 || t.groups.some((g) => g.clusters.length > 1);
     if (rearrangeable) showTipOnce(CONTEXTUAL_TIPS.dockRearrange);
   });
-  // The first repo card holding two live rows — the first moment nesting one
-  // under the other means anything. Independent of the rearrange tip above: the
-  // two gestures share a surface but answer different questions ("where is this
-  // repo", "is this pane its own tile"), and a user can meet either first.
+  // The first repo card holding two LIVE rows — the first moment nesting one
+  // under the other means anything. Live, not merely listed: a sleeping row has
+  // no grip, so counting it would announce a gesture the card cannot perform.
+  // Independent of the rearrange tip above: the two gestures share a surface but
+  // answer different questions ("where is this repo", "is this pane its own
+  // tile"), and a user can meet either first.
   createEffect(() => {
-    if (props.tree.groups.some((g) => g.railEntries.length >= 2))
+    if (
+      props.tree.groups.some(
+        (g) =>
+          g.railEntries.filter(
+            (e) => activeArm(store.getMetadata(e.row.id)) !== undefined,
+          ).length >= 2,
+      )
+    )
       showTipOnce(CONTEXTUAL_TIPS.dockRehome);
   });
   // Pre-built `id → flat position` map. RepoSection used to compute
@@ -652,17 +664,22 @@ function dropTargetOf(droppableId: string): DockDropTarget {
  *  its own tile back.
  *
  *  Rendered INSIDE the header band the package owns, as an overlay: the band is
- *  positioned (sticky), so `inset-0` covers exactly it, and the whole header is
- *  the target rather than a chip beside the grip. `pointer-events: none` because
- *  a droppable is MEASURED, never clicked — the band's identity-grip activators
+ *  positioned (the package's own `sticky` — a fact this overlay spends, and one
+ *  the package does not promise; a package-owned `data-drop` on the band is the
+ *  follow-up that would let both drop paints live in `dockrow.css`).
+ *  `inset-0` therefore covers exactly the band, and the whole header is the
+ *  target rather than a chip beside the grip. `pointer-events: none` because a
+ *  droppable is MEASURED, never clicked — the band's identity-grip activators
  *  keep working underneath.
  *
- *  It exists for ROW drags only (the collision filter keeps cluster drags away),
- *  and while one is in flight it says so the whole time: a resting "target",
- *  tightening to "over" on hover, and to "invalid" when the drop would be
- *  refused — the dragged row already owns a tile, so there is nothing to hand
- *  back. */
+ *  It exists for ROW drags only (the collision filter keeps cluster drags away).
+ *  Its resting state is the VERB'S answer, not a guess: a drag that could not
+ *  land here (the row already owns a tile) leaves the header unpainted, and only
+ *  a drop the verb accepts earns the standing "target" affordance — the same
+ *  one-rule discipline `dropHighlightOf` states, so the affordance never
+ *  promises what the write refuses. Hovering tightens it to `over`/`invalid`. */
 const HeaderDropTarget: Component = () => {
+  const store = useTerminalStore();
   const droppable = createDroppable(HEADER_DROP_ID);
   const draggedRowId = useDraggedRowId();
   const verdict = useDockDropVerdict(
@@ -670,17 +687,22 @@ const HeaderDropTarget: Component = () => {
     () => droppable.isActiveDroppable,
   );
   const drop = (): "over" | "invalid" | "target" | undefined => {
-    if (draggedRowId() === null) return undefined;
-    const v = verdict();
-    if (v === "invalid") return "invalid";
-    return v === "over" ? "over" : "target";
+    const dragged = draggedRowId();
+    if (dragged === null) return undefined;
+    const hovered = verdict();
+    if (hovered !== undefined) return hovered;
+    return reparentDropOf(dockDropContext(store), dragged, {
+      kind: "header",
+    }) === null
+      ? undefined
+      : "target";
   };
   return (
     <span
       ref={droppable.ref}
       data-testid="dock-header-drop"
       data-drop={drop()}
-      class="pointer-events-none absolute inset-0 rounded-t-[9px] border-2 border-dashed transition-colors"
+      class="pointer-events-none absolute inset-0 rounded-t-[var(--dock-card-radius-inner)] border-2 border-dashed transition-colors"
       classList={{
         "border-transparent": drop() === undefined,
         "border-accent/40 bg-accent/5": drop() === "target",
@@ -688,6 +710,40 @@ const HeaderDropTarget: Component = () => {
         "border-edge bg-surface-2/50": drop() === "invalid",
       }}
     />
+  );
+};
+
+/** The ghost that rides under the pointer while a row is being re-homed — the
+ *  gesture's BODY. Without it the only in-flight cue was the target's ring,
+ *  which says where a drop would land but never that you are carrying anything.
+ *
+ *  Row-shaped on purpose. The library sizes the overlay to the DRAGGABLE (the
+ *  row) and centres it on the drag's own transform, so a row-shaped ghost sits
+ *  exactly where the collision resolves from — what you see and where the drop
+ *  would land are one place. A compact chip would have to be centred inside that
+ *  box to keep them together, and would then read as trailing the cursor by half
+ *  a row.
+ *
+ *  TRANSLUCENT, and that is the load-bearing part: the ghost sits exactly on top
+ *  of the drop target, so an opaque carry would hide the ring that says "it will
+ *  land here" — the one thing the drag is for. A tinted, dashed outline carries
+ *  the row without covering the answer.
+ *
+ *  The label is the row's own annotation fold (`annotationLine` over the intent
+ *  and the display label) — the same words the row underneath shows, so the
+ *  thing in your hand is recognisable at a glance. */
+const RowDragGhost: Component<{ id: TerminalId }> = (props) => {
+  const combined = createDockRowData(props.id);
+  const label = () => {
+    const c = combined();
+    return c === null ? "" : annotationLine(c.meta.intent, c.info.key.label);
+  };
+  return (
+    <div class="pointer-events-none absolute inset-0 flex items-center gap-2 rounded-md border border-dashed border-accent/70 bg-accent/5 px-3">
+      <span class="min-w-0 truncate font-mono text-[0.72rem] font-semibold text-fg-2">
+        {label()}
+      </span>
+    </div>
   );
 };
 
@@ -776,10 +832,7 @@ const RepoSection: Component<{
     // excluded every cluster, so `null` means genuinely nothing was under it.
     if (!droppable) return;
     const drop = reparentDropOf(
-      {
-        parentEdge: store.parentEdge,
-        isLive: (id) => activeArm(store.getMetadata(id)) !== undefined,
-      },
+      dockDropContext(store),
       draggedId,
       dropTargetOf(String(droppable.id)),
     );
@@ -795,6 +848,23 @@ const RepoSection: Component<{
       onDragEnd={onDragEnd}
     >
       <DragDropSensors />
+      {/* The carried row. Rendered for EVERY drag in this provider (the library
+       *  binds the overlay at drag start, before anything knows what is being
+       *  dragged); a cluster drag gets an empty overlay, which is invisible and
+       *  resolves collisions off the same transform the cluster drag used
+       *  before.
+       *
+       *  `z-40`: the overlay is portalled to `document.body`, and the dock it
+       *  rides over is `z-30` — without a stacking order of its own the ghost
+       *  would paint BEHIND the very panel the drag happens in. (The maximized
+       *  tile is also `z-40`; the portal is appended last, so the ghost wins
+       *  there, which is what a drag inside the dock wants.) */}
+      <DragOverlay class="z-40">
+        {(draggable) => {
+          const id = draggable ? rowIdOfDragId(draggable.id) : null;
+          return id === null ? null : <RowDragGhost id={id} />;
+        }}
+      </DragOverlay>
       <SortableProvider ids={props.group.clusters.map((c) => c.label)}>
         <DockSection
           surface="desktop"
