@@ -13,7 +13,7 @@
  *  - `~/.codex/sessions/YYYY/MM/DD/rollout-<ts>-<id>.jsonl` — per-thread
  *    append-only event log. Each line is a typed event; the first line
  *    is `session_meta`, followed by a mix of `event_msg` (lifecycle:
- *    task_started, task_complete, token_count, thread_name_updated,
+ *    task_started, task_complete, turn_aborted, token_count, thread_name_updated,
  *    exec_command_end) and `response_item` (assistant I/O:
  *    function_call, function_call_output, message, reasoning).
  *
@@ -292,11 +292,11 @@ interface RolloutLine {
   type?: string;
   payload?: {
     type?: string;
-    /** On `task_started` / `task_complete` event_msgs. Carried here
+    /** On `task_started` / `task_complete` / `turn_aborted` event_msgs. Carried here
      *  only so we can use its presence as the "this is a real event"
      *  gate — its value is not needed by the state machine (Codex
-     *  guarantees task_complete follows task_started for the same
-     *  turn, so "last lifecycle signal was a complete" is sufficient
+     *  emits completion or abort after the start of a
+     *  turn, so "last lifecycle signal ended the turn" is sufficient
      *  without matching ids). */
     turn_id?: string;
     /** On `response_item` payloads for function_call/function_call_output. */
@@ -331,10 +331,10 @@ interface RolloutLine {
  * Derive Codex state from the rollout JSONL's tail.
  *
  * Algorithm (single forward pass, O(lines)):
- *  1. Track the kind of the latest `task_started`/`task_complete`
+ *  1. Track the kind of the latest `task_started`/`task_complete`/`turn_aborted`
  *     lifecycle event seen. Turn ids are NOT matched across events:
  *     whatever the last lifecycle event was dictates the outcome —
- *     this handles a tail that captured only `task_complete` without
+ *     this handles a tail that captured only `task_complete` or `turn_aborted` without
  *     its matching `task_started` (long tool-heavy turns that exceed
  *     TAIL_BYTES).
  *  2. Track open function calls by `call_id` **scoped to the current
@@ -348,7 +348,8 @@ interface RolloutLine {
  *     `function_call_output` arrives.
  *  3. Decide:
  *     - No lifecycle events seen → null (fresh thread, suppress badge).
- *     - Last lifecycle event was `task_complete` → **waiting**.
+ *     - Last lifecycle event was `task_complete` or `turn_aborted` →
+ *       **waiting**, regardless of open calls.
  *     - Last lifecycle event was `task_started` + any call_id open
  *       **for the current turn** → **tool_use**.
  *     - Last lifecycle event was `task_started` + no open calls →
@@ -397,7 +398,10 @@ export function parseRolloutState(lines: string[]): CodexInfo["state"] | null {
         lastLifecycle = "started";
         // Scope openCalls to the current turn — see algorithm doc.
         openCalls.clear();
-      } else if (inner === "task_complete" && entry.payload?.turn_id) {
+      } else if (
+        (inner === "task_complete" || inner === "turn_aborted") &&
+        entry.payload?.turn_id
+      ) {
         lastLifecycle = "completed";
       }
     } else if (outer === "response_item") {

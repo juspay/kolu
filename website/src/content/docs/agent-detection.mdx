@@ -213,7 +213,7 @@ Codex-spawned sub-agents are excluded.
 | Thinking | pulsing accent dot | latest lifecycle event is `task_started`, no open tool call |
 | Tool use | spinning amber | a `function_call` is open that isn't an awaiting-user tool |
 | Awaiting input | pulsing alert | every open call is an awaiting-user tool — `request_user_input`, `request_permissions`, or `request_plugin_install` |
-| Waiting | dim dot | latest lifecycle event is `task_complete` |
+| Waiting | dim dot | latest lifecycle event is `task_complete` or `turn_aborted` (including interruption with Esc), even if a tool call was still open |
 
 The context count is Codex's own `last_token_usage.input_tokens` — the number its
 `/status` command shows — not a sum that would double-count cache re-reads.
