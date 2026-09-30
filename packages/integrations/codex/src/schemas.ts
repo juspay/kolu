@@ -30,8 +30,8 @@ export const CodexInfoSchema = Schema.Struct({
    *  user message, then replaces with a short generated name after
    *  the first exchange. */
   summary: Schema.NullOr(Schema.String),
-  /** Codex has no TodoWrite equivalent — the `task_started`/`task_complete`
-   *  events are per-turn lifecycle, not user-facing checklists.
+  /** Codex has no TodoWrite equivalent — the `task_started`/`task_complete`/
+   *  `turn_aborted` events are per-turn lifecycle, not user-facing checklists.
    *  Permanently null; the field is kept for union shape uniformity. */
   taskProgress: Schema.NullOr(TaskProgressSchema),
   /** Running context-window token count from `threads.tokens_used` —

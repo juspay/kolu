@@ -47,7 +47,7 @@ const WAL_DEBOUNCE_MS = 150;
 
 /** Tail window for reading the rollout JSONL. Matches kolu-claude-code's
  *  TAIL_BYTES — sized to comfortably contain the last few turns
- *  (task_started → agent_message → task_complete plus any tool calls).
+ *  (task_started → agent_message → task_complete/turn_aborted, plus tool calls).
  *  Codex rollout lines are smaller than Claude's (assistant content is
  *  split into many `response_item` records rather than one monolithic
  *  `assistant` entry), so 256 KB is generous. */

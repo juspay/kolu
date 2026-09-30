@@ -46,6 +46,12 @@ function taskComplete(turnId: string): string {
     payload: { type: "task_complete", turn_id: turnId },
   });
 }
+function turnAborted(turnId: string, reason?: string): string {
+  return line({
+    type: "event_msg",
+    payload: { type: "turn_aborted", turn_id: turnId, reason },
+  });
+}
 function funcCall(callId: string, name = "shell"): string {
   return line({
     type: "response_item",
@@ -109,6 +115,53 @@ describe("parseRolloutState", () => {
       taskComplete("turn-1"),
     ];
     expect(parseRolloutState(lines)).toBe("waiting");
+  });
+
+  it.each([
+    "interrupted",
+    "other",
+    undefined,
+  ])("returns waiting after an aborted turn (reason: %s)", (reason) => {
+    expect(
+      parseRolloutState([taskStarted("turn-1"), turnAborted("turn-1", reason)]),
+    ).toBe("waiting");
+  });
+
+  it.each([
+    "shell",
+    "request_user_input",
+  ])("returns waiting after abort with an unfinished %s call", (name) => {
+    expect(
+      parseRolloutState([
+        taskStarted("turn-1"),
+        funcCall("call-A", name),
+        turnAborted("turn-1"),
+      ]),
+    ).toBe("waiting");
+  });
+
+  it("returns thinking when a new turn follows an abort", () => {
+    expect(
+      parseRolloutState([
+        taskStarted("turn-1"),
+        funcCall("call-A"),
+        turnAborted("turn-1"),
+        taskStarted("turn-2"),
+      ]),
+    ).toBe("thinking");
+  });
+
+  it("returns waiting when the tail contains only an abort", () => {
+    expect(parseRolloutState([turnAborted("turn-1")])).toBe("waiting");
+  });
+
+  it("ignores an abort without a turn_id", () => {
+    expect(
+      parseRolloutState([
+        taskStarted("turn-1"),
+        line({ type: "event_msg", payload: { type: "turn_aborted" } }),
+      ]),
+    ).toBe("thinking");
   });
 
   it("returns thinking after a new task_started follows a task_complete", () => {
