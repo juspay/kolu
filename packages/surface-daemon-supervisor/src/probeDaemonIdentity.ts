@@ -310,23 +310,17 @@ function openControlCore(
       // trigger is off the table for the rest of this connection.
       Deferred.doneUnsafe(spoke, Effect.void);
       if (framingSettled) return;
-      try {
-        // Stable Effect drops malformed ndjson lines rather than throwing.
-        // Feed only the first frame into its parser: an empty result at that
-        // delimiter is a rejected frame, not a partial frame. A later valid
-        // line in the same chunk must not conceal the malformed first one.
-        const newline = chunk.indexOf(10);
-        const first = newline === -1 ? chunk : chunk.subarray(0, newline + 1);
-        const decoded = parser.decode(first);
-        if (newline !== -1 && decoded.length === 0) {
-          throw new Error("Effect ndjson rejected the first complete frame");
-        }
-        if (decoded.length > 0) framingSettled = true;
-      } catch (cause) {
+      const publishUnspeakable = (cause: unknown): void => {
         framingSettled = true;
-        // A data listener can run inside NodeSocket's synchronous read().
-        // Publish after that read returns: an immediate verdict can dispose
-        // its pending reader while onReadable still owns the resume callback.
+        // Upstream re-entrancy bug: NodeSocket.onReadable checks waiter, then
+        // readAvailable emits this data callback; synchronous publication can
+        // dispose the reader and clear waiter before onReadable calls resume.
+        // Removing this deferral makes probeDaemonIdentity.test.ts's
+        // "classifies an undecodable first frame as unspeakable" fail the run
+        // with uncaught TypeError: resume is not a function (despite its assertion
+        // passing). The microtask lets the synchronous read finish first.
+        // Source: @effect/platform-node-shared/src/NodeSocket.ts:194-200.
+        // https://github.com/Effect-TS/effect/blob/effect%404.0.0/packages/platform/node-shared/src/NodeSocket.ts#L194-L200
         queueMicrotask(() => {
           Deferred.doneUnsafe(
             framing,
@@ -342,6 +336,24 @@ function openControlCore(
             ),
           );
         });
+      };
+      try {
+        // Feed only the first frame: a later valid line in the same chunk must
+        // not conceal a malformed first line silently dropped by stable ndjson.
+        const newline = chunk.indexOf(10);
+        const first = newline === -1 ? chunk : chunk.subarray(0, newline + 1);
+        const decoded = parser.decode(first);
+        const rejectedFirstLine = newline !== -1 && decoded.length === 0;
+        if (rejectedFirstLine) {
+          publishUnspeakable(
+            new Error("Effect ndjson rejected the first complete frame"),
+          );
+        } else if (decoded.length > 0) {
+          framingSettled = true;
+        }
+      } catch (cause) {
+        // MaxBufferSizeExceeded remains a thrown parser failure.
+        publishUnspeakable(cause);
       }
     };
     // Kept attached for the life of the connection rather than removed once

@@ -19,9 +19,16 @@
  *
  * On the SERVER side (the subprocess) any stray write to stdout corrupts the
  * frame stream. `serveOverStdio` redirects `console.log` to stderr when it owns
- * stdout; on THIS side a corrupt inbound line is a decode failure that fails the
- * in-flight calls with `SurfaceStdioTransportClosed` rather than wedging them —
- * pinned in `procedureErrors.test.ts`.
+ * stdout. BETA-ASSUMPTION(4.0.0): malformed ndjson lines are silently dropped, even when they replace an in-flight answer.
+ * Evidence: effect/src/rpc/RpcSerialization.ts makeNdjson catches JSON.parse
+ * errors and emits no message. The shared serialization means this applies to
+ * every ndjson wire link, not only stdio. In stdio.test.ts, "a corrupted answer
+ * parks its call while valid replies and heartbeats keep flowing" corrupts a
+ * real Exit: the call remains pending beyond the fatal-silence window, while
+ * Pongs and another call still succeed. There is no per-call replay or deadline
+ * here, so it can remain pending until interruption or a later transport death.
+ * A stray line followed by an intact answer is harmless. No corruption workaround
+ * is applied here; the daemon identity probe separately rejects its first frame.
  *
  * ## No pinger before a proven epoch (juspay/kolu#2101)
  *

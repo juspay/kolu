@@ -152,15 +152,21 @@ export async function openWireLink(opts: {
   // client is constructed).
   const scope = Scope.makeUnsafe();
 
-  const client: FlatDispatch = await Effect.runPromise(
+  // RpcClient.Flat<Rpc.Any> gives its payload parameter type `never` because
+  // ExtractTag cannot recover members from the erased group. Cast only the
+  // payload at the call boundary; leave the construction Effect's
+  // error/environment types checked (the face restores per-member types).
+  const typedClient = await Effect.runPromise(
     Effect.gen(function* () {
       const context = yield* Layer.build(opts.protocol);
       return yield* Effect.provideContext(
         RpcClient.make(opts.group, { flatten: true }),
         context,
       );
-    }).pipe(Scope.provide(scope)) as unknown as Effect.Effect<FlatDispatch>,
+    }).pipe(Scope.provide(scope)),
   );
+  const client: FlatDispatch = (tag, payload) =>
+    typedClient(tag, payload as never);
 
   let disposed = false;
 

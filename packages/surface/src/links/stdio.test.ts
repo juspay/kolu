@@ -5,8 +5,7 @@
  * Covers: unary request/response (the trivial path), a STREAMING member (the
  * non-trivial path where the protocol interleaves per-frame pushes with
  * concurrent requests), interruption propagation (the consumer stops pulling,
- * the server's stream finalizes), the stdout-is-protocol gotcha (a stray line
- * on the wire must not wedge the link), and every shape of transport death —
+ * the server's stream finalizes), the stdout-is-protocol gotcha (stray malformed lines are dropped, but a corrupted answer parks its call), and every shape of transport death —
  * each of which must FAIL a call with `SurfaceStdioTransportClosed` rather than
  * hang it or crash the process.
  *
@@ -15,7 +14,7 @@
  * cannot drift about what the honest sequence is.
  */
 
-import { PassThrough } from "node:stream";
+import { PassThrough, Transform } from "node:stream";
 import { Effect, Fiber, Stream } from "effect";
 import { describe, expect, it } from "vitest";
 import { SurfaceStdioTransportClosed } from "../errors";
@@ -33,6 +32,7 @@ import {
   writeStdioReadiness,
 } from "./readiness";
 import { stdioLink } from "./stdio";
+import { RPC_PING_FATAL_SILENCE_MS } from "./wire";
 
 /** Greet a bare PassThrough with itself — the minimal honest gate for a test
  *  that never runs a server: the banner really is written and really is read,
@@ -106,7 +106,7 @@ describe("stdio link over loopback", () => {
     await done();
   });
 
-  it("does not wedge when the agent corrupts stdout (lesson #4)", async () => {
+  it("drops a stray malformed stdout line and still answers a later call", async () => {
     const runtime = buildLoopbackRuntime();
     const pair = createLoopbackPair();
     const serving = serveOverStdio({
@@ -116,8 +116,8 @@ describe("stdio link over loopback", () => {
     });
     // The gate first (a real agent greets before it can corrupt anything), THEN
     // the corruption: a stray non-ndjson line on the wire from the server side —
-    // a pino log line that escaped to stdout. What we forbid is the link
-    // WEDGING: the call must settle, either way.
+    // a log line that escaped to stdout. Stable ndjson drops it; the later
+    // valid response still reaches its call.
     const readiness = await greetLoopback(pair);
     pair.server.write.write("«this looks like a pino log line»\n");
 
@@ -135,7 +135,7 @@ describe("stdio link over loopback", () => {
         setTimeout(() => resolve("timeout"), 2_000),
       ),
     ]);
-    expect(winner).not.toBe("timeout");
+    expect(winner).toBe("ok");
 
     await link.dispose();
     pair.client.write.end();
@@ -143,6 +143,75 @@ describe("stdio link over loopback", () => {
     await serving;
     await runtime.close();
   });
+
+  it("a corrupted answer parks its call while valid replies and heartbeats keep flowing", async () => {
+    const runtime = buildLoopbackRuntime();
+    const pair = createLoopbackPair();
+    const serving = serveOverStdio({
+      group: runtime.group,
+      handlers: runtime.handlers,
+      transport: pair.server,
+    });
+    const readiness = await greetLoopback(pair);
+    let buffered = "";
+    let corrupted = false;
+    let pongs = 0;
+    // Corrupt exactly the first real RPC Exit, not an unrelated stdout line.
+    // Forward all other server frames, including Pong, unchanged.
+    const inbound = new Transform({
+      transform(chunk, _encoding, callback) {
+        buffered += chunk.toString();
+        let end: number;
+        while ((end = buffered.indexOf("\n")) !== -1) {
+          const line = buffered.slice(0, end);
+          buffered = buffered.slice(end + 1);
+          const frame = JSON.parse(line);
+          if (frame._tag === "Pong") pongs++;
+          if (!corrupted && frame._tag === "Exit") {
+            corrupted = true;
+            this.push("not a JSON response\n");
+          } else {
+            this.push(`${line}\n`);
+          }
+        }
+        callback();
+      },
+    });
+    pair.client.read.pipe(inbound);
+    const link = await stdioLink({
+      group: loopbackSurface.group,
+      read: inbound,
+      write: pair.client.write,
+      readiness,
+    });
+    const call = Effect.runFork(
+      link.dispatch.unary("surface/math/add", { a: 1, b: 1 }),
+    );
+    try {
+      await expect.poll(() => corrupted).toBe(true);
+      // Observe beyond the fatal-silence window: Pong traffic keeps the link
+      // healthy but neither replays nor terminates the call whose Exit was lost.
+      await new Promise((resolve) =>
+        setTimeout(resolve, RPC_PING_FATAL_SILENCE_MS + 500),
+      );
+      expect(pongs).toBeGreaterThan(0);
+      await expect(
+        Effect.runPromise(
+          link.dispatch.unary("surface/math/add", { a: 2, b: 3 }),
+        ),
+      ).resolves.toBe(5);
+      expect(call.pollUnsafe()).toBeUndefined();
+    } finally {
+      await Effect.runPromise(Fiber.interrupt(call));
+      await link.dispose();
+      pair.client.read.unpipe(inbound);
+      inbound.destroy();
+      pair.client.write.end();
+      pair.server.write.end();
+      await serving;
+      await runtime.close();
+    }
+  }, 20_000);
 
   it("fails an RPC issued after the transport closed, instead of hanging", async () => {
     // Reconnect-wedge regression: a client whose stdio stream has ended (the
@@ -208,12 +277,14 @@ describe("stdio link over loopback", () => {
       readiness: await greetSelf(read),
     });
 
-    write.destroy(new Error("EPIPE: write to a broken pipe"));
-    await new Promise((r) => setImmediate(r));
-
-    const failure = await Effect.runPromise(
+    // Establish the protocol before breaking its writer: link construction
+    // alone does not mean the asynchronous socket reader has acquired the pipe.
+    const pending = Effect.runPromise(
       Effect.flip(link.dispatch.unary("surface/math/add", { a: 1, b: 1 })),
     );
+    await expect.poll(() => write.readableLength).toBeGreaterThan(0);
+    write.destroy(new Error("EPIPE: write to a broken pipe"));
+    const failure = await pending;
     expect(failure).toBeInstanceOf(SurfaceStdioTransportClosed);
     await link.dispose();
   });

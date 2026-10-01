@@ -1337,7 +1337,7 @@ The `reason` classification is **arm-independent**: clean teardown reads as
 `"end"` from *both* directions — a clean EOF (the peer closed its end) and a
 benign write death (`EPIPE`/`ERR_STREAM_DESTROYED`, the peer's read side
 vanishing mid-push) — while `"error"` is reserved for a genuinely abnormal
-death (a read error, a decode failure, a non-benign write failure). What
+death (a read error, a frame-size limit violation, a non-benign write failure). What
 happens *after* the resolve is selected by the same construction that picks
 the transport:
 
@@ -1823,6 +1823,13 @@ are deliberately tight; the relay re-raises genuine application errors UNCHANGED
 so neither tag is ever an app error.
 
 ### The wire's frame cap (`@kolu/surface/frame-limit`)
+
+Effect 4.0.0 silently drops malformed JSON lines on every ndjson link. A stray
+line does not prevent later valid messages from arriving. If a malformed line
+replaces a call's answer, that call remains pending while other calls and
+heartbeats continue; there is no per-call replay or deadline at this layer.
+Interruption or a later transport failure ends the pending call. The daemon
+identity probe separately rejects a malformed first frame.
 
 Every link's ndjson serialization is built here, from one owned constant, rather
 than from Effect's default. The default and this value are the same 16 MiB — the

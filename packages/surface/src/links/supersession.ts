@@ -4,31 +4,13 @@
  *
  * ## The fact
  *
- * Effect RPC registers a call's entry EXACTLY ONCE and never re-sends it, and an
- * answer can only travel the transport its request went out on. So a call is
- * bound to one transport by construction. When the thing underneath moves — a
- * websocket re-dial, or a {@link ./following} wire adopting a new generation —
- * every call that was in flight can only park forever over a wire that reports
- * itself healthy. That is the production incident behind kolu#2101: a woken tab
- * whose subscriptions were all parked while the socket, the watchdog and the
- * header dot were green.
+ * Effect RPC registers a call once and does not replay it onto another link.
+ * When followingWire adopts a new generation, calls bound to the old link
+ * must fail with RpcClientError so the face's retry fence can re-subscribe.
+ * followingWire is this module's only consumer. Websocket reconnect failures
+ * are now broadcast by Effect itself; they do not use this fence.
  *
- * The answer is the same at both altitudes, and it is not a retry: FAIL those
- * calls, with an `RpcClientError`. That is the shape `../client.ts`'s
- * `isTransportError` recognises and `shouldRetryStreamError` retries on, so the
- * per-subscription retry fence re-subscribes and an UNFENCED caller gets a
- * rejected promise instead of a dead one. A link must never re-subscribe
- * internally (`./wire.ts` states that law) — failing honestly is how a link
- * hands the problem to the one layer that owns recovery.
- *
- * ## Why it is a module
- *
- * It was written twice, verbatim: `websocketLink`'s re-dial epoch and
- * `followingWire`'s generation counter were the same counter, the same watcher
- * set, the same eagerly-re-checked guard, the same error shape and the same
- * dispatch wrap, differing only in the word for "the thing that moved". Two
- * copies of an ordering law is one copy too many — and the law here is exactly
- * the kind that a later fix applies to one site and forgets at the other:
+ * This module owns the ordering law:
  *
  *   **advance the mark → notify the consumer → sweep the superseded calls.**
  *
@@ -42,7 +24,7 @@
  * nothing left to fail them.
  *
  * Package-internal: not exported through any `@kolu/surface/*` subpath. It is
- * how two links keep one promise, not a promise of its own.
+ * the following wire’s generation fence, not a public contract.
  */
 
 import { Effect, Stream } from "effect";
@@ -53,24 +35,13 @@ import {
 } from "effect/rpc/RpcClientError";
 import { brandHalfOpenDispatch, type SurfaceDispatch } from "../link";
 
-/** The three NOUNS a superseded call's failure needs — because a re-dial and a
- *  generation change are different events and an operator reading a console must
- *  be able to tell them apart. Everything ELSE in that sentence is the law, and
- *  the law is this module's.
- *
- *  Taken as nouns rather than as a whole message on purpose. Typed as "give me
- *  the message", the four-sentence explanation of WHY a superseded call must fail
- *  got copied verbatim into both links — which is the very duplication this
- *  module exists to end, surviving the extraction one level up. A later fix to
- *  that explanation would have landed at one site and been forgotten at the
- *  other. */
+/** The generation-change vocabulary used in a superseded call’s failure. */
 export interface SupersessionWording {
-  /** What MOVED, as a clause: "the wire re-dialled" / "the wire adopted a new
-   *  generation". */
+  /** What MOVED, as a clause: "the wire adopted a new generation". */
   readonly moved: string;
-  /** What the mark is CALLED, singular: "socket epoch" / "generation". */
+  /** What the mark is CALLED, singular: "generation". */
   readonly mark: string;
-  /** What carries an answer: "socket" / "link". */
+  /** What carries an answer: "link". */
   readonly carrier: string;
   /** The one-line `cause` beneath the message, naming the link that moved. A
    *  function of the two marks, because the useful half of such a line is which

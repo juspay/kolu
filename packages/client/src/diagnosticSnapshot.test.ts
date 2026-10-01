@@ -1,3 +1,5 @@
+import { RpcClientError } from "effect/rpc/RpcClientError";
+import { SocketReadError } from "effect/socket/Socket";
 /**
  * THE FALSIFIER for kolu#2101 J2: the snapshot must be able to prove the field
  * incident by itself.
@@ -5,23 +7,23 @@
  * The incident: a woken tab whose socket, watchdog and header dot were all
  * healthy while every fenced subscription in it was parked on a re-dial the
  * protocol swallowed. The two arms below are that exact drive, before and after
- * J1's fix, differing in ONE fact — whether a frame arrived after the current
+ * stable Effect transport failures, differing in ONE fact — whether a frame arrived after the current
  * socket opened:
  *
  *   PRE-J1  the entries subscription hears nothing after the reopen → the
  *           snapshot NAMES it, verdict `parked`, last frame frozen before the
  *           wire's open-since.
- *   POST-J1 the re-dial fails the orphan, the fence re-subscribes, a frame lands
+ *   STABLE Effect reports the failed heartbeat, the fence re-subscribes, a frame lands
  *           → the same subscription reads `live`.
  *
  * The registry side is REAL (`@kolu/surface/subscriptions`, driven through its
- * own writer); the wire's dial history is SCRIPTED, because post-J1 the park can
+ * own writer); the wire's dial history is SCRIPTED, because on stable Effect this park can
  * no longer be produced by driving a real link — the fix is unconditional, and a
  * knob to disable it would be the defect this repo's fail-fast rule forbids. The
  * REAL-link half of the same claim is asserted in
  * `packages/surface/src/links/socketRedialLaws.test.ts` (law 3, "THE FIELD
  * SHAPE"), which drives a served surface over a silently-killed socket and pins
- * the registry's post-J1 numbers off it.
+ * the registry's recovered numbers off it.
  */
 
 import type { HostKey } from "kolu-common/hostKey";
@@ -158,14 +160,22 @@ describe("the snapshot proves the park by itself", () => {
     expect(text).toContain("ended-without-open");
   });
 
-  it("POST-J1: the same drive with the re-drive lands reads live", () => {
+  it("a stable heartbeat failure and re-subscription land reads live", () => {
     const { entries, preferences } = openTheTabsSubscriptions();
-    // J1's epoch wrap fails the orphaned calls on the reopen edge; the fence's
-    // existing retry road re-subscribes and the fresh snapshot arrives.
+    // Stable Effect broadcasts a missed heartbeat as a transport failure;
+    // the retry fence re-subscribes and the fresh snapshot arrives.
     vi.setSystemTime(T_REOPEN + 120);
-    entries.retry(new Error("the wire re-dialled beneath this call"));
+    entries.retry(
+      new RpcClientError({
+        reason: new SocketReadError({ cause: new Error("ping timeout") }),
+      }),
+    );
     entries.frame();
-    preferences.retry(new Error("the wire re-dialled beneath this call"));
+    preferences.retry(
+      new RpcClientError({
+        reason: new SocketReadError({ cause: new Error("ping timeout") }),
+      }),
+    );
     preferences.frame();
 
     vi.setSystemTime(T_CAPTURE);
