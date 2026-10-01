@@ -41,7 +41,7 @@
  *     `isBufferSizeExceeded(size, max) => max !== "unbounded" && size > max`
  *     (strictly greater, so a frame EXACTLY at the cap is accepted).
  *   - `dist/rpc/RpcServer.js` — the inbound decode's catch turns a
- *     `MaxBufferSizeExceeded` into `writeRaw(new Socket.CloseEvent(1009, …))`.
+ *     `MaxBufferSizeExceeded` into `writer.write(new Socket.CloseEvent(1009, …))`.
  *     It is the only `1009` CLOSE CODE in the whole `effect` dist (the one
  *     other textual hit is a substring inside a numeric table in
  *     `http-api/internal/httpApiSwagger.js`, not a close code).

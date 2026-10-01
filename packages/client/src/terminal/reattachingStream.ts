@@ -173,16 +173,16 @@ const CLEAN_END_REATTACH_BUDGET = 1;
  *  excuses — and the remaining ~18s is the room the unboundable serialization
  *  term gets. Under 25s the deadline PREEMPTS the watchdog it depends on: it
  *  would tear the stream down while the socket cycle that actually repairs a
- *  half-open wire (and J1's epoch wrap, which then fails the orphan into the
- *  retry channel with no clock at all) is still in flight. That inversion — the
+ *  half-open wire is still in flight. Stable Effect's own ping failure usually
+ *  reaches the retry channel earlier (about 10s), within that same upper bound. That inversion — the
  *  belt firing before the braces — is what shipped at 10s.
  *
  *  **The bound this buys.** A genuine park is REPAIRED at 45s (the first
  *  re-attach) and SAID OUT LOUD at 90.3s (the second silent open, plus one
  *  backoff). Slower than the old 20.3s — deliberately, because the old number's
  *  speed was bought by executing panes that were merely slow, and because the
- *  class this deadline still owns has shrunk: J1's epoch wrap now takes the
- *  re-dial class instantly, on the reopen edge, with no clock.
+ *  established-socket failures reach the retry fence directly from Effect,
+ *  before the replacement connection opens.
  *
  *  **FIRST frame only — never between frames.** An idle terminal emits nothing
  *  for hours and that is the healthy case: an inter-frame deadline would kill
@@ -272,8 +272,8 @@ const FRUITLESS_CYCLE_VERDICT = 200;
  *  30s, and the floor is not arbitrary: it is above the heartbeat's ~25s
  *  worst-case half-open cycle (`@kolu/surface`'s `heartbeat.ts`), so a demoted
  *  loop never issues more than one attach per watchdog cycle. The repair that
- *  would actually heal a wedged chain — the socket cycle, J1's epoch wrap
- *  failing the orphans into this same retry channel, kolu-server re-binding padi
+ *  would actually heal a wedged chain — the socket cycle, Effect's transport
+ *  failure entering this same retry channel, kolu-server re-binding padi
  *  — gets a full cycle to land between attempts instead of racing them.
  *
  *  **The unboundedness argument (mandated, kolu#2101 K1).** The demoted loop has
@@ -441,10 +441,9 @@ export interface AttachTileFacts {
  *  cases above all rest on an EVENT — a failure, an end, a refused frame. The
  *  wake-window residue had none: a pane sat blank while its host's own logs
  *  showed nothing at all. Two different causes produce that rendering, and only
- *  one of them is still this module's to catch. A wire that RE-DIALLED
- *  underneath the subscription is failed by `@kolu/surface`'s epoch wrap on the
- *  reopen edge — the whole class, every subscription in the tab, no clock, and
- *  it arrives here (if at all) as a plain channel-2 failure that spends no
+ *  one of them is still this module's to catch. An established wire that stops
+ *  answering fails through Effect's transport error broadcast, including its
+ *  heartbeat timeout. It arrives here as a channel-2 failure that spends no
  *  budget. What is left is the UPSTREAM STALL: a relay holding the stream open
  *  over a source that says nothing, where no re-dial ever happens and silence is
  *  genuinely the only signal. So the deadline stays as the belt for that class
