@@ -16,7 +16,7 @@ import { dockRowLabel } from "./dockRowData";
 
 /** Only the fields the fold reads; the rest of the record is not reachable from
  *  it (see `shellMeta` in the neighbouring dock tests for the same fixture). */
-function meta(over: Partial<TerminalMetadata> = {}): TerminalMetadata {
+function meta(over: { intent?: string; cwd?: string } = {}): TerminalMetadata {
   return {
     state: "active",
     cwd: "/tmp/work",

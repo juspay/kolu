@@ -5,7 +5,6 @@ import {
   createEvictionDedup,
   evictTerminal,
   pickAutoSwitchTarget,
-  repairTileTabs,
   type TerminalEvictionPorts,
   useActiveReconcile,
 } from "./useActiveReconcile";
@@ -52,14 +51,14 @@ function makePorts(over: {
     rehomeUnder: vi.fn<(id: TerminalId, parent: TerminalId) => void>(),
     activate: vi.fn<(id: TerminalId | null) => void>(),
     dropFromMru: vi.fn<(id: TerminalId) => void>(),
-    collapse: vi.fn<(id: TerminalId) => void>(),
-    collapseChrome: vi.fn<(id: TerminalId) => void>(),
+    collapsePanel: vi.fn<(id: TerminalId) => void>(),
+    collapsePanelChrome: vi.fn<(id: TerminalId) => void>(),
     setActiveSubTab:
       vi.fn<(parentId: TerminalId, subId: TerminalId | null) => void>(),
     selectSubTab:
       vi.fn<(parentId: TerminalId, subId: TerminalId | null) => void>(),
     requestRefocus: vi.fn<(id: TerminalId) => void>(),
-    removeSub: vi.fn<(id: TerminalId) => void>(),
+    removePanel: vi.fn<(id: TerminalId) => void>(),
     removeRightPanel: vi.fn<(id: TerminalId) => void>(),
     removeSearch: vi.fn<(id: TerminalId) => void>(),
   };
@@ -71,13 +70,15 @@ function makePorts(over: {
     promoteToTopLevel: calls.promoteToTopLevel,
     rehomeUnder: calls.rehomeUnder,
     subPanel: {
-      collapse: calls.collapse,
-      collapseChrome: calls.collapseChrome,
-      activeSubTab: over.activeSubTab ?? (() => null),
+      collapsePanel: calls.collapsePanel,
+      collapsePanelChrome: calls.collapsePanelChrome,
+      peekSubPanel: (id) => ({
+        activeSubTab: (over.activeSubTab ?? (() => null))(id),
+      }),
       setActiveSubTab: calls.setActiveSubTab,
       selectSubTab: calls.selectSubTab,
       requestRefocus: calls.requestRefocus,
-      remove: calls.removeSub,
+      removePanel: calls.removePanel,
     },
     removeRightPanel: calls.removeRightPanel,
     removeSearch: calls.removeSearch,
@@ -114,7 +115,7 @@ describe("evictTerminal — top-level branch", () => {
     );
 
     expect(calls.promoteToTopLevel.mock.calls).toEqual([[T("S1")], [T("S2")]]);
-    expect(calls.removeSub).toHaveBeenCalledWith(T("P"));
+    expect(calls.removePanel).toHaveBeenCalledWith(T("P"));
     expect(calls.removeRightPanel).toHaveBeenCalledWith(T("P"));
     expect(calls.removeSearch).toHaveBeenCalledWith(T("P"));
     expect(calls.dropFromMru).toHaveBeenCalledWith(T("P"));
@@ -179,12 +180,12 @@ describe("evictTerminal — sub-terminal branch", () => {
       new Set([T("S")]),
       graph({ P: null, S: "P" }),
     );
-    expect(calls.collapse).toHaveBeenCalledWith(T("P"));
+    expect(calls.collapsePanel).toHaveBeenCalledWith(T("P"));
     // The active tab is cleared so it can't dangle at the departed sub — the
     // invariant "activeSubTab is null or a live sub" that lets adopt/restore
     // trust a plain null-check.
     expect(calls.setActiveSubTab).toHaveBeenCalledWith(T("P"), null);
-    expect(calls.collapseChrome).not.toHaveBeenCalled();
+    expect(calls.collapsePanelChrome).not.toHaveBeenCalled();
     expect(calls.promoteToTopLevel).not.toHaveBeenCalled();
   });
 
@@ -202,8 +203,8 @@ describe("evictTerminal — sub-terminal branch", () => {
       graph({ P: null, S: "P" }),
     );
 
-    expect(calls.collapseChrome).toHaveBeenCalledExactlyOnceWith(T("P"));
-    expect(calls.collapse).not.toHaveBeenCalled();
+    expect(calls.collapsePanelChrome).toHaveBeenCalledExactlyOnceWith(T("P"));
+    expect(calls.collapsePanel).not.toHaveBeenCalled();
     expect(calls.setActiveSubTab).toHaveBeenCalledWith(T("P"), null);
     expect(calls.requestRefocus).not.toHaveBeenCalled();
   });
@@ -223,7 +224,7 @@ describe("evictTerminal — sub-terminal branch", () => {
     );
     expect(calls.selectSubTab).toHaveBeenCalledWith(T("P"), T("S2"));
     expect(calls.requestRefocus).toHaveBeenCalledWith(T("P"));
-    expect(calls.collapse).not.toHaveBeenCalled();
+    expect(calls.collapsePanel).not.toHaveBeenCalled();
   });
 
   it("keeps main-pane focus while repairing a departed active sub tab", () => {
@@ -306,7 +307,7 @@ describe("evictTerminal — sub-terminal branch", () => {
     );
     expect(calls.promoteToTopLevel).toHaveBeenCalledExactlyOnceWith(T("G"));
     expect(calls.rehomeUnder).not.toHaveBeenCalled();
-    expect(calls.collapse).not.toHaveBeenCalled();
+    expect(calls.collapsePanel).not.toHaveBeenCalled();
     expect(calls.selectSubTab).not.toHaveBeenCalled();
   });
 
@@ -331,63 +332,6 @@ describe("evictTerminal — sub-terminal branch", () => {
       expect.stringMatching(/^(P|G)$/),
     );
     expect(calls.promoteToTopLevel).not.toHaveBeenCalled();
-  });
-});
-
-/** The panel seams `repairTileTabs` writes through, as spies. */
-function panel(active: TerminalId | null) {
-  return {
-    collapse: vi.fn<(id: TerminalId) => void>(),
-    collapseChrome: vi.fn<(id: TerminalId) => void>(),
-    activeSubTab: () => active,
-    setActiveSubTab: vi.fn<(id: TerminalId, sub: TerminalId | null) => void>(),
-    selectSubTab: vi.fn<(id: TerminalId, sub: TerminalId | null) => void>(),
-    requestRefocus: vi.fn<(id: TerminalId) => void>(),
-    remove: vi.fn<(id: TerminalId) => void>(),
-  };
-}
-
-describe("repairTileTabs", () => {
-  it("leaves an active tab that is still a pane of the tile alone", () => {
-    // The same-tile move (a split dropped on its own sibling) arrives here: the
-    // moved terminal is STILL under the tile, so the strip needs nothing.
-    const p = panel(T("S1"));
-    repairTileTabs(p, T("P"), [T("S1"), T("S2")], false);
-    expect(p.setActiveSubTab).not.toHaveBeenCalled();
-    expect(p.selectSubTab).not.toHaveBeenCalled();
-    expect(p.collapse).not.toHaveBeenCalled();
-    expect(p.collapseChrome).not.toHaveBeenCalled();
-  });
-
-  it("leaves a null active tab null", () => {
-    const p = panel(null);
-    repairTileTabs(p, T("P"), [T("S1")], false);
-    expect(p.setActiveSubTab).not.toHaveBeenCalled();
-  });
-
-  it("replaces a tab left dangling at a pane that departed WITH its parent", () => {
-    // R ← M ← G, and R ← S. R's active tab is G. Dragging M away takes G with
-    // it, so the "is the active tab the pane that left?" test (M) would miss G
-    // and leave the strip pointing at a terminal that is no longer under R —
-    // the dangling state this repair exists to forbid.
-    const p = panel(T("G"));
-    repairTileTabs(p, T("R"), [T("S")], false);
-    expect(p.setActiveSubTab).toHaveBeenCalledExactlyOnceWith(T("R"), T("S"));
-    expect(p.selectSubTab).not.toHaveBeenCalled();
-  });
-
-  it("carries the focus fact when the departing pane had it", () => {
-    const p = panel(T("S1"));
-    repairTileTabs(p, T("P"), [T("S2")], true);
-    expect(p.selectSubTab).toHaveBeenCalledExactlyOnceWith(T("P"), T("S2"));
-    expect(p.setActiveSubTab).not.toHaveBeenCalled();
-  });
-
-  it("collapses and clears the tab when no pane remains", () => {
-    const p = panel(T("S1"));
-    repairTileTabs(p, T("P"), [], false);
-    expect(p.collapseChrome).toHaveBeenCalledExactlyOnceWith(T("P"));
-    expect(p.setActiveSubTab).toHaveBeenCalledExactlyOnceWith(T("P"), null);
   });
 });
 
@@ -520,7 +464,7 @@ describe("useActiveReconcile — FULL cleanup driven off the list", () => {
     h.setRawIds([T("S"), T("Q")]);
 
     expect(h.calls.promoteToTopLevel).toHaveBeenCalledWith(T("S"));
-    expect(h.calls.removeSub).toHaveBeenCalledWith(T("P"));
+    expect(h.calls.removePanel).toHaveBeenCalledWith(T("P"));
     expect(h.calls.removeRightPanel).toHaveBeenCalledWith(T("P"));
     expect(h.calls.removeSearch).toHaveBeenCalledWith(T("P"));
     // P was active and at index 0 of [P, Q] → focus falls to survivor Q.
@@ -585,7 +529,7 @@ describe("useActiveReconcile — FULL cleanup driven off the list", () => {
     h.setRawIds([]);
 
     expect(h.calls.promoteToTopLevel).not.toHaveBeenCalled();
-    expect(h.calls.removeSub).not.toHaveBeenCalled();
+    expect(h.calls.removePanel).not.toHaveBeenCalled();
     expect(h.calls.removeRightPanel).not.toHaveBeenCalled();
     expect(h.calls.dropFromMru).not.toHaveBeenCalled();
     expect(h.calls.activate).not.toHaveBeenCalled();
@@ -613,7 +557,7 @@ describe("useActiveReconcile — FULL cleanup driven off the list", () => {
     h.setRawIds([T("P2"), T("S2")]);
 
     expect(h.calls.promoteToTopLevel).not.toHaveBeenCalled();
-    expect(h.calls.removeSub).not.toHaveBeenCalled();
+    expect(h.calls.removePanel).not.toHaveBeenCalled();
     expect(h.calls.activate).not.toHaveBeenCalled();
     h.dispose();
   });
@@ -699,7 +643,7 @@ describe("useActiveReconcile — FULL cleanup driven off the list", () => {
     h.setRawIds([T("P"), T("Q")]);
 
     expect(h.calls.promoteToTopLevel).not.toHaveBeenCalled();
-    expect(h.calls.removeSub).not.toHaveBeenCalled();
+    expect(h.calls.removePanel).not.toHaveBeenCalled();
     expect(h.calls.activate).not.toHaveBeenCalled();
     h.dispose();
   });

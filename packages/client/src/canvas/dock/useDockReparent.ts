@@ -37,8 +37,7 @@
 import type { TerminalId } from "kolu-common/surface";
 import { createEffect, createSignal } from "solid-js";
 import { createSharedRoot } from "../../createSharedRoot";
-import { repairTileTabs } from "../../terminal/useActiveReconcile";
-import { subPanelRepairPorts, useSubPanel } from "../../terminal/useSubPanel";
+import { repairTileTabs, useSubPanel } from "../../terminal/useSubPanel";
 import { useTerminalCrud } from "../../terminal/useTerminalCrud";
 import { useTerminalStore } from "../../terminal/useTerminalStore";
 import { useDockFocus } from "./useDockFocus";
@@ -78,8 +77,13 @@ export const useDockReparent = createSharedRoot(
       if (p.fromTile === p.id) {
         // The row WAS a tile: it is a split now, so the panel chrome keyed on
         // its old tile identity is stale (the eviction path drops the same
-        // state when a tile departs).
+        // state when a tile departs) — and so is the per-host VISIT TRAIL, a
+        // list of TILES that `Ctrl+Tab`/`Alt+Tab` walks straight into
+        // `activate`, which throws on a split. Same prune the eviction path
+        // performs for a departing tile, for the same reason: this terminal is
+        // no longer a tile, which is exactly what that trail lists.
         subPanel.removePanel(p.id);
+        store.forgetFromMru(p.id);
       } else {
         // The row left a tile that survives: repair that tile's tab strip so
         // its `activeSubTab` cannot dangle at a pane that is no longer under
@@ -89,7 +93,7 @@ export const useDockReparent = createSharedRoot(
         // nothing to repair. Focus is about to move to the dragged terminal
         // anyway, so the repair never carries the focus fact.
         repairTileTabs(
-          subPanelRepairPorts(subPanel),
+          subPanel,
           p.fromTile,
           store.getSplitPaneIds(p.fromTile),
           false,

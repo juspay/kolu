@@ -124,6 +124,7 @@ import {
   setDockCardsWidth,
 } from "./dockCardsWidth";
 import { useDockRowBag } from "./useDockRowBag";
+import { isActiveRow } from "./activeRow";
 import { createDockRowData, dockRowLabel } from "./dockRowData";
 import type { DockBranchCluster, DockGroup, DockTree } from "./dockTree";
 import { arrayMove, moveCluster, moveRepo } from "./dockTree";
@@ -131,6 +132,7 @@ import {
   type DockDropTarget,
   HEADER_DROP_ID,
   dockCollisionDetector,
+  dropHighlightOf,
   reparentDropOf,
   rowIdOfDragId,
 } from "./dockReparent";
@@ -414,18 +416,18 @@ const RailOrCards: Component<{
       t.groups.length > 1 || t.groups.some((g) => g.clusters.length > 1);
     if (rearrangeable) showTipOnce(CONTEXTUAL_TIPS.dockRearrange);
   });
-  // The first repo card holding two LIVE rows — the first moment nesting one
-  // under the other means anything. Live, not merely listed: a sleeping row has
-  // no grip, so counting it would announce a gesture the card cannot perform.
-  // Independent of the rearrange tip above: the two gestures share a surface but
-  // answer different questions ("where is this repo", "is this pane its own
-  // tile"), and a user can meet either first.
+  // The first repo card holding two LIVE TOP-LEVEL rows — the first moment a
+  // row drop is even possible. Top-level, not "any two live rows": a card with
+  // one tile and its own split has no legal pair at all (child→its parent and
+  // parent→its descendant are both refusals), and a banner that teaches a
+  // gesture the card cannot perform is the same lie the hover verdict exists to
+  // avoid. Live, not merely listed: a sleeping row has no grip.
   createEffect(() => {
     if (
       props.tree.groups.some(
         (g) =>
-          g.railEntries.filter(
-            (e) => activeArm(store.getMetadata(e.row.id)) !== undefined,
+          g.topRows.filter(
+            (r) => activeArm(store.getMetadata(r.id)) !== undefined,
           ).length >= 2,
       )
     )
@@ -689,11 +691,14 @@ const HeaderDropTarget: Component = () => {
     if (dragged === null) return undefined;
     const hovered = verdict();
     if (hovered !== undefined) return hovered;
-    return reparentDropOf(dockDropContext(store), dragged, {
+    // Not hovered: the standing affordance is the PAINT rule's answer, read
+    // through the same fold the hover verdict uses (never the write verb
+    // directly) — so "would this drop be accepted" has one reader per question.
+    return dropHighlightOf(dockDropContext(store), dragged, {
       kind: "header",
-    }) === null
-      ? undefined
-      : "target";
+    }) === "over"
+      ? "target"
+      : undefined;
   };
   return (
     <span
@@ -1144,9 +1149,7 @@ export const RailSubChip: Component<{
             data-bucket={props.row.pip}
             data-motion={pip().motion}
             data-agent-state={activeArm(m())?.agent?.state}
-            data-active={
-              store.focusedTerminalId() === props.row.id ? "" : undefined
-            }
+            data-active={isActiveRow(props.row.id) ? "" : undefined}
             data-unread={unread() ? "" : undefined}
             onClick={() => focus(props.row.id)}
             class="dock-rail-chip w-[26px]! h-[26px]! rounded-[7px]! -mt-px"
@@ -1199,9 +1202,10 @@ const RailChip: Component<{
   const store = useTerminalStore();
   const tileStore = useTileStore();
   const combined = createDockRowData(props.id);
-  // Active-tile highlight follows the TILE registry (so a focused sleeping tile
-  // reads as the active row in PR 2); unread is terminal-attention, stays on
-  // the terminal store.
+  // The active highlight goes through the SAME fold every other dock row uses
+  // (`isActiveRow`, which reads the tile registry, so a focused sleeping tile
+  // reads as the active row); unread is terminal-attention, stays on the
+  // terminal store.
   const unread = () => store.isUnread(props.id);
   const modHeld = useModHeld();
   return (
@@ -1224,7 +1228,7 @@ const RailChip: Component<{
             data-bucket={props.pip}
             data-motion={pip().motion}
             data-agent-state={activeArm(c().meta)?.agent?.state}
-            data-active={tileStore.isActiveTile(props.id) ? "" : undefined}
+            data-active={isActiveRow(props.id) ? "" : undefined}
             data-unread={unread() ? "" : undefined}
             onClick={() => tileStore.activate(props.id)}
             class="dock-rail-chip"

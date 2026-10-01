@@ -32,7 +32,7 @@ import {
   evictTerminal,
   type TerminalEvictionPorts,
 } from "./useActiveReconcile";
-import { subPanelRepairPorts, useSubPanel } from "./useSubPanel";
+import { useSubPanel } from "./useSubPanel";
 import { useTerminalSearch } from "./useTerminalSearch";
 import { useTerminalStore } from "./useTerminalStore";
 
@@ -138,7 +138,7 @@ export const useTerminalCrud = createSharedRoot(() => {
     dropFromMru: (id) => store.forgetFromMru(id),
     promoteToTopLevel: (subId) => setParent(subId, null),
     rehomeUnder: (subId, newParentId) => setParent(subId, newParentId),
-    subPanel: subPanelRepairPorts(subPanel),
+    subPanel,
     removeRightPanel: rightPanel.removePanel,
     removeSearch: terminalSearch.removeTerminal,
   };

@@ -18,7 +18,14 @@ import type { TerminalId } from "kolu-common/surface";
 import type { ParentEdge } from "../../terminal/terminalTree";
 
 export const ROW_DRAG_PREFIX = "row:";
-export const HEADER_DROP_ID = "header";
+/** The repo card header's droppable id. Prefixed like a row id, and for the
+ *  same reason: this id lives in ONE string space with the branch-cluster
+ *  sortables (keyed by branch LABEL) and the section sortables (keyed by repo
+ *  NAME), so a bare `"header"` would collide with a branch or directory of that
+ *  name — the library keys droppables by id, so one would silently replace the
+ *  other. A colon cannot appear in a git ref, which is what makes the prefix a
+ *  narrowing rather than a shorter odds. */
+export const HEADER_DROP_ID = "drop:header";
 
 /** The draggable/droppable id of a dock row — ONE id for both, so the drop
  *  verb receives the dragged row's identity in the shape it already holds. */
