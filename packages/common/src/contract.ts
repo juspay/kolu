@@ -39,7 +39,7 @@ import {
   mergeDisjointGroups,
 } from "@kolu/surface/define";
 import { Schema } from "effect";
-import { Rpc, RpcGroup } from "effect/unstable/rpc";
+import { Rpc, RpcGroup } from "effect/rpc";
 import { HostKeySchema } from "./hostKey.ts";
 import { surfaces } from "./surface";
 

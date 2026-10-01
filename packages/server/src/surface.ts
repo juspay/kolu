@@ -55,7 +55,7 @@ import {
 } from "@kolu/surface/server";
 import { surfaceAppServer } from "@kolu/surface-app/server";
 import { Effect } from "effect";
-import type { RpcGroup } from "effect/unstable/rpc";
+import type { RpcGroup } from "effect/rpc";
 import type {
   ForwardCreateInput,
   Forwards,

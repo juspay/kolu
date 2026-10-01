@@ -31,7 +31,7 @@ src/
 
   server/                 Host-server integration.
     index.ts              artifactSdkBundleLayer({sdkScriptPath}) — the
-                          bundle route, an effect/unstable/http layer.
+                          bundle route, an effect/http layer.
                           withArtifactSdk(sdkScriptPath) — a handler
                           combinator the host applies to its iframe-preview
                           route; splices <script src="..."> into a

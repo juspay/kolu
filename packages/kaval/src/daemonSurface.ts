@@ -48,7 +48,7 @@ import {
   superviseTerminalSource,
   type SurfaceHandlers,
 } from "@kolu/surface/server";
-import type { Rpc, RpcGroup } from "effect/unstable/rpc";
+import type { Rpc, RpcGroup } from "effect/rpc";
 import type { createInProcessPtyHost } from "./inProcessPtyHost.ts";
 import { PTY_HOST_CONTRACT_VERSION, ptyHostSurface } from "./ptyHostSurface.ts";
 

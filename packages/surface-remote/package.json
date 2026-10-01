@@ -17,12 +17,12 @@
     "test:daemon": "vitest run"
   },
   "dependencies": {
-    "@effect/platform-node": "4.0.0-rc.112",
+    "@effect/platform-node": "4.0.0",
     "@kolu/log": "workspace:*",
     "@kolu/shell-quote": "workspace:*",
     "@kolu/surface": "workspace:*",
     "@kolu/surface-map": "workspace:*",
-    "effect": "4.0.0-rc.112",
+    "effect": "4.0.0",
     "neverthrow": "^8.2.0",
     "quick-lru": "^7.3.0",
     "split2": "^4.2.0",
@@ -34,6 +34,6 @@
     "@types/split2": "^4.2.3",
     "tsx": "^4.21.0",
     "typescript": "^7.0.2",
-    "vitest": "^4.1.0"
+    "vitest": "^5.0.3"
   }
 }

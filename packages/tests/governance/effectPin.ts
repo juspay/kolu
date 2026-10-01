@@ -65,7 +65,7 @@ import path from "node:path";
 // `yaml` package, because its input is USER-authored front matter and this
 // parser diverges there (multi-line plain scalars, cyclic anchors, a ` #`
 // comment after an apostrophe). Machine-generated input only.
-import { Yaml } from "effect/unstable/encoding";
+import { Yaml } from "effect/encoding";
 
 /** A single spelling of an effect-family version. */
 export interface EffectPin {

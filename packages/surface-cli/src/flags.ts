@@ -12,7 +12,7 @@
  * exactly the shape a flag table wants.
  *
  * What comes out is the ENCODED input, never the decoded one. The advertised
- * document describes the encoded side, `Flag.integer` hands back the number a
+ * document describes the encoded side, `Flag.Int` hands back the number a
  * `Schema.Int` encodes to, and a surface procedure's own client ref decodes what
  * it is given. So the CLI assembles encoded, VALIDATES by decoding once (so a
  * typo is a local usage error from the same taxonomy the server would have
@@ -68,7 +68,7 @@
 import type { WireSchemaAny } from "@kolu/surface/define";
 import { type AdvertisedInput, inputSchema } from "@kolu/surface/verbs";
 import { Effect, Option } from "effect";
-import { Argument, Flag, Param } from "effect/unstable/cli";
+import { Argument, Flag, Param } from "effect/cli";
 import { match } from "ts-pattern";
 
 /** A JSON-Schema node, walked structurally. */
@@ -205,7 +205,7 @@ function isStringRecord(node: JsonSchema): boolean {
  *  quoting slip is named as one rather than reaching the server as a string. */
 // biome-ignore lint/suspicious/noExplicitAny: the parsed value's type is the field's, unknown here.
 function jsonFlag(name: string): Flag.Flag<any> {
-  return Flag.string(name).pipe(
+  return Flag.String(name).pipe(
     Flag.mapTryCatch(
       (text: string) => JSON.parse(text) as unknown,
       () =>
@@ -265,7 +265,7 @@ function nullableScalar(node: JsonSchema): JsonSchema | undefined {
 function nullableFlag(name: string, node: JsonSchema): Flag.Flag<any> {
   const choices = stringChoices(node);
   if (choices !== undefined) {
-    return Flag.choice(name, [...choices, NULL_WORD]).pipe(
+    return Flag.Literals(name, [...choices, NULL_WORD]).pipe(
       Flag.mapTryCatch(
         (chosen: string) => (chosen === NULL_WORD ? null : chosen),
         () => `--${name} did not take that value.`,
@@ -273,7 +273,7 @@ function nullableFlag(name: string, node: JsonSchema): Flag.Flag<any> {
     );
   }
   const kind = scalarKind(node);
-  return Flag.string(name).pipe(
+  return Flag.String(name).pipe(
     Flag.mapTryCatch(
       (text: string) => scalarOf(text, kind),
       () =>
@@ -307,16 +307,16 @@ function flagFor(name: string, node: JsonSchema): Flag.Flag<any> {
   const nullable = nullableScalar(node);
   if (nullable !== undefined) return nullableFlag(name, nullable);
   const choices = stringChoices(node);
-  if (choices !== undefined) return Flag.choice(name, choices);
+  if (choices !== undefined) return Flag.Literals(name, choices);
   switch (scalarKind(node)) {
     case "string":
-      return Flag.string(name);
+      return Flag.String(name);
     case "integer":
-      return Flag.integer(name);
+      return Flag.Int(name);
     case "number":
-      return Flag.float(name);
+      return Flag.Finite(name);
     case "boolean":
-      return Flag.boolean(name);
+      return Flag.Boolean(name);
     default:
       break;
   }
@@ -336,7 +336,7 @@ function flagFor(name: string, node: JsonSchema): Flag.Flag<any> {
     }
     return jsonFlag(name);
   }
-  if (isStringRecord(node)) return Flag.keyValuePair(name);
+  if (isStringRecord(node)) return Flag.KeyValuePair(name);
   return jsonFlag(name);
 }
 
@@ -346,14 +346,14 @@ function flagFor(name: string, node: JsonSchema): Flag.Flag<any> {
 // biome-ignore lint/suspicious/noExplicitAny: each branch's value type is the field's.
 function argumentFor(name: string, node: JsonSchema): Argument.Argument<any> {
   const choices = stringChoices(node);
-  if (choices !== undefined) return Argument.choice(name, choices);
+  if (choices !== undefined) return Argument.Literals(name, choices);
   switch (scalarKind(node)) {
     case "string":
-      return Argument.string(name);
+      return Argument.String(name);
     case "integer":
-      return Argument.integer(name);
+      return Argument.Int(name);
     case "number":
-      return Argument.float(name);
+      return Argument.Finite(name);
     case "boolean":
       // A boolean positional would be `verb true`, which reads as nothing.
       throw new SurfaceCliBuildError(
@@ -389,7 +389,7 @@ export function flagsOf(
   // caller scripting against the surface should never have to know whether this
   // particular verb happens to take fields.
   config[INPUT_FLAG] = optionalParam(
-    Flag.string(INPUT_FLAG).pipe(
+    Flag.String(INPUT_FLAG).pipe(
       Flag.withDescription(
         "the whole input as JSON (`-` reads it from stdin) — the alternative to the field flags, never a supplement to them",
       ),

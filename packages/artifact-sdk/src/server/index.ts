@@ -1,5 +1,5 @@
 /** Server-side artifact-sdk seam, as TWO independent pieces on
- *  `effect/unstable/http`:
+ *  `effect/http`:
  *
  *    1. {@link artifactSdkBundleLayer} — a route layer serving the in-iframe
  *       bundle bytes (esbuild'd at startup, cached, hash-keyed via `?v=<hash>`).
@@ -24,7 +24,7 @@ import {
   type HttpBody,
   HttpRouter,
   HttpServerResponse,
-} from "effect/unstable/http";
+} from "effect/http";
 import { getSdkBundle } from "./bundle";
 import { decorateHtml } from "./inject";
 

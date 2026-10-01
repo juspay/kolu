@@ -42,7 +42,7 @@
  */
 
 import type { Effect } from "effect";
-import type { Command } from "effect/unstable/cli";
+import type { Command } from "effect/cli";
 // `import type` — fully erased, so this does NOT re-enter the command tree at
 // runtime and the per-face dynamic-import fence is untouched.
 import type { debriefFlags } from "../cli.ts";

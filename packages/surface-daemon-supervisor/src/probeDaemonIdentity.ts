@@ -10,7 +10,7 @@ import { buildSurfaceFace } from "@kolu/surface/client";
 import { composeSurfaceContracts } from "@kolu/surface/define";
 import { socketDuplexLink } from "@kolu/surface/links/stdio";
 import { Deferred, Effect } from "effect";
-import { RpcSerialization } from "effect/unstable/rpc";
+import { RpcSerialization } from "effect/rpc";
 import { match } from "ts-pattern";
 import type { DrainableProbe, PlainProbe } from "./convergence/converge.ts";
 import { instanceKeyFromStartedAt } from "./convergence/instanceKey.ts";
@@ -46,7 +46,9 @@ const CONTROL_CORE_HELLO_TIMEOUT_MS = 30_000;
  *   this trigger exists to fix (a real previous-release kaval, silent, refused
  *   instead of recycled).
  *
- * BETA-ASSUMPTION(rc.112): the RPC socket protocol pings every 5 s and kills the connection after two ping intervals with no pong (~10 s).
+ * BETA-ASSUMPTION(4.0.0): the RPC socket protocol pings every 5 s and kills the connection after two ping intervals with no pong (~10 s).
+ *   Re-read in effect@4.0.0 src/rpc/RpcClient.ts makePinger; measured by
+ *   surface/links/stdioPingStall.test.ts and probeDaemonIdentity.test.ts.
  *   Both numbers are protocol BEHAVIOR — nothing in the type system holds them
  *   — and the 8 s is derived from them, so a bump that moves either turns this
  *   value from the generous middle into a floor breach or a dead trigger.
@@ -263,9 +265,9 @@ type ControlCoreConnection = {
  * circular: the proof is what this observation ultimately produces.
  *
  * **The tap.** `RpcSerialization.ndjson` is Effect's OWN parser — the very
- * implementation the protocol layer runs — so "decodable here" means exactly
- * "decodable there"; this is not a second framing authority, it is the same one
- * asked one layer earlier. It is attached BEFORE the link is built, deliberately:
+ * implementation the protocol layer runs. Stable Effect silently drops invalid
+ * lines, so the tap checks whether the first complete line produced a value;
+ * a dropped line is an explicit unspeakable verdict here. It is attached BEFORE the link is built, deliberately:
  * a socket with no reader is paused, and whichever `data` listener attaches
  * first drains what was buffered. A legitimate peer never speaks before we do
  * (the RPC server answers requests, it does not greet), so the tap only ever
@@ -309,23 +311,37 @@ function openControlCore(
       Deferred.doneUnsafe(spoke, Effect.void);
       if (framingSettled) return;
       try {
-        // An empty result is a PARTIAL frame (no delimiter yet) — keep listening.
-        if (parser.decode(chunk).length > 0) framingSettled = true;
+        // Stable Effect drops malformed ndjson lines rather than throwing.
+        // Feed only the first frame into its parser: an empty result at that
+        // delimiter is a rejected frame, not a partial frame. A later valid
+        // line in the same chunk must not conceal the malformed first one.
+        const newline = chunk.indexOf(10);
+        const first = newline === -1 ? chunk : chunk.subarray(0, newline + 1);
+        const decoded = parser.decode(first);
+        if (newline !== -1 && decoded.length === 0) {
+          throw new Error("Effect ndjson rejected the first complete frame");
+        }
+        if (decoded.length > 0) framingSettled = true;
       } catch (cause) {
         framingSettled = true;
-        Deferred.doneUnsafe(
-          framing,
-          Effect.succeed(
-            new UnspeakableProtocolError({
-              socketPath,
-              evidence: {
-                trigger: "undecodable-frame",
-                frame: frameExcerpt(chunk),
-              },
-              cause,
-            }),
-          ),
-        );
+        // A data listener can run inside NodeSocket's synchronous read().
+        // Publish after that read returns: an immediate verdict can dispose
+        // its pending reader while onReadable still owns the resume callback.
+        queueMicrotask(() => {
+          Deferred.doneUnsafe(
+            framing,
+            Effect.succeed(
+              new UnspeakableProtocolError({
+                socketPath,
+                evidence: {
+                  trigger: "undecodable-frame",
+                  frame: frameExcerpt(chunk),
+                },
+                cause,
+              }),
+            ),
+          );
+        });
       }
     };
     // Kept attached for the life of the connection rather than removed once

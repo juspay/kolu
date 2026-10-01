@@ -50,7 +50,7 @@ import {
   RpcClientDefect,
   type RpcClientError,
   RpcClientError as RpcClientErrorClass,
-} from "effect/unstable/rpc/RpcClientError";
+} from "effect/rpc/RpcClientError";
 import { brandHalfOpenDispatch, type SurfaceDispatch } from "../link";
 
 /** The three NOUNS a superseded call's failure needs — because a re-dial and a

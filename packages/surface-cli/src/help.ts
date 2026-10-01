@@ -16,7 +16,7 @@
  *
  * ## What this module is not
  *
- * It is not a help RENDERER. `effect/unstable/cli` renders `--help`, and this
+ * It is not a help RENDERER. `effect/cli` renders `--help`, and this
  * writes the parent command's DESCRIPTION, which that renderer prints. So a
  * host adopting it is one `Command.withDescription` away, nothing about the
  * built-in help changes, and `<verb> --help` keeps answering with the verb's own

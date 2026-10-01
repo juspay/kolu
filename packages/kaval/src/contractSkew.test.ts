@@ -41,7 +41,7 @@ import {
   type UnixSocketListener,
 } from "@kolu/surface/unix-socket";
 import { Effect } from "effect";
-import { RpcGroup } from "effect/unstable/rpc";
+import { RpcGroup } from "effect/rpc";
 import { afterEach, expect, it } from "vitest";
 import { ptyHostClientOver } from "./ptyHostClient.ts";
 import { PTY_HOST_CONTRACT_VERSION, ptyHostSurface } from "./ptyHostSurface.ts";

@@ -193,15 +193,9 @@ const CLEAN_END_REATTACH_BUDGET = 1;
  *  only strap** (kolu#2101 J1). There are two ways an opened attach can go
  *  silent, and they are covered by different things:
  *
- *   - **The wire RE-DIALLED underneath it.** `@kolu/surface`'s `websocketLink`
- *     counts open EDGES (the wire epoch) and FAILS, itself, every call an edge
- *     superseded — so this class arrives as an ordinary transport failure the
- *     framework fence retries, on the first reopen, with no clock involved. The
- *     deadline does not own it, and no per-stream deadline could have: the class
- *     covers every subscription in the tab, not just this one. It reaches this
- *     module (if at all) as a channel-2 failure that spends NEITHER budget —
- *     asserted, because the budgets are now the only thing between a pane and a
- *     loud verdict.
+ *   - **The established wire stopped answering.** Effect RPC broadcasts its
+ *     heartbeat failure as SocketReadError. The framework fence retries that
+ *     failure without spending either terminal re-attach budget.
  *   - **The wire never moved and the UPSTREAM stalled.** A relay that holds the
  *     stream open while its own source says nothing (padi re-binding, kaval
  *     mid-adopt) produces no re-dial, no epoch edge, and no failure anywhere.
@@ -214,16 +208,12 @@ const CLEAN_END_REATTACH_BUDGET = 1;
  *  race is harmless: both roads end in channel 2, the same re-subscribe, and the
  *  budget below bounds the second one either way.
  *
- *  BETA-ASSUMPTION(rc.112): an in-flight stream survives a `SocketOpenError`
- *  re-dial UNFAILED — `RpcClient.makeProtocolSocket`'s `retryTransientErrors`
- *  arm returns early from its `tapCause` without broadcasting
- *  `ClientProtocolError`, which is the only thing that fails registered entries,
- *  so an opened stream can hang with no failure signal while the protocol
- *  silently re-dials underneath it. The framework's epoch fix rests on the SAME
- *  measured behavior (it exists because nothing fails), so a bump that made the
- *  re-dial fail its entries would make BOTH the epoch wrap and this deadline's
- *  first bullet redundant — re-measure before re-stamping. MEASURED by
- *  `packages/surface/src/links/socketRedialLaws.test.ts` (laws 2 and 3). */
+ *  BETA-ASSUMPTION(4.0.0): pre-open SocketOpenError retries leave registered calls pending, but an established socket's ping timeout fails them.
+ *  Stable Effect's src/rpc/RpcClient.ts swallows only SocketOpenError and
+ *  broadcasts the pinger's SocketReadError. Measured by
+ *  packages/surface/src/links/socketRedialLaws.test.ts. This deadline still
+ *  bounds a stalled upstream that owes a first frame on an otherwise live wire.
+ */
 const FIRST_FRAME_DEADLINE_MS = 45_000;
 
 /** How many re-attaches a SILENT open may buy in one EPISODE.

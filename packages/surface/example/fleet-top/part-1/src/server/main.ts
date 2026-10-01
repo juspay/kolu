@@ -23,7 +23,7 @@ import {
   serveSurfaceSocket,
 } from "@kolu/surface-app/server";
 import { Effect, Layer, Scope } from "effect";
-import { HttpRouter } from "effect/unstable/http";
+import { HttpRouter } from "effect/http";
 import { WebSocketServer } from "ws";
 import { createTop } from "./top";
 

@@ -37,7 +37,7 @@ import {
   HttpServerError,
   HttpServerRequest,
   HttpServerResponse,
-} from "effect/unstable/http";
+} from "effect/http";
 
 /** The middleware shape, which is the listener's — `SurfaceAppHttpMiddleware` is
  *  what `serveSurfaceApp`'s `middleware` option takes, and this is the one thing

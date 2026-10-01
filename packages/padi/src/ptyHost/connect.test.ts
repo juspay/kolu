@@ -40,7 +40,7 @@ import {
   type UnixSocketListener,
 } from "@kolu/surface/unix-socket";
 import { Effect } from "effect";
-import { RpcGroup } from "effect/unstable/rpc";
+import { RpcGroup } from "effect/rpc";
 import {
   type PtyHostSocketListener,
   PTY_HOST_CONTRACT_VERSION,

@@ -32,7 +32,7 @@
     "@kolu/terminal-vocab": "workspace:*",
     "anyagent": "workspace:*",
     "anyforge": "workspace:*",
-    "effect": "4.0.0-rc.112",
+    "effect": "4.0.0",
     "kolu-agents": "workspace:*",
     "kolu-git": "workspace:*",
     "kolu-transcript-core": "workspace:*"
@@ -42,6 +42,6 @@
     "@kolu/log": "workspace:*",
     "@types/node": "^22.0.0",
     "typescript": "^7.0.2",
-    "vitest": "^4.1.0"
+    "vitest": "^5.0.3"
   }
 }

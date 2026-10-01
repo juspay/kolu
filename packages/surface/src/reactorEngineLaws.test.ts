@@ -2,7 +2,7 @@
  * The signals ENGINE's acceptance suite.
  *
  * `reactor.ts` wraps a signals engine — Effect's `Atom`/`AtomRegistry`
- * (`effect/unstable/reactivity`) today. These tests pin the guarantees the
+ * (`effect/reactivity`) today. These tests pin the guarantees the
  * reactor's design LEANS ON, exercised against the RAW engine — so a swap stays
  * a two-way door: a new engine must make this file pass before it can replace
  * the current one behind `reactor.ts`. They are the reason the engine import is
@@ -26,7 +26,7 @@
  *     it.
  */
 
-import { Atom, AtomRegistry } from "effect/unstable/reactivity";
+import { Atom, AtomRegistry } from "effect/reactivity";
 import { describe, expect, it } from "vitest";
 
 /** A mutable graph root, configured exactly as `reactor.ts` configures one: a
@@ -241,22 +241,11 @@ describe("signals engine — the reactor's swappability contract", () => {
     dispose();
   });
 
-  it("SEVERED EDGE, MEASURED: a throwing subscriber escapes the batch and costs THAT frame — but not the graph", () => {
-    // Measured for the marker in `reactor.ts` (seam-note rule 2). The claim: a
-    // subscriber that throws mid-drain propagates out
-    // of `Atom.batch` and starves the subscribers ordered after it OF THAT FRAME —
-    // but the graph is NOT permanently severed: later writes recompute and notify
-    // every subscriber normally.
-    //
-    // This law exists to record a MEASUREMENT, because the incident hypothesis was
-    // that a mid-drain throw orphans nodes so future writes reach nobody, forever
-    // (which would exactly explain an all-hosts mute freeze cured only by a
-    // restart). Driven against the raw engine, that does NOT reproduce on
-    // beta.103 — what reproduces is a LOST FRAME plus a throw escaping onto the
-    // writer's stack. Both are still defects worth preventing, which is why
-    // `reactor.ts` and `server.ts` bracket every callback they hand the engine
-    // (seam-note rule 3) — but the disposition must not claim more than this
-    // measurement shows.
+  it("THROWING SUBSCRIBER: the batch notifies siblings before rethrowing, and later writes still propagate", () => {
+    // Stable AtomRegistry.notify uses runAll and batch drains before rethrowing.
+    // A callback still escapes onto the writer's stack, but no sibling loses
+    // this frame. reactor.ts keeps callbacks contained so app errors reach the
+    // owning subscriber rather than the unrelated writer.
     const registry = AtomRegistry.make();
     const root = state(1);
     const derived = Atom.readable((get) => get(root) * 2);
@@ -295,11 +284,9 @@ describe("signals engine — the reactor's swappability contract", () => {
     // (1) The throw ESCAPES the batch, onto whatever wrote — in production that is
     //     a `ctx.cells.x.set` deep in a caller that has no idea it is on a drain.
     expect((escaped as Error | undefined)?.message).toBe("subscriber boom");
-    // (2) The sibling ordered AFTER the thrower LOST that frame. In a projection
-    //     layer this is a row that silently stops updating until something else
-    //     writes that member — indistinguishable from frozen on an idle member.
+    // (2) Every sibling receives this frame despite the throwing callback.
     expect(seenA).toEqual([2, 4]);
-    expect(seenB).toEqual([2]);
+    expect(seenB).toEqual([2, 4]);
 
     // (3) But the graph is NOT dead: later writes reach BOTH subscribers.
     Atom.batch(() => {
@@ -309,7 +296,7 @@ describe("signals engine — the reactor's swappability contract", () => {
       registry.set(root, 4);
     });
     expect(seenA).toEqual([2, 4, 6, 8]);
-    expect(seenB).toEqual([2, 6, 8]);
+    expect(seenB).toEqual([2, 4, 6, 8]);
     expect(registry.get(derived)).toBe(8);
     d1();
     d2();

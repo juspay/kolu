@@ -8,10 +8,7 @@
  */
 
 import { Effect, Exit, Stream } from "effect";
-import {
-  RpcClientDefect,
-  RpcClientError,
-} from "effect/unstable/rpc/RpcClientError";
+import { RpcClientDefect, RpcClientError } from "effect/rpc/RpcClientError";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { fenceStream, STREAM_RETRY_DELAY_MS } from "./client";
 import {

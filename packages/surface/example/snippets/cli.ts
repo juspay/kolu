@@ -27,7 +27,7 @@ import {
   surfaceCommands,
 } from "@kolu/surface-cli";
 import { Effect } from "effect";
-import { Command, Flag } from "effect/unstable/cli";
+import { Command, Flag } from "effect/cli";
 // #endregion imports
 import { surface } from "./surface";
 
@@ -41,7 +41,7 @@ import { surface } from "./surface";
 // no connection left to ask. A separate `describe` beside a `connect` would walk
 // the resolution order twice and could name one endpoint while dialling another.
 const endpointFlags = {
-  socket: Flag.string("socket").pipe(
+  socket: Flag.String("socket").pipe(
     Flag.withDefault(
       getRuntimeSocketPath({ app: "example", file: "surface.sock" }),
     ),

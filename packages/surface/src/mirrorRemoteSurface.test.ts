@@ -15,7 +15,7 @@
  * `yield …; await open` generators expressed.
  */
 
-import { Effect, Schema, Stream } from "effect";
+import { Effect, Exit, Fiber, Schema, Stream } from "effect";
 import { describe, expect, it } from "vitest";
 import { type CollectionDeltasMsg, defineSurface } from "./define";
 import {
@@ -879,4 +879,17 @@ describe("mirrorRemoteSurface — procedures (the total dual)", () => {
     await handle.done; // now the link closed → `.done` settles
     expect(settled).toBe(true);
   });
+});
+
+// Measurement for mirrorRemoteSurface.ts's child-failure assumption.
+it("a failed forkChild leaves its parent able to exit successfully", async () => {
+  const result = await Effect.runPromise(
+    Effect.gen(function* () {
+      const child = yield* Effect.forkChild(Effect.fail("child failed"));
+      const exit = yield* Fiber.await(child);
+      expect(Exit.isFailure(exit)).toBe(true);
+      return "parent survived";
+    }),
+  );
+  expect(result).toBe("parent survived");
 });

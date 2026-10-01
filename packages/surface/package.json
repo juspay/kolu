@@ -62,15 +62,15 @@
     "tsx": "^4.21.0",
     "typescript": "^7.0.2",
     "vite-plugin-solid": "^2.11.0",
-    "vitest": "^4.1.0"
+    "vitest": "^5.0.3"
   },
   "dependencies": {
-    "@effect/platform-browser": "4.0.0-rc.112",
-    "@effect/platform-node": "4.0.0-rc.112",
+    "@effect/platform-browser": "4.0.0",
+    "@effect/platform-node": "4.0.0",
     "@kolu/log": "workspace:*",
     "@solid-primitives/rootless": "^1.5.3",
     "@solid-primitives/scheduled": "^1.5.3",
-    "effect": "4.0.0-rc.112",
+    "effect": "4.0.0",
     "solid-js": "^1.9.0"
   }
 }

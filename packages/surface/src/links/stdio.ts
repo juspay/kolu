@@ -49,7 +49,7 @@
 
 import type { Socket } from "node:net";
 import { Duplex, type Readable, type Writable } from "node:stream";
-import type { Rpc, RpcGroup } from "effect/unstable/rpc";
+import type { Rpc, RpcGroup } from "effect/rpc";
 import { isStdioReadinessProof, type StdioReadinessProof } from "./readiness";
 import { duplexWireLink, type WireLink } from "./wire";
 

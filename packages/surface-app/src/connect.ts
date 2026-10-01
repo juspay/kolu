@@ -66,7 +66,7 @@ import {
   type WebsocketLink,
 } from "@kolu/surface/links/websocket";
 import { Effect } from "effect";
-import type { Rpc, RpcGroup } from "effect/unstable/rpc";
+import type { Rpc, RpcGroup } from "effect/rpc";
 import { SERVER_PROCESS_ID_PARAM, STALE_PROCESS_CLOSE_CODE } from "./index";
 
 // The watchdog timing constants live with the lifted primitive in `@kolu/surface`

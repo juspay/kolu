@@ -29,7 +29,7 @@ import {
 } from "@kolu/surface/unix-socket";
 import type { SurfaceVerb } from "@kolu/surface/verbs";
 import { Effect, Schema, Stream } from "effect";
-import { Command, Flag } from "effect/unstable/cli";
+import { Command, Flag } from "effect/cli";
 import {
   type EndpointSeam,
   type ProjectedCommand,
@@ -323,7 +323,7 @@ export async function serveFixture(
 
 /** The endpoint seam a host owns: one `--socket` flag, one sentence naming it,
  *  one dial. Exactly the shape `packages/server`'s `dialOlai` will have. */
-export const endpointFlags = { socket: Flag.string("socket") };
+export const endpointFlags = { socket: Flag.String("socket") };
 
 /** The parameter type is INFERRED from `endpointFlags` above — nothing here
  *  restates the flag record's shape, so renaming `socket` is a compile error

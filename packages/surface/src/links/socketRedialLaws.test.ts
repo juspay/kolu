@@ -20,29 +20,21 @@
  *     fails. The protocol re-dials underneath, and a registered stream sits
  *     there learning nothing, for as long as the dials keep failing.
  *
- *  3. **A run that ends WITHOUT broadcasting ORPHANS everything it carried, and
- *     a registered entry is never re-sent.** Law 2's shape is not confined to a
- *     dial that never opened: the ping timeout on an ESTABLISHED socket ends the
- *     run with the same swallowed `SocketOpenError` (`RpcClient.js`'s
- *     `Effect.raceFirst(pinger.timeout …)`), and Effect RPC writes a call's entry
- *     exactly ONCE at registration and never re-sends it on the next socket. So a
- *     call whose request already WENT OUT on the dead socket can only park
- *     forever — a healthy wire over frozen state, which is what reached
- *     production (kolu#2101 J1). `websocketLink` therefore counts open EDGES
- *     (the epoch) and fails, itself, every call an edge superseded. Law 3 pins
- *     both halves: the framework behavior that makes the fix necessary, and the
- *     fix's own coalescing with law 1.
+ *  3. **An established socket's ping timeout fails every registered call.**
+ *     Stable Effect broadcasts SocketReadError(Error("ping timeout")); it no
+ *     longer swallows this as a dial failure. A fenced stream re-subscribes
+ *     once, and an unfenced unary fails before the next socket opens.
  *
- * Law 2 is why `reattachingStream.ts` needs a FIRST-FRAME DEADLINE at all for the
- * class law 3 does NOT cover (an upstream that stalls with the wire genuinely
- * open): there is no failure to retry on, so silence is the only signal left.
- * This file is the measuring law for that module's `BETA-ASSUMPTION(rc.112)`
+ * A genuinely open wire with a stalled upstream still owes a first frame:
+ * reattachingStream.ts bounds that silence separately.
+ * This file is the measuring law for that module's `BETA-ASSUMPTION(4.0.0)`
  * marker AND for `websocket.ts`'s — bump the pin, re-run this file, re-stamp.
  */
 
+import { NetAddress } from "effect/net";
 import { Effect, Exit, Layer, Schema, Scope, Stream } from "effect";
-import { RpcServer } from "effect/unstable/rpc";
-import { Socket, SocketServer } from "effect/unstable/socket";
+import { RpcServer } from "effect/rpc";
+import { Socket, SocketServer } from "effect/socket";
 import { describe, expect, it, vi } from "vitest";
 import { fenceStream } from "../client";
 import { defineSurface } from "../define";
@@ -203,7 +195,7 @@ function oneConnectionSocketServer(
       ),
       (accepted) =>
         SocketServer.SocketServer.of({
-          address: { _tag: "TcpAddress", hostname: "fake", port: 0 },
+          address: NetAddress.inetAddressUnsafe(NetAddress.ipv4Loopback, 0),
           run: (handler) =>
             Effect.flatMap(
               handler(accepted),
@@ -375,7 +367,7 @@ describe("re-dial law 1 — a CLOSE fails registered entries, so the fence re-dr
 });
 
 describe("re-dial law 2 — a pre-open DIAL FAILURE is swallowed, so a registered stream learns nothing", () => {
-  it("BETA-ASSUMPTION(rc.112): repeated SocketOpenError re-dials never fail an in-flight stream", async () => {
+  it("BETA-ASSUMPTION(4.0.0): repeated SocketOpenError re-dials never fail an in-flight stream", async () => {
     // `retryTransientErrors: true` (websocketLink) makes RpcClient's `tapCause`
     // return early for a `SocketOpenError` WITHOUT broadcasting
     // `ClientProtocolError` — and that broadcast is the only thing that fails
@@ -431,7 +423,7 @@ describe("re-dial law 2 — a pre-open DIAL FAILURE is swallowed, so a registere
     await link.dispose();
   });
 
-  it("BETA-ASSUMPTION(rc.112): every swallowed attempt still publishes a connecting → closed pair", async () => {
+  it("BETA-ASSUMPTION(4.0.0): every swallowed attempt still publishes a connecting → closed pair", async () => {
     // The OBSERVABILITY the fix rests on. `Effect.ensuring(hooks.onDisconnect)`
     // wraps the whole attempt in `RpcClient.makeProtocolSocket`, OUTSIDE the
     // `tapCause` that swallows a `SocketOpenError` — so an attempt whose failure
@@ -465,23 +457,14 @@ describe("re-dial law 2 — a pre-open DIAL FAILURE is swallowed, so a registere
 });
 
 /**
- * Law 3 — a run that ends WITHOUT broadcasting orphans everything it carried,
- * and `websocketLink` fails what it orphaned.
- *
- * Law 2 measured the shape at the cold start (a dial that never opened, whose
- * entries park in `Socket.fromWebSocket`'s write LATCH and flush on the next
- * open — a self-healing shape). The FIELD shape is the other half: the request
- * already went out on a socket that then died without a close frame, so there is
- * nothing left to flush and Effect RPC never re-sends a registered entry
- * (`RpcClient.js` writes it once, at registration). That call is orphaned, with
- * no failure anywhere to retry on — a healthy wire over frozen state.
+ * Law 3 — established-socket heartbeat failures are broadcast by Effect.
+ * The retry fence opens exactly one replacement subscription; unaries fail
+ * without waiting for a new socket. These drives use the real ping cadence.
  */
-describe("re-dial law 3 — the epoch fails what a re-dial orphaned", () => {
+describe("re-dial law 3 — heartbeat failure and one re-subscription", () => {
   /** How long to allow for the protocol to notice a socket that died silently:
    *  the pinger writes a ping every 5s and opens its timeout latch on the next
-   *  tick that got no pong, so ~10s. It is the ONLY producer of a swallowed run
-   *  end on an ESTABLISHED socket, which is why these fixtures pay real seconds
-   *  for it rather than simulating one. */
+   *  tick that got no pong, so ~10s. These fixtures exercise the real timeout. */
   const PING_TIMEOUT_WINDOW_MS = 25_000;
 
   it("THE FIELD SHAPE: a silently-dead socket's parked subscription re-drives on the next open, with no server-side action", {
@@ -530,9 +513,8 @@ describe("re-dial law 3 — the epoch fails what a re-dial orphaned", () => {
     // comes back — see the assertion at the end.
     h.setState("connected");
 
-    // ~10s later the pinger's timeout ends the run with a `SocketOpenError`,
-    // which `retryTransientErrors` swallows: no `ClientProtocolError`, so
-    // nothing fails the registered entry. The schedule re-dials.
+    // The pinger broadcasts SocketReadError, failing the subscription before
+    // the schedule re-dials. The fence queues its replacement on the new wire.
     const second = await nthSocket(h.dialled, 2, PING_TIMEOUT_WINDOW_MS);
     const secondOpenedAt = Date.now();
     second.open();
@@ -578,12 +560,8 @@ describe("re-dial law 3 — the epoch fails what a re-dial orphaned", () => {
   });
 
   it("law 1 still coalesces to ONE re-drive: a force-cycle does not double-subscribe", async () => {
-    // The failure mode the epoch rule could have introduced: a live socket
-    // CLOSING already fails the stream (law 1) and the fence re-subscribes, and
-    // the reopen edge must not fail that fresh subscription too. It cannot,
-    // structurally — the failed attempt's guard is deregistered with the attempt,
-    // and the fence's re-subscribe binds to the current (or next) epoch — but
-    // "structurally" is a claim, so it is counted.
+    // A force-cycle and a protocol failure share one fence: count the
+    // replacement request to prove they do not double-subscribe.
     const h = harness();
     const link = await h.link;
     const first = await nthSocket(h.dialled, 1);
@@ -618,12 +596,9 @@ describe("re-dial law 3 — the epoch fails what a re-dial orphaned", () => {
     await link.dispose();
   });
 
-  it("a COLD START is not epoch-failed: a stream begun while the wire is down subscribes exactly once", async () => {
-    // Law 2's own fixture, read as a non-regression. A stream that starts while
-    // the wire is down parks in the socket's write LATCH, which flushes on the
-    // next open — so it BELONGS to that socket and self-heals. The binding rule
-    // (`open ? epoch : epoch + 1`) exists for exactly this: the arriving open is
-    // the stream's own, not a supersession, and must not fail it.
+  it("a COLD START: a stream begun while the wire is down subscribes exactly once", async () => {
+    // Pre-open dial errors keep the original call pending. Its write latch
+    // flushes on the first successful open without creating a second request.
     const h = harness({ dialsFail: true });
     const link = await h.link;
 
@@ -648,7 +623,7 @@ describe("re-dial law 3 — the epoch fails what a re-dial orphaned", () => {
     await expect
       .poll(() => requestsOn(ws, TICKS_TAG), { timeout: 10_000 })
       .toBe(1);
-    // Past a fence cycle: an epoch rule that failed it would show a second one.
+    // Past a fence cycle: an incorrect retry would show a second request.
     await new Promise((resolve) => setTimeout(resolve, 2_500));
     expect(requestsOn(ws, TICKS_TAG)).toBe(1);
     expect(onRetry).not.toHaveBeenCalled();
@@ -659,7 +634,7 @@ describe("re-dial law 3 — the epoch fails what a re-dial orphaned", () => {
     await link.dispose();
   });
 
-  it("an in-flight UNARY orphaned by the same cycle fails loudly instead of parking forever", {
+  it("an in-flight UNARY fails on heartbeat silence before the next open", {
     timeout: 90_000,
   }, async () => {
     // A reconnect orphans every in-flight unary BY CONSTRUCTION: the answer can
@@ -693,22 +668,19 @@ describe("re-dial law 3 — the epoch fails what a re-dial orphaned", () => {
       .toBe(1);
     expect(settled).toBe(undefined);
 
-    // ~10s: the ping timeout ends the run with a swallowed `SocketOpenError`.
+    // The stable protocol fails the call BEFORE the next socket opens.
     const second = await nthSocket(h.dialled, 2, PING_TIMEOUT_WINDOW_MS);
-    // Nothing has failed the call — the swallow is the whole point.
-    expect(settled).toBe(undefined);
+    await expect.poll(() => settled, { timeout: 5_000 }).toBeDefined();
+    expect(settled?.ok).toBe(false);
+    const error = settled?.value as {
+      _tag: string;
+      reason: { _tag: string; cause: Error };
+    };
+    expect(error._tag).toBe("RpcClientError");
+    expect(error.reason._tag).toBe("SocketReadError");
+    expect(error.reason.cause.message).toBe("ping timeout");
     expect(requestsOn(second, ASK_TAG)).toBe(0);
     second.open();
-
-    await expect.poll(() => settled, { timeout: 10_000 }).toBeDefined();
-    expect(settled?.ok).toBe(false);
-    const error = settled?.value as { _tag?: string; message?: string };
-    // The shape `client.ts`'s fence matches structurally, and a message that
-    // names the cycle rather than mumbling about a socket.
-    expect(error._tag).toBe("RpcClientError");
-    expect(error.message).toContain("re-dialled beneath this call");
-    expect(error.message).toContain("epoch 1");
-    expect(error.message).toContain("epoch 2");
 
     await call;
     await link.dispose();

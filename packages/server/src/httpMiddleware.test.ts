@@ -10,7 +10,7 @@ import {
   HttpServerError,
   HttpServerRequest,
   HttpServerResponse,
-} from "effect/unstable/http";
+} from "effect/http";
 import { describe, expect, it, vi } from "vitest";
 import { requestLogging, routeErrorLogging } from "./httpMiddleware.ts";
 

@@ -289,7 +289,7 @@ primitive.
 Staleness is structurally impossible because the one document that names the
 bundle is always re-fetched.
 
-These are **`HttpRouter` layers** (`effect/unstable/http`), not framework
+These are **`HttpRouter` layers** (`effect/http`), not framework
 installers: merge them into your app layer in any order — routes are ranked by
 specificity, so your `/rpc/*` route always beats the static `GET /*` catch-all.
 `freshStaticLayer` and `surfaceAppLayer` require the platform services that read

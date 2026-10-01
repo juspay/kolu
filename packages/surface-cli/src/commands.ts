@@ -38,7 +38,7 @@
  * already has `Command.run`.
  *
  * For the same reason the CLI LIBRARY is assumed rather than abstracted.
- * `effect/unstable/cli` ships inside the `effect` the workspace already pins, so
+ * `effect/cli` ships inside the `effect` the workspace already pins, so
  * the parser costs no new dependency; its flags are `Flag`s, its usage errors
  * are its own, and its handlers are Effects — which is what makes a Ctrl-C reach
  * an in-flight call for free, rather than through a signal handler this package
@@ -153,7 +153,7 @@ import {
 } from "@kolu/surface/verbs";
 import type { Stdio } from "effect";
 import { Cause, Effect, Option, Result, Schema, Stream } from "effect";
-import { Argument, Command, Flag } from "effect/unstable/cli";
+import { Argument, Command, Flag } from "effect/cli";
 import { match, P } from "ts-pattern";
 import {
   classify,
@@ -449,7 +449,7 @@ export type ProjectedCommand<R = Stdio.Stdio> = Command.Command<
 export const JSON_FLAG = "json";
 
 /** `--json`, spelled once for every command that has a summary to replace. */
-const jsonFlag = Flag.boolean(JSON_FLAG).pipe(
+const jsonFlag = Flag.Boolean(JSON_FLAG).pipe(
   Flag.withDescription(
     "print the full JSON answer instead of the one-line summary",
   ),
@@ -1258,7 +1258,7 @@ function readables(entries: readonly ExposeEntry[]): Map<string, Readable> {
 
 /** `--follow`, spelled once: the same flag on `get` and on `keys`, because it
  *  means the same thing on both and two declarations is two places to reword it. */
-const followFlag = Flag.boolean("follow").pipe(
+const followFlag = Flag.Boolean("follow").pipe(
   Flag.withAlias("f"),
   Flag.withDescription(
     "keep the subscription open and write one ndjson line per frame, until the stream ends or Ctrl-C",
@@ -1270,7 +1270,7 @@ const followFlag = Flag.boolean("follow").pipe(
  *  which members exist is the difference between a discoverable face and one you
  *  have to read the source of. */
 const memberArgument = (label: string, names: readonly string[]) =>
-  Argument.string(label).pipe(
+  Argument.String(label).pipe(
     Argument.withDescription(
       `one of: ${[...names].sort().join(", ") || "(none exposed)"}`,
     ),
@@ -1347,7 +1347,7 @@ function readerCommands<F extends FlagRecord, R>(
       "get",
       mergeConfig(opts, "get", {
         member: memberArgument("member", [...table.keys()]),
-        arg: Argument.string("arg").pipe(
+        arg: Argument.String("arg").pipe(
           Argument.withDescription(
             "a collection's key, or a stream's or event's input",
           ),

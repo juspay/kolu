@@ -70,7 +70,7 @@ import {
   Schema,
   Stream,
 } from "effect";
-import type { Rpc } from "effect/unstable/rpc";
+import type { Rpc } from "effect/rpc";
 import { encodeHostKey, LOCAL_HOST } from "kolu-common/hostKey";
 import { padiHostMap } from "kolu-common/surfacesWithPadi";
 

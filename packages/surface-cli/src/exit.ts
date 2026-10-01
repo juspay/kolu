@@ -96,7 +96,7 @@ import { isTransportError } from "@kolu/surface/client";
 import { isDeadTransportError, messageOf } from "@kolu/surface/errors";
 import { isNoSnapshotFrame } from "@kolu/surface/first-frame";
 import { Cause, Data, Effect, Runtime } from "effect";
-import { CliError } from "effect/unstable/cli";
+import { CliError } from "effect/cli";
 
 /** The published matrix, as data. Exported so a consumer (a host's docs, a
  *  driving script's test) can name the codes rather than re-spell the integers,

@@ -73,7 +73,7 @@ import {
   surfaceHelp,
 } from "@kolu/surface-cli";
 import { Effect } from "effect";
-import { Command } from "effect/unstable/cli";
+import { Command } from "effect/cli";
 import { KOLU_MCP_EXPOSE } from "kolu-mcp/expose";
 import { KOLU_MCP_TOOLS } from "kolu-mcp/tools";
 import type { koluRoot } from "./cli.ts";

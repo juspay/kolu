@@ -30,7 +30,7 @@
  */
 
 import { setTimeout as delay } from "node:timers/promises";
-import { Effect } from "effect";
+import { Effect, Stream } from "effect";
 import { describe, expect, it } from "vitest";
 import { SurfaceStdioTransportClosed } from "../errors";
 import { stallLoopback } from "../loopback";
@@ -75,6 +75,30 @@ describe.concurrent("stdio link — a peer that is slow, not dead", () => {
     expect(await w.add(20, 3)).toBe(23);
     await w.done();
   }, 30_000);
+
+  it("an ordinary read failure is streamEnded, not an unanswered heartbeat", async () => {
+    const w = await wiredLoopback();
+    try {
+      expect(
+        await Effect.runPromise(
+          w.link.dispatch.unary("surface/math/add", { a: 1, b: 2 }),
+        ),
+      ).toBe(3);
+      const failure = Effect.runPromise(
+        Effect.flip(
+          Stream.runDrain(
+            w.link.dispatch.stream("surface/counter/get", { to: 0 }),
+          ),
+        ),
+      );
+      w.pair.client.read.destroy(new Error("read failure"));
+      const error = await failure;
+      expect(error).toBeInstanceOf(SurfaceStdioTransportClosed);
+      expect((error as SurfaceStdioTransportClosed).death).toBe("streamEnded");
+    } finally {
+      await w.done();
+    }
+  });
 
   it("a stall PAST the ping window kills the link — and says the keep-alive went unanswered, not that the peer exited", async () => {
     const w = await wiredThroughStalls();

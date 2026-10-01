@@ -571,7 +571,7 @@ failure is rethrown unchanged; several are surfaced together as an
 `@kolu/surface/reactor` is the one exit from a backend signal graph into the
 cell machinery — state is a signal, derived state a computed, and the wire is
 the signal boundary that snapshots and replays. The signals engine is Effect's
-own `Atom`/`AtomRegistry` (`effect/unstable/reactivity`), wrapped here and
+own `Atom`/`AtomRegistry` (`effect/reactivity`), wrapped here and
 lint-banned everywhere else, so this wrapper is the graph's only exit by
 construction. No engine type reaches the public surface: a node's level is a
 `ReadonlyLevel<T>` — `.value` (the TRACKED read: reading it inside a derivation
@@ -997,7 +997,7 @@ bound to one link by construction — Effect RPC registers an entry exactly once
 and an answer can only travel the link its request went out on — so a call that
 was in flight when the generation moved could only park forever. It is therefore
 failed, with an `RpcClientError`: the same shape, and for the same reason, as
-[a re-dial cycle failing what it orphaned](#a-re-dial-cycle-fails-what-it-orphaned)
+[an established socket failing](#failure-and-re-subscription-across-re-dials)
 one layer down. That is precisely what the
 [retry fence](#the-face-and-its-retry-fence-kolusurfaceclient) re-subscribes on,
 so **standing subscriptions re-open themselves onto the new generation** — the
@@ -1013,31 +1013,18 @@ the whole claim a roster move makes — the wire never went anywhere.
 
 The consumer is [`connectSurfaces`' `redial`](/surface/ref-surface-app#a-roster-change-follows-in-place--connredialsurfaces).
 
-### A re-dial cycle fails what it orphaned
+### Failure and re-subscription across re-dials
 
-`websocketLink` counts its own **open edges** — the wire *epoch* — and every call
-it dispatches records the epoch it binds to: the current one if the wire is `open`
-(the request goes out on this socket), otherwise the next one (the write parks in
-the socket's latch and flushes when that socket opens). **When the wire reaches an
-epoch past a call's binding epoch, the link fails that call** with an
-`RpcClientError` naming the cycle — streams and unaries alike.
+Effect 4.0 broadcasts failures from established sockets, including heartbeat
+silence (`SocketReadError` with a `ping timeout` cause). Registered calls fail
+before the next socket opens. The [retry fence](#the-face-and-its-retry-fence-kolusurfaceclient)
+re-subscribes streams once on the new wire; an unfenced unary receives the error.
+No additional epoch fence wraps the WebSocket dispatch.
 
-This is not belt-and-braces; it is the only cover for a whole class. Effect RPC
-registers a call's entry **once** and never re-sends it across a re-dial, and an
-answer can only travel the socket its request went out on. When a run ends with a
-`SocketOpenError` — a pre-open dial failure, or the ping timeout on a socket that
-died silently — `retryTransientErrors: true` swallows it without broadcasting, so
-**nothing fails**: the protocol re-dials underneath and every call that socket
-carried parks forever over a wire that reports `open`. That is a laptop waking to
-a tab full of stale state with a green dot. Failing those calls turns the class
-back into the ordinary transport failure the [retry fence](#the-face-and-its-retry-fence-kolusurfaceclient)
-already re-subscribes on; an unfenced caller gets a rejected promise instead of a
-dead one.
-
-A call that has *already* failed (a live socket closing does broadcast) is
-unaffected: its guard goes with the attempt, and the fence's re-subscribe binds to
-the new epoch — one re-drive, never two. A stream begun while the wire is down is
-likewise not failed by the open it was waiting for.
+Pre-open `SocketOpenError` failures are still swallowed by
+`retryTransientErrors: true`. Calls waiting for their first connection remain
+pending across those attempts and send when a socket opens. The diagnostic epoch
+counts open edges; dial history also records attempts that never opened.
 
 ### `websocketLink().diagnostics`
 
@@ -1438,11 +1425,11 @@ another's. `STREAM_RETRY` retries forever on a failure the fence accepts, spaced
 `STREAM_RETRY_DELAY_MS`, re-running the whole stream — so the next frame a
 consumer sees is the member's fresh snapshot.
 
-The fence retries **failures**, so it only covers what fails. A wire link is
-responsible for making a re-dial produce one: `websocketLink` fails every call an
-open edge superseded ([above](#a-re-dial-cycle-fails-what-it-orphaned)), which is
-what turns a swallowed re-dial — a subscription that would otherwise park forever
-with no failure anywhere — into an ordinary retry through this schedule.
+The fence retries **failures**, so it only covers what fails. Stable Effect
+broadcasts established-socket failures, including missed heartbeats
+([above](#failure-and-re-subscription-across-re-dials)); those failures trigger
+this schedule. Pre-open retries leave calls pending until the first connection.
+
 
 | Export | Purpose |
 | --- | --- |
@@ -1866,7 +1853,7 @@ Two consequences a member author owns:
 - `1009` must stay OUT of any `isTerminalClose` set — it is recoverable, and
   halting the retry schedule on it would strand the tab with no subscriptions.
 
-The close-on-exceed semantics carry a `BETA-ASSUMPTION(rc.112)` marker
+The close-on-exceed semantics carry a `BETA-ASSUMPTION(4.0.0)` marker
 (governed by `packages/tests/governance/betaAssumptions.ts`), so an Effect bump
 must re-measure them before it can land.
 

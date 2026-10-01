@@ -32,7 +32,7 @@ import {
 } from "@kolu/surface-remote";
 import { sessionConnection } from "@kolu/surface-remote/connection";
 import { Cause, Effect, Layer, Option, Scope, Stream } from "effect";
-import { HttpRouter } from "effect/unstable/http";
+import { HttpRouter } from "effect/http";
 import { discoverKavalDaemons, legacyKavalSocketPath } from "kaval";
 import { agentDiagnostics } from "kolu-agents";
 import { decodeHostKey, encodeHostKey } from "kolu-common/hostKey";
@@ -92,7 +92,7 @@ import { resolveTlsOptions } from "./tls.ts";
 // The web face's boot contract (`KoluBootFlags`) lives in `bootFlags.ts` —
 // the leaf `packages/kolu-cli`'s command tree also imports, so schema and
 // contract can't drift. The PARSE lives in `packages/kolu-cli` (the composition
-// root owning the `effect/unstable/cli` command tree —
+// root owning the `effect/cli` command tree —
 // docs/atlas/src/content/atlas/kolu-cli.mdx); this package only receives the
 // result via `bootKoluWeb`'s signature. Note the server is reached as
 // `kolu web` now: bare `kolu` lists subcommands, and the bind address is

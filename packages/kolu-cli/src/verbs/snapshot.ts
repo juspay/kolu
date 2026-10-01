@@ -48,7 +48,7 @@
 import { shortId } from "@kolu/padi/render";
 import { tailLines } from "@kolu/padi-client/screenTail";
 import { Effect } from "effect";
-import type { Command } from "effect/unstable/cli";
+import type { Command } from "effect/cli";
 // `import type` — fully erased, so this does NOT re-enter the command tree at
 // runtime and the per-face dynamic-import fence is untouched.
 import type { snapshotFlags } from "../cli.ts";
@@ -79,7 +79,7 @@ export const run = Effect.fn("kolu snapshot")(function* (
   endpoint: Endpoint,
   args: SnapshotArgs,
 ) {
-  // `--tail` arrives legal or not at all: `Flag.integer` refuses a non-integer
+  // `--tail` arrives legal or not at all: `Flag.Int` refuses a non-integer
   // and `positiveLines` refuses a non-positive one, both during the parse (see
   // `cli.ts`). "The last zero lines" means nothing and would print an empty
   // snapshot that reads like a dead terminal — so it is unspellable, not

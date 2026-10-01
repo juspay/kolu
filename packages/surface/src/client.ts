@@ -32,7 +32,7 @@ import { Effect, Schedule, Schema, Stream } from "effect";
 // can produce, and that class belongs to Effect RPC. A type import adds no
 // runtime edge, so the structural `_tag` match below still stands — this module
 // never IMPORTS the class it recognises.
-import type { RpcClientError } from "effect/unstable/rpc/RpcClientError";
+import type { RpcClientError } from "effect/rpc/RpcClientError";
 import { CLOCK_NOW_NAMESPACE, CLOCK_NOW_VERB } from "./clockNow";
 import { containThrow } from "./containThrow";
 import {
@@ -53,7 +53,7 @@ import { LIVENESS_NAMESPACE, LIVENESS_VERB } from "./liveness";
 import { registerSubscription } from "./subscriptions";
 
 /** The `_tag` every Effect RPC transport failure carries
- *  (`effect/unstable/rpc/RpcClientError`). Matched STRUCTURALLY rather than with
+ *  (`effect/rpc/RpcClientError`). Matched STRUCTURALLY rather than with
  *  `instanceof`, for the same reason the oRPC fence brand-checked rather than
  *  duck-typed: the error crosses module instances (a browser bundle with two
  *  copies of `effect`, a relay hop that decodes and re-encodes), and an

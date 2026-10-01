@@ -39,7 +39,7 @@ import {
   sshConnector,
 } from "@kolu/surface-remote";
 import { Effect, Scope } from "effect";
-import { HttpRouter, HttpServerResponse } from "effect/unstable/http";
+import { HttpRouter, HttpServerResponse } from "effect/http";
 import { WebSocketServer } from "ws";
 import { surface } from "../common/surface";
 import { buildSurface } from "./serve";

@@ -40,11 +40,11 @@ import {
   Scope,
   Stream,
 } from "effect";
-import type { Rpc, RpcGroup } from "effect/unstable/rpc";
-import { RpcClient } from "effect/unstable/rpc";
+import type { Rpc, RpcGroup } from "effect/rpc";
+import { RpcClient } from "effect/rpc";
 import { rpcSerializationLayer } from "../frameLimit";
-import { RpcClientError } from "effect/unstable/rpc/RpcClientError";
-import { Socket } from "effect/unstable/socket";
+import { RpcClientError } from "effect/rpc/RpcClientError";
+import { Socket } from "effect/socket";
 import { SurfaceStdioTransportClosed } from "../errors";
 import { brandHalfOpenDispatch, type SurfaceDispatch } from "../link";
 
@@ -159,7 +159,7 @@ export async function openWireLink(opts: {
         RpcClient.make(opts.group, { flatten: true }),
         context,
       );
-    }).pipe(Scope.provide(scope)) as Effect.Effect<FlatDispatch>,
+    }).pipe(Scope.provide(scope)) as unknown as Effect.Effect<FlatDispatch>,
   );
 
   let disposed = false;
@@ -289,47 +289,18 @@ export async function duplexWireLink(opts: {
    * {@link neverReconnect}, where that is MEASURED). Naming the death correctly
    * is what is left.
    *
-   * THE READING. That death arrives as `SocketOpenError{kind:"Timeout"}` — the
-   * same shape a DIAL that never opened produces, and the proof that a dial is
-   * not what happened is three lines up rather than in this sentence:
-   * `fromDuplex` is handed an ALREADY-OPEN `Duplex` and is passed no
-   * `openTimeout`, so this leg has no dial to time out. Every public door into
-   * this function (`stdioLink`, `socketDuplexLink`, `unixSocketLink`) hands over
-   * an already-open duplex, and the function is package-internal, so that
-   * enumeration is closed.
-   *
-   * That construction argument is also why this is a CLOSURE rather than a
-   * module-level helper. At module scope it would be one import away from
-   * `openWireLink`'s OTHER caller, the websocket leg, whose socket comes from
-   * `Socket.makeWebSocket` and DOES apply `openTimeout ?? 10000` — the identical
-   * shape, the opposite meaning. The scope is the proof; a comment would not be.
-   *
-   * BETA-ASSUMPTION(rc.112): the producers of `SocketOpenError{kind:"Timeout"}` are enumerable, and `fromDuplex` adds one only when handed an `openTimeout`.
-   * Three exist, and Effect does distinguish them one field deeper than the
-   * shape — each carries its own `cause`: the pinger's `ping timeout`
-   * (`unstable/rpc/RpcClient.ts`), a WebSocket dial's `timeout waiting for
-   * "open"` (`unstable/socket/Socket.ts`), and `fromDuplex`'s own `openTimeout`
-   * arm, `Connection timed out` (`@effect/platform-node-shared/NodeSocket.ts`),
-   * which arms only when that option is passed — and this call passes none.
-   * Nothing local holds any of that: a bump that adds a producer, or gives
-   * `fromDuplex` a default `openTimeout`, inverts this predicate silently.
-   * `stdioPingStall.test.ts` is what MEASURES it.
-   *
-   * We deliberately do NOT predicate on `cause`, tempting as those three
-   * distinct strings are: an upstream rewording would silently demote us to the
-   * wrong branch, which is the fallback this repo forbids. The construction
-   * argument above is version-independent; the `cause` values are evidence for a
-   * re-verifier, not an input to the reading.
-   *
-   * Why any of this is worth the words: `SocketOpenError`'s `message` getter
-   * RENDERS the fixed `timeout waiting for "open"` for every arm, so an
-   * established link whose peer merely got busy reported itself, verbatim, as a
-   * socket that never opened — under a suffix asserting "the peer process
-   * exited". Every word of that was wrong. What it cost is written up once, in
-   * `stdioPingStall.test.ts`.
+   * BETA-ASSUMPTION(4.0.0): the RPC pinger fails with SocketReadError whose cause is Error("ping timeout").
+   * Stable Effect changed this from SocketOpenError: src/rpc/RpcClient.ts
+   * races the read loop with the pinger and broadcasts its SocketReadError.
+   * NodeSocket.fromDuplex also wraps ordinary read failures in SocketReadError,
+   * so the tag alone cannot distinguish a missed heartbeat. The upstream cause
+   * message is now part of this classification contract, measured by
+   * stdioPingStall.test.ts alongside a real non-heartbeat read failure.
    */
   const keepAliveWentUnanswered = (error: RpcClientError): boolean =>
-    error.reason._tag === "SocketOpenError" && error.reason.kind === "Timeout";
+    error.reason._tag === "SocketReadError" &&
+    error.reason.cause instanceof Error &&
+    error.reason.cause.message === "ping timeout";
 
   const link = await openWireLink({
     group: opts.group,

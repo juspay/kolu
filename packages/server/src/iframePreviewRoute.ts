@@ -20,7 +20,7 @@
  *      RAW request target, keeping `%`-encoding intact so serve-dir's single
  *      decode recovers the real name and the per-segment `..`/`%2f` traversal
  *      guard still fires;
- *    - {@link previewRouteHandler} is the route, on `effect/unstable/http`.
+ *    - {@link previewRouteHandler} is the route, on `effect/http`.
  *  Both are unit-tested in `iframePreviewRoute.test.ts` (including end-to-end
  *  over a real node server); the realpath/symlink guard's 403 coverage now lives
  *  against padi's `previewFile`.
@@ -46,11 +46,7 @@ import {
   rawPathname,
 } from "@kolu/serve-dir";
 import { Effect, Result, Stream } from "effect";
-import {
-  HttpRouter,
-  HttpServerRequest,
-  HttpServerResponse,
-} from "effect/unstable/http";
+import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/http";
 import {
   decodeHostKey,
   decodeHostKeyValue,

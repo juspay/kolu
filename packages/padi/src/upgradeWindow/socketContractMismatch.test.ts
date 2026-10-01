@@ -25,7 +25,7 @@ import type { SurfaceHandler, SurfaceHandlers } from "@kolu/surface/server";
 import { serveOverUnixSocket } from "@kolu/surface/unix-socket";
 import { DaemonContractSkewError } from "@kolu/surface-daemon-supervisor";
 import { Effect } from "effect";
-import { RpcGroup } from "effect/unstable/rpc";
+import { RpcGroup } from "effect/rpc";
 import { kavalDaemonGroup, PTY_HOST_CONTRACT_VERSION } from "kaval";
 import { afterEach, expect, it } from "vitest";
 import { connectKaval } from "../ptyHost/connect.ts";

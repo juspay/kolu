@@ -1,6 +1,6 @@
 ---
 title: The reactor engine — decided
-description: "The ratified engine decision for the reactive bridge: Effect's Atom (effect/unstable/reactivity) behind reactor.ts, adopted when the whole repo moved to Effect. The swap off @preact/signals-core was 13 call sites and zero wrapper-test edits — the two-way door proving itself. Records the four measured Atom-vs-preact divergences, each closed once inside the wrapper, and the probed six-engine comparison that stands as the reason none of the alternatives is a fallback."
+description: "The ratified engine decision for the reactive bridge: Effect's Atom (effect/reactivity) behind reactor.ts, adopted when the whole repo moved to Effect. The swap off @preact/signals-core was 13 call sites and zero wrapper-test edits — the two-way door proving itself. Records the four measured Atom-vs-preact divergences, each closed once inside the wrapper, and the probed six-engine comparison that stands as the reason none of the alternatives is a fallback."
 parents: [reference, padi, surface]
 status: accepted
 maturity: budding
@@ -9,7 +9,7 @@ updated: 2026-08-03
 
 import Footnote from "../../components/Footnote.astro";
 
-**The decision.** [The reactive bridge](surface-reactive-bridge.html)'s engine is **Effect's `Atom`/`AtomRegistry`** (`effect/unstable/reactivity`), behind `reactor.ts`. It replaced `@preact/signals-core`, which held the slot from the bridge's first slice until the Effect campaign. There is **no named swap target** any more: the point of a wrapper is that the next engine is whichever one passes the laws, and the last swap proved the door opens.
+**The decision.** [The reactive bridge](surface-reactive-bridge.html)'s engine is **Effect's `Atom`/`AtomRegistry`** (`effect/reactivity`), behind `reactor.ts`. It replaced `@preact/signals-core`, which held the slot from the bridge's first slice until the Effect campaign. There is **no named swap target** any more: the point of a wrapper is that the next engine is whichever one passes the laws, and the last swap proved the door opens.
 
 The reason is not that Atom is a better graph library than preact's. It is that the daemon's concurrency, lifetime and error vocabulary is now Effect end to end — fibers, scopes, `Ref`, `Queue`, `Stream` — and a second, unrelated graph library sitting inside that process is one dependency, one set of semantics and one failure mode more than the codebase needs. The engine seam was always meant to make that call cheap. It was: **13 call sites, zero edits to the wrapper's own tests.**
 
@@ -17,7 +17,7 @@ The reason is not that Atom is a better graph library than preact's. It is that 
 
 `reactor.ts` defines exactly four primitives and nothing else — `signal` (a mutable root), `derive` (lazy, glitch-free), `effect` (subscriber + disposer), `batch` (one frame) — over ONE module-level `AtomRegistry`. The registry is deliberately **not** behind a `Layer`: putting it there would drag every consumer of `source` / `scan` / `computed` into an Effect context, and the bridge's face is, and must remain, a synchronous non-Effect surface that a plain callback can write to.<Footnote>This is the same line the run-edge ledger draws: the reactor's poll dep stays `() => Promise<T>` and `everyMs` stays a `setInterval`. The ENGINE is Effect; the FACE is not. Collapsing the two would put an `Effect.runPromise` inside `reactor.ts`.</Footnote>
 
-`biome.jsonc` bans `effect/unstable/reactivity` repo-wide with two overrides — `reactor.ts` and the laws test. That pin is what makes "one exit from the graph" structural rather than a review convention, and it is the reason this swap cost thirteen call sites instead of an audit: **the pin outlived the engine it was first written for.**
+`biome.jsonc` bans `effect/reactivity` repo-wide with two overrides — `reactor.ts` and the laws test. That pin is what makes "one exit from the graph" structural rather than a review convention, and it is the reason this swap cost thirteen call sites instead of an audit: **the pin outlived the engine it was first written for.**
 
 ## The four divergences, each closed once
 
@@ -36,9 +36,10 @@ Atom is not preact with different spelling. Four behaviours differ, all found by
 
 The fix lives in `signal`'s setter: re-assert the edge, and **only** for a level the running derivation genuinely read (tracked in `currentDeps`) — a derivation that merely writes a level must not acquire a dependency on it, which would be a loop. O(1), on the pathological path only. preact gave this away for free, because its target list is not cleared mid-computation; the code now states the behaviour and names the incident it protects.
 
-## The cost, stated: an unstable namespace
+## The cost: measured engine behavior
 
-`effect/unstable/reactivity` is exactly what its path says — an unstable namespace, with `~effect-atom/*` heritage still visible in its own type ids. The engine is a moving target across beta bumps in a way `@preact/signals-core@1.x` was not. That is a real cost and it is not talked away; it is **paid for by the laws test**, which was rewritten against the raw engine and grew from four laws to seven:
+`effect/reactivity` is a top-level subpath in stable Effect 4.0. Its engine behavior still needs measurement at each upgrade. The laws cover batching, synchronous publication, dual-edge writes, and callback failures. Stable AtomRegistry drains every sibling notification before rethrowing a callback error, so a throw no longer loses the rest of the frame. The wrapper still contains callbacks to keep errors off unrelated writers' stacks.
+
 
 - **subscribed diamond under `batch`** — one recompute, one notify, and `seen` proves no half-updated pair. This is the property the always-batch rule exists for.
 - **synchronous notification** — a subscriber has run before `set` returns, and before an enclosing `batch` returns. The publish-ordering seam `kill.feature` and `streamOrdering.test.ts` rest on. A future Atom bump that deferred notification to a microtask goes RED here instead of silently reordering the wire.
@@ -55,12 +56,12 @@ The table below is the original six-engine evaluation (source reads plus live No
 - **solid-js 1.x deep-imported into Node:** the `node` condition routes to `dist/server.js` whose `createEffect` is a no-op; the `dist/solid.js` workaround risks **two disjoint silent reactive graphs in one process** — the worst failure mode under fail-fast.
 - **`@solidjs/signals`** passed its standalone Node probe and was the named swap target under the old decision. It is no longer named — not because it failed, but because "one engine on both sides" stopped being the deciding axis the moment the daemon's whole vocabulary became Effect. kolu's frontend stays on Solid 1.9 regardless; the ecosystem still peer-excludes 2.x.
 
-| | **Atom (effect/unstable/reactivity)** | @preact/signals-core | @vue/reactivity | alien-signals | @reactively/core | signal-polyfill (TC39) | solid-js 1.x deep-import | @solidjs/signals 2.0β |
+| | **Atom (effect/reactivity)** | @preact/signals-core | @vue/reactivity | alien-signals | @reactively/core | signal-polyfill (TC39) | solid-js 1.x deep-import | @solidjs/signals 2.0β |
 |---|---|---|---|---|---|---|---|---|
 | Node viability | ✅ already in the closure — zero new deps | ✅ zero deps, no globals | ✅ (+@vue/shared) | ✅ zero deps | ✅ | ✅ | ⚠️ dual-graph trap, unsupported | ✅ core pkg; `solid-js` itself still server-stubbed |
 | Glitch-free + batch | ✅ probed; **no implicit batch** — baked into the setter | ✅ explicit nested `batch()`, promptly reads | ✅ **no batch export** — hand-roll scheduler | ✅ `startBatch/endBatch` | ✅ manual `stabilize()` | graph yes; **no effect/batch** | ✅ (browser build) | ✅ implicit microtask batch, **reads stale until `flush()`** |
 | Equality-cascade stop | ✅ `Atom.withEquality`; `Object.is` default (NaN divergence) | ✅ probed; no `equals` opt | ✅ probed; no `equals` opt | ✅; `prev` param workaround | ✅ custom `equals` | ✅ spec `equals` | ✅ solid `equals` opt | ✅ solid `equals` opt |
 | Effect disposal / long-lived ownership | ✅ disposer; **auto-removal needs `keepAlive`** on roots | ✅ disposer + cleanup + watched/unwatched hooks | ✅ `effectScope` | ✅ disposer + scope | ❌ **no dispose API** | ⚠️ DIY on Watcher | ✅ `createRoot` | ✅ `createRoot` |
 | Error propagation | ✅ total read via `Result`, re-raised at the wrapper | ✅ cached + rethrown every read | ✅ throws at reader/setter | ❌ **swallows: 2nd read returns `undefined`** | ❌ none | ✅ ERRORED rethrow | solid semantics | solid semantics |
-| Maintenance | ⚠️ **unstable namespace**, moves with the beta | ✅ Preact team, stable 1.x | ✅ Vue team; 3.6 swaps internals | ✅ active; Vue 3.6 basis | ❌ dead (2023) | ❌ "do not use in production" | ✅ solid team (usage unsupported) | ⚠️ beta, active daily |
+| Maintenance | Effect 4.0; behavior measured at each pin | ✅ Preact team, stable 1.x | ✅ Vue team; 3.6 swaps internals | ✅ active; Vue 3.6 basis | ❌ dead (2023) | ❌ "do not use in production" | ✅ solid team (usage unsupported) | ⚠️ beta, active daily |
 | `reactor.ts` adaptation | done: 4 divergences + the dual edge, 13 call sites | trivial | medium (**write the scheduler**) | small + **must add error discipline** | large | large | none, but fragile | none API-wise; add `flush()`-at-publish |

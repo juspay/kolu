@@ -19,6 +19,7 @@
  * documented is gone by construction.
  */
 
+import { NetAddress } from "effect/net";
 import { resolve } from "node:path";
 import { rpcSerializationLayer } from "@kolu/surface/frame-limit";
 import { surfaceProcessId } from "@kolu/surface/identity";
@@ -35,10 +36,10 @@ import {
   HttpServerRequest,
   HttpServerResponse,
   HttpStaticServer,
-} from "effect/unstable/http";
-import type { Rpc, RpcGroup } from "effect/unstable/rpc";
-import { RpcServer } from "effect/unstable/rpc";
-import { Socket, SocketServer } from "effect/unstable/socket";
+} from "effect/http";
+import type { Rpc, RpcGroup } from "effect/rpc";
+import { RpcServer } from "effect/rpc";
+import { Socket, SocketServer } from "effect/socket";
 import {
   assertAssetPrefix,
   ASSET_MISS_CACHE_CONTROL,
@@ -862,14 +863,13 @@ export interface ServableSocket {
 }
 
 /** The address a `SocketServer` must declare. Nothing in Effect's socket-server
- *  protocol reads it (it only calls `run`), and neither `TcpAddress` nor
+ *  protocol reads it (it only calls `run`), and neither an internet address nor
  *  `UnixAddress` describes an already-upgraded websocket — so this is a
  *  placeholder, spelled once here rather than invented per call site. */
-const WEBSOCKET_ADDRESS = {
-  _tag: "TcpAddress",
-  hostname: "websocket",
-  port: 0,
-} as const;
+const WEBSOCKET_ADDRESS = NetAddress.inetAddressUnsafe(
+  NetAddress.ipv4Loopback,
+  0,
+);
 
 /** A view of an accepted socket that BUFFERS inbound frames until the RPC server
  *  attaches its own `message` listener, then replays them in order.

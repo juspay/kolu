@@ -17,7 +17,7 @@ import {
   HttpRouter,
   HttpServerRequest,
   HttpServerResponse,
-} from "effect/unstable/http";
+} from "effect/http";
 
 /** What a driven request answers with — the shape the old `app.request(...)`
  *  `Response` gave these tests, so the assertions stay about behaviour. */

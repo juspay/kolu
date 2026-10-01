@@ -6,7 +6,7 @@
  *
  * This file has ZERO imports, and that is the point: the web server package
  * must not know how argv is parsed. Which parser the product's CLI uses is the
- * CLI's volatility — it went cleye → `effect/unstable/cli` without this
+ * CLI's volatility — it went cleye → `effect/cli` without this
  * interface changing a character — and a flag DECLARATION is a function call,
  * so hosting one here would pull the parser into the web server's runtime
  * module graph for no benefit the server can name. The declarations live where

@@ -26,29 +26,21 @@
  *     action; a websocket can sit `open` at the OS level with no bytes flowing,
  *     which is why the dispatch is branded half-open at the seam and why the
  *     watchdog — not the socket — is the source of truth for liveness.
- *  4. **The re-dial EPOCH, and the calls a re-dial orphaned** (kolu#2101 J1).
- *     Effect RPC registers a call's entry exactly ONCE and never re-sends it
- *     across a re-dial, and an answer can only travel the socket its request
- *     went out on. So every in-flight call belongs to ONE socket — and when the
- *     protocol ends that socket's run WITHOUT broadcasting (the swallowed
- *     `SocketOpenError` arm of `retryTransientErrors`, law 2 of
- *     `socketRedialLaws.test.ts`), those calls are orphaned with no failure to
- *     retry on: they park forever over a wire that reports `open`. The dispatch
- *     returned below therefore FAILS them itself on the next open edge — see
- *     {@link WebsocketLink.diagnostics} and the epoch wrap.
+ *  4. **Dial history and open-edge count.** These diagnostics record failed
+ *     attempts as well as successful reconnects. Effect 4.0 now broadcasts
+ *     heartbeat failures itself, so dispatch needs no additional epoch fence.
  *
  * There is NO partysocket: reconnect is Effect's socket retry, driven by the
  * schedule below.
  */
 
 import { Cause, Duration, Effect, Layer, Schedule } from "effect";
-import type { Rpc, RpcGroup } from "effect/unstable/rpc";
-import { RpcClient } from "effect/unstable/rpc";
-import { Socket } from "effect/unstable/socket";
+import type { Rpc, RpcGroup } from "effect/rpc";
+import { RpcClient } from "effect/rpc";
+import { Socket } from "effect/socket";
 import { SurfaceTransportRetired } from "../errors";
 import { rpcSerializationLayer } from "../frameLimit";
 import type { WireStatus, WireTransport } from "../link";
-import { supersession } from "./supersession";
 import { openWireLink, type WireLink } from "./wire";
 
 /** Close code the link itself uses when {@link WatchableWire.forceReconnect}
@@ -144,8 +136,7 @@ export interface WireDiagnostics {
   /** The last {@link DIAL_HISTORY_LIMIT} dial attempts, oldest first. The final
    *  entry is the current one while a dial is in flight or connected. */
   readonly dialHistory: () => readonly DialAttempt[];
-  /** How many times this wire has reached `open` — the epoch a call binds to.
-   *  A call bound to an epoch the wire has passed was orphaned by a re-dial. */
+  /** How many times this wire has reached `open`. */
   readonly epoch: () => number;
 }
 
@@ -176,32 +167,12 @@ export async function websocketLink(
   let status: WireStatus = "connecting";
   const watchers = new Set<(s: WireStatus) => void>();
 
-  // The re-dial EPOCH: how many times this wire has reached `open`. It counts
-  // OPEN EDGES off the same funnel every consumer reads, so "the wire completed
-  // a re-dial cycle" and "the status said so" can never disagree. It is the
-  // shared supersession fence's MARK (`./supersession`, which `followingWire`
-  // stands on too); the three NOUNS below are all this leg supplies — the
-  // sentence they go into is the law's, written once over there.
-  const fence = supersession({
-    moved: "the wire re-dialled",
-    mark: "socket epoch",
-    carrier: "socket",
-    cause: (bound, now) =>
-      `websocketLink: re-dial cycle superseded epoch ${bound} (wire now at ${now})`,
-  });
-
+  let epoch = 0;
   const setStatus = (next: WireStatus): void => {
     if (next === status) return;
     status = next;
-    const notify = (): void => {
-      for (const watcher of watchers) watcher(next);
-    };
-    // An OPEN edge ADVANCES the mark, and `advance` owns the order: the mark
-    // moves first (so a consumer issuing a call from its own `open` handler has
-    // already bound to the NEW epoch and cannot fail its own fresh call), then
-    // the consumer notify, then the supersession sweep.
-    if (next === "open") fence.advance(notify);
-    else notify();
+    if (next === "open") epoch++;
+    for (const watcher of watchers) watcher(next);
   };
 
   // ── The dial history (kolu#2101 J1) ─────────────────────────────────────
@@ -328,15 +299,13 @@ export async function websocketLink(
   // closed/retired edge stays exactly as observable as before — and it reads the
   // `retired` flag the socket's own `close` listener has already set.
   //
-  // BETA-ASSUMPTION(rc.112): `onDisconnect` runs on EVERY attempt end, including
+  // BETA-ASSUMPTION(4.0.0): `onDisconnect` runs on EVERY attempt end, including
   // the ones whose failure `retryTransientErrors` then swallows — Effect RPC applies
   // `Effect.ensuring(hooks.onDisconnect)` to the whole attempt, OUTSIDE the `tapCause`
   // that returns early for a `SocketOpenError`. Two things below rest on it and on
-  // nothing else: the EPOCH (a swallowed attempt must still close its status, or the
-  // next open would not read as an edge and an orphaned call would never be failed)
-  // and the DIAL HISTORY's `"ended-without-open"` row (a dial nothing else in the
-  // system records — not the client, not the server's log). If a bump moved the hook
-  // inside the swallow, both would go silent on exactly the shape they exist for.
+  // nothing else: the open-edge count and the DIAL HISTORY's
+  // `"ended-without-open"` row. Moving the hook inside the swallow would hide
+  // failed attempts from both diagnostics.
   // MEASURED by `socketRedialLaws.test.ts` — law 2's status pin and law 3.
   const connectionHooks = Layer.succeed(RpcClient.ConnectionHooks)(
     RpcClient.ConnectionHooks.of({
@@ -406,56 +375,12 @@ export async function websocketLink(
       }),
   });
 
-  // ── The epoch wrap: a re-dial cycle FAILS what it orphaned (kolu#2101 J1) ──
-  //
-  // Why this is needed at all, and why it belongs HERE:
-  //
-  //  - Effect RPC sends a call's entry EXACTLY ONCE (`RpcClient.js`'s
-  //    `Effect.forkIn(scope)` write, at registration) and never re-sends it on a
-  //    reconnect, and an answer can only arrive on the socket its request went
-  //    out on. So a call is bound to ONE socket by construction.
-  //  - When that socket's run ends with a `SocketOpenError` — a pre-open dial
-  //    failure, or the ping timeout on an ESTABLISHED socket — the
-  //    `retryTransientErrors: true` above (set deliberately, so a socket that
-  //    never opened does not flap every consumer) makes the protocol return
-  //    early from its `tapCause` WITHOUT broadcasting `ClientProtocolError`,
-  //    which is the only thing that fails registered entries. Nothing fails. The
-  //    protocol re-dials underneath and the orphaned call parks FOREVER over a
-  //    wire that reports `open`. That is the production incident this exists to
-  //    kill: a woken tab whose subscriptions were all parked while the socket,
-  //    the watchdog and the header dot were all healthy.
-  //  - The LINK is the altitude: it is the one closure that owns both the status
-  //    funnel and the dispatch it hands out, so every consumer — fenced or not,
-  //    stream or unary — is covered without threading a wire reference through
-  //    the ~15 call sites the fence has.
-  //
-  // The rule: a call records the epoch it BINDS to at start. `open` ⇒ the
-  // current epoch (its request goes out on this socket). Anything else ⇒ the
-  // NEXT one: the write parks in `Socket.fromWebSocket`'s latch and flushes on
-  // the next open, so the call belongs to that socket and must NOT be failed by
-  // its arrival. When the wire reaches an epoch PAST the binding one, the call
-  // is orphaned and fails — the honest signal `fenceStream` already retries on,
-  // and the honest signal an unfenced caller needs instead of a dead promise.
-  //
-  // This coalesces with law 1 (a live socket CLOSING, which DOES broadcast)
-  // structurally rather than by bookkeeping: such a call has already failed and
-  // its watcher is deregistered before the reopen edge, and the fence's
-  // re-subscribe binds to the current/next epoch. One re-drive, never two.
-  //
-  // The GUARD, the error and the dispatch wrap are the shared fence's
-  // (`./supersession`); what stays here is the one rule that is genuinely this
-  // leg's — WHICH mark a call binds to.
-  const bindingEpoch = (): number =>
-    status === "open" ? fence.mark() : fence.mark() + 1;
-
-  const dispatch = fence.wrap(() => link.dispatch, bindingEpoch);
-
   return {
-    dispatch,
+    dispatch: link.dispatch,
     dispose: link.dispose,
     diagnostics: {
       dialHistory: () => dialHistory.map((attempt) => ({ ...attempt })),
-      epoch: fence.mark,
+      epoch: () => epoch,
     },
     wire: {
       status: () => status,

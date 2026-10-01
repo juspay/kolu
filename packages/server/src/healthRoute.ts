@@ -13,7 +13,7 @@
  *  a constant response with no dependencies: it answers as soon as the HTTP
  *  handler is attached, which is precisely what a readiness probe needs. */
 
-import { HttpRouter, HttpServerResponse } from "effect/unstable/http";
+import { HttpRouter, HttpServerResponse } from "effect/http";
 
 /** The probe path. */
 export const HEALTH_ROUTE_PATH = "/api/health";

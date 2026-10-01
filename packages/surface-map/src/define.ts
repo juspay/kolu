@@ -79,7 +79,7 @@ import {
   SurfaceStdioTransportClosed,
 } from "@kolu/surface/errors";
 import { Schema } from "effect";
-import { Rpc, RpcGroup } from "effect/unstable/rpc";
+import { Rpc, RpcGroup } from "effect/rpc";
 import { INPUT_FIELD, MAP_KEY_FIELD } from "./envelope";
 import type { FailureEvidence } from "./evidence";
 import { FailureEvidenceSchema } from "./evidence";

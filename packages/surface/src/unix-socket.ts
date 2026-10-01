@@ -18,15 +18,16 @@
  * and logs app-flavored advice (which flag to pass, what the path means);
  * this module owns only the transport verdicts.
  */
+import { NetAddress } from "effect/net";
 import { lstatSync, mkdirSync, rmSync } from "node:fs";
 import { createConnection, createServer, type Socket } from "node:net";
 import { dirname, join } from "node:path";
 import * as NodeSocket from "@effect/platform-node/NodeSocket";
 import type { Logger } from "@kolu/log";
 import { Effect, Exit, Layer, Scope } from "effect";
-import { SocketServer } from "effect/unstable/socket";
-import type { Rpc, RpcGroup } from "effect/unstable/rpc";
-import { RpcServer } from "effect/unstable/rpc";
+import { SocketServer } from "effect/socket";
+import type { Rpc, RpcGroup } from "effect/rpc";
+import { RpcServer } from "effect/rpc";
 import {
   restrictServedGeneration,
   type ServedGenerationSource,
@@ -264,7 +265,7 @@ function oneConnectionSocketServer(
       ),
       (accepted) =>
         SocketServer.SocketServer.of({
-          address: { _tag: "UnixAddress", path: socketPath },
+          address: NetAddress.unixPathAddress(socketPath),
           // `run`'s declared shape is `Effect<never, SocketServerError, R>`:
           // never returning, failing only the way an ACCEPTING server can. This
           // one cannot fail that way at all (there is nothing left to accept),

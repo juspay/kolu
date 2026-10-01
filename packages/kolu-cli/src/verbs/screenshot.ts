@@ -30,7 +30,7 @@
 import { writeFile } from "node:fs/promises";
 import { shortId } from "@kolu/padi/render";
 import { Effect } from "effect";
-import type { Command } from "effect/unstable/cli";
+import type { Command } from "effect/cli";
 // `import type` — fully erased, so this does NOT re-enter the command tree at
 // runtime and the per-face dynamic-import fence is untouched.
 import type { screenshotFlags } from "../cli.ts";
