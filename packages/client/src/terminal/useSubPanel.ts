@@ -286,3 +286,64 @@ export function useSubPanel() {
     },
   } as const;
 }
+
+/** The panel verbs a TAB-STRIP REPAIR drives. Named here, with the rule that
+ *  uses them, because the invariant being restored is the PANEL's: a tile's
+ *  `activeSubTab` is null or a LIVE pane of that tile. The repair deliberately
+ *  cannot reach the panel's destructive or focus-carrying verbs — it may not
+ *  drop a panel, and it does not decide focus — so its seam is this, not the
+ *  panel's whole surface. */
+export type TabStripRepairPorts = {
+  collapsePanel: (parentId: TerminalId) => void;
+  collapsePanelChrome: (parentId: TerminalId) => void;
+  peekSubPanel: (parentId: TerminalId) => { activeSubTab: TerminalId | null };
+  setActiveSubTab: (parentId: TerminalId, subId: TerminalId | null) => void;
+  selectSubTab: (parentId: TerminalId, subId: TerminalId | null) => void;
+};
+
+/** What the EVICTION reconcile drives beyond a repair: the DOM-focus nonce (a
+ *  close button took the focus) and the outright drop of a departed tile's
+ *  panel state. */
+export type EvictionSubPanelPorts = TabStripRepairPorts & {
+  requestRefocus: (parentId: TerminalId) => void;
+  removePanel: (parentId: TerminalId) => void;
+};
+
+/** Repair a tile's tab strip once its panes are no longer the ones it had:
+ *  clear an `activeSubTab` that no longer names a pane of this tile (or collapse
+ *  the panel when nothing remains under it), and pick a successor.
+ *
+ *  The test is MEMBERSHIP IN `remaining`, not "is it the pane that left". A pane
+ *  can take its own splits with it — drag a split that has a split under it and
+ *  the tile's active tab may name the GRANDCHILD, which the leaving id alone
+ *  would miss, leaving exactly the dangling tab this repair exists to forbid.
+ *
+ *  `remaining` is every pane still belonging to the tile, in order; a `null`
+ *  active tab stays null (nothing to repair). `leavingWasFocused` picks whether
+ *  the successor verb also carries the focus fact. TWO callers, one rule: the
+ *  eviction reconcile (panes departed the census) and the Dock's drag re-home (a
+ *  pane left its tile but is still alive). The invariant they both restore —
+ *  "`activeSubTab` is null or a LIVE sub of this tile" — has consumers that
+ *  trust a plain null-check for "no active split" (the adopt don't-steal guard,
+ *  `focusVisiblePane`), so it gets one author rather than one per mutation. */
+export function repairTileTabs(
+  panel: TabStripRepairPorts,
+  tileId: TerminalId,
+  remaining: readonly TerminalId[],
+  leavingWasFocused: boolean,
+): void {
+  if (remaining.length === 0) {
+    if (leavingWasFocused) panel.collapsePanel(tileId);
+    else panel.collapsePanelChrome(tileId);
+    // Clear the active tab too: the tile's last split is gone, so `activeSubTab`
+    // must not dangle at a departed sub.
+    panel.setActiveSubTab(tileId, null);
+    return;
+  }
+  const active = panel.peekSubPanel(tileId).activeSubTab;
+  if (active !== null && !remaining.includes(active)) {
+    const replacement = remaining[0] ?? null;
+    if (leavingWasFocused) panel.selectSubTab(tileId, replacement);
+    else panel.setActiveSubTab(tileId, replacement);
+  }
+}

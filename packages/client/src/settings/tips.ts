@@ -26,6 +26,13 @@ export const CONTEXTUAL_TIPS = {
     text: "Drag a repo's header to move the whole section; drag a branch cluster by any of its rows inside the repo. Your arrangement is sticky, per host, and never moves what you didn't drag",
     doc: "dock",
   },
+  /** The moment a repo card holds two live rows — the first case where nesting
+   *  one under the other is a thing you could want. */
+  dockRehome: {
+    id: "dock-rehome",
+    text: "Drag a row's grip onto another row to nest it there as a split, or onto the repo header to give it its own tile back",
+    doc: "dock",
+  },
   themeFromPalette: {
     id: "theme-palette",
     text: `Tip: ${formatKeybind(ACTIONS.commandPalette.keybind)} → Theme for quick switching`,

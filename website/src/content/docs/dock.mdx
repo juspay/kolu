@@ -130,6 +130,18 @@ branch cluster inside its repo** to move the whole cluster. The rows inside a
 cluster never re-order — a dragged cluster lifts its branches' rows wholesale —
 and a cluster can never land in another repo.
 
+A row is also something you can **move**. Every live row carries a small grip at
+its right edge, which appears when you hover it. Drag it onto **another row** and
+the terminal becomes a *split* of that one — its own splits ride along, and
+nesting is allowed as deep as you like. Drag it onto the **repo card's header**
+and a split is handed back its own tile, placed on the canvas like any new one.
+Dropping where it would make no sense — the row itself, one of its own
+descendants, the row it already hangs under, or the header of a terminal that is
+already a tile — simply refuses, and says so while you hover. A terminal that is
+asleep has no grip at all: only a live one can be re-homed. Like the cluster
+drag, the gesture is scoped to one repo card, so a row can never be re-homed into
+another repo.
+
 Your arrangement is an **overlay**, not a reset. Anything you never dragged
 keeps behaving exactly as before: a brand-new repo or branch still *appends at
 the bottom* of the list, the filters only hide rows (they never move the slots
@@ -146,10 +158,12 @@ same name and it lands right back in its old slot.
 
 The two other drag idioms in kolu stay in separate lanes: resizing the dock (a
 continuous *geometry* change) goes through the `capturePointerGesture` pointer
-variant, while rearranging (a discrete *order* change) goes through solid-dnd.
-The same pointer-activation distance the canvas tile relies on (solid-dnd's
-250&nbsp;ms / 10&nbsp;px) keeps clicking a row from firing a cluster drag, and
-the capsules in the header never become the grip.
+variant, while rearranging and re-homing (discrete *order* changes) go through
+solid-dnd. The same pointer-activation distance the canvas tile relies on
+(solid-dnd's 250&nbsp;ms / 10&nbsp;px) keeps clicking a row from firing a cluster
+drag, the capsules in the header never become the grip — and a row's grip is the
+only place a re-home can start, so dragging a row's body still reorders the
+cluster it belongs to.
 
 ## The Needs-you strip
 

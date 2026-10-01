@@ -72,15 +72,16 @@ import {
 import type { DockRowBucket } from "@kolu/solid-dockrow/rowValues";
 import {
   closestCenter,
+  createDroppable,
   createSortable,
   DragDropProvider,
   DragDropSensors,
+  DragOverlay,
   type DragEvent,
   SortableProvider,
   maybeTransformStyle,
 } from "@thisbeyond/solid-dnd";
 import { AttentionTriplet } from "@kolu/solid-statepip";
-import { cwdBasename } from "@kolu/terminal-vocab/terminalKey";
 import { createElementSize } from "@solid-primitives/resize-observer";
 import type { TerminalId } from "kolu-common/surface";
 import {
@@ -98,7 +99,6 @@ import { match } from "ts-pattern";
 import { createSharedRoot } from "../../createSharedRoot";
 import { ACTIONS } from "../../input/actions";
 import { isPlatformModifier } from "../../input/keyboard";
-import { annotationLine } from "../../intent/text";
 import { intentLeadGlyph } from "../../intent/text";
 import { persistedPref } from "../../persistedPref";
 import LiveActivityDot from "../../terminal/LiveActivityDot";
@@ -124,16 +124,33 @@ import {
   setDockCardsWidth,
 } from "./dockCardsWidth";
 import { useDockRowBag } from "./useDockRowBag";
-import { createDockRowData } from "./dockRowData";
+import { isActiveRow } from "./activeRow";
+import { createDockRowData, dockRowLabel } from "./dockRowData";
 import type { DockBranchCluster, DockGroup, DockTree } from "./dockTree";
 import { arrayMove, moveCluster, moveRepo } from "./dockTree";
+import {
+  type DockDropTarget,
+  HEADER_DROP_ID,
+  dockCollisionDetector,
+  dropHighlightOf,
+  reparentDropOf,
+  rowIdOfDragId,
+} from "./dockReparent";
 import { HiddenFooter } from "./HiddenFooter";
+import type { RankedDockRow } from "./dockRowRanking";
 import { NeedsYouStrip } from "./NeedsYouStrip";
 import { SubTerminalRow } from "./SubTerminalRow";
 import { CONTEXTUAL_TIPS } from "../../settings/tips";
 import { useTips } from "../../settings/useTips";
 import { useDockFocus } from "./useDockFocus";
 import { useDockOrder } from "./useDockOrder";
+import { useDockReparent } from "./useDockReparent";
+import {
+  dockDropContext,
+  useDockDropVerdict,
+  useDockRowDrag,
+  useDraggedRowId,
+} from "./useDockRowDrag";
 import { useSectionAttention } from "./useSectionAttention";
 
 export type DockMode = "rail" | "cards";
@@ -387,6 +404,7 @@ const RailOrCards: Component<{
   // composes canvas centering. The touch surfaces pass their own (see
   // `NeedsYouStrip`), which are split-aware too.
   const dockFocus = useDockFocus();
+  const store = useTerminalStore();
   const { showTipOnce } = useTips();
 
   // The first tree that could be rearranged (2+ sections, or a repo whose
@@ -397,6 +415,23 @@ const RailOrCards: Component<{
     const rearrangeable =
       t.groups.length > 1 || t.groups.some((g) => g.clusters.length > 1);
     if (rearrangeable) showTipOnce(CONTEXTUAL_TIPS.dockRearrange);
+  });
+  // The first repo card holding two LIVE TOP-LEVEL rows — the first moment a
+  // row drop is even possible. Top-level, not "any two live rows": a card with
+  // one tile and its own split has no legal pair at all (child→its parent and
+  // parent→its descendant are both refusals), and a banner that teaches a
+  // gesture the card cannot perform is the same lie the hover verdict exists to
+  // avoid. Live, not merely listed: a sleeping row has no grip.
+  createEffect(() => {
+    if (
+      props.tree.groups.some(
+        (g) =>
+          g.topRows.filter(
+            (r) => activeArm(store.getMetadata(r.id)) !== undefined,
+          ).length >= 2,
+      )
+    )
+      showTipOnce(CONTEXTUAL_TIPS.dockRehome);
   });
   // Pre-built `id → flat position` map. RepoSection used to compute
   // each row's flat index via `findIndex` over `flatShortcutRows`, costing
@@ -611,6 +646,113 @@ const SortableSection: Component<{
   );
 };
 
+/** The drop target a row drag resolved to, from the droppable id the library
+ *  reports. The collision filter admits only row and header droppables to a row
+ *  drag, so a third answer is a wiring bug and is said out loud rather than
+ *  silently no-opping. */
+function dropTargetOf(droppableId: string): DockDropTarget {
+  if (droppableId === HEADER_DROP_ID) return { kind: "header" };
+  const rowId = rowIdOfDragId(droppableId);
+  if (rowId === null)
+    throw new Error(
+      `dock row drag resolved to an unknown droppable: ${droppableId}`,
+    );
+  return { kind: "row", id: rowId };
+}
+
+/** The repo card's header as a drop target — where a split's row goes to get
+ *  its own tile back.
+ *
+ *  Rendered INSIDE the header band the package owns, as an overlay: the band is
+ *  positioned (the package's own `sticky` — a fact this overlay spends, and one
+ *  the package does not promise; a package-owned `data-drop` on the band is the
+ *  follow-up that would let both drop paints live in `dockrow.css`).
+ *  `inset-0` therefore covers exactly the band, and the whole header is the
+ *  target rather than a chip beside the grip. `pointer-events: none` because a
+ *  droppable is MEASURED, never clicked — the band's identity-grip activators
+ *  keep working underneath.
+ *
+ *  It exists for ROW drags only (the collision filter keeps cluster drags away).
+ *  Its resting state is the VERB'S answer, not a guess: a drag that could not
+ *  land here (the row already owns a tile) leaves the header unpainted, and only
+ *  a drop the verb accepts earns the standing "target" affordance — the same
+ *  one-rule discipline `dropHighlightOf` states, so the affordance never
+ *  promises what the write refuses. Hovering tightens it to `over`/`invalid`. */
+const HeaderDropTarget: Component = () => {
+  const store = useTerminalStore();
+  const droppable = createDroppable(HEADER_DROP_ID);
+  const draggedRowId = useDraggedRowId();
+  const verdict = useDockDropVerdict(
+    { kind: "header" },
+    () => droppable.isActiveDroppable,
+  );
+  const drop = (): "over" | "invalid" | "target" | undefined => {
+    const dragged = draggedRowId();
+    if (dragged === null) return undefined;
+    const hovered = verdict();
+    if (hovered !== undefined) return hovered;
+    // Not hovered: the standing affordance is the PAINT rule's answer, read
+    // through the same fold the hover verdict uses (never the write verb
+    // directly) — so "would this drop be accepted" has one reader per question.
+    return dropHighlightOf(dockDropContext(store), dragged, {
+      kind: "header",
+    }) === "over"
+      ? "target"
+      : undefined;
+  };
+  return (
+    <span
+      ref={droppable.ref}
+      data-testid="dock-header-drop"
+      data-drop={drop()}
+      class="pointer-events-none absolute inset-0 rounded-t-[var(--dock-card-radius-inner)] border-2 border-dashed transition-colors"
+      classList={{
+        "border-transparent": drop() === undefined,
+        "border-accent/40 bg-accent/5": drop() === "target",
+        "border-accent bg-accent/15": drop() === "over",
+        "border-edge bg-surface-2/50": drop() === "invalid",
+      }}
+    />
+  );
+};
+
+/** The ghost that rides under the pointer while a row is being re-homed — the
+ *  gesture's BODY. Without it the only in-flight cue was the target's ring,
+ *  which says where a drop would land but never that you are carrying anything.
+ *
+ *  Row-shaped on purpose. The library sizes the overlay to the DRAGGABLE (the
+ *  row) and centres it on the drag's own transform, so a row-shaped ghost sits
+ *  exactly where the collision resolves from — what you see and where the drop
+ *  would land are one place. A compact chip would have to be centred inside that
+ *  box to keep them together, and would then read as trailing the cursor by half
+ *  a row.
+ *
+ *  TRANSLUCENT, and that is the load-bearing part: the ghost sits exactly on top
+ *  of the drop target, so an opaque carry would hide the ring that says "it will
+ *  land here" — the one thing the drag is for. A tinted, dashed outline carries
+ *  the row without covering the answer.
+ *
+ *  The label is the row's own (`dockRowLabel`) — the same words the row
+ *  underneath shows, tile or split. Reading it off the display projection
+ *  directly is what made a SPLIT's ghost an empty box: display info exists for
+ *  tiles only. */
+const RowDragGhost: Component<{ id: TerminalId }> = (props) => {
+  const store = useTerminalStore();
+  const label = () => {
+    const meta = store.getMetadata(props.id);
+    return meta === undefined
+      ? ""
+      : dockRowLabel(meta, store.getDisplayInfo(props.id));
+  };
+  return (
+    <div class="pointer-events-none absolute inset-0 flex items-center gap-2 rounded-md border border-dashed border-accent/70 bg-accent/5 px-3">
+      <span class="min-w-0 truncate font-mono text-[0.72rem] font-semibold text-fg-2">
+        {label()}
+      </span>
+    </div>
+  );
+};
+
 /** Repo section — monogram tile + uppercase name + bare row tally +
  *  attention triplet over the group's rows. Always rendered, even for
  *  single-repo workspaces — a consistent structure beats a degenerate-case
@@ -637,6 +779,10 @@ const RepoSection: Component<{
 }> = (props) => {
   const store = useTerminalStore();
   const focus = useDockFocus();
+  // The row re-home write: nest a dropped row under another, or hand a split
+  // back its own tile. Its follow-up work (the old tile's tab strip, the landing
+  // focus) rides the landing edge inside the hook, not this call.
+  const rehome = useDockReparent();
   // The header's attention summary — the SAME triplet, on the SAME activity
   // predicate, the host tab renders.
   const attn = useSectionAttention(() => props.group);
@@ -676,12 +822,55 @@ const RepoSection: Component<{
     if (from === -1 || to === -1) return;
     props.onClusterDrop(arrayMove(visible, from, to));
   };
+
+  /** This section's drag END, dispatched by which ID SPACE the drag lived in —
+   *  the collision filter already partitions the candidates, and the event
+   *  arrives with the same two ids, so the split is asked once more here. Every
+   *  draggable in this provider that is not a row is a branch-cluster sortable
+   *  (the section-level provider owns the cards). */
+  const onDragEnd = ({ draggable, droppable }: DragEvent) => {
+    const draggedId = rowIdOfDragId(draggable.id);
+    if (draggedId === null) {
+      reorderClusters({ draggable, droppable });
+      return;
+    }
+    // Released where no target answered: for a row drag the filter has already
+    // excluded every cluster, so `null` means genuinely nothing was under it.
+    if (!droppable) return;
+    const drop = reparentDropOf(
+      dockDropContext(store),
+      draggedId,
+      dropTargetOf(String(droppable.id)),
+    );
+    // Refused — the row itself, one of its descendants, its current parent, a
+    // sleeping target, or the header for a row that is already its own tile.
+    // The hover painted exactly this verdict, so the write must not out-vote it.
+    if (drop === null) return;
+    rehome(drop.id, drop.parentId);
+  };
   return (
     <DragDropProvider
-      collisionDetector={closestCenter}
-      onDragEnd={reorderClusters}
+      collisionDetector={dockCollisionDetector}
+      onDragEnd={onDragEnd}
     >
       <DragDropSensors />
+      {/* The carried row. Rendered for EVERY drag in this provider (the library
+       *  binds the overlay at drag start, before anything knows what is being
+       *  dragged); a cluster drag gets an empty overlay, which is invisible and
+       *  resolves collisions off the same transform the cluster drag used
+       *  before.
+       *
+       *  `z-40`: the overlay is portalled to `document.body`, and the dock it
+       *  rides over is `z-30` — without a stacking order of its own the ghost
+       *  would paint BEHIND the very panel the drag happens in. (The maximized
+       *  tile is also `z-40`; the portal is appended last, so the ghost wins
+       *  there, which is what a drag inside the dock wants.) */}
+      <DragOverlay class="z-40">
+        {(draggable) => {
+          const id = draggable ? rowIdOfDragId(draggable.id) : null;
+          return id === null ? null : <RowDragGhost id={id} />;
+        }}
+      </DragOverlay>
       <SortableProvider ids={props.group.clusters.map((c) => c.label)}>
         <DockSection
           surface="desktop"
@@ -693,6 +882,13 @@ const RepoSection: Component<{
           styleProp={props.sectionStyle}
           header={
             <>
+              {/* The header as a DROP TARGET — where a split's row goes to get
+               *  its own tile back. Absolutely positioned so it costs the band
+               *  no flex item and cannot push the monogram or the capsules
+               *  around; `pointer-events: none` because a droppable is
+               *  MEASURED, never clicked, so the band's own identity-grip
+               *  activators keep working underneath it. */}
+              <HeaderDropTarget />
               {/* Sticky repo header — monogram + uppercase name + bare tally +
                *  attention triplet (styles in `@kolu/solid-dockrow/dockrow.css`). The tally
                *  deliberately BARE text, not a capsule: the capsule silhouette is
@@ -789,18 +985,40 @@ const SortableCluster: Component<{
             />
             <For each={row.subRows}>
               {(sub) => (
-                <SubTerminalRow
-                  row={sub}
-                  tileId={row.id}
-                  surface="desktop"
-                  onSelect={focus}
-                />
+                <DockSubRow row={sub} tileId={row.id} onSelect={focus} />
               )}
             </For>
           </>
         )}
       </For>
     </DockCluster>
+  );
+};
+
+/** kolu's DESKTOP wiring for a split's row: `SubTerminalRow` plus the drag
+ *  sockets. The sockets live here, not in the shared row, because they can only
+ *  be created where a drag context exists — the touch drawer renders
+ *  `SubTerminalRow` bare, and there a row is not a disabled drag handle, it is a
+ *  row with no handle to grab.
+ *
+ *  The sub rows belong to their TILE for panel purposes (`tileId`) but to
+ *  THEMSELVES for the tree: a split's row is draggable and droppable in its own
+ *  right, which is exactly how it gets un-split (onto the repo header) or
+ *  nested deeper (onto another row). */
+const DockSubRow: Component<{
+  row: RankedDockRow["subRows"][number];
+  tileId: TerminalId;
+  onSelect: (id: TerminalId) => void;
+}> = (props) => {
+  const drag = useDockRowDrag(props.row.id);
+  return (
+    <SubTerminalRow
+      row={props.row}
+      tileId={props.tileId}
+      surface="desktop"
+      onSelect={props.onSelect}
+      drag={drag}
+    />
   );
 };
 
@@ -847,10 +1065,20 @@ const DockRow: Component<{
           pipBucket: () => props.pip,
           recencyAt: () => props.recencyAt,
         });
+        // Registered HERE, inside the `<Show>`, and not in the component body:
+        // `createDraggable`/`createDroppable` register the element they were
+        // handed at MOUNT, so a hook called before this row's element exists
+        // would register nothing and the grip would still render — a handle that
+        // silently does nothing. Bound to the Show callback, registration is
+        // tied to the element's own lifetime.
+        const drag = useDockRowDrag(props.id);
         return (
           <DockRowView
             {...bag}
             surface="desktop"
+            ref={drag.ref}
+            handle={drag.handle}
+            drop={drag.drop}
             onSelect={() => tileStore.activate(props.id)}
             overlay={
               <DockShortcutHint
@@ -903,7 +1131,8 @@ export const RailSubChip: Component<{
   return (
     <Show when={meta()}>
       {(m) => {
-        const label = () => annotationLine(m().intent, cwdBasename(m().cwd));
+        // The same words the cards-mode split row shows, off the same fold.
+        const label = () => dockRowLabel(m(), undefined);
         const glyph = () => intentLeadGlyph(label());
         const pip = useStatePip(
           encActiveHost,
@@ -920,9 +1149,7 @@ export const RailSubChip: Component<{
             data-bucket={props.row.pip}
             data-motion={pip().motion}
             data-agent-state={activeArm(m())?.agent?.state}
-            data-active={
-              store.focusedTerminalId() === props.row.id ? "" : undefined
-            }
+            data-active={isActiveRow(props.row.id) ? "" : undefined}
             data-unread={unread() ? "" : undefined}
             onClick={() => focus(props.row.id)}
             class="dock-rail-chip w-[26px]! h-[26px]! rounded-[7px]! -mt-px"
@@ -975,9 +1202,10 @@ const RailChip: Component<{
   const store = useTerminalStore();
   const tileStore = useTileStore();
   const combined = createDockRowData(props.id);
-  // Active-tile highlight follows the TILE registry (so a focused sleeping tile
-  // reads as the active row in PR 2); unread is terminal-attention, stays on
-  // the terminal store.
+  // The active highlight goes through the SAME fold every other dock row uses
+  // (`isActiveRow`, which reads the tile registry, so a focused sleeping tile
+  // reads as the active row); unread is terminal-attention, stays on the
+  // terminal store.
   const unread = () => store.isUnread(props.id);
   const modHeld = useModHeld();
   return (
@@ -1000,7 +1228,7 @@ const RailChip: Component<{
             data-bucket={props.pip}
             data-motion={pip().motion}
             data-agent-state={activeArm(c().meta)?.agent?.state}
-            data-active={tileStore.isActiveTile(props.id) ? "" : undefined}
+            data-active={isActiveRow(props.id) ? "" : undefined}
             data-unread={unread() ? "" : undefined}
             onClick={() => tileStore.activate(props.id)}
             class="dock-rail-chip"

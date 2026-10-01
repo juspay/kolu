@@ -25,7 +25,10 @@ vi.mock("solid-sonner", () => ({
   toast: { error: vi.fn() },
 }));
 
-import { useSubPanel } from "./useSubPanel";
+import { repairTileTabs, useSubPanel } from "./useSubPanel";
+
+/** Terminal ids are branded; the repair only ever compares them. */
+const T = (s: string) => s as TerminalId;
 
 const PARENT = "focus-test-parent" as TerminalId;
 const SUB = "focus-test-sub" as TerminalId;
@@ -285,5 +288,62 @@ describe("useSubPanel focus verbs", () => {
     });
     expect(h.writeFocus).not.toHaveBeenCalled();
     expect(h.setSubPanel).not.toHaveBeenCalled();
+  });
+});
+
+/** The panel's seams `repairTileTabs` drives, as spies — the rule's own
+ *  vocabulary (`peekSubPanel` resolves the active tab), so nothing here can
+ *  hand the repair a verb it is not allowed to call. */
+function repairSpies(active: TerminalId | null) {
+  return {
+    collapsePanel: vi.fn<(id: TerminalId) => void>(),
+    collapsePanelChrome: vi.fn<(id: TerminalId) => void>(),
+    peekSubPanel: () => ({ activeSubTab: active }),
+    setActiveSubTab: vi.fn<(id: TerminalId, sub: TerminalId | null) => void>(),
+    selectSubTab: vi.fn<(id: TerminalId, sub: TerminalId | null) => void>(),
+  };
+}
+
+describe("repairTileTabs", () => {
+  it("leaves an active tab that is still a pane of the tile alone", () => {
+    // The same-tile move (a split dropped on its own sibling) arrives here: the
+    // moved terminal is STILL under the tile, so the strip needs nothing.
+    const p = repairSpies(T("S1"));
+    repairTileTabs(p, T("P"), [T("S1"), T("S2")], false);
+    expect(p.setActiveSubTab).not.toHaveBeenCalled();
+    expect(p.selectSubTab).not.toHaveBeenCalled();
+    expect(p.collapsePanel).not.toHaveBeenCalled();
+    expect(p.collapsePanelChrome).not.toHaveBeenCalled();
+  });
+
+  it("leaves a null active tab null", () => {
+    const p = repairSpies(null);
+    repairTileTabs(p, T("P"), [T("S1")], false);
+    expect(p.setActiveSubTab).not.toHaveBeenCalled();
+  });
+
+  it("replaces a tab left dangling at a pane that departed WITH its parent", () => {
+    // R ← M ← G, and R ← S. R's active tab is G. Dragging M away takes G with
+    // it, so the "is the active tab the pane that left?" test (M) would miss G
+    // and leave the strip pointing at a terminal that is no longer under R —
+    // the dangling state this repair exists to forbid.
+    const p = repairSpies(T("G"));
+    repairTileTabs(p, T("R"), [T("S")], false);
+    expect(p.setActiveSubTab).toHaveBeenCalledExactlyOnceWith(T("R"), T("S"));
+    expect(p.selectSubTab).not.toHaveBeenCalled();
+  });
+
+  it("carries the focus fact when the departing pane had it", () => {
+    const p = repairSpies(T("S1"));
+    repairTileTabs(p, T("P"), [T("S2")], true);
+    expect(p.selectSubTab).toHaveBeenCalledExactlyOnceWith(T("P"), T("S2"));
+    expect(p.setActiveSubTab).not.toHaveBeenCalled();
+  });
+
+  it("collapses and clears the tab when no pane remains", () => {
+    const p = repairSpies(T("S1"));
+    repairTileTabs(p, T("P"), [], false);
+    expect(p.collapsePanelChrome).toHaveBeenCalledExactlyOnceWith(T("P"));
+    expect(p.setActiveSubTab).toHaveBeenCalledExactlyOnceWith(T("P"), null);
   });
 });

@@ -36,3 +36,24 @@ Feature: Dock rearrange by drag-and-drop
     When I select terminal 1 in the workspace switcher
     And I create a terminal
     Then the new terminal should be the last row of its repo section
+
+  Scenario: Dragging a row onto another row nests it as a split
+    When I run "rm -rf /tmp/kolu-rehome && git init -b master /tmp/kolu-rehome && cd /tmp/kolu-rehome && git commit --allow-empty -m init"
+    Then the dock should show the "kolu-rehome" repo section
+    When I create a terminal
+    And I create a terminal
+    And I remember the canvas tile count
+    When I drag the dock row of terminal 2 onto the dock row of terminal 1
+    Then terminal 2 should be a split of terminal 1 in the dock
+    And the canvas tile count should drop by 1
+
+  Scenario: Dragging a split's row onto its repo header gives it its own tile
+    When I run "rm -rf /tmp/kolu-rehome-b && git init -b master /tmp/kolu-rehome-b && cd /tmp/kolu-rehome-b && git commit --allow-empty -m init"
+    Then the dock should show the "kolu-rehome-b" repo section
+    When I create a terminal
+    And I split terminal 1
+    And I remember the sub-terminal's id
+    And I remember the canvas tile count
+    When I drag the split's dock row onto the "kolu-rehome-b" repo header
+    Then the split should have its own dock row
+    And the canvas tile count should rise by 1

@@ -106,12 +106,28 @@ export const useTerminalCrud = createSharedRoot(() => {
   // reordering of local state that happens to re-home sub-terminals server-side),
   // so this one runs its effect at the seam rather than pushing the Effect shape
   // through a port type whose every other member is `void`.
-  const setParent = (subId: TerminalId, parentId: TerminalId | null): void => {
+  //
+  // It is also the Dock's drag-to-re-home write, exposed whole as `reparent`:
+  // the ports call it for their own reasons (promote a departing tile's children,
+  // re-home survivors), the dock calls it because YOU said so. One write path, so
+  // a drag cannot grow a second spelling of `chrome.setParent`.
+  //
+  // `settled` is for that second caller alone: the ports fire and walk away,
+  // while the drag has an INTENT armed on this write landing (see
+  // `useDockReparent`) and must disarm it when the server refuses instead of
+  // waiting forever for an edge that will never arrive.
+  const setParent = (
+    subId: TerminalId,
+    parentId: TerminalId | null,
+    settled?: (applied: boolean) => void,
+  ): void => {
     runAction(
       "re-home split",
-      activePadiRpc.chrome
-        .setParent({ id: subId, parentId })
-        .pipe(toastFailure("Failed to set parent")),
+      activePadiRpc.chrome.setParent({ id: subId, parentId }).pipe(
+        Effect.tap(() => Effect.sync(() => settled?.(true))),
+        Effect.tapError(() => Effect.sync(() => settled?.(false))),
+        toastFailure("Failed to set parent"),
+      ),
     );
   };
 
@@ -122,15 +138,7 @@ export const useTerminalCrud = createSharedRoot(() => {
     dropFromMru: (id) => store.forgetFromMru(id),
     promoteToTopLevel: (subId) => setParent(subId, null),
     rehomeUnder: (subId, newParentId) => setParent(subId, newParentId),
-    subPanel: {
-      collapse: subPanel.collapsePanel,
-      collapseChrome: subPanel.collapsePanelChrome,
-      activeSubTab: (parentId) => subPanel.peekSubPanel(parentId).activeSubTab,
-      setActiveSubTab: subPanel.setActiveSubTab,
-      selectSubTab: subPanel.selectSubTab,
-      requestRefocus: subPanel.requestRefocus,
-      remove: subPanel.removePanel,
-    },
+    subPanel,
     removeRightPanel: rightPanel.removePanel,
     removeSearch: terminalSearch.removeTerminal,
   };
@@ -533,6 +541,15 @@ export const useTerminalCrud = createSharedRoot(() => {
     evictDeparted: eviction.evictDeparted,
     handleCreate,
     handleCreateSubTerminal,
+    /** Nest a terminal under a new parent, or hand it back its own tile
+     *  (`null`) — the Dock's drag-to-split / drag-to-unsplit write. Resolves
+     *  `true` when the server applied it and `false` when it refused (already
+     *  toasted): the drop's reconcile (the old tile's tab strip, the landing
+     *  focus) is armed on the parent EDGE arriving on the metadata stream — not
+     *  on this promise — and a refused write must DISARM it rather than leave it
+     *  waiting for an edge that will never arrive. */
+    reparent: (id: TerminalId, parentId: TerminalId | null) =>
+      new Promise<boolean>((resolve) => setParent(id, parentId, resolve)),
     toggleSubPanel,
     handleKill,
     handleKillWithSubs,

@@ -51,6 +51,14 @@ vi.mock("./useDockFocus", () => ({
   useDockFocus: () => () => {},
 }));
 
+// The dock's re-home write is not part of what this file tests, and it is the
+// one import that reaches the terminal CRUD graph (and with it the daemon
+// status module, which reads `activeHost` off the wire). Cut it here rather
+// than widen the wire mock for a surface this test never drives.
+vi.mock("./useDockReparent", () => ({
+  useDockReparent: () => () => {},
+}));
+
 const { RailSubChip } = await import("./Dock");
 
 function shellMeta(): TerminalMetadata {
@@ -71,6 +79,7 @@ function shellMeta(): TerminalMetadata {
 function shellRankedRow() {
   return {
     id: SPLIT,
+    parentId: PARENT,
     kind: "shell" as const,
     bucket: "idle" as const,
     pip: "idle" as const,

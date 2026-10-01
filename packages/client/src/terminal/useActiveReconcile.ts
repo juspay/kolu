@@ -23,6 +23,7 @@ import type { TerminalId } from "kolu-common/surface";
 import { type Accessor, createEffect, on } from "solid-js";
 import { createHostScopedParentSnapshot } from "./parentSnapshot";
 import { containingTileOf, type ParentEdge } from "./terminalTree";
+import { type EvictionSubPanelPorts, repairTileTabs } from "./useSubPanel";
 
 /** Pick the tile that inherits focus when the active tile is removed: the
  *  survivor now occupying the removed tile's slot (its old index in the FULL
@@ -68,15 +69,9 @@ export interface TerminalEvictionPorts {
   promoteToTopLevel: (subId: TerminalId) => void;
   /** Re-home a surviving child under a still-live parent (`setParent`). */
   rehomeUnder: (subId: TerminalId, newParentId: TerminalId) => void;
-  subPanel: {
-    collapse: (parentId: TerminalId) => void;
-    collapseChrome: (parentId: TerminalId) => void;
-    activeSubTab: (parentId: TerminalId) => TerminalId | null;
-    setActiveSubTab: (parentId: TerminalId, subId: TerminalId | null) => void;
-    selectSubTab: (parentId: TerminalId, subId: TerminalId | null) => void;
-    requestRefocus: (parentId: TerminalId) => void;
-    remove: (id: TerminalId) => void;
-  };
+  /** The panel's seams — the repair rule's own vocabulary plus the two verbs a
+   *  removal drives and a repair does not (see `useSubPanel`). */
+  subPanel: EvictionSubPanelPorts;
   removeRightPanel: (id: TerminalId) => void;
   removeSearch: (id: TerminalId) => void;
 }
@@ -154,22 +149,8 @@ export function evictTerminal(
         x !== dest &&
         containingTileOf(x, edge) === dest,
     );
-    if (remaining.length === 0) {
-      if (wasFocused) ports.subPanel.collapse(dest);
-      else ports.subPanel.collapseChrome(dest);
-      // Clear the active tab too: the tile's last split is gone, so `activeSubTab`
-      // must not dangle at a departed sub. Keeping the invariant "`activeSubTab` is
-      // null or a LIVE sub of this tile" global lets consumers trust a plain
-      // null-check for "no active split" instead of each re-deriving liveness —
-      // both the adopt don't-steal guard (useAdoptNewSplit) and restore's hydration
-      // clamp (useSessionRestore) exist only to compensate for this dangling.
-      ports.subPanel.setActiveSubTab(dest, null);
-    } else {
-      if (ports.subPanel.activeSubTab(dest) === id) {
-        const replacement = remaining[0] ?? null;
-        if (wasFocused) ports.subPanel.selectSubTab(dest, replacement);
-        else ports.subPanel.setActiveSubTab(dest, replacement);
-      }
+    repairTileTabs(ports.subPanel, dest, remaining, wasFocused);
+    if (remaining.length > 0) {
       // Closing through a tab's button moves DOM focus onto the button no matter
       // which pane owns the focus fact. Bump unconditionally: each pane's nonce
       // consumer is self-gated by its `focused` prop, so background panes ignore
@@ -187,7 +168,7 @@ export function evictTerminal(
     if (departing.has(subId)) continue;
     ports.promoteToTopLevel(subId);
   }
-  ports.subPanel.remove(id);
+  ports.subPanel.removePanel(id);
   ports.removeRightPanel(id);
   ports.removeSearch(id);
   ports.dropFromMru(id);

@@ -47,6 +47,7 @@ function shellSubRow(
 ): Extract<SubRow, { kind: "shell" }> {
   return {
     id: id as TerminalId,
+    parentId: "parent" as TerminalId,
     kind: "shell",
     bucket: "idle",
     pip: "idle",
@@ -67,6 +68,7 @@ function agentSubRow(
 ): Extract<SubRow, { kind: "agent" }> {
   return {
     id: id as TerminalId,
+    parentId: "parent" as TerminalId,
     kind: "agent",
     bucket,
     pip,

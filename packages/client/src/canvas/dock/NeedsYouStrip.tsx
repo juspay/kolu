@@ -21,13 +21,12 @@ import { DockNeedsYouRow, DockNeedsYouStrip } from "@kolu/solid-dockrow";
 import type { NeedsYouDensity } from "@kolu/solid-dockrow/rowValues";
 import { DASH, type TerminalId } from "kolu-common/surface";
 import { type Component, createMemo, For, Show } from "solid-js";
-import { annotationLine } from "../../intent/text";
 import { useStatePip } from "../../terminal/statePipBind";
 import { useTerminalStore } from "../../terminal/useTerminalStore";
 import { encActiveHost } from "../../wire";
 import { isActiveRow } from "./activeRow";
 import { renderRowLabel } from "./renderRowLabel";
-import { createDockRowData } from "./dockRowData";
+import { createDockRowData, dockRowLabel } from "./dockRowData";
 import { rowRecencyAt } from "./dockRowRanking";
 import type { DockNeedsYouEntry } from "./dockTree";
 import { useRowRecency } from "./rowRecency";
@@ -142,10 +141,7 @@ const NeedsYouEntryRow: Component<{
             bucket={props.entry.blocked.bucket}
             agentState={activeArm(c().blocked)?.agent?.state}
             active={isActiveRow(props.entry.blocked.id)}
-            label={annotationLine(
-              c().tile.meta.intent,
-              c().tile.info.key.label,
-            )}
+            label={dockRowLabel(c().tile.meta, c().tile.info)}
             labelColor={c().tile.info.annotationColor}
             renderLabel={renderRowLabel}
             recency={recency()}

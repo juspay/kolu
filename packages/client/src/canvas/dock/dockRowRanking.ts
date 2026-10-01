@@ -180,6 +180,13 @@ type DockRowCore = {
  * window fate, so the never-park invariant is structural on order AND paint. */
 type SubDockRowCore = Omit<DockRowCore, "bucket" | "pip"> & {
   pip: SubDockPaintBucket;
+  /** The split's TRUE parent — the terminal it hangs under, which for depth ≥ 2
+   *  is another split rather than the tile. Taken from the pane TREE this row
+   *  was built out of, never re-read off the metadata parent edge: the dock's
+   *  nesting and this attribute then come from one fact, so a row cannot render
+   *  under a parent its own record has not caught up with (which is exactly what
+   *  a reparent does to the metadata projection for a frame). */
+  parentId: TerminalId;
   /** Hops from the tile's top-level row: 1 for a direct split, 2 for a split
    *  of that split, and so on. The row's indent — the only place the true tree
    *  is visible, since the DOM keeps every sub-entry a flat sibling. */
@@ -288,7 +295,7 @@ export function rankDockRows(
   for (const id of ids) {
     const meta = getMeta(id);
     if (!meta) continue;
-    const subRows = rankSubTree(getPaneTree(id), getMeta, classOf);
+    const subRows = rankSubTree(getPaneTree(id), getMeta, classOf, id);
     let recencyAt = rowRecencyAt(meta);
     for (const sub of subRows) {
       if (tsRank(sub.ts) > tsRank(recencyAt)) recencyAt = sub.ts;
@@ -394,17 +401,25 @@ function rankSubTree(
   nodes: readonly PaneNode[],
   getMeta: (id: TerminalId) => TerminalMetadata | undefined,
   classOf: (id: TerminalId) => AttentionClass,
+  /** The parent the nodes in `nodes` hang under — the tile for the first level,
+   *  then each split as the walk descends. Carried down rather than re-read off
+   *  the metadata edge: the tree IS the parent fact here, and a row's
+   *  `data-parent-id` must agree with the nesting it was built into. */
+  parentId: TerminalId,
   depth = 1,
 ): SubDockRow[] {
   return nodes.flatMap((node) => {
-    const row = rankSubRow(node.id, depth, getMeta, classOf);
+    const row = rankSubRow(node.id, parentId, depth, getMeta, classOf);
     // IDs and projected metadata are independent reactive reads. Match the
     // top-level row contract above: reading a missing slot subscribes this memo
     // to its arrival, so omit the not-yet-paintable row for this frame; the
     // reactive recomputation includes it. Its own splits wait with it — an
     // entry indented under a row that isn't there reads as a lie.
     if (!row) return [];
-    return [row, ...rankSubTree(node.children, getMeta, classOf, depth + 1)];
+    return [
+      row,
+      ...rankSubTree(node.children, getMeta, classOf, node.id, depth + 1),
+    ];
   });
 }
 
@@ -413,6 +428,7 @@ function rankSubTree(
  *  agentless split naturally falls into the quiet tail. */
 function rankSubRow(
   id: TerminalId,
+  parentId: TerminalId,
   depth: number,
   getMeta: (id: TerminalId) => TerminalMetadata | undefined,
   classOf: (id: TerminalId) => AttentionClass,
@@ -427,6 +443,7 @@ function rankSubRow(
   const klass = classOf(id);
   const core = {
     id,
+    parentId,
     depth,
     ts: rowRecencyAt(meta),
     pip: paintDockRow(meta, klass, false),

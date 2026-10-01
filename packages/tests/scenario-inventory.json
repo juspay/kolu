@@ -7827,6 +7827,30 @@
       "exampleRows": [],
       "executions": 1,
       "firstSeenSha": "a86a380bc29684450f46a539f82cca7362be9218"
+    },
+    {
+      "revisionId": "revision-6f9acecac3dc0eb95f30",
+      "scenarioKey": "scenario-7e38e57eb2f47d8ea701",
+      "feature": "features/dock-arrange.feature",
+      "scenario": "Dragging a row onto another row nests it as a split",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "55d4b7f455c0ed245e3915d68fe2132309261d9bc1cdcad0de8232f5702fff87",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "d4f1d24eff56b9e75747a7ab99f88bc046b8cd4c"
+    },
+    {
+      "revisionId": "revision-49dfe18ef16eb2332390",
+      "scenarioKey": "scenario-8c83e7699e4fb5595e57",
+      "feature": "features/dock-arrange.feature",
+      "scenario": "Dragging a split's row onto its repo header gives it its own tile",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "4234e5f11eef0e6782cd7e6837bf2e20572d3c44357de37a255995ccaba2cbb0",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "d4f1d24eff56b9e75747a7ab99f88bc046b8cd4c"
     }
   ]
 }

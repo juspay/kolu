@@ -39,12 +39,12 @@ import { dockRowFacts } from "@kolu/solid-dockrow/rowValues";
 import type { TerminalMetadata } from "@kolu/padi-client/vocab";
 import type { TerminalId } from "kolu-common/surface";
 import { type Accessor, createMemo } from "solid-js";
-import { annotationLine } from "../../intent/text";
 import { useStatePip } from "../../terminal/statePipBind";
 import type { TerminalDisplayInfo } from "../../terminal/terminalDisplay";
 import { useTerminalStore } from "../../terminal/useTerminalStore";
 import { encActiveHost } from "../../wire";
 import { isActiveRow } from "./activeRow";
+import { dockRowLabel } from "./dockRowData";
 import { type DockRowBucket, rowRecencyAt } from "./dockRowRanking";
 import { renderRowLabel } from "./renderRowLabel";
 import { useRowRecency } from "./rowRecency";
@@ -131,10 +131,8 @@ export function useDockRowBag(): (input: {
         return isActiveRow(input.id);
       },
       get label() {
-        return annotationLine(
-          input.combined().meta.intent,
-          input.combined().info.key.label,
-        );
+        const c = input.combined();
+        return dockRowLabel(c.meta, c.info);
       },
       get labelColor() {
         return input.combined().info.annotationColor;
