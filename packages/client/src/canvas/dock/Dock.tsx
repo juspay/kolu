@@ -82,7 +82,6 @@ import {
   maybeTransformStyle,
 } from "@thisbeyond/solid-dnd";
 import { AttentionTriplet } from "@kolu/solid-statepip";
-import { cwdBasename } from "@kolu/terminal-vocab/terminalKey";
 import { createElementSize } from "@solid-primitives/resize-observer";
 import type { TerminalId } from "kolu-common/surface";
 import {
@@ -100,7 +99,6 @@ import { match } from "ts-pattern";
 import { createSharedRoot } from "../../createSharedRoot";
 import { ACTIONS } from "../../input/actions";
 import { isPlatformModifier } from "../../input/keyboard";
-import { annotationLine } from "../../intent/text";
 import { intentLeadGlyph } from "../../intent/text";
 import { persistedPref } from "../../persistedPref";
 import LiveActivityDot from "../../terminal/LiveActivityDot";
@@ -126,7 +124,7 @@ import {
   setDockCardsWidth,
 } from "./dockCardsWidth";
 import { useDockRowBag } from "./useDockRowBag";
-import { createDockRowData } from "./dockRowData";
+import { createDockRowData, dockRowLabel } from "./dockRowData";
 import type { DockBranchCluster, DockGroup, DockTree } from "./dockTree";
 import { arrayMove, moveCluster, moveRepo } from "./dockTree";
 import {
@@ -729,14 +727,17 @@ const HeaderDropTarget: Component = () => {
  *  land here" — the one thing the drag is for. A tinted, dashed outline carries
  *  the row without covering the answer.
  *
- *  The label is the row's own annotation fold (`annotationLine` over the intent
- *  and the display label) — the same words the row underneath shows, so the
- *  thing in your hand is recognisable at a glance. */
+ *  The label is the row's own (`dockRowLabel`) — the same words the row
+ *  underneath shows, tile or split. Reading it off the display projection
+ *  directly is what made a SPLIT's ghost an empty box: display info exists for
+ *  tiles only. */
 const RowDragGhost: Component<{ id: TerminalId }> = (props) => {
-  const combined = createDockRowData(props.id);
+  const store = useTerminalStore();
   const label = () => {
-    const c = combined();
-    return c === null ? "" : annotationLine(c.meta.intent, c.info.key.label);
+    const meta = store.getMetadata(props.id);
+    return meta === undefined
+      ? ""
+      : dockRowLabel(meta, store.getDisplayInfo(props.id));
   };
   return (
     <div class="pointer-events-none absolute inset-0 flex items-center gap-2 rounded-md border border-dashed border-accent/70 bg-accent/5 px-3">
@@ -1125,7 +1126,8 @@ export const RailSubChip: Component<{
   return (
     <Show when={meta()}>
       {(m) => {
-        const label = () => annotationLine(m().intent, cwdBasename(m().cwd));
+        // The same words the cards-mode split row shows, off the same fold.
+        const label = () => dockRowLabel(m(), undefined);
         const glyph = () => intentLeadGlyph(label());
         const pip = useStatePip(
           encActiveHost,

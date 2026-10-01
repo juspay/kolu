@@ -19,15 +19,13 @@ import {
   dockRowFacts,
   type DockRowSurface,
 } from "@kolu/solid-dockrow/rowValues";
-import { cwdBasename } from "@kolu/terminal-vocab/terminalKey";
 import type { TerminalId } from "kolu-common/surface";
 import { type Component, createMemo, Show } from "solid-js";
-import { annotationLine } from "../../intent/text";
 import { useStatePip } from "../../terminal/statePipBind";
 import { useTerminalStore } from "../../terminal/useTerminalStore";
 import { encActiveHost } from "../../wire";
 import { isActiveRow } from "./activeRow";
-import { createDockRowData } from "./dockRowData";
+import { createDockRowData, dockRowLabel } from "./dockRowData";
 import type { RankedDockRow } from "./dockRowRanking";
 import { renderRowLabel } from "./renderRowLabel";
 import { useRowRecency } from "./rowRecency";
@@ -101,7 +99,9 @@ export const SubTerminalRow: Component<{
             parentId={props.row.parentId}
             depth={props.row.depth}
             active={isActiveRow(props.row.id)}
-            label={annotationLine(m().intent, cwdBasename(m().cwd))}
+            // A split has no display identity of its own: the shared fold falls
+            // back to the working directory's basename (see `dockRowLabel`).
+            label={dockRowLabel(m(), undefined)}
             // The tile's branch ink: a split's label is a directory, but it
             // lives in the same worktree as the row above it, and sharing the
             // hue is what keeps the label column reading as one family. Falls
