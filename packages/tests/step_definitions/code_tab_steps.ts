@@ -828,6 +828,20 @@ Then(
 );
 
 Then(
+  "the file content should be syntax highlighted",
+  async function (this: KoluWorld) {
+    // Pierre first paints plain spans, then replaces them with Shiki tokens.
+    // A native drag started on the plain text can lose its anchor mid-gesture.
+    // Await the renderer's token output explicitly for source-code scenarios;
+    // plain-text files have no highlighting to await.
+    await this.page
+      .locator(`${FILE_VIEW} [data-code] span[style*="--diffs-token-"]`)
+      .first()
+      .waitFor({ state: "visible", timeout: HYDRATION_TIMEOUT });
+  },
+);
+
+Then(
   "the file content should contain {string} while nudging {string}",
   async function (this: KoluWorld, expected: string, filePath: string) {
     await waitForViewText(this, "pierre-file-view", expected, filePath);

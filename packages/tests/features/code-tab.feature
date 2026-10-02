@@ -1843,6 +1843,7 @@ Feature: Code tab (review + browse)
     When I switch the file view to "source"
     Then the file view should be showing "source"
     And the file content should contain "# Heading Src"
+    And the file content should be syntax highlighted
     When I select text "# Heading Src" in the file content
     And I click the comment pill
     Then the comment composer should be visible
@@ -2026,6 +2027,7 @@ Feature: Code tab (review + browse)
     # source line, so this also pins the drag to the source surface).
     Then the file view should be showing "source"
     And the file content should contain "md-source-comment-marker"
+    And the file content should be syntax highlighted
     When I select text "md-source-comment-marker" in the file content
     Then the comment pill should be visible
 
