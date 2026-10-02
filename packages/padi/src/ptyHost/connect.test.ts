@@ -25,10 +25,10 @@
  *      surface it imitates.
  */
 
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { createServer, Socket } from "node:net";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { controlCoreFragment, controlCoreSurface } from "@kolu/surface-daemon";
 import {
   implementSurfaces,
@@ -40,7 +40,7 @@ import {
   type UnixSocketListener,
 } from "@kolu/surface/unix-socket";
 import { Effect } from "effect";
-import { RpcGroup } from "effect/unstable/rpc";
+import { RpcGroup } from "effect/rpc";
 import {
   type PtyHostSocketListener,
   PTY_HOST_CONTRACT_VERSION,
@@ -50,9 +50,12 @@ import {
   servePtyHostOverUnixSocket,
 } from "kaval";
 import {
+  converge,
+  isSocketSquatterForeignError,
   instanceKeyFromStartedAt,
   isUnspeakableProtocolError,
 } from "@kolu/surface-daemon-supervisor";
+import { createEndpointForKoluTest } from "@kolu/surface-daemon-supervisor/createEndpoint.kolu.testlib";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import {
   connectKaval,
@@ -289,38 +292,102 @@ describe("connectKaval — identity comes only from frozen hello", () => {
 });
 
 describe("connectKaval — the handshake read is bounded (F2)", () => {
-  it("rejects on the baked deadline when a peer accepts the socket but never answers frozen hello", async () => {
-    // A foreign squatter (or wedged daemon) accepts the unix connection but
-    // sends no reply — without a deadline the read would pend forever and hang
-    // boot, and the gate-less-squatter recovery would never reach its foreign
-    // refusal. `connectKaval` carries NO deadline override (fail-fast: no
-    // knobs), so this drives the supervisor's single baked policy under FAKE
-    // timers — production and this test run the same parameterless
-    // implementation, just with the clock advanced.
-    const socketPath = sockPath("kolu-silent-");
-    const server = createServer(() => {
-      // accept, then never respond
+  it("rejects a completely silent peer on keep-alive loss, then refuses the foreign socket holder", async () => {
+    const socketPath = sockPath("kolu-completely-silent-");
+    const sockets = new Set<Socket>();
+    const server = createServer((socket) => {
+      sockets.add(socket);
+      socket.on("close", () => sockets.delete(socket));
+      socket.on("error", () => {});
+      // Consume requests and pings, but write NOTHING back (including no Pong).
+      socket.resume();
     });
-    await new Promise<void>((resolve) => server.listen(socketPath, resolve));
-    // Fake ONLY setTimeout so the real dial + version-send still progress over IO;
-    // the deadline timer is the one thing under our control.
-    vi.useFakeTimers({ toFake: ["setTimeout"] });
+    await new Promise<void>((resolve, reject) => {
+      server.once("error", reject);
+      server.listen(socketPath, resolve);
+    });
+    const failures: Error[] = [];
+    const states: string[] = [];
+    const spawn = vi.fn(() => {
+      throw new Error("a foreign socket holder must never be replaced");
+    });
+    const endpoint = createEndpointForKoluTest({
+      hostId: "local",
+      home: {
+        dir: dirname(socketPath),
+        gatePath: join(dirname(socketPath), "kaval.pid"),
+        socketPath,
+      },
+      policy: {
+        capability: "not-drainable",
+        baked: {
+          contractVersion: PTY_HOST_CONTRACT_VERSION,
+          build: { kind: "off-nix" },
+        },
+        onContractSkew: { kind: "recycle" },
+        onBuildMismatch: { kind: "nudge-human" },
+      },
+      // Enter the gate-less recovery path. Its OS holder lookup and every
+      // connect attempt below are real; no fabricated transport error.
+      probe: () => Effect.succeed(null),
+      driver: { spawn: Effect.sync(spawn) },
+      connect: (path) =>
+        connectKaval(path).pipe(
+          Effect.tapError((error) => Effect.sync(() => failures.push(error))),
+        ),
+      log: silentLog,
+      onStatus: (_host, status) => states.push(status.state),
+      adoptConnectAttempts: 1,
+    });
     try {
-      const outcome = Effect.runPromise(connectKaval(socketPath)).then(
-        () => "resolved",
-        (e: unknown) => (e as Error).message,
+      const result = await Effect.runPromise(Effect.result(converge(endpoint)));
+      expect(result._tag).toBe("Failure");
+      if (result._tag !== "Failure")
+        throw new Error("foreign peer was adopted");
+      expect(isSocketSquatterForeignError(result.failure)).toBe(true);
+      if (!isSocketSquatterForeignError(result.failure)) throw result.failure;
+      expect(
+        result.failure.holders.some((holder) => holder.pid === process.pid),
+      ).toBe(true);
+      // Three bounded recovery passes, each ending in Effect 4's keep-alive
+      // refusal rather than the independent 30s frozen-hello deadline.
+      expect(failures).toHaveLength(3);
+      for (const error of failures) {
+        expect(error.message).toBe(
+          `pty-host handshake failed — could not read control.core.hello (surface stdio transport closed: unix socket ${socketPath}: the peer stopped answering the keep-alive ping)`,
+        );
+      }
+      expect(states).toContain("dead");
+      expect(spawn).not.toHaveBeenCalled();
+      expect(server.listening).toBe(true);
+    } finally {
+      for (const socket of sockets) socket.destroy();
+      await new Promise<void>((resolve, reject) =>
+        server.close((error) => (error ? reject(error) : resolve())),
       );
-      // Let the real dial complete and the deadline timer arm (setImmediate is not faked).
-      for (let i = 0; i < 10; i++) await new Promise((r) => setImmediate(r));
-      await vi.advanceTimersByTimeAsync(30_000);
-      await expect(outcome).resolves.toMatch(
+      rmSync(dirname(socketPath), { recursive: true });
+    }
+  }, 60_000);
+
+  it("rejects on the baked deadline when a peer accepts the socket but never answers frozen hello", async () => {
+    // Keep the transport healthy while the hello handler wedges. A completely
+    // silent socket now loses Effect 4's keep-alive race before the 30s hello
+    // deadline, so it cannot prove this independent bound on the RPC read.
+    // Both the real transport and the baked deadline remain enabled.
+    const socketPath = sockPath("kolu-hello-silent-");
+    const listener = await serveFake(socketPath, {
+      [HELLO_TAG]: () => Effect.never,
+    });
+    // Use real time: advancing fake timers by 30s starves socket IO and races
+    // the heartbeat even though the real server is ready to answer pings.
+    try {
+      await expect(Effect.runPromise(connectKaval(socketPath))).rejects.toThrow(
         /control-core hello timed out after 30000ms/,
       );
     } finally {
-      vi.useRealTimers();
-      server.close();
+      await listener.close();
     }
-  });
+  }, 40_000);
 
   it("rejects on the 10s version deadline when the frozen hello answers but system.version never does", async () => {
     // The SECOND deadline, distinct from the supervisor-owned 30s frozen-hello

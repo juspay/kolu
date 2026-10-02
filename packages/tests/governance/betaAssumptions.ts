@@ -107,35 +107,20 @@ export function findBetaAssumptions(source: string): BetaAssumption[] {
  *  one marker, so a marker cannot be dropped along with the reasoning it
  *  guards. */
 export const BETA_ASSUMPTION_SITES: readonly string[] = [
-  // The terminal attach loop's FIRST-FRAME DEADLINE (juspay/kolu#2101 H3). The
-  // deadline exists only because an opened stream can hang with NO failure
-  // signal: `RpcClient.makeProtocolSocket`'s `retryTransientErrors` arm returns
-  // early from its `tapCause` for a `SocketOpenError`, and that broadcast is the
-  // only thing that fails registered entries — so the protocol re-dials
-  // underneath a parked subscription forever. If a bump ever made that re-dial
-  // fail its entries, the honest fix is a retry on the failure, not a clock. The
-  // marker names the law that MEASURES it — `socketRedialLaws.test.ts` — so the
-  // re-verification is "run that law", never "read the code and hope".
+  // The first-frame deadline bounds a silent upstream on a live wire. Stable
+  // Effect broadcasts established-socket ping failures, but pre-open retries
+  // still leave calls pending. socketRedialLaws.test.ts measures both.
   "packages/client/src/terminal/reattachingStream.ts",
   "packages/padi-client/src/vocab.ts",
   "packages/surface-daemon-supervisor/src/probeDaemonIdentity.ts",
   "packages/surface/src/frameLimit.ts",
-  // The websocket link's re-dial EPOCH and its DIAL HISTORY (juspay/kolu#2101 J1).
-  // Both rest on one measured behavior: Effect RPC runs `onDisconnect` on every
-  // attempt end via `Effect.ensuring`, OUTSIDE the `tapCause` that swallows a
-  // `SocketOpenError` — so an attempt nobody is told about still ends its status.
-  // The epoch counts open EDGES off that funnel and fails every call a re-dial
-  // orphaned (the production park); the dial history's `"ended-without-open"`
-  // row is the only record anywhere that a swallowed dial happened. A bump that
-  // moved the hook inside the swallow would silence both, with nothing failing
-  // and nothing logged — the exact blind spot this round closed. Same law file
-  // as the reattachingStream row above, deliberately: ONE measurement, two
-  // consumers, so a re-verification cannot fix one and forget the other.
+  // The websocket dial history and open-edge count require onDisconnect on
+  // every attempt, including swallowed pre-open failures. The old dispatch
+  // epoch fence is gone: stable Effect broadcasts heartbeat failures itself.
   "packages/surface/src/links/websocket.ts",
-  // The duplex leg's KEEP-ALIVE READING (juspay/kolu#2200): that the producers
-  // of `SocketOpenError{kind:"Timeout"}` are enumerable, and that `fromDuplex`
-  // adds one only when handed an `openTimeout`. Argued at the marker; MEASURED
-  // by `stdioPingStall.test.ts`, so the re-verification is "run that test".
+  // The duplex keep-alive classification depends on SocketReadError's
+  // upstream "ping timeout" cause; stdioPingStall.test.ts measures it and
+  // distinguishes an ordinary read failure.
   "packages/surface/src/links/wire.ts",
   "packages/surface/src/mirrorRemoteSurface.ts",
   // The reactor's ENGINE seam (juspay/kolu#2101 G6). Three assumptions live here,

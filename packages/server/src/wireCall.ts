@@ -55,7 +55,7 @@ import { websocketLink } from "@kolu/surface/links/websocket";
 import { surfaceWsUrl } from "@kolu/surface-app";
 import { isStaleProcessClose } from "@kolu/surface-app/connect";
 import { Cause, Effect, Exit, Schema } from "effect";
-import type { Rpc } from "effect/unstable/rpc";
+import type { Rpc } from "effect/rpc";
 import { koluWireGroup } from "kolu-common/surfacesWithPadi";
 
 /** The group this caller can spell: {@link koluWireGroup}, THE one assembly of

@@ -16,15 +16,15 @@
   },
   "dependencies": {
     "@kolu/surface": "workspace:*",
-    "effect": "4.0.0-rc.112",
+    "effect": "4.0.0",
     "ts-pattern": "^5.9.0"
   },
   "devDependencies": {
-    "@effect/platform-node": "4.0.0-rc.112",
+    "@effect/platform-node": "4.0.0",
     "@kolu/log": "workspace:*",
     "@types/node": "^22.0.0",
     "tsx": "^4.21.0",
     "typescript": "^7.0.2",
-    "vitest": "^4.1.0"
+    "vitest": "^5.0.3"
   }
 }

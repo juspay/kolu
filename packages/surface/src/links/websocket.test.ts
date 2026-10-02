@@ -273,7 +273,7 @@ describe("websocketLink — the WatchableWire (#4)", () => {
     await link.dispose();
   });
 
-  it("counts open EDGES as the epoch a call binds to", async () => {
+  it("counts open EDGES in diagnostics", async () => {
     const h = harness();
     const link = await h.link;
     expect(link.diagnostics.epoch()).toBe(0);

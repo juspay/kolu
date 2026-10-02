@@ -107,8 +107,8 @@
  */
 
 import { Data } from "effect";
-import type { Rpc, RpcGroup } from "effect/unstable/rpc";
-import { RpcSchema } from "effect/unstable/rpc";
+import type { Rpc, RpcGroup } from "effect/rpc";
+import { RpcSchema } from "effect/rpc";
 import {
   type ComposedSurfaces,
   composeSurfaceContracts,

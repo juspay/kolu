@@ -26,7 +26,7 @@ import {
   serveOverUnixSocket,
   type UnixSocketServeOutcome,
 } from "@kolu/surface/unix-socket";
-import type { Rpc, RpcGroup } from "effect/unstable/rpc";
+import type { Rpc, RpcGroup } from "effect/rpc";
 import type { DaemonHomePaths } from "./daemonHome.ts";
 import type { Logger } from "./logger.ts";
 import {

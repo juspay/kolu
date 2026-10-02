@@ -538,7 +538,7 @@ re-litigate:
 - **The endpoint moved to the ROOT as shared flags.** `--socket` /
   `--state-root` / `--host` are mutually exclusive and parse on **either side
   of the verb** (`kolu --host box create` ≡ `kolu create --host box`). That is
-  what retired cleye for `effect/unstable/cli`: cleye binds a flag to the
+  what retired cleye for `effect/cli`: cleye binds a flag to the
   subcommand that *precedes* it, so the first spelling was a usage error. The
   parser ships inside the `effect` the workspace already pins, so it costs no
   new dependency.

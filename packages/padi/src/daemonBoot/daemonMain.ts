@@ -50,7 +50,7 @@ import {
   resolveDaemonHome,
 } from "@kolu/surface-daemon";
 import { Context, Effect, Layer } from "effect";
-import type { Rpc, RpcGroup } from "effect/unstable/rpc";
+import type { Rpc, RpcGroup } from "effect/rpc";
 import { KAVAL_NS_PREFIX, PTY_HOST_SOCK_FILE } from "kaval";
 import { configureNixShellEnv } from "kolu-pty";
 import { processIdentityFromEnv } from "osfacts-client";

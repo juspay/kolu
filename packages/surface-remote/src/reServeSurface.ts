@@ -62,7 +62,7 @@ import {
   superviseTerminalSource,
 } from "@kolu/surface/server";
 import { Effect, type Stream } from "effect";
-import type { Rpc, RpcGroup } from "effect/unstable/rpc";
+import type { Rpc, RpcGroup } from "effect/rpc";
 import {
   type LiveSpawnHolder,
   observableHolder,

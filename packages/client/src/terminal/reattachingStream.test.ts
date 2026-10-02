@@ -1,3 +1,5 @@
+import { RpcClientError } from "effect/rpc/RpcClientError";
+import { SocketReadError } from "effect/socket/Socket";
 import { Effect, Exit, Fiber, Stream } from "effect";
 import { TestClock } from "effect/testing";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -968,30 +970,30 @@ describe("consumeReattachingStream", () => {
     expect(warn.mock.calls.length).toBeGreaterThan(0);
   });
 
-  it("(K1c) a J1 epoch re-dial inside the first-frame window spends NEITHER budget", async () => {
-    // J1's `websocketLink` now FAILS every call a wire re-dial orphaned, with
-    // an `RpcClientError`. That arrives here as an ordinary channel-2 transport
-    // failure — it always did, and this pins that it stays that way now that
-    // the budgets are the thing standing between a pane and a loud verdict.
+  it("(K1c) a heartbeat failure inside the first-frame window spends NEITHER budget", async () => {
+    // Stable Effect broadcasts a missed heartbeat as a channel-2 transport
+    // failure. Re-subscription must not spend either first-frame budget.
     vi.spyOn(console, "warn").mockImplementation(() => {});
     const err = vi.spyOn(console, "error").mockImplementation(() => {});
-    /** The shape J1's epoch wrap raises (`packages/surface/src/links/websocket.ts`). */
-    const epochFail = () => ({
-      _tag: "RpcClientError",
-      reason: "RpcClientDefect",
-      message: "wire re-dialled (epoch 1 → 2) — failing the calls it orphaned",
-    });
+    const heartbeatFailure = () =>
+      new RpcClientError({
+        reason: new SocketReadError({ cause: new Error("ping timeout") }),
+      });
     const streamFn = vi
       .fn<() => Stream.Stream<string, unknown>>()
-      // 1 & 2: two epoch fails, both INSIDE the first-frame window
+      // 1 & 2: two heartbeat failures, both INSIDE the first-frame window
       .mockReturnValueOnce(
         Stream.fromEffect(
-          Effect.flatMap(Effect.sleep(5_000), () => Effect.fail(epochFail())),
+          Effect.flatMap(Effect.sleep(5_000), () =>
+            Effect.fail(heartbeatFailure()),
+          ),
         ),
       )
       .mockReturnValueOnce(
         Stream.fromEffect(
-          Effect.flatMap(Effect.sleep(5_000), () => Effect.fail(epochFail())),
+          Effect.flatMap(Effect.sleep(5_000), () =>
+            Effect.fail(heartbeatFailure()),
+          ),
         ),
       )
       // 3: silent → the deadline budget's FIRST spend
@@ -1005,8 +1007,8 @@ describe("consumeReattachingStream", () => {
       [streamFn, () => undefined, vi.fn(), "test", tile()],
       () =>
         Effect.gen(function* () {
-          yield* advance(5_000 + 300); // epoch fail #1 → attempt 2
-          yield* advance(5_000 + 300); // epoch fail #2 → attempt 3
+          yield* advance(5_000 + 300); // heartbeat failure #1 → attempt 2
+          yield* advance(5_000 + 300); // heartbeat failure #2 → attempt 3
           expect(streamFn).toHaveBeenCalledTimes(3);
           expect(err).not.toHaveBeenCalled();
 

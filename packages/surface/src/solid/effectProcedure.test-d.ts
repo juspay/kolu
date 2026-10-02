@@ -42,7 +42,7 @@
  */
 
 import { Effect, Schema } from "effect";
-import type { Rpc } from "effect/unstable/rpc";
+import type { Rpc } from "effect/rpc";
 import { expectTypeOf } from "vitest";
 import type { SurfaceCallFailure } from "../client";
 import { defineSurface, type SurfaceRpcsFor } from "../define";

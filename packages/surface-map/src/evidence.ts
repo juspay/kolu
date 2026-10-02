@@ -1,7 +1,7 @@
 /**
  * `@kolu/surface-map/evidence` — the failure-evidence VOCABULARY and its wire schema.
  *
- * A leaf on purpose. `define.ts` imports `effect/unstable/rpc` and `@kolu/surface/define`
+ * A leaf on purpose. `define.ts` imports `effect/rpc` and `@kolu/surface/define`
  * as VALUES to build the map's wire group; this module imports `effect`'s `Schema` and
  * nothing else at RUNTIME (the `WireSchema` bound below is a TYPE-only import), so a
  * browser-bundle-constrained consumer (`@kolu/surface-remote/connection`, whose whole

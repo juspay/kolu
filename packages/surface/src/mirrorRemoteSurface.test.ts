@@ -880,3 +880,26 @@ describe("mirrorRemoteSurface — procedures (the total dual)", () => {
     expect(settled).toBe(true);
   });
 });
+
+describe("forkChild failure isolation", () => {
+  it("an unawaited failed child leaves its parent able to keep working", async () => {
+    let childFailed = false;
+    const result = await Effect.runPromise(
+      Effect.gen(function* () {
+        yield* Effect.forkChild(
+          Effect.fail("child failed").pipe(
+            Effect.onExit(() =>
+              Effect.sync(() => {
+                childFailed = true;
+              }),
+            ),
+          ),
+        );
+        yield* Effect.yieldNow;
+        expect(childFailed).toBe(true);
+        return "parent survived";
+      }),
+    );
+    expect(result).toBe("parent survived");
+  });
+});

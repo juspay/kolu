@@ -49,12 +49,10 @@
  * point is that a reopen lane is governed, so every lane is named here:
  *
  *  - **The framework fence** (`unenrolledStreamCall`'s `STREAM_RETRY`). Owns the
- *    TRANSPORT class end to end, including — since kolu#2101 J1 — a wire re-dial:
- *    `@kolu/surface`'s `websocketLink` counts open EDGES and FAILS every call an
- *    edge superseded, so an orphaned subscription arrives as an ordinary
- *    `RpcClientError` on the first reopen, with no clock anywhere. It never
- *    reaches this module's budgets, and {@link FIRST_FRAME_DEADLINE_MS} is not
- *    what covers it.
+ *    TRANSPORT class end to end. Effect broadcasts established-socket failures
+ *    as `RpcClientError`, and the fence re-subscribes without spending this
+ *    module's budgets. The first-frame deadline covers silence without a
+ *    transport failure, not reconnect recovery.
  *  - **This loop's channel-2 retry** (the three members above plus the deadline).
  *    Governed by the budgets, the fruitless-cycle counter, and one loudness
  *    policy — {@link FRUITLESS_CYCLE_VERDICT}.
@@ -173,16 +171,16 @@ const CLEAN_END_REATTACH_BUDGET = 1;
  *  excuses — and the remaining ~18s is the room the unboundable serialization
  *  term gets. Under 25s the deadline PREEMPTS the watchdog it depends on: it
  *  would tear the stream down while the socket cycle that actually repairs a
- *  half-open wire (and J1's epoch wrap, which then fails the orphan into the
- *  retry channel with no clock at all) is still in flight. That inversion — the
+ *  half-open wire is still in flight. Stable Effect's own ping failure usually
+ *  reaches the retry channel earlier (about 10s), within that same upper bound. That inversion — the
  *  belt firing before the braces — is what shipped at 10s.
  *
  *  **The bound this buys.** A genuine park is REPAIRED at 45s (the first
  *  re-attach) and SAID OUT LOUD at 90.3s (the second silent open, plus one
  *  backoff). Slower than the old 20.3s — deliberately, because the old number's
  *  speed was bought by executing panes that were merely slow, and because the
- *  class this deadline still owns has shrunk: J1's epoch wrap now takes the
- *  re-dial class instantly, on the reopen edge, with no clock.
+ *  established-socket failures reach the retry fence directly from Effect,
+ *  before the replacement connection opens.
  *
  *  **FIRST frame only — never between frames.** An idle terminal emits nothing
  *  for hours and that is the healthy case: an inter-frame deadline would kill
@@ -193,15 +191,9 @@ const CLEAN_END_REATTACH_BUDGET = 1;
  *  only strap** (kolu#2101 J1). There are two ways an opened attach can go
  *  silent, and they are covered by different things:
  *
- *   - **The wire RE-DIALLED underneath it.** `@kolu/surface`'s `websocketLink`
- *     counts open EDGES (the wire epoch) and FAILS, itself, every call an edge
- *     superseded — so this class arrives as an ordinary transport failure the
- *     framework fence retries, on the first reopen, with no clock involved. The
- *     deadline does not own it, and no per-stream deadline could have: the class
- *     covers every subscription in the tab, not just this one. It reaches this
- *     module (if at all) as a channel-2 failure that spends NEITHER budget —
- *     asserted, because the budgets are now the only thing between a pane and a
- *     loud verdict.
+ *   - **The established wire stopped answering.** Effect RPC broadcasts its
+ *     heartbeat failure as SocketReadError. The framework fence retries that
+ *     failure without spending either terminal re-attach budget.
  *   - **The wire never moved and the UPSTREAM stalled.** A relay that holds the
  *     stream open while its own source says nothing (padi re-binding, kaval
  *     mid-adopt) produces no re-dial, no epoch edge, and no failure anywhere.
@@ -214,16 +206,12 @@ const CLEAN_END_REATTACH_BUDGET = 1;
  *  race is harmless: both roads end in channel 2, the same re-subscribe, and the
  *  budget below bounds the second one either way.
  *
- *  BETA-ASSUMPTION(rc.112): an in-flight stream survives a `SocketOpenError`
- *  re-dial UNFAILED — `RpcClient.makeProtocolSocket`'s `retryTransientErrors`
- *  arm returns early from its `tapCause` without broadcasting
- *  `ClientProtocolError`, which is the only thing that fails registered entries,
- *  so an opened stream can hang with no failure signal while the protocol
- *  silently re-dials underneath it. The framework's epoch fix rests on the SAME
- *  measured behavior (it exists because nothing fails), so a bump that made the
- *  re-dial fail its entries would make BOTH the epoch wrap and this deadline's
- *  first bullet redundant — re-measure before re-stamping. MEASURED by
- *  `packages/surface/src/links/socketRedialLaws.test.ts` (laws 2 and 3). */
+ *  BETA-ASSUMPTION(4.0.0): pre-open SocketOpenError retries leave registered calls pending, but an established socket's ping timeout fails them.
+ *  Stable Effect's src/rpc/RpcClient.ts swallows only SocketOpenError and
+ *  broadcasts the pinger's SocketReadError. Measured by
+ *  packages/surface/src/links/socketRedialLaws.test.ts. This deadline still
+ *  bounds a stalled upstream that owes a first frame on an otherwise live wire.
+ */
 const FIRST_FRAME_DEADLINE_MS = 45_000;
 
 /** How many re-attaches a SILENT open may buy in one EPISODE.
@@ -282,8 +270,8 @@ const FRUITLESS_CYCLE_VERDICT = 200;
  *  30s, and the floor is not arbitrary: it is above the heartbeat's ~25s
  *  worst-case half-open cycle (`@kolu/surface`'s `heartbeat.ts`), so a demoted
  *  loop never issues more than one attach per watchdog cycle. The repair that
- *  would actually heal a wedged chain — the socket cycle, J1's epoch wrap
- *  failing the orphans into this same retry channel, kolu-server re-binding padi
+ *  would actually heal a wedged chain — the socket cycle, Effect's transport
+ *  failure entering this same retry channel, kolu-server re-binding padi
  *  — gets a full cycle to land between attempts instead of racing them.
  *
  *  **The unboundedness argument (mandated, kolu#2101 K1).** The demoted loop has
@@ -297,8 +285,8 @@ const FRUITLESS_CYCLE_VERDICT = 200;
  *  terminal: a gone terminal answers the declared `TerminalNotFound` and ends
  *  the loop outright; an unmounted tile interrupts the fiber, cancelling even a
  *  sleeping backoff. And it HEALS on every outcome that is recoverable, because
- *  each of them lands in this same channel — J1's re-drive, the heartbeat's
- *  socket cycle, padi re-binding, the host reconverging. What is left, the only
+ *  recovery reaches this loop through a re-subscribed stream, padi re-binding,
+ *  or the host reconverging. What is left, the only
  *  state in which this loop spins for hours, is a live PTY behind a chain that
  *  is permanently wedged but never closes: exactly the state the verdict exists
  *  to put a human in front of. The alternative shipped and was worse — an
@@ -451,10 +439,9 @@ export interface AttachTileFacts {
  *  cases above all rest on an EVENT — a failure, an end, a refused frame. The
  *  wake-window residue had none: a pane sat blank while its host's own logs
  *  showed nothing at all. Two different causes produce that rendering, and only
- *  one of them is still this module's to catch. A wire that RE-DIALLED
- *  underneath the subscription is failed by `@kolu/surface`'s epoch wrap on the
- *  reopen edge — the whole class, every subscription in the tab, no clock, and
- *  it arrives here (if at all) as a plain channel-2 failure that spends no
+ *  one of them is still this module's to catch. An established wire that stops
+ *  answering fails through Effect's transport error broadcast, including its
+ *  heartbeat timeout. It arrives here as a channel-2 failure that spends no
  *  budget. What is left is the UPSTREAM STALL: a relay holding the stream open
  *  over a source that says nothing, where no re-dial ever happens and silence is
  *  genuinely the only signal. So the deadline stays as the belt for that class

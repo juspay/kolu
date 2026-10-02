@@ -32,7 +32,7 @@ createEffect(() => title.set(badge() > 0 ? `(${badge()})` : ""));
 
 `$` is the typed sibling read face (a plain mapped type over the spec — no `keyof` union explosion): `$.someCell(): T`, `$.someCollection(): ReadonlyMap<K,T>`. The critical rule: an authored member's graph face is its post-equals mirror; **a derived member's graph face is its `computed` directly** — so every derivation chain is a pure computed graph (glitch-free by the engine's version-checked lazy pull) and each wire effect is a leaf into `applyAndPublish`, untouched.
 
-**The engine is decided:** Effect's `Atom` (`effect/unstable/reactivity`) behind reactor.ts — [the engine note](surface-reactor-engine.html) holds the probed comparison, the eliminations, and the four divergences the wrapper absorbs. It replaced `@preact/signals-core` in 13 call sites with zero edits to the wrapper's own tests, which is the two-way door proving itself rather than being asserted.
+**The engine is decided:** Effect's `Atom` (`effect/reactivity`) behind reactor.ts — [the engine note](surface-reactor-engine.html) holds the probed comparison, the eliminations, and the four divergences the wrapper absorbs. It replaced `@preact/signals-core` in 13 call sites with zero edits to the wrapper's own tests, which is the two-way door proving itself rather than being asserted.
 
 ## The API, symbol by symbol
 

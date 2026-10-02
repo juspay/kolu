@@ -22,8 +22,8 @@ import { fileURLToPath } from "node:url";
 import { silentLogger } from "@kolu/log/loggerStubs.testutil";
 import type { UnixSocketListener } from "@kolu/surface/unix-socket";
 import { Effect, FileSystem, Layer, Path, Sink, Stdio, Terminal } from "effect";
-import { Command } from "effect/unstable/cli";
-import { ChildProcessSpawner } from "effect/unstable/process";
+import { Command } from "effect/cli";
+import { ChildProcessSpawner } from "effect/process";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { EXIT } from "./exit";
 import { fixtureRoot, serveFixture } from "./fixture.testlib";
@@ -418,7 +418,7 @@ describe("the flag shapes a verb's input projects to", () => {
   });
 
   it("keeps the boolean flag a TRISTATE — said, said-not, and not said are three payloads", async () => {
-    // `Flag.boolean` without a parser default is what makes this possible, and
+    // `Flag.Boolean` without a parser default is what makes this possible, and
     // it is load-bearing: a verb cannot tell "the caller asked for false" from
     // "the caller said nothing" if the projection invents one. Each case spends
     // its own pid, since a kill succeeds at most once per pid.

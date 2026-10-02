@@ -26,7 +26,7 @@ import {
 } from "@kolu/surface-app/server";
 import { type MapRegistry, serveSurfaceMap } from "@kolu/surface-map/server";
 import { Effect, Layer, Scope } from "effect";
-import { HttpRouter } from "effect/unstable/http";
+import { HttpRouter } from "effect/http";
 import { WebSocketServer } from "ws";
 import { type HostFailure, hostMap } from "../common/map";
 import { buildHostBinding, type HostBinding } from "./hosts";

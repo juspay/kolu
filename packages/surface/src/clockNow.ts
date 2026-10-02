@@ -20,7 +20,7 @@
  */
 
 import { Effect, Schema } from "effect";
-import { Rpc } from "effect/unstable/rpc";
+import { Rpc } from "effect/rpc";
 
 /** The namespace + verb of the reserved clock procedure, single-sourced so the
  *  tag minting (`defineSurface`), the server auto-answer (`implementSurface`),

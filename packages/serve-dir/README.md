@@ -33,7 +33,7 @@ Workspace-private package. Wire it into the consuming server package:
 ```ts
 import { getHeaderCI, rawPathname, serveFile } from "@kolu/serve-dir";
 import { Effect } from "effect";
-import { HttpRouter, HttpServerRequest } from "effect/unstable/http";
+import { HttpRouter, HttpServerRequest } from "effect/http";
 
 // One route — root resolved per request, guard wired by the consumer:
 HttpRouter.add(

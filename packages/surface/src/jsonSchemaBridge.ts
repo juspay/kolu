@@ -23,12 +23,10 @@
  * its fix is named below; `jsonSchemaBridge.test.ts` is the gate that keeps them
  * fixed.
  *
- *   1. **Every object is CLOSED.** Effect emits `additionalProperties: false`
- *      on every object; zod emitted nothing. A closed tool input is an outright
- *      host break (a host that sends one extra key gets a validation failure),
- *      so the converter is asked for `additionalProperties: true` and the walk
- *      then DROPS the redundant `true` — absent already means open in JSON
- *      Schema, and dropping it restores the zod-era bytes exactly.
+ *   1. **Objects must stay OPEN.** Stable Effect's `onExcessProperty: "ignore"`
+ *      matches the decoder and leaves unmodeled properties open. We request it
+ *      explicitly; the walk drops redundant `additionalProperties: true` so
+ *      the advertised tool input keeps its existing bytes.
  *   2. **`Schema.Number` is Infinity/NaN-tolerant.** Its encoded form is
  *      `anyOf: [{type:"number"}, {type:"string", enum:["Infinity","-Infinity","NaN"]}]`
  *      — faithful to the codec, useless to a host, which will happily offer the
@@ -227,7 +225,7 @@ export function inputSchema(schema?: WireSchemaAny): AdvertisedInput {
 
   const doc = Schema.toJsonSchemaDocument(schema, {
     // Divergence 1: ask for OPEN objects. The walk drops the redundant `true`.
-    additionalProperties: true,
+    onExcessProperty: "ignore",
   });
 
   return enforceObject(dereference(doc));

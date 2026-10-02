@@ -5,11 +5,7 @@
  *  validator for a representation we no longer send. */
 
 import { Effect, Stream } from "effect";
-import {
-  HttpRouter,
-  HttpServerRequest,
-  HttpServerResponse,
-} from "effect/unstable/http";
+import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/http";
 import { describe, expect, it } from "vitest";
 import {
   type ArtifactSdkError,

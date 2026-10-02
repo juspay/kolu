@@ -144,7 +144,7 @@
         // rather than advisory-but-unenforced.
         "noNonNullAssertion": "off",
         // The signals engine (Effect's `Atom`/`AtomRegistry`, in
-        // `effect/unstable/reactivity`) is wrapped by `reactor.ts` — the
+        // `effect/reactivity`) is wrapped by `reactor.ts` — the
         // reactive bridge's one exit from the backend graph into the cell
         // machinery. Banning its deep import everywhere else makes that wrapper
         // the graph's only exit BY CONSTRUCTION, not by review — so the engine
@@ -157,7 +157,7 @@
           "level": "error",
           "options": {
             "paths": {
-              "effect/unstable/reactivity": "Do not import the signals engine directly — it is wrapped by @kolu/surface's reactor.ts (the graph's one exit). Import derived.cell / scan / source from ./reactor instead."
+              "effect/reactivity": "Do not import the signals engine directly — it is wrapped by @kolu/surface's reactor.ts (the graph's one exit). Import derived.cell / scan / source from ./reactor instead."
             }
           }
         }
@@ -255,7 +255,7 @@
       }
     },
     {
-      // The two sanctioned homes of the direct `effect/unstable/reactivity`
+      // The two sanctioned homes of the direct `effect/reactivity`
       // import: `reactor.ts` is the wrapper (the graph's one exit), and the
       // engine-law test is the engine's acceptance suite — it must exercise the
       // raw engine to pin the guarantees (glitch-freedom, equality-cascade stop,

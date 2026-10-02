@@ -19,13 +19,13 @@
   "dependencies": {
     "@kolu/log": "workspace:*",
     "@kolu/shell-quote": "workspace:*",
-    "effect": "4.0.0-rc.112",
+    "effect": "4.0.0",
     "nonempty": "workspace:*",
     "string-argv": "^0.3.2"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
     "typescript": "^7.0.2",
-    "vitest": "^4.1.0"
+    "vitest": "^5.0.3"
   }
 }

@@ -637,7 +637,7 @@ re-litigate:</p>
 <li><strong>The endpoint moved to the ROOT as shared flags.</strong> <code>--socket</code> /
 <code>--state-root</code> / <code>--host</code> are mutually exclusive and parse on <strong>either side
 of the verb</strong> (<code>kolu --host box create</code> ≡ <code>kolu create --host box</code>). That is
-what retired cleye for <code>effect/unstable/cli</code>: cleye binds a flag to the
+what retired cleye for <code>effect/cli</code>: cleye binds a flag to the
 subcommand that <em>precedes</em> it, so the first spelling was a usage error. The
 parser ships inside the <code>effect</code> the workspace already pins, so it costs no
 new dependency.</li>

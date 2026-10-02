@@ -4,7 +4,7 @@
  *  are the bytes the route serves. */
 
 import { Effect } from "effect";
-import { HttpRouter, HttpServerRequest } from "effect/unstable/http";
+import { HttpRouter, HttpServerRequest } from "effect/http";
 import { describe, expect, it } from "vitest";
 import { HEALTH_ROUTE_PATH, healthRouteLayer } from "./healthRoute.ts";
 

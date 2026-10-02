@@ -23,7 +23,7 @@
  *    subcommand list and exits non-zero, so a user picks a face explicitly. With
  *    twelve subcommands, silently booting a web server for a bare invocation is a
  *    footgun rather than a convenience.
- * 2. **`effect/unstable/cli` replaces cleye.** cleye binds a flag to the
+ * 2. **`effect/cli` replaces cleye.** cleye binds a flag to the
  *    subcommand that PRECEDES it, so `kolu --host foo create` was a usage error.
  *    Effect CLI's SHARED flags are accepted on either side of the verb name, so
  *    both spellings are one parse. It also ships inside the `effect` the
@@ -55,7 +55,7 @@ import {
   WATCH_DEFAULT_STATES,
 } from "@kolu/terminal-vocab/agentProjection";
 import { Effect, Option } from "effect";
-import { Argument, Command, Flag } from "effect/unstable/cli";
+import { Argument, Command, Flag } from "effect/cli";
 // The ONE version accessor (`hostname.ts` is a leaf: node built-ins + the
 // server's package.json, which `/release` bumps and nix reads too) — so
 // `kolu --version` can never diverge from the version the server reports.
@@ -199,7 +199,7 @@ const opt = <A>(flag: Flag.Flag<A>): Flag.Flag<A | undefined> =>
 
 /** A SWITCH: writing `--json` means true, leaving it off means false.
  *
- *  Spelled out because `Flag.boolean` alone no longer means this. Up to and
+ *  Spelled out because `Flag.Boolean` alone no longer means this. Up to and
  *  including rc.109 an absent boolean parsed as `false`; rc.110 made it behave
  *  like every other flag type and FAIL as a missing required flag
  *  (Effect-TS/effect#7296), so a bare `kolu ls` refused itself with "Missing
@@ -223,10 +223,10 @@ const optArg = <A>(
  *  id against a live roster — after `--host` had ssh-provisioned a cold box —
  *  before saying "that is not a positive number", while `snapshot --tail 0`
  *  refused instantly. Declaring it here also puts "0 is not a --tail" on the
- *  same channel as "abc is not a --tail" (`Flag.integer`'s own refusal), which
+ *  same channel as "abc is not a --tail" (`Flag.Int`'s own refusal), which
  *  were two spellings of one rejection. */
 const positiveLines = (name: string): Flag.Flag<number> =>
-  Flag.integer(name).pipe(
+  Flag.Int(name).pipe(
     Flag.filter(
       (n) => n > 0,
       (n) => `--${name} takes a positive whole number of lines, got ${n}.`,
@@ -243,7 +243,7 @@ const positiveLines = (name: string): Flag.Flag<number> =>
  *  vs "reports a false settle"), which is the only part that legitimately
  *  differs — the overflow is one fact. */
 const timerMsFlag = (name: string, effect: string): Flag.Flag<number> =>
-  Flag.integer(name).pipe(
+  Flag.Int(name).pipe(
     Flag.filter(isValidTimerMs, (n) =>
       timerRangeMessage(`--${name}`, effect, String(n)),
     ),
@@ -262,7 +262,7 @@ const timeoutFlag = opt(
 
 export const lsFlags = {
   json: sw(
-    Flag.boolean("json").pipe(
+    Flag.Boolean("json").pipe(
       Flag.withDescription("emit the full terminal records as JSON"),
     ),
   ),
@@ -285,12 +285,12 @@ const ls = Command.make(
 );
 
 export const createFlags = {
-  argv: Argument.string("argv").pipe(
+  argv: Argument.String("argv").pipe(
     Argument.withDescription("command to run in the new terminal (after --)"),
     Argument.variadic(),
   ),
   cwd: opt(
-    Flag.string("cwd").pipe(
+    Flag.String("cwd").pipe(
       Flag.withDescription("working directory for the new terminal"),
     ),
   ),
@@ -301,38 +301,38 @@ export const createFlags = {
   // must be different states: reading the first as the second is the silent
   // default this pair exists to delete.
   toplevel: sw(
-    Flag.boolean("toplevel").pipe(
+    Flag.Boolean("toplevel").pipe(
       Flag.withDescription(
         "open as a tile of its own on the canvas (mutually exclusive with --parent)",
       ),
     ),
   ),
   parent: opt(
-    Flag.string("parent").pipe(
+    Flag.String("parent").pipe(
       Flag.withDescription(
         "open as a split INSIDE this terminal (mutually exclusive with --toplevel)",
       ),
     ),
   ),
   intent: opt(
-    Flag.string("intent").pipe(
+    Flag.String("intent").pipe(
       Flag.withDescription("freeform label shown on the canvas"),
     ),
   ),
   repo: opt(
-    Flag.string("repo").pipe(
+    Flag.String("repo").pipe(
       Flag.withDescription("repository path for --worktree"),
     ),
   ),
   worktree: opt(
-    Flag.string("worktree").pipe(
+    Flag.String("worktree").pipe(
       Flag.withDescription(
         "create a git worktree on this branch and open the terminal there",
       ),
     ),
   ),
   json: sw(
-    Flag.boolean("json").pipe(
+    Flag.Boolean("json").pipe(
       Flag.withDescription(
         "emit the new terminal's record as JSON ({id, worktree?, ran?}) instead of the bare id",
       ),
@@ -373,21 +373,21 @@ const create = Command.make(
 );
 
 export const sendFlags = {
-  id: Argument.string("id").pipe(
+  id: Argument.String("id").pipe(
     Argument.withDescription("terminal id (any unique prefix)"),
   ),
-  text: Argument.string("text").pipe(
+  text: Argument.String("text").pipe(
     Argument.withDescription("the text to type"),
     Argument.variadic(),
   ),
-  key: Flag.string("key").pipe(
+  key: Flag.String("key").pipe(
     Flag.withDescription(
       "send a named key instead of text (Enter, Escape, Tab, Up, C-c, M-x, …); repeatable",
     ),
     Flag.atLeast(0),
   ),
   file: opt(
-    Flag.string("file").pipe(
+    Flag.String("file").pipe(
       Flag.withDescription("read the text to send from this file"),
     ),
   ),
@@ -395,14 +395,14 @@ export const sendFlags = {
   // absent is `undefined` — which is what makes "both at once" unspellable (see
   // `verbs/send.ts`'s header).
   paste: opt(
-    Flag.boolean("paste").pipe(
+    Flag.Boolean("paste").pipe(
       Flag.withDescription(
         "force bracketed-paste wrapping (--no-paste forbids it)",
       ),
     ),
   ),
   json: sw(
-    Flag.boolean("json").pipe(
+    Flag.Boolean("json").pipe(
       Flag.withDescription(
         "emit what was written as JSON ({id, bytes, paste, keys}) on stdout, instead of the stderr trailer",
       ),
@@ -433,10 +433,10 @@ const send = Command.make(
 );
 
 export const waitFlags = {
-  id: Argument.string("id").pipe(
+  id: Argument.String("id").pipe(
     Argument.withDescription("terminal id (any unique prefix)"),
   ),
-  until: Flag.string("until").pipe(
+  until: Flag.String("until").pipe(
     Flag.withDescription(
       `idle:<ms> · match:<regex> · agent buckets (${WAIT_STATES.join(", ")} — comma-separated means any-of)`,
     ),
@@ -463,7 +463,7 @@ export const waitFlags = {
     ),
   ),
   json: sw(
-    Flag.boolean("json").pipe(
+    Flag.Boolean("json").pipe(
       Flag.withDescription(
         "emit one outcome frame ({id, result, …}) for EVERY arm — met, timeout, gone, interrupted — so a driver branches on `result`, not on the exit code",
       ),
@@ -500,7 +500,7 @@ const wait = Command.make(
 );
 
 export const debriefFlags = {
-  id: Argument.string("id").pipe(
+  id: Argument.String("id").pipe(
     Argument.withDescription("terminal id (any unique prefix)"),
   ),
   quiet: timerMsFlag("quiet", "reports a false settle").pipe(
@@ -517,7 +517,7 @@ export const debriefFlags = {
   ),
   timeout: timeoutFlag,
   json: sw(
-    Flag.boolean("json").pipe(
+    Flag.Boolean("json").pipe(
       Flag.withDescription("`wait`'s outcome frame, with `screen` on the met"),
     ),
   ),
@@ -547,7 +547,7 @@ const debrief = Command.make(
 );
 
 export const snapshotFlags = {
-  id: Argument.string("id").pipe(
+  id: Argument.String("id").pipe(
     Argument.withDescription("terminal id (any unique prefix)"),
   ),
   tail: opt(
@@ -582,7 +582,7 @@ const snapshot = Command.make(
 );
 
 export const screenshotFlags = {
-  id: Argument.string("id").pipe(
+  id: Argument.String("id").pipe(
     Argument.withDescription("terminal id (any unique prefix)"),
   ),
   // Bounds ROWS OF THE PICTURE — a different question from `snapshot --tail`'s
@@ -613,7 +613,7 @@ export const screenshotFlags = {
     ),
   ),
   out: opt(
-    Flag.string("out").pipe(
+    Flag.String("out").pipe(
       Flag.withAlias("o"),
       Flag.withDescription(
         "write the PNG here (default: kolu-screenshot.png; `-` writes the bytes to stdout)",
@@ -635,7 +635,7 @@ const screenshot = Command.make(
 );
 
 export const historyFlags = {
-  id: Argument.string("id").pipe(
+  id: Argument.String("id").pipe(
     Argument.withDescription("terminal id (any unique prefix)"),
   ),
   // Omitting it prints the WHOLE retained scrollback (`readWholeHistory` pages
@@ -664,7 +664,7 @@ const history = Command.make(
 );
 
 export const killFlags = {
-  id: Argument.string("id").pipe(
+  id: Argument.String("id").pipe(
     Argument.withDescription("terminal id (any unique prefix)"),
   ),
 } as const;
@@ -679,11 +679,11 @@ const kill = Command.make(
 
 export const watchFlags = {
   id: optArg(
-    Argument.string("id").pipe(
+    Argument.String("id").pipe(
       Argument.withDescription("narrow to one terminal"),
     ),
   ),
-  json: sw(Flag.boolean("json").pipe(Flag.withDescription("emit NDJSON"))),
+  json: sw(Flag.Boolean("json").pipe(Flag.withDescription("emit NDJSON"))),
   // The three SUPERVISION knobs. Naming any one of them turns `watch` from a
   // change tail into the supervision feed — agent-state transitions, held and
   // repeated — which is why they are plain strings here and parsed in the verb:
@@ -692,21 +692,21 @@ export const watchFlags = {
   // They filter in padi, never here: the CLI and the MCP face pass the same three
   // knobs to the same engine, so there is nothing to keep in sync.
   states: opt(
-    Flag.string("states").pipe(
+    Flag.String("states").pipe(
       Flag.withDescription(
         `supervise instead of tailing: report agent-state transitions for these buckets (comma-separated any-of: ${WAIT_STATES.join(", ")}). Defaults to ${WATCH_DEFAULT_STATES.join(",")} when only --held-for/--nag is given`,
       ),
     ),
   ),
   heldFor: opt(
-    Flag.string("held-for").pipe(
+    Flag.String("held-for").pipe(
       Flag.withDescription(
         "report a state only once it has HELD this long — milliseconds like every other window here (60000), or with a unit: 500ms, 60s, 5m, 2h, 1d",
       ),
     ),
   ),
   nag: opt(
-    Flag.string("nag").pipe(
+    Flag.String("nag").pipe(
       Flag.withDescription(
         "RE-report every interval the state keeps holding, so an ignored terminal comes back instead of vanishing after one line — 300000, or 5m. Suffix a count to make it finite: 30m/3 is three reminders past the first report, then quiet until the state changes",
       ),
@@ -715,21 +715,21 @@ export const watchFlags = {
   // Mute, not roster: a stale id costs nothing and a new terminal is always
   // watched. Repeatable like `--key`. `--ignore-self` is the zero-config form
   // for an orchestrator running inside a kolu terminal (reads KAVAL_TERMINAL_ID).
-  ignore: Flag.string("ignore").pipe(
+  ignore: Flag.String("ignore").pipe(
     Flag.withDescription(
       "mute this terminal (repeatable). Fail-open: a stale or unknown id costs nothing, and every new terminal is still watched",
     ),
     Flag.atLeast(0),
   ),
   ignoreSelf: sw(
-    Flag.boolean("ignore-self").pipe(
+    Flag.Boolean("ignore-self").pipe(
       Flag.withDescription(
         "mute the terminal this process is running inside (KAVAL_TERMINAL_ID). Refused if this is not a kolu-owned PTY — pass --ignore <id> rather than guessing",
       ),
     ),
   ),
   heartbeat: opt(
-    Flag.string("heartbeat").pipe(
+    Flag.String("heartbeat").pipe(
       Flag.withDescription(
         "emit a timestamped alive line every interval so a quiet pipe means 'nothing matching', not 'the stream is dead' — 10000, or 10s. Omit to stay silent when nothing is happening",
       ),

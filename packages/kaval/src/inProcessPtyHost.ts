@@ -33,7 +33,7 @@ import { surfaceClientRef } from "@kolu/surface/project";
 import type { PtyHostClient } from "./ptyHostClient.ts";
 import { implementSurface, type SurfaceHandlers } from "@kolu/surface/server";
 import { Duration, Effect, Fiber, Stream } from "effect";
-import type { Rpc, RpcGroup } from "effect/unstable/rpc";
+import type { Rpc, RpcGroup } from "effect/rpc";
 import { currentPtyHostIdentity } from "./buildId.ts";
 import type { SubscriberOverflow } from "./fanOut.ts";
 import { removeInitFiles, writeInitFiles } from "./initFiles.ts";

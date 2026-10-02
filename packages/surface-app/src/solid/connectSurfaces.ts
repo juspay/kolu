@@ -82,7 +82,7 @@ import {
   surfaceClients,
   surfaceReadout,
 } from "@kolu/surface/solid";
-import type { Rpc, RpcGroup } from "effect/unstable/rpc";
+import type { Rpc, RpcGroup } from "effect/rpc";
 import { type Accessor, createSignal } from "solid-js";
 import {
   createSurfaceSocket,

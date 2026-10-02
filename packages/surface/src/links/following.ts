@@ -33,9 +33,9 @@
  *     is bound to one link by construction — Effect RPC registers an entry
  *     exactly once and an answer can only travel the socket its request went out
  *     on — so a call that was in flight when the generation moved can only park
- *     forever. This is the same fact `websocketLink`'s re-dial epoch answers one
- *     layer down (kolu#2101 J1), for the same reason, in the same shape: the
- *     failure is an `RpcClientError`, which is precisely what the face's
+ *     forever. The generation fence raises an `RpcClientError`, matching the
+ *     transport failures that Effect now broadcasts for WebSocket drops.
+ *     This is precisely what the face's
  *     per-subscription retry fence (`../client.ts`'s `fenceStream`) retries on.
  *     So a standing subscription re-subscribes ITSELF onto the new generation —
  *     the framework's one recovery path, not a second one written here. A link
@@ -248,21 +248,12 @@ export function followingWire<T extends WireTransport>(
     }
   };
 
-  // THE FENCE — the shared one (`./supersession`), which `websocketLink` also
-  // stands on. What this wire contributes is only three NOUNS: an operator
-  // reading a console must be able to tell a generation change from a re-dial,
-  // and that is the whole of the difference. The sentence they land in is the
-  // law's, written once over there.
-  const fence = supersession({
-    moved: "the wire adopted a new generation",
-    mark: "generation",
-    carrier: "link",
-    cause: (bound, now) =>
-      `followingWire: generation ${now} superseded generation ${bound}`,
-  });
+  // Fail calls bound to an older generation after notifying consumers of the
+  // adoption. supersession owns that ordering and the failure explanation.
+  const fence = supersession();
   // `inner` is read PER CALL, so a call issued after an `adopt` rides the
   // generation now held; every call binds to the mark current when it RUNS.
-  const dispatch = fence.wrap(() => held.transport.dispatch, fence.mark);
+  const dispatch = fence.wrap(() => held.transport.dispatch);
 
   return {
     dispatch,

@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 // Effect's own YAML parser rather than the `yaml` package — see the note on the
 // same import in `effectPin.ts`. The input here (coverage-ledger.yaml) is
 // machine-generated too, and both parsers were checked deep-equal over it.
-import { Yaml } from "effect/unstable/encoding";
+import { Yaml } from "effect/encoding";
 import {
   collectAwaitedFaceCalls,
   validateAwaitedFaceCalls,

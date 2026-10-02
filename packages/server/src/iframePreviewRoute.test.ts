@@ -20,7 +20,7 @@ import { padiClientOver } from "@kolu/padi-client/dial";
 import { contentTypeForPath, serveFile } from "@kolu/serve-dir";
 import type { RemotePool } from "@kolu/surface-remote";
 import { Effect, Exit, Scope, Stream } from "effect";
-import { HttpRouter } from "effect/unstable/http";
+import { HttpRouter } from "effect/http";
 import {
   BINARY_PREVIEWABLE_EXTENSIONS,
   buildTerminalFileUrl,

@@ -6,9 +6,9 @@
  * ## Why the DECLARATIONS live here and the CONTRACT lives there
  *
  * How argv is parsed is this package's volatility, not the web server's: this
- * PR alone moved it from cleye to `effect/unstable/cli`, and the server did not
- * care either time. A `Flag.string(...)` is a function CALL, so declaring these
- * inside `packages/server` would put `effect/unstable/cli` into the web
+ * PR alone moved it from cleye to `effect/cli`, and the server did not
+ * care either time. A `Flag.String(...)` is a function CALL, so declaring these
+ * inside `packages/server` would put `effect/cli` into the web
  * server's RUNTIME graph — the server package would then know how argv is
  * parsed, which is exactly the coupling the composition root exists to absorb.
  * (The cleye coupling it replaced was type-only and erased, so a runtime one
@@ -25,7 +25,7 @@
  */
 
 import { Option } from "effect";
-import { type Command, Flag } from "effect/unstable/cli";
+import { type Command, Flag } from "effect/cli";
 // The port's ONE definition, read from the zero-import LEAF rather than through
 // `kolu-common/config`. Same constant, same source of truth — config.ts
 // re-exports this — but config.ts also re-exports `DEFAULT_SCROLLBACK` from
@@ -48,38 +48,38 @@ import type { KoluBootFlags } from "kolu-server/src/bootFlags.ts";
  *  is the trade that leaves `--host` a single idea across the whole binary
  *  instead of two that differ by subcommand. */
 export const webFlags = {
-  bind: Flag.string("bind").pipe(
+  bind: Flag.String("bind").pipe(
     Flag.withDescription("Address to listen on"),
     Flag.withDefault("127.0.0.1"),
   ),
-  port: Flag.integer("port").pipe(
+  port: Flag.Int("port").pipe(
     Flag.withDescription("Port to listen on"),
     Flag.withDefault(DEFAULT_PORT),
   ),
   // `withDefault(false)` is the switch's OFF position, not a fallback: since
-  // rc.110 a bare `Flag.boolean` FAILS when absent rather than parsing as
+  // rc.110 a bare `Flag.Boolean` FAILS when absent rather than parsing as
   // `false` (Effect-TS/effect#7296), so without it `kolu web` would refuse to
   // boot unless the operator wrote `--tls` and `--verbose` every time. Still
-  // true at `effect@4.0.0-rc.112`, re-read off `Flag.boolean` at the pin.
-  tls: Flag.boolean("tls").pipe(
+  // true at `effect@4.0.0`, re-read off `Flag.Boolean` at the pin.
+  tls: Flag.Boolean("tls").pipe(
     Flag.withDescription(
       "Enable HTTPS with auto-generated self-signed certificate",
     ),
     Flag.withDefault(false),
   ),
-  tlsCert: Flag.string("tls-cert").pipe(
+  tlsCert: Flag.String("tls-cert").pipe(
     Flag.withDescription("Path to TLS certificate file (PEM)"),
     Flag.optional,
   ),
-  tlsKey: Flag.string("tls-key").pipe(
+  tlsKey: Flag.String("tls-key").pipe(
     Flag.withDescription("Path to TLS private key file (PEM)"),
     Flag.optional,
   ),
-  verbose: Flag.boolean("verbose").pipe(
+  verbose: Flag.Boolean("verbose").pipe(
     Flag.withDescription("Enable debug-level logging"),
     Flag.withDefault(false),
   ),
-  allowNixShellWithEnvWhitelist: Flag.string(
+  allowNixShellWithEnvWhitelist: Flag.String(
     "allow-nix-shell-with-env-whitelist",
   ).pipe(
     Flag.withDescription(

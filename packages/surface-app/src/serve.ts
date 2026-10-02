@@ -239,7 +239,7 @@ import {
   HttpRouter,
   type HttpServerRequest,
   type HttpServerResponse,
-} from "effect/unstable/http";
+} from "effect/http";
 import { WebSocketServer } from "ws";
 import { SURFACE_WS_PATH } from "./index";
 import {

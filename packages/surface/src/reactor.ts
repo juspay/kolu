@@ -4,7 +4,7 @@
  * State is a signal; derived state is a computed; **the wire is a signal
  * boundary that snapshots and replays.** This module is the ONE exit from the
  * backend signal graph into `@kolu/surface`'s cell machinery. The signals engine
- * is Effect's own `Atom`/`AtomRegistry` (`effect/unstable/reactivity`) — no
+ * is Effect's own `Atom`/`AtomRegistry` (`effect/reactivity`) — no
  * separate engine package, so `effect` is the only dependency `@kolu/surface`
  * carries for the graph — wrapped HERE and nowhere else: the engine's deep
  * import is lint-banned outside this file (`biome.jsonc`), so this wrapper is
@@ -40,7 +40,7 @@
 
 import { AsyncLocalStorage } from "node:async_hooks";
 import { Effect, Result, type Scope } from "effect";
-import { Atom, AtomRegistry } from "effect/unstable/reactivity";
+import { Atom, AtomRegistry } from "effect/reactivity";
 import { containThrow } from "./containThrow";
 import type { SiblingRead, SurfaceSpec } from "./define";
 import {
@@ -73,7 +73,7 @@ export type Disposer = () => void | Promise<void>;
 // preact-shaped engine are load-bearing and are neutralised here, once, so no
 // call site can get them wrong:
 //
-// BETA-ASSUMPTION(rc.112): Atom does not batch implicitly, and one batch of N
+// BETA-ASSUMPTION(4.0.0): Atom does not batch implicitly, and one batch of N
 //      writes across a family recomputes each derivation exactly once on coherent
 //      inputs — measured by reactorEngineLaws.test.ts > "STAMPEDE: 24 writes
 //      across a family in one batch" and the two glitch-freedom laws beside it.
@@ -84,10 +84,11 @@ export type Disposer = () => void | Promise<void>;
 //      through {@link signal}'s setter, which wraps itself in `Atom.batch`.
 //      `batch` is depth-counted, so nesting inside the public `batch()` (or
 //      inside a source `emit`) costs nothing.
-// BETA-ASSUMPTION(rc.112): Atom rebuilds a stale subscribed node on the WRITER's
-//      stack, so a throwing callback escapes the batch and costs that frame its
-//      remaining notifications (it does NOT permanently sever the graph) —
-//      measured by reactorEngineLaws.test.ts > "SEVERED EDGE, MEASURED".
+// BETA-ASSUMPTION(4.0.0): Atom rebuilds a stale subscribed node on the WRITER's
+//      stack; a throwing callback escapes AFTER all siblings are notified —
+//      measured by reactorEngineLaws.test.ts > "THROWING SUBSCRIBER".
+//      Stable AtomRegistry.ts uses runAll in notify and drains batch before
+//      rethrowing, so the old lost-frame behavior is gone.
 //   2. **Atom rebuilds a stale node on the WRITER's stack** when it has active
 //      subscribers, so a throwing derivation would escape into `ctx.cells.x.set`
 //      instead of the subscriber that owns the log-skip-continue policy. So a
@@ -100,20 +101,10 @@ export type Disposer = () => void | Promise<void>;
 //   3. **NOTHING kolu passes into the engine may throw.** Every callback the
 //      engine runs — an `effect` body, a source listener in a batched `emit`, the
 //      publish a rebuild drives — runs INSIDE `Atom.batch`'s drain, on the
-//      writer's stack. Atom's drain severs a level's dependent edges BEFORE
-//      rebuilding them, so an exception mid-drain leaves nodes orphaned: the
-//      rebuild that would have re-established the edges never runs, and every
-//      FUTURE write to that level finds no dependents and returns silently. The
-//      graph does not crash; it goes quiet, for the life of the process, with no
-//      log line. That is the shape of the incident: all hosts frozen at once,
-//      writes accepted, derived values stale, mute, cured only by a restart.
-//
-//      So every such callback is bracketed by {@link containOnEngineStack}: the
-//      throw is LOGGED LOUDLY and contained, siblings still run, and the drain
-//      completes. This is `disableFatalDefects`' ruling — one member's fault is
-//      not the frame's — applied at the in-process layer. The trade is deliberate
-//      and stated: a contained throw is a loud log rather than a crash, because
-//      the alternative here is not a crash, it is a silent global freeze.
+//      writer's stack. Stable Atom drains sibling notifications before
+//      rethrowing, but that throw still reaches an unrelated writer. Every
+//      callback is bracketed by containOnEngineStack so its own failure is
+//      logged loudly and contained at the member that owns it.
 //
 // Nodes that CARRY STATE are `Atom.keepAlive`: an idle Atom node is removed and
 // its value silently resets to the atom's initial, which for a `scan` level or a
@@ -228,7 +219,7 @@ function signal<T>(initial: T): MutableLevel<T> {
       Atom.batch(() => {
         GRAPH.set(atom, next);
       });
-      // BETA-ASSUMPTION(rc.112): a derivation that WRITES an atom it READ keeps
+      // BETA-ASSUMPTION(4.0.0): a derivation that WRITES an atom it READ keeps
       // its dependency on that atom, so the NEXT bump still recomputes and
       // notifies it — the repair below is what makes that true, and beta.103
       // rewrote exactly this path (invalidatedDuringBuild + disposeLifetime +
@@ -289,7 +280,7 @@ function effect(body: () => void): () => void {
   const node = Atom.readable<null>((get) =>
     withTracking(get, () => {
       // The STRUCTURAL backstop for seam-note rule 3: an effect body runs inside
-      // the drain, so its throw is the severed-edge freeze. Every body already
+      // the drain, so its throw would reach an unrelated writer. Every body already
       // carries its own labeled policy (see `connectPublishEffect`); this makes
       // "no kolu callback throws into the engine" true BY CONSTRUCTION rather than
       // by every future author remembering it.

@@ -164,7 +164,7 @@ import {
 import { parseDuration, parseNag } from "@kolu/padi-client/watchDuration";
 import { isTerminalId, type TerminalId } from "@kolu/terminal-vocab/schema";
 import { type Cause, Effect, Fiber, Queue, Stream } from "effect";
-import type { Command } from "effect/unstable/cli";
+import type { Command } from "effect/cli";
 import { match } from "ts-pattern";
 // `import type` — fully erased, so this does NOT re-enter the command tree at
 // runtime and the per-face dynamic-import fence is untouched.

@@ -45,7 +45,7 @@ import {
 } from "@kolu/surface/server";
 import { dequal } from "dequal";
 import { Effect, Schema, Stream } from "effect";
-import type { Rpc, RpcGroup } from "effect/unstable/rpc";
+import type { Rpc, RpcGroup } from "effect/rpc";
 import type {
   EntryStatus,
   FailureEvidence,

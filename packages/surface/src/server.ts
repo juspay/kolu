@@ -63,8 +63,8 @@ import {
   type Scope,
   Stream,
 } from "effect";
-import type { Rpc, RpcGroup } from "effect/unstable/rpc";
-import { RpcSchema, RpcServer } from "effect/unstable/rpc";
+import type { Rpc, RpcGroup } from "effect/rpc";
+import { RpcSchema, RpcServer } from "effect/rpc";
 import {
   collectionDeltasChannel,
   collectionKeyChannel,

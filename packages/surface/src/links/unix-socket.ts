@@ -20,7 +20,7 @@
  */
 
 import { createConnection, type Socket } from "node:net";
-import type { Rpc, RpcGroup } from "effect/unstable/rpc";
+import type { Rpc, RpcGroup } from "effect/rpc";
 import { duplexWireLink, type WireLink } from "./wire";
 
 export interface UnixSocketLinkOptions {

@@ -66,7 +66,7 @@
 import * as NodeRuntime from "@effect/platform-node/NodeRuntime";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { Cause, Effect } from "effect";
-import { Command } from "effect/unstable/cli";
+import { Command } from "effect/cli";
 import { serverVersion } from "kolu-server/src/hostname.ts";
 import { koluCli } from "./cli.ts";
 import {
@@ -78,7 +78,7 @@ import {
   UsageRefused,
 } from "./exit.ts";
 
-/** The brand every `effect/unstable/cli` error carries.
+/** The brand every `effect/cli` error carries.
  *
  *  Matched on the BRAND rather than on `_tag`: the library sets `_tag` to the
  *  short name (`ShowHelp`, `DuplicateOption`, …) and stamps this key alongside

@@ -43,7 +43,7 @@
  *
  * kaval-tui carried a `--paste` + `--no-paste` pair of booleans and a hand-written
  * "these two are mutually exclusive" check, because its parser let both be set at
- * once. Effect CLI's `Flag.boolean(...).pipe(Flag.optional)` IS the tristate —
+ * once. Effect CLI's `Flag.Boolean(...).pipe(Flag.optional)` IS the tristate —
  * `--paste` is `some(true)`, `--no-paste` is `some(false)`, absent is `none` — so
  * the contradiction is no longer expressible and the check that refused it has
  * nothing left to refuse. The rule did not weaken; it moved into the type.
@@ -65,7 +65,7 @@ import {
   type SendVocabulary,
 } from "@kolu/terminal-protocol";
 import { Effect } from "effect";
-import type { Command } from "effect/unstable/cli";
+import type { Command } from "effect/cli";
 // `import type` — fully erased, so this does NOT re-enter the command tree at
 // runtime and the per-face dynamic-import fence is untouched.
 import type { sendFlags } from "../cli.ts";

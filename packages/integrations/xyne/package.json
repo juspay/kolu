@@ -18,13 +18,13 @@
   "dependencies": {
     "anyagent": "workspace:*",
     "kolu-io": "workspace:*",
-    "effect": "4.0.0-rc.112",
+    "effect": "4.0.0",
     "kolu-shared": "workspace:*",
     "kolu-transcript-core": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
     "typescript": "^7.0.2",
-    "vitest": "^4.1.0"
+    "vitest": "^5.0.3"
   }
 }

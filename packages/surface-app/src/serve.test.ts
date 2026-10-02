@@ -35,11 +35,7 @@ import {
   inMemoryStore,
 } from "@kolu/surface/server";
 import { Cause, Context, Effect, Exit, Layer, Schema, Scope } from "effect";
-import {
-  HttpRouter,
-  HttpServerRequest,
-  HttpServerResponse,
-} from "effect/unstable/http";
+import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/http";
 import { generate as generateSelfSigned } from "selfsigned";
 import { WebSocket as WsClient } from "ws";
 import { afterEach, describe, expect, it, vi } from "vitest";

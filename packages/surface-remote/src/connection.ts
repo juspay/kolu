@@ -22,7 +22,7 @@
 
 // The failure-evidence vocabulary, from `@kolu/surface-map`'s Schema-only `./evidence`
 // leaf rather than its default entry: the default entry is the GROUP half, which
-// imports `effect/unstable/rpc` and `@kolu/surface/define` as VALUES, and this module's
+// imports `effect/rpc` and `@kolu/surface/define` as VALUES, and this module's
 // browser-bundle constraint (below) is that it pulls neither.
 import {
   type EvidenceLine,

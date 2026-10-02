@@ -28,7 +28,7 @@
 
 import { Schema } from "effect";
 import { createEffect, createRoot } from "solid-js";
-import { bench, describe } from "vitest";
+import { test } from "vitest";
 import type { CollectionDeltasMsg } from "../define";
 import { collection } from "../index";
 import { controllableStream } from "./controllableStream.testlib";
@@ -188,23 +188,39 @@ const upserts = (count: number, tick: number): Frame => ({
 });
 
 const ONE = await shape((tick) => upserts(1, tick));
-describe(`delta naming 1 key of ${KEYS}`, () => {
-  bench("before — copy the dictionary, reconcile the copy", () => ONE.before());
-  bench("after — one named-key write", () => ONE.after());
+test(`delta naming 1 key of ${KEYS}`, { timeout: 120_000 }, async ({
+  bench,
+}) => {
+  await bench.compare(
+    bench("before — copy the dictionary, reconcile the copy", () =>
+      ONE.before(),
+    ),
+    bench("after — one named-key write", () => ONE.after()),
+  );
 });
 
 const SOME = await shape((tick) => upserts(KEYS / 20, tick));
-describe(`delta naming ${KEYS / 20} keys of ${KEYS}`, () => {
-  bench("before — copy the dictionary, reconcile the copy", () =>
-    SOME.before(),
+test(`delta naming ${KEYS / 20} keys of ${KEYS}`, { timeout: 120_000 }, async ({
+  bench,
+}) => {
+  await bench.compare(
+    bench("before — copy the dictionary, reconcile the copy", () =>
+      SOME.before(),
+    ),
+    bench("after — named-key writes", () => SOME.after()),
   );
-  bench("after — named-key writes", () => SOME.after());
 });
 
 const ALL = await shape((tick) => upserts(KEYS, tick));
-describe(`delta naming every one of ${KEYS} keys`, () => {
-  bench("before — copy the dictionary, reconcile the copy", () => ALL.before());
-  bench("after — named-key writes", () => ALL.after());
+test(`delta naming every one of ${KEYS} keys`, { timeout: 120_000 }, async ({
+  bench,
+}) => {
+  await bench.compare(
+    bench("before — copy the dictionary, reconcile the copy", () =>
+      ALL.before(),
+    ),
+    bench("after — named-key writes", () => ALL.after()),
+  );
 });
 
 // The CHURN shape: keys leaving and arriving, which is the one delta arm that does
@@ -229,12 +245,16 @@ const CHURN = await shape((tick) => {
         : Array.from({ length: born }, (_, i) => key(base - born + i)),
   };
 });
-describe(`delta with ${5} keys born and ${5} dying, of ${KEYS}`, () => {
-  bench("before — copy the dictionary, reconcile the copy", () =>
-    CHURN.before(),
-  );
-  bench("after — named-key writes, then one order rebuild", () =>
-    CHURN.after(),
+test(`delta with ${5} keys born and ${5} dying, of ${KEYS}`, {
+  timeout: 120_000,
+}, async ({ bench }) => {
+  await bench.compare(
+    bench("before — copy the dictionary, reconcile the copy", () =>
+      CHURN.before(),
+    ),
+    bench("after — named-key writes, then one order rebuild", () =>
+      CHURN.after(),
+    ),
   );
 });
 
@@ -243,7 +263,11 @@ describe(`delta with ${5} keys born and ${5} dying, of ${KEYS}`, () => {
 // entries — and what is being checked is that the after arm's value-diff has not
 // turned a visual no-op into a repaint.
 const RECONNECT = await shape(() => snapshot());
-describe(`reconnect snapshot, ${KEYS} unchanged entries`, () => {
-  bench("before — reconcile the whole dictionary", () => RECONNECT.before());
-  bench("after — value-diff, no writes", () => RECONNECT.after());
+test(`reconnect snapshot, ${KEYS} unchanged entries`, {
+  timeout: 120_000,
+}, async ({ bench }) => {
+  await bench.compare(
+    bench("before — reconcile the whole dictionary", () => RECONNECT.before()),
+    bench("after — value-diff, no writes", () => RECONNECT.after()),
+  );
 });

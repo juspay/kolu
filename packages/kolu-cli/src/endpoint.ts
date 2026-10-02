@@ -37,7 +37,7 @@
 import type { LocalPadiTarget } from "@kolu/padi/stateRoot";
 import type { PadiSurfaceClient } from "@kolu/padi-client/dial";
 import { Effect, Option, type Scope } from "effect";
-import { Flag } from "effect/unstable/cli";
+import { Flag } from "effect/cli";
 import { type CliFailure, errorMessage, failure, isBlank } from "./exit.ts";
 
 /** Everything the dial half reaches for, as a type — so the functions below can
@@ -71,17 +71,17 @@ const padiDialKit: Effect.Effect<PadiDialKit> = Effect.promise(async () => {
  *  mcp`, whose owned-lifetime dial resolves through the same
  *  `localPadiSocket`. */
 export const endpointFlags = {
-  socket: Flag.string("socket").pipe(
+  socket: Flag.String("socket").pipe(
     Flag.withDescription("dial this exact padi socket path"),
     Flag.optional,
   ),
-  stateRoot: Flag.string("state-root").pipe(
+  stateRoot: Flag.String("state-root").pipe(
     Flag.withDescription(
       "dial the padi keyed to this state-root directory (dev/e2e)",
     ),
     Flag.optional,
   ),
-  host: Flag.string("host").pipe(
+  host: Flag.String("host").pipe(
     Flag.withDescription(
       "reach a padi on another machine over ssh (user@host) instead of the local socket",
     ),

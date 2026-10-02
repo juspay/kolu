@@ -12,7 +12,7 @@ members** (`get`, `keys`, `watch`).
 
 ```ts
 import { surfaceCommands } from "@kolu/surface-cli";
-import { Command } from "effect/unstable/cli";
+import { Command } from "effect/cli";
 
 const verbs = surfaceCommands({
   // The unprefixed core — its verbs and readers sit at the top.

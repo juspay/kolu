@@ -10,7 +10,7 @@ import { buildSurfaceFace } from "@kolu/surface/client";
 import { composeSurfaceContracts } from "@kolu/surface/define";
 import { socketDuplexLink } from "@kolu/surface/links/stdio";
 import { Deferred, Effect } from "effect";
-import { RpcSerialization } from "effect/unstable/rpc";
+import { RpcSerialization } from "effect/rpc";
 import { match } from "ts-pattern";
 import type { DrainableProbe, PlainProbe } from "./convergence/converge.ts";
 import { instanceKeyFromStartedAt } from "./convergence/instanceKey.ts";
@@ -46,7 +46,9 @@ const CONTROL_CORE_HELLO_TIMEOUT_MS = 30_000;
  *   this trigger exists to fix (a real previous-release kaval, silent, refused
  *   instead of recycled).
  *
- * BETA-ASSUMPTION(rc.112): the RPC socket protocol pings every 5 s and kills the connection after two ping intervals with no pong (~10 s).
+ * BETA-ASSUMPTION(4.0.0): the RPC socket protocol pings every 5 s and kills the connection after two ping intervals with no pong (~10 s).
+ *   Re-read in effect@4.0.0 src/rpc/RpcClient.ts makePinger; measured by
+ *   surface/links/stdioPingStall.test.ts and probeDaemonIdentity.test.ts.
  *   Both numbers are protocol BEHAVIOR — nothing in the type system holds them
  *   — and the 8 s is derived from them, so a bump that moves either turns this
  *   value from the generous middle into a floor breach or a dead trigger.
@@ -263,9 +265,9 @@ type ControlCoreConnection = {
  * circular: the proof is what this observation ultimately produces.
  *
  * **The tap.** `RpcSerialization.ndjson` is Effect's OWN parser — the very
- * implementation the protocol layer runs — so "decodable here" means exactly
- * "decodable there"; this is not a second framing authority, it is the same one
- * asked one layer earlier. It is attached BEFORE the link is built, deliberately:
+ * implementation the protocol layer runs. Stable Effect silently drops invalid
+ * lines, so the tap checks whether the first complete line produced a value;
+ * a dropped line is an explicit unspeakable verdict here. It is attached BEFORE the link is built, deliberately:
  * a socket with no reader is paused, and whichever `data` listener attaches
  * first drains what was buffered. A legitimate peer never speaks before we do
  * (the RPC server answers requests, it does not greet), so the tap only ever
@@ -308,24 +310,50 @@ function openControlCore(
       // trigger is off the table for the rest of this connection.
       Deferred.doneUnsafe(spoke, Effect.void);
       if (framingSettled) return;
-      try {
-        // An empty result is a PARTIAL frame (no delimiter yet) — keep listening.
-        if (parser.decode(chunk).length > 0) framingSettled = true;
-      } catch (cause) {
+      const publishUnspeakable = (cause: unknown): void => {
         framingSettled = true;
-        Deferred.doneUnsafe(
-          framing,
-          Effect.succeed(
-            new UnspeakableProtocolError({
-              socketPath,
-              evidence: {
-                trigger: "undecodable-frame",
-                frame: frameExcerpt(chunk),
-              },
-              cause,
-            }),
-          ),
-        );
+        // Upstream re-entrancy bug: NodeSocket.onReadable checks waiter, then
+        // readAvailable emits this data callback; synchronous publication can
+        // dispose the reader and clear waiter before onReadable calls resume.
+        // Removing this deferral makes probeDaemonIdentity.test.ts's
+        // "classifies an undecodable first frame as unspeakable" fail the run
+        // with uncaught TypeError: resume is not a function (despite its assertion
+        // passing). The microtask lets the synchronous read finish first.
+        // Source: @effect/platform-node-shared/src/NodeSocket.ts:194-200.
+        // https://github.com/Effect-TS/effect/blob/effect%404.0.0/packages/platform/node-shared/src/NodeSocket.ts#L194-L200
+        queueMicrotask(() => {
+          Deferred.doneUnsafe(
+            framing,
+            Effect.succeed(
+              new UnspeakableProtocolError({
+                socketPath,
+                evidence: {
+                  trigger: "undecodable-frame",
+                  frame: frameExcerpt(chunk),
+                },
+                cause,
+              }),
+            ),
+          );
+        });
+      };
+      try {
+        // Feed only the first frame: a later valid line in the same chunk must
+        // not conceal a malformed first line silently dropped by stable ndjson.
+        const newline = chunk.indexOf(10);
+        const first = newline === -1 ? chunk : chunk.subarray(0, newline + 1);
+        const decoded = parser.decode(first);
+        const rejectedFirstLine = newline !== -1 && decoded.length === 0;
+        if (rejectedFirstLine) {
+          publishUnspeakable(
+            new Error("Effect ndjson rejected the first complete frame"),
+          );
+        } else if (decoded.length > 0) {
+          framingSettled = true;
+        }
+      } catch (cause) {
+        // MaxBufferSizeExceeded remains a thrown parser failure.
+        publishUnspeakable(cause);
       }
     };
     // Kept attached for the life of the connection rather than removed once
