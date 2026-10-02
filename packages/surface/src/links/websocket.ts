@@ -27,7 +27,7 @@
  *     which is why the dispatch is branded half-open at the seam and why the
  *     watchdog — not the socket — is the source of truth for liveness.
  *  4. **Dial history and open-edge count.** These diagnostics record failed
- *     attempts as well as successful reconnects. Effect 4.0 now broadcasts
+ *     attempts as well as successful reconnects. Effect broadcasts
  *     heartbeat failures itself, so dispatch needs no additional epoch fence.
  *
  * There is NO partysocket: reconnect is Effect's socket retry, driven by the

@@ -296,7 +296,7 @@ export async function duplexWireLink(opts: {
    * is what is left.
    *
    * BETA-ASSUMPTION(4.0.0): the RPC pinger fails with SocketReadError whose cause is Error("ping timeout").
-   * Stable Effect changed this from SocketOpenError: src/rpc/RpcClient.ts
+   * In Effect 4.0.0, src/rpc/RpcClient.ts
    * races the read loop with the pinger and broadcasts its SocketReadError.
    * NodeSocket.fromDuplex also wraps ordinary read failures in SocketReadError,
    * so the tag alone cannot distinguish a missed heartbeat. The upstream cause

@@ -49,12 +49,10 @@
  * point is that a reopen lane is governed, so every lane is named here:
  *
  *  - **The framework fence** (`unenrolledStreamCall`'s `STREAM_RETRY`). Owns the
- *    TRANSPORT class end to end, including — since kolu#2101 J1 — a wire re-dial:
- *    `@kolu/surface`'s `websocketLink` counts open EDGES and FAILS every call an
- *    edge superseded, so an orphaned subscription arrives as an ordinary
- *    `RpcClientError` on the first reopen, with no clock anywhere. It never
- *    reaches this module's budgets, and {@link FIRST_FRAME_DEADLINE_MS} is not
- *    what covers it.
+ *    TRANSPORT class end to end. Effect broadcasts established-socket failures
+ *    as `RpcClientError`, and the fence re-subscribes without spending this
+ *    module's budgets. The first-frame deadline covers silence without a
+ *    transport failure, not reconnect recovery.
  *  - **This loop's channel-2 retry** (the three members above plus the deadline).
  *    Governed by the budgets, the fruitless-cycle counter, and one loudness
  *    policy — {@link FRUITLESS_CYCLE_VERDICT}.
@@ -287,8 +285,8 @@ const FRUITLESS_CYCLE_VERDICT = 200;
  *  terminal: a gone terminal answers the declared `TerminalNotFound` and ends
  *  the loop outright; an unmounted tile interrupts the fiber, cancelling even a
  *  sleeping backoff. And it HEALS on every outcome that is recoverable, because
- *  each of them lands in this same channel — J1's re-drive, the heartbeat's
- *  socket cycle, padi re-binding, the host reconverging. What is left, the only
+ *  recovery reaches this loop through a re-subscribed stream, padi re-binding,
+ *  or the host reconverging. What is left, the only
  *  state in which this loop spins for hours, is a live PTY behind a chain that
  *  is permanently wedged but never closes: exactly the state the verdict exists
  *  to put a human in front of. The alternative shipped and was worse — an

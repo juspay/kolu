@@ -250,16 +250,10 @@ export function followingWire<T extends WireTransport>(
 
   // Fail calls bound to an older generation after notifying consumers of the
   // adoption. supersession owns that ordering and the failure explanation.
-  const fence = supersession({
-    moved: "the wire adopted a new generation",
-    mark: "generation",
-    carrier: "link",
-    cause: (bound, now) =>
-      `followingWire: generation ${now} superseded generation ${bound}`,
-  });
+  const fence = supersession();
   // `inner` is read PER CALL, so a call issued after an `adopt` rides the
   // generation now held; every call binds to the mark current when it RUNS.
-  const dispatch = fence.wrap(() => held.transport.dispatch, fence.mark);
+  const dispatch = fence.wrap(() => held.transport.dispatch);
 
   return {
     dispatch,

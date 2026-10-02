@@ -8,7 +8,7 @@
  * When followingWire adopts a new generation, calls bound to the old link
  * must fail with RpcClientError so the face's retry fence can re-subscribe.
  * followingWire is this module's only consumer. Websocket reconnect failures
- * are now broadcast by Effect itself; they do not use this fence.
+ * are broadcast by Effect itself; they do not use this fence.
  *
  * This module owns the ordering law:
  *
@@ -35,24 +35,8 @@ import {
 } from "effect/rpc/RpcClientError";
 import { brandHalfOpenDispatch, type SurfaceDispatch } from "../link";
 
-/** The generation-change vocabulary used in a superseded call’s failure. */
-export interface SupersessionWording {
-  /** What MOVED, as a clause: "the wire adopted a new generation". */
-  readonly moved: string;
-  /** What the mark is CALLED, singular: "generation". */
-  readonly mark: string;
-  /** What carries an answer: "link". */
-  readonly carrier: string;
-  /** The one-line `cause` beneath the message, naming the link that moved. A
-   *  function of the two marks, because the useful half of such a line is which
-   *  mark the call was bound to and where the wire has got to. */
-  readonly cause: (bound: number, now: number) => string;
-}
-
 /** A monotonic MARK plus the fence that reads it. */
 export interface Supersession {
-  /** The mark a call binds to when it STARTS. */
-  readonly mark: () => number;
   /** Advance past the current mark, run `notify`, then fail every call bound at
    *  or below the old mark — in that order, and with the sweep in a `finally` so
    *  a throwing `notify` cannot skip it. See the module docstring for why the
@@ -61,8 +45,8 @@ export interface Supersession {
   /** The branded dispatch that enforces the fence.
    *
    *  `inner` is read PER CALL (so a dispatch that moves with the mark — a
-   *  following wire's generation — is fine) and `bindingMark` decides which mark
-   *  this call belongs to. Both legs are `suspend`ed, so the reads happen when
+   *  following wire's generation — is fine). Each call binds to the current
+   *  mark. Both legs are `suspend`ed, so the reads happen when
    *  the call RUNS, never when its lazy value was built.
    *
    *  Streams use `interruptWhen`, not `haltWhen`: a superseded subscription is
@@ -71,25 +55,19 @@ export interface Supersession {
    *  what the fence retries on. It cannot fire synchronously with the subscribe
    *  (the mark is read in the same tick it is compared against), so
    *  `SurfaceDispatch`'s no-synchronous-end invariant still holds. */
-  readonly wrap: (
-    inner: () => SurfaceDispatch,
-    bindingMark: () => number,
-  ) => SurfaceDispatch;
+  readonly wrap: (inner: () => SurfaceDispatch) => SurfaceDispatch;
 }
 
-export function supersession(wording: SupersessionWording): Supersession {
+export function supersession(): Supersession {
   let mark = 0;
   const watchers = new Set<(mark: number) => void>();
 
-  /** THE SENTENCE, written once. It is what a consumer sees in a console when an
-   *  UNFENCED call finally fails instead of hanging — what happened, why the call
-   *  could only park, and what happens next — and every word of it but the three
-   *  nouns is the law this module states. */
+  /** Explain why this generation's calls must fail instead of remaining pending. */
   const message = (bound: number, now: number): string =>
-    `${wording.moved} beneath this call: it was bound to ${wording.mark} ${bound}, the wire is now at ${wording.mark} ${now}. ` +
-    `Effect RPC registers an entry exactly once and never re-sends it onto another ${wording.carrier}, and an answer can ` +
-    `only travel the ${wording.carrier} its request went out on — so this call could only park forever. Failing it is the ` +
-    `honest signal: the per-subscription retry fence re-subscribes on the new ${wording.carrier}.`;
+    `the wire adopted a new generation beneath this call: it was bound to generation ${bound}, the wire is now at generation ${now}. ` +
+    `Effect RPC registers an entry exactly once and never re-sends it onto another link, and an answer can ` +
+    `only travel the link its request went out on — so this call could only park forever. Failing it is the ` +
+    `honest signal: the per-subscription retry fence re-subscribes on the new link.`;
 
   /** `RpcClientError` is not decoration: the per-subscription fence matches
    *  transport failures STRUCTURALLY on `_tag === "RpcClientError"`
@@ -99,13 +77,15 @@ export function supersession(wording: SupersessionWording): Supersession {
     new RpcClientErrorClass({
       reason: new RpcClientDefect({
         message: message(bound, now),
-        cause: new Error(wording.cause(bound, now)),
+        cause: new Error(
+          `followingWire: generation ${now} superseded generation ${bound}`,
+        ),
       }),
     });
 
   /** Never succeeds; fails the moment the mark passes `bound`.
    *
-   *  The registration is asynchronous relative to the `bindingMark()` read at the
+   *  The registration is asynchronous relative to the current-mark read at the
    *  call site, so an advance can complete in between — hence the eager re-check
    *  rather than an assumption. */
   const guard = (bound: number): Effect.Effect<never, RpcClientError> =>
@@ -126,7 +106,6 @@ export function supersession(wording: SupersessionWording): Supersession {
     });
 
   return {
-    mark: () => mark,
     advance: (notify) => {
       mark += 1;
       try {
@@ -141,18 +120,15 @@ export function supersession(wording: SupersessionWording): Supersession {
     // object. A wire dispatch that lost the brand would be accepted by
     // `surfaceClient` with no watchdog — the green-dot-over-a-dead-link lie
     // (#1564).
-    wrap: (inner, bindingMark) =>
+    wrap: (inner) =>
       brandHalfOpenDispatch({
         unary: (tag: string, payload: unknown) =>
           Effect.suspend(() =>
-            Effect.raceFirst(inner().unary(tag, payload), guard(bindingMark())),
+            Effect.raceFirst(inner().unary(tag, payload), guard(mark)),
           ),
         stream: (tag: string, payload: unknown) =>
           Stream.suspend(() =>
-            Stream.interruptWhen(
-              inner().stream(tag, payload),
-              guard(bindingMark()),
-            ),
+            Stream.interruptWhen(inner().stream(tag, payload), guard(mark)),
           ),
       }),
   };
