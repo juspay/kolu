@@ -290,37 +290,24 @@ describe("connectKaval — identity comes only from frozen hello", () => {
 
 describe("connectKaval — the handshake read is bounded (F2)", () => {
   it("rejects on the baked deadline when a peer accepts the socket but never answers frozen hello", async () => {
-    // A foreign squatter (or wedged daemon) accepts the unix connection but
-    // sends no reply — without a deadline the read would pend forever and hang
-    // boot, and the gate-less-squatter recovery would never reach its foreign
-    // refusal. `connectKaval` carries NO deadline override (fail-fast: no
-    // knobs), so this drives the supervisor's single baked policy under FAKE
-    // timers — production and this test run the same parameterless
-    // implementation, just with the clock advanced.
-    const socketPath = sockPath("kolu-silent-");
-    const server = createServer(() => {
-      // accept, then never respond
+    // Keep the transport healthy while the hello handler wedges. A completely
+    // silent socket now loses Effect 4's keep-alive race before the 30s hello
+    // deadline, so it cannot prove this independent bound on the RPC read.
+    // Both the real transport and the baked deadline remain enabled.
+    const socketPath = sockPath("kolu-hello-silent-");
+    const listener = await serveFake(socketPath, {
+      [HELLO_TAG]: () => Effect.never,
     });
-    await new Promise<void>((resolve) => server.listen(socketPath, resolve));
-    // Fake ONLY setTimeout so the real dial + version-send still progress over IO;
-    // the deadline timer is the one thing under our control.
-    vi.useFakeTimers({ toFake: ["setTimeout"] });
+    // Use real time: advancing fake timers by 30s starves socket IO and races
+    // the heartbeat even though the real server is ready to answer pings.
     try {
-      const outcome = Effect.runPromise(connectKaval(socketPath)).then(
-        () => "resolved",
-        (e: unknown) => (e as Error).message,
-      );
-      // Let the real dial complete and the deadline timer arm (setImmediate is not faked).
-      for (let i = 0; i < 10; i++) await new Promise((r) => setImmediate(r));
-      await vi.advanceTimersByTimeAsync(30_000);
-      await expect(outcome).resolves.toMatch(
+      await expect(Effect.runPromise(connectKaval(socketPath))).rejects.toThrow(
         /control-core hello timed out after 30000ms/,
       );
     } finally {
-      vi.useRealTimers();
-      server.close();
+      await listener.close();
     }
-  });
+  }, 40_000);
 
   it("rejects on the 10s version deadline when the frozen hello answers but system.version never does", async () => {
     // The SECOND deadline, distinct from the supervisor-owned 30s frozen-hello
