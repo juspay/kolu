@@ -900,7 +900,7 @@
       "dir": "osfacts-client",
       "pin": {
         "name": "osfacts",
-        "revision": "9e90fa544b77aa102be1b881ae9dcf1531c10e8e",
+        "revision": "0af7e8df98423aa3c62e7c43770bd38581ae7e18",
         "subdir": "client-ts"
       },
       "vendored": true,
