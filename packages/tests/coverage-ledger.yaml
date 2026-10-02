@@ -2126,3 +2126,29 @@ retirements:
       file: packages/tests/features/printed-url.feature
       symbol: "Scenario: An open card upgrades live when the listener appears"
       test: The initial card may be unbacked or blind because macOS 27 hides unclaimed host sockets. The same open card must still become joined after the real listener starts; the live transition assertion is unchanged. Exact blind-versus-unbacked semantics remain covered by joinPrintedUrl.test.ts.
+  - id: revise-markdown-source-highlight-ready
+    revisionId: revision-bdbf53816260a1fb2598
+    action: revised
+    status: landed
+    promise: Comments on a Markdown file work in the source view
+    defectSurface: [code-tab, markdown-source-selection]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-35d8f7cb71d9607f4818]
+    sameCodePathEvidence:
+      file: packages/tests/features/code-tab.feature
+      symbol: "Scenario: Comments on a Markdown file work in the source view"
+      test: Preserves native mouse selection and every comment assertion; adds an explicit highlighted-source readiness barrier because Pierre replaces the initial plain-text node asynchronously. Holding the actual highlight-worker reply until mid-drag reproduces the collapsed selection; the barrier blocks until that reply and the unchanged native drag then succeeds.
+  - id: revise-markdown-tray-source-highlight-ready
+    revisionId: revision-7e7cd7f87376e2b9526a
+    action: revised
+    status: landed
+    promise: Tray jump returns to the Source Markdown surface
+    defectSurface: [code-tab, markdown-source-selection]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-c7304bebab74fed743b0]
+    sameCodePathEvidence:
+      file: packages/tests/features/code-tab.feature
+      symbol: "Scenario: Tray jump returns to the Source Markdown surface"
+      test: Preserves native mouse selection and every comment assertion; adds an explicit highlighted-source readiness barrier because Pierre replaces the initial plain-text node asynchronously. Holding the actual highlight-worker reply until mid-drag reproduces the collapsed selection; the barrier blocks until that reply and the unchanged native drag then succeeds.

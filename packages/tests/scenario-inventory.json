@@ -7851,6 +7851,30 @@
       "exampleRows": [],
       "executions": 1,
       "firstSeenSha": "d4f1d24eff56b9e75747a7ab99f88bc046b8cd4c"
+    },
+    {
+      "revisionId": "revision-35d8f7cb71d9607f4818",
+      "scenarioKey": "scenario-4ebf61353acc5326bedf",
+      "feature": "features/code-tab.feature",
+      "scenario": "Comments on a Markdown file work in the source view",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "a92467d52aeca36a311da988a0a80f05cf5929d3641e9a240c97e6e99e8401dc",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "de062acf6a31023536a517109de0f9ff9832fd70"
+    },
+    {
+      "revisionId": "revision-c7304bebab74fed743b0",
+      "scenarioKey": "scenario-5412831f5f89c9d48315",
+      "feature": "features/code-tab.feature",
+      "scenario": "Tray jump returns to the Source Markdown surface",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "ef408ebcc98df171411afef26274dce1e9b3a088ad8ef80beae7f40445107080",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "de062acf6a31023536a517109de0f9ff9832fd70"
     }
   ]
 }
