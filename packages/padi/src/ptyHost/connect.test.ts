@@ -25,10 +25,10 @@
  *      surface it imitates.
  */
 
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { createServer, Socket } from "node:net";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { controlCoreFragment, controlCoreSurface } from "@kolu/surface-daemon";
 import {
   implementSurfaces,
@@ -50,9 +50,12 @@ import {
   servePtyHostOverUnixSocket,
 } from "kaval";
 import {
+  converge,
+  isSocketSquatterForeignError,
   instanceKeyFromStartedAt,
   isUnspeakableProtocolError,
 } from "@kolu/surface-daemon-supervisor";
+import { createEndpointForKoluTest } from "@kolu/surface-daemon-supervisor/createEndpoint.kolu.testlib";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import {
   connectKaval,
@@ -289,6 +292,83 @@ describe("connectKaval — identity comes only from frozen hello", () => {
 });
 
 describe("connectKaval — the handshake read is bounded (F2)", () => {
+  it("rejects a completely silent peer on keep-alive loss, then refuses the foreign socket holder", async () => {
+    const socketPath = sockPath("kolu-completely-silent-");
+    const sockets = new Set<Socket>();
+    const server = createServer((socket) => {
+      sockets.add(socket);
+      socket.on("close", () => sockets.delete(socket));
+      socket.on("error", () => {});
+      // Consume requests and pings, but write NOTHING back (including no Pong).
+      socket.resume();
+    });
+    await new Promise<void>((resolve, reject) => {
+      server.once("error", reject);
+      server.listen(socketPath, resolve);
+    });
+    const failures: Error[] = [];
+    const states: string[] = [];
+    const spawn = vi.fn(() => {
+      throw new Error("a foreign socket holder must never be replaced");
+    });
+    const endpoint = createEndpointForKoluTest({
+      hostId: "local",
+      home: {
+        dir: dirname(socketPath),
+        gatePath: join(dirname(socketPath), "kaval.pid"),
+        socketPath,
+      },
+      policy: {
+        capability: "not-drainable",
+        baked: {
+          contractVersion: PTY_HOST_CONTRACT_VERSION,
+          build: { kind: "off-nix" },
+        },
+        onContractSkew: { kind: "recycle" },
+        onBuildMismatch: { kind: "nudge-human" },
+      },
+      // Enter the gate-less recovery path. Its OS holder lookup and every
+      // connect attempt below are real; no fabricated transport error.
+      probe: () => Effect.succeed(null),
+      driver: { spawn: Effect.sync(spawn) },
+      connect: (path) =>
+        connectKaval(path).pipe(
+          Effect.tapError((error) => Effect.sync(() => failures.push(error))),
+        ),
+      log: silentLog,
+      onStatus: (_host, status) => states.push(status.state),
+      adoptConnectAttempts: 1,
+    });
+    try {
+      const result = await Effect.runPromise(Effect.result(converge(endpoint)));
+      expect(result._tag).toBe("Failure");
+      if (result._tag !== "Failure")
+        throw new Error("foreign peer was adopted");
+      expect(isSocketSquatterForeignError(result.failure)).toBe(true);
+      if (!isSocketSquatterForeignError(result.failure)) throw result.failure;
+      expect(
+        result.failure.holders.some((holder) => holder.pid === process.pid),
+      ).toBe(true);
+      // Three bounded recovery passes, each ending in Effect 4's keep-alive
+      // refusal rather than the independent 30s frozen-hello deadline.
+      expect(failures).toHaveLength(3);
+      for (const error of failures) {
+        expect(error.message).toBe(
+          `pty-host handshake failed — could not read control.core.hello (surface stdio transport closed: unix socket ${socketPath}: the peer stopped answering the keep-alive ping)`,
+        );
+      }
+      expect(states).toContain("dead");
+      expect(spawn).not.toHaveBeenCalled();
+      expect(server.listening).toBe(true);
+    } finally {
+      for (const socket of sockets) socket.destroy();
+      await new Promise<void>((resolve, reject) =>
+        server.close((error) => (error ? reject(error) : resolve())),
+      );
+      rmSync(dirname(socketPath), { recursive: true });
+    }
+  }, 60_000);
+
   it("rejects on the baked deadline when a peer accepts the socket but never answers frozen hello", async () => {
     // Keep the transport healthy while the hello handler wedges. A completely
     // silent socket now loses Effect 4's keep-alive race before the 30s hello
