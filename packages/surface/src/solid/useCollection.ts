@@ -25,6 +25,7 @@ import {
   getOwner,
   mapArray,
   onCleanup,
+  runWithOwner,
   untrack,
 } from "solid-js";
 import { createStore, produce, unwrap } from "solid-js/store";
@@ -122,11 +123,30 @@ export function useCollection<Name extends string, K, T, I>(
     return { key, sub };
   });
 
-  const index = createMemo(
-    () => new Map(perKey().map(({ key, sub }) => [key, sub])),
-  );
+  // Keep mapArray lazy until the first lookup, and give each requested key its
+  // own equality gate. Membership changes cannot wake unrelated key readers.
+  const owner = getOwner();
+  const lookups = new Map<K, Accessor<Subscription<T> | undefined>>();
+  let index: Accessor<Map<K, Subscription<T>>> | undefined;
   function byKey(key: K): Subscription<T> | undefined {
-    return index().get(key);
+    let read = lookups.get(key);
+    if (!read) {
+      read = runWithOwner(owner, () => {
+        if (!index)
+          index = createMemo(() => {
+            const table = new Map<K, Subscription<T>>();
+            for (const entry of perKey())
+              if (!table.has(entry.key)) table.set(entry.key, entry.sub);
+            return table;
+          });
+        const table = index;
+        return createMemo(() => table().get(key));
+      });
+      if (!read)
+        throw new Error("Collection lookup owner failed to initialize");
+      lookups.set(key, read);
+    }
+    return read();
   }
 
   return { keys, byKey };
