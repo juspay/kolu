@@ -115,6 +115,14 @@ export interface HostAttentionIndex {
  *  outlive the memos it holds. A host with no root yet simply has no entry, and
  *  every reader below falls back to the pure fold — the honest answer computed
  *  the slow way, never a wrong one. */
+const facts = new Map<string, () => Omit<HostMarks, "unseenFinished">>();
+export function registerHostFacts(
+  encHost: string,
+  read: () => Omit<HostMarks, "unseenFinished">,
+): void {
+  facts.set(encHost, read);
+}
+
 const indexes = new Map<string, HostAttentionIndex>();
 
 /** Publish a host's index. One root per host, so no two writers race a key. */
@@ -128,6 +136,7 @@ export function registerHostIndex(
 /** Drop a host's index — its memos are about to be disposed with the root. */
 export function forgetHostIndex(encHost: string): void {
   indexes.delete(encHost);
+  facts.delete(encHost);
 }
 
 /** The encoded keys of every host the store holds a record for — the membership
@@ -141,7 +150,26 @@ export function markedHosts(): readonly string[] {
  *  reads, and the one the attention diagnostics compare against the client's
  *  per-terminal metadata. */
 export function hostFrame(encHost: string): HostMarks {
-  return marks[encHost] ?? NO_MARKS;
+  const frame = facts.get(encHost)?.();
+  return frame
+    ? {
+        get byClass() {
+          return frame.byClass;
+        },
+        get liveIds() {
+          return frame.liveIds;
+        },
+        get live() {
+          return frame.live;
+        },
+        get reported() {
+          return frame.reported;
+        },
+        get unseenFinished() {
+          return marks[encHost]?.unseenFinished ?? 0;
+        },
+      }
+    : (marks[encHost] ?? NO_MARKS);
 }
 
 /** A host's asking count as a reactive read — derived from the id list at the
