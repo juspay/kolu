@@ -1,3 +1,4 @@
+import { WorkspaceTerminals } from "./terminal/WorkspaceTerminals";
 /** App shell: layout + wiring. State lives in useXxx singletons, behavior in
  *  components. App.tsx mounts the chrome, the canvas surface (chosen by
  *  `canvasMode`), the dialogs, and the overlays — and holds nothing but the
@@ -59,7 +60,6 @@ import DegradedCanvas from "./kaval/DegradedCanvas";
 import { type CanvasMode, canvasMode } from "./kaval/useCanvasMode";
 import MobileKeyBar from "./MobileKeyBar";
 import MobilePullChrome from "./MobilePullChrome";
-import MobileTileView from "./MobileTileView";
 import { NEW_TERMINAL_GROUP } from "./palette/newTerminalGroup";
 import { TERMINALS_GROUP_NAME } from "./palette/terminalsGroup";
 import WebcamOverlay from "./recorder/WebcamOverlay";
@@ -267,35 +267,16 @@ const App: Component = () => {
     switchHost: setActiveHost,
   });
 
-  /** Canvas tile body — every tile stays mounted (`visible={true}`) so
-   *  inactive xterms keep their grid sized correctly; only the focused tile
-   *  takes keyboard focus. */
-  function renderCanvasTileBody(id: TerminalId, active: () => boolean) {
-    return (
-      <TerminalContent
-        terminalId={id}
-        visible={true}
-        focused={active()}
-        theme={getTerminalTheme(id)}
-        onCloseTerminal={closeTerminal}
-        onFocus={() => store.setActiveSilently(id)}
-      />
-    );
-  }
-
-  /** Mobile body — only the active terminal is visible (others hide via
-   *  the parent's classList) so xterm doesn't try to size a 0×0 element. */
-  function renderMobileTileBody(id: TerminalId, visible: () => boolean) {
-    return (
-      <TerminalContent
-        terminalId={id}
-        visible={visible()}
-        focused={visible()}
-        theme={getTerminalTheme(id)}
-        onCloseTerminal={closeTerminal}
-      />
-    );
-  }
+  const renderTerminalBody = (id: TerminalId) => (
+    <TerminalContent
+      terminalId={id}
+      visible={isDesktop() || tileStore.isActiveTile(id)}
+      focused={tileStore.isActiveTile(id)}
+      theme={getTerminalTheme(id)}
+      onCloseTerminal={closeTerminal}
+      onFocus={() => store.setActiveSilently(id)}
+    />
+  );
 
   // The one canvas-surface decision — which surface wins, in what order. The
   // precedence (and the #1034 / F3 correctness it carries) lives in
@@ -576,76 +557,48 @@ const App: Component = () => {
             </div>
           </Match>
           <Match when={mode().kind === "workspace"}>
-            {match(layoutMode())
-              .with(P.union("phone", "compact"), (m) => {
-                // One touch host for both handheld layouts: the same
-                // bottom-sheet `RightPanelDrawer` wrapping a touch tile view.
-                // They diverge only on two axes — the phone stacks its single
-                // fullscreen tile in a column (`contentClass="flex-col"`) while
-                // the roomier compact (Z Fold unfolded, tablets) keeps the
-                // default row, and the tile view is `MobileTileView` vs
-                // `CompactTileView`. The inner tile props are identical, so
-                // they live in one `tileProps` object.
-                //
-                // The reactive read stays a GETTER (not an eager call): Solid's
-                // JSX prop spread preserves the getter (mergeProps-style, not an
-                // eager copy), so it re-runs `orderedIds()` when the tile view
-                // reads the prop, and tracks it. An eager `orderedIds:
-                // orderedIds()` would snapshot the value at mount — a
-                // freshly-created terminal would never reach the body's
-                // `<For each={props.orderedIds}>`. (The chrome props — status /
-                // appTitle / onOpenPalette — moved to `MobilePullChrome` above,
-                // which is why they're no longer threaded through here.)
-                const tileProps = {
-                  get orderedIds() {
-                    return orderedIds();
-                  },
-                  renderBody: renderMobileTileBody,
-                  bottomBar: <MobileKeyBar />,
-                };
-                return (
-                  <RightPanelDrawer
-                    terminalId={store.active().id}
-                    meta={store.active().meta}
-                    themeName={activeThemeName()}
-                    onThemeClick={() => commandPalette.openGroup("Set theme")}
-                    contentClass={m === "phone" ? "flex-col" : undefined}
-                  >
-                    {/* `m` is a fixed match-arm value, not a signal, so a plain
-                     *  ternary picks the tile view — no reactive `<Show>` needed. */}
-                    {m === "phone" ? (
-                      <MobileTileView {...tileProps} />
-                    ) : (
-                      <CompactTileView {...tileProps} />
-                    )}
-                  </RightPanelDrawer>
-                );
-              })
-              .with("desktop", () => (
-                // Desktop host: horizontal `@corvu/resizable` split between
-                // the canvas and the right panel. `sizes=[1, 0]` collapses
-                // the panel to zero width while keeping it mounted — this
-                // preserves `CodeTab`'s selectedPath signal and Pierre's
-                // tree expansion across collapse round-trips (#818).
-                //
-                // **This container is expected to span the full viewport
-                // width** — the Dock floats `position: absolute` over the
-                // canvas in tiled mode rather than reflowing alongside it.
-                // `ChromeBar` leans on this invariant for its
-                // `right: panelSize * 100vw` offset; treating the Corvu
-                // fraction as a viewport-width fraction only works while
-                // the assumption holds. If a sibling ever shrinks this
-                // container, the ChromeBar offset must move to a measured
-                // pixel value or a host-published CSS custom property.
-                //
-                // `startIntersection={false}` on the handle opts out of
-                // Corvu's module-level handle-pairing registry (see
-                // `@corvu/resizable/dist/index.js:201-222`). Without the
-                // opt-out, this outer horizontal handle pairs with
-                // `CodeTab`'s inner vertical handle (their rects touch at
-                // the corner) and clicks near the corner land on the
-                // wrong handle. `CodeTab` defends from the inner side
-                // with the same opt-out — both sides need it.
+            <WorkspaceTerminals ids={tileStore.tileIds()} renderBody={renderTerminalBody}>
+              {(outlet) => <Switch>
+              <Match when={!isDesktop()}>
+                <RightPanelDrawer
+                  terminalId={store.active().id}
+                  meta={store.active().meta}
+                  themeName={activeThemeName()}
+                  onThemeClick={() => commandPalette.openGroup("Set theme")}
+                  contentClass={
+                    layoutMode() === "phone" ? "flex-col" : undefined
+                  }
+                >
+                  <CompactTileView
+                    compact={layoutMode() === "compact"}
+                    orderedIds={orderedIds()}
+                    renderBody={outlet}
+                    bottomBar={<MobileKeyBar />}
+                  />
+                </RightPanelDrawer>
+              </Match>
+              <Match when={isDesktop()}>
+                // Desktop host: horizontal `@corvu/resizable` split between //
+                the canvas and the right panel. `sizes=[1, 0]` collapses // the
+                panel to zero width while keeping it mounted — this // preserves
+                `CodeTab`'s selectedPath signal and Pierre's // tree expansion
+                across collapse round-trips (#818). // // **This container is
+                expected to span the full viewport // width** — the Dock floats
+                `position: absolute` over the // canvas in tiled mode rather
+                than reflowing alongside it. // `ChromeBar` leans on this
+                invariant for its // `right: panelSize * 100vw` offset; treating
+                the Corvu // fraction as a viewport-width fraction only works
+                while // the assumption holds. If a sibling ever shrinks this //
+                container, the ChromeBar offset must move to a measured // pixel
+                value or a host-published CSS custom property. // //
+                `startIntersection={false}` on the handle opts out of // Corvu's
+                module-level handle-pairing registry (see //
+                `@corvu/resizable/dist/index.js:201-222`). Without the //
+                opt-out, this outer horizontal handle pairs with // `CodeTab`'s
+                inner vertical handle (their rects touch at // the corner) and
+                clicks near the corner land on the // wrong handle. `CodeTab`
+                defends from the inner side // with the same opt-out — both
+                sides need it.
                 <Resizable
                   orientation="horizontal"
                   sizes={
@@ -688,7 +641,7 @@ const App: Component = () => {
                       renderTileTitleActions={(id) => (
                         <TileTitleActions id={id} />
                       )}
-                      renderTileBody={renderCanvasTileBody}
+                      renderTileBody={outlet}
                     />
                   </Resizable.Panel>
                   <Show when={!rightPanel.collapsed()}>
@@ -728,8 +681,9 @@ const App: Component = () => {
                     />
                   </Resizable.Panel>
                 </Resizable>
-              ))
-              .exhaustive()}
+              </Match>
+            </Switch>}
+            </WorkspaceTerminals>
           </Match>
         </Switch>
       </div>

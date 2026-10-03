@@ -140,7 +140,10 @@ const MobileTileView: Component<{
               return (
                 <div
                   class="absolute inset-0 flex flex-col"
-                  classList={{ hidden: !visible() }}
+                  style={{
+                    "content-visibility": visible() ? "visible" : "hidden",
+                  }}
+                  inert={!visible()}
                 >
                   {props.renderBody(id, visible)}
                 </div>

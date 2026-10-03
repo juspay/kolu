@@ -27,6 +27,7 @@ import { useTerminalStore } from "./terminal/useTerminalStore";
 const CompactTileView: Component<{
   /** Workspace-switcher-ordered ids — passed through to the terminal pane for
    *  swipe-to-cycle (the rail reads the same `useDockOrder` order itself). */
+  compact: boolean;
   orderedIds: TerminalId[];
   renderBody: (id: TerminalId, visible: () => boolean) => JSX.Element;
   bottomBar?: JSX.Element;
@@ -43,6 +44,8 @@ const CompactTileView: Component<{
        *  `shrink-0` keeps the rail from collapsing under a busy tile. */}
       <aside
         data-testid="compact-dock-rail"
+        classList={{ hidden: !props.compact }}
+        inert={!props.compact}
         class="shrink-0 w-52 min-h-0 flex flex-col border-r border-edge bg-surface-1"
       >
         <DockList onSelect={store.focusTerminalSilently} />
@@ -51,7 +54,7 @@ const CompactTileView: Component<{
         orderedIds={props.orderedIds}
         renderBody={props.renderBody}
         bottomBar={props.bottomBar}
-        hideDockDrawer
+        hideDockDrawer={props.compact}
       />
     </>
   );
