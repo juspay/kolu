@@ -48,7 +48,6 @@ import {
   decodeHostKey,
   encodeHostKey,
   type HostKey,
-  hostKeysEqual as sameHost,
 } from "kolu-common/hostKey";
 import {
   type Component,

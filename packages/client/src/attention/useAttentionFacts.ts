@@ -39,24 +39,15 @@ import { createAttentionIndex } from "./createAttentionIndex";
 
 import { decodeHostKey, encodeHostKey } from "kolu-common/hostKey";
 import type { AttentionClass, TerminalId } from "kolu-common/surface";
-import {
-  createEffect,
-  createMemo,
-  createSelector,
-  mapArray,
-  onCleanup,
-} from "solid-js";
+import { createEffect, createMemo, mapArray, onCleanup } from "solid-js";
 import { createSharedRoot } from "../createSharedRoot";
 import { hostKeys, interpretClientError, padiMap } from "../wire";
 import {
-  FRAME_CLASSES,
   frameByClass,
-  hostActiveIds,
   type TerminalAttention,
 } from "@kolu/padi-client/attention";
 import {
   forgetHostIndex,
-  hostFrame,
   registerHostIndex,
   registerHostFacts,
   terminalAttention,

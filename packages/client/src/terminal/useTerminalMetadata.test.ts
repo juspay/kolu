@@ -624,11 +624,19 @@ it("metadata ticks do not wake split-tree or unrelated display readers", async (
     bag.keys = () => ids;
     bag.metaOf = (id) => records()[id];
     bag.clockOffset = () => 0;
-    const store = useTerminalMetadata({ list: () => ids.map((id) => ({ id }) as TerminalInfo) });
+    const store = useTerminalMetadata({
+      list: () => ids.map((id) => ({ id }) as TerminalInfo),
+    });
     let splitWakes = 0;
     let displayWakes = 0;
-    createEffect(() => { store.getPaneTree("a"); splitWakes++; });
-    createEffect(() => { store.getDisplayInfo("b")?.key.label; displayWakes++; });
+    createEffect(() => {
+      store.getPaneTree("a");
+      splitWakes++;
+    });
+    createEffect(() => {
+      store.getDisplayInfo("b")?.key.label;
+      displayWakes++;
+    });
     await flush();
     setRecords((old) => ({ ...old, a: { ...old.a, lastActivityAt: 20 } }));
     await flush();

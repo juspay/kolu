@@ -22,11 +22,7 @@ import { useActiveHostSelector } from "./isActiveHost";
  *  Touch ergonomics: every chip and the add trigger are ≥44px hit targets, and
  *  the chip row scrolls horizontally when hosts overflow the viewport width. */
 
-import {
-  encodeHostKey,
-  type HostKey,
-  hostKeysEqual as sameHost,
-} from "kolu-common/hostKey";
+import { encodeHostKey, type HostKey } from "kolu-common/hostKey";
 import {
   type Component,
   createMemo,
@@ -38,7 +34,7 @@ import {
 import { AttentionTriplet } from "@kolu/solid-statepip";
 import { hostMarks } from "../attention/attentionMarks";
 import DocLink from "../ui/DocLink";
-import { activeHost, padiMap, setActiveHost } from "../wire";
+import { padiMap, setActiveHost } from "../wire";
 import { runAction } from "../runAction";
 import { addHost } from "./addHost";
 import { focusOnMount } from "./focusOnMount";

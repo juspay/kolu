@@ -17,7 +17,8 @@ import { createSharedRoot } from "../createSharedRoot";
  *  (the shared root's disposer is intentionally discarded), so we do NOT register
  *  an `onCleanup` that would never run. The browser reclaims the timer on page
  *  close. Reading the returned accessor in a tracking context (JSX/memo) re-renders
- *  that consumer each tick; a hidden tab throttles the interval on its own. */
+ *  that consumer each tick. Hidden tabs stop the interval; revealing the tab
+ *  immediately refreshes the clock and resumes its cadence. */
 export const makeTickingClock = (
   read: () => number,
   intervalMs = 1_000,

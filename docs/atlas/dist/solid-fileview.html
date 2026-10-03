@@ -312,6 +312,10 @@ apart (Lowy), and neither is <em>about kolu</em>:</p>
 highlighter — the source view is an injected renderer like any other. kolu passes
 one backed by <code>@kolu/solid-pierre</code> carrying kolu’s theme. So <code>@kolu/solid-fileview</code>
 has no rendering deps at all: pure mechanism, every concrete renderer an appliance.</p>
+<p>The implemented renderer contract is <code>render(file: Accessor&lt;TFile&gt;)</code>. Renderer
+identity owns the mounted appliance; file saves flow through the accessor into
+its existing bindings. Both modes stay mounted after their first visit, and a
+hidden mode adopts the current file when revealed.</p>
 <h3 id="html--svg-need-the-wire-to-carry-both-source-and-url">HTML / SVG need the wire to carry both source and URL</h3>
 <p>HTML/SVG are text on disk but render in an <code>allow-scripts</code> opaque-origin iframe at
 a server-built URL (and HTML splices the comment bridge at that route) — the

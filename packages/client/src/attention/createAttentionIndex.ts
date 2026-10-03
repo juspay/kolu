@@ -1,6 +1,15 @@
-import { FRAME_CLASSES, hostActiveIds, type HostAttentionFrame } from "@kolu/padi-client/attention";
+import {
+  FRAME_CLASSES,
+  hostActiveIds,
+  type HostAttentionFrame,
+} from "@kolu/padi-client/attention";
 import type { AttentionClass, TerminalId } from "kolu-common/surface";
-import { type Accessor, createComputed, createMemo, createSelector } from "solid-js";
+import {
+  type Accessor,
+  createComputed,
+  createMemo,
+  createSelector,
+} from "solid-js";
 import { createStore, reconcile } from "solid-js/store";
 import type { HostAttentionIndex } from "./attentionMarks";
 
@@ -13,7 +22,8 @@ export function createAttentionIndex(
   createComputed(() => {
     const next: Record<string, AttentionClass> = {};
     const frame = byClass();
-    for (const klass of FRAME_CLASSES) for (const id of frame[klass]) next[id] = klass;
+    for (const klass of FRAME_CLASSES)
+      for (const id of frame[klass]) next[id] = klass;
     setClasses(reconcile(next));
   });
   const liveSet = createMemo(() => new Set(liveIds()));
@@ -21,6 +31,9 @@ export function createAttentionIndex(
   return {
     classOf: (id) => classes[id] ?? "idle",
     isLive,
-    activeCount: createMemo(() => hostActiveIds({ byClass: byClass(), liveIds: [...liveIds()] }).length),
+    activeCount: createMemo(
+      () =>
+        hostActiveIds({ byClass: byClass(), liveIds: [...liveIds()] }).length,
+    ),
   };
 }

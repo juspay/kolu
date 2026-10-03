@@ -28,7 +28,6 @@ import {
   Switch,
 } from "solid-js";
 import { Toaster } from "solid-sonner";
-import { match, P } from "ts-pattern";
 import AboutDialog from "./AboutDialog";
 import { useAttention } from "./attention/useAttention";
 import ChromeBar from "./ChromeBar";
@@ -557,28 +556,32 @@ const App: Component = () => {
             </div>
           </Match>
           <Match when={mode().kind === "workspace"}>
-            <WorkspaceTerminals ids={tileStore.tileIds()} renderBody={renderTerminalBody}>
-              {(outlet) => <Switch>
-              <Match when={!isDesktop()}>
-                <RightPanelDrawer
-                  terminalId={store.active().id}
-                  meta={store.active().meta}
-                  themeName={activeThemeName()}
-                  onThemeClick={() => commandPalette.openGroup("Set theme")}
-                  contentClass={
-                    layoutMode() === "phone" ? "flex-col" : undefined
-                  }
-                >
-                  <CompactTileView
-                    compact={layoutMode() === "compact"}
-                    orderedIds={orderedIds()}
-                    renderBody={outlet}
-                    bottomBar={<MobileKeyBar />}
-                  />
-                </RightPanelDrawer>
-              </Match>
-              <Match when={isDesktop()}>
-                {/*
+            <WorkspaceTerminals
+              ids={tileStore.tileIds()}
+              renderBody={renderTerminalBody}
+            >
+              {(outlet) => (
+                <Switch>
+                  <Match when={!isDesktop()}>
+                    <RightPanelDrawer
+                      terminalId={store.active().id}
+                      meta={store.active().meta}
+                      themeName={activeThemeName()}
+                      onThemeClick={() => commandPalette.openGroup("Set theme")}
+                      contentClass={
+                        layoutMode() === "phone" ? "flex-col" : undefined
+                      }
+                    >
+                      <CompactTileView
+                        compact={layoutMode() === "compact"}
+                        orderedIds={orderedIds()}
+                        renderBody={outlet}
+                        bottomBar={<MobileKeyBar />}
+                      />
+                    </RightPanelDrawer>
+                  </Match>
+                  <Match when={isDesktop()}>
+                    {/*
                    Desktop host: horizontal `@corvu/resizable` split between
                    the canvas and the right panel. `sizes=[1, 0]` collapses
                    the panel to zero width while keeping it mounted — this
@@ -604,90 +607,93 @@ const App: Component = () => {
                    wrong handle. `CodeTab` defends from the inner side
                    with the same opt-out — both sides need it.
                 */}
-                <Resizable
-                  orientation="horizontal"
-                  sizes={
-                    rightPanel.collapsed()
-                      ? [1, 0]
-                      : [1 - rightPanel.panelSize(), rightPanel.panelSize()]
-                  }
-                  onSizesChange={(sizes) => {
-                    // `MIN_PANEL_SIZE = 0.05` inside `setPanelSize` drops
-                    // the collapsed `sizes[1] = 0` case so `preferences.size`
-                    // never persists as zero (which would re-expand into an
-                    // ungrabbable zero-width panel).
-                    const s = realSizes(sizes);
-                    if (s) rightPanel.setPanelSize(s[1]);
-                  }}
-                  class="flex-1 min-h-0 overflow-hidden"
-                >
-                  <Resizable.Panel
-                    as="div"
-                    class="min-w-0 min-h-0 flex"
-                    minSize={0.3}
-                  >
-                    <TerminalCanvas
-                      tileIds={tileStore.tileIds()}
-                      getLayout={tileStore.getLayout}
-                      onLayoutChange={tileStore.setLayout}
-                      onAutoArrange={arrange.handleCanvasAutoArrange}
-                      onSelect={tileStore.setActiveSilently}
-                      onClose={(id) => closeTerminal(id)}
-                      {...dockPalette}
-                      renderTileTitle={(id) => (
-                        <TerminalMeta
-                          terminalId={id}
-                          info={store.getDisplayInfo(id)}
-                          meta={store.getMetadata(id)}
-                          unread={store.isUnread(id)}
-                          onOpenIntent={() => intentEditor.openTerminal(id)}
+                    <Resizable
+                      orientation="horizontal"
+                      sizes={
+                        rightPanel.collapsed()
+                          ? [1, 0]
+                          : [1 - rightPanel.panelSize(), rightPanel.panelSize()]
+                      }
+                      onSizesChange={(sizes) => {
+                        // `MIN_PANEL_SIZE = 0.05` inside `setPanelSize` drops
+                        // the collapsed `sizes[1] = 0` case so `preferences.size`
+                        // never persists as zero (which would re-expand into an
+                        // ungrabbable zero-width panel).
+                        const s = realSizes(sizes);
+                        if (s) rightPanel.setPanelSize(s[1]);
+                      }}
+                      class="flex-1 min-h-0 overflow-hidden"
+                    >
+                      <Resizable.Panel
+                        as="div"
+                        class="min-w-0 min-h-0 flex"
+                        minSize={0.3}
+                      >
+                        <TerminalCanvas
+                          tileIds={tileStore.tileIds()}
+                          getLayout={tileStore.getLayout}
+                          onLayoutChange={tileStore.setLayout}
+                          onAutoArrange={arrange.handleCanvasAutoArrange}
+                          onSelect={tileStore.setActiveSilently}
+                          onClose={(id) => closeTerminal(id)}
+                          {...dockPalette}
+                          renderTileTitle={(id) => (
+                            <TerminalMeta
+                              terminalId={id}
+                              info={store.getDisplayInfo(id)}
+                              meta={store.getMetadata(id)}
+                              unread={store.isUnread(id)}
+                              onOpenIntent={() => intentEditor.openTerminal(id)}
+                            />
+                          )}
+                          renderTileTitleActions={(id) => (
+                            <TileTitleActions id={id} />
+                          )}
+                          renderTileBody={outlet}
                         />
-                      )}
-                      renderTileTitleActions={(id) => (
-                        <TileTitleActions id={id} />
-                      )}
-                      renderTileBody={outlet}
-                    />
-                  </Resizable.Panel>
-                  <Show when={!rightPanel.collapsed()}>
-                    <Resizable.Handle
-                      data-testid="right-panel-handle"
-                      startIntersection={false}
-                      // `Z_HANDLE_OUTER` lifts the ::before pseudo above
-                      // the canvas tile (`Z_CANVAS_TILE_ACTIVE`). The
-                      // handle's ::before extends 4px left into the
-                      // canvas area (`before:-left-1 before:w-2`); without
-                      // the explicit z-index the tile paints over that
-                      // half of the hit zone wherever its right edge
-                      // meets or passes the right-panel boundary, killing
-                      // both the visual hover indicator and the pointer
-                      // target. See `ui/stackLayers.ts` for the full
-                      // layering contract.
-                      class="shrink-0 w-0 relative before:absolute before:inset-y-0 before:-left-1 before:w-2 before:cursor-col-resize before:hover:bg-accent/30 before:transition-colors"
-                      style={{ "z-index": Z_HANDLE_OUTER }}
-                      aria-label="Resize inspector panel"
-                    />
-                  </Show>
-                  <Resizable.Panel
-                    as="div"
-                    class="min-w-0 min-h-0 overflow-hidden"
-                    classList={{
-                      "border-l border-edge": !rightPanel.collapsed(),
-                    }}
-                    minSize={0.1}
-                  >
-                    <RightPanel
-                      terminalId={store.active().id}
-                      meta={store.active().meta}
-                      onToggle={rightPanel.togglePanel}
-                      themeName={activeThemeName()}
-                      onThemeClick={() => commandPalette.openGroup("Set theme")}
-                      visible={!rightPanel.collapsed()}
-                    />
-                  </Resizable.Panel>
-                </Resizable>
-              </Match>
-            </Switch>}
+                      </Resizable.Panel>
+                      <Show when={!rightPanel.collapsed()}>
+                        <Resizable.Handle
+                          data-testid="right-panel-handle"
+                          startIntersection={false}
+                          // `Z_HANDLE_OUTER` lifts the ::before pseudo above
+                          // the canvas tile (`Z_CANVAS_TILE_ACTIVE`). The
+                          // handle's ::before extends 4px left into the
+                          // canvas area (`before:-left-1 before:w-2`); without
+                          // the explicit z-index the tile paints over that
+                          // half of the hit zone wherever its right edge
+                          // meets or passes the right-panel boundary, killing
+                          // both the visual hover indicator and the pointer
+                          // target. See `ui/stackLayers.ts` for the full
+                          // layering contract.
+                          class="shrink-0 w-0 relative before:absolute before:inset-y-0 before:-left-1 before:w-2 before:cursor-col-resize before:hover:bg-accent/30 before:transition-colors"
+                          style={{ "z-index": Z_HANDLE_OUTER }}
+                          aria-label="Resize inspector panel"
+                        />
+                      </Show>
+                      <Resizable.Panel
+                        as="div"
+                        class="min-w-0 min-h-0 overflow-hidden"
+                        classList={{
+                          "border-l border-edge": !rightPanel.collapsed(),
+                        }}
+                        minSize={0.1}
+                      >
+                        <RightPanel
+                          terminalId={store.active().id}
+                          meta={store.active().meta}
+                          onToggle={rightPanel.togglePanel}
+                          themeName={activeThemeName()}
+                          onThemeClick={() =>
+                            commandPalette.openGroup("Set theme")
+                          }
+                          visible={!rightPanel.collapsed()}
+                        />
+                      </Resizable.Panel>
+                    </Resizable>
+                  </Match>
+                </Switch>
+              )}
             </WorkspaceTerminals>
           </Match>
         </Switch>

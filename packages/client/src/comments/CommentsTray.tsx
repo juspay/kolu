@@ -9,7 +9,7 @@
 import { runAction, type UiAction } from "../runAction";
 import { toError } from "@kolu/surface/run-stream";
 import { Effect } from "effect";
-import { type Component, createMemo, For, Show } from "solid-js";
+import { type Component, For, Show } from "solid-js";
 import { toast } from "solid-sonner";
 import { writeTextToClipboard } from "../ui/clipboard";
 import { formatMarkdown } from "./formatMarkdown";

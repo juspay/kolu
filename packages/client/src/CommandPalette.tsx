@@ -781,20 +781,20 @@ const CommandPalette: Component<{
         if (items.length === 0) return;
         // Keyboard wins until the pointer actually moves again.
         setMouseActive(false);
-        setSelectedIndex((i) => Math.min(i + 1, items.length - 1));
+        setSelectedIndex(Math.min(effectiveIndex() + 1, items.length - 1));
         break;
       case "ArrowUp":
         if (items.length === 0) return;
         setMouseActive(false);
-        setSelectedIndex((i) => Math.max(i - 1, 0));
+        setSelectedIndex(Math.max(effectiveIndex() - 1, 0));
         break;
       case "Tab":
         if (items.length === 0) return;
         setMouseActive(false);
-        setSelectedIndex((i) =>
+        setSelectedIndex(
           e.shiftKey
-            ? (i - 1 + items.length) % items.length
-            : (i + 1) % items.length,
+            ? (effectiveIndex() - 1 + items.length) % items.length
+            : (effectiveIndex() + 1) % items.length,
         );
         break;
       case "Backspace":

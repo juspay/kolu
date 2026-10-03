@@ -399,3 +399,32 @@ describe("hostCodeTab — per-host query ownership (padi W9)", () => {
     expect(bag.counts.listAll).toBe(queriesBefore);
   });
 });
+
+it("pauses hidden Code queries and retains the browse snapshot through mode switches", async () => {
+  const [mode, setMode] = createSignal<"browse" | "local">("browse");
+  bag.mode = mode;
+  switchTo(HOST_A);
+  await flush();
+  pulse();
+  await flush();
+  const held = codeAllPaths();
+  expect(held?.paths).toEqual(["src/app.ts"]);
+  const reads = bag.counts.listAll;
+  setMode("local");
+  await flush();
+  pulse();
+  await flush();
+  expect(codeAllPaths()).toBe(held);
+  expect(bag.counts.listAll).toBe(reads);
+  setMode("browse");
+  await flush();
+  expect(codeAllPaths()).toBe(held);
+  expect(codeAllPaths.pending()).toBe(false);
+  setCodeShown(false);
+  await flush();
+  pulse();
+  await flush();
+  expect(codeAllPaths()).toBe(held);
+  expect(bag.counts.listAll).toBe(reads);
+  setCodeShown(true);
+});

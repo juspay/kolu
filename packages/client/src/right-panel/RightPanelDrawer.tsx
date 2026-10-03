@@ -66,7 +66,9 @@ const RightPanelDrawer: Component<HostProps> = (props) => {
         <Drawer.Portal forceMount>
           <Drawer.Overlay
             data-testid="right-panel-drawer-backdrop"
-            style={{ "pointer-events": rightPanel.drawerOpen() ? "auto" : "none" }}
+            style={{
+              "pointer-events": rightPanel.drawerOpen() ? "auto" : "none",
+            }}
             class="fixed inset-0 z-40 bg-black/40 opacity-0 transition-opacity duration-200 data-open:opacity-100"
           />
           <Drawer.Content

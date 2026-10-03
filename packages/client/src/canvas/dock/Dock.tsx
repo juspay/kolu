@@ -91,13 +91,11 @@ import {
   createEffect,
   createMemo,
   createSignal,
-  For,
   type JSX,
   onCleanup,
   onMount,
   Show,
 } from "solid-js";
-import { match } from "ts-pattern";
 import { createSharedRoot } from "../../createSharedRoot";
 import { ACTIONS } from "../../input/actions";
 import { isPlatformModifier } from "../../input/keyboard";

@@ -217,6 +217,10 @@ it("retains the blocked row DOM across fresh ranked records", () => {
   try {
     const row = host.querySelector('[data-testid="dock-needs-you-entry"]');
     update();
-    expect(host.querySelector('[data-testid="dock-needs-you-entry"]')).toBe(row);
-  } finally { dispose(); }
+    expect(host.querySelector('[data-testid="dock-needs-you-entry"]')).toBe(
+      row,
+    );
+  } finally {
+    dispose();
+  }
 });

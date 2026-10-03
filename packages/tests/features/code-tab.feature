@@ -2083,3 +2083,14 @@ Feature: Code tab (review + browse)
     Then the terminal search bar should not be visible
     And the find shortcut should reach the browser
     And there should be no page errors
+
+  Scenario: File tree identity survives browse and local round trip
+    When I run "rm -rf /tmp/kolu-tree-identity && git init /tmp/kolu-tree-identity && cd /tmp/kolu-tree-identity"
+    And I run "echo original > file.txt && git add . && git commit -m initial && echo changed >> file.txt"
+    And I click the Code tab
+    And I click the Code tab mode "browse"
+    And I mark the Code file tree
+    And I click the Code tab mode "local"
+    Then the Code file tree should be the kept-alive element
+    When I click the Code tab mode "browse"
+    Then the Code file tree should be the kept-alive element

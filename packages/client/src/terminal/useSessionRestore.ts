@@ -55,7 +55,8 @@ export function useSessionRestore(deps: { store: TerminalStore }) {
     if (
       override &&
       override.host === activeScope() &&
-      override.source === source && override.ids === store.terminalIds()
+      override.source === source &&
+      override.ids === store.terminalIds()
     )
       return override.value;
     if (lifecycle().kind === "restarted") return null;
@@ -139,8 +140,7 @@ export function useSessionRestore(deps: { store: TerminalStore }) {
     // `[]` whether or not the metadata half has joined), so the empty-branch
     // fires at a parked cold boot exactly as it did pre-R6, ordering-independent
     // (the gate above already waited for BOTH the list and session cells to
-    // yield). When empty, the card reads `savedSession`; the re-fetch effect
-    // below keeps it current after.
+    // yield). When empty, the card reads `savedSession`; the derived accessor keeps it current.
     if (latch.phase === "pending") {
       latch.markDecided();
       if (store.terminalIds().length === 0) {
@@ -436,7 +436,7 @@ export function useSessionRestore(deps: { store: TerminalStore }) {
    *  One server call discards the parked entries AND clears the saved session
    *  together (creating a terminal no longer forfeits implicitly, W1). On
    *  success the server pushes a `null` saved-session snapshot, which the
-   *  re-fetch effect above folds into `savedSession` and dismisses the card;
+   *  derived `savedSession` accessor adopts it and dismisses the card;
    *  we also clear it optimistically so the card drops immediately. */
   function handleForfeitSession(): UiAction {
     return Effect.suspend(() => {

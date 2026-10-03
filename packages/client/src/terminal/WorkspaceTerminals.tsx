@@ -11,23 +11,39 @@ export function WorkspaceTerminals(props: {
   renderBody: (id: TerminalId) => JSX.Element;
   children: (outlet: (id: TerminalId) => JSX.Element) => JSX.Element;
 }): JSX.Element {
-  const [destinations, setDestinations] = createStore<Record<string, HTMLDivElement>>({});
+  const [destinations, setDestinations] = createStore<
+    Record<string, HTMLDivElement>
+  >({});
   const outlet = (id: TerminalId) => (
-    <div class="h-full w-full min-h-0" ref={(el) => {
-      setDestinations(id, el);
-      onCleanup(() => {
-        if (destinations[id] === el) setDestinations(id, undefined!);
-      });
-    }} />
+    <div
+      class="h-full w-full min-h-0"
+      ref={(el) => {
+        setDestinations(id, el);
+        onCleanup(() => {
+          if (destinations[id] === el) setDestinations(id, undefined!);
+        });
+      }}
+    />
   );
-  return <>
-    {untrack(() => props.children(outlet))}
-    <For each={props.ids}>{(id) => {
-      // A detached staging node bridges the shell's synchronous ref turnover.
-      const staging = document.createElement("div");
-      return <Portal mount={destinations[id] ?? staging} ref={(el) => { el.className = "h-full w-full"; }}>
-        {props.renderBody(id)}
-      </Portal>;
-    }}</For>
-  </>;
+  return (
+    <>
+      {untrack(() => props.children(outlet))}
+      <For each={props.ids}>
+        {(id) => {
+          // A detached staging node bridges the shell's synchronous ref turnover.
+          const staging = document.createElement("div");
+          return (
+            <Portal
+              mount={destinations[id] ?? staging}
+              ref={(el) => {
+                el.className = "h-full w-full";
+              }}
+            >
+              {props.renderBody(id)}
+            </Portal>
+          );
+        }}
+      </For>
+    </>
+  );
 }

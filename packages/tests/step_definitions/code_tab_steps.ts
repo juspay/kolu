@@ -2645,3 +2645,19 @@ Then(
     await btn.waitFor({ state: "attached", timeout: POLL_TIMEOUT });
   },
 );
+
+When("I mark the Code file tree", async function (this: KoluWorld) {
+  await this.page
+    .getByTestId("pierre-file-tree")
+    .evaluate((el) => el.setAttribute("data-keepalive-probe", "1"));
+});
+Then(
+  "the Code file tree should be the kept-alive element",
+  async function (this: KoluWorld) {
+    const marker = await this.page
+      .getByTestId("pierre-file-tree")
+      .getAttribute("data-keepalive-probe");
+    if (marker !== "1")
+      throw new Error("Code file tree remounted during the mode switch");
+  },
+);

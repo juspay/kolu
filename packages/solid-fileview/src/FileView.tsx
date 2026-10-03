@@ -146,11 +146,8 @@ function KeepAliveMode<TFile extends FileData>(props: {
   );
   return (
     <Show when={visited()}>
-      {/* `aria-hidden` on the inactive slot mirrors RightPanel's kept-alive
-          content pane: `display:none` already removes it from the a11y tree,
-          so this is belt-and-suspenders, but it keeps the repo's keep-alive
-          slots consistent rather than handling the same hidden-surface a11y
-          axis two different ways. */}
+      {/* Retain the pane's geometry while excluding its hidden contents from
+          painting, focus, and the accessibility tree. */}
       <div
         class="h-full w-full"
         style={{
