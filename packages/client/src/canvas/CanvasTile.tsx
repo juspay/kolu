@@ -98,7 +98,7 @@ const CanvasTile: Component<{
    *  to on-screen tiles only: a tile panned out of view (or behind a maximized
    *  tile) mounts no `.tile-aura` at all, so its border animation costs nothing
    *  — CSS animations otherwise keep running for off-screen elements. */
-  viewportSize: () => { width: number; height: number };
+  viewportSize: () => { width: number; height: number } | undefined;
   /** Canvas state-aura tier for this tile — drives the `data-aura` hook the
    *  border treatment reads. Optional: undefined renders nothing (treated as
    *  `"none"`). Resolved by `useTileAura`; this resolver drives only the tile
@@ -153,11 +153,12 @@ const CanvasTile: Component<{
   // panning doesn't pop auras in at the very edge)? Mirrors the screen-space
   // mapping in `tileTransformCSS`: a canvas point (l.x, l.y) lands at
   // ((l.x - panX) * zoom, (l.y - panY) * zoom). Drag delta is ignored — a tile
-  // being dragged is on-screen by definition. Until the container has measured
-  // (size 0), don't gate — show the aura rather than briefly hiding it.
+  // being dragged is on-screen by definition. The shell mounts immediately,
+  // but its aura waits until the viewport has a real layout measurement.
   const onScreen = createMemo(() => {
-    const { width, height } = props.viewportSize();
-    if (width === 0 || height === 0) return true;
+    const size = props.viewportSize();
+    if (!size) return false;
+    const { width, height } = size;
     const l = layout();
     const z = props.zoom();
     const sx = (l.x - props.panX()) * z;

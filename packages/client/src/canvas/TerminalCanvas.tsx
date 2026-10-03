@@ -187,8 +187,8 @@ const TerminalCanvas: Component<{
       () => [props.tileIds, allRecordsSettled(), viewport.mounted()] as const,
       ([ids]) => {
         const center = viewport.viewportCenter();
-        // Container not mounted yet — defer placement; the effect re-runs when
-        // the tile list next changes (post-mount, with real dimensions).
+        // No viewport measurement yet — defer placement; the mounted edge
+        // re-runs this effect once the observer has measured the laid-out canvas.
         // Reading the center via `viewportCenter()` (not an inlined pan+size
         // calc) keeps the unmounted-guard: a 0×0 viewport would otherwise
         // collapse the center to the raw pan origin and place tiles top-left.
@@ -444,7 +444,9 @@ const TerminalCanvas: Component<{
             panX={viewport.panX}
             panY={viewport.panY}
             zoom={viewport.zoom}
-            viewportSize={viewport.viewportSize}
+            viewportSize={() =>
+              viewport.mounted() ? viewport.viewportSize() : undefined
+            }
             auraTier={() => tileAuraOf(terminalId)}
           />
         )}
@@ -496,45 +498,45 @@ const TerminalCanvas: Component<{
             if (e.target === e.currentTarget) props.onCreate();
           }}
         >
-          <Show when={viewport.mounted()}>
-            {/* All tiles render in one stable list, every render. Pan/zoom
-             *  composes into each tile's own `transform` (CanvasTile), so
-             *  there's no wrapper transform — which means the active tile in
-             *  maximized mode can use `absolute inset-0 z-40` to cover the
-             *  canvas without a containing-block trap. Switching activeId in
-             *  maximized mode reduces to a CSS class reshuffle on already-
-             *  mounted tiles: no Terminal remount, no `document.fonts.load`,
-             *  no stream re-attach, no scrollback replay (#988).
-             *
-             *  `data-viewport` on `canvas-container` carries the pan/zoom-only
-             *  CSS string so tests can observe viewport state independently of
-             *  per-tile transforms (which also fold in layout coords + drag). */}
-            <For each={props.tileIds}>
-              {(id) => {
-                // The one content-kind dispatch: a tile renders by WHAT IT HOLDS,
-                // never by its liveness. `<Switch>` / `<Match when={kind === …}>`
-                // keys each arm on a STABLE boolean (not `match(content())`, which
-                // would re-create the tile subtree every tick), the same
-                // discipline App.tsx's canvas-mode <Switch> relies on. Today the
-                // only kind is `terminal`; PR 2 adds a `sleeping` arm here and
-                // inherits drag / resize / focus / active for free.
-                const content = () => tileStore.contentOf(id);
-                return (
-                  <Show when={content()}>
-                    {(c) => (
-                      <Switch>
-                        <Match when={c().kind === "terminal" && c()}>
-                          {(terminal) =>
-                            renderTerminalTile(id, terminal().terminalId)
-                          }
-                        </Match>
-                      </Switch>
-                    )}
-                  </Show>
-                );
-              }}
-            </For>
+          {/* All tiles render in one stable list, every render. Pan/zoom
+           *  composes into each tile's own `transform` (CanvasTile), so
+           *  there's no wrapper transform — which means the active tile in
+           *  maximized mode can use `absolute inset-0 z-40` to cover the
+           *  canvas without a containing-block trap. Switching activeId in
+           *  maximized mode reduces to a CSS class reshuffle on already-
+           *  mounted tiles: no Terminal remount, no `document.fonts.load`,
+           *  no stream re-attach, no scrollback replay (#988).
+           *
+           *  `data-viewport` on `canvas-container` carries the pan/zoom-only
+           *  CSS string so tests can observe viewport state independently of
+           *  per-tile transforms (which also fold in layout coords + drag). */}
+          <For each={props.tileIds}>
+            {(id) => {
+              // The one content-kind dispatch: a tile renders by WHAT IT HOLDS,
+              // never by its liveness. `<Switch>` / `<Match when={kind === …}>`
+              // keys each arm on a STABLE boolean (not `match(content())`, which
+              // would re-create the tile subtree every tick), the same
+              // discipline App.tsx's canvas-mode <Switch> relies on. Today the
+              // only kind is `terminal`; PR 2 adds a `sleeping` arm here and
+              // inherits drag / resize / focus / active for free.
+              const content = () => tileStore.contentOf(id);
+              return (
+                <Show when={content()}>
+                  {(c) => (
+                    <Switch>
+                      <Match when={c().kind === "terminal" && c()}>
+                        {(terminal) =>
+                          renderTerminalTile(id, terminal().terminalId)
+                        }
+                      </Match>
+                    </Switch>
+                  )}
+                </Show>
+              );
+            }}
+          </For>
 
+          <Show when={viewport.mounted()}>
             {/* Minimap: spatial dashboard; hides in fullscreen-single-tile mode
              *  since there's nothing spatial to summarize. */}
             <div

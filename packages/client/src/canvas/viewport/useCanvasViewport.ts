@@ -4,14 +4,8 @@
  *  Consumers import only this module. The three internal modules
  *  (gestures, transforms, coordinates) are implementation details. */
 
-import {
-  type Accessor,
-  batch,
-  onCleanup,
-  onMount,
-  createSignal,
-} from "solid-js";
-import { createElementSize } from "@solid-primitives/resize-observer";
+import { type Accessor, batch, onCleanup, createSignal } from "solid-js";
+import { createResizeObserver } from "@solid-primitives/resize-observer";
 import { activeScope } from "../../hostScope/hostScopes";
 import type { TileLayout } from "../TileLayout";
 import { animatePan } from "./animatedPan";
@@ -60,8 +54,10 @@ const setZoom = (v: number): void => cam()?.setZoom(v);
 /** Container ref, set on mount. */
 let containerEl: HTMLDivElement | null = null;
 // HOST-SCOPING: host-INDEPENDENT by design — DOM viewport; the camera is per-host above.
-const [observedSize, setObservedSize] =
-  createSignal<ReturnType<typeof createElementSize>>();
+const [observedSize, setObservedSize] = createSignal<{
+  width: number;
+  height: number;
+}>();
 /** Cleanup function for the current gesture listeners. */
 let cleanupGestures: (() => void) | null = null;
 /** In-flight pan animation (if any) — cancelled by any gesture or
@@ -180,7 +176,7 @@ export interface CanvasViewport {
    *  host's per-host camera (the module-scope machinery writes through
    *  `activeScope()`, which re-keys to the new host on switch). */
   abortTransientInput: () => void;
-  /** Current viewport dimensions in pixels (0×0 before mount). */
+  /** Whether the mounted viewport has received its first layout measurement. */
   mounted: Accessor<boolean>;
   viewportSize: () => { width: number; height: number };
   /** Canvas-space point at the viewport center — the forward projection of
@@ -212,9 +208,12 @@ function setContainerRef(
   cleanupGestures?.();
   discardPendingGesture();
   containerEl = el;
-  // Refs run before insertion. Seed the observer after mount, so the first
-  // centering request uses a real viewport instead of the detached 0×0 box.
-  onMount(() => setObservedSize(createElementSize(el)));
+  // A mount-time read can still see Corvu's temporary equal-width panels.
+  // The first observer delivery follows layout, so initial placement waits for
+  // the same authoritative measurement used for every subsequent resize.
+  createResizeObserver(el, ({ width, height }) =>
+    setObservedSize({ width, height }),
+  );
   onCleanup(() => {
     if (containerEl !== el) return;
     cleanupGestures?.();
@@ -320,8 +319,10 @@ function setPan(x: number, y: number) {
 // The observed viewport changes even when the camera remains still.
 function viewportSize() {
   const size = observedSize();
-  if (!size || size.width === null || size.height === null)
-    throw new Error("Canvas viewport size requested before mount");
+  if (!size)
+    throw new Error(
+      "Canvas viewport size requested before its first measurement",
+    );
   return { width: size.width, height: size.height };
 }
 

@@ -13,7 +13,7 @@ vi.mock("../../hostScope/hostScopes", () => ({
 }));
 vi.mock("./gestures", () => ({ installGestures: () => () => {} }));
 import { useCanvasViewport } from "./useCanvasViewport";
-it("measures after insertion, uses the observed size for zoom, and releases the observer", () => {
+it("waits for laid-out dimensions, uses them for centering and zoom, and releases the observer", () => {
   let width = 600;
   let disconnected = 0;
   let notify!: ResizeObserverCallback;
@@ -46,13 +46,39 @@ it("measures after insertion, uses the observed size for zoom, and releases the 
     host,
   );
   try {
+    // Insertion alone is not readiness: the split panels can still be sizing.
+    expect(viewport.mounted()).toBe(false);
+    expect(viewport.viewportCenter()).toBeNull();
+    expect(() => viewport.viewportSize()).toThrow("first measurement");
+    notify(
+      [
+        {
+          target: host.firstElementChild,
+          borderBoxSize: [],
+          contentBoxSize: [],
+          devicePixelContentBoxSize: [],
+          contentRect: DOMRect.fromRect({ width, height: 400 }),
+        } as ResizeObserverEntry,
+      ],
+      {} as ResizeObserver,
+    );
     expect(viewport.viewportSize()).toEqual({ width: 600, height: 400 });
+    expect(viewport.viewportCenter()).toEqual({ x: 300, y: 200 });
     width = 800;
     notify(
-      [{ target: host.firstElementChild } as ResizeObserverEntry],
+      [
+        {
+          target: host.firstElementChild,
+          borderBoxSize: [],
+          contentBoxSize: [],
+          devicePixelContentBoxSize: [],
+          contentRect: DOMRect.fromRect({ width, height: 400 }),
+        } as ResizeObserverEntry,
+      ],
       {} as ResizeObserver,
     );
     expect(viewport.viewportSize().width).toBe(800);
+    expect(viewport.viewportCenter()).toEqual({ x: 400, y: 200 });
     viewport.zoomIn();
     expect(camera.setPanX).toHaveBeenLastCalledWith(expect.any(Number));
     // clientWidth is zero in this DOM; a second direct read would keep pan at 0.

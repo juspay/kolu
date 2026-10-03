@@ -30,6 +30,7 @@ import { useCanvasViewport } from "./useCanvasViewport";
 let frames: { id: number; cb: FrameRequestCallback }[] = [];
 let nextFrameId = 1;
 let clock = 0;
+let notifyResize: ResizeObserverCallback;
 const realRaf = globalThis.requestAnimationFrame;
 const realCancel = globalThis.cancelAnimationFrame;
 
@@ -37,6 +38,17 @@ beforeEach(() => {
   frames = [];
   nextFrameId = 1;
   clock = 0;
+  vi.stubGlobal(
+    "ResizeObserver",
+    class {
+      constructor(callback: ResizeObserverCallback) {
+        notifyResize = callback;
+      }
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    },
+  );
   vi.spyOn(performance, "now").mockImplementation(() => clock);
   globalThis.requestAnimationFrame = ((cb: FrameRequestCallback) => {
     const id = nextFrameId++;
@@ -55,6 +67,7 @@ afterEach(() => {
   globalThis.cancelAnimationFrame = realCancel;
   activeCam = undefined;
   vi.restoreAllMocks();
+  vi.unstubAllGlobals();
 });
 
 /** Fire every currently-queued frame at timestamp `now`. A frame may enqueue its
@@ -74,9 +87,21 @@ describe("host-switch camera isolation", () => {
         const camA = createCamera();
         const camB = createCamera();
         const viewport = useCanvasViewport();
-        viewport.setContainerRef(document.createElement("div"));
-        // The size observer now starts at mount, matching the real canvas.
+        const el = document.createElement("div");
+        viewport.setContainerRef(el);
         await Promise.resolve();
+        notifyResize(
+          [
+            {
+              target: el,
+              borderBoxSize: [],
+              contentBoxSize: [],
+              devicePixelContentBoxSize: [],
+              contentRect: DOMRect.fromRect({ width: 600, height: 400 }),
+            } as ResizeObserverEntry,
+          ],
+          {} as ResizeObserver,
+        );
 
         // Viewing A: start an animated pan toward a far point.
         activeCam = camA;
