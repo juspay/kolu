@@ -15,10 +15,16 @@ import { toError } from "@kolu/surface/run-stream";
 import { Effect } from "effect";
 import type { ForwardOrigin, Forwards } from "kolu-common/surface";
 import { encodeHostKey, type HostKey } from "kolu-common/hostKey";
-import { createMemo, createResource, createRoot } from "solid-js";
+import {
+  createComputed,
+  createMemo,
+  createResource,
+  createRoot,
+  mapArray,
+} from "solid-js";
 import { toast } from "solid-sonner";
 import { runActionPromise } from "../runAction";
-import { app, client } from "../wire";
+import { app, client, hostKeys } from "../wire";
 
 // An app-lifetime subscription, for the same reason `useDaemonInventory`'s is:
 // a bare module-const `.use()` is the cache's ownerless path, torn down a
@@ -36,20 +42,25 @@ function allForwards(): Forwards {
 /** The forwards whose far end is on `host` — what the Inspector group and the
  *  host popover each render. A memo per host key rather than a filter at each
  *  call site: three surfaces ask this on every tick of an unrelated field. */
-const byHost = new Map<string, () => Forwards>();
-
-export function forwardsForHost(host: HostKey): Forwards {
-  const enc = encodeHostKey(host);
-  let memo = byHost.get(enc);
-  if (memo === undefined) {
-    memo = createRoot(() =>
-      createMemo(() =>
+const byHost = createRoot(() => {
+  const roots = mapArray(
+    () => hostKeys().map(encodeHostKey),
+    (enc) => ({
+      enc,
+      read: createMemo(() =>
         allForwards().filter((f) => encodeHostKey(f.host) === enc),
       ),
-    );
-    byHost.set(enc, memo);
-  }
-  return memo();
+    }),
+  );
+  const index = createMemo(
+    () => new Map(roots().map(({ enc, read }) => [enc, read])),
+  );
+  createComputed(index);
+  return index;
+});
+
+export function forwardsForHost(host: HostKey): Forwards {
+  return byHost().get(encodeHostKey(host))?.() ?? [];
 }
 
 /** The LOCAL listen ports of every door kolu holds — kolu-server's own relay

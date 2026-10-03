@@ -24,7 +24,16 @@ export const makeTickingClock = (
 ): (() => Accessor<number>) =>
   createSharedRoot<Accessor<number>>(() => {
     const [now, setNow] = createSignal(read());
-    setInterval(() => setNow(read()), intervalMs);
+    let timer: ReturnType<typeof setInterval> | undefined;
+    const sync = () => {
+      clearInterval(timer);
+      timer = undefined;
+      if (document.hidden) return;
+      setNow(read());
+      timer = setInterval(() => setNow(read()), intervalMs);
+    };
+    document.addEventListener("visibilitychange", sync);
+    sync();
     return now;
   });
 

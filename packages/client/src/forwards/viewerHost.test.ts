@@ -33,6 +33,7 @@ const refuses = (error: Error): void => {
 const cell: { value: () => unknown[] } = { value: () => [] };
 
 vi.mock("../wire", () => ({
+  hostKeys: () => [{ kind: "local" }, { kind: "remote", target: "zest" }, { kind: "remote", target: "pu-dev" }],
   client: { hosts: { viewer } },
   app: { cells: { forwards: { use: () => ({ value: () => cell.value() }) } } },
 }));
