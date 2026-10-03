@@ -37,7 +37,7 @@ import { reprojectTerminalClock } from "../terminal/reprojectClock";
 import { isStale as isStaleAt } from "../terminal/staleness";
 import { containingTileOf, type ParentEdge } from "../terminal/terminalTree";
 import { isParked } from "../terminal/useTerminalMetadata";
-import { getClockNow } from "../time/clock";
+import { getNowTicker } from "../terminal/staleness";
 import { hostKeys, interpretClientError, padiMap } from "../wire";
 
 export type FleetTerminalRow = {
@@ -167,32 +167,37 @@ export const useFleetTerminalIndex = createSharedRoot(() => {
       );
       const terminals = entry.collections.terminals.use({ keys });
 
-      const rows = createMemo((): FleetTerminalRow[] => {
-        if (!connected()) return [];
-        const now = getClockNow()();
-        const thresholdMs = thresholdMsForHost(host);
-        const out: FleetTerminalRow[] = [];
-        // Live parent edge over THIS host's census. A parked or not-yet-arrived
-        // record is `undefined` (absent), exactly as the active host's store
-        // reads it, so the shared walk answers the same question here.
-        const parentOf = (id: TerminalId) => {
-          const record = terminals.byKey(id)?.();
-          if (record === undefined || isParked(record)) return undefined;
-          return (record.parentId as TerminalId | undefined) ?? null;
-        };
-        for (const id of keys()) {
-          // Bound collection: `byKey` is a method on the use() result (not a signal).
-          const raw = terminals.byKey(id)?.();
-          if (raw === undefined || isParked(raw)) continue;
-          // Match Dock / `terminalIds`: splits are not independent rows.
-          if (!isTileTerminal(id, parentOf)) continue;
-          const meta = reprojectOnHost(host, raw);
-          const recencyAt = rowRecencyAt(meta);
-          if (isStaleAt(recencyAt, now, thresholdMs)) continue;
-          out.push({ host, id, meta, recencyAt });
-        }
-        return out;
-      });
+      const snapshot = createMemo(
+        () => {
+          if (!connected()) return { rows: [], signature: "[]" };
+          const now = getNowTicker()();
+          const thresholdMs = thresholdMsForHost(host);
+          const out: FleetTerminalRow[] = [];
+          // Live parent edge over THIS host's census. A parked or not-yet-arrived
+          // record is `undefined` (absent), exactly as the active host's store
+          // reads it, so the shared walk answers the same question here.
+          const parentOf = (id: TerminalId) => {
+            const record = terminals.byKey(id)?.();
+            if (record === undefined || isParked(record)) return undefined;
+            return (record.parentId as TerminalId | undefined) ?? null;
+          };
+          for (const id of keys()) {
+            // Bound collection: `byKey` is a method on the use() result (not a signal).
+            const raw = terminals.byKey(id)?.();
+            if (raw === undefined || isParked(raw)) continue;
+            // Match Dock / `terminalIds`: splits are not independent rows.
+            if (!isTileTerminal(id, parentOf)) continue;
+            const meta = reprojectOnHost(host, raw);
+            const recencyAt = rowRecencyAt(meta);
+            if (isStaleAt(recencyAt, now, thresholdMs)) continue;
+            out.push({ host, id, meta, recencyAt });
+          }
+          return { rows: out, signature: JSON.stringify(out) };
+        },
+        undefined,
+        { equals: (a, b) => a.signature === b.signature },
+      );
+      const rows = () => snapshot().rows;
 
       return { rows };
     },

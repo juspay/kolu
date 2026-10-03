@@ -50,7 +50,7 @@ export function isStale(
  *  no teardown, so the tick machinery lives in ONE place. */
 // HOST-SCOPING: host-INDEPENDENT by design — deliberately the LOCAL wall clock, not
 // a per-host one; `reprojectClock` handles host skew before the `isStale` comparison.
-const getNowTicker = makeTickingClock(Date.now, TICK_MS);
+export const getNowTicker = makeTickingClock(Date.now, TICK_MS);
 
 /** Reactive stale check. Returns a function consumers call per terminal —
  *  invoking it inside a tracking context (JSX, `createMemo`) subscribes

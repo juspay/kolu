@@ -20,6 +20,7 @@ import {
   createEffect,
   createMemo,
   createSignal,
+  createSelector,
   For,
   on,
   Show,
@@ -556,7 +557,7 @@ const CommandPalette: Component<{
         p[0]?.name === TERMINALS_GROUP_NAME &&
         query().trim().length > 0
       ) {
-        const sel = filtered()[selectedIndex()];
+        const sel = filtered()[effectiveIndex()];
         const host = sel?.row?.hostKey;
         if (host) {
           segments.push({ name: hostLabel(host), depth: segments.length + 1 });
@@ -807,7 +808,7 @@ const CommandPalette: Component<{
         // the palette (e.g. Cmd+Shift+Enter) would otherwise auto-repeat
         // and immediately confirm the first item.
         if (e.metaKey || e.ctrlKey || e.altKey) return;
-        const selected = items[selectedIndex()];
+        const selected = items[effectiveIndex()];
         if (selected) execute(selected);
         break;
       }
@@ -918,28 +919,17 @@ const CommandPalette: Component<{
     ),
   );
 
-  // Keep selectedIndex in range when the live list shrinks (terminal exit,
-  // host disconnect, activity-window age-out) without rebinding on every
-  // filtered() reference churn — track length only.
-  createEffect(
-    on(
-      () => filtered().length,
-      (len) => {
-        if (len === 0) {
-          setSelectedIndex(0);
-          return;
-        }
-        if (selectedIndex() >= len) setSelectedIndex(len - 1);
-      },
-    ),
+  const effectiveIndex = createMemo(() =>
+    Math.max(0, Math.min(selectedIndex(), filtered().length - 1)),
   );
+  const isSelected = createSelector(effectiveIndex);
 
   // Notify highlighted item when selection changes. Cancels the previous
   // leaf's onCancel first so root-flattened previews (theme) don't stick.
   // Tracks props.open so the effect re-fires on reopen with the same selection.
   let lastHighlight: (PaletteCommand | PaletteLabel) | undefined;
   createEffect(
-    on([filtered, selectedIndex, () => props.open], ([items, idx, open]) => {
+    on([filtered, effectiveIndex, () => props.open], ([items, idx, open]) => {
       if (!open) return;
       const next = items[idx];
       if (next === lastHighlight) {
@@ -959,7 +949,7 @@ const CommandPalette: Component<{
   // an open whose default row is not the first one — so there is no need to
   // re-scroll on `filtered()` reference churn.
   createEffect(() => {
-    selectedIndex();
+    effectiveIndex();
     if (!props.open) return;
     listEl
       ?.querySelector<HTMLElement>("[data-selected]")
@@ -1176,7 +1166,7 @@ const CommandPalette: Component<{
                         {(row) => (
                           <PaletteRow
                             cmd={row().cmd}
-                            selected={selectedIndex() === row().index}
+                            selected={isSelected(row().index)}
                             query={query()}
                             showKindTag={showKindTag()}
                             drillable={isDrillable(row().cmd)}
@@ -1212,12 +1202,12 @@ const CommandPalette: Component<{
           path={path()}
           mode={mode()}
           query={query()}
-          highlighted={filtered()[selectedIndex()]}
+          highlighted={filtered()[effectiveIndex()]}
         />
         <ActionBar
           mode={mode()}
           drilled={path().length > 0}
-          highlighted={filtered()[selectedIndex()]}
+          highlighted={filtered()[effectiveIndex()]}
         />
         <Show when={ambientTip()}>
           <div
