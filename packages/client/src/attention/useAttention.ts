@@ -180,8 +180,7 @@ export function useAttention(deps: AttentionDeps): {
       deliver(decodeHostKey(encHost), id, asking),
     writeMark: (encHost, unseenFinished) =>
       writeHostMarks(encHost, { unseenFinished }),
-    // ↑ the engine owns `unseenFinished`; `useAttention`'s root (below) owns
-    //   `asking` + `live`. Both merge into the ONE per-host marks record.
+    // The engine stores only unseenFinished; host facts remain source accessors.
   });
 
   // The per-host MIRROR (one subscription root per host, over the full member

@@ -289,9 +289,9 @@ function startRecording(): UiAction {
         setAnchor(performance.now());
         setPausedAt(null);
         setNow(performance.now());
+        setPhase("recording");
       });
       startTicker();
-      setPhase("recording");
       recorder.start(TIMESLICE_MS);
       toast.success("Recording started");
     }).pipe(
@@ -324,8 +324,10 @@ function togglePause(): void {
       }
       for (const t of s.tracks) t.enabled = false;
       stopTicker();
-      setPausedAt(performance.now());
-      setPhase("paused");
+      batch(() => {
+        setPausedAt(performance.now());
+        setPhase("paused");
+      });
     })
     .with("paused", () => {
       for (const t of s.tracks) t.enabled = true;
@@ -345,9 +347,9 @@ function togglePause(): void {
         }
         setPausedAt(null);
         setNow(performance.now());
+        setPhase("recording");
       });
       startTicker();
-      setPhase("recording");
     })
     .with(P.union("idle", "setup"), () => {})
     .exhaustive();

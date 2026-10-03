@@ -14,6 +14,7 @@
  *  and documents alike). */
 
 import {
+  type Accessor,
   type Component,
   createEffect,
   createMemo,
@@ -90,29 +91,22 @@ export function FileView<TFile extends FileData = FileData>(
     return hasRendered() ? "rendered" : "source";
   });
 
-  // The active appliance, for SINGLE-form files (no toggle — a binary image, a
-  // video, PDF, a sandboxed iframe, or plain source). Read as a child expression so
-  // Solid tracks `props.file`: a save mints a fresh `FileData` (new `url` for a
-  // binary, new `content` for text), and the matching renderer has to re-run to
-  // pick it up. The earlier `<Show>`-callback form ran the rendered branch once
-  // under `untrack` and keyed it on the (stable) matched-renderer identity, so
-  // an iframe/image preview captured its first `url` and never reloaded after an
-  // edit — only the source view (rendered via the tracked `fallback` slot)
-  // updated. One tracked expression keeps both branches symmetric: each
-  // re-renders its appliance on a fresh snapshot. (Two-form files take the
-  // keep-alive path below, where `KeepAliveMode` owns the same reload-on-edit
-  // behaviour via its `heldFile` snapshot.)
-  const active = () =>
-    mode() === "rendered"
-      ? matchedRendered()?.render(props.file)
-      : props.source?.render(props.file);
+  // Renderer identity owns the appliance; saves update its file accessor.
+  const activeRenderer = createMemo(() =>
+    mode() === "rendered" ? matchedRendered() : props.source,
+  );
+  const active = () => (
+    <Show when={activeRenderer()} keyed>
+      {(renderer) => renderer.render(() => props.file)}
+    </Show>
+  );
 
   return (
     <div class="flex h-full w-full flex-col">
       <Show when={both()}>
         <FileViewToggle mode={mode()} onChange={setChosen} />
       </Show>
-      <div class="min-h-0 flex-1">
+      <div class="relative min-h-0 flex-1">
         {/* When a file offers BOTH forms (Markdown's Source ⇄ Rendered), keep
             each mode alive across toggles: mounting the inactive one off-screen
             instead of unmounting it means flipping back doesn't rebuild and
@@ -137,19 +131,12 @@ export function FileView<TFile extends FileData = FileData>(
   );
 }
 
-/** One keep-alive slot of the Source ⇄ Rendered toggle. Mounts its appliance
- *  lazily on first show, then keeps it alive across toggles — hidden with
- *  `display:none` (the `hidden` class) rather than unmounted, so re-showing is a
- *  pure visibility flip, never a rebuild. The file snapshot is frozen while the
- *  slot is hidden (`heldFile`) and adopted the instant it's shown again: a
- *  content edit to a hidden mode is deferred until that mode is next shown,
- *  so a save never re-renders both modes at once. A toggle with no intervening
- *  edit keeps the same `heldFile` reference, so the appliance isn't re-rendered
- *  at all. */
+/** Lazily mounts a mode once. Its file accessor adopts edits on reveal, so
+ *  source/rendered toggles and saves preserve the appliance's DOM and state. */
 function KeepAliveMode<TFile extends FileData>(props: {
   show: boolean;
   file: TFile;
-  render: (file: TFile) => JSX.Element;
+  render: (file: Accessor<TFile>) => JSX.Element;
 }): JSX.Element {
   // A one-way latch: stays false until the slot is first shown, then sticks
   // true (so the appliance mounts lazily on first view and is kept alive after).
@@ -159,17 +146,19 @@ function KeepAliveMode<TFile extends FileData>(props: {
   );
   return (
     <Show when={visited()}>
-      {/* `aria-hidden` on the inactive slot mirrors RightPanel's kept-alive
-          content pane: `display:none` already removes it from the a11y tree,
-          so this is belt-and-suspenders, but it keeps the repo's keep-alive
-          slots consistent rather than handling the same hidden-surface a11y
-          axis two different ways. */}
+      {/* Retain the pane's geometry while excluding its hidden contents from
+          painting, focus, and the accessibility tree. */}
       <div
         class="h-full w-full"
-        classList={{ hidden: !props.show }}
+        style={{
+          position: props.show ? "relative" : "absolute",
+          inset: "0",
+          "content-visibility": props.show ? "visible" : "hidden",
+        }}
+        inert={!props.show}
         aria-hidden={!props.show}
       >
-        {props.render(heldFile())}
+        {props.render(heldFile)}
       </div>
     </Show>
   );

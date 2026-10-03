@@ -685,14 +685,16 @@ export const FileTree: Component<FileTreeProps> = (props) => {
   // through a reactive accessor (e.g. CodeTab's per-(repoRoot,view)
   // slot map) leaves the tree out of sync whenever selection arrives
   // after FileTree mount — the `Open path:N` flow from a diff is the
-  // canonical case. `onSelectionChange` re-fires when we call `select()`,
+  // canonical case. Paths are also a dependency: the selected file can arrive
+  // after its selection, or disappear and return during a mode transition.
+  // `onSelectionChange` re-fires when we call `select()`,
   // but the provenance gate drops that emit (no user gesture is armed), so
   // it never reaches the host — the programmatic echo stops here rather than
   // round-tripping through `onSelect`.
   createEffect(
     on(
-      () => props.selectedPath ?? null,
-      (path) => {
+      [() => props.selectedPath ?? null, () => props.paths],
+      ([path]) => {
         safeApply(() => {
           const current = tree?.getSelectedPaths()[0] ?? null;
           if (current === path) return;

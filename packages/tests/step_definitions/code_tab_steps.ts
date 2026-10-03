@@ -50,7 +50,8 @@ async function ensurePanelOpen(world: KoluWorld): Promise<void> {
 // for headers — `:not([data-file-tree-sticky-row])` keeps assertions on the
 // real (clickable) row, not the static header.
 
-const TREE = '[data-testid="pierre-file-tree"]';
+const TREE =
+  '[data-code-tree-mode]:not([inert]) [data-testid="pierre-file-tree"]';
 const DIFF_VIEW = '[data-testid="pierre-diff-view"]';
 const FILE_VIEW = '[data-testid="pierre-file-view"]';
 const DIFF_CONTENT = '[data-testid="diff-content"]';
@@ -81,7 +82,7 @@ async function codeTabTimeoutDiagnostic(world: KoluWorld): Promise<string> {
           )?.getAttribute("data-testid") ?? null,
       selectedTreePaths:
         [...document.querySelectorAll(
-          '[data-testid="pierre-file-tree"] [data-item-path][aria-selected="true"]'
+          '[data-code-tree-mode]:not([inert]) [data-testid="pierre-file-tree"] [data-item-path][aria-selected="true"]'
         )].map((node) => node.getAttribute("data-item-path")),
       diffContent: text('[data-testid="diff-content"]'),
       diffError: text('[data-testid="diff-error"]'),
@@ -2643,5 +2644,41 @@ Then(
     // directions.
     const btn = this.page.locator(`[data-testid="${id}"]:enabled`);
     await btn.waitFor({ state: "attached", timeout: POLL_TIMEOUT });
+  },
+);
+
+When("I mark the Code file tree", async function (this: KoluWorld) {
+  await this.page
+    .locator(
+      '[data-code-tree-mode]:not([inert]) [data-testid="pierre-file-tree"]',
+    )
+    .evaluate((el) => el.setAttribute("data-keepalive-probe", "1"));
+});
+Then(
+  "the Code file tree should be the kept-alive element",
+  async function (this: KoluWorld) {
+    const marker = await this.page
+      .locator(
+        '[data-code-tree-mode]:not([inert]) [data-testid="pierre-file-tree"]',
+      )
+      .getAttribute("data-keepalive-probe");
+    if (marker !== "1")
+      throw new Error("Code file tree remounted during the mode switch");
+  },
+);
+
+When("I mark the Pierre source renderer", async function (this: KoluWorld) {
+  await this.page
+    .getByTestId("pierre-file-view")
+    .evaluate((el) => el.setAttribute("data-keepalive-probe", "source"));
+});
+Then(
+  "the Pierre source renderer should be the kept-alive element",
+  async function (this: KoluWorld) {
+    const marker = await this.page
+      .getByTestId("pierre-file-view")
+      .getAttribute("data-keepalive-probe");
+    if (marker !== "source")
+      throw new Error("Pierre source renderer remounted after save");
   },
 );

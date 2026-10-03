@@ -9,7 +9,14 @@
 import { runAction } from "../runAction";
 import { toError } from "@kolu/surface/run-stream";
 import { Effect } from "effect";
-import { type Component, createSignal, For, onCleanup, Show } from "solid-js";
+import {
+  type Component,
+  createEffect,
+  createSignal,
+  For,
+  onCleanup,
+  Show,
+} from "solid-js";
 import { Dynamic, Portal } from "solid-js/web";
 import { toast } from "solid-sonner";
 import { match } from "ts-pattern";
@@ -69,12 +76,12 @@ export const CodeContextMenu: Component<{
     },
   });
 
+  let menu: HTMLDivElement | undefined;
   const close = () => setOpen(false);
 
   const onDocClick = (e: MouseEvent) => {
     if (!open()) return;
     const target = e.target as Node | null;
-    const menu = document.getElementById("code-context-menu");
     if (target && menu?.contains(target)) return;
     close();
   };
@@ -82,11 +89,14 @@ export const CodeContextMenu: Component<{
     if (e.key === "Escape") close();
   };
 
-  document.addEventListener("mousedown", onDocClick);
-  document.addEventListener("keydown", onKeydown);
-  onCleanup(() => {
-    document.removeEventListener("mousedown", onDocClick);
-    document.removeEventListener("keydown", onKeydown);
+  createEffect(() => {
+    if (!open()) return;
+    document.addEventListener("mousedown", onDocClick);
+    document.addEventListener("keydown", onKeydown);
+    onCleanup(() => {
+      document.removeEventListener("mousedown", onDocClick);
+      document.removeEventListener("keydown", onKeydown);
+    });
   });
 
   const handleItem = (item: CodeContextMenuItem) => {
@@ -119,6 +129,7 @@ export const CodeContextMenu: Component<{
       <Portal>
         <div
           id="code-context-menu"
+          ref={menu}
           role="menu"
           class={`fixed z-50 min-w-40 ${chrome.class} p-1 text-[11px] text-fg`}
           style={{ left: `${pos().x}px`, top: `${pos().y}px`, ...chrome.style }}

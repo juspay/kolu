@@ -37,7 +37,7 @@ import { reprojectTerminalClock } from "../terminal/reprojectClock";
 import { isStale as isStaleAt } from "../terminal/staleness";
 import { containingTileOf, type ParentEdge } from "../terminal/terminalTree";
 import { isParked } from "../terminal/useTerminalMetadata";
-import { getClockNow } from "../time/clock";
+import { getNowTicker } from "../terminal/staleness";
 import { hostKeys, interpretClientError, padiMap } from "../wire";
 
 export type FleetTerminalRow = {
@@ -46,6 +46,22 @@ export type FleetTerminalRow = {
   meta: TerminalMetadata;
   recencyAt: number | null;
 };
+
+/** Capture a value signature while reading the frame. Comparing a previous
+ *  mutable metadata proxy later could hide a real metadata change. */
+export function createStableFleetRows(
+  read: Accessor<FleetTerminalRow[]>,
+): Accessor<FleetTerminalRow[]> {
+  const snapshot = createMemo(
+    () => {
+      const rows = read();
+      return { rows, signature: JSON.stringify(rows) };
+    },
+    undefined,
+    { equals: (a, b) => a.signature === b.signature },
+  );
+  return () => snapshot().rows;
+}
 
 /** Pure merge + rank — unit-tested without Solid. Higher recency first;
  *  never-active (`null`) last. Host encoding is a stable secondary key. */
@@ -167,9 +183,9 @@ export const useFleetTerminalIndex = createSharedRoot(() => {
       );
       const terminals = entry.collections.terminals.use({ keys });
 
-      const rows = createMemo((): FleetTerminalRow[] => {
+      const rows = createStableFleetRows(() => {
         if (!connected()) return [];
-        const now = getClockNow()();
+        const now = getNowTicker()();
         const thresholdMs = thresholdMsForHost(host);
         const out: FleetTerminalRow[] = [];
         // Live parent edge over THIS host's census. A parked or not-yet-arrived

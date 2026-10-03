@@ -15,6 +15,7 @@
  * bridge, and SearchBar navigation.
  */
 
+import { createEffect, createSignal } from "solid-js";
 import { makeEventListener } from "@solid-primitives/event-listener";
 
 /** The slice of the scroll-lock API the DOM wiring drives. Structural so the
@@ -38,6 +39,7 @@ export function wireScrollIntent(
   container: HTMLElement,
   scrollLock: ScrollIntentTarget,
 ): void {
+  const [held, setHeld] = createSignal(false);
   // Wheel input arms the latch. Passive: we only observe; xterm owns the
   // scrolling.
   makeEventListener(
@@ -58,23 +60,29 @@ export function wireScrollIntent(
     "pointerdown",
     (e: PointerEvent) => {
       // Primary button only — secondary/middle don't drag-scroll.
-      if (e.button === 0) scrollLock.holdUserScrollIntent("pointer");
+      if (e.button === 0) {
+        scrollLock.holdUserScrollIntent("pointer");
+        setHeld(true);
+      }
     },
     { capture: true, passive: true },
   );
   // Release on the document: a scrollbar/selection drag routinely ends with the
   // pointer outside the terminal, so a container-scoped pointerup would miss it
   // and leave intent stuck open.
-  makeEventListener(
-    document,
-    "pointerup",
-    () => scrollLock.releaseUserScrollIntent(),
-    { capture: true, passive: true },
-  );
-  makeEventListener(
-    document,
-    "pointercancel",
-    () => scrollLock.releaseUserScrollIntent(),
-    { capture: true, passive: true },
-  );
+  createEffect(() => {
+    if (!held()) return;
+    const release = () => {
+      scrollLock.releaseUserScrollIntent();
+      setHeld(false);
+    };
+    makeEventListener(document, "pointerup", release, {
+      capture: true,
+      passive: true,
+    });
+    makeEventListener(document, "pointercancel", release, {
+      capture: true,
+      passive: true,
+    });
+  });
 }

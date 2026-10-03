@@ -53,7 +53,7 @@ describe("CanvasTile shell selection", () => {
               </button>
             </div>
           )}
-          layouts={{ tile: { x: 0, y: 0, w: 100, h: 100 } }}
+          getLayout={() => ({ x: 0, y: 0, w: 100, h: 100 })}
           startResize={vi.fn()}
           panX={() => 0}
           panY={() => 0}

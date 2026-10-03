@@ -12,6 +12,9 @@
  * "nothing is listening" is said only when the host positively holds nothing.
  */
 
+import { createSelector } from "solid-js";
+import { createSharedRoot } from "../createSharedRoot";
+
 import { toError } from "@kolu/surface/run-stream";
 import { parseLoopbackUrl } from "@kolu/url-shape";
 import { Effect } from "effect";
@@ -560,17 +563,20 @@ export const PrintedUrlCard: Component<{ target: PrintedUrlCardTarget }> = (
  *  dismiss mid-cascade cannot produce a stale accessor read (the production
  *  second-click crash). Terminal renders this; tests render this; there is no
  *  second copy of the mount pattern to drift. */
+const useCardTargetSelector = createSharedRoot(() =>
+  createSelector(() => printedUrlCardTarget()?.terminalId),
+);
+
 export const PrintedUrlCardMount: Component<{ terminalId: TerminalId }> = (
   props,
-) => (
-  <Show
-    keyed
-    when={
-      printedUrlCardTarget()?.terminalId === props.terminalId
-        ? printedUrlCardTarget()
-        : undefined
-    }
-  >
-    {(t) => <PrintedUrlCard target={t} />}
-  </Show>
-);
+) => {
+  const selected = useCardTargetSelector();
+  return (
+    <Show
+      keyed
+      when={selected(props.terminalId) ? printedUrlCardTarget() : undefined}
+    >
+      {(t) => <PrintedUrlCard target={t} />}
+    </Show>
+  );
+};

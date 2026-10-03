@@ -52,6 +52,7 @@
  *  the two `.active()` re-keys are not one atomic transition. No consumer may assume
  *  they flip together within a single reactive tick. */
 
+import { type Accessor, createSignal, onCleanup } from "solid-js";
 import type { CodeTabView } from "@kolu/padi-client/surface";
 import type { Subscription } from "@kolu/surface/solid";
 import { scopedByEntry } from "@kolu/surface-map/client";
@@ -101,6 +102,19 @@ export interface ScopedCodePaths {
   paths: readonly string[];
 }
 
+const [leases, setLeases] = createSignal<
+  readonly { shown: Accessor<boolean> }[]
+>([]);
+/** Each mounted Code view leases its visibility; disposal withdraws only that view. */
+export function leaseCodeQueries(shown: Accessor<boolean>): void {
+  const lease = { shown };
+  setLeases((previous) => [...previous, lease]);
+  onCleanup(() =>
+    setLeases((previous) => previous.filter((value) => value !== lease)),
+  );
+}
+const codeShown = () => leases().some((lease) => lease.shown());
+
 /** Build ONE host's retained Code-tab queries. `ctx.isActive` is this host's
  *  "am I the shown host" gate — see the isActive contract in the header. */
 function buildHostCodeTab(host: HostKey, ctx: { isActive: () => boolean }) {
@@ -125,7 +139,7 @@ function buildHostCodeTab(host: HostKey, ctx: { isActive: () => boolean }) {
   const authorities = {
     live: () => padiMap.live(),
     pulseHost: activeHost,
-    active: ctx.isActive,
+    active: () => ctx.isActive() && codeShown(),
   } as const;
 
   // The three git status reads + the browse file list share the repo-change pulse
@@ -135,11 +149,12 @@ function buildHostCodeTab(host: HostKey, ctx: { isActive: () => boolean }) {
     config: Omit<
       PolledQueryConfig<Input, { repoPath: string }, unknown, Result>,
       "live" | "pulseHost" | "active" | "pulseProc" | "pulseInput"
-    >,
-  ): Subscription<Result> {
+    > & { enabled?: () => boolean },
+  ): Subscription<Result> & { readonly complete: Accessor<boolean> } {
     return createPolledQuery({
       ...config,
       ...authorities,
+      active: () => authorities.active() && (config.enabled?.() ?? true),
       pulseProc: () => activePadiStreams.subscribeRepoChange.unenrolled,
       pulseInput: (i) => ({ repoPath: i.repoPath }),
     });
@@ -171,17 +186,19 @@ function buildHostCodeTab(host: HostKey, ctx: { isActive: () => boolean }) {
     },
   });
 
-  // Active-view status — a fresh, view-keyed read for whichever diff mode is showing
-  // (browse reads neither). Keying on the active mode means selecting Branch performs
-  // a fresh read that can't inherit a stale error from the passive `branchStatus`.
-  const activeStatus = repoQuery({
-    input: () => {
-      const p = shownRepoPath();
-      const m = codeDiffMode();
-      return p && m ? { repoPath: p, mode: m } : null;
+  // Reuse the retained status reads; mode changes do not create a second query.
+  const selectedStatus = () =>
+    codeDiffMode() === "branch" ? branchStatus : localStatus;
+  const activeStatus = Object.assign(() => selectedStatus()(), {
+    pending: () => selectedStatus().pending(),
+    error: () => {
+      const error = selectedStatus().error();
+      // A missing branch base is an expected empty state, not an error banner.
+      return error && isDeclared(error, WORKTREE_BASE_BRANCH_MISSING)
+        ? undefined
+        : error;
     },
-    query: (i) => activePadiRpc.git.getStatus(i),
-    onError: (err) => toast.error(`Git status stream: ${err.message}`),
+    complete: () => selectedStatus().complete(),
   });
 
   // "The browse tree is live" — spelled once, so the two listings that feed it
@@ -194,13 +211,12 @@ function buildHostCodeTab(host: HostKey, ctx: { isActive: () => boolean }) {
   } | null => {
     const p = shownRepoPath();
     const terminalId = shownTerminalId();
-    return p && terminalId !== null && codeView() === "browse"
-      ? { terminalId, repoPath: p }
-      : null;
+    return p && terminalId !== null ? { terminalId, repoPath: p } : null;
   };
 
   // The whole-repo file list.
   const allPaths = repoQuery({
+    enabled: () => codeView() === "browse",
     input: browseInput,
     query: (i) =>
       activePadiRpc.fs.listAll({ repoPath: i.repoPath }).pipe(
@@ -227,6 +243,7 @@ function buildHostCodeTab(host: HostKey, ctx: { isActive: () => boolean }) {
   // and the scroll position. Idling the input instead means the toggle costs the
   // extra `git ls-files` spawn only while the user actually wants the overlay.
   const ignoredPaths = repoQuery({
+    enabled: () => codeView() === "browse",
     input: () => (showIgnoredFiles() ? browseInput() : null),
     query: (i) =>
       activePadiRpc.fs.listIgnored({ repoPath: i.repoPath }).pipe(
@@ -272,11 +289,12 @@ function buildHostCodeTab(host: HostKey, ctx: { isActive: () => boolean }) {
     BrowseFileContent
   >({
     ...authorities,
+    active: () => authorities.active() && codeView() === "browse",
     input: () => {
       const p = shownRepoPath();
-      const s = codeSelectedPath();
+      const s = rightPanel.selectedFile("browse");
       const tid = shownTerminalId();
-      return codeView() === "browse" && p && s && tid !== null
+      return p && s && tid !== null
         ? { terminalId: tid, repoPath: p, filePath: s }
         : null;
     },

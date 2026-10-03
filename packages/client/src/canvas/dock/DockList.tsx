@@ -23,7 +23,8 @@ import { DockRow as DockRowView, DockSection } from "@kolu/solid-dockrow";
 import type { DockRowBucket } from "@kolu/solid-dockrow/rowValues";
 import { AttentionTriplet } from "@kolu/solid-statepip";
 import type { TerminalId } from "kolu-common/surface";
-import { For, Show } from "solid-js";
+import { Show } from "solid-js";
+import { Key } from "@solid-primitives/keyed";
 import RepoMonogram from "../../ui/RepoMonogram";
 import { useDockRowBag } from "./useDockRowBag";
 import { createDockRowData } from "./dockRowData";
@@ -50,11 +51,11 @@ export function DockList(props: { onSelect: (id: TerminalId) => void }) {
       />
       <div class="flex-1 min-h-0 overflow-y-auto">
         <div class="flex flex-col gap-2.5 p-2">
-          <For each={tree().groups}>
+          <Key each={tree().groups} by="name">
             {(group) => (
-              <DockListSection group={group} onSelect={props.onSelect} />
+              <DockListSection group={group()} onSelect={props.onSelect} />
             )}
-          </For>
+          </Key>
         </div>
       </div>
       <HiddenFooter
@@ -129,29 +130,29 @@ function DockListSection(props: {
         </>
       }
     >
-      <For each={props.group.topRows}>
+      <Key each={props.group.topRows} by="id">
         {(row) => (
           <>
             <DockListRow
-              id={row.id}
-              bucket={row.bucket}
-              pip={row.pip}
-              recencyAt={row.ts}
+              id={row().id}
+              bucket={row().bucket}
+              pip={row().pip}
+              recencyAt={row().ts}
               onSelect={props.onSelect}
             />
-            <For each={row.subRows}>
+            <Key each={row().subRows} by="id">
               {(sub) => (
                 <SubTerminalRow
-                  row={sub}
-                  tileId={row.id}
+                  row={sub()}
+                  tileId={row().id}
                   surface="touch"
                   onSelect={props.onSelect}
                 />
               )}
-            </For>
+            </Key>
           </>
         )}
-      </For>
+      </Key>
     </DockSection>
   );
 }

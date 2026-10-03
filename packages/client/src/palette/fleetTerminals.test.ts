@@ -1,8 +1,10 @@
+import { createComputed, createRoot, createSignal } from "solid-js";
 import type { TerminalMetadata } from "@kolu/padi-client/surface";
 import type { HostKey } from "kolu-common/hostKey";
 import type { TerminalId } from "kolu-common/surface";
 import { describe, expect, it } from "vitest";
 import {
+  createStableFleetRows,
   type FleetTerminalRow,
   groupFleetByHost,
   isTileTerminal,
@@ -123,3 +125,24 @@ describe("orderHostsActiveFirst", () => {
     ]);
   });
 });
+
+it("unchanged clock-driven fleet projections wake no consumers", () =>
+  createRoot((dispose) => {
+    const [tick, setTick] = createSignal(0);
+    const [recency, setRecency] = createSignal(10);
+    const rows = createStableFleetRows(() => {
+      tick();
+      return [row(local, "a", recency())];
+    });
+    let wakes = 0;
+    createComputed(() => {
+      rows();
+      wakes++;
+    });
+    setTick(1);
+    setTick(2);
+    expect(wakes).toBe(1);
+    setRecency(20);
+    expect(wakes).toBe(2);
+    dispose();
+  }));

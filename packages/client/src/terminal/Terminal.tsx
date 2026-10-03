@@ -12,6 +12,7 @@
  * via a fontSize signal, passed to <Xterm> as the fontSize prop.
  */
 
+import { registerTerminalElement } from "./terminalElements";
 import { makeEventListener } from "@solid-primitives/event-listener";
 import { ClipboardAddon } from "@xterm/addon-clipboard";
 import type { ITheme, Terminal as XTerm } from "@xterm/xterm";
@@ -307,6 +308,7 @@ const Terminal: Component<{
   // owner, so every listener / disposable registered here is cleaned up on
   // disposal alongside the terminal the kit owns.
   const onReady = (h: XtermHandle) => {
+    onCleanup(registerTerminalElement(props.terminalId, h.container));
     setHandle(h);
     const term = h.terminal;
 
@@ -459,7 +461,7 @@ const Terminal: Component<{
       return true;
     });
 
-    if (props.onFocus && term.textarea) {
+    if (term.textarea) {
       // xterm may stop gesture events inside its own subtree. Capture them at
       // the mount boundary and arm one document-wide provenance token: Tab can
       // move focus into a sibling terminal, while a pointer focus lands here.
@@ -470,7 +472,7 @@ const Terminal: Component<{
           pane: h.container,
           textarea: term.textarea,
           isFocused: () => props.focused === true,
-          onFocus: props.onFocus,
+          onFocus: () => props.onFocus?.(),
         }),
       );
     }
@@ -1201,7 +1203,12 @@ const Terminal: Component<{
     // `findInTerminal` action's `focusScopeMarker` (input/actions.ts).
     <div
       class="w-full h-full relative"
-      classList={{ hidden: !props.visible }}
+      style={{
+        position: props.visible ? "relative" : "absolute",
+        inset: "0",
+        "content-visibility": props.visible ? "visible" : "hidden",
+      }}
+      inert={!props.visible}
       {...TERMINAL_SEARCH_ATTR_PROP}
     >
       <Show when={handle()?.addons.search}>

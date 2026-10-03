@@ -41,8 +41,10 @@ const BOTTOM_MARKER = "SPLIT-BOTTOM-MARK";
  */
 async function paletteCommand(world: KoluWorld, query: string) {
   // Ensure focus is in the app (previous palette close may leave focus nowhere)
-  const terminal = world.page.locator("[data-visible] .xterm-screen");
-  if ((await terminal.count()) > 0) await terminal.first().click();
+  const terminal = world.page.locator(
+    "[data-visible][data-focused] .xterm-helper-textarea",
+  );
+  if ((await terminal.count()) > 0) await terminal.first().focus();
   await world.page.keyboard.press(`${APP_KEY}+k`);
   await world.page.waitForFunction(
     (sel) => document.querySelector(`${sel}[data-open]`) !== null,
@@ -236,7 +238,7 @@ Then(
   "the sub-terminal viewport should show its latest output",
   async function (this: KoluWorld) {
     await this.page
-      .locator('[data-testid="sub-panel-tab-bar"]')
+      .locator('[data-testid="sub-panel-tab-bar"]:visible')
       .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
     // VIEWPORT, not buffer: the defect delivers every byte correctly and then
     // shows the wrong window onto them, so a whole-buffer read passes on a
@@ -249,12 +251,16 @@ Then(
 );
 
 Then("the sub-panel should be visible", async function (this: KoluWorld) {
-  const tabBar = this.page.locator('[data-testid="sub-panel-tab-bar"]');
+  const tabBar = this.page.locator(
+    ':is([data-canvas-tile], [data-mobile-tile])[data-active] [data-testid="sub-panel-tab-bar"]',
+  );
   await tabBar.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
 });
 
 Then("the sub-panel should not be visible", async function (this: KoluWorld) {
-  const tabBar = this.page.locator('[data-testid="sub-panel-tab-bar"]');
+  const tabBar = this.page.locator(
+    ':is([data-canvas-tile], [data-mobile-tile])[data-active] [data-testid="sub-panel-tab-bar"]',
+  );
   await tabBar.waitFor({ state: "hidden", timeout: POLL_TIMEOUT });
 });
 
@@ -418,7 +424,9 @@ Then(
   "the sub-panel should eventually collapse",
   { timeout: 60_000 },
   async function (this: KoluWorld) {
-    const tabBar = this.page.locator('[data-testid="sub-panel-tab-bar"]');
+    const tabBar = this.page.locator(
+      '[data-testid="sub-panel-tab-bar"]:visible',
+    );
     await tabBar.waitFor({ state: "hidden", timeout: 45_000 });
   },
 );
@@ -661,7 +669,9 @@ Then(
   async function (this: KoluWorld) {
     // First wait for the tab bar to disappear (confirms collapse state settled)
     await this.page
-      .locator('[data-testid="sub-panel-tab-bar"]')
+      .locator(
+        ':is([data-canvas-tile], [data-mobile-tile])[data-active] [data-testid="sub-panel-tab-bar"]',
+      )
       .waitFor({ state: "hidden", timeout: 10_000 });
     // Then wait for the collapsed strip to mount and be visible
     const indicator = this.page.locator('[data-testid="collapsed-indicator"]');
@@ -680,7 +690,7 @@ Then(
   async function (this: KoluWorld, expected: string) {
     // Wait for sub-panel to be fully expanded before reading buffer
     await this.page
-      .locator('[data-testid="sub-panel-tab-bar"]')
+      .locator('[data-testid="sub-panel-tab-bar"]:visible')
       .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
     await waitForBufferContains(this.page, expected, {
       selector: "[data-sub-terminal][data-visible]",

@@ -141,16 +141,6 @@ const TerminalCanvas: Component<{
     return pendingLayouts.resolveLayout(id, props.getLayout(id));
   }
 
-  /** Merged layouts keyed by tile ID — consumed by CanvasTile and CanvasMinimap. */
-  const layouts = createMemo<Record<string, TileLayout>>(() => {
-    const result: Record<string, TileLayout> = {};
-    for (const id of props.tileIds) {
-      const l = layoutOf(id);
-      if (l) result[id] = l;
-    }
-    return result;
-  });
-
   // Per-host camera center-on-active on host switch. The decision (seed a
   // never-positioned host on its active tile, re-center a host whose tile drifted
   // out of its retained view) lives in `useCanvasCenterOnSwitch`, mounted here
@@ -194,11 +184,11 @@ const TerminalCanvas: Component<{
   );
   createEffect(
     on(
-      () => [props.tileIds, allRecordsSettled()] as const,
+      () => [props.tileIds, allRecordsSettled(), viewport.mounted()] as const,
       ([ids]) => {
         const center = viewport.viewportCenter();
-        // Container not mounted yet — defer placement; the effect re-runs when
-        // the tile list next changes (post-mount, with real dimensions).
+        // No viewport measurement yet — defer placement; the mounted edge
+        // re-runs this effect once the observer has measured the laid-out canvas.
         // Reading the center via `viewportCenter()` (not an inlined pan+size
         // calc) keeps the unmounted-guard: a 0×0 viewport would otherwise
         // collapse the center to the raw pan origin and place tiles top-left.
@@ -449,12 +439,14 @@ const TerminalCanvas: Component<{
                 : undefined
             }
             renderBody={() => props.renderTileBody(tileId, active)}
-            layouts={layouts()}
+            getLayout={layoutOf}
             startResize={startResize}
             panX={viewport.panX}
             panY={viewport.panY}
             zoom={viewport.zoom}
-            viewportSize={viewport.viewportSize}
+            viewportSize={() =>
+              viewport.mounted() ? viewport.viewportSize() : undefined
+            }
             auraTier={() => tileAuraOf(terminalId)}
           />
         )}
@@ -544,36 +536,42 @@ const TerminalCanvas: Component<{
             }}
           </For>
 
-          {/* Minimap: spatial dashboard; hides in fullscreen-single-tile mode
-           *  since there's nothing spatial to summarize. */}
-          <Show when={posture.mode() === "tiled"}>
-            <CanvasMinimap
-              tileIds={props.tileIds}
-              layouts={layouts()}
-              onSelect={props.onSelect}
-              onAutoArrange={props.onAutoArrange}
-              onStartTileDrag={(id) => {
-                const origin = layoutOf(id);
-                if (!origin) return null;
-                return {
-                  preview: (dx, dy) =>
-                    setPendingLayout(id, {
-                      ...origin,
-                      x: origin.x + dx,
-                      y: origin.y + dy,
-                    }),
-                  commit: (dx, dy) => {
-                    const next: TileLayout = {
-                      ...origin,
-                      x: viewport.snapToGrid(origin.x + dx),
-                      y: viewport.snapToGrid(origin.y + dy),
-                    };
-                    setPendingLayout(id, next);
-                    props.onLayoutChange(id, next);
-                  },
-                };
-              }}
-            />
+          <Show when={viewport.mounted()}>
+            {/* Minimap: spatial dashboard; hides in fullscreen-single-tile mode
+             *  since there's nothing spatial to summarize. */}
+            <div
+              classList={{ hidden: posture.mode() !== "tiled" }}
+              inert={posture.mode() !== "tiled"}
+            >
+              <CanvasMinimap
+                shown={posture.mode() === "tiled"}
+                tileIds={props.tileIds}
+                getLayout={layoutOf}
+                onSelect={props.onSelect}
+                onAutoArrange={props.onAutoArrange}
+                onStartTileDrag={(id) => {
+                  const origin = layoutOf(id);
+                  if (!origin) return null;
+                  return {
+                    preview: (dx, dy) =>
+                      setPendingLayout(id, {
+                        ...origin,
+                        x: origin.x + dx,
+                        y: origin.y + dy,
+                      }),
+                    commit: (dx, dy) => {
+                      const next: TileLayout = {
+                        ...origin,
+                        x: viewport.snapToGrid(origin.x + dx),
+                        y: viewport.snapToGrid(origin.y + dy),
+                      };
+                      setPendingLayout(id, next);
+                      props.onLayoutChange(id, next);
+                    },
+                  };
+                }}
+              />
+            </div>
           </Show>
         </div>
       </div>

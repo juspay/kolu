@@ -11,13 +11,9 @@
  *  count can never disagree with the ids it summarises, and a host tab can never
  *  disagree with the pips in the dock beneath it.
  *
- *  Two writers, one record, no clobbering: `useAttentionFacts`' single per-host
- *  mirror root writes the frame (`byClass` + `liveIds` + `live`) and the
- *  attention engine writes `unseenFinished` — both through `writeHostMarks`,
- *  which merges onto a complete seed so no writer can mint a half-record. There
- *  is exactly ONE root that fans out over `hostKeys()`, so exactly one cleanup
- *  deletes the record: "either of two roots may do the delete" was a coherence
- *  rule maintained by two matching comments rather than by the structure. */
+ *  Host facts are leased from the per-host reactive owner. Only the engine's
+ *  unseen-finished tally is stored here; class/activity/liveness are read from
+ *  their source accessors, never mirrored into a second store. */
 
 import {
   emptyByClass,
@@ -42,13 +38,7 @@ export interface HostMarks extends HostAttentionFrame {
   reported: boolean;
 }
 
-/** A host we have heard nothing about yet. Every `writeHostMarks` merges onto
- *  one of these, so a record in the store is always COMPLETE — a partial write
- *  (the engine touching `unseenFinished` before the first urgency frame lands)
- *  cannot mint a record missing its id lists. The class map comes from
- *  `emptyByClass()`, which is fresh per call for the reason stated there: two
- *  hosts seeded from one literal would share its nested `byClass` node inside
- *  the store, a coupling nothing needs. */
+/** A host whose facts owner has not registered yet. */
 function emptyMarks(): HostMarks {
   return {
     byClass: emptyByClass(),
@@ -64,23 +54,24 @@ function emptyMarks(): HostMarks {
  *  spread that would leave `byClass` pointing at another reading's node. */
 const NO_MARKS: HostMarks = emptyMarks();
 
-const [marks, setMarks] = createStore<Record<string, HostMarks>>({});
+const [marks, setMarks] = createStore<
+  Record<string, Pick<HostMarks, "unseenFinished">>
+>({});
 
-/** Merge (or clear, with `undefined`) a host's marks. A partial object merges
- *  onto the host's record — or onto a fresh empty one if this is its first touch —
- *  so the two writers never clobber each other's fields and never leave a
- *  half-built record behind. Clearing DELETES the key (not sets it to
- *  `undefined`), so the singleton store can't grow unbounded across host
- *  add/remove churn. */
+/** Record membership and the attention engine's unseen tally. Clearing deletes
+ *  the key, so repeated host add/remove cannot grow the store. */
 export function writeHostMarks(
   encHost: string,
-  value: Partial<HostMarks> | undefined,
+  value: Partial<Pick<HostMarks, "unseenFinished">> | undefined,
 ): void {
   if (value === undefined) {
     setMarks(produce((m) => delete m[encHost]));
     return;
   }
-  setMarks(encHost, (prev) => ({ ...(prev ?? emptyMarks()), ...value }));
+  setMarks(encHost, (prev) => ({
+    ...(prev ?? { unseenFinished: 0 }),
+    ...value,
+  }));
 }
 
 /** A host's frame in INDEXED form — the same three answers `@kolu/padi-client/attention`
@@ -93,8 +84,7 @@ export function writeHostMarks(
  *  dock row on every urgency frame (the rank's `classOf`, each row's pip memo,
  *  `useSectionAttention`) — while `hostActiveIds` builds a Map, two Sets and an
  *  array per call, which `hostMarks().active` did ~10× per host per byte tick
- *  (five reactive reads inside `AttentionTriplet`, and `HostChip` mounts twice
- *  per host for width measurement).
+ *  (five reactive reads inside `AttentionTriplet`, and the visible chip plus its data-free width-measuring shell both read it).
  *
  *  The three legs are SEPARATE accessors on purpose, and the separation is the
  *  load-bearing part — see `useAttentionFacts`, which builds them. */
@@ -115,6 +105,14 @@ export interface HostAttentionIndex {
  *  outlive the memos it holds. A host with no root yet simply has no entry, and
  *  every reader below falls back to the pure fold — the honest answer computed
  *  the slow way, never a wrong one. */
+const facts = new Map<string, () => Omit<HostMarks, "unseenFinished">>();
+export function registerHostFacts(
+  encHost: string,
+  read: () => Omit<HostMarks, "unseenFinished">,
+): void {
+  facts.set(encHost, read);
+}
+
 const indexes = new Map<string, HostAttentionIndex>();
 
 /** Publish a host's index. One root per host, so no two writers race a key. */
@@ -128,6 +126,7 @@ export function registerHostIndex(
 /** Drop a host's index — its memos are about to be disposed with the root. */
 export function forgetHostIndex(encHost: string): void {
   indexes.delete(encHost);
+  facts.delete(encHost);
 }
 
 /** The encoded keys of every host the store holds a record for — the membership
@@ -141,7 +140,27 @@ export function markedHosts(): readonly string[] {
  *  reads, and the one the attention diagnostics compare against the client's
  *  per-terminal metadata. */
 export function hostFrame(encHost: string): HostMarks {
-  return marks[encHost] ?? NO_MARKS;
+  void marks[encHost]; // Membership arrival/removal invalidates an early reader.
+  const frame = facts.get(encHost)?.();
+  return frame
+    ? {
+        get byClass() {
+          return frame.byClass;
+        },
+        get liveIds() {
+          return frame.liveIds;
+        },
+        get live() {
+          return frame.live;
+        },
+        get reported() {
+          return frame.reported;
+        },
+        get unseenFinished() {
+          return marks[encHost]?.unseenFinished ?? 0;
+        },
+      }
+    : NO_MARKS;
 }
 
 /** A host's asking count as a reactive read — derived from the id list at the
@@ -193,7 +212,7 @@ export function hostMarks(encHost: string): {
  *  ONE way any surface obtains them.
  *
  *  It takes the HOST KEY the store is keyed by, and reads that one record.
- *  Both facts therefore come from ONE snapshot of ONE mirrored frame: padi
+ *  Both facts therefore come from the same source accessors: padi
  *  computed the class, shipped the answer, and this reads the answer back (the
  *  two-subscriptions argument against re-deriving it lives in
  *  `@kolu/padi-client/attention`'s header). Taking the host key is the site-specific
@@ -244,8 +263,8 @@ export function terminalClass(encHost: string, id: TerminalId): AttentionClass {
 export function liveAskingTotal(): number {
   let count = 0;
   for (const enc of Object.keys(marks)) {
-    const m = marks[enc];
-    if (m?.live) count += m.byClass.asking.length;
+    const m = hostFrame(enc);
+    if (m.live) count += m.byClass.asking.length;
   }
   return count;
 }

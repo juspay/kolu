@@ -16,10 +16,13 @@
  *  covering the whole frame. These tests are what should stop that. */
 
 import type { TerminalId } from "kolu-common/surface";
-import { createComputed, createRoot } from "solid-js";
+import { createComputed, createRoot, createSignal } from "solid-js";
 import { beforeEach, describe, expect, it } from "vitest";
 import {
   forgetHostIndex,
+  registerHostFacts,
+  liveAskingTotal,
+  type HostMarks,
   hostFrame,
   terminalClass,
   writeHostMarks,
@@ -52,9 +55,43 @@ function countReruns(fn: () => unknown, steps: readonly (() => void)[]) {
   });
 }
 
+function fixture(initial: Partial<Omit<HostMarks, "unseenFinished">> = {}) {
+  const [frame, setFrame] = createSignal<Omit<HostMarks, "unseenFinished">>({
+    byClass: { asking: [], working: [], linger: [], finished: [] },
+    liveIds: [],
+    live: true,
+    reported: true,
+    ...initial,
+  });
+  // Separate source signals, like the urgency and activity subscriptions.
+  const [byClass, setByClass] = createSignal(frame().byClass);
+  const [liveIds, setLiveIds] = createSignal(frame().liveIds);
+  registerHostFacts(HOST, () => ({
+    get byClass() {
+      return byClass();
+    },
+    get liveIds() {
+      return liveIds();
+    },
+    get live() {
+      return frame().live;
+    },
+    get reported() {
+      return frame().reported;
+    },
+  }));
+  writeHostMarks(HOST, {});
+  return (next: Partial<Omit<HostMarks, "unseenFinished">>) => {
+    if (next.byClass) setByClass(next.byClass);
+    if (next.liveIds) setLiveIds(next.liveIds);
+    if (next.live !== undefined || next.reported !== undefined)
+      setFrame((p) => ({ ...p, ...next }));
+  };
+}
+
 describe("a class read does not wake on the live set", () => {
   it("holds still across byte-motion writes, then moves on a real class change", () => {
-    writeHostMarks(HOST, {
+    const update = fixture({
       reported: true,
       byClass: { asking: [], working: [A], linger: [], finished: [] },
     });
@@ -63,12 +100,12 @@ describe("a class read does not wake on the live set", () => {
       () => terminalClass(HOST, A),
       [
         // Three consecutive live-set writes — a terminal printing output.
-        () => writeHostMarks(HOST, { liveIds: [A] }),
-        () => writeHostMarks(HOST, { liveIds: [] }),
-        () => writeHostMarks(HOST, { liveIds: [A] }),
+        () => update({ liveIds: [A] }),
+        () => update({ liveIds: [] }),
+        () => update({ liveIds: [A] }),
         // Now the agent actually transitions.
         () =>
-          writeHostMarks(HOST, {
+          update({
             byClass: { asking: [A], working: [], linger: [], finished: [] },
           }),
       ],
@@ -83,17 +120,17 @@ describe("a class read does not wake on the live set", () => {
   it("still reports the right class either way", () => {
     // The separation is about WAKING, not about answers — pin the answers too,
     // so a future fix for one can't quietly break the other.
-    writeHostMarks(HOST, {
+    const update = fixture({
       reported: true,
       byClass: { asking: [], working: [A], linger: [], finished: [] },
       liveIds: [],
     });
     expect(terminalClass(HOST, A)).toBe("working");
 
-    writeHostMarks(HOST, { liveIds: [A] });
+    update({ liveIds: [A] });
     expect(terminalClass(HOST, A)).toBe("working");
 
-    writeHostMarks(HOST, {
+    update({
       byClass: { asking: [A], working: [], linger: [], finished: [] },
     });
     expect(terminalClass(HOST, A)).toBe("asking");
@@ -105,12 +142,26 @@ describe("a class read does not wake on the live set", () => {
     // `writeHostMarks` rebuilt the record wholesale, every test above would
     // still pass on values and the waking would regress — this is the guard
     // for that.
-    writeHostMarks(HOST, {
+    const update = fixture({
       reported: true,
       byClass: { asking: [], working: [A], linger: [], finished: [] },
     });
     const before = hostFrame(HOST).byClass;
-    writeHostMarks(HOST, { liveIds: [A] });
+    update({ liveIds: [A] });
     expect(hostFrame(HOST).byClass).toBe(before);
   });
+});
+
+it("badge counts registered live host facts and follows liveness", () => {
+  const update = fixture({
+    byClass: { asking: [A], working: [], linger: [], finished: [] },
+  });
+  expect(liveAskingTotal()).toBe(1);
+  update({ live: false });
+  expect(liveAskingTotal()).toBe(0);
+  update({
+    live: true,
+    byClass: { asking: [], working: [], linger: [], finished: [] },
+  });
+  expect(liveAskingTotal()).toBe(0);
 });

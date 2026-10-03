@@ -1,4 +1,5 @@
 // @vitest-environment happy-dom
+
 /**
  * The needs-you strip must NAVIGATE to the row it NAMES.
  *
@@ -15,6 +16,8 @@
  * `useDockFocus` → `focusTerminal`, which resolves a split to its tab. This pins
  * that the strip passes the id that makes those verbs correct.
  */
+
+import { createSignal } from "solid-js";
 
 import {
   LOCAL_LOCATION,
@@ -118,6 +121,7 @@ function blockedSplitRow() {
 function renderStrip() {
   const host = document.createElement("div");
   document.body.append(host);
+  const [revision, setRevision] = createSignal(0);
   const dispose = render(
     () => (
       <NeedsYouStrip
@@ -125,7 +129,7 @@ function renderStrip() {
           {
             tile: tileRow(),
             blocked: blockedSplitRow(),
-            hiddenByFilter: false,
+            hiddenByFilter: revision() > 0,
           },
         ]}
         density="full"
@@ -136,6 +140,7 @@ function renderStrip() {
   );
   return {
     host,
+    update: () => setRevision((n) => n + 1),
     dispose: () => {
       dispose();
       host.remove();
@@ -207,4 +212,17 @@ describe("NeedsYouStrip — the split-blocked entry", () => {
       dispose();
     }
   });
+});
+
+it("retains the blocked row DOM across fresh ranked records", () => {
+  const { host, update, dispose } = renderStrip();
+  try {
+    const row = host.querySelector('[data-testid="dock-needs-you-entry"]');
+    update();
+    expect(host.querySelector('[data-testid="dock-needs-you-entry"]')).toBe(
+      row,
+    );
+  } finally {
+    dispose();
+  }
 });

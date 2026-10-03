@@ -1,32 +1,16 @@
-/** CompactTileView — the two-pane layout for roomy touch screens.
- *
- *  Where the phone collapses to a single fullscreen tile (`MobileTileView`) and
- *  the desktop spreads tiles across a pan/zoom canvas, a finger-driven device
- *  that is *wide* — a Z Fold 6 unfolded (~900 CSS px, near-square), an iPad, an
- *  Android tablet — wants neither: the phone layout wastes the width, and the
- *  canvas + floating Dock are mouse affordances. So compact pairs a *persistent*
- *  dock rail (the terminal navigator, always visible — no swipe-to-reveal) with
- *  the active terminal filling the rest.
- *
- *  It deliberately reuses `MobileTileView` for the terminal pane: the top chrome
- *  sheet, swipe-to-cycle, the soft-keyboard key bar, and per-terminal body
- *  rendering are identical to the phone. The only differences are this rail and
- *  `hideDockDrawer`, which drops MobileTileView's redundant left-edge dock
- *  drawer (the rail is the persistent navigator instead).
- *
- *  Hosted, like the phone, inside `RightPanelDrawer` — the Code/diff/comments
- *  panel reveals as a bottom sheet (the touch-layout host), not the desktop
- *  Resizable split. */
+/** The retained touch workspace. Phone and compact share MobileTileView;
+ *  compact adds a dock rail, while phone exposes the drawer. Both live inside
+ *  RightPanelDrawer, so folding changes chrome without replacing terminals. */
 
 import type { TerminalId } from "kolu-common/surface";
-import type { Component, JSX } from "solid-js";
+import { Show, type Component, type JSX } from "solid-js";
 import { DockList } from "./canvas/dock/DockList";
 import MobileTileView from "./MobileTileView";
 import { useTerminalStore } from "./terminal/useTerminalStore";
 
 const CompactTileView: Component<{
-  /** Workspace-switcher-ordered ids — passed through to the terminal pane for
-   *  swipe-to-cycle (the rail reads the same `useDockOrder` order itself). */
+  compact: boolean;
+  /** The same dock-filtered ids the workspace terminal owner renders. */
   orderedIds: TerminalId[];
   renderBody: (id: TerminalId, visible: () => boolean) => JSX.Element;
   bottomBar?: JSX.Element;
@@ -43,15 +27,19 @@ const CompactTileView: Component<{
        *  `shrink-0` keeps the rail from collapsing under a busy tile. */}
       <aside
         data-testid="compact-dock-rail"
+        classList={{ hidden: !props.compact }}
+        inert={!props.compact}
         class="shrink-0 w-52 min-h-0 flex flex-col border-r border-edge bg-surface-1"
       >
-        <DockList onSelect={store.focusTerminalSilently} />
+        <Show when={props.compact}>
+          <DockList onSelect={store.focusTerminalSilently} />
+        </Show>
       </aside>
       <MobileTileView
         orderedIds={props.orderedIds}
         renderBody={props.renderBody}
         bottomBar={props.bottomBar}
-        hideDockDrawer
+        hideDockDrawer={props.compact}
       />
     </>
   );

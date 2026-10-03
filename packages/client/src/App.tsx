@@ -12,6 +12,8 @@
  *  agent indicator, screenshot, split toggle) lives on the tile title bar via
  *  `canvas/TileTitleActions`. The header is intentionally minimal. */
 
+import { WorkspaceTerminals } from "./terminal/WorkspaceTerminals";
+
 import Resizable from "@corvu/resizable";
 import { activeArm, sleepingArm } from "@kolu/padi-client/surface";
 import { createPwaInstall } from "@kolu/solid-pwa-install";
@@ -27,7 +29,6 @@ import {
   Switch,
 } from "solid-js";
 import { Toaster } from "solid-sonner";
-import { match, P } from "ts-pattern";
 import AboutDialog from "./AboutDialog";
 import { useAttention } from "./attention/useAttention";
 import ChromeBar from "./ChromeBar";
@@ -59,7 +60,6 @@ import DegradedCanvas from "./kaval/DegradedCanvas";
 import { type CanvasMode, canvasMode } from "./kaval/useCanvasMode";
 import MobileKeyBar from "./MobileKeyBar";
 import MobilePullChrome from "./MobilePullChrome";
-import MobileTileView from "./MobileTileView";
 import { NEW_TERMINAL_GROUP } from "./palette/newTerminalGroup";
 import { TERMINALS_GROUP_NAME } from "./palette/terminalsGroup";
 import WebcamOverlay from "./recorder/WebcamOverlay";
@@ -267,35 +267,16 @@ const App: Component = () => {
     switchHost: setActiveHost,
   });
 
-  /** Canvas tile body — every tile stays mounted (`visible={true}`) so
-   *  inactive xterms keep their grid sized correctly; only the focused tile
-   *  takes keyboard focus. */
-  function renderCanvasTileBody(id: TerminalId, active: () => boolean) {
-    return (
-      <TerminalContent
-        terminalId={id}
-        visible={true}
-        focused={active()}
-        theme={getTerminalTheme(id)}
-        onCloseTerminal={closeTerminal}
-        onFocus={() => store.setActiveSilently(id)}
-      />
-    );
-  }
-
-  /** Mobile body — only the active terminal is visible (others hide via
-   *  the parent's classList) so xterm doesn't try to size a 0×0 element. */
-  function renderMobileTileBody(id: TerminalId, visible: () => boolean) {
-    return (
-      <TerminalContent
-        terminalId={id}
-        visible={visible()}
-        focused={visible()}
-        theme={getTerminalTheme(id)}
-        onCloseTerminal={closeTerminal}
-      />
-    );
-  }
+  const renderTerminalBody = (id: TerminalId) => (
+    <TerminalContent
+      terminalId={id}
+      visible={isDesktop() || tileStore.isActiveTile(id)}
+      focused={tileStore.isActiveTile(id)}
+      theme={getTerminalTheme(id)}
+      onCloseTerminal={closeTerminal}
+      onFocus={() => store.setActiveSilently(id)}
+    />
+  );
 
   // The one canvas-surface decision — which surface wins, in what order. The
   // precedence (and the #1034 / F3 correctness it carries) lives in
@@ -576,160 +557,145 @@ const App: Component = () => {
             </div>
           </Match>
           <Match when={mode().kind === "workspace"}>
-            {match(layoutMode())
-              .with(P.union("phone", "compact"), (m) => {
-                // One touch host for both handheld layouts: the same
-                // bottom-sheet `RightPanelDrawer` wrapping a touch tile view.
-                // They diverge only on two axes — the phone stacks its single
-                // fullscreen tile in a column (`contentClass="flex-col"`) while
-                // the roomier compact (Z Fold unfolded, tablets) keeps the
-                // default row, and the tile view is `MobileTileView` vs
-                // `CompactTileView`. The inner tile props are identical, so
-                // they live in one `tileProps` object.
-                //
-                // The reactive read stays a GETTER (not an eager call): Solid's
-                // JSX prop spread preserves the getter (mergeProps-style, not an
-                // eager copy), so it re-runs `orderedIds()` when the tile view
-                // reads the prop, and tracks it. An eager `orderedIds:
-                // orderedIds()` would snapshot the value at mount — a
-                // freshly-created terminal would never reach the body's
-                // `<For each={props.orderedIds}>`. (The chrome props — status /
-                // appTitle / onOpenPalette — moved to `MobilePullChrome` above,
-                // which is why they're no longer threaded through here.)
-                const tileProps = {
-                  get orderedIds() {
-                    return orderedIds();
-                  },
-                  renderBody: renderMobileTileBody,
-                  bottomBar: <MobileKeyBar />,
-                };
-                return (
-                  <RightPanelDrawer
-                    terminalId={store.active().id}
-                    meta={store.active().meta}
-                    themeName={activeThemeName()}
-                    onThemeClick={() => commandPalette.openGroup("Set theme")}
-                    contentClass={m === "phone" ? "flex-col" : undefined}
-                  >
-                    {/* `m` is a fixed match-arm value, not a signal, so a plain
-                     *  ternary picks the tile view — no reactive `<Show>` needed. */}
-                    {m === "phone" ? (
-                      <MobileTileView {...tileProps} />
-                    ) : (
-                      <CompactTileView {...tileProps} />
-                    )}
-                  </RightPanelDrawer>
-                );
-              })
-              .with("desktop", () => (
-                // Desktop host: horizontal `@corvu/resizable` split between
-                // the canvas and the right panel. `sizes=[1, 0]` collapses
-                // the panel to zero width while keeping it mounted — this
-                // preserves `CodeTab`'s selectedPath signal and Pierre's
-                // tree expansion across collapse round-trips (#818).
-                //
-                // **This container is expected to span the full viewport
-                // width** — the Dock floats `position: absolute` over the
-                // canvas in tiled mode rather than reflowing alongside it.
-                // `ChromeBar` leans on this invariant for its
-                // `right: panelSize * 100vw` offset; treating the Corvu
-                // fraction as a viewport-width fraction only works while
-                // the assumption holds. If a sibling ever shrinks this
-                // container, the ChromeBar offset must move to a measured
-                // pixel value or a host-published CSS custom property.
-                //
-                // `startIntersection={false}` on the handle opts out of
-                // Corvu's module-level handle-pairing registry (see
-                // `@corvu/resizable/dist/index.js:201-222`). Without the
-                // opt-out, this outer horizontal handle pairs with
-                // `CodeTab`'s inner vertical handle (their rects touch at
-                // the corner) and clicks near the corner land on the
-                // wrong handle. `CodeTab` defends from the inner side
-                // with the same opt-out — both sides need it.
-                <Resizable
-                  orientation="horizontal"
-                  sizes={
-                    rightPanel.collapsed()
-                      ? [1, 0]
-                      : [1 - rightPanel.panelSize(), rightPanel.panelSize()]
-                  }
-                  onSizesChange={(sizes) => {
-                    // `MIN_PANEL_SIZE = 0.05` inside `setPanelSize` drops
-                    // the collapsed `sizes[1] = 0` case so `preferences.size`
-                    // never persists as zero (which would re-expand into an
-                    // ungrabbable zero-width panel).
-                    const s = realSizes(sizes);
-                    if (s) rightPanel.setPanelSize(s[1]);
-                  }}
-                  class="flex-1 min-h-0 overflow-hidden"
-                >
-                  <Resizable.Panel
-                    as="div"
-                    class="min-w-0 min-h-0 flex"
-                    minSize={0.3}
-                  >
-                    <TerminalCanvas
-                      tileIds={tileStore.tileIds()}
-                      getLayout={tileStore.getLayout}
-                      onLayoutChange={tileStore.setLayout}
-                      onAutoArrange={arrange.handleCanvasAutoArrange}
-                      onSelect={tileStore.setActiveSilently}
-                      onClose={(id) => closeTerminal(id)}
-                      {...dockPalette}
-                      renderTileTitle={(id) => (
-                        <TerminalMeta
-                          terminalId={id}
-                          info={store.getDisplayInfo(id)}
-                          meta={store.getMetadata(id)}
-                          unread={store.isUnread(id)}
-                          onOpenIntent={() => intentEditor.openTerminal(id)}
-                        />
-                      )}
-                      renderTileTitleActions={(id) => (
-                        <TileTitleActions id={id} />
-                      )}
-                      renderTileBody={renderCanvasTileBody}
-                    />
-                  </Resizable.Panel>
-                  <Show when={!rightPanel.collapsed()}>
-                    <Resizable.Handle
-                      data-testid="right-panel-handle"
-                      startIntersection={false}
-                      // `Z_HANDLE_OUTER` lifts the ::before pseudo above
-                      // the canvas tile (`Z_CANVAS_TILE_ACTIVE`). The
-                      // handle's ::before extends 4px left into the
-                      // canvas area (`before:-left-1 before:w-2`); without
-                      // the explicit z-index the tile paints over that
-                      // half of the hit zone wherever its right edge
-                      // meets or passes the right-panel boundary, killing
-                      // both the visual hover indicator and the pointer
-                      // target. See `ui/stackLayers.ts` for the full
-                      // layering contract.
-                      class="shrink-0 w-0 relative before:absolute before:inset-y-0 before:-left-1 before:w-2 before:cursor-col-resize before:hover:bg-accent/30 before:transition-colors"
-                      style={{ "z-index": Z_HANDLE_OUTER }}
-                      aria-label="Resize inspector panel"
-                    />
-                  </Show>
-                  <Resizable.Panel
-                    as="div"
-                    class="min-w-0 min-h-0 overflow-hidden"
-                    classList={{
-                      "border-l border-edge": !rightPanel.collapsed(),
-                    }}
-                    minSize={0.1}
-                  >
-                    <RightPanel
+            <WorkspaceTerminals
+              ids={isDesktop() ? tileStore.tileIds() : orderedIds()}
+              renderBody={renderTerminalBody}
+            >
+              {(outlet) => (
+                <Switch>
+                  <Match when={!isDesktop()}>
+                    <RightPanelDrawer
                       terminalId={store.active().id}
                       meta={store.active().meta}
-                      onToggle={rightPanel.togglePanel}
                       themeName={activeThemeName()}
                       onThemeClick={() => commandPalette.openGroup("Set theme")}
-                      visible={!rightPanel.collapsed()}
-                    />
-                  </Resizable.Panel>
-                </Resizable>
-              ))
-              .exhaustive()}
+                      contentClass={
+                        layoutMode() === "phone" ? "flex-col" : undefined
+                      }
+                    >
+                      <CompactTileView
+                        compact={layoutMode() === "compact"}
+                        orderedIds={orderedIds()}
+                        renderBody={outlet}
+                        bottomBar={<MobileKeyBar />}
+                      />
+                    </RightPanelDrawer>
+                  </Match>
+                  <Match when={isDesktop()}>
+                    {/*
+                   Desktop host: horizontal `@corvu/resizable` split between
+                   the canvas and the right panel. `sizes=[1, 0]` collapses
+                   the panel to zero width while keeping it mounted — this
+                   preserves `CodeTab`'s selectedPath signal and Pierre's
+                   tree expansion across collapse round-trips (#818).
+                  
+                   **This container is expected to span the full viewport
+                   width** — the Dock floats `position: absolute` over the
+                   canvas in tiled mode rather than reflowing alongside it.
+                   `ChromeBar` leans on this invariant for its
+                   `right: panelSize * 100vw` offset; treating the Corvu
+                   fraction as a viewport-width fraction only works while
+                   the assumption holds. If a sibling ever shrinks this
+                   container, the ChromeBar offset must move to a measured
+                   pixel value or a host-published CSS custom property.
+                  
+                   `startIntersection={false}` on the handle opts out of
+                   Corvu's module-level handle-pairing registry (see
+                   `@corvu/resizable/dist/index.js:201-222`). Without the
+                   opt-out, this outer horizontal handle pairs with
+                   `CodeTab`'s inner vertical handle (their rects touch at
+                   the corner) and clicks near the corner land on the
+                   wrong handle. `CodeTab` defends from the inner side
+                   with the same opt-out — both sides need it.
+                */}
+                    <Resizable
+                      orientation="horizontal"
+                      sizes={
+                        rightPanel.collapsed()
+                          ? [1, 0]
+                          : [1 - rightPanel.panelSize(), rightPanel.panelSize()]
+                      }
+                      onSizesChange={(sizes) => {
+                        // `MIN_PANEL_SIZE = 0.05` inside `setPanelSize` drops
+                        // the collapsed `sizes[1] = 0` case so `preferences.size`
+                        // never persists as zero (which would re-expand into an
+                        // ungrabbable zero-width panel).
+                        const s = realSizes(sizes);
+                        if (s) rightPanel.setPanelSize(s[1]);
+                      }}
+                      class="flex-1 min-h-0 overflow-hidden"
+                    >
+                      <Resizable.Panel
+                        as="div"
+                        class="min-w-0 min-h-0 flex"
+                        minSize={0.3}
+                      >
+                        <TerminalCanvas
+                          tileIds={tileStore.tileIds()}
+                          getLayout={tileStore.getLayout}
+                          onLayoutChange={tileStore.setLayout}
+                          onAutoArrange={arrange.handleCanvasAutoArrange}
+                          onSelect={tileStore.setActiveSilently}
+                          onClose={(id) => closeTerminal(id)}
+                          {...dockPalette}
+                          renderTileTitle={(id) => (
+                            <TerminalMeta
+                              terminalId={id}
+                              info={store.getDisplayInfo(id)}
+                              meta={store.getMetadata(id)}
+                              unread={store.isUnread(id)}
+                              onOpenIntent={() => intentEditor.openTerminal(id)}
+                            />
+                          )}
+                          renderTileTitleActions={(id) => (
+                            <TileTitleActions id={id} />
+                          )}
+                          renderTileBody={outlet}
+                        />
+                      </Resizable.Panel>
+                      <Show when={!rightPanel.collapsed()}>
+                        <Resizable.Handle
+                          data-testid="right-panel-handle"
+                          startIntersection={false}
+                          // `Z_HANDLE_OUTER` lifts the ::before pseudo above
+                          // the canvas tile (`Z_CANVAS_TILE_ACTIVE`). The
+                          // handle's ::before extends 4px left into the
+                          // canvas area (`before:-left-1 before:w-2`); without
+                          // the explicit z-index the tile paints over that
+                          // half of the hit zone wherever its right edge
+                          // meets or passes the right-panel boundary, killing
+                          // both the visual hover indicator and the pointer
+                          // target. See `ui/stackLayers.ts` for the full
+                          // layering contract.
+                          class="shrink-0 w-0 relative before:absolute before:inset-y-0 before:-left-1 before:w-2 before:cursor-col-resize before:hover:bg-accent/30 before:transition-colors"
+                          style={{ "z-index": Z_HANDLE_OUTER }}
+                          aria-label="Resize inspector panel"
+                        />
+                      </Show>
+                      <Resizable.Panel
+                        as="div"
+                        class="min-w-0 min-h-0 overflow-hidden"
+                        classList={{
+                          "border-l border-edge": !rightPanel.collapsed(),
+                        }}
+                        minSize={0.1}
+                      >
+                        <RightPanel
+                          terminalId={store.active().id}
+                          meta={store.active().meta}
+                          onToggle={rightPanel.togglePanel}
+                          themeName={activeThemeName()}
+                          onThemeClick={() =>
+                            commandPalette.openGroup("Set theme")
+                          }
+                          visible={!rightPanel.collapsed()}
+                        />
+                      </Resizable.Panel>
+                    </Resizable>
+                  </Match>
+                </Switch>
+              )}
+            </WorkspaceTerminals>
           </Match>
         </Switch>
       </div>

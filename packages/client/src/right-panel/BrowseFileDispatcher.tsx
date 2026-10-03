@@ -237,16 +237,16 @@ const BrowseFileDispatcher: Component<BrowseFileDispatcherProps> = (props) => {
   // not be able to select "File truncated …" and save a comment whose quote
   // the agent can't find.
   const textSurface = (
-    file: FileData,
+    file: () => FileData,
     view: JSX.Element,
     opts: { lineAnchored: boolean; surface?: "source" | "prose" },
   ): JSX.Element => (
     <CommentTextSurface
       terminalId={props.terminalId}
-      path={file.path}
+      path={file().path}
       // The host's text is the file source, so the highlight overlay
       // re-anchors when the server bumps content on save.
-      contentTick={file.source?.content ?? ""}
+      contentTick={file().source?.content ?? ""}
       // `flex-1 min-h-0` so the host fills the space left under the (optional)
       // truncation-banner sibling without overflowing it.
       class="min-h-0 w-full flex-1"
@@ -262,27 +262,31 @@ const BrowseFileDispatcher: Component<BrowseFileDispatcherProps> = (props) => {
   // rendered form, no toggle) leaves it undefined so the tray jump doesn't
   // try to flip a toggle that isn't there.
   const surfaceFor = (
-    file: FileData,
+    file: () => FileData,
     surface: "source" | "prose",
   ): "source" | "prose" | undefined =>
-    isMarkdown(file.path) ? surface : undefined;
+    isMarkdown(file().path) ? surface : undefined;
 
   const withComments = (
     capture: Capture,
-    file: FileData,
+    file: () => FileData,
     view: JSX.Element,
   ): JSX.Element =>
     match(capture)
       .with("text", () =>
         textSurface(file, view, {
           lineAnchored: true,
-          surface: surfaceFor(file, "source"),
+          get surface() {
+            return surfaceFor(file, "source");
+          },
         }),
       )
       .with("prose", () =>
         textSurface(file, view, {
           lineAnchored: false,
-          surface: surfaceFor(file, "prose"),
+          get surface() {
+            return surfaceFor(file, "prose");
+          },
         }),
       )
       .with(P.union("iframe", "none"), () => view)
@@ -295,13 +299,13 @@ const BrowseFileDispatcher: Component<BrowseFileDispatcherProps> = (props) => {
   const sourceRenderer: SourceRenderer<FileWithSource> = {
     render: (file) => (
       <div class="flex h-full w-full flex-col">
-        <TruncatedBanner show={file.source.truncated} />
+        <TruncatedBanner show={file().source.truncated} />
         {withComments(
           "text",
           file,
           <BrowseFileView
-            filePath={file.path}
-            content={file.source.content}
+            filePath={file().path}
+            content={file().source.content}
             theme={props.theme}
             initialSelectedLines={props.initialSelectedLines}
           />,
@@ -330,8 +334,8 @@ const BrowseFileDispatcher: Component<BrowseFileDispatcherProps> = (props) => {
           "none",
           file,
           <ImageRenderer
-            path={file.path}
-            url={file.url}
+            path={file().path}
+            url={file().url}
             class="image-preview-checkerboard"
           />,
         ),
@@ -342,7 +346,7 @@ const BrowseFileDispatcher: Component<BrowseFileDispatcherProps> = (props) => {
         withComments(
           "none",
           file,
-          <VideoRenderer path={file.path} url={file.url} />,
+          <VideoRenderer path={file().path} url={file().url} />,
         ),
     },
     {
@@ -351,7 +355,7 @@ const BrowseFileDispatcher: Component<BrowseFileDispatcherProps> = (props) => {
         withComments(
           "none",
           file,
-          <PdfRenderer path={file.path} url={file.url} />,
+          <PdfRenderer path={file().path} url={file().url} />,
         ),
     },
     {
@@ -362,8 +366,8 @@ const BrowseFileDispatcher: Component<BrowseFileDispatcherProps> = (props) => {
           file,
           <BrowseIframeRenderer
             terminalId={props.terminalId}
-            path={file.path}
-            url={file.url}
+            path={file().path}
+            url={file().url}
             onNavigate={props.onNavigate}
             onHistory={props.onHistory}
             onOpenExternal={props.onOpenExternal}
@@ -404,7 +408,7 @@ const BrowseFileDispatcher: Component<BrowseFileDispatcherProps> = (props) => {
       match: isMarkdown,
       render: (file) => (
         <div class="flex h-full w-full flex-col">
-          <TruncatedBanner show={file.source.truncated} />
+          <TruncatedBanner show={file().source.truncated} />
           {withComments(
             "prose",
             file,
@@ -412,7 +416,7 @@ const BrowseFileDispatcher: Component<BrowseFileDispatcherProps> = (props) => {
             // outside the commentable host so users can't anchor a comment
             // to UI copy the agent can't find in the file.
             <MarkdownRenderer
-              markdown={file.source.content}
+              markdown={file().source.content}
               resolveImageSrc={(src) =>
                 resolveMarkdownImageSrc(
                   encodeHostKey(activeHost()),

@@ -173,7 +173,7 @@ const TerminalContent: Component<{
       >
         <Resizable.Panel
           as="div"
-          class={`min-h-0 overflow-hidden ${RECEDE_INACTIVE_PANE}`}
+          class={`relative min-h-0 overflow-hidden ${RECEDE_INACTIVE_PANE}`}
           minSize={0.2}
           data-pane="main"
           data-pane-focus={paneFocus("main")}
@@ -247,7 +247,7 @@ const TerminalContent: Component<{
           data-pane="sub"
           data-pane-focus={paneFocus("sub")}
         >
-          <Show when={isExpanded()}>
+          <div classList={{ hidden: !isExpanded() }} inert={!isExpanded()}>
             <SubPanelTabBar
               subIds={subTerminalIds()}
               activeSubTab={activeSubTab()}
@@ -269,8 +269,8 @@ const TerminalContent: Component<{
                 )
               }
             />
-          </Show>
-          <div class="flex-1 min-h-0">
+          </div>
+          <div class="relative flex-1 min-h-0">
             <For each={subTerminalIds()}>
               {(subId) => (
                 <Terminal

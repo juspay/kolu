@@ -533,7 +533,9 @@ Then(
   "no dock-row shortcut hints should be visible",
   async function (this: KoluWorld) {
     await this.page.waitForFunction(
-      (sel) => document.querySelectorAll(sel).length === 0,
+      (sel) =>
+        [...document.querySelectorAll(sel)].filter((el) => el.checkVisibility())
+          .length === 0,
       SHORTCUT_HINT_SELECTOR,
       { timeout: POLL_TIMEOUT },
     );
@@ -544,7 +546,9 @@ Then(
   "the dock should show {int} shortcut hints",
   async function (this: KoluWorld, expected: number) {
     await this.page.waitForFunction(
-      ({ sel, count }) => document.querySelectorAll(sel).length === count,
+      ({ sel, count }) =>
+        [...document.querySelectorAll(sel)].filter((el) => el.checkVisibility())
+          .length === count,
       { sel: SHORTCUT_HINT_SELECTOR, count: expected },
       { timeout: POLL_TIMEOUT },
     );

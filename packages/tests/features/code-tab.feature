@@ -2083,3 +2083,34 @@ Feature: Code tab (review + browse)
     Then the terminal search bar should not be visible
     And the find shortcut should reach the browser
     And there should be no page errors
+
+  Scenario: Each Code mode retains its tree and browse expansion
+    When I run "rm -rf /tmp/kolu-tree-identity && git init /tmp/kolu-tree-identity && cd /tmp/kolu-tree-identity"
+    And I run "mkdir folder && echo original > folder/file.txt && echo clean > browse-only.txt && git add . && git commit -m initial && echo changed >> folder/file.txt"
+    And I click the Code tab
+    And I click the Code tab mode "browse"
+    Then the file browser should show a file "browse-only.txt"
+    When I click the directory "folder" in the file browser
+    Then the directory "folder" should be expanded in the file browser
+    When I mark the Code file tree
+    And I click the Code tab mode "local"
+    Then the file browser should show a file "folder/file.txt"
+    And the file browser should not show a file "browse-only.txt"
+    When I click the Code tab mode "browse"
+    Then the file browser should show a file "browse-only.txt"
+    And the Code file tree should be the kept-alive element
+    And the directory "folder" should be expanded in the file browser
+    And there should be no page errors
+
+  Scenario: File saves update the retained Pierre source renderer
+    When I run "rm -rf /tmp/kolu-file-identity && git init /tmp/kolu-file-identity && cd /tmp/kolu-file-identity"
+    And I run "echo original-source-marker > file.txt && git add . && git commit -m initial"
+    And I click the Code tab
+    And I click the Code tab mode "browse"
+    And I click the file "file.txt" in the file browser
+    Then the file content should contain "original-source-marker"
+    When I mark the Pierre source renderer
+    And I run "echo saved-source-marker > file.txt"
+    Then the file content should contain "saved-source-marker"
+    And the Pierre source renderer should be the kept-alive element
+    And there should be no page errors

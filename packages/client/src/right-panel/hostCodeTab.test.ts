@@ -27,7 +27,7 @@ import { Effect } from "effect";
 import type { HostKey } from "kolu-common/hostKey";
 import { encodeHostKey } from "kolu-common/hostKey";
 import { batch, createEffect, createRoot, createSignal } from "solid-js";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 type PulseSubscription = {
   proc: unknown;
@@ -100,7 +100,11 @@ vi.mock("../wire", async () => {
           bag.counts.listAll = (bag.counts.listAll ?? 0) + 1;
           return { paths: ["src/app.ts"] };
         }),
-      listIgnored: () => Effect.succeed({ paths: ["node_modules/"] }),
+      listIgnored: () =>
+        Effect.sync(() => {
+          bag.counts.listIgnored = (bag.counts.listIgnored ?? 0) + 1;
+          return { paths: ["node_modules/"] };
+        }),
       readFile: () => Effect.succeed({ content: "", truncated: false }),
       filePreviewTag: (input: { repoPath: string; filePath: string }) =>
         Effect.sync(() => {
@@ -144,7 +148,12 @@ import {
   removeHost,
   resetHosts,
 } from "../hostScope/mockHostMap.testlib";
-import { codeAllPaths, codeFileContent, codeLocalStatus } from "./hostCodeTab";
+import {
+  leaseCodeQueries,
+  codeAllPaths,
+  codeFileContent,
+  codeLocalStatus,
+} from "./hostCodeTab";
 import { setShowIgnoredFiles } from "./showIgnoredFiles";
 
 const flush = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
@@ -181,13 +190,26 @@ const read = () =>
   codeLocalStatus() as { label: string; n: number } | undefined;
 const label = () => read()?.label;
 
-beforeEach(() => {
+const [codeShown, setCodeShown] = createSignal(true);
+let releaseLease: () => void;
+afterEach(async () => {
+  releaseLease();
   resetHosts();
+  await flush();
+});
+beforeEach(async () => {
+  resetHosts();
+  await flush();
   setDriveHost(HOST_A);
   bag.counts = {};
   bag.previewTagInputs = [];
   bag.mode = () => "browse";
   bag.selected = () => null;
+  setCodeShown(true);
+  createRoot((dispose) => {
+    releaseLease = dispose;
+    leaseCodeQueries(codeShown);
+  });
   // Build the lazy app-lifetime owner (a real consumer reads the facade at mount) so the
   // `scopedByEntry` reactive graph is live and reacts to `switchTo` before the first pulse.
   void codeLocalStatus.pending();
@@ -396,4 +418,66 @@ describe("hostCodeTab — per-host query ownership (padi W9)", () => {
     expect(codeAllPaths.pending()).toBe(false);
     expect(bag.counts.listAll).toBe(queriesBefore);
   });
+});
+
+it("pauses hidden Code queries and retains the browse snapshot through mode switches", async () => {
+  const [mode, setMode] = createSignal<"browse" | "local">("browse");
+  bag.mode = mode;
+  bag.selected = () => "src/app.ts";
+  setShowIgnoredFiles(true);
+  switchTo(HOST_A);
+  await flush();
+  pulse();
+  await flush();
+  const held = codeAllPaths();
+  expect(held?.paths).toEqual(["src/app.ts"]);
+  const reads = bag.counts.listAll;
+  const ignoredReads = bag.counts.listIgnored;
+  const content = codeFileContent();
+  expect(content).toBeDefined();
+  setMode("local");
+  await flush();
+  pulse();
+  await flush();
+  expect(codeAllPaths()).toBe(held);
+  expect(bag.counts.listAll).toBe(reads);
+  expect(bag.counts.listIgnored).toBe(ignoredReads);
+  expect(codeFileContent()).toBe(content);
+  setMode("browse");
+  await flush();
+  expect(codeAllPaths()).toBe(held);
+  expect(codeAllPaths.pending()).toBe(false);
+  setCodeShown(false);
+  await flush();
+  pulse();
+  await flush();
+  expect(codeAllPaths()).toBe(held);
+  expect(bag.counts.listAll).toBe(reads);
+  expect(bag.counts.listIgnored).toBe(ignoredReads);
+  expect(codeFileContent()).toBe(content);
+  setCodeShown(true);
+});
+
+it("one hidden or disposed consumer cannot pause another shown Code view", async () => {
+  switchTo(HOST_A);
+  let releaseOther!: () => void;
+  createRoot((dispose) => {
+    releaseOther = dispose;
+    leaseCodeQueries(() => true);
+  });
+  setCodeShown(false);
+  await flush();
+  pulse();
+  await flush();
+  const reads = bag.counts.listAll;
+  expect(reads).toBeGreaterThan(0);
+  pulse();
+  await flush();
+  expect(bag.counts.listAll).toBeGreaterThan(reads!);
+  releaseOther();
+  await flush();
+  const paused = bag.counts.listAll;
+  pulse();
+  await flush();
+  expect(bag.counts.listAll).toBe(paused);
 });

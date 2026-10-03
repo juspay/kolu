@@ -21,11 +21,9 @@
  *  Touch ergonomics: every chip and the add trigger are ≥44px hit targets, and
  *  the chip row scrolls horizontally when hosts overflow the viewport width. */
 
-import {
-  encodeHostKey,
-  type HostKey,
-  hostKeysEqual as sameHost,
-} from "kolu-common/hostKey";
+import { useActiveHostSelector } from "./isActiveHost";
+
+import { encodeHostKey, type HostKey } from "kolu-common/hostKey";
 import {
   type Component,
   createMemo,
@@ -37,7 +35,7 @@ import {
 import { AttentionTriplet } from "@kolu/solid-statepip";
 import { hostMarks } from "../attention/attentionMarks";
 import DocLink from "../ui/DocLink";
-import { activeHost, padiMap, setActiveHost } from "../wire";
+import { padiMap, setActiveHost } from "../wire";
 import { runAction } from "../runAction";
 import { addHost } from "./addHost";
 import { focusOnMount } from "./focusOnMount";
@@ -60,7 +58,8 @@ const MobileHostChip: Component<{ host: HostKey; onSwitch: () => void }> = (
   // Compare active-host vs. this chip's host by CANONICAL string (`sameHost`),
   // never `===`: a `HostKey` is an object with no reference identity across
   // independent decodes.
-  const isActive = createMemo(() => sameHost(activeHost(), props.host));
+  const selectedHost = useActiveHostSelector();
+  const isActive = () => selectedHost(encodeHostKey(props.host));
   // #2101 N4: the presented state composes the daemon chain (padi AND kaval).
   const kaval = useHostKavalChain(props.host);
   const glance = createMemo(() => hostGlance(state(), kaval()));

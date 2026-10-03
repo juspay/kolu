@@ -3,7 +3,7 @@
  *  Pure data + function shapes, no rendering: every concrete renderer is an
  *  appliance the consumer plugs in. */
 
-import type { JSX } from "solid-js";
+import type { Accessor, JSX } from "solid-js";
 
 /** What a renderer draws from. A file may have a `source` (UTF-8 text on
  *  disk), a `url` (a route-served rendered form), or both:
@@ -47,7 +47,7 @@ export type FileWithUrl = FileData & {
  *  never built in: `FileView` has no syntax highlighter of its own, so a
  *  consumer plugs one in (kolu backs this with `@kolu/solid-pierre`). */
 export type SourceRenderer<TFile extends FileData = FileData> = {
-  render: (file: TFile) => JSX.Element;
+  render: (file: Accessor<TFile>) => JSX.Element;
 };
 
 /** Renders a file's *rendered* form (image, video, PDF, sandboxed iframe,
@@ -55,7 +55,7 @@ export type SourceRenderer<TFile extends FileData = FileData> = {
  *  `FileView` picks the first matching renderer from the list it's given. */
 export type RenderedRenderer<TFile extends FileData = FileData> = {
   match: (path: string) => boolean;
-  render: (file: TFile) => JSX.Element;
+  render: (file: Accessor<TFile>) => JSX.Element;
 };
 
 /** The two viewing modes. The toggle between them is offered iff a file has

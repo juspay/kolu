@@ -4,7 +4,8 @@
  *  Consumers import only this module. The three internal modules
  *  (gestures, transforms, coordinates) are implementation details. */
 
-import type { Accessor } from "solid-js";
+import { type Accessor, batch, onCleanup, createSignal } from "solid-js";
+import { createResizeObserver } from "@solid-primitives/resize-observer";
 import { activeScope } from "../../hostScope/hostScopes";
 import type { TileLayout } from "../TileLayout";
 import { animatePan } from "./animatedPan";
@@ -52,6 +53,11 @@ const setZoom = (v: number): void => cam()?.setZoom(v);
 
 /** Container ref, set on mount. */
 let containerEl: HTMLDivElement | null = null;
+// HOST-SCOPING: host-INDEPENDENT by design — DOM viewport; the camera is per-host above.
+const [observedSize, setObservedSize] = createSignal<{
+  width: number;
+  height: number;
+}>();
 /** Cleanup function for the current gesture listeners. */
 let cleanupGestures: (() => void) | null = null;
 /** In-flight pan animation (if any) — cancelled by any gesture or
@@ -105,9 +111,11 @@ function flushGesture() {
   pending = { ...EMPTY };
   // Equal-value writes are no-ops (SolidJS skips on Object.is), so a pure-pan
   // frame never notifies zoom dependents and vice versa.
-  setPanX(result.panX);
-  setPanY(result.panY);
-  setZoom(result.zoom);
+  batch(() => {
+    setPanX(result.panX);
+    setPanY(result.panY);
+    setZoom(result.zoom);
+  });
 }
 
 /** Drop any queued gesture delta — a programmatic absolute pan/zoom (or a
@@ -168,7 +176,8 @@ export interface CanvasViewport {
    *  host's per-host camera (the module-scope machinery writes through
    *  `activeScope()`, which re-keys to the new host on switch). */
   abortTransientInput: () => void;
-  /** Current viewport dimensions in pixels (0×0 before mount). */
+  /** Whether the mounted viewport has received its first layout measurement. */
+  mounted: Accessor<boolean>;
   viewportSize: () => { width: number; height: number };
   /** Canvas-space point at the viewport center — the forward projection of
    *  pan+zoom+size that consumers use to drop a tile under the camera. `null`
@@ -199,6 +208,20 @@ function setContainerRef(
   cleanupGestures?.();
   discardPendingGesture();
   containerEl = el;
+  // A mount-time read can still see Corvu's temporary equal-width panels.
+  // The first observer delivery follows layout, so initial placement waits for
+  // the same authoritative measurement used for every subsequent resize.
+  createResizeObserver(el, ({ width, height }) =>
+    setObservedSize({ width, height }),
+  );
+  onCleanup(() => {
+    if (containerEl !== el) return;
+    cleanupGestures?.();
+    cleanupGestures = null;
+    abortTransientInput();
+    containerEl = null;
+    setObservedSize(undefined);
+  });
   cleanupGestures = installGestures(
     el,
     {
@@ -233,14 +256,14 @@ function normalizeDelta(dx: number, dy: number) {
 function targetForTile(
   tile: TileLayout,
 ): { panX: number; panY: number } | null {
-  if (!containerEl) return null;
+  if (!observedSize()) return null;
   return computeCenterPan(
     tile.x,
     tile.y,
     tile.x + tile.w,
     tile.y + tile.h,
-    containerEl.clientWidth,
-    containerEl.clientHeight,
+    viewportSize().width,
+    viewportSize().height,
     zoom(),
   );
 }
@@ -249,14 +272,14 @@ function targetForPoint(
   x: number,
   y: number,
 ): { panX: number; panY: number } | null {
-  if (!containerEl) return null;
+  if (!observedSize()) return null;
   return computeCenterPan(
     x,
     y,
     x,
     y,
-    containerEl.clientWidth,
-    containerEl.clientHeight,
+    viewportSize().width,
+    viewportSize().height,
     zoom(),
   );
 }
@@ -267,8 +290,10 @@ function startAnimatedPan(target: { panX: number; panY: number }) {
     { x: panX(), y: panY() },
     { x: target.panX, y: target.panY },
     (x, y) => {
-      setPanX(x);
-      setPanY(y);
+      batch(() => {
+        setPanX(x);
+        setPanY(y);
+      });
     },
   );
 }
@@ -285,42 +310,45 @@ function panTo(x: number, y: number) {
 
 function setPan(x: number, y: number) {
   abortTransientInput();
-  setPanX(x);
-  setPanY(y);
+  batch(() => {
+    setPanX(x);
+    setPanY(y);
+  });
 }
 
-// Not reactive on container resize — reads DOM directly. Pan/zoom signals
-// trigger dependents often enough that stale dimensions are short-lived.
+// The observed viewport changes even when the camera remains still.
 function viewportSize() {
-  return {
-    width: containerEl?.clientWidth ?? 0,
-    height: containerEl?.clientHeight ?? 0,
-  };
+  const size = observedSize();
+  if (!size)
+    throw new Error(
+      "Canvas viewport size requested before its first measurement",
+    );
+  return { width: size.width, height: size.height };
 }
 
 function viewportCenter() {
-  // Guard on the container like targetForPoint/targetForTile: without it,
-  // viewportSize() falls back to 0×0 and the "center" collapses to the raw
-  // pan origin — a silently wrong point. Return null so callers no-op.
-  if (!containerEl) return null;
+  // There is no viewport center until the canvas mounts.
+  if (!observedSize()) return null;
   const { width, height } = viewportSize();
   return viewportCenterPure(panX(), panY(), width, height, zoom());
 }
 
 function applyZoomToCenter(direction: "in" | "out" | "reset") {
-  if (!containerEl) return;
+  if (!observedSize()) return;
   abortTransientInput();
   const result = zoomToCenterPure(
     panX(),
     panY(),
     zoom(),
-    containerEl.clientWidth,
-    containerEl.clientHeight,
+    viewportSize().width,
+    viewportSize().height,
     direction,
   );
-  setPanX(result.panX);
-  setPanY(result.panY);
-  setZoom(result.zoom);
+  batch(() => {
+    setPanX(result.panX);
+    setPanY(result.panY);
+    setZoom(result.zoom);
+  });
 }
 
 const viewport: CanvasViewport = {
@@ -333,6 +361,7 @@ const viewport: CanvasViewport = {
   panTo,
   setPan,
   abortTransientInput,
+  mounted: () => observedSize() !== undefined,
   viewportSize,
   viewportCenter,
   snapToGrid: snapToGridPure,

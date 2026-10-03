@@ -1,6 +1,7 @@
 /** Session restore — hydration from server state, session restore handler. */
 
 import type { SavedSession, TerminalMetadata } from "@kolu/padi-client/surface";
+import { batch, createMemo } from "solid-js";
 import { toError } from "@kolu/surface/run-stream";
 import { Effect } from "effect";
 import type { TerminalId } from "kolu-common/surface";
@@ -42,9 +43,32 @@ export function useSessionRestore(deps: { store: TerminalStore }) {
   const subPanel = useSubPanel();
   const rightPanel = useRightPanel();
 
-  const [savedSession, setSavedSession] = createSignal<SavedSession | null>(
-    null,
-  );
+  // Local actions invalidate the optimistic answer explicitly, independent of
+  // mutable server-store identity or newly allocated terminal-id arrays.
+  const [actionVersion, setActionVersion] = createSignal(0);
+  const [sessionOverride, setSessionOverride] = createSignal<{
+    host: unknown;
+    version: number;
+    value: SavedSession | null;
+  }>();
+  const savedSession = createMemo(() => {
+    if (lifecycle().kind === "restarted") return null;
+    const override = sessionOverride();
+    if (
+      override &&
+      override.host === activeScope() &&
+      override.version === actionVersion()
+    )
+      return override.value;
+    return serverSavedSession();
+  });
+  const beginSessionAction = () => {
+    const version = actionVersion() + 1;
+    setActionVersion(version);
+    const host = activeScope();
+    return (value: SavedSession | null) =>
+      setSessionOverride({ host, version, value });
+  };
   /** True from the moment `handleRestoreSession` starts until it
    *  resolves (success or failure). The restore card stays mounted
    *  while this is true so the click target doesn't detach mid-flight. */
@@ -116,12 +140,10 @@ export function useSessionRestore(deps: { store: TerminalStore }) {
     // `[]` whether or not the metadata half has joined), so the empty-branch
     // fires at a parked cold boot exactly as it did pre-R6, ordering-independent
     // (the gate above already waited for BOTH the list and session cells to
-    // yield). When empty, the card reads `savedSession`; the re-fetch effect
-    // below keeps it current after.
+    // yield). When empty, the card reads `savedSession`; the derived accessor keeps it current.
     if (latch.phase === "pending") {
       latch.markDecided();
       if (store.terminalIds().length === 0) {
-        setSavedSession(fromServer);
         return;
       }
     }
@@ -295,34 +317,6 @@ export function useSessionRestore(deps: { store: TerminalStore }) {
     store.setActiveSilently(picked);
   }
 
-  // Re-fetch saved session when all terminals are killed mid-session,
-  // OR when the server pushes a fresh saved-session value while we're
-  // already showing the empty state.
-  //
-  // IMPORTANT: read `serverSaved.savedSession()` UNCONDITIONALLY so the
-  // reactive tracker subscribes to it on the effect's first run. Reading
-  // it inside the `if` body would skip tracking when the gate fails on
-  // the first run (initial mount before `hydrated` flips), and subsequent
-  // server pushes of a new saved-session would never re-fire this effect.
-  // That was the source of the chronic session-restore flake (#320, #440):
-  // when initial hydration raced with the snapshot, savedSession was set
-  // to null on the first effect and the reactive recovery here was dead.
-  //
-  // Gated on lifecycle: on a genuine server restart, the dim overlay is
-  // the authoritative rescue UI and the restore button shouldn't compete.
-  createEffect(() => {
-    if (lifecycle().kind === "restarted") return;
-    const fromServer = serverSavedSession();
-    // `activeScope()` re-keys on switch, so this effect reads the ACTIVE host's
-    // decision latch and re-runs on a host switch.
-    if (
-      store.terminalIds().length === 0 &&
-      (activeScope()?.restore.phase ?? "pending") !== "pending"
-    ) {
-      setSavedSession(fromServer);
-    }
-  });
-
   function handleRestoreSession(
     options: { resumeAgents?: boolean; optOutIds?: readonly string[] } = {},
   ): UiAction {
@@ -330,6 +324,7 @@ export function useSessionRestore(deps: { store: TerminalStore }) {
       if (isRestoring()) return Effect.void;
       const session = savedSession();
       if (!session) return Effect.void;
+      const setSavedSession = beginSessionAction();
       // Keep the restore card mounted until the server restore actually completes.
       // Synchronously clearing `savedSession` before the async RPC returns detaches
       // the click target mid-event — Playwright sees "element detached from the DOM"
@@ -402,8 +397,11 @@ export function useSessionRestore(deps: { store: TerminalStore }) {
               // mid-flight host switch can't misfile it) BEFORE `isRestoring`
               // drops and releases the hydration effect's gate. This, not the
               // `session` cell's next snapshot, is what seeds the active tile.
-              latch?.reportRestoredActive(restored.activeTerminalId);
-              setSavedSession(null);
+              batch(() => {
+                latch?.reportRestoredActive(restored.activeTerminalId);
+                setSavedSession(null);
+                setIsRestoring(false);
+              });
               // Faithful summary — "Restored N terminals, resumed M agents". M is
               // the host-served resumable set minus opt-outs when resume is on; 0
               // when off. Counts EVERY host-resumable terminal (including
@@ -439,12 +437,13 @@ export function useSessionRestore(deps: { store: TerminalStore }) {
    *  One server call discards the parked entries AND clears the saved session
    *  together (creating a terminal no longer forfeits implicitly, W1). On
    *  success the server pushes a `null` saved-session snapshot, which the
-   *  re-fetch effect above folds into `savedSession` and dismisses the card;
+   *  derived `savedSession` accessor adopts it and dismisses the card;
    *  we also clear it optimistically so the card drops immediately. */
   function handleForfeitSession(): UiAction {
     return Effect.suspend(() => {
       const session = savedSession();
       if (!session) return Effect.void;
+      const setSavedSession = beginSessionAction();
       // Optimistic dismissal: the card is gone the moment the user commits.
       setSavedSession(null);
       return activePadiRpc.session.forfeit({}).pipe(

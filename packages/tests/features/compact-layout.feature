@@ -41,3 +41,14 @@ Feature: Compact two-pane layout
     When I tap the empty state create button
     Then the command palette should be visible
     And there should be no page errors
+
+  @compact
+  Scenario: App retains terminal and right panel through phone and compact flips
+    Given the terminal is ready
+    When I mark the touch workspace views
+    And I resize the touch viewport to phone
+    Then the touch workspace views should retain their identities
+    When I resize the touch viewport to compact
+    Then the compact dock rail should be visible
+    And the touch workspace views should retain their identities
+    And there should be no page errors

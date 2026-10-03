@@ -141,6 +141,10 @@ wait → snapshot loop, and a folded reference covers the rest of
 [`padi-tui`](/padi) (status · watch · wait), and the `--socket` argument that
 points those id-less commands at this server.
 
+Closing the panel or switching between Inspector and Code keeps the views
+mounted. On touch devices, dismissing the bottom drawer preserves the Code
+view too. Hidden Code views pause their file queries until you return.
+
 ## It follows the terminal
 
 Whether the panel is open, and which tab it's on, is remembered **per terminal**,

@@ -19,14 +19,9 @@ import {
   rootTextContent,
   type SelectionRect,
 } from "@kolu/artifact-sdk/client";
-import {
-  type Accessor,
-  createEffect,
-  createSignal,
-  onCleanup,
-  onMount,
-} from "solid-js";
+import { type Accessor, createEffect, createSignal, onCleanup } from "solid-js";
 import { walkShadowRoots } from "../dom/shadowWalk";
+import { usePanelShown } from "../right-panel/panelShown";
 import { useComposer } from "./composerState";
 
 /** Debounced live-selection snapshot. The pill placement only needs the
@@ -245,8 +240,14 @@ export function useTextSelection(opts: UseTextSelectionOptions) {
     });
   };
 
-  onMount(() => {
+  const shown = usePanelShown();
+  createEffect(() => {
+    if (!shown()) return;
     document.addEventListener("selectionchange", onSelectionChange);
+    onCleanup(() => {
+      document.removeEventListener("selectionchange", onSelectionChange);
+      clearTimeout(debounceHandle);
+    });
   });
 
   // Re-evaluate when composing closes — user may have selected text and

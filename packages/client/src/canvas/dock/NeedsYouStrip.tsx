@@ -16,11 +16,13 @@
  *  empties this strip is the agent leaving `awaiting_user`, the same rule the
  *  violet capsule has always followed. */
 
+import { Key } from "@solid-primitives/keyed";
+
 import { activeArm } from "@kolu/padi-client/surface";
 import { DockNeedsYouRow, DockNeedsYouStrip } from "@kolu/solid-dockrow";
 import type { NeedsYouDensity } from "@kolu/solid-dockrow/rowValues";
 import { DASH, type TerminalId } from "kolu-common/surface";
-import { type Component, createMemo, For, Show } from "solid-js";
+import { type Component, createMemo, Show } from "solid-js";
 import { useStatePip } from "../../terminal/statePipBind";
 import { useTerminalStore } from "../../terminal/useTerminalStore";
 import { encActiveHost } from "../../wire";
@@ -173,15 +175,15 @@ export const NeedsYouStrip: Component<{
 }> = (props) => (
   <Show when={props.entries.length > 0}>
     <DockNeedsYouStrip density={props.density} testId="dock-needs-you-strip">
-      <For each={props.entries}>
+      <Key each={props.entries} by={(entry) => entry.blocked.id}>
         {(entry) => (
           <NeedsYouEntryRow
-            entry={entry}
+            entry={entry()}
             density={props.density}
             onSelect={props.onSelect}
           />
         )}
-      </For>
+      </Key>
     </DockNeedsYouStrip>
   </Show>
 );

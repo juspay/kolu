@@ -1,5 +1,5 @@
 import { encodeHostKey } from "kolu-common/hostKey";
-import { createSignal, type JSX } from "solid-js";
+import { createComputed, createSignal, type JSX } from "solid-js";
 import { render } from "solid-js/web";
 import { afterEach, expect, it, vi } from "vitest";
 import type { PaletteItem } from "./CommandPalette";
@@ -26,12 +26,23 @@ vi.mock("./host/hostChipTone", () => ({
   hostLabel: () => "host",
 }));
 vi.mock("./palette/CreateIdentityPreview", () => ({ default: () => null }));
+const rowWakes = vi.hoisted(() => new Map<string, number>());
 vi.mock("./palette/PaletteRow", () => ({
-  default: (props: { cmd: { name: string }; onSelect: () => void }) => (
-    <button type="button" role="option" onClick={() => props.onSelect()}>
-      {props.cmd.name}
-    </button>
-  ),
+  default: (props: {
+    cmd: { name: string };
+    selected: boolean;
+    onSelect: () => void;
+  }) => {
+    createComputed(() => {
+      void props.selected;
+      rowWakes.set(props.cmd.name, (rowWakes.get(props.cmd.name) ?? 0) + 1);
+    });
+    return (
+      <button type="button" role="option" onClick={() => props.onSelect()}>
+        {props.cmd.name}
+      </button>
+    );
+  },
 }));
 const { default: CommandPalette } = await import("./CommandPalette");
 let dispose: (() => void) | undefined;
@@ -185,4 +196,59 @@ it("keeps local and a remote host named local in separate header nodes", () => {
   expect(document.querySelector('[role="option"]')?.textContent).toBe(
     "Terminal 1",
   );
+});
+
+it("moving the highlight wakes exactly the old and new rows", () => {
+  rowWakes.clear();
+  const host = document.createElement("div");
+  document.body.append(host);
+  const items: PaletteItem[] = ["a", "b", "c"].map((name) => ({
+    kind: "action",
+    name,
+    onSelect: () => {},
+  }));
+  dispose = render(
+    () => (
+      <CommandPalette open commands={() => items} onOpenChange={() => {}} />
+    ),
+    host,
+  );
+  const before = new Map(rowWakes);
+  host
+    .querySelector("input")!
+    .dispatchEvent(
+      new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }),
+    );
+  const changed = [...rowWakes].filter(
+    ([name, count]) => count !== before.get(name),
+  );
+  expect(changed).toHaveLength(2);
+  expect(
+    changed.every(([name, count]) => count === (before.get(name) ?? 0) + 1),
+  ).toBe(true);
+});
+
+it("navigates from the visible highlight after the command list shrinks", () => {
+  const selected = vi.fn();
+  const items: PaletteItem[] = ["a", "b", "c", "d"].map((name) => ({
+    kind: "action",
+    name,
+    onSelect: () => selected(name),
+  }));
+  const [commands, setCommands] = createSignal(items);
+  dispose = render(
+    () => <CommandPalette open commands={commands} onOpenChange={() => {}} />,
+    document.body,
+  );
+  const press = (key: string) =>
+    document
+      .querySelector("input")!
+      .dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true }));
+  press("ArrowDown");
+  press("ArrowDown");
+  press("ArrowDown");
+  setCommands(items.slice(0, 2));
+  press("ArrowUp");
+  press("Enter");
+  expect(selected).toHaveBeenCalledWith("a");
 });
