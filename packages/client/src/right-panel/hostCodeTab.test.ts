@@ -1,3 +1,4 @@
+import { setCodeShown } from "./panelShown";
 /** Per-host Code-tab query OWNERSHIP + MOUNTING REALITY (padi W9's Code-tab half,
  *  completing W7's K1). The acceptance suite for `hostCodeTab`: each Code-tab query is
  *  ONE `createPolledQuery` per host, born inside a `scopedByEntry(padiMap, activeHost)`
@@ -182,6 +183,7 @@ const read = () =>
 const label = () => read()?.label;
 
 beforeEach(() => {
+  setCodeShown(true);
   resetHosts();
   setDriveHost(HOST_A);
   bag.counts = {};

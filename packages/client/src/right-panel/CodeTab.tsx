@@ -1,3 +1,4 @@
+import { usePanelShown, setCodeShown } from "./panelShown";
 /** CodeTab — code review and browsing for the terminal's current repo.
  *
  * One file tree, three modes:
@@ -200,6 +201,9 @@ const CodeTab: Component<{
   meta: TerminalMetadata | null;
 }> = (props) => {
   const { themeTypeLiteral: diffTheme } = useColorScheme();
+  const shown = usePanelShown();
+  createEffect(() => setCodeShown(shown()));
+  onCleanup(() => setCodeShown(false));
   const rightPanel = useRightPanel();
 
   // Coarse-pointer modality (`isTouch`, the input axis — not the `layoutMode`
@@ -677,13 +681,17 @@ const CodeTab: Component<{
     onResolved: finishOpenRequest,
     onNotFound: (request) => {
       toast.error(`File reference not found: ${request.ref.path}`);
-      setFreshSelection(null);
-      setHandled({ request, resolvedPath: null });
+      batch(() => {
+        setFreshSelection(null);
+        setHandled({ request, resolvedPath: null });
+      });
     },
     onError: (request, error) => {
       toast.error(`File list refresh: ${error.message}`);
-      setFreshSelection(null);
-      setHandled({ request, resolvedPath: null });
+      batch(() => {
+        setFreshSelection(null);
+        setHandled({ request, resolvedPath: null });
+      });
     },
   });
 
@@ -1198,97 +1206,95 @@ const CodeTab: Component<{
             class="min-h-0 border-b border-edge"
             minSize={0.1}
           >
-            <Switch
-              fallback={<div class="px-2 py-1 text-fg-3/50">Loading…</div>}
-            >
-              <Match when={treeError()}>
+            <div class="relative h-full w-full">
+              <Show when={treeError()}>
                 {(err) => (
-                  <div class="px-2 py-1 text-danger" data-testid="diff-error">
+                  <div
+                    class="absolute inset-x-0 top-0 z-10 bg-surface-0 px-2 py-1 text-danger"
+                    data-testid="diff-error"
+                  >
                     Error: {err().message}
                   </div>
                 )}
-              </Match>
-              <Match when={treeReady()}>
-                <Show
-                  when={treePaths().length > 0}
-                  fallback={
-                    <div
-                      class="px-2 py-4 text-fg-3/50 text-center"
-                      data-testid="diff-empty"
-                    >
-                      {(() => {
-                        const m = diffMode();
-                        if (!m) return "Empty repository";
-                        // No resolvable base (remote-less repo, #1244): there's
-                        // nothing to compare against, so "No changes vs base"
-                        // would be a false clean signal.
-                        if (branchViewHasNoBase()) return NO_BRANCH_BASE;
-                        return EMPTY_STATE[m];
-                      })()}
-                    </div>
-                  }
+              </Show>
+              <Show when={!treeReady() && !treeError()}>
+                <div class="absolute inset-x-0 top-0 z-10 bg-surface-0 px-2 py-1 text-fg-3/50">
+                  Loading…
+                </div>
+              </Show>
+              <Show
+                when={treeReady() && treePaths().length === 0 && !treeError()}
+              >
+                <div
+                  class="absolute inset-x-0 top-0 z-10 bg-surface-0 px-2 py-4 text-fg-3/50 text-center"
+                  data-testid="diff-empty"
                 >
-                  <div
-                    class="h-full w-full min-h-0"
-                    ref={(el) => {
-                      // Keyed on the drawer-hosted layouts (`!isDesktop()` —
-                      // phone + compact), NOT `isTouch`: the workaround is for
-                      // iOS native scroll failing to reach Pierre's shadow
-                      // scroller below the *portaled* drawer (see
-                      // pierreTouchScroll.ts). The desktop split hosts the tree
-                      // in the non-portaled Resizable panel where native scroll
-                      // works — attaching the driver there would preventDefault
-                      // working scroll.
-                      if (!isDesktop()) attachPierreTouchScroll(el);
-                    }}
-                  >
-                    <FileTree
-                      paths={treeSearch().projectedPaths}
-                      gitStatus={treeGitStatus()}
-                      selectedPath={selectedPath()}
-                      onSelect={handleSelect}
-                      // Terminal folder-link front door: a folder ref reveals
-                      // (expands + scrolls to) the directory here. The request
-                      // stands so a remount re-reveals it (`revealDir` above);
-                      // it's cleared on the next navigation, not on apply.
-                      revealRequest={revealDir()}
-                      // The collapsed gitignored directories: rows Pierre gives
-                      // a chevron but whose children were never sent, so an
-                      // expand has to go read them (#2091).
-                      lazyDirectories={treeInventory().lazyDirs}
-                      onExpandLazyDirectory={loadLazyDirectory}
-                      // Invalidate the wrapper's record of which lazy
-                      // directories are open on the same signal that clears the
-                      // loaded levels above — two halves of one fact. Without
-                      // it a key present in BOTH repos (`node_modules/`,
-                      // `dist/`) survives a retained switch still recorded, so
-                      // no expand is reported and the user lands on an open,
-                      // empty folder (#2091's symptom).
-                      lazyEpoch={slotKey()}
-                      initialExpansion={isDiffView() ? "open" : "closed"}
-                      search={false}
-                      expandPaths={treeSearch().expandedAncestors}
-                      icons={pierreIconConfig}
-                      shadowCss={treeShadowCss()}
-                      contextMenu={{
-                        enabled: true,
-                        triggerMode: "both",
-                        render: renderTreeMenu,
-                      }}
-                      onError={(err) =>
-                        toast.error(`File tree render failed: ${err.message}`)
-                      }
-                      // Roomier rows on touch (36px vs 30px) for a comfortable
-                      // tap target; clears the WCAG 2.2 24px floor with margin.
-                      // Snapshotted above — Pierre reads density at construction.
-                      density={treeDensity}
-                      class="h-full w-full"
-                      style={pierreTreesStyle}
-                    />
-                  </div>
-                </Show>
-              </Match>
-            </Switch>
+                  {diffMode()
+                    ? branchViewHasNoBase()
+                      ? NO_BRANCH_BASE
+                      : EMPTY_STATE[diffMode()!]
+                    : "Empty repository"}
+                </div>
+              </Show>
+              <div
+                class="h-full w-full min-h-0"
+                ref={(el) => {
+                  // Keyed on the drawer-hosted layouts (`!isDesktop()` —
+                  // phone + compact), NOT `isTouch`: the workaround is for
+                  // iOS native scroll failing to reach Pierre's shadow
+                  // scroller below the *portaled* drawer (see
+                  // pierreTouchScroll.ts). The desktop split hosts the tree
+                  // in the non-portaled Resizable panel where native scroll
+                  // works — attaching the driver there would preventDefault
+                  // working scroll.
+                  if (!isDesktop()) attachPierreTouchScroll(el);
+                }}
+              >
+                <FileTree
+                  paths={treeSearch().projectedPaths}
+                  gitStatus={treeGitStatus()}
+                  selectedPath={selectedPath()}
+                  onSelect={handleSelect}
+                  // Terminal folder-link front door: a folder ref reveals
+                  // (expands + scrolls to) the directory here. The request
+                  // stands so a remount re-reveals it (`revealDir` above);
+                  // it's cleared on the next navigation, not on apply.
+                  revealRequest={revealDir()}
+                  // The collapsed gitignored directories: rows Pierre gives
+                  // a chevron but whose children were never sent, so an
+                  // expand has to go read them (#2091).
+                  lazyDirectories={treeInventory().lazyDirs}
+                  onExpandLazyDirectory={loadLazyDirectory}
+                  // Invalidate the wrapper's record of which lazy
+                  // directories are open on the same signal that clears the
+                  // loaded levels above — two halves of one fact. Without
+                  // it a key present in BOTH repos (`node_modules/`,
+                  // `dist/`) survives a retained switch still recorded, so
+                  // no expand is reported and the user lands on an open,
+                  // empty folder (#2091's symptom).
+                  lazyEpoch={slotKey()}
+                  initialExpansion={isDiffView() ? "open" : "closed"}
+                  search={false}
+                  expandPaths={treeSearch().expandedAncestors}
+                  icons={pierreIconConfig}
+                  shadowCss={treeShadowCss()}
+                  contextMenu={{
+                    enabled: true,
+                    triggerMode: "both",
+                    render: renderTreeMenu,
+                  }}
+                  onError={(err) =>
+                    toast.error(`File tree render failed: ${err.message}`)
+                  }
+                  // Roomier rows on touch (36px vs 30px) for a comfortable
+                  // tap target; clears the WCAG 2.2 24px floor with margin.
+                  // Snapshotted above — Pierre reads density at construction.
+                  density={treeDensity}
+                  class="h-full w-full"
+                  style={pierreTreesStyle}
+                />
+              </div>
+            </div>
           </Resizable.Panel>
 
           <Resizable.Handle

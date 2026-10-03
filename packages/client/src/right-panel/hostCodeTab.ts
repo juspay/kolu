@@ -1,3 +1,4 @@
+import { codeShown } from "./panelShown";
 /** `hostCodeTab` — the Code tab's per-host RETAINED query world, for instant
  *  switch-back of the Code tab (padi W9's Code-tab half, completing W7's K1).
  *
@@ -125,7 +126,7 @@ function buildHostCodeTab(host: HostKey, ctx: { isActive: () => boolean }) {
   const authorities = {
     live: () => padiMap.live(),
     pulseHost: activeHost,
-    active: ctx.isActive,
+    active: () => ctx.isActive() && codeShown(),
   } as const;
 
   // The three git status reads + the browse file list share the repo-change pulse
@@ -135,11 +136,12 @@ function buildHostCodeTab(host: HostKey, ctx: { isActive: () => boolean }) {
     config: Omit<
       PolledQueryConfig<Input, { repoPath: string }, unknown, Result>,
       "live" | "pulseHost" | "active" | "pulseProc" | "pulseInput"
-    >,
+    > & { enabled?: () => boolean },
   ): Subscription<Result> {
     return createPolledQuery({
       ...config,
       ...authorities,
+      active: () => authorities.active() && (config.enabled?.() ?? true),
       pulseProc: () => activePadiStreams.subscribeRepoChange.unenrolled,
       pulseInput: (i) => ({ repoPath: i.repoPath }),
     });
@@ -171,17 +173,13 @@ function buildHostCodeTab(host: HostKey, ctx: { isActive: () => boolean }) {
     },
   });
 
-  // Active-view status — a fresh, view-keyed read for whichever diff mode is showing
-  // (browse reads neither). Keying on the active mode means selecting Branch performs
-  // a fresh read that can't inherit a stale error from the passive `branchStatus`.
-  const activeStatus = repoQuery({
-    input: () => {
-      const p = shownRepoPath();
-      const m = codeDiffMode();
-      return p && m ? { repoPath: p, mode: m } : null;
-    },
-    query: (i) => activePadiRpc.git.getStatus(i),
-    onError: (err) => toast.error(`Git status stream: ${err.message}`),
+  // Reuse the retained status reads; mode changes do not create a second query.
+  const selectedStatus = () =>
+    codeDiffMode() === "branch" ? branchStatus : localStatus;
+  const activeStatus = Object.assign(() => selectedStatus()(), {
+    pending: () => selectedStatus().pending(),
+    error: () => selectedStatus().error(),
+    complete: () => selectedStatus().complete?.() ?? false,
   });
 
   // "The browse tree is live" — spelled once, so the two listings that feed it
@@ -194,13 +192,12 @@ function buildHostCodeTab(host: HostKey, ctx: { isActive: () => boolean }) {
   } | null => {
     const p = shownRepoPath();
     const terminalId = shownTerminalId();
-    return p && terminalId !== null && codeView() === "browse"
-      ? { terminalId, repoPath: p }
-      : null;
+    return p && terminalId !== null ? { terminalId, repoPath: p } : null;
   };
 
   // The whole-repo file list.
   const allPaths = repoQuery({
+    enabled: () => codeView() === "browse",
     input: browseInput,
     query: (i) =>
       activePadiRpc.fs.listAll({ repoPath: i.repoPath }).pipe(

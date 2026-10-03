@@ -63,12 +63,17 @@ const RightPanelDrawer: Component<HostProps> = (props) => {
         onOpenChange={onDrawerOpenChange}
         restoreFocus={false}
       >
-        <Drawer.Portal>
+        <Drawer.Portal forceMount>
           <Drawer.Overlay
             data-testid="right-panel-drawer-backdrop"
+            style={{ "pointer-events": rightPanel.drawerOpen() ? "auto" : "none" }}
             class="fixed inset-0 z-40 bg-black/40 opacity-0 transition-opacity duration-200 data-open:opacity-100"
           />
-          <Drawer.Content class="fixed bottom-0 left-0 right-0 z-50 bg-surface-0 border-t border-edge shadow-xl h-[85vh] flex flex-col rounded-t-lg overflow-hidden">
+          <Drawer.Content
+            forceMount
+            inert={!rightPanel.drawerOpen()}
+            class="fixed bottom-0 left-0 right-0 z-50 bg-surface-0 border-t border-edge shadow-xl h-[85vh] flex flex-col rounded-t-lg overflow-hidden"
+          >
             <div class="flex justify-center py-1.5 shrink-0" aria-hidden="true">
               <span class="w-10 h-1 rounded-full bg-fg-3/40" />
             </div>

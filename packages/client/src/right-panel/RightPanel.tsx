@@ -1,3 +1,4 @@
+import { PanelShown } from "./panelShown";
 /** RightPanel — right panel shell with tabbed navigation.
  *  Routes between Inspector and Code tabs via the DU view exposed by
  *  `useRightPanel().activeTab()`.
@@ -120,28 +121,39 @@ const RightPanel: Component<{
        *  RightPanelTabKind via the `Record<RightPanelTabKind, …>` typings
        *  on TAB_LABEL) so both bodies mount once, then `match(kind)` picks
        *  which component to render per slot — exhaustive *and* both-mounted. */}
-      <div class="flex-1 min-h-0 overflow-hidden">
+      <div class="relative flex-1 min-h-0 overflow-hidden">
         <For each={TAB_KINDS}>
           {(kind) => {
             const isActive = () => rightPanel.activeTab().kind === kind;
             return (
               <div
-                class={isActive() ? "h-full" : "hidden"}
+                class="h-full w-full"
+                style={{
+                  position: isActive() ? "relative" : "absolute",
+                  inset: "0",
+                  "content-visibility": isActive() ? "visible" : "hidden",
+                }}
+                inert={!isActive()}
                 aria-hidden={!isActive()}
               >
-                {match(kind)
-                  .with("inspector", () => (
-                    <MetadataInspector
-                      meta={props.meta}
-                      terminalId={props.terminalId}
-                      themeName={props.themeName}
-                      onThemeClick={props.onThemeClick}
-                    />
-                  ))
-                  .with("code", () => (
-                    <CodeTab terminalId={props.terminalId} meta={props.meta} />
-                  ))
-                  .exhaustive()}
+                <PanelShown.Provider value={() => props.visible && isActive()}>
+                  {match(kind)
+                    .with("inspector", () => (
+                      <MetadataInspector
+                        meta={props.meta}
+                        terminalId={props.terminalId}
+                        themeName={props.themeName}
+                        onThemeClick={props.onThemeClick}
+                      />
+                    ))
+                    .with("code", () => (
+                      <CodeTab
+                        terminalId={props.terminalId}
+                        meta={props.meta}
+                      />
+                    ))
+                    .exhaustive()}
+                </PanelShown.Provider>
               </div>
             );
           }}

@@ -54,6 +54,7 @@ import {
 } from "@kolu/surface/solid";
 import {
   type Accessor,
+  batch,
   createEffect,
   createMemo,
   createSignal,
@@ -274,14 +275,15 @@ export function createPolledQuery<Input, PulseInput, Pulse, Result>(
         // of leaving a promise nobody awaits. Mirror image of the surface side's
         // `connectPollNode`, where an Effect's interruption drives a controller.
         query: (signal) => runActionPromise(query(i), signal),
-        onResult: (result) => {
-          // A requery updates the value IN PLACE (reconciled — no blank), stamps the
-          // shown key, and clears `pending`/`error` on a fresh landing.
-          writeWrappedValue<Result>(setStore, result);
-          shownKey = activeKey;
-          if (pending()) setPending(false);
-          if (error()) setError(undefined);
-        },
+        onResult: (result) =>
+          batch(() => {
+            // A requery updates the value IN PLACE (reconciled — no blank), stamps the
+            // shown key, and clears `pending`/`error` on a fresh landing.
+            writeWrappedValue<Result>(setStore, result);
+            shownKey = activeKey;
+            if (pending()) setPending(false);
+            if (error()) setError(undefined);
+          }),
         onError: (err) => surfaceError(err),
         // Normal completion — the pulse ended on its own (a typed end, e.g. the
         // host/entry left membership). Mirrors `createSubscription`'s typed-end.
