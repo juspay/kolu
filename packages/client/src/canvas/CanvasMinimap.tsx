@@ -106,7 +106,7 @@ const ZoomBarButton: Component<{
 
 const CanvasMinimap: Component<{
   tileIds: string[];
-  layouts: Record<string, TileLayout>;
+  getLayout: (id: string) => TileLayout | undefined;
   /** Activate a tile (make it the focused terminal). */
   onSelect: (id: string) => void;
   onStartTileDrag: (id: string) => {
@@ -143,7 +143,7 @@ const CanvasMinimap: Component<{
       maxX = -Infinity,
       maxY = -Infinity;
     for (const id of props.tileIds) {
-      const l = props.layouts[id];
+      const l = props.getLayout(id);
       if (!l) continue;
       minX = Math.min(minX, l.x);
       minY = Math.min(minY, l.y);
@@ -314,7 +314,7 @@ const CanvasMinimap: Component<{
         {/* Tile rectangles */}
         <For each={props.tileIds}>
           {(id) => {
-            const layout = () => props.layouts[id];
+            const layout = () => props.getLayout(id);
             const theme = () => tileTheme(id);
             // Per-tile display info, resolved once and shared by the
             // geometry memo and the badge-state memo. Without this both

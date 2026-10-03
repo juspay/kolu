@@ -141,16 +141,6 @@ const TerminalCanvas: Component<{
     return pendingLayouts.resolveLayout(id, props.getLayout(id));
   }
 
-  /** Merged layouts keyed by tile ID — consumed by CanvasTile and CanvasMinimap. */
-  const layouts = createMemo<Record<string, TileLayout>>(() => {
-    const result: Record<string, TileLayout> = {};
-    for (const id of props.tileIds) {
-      const l = layoutOf(id);
-      if (l) result[id] = l;
-    }
-    return result;
-  });
-
   // Per-host camera center-on-active on host switch. The decision (seed a
   // never-positioned host on its active tile, re-center a host whose tile drifted
   // out of its retained view) lives in `useCanvasCenterOnSwitch`, mounted here
@@ -449,7 +439,7 @@ const TerminalCanvas: Component<{
                 : undefined
             }
             renderBody={() => props.renderTileBody(tileId, active)}
-            layouts={layouts()}
+            getLayout={layoutOf}
             startResize={startResize}
             panX={viewport.panX}
             panY={viewport.panY}
@@ -546,10 +536,13 @@ const TerminalCanvas: Component<{
 
           {/* Minimap: spatial dashboard; hides in fullscreen-single-tile mode
            *  since there's nothing spatial to summarize. */}
-          <Show when={posture.mode() === "tiled"}>
+          <div
+            classList={{ hidden: posture.mode() !== "tiled" }}
+            inert={posture.mode() !== "tiled"}
+          >
             <CanvasMinimap
               tileIds={props.tileIds}
-              layouts={layouts()}
+              getLayout={layoutOf}
               onSelect={props.onSelect}
               onAutoArrange={props.onAutoArrange}
               onStartTileDrag={(id) => {
@@ -574,7 +567,7 @@ const TerminalCanvas: Component<{
                 };
               }}
             />
-          </Show>
+          </div>
         </div>
       </div>
     </DragDropProvider>

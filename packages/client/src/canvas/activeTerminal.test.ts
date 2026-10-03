@@ -1,3 +1,4 @@
+import { registerTileElement } from "../tile/tileElements";
 // @vitest-environment happy-dom
 
 import { afterEach, describe, expect, it } from "vitest";
@@ -16,7 +17,12 @@ describe("getActiveTerminalNode", () => {
       </div>
     `;
 
+    const dispose = registerTileElement(
+      "tile",
+      document.body.firstElementChild as HTMLElement,
+    );
     expect(getActiveTerminalNode()?.dataset.terminalId).toBe("split");
+    dispose();
   });
 
   it("falls back to the first visible terminal before focus is established", () => {
@@ -26,6 +32,11 @@ describe("getActiveTerminalNode", () => {
       </div>
     `;
 
+    const dispose = registerTileElement(
+      "tile",
+      document.body.firstElementChild as HTMLElement,
+    );
     expect(getActiveTerminalNode()?.dataset.terminalId).toBe("main");
+    dispose();
   });
 });

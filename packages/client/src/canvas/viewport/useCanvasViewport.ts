@@ -4,7 +4,8 @@
  *  Consumers import only this module. The three internal modules
  *  (gestures, transforms, coordinates) are implementation details. */
 
-import type { Accessor } from "solid-js";
+import { type Accessor, batch, createRoot, createSignal } from "solid-js";
+import { createElementSize } from "@solid-primitives/resize-observer";
 import { activeScope } from "../../hostScope/hostScopes";
 import type { TileLayout } from "../TileLayout";
 import { animatePan } from "./animatedPan";
@@ -52,6 +53,9 @@ const setZoom = (v: number): void => cam()?.setZoom(v);
 
 /** Container ref, set on mount. */
 let containerEl: HTMLDivElement | null = null;
+// HOST-SCOPING: host-INDEPENDENT by design — DOM viewport; the camera is per-host above.
+const [container, setContainer] = createSignal<HTMLDivElement>();
+const size = createRoot(() => createElementSize(container));
 /** Cleanup function for the current gesture listeners. */
 let cleanupGestures: (() => void) | null = null;
 /** In-flight pan animation (if any) — cancelled by any gesture or
@@ -105,9 +109,11 @@ function flushGesture() {
   pending = { ...EMPTY };
   // Equal-value writes are no-ops (SolidJS skips on Object.is), so a pure-pan
   // frame never notifies zoom dependents and vice versa.
-  setPanX(result.panX);
-  setPanY(result.panY);
-  setZoom(result.zoom);
+  batch(() => {
+    setPanX(result.panX);
+    setPanY(result.panY);
+    setZoom(result.zoom);
+  });
 }
 
 /** Drop any queued gesture delta — a programmatic absolute pan/zoom (or a
@@ -199,6 +205,7 @@ function setContainerRef(
   cleanupGestures?.();
   discardPendingGesture();
   containerEl = el;
+  setContainer(el ?? undefined);
   cleanupGestures = installGestures(
     el,
     {
@@ -267,8 +274,10 @@ function startAnimatedPan(target: { panX: number; panY: number }) {
     { x: panX(), y: panY() },
     { x: target.panX, y: target.panY },
     (x, y) => {
-      setPanX(x);
-      setPanY(y);
+      batch(() => {
+        setPanX(x);
+        setPanY(y);
+      });
     },
   );
 }
@@ -285,16 +294,17 @@ function panTo(x: number, y: number) {
 
 function setPan(x: number, y: number) {
   abortTransientInput();
-  setPanX(x);
-  setPanY(y);
+  batch(() => {
+    setPanX(x);
+    setPanY(y);
+  });
 }
 
-// Not reactive on container resize — reads DOM directly. Pan/zoom signals
-// trigger dependents often enough that stale dimensions are short-lived.
+// The observed viewport changes even when the camera remains still.
 function viewportSize() {
   return {
-    width: containerEl?.clientWidth ?? 0,
-    height: containerEl?.clientHeight ?? 0,
+    width: size.width ?? 0,
+    height: size.height ?? 0,
   };
 }
 
@@ -318,9 +328,11 @@ function applyZoomToCenter(direction: "in" | "out" | "reset") {
     containerEl.clientHeight,
     direction,
   );
-  setPanX(result.panX);
-  setPanY(result.panY);
-  setZoom(result.zoom);
+  batch(() => {
+    setPanX(result.panX);
+    setPanY(result.panY);
+    setZoom(result.zoom);
+  });
 }
 
 const viewport: CanvasViewport = {

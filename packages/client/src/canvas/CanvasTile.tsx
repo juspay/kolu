@@ -1,3 +1,4 @@
+import { registerTileElement } from "../tile/tileElements";
 /** Single tile on the canvas — separated so createDraggable gets its own
  *  reactive owner per tile (required by solid-dnd). Shell only: positioning,
  *  title bar, resize handles. Content is injected via render props — the
@@ -20,6 +21,7 @@ import {
   createSignal,
   For,
   type JSX,
+  onCleanup,
   onMount,
   Show,
 } from "solid-js";
@@ -81,7 +83,7 @@ const CanvasTile: Component<{
    *  hardcoded. */
   renderTitleActions?: () => JSX.Element;
   renderBody: () => JSX.Element;
-  layouts: Record<string, TileLayout>;
+  getLayout: (id: string) => TileLayout | undefined;
   startResize: (
     id: string,
     direction: ResizeDirection,
@@ -108,10 +110,14 @@ const CanvasTile: Component<{
 }> = (props) => {
   const isMaximized = () => props.mode === "maximized";
   const isCovered = () => props.mode === "covered";
-  const { id } = props;
-  const draggable = createDraggable(id);
+  const draggable = createDraggable(props.id);
   const layout = () =>
-    props.layouts[id] ?? { x: 0, y: 0, w: DEFAULT_TILE_W, h: DEFAULT_TILE_H };
+    props.getLayout(props.id) ?? {
+      x: 0,
+      y: 0,
+      w: DEFAULT_TILE_W,
+      h: DEFAULT_TILE_H,
+    };
 
   // One-shot "tile lands on the plane" — armed only once on mount when the
   // tile is already tiled + awake + motion-ok. Any cancel path (maximize,
@@ -327,10 +333,13 @@ const CanvasTile: Component<{
 
   return (
     <div
-      ref={draggable.ref}
+      ref={(el) => {
+        draggable.ref(el);
+        onCleanup(registerTileElement(props.id, el));
+      }}
       data-testid="canvas-tile"
       data-canvas-tile=""
-      data-terminal-id={id}
+      data-terminal-id={props.id}
       data-active={props.active ? "" : undefined}
       data-maximized={isMaximized() ? "true" : undefined}
       data-dimmed={props.dimmed ? "true" : undefined}
@@ -483,7 +492,7 @@ const CanvasTile: Component<{
             <div
               class={`absolute ${handle.position} ${handle.cursor}`}
               onPointerDown={(e) =>
-                props.startResize(id, direction as ResizeDirection, e)
+                props.startResize(props.id, direction as ResizeDirection, e)
               }
             />
           )}
