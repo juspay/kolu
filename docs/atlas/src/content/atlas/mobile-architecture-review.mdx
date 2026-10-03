@@ -40,7 +40,11 @@ desktop layout on it. Now width still picks `phone` below `sm`, but above it the
 `CompactTileView`, the `DockList` shared with the phone drawer) from a real
 pointer (`desktop`). The `capabilities.ts` gates read `isDesktop()`; `reveal()`
 and the Code-tab touch-scroll driver read `!isDesktop()`, so phone and compact
-share the drawer-hosted panel. The circuit diagram, scorecard, and §②/§⑤ below
+share the drawer-hosted panel. Phone and compact now use the same tile tree;
+the rail and content direction react to the breakpoint. `WorkspaceTerminals`
+owns each terminal body above the desktop/touch shell choice and moves it to
+the current shell through a portal. Host switches and workspace-status screens
+still end that owner. The circuit diagram, scorecard, and §②/§⑤ below
 record the pre-#1380 two-state fork (`match(isMobile())`).
 </Callout>
 

@@ -45,6 +45,12 @@ a `_core.buffers.normal` rename touches all three in tandem.
 
 ## `@kolu/xterm-kit/solid` — the SolidJS browser adapter
 
+Retained panes should keep explicit host dimensions while hidden. Revealing a
+pane refits its current geometry without resetting its scroll lock or jumping
+to the bottom. Callback props are read at event time. Document pointer-release
+listeners exist only while that pane holds a pointer gesture.
+
+
 - `<Xterm>` — the whole hazard set as one JSX element: it composes lifecycle,
   WebGL, scroll-lock, render-recovery, write coalesce (via `fullRate`), and touch,
   owns their reactive lifetime, and hands the consumer a live `XtermHandle` in
