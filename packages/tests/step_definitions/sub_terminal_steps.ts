@@ -236,7 +236,7 @@ Then(
   "the sub-terminal viewport should show its latest output",
   async function (this: KoluWorld) {
     await this.page
-      .locator('[data-testid="sub-panel-tab-bar"]')
+      .locator('[data-testid="sub-panel-tab-bar"]:visible')
       .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
     // VIEWPORT, not buffer: the defect delivers every byte correctly and then
     // shows the wrong window onto them, so a whole-buffer read passes on a
@@ -249,12 +249,12 @@ Then(
 );
 
 Then("the sub-panel should be visible", async function (this: KoluWorld) {
-  const tabBar = this.page.locator('[data-testid="sub-panel-tab-bar"]');
+  const tabBar = this.page.locator('[data-testid="sub-panel-tab-bar"]:visible');
   await tabBar.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
 });
 
 Then("the sub-panel should not be visible", async function (this: KoluWorld) {
-  const tabBar = this.page.locator('[data-testid="sub-panel-tab-bar"]');
+  const tabBar = this.page.locator('[data-testid="sub-panel-tab-bar"]:visible');
   await tabBar.waitFor({ state: "hidden", timeout: POLL_TIMEOUT });
 });
 
@@ -418,7 +418,9 @@ Then(
   "the sub-panel should eventually collapse",
   { timeout: 60_000 },
   async function (this: KoluWorld) {
-    const tabBar = this.page.locator('[data-testid="sub-panel-tab-bar"]');
+    const tabBar = this.page.locator(
+      '[data-testid="sub-panel-tab-bar"]:visible',
+    );
     await tabBar.waitFor({ state: "hidden", timeout: 45_000 });
   },
 );
@@ -661,7 +663,7 @@ Then(
   async function (this: KoluWorld) {
     // First wait for the tab bar to disappear (confirms collapse state settled)
     await this.page
-      .locator('[data-testid="sub-panel-tab-bar"]')
+      .locator('[data-testid="sub-panel-tab-bar"]:visible')
       .waitFor({ state: "hidden", timeout: 10_000 });
     // Then wait for the collapsed strip to mount and be visible
     const indicator = this.page.locator('[data-testid="collapsed-indicator"]');
@@ -680,7 +682,7 @@ Then(
   async function (this: KoluWorld, expected: string) {
     // Wait for sub-panel to be fully expanded before reading buffer
     await this.page
-      .locator('[data-testid="sub-panel-tab-bar"]')
+      .locator('[data-testid="sub-panel-tab-bar"]:visible')
       .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
     await waitForBufferContains(this.page, expected, {
       selector: "[data-sub-terminal][data-visible]",
