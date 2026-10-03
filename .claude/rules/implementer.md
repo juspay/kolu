@@ -7,7 +7,7 @@ paths:
 
 The project-defined commands a task needs (check · fmt · test · ci) and the
 evidence step. Written for whoever implements — an agent driving a task to a PR
-(a `/waterfall` implementer, say) or a human doing the same by hand.
+or a human doing the same by hand.
 
 ## Check command
 
