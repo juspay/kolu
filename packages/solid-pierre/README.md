@@ -8,11 +8,11 @@ with their Solid owner.
 mounted while loading: paths and selection may arrive in either order. A
 standing selection is applied when its path becomes available.
 
-`initialExpansion` sets the expansion policy for new folders (`"closed"`,
-`"open"`, or a directory depth). A policy change also opens existing folders
-covered by the new policy. Ordinary inventory changes preserve the user's
-expansion choices for surviving folders. `expandPaths` additionally reveals
-search matches and other host-selected ancestors.
+`initialExpansion` sets folder expansion when the tree is constructed
+(`"closed"`, `"open"`, or a directory depth). Retain a separate tree for each
+mode with a different inventory or expansion policy: swapping inventories removes
+folders and their local expansion state. `expandPaths` reveals search matches
+and other host-selected ancestors.
 
 The `CodeView` adapter updates file content without replacing its mounted
 renderer. Consumers should pass reactive file props rather than reconstructing

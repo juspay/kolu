@@ -119,10 +119,11 @@ export type FileTreeProps = {
    *  `dist/`), so without this a switch leaves a key recorded, re-opened, and
    *  never re-reported — an open, empty folder with no fetch behind it. */
   lazyEpoch?: unknown;
-  /** Expansion policy for newly appearing folders. Changing the policy also
-   *  opens existing folders covered by the new policy, without closing folders
-   *  the user opened. Ordinary path updates preserve existing expansion choices.
-   *  Defaults to `"closed"`; a number opens through that directory depth. */
+  /** Initial folder expansion — captured at construction and **not
+   *  reactive**. Pierre takes this once in its constructor; later prop
+   *  changes are silently ignored. Re-mount the component (e.g. by
+   *  toggling its parent `<Show when>`) to apply a new value. Defaults to
+   *  `"closed"`. */
   initialExpansion?: FileTreeInitialExpansion;
   /** Collapse single-child directory chains (e.g. `packages/client/src` →
    *  one row). Default `true`. */
@@ -235,7 +236,6 @@ export const FileTree: Component<FileTreeProps> = (props) => {
   // `undefined` on the first post-`defer` run — which would drop the very
   // first delta's removals.
   let appliedPaths: readonly string[] = [];
-  let appliedExpansion: FileTreeInitialExpansion = "closed";
 
   // Provenance gate for `onSelectionChange` (juspay/kolu#1841). Pierre is a
   // CONTROLLED component: the host drives its selection via `props.selectedPath`
@@ -442,7 +442,6 @@ export const FileTree: Component<FileTreeProps> = (props) => {
       // Pierre doesn't expose a hook to re-feed `initialExpandedPaths` after
       // the constructor, so initial and reactive paths are unavoidably two call
       // sites; `desiredExpandedPaths` is why they can't be two RULES.
-      appliedExpansion = props.initialExpansion ?? "closed";
       tree = new FileTreeClass({
         paths: props.paths,
         initialExpansion: props.initialExpansion ?? "closed",
@@ -537,12 +536,8 @@ export const FileTree: Component<FileTreeProps> = (props) => {
   // selection.
   createEffect(
     on(
-      [
-        () => props.paths,
-        () => props.expandPaths,
-        () => props.initialExpansion,
-      ],
-      ([paths, , requestedExpansion]) => {
+      [() => props.paths, () => props.expandPaths],
+      ([paths]) => {
         // Capture once so closures (pathOps filter) keep a narrowed FileTree
         // handle — mutable `let tree` does not flow into arrow callbacks.
         const t = tree;
@@ -554,27 +549,6 @@ export const FileTree: Component<FileTreeProps> = (props) => {
         // path and the recovery rebuild so mixed keys never re-enter Pierre.
         const prev = dropRedundantDirKeys(appliedPaths);
         const next = dropRedundantDirKeys(paths);
-        const expansion = requestedExpansion ?? "closed";
-        // Pierre captures its default at construction. Retained hosts can change
-        // modes before paths arrive, so apply the current policy to new folders
-        // and expand existing folders only on a policy transition.
-        const dirs = new Set(
-          next.flatMap((path) => [
-            ...ancestorDirectoryPaths(path),
-            ...(isDirectoryPath(path) ? [path] : []),
-          ]),
-        );
-        const toClose: string[] = [];
-        for (const dir of dirs) {
-          const exists = t.getItem(dir) !== null;
-          if (exists && expansion === appliedExpansion) continue;
-          const open =
-            expansion === "open" ||
-            (typeof expansion === "number" &&
-              dir.split("/").length - 1 <= expansion);
-          if (open) toOpen.push(dir);
-          else if (!exists) toClose.push(dir);
-        }
         try {
           const pathOps = pathDiffOperations(prev, next).filter((op) => {
             // Pierre promotes an emptied directory to an explicit empty-folder
@@ -606,11 +580,6 @@ export const FileTree: Component<FileTreeProps> = (props) => {
           }
           if (dirOps.length > 0) t.batch(dirOps);
           appliedPaths = next;
-          appliedExpansion = expansion;
-          for (const dir of toClose) {
-            const item = t.getItem(dir);
-            if (item && "collapse" in item) item.collapse();
-          }
           expandDirs(t, toOpen);
         } catch (err) {
           try {

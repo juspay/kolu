@@ -37,8 +37,9 @@ A segmented control switches between three views: **All files** (the whole repo)
 **Local** (uncommitted), and **Branch** (vs the base). The Local and Branch
 segments carry a **change-count badge**, so you can see you have, say, 3
 uncommitted files and 12 changes versus your branch base without switching into
-either. Switching views keeps the file tree mounted, including while a refresh
-is loading. Saving the open file updates its contents in place, preserving the
+either. Each view keeps its own file tree mounted, preserving expanded folders
+and scroll position when you switch away and back. During loading or an error,
+the previous tree stays visible but dimmed and cannot be clicked. Saving the open file updates its contents in place, preserving the
 viewer and its scroll position.
 
 **All files** shows what git tracks plus anything untracked, and leaves out what

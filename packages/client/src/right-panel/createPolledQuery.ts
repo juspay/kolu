@@ -116,7 +116,7 @@ export interface PolledQueryConfig<Input, PulseInput, Pulse, Result> {
 
 export function createPolledQuery<Input, PulseInput, Pulse, Result>(
   config: PolledQueryConfig<Input, PulseInput, Pulse, Result>,
-): Subscription<Result> {
+): Subscription<Result> & { readonly complete: Accessor<boolean> } {
   const {
     input,
     live,
@@ -297,7 +297,7 @@ export function createPolledQuery<Input, PulseInput, Pulse, Result>(
     error,
     pending,
     complete,
-  }) as Subscription<Result>;
+  });
 
   // Drive `onError` off the self-clearing `error()` EDGE via the shared
   // `@kolu/surface/solid` helper (the exact wiring `createSubscription` itself

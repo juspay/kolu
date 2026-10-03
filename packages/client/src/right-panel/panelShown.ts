@@ -1,9 +1,4 @@
-import {
-  type Accessor,
-  createContext,
-  createSignal,
-  useContext,
-} from "solid-js";
+import { type Accessor, createContext, useContext } from "solid-js";
 
 export const PanelShown = createContext<Accessor<boolean>>();
 export function usePanelShown(): Accessor<boolean> {
@@ -11,4 +6,3 @@ export function usePanelShown(): Accessor<boolean> {
   if (!shown) throw new Error("Panel view requires PanelShown");
   return shown;
 }
-export const [codeShown, setCodeShown] = createSignal(false);
