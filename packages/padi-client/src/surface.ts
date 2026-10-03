@@ -1974,6 +1974,7 @@ export const padiSurface = defineSurfaceWithPolicy<ClientErrorPolicy>()({
      *  reset verb. */
     session: {
       schema: Schema.NullOr(SavedSessionSchema),
+      arrayKey: "id",
       default: null as typeof SavedSessionSchema.Type | null,
       verbs: ["get", "test__set"],
       client: {

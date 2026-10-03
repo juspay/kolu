@@ -181,3 +181,11 @@ yet:
 
 - The daemon, whole — [`packages/padi/README.md`](../padi/README.md)
 - Plan of record — [Atlas: padi](https://kolu.dev/atlas/padi)
+
+## Reactive list identity
+
+The surface declares daemon-inventory rows keyed by `socket` and saved-session
+terminals keyed by `id`. Solid consumers retain those records across reordered
+snapshots. The activity feed contains two different identities (`repoRoot` and
+`command`), so it does not declare one shared array key. Host listeners have a
+compound address identity; urgency lists contain primitive terminal IDs.
