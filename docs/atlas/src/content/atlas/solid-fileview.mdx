@@ -185,7 +185,7 @@ has no rendering deps at all: pure mechanism, every concrete renderer an applian
 The implemented renderer contract is `render(file: Accessor<TFile>)`. Renderer
 identity owns the mounted appliance; file saves flow through the accessor into
 its existing bindings. Both modes stay mounted after their first visit, and a
-hidden mode adopts the current file when revealed.
+hidden mode adopts the current file when revealed (<PrLink pr={2263} />).
 
 ### HTML / SVG need the wire to carry both source and URL
 
