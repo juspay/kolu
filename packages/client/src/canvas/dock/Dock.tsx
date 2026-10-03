@@ -1,3 +1,5 @@
+import type { DockRailEntry } from "./dockTree";
+import { Key } from "@solid-primitives/keyed";
 /** Dock — left-edge canonical live-terminal navigator.
  *
  *  Two progressive levels of detail, toggled in place. Per-device
@@ -472,68 +474,80 @@ const RailOrCards: Component<{
         onSelect={dockFocus}
       />
       <div class="flex flex-col overflow-y-auto overflow-x-hidden scrollbar-none flex-1 min-h-0">
-        <Show
-          when={props.mode === "rail"}
-          fallback={
-            <>
-              {/* The dock's OWN drag context, nested inside the canvas's:
-               *  a sortable here must never surface to a canvas listener —
-               *  sortables bind their drag to the NEAREST DragDropProvider,
-               *  so the nest is the isolation. Mode-level: only the cards
-               *  list is rearrangeable — rail rows are icon swatches, not
-               *  draggable units (#2247). */}
-              <DragDropProvider
-                collisionDetector={closestCenter}
-                onDragEnd={dropSection}
-              >
-                <DragDropSensors />
-                <SortableProvider ids={props.tree.groups.map((g) => g.name)}>
-                  <div class="flex flex-col gap-2.5 p-2">
-                    <For each={props.tree.groups}>
-                      {(group) => (
-                        <SortableSection
-                          group={group}
-                          flatIndexOf={flatIndexOf()}
-                          onClusterDrop={(labels) =>
-                            // Like `dropSection`: the all-slots splice is the
-                            // verb's (`moveCluster`); this is event plumbing.
-                            setDockOrder(
-                              moveCluster(props.tree.order, group.name, labels),
-                            )
-                          }
-                        />
-                      )}
-                    </For>
-                  </div>
-                </SortableProvider>
-              </DragDropProvider>
-            </>
-          }
+        <div
+          classList={{ hidden: props.mode === "rail" }}
+          inert={props.mode === "rail"}
         >
-          <For each={props.tree.groups}>
+          {/* The dock's OWN drag context, nested inside the canvas's:
+           *  a sortable here must never surface to a canvas listener —
+           *  sortables bind their drag to the NEAREST DragDropProvider,
+           *  so the nest is the isolation. Mode-level: only the cards
+           *  list is rearrangeable — rail rows are icon swatches, not
+           *  draggable units (#2247). */}
+          <DragDropProvider
+            collisionDetector={closestCenter}
+            onDragEnd={dropSection}
+          >
+            <DragDropSensors />
+            <SortableProvider ids={props.tree.groups.map((g) => g.name)}>
+              <div class="flex flex-col gap-2.5 p-2">
+                <Key each={props.tree.groups} by={"name"}>
+                  {(group) => (
+                    <SortableSection
+                      group={group()}
+                      flatIndexOf={flatIndexOf()}
+                      onClusterDrop={(labels) =>
+                        // Like `dropSection`: the all-slots splice is the
+                        // verb's (`moveCluster`); this is event plumbing.
+                        setDockOrder(
+                          moveCluster(props.tree.order, group().name, labels),
+                        )
+                      }
+                    />
+                  )}
+                </Key>
+              </div>
+            </SortableProvider>
+          </DragDropProvider>
+        </div>
+        <div
+          classList={{ hidden: props.mode !== "rail" }}
+          inert={props.mode !== "rail"}
+        >
+          <Key each={props.tree.groups} by={"name"}>
             {(group) => (
               <>
-                <RailSectionMark color={group.color} name={group.name} />
-                <For each={group.railEntries}>
-                  {(entry) =>
-                    match(entry)
-                      .with({ kind: "top" }, ({ row }) => (
-                        <RailChip
-                          id={row.id}
-                          pip={row.pip}
-                          flatIndex={flatIndexOf().get(row.id) ?? -1}
+                <RailSectionMark color={group().color} name={group().name} />
+                <Key each={group().railEntries} by={(entry) => entry.row.id}>
+                  {(entry) => (
+                    <Show
+                      when={entry().kind === "top"}
+                      fallback={
+                        <RailSubChip
+                          row={
+                            (
+                              entry() as Extract<
+                                DockRailEntry,
+                                { kind: "split" }
+                              >
+                            ).row
+                          }
+                          repoColor={group().color}
                         />
-                      ))
-                      .with({ kind: "split" }, ({ row }) => (
-                        <RailSubChip row={row} repoColor={group.color} />
-                      ))
-                      .exhaustive()
-                  }
-                </For>
+                      }
+                    >
+                      <RailChip
+                        id={entry().row.id}
+                        pip={entry().row.pip}
+                        flatIndex={flatIndexOf().get(entry().row.id) ?? -1}
+                      />
+                    </Show>
+                  )}
+                </Key>
               </>
             )}
-          </For>
-        </Show>
+          </Key>
+        </div>
       </div>
       {/* Footer carries the dock's `Filters` group (activity window + ☾
        *  sleeping) and their combined "N hidden · show all" disclosure. It
@@ -938,14 +952,14 @@ const RepoSection: Component<{
             </>
           }
         >
-          <For each={props.group.clusters}>
+          <Key each={props.group.clusters} by={"label"}>
             {(cluster) => (
               <SortableCluster
-                cluster={cluster}
+                cluster={cluster()}
                 flatIndexOf={props.flatIndexOf}
               />
             )}
-          </For>
+          </Key>
         </DockSection>
       </SortableProvider>
     </DragDropProvider>
@@ -973,24 +987,24 @@ const SortableCluster: Component<{
       style={maybeTransformStyle(sortable.transform)}
       handlers={sortable.dragActivators}
     >
-      <For each={props.cluster.rows}>
+      <Key each={props.cluster.rows} by={"id"}>
         {(row) => (
           <>
             <DockRow
-              id={row.id}
-              bucket={row.bucket}
-              pip={row.pip}
-              recencyAt={row.ts}
-              flatIndex={props.flatIndexOf.get(row.id) ?? -1}
+              id={row().id}
+              bucket={row().bucket}
+              pip={row().pip}
+              recencyAt={row().ts}
+              flatIndex={props.flatIndexOf.get(row().id) ?? -1}
             />
-            <For each={row.subRows}>
+            <Key each={row().subRows} by={"id"}>
               {(sub) => (
-                <DockSubRow row={sub} tileId={row.id} onSelect={focus} />
+                <DockSubRow row={sub()} tileId={row().id} onSelect={focus} />
               )}
-            </For>
+            </Key>
           </>
         )}
-      </For>
+      </Key>
     </DockCluster>
   );
 };
