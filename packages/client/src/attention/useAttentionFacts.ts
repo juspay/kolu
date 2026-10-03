@@ -1,4 +1,3 @@
-import { createAttentionIndex } from "./createAttentionIndex";
 /** The ONE per-host attention mirror, and the per-terminal reader over it.
  *
  *  Two things arrive from padi and together answer "what is happening in this
@@ -36,6 +35,8 @@ import { createAttentionIndex } from "./createAttentionIndex";
  *  longer flashes its dot — and the dot works for BACKGROUND (non-attached)
  *  terminals too, since the fact comes off the wire rather than the tile's own
  *  attach sink. */
+
+import { createAttentionIndex } from "./createAttentionIndex";
 
 import { decodeHostKey, encodeHostKey } from "kolu-common/hostKey";
 import type { AttentionClass, TerminalId } from "kolu-common/surface";
@@ -86,11 +87,11 @@ export const useAttentionFacts = createSharedRoot(() => {
       // Live only when the link is up AND the urgency sub is neither errored nor
       // ended — urgency is no `liveWhen` gate, so a stale value must read STALE
       // (dim, uncounted), never lie live.
+      if (!sub.complete)
+        throw new Error("Urgency subscription must expose completion");
+      const complete = sub.complete;
       const live = createMemo(
-        () =>
-          entry.state().kind === "connected" &&
-          !sub.error() &&
-          !(sub.complete?.() ?? false),
+        () => entry.state().kind === "connected" && !sub.error() && !complete(),
       );
 
       // The class lists — the ONE wire→frame translation in the app, which is
@@ -111,10 +112,18 @@ export const useAttentionFacts = createSharedRoot(() => {
             })
           : frameByClass(value);
       });
-      const liveIds = createMemo(() => [...(activity() ?? [])]);
+      const liveIds = createMemo<readonly TerminalId[]>(
+        (previous) => (activity.pending() ? previous : [...(activity() ?? [])]),
+        [],
+      );
+      const reported = createMemo(
+        (previous: boolean) =>
+          activity.pending() ? previous : urgency() !== undefined,
+        false,
+      );
       registerHostFacts(encHost, () => ({
         get reported() {
-          return urgency() !== undefined;
+          return reported();
         },
         get byClass() {
           return byClass();
