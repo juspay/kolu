@@ -79,7 +79,7 @@ const headingStats = (tree: Root): ChangelogStat[] => {
 
 // Depth-3 headings that are allowed to stand without a docs-page link. Every
 // other heading is a product area and must link to the page that owns it.
-const PLAIN_HEADINGS = new Set(["Before you update"]);
+const PLAIN_HEADINGS = new Set(["Before you update", "Performance"]);
 
 /**
  * Enforce the ledger's grouping contract at build time (the same shape the
