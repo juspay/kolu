@@ -1,4 +1,3 @@
-import { useActiveHostSelector } from "./isActiveHost";
 /** MobileHostRow — the host row for the mobile pull-down chrome sheet.
  *
  *  The touch layout drops the persistent desktop chrome bar (and its
@@ -21,6 +20,8 @@ import { useActiveHostSelector } from "./isActiveHost";
  *
  *  Touch ergonomics: every chip and the add trigger are ≥44px hit targets, and
  *  the chip row scrolls horizontally when hosts overflow the viewport width. */
+
+import { useActiveHostSelector } from "./isActiveHost";
 
 import { encodeHostKey, type HostKey } from "kolu-common/hostKey";
 import {

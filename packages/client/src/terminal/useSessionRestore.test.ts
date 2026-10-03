@@ -11,6 +11,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 // `useSessionRestore` pulls at import time so the hook loads under Node without
 // a live socket, toast DOM, or the SSR-only `solid-js/web` build.
 const h = vi.hoisted(() => ({
+  lifecycleKind: (() => "connected") as () => "connected" | "restarted",
   listPending: true,
   list: undefined as TerminalInfo[] | undefined,
   terminalIds: [] as TerminalId[],
@@ -99,7 +100,9 @@ vi.mock("../hostScope/activeWire", () => ({
     return h.savedSession;
   },
 }));
-vi.mock("../rpc/rpc", () => ({ lifecycle: () => ({ kind: "connected" }) }));
+vi.mock("../rpc/rpc", () => ({
+  lifecycle: () => ({ kind: h.lifecycleKind() }),
+}));
 vi.mock("../right-panel/useRightPanel", () => ({
   useRightPanel: () => ({ seedPanel: () => {} }),
 }));
@@ -141,6 +144,7 @@ import type { TerminalStore } from "./useTerminalStore";
 }
 
 beforeEach(() => {
+  h.lifecycleKind = () => "connected";
   // The restore latch is per-host owner state now: empty membership to DISPOSE
   // the prior test's local owner (and its latch), then re-add the single local
   // host these tests use — so each test's `decided`/`seeded` starts fresh.
@@ -446,7 +450,11 @@ describe("useSessionRestore — forfeit fires session.forfeit and dismisses the 
             // contract declares.
             expect(rpc.forfeit).toHaveBeenCalledTimes(1);
             expect(rpc.forfeit).toHaveBeenCalledWith({});
-            // The card is dismissed optimistically.
+            // The card is dismissed optimistically. Fresh list arrays and an
+            // in-place update of the same server record cannot undo that action.
+            expect(session.savedSession()).toBeNull();
+            h.terminalIds = [];
+            h.pushSavedSession(h.savedSession);
             expect(session.savedSession()).toBeNull();
 
             dispose();
@@ -969,5 +977,36 @@ describe("useSessionRestore — an in-session restore RE-SEEDS the view (viewSee
         })();
       });
     });
+  });
+});
+
+it("a restart takes precedence over a restored optimistic error card", async () => {
+  await createRoot(async (dispose) => {
+    try {
+      const [kind, setKind] = createSignal<"connected" | "restarted">(
+        "connected",
+      );
+      h.lifecycleKind = kind;
+      h.listPending = false;
+      h.list = [];
+      h.terminalIds = [];
+      h.sessionPending = false;
+      h.savedSession = {
+        terminals: [],
+        activeTerminalId: null,
+        savedAt: 1,
+        resumableIds: [],
+      };
+      const session = mount();
+      rpc.forfeit.mockReturnValueOnce(
+        Effect.fail(new Error("forfeit refused")) as never,
+      );
+      await Effect.runPromise(session.handleForfeitSession());
+      expect(session.savedSession()).toEqual(h.savedSession);
+      setKind("restarted");
+      expect(session.savedSession()).toBeNull();
+    } finally {
+      dispose();
+    }
   });
 });

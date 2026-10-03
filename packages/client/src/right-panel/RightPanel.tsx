@@ -1,4 +1,3 @@
-import { PanelShown } from "./panelShown";
 /** RightPanel — right panel shell with tabbed navigation.
  *  Routes between Inspector and Code tabs via the DU view exposed by
  *  `useRightPanel().activeTab()`.
@@ -12,6 +11,8 @@ import { PanelShown } from "./panelShown";
  *  reflect actual visibility on both surfaces. `data-collapsed` is emitted
  *  when `!visible` so e2e selectors can assert collapse state without
  *  inspecting widths. */
+
+import { PanelShown } from "./panelShown";
 
 import type {
   RightPanelTabKind,

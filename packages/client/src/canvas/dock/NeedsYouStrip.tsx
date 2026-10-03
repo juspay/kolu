@@ -1,4 +1,3 @@
-import { Key } from "@solid-primitives/keyed";
 /** The dock's pinned **needs-you strip** — every terminal whose agent is
  *  blocked on you, in a fixed place above the repo sections.
  *
@@ -16,6 +15,8 @@ import { Key } from "@solid-primitives/keyed";
  *  Deliberately not a filter toggle and not dismissible: the only thing that
  *  empties this strip is the agent leaving `awaiting_user`, the same rule the
  *  violet capsule has always followed. */
+
+import { Key } from "@solid-primitives/keyed";
 
 import { activeArm } from "@kolu/padi-client/surface";
 import { DockNeedsYouRow, DockNeedsYouStrip } from "@kolu/solid-dockrow";

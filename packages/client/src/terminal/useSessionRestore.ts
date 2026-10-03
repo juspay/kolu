@@ -43,32 +43,32 @@ export function useSessionRestore(deps: { store: TerminalStore }) {
   const subPanel = useSubPanel();
   const rightPanel = useRightPanel();
 
+  // Local actions invalidate the optimistic answer explicitly, independent of
+  // mutable server-store identity or newly allocated terminal-id arrays.
+  const [actionVersion, setActionVersion] = createSignal(0);
   const [sessionOverride, setSessionOverride] = createSignal<{
-    source: SavedSession | null;
     host: unknown;
-    ids: readonly TerminalId[];
+    version: number;
     value: SavedSession | null;
   }>();
   const savedSession = createMemo(() => {
-    const source = serverSavedSession();
+    if (lifecycle().kind === "restarted") return null;
     const override = sessionOverride();
     if (
       override &&
       override.host === activeScope() &&
-      override.source === source &&
-      override.ids === store.terminalIds()
+      override.version === actionVersion()
     )
       return override.value;
-    if (lifecycle().kind === "restarted") return null;
-    return source;
+    return serverSavedSession();
   });
-  const setSavedSession = (value: SavedSession | null) =>
-    setSessionOverride({
-      source: serverSavedSession(),
-      host: activeScope(),
-      ids: store.terminalIds(),
-      value,
-    });
+  const beginSessionAction = () => {
+    const version = actionVersion() + 1;
+    setActionVersion(version);
+    const host = activeScope();
+    return (value: SavedSession | null) =>
+      setSessionOverride({ host, version, value });
+  };
   /** True from the moment `handleRestoreSession` starts until it
    *  resolves (success or failure). The restore card stays mounted
    *  while this is true so the click target doesn't detach mid-flight. */
@@ -324,6 +324,7 @@ export function useSessionRestore(deps: { store: TerminalStore }) {
       if (isRestoring()) return Effect.void;
       const session = savedSession();
       if (!session) return Effect.void;
+      const setSavedSession = beginSessionAction();
       // Keep the restore card mounted until the server restore actually completes.
       // Synchronously clearing `savedSession` before the async RPC returns detaches
       // the click target mid-event — Playwright sees "element detached from the DOM"
@@ -442,6 +443,7 @@ export function useSessionRestore(deps: { store: TerminalStore }) {
     return Effect.suspend(() => {
       const session = savedSession();
       if (!session) return Effect.void;
+      const setSavedSession = beginSessionAction();
       // Optimistic dismissal: the card is gone the moment the user commits.
       setSavedSession(null);
       return activePadiRpc.session.forfeit({}).pipe(

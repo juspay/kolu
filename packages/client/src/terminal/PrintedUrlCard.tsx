@@ -1,5 +1,3 @@
-import { createSelector } from "solid-js";
-import { createSharedRoot } from "../createSharedRoot";
 /**
  * The PRT4 join card — a small Solid popover at the click coordinates.
  *
@@ -13,6 +11,9 @@ import { createSharedRoot } from "../createSharedRoot";
  * the terminal that printed its URL is found where it actually listens, and
  * "nothing is listening" is said only when the host positively holds nothing.
  */
+
+import { createSelector } from "solid-js";
+import { createSharedRoot } from "../createSharedRoot";
 
 import { toError } from "@kolu/surface/run-stream";
 import { parseLoopbackUrl } from "@kolu/url-shape";

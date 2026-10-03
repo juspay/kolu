@@ -27,8 +27,9 @@ import {
   createMemo,
   mapArray,
   onCleanup,
+  untrack,
 } from "solid-js";
-import { createStore, produce, reconcile } from "solid-js/store";
+import { createStore, produce, unwrap } from "solid-js/store";
 import { activeScope } from "../hostScope/hostScopes";
 import { activeHost, padiMap } from "../wire";
 import { reprojectTerminalClock } from "./reprojectClock";
@@ -119,6 +120,21 @@ const NO_SUB_IDS: TerminalId[] = [];
 
 /** Same stable-reference contract for the nested shape. */
 const NO_PANE_NODES: PaneNode[] = [];
+
+function sameDisplayInfo(
+  a: TerminalDisplayInfo | undefined,
+  b: TerminalDisplayInfo,
+): boolean {
+  return (
+    !!a &&
+    a.repoColor === b.repoColor &&
+    a.annotationColor === b.annotationColor &&
+    a.subCount === b.subCount &&
+    a.key.group === b.key.group &&
+    a.key.label === b.key.label &&
+    a.key.suffix === b.key.suffix
+  );
+}
 
 export function useTerminalMetadata(deps: {
   list: Accessor<{ id: TerminalId }[] | undefined>;
@@ -446,7 +462,16 @@ export function useTerminalMetadata(deps: {
       getMetadata,
       getSplitPaneIds,
     );
-    setDisplayInfos(reconcile(Object.fromEntries(next)));
+    const previous = untrack(() => unwrap(displayInfos));
+    setDisplayInfos(
+      produce((table) => {
+        for (const id of Object.keys(previous))
+          if (!next.has(id)) delete table[id];
+        for (const [id, value] of next) {
+          if (!sameDisplayInfo(previous[id], value)) table[id] = value;
+        }
+      }),
+    );
   });
 
   function getDisplayInfo(id: TerminalId): TerminalDisplayInfo | undefined {

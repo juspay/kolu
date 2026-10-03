@@ -371,7 +371,7 @@ export const Xterm: Component<
       // Keystrokes out — the consumer's callback owns any filtering/rewriting.
       term.onData((data) => own.onData(data));
       // No `own.visible` gate: `applyFit` already declines an unmeasurable box
-      // (display:none reports a 0 client box), so a second, weaker predicate
+      // (a detached or zero-size host cannot fit), so a second, weaker predicate
       // for the same question could only ever disagree with the real one.
       createResizeObserver(() => container, refit);
 

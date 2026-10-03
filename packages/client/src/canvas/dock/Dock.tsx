@@ -1,5 +1,3 @@
-import type { DockRailEntry } from "./dockTree";
-import { Key } from "@solid-primitives/keyed";
 /** Dock — left-edge canonical live-terminal navigator.
  *
  *  Two progressive levels of detail, toggled in place. Per-device
@@ -63,6 +61,9 @@ import { Key } from "@solid-primitives/keyed";
  *  the welcome card advertises the shortcut but carries no clickable
  *  affordance. App.tsx mounts it (desktop only) inside the empty-state
  *  canvas as well as the populated one. */
+
+import type { DockRailEntry } from "./dockTree";
+import { Key } from "@solid-primitives/keyed";
 import { activeArm } from "@kolu/padi-client/surface";
 
 import {

@@ -1,4 +1,3 @@
-import { useActiveHostSelector } from "./isActiveHost";
 /** HostSelectorStrip — the multi-host selector, the visible face of the keyed padi
  *  host map (W4 "the switch").
  *
@@ -42,6 +41,8 @@ import { useActiveHostSelector } from "./isActiveHost";
  *  A trailing "+ add" opens the `AddHostAffordance` popover (ssh-target input)
  *  → `client.hosts.add`. */
 
+import { useActiveHostSelector } from "./isActiveHost";
+
 import { createMediaQuery } from "@solid-primitives/media";
 import { createResizeObserver } from "@solid-primitives/resize-observer";
 import {
@@ -51,6 +52,7 @@ import {
 } from "kolu-common/hostKey";
 import {
   type Component,
+  type JSX,
   createEffect,
   createMemo,
   createSignal,
@@ -122,6 +124,48 @@ type DiagnosticsCtl = {
   toggle: (encKey: string) => void;
 };
 
+/** Data-free geometry shared by the live chip and its measuring twin. */
+const HostChipShell: Component<{
+  host: HostKey;
+  decoration?: string;
+  tab?: JSX.HTMLAttributes<HTMLDivElement> & {
+    "data-asking"?: string;
+    "data-unseen"?: string;
+  };
+  diagnostics?: JSX.ButtonHTMLAttributes<HTMLButtonElement> & {
+    "data-testid"?: string;
+  };
+  select?: JSX.ButtonHTMLAttributes<HTMLButtonElement> & {
+    "data-testid"?: string;
+  };
+  status?: JSX.Element;
+  attention: JSX.Element;
+}> = (props) => (
+  <div
+    {...props.tab}
+    class="host-tab relative flex h-8 items-center has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-accent/50 has-[:focus-visible]:ring-inset"
+  >
+    <button
+      type="button"
+      {...props.diagnostics}
+      class="pointer-events-auto ml-2 flex h-7 w-4 shrink-0 items-center justify-center rounded-tl-[10px] transition-colors hover:bg-black/5 dark:hover:bg-white/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 cursor-pointer"
+    >
+      {props.status}
+    </button>
+    <button
+      type="button"
+      {...props.select}
+      class="pointer-events-auto flex h-8 items-center gap-1.5 pl-1 pr-2.5 transition-colors focus-visible:outline-none cursor-pointer"
+    >
+      <HostIdentityLabel
+        host={props.host}
+        labelClass={`truncate max-w-[5rem] lg:max-w-[10rem] font-medium${props.decoration ?? ""}`}
+      />
+    </button>
+    {props.attention}
+  </div>
+);
+
 const HostChip: Component<{
   host: HostKey;
   diagnostics: DiagnosticsCtl;
@@ -168,97 +212,66 @@ const HostChip: Component<{
       data-active={isActive() ? "" : undefined}
       data-down={down() ? "" : undefined}
     >
-      <div
-        // Tab geometry: rounded top, flush bottom into the canvas. Active and
-        // idle share the same size (no 1px hop). Active hue fill is kept even
-        // when down, with `.host-tab-down` layered on.
-        class="host-tab relative flex h-8 items-center has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-accent/50 has-[:focus-visible]:ring-inset"
-        style={{ "--host-hue": hostHue(props.host) }}
-        // Attention washes the WHOLE tab, not just the capsule inside it. Area
-        // is what carries a mark into peripheral vision — a 6 px dot on a quiet
-        // tab did not (#1990). Needs-you violet DOMINATES unseen amber (blocked
-        // beats unopened); both suppress on the active tab so they never fight
-        // the host-hue belly — the capsules still show there.
-        data-asking={marks.asking() > 0 && !isActive() ? "" : undefined}
-        data-unseen={
-          marks.unseenFinished() > 0 && marks.asking() === 0 && !isActive()
-            ? ""
-            : undefined
-        }
-        classList={{
-          "host-tab-active": isActive(),
-          "host-tab-idle": !isActive() && !down(),
-          "host-tab-down": down(),
+      <HostChipShell
+        host={props.host}
+        decoration={glance().labelDecoration}
+        tab={{
+          style: { "--host-hue": hostHue(props.host) },
+          "data-asking": marks.asking() > 0 && !isActive() ? "" : undefined,
+          "data-unseen":
+            marks.unseenFinished() > 0 && marks.asking() === 0 && !isActive()
+              ? ""
+              : undefined,
+          classList: {
+            "host-tab-active": isActive(),
+            "host-tab-idle": !isActive() && !down(),
+            "host-tab-down": down(),
+          },
         }}
-      >
-        {/* Connection status pip — click opens diagnostics (not switch). */}
-        <button
-          type="button"
-          data-testid="host-diagnostics-open"
-          aria-haspopup="dialog"
-          aria-expanded={diagOpen()}
-          aria-label={`Details for ${name()} — ${glance().title}${forwardCount() > 0 ? `, ${forwardRingLabel(forwardCount())}` : ""}`}
-          title={`${glance().title} — click for details`}
-          class="pointer-events-auto ml-2 flex h-7 w-4 shrink-0 items-center justify-center rounded-tl-[10px] transition-colors hover:bg-black/5 dark:hover:bg-white/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 cursor-pointer"
-          onClick={(e) => {
+        diagnostics={{
+          "data-testid": "host-diagnostics-open",
+          "aria-haspopup": "dialog",
+          "aria-expanded": diagOpen(),
+          "aria-label": `Details for ${name()} — ${glance().title}${forwardCount() > 0 ? `, ${forwardRingLabel(forwardCount())}` : ""}`,
+          title: `${glance().title} — click for details`,
+          onClick: (e) => {
             e.stopPropagation();
             props.diagnostics.toggle(encKey);
-          }}
-        >
-          {/* The dot, ringed when kolu holds forwards to this host. The ring
-           *  composes AROUND the pip and never touches its colour — see
-           *  `HostStatusDot`. It replaced a `⇄ n` chip beside the label: this
-           *  button is already what opens the dropdown the forward rows live
-           *  in, so the count belongs in its label rather than in a second
-           *  visual competing with the attention pills. */}
+          },
+        }}
+        select={{
+          role: "tab",
+          "aria-selected": isActive(),
+          "data-testid": "host-select",
+          classList: {
+            "text-fg": isActive() && !down(),
+            "text-fg-2 hover:text-fg": !isActive() && !down(),
+            "text-fg-3": down(),
+          },
+          onClick: () => {
+            if (!isActive()) setActiveHost(props.host);
+          },
+          title: `${name()} — ${glance().title}`,
+        }}
+        status={
           <HostStatusDot
             statusDot={statusDot()}
             forwardCount={forwardCount()}
           />
-        </button>
-        <button
-          type="button"
-          role="tab"
-          aria-selected={isActive()}
-          class="pointer-events-auto flex h-8 items-center gap-1.5 pl-1 pr-2.5 transition-colors focus-visible:outline-none cursor-pointer"
-          classList={{
-            "text-fg": isActive() && !down(),
-            "text-fg-2 hover:text-fg": !isActive() && !down(),
-            "text-fg-3": down(),
-          }}
-          data-testid="host-select"
-          // Switch only. Diagnostics is the status pip.
-          onClick={() => {
-            if (!isActive()) setActiveHost(props.host);
-          }}
-          title={`${name()} — ${glance().title}`}
-        >
-          {/* Local: Home + machine hostname. Remote: ssh target (ellipsizes
-           *  tighter below `lg`). Down: struck-through label. */}
-          <HostIdentityLabel
-            host={props.host}
-            labelClass={`truncate max-w-[5rem] lg:max-w-[10rem] font-medium${glance().labelDecoration}`}
+        }
+        attention={
+          <AttentionTriplet
+            active={marks.active()}
+            asking={marks.asking()}
+            unseen={marks.unseenFinished()}
+            viewing={isActive()}
+            sizeClass="min-w-4 px-1 h-4"
+            scopeLabel={name()}
+            onAsking={() => jumpToAsking(encKey)}
+            class="-ml-1 mr-2.5"
           />
-        </button>
-        {/* The attention summary — working · needs-you · unseen — the ONE
-         *  triplet every altitude renders. A SIBLING of the label button (not
-         *  a child) so its violet jump capsule is a real `<button>` without
-         *  nesting interactive elements. Shown on the ACTIVE tab too: the
-         *  summary is about the host's terminals, not about where you are —
-         *  being on the host while a background terminal blocks was exactly
-         *  the 20-hour failure. Unseen still suppresses on the active host
-         *  (its dock rows carry that mark). */}
-        <AttentionTriplet
-          active={marks.active()}
-          asking={marks.asking()}
-          unseen={marks.unseenFinished()}
-          viewing={isActive()}
-          sizeClass="min-w-4 px-1 h-4"
-          scopeLabel={name()}
-          onAsking={() => jumpToAsking(encKey)}
-          class="-ml-1 mr-2.5"
-        />
-      </div>
+        }
+      />
       <Show when={diagOpen()}>
         <HostDiagnosticsPopover
           host={props.host}
@@ -659,7 +672,7 @@ const HostSelectorStrip: Component = () => {
   // ── Overflow fit (narrow-window stage 3) ──────────────────────────────
   // Real DOM measurement: a HIDDEN row (absolutely positioned, `invisible`,
   // `pointer-events-none`, so it never paints or intercepts a click) mounts
-  // every renderable host's `HostChip` a second time purely to read its
+  // the data-free `HostChipShell` for each host purely to read its
   // natural rendered width via a `ResizeObserver`. `hostOverflow.ts`'s
   // `computeVisibleHosts` is the pure decision function; this component only
   // supplies its two reactive inputs (per-chip widths, the row's own
@@ -785,24 +798,20 @@ const HostSelectorStrip: Component = () => {
                 class="shrink-0"
               >
                 <div class="group -mb-px flex items-center shrink-0 text-xs">
-                  <div class="host-tab relative flex h-8 items-center">
-                    <span class="ml-2 flex h-7 w-4 shrink-0" />
-                    <span class="flex h-8 items-center gap-1.5 pl-1 pr-2.5">
-                      <HostIdentityLabel
-                        host={host}
-                        labelClass="truncate max-w-[5rem] lg:max-w-[10rem] font-medium"
+                  <HostChipShell
+                    host={host}
+                    attention={
+                      <AttentionTriplet
+                        active={hostMarks(key).active()}
+                        asking={hostMarks(key).asking()}
+                        unseen={hostMarks(key).unseenFinished()}
+                        viewing={useActiveHostSelector()(key)}
+                        sizeClass="min-w-4 px-1 h-4"
+                        scopeLabel="Measurement"
+                        class="-ml-1 mr-2.5"
                       />
-                    </span>
-                    <AttentionTriplet
-                      active={hostMarks(key).active()}
-                      asking={hostMarks(key).asking()}
-                      unseen={hostMarks(key).unseenFinished()}
-                      viewing={useActiveHostSelector()(key)}
-                      sizeClass="min-w-4 px-1 h-4"
-                      scopeLabel="Measurement"
-                      class="-ml-1 mr-2.5"
-                    />
-                  </div>
+                    }
+                  />
                 </div>
               </div>
             );

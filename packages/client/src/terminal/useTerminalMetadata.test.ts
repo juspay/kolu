@@ -642,10 +642,17 @@ it("metadata ticks do not wake split-tree or unrelated display readers", async (
     await flush();
     expect(splitWakes).toBe(1);
     expect(displayWakes).toBe(1);
-    setRecords((old) => ({ ...old, a: { ...old.a, cwd: "/different/a" } }));
+    const oldKey = store.getDisplayInfo("a")?.key;
+    setRecords((old) => ({
+      ...old,
+      a: { ...old.a, cwd: "/different/renamed" },
+    }));
     await flush();
     expect(splitWakes).toBe(1);
     expect(displayWakes).toBe(1);
+    expect(oldKey?.label).toBe("/work/a");
+    expect(store.getDisplayInfo("a")?.key.label).toBe("/different/renamed");
+    expect(store.getDisplayInfo("a")?.key).not.toBe(oldKey);
     dispose();
   });
 });

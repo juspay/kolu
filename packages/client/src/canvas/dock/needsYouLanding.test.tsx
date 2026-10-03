@@ -1,5 +1,5 @@
-import { createSignal } from "solid-js";
 // @vitest-environment happy-dom
+
 /**
  * The needs-you strip must NAVIGATE to the row it NAMES.
  *
@@ -16,6 +16,8 @@ import { createSignal } from "solid-js";
  * `useDockFocus` → `focusTerminal`, which resolves a split to its tab. This pins
  * that the strip passes the id that makes those verbs correct.
  */
+
+import { createSignal } from "solid-js";
 
 import {
   LOCAL_LOCATION,

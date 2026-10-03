@@ -15,13 +15,7 @@ import { toError } from "@kolu/surface/run-stream";
 import { Effect } from "effect";
 import type { ForwardOrigin, Forwards } from "kolu-common/surface";
 import { encodeHostKey, type HostKey } from "kolu-common/hostKey";
-import {
-  createComputed,
-  createMemo,
-  createResource,
-  createRoot,
-  mapArray,
-} from "solid-js";
+import { createMemo, createResource, createRoot, mapArray } from "solid-js";
 import { toast } from "solid-sonner";
 import { runActionPromise } from "../runAction";
 import { app, client, hostKeys } from "../wire";
@@ -55,12 +49,16 @@ const byHost = createRoot(() => {
   const index = createMemo(
     () => new Map(roots().map(({ enc, read }) => [enc, read])),
   );
-  createComputed(index);
   return index;
 });
 
 export function forwardsForHost(host: HostKey): Forwards {
-  return byHost().get(encodeHostKey(host))?.() ?? [];
+  const read = byHost().get(encodeHostKey(host));
+  if (!read)
+    throw new Error(
+      `Forwards requested for non-member host ${encodeHostKey(host)}`,
+    );
+  return read();
 }
 
 /** The LOCAL listen ports of every door kolu holds — kolu-server's own relay
