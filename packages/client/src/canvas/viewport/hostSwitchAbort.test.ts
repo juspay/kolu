@@ -68,13 +68,15 @@ function drainFrames(now: number): void {
 const POSE_ORIGIN = { panX: 0, panY: 0, zoom: 1 };
 
 describe("host-switch camera isolation", () => {
-  it("an in-flight pan animation started on host A never writes host B's camera after a switch", () => {
-    createRoot((dispose) => {
+  it("an in-flight pan animation started on host A never writes host B's camera after a switch", async () => {
+    await createRoot(async (dispose) => {
       try {
         const camA = createCamera();
         const camB = createCamera();
         const viewport = useCanvasViewport();
         viewport.setContainerRef(document.createElement("div"));
+        // The size observer now starts at mount, matching the real canvas.
+        await Promise.resolve();
 
         // Viewing A: start an animated pan toward a far point.
         activeCam = camA;
