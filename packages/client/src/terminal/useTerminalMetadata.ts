@@ -28,7 +28,7 @@ import {
   mapArray,
   onCleanup,
 } from "solid-js";
-import { createStore, produce } from "solid-js/store";
+import { createStore, produce, reconcile } from "solid-js/store";
 import { activeScope } from "../hostScope/hostScopes";
 import { activeHost, padiMap } from "../wire";
 import { reprojectTerminalClock } from "./reprojectClock";
@@ -202,7 +202,13 @@ export function useTerminalMetadata(deps: {
    *  set. In-repo precedent for the shared-reprojection remedy: `HostDaemonChips`
    *  `daemon()`. */
   const [slots, setSlots] = createStore<
-    Record<TerminalId, { read: Accessor<TerminalMetadata | undefined> }>
+    Record<
+      TerminalId,
+      {
+        read: Accessor<TerminalMetadata | undefined>;
+        parent: Accessor<TerminalId | null | undefined>;
+      }
+    >
   >({});
   const driveProjections = mapArray(keys, (id) => {
     const [store, setStore] = createStore<{ v: TerminalMetadata | undefined }>({
@@ -224,7 +230,11 @@ export function useTerminalMetadata(deps: {
             ),
       );
     });
-    setSlots(id, { read: () => store.v });
+    const parent = createMemo(() => {
+      const tile = rawTile(id);
+      return tile === undefined ? undefined : (tile.parentId ?? null);
+    });
+    setSlots(id, { read: () => store.v, parent });
     onCleanup(() =>
       setSlots(
         produce((s) => {
@@ -305,9 +315,7 @@ export function useTerminalMetadata(deps: {
    *  dead tile — chrome keyed on a terminal that is gone. There is one edge
    *  because there is one census. */
   function parentEdge(id: TerminalId): TerminalId | null | undefined {
-    const tile = rawTile(id);
-    if (tile === undefined) return undefined;
-    return tile.parentId ?? null;
+    return slots[id]?.parent();
   }
 
   /** Top-level terminal IDs in server-provided order.
@@ -343,9 +351,14 @@ export function useTerminalMetadata(deps: {
    *  The canvas paints these as the tile's split tab strip — a grandchild looks
    *  like a direct child; no indent, no breadcrumb. Built in one O(T) walk with
    *  a path memo so a deep chain is not re-walked per node. */
-  const splitsByRoot = createMemo<Map<TerminalId, TerminalId[]>>(() =>
-    descendantsByRoot(keys(), parentEdge),
-  );
+  const splitsByRoot = createMemo<Map<TerminalId, TerminalId[]>>((prev) => {
+    const next = descendantsByRoot(keys(), parentEdge);
+    for (const [id, ids] of next) {
+      const old = prev?.get(id);
+      if (old && sameTerminalIdOrder(old, ids)) next.set(id, old);
+    }
+    return next;
+  });
 
   /** The SAME panes, re-shaped into the true parent→child tree the Dock
    *  indents — derived from `splitsByRoot`'s arrays, never from a second walk
@@ -424,12 +437,20 @@ export function useTerminalMetadata(deps: {
 
   // Tile badge / subCount is the FLAT descendant count (what the canvas shows,
   // and what the Dock's sub-entries now cover), not the one-hop parent edge.
-  const displayInfos = createMemo(() =>
-    buildTerminalDisplayInfos(terminalIds(), getMetadata, getSplitPaneIds),
-  );
+  const [displayInfos, setDisplayInfos] = createStore<
+    Record<string, TerminalDisplayInfo>
+  >({});
+  createComputed(() => {
+    const next = buildTerminalDisplayInfos(
+      terminalIds(),
+      getMetadata,
+      getSplitPaneIds,
+    );
+    setDisplayInfos(reconcile(Object.fromEntries(next)));
+  });
 
   function getDisplayInfo(id: TerminalId): TerminalDisplayInfo | undefined {
-    return displayInfos().get(id);
+    return displayInfos[id];
   }
 
   /** Human-readable label for a terminal by its sidebar position. */

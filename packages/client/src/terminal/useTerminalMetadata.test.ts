@@ -612,3 +612,32 @@ describe("getMetadata identity stability (the #1714 right-panel-flicker guard)",
     });
   });
 });
+
+it("metadata ticks do not wake split-tree or unrelated display readers", async () => {
+  await createRoot(async (dispose) => {
+    const ids = tids("a", "b", "split");
+    const [records, setRecords] = createSignal<Record<string, TestMeta>>({
+      a: { cwd: "/work/a", lastActivityAt: 10 },
+      b: { cwd: "/work/b", lastActivityAt: 10 },
+      split: { cwd: "/work/a", parentId: "a" },
+    });
+    bag.keys = () => ids;
+    bag.metaOf = (id) => records()[id];
+    bag.clockOffset = () => 0;
+    const store = useTerminalMetadata({ list: () => ids.map((id) => ({ id }) as TerminalInfo) });
+    let splitWakes = 0;
+    let displayWakes = 0;
+    createEffect(() => { store.getPaneTree("a"); splitWakes++; });
+    createEffect(() => { store.getDisplayInfo("b")?.key.label; displayWakes++; });
+    await flush();
+    setRecords((old) => ({ ...old, a: { ...old.a, lastActivityAt: 20 } }));
+    await flush();
+    expect(splitWakes).toBe(1);
+    expect(displayWakes).toBe(1);
+    setRecords((old) => ({ ...old, a: { ...old.a, cwd: "/different/a" } }));
+    await flush();
+    expect(splitWakes).toBe(1);
+    expect(displayWakes).toBe(1);
+    dispose();
+  });
+});

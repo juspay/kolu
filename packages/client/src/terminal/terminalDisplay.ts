@@ -4,7 +4,7 @@
  *  in `@kolu/terminal-vocab`; this module only adds the decorations.
  *
  *  Deliberately carries NO live `TerminalMetadata`. This value rides the
- *  `displayInfos` memo, which is invalidated only by git / cwd / membership
+ *  keyed `displayInfos` store, which is invalidated only by git / cwd / membership
  *  (`terminalKey`'s inputs), NOT by the fast-changing per-terminal facts
  *  (pr / agent / foreground / state). Bundling `meta` here once let a
  *  consumer read those live fields off a snapshot the memo never refreshes,
@@ -43,7 +43,8 @@ export type TerminalDisplayInfo = {
  *  Dock row-data factory, the title-bar header, the mobile handle, and
  *  `buildWorkspaceEntries` all gate through it, so no consumer re-spells the
  *  `info && meta` check. Wrapped in a `createMemo` by the reactive consumers, it
- *  recomputes only when either REFERENCE turns over (not on a per-leaf tick);
+ *  follows the identity supplied by its caller; with keyed store projections,
+ *  unchanged records retain their references.
  *  the fine-grained pr/agent/foreground reads happen at the leaf, off the live
  *  `meta` proxy. Lives HERE, not in `useTerminalStore` — it is a pure
  *  `(info, meta)` function that touches no store, so it belongs in the leaf

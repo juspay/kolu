@@ -12,7 +12,7 @@
 
 import { activeArm } from "@kolu/padi-client/surface";
 import type { TerminalId } from "kolu-common/surface";
-import { createMemo } from "solid-js";
+import { createMemo, createSelector } from "solid-js";
 import { createSharedRoot } from "../createSharedRoot";
 import { terminalListSub } from "../hostScope/activeWire";
 import { useViewState } from "../useViewState";
@@ -52,29 +52,40 @@ export const useTerminalStore = createSharedRoot(() => {
    *  Reactive, so switching tiles loads/unloads WebGL only on the tiles that
    *  cross the cap boundary; when the whole working set fits, focus switches
    *  churn nothing (the #1399 fix). */
-  const webglTileBudget = createMemo(() => {
-    // `terminalIds()` includes sleeping tiles (they are full canvas citizens —
-    // they render, drag, and sit in the MRU), but a sleeping terminal holds NO
-    // live resource, so it must never claim a WebGL context. Narrowing the budget
-    // input to the active arm is the single gate that keeps the budget on the
-    // active arm; `holdsWebgl` inherits it via `budget.includes`.
-    const live = new Set(
-      metadata
-        .terminalIds()
-        .filter((id) => activeArm(metadata.getMetadata(id)) !== undefined),
-    );
-    const ordered = view.mruOrder().filter((id) => live.has(id));
-    // `tileWebglCost` is the one home for a tile's context cost (main pane + an
-    // expanded, active split), so the running count is the true number of live
-    // WebGL contexts — admitting the full working set churn-free (#1399) while
-    // staying under Chrome's per-tab limit (#575). `holdsWebgl` below maps the
-    // same split rule down to individual terminals via `isActiveSplit`.
-    return admitWebglTiles(
-      ordered,
-      (id) => tileWebglCost(subPanel.peekSubPanel(id)),
-      WEBGL_CONTEXT_CAP,
-    );
-  });
+  const webglTileBudget = createMemo(
+    () => {
+      // `terminalIds()` includes sleeping tiles (they are full canvas citizens —
+      // they render, drag, and sit in the MRU), but a sleeping terminal holds NO
+      // live resource, so it must never claim a WebGL context. Narrowing the budget
+      // input to the active arm is the single gate that keeps the budget on the
+      // active arm; `holdsWebgl` inherits it via `budget.includes`.
+      const live = new Set(
+        metadata
+          .terminalIds()
+          .filter((id) => activeArm(metadata.getMetadata(id)) !== undefined),
+      );
+      const ordered = view.mruOrder().filter((id) => live.has(id));
+      // `tileWebglCost` is the one home for a tile's context cost (main pane + an
+      // expanded, active split), so the running count is the true number of live
+      // WebGL contexts — admitting the full working set churn-free (#1399) while
+      // staying under Chrome's per-tab limit (#575). `holdsWebgl` below maps the
+      // same split rule down to individual terminals via `isActiveSplit`.
+      return admitWebglTiles(
+        ordered,
+        (id) => tileWebglCost(subPanel.peekSubPanel(id)),
+        WEBGL_CONTEXT_CAP,
+      );
+    },
+    undefined,
+    {
+      equals: (a, b) =>
+        a.length === b.length && a.every((id) => b.includes(id)),
+    },
+  );
+  const budgetContains = createSelector(
+    webglTileBudget,
+    (id: TerminalId, budget) => budget.includes(id),
+  );
 
   /** Whether `id` should hold a WebGL renderer under the budget. A budgeted
    *  tile's slot covers its main pane AND its active split — the split inherits
@@ -87,20 +98,17 @@ export const useTerminalStore = createSharedRoot(() => {
    *  keeps WebGL — so it is deliberately distinct from the `isFocused` gate
    *  that still drives zoom and `data-focused`. */
   function holdsWebgl(id: TerminalId): boolean {
-    const budget = webglTileBudget();
-    const meta = metadata.getMetadata(id);
-    if (!meta) return false;
     // Chrome (sub-panel state, WebGL budget) is keyed on the containing TILE —
     // a nested grandchild rides its tile's slot, not its true parent's. A tile
     // (root, cycle member, or orphan) owns its own slot outright.
     const tile = metadata.containingTile(id);
-    if (tile === id) return budget.includes(id);
+    if (tile === id) return budgetContains(id);
     const panel = subPanel.peekSubPanel(tile);
     // A budgeted tile's slot covers exactly its active split (a collapsed split
     // is invisible and holds no context). `isActiveSplit` is the same predicate
     // `tileWebglCost` builds the budget from, so this per-terminal grant and the
     // budgeted count can't drift apart.
-    return budget.includes(tile) && isActiveSplit(panel, id);
+    return budgetContains(tile) && isActiveSplit(panel, id);
   }
 
   // Bundle the active terminal id with ITS OWN metadata so a consumer gets a
