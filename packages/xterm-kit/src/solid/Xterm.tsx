@@ -351,7 +351,7 @@ export const Xterm: Component<
       const screen = enableSoftKeyboardInput(term);
       if (screen) {
         wireTouchTaps(screen, {
-          onTap: own.onTap,
+          onTap: (...args) => own.onTap?.(...args),
           onFocus: () => term.focus(),
         });
       }
@@ -369,7 +369,7 @@ export const Xterm: Component<
       );
 
       // Keystrokes out — the consumer's callback owns any filtering/rewriting.
-      term.onData(own.onData);
+      term.onData((data) => own.onData(data));
       // No `own.visible` gate: `applyFit` already declines an unmeasurable box
       // (display:none reports a 0 client box), so a second, weaker predicate
       // for the same question could only ever disagree with the real one.
@@ -434,14 +434,12 @@ export const Xterm: Component<
       { defer: true },
     ),
   );
-  // Re-fit when the pane becomes visible (display:none → visible).
+  // Re-fit against current geometry on reveal without changing the user's scroll position.
   createEffect(
     on(
       () => own.visible,
       (visible) => {
         if (!visible || !core) return;
-        scrollLock.reset();
-        core.terminal.scrollToBottom();
         refit();
       },
       { defer: true },
