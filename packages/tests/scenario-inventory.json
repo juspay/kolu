@@ -7875,6 +7875,42 @@
       "exampleRows": [],
       "executions": 1,
       "firstSeenSha": "de062acf6a31023536a517109de0f9ff9832fd70"
+    },
+    {
+      "revisionId": "revision-21f4e8a6b35702a81e11",
+      "scenarioKey": "scenario-286ad8db348675702556",
+      "feature": "features/code-tab.feature",
+      "scenario": "Each Code mode retains its tree and browse expansion",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "d2f7f4262645a96fc0069622020768c2b3645063eac4a9c769fd2733c971ad93",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "d34a7a969aa972c875d9d697518d0c3f4ac92a95"
+    },
+    {
+      "revisionId": "revision-1438911e6d750f67e3a1",
+      "scenarioKey": "scenario-b9dfdd0ac08a9d27ad6b",
+      "feature": "features/code-tab.feature",
+      "scenario": "File saves update the retained Pierre source renderer",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "71e1a4d4ab8159cef676fef217c56555632ed663f681298bb4079e730ed031c2",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "d34a7a969aa972c875d9d697518d0c3f4ac92a95"
+    },
+    {
+      "revisionId": "revision-b3682ec75920afc12350",
+      "scenarioKey": "scenario-6a8d402842e74144e9bf",
+      "feature": "features/compact-layout.feature",
+      "scenario": "App retains terminal and right panel through phone and compact flips",
+      "kind": "scenario",
+      "tags": ["@compact"],
+      "bodyHash": "fd7e2cc281e92e47a5f876193b795eb5397ff75d76312d27992a375baacbafe0",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "d34a7a969aa972c875d9d697518d0c3f4ac92a95"
     }
   ]
 }
