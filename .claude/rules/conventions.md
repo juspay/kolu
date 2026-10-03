@@ -9,7 +9,6 @@ paths:
 
 ## Workflow
 
-- Use `/waterfall` to take a task end-to-end: it settles a plan with you, then drives an implementer in a kolu terminal through the PR, the review, and CI. It owns its own phase list — don't restate them here.
 - Run `just fmt` (formatting) before declaring done.
 - **Prefer external libraries over hand-rolled code**: Use well-maintained SolidJS-native libraries (Corvu, solid-sonner, @solid-primitives, etc.) to reduce custom code surface area. Less code to maintain = fewer bugs.
 
