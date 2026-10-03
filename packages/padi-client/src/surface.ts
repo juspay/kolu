@@ -1930,6 +1930,7 @@ export const padiSurface = defineSurfaceWithPolicy<ClientErrorPolicy>()({
      *  list works identically whether kolu-server is bound locally or over ssh. */
     hostInventory: {
       schema: PadiHostInventorySchema,
+      arrayKey: "socket",
       default: DEFAULT_PADI_HOST_INVENTORY,
       verbs: ["get"],
       client: { onError: { kind: "toast", label: "Host inventory" } },

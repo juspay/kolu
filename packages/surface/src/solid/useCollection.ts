@@ -122,8 +122,11 @@ export function useCollection<Name extends string, K, T, I>(
     return { key, sub };
   });
 
+  const index = createMemo(
+    () => new Map(perKey().map(({ key, sub }) => [key, sub])),
+  );
   function byKey(key: K): Subscription<T> | undefined {
-    return perKey().find((p) => p.key === key)?.sub;
+    return index().get(key);
   }
 
   return { keys, byKey };
