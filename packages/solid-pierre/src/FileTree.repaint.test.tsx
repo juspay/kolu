@@ -128,3 +128,68 @@ describe("mounted FileTree repaints on a live change (#1534)", () => {
     expect(marked()).toContain("src/");
   });
 });
+
+it("opens diff folders after a retained empty browse tree receives its paths", async () => {
+  const [paths, setPaths] = createSignal<string[]>([]);
+  const [expansion, setExpansion] = createSignal<"closed" | "open">("closed");
+  const root = mountInto((host) =>
+    render(
+      () => (
+        <FileTree
+          paths={paths()}
+          initialExpansion={expansion()}
+          search={false}
+          onError={(err) => {
+            throw err;
+          }}
+        />
+      ),
+      host,
+    ),
+  );
+  setExpansion("open");
+  setPaths(["src/a.ts", "src/b.ts", "other.txt"]);
+  await flush();
+  expect(root.isConnected).toBe(true);
+  expect(paintedRows(root)).toContain("src/a.ts");
+  const folder = root.querySelector<HTMLElement>('[data-item-path="src/"]')!;
+  folder.click();
+  await flush();
+  expect(paintedRows(root)).not.toContain("src/a.ts");
+  setPaths(["src/a.ts", "src/b.ts", "other.txt", "new/c.ts"]);
+  await flush();
+  expect(paintedRows(root)).not.toContain("src/a.ts");
+  expect(paintedRows(root)).toContain("new/c.ts");
+  expect(root.isConnected).toBe(true);
+});
+
+it("applies a standing selection when its path arrives in the retained tree", async () => {
+  const [paths, setPaths] = createSignal<string[]>([]);
+  const root = mountInto((host) =>
+    render(
+      () => (
+        <FileTree
+          paths={paths()}
+          selectedPath="src/a.ts"
+          search={false}
+          onError={(err) => {
+            throw err;
+          }}
+        />
+      ),
+      host,
+    ),
+  );
+  setPaths(["src/a.ts", "src/b.ts"]);
+  await flush();
+  expect(
+    root.querySelector('[data-item-path="src/a.ts"][aria-selected="true"]'),
+  ).not.toBeNull();
+  setPaths([]);
+  setPaths(["src/a.ts", "src/b.ts"]);
+  await flush();
+  expect(
+    root.querySelector('[data-item-path="src/a.ts"][aria-selected="true"]'),
+  ).not.toBeNull();
+  expect(root.isConnected).toBe(true);
+});

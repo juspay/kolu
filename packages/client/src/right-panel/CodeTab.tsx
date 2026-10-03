@@ -800,8 +800,18 @@ const CodeTab: Component<{
 
   const treePaths = () => treeInventory().paths;
 
-  const treeSearch = createMemo(() =>
-    projectFileTreeSearch(treePaths(), searchQuery()),
+  const treeSearch = createMemo(
+    () => projectFileTreeSearch(treePaths(), searchQuery()),
+    undefined,
+    {
+      // Equal inventories are not fresh reveal requests. A status refresh must
+      // not reopen a folder the user collapsed while the filter stays active.
+      equals: (a, b) =>
+        a.projectedPaths.length === b.projectedPaths.length &&
+        a.projectedPaths.every((path, i) => path === b.projectedPaths[i]) &&
+        a.expandedAncestors.length === b.expandedAncestors.length &&
+        a.expandedAncestors.every((path, i) => path === b.expandedAncestors[i]),
+    },
   );
 
   // Everything kolu paints inside Pierre's shadow root, as ONE string on the one
