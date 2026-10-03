@@ -39,6 +39,9 @@ canvas; a real mouse still gets the canvas.
 
 Folding or unfolding the screen keeps the same terminal view. Switching between
 touch and desktop layouts also retains the terminal instead of attaching it again.
+The desktop canvas and split panel have separate layout owners from the touch
+drawer: their gestures and sizing are rebuilt at that boundary. Phone and compact
+share both the terminal view and the drawer.
 
 ## Multi-host from a phone
 

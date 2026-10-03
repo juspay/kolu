@@ -1,4 +1,3 @@
-import { tileElements, registerTileElement } from "./tileElements";
 /** Tile registry — the first-class "what tiles exist, which is active, where
  *  each sits" layer the canvas, dock, and selection read. It sits IN FRONT OF
  *  the terminal store (fed by it), separating tile PRESENCE from terminal
@@ -96,8 +95,6 @@ export const useTileStore = createSharedRoot(() => {
   };
 
   return {
-    tileElements,
-    registerTileElement,
     // Tile presence + content.
     tileIds,
     tileCount,

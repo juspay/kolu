@@ -173,7 +173,7 @@ const TerminalContent: Component<{
       >
         <Resizable.Panel
           as="div"
-          class={`min-h-0 overflow-hidden ${RECEDE_INACTIVE_PANE}`}
+          class={`relative min-h-0 overflow-hidden ${RECEDE_INACTIVE_PANE}`}
           minSize={0.2}
           data-pane="main"
           data-pane-focus={paneFocus("main")}

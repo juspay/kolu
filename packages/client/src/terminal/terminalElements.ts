@@ -1,6 +1,6 @@
-/** Mounted canvas hosts. Each ref owns its registration until unmount. */
+/** Mounted terminal bodies. Each ref owns its registration until unmount. */
 const elements = new Map<string, HTMLElement>();
-export function registerTileElement(
+export function registerTerminalElement(
   id: string,
   element: HTMLElement,
 ): () => void {
@@ -9,6 +9,6 @@ export function registerTileElement(
     if (elements.get(id) === element) elements.delete(id);
   };
 }
-export function tileElements(): Iterable<HTMLElement> {
+export function terminalElements(): Iterable<HTMLElement> {
   return elements.values();
 }

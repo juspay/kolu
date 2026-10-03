@@ -105,6 +105,7 @@ const ZoomBarButton: Component<{
 );
 
 const CanvasMinimap: Component<{
+  shown: boolean;
   tileIds: string[];
   getLayout: (id: string) => TileLayout | undefined;
   /** Activate a tile (make it the focused terminal). */
@@ -137,34 +138,45 @@ const CanvasMinimap: Component<{
   const isParked = useStaleCheck();
 
   // ── Bounding box of all tiles ──
-  const bounds = createMemo(() => {
-    let minX = Infinity,
-      minY = Infinity,
-      maxX = -Infinity,
-      maxY = -Infinity;
-    for (const id of props.tileIds) {
-      const l = props.getLayout(id);
-      if (!l) continue;
-      minX = Math.min(minX, l.x);
-      minY = Math.min(minY, l.y);
-      maxX = Math.max(maxX, l.x + l.w);
-      maxY = Math.max(maxY, l.y + l.h);
-    }
-    if (!Number.isFinite(minX))
-      return { minX: 0, minY: 0, maxX: 1, maxY: 1, w: 1, h: 1 };
-    const padMinX = minX - MAP_PAD;
-    const padMinY = minY - MAP_PAD;
-    const padMaxX = maxX + MAP_PAD;
-    const padMaxY = maxY + MAP_PAD;
-    return {
-      minX: padMinX,
-      minY: padMinY,
-      maxX: padMaxX,
-      maxY: padMaxY,
-      w: padMaxX - padMinX,
-      h: padMaxY - padMinY,
-    };
-  });
+  const bounds = createMemo(
+    (previous: {
+      minX: number;
+      minY: number;
+      maxX: number;
+      maxY: number;
+      w: number;
+      h: number;
+    }) => {
+      if (!props.shown) return previous;
+      let minX = Infinity,
+        minY = Infinity,
+        maxX = -Infinity,
+        maxY = -Infinity;
+      for (const id of props.tileIds) {
+        const l = props.getLayout(id);
+        if (!l) continue;
+        minX = Math.min(minX, l.x);
+        minY = Math.min(minY, l.y);
+        maxX = Math.max(maxX, l.x + l.w);
+        maxY = Math.max(maxY, l.y + l.h);
+      }
+      if (!Number.isFinite(minX))
+        return { minX: 0, minY: 0, maxX: 1, maxY: 1, w: 1, h: 1 };
+      const padMinX = minX - MAP_PAD;
+      const padMinY = minY - MAP_PAD;
+      const padMaxX = maxX + MAP_PAD;
+      const padMaxY = maxY + MAP_PAD;
+      return {
+        minX: padMinX,
+        minY: padMinY,
+        maxX: padMaxX,
+        maxY: padMaxY,
+        w: padMaxX - padMinX,
+        h: padMaxY - padMinY,
+      };
+    },
+    { minX: 0, minY: 0, maxX: 1, maxY: 1, w: 1, h: 1 },
+  );
 
   // ── Scale factor: fit bounding box into MAP_W × MAP_H ──
   const minimapScale = createMemo(() => {

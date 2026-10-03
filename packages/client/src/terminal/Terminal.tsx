@@ -12,6 +12,7 @@
  * via a fontSize signal, passed to <Xterm> as the fontSize prop.
  */
 
+import { registerTerminalElement } from "./terminalElements";
 import { makeEventListener } from "@solid-primitives/event-listener";
 import { ClipboardAddon } from "@xterm/addon-clipboard";
 import type { ITheme, Terminal as XTerm } from "@xterm/xterm";
@@ -307,6 +308,7 @@ const Terminal: Component<{
   // owner, so every listener / disposable registered here is cleaned up on
   // disposal alongside the terminal the kit owns.
   const onReady = (h: XtermHandle) => {
+    onCleanup(registerTerminalElement(props.terminalId, h.container));
     setHandle(h);
     const term = h.terminal;
 

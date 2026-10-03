@@ -1,42 +1,19 @@
-import { registerTileElement } from "../tile/tileElements";
 // @vitest-environment happy-dom
-
-import { afterEach, describe, expect, it } from "vitest";
-import { getActiveTerminalNode } from "./activeTerminal";
-
-afterEach(() => {
-  document.body.replaceChildren();
-});
-
-describe("getActiveTerminalNode", () => {
-  it("returns the focused split instead of the active tile's first terminal", () => {
-    document.body.innerHTML = `
-      <div data-canvas-tile data-active>
-        <div data-terminal-id="main" data-visible></div>
-        <div data-terminal-id="split" data-visible data-focused></div>
-      </div>
-    `;
-
-    const dispose = registerTileElement(
-      "tile",
-      document.body.firstElementChild as HTMLElement,
-    );
-    expect(getActiveTerminalNode()?.dataset.terminalId).toBe("split");
-    dispose();
-  });
-
-  it("falls back to the first visible terminal before focus is established", () => {
-    document.body.innerHTML = `
-      <div data-canvas-tile data-active>
-        <div data-terminal-id="main" data-visible></div>
-      </div>
-    `;
-
-    const dispose = registerTileElement(
-      "tile",
-      document.body.firstElementChild as HTMLElement,
-    );
-    expect(getActiveTerminalNode()?.dataset.terminalId).toBe("main");
-    dispose();
-  });
+import { expect, it } from "vitest";
+import { registerTerminalElement } from "../terminal/terminalElements";
+import { getActiveTerminalNode, getFirstTerminalNode } from "./activeTerminal";
+it("refocuses the visible focused body in phone, compact and desktop layouts", () => {
+  const main = document.createElement("div");
+  main.dataset.visible = "";
+  const split = document.createElement("div");
+  split.dataset.visible = "";
+  split.dataset.focused = "";
+  const removeMain = registerTerminalElement("main", main);
+  const removeSplit = registerTerminalElement("split", split);
+  expect(getActiveTerminalNode()).toBe(split);
+  delete split.dataset.visible;
+  expect(getActiveTerminalNode()).toBe(main);
+  removeMain();
+  removeSplit();
+  expect(getFirstTerminalNode()).toBeNull();
 });

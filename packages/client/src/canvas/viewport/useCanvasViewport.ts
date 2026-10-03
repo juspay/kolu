@@ -4,7 +4,13 @@
  *  Consumers import only this module. The three internal modules
  *  (gestures, transforms, coordinates) are implementation details. */
 
-import { type Accessor, batch, createRoot, createSignal } from "solid-js";
+import {
+  type Accessor,
+  batch,
+  onCleanup,
+  onMount,
+  createSignal,
+} from "solid-js";
 import { createElementSize } from "@solid-primitives/resize-observer";
 import { activeScope } from "../../hostScope/hostScopes";
 import type { TileLayout } from "../TileLayout";
@@ -54,8 +60,8 @@ const setZoom = (v: number): void => cam()?.setZoom(v);
 /** Container ref, set on mount. */
 let containerEl: HTMLDivElement | null = null;
 // HOST-SCOPING: host-INDEPENDENT by design — DOM viewport; the camera is per-host above.
-const [container, setContainer] = createSignal<HTMLDivElement>();
-const size = createRoot(() => createElementSize(container));
+const [observedSize, setObservedSize] =
+  createSignal<ReturnType<typeof createElementSize>>();
 /** Cleanup function for the current gesture listeners. */
 let cleanupGestures: (() => void) | null = null;
 /** In-flight pan animation (if any) — cancelled by any gesture or
@@ -175,6 +181,7 @@ export interface CanvasViewport {
    *  `activeScope()`, which re-keys to the new host on switch). */
   abortTransientInput: () => void;
   /** Current viewport dimensions in pixels (0×0 before mount). */
+  mounted: Accessor<boolean>;
   viewportSize: () => { width: number; height: number };
   /** Canvas-space point at the viewport center — the forward projection of
    *  pan+zoom+size that consumers use to drop a tile under the camera. `null`
@@ -205,7 +212,17 @@ function setContainerRef(
   cleanupGestures?.();
   discardPendingGesture();
   containerEl = el;
-  setContainer(el ?? undefined);
+  // Refs run before insertion. Seed the observer after mount, so the first
+  // centering request uses a real viewport instead of the detached 0×0 box.
+  onMount(() => setObservedSize(createElementSize(el)));
+  onCleanup(() => {
+    if (containerEl !== el) return;
+    cleanupGestures?.();
+    cleanupGestures = null;
+    abortTransientInput();
+    containerEl = null;
+    setObservedSize(undefined);
+  });
   cleanupGestures = installGestures(
     el,
     {
@@ -240,14 +257,14 @@ function normalizeDelta(dx: number, dy: number) {
 function targetForTile(
   tile: TileLayout,
 ): { panX: number; panY: number } | null {
-  if (!containerEl) return null;
+  if (!observedSize()) return null;
   return computeCenterPan(
     tile.x,
     tile.y,
     tile.x + tile.w,
     tile.y + tile.h,
-    containerEl.clientWidth,
-    containerEl.clientHeight,
+    viewportSize().width,
+    viewportSize().height,
     zoom(),
   );
 }
@@ -256,14 +273,14 @@ function targetForPoint(
   x: number,
   y: number,
 ): { panX: number; panY: number } | null {
-  if (!containerEl) return null;
+  if (!observedSize()) return null;
   return computeCenterPan(
     x,
     y,
     x,
     y,
-    containerEl.clientWidth,
-    containerEl.clientHeight,
+    viewportSize().width,
+    viewportSize().height,
     zoom(),
   );
 }
@@ -302,30 +319,28 @@ function setPan(x: number, y: number) {
 
 // The observed viewport changes even when the camera remains still.
 function viewportSize() {
-  return {
-    width: size.width ?? 0,
-    height: size.height ?? 0,
-  };
+  const size = observedSize();
+  if (!size || size.width === null || size.height === null)
+    throw new Error("Canvas viewport size requested before mount");
+  return { width: size.width, height: size.height };
 }
 
 function viewportCenter() {
-  // Guard on the container like targetForPoint/targetForTile: without it,
-  // viewportSize() falls back to 0×0 and the "center" collapses to the raw
-  // pan origin — a silently wrong point. Return null so callers no-op.
-  if (!containerEl) return null;
+  // There is no viewport center until the canvas mounts.
+  if (!observedSize()) return null;
   const { width, height } = viewportSize();
   return viewportCenterPure(panX(), panY(), width, height, zoom());
 }
 
 function applyZoomToCenter(direction: "in" | "out" | "reset") {
-  if (!containerEl) return;
+  if (!observedSize()) return;
   abortTransientInput();
   const result = zoomToCenterPure(
     panX(),
     panY(),
     zoom(),
-    containerEl.clientWidth,
-    containerEl.clientHeight,
+    viewportSize().width,
+    viewportSize().height,
     direction,
   );
   batch(() => {
@@ -345,6 +360,7 @@ const viewport: CanvasViewport = {
   panTo,
   setPan,
   abortTransientInput,
+  mounted: () => observedSize() !== undefined,
   viewportSize,
   viewportCenter,
   snapToGrid: snapToGridPure,

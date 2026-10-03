@@ -139,6 +139,8 @@ const MobileTileView: Component<{
               const visible = () => tileStore.isActiveTile(id);
               return (
                 <div
+                  data-mobile-tile={id}
+                  data-active={visible() ? "" : undefined}
                   class="absolute inset-0 flex flex-col"
                   style={{
                     "content-visibility": visible() ? "visible" : "hidden",

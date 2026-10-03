@@ -1,4 +1,3 @@
-import { registerTileElement } from "../tile/tileElements";
 /** Single tile on the canvas — separated so createDraggable gets its own
  *  reactive owner per tile (required by solid-dnd). Shell only: positioning,
  *  title bar, resize handles. Content is injected via render props — the
@@ -21,7 +20,6 @@ import {
   createSignal,
   For,
   type JSX,
-  onCleanup,
   onMount,
   Show,
 } from "solid-js";
@@ -335,7 +333,6 @@ const CanvasTile: Component<{
     <div
       ref={(el) => {
         draggable.ref(el);
-        onCleanup(registerTileElement(props.id, el));
       }}
       data-testid="canvas-tile"
       data-canvas-tile=""

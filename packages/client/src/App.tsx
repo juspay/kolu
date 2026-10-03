@@ -1,4 +1,3 @@
-import { WorkspaceTerminals } from "./terminal/WorkspaceTerminals";
 /** App shell: layout + wiring. State lives in useXxx singletons, behavior in
  *  components. App.tsx mounts the chrome, the canvas surface (chosen by
  *  `canvasMode`), the dialogs, and the overlays — and holds nothing but the
@@ -12,6 +11,8 @@ import { WorkspaceTerminals } from "./terminal/WorkspaceTerminals";
  *  layout per form factor, no in-app switch.) Per-terminal chrome (theme pill,
  *  agent indicator, screenshot, split toggle) lives on the tile title bar via
  *  `canvas/TileTitleActions`. The header is intentionally minimal. */
+
+import { WorkspaceTerminals } from "./terminal/WorkspaceTerminals";
 
 import Resizable from "@corvu/resizable";
 import { activeArm, sleepingArm } from "@kolu/padi-client/surface";
@@ -557,7 +558,7 @@ const App: Component = () => {
           </Match>
           <Match when={mode().kind === "workspace"}>
             <WorkspaceTerminals
-              ids={tileStore.tileIds()}
+              ids={isDesktop() ? tileStore.tileIds() : orderedIds()}
               renderBody={renderTerminalBody}
             >
               {(outlet) => (

@@ -46,7 +46,7 @@ export function useCanvasCenterOnSwitch(
     }),
   );
   createEffect(() => {
-    if (!pendingCenter()) return;
+    if (!pendingCenter() || !viewport.mounted()) return;
     const activeTile = activeTileLayout();
     if (!activeTile) return; // mount race — wait for the tile to be measured
     const camera = activeScope()?.camera;
