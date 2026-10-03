@@ -94,12 +94,18 @@ describe("watchDirWhenReady", () => {
     expect(events.length).toBe(0);
 
     fs.mkdirSync(nested);
-    const nudge = path.join(tmp, "a", "b", ".nudge");
+    // A dropped creation edge may leave the chain watching ANY ancestor.
+    // fs.watch is non-recursive: writing only inside a/b cannot wake a watch
+    // still attached to tmp. Re-notify every possible attachment point.
+    const ancestors = [tmp, path.join(tmp, "a"), path.join(tmp, "a", "b")];
     await waitForWatch(
       // The attach kick can be followed by queued OS events before this
       // asynchronous probe runs, especially with FSEvents on macOS.
       () => events.length >= 1,
-      () => fs.writeFileSync(nudge, ""),
+      () => {
+        for (const ancestor of ancestors)
+          fs.writeFileSync(path.join(ancestor, ".nudge"), "");
+      },
     );
 
     const beforeWrite = events.length;
