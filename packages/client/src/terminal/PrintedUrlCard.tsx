@@ -1,3 +1,5 @@
+import { createSelector } from "solid-js";
+import { createSharedRoot } from "../createSharedRoot";
 /**
  * The PRT4 join card — a small Solid popover at the click coordinates.
  *
@@ -560,17 +562,20 @@ export const PrintedUrlCard: Component<{ target: PrintedUrlCardTarget }> = (
  *  dismiss mid-cascade cannot produce a stale accessor read (the production
  *  second-click crash). Terminal renders this; tests render this; there is no
  *  second copy of the mount pattern to drift. */
+const useCardTargetSelector = createSharedRoot(() =>
+  createSelector(() => printedUrlCardTarget()?.terminalId),
+);
+
 export const PrintedUrlCardMount: Component<{ terminalId: TerminalId }> = (
   props,
-) => (
-  <Show
-    keyed
-    when={
-      printedUrlCardTarget()?.terminalId === props.terminalId
-        ? printedUrlCardTarget()
-        : undefined
-    }
-  >
-    {(t) => <PrintedUrlCard target={t} />}
-  </Show>
-);
+) => {
+  const selected = useCardTargetSelector();
+  return (
+    <Show
+      keyed
+      when={selected(props.terminalId) ? printedUrlCardTarget() : undefined}
+    >
+      {(t) => <PrintedUrlCard target={t} />}
+    </Show>
+  );
+};

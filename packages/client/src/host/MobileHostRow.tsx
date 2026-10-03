@@ -1,3 +1,4 @@
+import { useActiveHostSelector } from "./isActiveHost";
 /** MobileHostRow — the host row for the mobile pull-down chrome sheet.
  *
  *  The touch layout drops the persistent desktop chrome bar (and its
@@ -60,7 +61,8 @@ const MobileHostChip: Component<{ host: HostKey; onSwitch: () => void }> = (
   // Compare active-host vs. this chip's host by CANONICAL string (`sameHost`),
   // never `===`: a `HostKey` is an object with no reference identity across
   // independent decodes.
-  const isActive = createMemo(() => sameHost(activeHost(), props.host));
+  const selectedHost = useActiveHostSelector();
+  const isActive = () => selectedHost(encodeHostKey(props.host));
   // #2101 N4: the presented state composes the daemon chain (padi AND kaval).
   const kaval = useHostKavalChain(props.host);
   const glance = createMemo(() => hostGlance(state(), kaval()));

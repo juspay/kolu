@@ -1,3 +1,4 @@
+import { useActiveHostSelector } from "./isActiveHost";
 /** HostSelectorStrip — the multi-host selector, the visible face of the keyed padi
  *  host map (W4 "the switch").
  *
@@ -54,6 +55,7 @@ import {
   createEffect,
   createMemo,
   createSignal,
+  createSelector,
   For,
   onCleanup,
   Show,
@@ -123,7 +125,6 @@ type DiagnosticsCtl = {
 
 const HostChip: Component<{
   host: HostKey;
-  measure?: boolean;
   diagnostics: DiagnosticsCtl;
 }> = (props) => {
   // The PURE lens per chip (the host is fixed for this chip's lifetime — the `<For>`
@@ -141,7 +142,8 @@ const HostChip: Component<{
   // The active-host signal + this chip's own host are compared by their CANONICAL
   // string (`sameHost`) — a `HostKey` is an object with no reference identity across
   // independent decodes, so `===` would silently never match a logically-equal remote.
-  const isActive = () => sameHost(activeHost(), props.host);
+  const selectedHost = useActiveHostSelector();
+  const isActive = () => selectedHost(encodeHostKey(props.host));
   // #2101 N4: the presented state composes the daemon chain — a padi-up host
   // whose kaval is down must not paint the connected green.
   const kaval = useHostKavalChain(props.host);
@@ -152,7 +154,7 @@ const HostChip: Component<{
   const { hostname } = useServerIdentity();
   const name = () => hostDisplayName(props.host, hostname());
   // Strip-owned open key — only ONE diagnostics panel mounts at a time.
-  const diagOpen = () => !props.measure && props.diagnostics.isOpen(encKey);
+  const diagOpen = () => props.diagnostics.isOpen(encKey);
 
   let chipEl: HTMLDivElement | undefined;
 
@@ -201,7 +203,6 @@ const HostChip: Component<{
           class="pointer-events-auto ml-2 flex h-7 w-4 shrink-0 items-center justify-center rounded-tl-[10px] transition-colors hover:bg-black/5 dark:hover:bg-white/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 cursor-pointer"
           onClick={(e) => {
             e.stopPropagation();
-            if (props.measure) return;
             props.diagnostics.toggle(encKey);
           }}
         >
@@ -280,7 +281,8 @@ const HostSwitcherRow: Component<{
 }> = (props) => {
   const host = decodeHostKey(props.hostKey);
   const isLocal = () => host.kind === "local";
-  const isActive = () => sameHost(activeHost(), host);
+  const selectedHost = useActiveHostSelector();
+  const isActive = () => selectedHost(props.hostKey);
   const state = () => padiMap.entry(host).state();
   const kaval = useHostKavalChain(host);
   const glance = () => hostGlance(state(), kaval());
@@ -639,8 +641,9 @@ const HostSelectorStrip: Component = () => {
   // One open diagnostics host — strip-owned (dies with the strip; cleared when
   // the keyed host leaves membership so a re-add never reopens stale).
   const [diagKey, setDiagKey] = createSignal<string | null>(null);
+  const selectedDiagnostic = createSelector(diagKey);
   const diagnostics: DiagnosticsCtl = {
-    isOpen: (encKey) => diagKey() === encKey,
+    isOpen: selectedDiagnostic,
     open: (encKey) => setDiagKey(encKey),
     close: () => setDiagKey(null),
     toggle: (encKey) => setDiagKey((cur) => (cur === encKey ? null : encKey)),
@@ -736,10 +739,10 @@ const HostSelectorStrip: Component = () => {
        *  `md:hidden`, which double-filled dual-daemon slots on the active
        *  host. Split is keyed on `md` (768px), not `sm` — ChromeBar never
        *  mounts below `sm` (phone chrome). */}
-      <Show
-        when={atMd()}
-        fallback={<HostDropdownSwitcher hosts={renderableHosts()} />}
-      >
+      <div classList={{ hidden: atMd() }} inert={atMd()}>
+        <HostDropdownSwitcher hosts={renderableHosts()} />
+      </div>
+      <div classList={{ hidden: !atMd() }} inert={!atMd()}>
         <div
           role="tablist"
           aria-label="Hosts"
@@ -755,7 +758,7 @@ const HostSelectorStrip: Component = () => {
             <HostOverflowMenu hosts={hostFit().overflowed} />
           </Show>
         </div>
-      </Show>
+      </div>
 
       {/* Hidden measuring row — off-screen (position absolute, so it never
        *  affects this container's own layout), invisible + inert, mounts
@@ -782,7 +785,26 @@ const HostSelectorStrip: Component = () => {
                 data-host-key={key}
                 class="shrink-0"
               >
-                <HostChip host={host} measure diagnostics={diagnostics} />
+                <div class="group -mb-px flex items-center shrink-0 text-xs">
+                  <div class="host-tab relative flex h-8 items-center">
+                    <span class="ml-2 flex h-7 w-4 shrink-0" />
+                    <span class="flex h-8 items-center gap-1.5 pl-1 pr-2.5">
+                      <HostIdentityLabel
+                        host={host}
+                        labelClass="truncate max-w-[5rem] lg:max-w-[10rem] font-medium"
+                      />
+                    </span>
+                    <AttentionTriplet
+                      active={hostMarks(key).active()}
+                      asking={hostMarks(key).asking()}
+                      unseen={hostMarks(key).unseenFinished()}
+                      viewing={useActiveHostSelector()(key)}
+                      sizeClass="min-w-4 px-1 h-4"
+                      scopeLabel="Measurement"
+                      class="-ml-1 mr-2.5"
+                    />
+                  </div>
+                </div>
               </div>
             );
           }}
