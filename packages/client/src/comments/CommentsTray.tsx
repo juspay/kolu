@@ -14,7 +14,7 @@ import { toast } from "solid-sonner";
 import { writeTextToClipboard } from "../ui/clipboard";
 import { formatMarkdown } from "./formatMarkdown";
 import type { Comment } from "./types";
-import { useComments } from "./useComments";
+import { commentsForTerminal } from "./useComments";
 
 export type CommentsTrayProps = {
   terminalId: string;
@@ -28,7 +28,7 @@ export const CommentsTray: Component<CommentsTrayProps> = (props) => {
   // switching to a different terminal swaps the visible queue, and any
   // race between meta resolution and mount can't lock the tray onto a
   // stale key (the same trap the previous `const store = ...` form had).
-  const store = createMemo(() => useComments(props.terminalId));
+  const store = commentsForTerminal(() => props.terminalId);
 
   const copy = (): UiAction =>
     Effect.suspend(() => {

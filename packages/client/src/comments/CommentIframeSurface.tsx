@@ -11,7 +11,7 @@
 import { bindArtifactSdk, pushHighlightsTo } from "@kolu/artifact-sdk/client";
 import { type Component, createEffect, createMemo, onCleanup } from "solid-js";
 import { useComposer } from "./composerState";
-import { useComments } from "./useComments";
+import { commentsForTerminal } from "./useComments";
 
 export type CommentIframeSurfaceProps = {
   terminalId: string;
@@ -25,7 +25,7 @@ export const CommentIframeSurface: Component<CommentIframeSurfaceProps> = (
   const composer = useComposer();
   // `createMemo` re-derives the store when `props.terminalId` changes,
   // so switching terminals re-reads the per-terminal queue.
-  const comments = createMemo(() => useComments(props.terminalId));
+  const comments = commentsForTerminal(() => props.terminalId);
   const commentsForFile = createMemo(() =>
     comments()
       .commentsForPath(props.path)

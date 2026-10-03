@@ -27,14 +27,7 @@
 
 import type { DaemonState } from "@kolu/padi-client/surface";
 import { encodeHostKey } from "kolu-common/hostKey";
-import {
-  createEffect,
-  createMemo,
-  createSignal,
-  For,
-  Show,
-  untrack,
-} from "solid-js";
+import { createMemo, Index, Show, untrack } from "solid-js";
 import { showsElapsed, tailOf } from "../kaval/connectCanvasView";
 import { DAEMON_STATE_PRESENTATION } from "../kaval/daemonPresentation";
 import { getClockNow } from "../time/clock";
@@ -92,13 +85,12 @@ export function ConnectCanvas(props: { daemonState: DaemonState | undefined }) {
   //     minute stretch can leave anchor.ms at 0 while wall extension shows 40s, so a new
   //     campaign that reopens at sinceMs: 0 must not keep that baseline.
   const clockNow = getClockNow();
-  const [anchor, setAnchor] = createSignal<{
+  const anchor = createMemo<{
     host: string;
     epoch: number;
     ms: number;
     at: number;
-  } | null>(null);
-  createEffect(() => {
+  } | null>((prev) => {
     const c = copy();
     const frame = info();
     const h = host();
@@ -107,30 +99,28 @@ export function ConnectCanvas(props: { daemonState: DaemonState | undefined }) {
     // is fine; elapsed/tail must not show that campaign's uptime as connect progress.
     // Whether a phase times itself at all is the copy table's call (`showsElapsed`).
     if (c === null || frame === undefined || !c.showsElapsed) {
-      setAnchor(null);
-      return;
+      return null;
     }
     const sinceMs = frame.sinceMs;
     const epoch = frame.campaignEpoch;
-    setAnchor((prev) => {
-      // Same host + campaign + server duration → keep the receipt baseline so wall
-      // clock extends it between frames.
-      if (
-        prev !== null &&
-        prev.host === h &&
-        prev.epoch === epoch &&
-        prev.ms === sinceMs
-      ) {
-        return prev;
-      }
-      return {
-        host: h,
-        epoch,
-        ms: sinceMs,
-        at: untrack(() => clockNow()),
-      };
-    });
-  });
+
+    // Same host + campaign + server duration → keep the receipt baseline so wall
+    // clock extends it between frames.
+    if (
+      prev !== null &&
+      prev.host === h &&
+      prev.epoch === epoch &&
+      prev.ms === sinceMs
+    ) {
+      return prev;
+    }
+    return {
+      host: h,
+      epoch,
+      ms: sinceMs,
+      at: untrack(() => clockNow()),
+    };
+  }, null);
   // Plain function (not createMemo): reads clockNow() in the caller's tracking
   // context (JSX), the same pattern kaval uptime uses — so each shared-clock tick
   // re-evaluates the elapsed text with zero incoming frames.
@@ -192,11 +182,11 @@ export function ConnectCanvas(props: { daemonState: DaemonState | undefined }) {
               data-testid="connect-tail"
               class={`w-full max-w-2xl overflow-hidden px-3 py-2 text-[11px] leading-relaxed ${LOG_TAIL_SURFACE}`}
             >
-              <For each={tail()}>
+              <Index each={tail()}>
                 {(entry) => (
-                  <div class="truncate whitespace-pre">{entry.line}</div>
+                  <div class="truncate whitespace-pre">{entry().line}</div>
                 )}
-              </For>
+              </Index>
             </div>
           </Show>
         </div>

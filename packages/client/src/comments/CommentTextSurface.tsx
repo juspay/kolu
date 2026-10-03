@@ -18,7 +18,7 @@ import {
 } from "solid-js";
 import { useHighlightOverlay } from "./highlightOverlay";
 import { SelectionPill } from "./SelectionPill";
-import { useComments } from "./useComments";
+import { commentsForTerminal } from "./useComments";
 import { useTextSelection } from "./useTextSelection";
 
 export type CommentTextSurfaceProps = {
@@ -55,7 +55,7 @@ export const CommentTextSurface: Component<CommentTextSurfaceProps> = (
   });
   // `createMemo` re-derives the store when `props.terminalId` changes,
   // so switching terminals re-reads the per-terminal queue.
-  const comments = createMemo(() => useComments(props.terminalId));
+  const comments = commentsForTerminal(() => props.terminalId);
   // Filter to THIS surface's comments. Markdown's Source ⇄ Rendered toggle now
   // keeps both surfaces mounted at once, so a path-only filter would feed each
   // overlay the other surface's comments too — a prose quote ("Hello Doc")

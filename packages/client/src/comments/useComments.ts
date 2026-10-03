@@ -14,6 +14,7 @@
  *  No flush logic lives here. `formatMarkdown` is a separate pure
  *  function; the tray's "Copy to clipboard" calls it directly. */
 
+import { createComputed, untrack, type Accessor } from "solid-js";
 import { toast } from "solid-sonner";
 import { persistedPref } from "../persistedPref";
 import { backfillSurface } from "./backfillSurface";
@@ -128,4 +129,13 @@ export function useComments(terminalId: string) {
       store.setComments([]);
     },
   };
+}
+
+/** Initialize on identity changes before exposing a read-only reactive lookup. */
+export function commentsForTerminal(terminalId: Accessor<string>) {
+  createComputed(() => {
+    const id = terminalId();
+    untrack(() => storeFor(id));
+  });
+  return () => useComments(terminalId());
 }
