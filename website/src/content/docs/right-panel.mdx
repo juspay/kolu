@@ -160,8 +160,13 @@ every split — remembers its own tab, its own Code-tab mode and selected file, 
 its own back/forward history. Split a terminal to run an agent in another repo and
 the Inspector's directory, branch and repo chips and the Code tab's file tree all
 follow whichever pane you click into; switch back to main and main's own selection
-returns. When the panel is showing a split, a small quiet label in its tab bar
-names that split.
+returns.
+
+**A header line under the tabs names the directory the pane is in**, shared by
+both tabs, so you always know what you are looking at. When the pane is inside a
+git repo its repo root — the directory the Code tree is browsed from — is
+emphasized and the path below it dimmed; when the panel is showing a split, the
+line is prefixed with that split's name.
 
 All of it rides session restore, so a tile's posture and each pane's selection
 survive a reload. New terminals created in the browser inherit whether the

@@ -2178,3 +2178,16 @@ retirements:
       file: packages/tests/features/right-panel.feature
       symbol: "Scenario: A pane switch inside one repo leaves the Code tree alone"
       test: 'The scenario now visits the fresh split once (letting its own git sensing resolve) before tagging the tree, so it pins the repo-keying fix rather than the separate "git is null while sensing" transient. Every original assertion is kept, and the filter assertion now also fails on the pre-fix keying.'
+  - id: revise-code-tree-follows-focus-header
+    revisionId: revision-4ff658625adeb11a3676
+    action: revised
+    status: landed
+    promise: Code tree follows focus into a split in another repo
+    defectSurface: [right-panel, code-tab]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-be7e870c16855283b4e4]
+    sameCodePathEvidence:
+      file: packages/tests/features/right-panel.feature
+      symbol: "Scenario: Code tree follows focus into a split in another repo"
+      test: Adds two assertions on the panel's new pane-header directory line (the repo root the tree is rooted at), one per focus direction; the tree and pane-label assertions are unchanged.

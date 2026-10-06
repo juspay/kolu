@@ -8019,6 +8019,18 @@
       "exampleRows": [],
       "executions": 1,
       "firstSeenSha": "9877767190f08ab4d139ff8b298f8c98cf449c21"
+    },
+    {
+      "revisionId": "revision-be7e870c16855283b4e4",
+      "scenarioKey": "scenario-26d299095f6baab0fd0b",
+      "feature": "features/right-panel.feature",
+      "scenario": "Code tree follows focus into a split in another repo",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "4b213b01f97229c1827b68998299b6687a71c57326b35383818f200a970bfcee",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "49939848e0e2b45616f015437f67121dbc9a05c1"
     }
   ]
 }

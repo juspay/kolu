@@ -204,6 +204,24 @@ Then(
   },
 );
 
+/** The pane header's directory — the path the pane (and the Code tree) is
+ *  rooted at, `~`-shortened. Polls its OWN text, so a stale value from the
+ *  previous pane fails the assertion rather than passing it. */
+Then(
+  "the right panel directory should contain {string}",
+  async function (this: KoluWorld, expected: string) {
+    await this.page.waitForFunction(
+      (exp) =>
+        (
+          document.querySelector('[data-testid="right-panel-directory"]')
+            ?.textContent ?? ""
+        ).includes(exp),
+      expected,
+      { timeout: POLL_TIMEOUT },
+    );
+  },
+);
+
 Then(
   "the inspector should show a CWD section",
   async function (this: KoluWorld) {

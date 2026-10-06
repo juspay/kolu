@@ -4,9 +4,10 @@
  *
  *  The panel's SUBJECT is the focused pane (`props.terminalId`/`props.meta` — a
  *  top-level tile's main pane, or any split at any nesting depth), while its
- *  OPEN/CLOSED posture belongs to the containing tile (`props.tileId`). When the
- *  shown pane is a split, a quiet label in the tab bar names it so you can tell
- *  which pane's context you are reading.
+ *  OPEN/CLOSED posture belongs to the containing tile (`props.tileId`). A pane
+ *  HEADER line under the tab bar — shared by both tabs, so it never shifts
+ *  between them — names the directory this pane (and so the Code tree) is rooted
+ *  at, and prefixes the split's own name when the shown pane is a split.
  *
  *  Pure presenter — no shell positioning, no resize handle. The desktop
  *  host wraps this in a `@corvu/resizable` `Resizable` (in `App.tsx`)
@@ -33,6 +34,7 @@ import { ChevronRightIcon } from "../ui/Icons";
 import { ACTIVE_TERMINAL_ACCENT } from "./activeTerminalAccent";
 import CodeTab from "./CodeTab";
 import MetadataInspector from "./MetadataInspector";
+import { paneDirectory } from "./paneDirectory";
 import { useRightPanel } from "./useRightPanel";
 
 /** Ordered tab kinds shown in the tab bar. Adding a new kind to the
@@ -82,6 +84,12 @@ const RightPanel: Component<{
     return dockRowLabel(meta, undefined);
   };
 
+  /** The pane's directory, split at the repo root the Code tree is browsed from
+   *  — `~`-shortened by the ONE shortener, so the root keeps the emphasis and
+   *  everything below it dims. The split itself lives in `paneDirectory`, with
+   *  its own test. */
+  const directory = () => paneDirectory(props.meta);
+
   return (
     <div
       data-testid="right-panel"
@@ -127,17 +135,6 @@ const RightPanel: Component<{
           }}
         </For>
         <div class="flex-1" />
-        <Show when={paneLabel()}>
-          {(label) => (
-            <span
-              data-testid="right-panel-pane-label"
-              title={`Showing the "${label()}" split`}
-              class="truncate max-w-[16ch] mr-1 text-[10px] font-mono text-fg-3/60"
-            >
-              {label()}
-            </span>
-          )}
-        </Show>
         <div class="flex items-center gap-0.5 pr-1">
           <button
             type="button"
@@ -149,6 +146,42 @@ const RightPanel: Component<{
           </button>
         </div>
       </div>
+      {/* Pane header — which pane this is and where it lives. ONE line above the
+       *  tab bodies, so both tabs share it and switching tabs never shifts it.
+       *  The split's name (when the shown pane is a split) prefixes the
+       *  directory the pane — and so the Code tree — is rooted at. */}
+      <Show when={directory()}>
+        {(dir) => (
+          <div class="flex items-center gap-1.5 h-6 shrink-0 px-3 bg-surface-1/40 border-b border-edge font-mono text-[10px]">
+            <Show when={paneLabel()}>
+              {(label) => (
+                <span
+                  data-testid="right-panel-pane-label"
+                  title={`Showing the "${label()}" split`}
+                  class="shrink-0 max-w-[12ch] truncate text-fg-3/60"
+                >
+                  {label()}
+                </span>
+              )}
+            </Show>
+            {/* Truncate from the LEFT: `direction: rtl` clips the line's start,
+             *  and the `bdi` keeps the path itself LTR so its `~` and `/` are
+             *  not re-ordered by the bidi algorithm. The full path is in the
+             *  title. */}
+            <span
+              data-testid="right-panel-directory"
+              title={dir().full}
+              class="min-w-0 flex-1 truncate text-left"
+              style={{ direction: "rtl" }}
+            >
+              <bdi>
+                <span class="font-semibold text-fg-2">{dir().root}</span>
+                <span class="opacity-60">{dir().rest}</span>
+              </bdi>
+            </span>
+          </div>
+        )}
+      </Show>
       {/* Both tabs are always rendered; the inactive one is display:none.
        *  Mounting both keeps each tab's local state (CodeTab's selected file,
        *  Pierre's tree expansion, scroll position) alive across tab switches

@@ -335,11 +335,15 @@ Feature: Right panel (Code + Inspector)
     Then the file browser should show a file "only-in-split.txt"
     And the file browser should not show a file "only-in-main.txt"
     And the right panel should show a pane label
+    # The header line names the directory the tree is rooted at — it follows
+    # focus with the tree.
+    And the right panel directory should contain "/tmp/kolu-follow-code-split"
     # Focus back to main: the tree re-lists main's repo and the label drops.
     When I click the main terminal
     Then the file browser should show a file "only-in-main.txt"
     And the file browser should not show a file "only-in-split.txt"
     And the right panel should show no pane label
+    And the right panel directory should contain "/tmp/kolu-follow-code-main"
     And there should be no page errors
 
   Scenario: Each pane keeps its own selected file
