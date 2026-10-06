@@ -121,6 +121,17 @@ export const useTerminalCrud = createSharedRoot(() => {
     parentId: TerminalId | null,
     settled?: (applied: boolean) => void,
   ): void => {
+    // A promotion to top-level (`parentId: null`) hands a split its own tile —
+    // both the dock's drag-to-unsplit and the eviction reconcile's promote-a-
+    // departing-tile's-children path route through here, so this is the ONE
+    // choke point for "this terminal is becoming a tile". The new tile inherits
+    // the open/closed posture of the tile it is leaving, so the panel you were
+    // looking at does not jump. Read BEFORE the write: the edge has not moved
+    // yet, so `containingTile` still names the old tile. A refused write leaves
+    // a harmless early write on the terminal's own (still-unread, while it is a
+    // split) `collapsed` field.
+    if (parentId === null)
+      rightPanel.adoptTileCollapsed(subId, store.containingTile(subId));
     runAction(
       "re-home split",
       activePadiRpc.chrome.setParent({ id: subId, parentId }).pipe(
@@ -291,6 +302,10 @@ export const useTerminalCrud = createSharedRoot(() => {
       // `handleCreate`), so it needs the same warming guard — the split
       // shortcut (Ctrl+`+Shift) and TileTitleActions stay live while warming.
       if (refuseIfWarming()) return;
+      // Copy-on-create: the new split starts on the tab of the pane it was split
+      // FROM, so splitting never flips the panel. Captured before the async
+      // create, and applied to the new split's own record below.
+      const initializePaneTab = rightPanel.captureNewPaneTab();
       const info = yield* activePadiRpc.lifecycle
         // The placement is `child-of` by construction here — this function exists
         // only to open a split, and it is handed the parent. `cwd` is spread for the
@@ -309,6 +324,7 @@ export const useTerminalCrud = createSharedRoot(() => {
             () => new TerminalCreateRefused({ reason: "failed" }),
           ),
         );
+      initializePaneTab(info.id);
       subPanel.focusSubTab(parentId, info.id);
     });
   }

@@ -16,9 +16,9 @@
  *  ── WHY A PARALLEL OWNER, not a `HostScope` member ──────────────────────────
  *  The obvious home is a sibling member of `hostScope/hostScopes.ts` (beside
  *  `createHostWire`). It CANNOT live there: these query inputs read the shown
- *  terminal's SELECTION — `useTerminalStore().active()` (the focused terminal + its
- *  metadata) and `useRightPanel()` (the Code-tab mode + per-mode selected file). Those
- *  singletons sit DOWNSTREAM of `hostScopes` in the import graph
+ *  pane's SELECTION — `useTerminalStore().focused()` (the focused pane + its
+ *  metadata) and `useRightPanel()` (the Code-tab mode + per-mode selected file).
+ *  Those singletons sit DOWNSTREAM of `hostScopes` in the import graph
  *  (`hostScopes ← activeWire ← useTerminalStore ← useRightPanel`), so a `hostScopes`
  *  member reading them would close the cycle `hostScopes → (member) → useTerminalStore
  *  → activeWire → hostScopes`, which `biome`'s CI-enforced `noImportCycles` rejects —
@@ -34,9 +34,9 @@
  *  No fact has two authorities.
  *
  *  ── The isActive contract (read this before editing an input) ───────────────
- *  The inputs read the ACTIVE projection (`store.active()` / `useRightPanel()`), NOT a
+ *  The inputs read the ACTIVE projection (`store.focused()` / `useRightPanel()`), NOT a
  *  host-fixed value — and those reads are MEANINGFUL ONLY under `ctx.isActive`. While
- *  host X is active the active projection IS X's own shown terminal (self-referential,
+ *  host X is active the active projection IS X's own shown pane (self-referential,
  *  honest); while X is backgrounded X's instance is PAUSED, so `createPolledQuery`'s
  *  gate never consults these accessors (frozen value, no dispatch — the switch-back
  *  guarantee). A selection changed while X was away yields a different value-key on
@@ -121,11 +121,13 @@ function buildHostCodeTab(host: HostKey, ctx: { isActive: () => boolean }) {
   const store = useTerminalStore();
   const rightPanel = useRightPanel();
 
-  // The shown terminal's selection, read off the app-lifetime singletons (the active
-  // projection). Meaningful only under `ctx.isActive` — see the header.
+  // The SHOWN pane's selection, read off the app-lifetime singletons (the active
+  // projection). `store.focused()` is the focused pane — a tile's main terminal OR
+  // any split — so focusing a split re-keys every query below onto THAT pane's
+  // repo and selection. Meaningful only under `ctx.isActive` — see the header.
   const shownRepoPath = (): string | null =>
-    store.active().meta?.git?.repoRoot ?? null;
-  const shownTerminalId = (): TerminalId | null => store.active().id;
+    store.focused().meta?.git?.repoRoot ?? null;
+  const shownTerminalId = (): TerminalId | null => store.focused().id;
   const codeView = (): CodeTabView => rightPanel.codeMode();
   const codeDiffMode = (): GitDiffMode | undefined =>
     codeView() === "browse" ? undefined : (codeView() as GitDiffMode);

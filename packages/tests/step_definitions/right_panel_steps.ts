@@ -151,6 +151,59 @@ Then("the right panel should not be visible", async function (this: KoluWorld) {
   );
 });
 
+// ── The panel's SUBJECT (the focused pane) ──
+//
+// `right-panel-pane-label` is the small quiet name in the panel's tab bar that
+// appears ONLY when the shown pane is a split (it reuses `dockRowLabel`, the
+// same words the split's dock sub-row shows). Its presence is therefore the DOM
+// proof that the panel followed focus into a split rather than staying on the
+// tile's main terminal.
+Then(
+  "the right panel pane label should be {string}",
+  async function (this: KoluWorld, expected: string) {
+    await this.page.waitForFunction(
+      (exp) =>
+        document.querySelector('[data-testid="right-panel-pane-label"]')
+          ?.textContent === exp,
+      expected,
+      { timeout: POLL_TIMEOUT },
+    );
+  },
+);
+
+Then(
+  "the right panel should show a pane label",
+  async function (this: KoluWorld) {
+    await this.page.waitForFunction(
+      () =>
+        (
+          document.querySelector('[data-testid="right-panel-pane-label"]')
+            ?.textContent ?? ""
+        ).trim().length > 0,
+      null,
+      { timeout: POLL_TIMEOUT },
+    );
+  },
+);
+
+Then(
+  "the right panel should show no pane label",
+  async function (this: KoluWorld) {
+    // The panel is showing the tile's main pane — nothing extra is named. Gated on
+    // the panel being mounted (its tab bar present) so this cannot pass vacuously
+    // before the host renders.
+    await this.page.waitForFunction(
+      () =>
+        document.querySelector('[data-testid="right-panel-tab-code"]') !==
+          null &&
+        document.querySelector('[data-testid="right-panel-pane-label"]') ===
+          null,
+      null,
+      { timeout: POLL_TIMEOUT },
+    );
+  },
+);
+
 Then(
   "the inspector should show a CWD section",
   async function (this: KoluWorld) {

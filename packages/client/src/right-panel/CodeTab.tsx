@@ -296,15 +296,15 @@ const CodeTab: Component<{
   // locations from the repo currently shown, and the next selection re-seeds the
   // fresh stack.
   //
-  // `CodeTab` is a singleton over the active terminal, so this effect only ever
-  // feeds `syncRepo` the *active* terminal's `(id, repo)`. The reset decision
+  // `CodeTab` is a singleton over the FOCUSED PANE, so this effect only ever
+  // feeds `syncRepo` the *shown* pane's `(id, repo)`. The reset decision
   // can't live here as a compare-against-previous-tick: `repoPath()` shifts on
-  // both a `cd` (genuine transition) and a plain terminal switch (NOT a
+  // both a `cd` (genuine transition) and a plain pane switch (NOT a
   // transition), and — the case a previous-tick compare misses entirely — a
-  // terminal's repo can change while it is INACTIVE (its PTY `cd`s while another
-  // terminal is shown). `syncRepo` owns the call: it keys the comparison per
+  // terminal's repo can change while it is UNFOCUSED (its PTY `cd`s while another
+  // pane is shown). `syncRepo` owns the call: it keys the comparison per
   // terminal (`history.get(id).lastRepo`), so the stale repo is caught the moment that
-  // terminal next becomes active, while a freshly-switched-to terminal in a
+  // terminal next becomes focused, while a freshly-switched-to terminal in a
   // different repo keeps its own history. The first call per terminal just
   // records the baseline, so a session-restored stack survives initial mount.
   createEffect(
@@ -320,15 +320,15 @@ const CodeTab: Component<{
   const diffMode = (): GitDiffMode | undefined =>
     view() === "browse" ? undefined : (view() as GitDiffMode);
 
-  // Selection is per-terminal, keyed by mode, stored in
+  // Selection is per-pane, keyed by mode, stored in
   // `TerminalMetadata.rightPanel.selectedFileByMode` via `useRightPanel`.
-  // Each (terminal, mode) slot owns its own pick — switching modes within
-  // a terminal restores that mode's last file; switching terminals
-  // restores that terminal's last (file, mode) pair.
+  // Each (pane, mode) slot owns its own pick — switching modes within
+  // a pane restores that mode's last file; switching panes (main ⇄ split)
+  // restores that pane's last (file, mode) pair.
   //
   // The complete Code-tab owner is one value. Navigation requests, async
-  // completion guards, and slot resets all use this same host + terminal + repo
-  // + mode identity, so switching between equivalent-looking terminal slots
+  // completion guards, and slot resets all use this same host + pane + repo
+  // + mode identity, so switching between equivalent-looking pane slots
   // still retires terminal-scoped work.
   const currentScope = (): CodeTabScope | null => {
     const terminalId = props.terminalId;

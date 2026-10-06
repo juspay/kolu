@@ -15,10 +15,12 @@
  *    MetadataInspector), so a fresh instance mounts per terminal and its
  *    persisted signal binds to that terminal's key — no shared-store bookkeeping.
  *
- *  Target: `props.terminalId` is the active tile's main terminal (the same
- *  target the Attach section's "Main" card names). Splits keep the CLI `send`
- *  command in that section. The parent gates this on the ACTIVE arm, so the
- *  target is always a live PTY — `sendInput` would otherwise quiet-drop. */
+ *  Target: `props.terminalId` is the FOCUSED PANE — the tile's main terminal, or
+ *  whichever split has focus — so a draft typed while a split is focused lands in
+ *  that split's PTY (the same pane the Inspector's Work chips describe). The
+ *  Attach section keeps the explicit picker for any other pane. The parent gates
+ *  this on the ACTIVE arm, so the target is always a live PTY — `sendInput` would
+ *  otherwise quiet-drop. */
 
 import { activeArm } from "@kolu/padi-client/surface";
 import { toError } from "@kolu/surface/run-stream";

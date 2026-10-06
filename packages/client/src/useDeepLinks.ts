@@ -108,16 +108,15 @@ export function useDeepLinks(): void {
    *  focus the terminal through the shared landing verb, then open the requested
    *  right-panel tab. Calls NO mutating verb.
    *
-   *  `anchorMeta` is the metadata of the tile that OWNS the right panel — the
-   *  parent tile for a sub-terminal, else the target itself. The right panel is
-   *  per-TILE (`useRightPanel` keys off the active tile), so a `code`/`inspector`
-   *  route on a split addresses the parent tile's panel, and `code` resolves its
-   *  path against THAT tile's repo (`anchorMeta.git.repoRoot`, which the settle
-   *  gate has already proven present) — never the split's, which the panel can't
-   *  represent. A null repoRoot at a `code` enact is an internal invariant break
-   *  (crash loudly), not a reachable "no repo" path (that toasts from the
-   *  backstop). */
-  function enact(route: TerminalRoute, anchorMeta: TerminalMeta): void {
+   *  `meta` is the TARGET terminal's own metadata — a split addresses its OWN
+   *  panel content and resolves its path against its OWN repo. The panel follows
+   *  the focused pane, so no containing-tile indirection is needed or wanted: a
+   *  `code` route on a split opens the split's panel showing the split's repo.
+   *  (Revealing the panel stays a tile-wide act — `reveal` uncollapses the tile's
+   *  panel / opens the drawer — which is why focusing first matters.) A null
+   *  repoRoot at a `code` enact is an internal invariant break (crash loudly), not
+   *  a reachable "no repo" path (that toasts from the backstop). */
+  function enact(route: TerminalRoute, meta: TerminalMeta): void {
     const id = route.terminalId;
     store.focusTerminal(id);
     match(route)
@@ -130,7 +129,7 @@ export function useDeepLinks(): void {
         rightPanel.reveal();
       })
       .with({ kind: "code" }, (r) => {
-        const repoRoot = anchorMeta.git?.repoRoot;
+        const repoRoot = meta.git?.repoRoot;
         if (!repoRoot)
           throw new Error(
             "deep-link: code route enacted without a sensed repoRoot",
@@ -138,7 +137,7 @@ export function useDeepLinks(): void {
         openInCodeTab({
           terminalId: id,
           ref: { path: r.path, startLine: r.line, endLine: r.line },
-          cwd: anchorMeta.cwd,
+          cwd: meta.cwd,
           targetMode: "browse",
           // A deep-link path is explicit (GitHub-style exact), never a bare
           // terminal-printed basename — resolve it exactly or fail loud.
@@ -262,35 +261,24 @@ export function useDeepLinks(): void {
     });
   }
 
-  /** Resolve a route's target record AND the tile that OWNS its right panel —
-   *  the parent tile for a sub-terminal, else the target itself. `null` until
-   *  both records have composed. The ONE definition of the anchor relationship,
-   *  so the settle effect, the backstop, and enact can't spell it three
-   *  different ways. */
-  function resolveRoute(
-    route: TerminalRoute,
-  ): { meta: TerminalMeta; anchorMeta: TerminalMeta } | null {
-    const meta = store.getMetadata(route.terminalId);
-    if (!meta) return null;
-    // Owning tile is the root of the parent chain (canvas chrome key), not the
-    // true one-hop parent — a grandchild's parent is a middle split.
-    const anchorId = store.containingTile(route.terminalId);
-    const anchorMeta =
-      anchorId === route.terminalId ? meta : store.getMetadata(anchorId);
-    if (!anchorMeta) return null;
-    return { meta, anchorMeta };
+  /** Resolve a route's TARGET record — `null` until it has composed. The right
+   *  panel follows the focused pane, so the target IS the panel's subject: a
+   *  split's `/code` or `/inspector` link addresses the split's own panel and
+   *  repo, with no containing-tile anchor to compute. */
+  function resolveRoute(route: TerminalRoute): TerminalMeta | null {
+    return store.getMetadata(route.terminalId) ?? null;
   }
 
-  /** A `code` route still waiting on (or lacking) its owning tile's repo root —
-   *  the git sensor is a THIRD async fact, settled INDEPENDENTLY of membership,
-   *  and `git` is `null` both for "no repo" and "not sensed yet". The one place
-   *  this hedge is spelled (see the LEDGER note below), read by both the settle
-   *  gate (wait) and the backstop (message). */
+  /** A `code` route still waiting on (or lacking) its target's repo root — the
+   *  git sensor is a THIRD async fact, settled INDEPENDENTLY of membership, and
+   *  `git` is `null` both for "no repo" and "not sensed yet". The one place this
+   *  hedge is spelled (see the LEDGER note below), read by both the settle gate
+   *  (wait) and the backstop (message). */
   function codeRouteAwaitingRepo(
     route: TerminalRoute,
-    anchorMeta: TerminalMeta,
+    meta: TerminalMeta,
   ): boolean {
-    return route.kind === "code" && !anchorMeta.git?.repoRoot;
+    return route.kind === "code" && !meta.git?.repoRoot;
   }
 
   // The settle-then-verdict effect (CodeTab's `pendingOpen` precedent, over
@@ -363,11 +351,11 @@ export function useDeepLinks(): void {
     }
     const resolved = resolveRoute(route);
     if (!resolved) return; // a record hasn't composed yet — wait
-    // `code` waits on its owning tile's repo root (a fresh terminal / cold-boot
+    // `code` waits on its target's repo root (a fresh terminal / cold-boot
     // window before the git watcher resolves) rather than toasting a false
     // "not a git repository"; the effect re-runs when the git fact lands
     // (getMetadata is reactive), bounded by the 8s backstop.
-    if (codeRouteAwaitingRepo(route, resolved.anchorMeta)) return;
+    if (codeRouteAwaitingRepo(route, resolved)) return;
     // The ONLY non-disarming clear: an ENACTED route's intent survives so
     // cold-boot hydration keeps the reached view. Clear `pending` FIRST (so a
     // throwing enact can't leave the effect armed into a retry loop), then enact,
@@ -376,7 +364,7 @@ export function useDeepLinks(): void {
     // durably stamped-but-un-enacted (the exact state #1900 R1 prevents). Never
     // `disarmResolved` here — that would clear the surviving intent.
     setPending(null);
-    enact(route, resolved.anchorMeta);
+    enact(route, resolved);
     stampEntryRouted();
   });
 
@@ -396,10 +384,10 @@ export function useDeepLinks(): void {
     const timer = setTimeout(() => {
       if (pending() !== route) return;
       disarmResolved(); // fault verdict — disarm + intent + stamp together
-      // Same anchor + repo-readiness facts the settle gate reads, so the
+      // Same target + repo-readiness facts the settle gate reads, so the
       // message can't drift from the gate's own verdict.
       const resolved = resolveRoute(route);
-      if (resolved && codeRouteAwaitingRepo(route, resolved.anchorMeta)) {
+      if (resolved && codeRouteAwaitingRepo(route, resolved)) {
         toast.error(
           "Couldn't open that file — that terminal doesn't appear to be in a git repository.",
         );

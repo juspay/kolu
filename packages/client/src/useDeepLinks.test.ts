@@ -251,7 +251,7 @@ describe("verdict-time stamping contract (#1900 R1 / codex F4)", () => {
 
   it("stamps the ENACTED path only AFTER enact returns (retryable on throw)", () => {
     expect(routerSrc).toMatch(
-      /enact\(route, resolved\.anchorMeta\);\s*stampEntryRouted\(\);/s,
+      /enact\(route, resolved\);\s*stampEntryRouted\(\);/s,
     );
   });
 

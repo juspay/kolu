@@ -2,6 +2,12 @@
  *  Routes between Inspector and Code tabs via the DU view exposed by
  *  `useRightPanel().activeTab()`.
  *
+ *  The panel's SUBJECT is the focused pane (`props.terminalId`/`props.meta` — a
+ *  top-level tile's main pane, or any split at any nesting depth), while its
+ *  OPEN/CLOSED posture belongs to the containing tile (`props.tileId`). When the
+ *  shown pane is a split, a quiet label in the tab bar names it so you can tell
+ *  which pane's context you are reading.
+ *
  *  Pure presenter — no shell positioning, no resize handle. The desktop
  *  host wraps this in a `@corvu/resizable` `Resizable` (in `App.tsx`)
  *  for the horizontal split + drag-to-resize; the mobile host wraps
@@ -19,8 +25,9 @@ import type {
   TerminalMetadata,
 } from "@kolu/padi-client/surface";
 import type { TerminalId } from "kolu-common/surface";
-import { type Component, For } from "solid-js";
+import { type Component, For, Show } from "solid-js";
 import { match } from "ts-pattern";
+import { dockRowLabel } from "../canvas/dock/dockRowData";
 import { CHROME_ICON_BUTTON_CLASS } from "../ui/chromeSpacing";
 import { ChevronRightIcon } from "../ui/Icons";
 import { ACTIVE_TERMINAL_ACCENT } from "./activeTerminalAccent";
@@ -43,8 +50,14 @@ const TAB_LABEL: Record<RightPanelTabKind, string> = {
 };
 
 const RightPanel: Component<{
+  /** The pane the panel SHOWS — a tile's main terminal, or a split at any depth. */
   terminalId: TerminalId | null;
+  /** `terminalId`'s own metadata (glitch-free pairing — see `store.focused()`). */
   meta: TerminalMetadata | null;
+  /** The containing top-level tile, which owns the panel's open/closed posture
+   *  and the tile-wide sections (Ports, Attach). Equals `terminalId` when the
+   *  shown pane is the tile's main terminal. */
+  tileId: TerminalId | null;
   onToggle: () => void;
   themeName?: string;
   onThemeClick?: () => void;
@@ -56,6 +69,18 @@ const RightPanel: Component<{
 
   const showKind = (kind: RightPanelTabKind) =>
     kind === "inspector" ? rightPanel.showInspector() : rightPanel.showCode();
+
+  /** The split's own name, shown only when the panel is NOT on the tile's main
+   *  pane. Reuses `dockRowLabel` — the ONE author of a dock row's annotation
+   *  words, and already what a split's dock sub-row shows — so the panel and the
+   *  dock can never name the same split two different ways. */
+  const paneLabel = (): string | null => {
+    const meta = props.meta;
+    if (!meta) return null;
+    if (props.terminalId === null || props.terminalId === props.tileId)
+      return null;
+    return dockRowLabel(meta, undefined);
+  };
 
   return (
     <div
@@ -102,6 +127,17 @@ const RightPanel: Component<{
           }}
         </For>
         <div class="flex-1" />
+        <Show when={paneLabel()}>
+          {(label) => (
+            <span
+              data-testid="right-panel-pane-label"
+              title={`Showing the "${label()}" split`}
+              class="truncate max-w-[16ch] mr-1 text-[10px] font-mono text-fg-3/60"
+            >
+              {label()}
+            </span>
+          )}
+        </Show>
         <div class="flex items-center gap-0.5 pr-1">
           <button
             type="button"
@@ -143,6 +179,7 @@ const RightPanel: Component<{
                       <MetadataInspector
                         meta={props.meta}
                         terminalId={props.terminalId}
+                        tileId={props.tileId}
                         themeName={props.themeName}
                         onThemeClick={props.onThemeClick}
                       />

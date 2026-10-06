@@ -1,8 +1,12 @@
 Feature: Right panel (Code + Inspector)
   Collapsible right panel with a Code browser and a metadata Inspector
-  tab, toggled via keyboard shortcut or header icon. The panel's collapsed
-  posture is per-terminal. Browser-created terminals inherit the active
-  terminal's visibility; the first terminal uses the new-terminal preference.
+  tab, toggled via keyboard shortcut or header icon. WHETHER the panel is open
+  belongs to the tile; WHAT it shows follows the focused pane (main or any
+  split, at any nesting depth) — each pane remembers its own tab, code mode,
+  selected file, and back/forward history, while the open/closed posture stays
+  per-tile so moving focus between a tile's panes never opens or closes it.
+  Browser-created terminals inherit the active terminal's visibility; the first
+  terminal uses the new-terminal preference.
   The test fixture starts the first terminal collapsed.
 
   Background:
@@ -255,6 +259,10 @@ Feature: Right panel (Code + Inspector)
   Scenario: Collapsed state is per-terminal (the panel follows the terminal)
     # Terminal 1 (from Background) starts collapsed (the new-terminal default the
     # fixture pins). Open its panel, then create terminal 2.
+    # The panel's POSTURE is per-TILE: two tiles each remember their own open/
+    # closed bit (top-level terminals ARE tiles, so this reads "per-terminal"
+    # from the outside). Focus moving between a tile's PANES never re-collapses
+    # it — see "Moving focus between panes never opens or closes the panel".
     When I press the toggle inspector shortcut
     Then the right panel should be visible
     # Terminal 2 inherits the open panel. Close it independently.
@@ -283,5 +291,90 @@ Feature: Right panel (Code + Inspector)
     And I wait for all terminals to settle
     Then the right panel should be visible
     When I refresh the page
+    Then the right panel should be visible
+    And there should be no page errors
+
+  # ── The panel follows the focused pane (main or any split) ──
+
+  Scenario: Inspector follows focus into a split in another repo
+    # The panel's SUBJECT is the focused pane: a split cd'd into a different
+    # repo re-points the Inspector's chips to that repo, and the tab bar shows a
+    # quiet label naming the split. Focusing main puts main's facts back and
+    # drops the label.
+    When I run "rm -rf /tmp/kolu-follow-main /tmp/kolu-follow-split && git init /tmp/kolu-follow-main && git init /tmp/kolu-follow-split && cd /tmp/kolu-follow-main && git checkout -b main-feature"
+    When I press the toggle inspector shortcut
+    Then the right panel should be visible
+    When I click the right panel tab "inspector"
+    Then the inspector branch chip should contain "main-feature"
+    And the inspector repo chip should contain "kolu-follow-main"
+    And the inspector directory should contain "/tmp/kolu-follow-main"
+    And the right panel should show no pane label
+    # Creating a split focuses it; cd it into the OTHER repo.
+    When I create a sub-terminal via command palette
+    And I run "cd /tmp/kolu-follow-split && git checkout -b split-feature" in the sub-terminal
+    Then the inspector branch chip should contain "split-feature"
+    And the inspector repo chip should contain "kolu-follow-split"
+    And the inspector directory should contain "/tmp/kolu-follow-split"
+    And the right panel pane label should be "kolu-follow-split"
+    # Back to main: the panel returns to main's own facts, and the label is gone.
+    When I click the main terminal
+    Then the inspector branch chip should contain "main-feature"
+    And the inspector repo chip should contain "kolu-follow-main"
+    And the inspector directory should contain "/tmp/kolu-follow-main"
+    And the right panel should show no pane label
+    And there should be no page errors
+
+  Scenario: Code tree follows focus into a split in another repo
+    # The Code tab's file tree is scoped to the SHOWN pane's repo, so focusing a
+    # split in another repo re-lists THAT repo — and main's tree comes back.
+    When I run "rm -rf /tmp/kolu-follow-code-main /tmp/kolu-follow-code-split && git init /tmp/kolu-follow-code-main && git init /tmp/kolu-follow-code-split && cd /tmp/kolu-follow-code-main"
+    When I run "printf 'a\n' > only-in-main.txt && git add . && git commit -m init"
+    When I create a sub-terminal via command palette
+    And I run "cd /tmp/kolu-follow-code-split && printf 'b\n' > only-in-split.txt && git add . && git commit -m init" in the sub-terminal
+    When I click the Code tab
+    Then the file browser should show a file "only-in-split.txt"
+    And the file browser should not show a file "only-in-main.txt"
+    And the right panel should show a pane label
+    # Focus back to main: the tree re-lists main's repo and the label drops.
+    When I click the main terminal
+    Then the file browser should show a file "only-in-main.txt"
+    And the file browser should not show a file "only-in-split.txt"
+    And the right panel should show no pane label
+    And there should be no page errors
+
+  Scenario: Each pane keeps its own selected file
+    # Two panes of the SAME tile in the SAME repo still remember their own
+    # Code-tab selection — focusing each returns to that pane's own pick.
+    When I run "rm -rf /tmp/kolu-follow-pick && git init /tmp/kolu-follow-pick && cd /tmp/kolu-follow-pick"
+    When I run "printf 'a\n' > main-pick.txt && printf 'b\n' > split-pick.txt && git add . && git commit -m init"
+    When I click the Code tab
+    And I click the file "main-pick.txt" in the file browser
+    Then the file "main-pick.txt" should be selected in the file browser
+    When I create a sub-terminal via command palette
+    And I click the file "split-pick.txt" in the file browser
+    Then the file "split-pick.txt" should be selected in the file browser
+    And the file "main-pick.txt" should not be selected in the file browser
+    # Back to main: main's own pick is intact.
+    When I click the main terminal
+    Then the file "main-pick.txt" should be selected in the file browser
+    And the file "split-pick.txt" should not be selected in the file browser
+    # And back to the split: ITS pick is intact too.
+    When I click dock split sub-entry 1
+    Then the file "split-pick.txt" should be selected in the file browser
+    And there should be no page errors
+
+  Scenario: Moving focus between panes never opens or closes the panel
+    # Whether the panel is open belongs to the TILE, so focusing a split (or
+    # main) leaves it exactly as it was — collapsed stays collapsed, open stays
+    # open, and nothing shifts.
+    When I create a sub-terminal via command palette
+    Then the right panel should not be visible
+    When I click the main terminal
+    Then the right panel should not be visible
+    When I press the toggle inspector shortcut
+    Then the right panel should be visible
+    When I click dock split sub-entry 1
+    Then the right panel should be visible
+    When I click the main terminal
     Then the right panel should be visible
     And there should be no page errors

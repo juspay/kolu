@@ -2152,3 +2152,16 @@ retirements:
       file: packages/tests/features/code-tab.feature
       symbol: "Scenario: Tray jump returns to the Source Markdown surface"
       test: Preserves native mouse selection and every comment assertion; adds an explicit highlighted-source readiness barrier because Pierre replaces the initial plain-text node asynchronously. Holding the actual highlight-worker reply until mid-drag reproduces the collapsed selection; the barrier blocks until that reply and the unchanged native drag then succeeds.
+  - id: revise-split-inspector-deep-link-owns-its-pane
+    revisionId: revision-c816f35d2905432b8905
+    action: renamed
+    status: landed
+    promise: A #/t/.../inspector link to a split opens that split's own Inspector
+    defectSurface: [right-panel, deep-links]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-89894a0fd46523995276]
+    sameCodePathEvidence:
+      file: packages/tests/features/deep-links.feature
+      symbol: "Scenario: A #/t/.../inspector link to a split opens that split's own Inspector"
+      test: The scenario was renamed — the old name asserted the retired per-tile panel rule — and gained one assertion, `the right panel should show a pane label`, which proves the panel's subject is the SPLIT rather than the containing tile. Its two original assertions are unchanged (the Inspector tab is active; the sub pane is live).

@@ -35,13 +35,13 @@ import { useRightPanel } from "./useRightPanel";
 export type { OpenInCodeTabRequest } from "./codeTabOpenController";
 
 interface OpenInCodeTabInput {
-  /** The terminal whose per-terminal selection and history this request owns. */
+  /** The terminal whose per-terminal selection and history this request owns —
+   *  and whose repo the path resolves against. May be a split. */
   terminalId: TerminalId;
   /** Parsed `path:line[-end]` to navigate to. The path is interpreted
-   *  relative to the panel-owning tile's repository (or, when present,
-   *  cwd-relative under it) by `CodeTab` via `resolveRef` — which also
-   *  recognises a folder path and reveals it in the tree instead of opening a
-   *  file. */
+   *  relative to `terminalId`'s OWN repository (or, when present, cwd-relative
+   *  under it) by `CodeTab` via `resolveRef` — which also recognises a folder
+   *  path and reveals it in the tree instead of opening a file. */
   ref: LineRef;
   /** Terminal cwd at the time of the request. Drives the "user typed
    *  `bar.ts:42` while standing in a subdirectory of the repo" case;
@@ -79,9 +79,16 @@ export const pendingOpen = pending;
 /** Open the right panel's Code tab at `req.targetMode` showing `req.ref`.
  *  Four reactive writes wrapped in `batch()` so downstream effects see
  *  the changes in one reactive transaction: the issuing terminal becomes the
- *  panel owner, its tab/mode changes (`openCodeAt`), workspace visibility
- *  changes (`rp.reveal()` — uncollapse desktop or open the mobile drawer), and
- *  the producer signal fires (`setPending`). */
+ *  FOCUSED PANE (and so the panel's subject), its tab/mode changes
+ *  (`openCodeAt`), workspace visibility changes (`rp.reveal()` — uncollapse
+ *  desktop or open the mobile drawer), and the producer signal fires
+ *  (`setPending`).
+ *
+ *  The request is scoped to the issuing terminal ITSELF and its own
+ *  `git.repoRoot` — no containing-tile indirection. The panel follows focus,
+ *  so a `path:line` clicked in a split resolves against THAT split's repo and
+ *  opens in THAT split's panel state; running it against the tile's main
+ *  terminal would resolve the path in the wrong repository. */
 export function openInCodeTab(req: OpenInCodeTabInput): void {
   const rp = useRightPanel();
   const terminals = useTerminalStore();
@@ -90,27 +97,16 @@ export function openInCodeTab(req: OpenInCodeTabInput): void {
     throw new Error(
       `openInCodeTab: no terminal metadata for ${req.terminalId}`,
     );
-  // Right-panel chrome is keyed on the ROOT tile — a nested split's true
-  // parent may itself be a middle node with no panel state.
-  const panelOwnerId = terminals.containingTile(req.terminalId);
-  const panelOwner =
-    panelOwnerId === req.terminalId
-      ? target
-      : terminals.getMetadata(panelOwnerId);
-  if (panelOwner === undefined)
-    throw new Error(
-      `openInCodeTab: no panel-owner metadata for ${panelOwnerId}`,
-    );
-  const repoRoot = panelOwner.git?.repoRoot;
+  const repoRoot = target.git?.repoRoot;
   if (repoRoot === undefined)
-    throw new Error(`openInCodeTab: panel owner ${panelOwnerId} has no repo`);
+    throw new Error(`openInCodeTab: terminal ${req.terminalId} has no repo`);
   const request: OpenInCodeTabRequest = {
     ref: req.ref,
     cwd: req.cwd,
     allowBasenameFallback: req.allowBasenameFallback,
     scope: {
       host: activeHost(),
-      terminalId: panelOwnerId,
+      terminalId: req.terminalId,
       repoRoot,
       mode: req.targetMode,
     },

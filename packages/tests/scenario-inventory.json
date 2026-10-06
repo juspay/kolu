@@ -7911,6 +7911,78 @@
       "exampleRows": [],
       "executions": 1,
       "firstSeenSha": "d34a7a969aa972c875d9d697518d0c3f4ac92a95"
+    },
+    {
+      "revisionId": "revision-bc20ed9e2663cbc5fc72",
+      "scenarioKey": "scenario-6a05a04c41a67a8892a7",
+      "feature": "features/deep-links.feature",
+      "scenario": "A #/t/…/code link to a split resolves against the split's own repo",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "315a957cb31cb688db3308e008fdd96127a9edc613e307fa97d7f6fbb5339e87",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "0854ea34af0d9db3c262ead1226edb0bdd8ef33b"
+    },
+    {
+      "revisionId": "revision-89894a0fd46523995276",
+      "scenarioKey": "scenario-7c015b67a72449d5e56b",
+      "feature": "features/deep-links.feature",
+      "scenario": "A #/t/.../inspector link to a split opens that split's own Inspector",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "14a7c347cf3ed6beacf93ab2fc1763effac85acc7c963e1ad80cabfd6d40f5fe",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "0854ea34af0d9db3c262ead1226edb0bdd8ef33b"
+    },
+    {
+      "revisionId": "revision-4ff658625adeb11a3676",
+      "scenarioKey": "scenario-26d299095f6baab0fd0b",
+      "feature": "features/right-panel.feature",
+      "scenario": "Code tree follows focus into a split in another repo",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "aff54595ce15a48e5b5110badf752ed8cfee9490a15aea9e90373c3eca132525",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "0854ea34af0d9db3c262ead1226edb0bdd8ef33b"
+    },
+    {
+      "revisionId": "revision-8512d2601efe9fa935f5",
+      "scenarioKey": "scenario-b0a38d6e8d90094205e9",
+      "feature": "features/right-panel.feature",
+      "scenario": "Each pane keeps its own selected file",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "e3df37f5f34c877966c04af38d4b6cbfb4e778c531c42cc960564ca0895f8261",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "0854ea34af0d9db3c262ead1226edb0bdd8ef33b"
+    },
+    {
+      "revisionId": "revision-6bd9d11745407b4f4f29",
+      "scenarioKey": "scenario-f5eef281fe1c4dc23aad",
+      "feature": "features/right-panel.feature",
+      "scenario": "Inspector follows focus into a split in another repo",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "5fa4c8471f908117a33feb1867a26c71222128668cc8dc4d8f2587aa59065f83",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "0854ea34af0d9db3c262ead1226edb0bdd8ef33b"
+    },
+    {
+      "revisionId": "revision-ccec6a672916001d34b4",
+      "scenarioKey": "scenario-64728449d4020934a8b6",
+      "feature": "features/right-panel.feature",
+      "scenario": "Moving focus between panes never opens or closes the panel",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "425d731afe5df5832c5cef58b70e5df3f61dab3839c1be1059dee1730a3aa4dc",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "0854ea34af0d9db3c262ead1226edb0bdd8ef33b"
     }
   ]
 }

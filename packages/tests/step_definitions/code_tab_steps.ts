@@ -11,11 +11,13 @@ import {
   POLL_TIMEOUT,
 } from "../support/world.ts";
 
-/** Ensure the right panel is expanded for the ACTIVE terminal before touching
- *  the Code tab. Panel collapse is PER-TERMINAL now (#1753): a freshly-created
- *  or switched-to terminal starts collapsed under the e2e fixture (which seeds
- *  new terminals collapsed via `newTerminalCollapsed`), so its Code tab is
- *  hidden until opened. Idempotent — a no-op when the panel is already open (so
+/** Ensure the right panel is expanded for the ACTIVE TILE before touching the
+ *  Code tab. Panel COLLAPSE is per-TILE (#1753, #959): a freshly-created or
+ *  switched-to tile starts collapsed under the e2e fixture (which seeds new
+ *  terminals collapsed via `newTerminalCollapsed`), so its Code tab is hidden
+ *  until opened. (The panel's TAB and selection are per focused pane, which is
+ *  why moving focus between a tile's panes never re-collapses it.) Idempotent —
+ *  a no-op when the panel is already open (so
  *  it never masks a scenario that deliberately left it collapsed); when
  *  collapsed it presses the toggle and waits for the Code-tab button to paint.
  *  `data-collapsed` is the RightPanel's canonical "not visible" marker. */

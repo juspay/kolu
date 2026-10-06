@@ -19,7 +19,8 @@
  *  Fixture: a REAL `scopedByEntry` over the shared mock `padiMap`
  *  (`hostScope/mockHostMap.testlib`), membership driven by `addHost`/`removeHost`, the
  *  active host by one module-stable signal. The Code-tab query inputs read the mocked
- *  `useTerminalStore().active()` + `useRightPanel()` (the active projection), and a
+ *  `useTerminalStore().focused()` + `useRightPanel()` (the active projection — the
+ *  FOCUSED PANE, split or main), and a
  *  hand-driven, procedure-and-input-keyed pulse (`unenrolledStreamCall` mocked)
  *  requeries the matching ACTIVE instance. */
 
@@ -129,7 +130,7 @@ vi.mock("../wire", async () => {
 
 vi.mock("../terminal/useTerminalStore", () => ({
   useTerminalStore: () => ({
-    active: () => ({
+    focused: () => ({
       id: bag.termId(),
       meta: bag.repoRoot() ? { git: { repoRoot: bag.repoRoot() } } : null,
     }),

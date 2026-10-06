@@ -20,6 +20,11 @@ const h = vi.hoisted(() => ({
   // switcher does at runtime — `recordNavigation`/`canNavigateBack` resolve
   // their terminal through this.
   activeId: null as string | null,
+  // The FOCUSED PANE, when it is not the active tile (i.e. a split has focus).
+  // `undefined` means "no split focused" — the focused-pane reads then fall back
+  // to `activeId`, which is the main pane of the active tile. A split test sets
+  // this to a distinct id.
+  focusedId: undefined as string | null | undefined,
 }));
 
 vi.mock("../wire", () => ({
@@ -47,7 +52,12 @@ vi.mock("../wire", () => ({
 vi.mock("solid-sonner", () => ({ toast: { error: h.toastError } }));
 
 vi.mock("../terminal/useTerminalStore", () => ({
-  useTerminalStore: () => ({ activeId: () => h.activeId }),
+  useTerminalStore: () => ({
+    activeId: () => h.activeId,
+    // Falls back to the active tile (= its main pane) unless a test focuses a
+    // split — so every pre-split test keeps reading tile === pane.
+    focusedTerminalId: () => h.focusedId ?? h.activeId,
+  }),
 }));
 
 vi.mock("../tile/useTileStore", () => ({
@@ -64,6 +74,7 @@ beforeEach(() => {
   h.setRightPanel.mockClear();
   h.toastError.mockClear();
   h.activeId = null;
+  h.focusedId = undefined;
   h.prefs = {
     newTerminalCollapsed: false,
     rightPanel: { size: 0.25, codeTabTreeSize: 0.35 },
@@ -108,13 +119,13 @@ describe("useRightPanel — size writes drop Corvu's idempotent re-emits (#1041)
   });
 });
 
-// `collapsed` moved off the global `preferences.rightPanel` onto the per-terminal
-// `TerminalMetadata.rightPanel` record (#959 completed): each terminal remembers
-// whether its panel was showing, restored on session restore like the active tab.
-// A toggle reports via `chrome.setRightPanel` (server-persisted), NEVER
-// `updatePreferences`. The module-level `perTerminal` store persists across
-// `useRightPanel()` calls, so each test uses distinct terminal ids.
-describe("useRightPanel — collapsed is per-terminal (the panel follows the terminal)", () => {
+// `collapsed` lives on the per-terminal `TerminalMetadata.rightPanel` record
+// (#959), but it is the TILE's bit: each tile remembers whether its panel was
+// showing, restored on session restore like the active tab. A toggle reports via
+// `chrome.setRightPanel` (server-persisted), NEVER `updatePreferences`. The
+// module-level `perTerminal` store persists across `useRightPanel()` calls, so
+// each test uses distinct terminal ids.
+describe("useRightPanel — collapsed is per-TILE (posture follows the tile)", () => {
   it("a toggle reports the active terminal's collapsed via setRightPanel, not preferences", () => {
     const a = "collapse-A" as TerminalId;
     h.activeId = a;
@@ -186,6 +197,127 @@ describe("useRightPanel — collapsed is per-terminal (the panel follows the ter
     expect(h.setRightPanel).toHaveBeenLastCalledWith(
       expect.objectContaining({ id: a, collapsed: false }),
     );
+  });
+});
+
+// The panel's SUBJECT is the focused pane, not the active tile: `collapsed`
+// stays on the TILE while activeTab / codeMode / selectedFile / history follow
+// the PANE (main or any split). Same module-level `perTerminal`, so distinct
+// ids per test.
+describe("useRightPanel — the panel follows the focused pane", () => {
+  it("collapsed stays on the tile while the active tab follows the pane", () => {
+    const tile = "fp-tile" as TerminalId;
+    const split = "fp-split" as TerminalId;
+    h.activeId = tile;
+    const rp = useRightPanel();
+    // Move focus to the split and put IT on the Inspector tab.
+    h.focusedId = split;
+    rp.showInspector();
+    expect(rp.activeTab()).toEqual({ kind: "inspector" });
+    // Focus back to main — main's own default (Code) tab returns, and the
+    // panel's posture (the TILE's) never moved.
+    h.focusedId = undefined;
+    expect(rp.activeTab().kind).toBe("code");
+    expect(rp.collapsed()).toBe(false);
+    // Focus the split again: ITS Inspector tab is restored, same posture.
+    h.focusedId = split;
+    expect(rp.activeTab().kind).toBe("inspector");
+    expect(rp.collapsed()).toBe(false);
+  });
+
+  it("a collapse targets the tile, never the focused split", () => {
+    const tile = "fp-collapse-tile" as TerminalId;
+    const split = "fp-collapse-split" as TerminalId;
+    h.activeId = tile;
+    h.focusedId = split;
+    const rp = useRightPanel();
+    rp.collapsePanel();
+    expect(rp.collapsed()).toBe(true);
+    expect(h.setRightPanel).toHaveBeenLastCalledWith(
+      expect.objectContaining({ id: tile, collapsed: true }),
+    );
+    // No write ever lands on the split for a visibility gesture.
+    expect(h.setRightPanel).not.toHaveBeenCalledWith(
+      expect.objectContaining({ id: split }),
+    );
+  });
+
+  it("each pane keeps its own per-mode selected file", () => {
+    const tile = "fp-file-tile" as TerminalId;
+    const split = "fp-file-split" as TerminalId;
+    h.activeId = tile;
+    h.focusedId = split;
+    const rp = useRightPanel();
+    rp.setSelectedFile("browse", "split-only.ts");
+    expect(rp.selectedFile("browse")).toBe("split-only.ts");
+    h.focusedId = undefined;
+    expect(rp.selectedFile("browse")).toBeNull();
+    rp.setSelectedFile("browse", "main-only.ts");
+    expect(rp.selectedFile("browse")).toBe("main-only.ts");
+    h.focusedId = split;
+    expect(rp.selectedFile("browse")).toBe("split-only.ts");
+  });
+
+  it("navigation history is per pane", () => {
+    const tile = "fp-hist-tile" as TerminalId;
+    const split = "fp-hist-split" as TerminalId;
+    h.activeId = tile;
+    const rp = useRightPanel();
+    h.focusedId = undefined;
+    rp.recordNavigation({ mode: "browse", path: "main.txt" });
+    rp.recordNavigation({ mode: "browse", path: "main2.txt" });
+    expect(rp.canNavigateBack()).toBe(true);
+    // The split has its OWN stack — empty.
+    h.focusedId = split;
+    expect(rp.canNavigateBack()).toBe(false);
+    rp.recordNavigation({ mode: "browse", path: "split.txt" });
+    expect(rp.navigateBack()).toBeNull(); // a single-entry stack
+    // Back to main: main's own earlier entry.
+    h.focusedId = undefined;
+    expect(rp.navigateBack()).toEqual({ mode: "browse", path: "main.txt" });
+  });
+
+  it("captureNewPaneTab seeds a new split from the pane it was split from", () => {
+    const tile = "fp-seed-tile" as TerminalId;
+    h.activeId = tile;
+    const rp = useRightPanel();
+    rp.showInspector(); // the tile's main pane is on Inspector
+    const initializePaneTab = rp.captureNewPaneTab();
+    // A focus change before the create lands must not change the captured seed.
+    h.focusedId = "fp-seed-other" as TerminalId;
+    const split = "fp-seed-split" as TerminalId;
+    initializePaneTab(split);
+    expect(h.setRightPanel).toHaveBeenLastCalledWith(
+      expect.objectContaining({ id: split, activeTab: "inspector" }),
+    );
+    h.focusedId = split;
+    expect(rp.activeTab().kind).toBe("inspector");
+  });
+
+  it("adoptTileCollapsed hands a promoted split the posture of the tile it left", () => {
+    const tile = "fp-promote-tile" as TerminalId;
+    const split = "fp-promote-split" as TerminalId;
+    h.activeId = tile;
+    const rp = useRightPanel();
+    rp.collapsePanel(); // the tile's panel is closed
+    rp.adoptTileCollapsed(split, tile);
+    expect(h.setRightPanel).toHaveBeenLastCalledWith(
+      expect.objectContaining({ id: split, collapsed: true }),
+    );
+    // Once the split IS its own tile, its now-live collapsed reads closed.
+    h.activeId = split;
+    h.focusedId = undefined;
+    expect(rp.collapsed()).toBe(true);
+  });
+
+  it("adoptTileCollapsed is a no-op when the from-tile IS the terminal", () => {
+    const tile = "fp-self-tile" as TerminalId;
+    h.activeId = tile;
+    const rp = useRightPanel();
+    rp.collapsePanel();
+    h.setRightPanel.mockClear();
+    rp.adoptTileCollapsed(tile, tile);
+    expect(h.setRightPanel).not.toHaveBeenCalled();
   });
 });
 
