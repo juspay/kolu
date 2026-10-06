@@ -12,12 +12,9 @@
  *  the list, so a split from ANY actor behaves like a manual one.
  *
  *  It is also the ONE place that sees every new split, so the new split's panel
- *  TAB is seeded here (`seedSplitTab`): a split must not flip the panel from
- *  Inspector to Code when you click into it, and only this funnel covers an
+ *  tab is seeded here too (`seedSplitTab`) — only this funnel covers an
  *  agent-created, `kolu create --parent`, or MCP `lifecycle_create {child-of}`
- *  split. (The browser path also seeds synchronously, before it moves focus, so
- *  no frame paints the split's default tab; the seed is a no-op when the record
- *  already exists, which is what lets the two compose.)
+ *  split.
  *
  *  Expand-but-don't-steal: a new split ALWAYS expands the parent's panel (like a
  *  manual create), but becomes the ACTIVE tab only when the parent has no active
@@ -118,9 +115,6 @@ export function useAdoptNewSplit(deps: {
         // (`parentId` = a middle split) must expand that tile's panel, not a
         // middle node that has no canvas chrome of its own.
         const tileId = containingTileOf(parentId, deps.parentOf);
-        // Give the arrival the panel tab of the terminal it is a child of, before
-        // anything can move focus into it — this is the ONLY place that sees every
-        // new split, whoever created it, so it is where the tab seed belongs.
         deps.ports.seedSplitTab(subId, parentId);
         deps.ports.expandPanel(tileId);
         // Don't-steal: select the arrival only when no split is currently active.

@@ -261,14 +261,6 @@ export function useDeepLinks(): void {
     });
   }
 
-  /** Resolve a route's TARGET record — `null` until it has composed. The right
-   *  panel follows the focused pane, so the target IS the panel's subject: a
-   *  split's `/code` or `/inspector` link addresses the split's own panel and
-   *  repo, with no containing-tile anchor to compute. */
-  function resolveRoute(route: TerminalRoute): TerminalMeta | null {
-    return store.getMetadata(route.terminalId) ?? null;
-  }
-
   /** A `code` route still waiting on (or lacking) its target's repo root — the
    *  git sensor is a THIRD async fact, settled INDEPENDENTLY of membership, and
    *  `git` is `null` both for "no repo" and "not sensed yet". The one place this
@@ -349,13 +341,16 @@ export function useDeepLinks(): void {
       );
       return;
     }
-    const resolved = resolveRoute(route);
-    if (!resolved) return; // a record hasn't composed yet — wait
+    // The route's TARGET is the panel's subject (the panel follows the focused
+    // pane), so no containing-tile anchor is computed. `getMetadata` is
+    // reactive: `undefined` means the record has not composed yet — wait.
+    const target = store.getMetadata(route.terminalId);
+    if (!target) return; // a record hasn't composed yet — wait
     // `code` waits on its target's repo root (a fresh terminal / cold-boot
     // window before the git watcher resolves) rather than toasting a false
     // "not a git repository"; the effect re-runs when the git fact lands
     // (getMetadata is reactive), bounded by the 8s backstop.
-    if (codeRouteAwaitingRepo(route, resolved)) return;
+    if (codeRouteAwaitingRepo(route, target)) return;
     // The ONLY non-disarming clear: an ENACTED route's intent survives so
     // cold-boot hydration keeps the reached view. Clear `pending` FIRST (so a
     // throwing enact can't leave the effect armed into a retry loop), then enact,
@@ -364,7 +359,7 @@ export function useDeepLinks(): void {
     // durably stamped-but-un-enacted (the exact state #1900 R1 prevents). Never
     // `disarmResolved` here — that would clear the surviving intent.
     setPending(null);
-    enact(route, resolved);
+    enact(route, target);
     stampEntryRouted();
   });
 
@@ -386,8 +381,8 @@ export function useDeepLinks(): void {
       disarmResolved(); // fault verdict — disarm + intent + stamp together
       // Same target + repo-readiness facts the settle gate reads, so the
       // message can't drift from the gate's own verdict.
-      const resolved = resolveRoute(route);
-      if (resolved && codeRouteAwaitingRepo(route, resolved)) {
+      const target = store.getMetadata(route.terminalId);
+      if (target && codeRouteAwaitingRepo(route, target)) {
         toast.error(
           "Couldn't open that file — that terminal doesn't appear to be in a git repository.",
         );

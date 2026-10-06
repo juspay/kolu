@@ -89,8 +89,7 @@ import {
 import {
   type CodeTabOpenResolutionSource,
   type CodeTabScope,
-  codeTabScopeKey,
-  codeTabScopesEqual,
+  codeTabRepoSlotKey,
   codeTabSelectionInventoryVerdict,
   createCodeTabOpenController,
   type OpenInCodeTabRequest,
@@ -106,6 +105,7 @@ import {
   codeIgnoredPaths,
   codeLocalStatus,
   readFreshCodePaths,
+  type ScopedCodePaths,
 } from "./hostCodeTab";
 import { openInCodeTab, pendingOpen } from "./openInCodeTab";
 import { attachPierreTouchScroll } from "./pierreTouchScroll";
@@ -367,7 +367,7 @@ const CodeTab: Component<{
     if (opts?.record === false || path === null) return;
     rightPanel.recordNavigation({ mode, path, ref: opts?.ref });
   };
-  const slotKey = createMemo(() => codeTabScopeKey(currentScope()));
+  const repoSlotKey = createMemo(() => codeTabRepoSlotKey(currentScope()));
 
   // Dismiss any open comment composer when the user navigates away from the
   // terminal / file / mode / repo the draft was anchored to. Without this, the
@@ -380,7 +380,7 @@ const CodeTab: Component<{
   // INVALIDATION of its source, so an array source re-closes the composer on any
   // incidental invalidation (a same-repo active-terminal *clock* tick
   // re-evaluates `repoPath()` to the same string). A primitive-string memo (the
-  // `slotKey` precedent above) notifies only on a real navigation. `terminalId`
+  // `repoSlotKey` precedent above) notifies only on a real navigation. `terminalId`
   // is in the key because a comment saves against the ACTIVE terminal: switching
   // to another terminal (or host — a terminal is host-bound) at the same file
   // must drop the draft, per composerState.ts's host-independent contract, even
@@ -441,21 +441,33 @@ const CodeTab: Component<{
   const statusPending = () => activeStatus.pending();
   const statusError = () => activeStatus.error();
 
-  // Clear the filename filter when the slot changes — the search needle
-  // was scoped to the previous file set and rarely makes sense post-
-  // switch. Selection itself is per-slot (read/written via
+  // Clear the filename filter when the REPO SLOT changes — the search needle
+  // was scoped to the previous file set and rarely makes sense post-switch.
+  // Selection itself is per-pane (read/written via
   // `rightPanel.selectedFile(mode)` → `selectedFileByMode` on the
   // per-terminal record) so the new view automatically surfaces its own
-  // pick without a clear here. `slotKey` is memoized, so this fires
-  // only when the tuple genuinely changes — without the memo, `on(...)`
-  // would re-run its callback on every incidental tick of `repoPath()`
+  // pick without a clear here. The key deliberately excludes the terminal: the
+  // filter, the reveal, the lazy folder levels and the tree's expansion are all
+  // facts about the REPO, so moving focus between two panes of one repo keeps
+  // them (and does not re-dispatch `fs.listAll`). `repoSlotKey` is memoized, so
+  // this fires only when the tuple genuinely changes — without the memo,
+  // `on(...)` would re-run its callback on every incidental tick of `repoPath()`
   // (metadata cell) or `view()` (per-terminal in-memory store) and wipe
   // the filter spuriously after #818 made CodeTab survive right-panel
   // tab toggles.
   createEffect(
     on(
-      slotKey,
-      () => {
+      repoSlotKey,
+      (key, previous) => {
+        // Only a change BETWEEN two repos invalidates the slot's state. A `null`
+        // key means "no repo to scope to yet" — the shown pane's git is still
+        // being sensed, or the terminal sits outside a repo — and resetting on it
+        // would drop the filter and the open folders whenever focus lands on a
+        // just-created split whose git has not resolved yet, for a repo that has
+        // not changed at all. (`git` is `null` for BOTH "sensing" and "no repo";
+        // until that schema distinguishes them, this is the honest reading of a
+        // null key.)
+        if (key === null || previous === null) return;
         setSearchQuery("");
         // Retire any standing folder reveal too — it was scoped to the previous
         // repo/view. Clearing here can't clobber a folder click that *causes*
@@ -503,7 +515,7 @@ const CodeTab: Component<{
   // unmounts/remounts the tree, and a consume-once reveal was lost in that
   // window (the folder came back collapsed — a darwin-CI flake). It is cleared
   // on the next real navigation instead — a file pick (`handleSelect`) or a
-  // repo/view switch (the `slotKey` effect) — so it never re-scrolls to a stale
+  // repo/view switch (the `repoSlotKey` effect) — so it never re-scrolls to a stale
   // folder forever. A fresh object per request re-fires the reveal on a repeat
   // click of the same folder.
   const [revealDir, setRevealDir] = createSignal<{ path: string } | null>(null);
@@ -745,6 +757,20 @@ const CodeTab: Component<{
   const treeInventory = createMemo<
     BrowseInventory & { scope: CodeTabScope | null }
   >(() => {
+    // The slot a listing may be stamped with: the one we are showing, and only
+    // when the listing really was read for that slot's repo. The queries blank on
+    // a key change, but the blank and this read are separate reactive runs — so
+    // the listing's OWN repo is what refuses a value produced for the repo we
+    // left. (Both listings are keyed on the same repo, so in the steady state
+    // either both stamp or neither does.)
+    const stampOf = (
+      listing: ScopedCodePaths | undefined,
+    ): CodeTabScope | null => {
+      const current = currentScope();
+      return current !== null && listing?.repoRoot === current.repoRoot
+        ? current
+        : null;
+    };
     // Copy `paths` out rather than returning the store proxy directly:
     // `fsListAll` lands in a reconciled store whose `paths` array is
     // mutated in place, so the proxy's reference is stable across an
@@ -777,12 +803,11 @@ const CodeTab: Component<{
           showIgnored,
         },
       );
+      const trackedStamp = stampOf(tracked);
+      const ignoredStamp = stampOf(ignored);
       const scope =
-        tracked !== undefined &&
-        (!showIgnored ||
-          (ignored !== undefined &&
-            codeTabScopesEqual(tracked.scope, ignored.scope)))
-          ? tracked.scope
+        trackedStamp !== null && (!showIgnored || ignoredStamp !== null)
+          ? trackedStamp
           : null;
       return { ...inventory, scope };
     }
@@ -859,18 +884,19 @@ const CodeTab: Component<{
   // path until the retained inventory first contains it. From that point the
   // normal removal rule is authoritative again.
   //
-  // Bail on the tick where `slotKey` itself just changed: the shared
+  // Bail on the tick where `repoSlotKey` itself just changed: the shared
   // `treePaths()` / `pending()` signals can momentarily expose the
-  // previous slot's snapshot before `createReactiveSubscription` resets
-  // them for the new input, so the new slot's selection would be checked
-  // against the previous slot's tree and falsely cleared. The next tick
+  // previous repo's snapshot before the query blanks for the new input, so the
+  // new slot's selection would be checked
+  // against the previous repo's tree and falsely cleared. The next tick
   // (after the reset effect runs) re-evaluates with the authoritative
-  // values for the new slot.
+  // values for the new slot. (A pane switch inside one repo does not move this
+  // key — the inventory is the same repo's — so no bail is needed there.)
   createEffect(
     on(
       () => {
         const s = selectedPath();
-        const sk = slotKey();
+        const sk = repoSlotKey();
         const { paths, pending: isPending } = treeInventory();
         const fresh = freshSelection();
         const freshPath =
@@ -1276,7 +1302,7 @@ const CodeTab: Component<{
                             selected: selectedPath(),
                             reveal: revealDir(),
                             lazy: treeInventory().lazyDirs,
-                            epoch: slotKey(),
+                            epoch: repoSlotKey(),
                             css: treeShadowCss(),
                           }
                         : previous,

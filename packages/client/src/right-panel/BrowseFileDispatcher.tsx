@@ -59,6 +59,7 @@ import {
 } from "solid-js";
 import { toast } from "solid-sonner";
 import { match, P } from "ts-pattern";
+import { buildTerminalFileUrl } from "kolu-common/preview";
 import { CommentTextSurface } from "../comments/CommentTextSurface";
 import { useCommentScrollRequest } from "../comments/scrollRequest";
 import { OptionMenu } from "../ui/OptionMenu";
@@ -450,7 +451,22 @@ const BrowseFileDispatcher: Component<BrowseFileDispatcherProps> = (props) => {
   });
   const binaryFile = createMemo<FileWithUrl | null>(() => {
     const fc = fileContent();
-    return fc?.kind === "binary" ? { path: props.filePath, url: fc.url } : null;
+    if (fc?.kind !== "binary") return null;
+    // The URL is built HERE, where the terminal is read — not in the query. The
+    // query is keyed on (repo, file) so that a focus move between two panes
+    // showing the same file never blanks the view; the terminal named in the URL
+    // therefore has to come from the pane being SHOWN, or a URL left naming a
+    // pane that has since closed would 404 the preview. `?v=<tag>` is the
+    // content hash, so a real content change still reloads the img/iframe while
+    // an identical-content rewrite does not.
+    return {
+      path: props.filePath,
+      url: `${buildTerminalFileUrl(
+        encodeHostKey(activeHost()),
+        props.terminalId,
+        props.filePath,
+      )}?v=${fc.previewTag}`,
+    };
   });
 
   // A controlled FileView mode driven by a tray-jump scroll request: when the

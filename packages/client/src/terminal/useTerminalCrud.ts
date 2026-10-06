@@ -131,15 +131,21 @@ export const useTerminalCrud = createSharedRoot(() => {
     );
   };
 
-  /** Promote a sub-terminal to its own tile, giving it the open/closed posture of
-   *  the tile it is leaving. The ONE home for "a promoted split inherits the
-   *  posture of the tile it left": the caller names `fromTile` explicitly (the
-   *  list-driven reconcile has only its pre-removal graph, and the tile is already
-   *  gone from the live store), and the read happens here — BEFORE the caller's
-   *  later `removeRightPanel(fromTile)` drops that record. */
-  function promoteToTopLevel(subId: TerminalId, fromTile: TerminalId): void {
-    rightPanel.adoptTileCollapsed(subId, fromTile);
-    setParent(subId, null);
+  /** Hand a split its own tile — the ONE home for "a promoted split inherits the
+   *  open/closed posture of the tile it left", and the ONE timing (before the
+   *  write, so the promoted tile never paints with the new-terminal default).
+   *  Both promotion paths call it: the eviction reconcile (through the
+   *  `promoteToTopLevel` port) and the dock's drag-to-unsplit. The caller names
+   *  `fromTile` because only it knows — the list-driven reconcile has its
+   *  pre-removal graph, the dock captured the tile at drop time — and it must
+   *  still hold that tile's panel record, since the read happens here. */
+  function promoteToTopLevel(
+    subId: TerminalId,
+    fromTile: TerminalId,
+    settled?: (applied: boolean) => void,
+  ): void {
+    rightPanel.adoptTileCollapsed(fromTile)(subId);
+    setParent(subId, null, settled);
   }
 
   const evictionPorts: TerminalEvictionPorts = {
@@ -243,8 +249,11 @@ export const useTerminalCrud = createSharedRoot(() => {
       // the echo). Reading the echo alone would inherit the pre-resize size
       // when a create races the echo. `active()` bundles (id, meta) from one
       // glitch-free read.
-      const initializePanel = rightPanel.captureNewPanelVisibility();
       const { id: activeId, meta } = store.active();
+      // The new tile inherits the active tile's panel posture, exactly as it
+      // inherits that tile's size below — read now (so a switch during the
+      // create cannot change it) and applied when the create yields its id.
+      const initializePanel = rightPanel.adoptTileCollapsed(activeId);
       // `active()` bundles (id, meta): meta is null whenever id is null, so the
       // no-active-tile branch is just `undefined` — there's no metadata to read.
       const activeLayout = activeId
@@ -303,9 +312,11 @@ export const useTerminalCrud = createSharedRoot(() => {
       // shortcut (Ctrl+`+Shift) and TileTitleActions stay live while warming.
       if (refuseIfWarming()) return;
       // Copy-on-create: the new split starts on the tab of the pane it was split
-      // FROM, so splitting never flips the panel. Captured before the async
-      // create, and applied to the new split's own record below.
-      const initializePaneTab = rightPanel.captureNewPaneTab();
+      // FROM, so splitting never flips the panel. Read before the async create,
+      // applied to the new split's own record below.
+      const initializePaneTab = rightPanel.seedSplitTab(
+        store.focusedTerminalId(),
+      );
       const info = yield* activePadiRpc.lifecycle
         // The placement is `child-of` by construction here — this function exists
         // only to open a split, and it is handed the parent. `cwd` is spread for the
@@ -567,6 +578,11 @@ export const useTerminalCrud = createSharedRoot(() => {
     reparent: (id: TerminalId, parentId: TerminalId | null) =>
       new Promise<boolean>((resolve) => setParent(id, parentId, resolve)),
     toggleSubPanel,
+    /** Hand a split its own tile, inheriting the posture of the tile it left —
+     *  the dock's drag-to-unsplit write, and (via the eviction port) the
+     *  reconcile's promote-on-departure. Resolves `true`/`false` through
+     *  `settled` like `reparent`. */
+    promoteToTopLevel,
     handleKill,
     handleKillWithSubs,
     requestSleep,

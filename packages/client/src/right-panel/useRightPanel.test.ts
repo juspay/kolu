@@ -285,13 +285,14 @@ describe("useRightPanel — the panel follows the focused pane", () => {
     expect(rp.navigateBack()).toEqual({ mode: "browse", path: "main.txt" });
   });
 
-  it("captureNewPaneTab seeds a new split from the pane it was split from", () => {
+  it("seedSplitTab seeds a new split from the pane it was split from", () => {
     const tile = "fp-seed-tile" as TerminalId;
     h.activeId = tile;
     const rp = useRightPanel();
     rp.showInspector(); // the tile's main pane is on Inspector
-    const initializePaneTab = rp.captureNewPaneTab();
-    // A focus change before the create lands must not change the captured seed.
+    // The source is pinned at capture; a focus change before the create lands
+    // must not change the seed.
+    const initializePaneTab = rp.seedSplitTab(tile);
     h.focusedId = "fp-seed-other" as TerminalId;
     const split = "fp-seed-split" as TerminalId;
     initializePaneTab(split);
@@ -308,7 +309,7 @@ describe("useRightPanel — the panel follows the focused pane", () => {
     h.activeId = tile;
     const rp = useRightPanel();
     rp.showInspector(); // the tile (the split's parent) is on Inspector
-    rp.seedSplitTab(split, tile);
+    rp.seedSplitTab(tile)(split);
     expect(h.setRightPanel).toHaveBeenLastCalledWith(
       expect.objectContaining({ id: split, activeTab: "inspector" }),
     );
@@ -326,7 +327,7 @@ describe("useRightPanel — the panel follows the focused pane", () => {
     h.focusedId = split;
     rp.showCode("branch");
     h.setRightPanel.mockClear();
-    rp.seedSplitTab(split, tile);
+    rp.seedSplitTab(tile)(split);
     expect(h.setRightPanel).not.toHaveBeenCalled();
     expect(rp.codeMode()).toBe("branch");
   });
@@ -346,7 +347,7 @@ describe("useRightPanel — the panel follows the focused pane", () => {
         codeMode: "branch",
       },
     };
-    rp.seedSplitTab(split, tile);
+    rp.seedSplitTab(tile)(split);
     h.focusedId = split;
     expect(rp.activeTab().kind).toBe("inspector");
     expect(rp.codeMode()).toBe("branch");
@@ -360,7 +361,7 @@ describe("useRightPanel — the panel follows the focused pane", () => {
     h.activeId = tile;
     const rp = useRightPanel();
     rp.collapsePanel(); // the tile's panel is closed
-    rp.adoptTileCollapsed(split, tile);
+    rp.adoptTileCollapsed(tile)(split);
     expect(h.setRightPanel).toHaveBeenLastCalledWith(
       expect.objectContaining({ id: split, collapsed: true }),
     );
@@ -376,7 +377,7 @@ describe("useRightPanel — the panel follows the focused pane", () => {
     const rp = useRightPanel();
     rp.collapsePanel();
     h.setRightPanel.mockClear();
-    rp.adoptTileCollapsed(tile, tile);
+    rp.adoptTileCollapsed(tile)(tile);
     expect(h.setRightPanel).not.toHaveBeenCalled();
   });
 });
@@ -473,7 +474,7 @@ describe("new terminal panel visibility", () => {
     const next = `new-${collapsed}` as TerminalId;
     h.activeId = previous;
     collapsed ? rp.collapsePanel() : rp.expandPanel();
-    const initializePanel = rp.captureNewPanelVisibility();
+    const initializePanel = rp.adoptTileCollapsed(previous);
     // A focus change while the create RPC is pending must not change the seed.
     h.activeId = `other-${collapsed}`;
     h.host = "host-B";
@@ -497,7 +498,8 @@ describe("new panel initialization", () => {
   ])("uses the initial preference with no active terminal: %s", (collapsed) => {
     h.prefs.newTerminalCollapsed = collapsed;
     const rp = useRightPanel();
-    const initializePanel = rp.captureNewPanelVisibility();
+    // No active tile to inherit from — the seed falls back to the preference.
+    const initializePanel = rp.adoptTileCollapsed(null);
     const id = `empty-${collapsed}` as TerminalId;
     initializePanel(id);
     h.activeId = id;
@@ -509,7 +511,7 @@ describe("new panel initialization", () => {
 
   it("preserves a tab selected before creation completes", () => {
     const rp = useRightPanel();
-    const initializePanel = rp.captureNewPanelVisibility();
+    const initializePanel = rp.adoptTileCollapsed(null);
     const id = "early-panel-interaction" as TerminalId;
     h.activeId = id;
     rp.showInspector();

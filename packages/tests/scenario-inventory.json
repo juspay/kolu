@@ -7995,6 +7995,30 @@
       "exampleRows": [],
       "executions": 1,
       "firstSeenSha": "c720f461ed77fcf95e13557073882c23e3c11538"
+    },
+    {
+      "revisionId": "revision-ef733a93ec94fde81e2b",
+      "scenarioKey": "scenario-7e275bb75aba9a5593e5",
+      "feature": "features/right-panel.feature",
+      "scenario": "A pane switch inside one repo leaves the Code tree alone",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "e24050c56683cd617153c59ad586d1e141d82df979e22303db74c44d836681dd",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "9877767190f08ab4d139ff8b298f8c98cf449c21"
+    },
+    {
+      "revisionId": "revision-13a6eaf8a47608e4cd73",
+      "scenarioKey": "scenario-7e275bb75aba9a5593e5",
+      "feature": "features/right-panel.feature",
+      "scenario": "A pane switch inside one repo leaves the Code tree alone",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "643aa980571131036461bf38b60f29884af00cc5e5f4418df196e166bdd017cf",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "9877767190f08ab4d139ff8b298f8c98cf449c21"
     }
   ]
 }

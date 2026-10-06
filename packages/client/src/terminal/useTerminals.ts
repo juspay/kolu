@@ -156,7 +156,9 @@ export function useTerminals() {
       expandPanel: subPanel.expandPanel,
       activeSubTab: (parentId) => subPanel.peekSubPanel(parentId).activeSubTab,
       setActiveSubTab: subPanel.setActiveSubTab,
-      seedSplitTab: rightPanel.seedSplitTab,
+      // The funnel knows the split's own parent, which is the source it has.
+      seedSplitTab: (subId, parentId) =>
+        rightPanel.seedSplitTab(parentId)(subId),
     },
   });
 

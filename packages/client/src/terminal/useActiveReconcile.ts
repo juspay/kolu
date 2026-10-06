@@ -127,8 +127,10 @@ export function evictTerminal(
     // take the HIGHEST still-live ancestor (canvas chrome keys on the root, not
     // a live middle). If none survive, promote to top-level.
     let dest: TerminalId | null = null;
-    // The highest node the walk reached — the top of the departing chain when
-    // every ancestor departs. That is the tile a promoted child is leaving.
+    // The top of the departing chain — the tile a promoted child is leaving when
+    // every ancestor departs. Read from the REMOVAL GRAPH, never the live store:
+    // on the list-driven path the departing tile is already gone from the live
+    // census (the whole reason this graph exists).
     let chainTop: TerminalId = parentId;
     {
       let cur: TerminalId | null = parentId;
@@ -146,17 +148,12 @@ export function evictTerminal(
         cur = up;
       }
     }
-    // Where a promoted child came from: the highest live ancestor, else the top
-    // of the departing chain. Derived from the REMOVAL GRAPH, never the live
-    // store — on the list-driven path the departing tile is already gone from the
-    // live census (the whole reason this graph exists).
-    const fromTile = dest ?? chainTop;
     // True children of the departing node.
     for (const child of census) {
       if (child === id) continue;
       if (edge(child) !== id) continue;
       if (departing.has(child)) continue;
-      if (dest === null) ports.promoteToTopLevel(child, fromTile);
+      if (dest === null) ports.promoteToTopLevel(child, chainTop);
       else ports.rehomeUnder(child, dest);
     }
     // Chrome repair only when a live root still owns the panel.

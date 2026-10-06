@@ -173,7 +173,7 @@ describe("backstop copy is fact-aware (#1900 R4)", () => {
   it("has a non-authoritative arm that blames the daemon, not the host", () => {
     // The backstop reads the same census fact and picks the honest message.
     const backstop = routerSrc.slice(routerSrc.indexOf("MEMBERSHIP_BOUND_MS"));
-    expect(backstop).toContain("if (resolved && codeRouteAwaitingRepo");
+    expect(backstop).toContain("if (target && codeRouteAwaitingRepo");
     expect(backstop).toContain("} else if (!listIsAuthoritative()) {");
     expect(backstop).toContain("daemon isn't running");
   });
@@ -198,7 +198,7 @@ describe("verdict-time stamping contract (#1900 R1 / codex F4)", () => {
     const navStart = routerSrc.indexOf("function navigate(");
     const navBody = routerSrc.slice(
       navStart,
-      routerSrc.indexOf("function resolveRoute(", navStart),
+      routerSrc.indexOf("function codeRouteAwaitingRepo(", navStart),
     );
     // navigate's ONLY stamp is the one guarded by !deferStamp — a second,
     // unconditional stamp (the pre-fix parse-time behaviour) would make this 2.
@@ -251,7 +251,7 @@ describe("verdict-time stamping contract (#1900 R1 / codex F4)", () => {
 
   it("stamps the ENACTED path only AFTER enact returns (retryable on throw)", () => {
     expect(routerSrc).toMatch(
-      /enact\(route, resolved\);\s*stampEntryRouted\(\);/s,
+      /enact\(route, target\);\s*stampEntryRouted\(\);/s,
     );
   });
 
@@ -261,7 +261,7 @@ describe("verdict-time stamping contract (#1900 R1 / codex F4)", () => {
     const navStart = routerSrc.indexOf("function navigate(");
     const navBody = routerSrc.slice(
       navStart,
-      routerSrc.indexOf("function resolveRoute(", navStart),
+      routerSrc.indexOf("function codeRouteAwaitingRepo(", navStart),
     );
     expect(navBody).toContain("disarmInFlightRoute();");
     expect(navBody).not.toContain("disarmResolved");

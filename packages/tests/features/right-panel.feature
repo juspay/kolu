@@ -393,3 +393,37 @@ Feature: Right panel (Code + Inspector)
     And I click dock split sub-entry 1
     Then the Inspector tab should be active
     And there should be no page errors
+
+  Scenario: A pane switch inside one repo leaves the Code tree alone
+    # Focus moves between panes far more often than tiles do, and a new split
+    # starts in its parent's directory — so "same repo on both sides" is the
+    # common case. Nothing about the repo changes, so the tree must not refetch,
+    # blank, dim, or drop what you had opened or typed.
+    When I run "rm -rf /tmp/kolu-pane-switch && git init /tmp/kolu-pane-switch && cd /tmp/kolu-pane-switch"
+    When I run "mkdir -p src && printf 'a\n' > src/app.ts && printf 'b\n' > src/other.ts && git add . && git commit -m init"
+    When I click the Code tab
+    And I click the Code tab mode "browse"
+    And I click the directory "src" in the file browser
+    And I type "app" into the Code tab filter
+    Then the Code tab should show file "src/app.ts"
+    And the Code tab filter input should contain "app"
+    # A split in the SAME repo (it inherits the tile's cwd). Visiting it once lets
+    # its own git sensing settle first — a fresh terminal's `git` is null until
+    # the sensor resolves, which is a separate, pre-existing transient, not the
+    # keying this scenario is about.
+    When I create a sub-terminal via command palette
+    And the file browser should show a file "src/app.ts"
+    And I click the main terminal
+    Then the file browser should show a file "src/app.ts"
+    # Tag the mounted tree so a replacement node is detectable, then move focus
+    # between the two panes of the one tile (same repo both ways).
+    When I tag the file tree
+    And I click dock split sub-entry 1
+    Then the file tree should still be the one I tagged
+    And the Code tab filter input should contain "app"
+    And the directory "src" should be expanded in the file browser
+    When I click the main terminal
+    Then the file tree should still be the one I tagged
+    And the Code tab filter input should contain "app"
+    And the directory "src" should be expanded in the file browser
+    And there should be no page errors

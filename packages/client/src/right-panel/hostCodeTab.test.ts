@@ -178,6 +178,14 @@ const HOST_B: HostKey = { kind: "remote", target: "B" };
 const [driveHost, setDriveHost] = createSignal<HostKey>(HOST_A);
 bag.activeHost = driveHost;
 
+// The focused pane's id and its repo, driven REACTIVELY: a pane switch inside one
+// repo must be observable as an invalidation of the query inputs that changes
+// nothing downstream — that is the whole point of keying the listings on the repo.
+const [driveTermId, setDriveTermId] = createSignal<string | null>("t1");
+const [driveRepo, setDriveRepo] = createSignal<string | null>("/repo");
+bag.termId = driveTermId;
+bag.repoRoot = driveRepo;
+
 function switchTo(host: HostKey): void {
   batch(() => {
     addHost(host);
@@ -202,6 +210,8 @@ beforeEach(async () => {
   resetHosts();
   await flush();
   setDriveHost(HOST_A);
+  setDriveTermId("t1");
+  setDriveRepo("/repo");
   bag.counts = {};
   bag.previewTagInputs = [];
   bag.mode = () => "browse";
@@ -334,7 +344,7 @@ describe("hostCodeTab — per-host query ownership (padi W9)", () => {
     expect(label()).toBe("local:local");
   });
 
-  it("a watcher pulse re-queries an unchanged preview tag without changing its URL", async () => {
+  it("a watcher pulse re-queries an unchanged preview tag and yields the same tag", async () => {
     bag.selected = () => "report.html";
     switchTo(HOST_A);
     void codeFileContent.pending();
@@ -351,9 +361,11 @@ describe("hostCodeTab — per-host query ownership (padi W9)", () => {
 
     expect(bag.previewTagInputs).toEqual([input, input]);
     expect(before).toEqual(after);
+    // The value carries the CONTENT tag, not a URL: the URL is built by the
+    // consumer, where the shown terminal is read (see BrowseFileDispatcher).
     expect(after).toMatchObject({
       kind: "binary",
-      url: expect.stringContaining("?v=same-content-tag"),
+      previewTag: "same-content-tag",
     });
   });
 
@@ -418,6 +430,50 @@ describe("hostCodeTab — per-host query ownership (padi W9)", () => {
     expect(codeAllPaths()?.paths).toEqual(["src/app.ts"]);
     expect(codeAllPaths.pending()).toBe(false);
     expect(bag.counts.listAll).toBe(queriesBefore);
+  });
+
+  // A focus move between two panes of ONE tile is the frequent state change this
+  // feature introduces — and a new split starts in its parent's directory, so
+  // "same repo on both sides" is the common case. The listings are facts about
+  // the REPO, so the query key must not carry the pane: a switch that changes
+  // nothing about the repo must not blank the tree or re-dispatch `fs.listAll`.
+  it("a pane switch inside one repo re-dispatches NOTHING and never blanks", async () => {
+    switchTo(HOST_A);
+    void codeAllPaths.pending();
+    await flush();
+    pulse();
+    await flush();
+    expect(codeAllPaths()?.paths).toEqual(["src/app.ts"]);
+    const reads = bag.counts.listAll;
+    // Guard against a vacuous pass: if the mock were never reached, the
+    // equality assertions below would compare `undefined` to `undefined`.
+    expect(reads).toBeGreaterThan(0);
+
+    setDriveTermId("t2"); // focus moves to a split in the SAME repo
+    await flush();
+
+    expect(bag.counts.listAll).toBe(reads); // ZERO new dispatches
+    expect(codeAllPaths.pending()).toBe(false); // never blanked
+    expect(codeAllPaths()?.paths).toEqual(["src/app.ts"]); // the value is held
+  });
+
+  it("a REPO change still blanks the listing and re-queries it", async () => {
+    switchTo(HOST_A);
+    void codeAllPaths.pending();
+    await flush();
+    pulse();
+    await flush();
+    const reads = bag.counts.listAll ?? 0;
+    expect(reads).toBeGreaterThan(0);
+
+    setDriveRepo("/other-repo");
+    await flush();
+    expect(codeAllPaths.pending()).toBe(true); // blanked — a genuinely new query
+
+    pulse();
+    await flush();
+    expect(bag.counts.listAll).toBeGreaterThan(reads);
+    expect(codeAllPaths()?.repoRoot).toBe("/other-repo");
   });
 });
 

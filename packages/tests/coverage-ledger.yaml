@@ -2165,3 +2165,16 @@ retirements:
       file: packages/tests/features/deep-links.feature
       symbol: "Scenario: A #/t/.../inspector link to a split opens that split's own Inspector"
       test: The scenario was renamed — the old name asserted the retired per-tile panel rule — and gained one assertion, `the right panel should show a pane label`, which proves the panel's subject is the SPLIT rather than the containing tile. Its two original assertions are unchanged (the Inspector tab is active; the sub pane is live).
+  - id: revise-pane-switch-tree-scenario
+    revisionId: revision-ef733a93ec94fde81e2b
+    action: revised
+    status: landed
+    promise: A pane switch inside one repo leaves the Code tree alone
+    defectSurface: [right-panel, code-tab]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-13a6eaf8a47608e4cd73]
+    sameCodePathEvidence:
+      file: packages/tests/features/right-panel.feature
+      symbol: "Scenario: A pane switch inside one repo leaves the Code tree alone"
+      test: 'The scenario now visits the fresh split once (letting its own git sensing resolve) before tagging the tree, so it pins the repo-keying fix rather than the separate "git is null while sensing" transient. Every original assertion is kept, and the filter assertion now also fails on the pre-fix keying.'

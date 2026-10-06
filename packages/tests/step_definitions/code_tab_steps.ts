@@ -2684,3 +2684,29 @@ Then(
       throw new Error("Pierre source renderer remounted after save");
   },
 );
+
+// ── Tree identity across a pane switch ──
+//
+// Focus moves between two panes of one tile are far more frequent than tile
+// switches, and a new split starts in its parent's directory — so "same repo on
+// both sides" is the common case. Nothing about the repo changes, so the tree
+// must not be rebuilt. The probe is written by the TEST onto the mounted host
+// element (the `data-keepalive-probe` precedent above): a replacement node would
+// not carry it, so its presence is a real identity proof and needs no production
+// marker.
+When("I tag the file tree", async function (this: KoluWorld) {
+  await this.page
+    .locator('[data-testid="pierre-file-tree"]')
+    .evaluate((el) => el.setAttribute("data-pane-switch-probe", "tree"));
+});
+
+Then(
+  "the file tree should still be the one I tagged",
+  async function (this: KoluWorld) {
+    const marker = await this.page
+      .locator('[data-testid="pierre-file-tree"]')
+      .getAttribute("data-pane-switch-probe");
+    if (marker !== "tree")
+      throw new Error("the file tree was rebuilt across a pane switch");
+  },
+);

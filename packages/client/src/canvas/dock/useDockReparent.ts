@@ -37,7 +37,6 @@
 import type { TerminalId } from "kolu-common/surface";
 import { createEffect, createSignal } from "solid-js";
 import { createSharedRoot } from "../../createSharedRoot";
-import { useRightPanel } from "../../right-panel/useRightPanel";
 import { repairTileTabs, useSubPanel } from "../../terminal/useSubPanel";
 import { useTerminalCrud } from "../../terminal/useTerminalCrud";
 import { useTerminalStore } from "../../terminal/useTerminalStore";
@@ -60,7 +59,6 @@ export const useDockReparent = createSharedRoot(
     const crud = useTerminalCrud();
     const store = useTerminalStore();
     const subPanel = useSubPanel();
-    const rightPanel = useRightPanel();
     const focus = useDockFocus();
     const [pending, setPending] = createSignal<Pending | null>(null);
 
@@ -101,22 +99,28 @@ export const useDockReparent = createSharedRoot(
           false,
         );
       }
-      // A drop that handed the row its own TILE (`parentId: null`) makes it a
-      // tile for the first time, so its `collapsed` starts being read — give it
-      // the open/closed posture of the tile it just left, so the panel you were
-      // looking at does not jump. `p.fromTile` is the tile captured at DROP time,
-      // while the graph was still live.
-      if (p.parentId === null) rightPanel.adoptTileCollapsed(p.id, p.fromTile);
       focus(p.id);
     });
 
     return (id, parentId) => {
-      setPending({ id, parentId, fromTile: store.containingTile(id) });
-      void crud.reparent(id, parentId).then((applied) => {
-        // Refused (the server said no, and the toast already said why): disarm
-        // the intent, or the effect waits for an edge that will never arrive.
+      // The tile the row is leaving, read while the graph is still live. It is
+      // also what a promote hands over (see below), so it is read once.
+      const fromTile = store.containingTile(id);
+      setPending({ id, parentId, fromTile });
+      // Refused (the server said no, and the toast already said why): disarm
+      // the intent, or the effect waits for an edge that will never arrive.
+      const settle = (applied: boolean) => {
         if (!applied) setPending((cur) => (cur?.id === id ? null : cur));
-      });
+      };
+      // Handing the row its own tile (`parentId: null`) is a promote, not a
+      // re-home: it is the one write that also hands over panel posture, so it
+      // goes through the SAME verb the eviction reconcile's promote uses —
+      // one home for the inheritance, one timing (before the write).
+      if (parentId === null) {
+        crud.promoteToTopLevel(id, fromTile, settle);
+        return;
+      }
+      void crud.reparent(id, parentId).then(settle);
     };
   },
 );
