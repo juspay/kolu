@@ -37,6 +37,7 @@
 import type { TerminalId } from "kolu-common/surface";
 import { createEffect, createSignal } from "solid-js";
 import { createSharedRoot } from "../../createSharedRoot";
+import { useRightPanel } from "../../right-panel/useRightPanel";
 import { repairTileTabs, useSubPanel } from "../../terminal/useSubPanel";
 import { useTerminalCrud } from "../../terminal/useTerminalCrud";
 import { useTerminalStore } from "../../terminal/useTerminalStore";
@@ -59,6 +60,7 @@ export const useDockReparent = createSharedRoot(
     const crud = useTerminalCrud();
     const store = useTerminalStore();
     const subPanel = useSubPanel();
+    const rightPanel = useRightPanel();
     const focus = useDockFocus();
     const [pending, setPending] = createSignal<Pending | null>(null);
 
@@ -99,6 +101,12 @@ export const useDockReparent = createSharedRoot(
           false,
         );
       }
+      // A drop that handed the row its own TILE (`parentId: null`) makes it a
+      // tile for the first time, so its `collapsed` starts being read — give it
+      // the open/closed posture of the tile it just left, so the panel you were
+      // looking at does not jump. `p.fromTile` is the tile captured at DROP time,
+      // while the graph was still live.
+      if (p.parentId === null) rightPanel.adoptTileCollapsed(p.id, p.fromTile);
       focus(p.id);
     });
 

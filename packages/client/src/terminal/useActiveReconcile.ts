@@ -65,8 +65,13 @@ export interface TerminalEvictionPorts {
   activate: (id: TerminalId | null) => void;
   /** Drop an id from the tile MRU. */
   dropFromMru: (id: TerminalId) => void;
-  /** Promote a sub-terminal to top-level (server `setParent(id, null)`). */
-  promoteToTopLevel: (subId: TerminalId) => void;
+  /** Promote a sub-terminal to top-level (server `setParent(id, null)`), giving
+   *  it `fromTile` — the tile it is leaving — so the promoted tile can inherit
+   *  that tile's panel posture. `fromTile` is passed EXPLICITLY rather than
+   *  re-derived downstream: the list-driven caller runs after the departing tile
+   *  has left the live census, so a live `containingTile` walk would dangle and
+   *  answer "the child itself". */
+  promoteToTopLevel: (subId: TerminalId, fromTile: TerminalId) => void;
   /** Re-home a surviving child under a still-live parent (`setParent`). */
   rehomeUnder: (subId: TerminalId, newParentId: TerminalId) => void;
   /** The panel's seams — the repair rule's own vocabulary plus the two verbs a
@@ -110,12 +115,21 @@ export function evictTerminal(
   removal: RemovalGraph,
 ) {
   if (parentId !== null) {
+    // A departing SPLIT owns panel state of its own — its tab, code mode,
+    // per-mode selections, and a back/forward history stack — so it sheds that
+    // state on the way out exactly as a departing tile does, in this ONE cleanup
+    // body and before any branch below can return early. (Search state is
+    // tile-only by construction: a split's leaf never opens the find bar.)
+    ports.removeRightPanel(id);
     const edge = removal.parentOf;
     const census = removal.ids;
     // Surviving containing tile: walk the full pre-removal ancestor chain and
     // take the HIGHEST still-live ancestor (canvas chrome keys on the root, not
     // a live middle). If none survive, promote to top-level.
     let dest: TerminalId | null = null;
+    // The highest node the walk reached — the top of the departing chain when
+    // every ancestor departs. That is the tile a promoted child is leaving.
+    let chainTop: TerminalId = parentId;
     {
       let cur: TerminalId | null = parentId;
       const seen = new Set<TerminalId>();
@@ -125,18 +139,24 @@ export function evictTerminal(
           break;
         }
         seen.add(cur);
+        chainTop = cur;
         if (!departing.has(cur)) dest = cur; // overwrite as we climb → highest
         const up = edge(cur);
         if (up === undefined || up === null) break;
         cur = up;
       }
     }
+    // Where a promoted child came from: the highest live ancestor, else the top
+    // of the departing chain. Derived from the REMOVAL GRAPH, never the live
+    // store — on the list-driven path the departing tile is already gone from the
+    // live census (the whole reason this graph exists).
+    const fromTile = dest ?? chainTop;
     // True children of the departing node.
     for (const child of census) {
       if (child === id) continue;
       if (edge(child) !== id) continue;
       if (departing.has(child)) continue;
-      if (dest === null) ports.promoteToTopLevel(child);
+      if (dest === null) ports.promoteToTopLevel(child, fromTile);
       else ports.rehomeUnder(child, dest);
     }
     // Chrome repair only when a live root still owns the panel.
@@ -163,10 +183,14 @@ export function evictTerminal(
   // Top-level tile — promote its TRUE one-hop children to top-level (each
   // keeps its own subtree intact), shed its chrome, and auto-switch focus if
   // it was active. Nested grandchildren ride with the promoted middles.
+  //
+  // The promote loop runs BEFORE `removeRightPanel(id)` below: a promoted child
+  // inherits this tile's panel posture, which reads the tile's record — so the
+  // record must still be there.
   const oneHop = removal.ids.filter((x) => removal.parentOf(x) === id);
   for (const subId of oneHop) {
     if (departing.has(subId)) continue;
-    ports.promoteToTopLevel(subId);
+    ports.promoteToTopLevel(subId, id);
   }
   ports.subPanel.removePanel(id);
   ports.removeRightPanel(id);

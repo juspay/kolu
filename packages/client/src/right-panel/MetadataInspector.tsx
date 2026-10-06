@@ -30,6 +30,7 @@
 import { activeArm, type TerminalMetadata } from "@kolu/padi-client/surface";
 import type { TerminalId } from "kolu-common/surface";
 import { type Component, Show } from "solid-js";
+import { useTerminalStore } from "../terminal/useTerminalStore";
 import { TerminalIcon } from "../ui/Icons";
 import Section from "../ui/Section";
 import AgentStatusCard from "./AgentStatusCard";
@@ -49,6 +50,18 @@ const MetadataInspector: Component<{
   themeName?: string;
   onThemeClick?: () => void;
 }> = (props) => {
+  const store = useTerminalStore();
+
+  /** Is the TILE awake? The Attach section's subject is the tile (its picker
+   *  spans the main pane and every split), so its liveness gate must read the
+   *  TILE's metadata — not the focused pane's. A sleeping tile released its PTY
+   *  (and its splits were closed), so no `kaval-tui attach`/`snapshot` command
+   *  would have anything to reach. */
+  const tileAwake = () => {
+    const id = props.tileId;
+    return id !== null && activeArm(store.getMetadata(id)) !== undefined;
+  };
+
   return (
     <Show
       when={props.meta}
@@ -103,19 +116,18 @@ const MetadataInspector: Component<{
           {/* Attach/snapshot commands per terminal (main + splits) — see
            *  KavalAttachSection for the socket-pinning + short-id rationale.
            *  Reference tier: ships COLLAPSED (attach is an occasional act, not
-           *  a status; it used to spend ~40% of the panel). Gated on the ACTIVE
-           *  arm: a sleeping tile released its PTY (and its splits were
-           *  closed), so it is no longer one of kaval's terminals — a
-           *  `kaval-tui attach`/`snapshot` command would have nothing to
-           *  reach. Same liveness narrow the PR/Agent sections use.
+           *  a status; it used to spend ~40% of the panel).
            *
            *  The subject is the TILE (its `getTilePaneIds` picker spans main +
-           *  every split), so it keys on `tileId` — and `keyed` on it so a TILE
-           *  switch remounts: the section holds PICKER state (which pane, which
-           *  verb), and without a remount that state survives a tile switch — you
-           *  would land on another tile showing `send` + "Split 1" preselected on
-           *  a picker you never touched there. */}
-          <Show when={activeArm(meta()) && props.tileId} keyed>
+           *  every split), so BOTH the gate and the `keyed` remount read the
+           *  tile: `tileAwake()` (the tile's own arm — a sleeping tile released
+           *  its PTY and closed its splits, so a command would have nothing to
+           *  reach), and `keyed` on the tile id so a TILE switch remounts. The
+           *  section holds PICKER state (which pane, which verb), and without a
+           *  remount that state survives a tile switch — you would land on
+           *  another tile showing `send` + "Split 1" preselected on a picker you
+           *  never touched there. */}
+          <Show when={tileAwake() && props.tileId} keyed>
             {(id) => (
               <Section
                 title="Attach"

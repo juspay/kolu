@@ -25,6 +25,11 @@ const h = vi.hoisted(() => ({
   // to `activeId`, which is the main pane of the active tile. A split test sets
   // this to a distinct id.
   focusedId: undefined as string | null | undefined,
+  // What `getMetadata` answers with — `undefined` for every terminal by default,
+  // so only a test that pins a creator-passed `rightPanel` sees one.
+  metadata: undefined as
+    | { rightPanel?: RightPanelPerTerminalState }
+    | undefined,
 }));
 
 vi.mock("../wire", () => ({
@@ -57,6 +62,7 @@ vi.mock("../terminal/useTerminalStore", () => ({
     // Falls back to the active tile (= its main pane) unless a test focuses a
     // split — so every pre-split test keeps reading tile === pane.
     focusedTerminalId: () => h.focusedId ?? h.activeId,
+    getMetadata: () => h.metadata,
   }),
 }));
 
@@ -64,6 +70,7 @@ vi.mock("../tile/useTileStore", () => ({
   useTileStore: () => ({ tileCount: () => (h.activeId ? 1 : 0) }),
 }));
 
+import type { RightPanelPerTerminalState } from "@kolu/padi-client/surface";
 import type { TerminalId } from "kolu-common/surface";
 import { useRightPanel } from "./useRightPanel";
 
@@ -75,6 +82,7 @@ beforeEach(() => {
   h.toastError.mockClear();
   h.activeId = null;
   h.focusedId = undefined;
+  h.metadata = undefined;
   h.prefs = {
     newTerminalCollapsed: false,
     rightPanel: { size: 0.25, codeTabTreeSize: 0.35 },
@@ -292,6 +300,58 @@ describe("useRightPanel — the panel follows the focused pane", () => {
     );
     h.focusedId = split;
     expect(rp.activeTab().kind).toBe("inspector");
+  });
+
+  it("seedSplitTab gives an externally-arrived split its parent's tab", () => {
+    const tile = "fp-arrive-tile" as TerminalId;
+    const split = "fp-arrive-split" as TerminalId;
+    h.activeId = tile;
+    const rp = useRightPanel();
+    rp.showInspector(); // the tile (the split's parent) is on Inspector
+    rp.seedSplitTab(split, tile);
+    expect(h.setRightPanel).toHaveBeenLastCalledWith(
+      expect.objectContaining({ id: split, activeTab: "inspector" }),
+    );
+    h.focusedId = split;
+    expect(rp.activeTab().kind).toBe("inspector");
+  });
+
+  it("seedSplitTab never overwrites a split that already has a record", () => {
+    const tile = "fp-arrive2-tile" as TerminalId;
+    const split = "fp-arrive2-split" as TerminalId;
+    h.activeId = tile;
+    const rp = useRightPanel();
+    // The split already carries its own state — its creator seeded it, or the
+    // browser create path did before moving focus.
+    h.focusedId = split;
+    rp.showCode("branch");
+    h.setRightPanel.mockClear();
+    rp.seedSplitTab(split, tile);
+    expect(h.setRightPanel).not.toHaveBeenCalled();
+    expect(rp.codeMode()).toBe("branch");
+  });
+
+  it("seedSplitTab adopts a record the creator passed instead of overwriting it", () => {
+    const tile = "fp-arrive3-tile" as TerminalId;
+    const split = "fp-arrive3-split" as TerminalId;
+    h.activeId = tile;
+    const rp = useRightPanel();
+    // The creator passed its own `rightPanel` on `lifecycle.create`; it is on the
+    // terminal's metadata, and the client store must adopt it — not replace it
+    // with the parent tile's tab.
+    h.metadata = {
+      rightPanel: {
+        collapsed: false,
+        activeTab: "inspector",
+        codeMode: "branch",
+      },
+    };
+    rp.seedSplitTab(split, tile);
+    h.focusedId = split;
+    expect(rp.activeTab().kind).toBe("inspector");
+    expect(rp.codeMode()).toBe("branch");
+    // Adopted, not reported back: the server already holds this record.
+    expect(h.setRightPanel).not.toHaveBeenCalled();
   });
 
   it("adoptTileCollapsed hands a promoted split the posture of the tile it left", () => {

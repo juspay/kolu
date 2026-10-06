@@ -121,17 +121,6 @@ export const useTerminalCrud = createSharedRoot(() => {
     parentId: TerminalId | null,
     settled?: (applied: boolean) => void,
   ): void => {
-    // A promotion to top-level (`parentId: null`) hands a split its own tile —
-    // both the dock's drag-to-unsplit and the eviction reconcile's promote-a-
-    // departing-tile's-children path route through here, so this is the ONE
-    // choke point for "this terminal is becoming a tile". The new tile inherits
-    // the open/closed posture of the tile it is leaving, so the panel you were
-    // looking at does not jump. Read BEFORE the write: the edge has not moved
-    // yet, so `containingTile` still names the old tile. A refused write leaves
-    // a harmless early write on the terminal's own (still-unread, while it is a
-    // split) `collapsed` field.
-    if (parentId === null)
-      rightPanel.adoptTileCollapsed(subId, store.containingTile(subId));
     runAction(
       "re-home split",
       activePadiRpc.chrome.setParent({ id: subId, parentId }).pipe(
@@ -142,12 +131,23 @@ export const useTerminalCrud = createSharedRoot(() => {
     );
   };
 
+  /** Promote a sub-terminal to its own tile, giving it the open/closed posture of
+   *  the tile it is leaving. The ONE home for "a promoted split inherits the
+   *  posture of the tile it left": the caller names `fromTile` explicitly (the
+   *  list-driven reconcile has only its pre-removal graph, and the tile is already
+   *  gone from the live store), and the read happens here — BEFORE the caller's
+   *  later `removeRightPanel(fromTile)` drops that record. */
+  function promoteToTopLevel(subId: TerminalId, fromTile: TerminalId): void {
+    rightPanel.adoptTileCollapsed(subId, fromTile);
+    setParent(subId, null);
+  }
+
   const evictionPorts: TerminalEvictionPorts = {
     activeId: store.activeId,
     focusedTerminalId: store.focusedTerminalId,
     activate: store.activate,
     dropFromMru: (id) => store.forgetFromMru(id),
-    promoteToTopLevel: (subId) => setParent(subId, null),
+    promoteToTopLevel,
     rehomeUnder: (subId, newParentId) => setParent(subId, newParentId),
     subPanel,
     removeRightPanel: rightPanel.removePanel,

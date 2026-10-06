@@ -378,3 +378,18 @@ Feature: Right panel (Code + Inspector)
     When I click the main terminal
     Then the right panel should be visible
     And there should be no page errors
+
+  Scenario: A split created outside the browser inherits the panel's tab
+    # `useAdoptNewSplit` is the ONE place that sees every new split, so a split
+    # created by an agent, `kolu create --parent`, or the MCP server starts on the
+    # panel's current tab instead of flipping it to Code when you click into it.
+    # Created through the daemon here (not the palette) — the external path.
+    When I create a terminal
+    When I press the toggle inspector shortcut
+    Then the right panel should be visible
+    When I click the right panel tab "inspector"
+    Then the Inspector tab should be active
+    When I split terminal 1
+    And I click dock split sub-entry 1
+    Then the Inspector tab should be active
+    And there should be no page errors

@@ -7983,6 +7983,18 @@
       "exampleRows": [],
       "executions": 1,
       "firstSeenSha": "0854ea34af0d9db3c262ead1226edb0bdd8ef33b"
+    },
+    {
+      "revisionId": "revision-6fc5ede3a998c3fc18a7",
+      "scenarioKey": "scenario-fb67d514b564fc7882b2",
+      "feature": "features/right-panel.feature",
+      "scenario": "A split created outside the browser inherits the panel's tab",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "efc33412c24611def69286133086ca165d1a3e3ecf8e87d4796a78712a452613",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "c720f461ed77fcf95e13557073882c23e3c11538"
     }
   ]
 }

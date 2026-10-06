@@ -17,6 +17,7 @@ import { toast } from "solid-sonner";
 import { activeScope } from "../hostScope/hostScopes";
 import { listIsAuthoritative } from "../kaval/useDaemonStatus";
 import { isDeclared, TERMINAL_NOT_FOUND } from "../rpc/declaredErrors";
+import { useRightPanel } from "../right-panel/useRightPanel";
 import { activeHost, padiMap } from "../wire";
 import { terminalSubject } from "./terminalSubject";
 import { useActiveReconcile } from "./useActiveReconcile";
@@ -145,6 +146,7 @@ export function useTerminals() {
   // samples the pre-flip `decided`, baselines the sub, and skips; hydration then
   // owns the seed. (Verified against the installed runtime in useAdoptNewSplit.test.)
   const subPanel = useSubPanel();
+  const rightPanel = useRightPanel();
   useAdoptNewSplit({
     rawList: allTerminalIds,
     parentOf,
@@ -154,6 +156,7 @@ export function useTerminals() {
       expandPanel: subPanel.expandPanel,
       activeSubTab: (parentId) => subPanel.peekSubPanel(parentId).activeSubTab,
       setActiveSubTab: subPanel.setActiveSubTab,
+      seedSplitTab: rightPanel.seedSplitTab,
     },
   });
 
