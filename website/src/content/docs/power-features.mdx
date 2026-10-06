@@ -86,10 +86,9 @@ opens in any browser).
 
 `<host>` is the host's key (`local`, or `remote:<target>`); `<id>` is the
 terminal's id. A link to a **split** lands the sub-terminal live, not just its
-parent tile. Because the Code tab and Inspector belong to the top-level **tile**
-(a split shares its parent's right panel), a `/code` or `/inspector` link to a
-split focuses the split and opens the **parent tile's** panel — and `/code`
-resolves `<p>` against that tile's repository.
+parent tile. The right panel follows the focused pane, so a `/code` or
+`/inspector` link to a split opens **that split's** own panel — and `/code`
+resolves `<p>` against the split's own repository.
 
 - **Durable, not one-shot** — unlike a notification click, a deep link is a
   bookmark: open it fresh and it navigates there, and the URL stays in the bar.

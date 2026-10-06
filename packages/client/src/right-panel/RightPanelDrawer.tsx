@@ -16,9 +16,11 @@
  *  `openInCodeTab` itself; there is no `on(pendingOpen, ...)` subscriber
  *  here for the same reason.
  *
- *  Selection, mode, and tab kind share `useRightPanel` across hosts —
- *  a phone session that ends on `foo.html` reopens on desktop with
- *  `foo.html` already selected. */
+ *  Selection, mode, and tab kind share `useRightPanel` across hosts — and now
+ *  across panes within a host: they belong to the FOCUSED PANE, so a phone
+ *  session that ends on `foo.html` in a split reopens with that split's
+ *  selection; switch to the tile's main terminal and main's own selection
+ *  returns. */
 
 import Drawer from "@corvu/drawer";
 import type { TerminalMetadata } from "@kolu/padi-client/surface";
@@ -30,8 +32,11 @@ import { useRightPanel } from "./useRightPanel";
 
 type HostProps = {
   children: JSX.Element;
+  /** The pane the panel shows — a tile's main terminal, or a split. */
   terminalId: TerminalId | null;
   meta: TerminalMetadata | null;
+  /** The containing top-level tile (panel posture + tile-wide sections). */
+  tileId: TerminalId | null;
   themeName?: string;
   onThemeClick?: () => void;
   /** Extra class on the content wrapper (e.g. "flex-col" for the
@@ -84,6 +89,7 @@ const RightPanelDrawer: Component<HostProps> = (props) => {
               <RightPanel
                 terminalId={props.terminalId}
                 meta={props.meta}
+                tileId={props.tileId}
                 onToggle={() => onDrawerOpenChange(false)}
                 themeName={props.themeName}
                 onThemeClick={props.onThemeClick}

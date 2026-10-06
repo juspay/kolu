@@ -111,9 +111,9 @@ export const useTerminalStore = createSharedRoot(() => {
     return budgetContains(tile) && isActiveSplit(panel, id);
   }
 
-  // Bundle the active terminal id with ITS OWN metadata so a consumer gets a
-  // consistent (id, meta) pair from one reactive read. Handed to the right panel
-  // as two separate sources — the activeId signal and the activeMeta memo — they
+  // Bundle the active TOP-LEVEL TILE id with ITS OWN metadata so a consumer gets
+  // a consistent (id, meta) pair from one reactive read. Handed to a consumer as
+  // two separate sources — the activeId signal and the activeMeta memo — they
   // can tear on a terminal switch (the new active id paired with the PREVIOUS
   // terminal's metadata for a propagation step), which makes CodeTab's repo-
   // change reset wipe the new terminal's Code-tab history (a darwin-only flake
@@ -127,8 +127,24 @@ export const useTerminalStore = createSharedRoot(() => {
     };
   });
 
+  // The FOCUSED PANE bundled with its own metadata — the right panel's SUBJECT
+  // (its open/closed posture is the tile's, `active` above). Same glitch-free
+  // rationale as `active`, and deliberately the RAW `view.focusedTerminalId()`
+  // rather than the live-PTY-narrowed `focusedId()`: a sleeping tile is still a
+  // valid panel subject — its metadata and Code/Inspector content exist even with
+  // no live PTY. The id may be a split at any nesting depth; that is the point.
+  // ONE source of truth for "which pane the panel shows": consumers read this
+  // bundle, never a re-derivation of their own.
+  const focused = createMemo(() => {
+    const id = view.focusedTerminalId();
+    return {
+      id,
+      meta: id !== null ? (metadata.getMetadata(id) ?? null) : null,
+    };
+  });
+
   // The loose meta-only accessor is a thin view over the bundled pair — the one
-  // computation of "meta for the active terminal". An imperative reader (command
+  // computation of "meta for the active TILE". An imperative reader (command
   // palette, keyboard handler, tip gating) that needs only the cwd/agent reads
   // this; a reactive consumer that pairs it with the id MUST read `active` so the
   // pair stays glitch-free. Defining it off `active` rather than as a second
@@ -214,6 +230,8 @@ export const useTerminalStore = createSharedRoot(() => {
     listSub: terminalListSub,
     // The active terminal id bundled with its own metadata (a consistent pair).
     active,
+    // The FOCUSED PANE bundled with its own metadata — the right panel's subject.
+    focused,
     // Meta-only view over the pair (imperative readers needing just cwd/agent).
     activeMeta,
     // View state

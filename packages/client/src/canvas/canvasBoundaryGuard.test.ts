@@ -22,8 +22,9 @@
  * camera, focus/MRU) go in the `scopedByEntry` owner (`hostScope/*`). Per-tab facts
  * (panel size / codeTabTreeSize density, dock rail-vs-cards, font size — the viewer's
  * screen taste) stay app-level, persisted per browser. Finer than either: the
- * right-panel collapsed bit + active tab travel with the TERMINAL
- * (`TerminalMetadata.rightPanel`), so the panel follows the terminal (#959).
+ * right-panel posture travels with the TILE while its tab/selection follow the
+ * focused pane (`TerminalMetadata.rightPanel`), so the panel follows your focus
+ * (#959 + follows-focus).
  *
  * Scope: `canvas/**` (the canvas subtree) + `useViewState.ts` (the view-state facade
  * that co-owns the camera type + host-independent posture). Column-0 `const` is this

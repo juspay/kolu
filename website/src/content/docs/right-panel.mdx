@@ -1,6 +1,6 @@
 ---
 title: The Right Panel
-description: "The tile's right-hand panel: an Inspector tab with a Compose box and the terminal-CLI reference, a Code tab, and per-terminal memory of whether it's open and which tab it shows."
+description: "The tile's right-hand panel: an Inspector tab with a Compose box and the terminal-CLI reference, and a Code tab. Whether it's open is remembered per tile; which tab and file it shows follow the focused pane — a split included."
 order: 56
 section: "Files & Code"
 koluHero:
@@ -13,8 +13,9 @@ import LinkCard from "../../components/docs/LinkCard.astro";
 import CardGrid from "../../components/docs/CardGrid.astro";
 
 Every tile has a **right panel** with two tabs: an **Inspector** and a
-[**Code**](/code-tab) tab. The Inspector is where you read a terminal's context
-and act on it without leaving the canvas.
+[**Code**](/code-tab) tab. The panel follows whichever **pane** has focus — the
+tile's main terminal, or any split at any depth — so the context you read and the
+repository you browse are always the ones you are looking at.
 
 ## What it shows, in order of urgency
 
@@ -49,7 +50,7 @@ one quiet line at the very bottom.
 Above all of it is the **Compose** box, a single line at rest that grows into a
 multiline textarea with a **Send** button when you click into it. Write a prompt
 in peace, editing it before it ever reaches the terminal, then **Send** it (or
-<kbd>Cmd/Ctrl</kbd> + <kbd>Enter</kbd>) straight into the active terminal's input
+<kbd>Cmd/Ctrl</kbd> + <kbd>Enter</kbd>) straight into the focused pane's input
 line. It's the in-app twin of [`kaval-tui send`](/kaval): it **inserts, it
 doesn't submit** — the text lands in the agent's input box for you to review and
 press Enter yourself, dodging the same paste race the CLI is careful about. Each
@@ -145,15 +146,33 @@ Closing the panel or switching between Inspector and Code keeps the views
 mounted. On touch devices, dismissing the bottom drawer preserves the Code
 view too. Hidden Code views pause their file queries until you return.
 
-## It follows the terminal
+## What it shows follows your focus
 
-Whether the panel is open, and which tab it's on, is remembered **per terminal**,
-not as one global switch. Collapse it on a build-log tile and it stays collapsed
-there; leave it open on a branch diff and switching back restores it exactly. It
-rides session restore, so each terminal's panel state survives a reload. New
-terminals created in the browser inherit whether the previous active terminal’s
-panel was open or closed. With no active terminal, the new-terminal default
-applies. The panel **width** and the Code-tab tree/content split stay global.
+The panel splits its memory in two, and the split is what makes splits work.
+
+**Whether the panel is open belongs to the tile.** Collapse it on a build-log
+tile and it stays collapsed there; leave it open on a branch diff and switching
+back restores it exactly. Moving focus between a tile's panes never opens or
+closes it, so the layout doesn't jump when you click into a split.
+
+**What it shows belongs to the pane.** Each pane — the tile's main terminal and
+every split — remembers its own tab, its own Code-tab mode and selected file, and
+its own back/forward history. Split a terminal to run an agent in another repo and
+the Inspector's directory, branch and repo chips and the Code tab's file tree all
+follow whichever pane you click into; switch back to main and main's own selection
+returns.
+
+**A header line under the tabs names the directory the pane is in**, shared by
+both tabs, so you always know what you are looking at. When the pane is inside a
+git repo its repo root — the directory the Code tree is browsed from — is
+emphasized and the path below it dimmed; when the panel is showing a split, the
+line is prefixed with that split's name.
+
+All of it rides session restore, so a tile's posture and each pane's selection
+survive a reload. New terminals created in the browser inherit whether the
+previous active tile's panel was open or closed. With no active terminal, the
+new-terminal default applies. The panel **width** and the Code-tab tree/content
+split stay global.
 
 ## Next
 

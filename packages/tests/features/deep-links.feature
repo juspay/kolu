@@ -51,16 +51,36 @@ Feature: Deep links — every view addressable by a #/… URL
     And the selected file should show content "beta"
     And line 2 should be selected in the file content
 
-  Scenario: A #/t/.../inspector link to a split opens the tile's Inspector and focuses the sub
-    # The right panel is per-TILE, so a sub-terminal's /inspector addresses the
-    # parent tile's panel — and it must REVEAL (showInspector only selects the
-    # tab). Assert the Inspector is showing/active AND the sub pane is live.
+  Scenario: A #/t/.../inspector link to a split opens that split's own Inspector
+    # The panel follows the FOCUSED PANE, so a sub-terminal's /inspector addresses
+    # the SPLIT's own panel content (the tab bar names it) rather than the parent
+    # tile's — and it must REVEAL (showInspector only selects the tab). Assert the
+    # Inspector is showing/active, that the panel names the split, AND that the sub
+    # pane is live.
     When I create a sub-terminal via command palette
     And I remember the sub-terminal's id
     And I create a terminal
     And I follow the live deep link "#/t/local/{sub}/inspector"
     Then the Inspector tab should be active
+    And the right panel should show a pane label
     And the sub pane should be the active pane
+
+  Scenario: A #/t/…/code link to a split resolves against the split's own repo
+    # The panel follows the focused pane, so a code link to a split resolves its
+    # path against the split's OWN repository — resolving against the containing
+    # tile's repo (the old per-tile rule) finds no such file.
+    When I create a sub-terminal via command palette
+    And I remember the sub-terminal's id
+    And I run "rm -rf /tmp/kolu-deeplink-split && git init /tmp/kolu-deeplink-split && cd /tmp/kolu-deeplink-split && printf 'split-alpha\nsplit-beta\n' > split-notes.txt && git add split-notes.txt && git commit -m init" in the sub-terminal
+    # Prove the file is on disk and the split's repo has settled before the link.
+    And I click the Code tab
+    And the file browser should show a file "split-notes.txt"
+    And I create a terminal
+    And I follow the live deep link "#/t/local/{sub}/code?path=split-notes.txt&line=2"
+    Then the right panel should be visible
+    And the Code tab should be active
+    And the selected file should show content "split-beta"
+    And the right panel should show a pane label
 
   Scenario: A #/settings link opens the settings popover
     When I follow the live deep link "#/settings"

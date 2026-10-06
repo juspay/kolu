@@ -565,8 +565,9 @@ const App: Component = () => {
                 <Switch>
                   <Match when={!isDesktop()}>
                     <RightPanelDrawer
-                      terminalId={store.active().id}
-                      meta={store.active().meta}
+                      terminalId={store.focused().id}
+                      meta={store.focused().meta}
+                      tileId={store.active().id}
                       themeName={activeThemeName()}
                       onThemeClick={() => commandPalette.openGroup("Set theme")}
                       contentClass={
@@ -681,8 +682,9 @@ const App: Component = () => {
                         minSize={0.1}
                       >
                         <RightPanel
-                          terminalId={store.active().id}
-                          meta={store.active().meta}
+                          terminalId={store.focused().id}
+                          meta={store.focused().meta}
+                          tileId={store.active().id}
                           onToggle={rightPanel.togglePanel}
                           themeName={activeThemeName()}
                           onThemeClick={() =>

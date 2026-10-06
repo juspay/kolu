@@ -16,9 +16,9 @@
  *  ── WHY A PARALLEL OWNER, not a `HostScope` member ──────────────────────────
  *  The obvious home is a sibling member of `hostScope/hostScopes.ts` (beside
  *  `createHostWire`). It CANNOT live there: these query inputs read the shown
- *  terminal's SELECTION — `useTerminalStore().active()` (the focused terminal + its
- *  metadata) and `useRightPanel()` (the Code-tab mode + per-mode selected file). Those
- *  singletons sit DOWNSTREAM of `hostScopes` in the import graph
+ *  pane's SELECTION — `useTerminalStore().focused()` (the focused pane + its
+ *  metadata) and `useRightPanel()` (the Code-tab mode + per-mode selected file).
+ *  Those singletons sit DOWNSTREAM of `hostScopes` in the import graph
  *  (`hostScopes ← activeWire ← useTerminalStore ← useRightPanel`), so a `hostScopes`
  *  member reading them would close the cycle `hostScopes → (member) → useTerminalStore
  *  → activeWire → hostScopes`, which `biome`'s CI-enforced `noImportCycles` rejects —
@@ -34,9 +34,9 @@
  *  No fact has two authorities.
  *
  *  ── The isActive contract (read this before editing an input) ───────────────
- *  The inputs read the ACTIVE projection (`store.active()` / `useRightPanel()`), NOT a
+ *  The inputs read the ACTIVE projection (`store.focused()` / `useRightPanel()`), NOT a
  *  host-fixed value — and those reads are MEANINGFUL ONLY under `ctx.isActive`. While
- *  host X is active the active projection IS X's own shown terminal (self-referential,
+ *  host X is active the active projection IS X's own shown pane (self-referential,
  *  honest); while X is backgrounded X's instance is PAUSED, so `createPolledQuery`'s
  *  gate never consults these accessors (frozen value, no dispatch — the switch-back
  *  guarantee). A selection changed while X was away yields a different value-key on
@@ -57,9 +57,8 @@ import type { CodeTabView } from "@kolu/padi-client/surface";
 import type { Subscription } from "@kolu/surface/solid";
 import { scopedByEntry } from "@kolu/surface-map/client";
 import { Effect } from "effect";
-import { encodeHostKey, type HostKey } from "kolu-common/hostKey";
-import { buildTerminalFileUrl, isBinaryPreviewable } from "kolu-common/preview";
-import type { TerminalId } from "kolu-common/surface";
+import type { HostKey } from "kolu-common/hostKey";
+import { isBinaryPreviewable } from "kolu-common/preview";
 import type { GitDiffMode } from "kolu-git/schemas";
 import { toast } from "solid-sonner";
 import { createSharedRoot } from "../createSharedRoot";
@@ -78,7 +77,6 @@ import {
   padiRpcOf,
 } from "../wire";
 import { mergeBrowseInventory } from "./browseInventory";
-import type { CodeTabScope } from "./codeTabOpenController";
 import { createPolledQuery, type PolledQueryConfig } from "./createPolledQuery";
 import { showIgnoredFiles } from "./showIgnoredFiles";
 import { useRightPanel } from "./useRightPanel";
@@ -92,11 +90,15 @@ import { useRightPanel } from "./useRightPanel";
  *  stable; a text file reads its content. */
 export type BrowseFileContent =
   | { kind: "text"; content: string; truncated: boolean }
-  | { kind: "binary"; url: string };
+  | { kind: "binary"; previewTag: string };
 
-/** A file listing stamped with the exact Code-tab owner that produced it. */
+/** A file listing stamped with the REPO it was read for. The terminal is
+ *  deliberately absent: a listing is a fact about the repo, so the query is keyed
+ *  on the repo alone — a focus move between two panes of one repo must not
+ *  refetch it — and the consumer builds the `CodeTabScope` stamp from this repo
+ *  plus the pane it is showing. */
 export interface ScopedCodePaths {
-  scope: CodeTabScope;
+  repoRoot: string;
   /** `readonly`, because it IS the decoded wire array (Effect's `Schema.Array`
    *  decodes to a readonly array) — carried through rather than copied. */
   paths: readonly string[];
@@ -115,17 +117,20 @@ export function leaseCodeQueries(shown: Accessor<boolean>): void {
 }
 const codeShown = () => leases().some((lease) => lease.shown());
 
-/** Build ONE host's retained Code-tab queries. `ctx.isActive` is this host's
- *  "am I the shown host" gate — see the isActive contract in the header. */
-function buildHostCodeTab(host: HostKey, ctx: { isActive: () => boolean }) {
+/** Build ONE host's retained Code-tab queries — the host is implicit (this
+ *  instance lives in that host's `scopedByEntry` entry). `ctx.isActive` is this
+ *  host's "am I the shown host" gate — see the isActive contract in the header. */
+function buildHostCodeTab(ctx: { isActive: () => boolean }) {
   const store = useTerminalStore();
   const rightPanel = useRightPanel();
 
-  // The shown terminal's selection, read off the app-lifetime singletons (the active
-  // projection). Meaningful only under `ctx.isActive` — see the header.
+  // The SHOWN pane's repo and selection, read off the app-lifetime singletons
+  // (the active projection). `store.focused()` is the focused pane — a tile's
+  // main terminal OR any split — so focusing a split re-keys every query below
+  // onto THAT pane's repo and selection. Meaningful only under `ctx.isActive` —
+  // see the header.
   const shownRepoPath = (): string | null =>
-    store.active().meta?.git?.repoRoot ?? null;
-  const shownTerminalId = (): TerminalId | null => store.active().id;
+    store.focused().meta?.git?.repoRoot ?? null;
   const codeView = (): CodeTabView => rightPanel.codeMode();
   const codeDiffMode = (): GitDiffMode | undefined =>
     codeView() === "browse" ? undefined : (codeView() as GitDiffMode);
@@ -205,13 +210,15 @@ function buildHostCodeTab(host: HostKey, ctx: { isActive: () => boolean }) {
   // cannot drift into querying for different views (a new view mode added to one
   // and not the other would silently fetch an overlay for a tree that isn't
   // mounted). The diff modes read the status files instead of either listing.
-  const browseInput = (): {
-    terminalId: TerminalId;
-    repoPath: string;
-  } | null => {
-    const p = shownRepoPath();
-    const terminalId = shownTerminalId();
-    return p && terminalId !== null ? { terminalId, repoPath: p } : null;
+  //
+  // Keyed on the REPO alone, never the pane: the listing is a fact about the
+  // repo, and focus moves between panes are far more frequent than tile
+  // switches — with the terminal id in the key, every click between two panes of
+  // one repo blanked the tree and re-dispatched `fs.listAll` for a fact that had
+  // not changed.
+  const browseInput = (): { repoPath: string } | null => {
+    const repoPath = shownRepoPath();
+    return repoPath === null ? null : { repoPath };
   };
 
   // The whole-repo file list.
@@ -222,12 +229,7 @@ function buildHostCodeTab(host: HostKey, ctx: { isActive: () => boolean }) {
       activePadiRpc.fs.listAll({ repoPath: i.repoPath }).pipe(
         Effect.map(
           (result): ScopedCodePaths => ({
-            scope: {
-              host,
-              terminalId: i.terminalId,
-              repoRoot: i.repoPath,
-              mode: "browse",
-            },
+            repoRoot: i.repoPath,
             paths: result.paths,
           }),
         ),
@@ -249,12 +251,7 @@ function buildHostCodeTab(host: HostKey, ctx: { isActive: () => boolean }) {
       activePadiRpc.fs.listIgnored({ repoPath: i.repoPath }).pipe(
         Effect.map(
           (result): ScopedCodePaths => ({
-            scope: {
-              host,
-              terminalId: i.terminalId,
-              repoRoot: i.repoPath,
-              mode: "browse",
-            },
+            repoRoot: i.repoPath,
             paths: result.paths,
           }),
         ),
@@ -278,12 +275,15 @@ function buildHostCodeTab(host: HostKey, ctx: { isActive: () => boolean }) {
     onError: (err) => toast.error(`Git diff stream: ${err.message}`),
   });
 
-  // The browse file-content read — pulses on `subscribeFileChange` (repo+file). Idle
-  // outside browse mode / with no selected file (the old dispatcher's mount condition,
-  // now expressed as an idle input). The binary/text decision + URL build are verbatim
-  // from the retired `BrowseFileDispatcher` owner.
+  // The browse file-content read — pulses on `subscribeFileChange` (repo+file).
+  // Idle outside browse mode / with no selected file (the old dispatcher's mount
+  // condition, now expressed as an idle input). Keyed on (repo, file), NEVER the
+  // pane: the bytes are a fact about the file, so switching focus between two
+  // panes showing the same file must not blank the view — and the one thing that
+  // DID need the terminal, the binary preview URL, is built where the terminal is
+  // read (`BrowseFileDispatcher`), so the URL can never go stale either.
   const fileContent = createPolledQuery<
-    { terminalId: TerminalId; repoPath: string; filePath: string },
+    { repoPath: string; filePath: string },
     { repoPath: string; filePath: string },
     unknown,
     BrowseFileContent
@@ -293,26 +293,22 @@ function buildHostCodeTab(host: HostKey, ctx: { isActive: () => boolean }) {
     input: () => {
       const p = shownRepoPath();
       const s = rightPanel.selectedFile("browse");
-      const tid = shownTerminalId();
-      return p && s && tid !== null
-        ? { terminalId: tid, repoPath: p, filePath: s }
-        : null;
+      return p && s ? { repoPath: p, filePath: s } : null;
     },
     pulseProc: () => activePadiStreams.subscribeFileChange.unenrolled,
-    pulseInput: (i) => ({ repoPath: i.repoPath, filePath: i.filePath }),
+    pulseInput: (i) => i,
     query: (i) =>
       isBinaryPreviewable(i.filePath)
         ? activePadiRpc.fs
             .filePreviewTag({ repoPath: i.repoPath, filePath: i.filePath })
             .pipe(
               Effect.map(
+                // Cache-bust by CONTENT hash, not mtime: a real change bumps the
+                // tag (so the consumer's URL changes and the img/iframe reloads)
+                // while an identical-content rewrite leaves it stable.
                 (previewTag): BrowseFileContent => ({
                   kind: "binary",
-                  // Cache-bust by CONTENT hash, not mtime, and key the URL by the ACTIVE
-                  // host's canonical string so the route reads bytes from the same padi
-                  // the tag came from — a remote host's preview must not resolve against
-                  // the local default.
-                  url: `${buildTerminalFileUrl(encodeHostKey(activeHost()), i.terminalId, i.filePath)}?v=${previewTag}`,
+                  previewTag,
                 }),
               ),
             )
@@ -354,9 +350,7 @@ export type HostCodeTab = ReturnType<typeof buildHostCodeTab>;
 // app-lifetime root, so its `padiMap` read is decoupled from import order (a unit test
 // can stand up a mock `padiMap` before the owner first reads it).
 const codeTabScopes = createSharedRoot(() =>
-  scopedByEntry(padiMap, activeHost, (host, ctx) =>
-    buildHostCodeTab(host, ctx),
-  ),
+  scopedByEntry(padiMap, activeHost, (_host, ctx) => buildHostCodeTab(ctx)),
 );
 
 /** The ACTIVE host's retained Code-tab queries — `undefined` only during the removal

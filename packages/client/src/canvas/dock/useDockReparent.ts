@@ -103,12 +103,24 @@ export const useDockReparent = createSharedRoot(
     });
 
     return (id, parentId) => {
-      setPending({ id, parentId, fromTile: store.containingTile(id) });
-      void crud.reparent(id, parentId).then((applied) => {
-        // Refused (the server said no, and the toast already said why): disarm
-        // the intent, or the effect waits for an edge that will never arrive.
+      // The tile the row is leaving, read while the graph is still live. It is
+      // also what a promote hands over (see below), so it is read once.
+      const fromTile = store.containingTile(id);
+      setPending({ id, parentId, fromTile });
+      // Refused (the server said no, and the toast already said why): disarm
+      // the intent, or the effect waits for an edge that will never arrive.
+      const settle = (applied: boolean) => {
         if (!applied) setPending((cur) => (cur?.id === id ? null : cur));
-      });
+      };
+      // Handing the row its own tile (`parentId: null`) is a promote, not a
+      // re-home: it is the one write that also hands over panel posture, so it
+      // goes through the SAME verb the eviction reconcile's promote uses —
+      // one home for the inheritance, one timing (before the write).
+      if (parentId === null) {
+        crud.promoteToTopLevel(id, fromTile, settle);
+        return;
+      }
+      void crud.reparent(id, parentId).then(settle);
     };
   },
 );

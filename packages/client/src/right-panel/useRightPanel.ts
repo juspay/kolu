@@ -10,7 +10,7 @@
  *    default, used when there is no active terminal to inherit from, is a
  *    separate top-level `preferences.newTerminalCollapsed` seed (not
  *    on this record) — a copy-on-create default; the LIVE collapsed state follows
- *    the terminal (below).
+ *    the tile (below).
  *  - **Touch-layout drawer open state** (phone + compact) is session-local, NOT
  *    persisted. Dismissing the bottom-drawer host on a handheld is an ephemeral
  *    gesture; persisting it into account prefs would mean the next desktop
@@ -21,16 +21,31 @@
  *    push to the server via padi's `chrome.setRightPanel`, which writes
  *    `TerminalMetadata.rightPanel` for session restore. Pattern mirrors
  *    `useSubPanel.ts` for `activeTab`/`codeMode`/`selectedFileByMode`.
- *    `collapsed` joined this layer so the panel *follows the terminal* (#959) —
- *    a PR-review terminal keeps its panel open while a build-log terminal keeps
- *    its closed, instead of one global bit forcing both. Unlike `useSubPanel`
- *    (which seeds from a plain static default), a fresh terminal seeds
- *    `collapsed` from the previous active terminal during browser creation,
- *    or the `newTerminalCollapsed` preference when none is active, then owns it.
- *    Persisted per-terminal via session restore, so it survives a reload the same way the active tab does.
+ *    Persisted per-terminal via session restore, so it survives a reload.
  *
- *  Callers read/write for the *active* terminal — the API is parameterless,
- *  resolving the current terminal id from `useTerminalStore` internally. */
+ *  ── ONE RECORD PER TERMINAL, TWO SUBJECTS (read this before editing a read) ──
+ *  The panel splits its subject in two, and `collapsed` is the odd one out:
+ *
+ *  - **Open/closed (`collapsed`) belongs to the TILE** (`store.activeId()`).
+ *    Moving focus between panes of one tile must never open/close the panel or
+ *    shift layout, so visibility is a property of the tile you are looking at.
+ *    The posture travels with the tile via `TerminalMetadata.rightPanel` (#959) —
+ *    a PR-review tile keeps its panel open while a build-log tile keeps its
+ *    closed — and a tile's record is its record.
+ *    **A split's own `collapsed` field is simply not read while it is a split.**
+ *    It is not removed (no schema change): every terminal carries the same
+ *    `RightPanelPerTerminalState` shape, a split's record is written by
+ *    `adoptTileCollapsed` at promotion so a split handed its own tile inherits
+ *    the posture of the tile it left, and session restore seeds it for every
+ *    listed terminal exactly as before.
+ *  - **Tab, code mode, per-mode selected file, and the back/forward history
+ *    belong to the FOCUSED PANE** (`store.focusedTerminalId()`) — main or any
+ *    split, at any nesting depth. Each split remembers its own tab and its own
+ *    file; returning to main restores main's. This is what makes the panel
+ *    follow focus into a split running an agent in another repo.
+ *
+ *  Callers read/write through the parameterless API; it resolves the tile via
+ *  `store.activeId()` and the pane via `store.focusedTerminalId()` internally. */
 
 import {
   type CodeTabView,
@@ -257,23 +272,33 @@ export function useRightPanel() {
    *  gap) and the toggle reads as open with nothing behind it. */
   const hasTerminals = () => tileStore.tileCount() > 0;
 
-  /** The desktop panel's collapsed bit — PER-TERMINAL, so the panel follows the
-   *  terminal (#959): each terminal remembers whether its panel was showing,
-   *  alongside its active tab and selected file (all on the same
-   *  `TerminalMetadata.rightPanel` record). Reads the ACTIVE terminal's value; a
-   *  terminal with no record yet (fresh, or none active) reads the new-terminal
-   *  default from `preferences.newTerminalCollapsed` via `freshPerTerminalState`.
-   *  It survives reload via session restore, exactly like the active tab. Only the
-   *  take-up-space *geometry* (`size`/`codeTabTreeSize` below) stays global. */
-  const collapsed = (): boolean => activeState().collapsed;
-
-  /** Read the per-terminal record for the active terminal, falling back
-   *  to defaults when no terminal is active or the terminal has no record
-   *  yet. The returned object is read-only — write through the mutators. */
-  function activeState(): RightPanelPerTerminalState {
-    const id = store.activeId();
+  /** The per-terminal record for `id` — the stored one, or the fresh seed when
+   *  there is no such terminal (or it has no record yet). The ONE fallback: the
+   *  tile reader, the pane reader and the promotion seed all go through it. */
+  function stateOf(id: TerminalId | null): RightPanelPerTerminalState {
     if (id === null) return freshPerTerminalState();
     return perTerminal[id] ?? freshPerTerminalState();
+  }
+
+  /** The desktop panel's collapsed bit — the TILE's, so moving focus between
+   *  panes of one tile never opens/closes the panel or shifts layout. The
+   *  posture lives on the tile's own `TerminalMetadata.rightPanel` record (the
+   *  same record every terminal carries; #959 gave each tile its own), and only
+   *  `collapsed` is read from it for a tile — the record's tab/mode/selection
+   *  fields are the PANE's and are read through `paneState()`. A split's own
+   *  `collapsed` is not read while it is a split (see the header). A tile with no
+   *  record yet reads the new-terminal default from `preferences.
+   *  newTerminalCollapsed` via `freshPerTerminalState`, and the posture survives
+   *  reload via session restore. Only the take-up-space *geometry*
+   *  (`size`/`codeTabTreeSize` below) stays global. */
+  const collapsed = (): boolean => stateOf(store.activeId()).collapsed;
+
+  /** Read the per-terminal record for the FOCUSED PANE
+   *  (`store.focusedTerminalId()`) — the panel's CONTENT subject: active tab,
+   *  code mode, per-mode selected file. A split carries its own; main keeps its
+   *  own. Read-only; write through the mutators. */
+  function paneState(): RightPanelPerTerminalState {
+    return stateOf(store.focusedTerminalId());
   }
 
   /** All panel writes share local initialization, mutation, and persistence.
@@ -294,8 +319,9 @@ export function useRightPanel() {
     reportToServer(id, rpc);
   }
 
-  /** UI gestures target the active terminal; an empty workspace has no target. */
-  function mutateActive(
+  /** UI gestures that belong to the TILE (visibility) target the active tile; an
+   *  empty workspace has no target. */
+  function mutateTile(
     update:
       | Partial<RightPanelPerTerminalState>
       | ((s: RightPanelPerTerminalState) => void),
@@ -304,15 +330,55 @@ export function useRightPanel() {
     if (id !== null) mutatePanel(id, update, activePadiRpc);
   }
 
-  /** Write the ACTIVE terminal's `collapsed` bit (per-terminal, reported to the
-   *  server for session restore). Naturally a no-op on an empty workspace — the
-   *  EmptyState owns the screen and there's no active terminal, so `mutateActive`
-   *  drops the write rather than recording a ghost state. Every collapsed-mutating
-   *  path (toggle/collapse/expand and `reveal`'s desktop branch) routes through
-   *  here so the per-terminal write lives in one place rather than per-caller. */
+  /** UI gestures that belong to the PANE (tab / sub-mode / selection) target the
+   *  focused pane — main or any split. An empty workspace has no target. */
+  function mutatePane(
+    update:
+      | Partial<RightPanelPerTerminalState>
+      | ((s: RightPanelPerTerminalState) => void),
+  ): void {
+    const id = store.focusedTerminalId();
+    if (id !== null) mutatePanel(id, update, activePadiRpc);
+  }
+
+  /** Write the ACTIVE TILE's `collapsed` bit (reported to the server for session
+   *  restore). Naturally a no-op on an empty workspace — the EmptyState owns the
+   *  screen and there's no active tile, so `mutateTile` drops the write rather
+   *  than recording a ghost state. Every collapsed-mutating path (toggle/collapse/
+   *  expand and `reveal`'s desktop branch) routes through here so the write lives
+   *  in one place rather than per-caller. */
   const setCollapsed = (next: boolean) => {
-    mutateActive({ collapsed: next });
+    mutateTile({ collapsed: next });
   };
+
+  /** Capture a panel patch NOW and apply it to the terminal's id when an async
+   *  create finally yields one — the ONE copy-on-create shape, shared by a new
+   *  TILE's visibility and a new SPLIT's tab. `mutatePanel` merges a partial, so
+   *  applying the seed preserves whatever else the terminal already carries. The
+   *  host is captured with the value so a create that outlives a host switch
+   *  still writes to the host it was made on. */
+  function capturePanelSeed(seed: Partial<RightPanelPerTerminalState>) {
+    const rpc = padiRpcOf(activeHost());
+    return (id: TerminalId) => mutatePanel(id, seed, rpc);
+  }
+
+  /** Seed a terminal's per-terminal record from AUTHORITATIVE data — no
+   *  report-back to the server. The ONE body behind session restore's
+   *  `seedPanel` and the arrival adopt's adoption of a creator-passed record. */
+  function applySeed(id: TerminalId, state: RightPanelPerTerminalState): void {
+    setPerTerminal(id, state);
+    // Seed the history with the restored location so back/forward have a
+    // starting point matching what's shown — but only when a file was
+    // actually selected; a restored-but-empty mode starts with no history.
+    // `lastRepo: undefined` resets the repo baseline so the next `syncRepo`
+    // re-adopts this terminal's current repo without resetting — the stack we
+    // just seeded is the truth, and re-seeding is a "this is a fresh start"
+    // event, same as first mount.
+    const path = state.selectedFileByMode?.[state.codeMode] ?? null;
+    const h = historyFor(id);
+    h.browser.reset(path !== null ? { mode: state.codeMode, path } : undefined);
+    h.lastRepo = undefined;
+  }
 
   return {
     // ── Workspace chrome ─────────────────────────────────────────────
@@ -371,25 +437,27 @@ export function useRightPanel() {
       else if (collapsed()) setCollapsed(false);
     },
 
-    // ── Per-terminal task state ──────────────────────────────────────
-    /** DU view of the active tab — `{ kind: "inspector" }` or
+    // ── Per-pane task state ──────────────────────────────────────────
+    /** DU view of the FOCUSED PANE's active tab — `{ kind: "inspector" }` or
      *  `{ kind: "code", mode }`. Matches `match(...).with(...).exhaustive()`. */
-    activeTab: (): RightPanelTab => rightPanelView(activeState()),
+    activeTab: (): RightPanelTab => rightPanelView(paneState()),
     /** Persisted Code-tab sub-mode regardless of which tab is active.
      *  CodeTab needs the mode even when the user has flipped over to
      *  Inspector — selection / filter state is keyed by it, and the
      *  fallback behaviour of reading `activeTab` would mask a "browse"
      *  selection as "local" while Inspector is active and trigger a
-     *  spurious reset on the round-trip back. */
-    codeMode: (): CodeTabView => activeState().codeMode,
-    /** Switch to Inspector. `codeMode` is preserved so toggling back to Code
-     *  restores the user's last sub-mode. */
-    showInspector: () => mutateActive({ activeTab: "inspector" }),
-    /** Switch to Code tab. When `mode` is omitted, the persisted `codeMode`
-     *  is used — this is the round-trip case (Inspector→Code restores the
-     *  last view). Pass `mode` explicitly to override. */
+     *  spurious reset on the round-trip back. Read per focused pane, so a
+     *  split's own mode is what the Code tab renders when focus lands there. */
+    codeMode: (): CodeTabView => paneState().codeMode,
+    /** Switch the focused pane to Inspector. `codeMode` is preserved so toggling
+     *  back to Code restores the user's last sub-mode. */
+    showInspector: () => mutatePane({ activeTab: "inspector" }),
+    /** Switch the focused pane to the Code tab. When `mode` is omitted, the
+     *  persisted `codeMode` is used — this is the round-trip case
+     *  (Inspector→Code restores the last view). Pass `mode` explicitly to
+     *  override. */
     showCode: (mode?: CodeTabView) =>
-      mutateActive({
+      mutatePane({
         activeTab: "code",
         ...(mode !== undefined && { codeMode: mode }),
       }),
@@ -406,68 +474,70 @@ export function useRightPanel() {
      *  diff→browse and browse→browse `openCodeAt` would otherwise
      *  round-trip an idempotent write to the server. */
     openCodeAt: (mode: CodeTabView) => {
-      const cur = activeState();
+      const cur = paneState();
       if (cur.activeTab === "code" && cur.codeMode === mode) return;
-      mutateActive({ activeTab: "code", codeMode: mode });
+      mutatePane({ activeTab: "code", codeMode: mode });
     },
     /** Change the sub-mode within the Code tab. */
-    setCodeMode: (mode: CodeTabView) => mutateActive({ codeMode: mode }),
+    setCodeMode: (mode: CodeTabView) => mutatePane({ codeMode: mode }),
 
     /** Per-mode file selection — repo-relative path, or null when no file
-     *  is selected in this mode. Keyed by `(activeTerminal, mode)` so each
-     *  terminal remembers its own pick in each of local/branch/browse. */
+     *  is selected in this mode. Keyed by `(focusedPane, mode)` so each pane
+     *  remembers its own pick in each of local/branch/browse. */
     selectedFile: (mode: CodeTabView): string | null =>
-      activeState().selectedFileByMode?.[mode] ?? null,
+      paneState().selectedFileByMode?.[mode] ?? null,
     // A shallow PATCH, not a `produce` mutator: the decoded record is readonly
     // (Effect's `Struct.Type`), so the map is REBUILT — the deselect arm drops
     // the mode's key entirely rather than writing `undefined` into it, which is
     // also what keeps the reported payload decodable (#17: these inner fields are
     // `optionalKey` too).
     setSelectedFile: (mode: CodeTabView, path: string | null) => {
-      const cur = activeState().selectedFileByMode ?? {};
+      const cur = paneState().selectedFileByMode ?? {};
       if (path === null) {
         if (!(mode in cur)) return;
         const { [mode]: _dropped, ...rest } = cur;
-        mutateActive({
+        mutatePane({
           selectedFileByMode: Object.keys(rest).length > 0 ? rest : undefined,
         });
       } else {
         if (cur[mode] === path) return;
-        mutateActive({ selectedFileByMode: { ...cur, [mode]: path } });
+        mutatePane({ selectedFileByMode: { ...cur, [mode]: path } });
       }
     },
 
     // ── Navigation history (back / forward) ──────────────────────────
-    /** Record a visit to `loc` in the active terminal's history — the
+    /** Record a visit to `loc` in the FOCUSED PANE's history — the
      *  address-bar path. Idempotent on mode+path (re-recording the current
      *  location refreshes its `ref` in place rather than duplicating it), so
      *  it's safe to call from every navigation funnel — tree click, in-iframe
      *  link, resolved front-door open, and Pierre's echoed re-selects alike.
-     *  Records only; `selectedFileByMode` stays the render truth. */
+     *  Records only; `selectedFileByMode` stays the render truth. Each pane
+     *  (main or split) keeps its own stack. */
     recordNavigation: (loc: BrowserLocation) => {
-      const id = store.activeId();
+      const id = store.focusedTerminalId();
       if (id !== null) browserFor(id).navigate(loc);
     },
     /** Step back one entry, returning the now-current location to re-apply (or
      *  null when there's nowhere to go). Traversal, not a new visit — does NOT
      *  record. */
     navigateBack: (): BrowserLocation | null => {
-      const id = store.activeId();
+      const id = store.focusedTerminalId();
       return id === null ? null : browserFor(id).back();
     },
     /** Step forward one entry, returning the now-current location (or null). */
     navigateForward: (): BrowserLocation | null => {
-      const id = store.activeId();
+      const id = store.focusedTerminalId();
       return id === null ? null : browserFor(id).forward();
     },
-    /** Reactive: is there an earlier entry to return to? Drives ◀ enablement. */
+    /** Reactive: is there an earlier entry to return to? Drives ◀ enablement.
+     *  Read for the focused pane, so the buttons retarget when focus moves. */
     canNavigateBack: (): boolean => {
-      const id = store.activeId();
+      const id = store.focusedTerminalId();
       return id === null ? false : browserFor(id).canBack();
     },
     /** Reactive: is there a later entry to advance to? Drives ▶ enablement. */
     canNavigateForward: (): boolean => {
-      const id = store.activeId();
+      const id = store.focusedTerminalId();
       return id === null ? false : browserFor(id).canForward();
     },
     /** Reconcile a terminal's history with the repo it currently sits in,
@@ -483,13 +553,13 @@ export function useRightPanel() {
      *  shown; the next `recordNavigation` re-seeds the stack.
      *
      *  The decision is keyed PER TERMINAL (`history.get(id).lastRepo`), not
-     *  against the previously active terminal: `CodeTab` is a singleton over the active
-     *  terminal and only calls this for whichever terminal is active, but a
-     *  terminal's repo can change while it is INACTIVE (a `cd` in its PTY
+     *  against the previously focused pane: `CodeTab` is a singleton over the
+     *  focused pane and only calls this for whichever pane it shows, but a
+     *  terminal's repo can change while it is UNFOCUSED (a `cd` in its PTY
      *  updates server metadata unobserved). Tracking each terminal's last-seen
      *  repo independently catches that change the moment the terminal next
-     *  becomes active — even if other terminals were active in between — without
-     *  wiping a freshly-activated terminal's history just because the active
+     *  becomes focused — even if other panes were focused in between — without
+     *  wiping a freshly-focused terminal's history just because the focused
      *  repo shifted on a plain switch. The first call for a terminal records
      *  its repo without resetting, so a session-restored (seeded) stack
      *  survives the initial mount. */
@@ -509,34 +579,53 @@ export function useRightPanel() {
       }
     },
 
-    // ── Session restore + lifecycle ──────────────────────────────────
-    /** Capture visibility and its host before creation yields. Apply only
-     *  visibility when the new ID arrives, preserving any other panel state. */
-    captureNewPanelVisibility: () => {
-      const inheritedCollapsed = collapsed();
-      const rpc = padiRpcOf(activeHost());
-      return (id: TerminalId) =>
-        mutatePanel(id, { collapsed: inheritedCollapsed }, rpc);
+    // ── Handing panel state to a terminal that has just appeared ─────
+    //
+    // Two hand-overs — a tile's posture, a split's tab — and one adoption of a
+    // record the server already holds. Each hand-over returns an APPLIER so the
+    // source and the host are pinned when the caller reads them: a create that
+    // outlives a host switch still writes to the host it was made on, and a
+    // focus change while the create is pending cannot change what the new
+    // terminal starts on. One verb therefore serves both timings — read now and
+    // apply when the id arrives (a browser create), or apply at once (a split
+    // that arrived on the list, a promotion).
+
+    /** Hand `id` the open/closed posture of `fromTile` — the tile it is appearing
+     *  beside or leaving — or the new-terminal default when there is none. A
+     *  no-op when `id` IS `fromTile`. */
+    adoptTileCollapsed: (fromTile: TerminalId | null) => {
+      const apply = capturePanelSeed({
+        collapsed: stateOf(fromTile).collapsed,
+      });
+      return (id: TerminalId) => {
+        if (id === fromTile) return;
+        apply(id);
+      };
     },
-    /** Seed per-terminal state from server data — no report-back to
-     *  server. Called by `useSessionRestore` during hydration and after
-     *  recreating a saved terminal. */
-    seedPanel: (id: TerminalId, state: RightPanelPerTerminalState) => {
-      setPerTerminal(id, state);
-      // Seed the history with the restored location so back/forward have a
-      // starting point matching what's shown — but only when a file was
-      // actually selected; a restored-but-empty mode starts with no history.
-      // `lastRepo: undefined` resets the repo baseline so the next `syncRepo`
-      // re-adopts this terminal's current repo without resetting — the stack we
-      // just seeded is the truth, and re-seeding is a "this is a fresh start"
-      // event, same as first mount.
-      const path = state.selectedFileByMode?.[state.codeMode] ?? null;
-      const h = historyFor(id);
-      h.browser.reset(
-        path !== null ? { mode: state.codeMode, path } : undefined,
-      );
-      h.lastRepo = undefined;
+
+    /** Hand `id` the active tab of the terminal it came from — the pane a
+     *  browser split was made from, or a split's own parent when it arrived from
+     *  elsewhere — so creating a split never flips the panel. A no-op when the
+     *  split already carries a record (the browser create path seeds first, and
+     *  session restore seeds its own), and it ADOPTS a `rightPanel` the creator
+     *  passed on `lifecycle.create` instead of overwriting it. */
+    seedSplitTab: (fromId: TerminalId | null) => {
+      const apply = capturePanelSeed({ activeTab: stateOf(fromId).activeTab });
+      return (id: TerminalId) => {
+        if (perTerminal[id]) return;
+        const carried = store.getMetadata(id)?.rightPanel;
+        if (carried) {
+          applySeed(id, carried);
+          return;
+        }
+        apply(id);
+      };
     },
+
+    /** Adopt a record the server already holds — no report-back. Called by
+     *  `useSessionRestore` during hydration and after recreating a saved
+     *  terminal, and by `seedSplitTab` for a creator-passed record. */
+    seedPanel: applySeed,
     /** Clean up state for a terminal that no longer exists. Mirrors
      *  `useSubPanel.removePanel`. */
     removePanel: (id: TerminalId) => {

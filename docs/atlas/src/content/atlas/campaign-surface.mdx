@@ -269,9 +269,9 @@ export const GraphMock = () => (
 
 ### Scoping: whose board is this?
 
-The right panel is per-terminal, so the Board uses the association the Code
-tab already uses: **the terminal's cwd names the repo, and the repo is the
-campaign.** cwd → repo root → every worktree of that repo → their terminals,
+The right panel's content follows the focused pane, so the Board uses the
+association the Code tab already uses: **the shown pane's cwd names the repo, and
+the repo is the campaign.** cwd → repo root → every worktree of that repo → their terminals,
 branches, PRs, sensor states, parent edges. Two same-repo terminals see the
 same board (a per-terminal *viewport* on repo-scoped content); a drishti
 terminal sees drishti's campaign — multi-project coordination with zero

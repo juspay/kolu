@@ -2152,3 +2152,42 @@ retirements:
       file: packages/tests/features/code-tab.feature
       symbol: "Scenario: Tray jump returns to the Source Markdown surface"
       test: Preserves native mouse selection and every comment assertion; adds an explicit highlighted-source readiness barrier because Pierre replaces the initial plain-text node asynchronously. Holding the actual highlight-worker reply until mid-drag reproduces the collapsed selection; the barrier blocks until that reply and the unchanged native drag then succeeds.
+  - id: revise-split-inspector-deep-link-owns-its-pane
+    revisionId: revision-c816f35d2905432b8905
+    action: renamed
+    status: landed
+    promise: A #/t/.../inspector link to a split opens that split's own Inspector
+    defectSurface: [right-panel, deep-links]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-89894a0fd46523995276]
+    sameCodePathEvidence:
+      file: packages/tests/features/deep-links.feature
+      symbol: "Scenario: A #/t/.../inspector link to a split opens that split's own Inspector"
+      test: The scenario was renamed — the old name asserted the retired per-tile panel rule — and gained one assertion, `the right panel should show a pane label`, which proves the panel's subject is the SPLIT rather than the containing tile. Its two original assertions are unchanged (the Inspector tab is active; the sub pane is live).
+  - id: revise-pane-switch-tree-scenario
+    revisionId: revision-ef733a93ec94fde81e2b
+    action: revised
+    status: landed
+    promise: A pane switch inside one repo leaves the Code tree alone
+    defectSurface: [right-panel, code-tab]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-13a6eaf8a47608e4cd73]
+    sameCodePathEvidence:
+      file: packages/tests/features/right-panel.feature
+      symbol: "Scenario: A pane switch inside one repo leaves the Code tree alone"
+      test: 'The scenario now visits the fresh split once (letting its own git sensing resolve) before tagging the tree, so it pins the repo-keying fix rather than the separate "git is null while sensing" transient. Every original assertion is kept, and the filter assertion now also fails on the pre-fix keying.'
+  - id: revise-code-tree-follows-focus-header
+    revisionId: revision-4ff658625adeb11a3676
+    action: revised
+    status: landed
+    promise: Code tree follows focus into a split in another repo
+    defectSurface: [right-panel, code-tab]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-be7e870c16855283b4e4]
+    sameCodePathEvidence:
+      file: packages/tests/features/right-panel.feature
+      symbol: "Scenario: Code tree follows focus into a split in another repo"
+      test: Adds two assertions on the panel's new pane-header directory line (the repo root the tree is rooted at), one per focus direction; the tree and pane-label assertions are unchanged.

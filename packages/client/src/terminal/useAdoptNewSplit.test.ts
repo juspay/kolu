@@ -25,6 +25,7 @@ function setupAdopt(init: {
   const calls = {
     expandPanel: vi.fn<(parentId: TerminalId) => void>(),
     setActiveSubTab: vi.fn<(parentId: TerminalId, subId: TerminalId) => void>(),
+    seedSplitTab: vi.fn<(subId: TerminalId, parentId: TerminalId) => void>(),
   };
   let handles!: {
     setRawIds: (v: TerminalId[]) => void;
@@ -47,6 +48,7 @@ function setupAdopt(init: {
       expandPanel: calls.expandPanel,
       activeSubTab: (parentId) => state.activeSubTab[parentId] ?? null,
       setActiveSubTab: calls.setActiveSubTab,
+      seedSplitTab: calls.seedSplitTab,
     };
     useAdoptNewSplit({
       rawList: rawIds,
@@ -85,6 +87,9 @@ describe("useAdoptNewSplit — adopt an externally-created split", () => {
 
     expect(h.calls.expandPanel).toHaveBeenCalledWith(T("P"));
     expect(h.calls.setActiveSubTab).toHaveBeenCalledWith(T("P"), T("S"));
+    // The arrival also gets the parent's panel tab, so clicking into it does not
+    // flip the panel from Inspector to Code.
+    expect(h.calls.seedSplitTab).toHaveBeenCalledWith(T("S"), T("P"));
     h.dispose();
   });
 
@@ -144,6 +149,29 @@ describe("useAdoptNewSplit — adopt an externally-created split", () => {
     h.dispose();
   });
 
+  it("(g) seeds the tab from the arrival's TRUE parent — a nested external split", async () => {
+    // A split S of tile P already exists; an agent hangs a grandchild G under S.
+    // The tab seed must read S (the pane G was split from), not the root tile P —
+    // and the panel CHROME must still key on P.
+    const h = setupAdopt({
+      rawIds: [T("P"), T("S")],
+      parents: { P: null, S: T("P") },
+    });
+    await tick();
+
+    batch(() => {
+      h.setParents({ P: null, S: T("P"), G: T("S") });
+      h.setRawIds([T("P"), T("S"), T("G")]);
+    });
+
+    expect(h.calls.seedSplitTab).toHaveBeenCalledExactlyOnceWith(
+      T("G"),
+      T("S"),
+    );
+    expect(h.calls.expandPanel).toHaveBeenCalledExactlyOnceWith(T("P"));
+    h.dispose();
+  });
+
   it("(d) a top-level arrival is ignored — only splits (parentId) are adopted", async () => {
     const h = setupAdopt({ rawIds: [T("P")], parents: { P: null } });
     await tick();
@@ -156,6 +184,7 @@ describe("useAdoptNewSplit — adopt an externally-created split", () => {
 
     expect(h.calls.expandPanel).not.toHaveBeenCalled();
     expect(h.calls.setActiveSubTab).not.toHaveBeenCalled();
+    expect(h.calls.seedSplitTab).not.toHaveBeenCalled();
     h.dispose();
   });
 
@@ -221,6 +250,7 @@ describe("useAdoptNewSplit — composed with hydration", () => {
       expandPanel: vi.fn<(parentId: TerminalId) => void>(),
       setActiveSubTab:
         vi.fn<(parentId: TerminalId, subId: TerminalId) => void>(),
+      seedSplitTab: vi.fn<(subId: TerminalId, parentId: TerminalId) => void>(),
     };
     let handles!: {
       deliverSeedBoundary: () => void;
@@ -242,6 +272,7 @@ describe("useAdoptNewSplit — composed with hydration", () => {
           expandPanel: calls.expandPanel,
           activeSubTab: () => null,
           setActiveSubTab: calls.setActiveSubTab,
+          seedSplitTab: calls.seedSplitTab,
         },
       });
       // Hydration stand-in: once the restored split S's metadata has arrived (the
@@ -273,6 +304,7 @@ describe("useAdoptNewSplit — composed with hydration", () => {
     handles.deliverSeedBoundary();
     expect(calls.expandPanel).not.toHaveBeenCalled();
     expect(calls.setActiveSubTab).not.toHaveBeenCalled();
+    expect(calls.seedSplitTab).not.toHaveBeenCalled();
 
     // Later, a genuinely-new split S2 arrives while seeded — the real feature.
     handles.deliverLiveSplit();

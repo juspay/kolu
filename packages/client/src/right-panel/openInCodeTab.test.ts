@@ -3,7 +3,6 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const h = vi.hoisted(() => ({
   focusTerminalSilently: vi.fn(),
   getMetadata: vi.fn(),
-  containingTile: vi.fn(),
   openCodeAt: vi.fn(),
   reveal: vi.fn(),
 }));
@@ -12,7 +11,6 @@ vi.mock("../terminal/useTerminalStore", () => ({
   useTerminalStore: () => ({
     focusTerminalSilently: h.focusTerminalSilently,
     getMetadata: h.getMetadata,
-    containingTile: h.containingTile,
   }),
 }));
 
@@ -37,7 +35,6 @@ describe("openInCodeTab", () => {
       parentId: null,
       git: { repoRoot: "/repo" },
     });
-    h.containingTile.mockImplementation((id: string) => id);
   });
 
   it("focuses the issuing terminal before opening its Code-tab request", () => {
@@ -61,22 +58,14 @@ describe("openInCodeTab", () => {
     });
   });
 
-  it("focuses a split pane while scoping the request to its panel owner", () => {
+  it("scopes a split's request to the SPLIT's own repo, not its tile's", () => {
+    // The panel follows the focused pane, so a path clicked in a split resolves
+    // against that split's repo — the prefix the old panel-owner indirection got
+    // wrong.
     h.getMetadata.mockImplementation((id: string) =>
       id === "split-b"
-        ? {
-            id,
-            parentId: "terminal-a",
-            git: { repoRoot: "/split-repo" },
-          }
-        : {
-            id,
-            parentId: null,
-            git: { repoRoot: "/owner-repo" },
-          },
-    );
-    h.containingTile.mockImplementation((id: string) =>
-      id === "split-b" ? "terminal-a" : id,
+        ? { id, parentId: "terminal-a", git: { repoRoot: "/split-repo" } }
+        : { id, parentId: null, git: { repoRoot: "/tile-repo" } },
     );
 
     openInCodeTab({
@@ -87,8 +76,23 @@ describe("openInCodeTab", () => {
 
     expect(h.focusTerminalSilently).toHaveBeenCalledWith("split-b");
     expect(pendingOpen()?.scope).toMatchObject({
-      terminalId: "terminal-a",
-      repoRoot: "/owner-repo",
+      terminalId: "split-b",
+      repoRoot: "/split-repo",
     });
+  });
+
+  it("fails loud when the issuing terminal has no repo", () => {
+    h.getMetadata.mockReturnValue({
+      id: "terminal-b",
+      parentId: null,
+      git: null,
+    });
+    expect(() =>
+      openInCodeTab({
+        terminalId: "terminal-b",
+        ref: { path: "new.ts", startLine: 1, endLine: 1 },
+        targetMode: "browse",
+      }),
+    ).toThrow(/terminal-b has no repo/);
   });
 });

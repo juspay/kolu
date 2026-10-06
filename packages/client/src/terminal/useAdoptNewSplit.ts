@@ -11,6 +11,11 @@
  *  set `activeSubTab`. This hook closes that gap by REACTING to the arrival on
  *  the list, so a split from ANY actor behaves like a manual one.
  *
+ *  It is also the ONE place that sees every new split, so the new split's panel
+ *  tab is seeded here too (`seedSplitTab`) — only this funnel covers an
+ *  agent-created, `kolu create --parent`, or MCP `lifecycle_create {child-of}`
+ *  split.
+ *
  *  Expand-but-don't-steal: a new split ALWAYS expands the parent's panel (like a
  *  manual create), but becomes the ACTIVE tab only when the parent has no active
  *  split — an arrival never yanks the view off a split you're already working in.
@@ -46,6 +51,11 @@ export interface SplitAdoptPorts {
   /** Select a sub-tab — run only when the parent has no active split (don't steal
    *  from a split you're already working in). */
   setActiveSubTab: (parentId: TerminalId, subId: TerminalId) => void;
+  /** Give the new split the panel tab of the terminal it is a child of, so an
+   *  externally-created split does not flip the panel from Code to Inspector when
+   *  you click into it. A no-op when the split already carries panel state (the
+   *  browser create path seeds synchronously; a creator may have passed one). */
+  seedSplitTab: (subId: TerminalId, parentId: TerminalId) => void;
 }
 
 export function useAdoptNewSplit(deps: {
@@ -105,6 +115,7 @@ export function useAdoptNewSplit(deps: {
         // (`parentId` = a middle split) must expand that tile's panel, not a
         // middle node that has no canvas chrome of its own.
         const tileId = containingTileOf(parentId, deps.parentOf);
+        deps.ports.seedSplitTab(subId, parentId);
         deps.ports.expandPanel(tileId);
         // Don't-steal: select the arrival only when no split is currently active.
         // `activeSubTab` is null-or-live by invariant (evictTerminal clears it when

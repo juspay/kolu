@@ -47,7 +47,7 @@ function makePorts(over: {
   activeSubTab?: (parentId: TerminalId) => TerminalId | null;
 }) {
   const calls = {
-    promoteToTopLevel: vi.fn<(id: TerminalId) => void>(),
+    promoteToTopLevel: vi.fn<(id: TerminalId, fromTile: TerminalId) => void>(),
     rehomeUnder: vi.fn<(id: TerminalId, parent: TerminalId) => void>(),
     activate: vi.fn<(id: TerminalId | null) => void>(),
     dropFromMru: vi.fn<(id: TerminalId) => void>(),
@@ -114,7 +114,10 @@ describe("evictTerminal — top-level branch", () => {
       graph({ P: null, Q: null, S1: "P", S2: "P" }),
     );
 
-    expect(calls.promoteToTopLevel.mock.calls).toEqual([[T("S1")], [T("S2")]]);
+    expect(calls.promoteToTopLevel.mock.calls).toEqual([
+      [T("S1"), T("P")],
+      [T("S2"), T("P")],
+    ]);
     expect(calls.removePanel).toHaveBeenCalledWith(T("P"));
     expect(calls.removeRightPanel).toHaveBeenCalledWith(T("P"));
     expect(calls.removeSearch).toHaveBeenCalledWith(T("P"));
@@ -187,6 +190,36 @@ describe("evictTerminal — sub-terminal branch", () => {
     expect(calls.setActiveSubTab).toHaveBeenCalledWith(T("P"), null);
     expect(calls.collapsePanelChrome).not.toHaveBeenCalled();
     expect(calls.promoteToTopLevel).not.toHaveBeenCalled();
+  });
+
+  it("sheds a departing SPLIT's own panel state", () => {
+    // A split owns a tab, a code mode, per-mode selections and a back/forward
+    // stack now, so it must shed them on the way out exactly as a tile does.
+    const { ports, calls } = makePorts({ focusedTerminalId: () => T("S") });
+    evictTerminal(
+      ports,
+      T("S"),
+      T("P"),
+      [],
+      new Set([T("S")]),
+      graph({ P: null, S: "P" }),
+    );
+    expect(calls.removeRightPanel).toHaveBeenCalledExactlyOnceWith(T("S"));
+  });
+
+  it("sheds a departing split's panel state even when NO live ancestor survives", () => {
+    // R ← M ← G, and R and M depart with G: the `dest === null` early return must
+    // not skip the departing split's panel cleanup.
+    const { ports, calls } = makePorts({ focusedTerminalId: () => T("OTHER") });
+    evictTerminal(
+      ports,
+      T("G"),
+      T("M"),
+      [],
+      new Set([T("R"), T("M"), T("G")]),
+      graph({ R: null, M: "R", G: "M" }),
+    );
+    expect(calls.removeRightPanel).toHaveBeenCalledExactlyOnceWith(T("G"));
   });
 
   it("keeps a background tile's focus untouched when its last sub departs", () => {
@@ -305,7 +338,10 @@ describe("evictTerminal — sub-terminal branch", () => {
       new Set([T("R"), T("M")]),
       graph({ R: null, M: "R", G: "M" }),
     );
-    expect(calls.promoteToTopLevel).toHaveBeenCalledExactlyOnceWith(T("G"));
+    expect(calls.promoteToTopLevel).toHaveBeenCalledExactlyOnceWith(
+      T("G"),
+      T("R"),
+    );
     expect(calls.rehomeUnder).not.toHaveBeenCalled();
     expect(calls.collapsePanel).not.toHaveBeenCalled();
     expect(calls.selectSubTab).not.toHaveBeenCalled();
@@ -463,12 +499,36 @@ describe("useActiveReconcile — FULL cleanup driven off the list", () => {
     // NO terminalExit event fires.
     h.setRawIds([T("S"), T("Q")]);
 
-    expect(h.calls.promoteToTopLevel).toHaveBeenCalledWith(T("S"));
+    expect(h.calls.promoteToTopLevel).toHaveBeenCalledWith(T("S"), T("P"));
     expect(h.calls.removePanel).toHaveBeenCalledWith(T("P"));
     expect(h.calls.removeRightPanel).toHaveBeenCalledWith(T("P"));
     expect(h.calls.removeSearch).toHaveBeenCalledWith(T("P"));
     // P was active and at index 0 of [P, Q] → focus falls to survivor Q.
     expect(h.calls.activate).toHaveBeenCalledWith(T("Q"));
+    h.dispose();
+  });
+
+  it("(a2) a list-driven promotion carries the from-tile the LIVE graph no longer has", async () => {
+    const h = setupReconcile({
+      rawIds: [T("P"), T("S")],
+      parents: { P: null, S: T("P") },
+      activeId: T("P"),
+    });
+    await tick();
+
+    // P's PTY exits: the live census loses P ENTIRELY — the list AND the parent
+    // edges. A live `containingTile` walk would therefore dangle and answer "S
+    // itself", silently skipping the posture inheritance. The from-tile must come
+    // from the pre-removal snapshot the reconcile carries.
+    batch(() => {
+      h.setParents({ S: null });
+      h.setRawIds([T("S")]);
+    });
+
+    expect(h.calls.promoteToTopLevel).toHaveBeenCalledExactlyOnceWith(
+      T("S"),
+      T("P"),
+    );
     h.dispose();
   });
 

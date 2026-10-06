@@ -143,6 +143,11 @@ export const AMBIENT_TIPS: readonly Tip[] = [
     doc: "right-panel",
   },
   {
+    id: "amb-inspector-follows-focus",
+    text: "The right panel follows the pane you click into — split a terminal into another repo and the Inspector and Code tab switch to that pane's own, while each pane remembers its own tab and file",
+    doc: "right-panel",
+  },
+  {
     id: "amb-canvas-zoom",
     text: "Pinch or Ctrl+scroll to zoom the canvas. Two-finger scroll to pan.",
     doc: "canvas",

@@ -22,9 +22,17 @@ export function codeTabScopesEqual(a: CodeTabScope, b: CodeTabScope): boolean {
   return left.every((value, index) => value === right[index]);
 }
 
-/** Collision-safe key for state that is scoped to one Code-tab owner. */
-export function codeTabScopeKey(scope: CodeTabScope | null): string | null {
-  return scope === null ? null : JSON.stringify(codeTabScopeIdentity(scope));
+/** Collision-safe key for state scoped to one REPO SLOT of the Code tab — the
+ *  (host, repo, mode) triple, deliberately WITHOUT the terminal. The file list,
+ *  the lazily-loaded folder levels, the tree's expansion and the filename filter
+ *  are all facts about the repo, so moving focus between two panes of one repo
+ *  must not reset any of them. (The terminal id IS part of a `CodeTabScope`,
+ *  which owns the open-request identity and the preview URL — those really are
+ *  per-pane.) */
+export function codeTabRepoSlotKey(scope: CodeTabScope | null): string | null {
+  return scope === null
+    ? null
+    : JSON.stringify([encodeHostKey(scope.host), scope.repoRoot, scope.mode]);
 }
 
 function codeTabScopeIdentity(

@@ -1,6 +1,6 @@
 ---
 title: The Code Tab
-description: "The Code tab is a file browser scoped to the active terminal's repo: a Pierre tree with git-status tinting, Local/Branch/All views with live diffs, rendered Markdown, inline HTML/SVG/PDF/image/video previews, and file comments."
+description: "The Code tab is a file browser scoped to the focused pane's repo: a Pierre tree with git-status tinting, Local/Branch/All views with live diffs, rendered Markdown, inline HTML/SVG/PDF/image/video previews, and file comments."
 order: 55
 section: "Files & Code"
 koluHero:
@@ -13,9 +13,12 @@ import LinkCard from "../../components/docs/LinkCard.astro";
 import CardGrid from "../../components/docs/CardGrid.astro";
 
 The **Code tab** lives in the [right panel](/right-panel) and is a file browser
-scoped to the active terminal's repo — a Pierre file tree with git-status tinting
-over a syntax-highlighted source view. It is how you read what an agent is
-working on without leaving the terminal beside it.
+scoped to the **focused pane's** repo — a Pierre file tree with git-status tinting
+over a syntax-highlighted source view. Focus a split running in another repo and
+the tree follows it; focus back to the tile's main terminal and its own tree and
+selected file return. The panel's header line names the directory the pane — and
+so the tree — is rooted at, with the repo root emphasized. It is how you read what
+an agent is working on without leaving the terminal beside it.
 
 ## Browse and jump
 

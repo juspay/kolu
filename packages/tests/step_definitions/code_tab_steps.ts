@@ -11,11 +11,13 @@ import {
   POLL_TIMEOUT,
 } from "../support/world.ts";
 
-/** Ensure the right panel is expanded for the ACTIVE terminal before touching
- *  the Code tab. Panel collapse is PER-TERMINAL now (#1753): a freshly-created
- *  or switched-to terminal starts collapsed under the e2e fixture (which seeds
- *  new terminals collapsed via `newTerminalCollapsed`), so its Code tab is
- *  hidden until opened. Idempotent — a no-op when the panel is already open (so
+/** Ensure the right panel is expanded for the ACTIVE TILE before touching the
+ *  Code tab. Panel COLLAPSE is per-TILE (#1753, #959): a freshly-created or
+ *  switched-to tile starts collapsed under the e2e fixture (which seeds new
+ *  terminals collapsed via `newTerminalCollapsed`), so its Code tab is hidden
+ *  until opened. (The panel's TAB and selection are per focused pane, which is
+ *  why moving focus between a tile's panes never re-collapses it.) Idempotent —
+ *  a no-op when the panel is already open (so
  *  it never masks a scenario that deliberately left it collapsed); when
  *  collapsed it presses the toggle and waits for the Code-tab button to paint.
  *  `data-collapsed` is the RightPanel's canonical "not visible" marker. */
@@ -2680,5 +2682,31 @@ Then(
       .getAttribute("data-keepalive-probe");
     if (marker !== "source")
       throw new Error("Pierre source renderer remounted after save");
+  },
+);
+
+// ── Tree identity across a pane switch ──
+//
+// Focus moves between two panes of one tile are far more frequent than tile
+// switches, and a new split starts in its parent's directory — so "same repo on
+// both sides" is the common case. Nothing about the repo changes, so the tree
+// must not be rebuilt. The probe is written by the TEST onto the mounted host
+// element (the `data-keepalive-probe` precedent above): a replacement node would
+// not carry it, so its presence is a real identity proof and needs no production
+// marker.
+When("I tag the file tree", async function (this: KoluWorld) {
+  await this.page
+    .locator('[data-testid="pierre-file-tree"]')
+    .evaluate((el) => el.setAttribute("data-pane-switch-probe", "tree"));
+});
+
+Then(
+  "the file tree should still be the one I tagged",
+  async function (this: KoluWorld) {
+    const marker = await this.page
+      .locator('[data-testid="pierre-file-tree"]')
+      .getAttribute("data-pane-switch-probe");
+    if (marker !== "tree")
+      throw new Error("the file tree was rebuilt across a pane switch");
   },
 );

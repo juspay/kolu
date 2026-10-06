@@ -19,9 +19,10 @@
  *  factory is reset-on-close-all, so `reset()` clears its WHOLE state with no
  *  "clear these but not those" allow/deny list (the enumeration hazard W7 kills).
  *  The sticky dock filters live in `createHostPrefs` precisely because
- *  they must SURVIVE a close-all. (The right-panel collapsed bit is neither here
- *  nor there: it travels with the TERMINAL via `TerminalMetadata.rightPanel`, not
- *  the host scope — the panel follows the terminal, #959.) Only the momentary
+ *  they must SURVIVE a close-all. (The right-panel `collapsed` bit is neither here
+ *  nor there: it travels with the TILE via `TerminalMetadata.rightPanel` — the
+ *  panel's open/closed posture is the tile's, while its tab/selection follow the
+ *  focused pane, #959 + follows-focus.) Only the momentary
  *  `centerActiveRequest` command
  *  stays APP-level in the facade — a write-and-consume viewport impulse, never
  *  durable per-host state. The posture is PERSISTED per host
