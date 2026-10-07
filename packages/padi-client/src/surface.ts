@@ -107,6 +107,14 @@ import {
   CanvasLayoutSchema,
   RightPanelPerTerminalStateSchema,
 } from "./chromeVocab.ts";
+import {
+  AgentDistroSettingSchema,
+  AgentDistroStatusSchema,
+  agentDistroSettingEqual,
+  agentDistroStatusEqual,
+  DEFAULT_AGENT_DISTRO_SETTING,
+  DEFAULT_AGENT_DISTRO_STATUS,
+} from "./agentDistro.ts";
 import type { ClientErrorPolicy } from "./clientPolicy.ts";
 import {
   FsGitReadErrorSchema,
@@ -178,6 +186,10 @@ export {
   newTerminalPolicyEqual,
 } from "./newTerminalPolicy.ts";
 export * from "./vocab.ts";
+// The agent-distro setting kolu-server pushes and the host status padi reports —
+// declared here for the same seal reason as the new-terminal policy above, and
+// built into `kolu-common`'s preference field. See `./agentDistro.ts`.
+export * from "./agentDistro.ts";
 // The transcript-export wire vocabulary rides the same entry as everything else
 // `padiSurface` speaks. It had a door of its own until the two halves of ONE
 // vocabulary were noticed to be split by nothing but which symbols the spec
@@ -483,8 +495,18 @@ export * from "./transcriptSchema.ts";
  *  5.6 padi's `PortInfo`, and the minor rule keeps it from ever meeting one (a
  *  newer binder drains a 5.6 padi before consuming its surface). The other
  *  direction is the ordinary graceful one — an older decoder strips the unknown
- *  key and never subscribes to the new cell. */
-export const PADI_SURFACE_VERSION = "5.7";
+ *  key and never subscribes to the new cell.
+ *
+ *  5.8 (additive · minor) — agent-distro. Two NEW cells: `agentDistro`, the
+ *  Agents setting the binding kolu-server pushes (memory-only, `get`/`set`, the
+ *  `newTerminalPolicy` shape), and `agentDistroStatus`, padi's read-only report
+ *  of whether that profile's agents are on its host (`ready`), being fetched
+ *  (`downloading`), or failed to arrive. The authored terminal record gains two
+ *  OPTIONAL fields, `agentProfile` / `agentBundle`, set at spawn when the
+ *  terminal got agents. The minor carries the usual obligation: a 5.8 binder
+ *  CALLS `agentDistro.set`, and the minor rule drains a 5.7 padi before that
+ *  call can reach a padi with no such member. */
+export const PADI_SURFACE_VERSION = "5.8";
 
 /** The `version` cell payload — padi's self-declared surface contract version. */
 export const PadiVersionSchema = Schema.Struct({
@@ -1908,6 +1930,37 @@ export const padiSurface = defineSurfaceWithPolicy<ClientErrorPolicy>()({
       verbs: ["get", "set"],
       client: { onError: { kind: "toast", label: "New-terminal policy" } },
     },
+    /** The Agents setting — WRITTEN by the binding kolu-server (the user's
+     *  global preference, verbatim), READ by padi's spawn path: a terminal
+     *  spawned while it is on gets the profile's agents on its PATH. Memory-only
+     *  for the reason `newTerminalPolicy` is (the binder re-pushes on every
+     *  bind). The write REFUSES a profile this padi's build does not know
+     *  (`checkAgentDistroSetting`) rather than mapping it to another. NOT exposed
+     *  through the MCP face: an agent inherits the user's choice, it does not
+     *  make it. */
+    agentDistro: {
+      schema: AgentDistroSettingSchema,
+      default: DEFAULT_AGENT_DISTRO_SETTING,
+      // The one dedup point: a re-push of the same setting (every reconnect)
+      // publishes nothing and starts no download.
+      equals: agentDistroSettingEqual,
+      verbs: ["get", "set"],
+      client: { onError: { kind: "toast", label: "Agents setting" } },
+    },
+    /** Whether the selected profile's agents are on THIS padi's host — `ready`
+     *  (with the bundle new terminals get), `downloading` (a remote host's first
+     *  fetch from the binary cache), `error` (the updater's own message), `off`,
+     *  or `unavailable` (a padi built without agent-distro). Read-only on the
+     *  client; padi's agent-distro module is the sole writer. The host tab and
+     *  Settings render it. */
+    agentDistroStatus: {
+      schema: AgentDistroStatusSchema,
+      default: DEFAULT_AGENT_DISTRO_STATUS,
+      // A progress tick that moved no byte count publishes nothing.
+      equals: agentDistroStatusEqual,
+      verbs: ["get"],
+      client: { onError: { kind: "hostToast", label: "Agents status" } },
+    },
     /** Every TCP listener on THIS padi's host — what the terminal-scoped `ports`
      *  on each record cannot see: a server that detached from the terminal that
      *  started it. Read-only on the client; padi's port sampler is the sole writer,
@@ -2377,6 +2430,8 @@ export const PADI_FORWARDING_POLICY = {
   urgency: "value",
   status: "value",
   newTerminalPolicy: "value",
+  agentDistro: "value",
+  agentDistroStatus: "value",
   hostListeners: "value",
   hostInventory: "value",
   processMemory: "value",

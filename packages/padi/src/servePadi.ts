@@ -19,6 +19,7 @@
 
 import { rmSync } from "node:fs";
 import {
+  DEFAULT_AGENT_DISTRO_STATUS,
   DEFAULT_PADI_VERSION,
   isPadiDeclaredError,
   KavalContractSkew,
@@ -57,6 +58,12 @@ import { createFinishQuiet } from "./activity/finishQuiet.ts";
 import { createLiveActivitySource } from "./activity/liveActivity.ts";
 import { EMPTY_URGENCY } from "./activity/urgency.ts";
 import { createEdgeMemory } from "./attention/edgeMemory.ts";
+import {
+  agentDistroBake,
+  agentDistroSettingStore,
+  checkAgentDistroSetting,
+  onAgentDistroSettingWrite,
+} from "./agentDistro/agentDistro.ts";
 import { createEventSeq } from "./attention/eventSeq.ts";
 import { createFleetGate } from "./attention/fleetGate.ts";
 import { createSettleEvents } from "./attention/settleEvents.ts";
@@ -292,6 +299,9 @@ export function buildPadiSurfaceDeps(deps: {
   stateRoot: string;
 }): PadiDeps {
   const { endpoint, log, startedAt, commit, lifetime, stateRoot } = deps;
+  // Read the agent-distro bake NOW so a broken one (a half bake, a listing that
+  // does not parse) crashes the daemon at boot rather than at the first spawn.
+  agentDistroBake();
   const fsGit = padiFsGitDeps(endpoint, log);
   // Dispose the PRIOR daemon-lifetime set (finish tracker + attention flow) so a
   // servePadi test rebuild doesn't stack resubscribe loops or two sets of sinks.
@@ -426,6 +436,22 @@ export function buildPadiSurfaceDeps(deps: {
       // The SAME module store `resolveNewTerminalTheme` reads — that identity is
       // what makes `lifecycle.create` resolve against the wire-written authority.
       newTerminalPolicy: { store: newTerminalPolicyStore },
+      // The Agents setting the binding kolu-server pushes. The SAME module store
+      // the spawn path resolves against (`resolveAgentLayer`). `onMutate` refuses
+      // a profile this build does not know (the write fails loud at the binder);
+      // `onWrite` publishes the host status and starts a remote host's one
+      // download. Both run only for a CHANGED value — the spec's `equals` drops a
+      // reconnect's identical re-push.
+      agentDistro: {
+        store: agentDistroSettingStore,
+        onMutate: checkAgentDistroSetting,
+        onWrite: onAgentDistroSettingWrite,
+      },
+      // Read-only: written only by the agent-distro module. `off` until the
+      // binder's first push says otherwise.
+      agentDistroStatus: {
+        store: inMemoryStore(DEFAULT_AGENT_DISTRO_STATUS),
+      },
       // Every TCP listener on THIS padi's host — written by the port sampler (the
       // same pass that feeds each terminal's `ports`), read by the printed-URL
       // card, the Ports section's "elsewhere on this host" group, and kolu-server's

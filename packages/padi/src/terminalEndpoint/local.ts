@@ -71,6 +71,11 @@ import {
   type PortSampler,
   type PortScanTarget,
 } from "../ports/index.ts";
+import {
+  agentLayerOfRecord,
+  resolveAgentLayer,
+  withAgentLayer,
+} from "../agentDistro/agentDistro.ts";
 import { buildTerminalSpawnInput, ptyHostClient } from "../ptyHost/index.ts";
 import { notifyDirty } from "../publisher.ts";
 import {
@@ -808,13 +813,18 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
     const tlog = log.child({ terminal: id });
     const prior = getTerminal(id);
     const proxy = new PtyHostTerminalProxy(id, ptyHostClient);
+    // The agent layer is decided HERE, once, for every spawn (fresh or wake), and
+    // stamped on the record the spawn below reads its PATH from — so the tile's
+    // chip and the terminal's PATH are one value. A woken terminal gets the
+    // CURRENT layer, never the one it slept with: its old PTY is gone.
+    const stamped = withAgentLayer(meta, resolveAgentLayer());
     // Both halves are born in ONE entry — snapshot is a required field, so the
     // entry IS its snapshot; `registerAndInstall` registers it and fans the
     // snapshot snapshot out in one step (the seed counterpart to
     // `finalizeRemoval`).
     const entry: ActiveTerminalProcess = {
       info: { id, pid: 0 },
-      meta,
+      meta: stamped,
       snapshot,
       handle: proxy,
     };
@@ -1001,8 +1011,13 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
     expected: ActiveTerminalProcess,
   ): Promise<{ pid: number; cwd: string } | null> {
     const res = await runEndpointEdge(
-      Effect.flatMap(buildTerminalSpawnInput({ id, cwd: opts.cwd }), (input) =>
-        ptyHostClient.surface.terminal.spawn(input),
+      Effect.flatMap(
+        buildTerminalSpawnInput({
+          id,
+          cwd: opts.cwd,
+          agents: agentLayerOfRecord(expected.meta),
+        }),
+        (input) => ptyHostClient.surface.terminal.spawn(input),
       ),
     );
     if (getActiveTerminal(id) !== expected) {

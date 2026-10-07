@@ -419,6 +419,48 @@ in front of it, for a consumer (`kolu watch`) that holds a socket rather than
 coming back for a drain. Its first frame is the snapshot, which is what makes the
 framework's transparent re-subscribe re-lead with fresh truth.
 
+## agent-distro — the agents a new terminal gets
+
+padi puts the coding agents of the user's chosen
+[agent-distro](https://github.com/juspay/agent-distro) profile on the PATH of
+every NEW terminal it spawns ([Agents](https://kolu.dev/agents)). Two cells
+(`padiSurface` 5.8) and one spawn layer carry it; the module is
+`src/agentDistro/`.
+
+- **`agentDistro` (memory-only, `get`/`set`)** — the Agents setting
+  (`{ enabled, profile }`), PUSHED by the binding kolu-server on every connect
+  edge and every preferences write, exactly like `newTerminalPolicy` (the push
+  mechanism is `packages/server/src/padi/padiCellPusher.ts`, shared by both).
+  Its write gate refuses to turn on a profile this padi's build does not know —
+  the user's choice is never mapped to another profile. Not on the MCP face.
+- **`agentDistroStatus` (read-only)** — whether the selected profile's agents
+  are on THIS host: `ready` (with the bundle new terminals get), `downloading`
+  (with byte counts once the pinned updater reports them), `error` (the
+  updater's own message), `off`, or `unavailable` (an unbaked, from-source padi).
+- **The spawn layer** — at each spawn (fresh or wake) padi resolves the bundle:
+  the host's `<state>/current` (what agent-distro's updater fetched) if it
+  exists, else the FLOOR this build carries (local machine only), else none
+  yet. The resolved store path is stamped on the terminal record
+  (`agentProfile` / `agentBundle` — the tile chip) and its `bin/` joins the
+  terminal's toolchain AFTER kolu's own tools, riding the same
+  `KOLU_TERMINAL_TOOLS_PATH` stamp the rcfile re-asserts; `AGENT_DISTRO_PLUGINS`
+  names this kolu's `agent-plugin`. A running terminal never changes bundle.
+- **First use on a remote host** — `padi-agent` carries no floor. When the
+  setting turns a profile on and the host has no `current` for it, padi runs
+  agent-distro's updater once (`lib.mkUpdater`'s command and config, the config's
+  state home made concrete for this host), which fetches the bundle from the
+  binary cache into the host's store and flips `current`. No retry loop: a
+  failure is shown, and the next time the setting turns that profile on, it
+  tries again.
+- **The bake** (`src/agentDistro/bake.ts`) — `KOLU_AGENT_DISTRO_UPDATER` (the
+  profile listing + per-profile updater configs, both arms),
+  `KOLU_AGENT_DISTRO_BUNDLE` (the local floor, `default` wrapper only) and
+  `KOLU_AGENT_PLUGIN_DIR` (both arms), written by `default.nix` from
+  `nix/agent-distro.nix`. Unbaked reads as none; a half bake throws at boot.
+  Every one is `KOLU_*`, so no terminal inherits them. A change to any of them
+  changes the wrapper's own store path, so the agent-tools bake record
+  (`agentToolsBake.ts`) already drains a same-build resident that predates it.
+
 ## What padi knows nothing about
 
 Location is structure, so the boundary is defined as much by what padi refuses to

@@ -9,6 +9,7 @@
     "padi": "./src/daemonBoot/bin.ts"
   },
   "exports": {
+    "./agentDistroBake": "./src/agentDistro/bake.ts",
     "./assembly": "./src/assembly.ts",
     "./buildId": "./src/daemonBoot/buildId.ts",
     "./containingTerminal": "./src/containingTerminal.ts",

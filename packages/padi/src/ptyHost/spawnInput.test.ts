@@ -26,6 +26,7 @@ import { DEFAULT_MIRROR_SCROLLBACK, type PtyHostSystemInfo } from "kaval";
 // value; the literal below is the app-side number it compares against.
 const CLIENT_VISIBLE_SCROLLBACK = 50_000;
 import { AGENT_TOOLS_BAKE_ENV, TERMINAL_TOOLS_PATH_ENV } from "kolu-pty";
+import { AGENT_DISTRO_PLUGINS_ENV } from "../agentDistro/bake.ts";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   composeSpawnInput,
@@ -306,6 +307,81 @@ describe("composeSpawnInput agent toolchain (PATH injection)", () => {
     );
     expect(empty.env[TERMINAL_TOOLS_PATH_ENV]).toBeUndefined();
     expect(empty.env.PATH).toBe(noPath);
+  });
+});
+
+describe("composeSpawnInput agent-distro layer", () => {
+  const TOOLS = "/nix/store/aaa-kolu/bin";
+  const AGENTS = "/nix/store/ccc-agent-distro-vanilla-kolu/bin";
+  const PLUGINS = "/nix/store/ddd-kolu-agent-plugin";
+
+  let savedPath: string | undefined;
+  let savedPlugins: string | undefined;
+  beforeEach(() => {
+    savedPath = process.env.PATH;
+    savedPlugins = process.env[AGENT_DISTRO_PLUGINS_ENV];
+    process.env.PATH = "/usr/bin:/bin";
+  });
+  afterEach(() => {
+    restore("PATH", savedPath);
+    restore(AGENT_DISTRO_PLUGINS_ENV, savedPlugins);
+  });
+
+  it("puts the profile's dir AFTER kolu's own tools and before the user's PATH", () => {
+    // kolu / kaval-tui / padi-tui keep a name collision with anything a profile
+    // ships; the bundled `claude` wins over one the user installed.
+    const input = composeSpawnInput(
+      { id: "T-agents" },
+      info(),
+      spec({
+        toolsPath: [TOOLS],
+        agents: { binDir: AGENTS, plugins: PLUGINS },
+      }),
+    );
+    expect(input.env.PATH).toBe(`${TOOLS}:${AGENTS}:/usr/bin:/bin`);
+  });
+
+  it("rides the KOLU_TERMINAL_TOOLS_PATH stamp, so the rcfile re-asserts it after dotfiles", () => {
+    const input = composeSpawnInput(
+      { id: "T-agents-stamp" },
+      info(),
+      spec({
+        toolsPath: [TOOLS],
+        agents: { binDir: AGENTS, plugins: PLUGINS },
+      }),
+    );
+    expect(input.env[TERMINAL_TOOLS_PATH_ENV]).toBe(`${TOOLS}:${AGENTS}`);
+  });
+
+  it("stamps the agent dir even on a daemon with no baked toolchain", () => {
+    const input = composeSpawnInput(
+      { id: "T-agents-only" },
+      info(),
+      spec({ agents: { binDir: AGENTS, plugins: PLUGINS } }),
+    );
+    expect(input.env.PATH).toBe(`${AGENTS}:/usr/bin:/bin`);
+    expect(input.env[TERMINAL_TOOLS_PATH_ENV]).toBe(AGENTS);
+  });
+
+  it("sets AGENT_DISTRO_PLUGINS to this kolu's plugin dir", () => {
+    const input = composeSpawnInput(
+      { id: "T-agents-plugins" },
+      info(),
+      spec({ agents: { binDir: AGENTS, plugins: PLUGINS } }),
+    );
+    expect(input.env[AGENT_DISTRO_PLUGINS_ENV]).toBe(PLUGINS);
+  });
+
+  it("off means off: no agent dir, no plugins var, and an inherited one is not carried", () => {
+    process.env[AGENT_DISTRO_PLUGINS_ENV] = "/somewhere/else";
+    const input = composeSpawnInput(
+      { id: "T-agents-off" },
+      info(),
+      spec({ toolsPath: [TOOLS] }),
+    );
+    expect(input.env.PATH).toBe(`${TOOLS}:/usr/bin:/bin`);
+    expect(input.env[TERMINAL_TOOLS_PATH_ENV]).toBe(TOOLS);
+    expect(input.env[AGENT_DISTRO_PLUGINS_ENV]).toBeUndefined();
   });
 });
 

@@ -271,6 +271,15 @@ const KoluAuthoredServerFieldsSchema = Schema.Struct({
    *  discriminant is what `resumeFormFor` switches on, so an absent field can't be
    *  misread as the most-recent fallback the old bare `resumeAgent` left ambiguous. */
   restoreTarget: Schema.optionalKey(RestoreTargetSchema),
+  /** The agent-distro profile whose agents padi put on this terminal's PATH at
+   *  spawn (the Agents setting as it stood then). ABSENT when agent-distro was off
+   *  — or had nothing to give — at spawn: the tile then shows no chip. Set once,
+   *  by padi's spawn, together with `agentBundle`; a running terminal never
+   *  changes it, which is the point (it pins the bundle it started with). */
+  agentProfile: Schema.optionalKey(Schema.String.check(Schema.isMinLength(1))),
+  /** The exact bundle store path whose `bin/` padi put on this terminal's PATH —
+   *  the chip's short hash and tooltip. Present iff `agentProfile` is. */
+  agentBundle: Schema.optionalKey(Schema.String.check(Schema.isMinLength(1))),
   ...AgentMemorySchema.fields,
 });
 

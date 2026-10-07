@@ -110,7 +110,9 @@ describe("padiSurface contract", () => {
     // 5.7 adds host-wide ports: the `hostListeners` cell, and a REQUIRED
     // `command` on every `PortInfo` — required, so the minor is what keeps a 5.7
     // decoder from meeting a 5.6 padi's records.
-    expect(PADI_SURFACE_VERSION).toBe("5.7");
+    // 5.8 adds agent-distro: the pushed `agentDistro` setting a 5.8 binder
+    // WRITES, so the minor is what drains a 5.7 padi that has no such cell.
+    expect(PADI_SURFACE_VERSION).toBe("5.8");
     expect(DEFAULT_PADI_VERSION.contractVersion).toBe(PADI_SURFACE_VERSION);
     expect(
       Schema.decodeUnknownSync(PadiVersionSchema)(DEFAULT_PADI_VERSION),
@@ -144,6 +146,8 @@ describe("padiSurface contract", () => {
     // must never meet a 5.6 padi's records — the minor rule refuses it.
     expect(isContractVersionCompatible("5.6", "5.7")).toBe(false);
     expect(isContractVersionCompatible("5.7", "5.6")).toBe(true);
+    expect(isContractVersionCompatible("5.7", "5.8")).toBe(false);
+    expect(isContractVersionCompatible("5.8", "5.7")).toBe(true);
     // A major bump is mutually incompatible in both directions.
     expect(isContractVersionCompatible("6.0", "5.0")).toBe(false);
     expect(isContractVersionCompatible("5.0", "6.0")).toBe(false);
@@ -157,6 +161,8 @@ describe("padiSurface contract", () => {
       "urgency",
       "status",
       "newTerminalPolicy",
+      "agentDistro",
+      "agentDistroStatus",
       "hostListeners",
       "hostInventory",
       "processMemory",
@@ -497,6 +503,8 @@ describe("padiDaemonContract — the composed tag set (D1 / #16)", () => {
       "surface/padi/terminalExit/get",
       "surface/padi/identity/get",
       "surface/padi/newTerminalPolicy/set",
+      "surface/padi/agentDistro/set",
+      "surface/padi/agentDistroStatus/get",
       "surface/control/core/hello",
       "surface/control/core/drain",
       "surface/control/core/clockNow",
