@@ -61,6 +61,17 @@ profile name and a short hash of the bundle, e.g. `vanilla 3fa9c2d1`. Hover it
 for the full path. Two tiles with different chips started with different agents;
 **no chip** means agents were off when that terminal started.
 
+When you switch, old terminals offer **Restart**. A terminal whose agents are
+no longer what a new terminal there would get — you picked another profile,
+turned agents off, or a newer build of the same profile arrived — shows its chip
+muted and struck through, with a ↻, and a **Restart** button beside it. Hover the
+chip to see what it has and what new terminals get. Restart gives the terminal a
+fresh shell in place: the same tile, folder, splits and theme, now with the
+current agents (and a toast, "Restarted with juspay"). Whatever was running in it
+ends; if an agent is working or waiting for you, the first click only asks —
+the button reads "Kill agent and restart" for five seconds, and a second click
+confirms.
+
 ## Where they sit on the PATH
 
 With agents on, a new terminal's PATH reads, from the front:

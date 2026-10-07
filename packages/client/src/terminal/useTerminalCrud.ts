@@ -424,6 +424,18 @@ export const useTerminalCrud = createSharedRoot(() => {
       .pipe(toastFailure("Failed to wake terminal"));
   }
 
+  /** Restart a terminal IN PLACE (`lifecycle.restart`): a new PTY on the same
+   *  id, in the same folder and canvas spot, so it picks up what a new terminal
+   *  gets now — the stale-agents pill's Restart. The tile flips dormant and back
+   *  through the ordinary metadata subscription; `done` is the success toast
+   *  ("Restarted with juspay"). */
+  function handleRestart(id: TerminalId, done: string): UiAction {
+    return activePadiRpc.lifecycle.restart({ id }).pipe(
+      Effect.tap(() => Effect.sync(() => toast.success(done))),
+      toastFailure("Failed to restart terminal"),
+    );
+  }
+
   /** Discard a sleeping terminal — remove its record (no PTY to kill, sleep
    *  released it) and auto-switch away. The close-path twin of `handleKill` for
    *  the dormant arm; reached from the reworded close-confirm dialog.
@@ -588,6 +600,7 @@ export const useTerminalCrud = createSharedRoot(() => {
     requestSleep,
     handleSleep,
     handleWake,
+    handleRestart,
     handleDiscard,
     handleCopyTerminalText,
     handleCopyTerminalId,

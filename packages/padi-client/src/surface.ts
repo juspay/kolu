@@ -505,8 +505,13 @@ export * from "./transcriptSchema.ts";
  *  OPTIONAL fields, `agentProfile` / `agentBundle`, set at spawn when the
  *  terminal got agents. The minor carries the usual obligation: a 5.8 binder
  *  CALLS `agentDistro.set`, and the minor rule drains a 5.7 padi before that
- *  call can reach a padi with no such member. */
-export const PADI_SURFACE_VERSION = "5.8";
+ *  call can reach a padi with no such member.
+ *
+ *  5.9 (additive · minor) — `lifecycle.restart`: respawn an active terminal in
+ *  place (same id, cwd, layout, parent, theme), so a terminal whose agents went
+ *  stale picks up the current ones. A 5.9 binder may call it; the minor rule
+ *  drains a 5.8 padi before such a call can reach a padi without the member. */
+export const PADI_SURFACE_VERSION = "5.9";
 
 /** The `version` cell payload — padi's self-declared surface contract version. */
 export const PadiVersionSchema = Schema.Struct({
@@ -2157,7 +2162,7 @@ export const padiSurface = defineSurfaceWithPolicy<ClientErrorPolicy>()({
         error: WatchSubscriptionNotFound,
       },
     },
-    /** Terminal lifecycle — create · kill · killAll · sleep · wake ·
+    /** Terminal lifecycle — create · kill · killAll · sleep · wake · restart ·
      *  discardSleeping · resize · sendInput · recycleKaval. */
     lifecycle: {
       // Every create STATES its placement (`PadiCreateInputSchema`) — a tile of
@@ -2184,6 +2189,15 @@ export const padiSurface = defineSurfaceWithPolicy<ClientErrorPolicy>()({
       // omission.
       sleep: { input: PadiTerminalIdInputSchema },
       wake: {
+        input: PadiTerminalIdInputSchema,
+        output: TerminalInfoSchema,
+        error: TerminalNotFound,
+      },
+      /** Restart an active terminal IN PLACE: a fresh PTY on the same id, in
+       *  its cwd, its layout / parent / theme / title policy untouched — so it
+       *  picks up what a new terminal gets now (the agents' PATH layer). Refuses
+       *  an id that is not an active terminal. */
+      restart: {
         input: PadiTerminalIdInputSchema,
         output: TerminalInfoSchema,
         error: TerminalNotFound,

@@ -77,3 +77,26 @@ Feature: Agents come with kolu
     When I choose the "off" Agents profile
     Then the host tab should show no agents mark
     And there should be no page errors
+
+  Scenario: A terminal whose agents went stale restarts in place with the new ones
+    When I click the settings button
+    And I turn Agents on
+    Then padi should give new terminals the "vanilla" agents
+    When I press Escape
+    And I create a terminal
+    Then the focused tile should show the "vanilla" agents chip
+    When I run "cd /tmp"
+    And I remember the focused tile
+    And I click the settings button
+    And I choose the "juspay" Agents profile
+    Then padi should give new terminals the "juspay" agents
+    When I press Escape
+    Then the focused tile's agents chip should be stale with a Restart button
+    When I click Restart on the focused tile
+    Then a toast should say "Restarted with juspay"
+    And the focused tile should be the one I remembered
+    And the focused tile should show the "juspay" agents chip
+    And the terminal's claude should be the "juspay" fixture
+    When I run "pwd | sed 's/^/cwd=/'"
+    Then the active terminal should show "cwd=/tmp"
+    And there should be no page errors

@@ -1592,6 +1592,28 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
     });
   }
 
+  /** Restart an ACTIVE terminal IN PLACE: a fresh PTY on the SAME id, in its
+   *  current cwd, with everything authored (canvas layout, parent edge, theme,
+   *  title policy, intent) riding through untouched. It is sleep's flip and kill
+   *  followed by {@link wake} — the one respawn-by-id path — so the new PTY gets
+   *  the spawn layer as of NOW (notably the agents a new terminal would get) and
+   *  a live agent's conversation resumes the way a wake resumes it.
+   *
+   *  Unlike a sleep it keeps the terminal's scratch (pasted images, dropped
+   *  files): nothing here ends the terminal, only its process. A kill that
+   *  fails THROWS, leaving the record sleeping (honest: no live PTY is known to
+   *  be ours) for the caller to see and the user to wake. Resolves `undefined`
+   *  when `id` is not an active terminal, or when it stopped being OUR sleeping
+   *  record across the kill's await (a concurrent wake/discard won). */
+  async restart(id: TerminalId): Promise<TerminalInfo | undefined> {
+    if (!this.beginSleep(id)) return undefined;
+    const slept = getTerminal(id);
+    await runEndpointEdge(ptyHostClient.surface.terminal.kill({ id }));
+    if (getTerminal(id) !== slept) return undefined;
+    log.child({ terminal: id }).info("restarting");
+    return this.wake(id);
+  }
+
   /** Discard a HANDLE-LESS terminal — the shared core behind {@link discardSleeping}
    *  and {@link discardParked}. Neither arm has a PTY to kill (sleep already released
    *  it; a parked record's PTY died with the host at reboot), so this just scrubs any
@@ -1840,6 +1862,13 @@ export function releaseSleptLocalPty(id: TerminalId): Promise<void> {
  *  resume form from the persisted `restoreTarget` (the fold-decided resume value). */
 export function wakeLocalTerminal(id: TerminalId): TerminalInfo | undefined {
   return localEndpointImpl.wake(id);
+}
+
+/** Restart an active terminal in place — see `LocalTerminalEndpoint.restart`. */
+export function restartLocalTerminal(
+  id: TerminalId,
+): Promise<TerminalInfo | undefined> {
+  return localEndpointImpl.restart(id);
 }
 
 /** Discard a sleeping terminal's record (no PTY to kill). */

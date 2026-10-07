@@ -124,6 +124,7 @@ import {
 } from "./terminal-registry.ts";
 import {
   discardLocalSleeping,
+  restartLocalTerminal,
   wakeLocalTerminal,
 } from "./terminalEndpoint/local.ts";
 import { composePadiTerminal } from "./terminalEndpoint/metadata.ts";
@@ -860,6 +861,13 @@ export function buildPadiSurfaceDeps(deps: {
           handle(() => {
             log.info({ terminal: input.id }, "wake");
             const info = wakeLocalTerminal(input.id);
+            if (!info) throw terminalNotFound(input.id);
+            return info;
+          }),
+        restart: ({ input }) =>
+          handle(async () => {
+            log.info({ terminal: input.id }, "restart");
+            const info = await restartLocalTerminal(input.id);
             if (!info) throw terminalNotFound(input.id);
             return info;
           }),

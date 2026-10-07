@@ -225,3 +225,42 @@ Then(
     await waitForBufferContains(this.page, "fixture-agents=0");
   },
 );
+
+/** The terminal id a scenario remembered, per world — to prove a restart kept
+ *  the SAME tile rather than opening a new one. */
+const rememberedTile = new WeakMap<KoluWorld, string>();
+
+async function focusedTerminalId(world: KoluWorld): Promise<string> {
+  const id = await world.page
+    .locator(FOCUSED_TILE)
+    .getAttribute("data-terminal-id", { timeout: POLL_TIMEOUT });
+  assert.ok(id, "the focused tile has no terminal id");
+  return id;
+}
+
+When("I remember the focused tile", async function (this: KoluWorld) {
+  rememberedTile.set(this, await focusedTerminalId(this));
+});
+
+Then(
+  "the focused tile should be the one I remembered",
+  async function (this: KoluWorld) {
+    assert.strictEqual(await focusedTerminalId(this), rememberedTile.get(this));
+  },
+);
+
+Then(
+  "the focused tile's agents chip should be stale with a Restart button",
+  async function (this: KoluWorld) {
+    await this.page
+      .locator(`${FOCUSED_TILE} [data-testid="tile-agent-chip"][data-stale]`)
+      .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    await this.page
+      .locator(`${FOCUSED_TILE} [data-testid="tile-agent-restart"]`)
+      .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+  },
+);
+
+When("I click Restart on the focused tile", async function (this: KoluWorld) {
+  await this.page.click(`${FOCUSED_TILE} [data-testid="tile-agent-restart"]`);
+});

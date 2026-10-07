@@ -299,3 +299,106 @@ export function agentsHint(input: {
     tone: "muted",
   };
 }
+
+/** The agents a terminal was spawned with — the two fields its record carries
+ *  (both set, or neither when agents were off at spawn). */
+export interface TerminalAgentsShape {
+  readonly agentProfile?: string;
+  readonly agentBundle?: string;
+}
+
+/** Whether a terminal's agents are still what a NEW terminal on its host would
+ *  get. `stale` names what it has and what a new terminal gets now — `off`, or
+ *  a profile with its short hash when the host has said which bundle (a host
+ *  still downloading the new profile has not). */
+export type AgentStaleness =
+  | { readonly kind: "current" }
+  | {
+      readonly kind: "stale";
+      readonly had: { readonly profile: string; readonly hash: string };
+      readonly now:
+        | { readonly kind: "off" }
+        | {
+            readonly kind: "profile";
+            readonly profile: string;
+            readonly hash: string | undefined;
+          };
+    };
+
+/** THE stale test, one fold: a terminal is stale when it has agents and a new
+ *  terminal on its host would get different ones —
+ *
+ *   - agents are now off;
+ *   - the setting names a different profile;
+ *   - same profile, but the host's ready bundle is a different build (an update
+ *     landed).
+ *
+ *  A terminal without agents is never stale (turning agents on does not nag the
+ *  terminals that predate it), and a host that has not settled on a bundle
+ *  (downloading, failed, no frame yet) does not make a same-profile terminal
+ *  stale: there is nothing yet to restart into. Fenced over the status kind. */
+export function agentStalenessOf(input: {
+  readonly terminal: TerminalAgentsShape;
+  readonly status: AgentDistroStatusShape | undefined;
+  readonly setting: AgentDistroSettingShape;
+}): AgentStaleness {
+  const { agentProfile, agentBundle } = input.terminal;
+  if (agentProfile === undefined || agentBundle === undefined)
+    return { kind: "current" };
+  const had = {
+    profile: agentProfile,
+    hash: agentBundleShortHash(agentBundle),
+  };
+  const { setting, status } = input;
+  if (!setting.enabled) return { kind: "stale", had, now: { kind: "off" } };
+  // The bundle a new terminal gets, when the host has settled on one for the
+  // selected profile.
+  const ready =
+    status?.kind === "ready" && status.profile === setting.profile
+      ? status.bundle
+      : undefined;
+  if (setting.profile !== agentProfile)
+    return {
+      kind: "stale",
+      had,
+      now: {
+        kind: "profile",
+        profile: setting.profile,
+        hash: ready === undefined ? undefined : agentBundleShortHash(ready),
+      },
+    };
+  if (status === undefined) return { kind: "current" };
+  switch (status.kind) {
+    case "ready":
+      return ready !== undefined && ready !== agentBundle
+        ? {
+            kind: "stale",
+            had,
+            now: {
+              kind: "profile",
+              profile: setting.profile,
+              hash: agentBundleShortHash(ready),
+            },
+          }
+        : { kind: "current" };
+    case "off":
+    case "unavailable":
+    case "downloading":
+    case "error":
+      return { kind: "current" };
+    default:
+      return status satisfies never;
+  }
+}
+
+/** The stale pill's tooltip: what this terminal has, what a new one gets, and
+ *  what a restart does. */
+export function agentStaleLabel(
+  stale: Extract<AgentStaleness, { kind: "stale" }>,
+): string {
+  const now =
+    stale.now.kind === "off"
+      ? "agents are now off"
+      : `new terminals get ${stale.now.profile}${stale.now.hash === undefined ? "" : ` ${stale.now.hash}`}`;
+  return `This terminal has ${stale.had.profile} ${stale.had.hash}. ${now.charAt(0).toUpperCase()}${now.slice(1)}. Restart to switch; same folder, running programs end.`;
+}

@@ -7,6 +7,8 @@ import {
   type AgentDistroStatusShape,
   agentMarkLabel,
   agentMarkOf,
+  agentStaleLabel,
+  agentStalenessOf,
   agentStatusLines,
   agentsHint,
   agentsSegmentOf,
@@ -286,5 +288,138 @@ describe("agentStatusLines", () => {
     ).toEqual([
       { host: "this machine", bar: "busy", fill: 0, text: "downloading…" },
     ]);
+  });
+});
+
+describe("agentStalenessOf — is a terminal's agents what a new one gets", () => {
+  const OLD =
+    "/nix/store/nd11nx5f1dkf02cr9dhxqq4axg23vzgc-agent-distro-vanilla";
+  const NEW =
+    "/nix/store/8rcmf6rdyyyyyyyyyyyyyyyyyyyyyyyy-agent-distro-vanilla";
+  const JUSPAY =
+    "/nix/store/ivzki9f3zzzzzzzzzzzzzzzzzzzzzzzz-agent-distro-juspay";
+  const terminal = { agentProfile: "vanilla", agentBundle: OLD };
+  const had = { profile: "vanilla", hash: "nd11nx5f" };
+  const on = (profile: string) => ({ enabled: true, profile });
+  const ready = (profile: string, bundle: string) =>
+    ({ kind: "ready", profile, bundle }) as const;
+
+  it("a terminal without agents is never stale", () => {
+    expect(
+      agentStalenessOf({
+        terminal: {},
+        status: ready("vanilla", NEW),
+        setting: on("vanilla"),
+      }),
+    ).toEqual({ kind: "current" });
+  });
+
+  it("agents now off", () => {
+    expect(
+      agentStalenessOf({
+        terminal,
+        status: { kind: "off" },
+        setting: { enabled: false, profile: "vanilla" },
+      }),
+    ).toEqual({ kind: "stale", had, now: { kind: "off" } });
+  });
+
+  it("another profile, with its hash once the host is ready with it", () => {
+    expect(
+      agentStalenessOf({
+        terminal,
+        status: ready("juspay", JUSPAY),
+        setting: on("juspay"),
+      }),
+    ).toEqual({
+      kind: "stale",
+      had,
+      now: { kind: "profile", profile: "juspay", hash: "ivzki9f3" },
+    });
+  });
+
+  it("another profile the host has not settled on yet: stale, no hash", () => {
+    for (const status of [
+      undefined,
+      { kind: "downloading", profile: "juspay" } as const,
+      { kind: "error", profile: "juspay", message: "m" } as const,
+      ready("vanilla", OLD),
+    ])
+      expect(
+        agentStalenessOf({ terminal, status, setting: on("juspay") }),
+      ).toEqual({
+        kind: "stale",
+        had,
+        now: { kind: "profile", profile: "juspay", hash: undefined },
+      });
+  });
+
+  it("same profile, and an update landed: the host's ready bundle differs", () => {
+    expect(
+      agentStalenessOf({
+        terminal,
+        status: ready("vanilla", NEW),
+        setting: on("vanilla"),
+      }),
+    ).toEqual({
+      kind: "stale",
+      had,
+      now: { kind: "profile", profile: "vanilla", hash: "8rcmf6rd" },
+    });
+  });
+
+  it("same profile and the same bundle: current", () => {
+    expect(
+      agentStalenessOf({
+        terminal,
+        status: ready("vanilla", OLD),
+        setting: on("vanilla"),
+      }),
+    ).toEqual({ kind: "current" });
+  });
+
+  it("same profile while the host has not settled: current — nothing to restart into", () => {
+    for (const status of [
+      undefined,
+      { kind: "off" } as const,
+      { kind: "unavailable" } as const,
+      { kind: "downloading", profile: "vanilla" } as const,
+      { kind: "error", profile: "vanilla", message: "m" } as const,
+    ])
+      expect(
+        agentStalenessOf({ terminal, status, setting: on("vanilla") }),
+      ).toEqual({ kind: "current" });
+  });
+});
+
+describe("agentStaleLabel", () => {
+  const had = { profile: "vanilla", hash: "nd11nx5f" };
+  const tail = "Restart to switch; same folder, running programs end.";
+  it("names both bundles", () => {
+    expect(
+      agentStaleLabel({
+        kind: "stale",
+        had,
+        now: { kind: "profile", profile: "juspay", hash: "ivzki9f3" },
+      }),
+    ).toBe(
+      `This terminal has vanilla nd11nx5f. New terminals get juspay ivzki9f3. ${tail}`,
+    );
+  });
+  it("says agents are now off", () => {
+    expect(agentStaleLabel({ kind: "stale", had, now: { kind: "off" } })).toBe(
+      `This terminal has vanilla nd11nx5f. Agents are now off. ${tail}`,
+    );
+  });
+  it("leaves out a hash the host has not given", () => {
+    expect(
+      agentStaleLabel({
+        kind: "stale",
+        had,
+        now: { kind: "profile", profile: "juspay", hash: undefined },
+      }),
+    ).toBe(
+      `This terminal has vanilla nd11nx5f. New terminals get juspay. ${tail}`,
+    );
   });
 });

@@ -11,8 +11,15 @@
 
 import { activeArm, sleepingArm } from "@kolu/padi-client/surface";
 import type { TerminalId } from "kolu-common/surface";
-import { type Component, Show } from "solid-js";
+import { type Component, createMemo, Show } from "solid-js";
 import AgentProfileChip from "../agents/AgentProfileChip";
+import AgentRestartButton from "../agents/AgentRestartButton";
+import { hostAgentStatus } from "../agents/useAgentDistro";
+import {
+  type AgentStaleness,
+  agentStalenessOf,
+} from "@kolu/agent-distro/status";
+import { agentBucket } from "@kolu/terminal-vocab/agentProjection";
 import { ACTIONS } from "../input/actions";
 import { useRightPanel } from "../right-panel/useRightPanel";
 import { runAction, type UiAction } from "../runAction";
@@ -34,11 +41,21 @@ import {
 import Tip from "../ui/Tip";
 import { useCommandPalette } from "../useCommandPalette";
 import { useThemeManager } from "../useThemeManager";
+import { activeHost, preferences } from "../wire";
 
 /** Tile chrome buttons share this affordance. Theme pill is wider — it shows
  *  the theme name. Other buttons are square. */
 const TILE_BUTTON_CLASS =
   "flex items-center justify-center h-7 rounded-lg transition-colors cursor-pointer shrink-0 pointer-events-auto hover:bg-black/20 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50";
+
+/** The success toast after a stale terminal restarts — what it has now. */
+function restartedToast(
+  now: Extract<AgentStaleness, { kind: "stale" }>["now"],
+): string {
+  return now.kind === "off"
+    ? "Restarted without agents"
+    : `Restarted with ${now.profile}`;
+}
 
 const TileTitleActions: Component<{
   id: TerminalId;
@@ -58,6 +75,27 @@ const TileTitleActions: Component<{
   // sleeping tile re-themes through the normal write sink).
   const live = () => activeArm(meta());
   const sleeping = () => sleepingArm(meta()) !== undefined;
+  // Are this LIVE terminal's agents still what a new terminal on its host gets?
+  // (The canvas shows the active host's tiles, so that is the host.) A sleeping
+  // terminal picks up the current agents when it wakes — nothing to offer.
+  const staleness = createMemo(() => {
+    const m = live();
+    return m === undefined
+      ? ({ kind: "current" } as const)
+      : agentStalenessOf({
+          terminal: m,
+          status: hostAgentStatus(activeHost(), "").status,
+          setting: preferences().agentDistro,
+        });
+  });
+  // A live agent (working, or blocked on you) — Restart would kill it, so the
+  // button asks twice.
+  const liveAgent = () => {
+    const agent = live()?.agent;
+    if (agent == null) return false;
+    const bucket = agentBucket(agent.state);
+    return bucket === "working" || bucket === "awaiting";
+  };
   const themeName = () => getTerminalThemeName(props.id);
   const subCount = () => store.getDisplayInfo(props.id)?.subCount ?? 0;
   const splitExpanded = () =>
@@ -132,12 +170,31 @@ const TileTitleActions: Component<{
                 profile={profile()}
                 bundle={bundle()}
                 buttonClass={TILE_BUTTON_CLASS}
+                staleness={staleness()}
                 // Same select-first wiring as the theme pill; the profile for
                 // NEW terminals is changed in Settings → Agents.
                 onClick={(e) => onTile(e, openSettings)}
               />
             )}
           </Show>
+        )}
+      </Show>
+      <Show
+        when={(() => {
+          const s = staleness();
+          return s.kind === "stale" ? s : undefined;
+        })()}
+      >
+        {(stale) => (
+          <AgentRestartButton
+            guarded={liveAgent()}
+            buttonClass={TILE_BUTTON_CLASS}
+            onRestart={(e) =>
+              onTileAction(e, "restart terminal", () =>
+                crud.handleRestart(props.id, restartedToast(stale().now)),
+              )
+            }
+          />
         )}
       </Show>
       <Show when={themeName()}>

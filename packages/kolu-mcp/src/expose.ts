@@ -118,6 +118,7 @@ export const KOLU_MCP_DENIED: readonly { member: string; reason: string }[] = [
   },
   { member: "lifecycle.sleep", reason: "lifecycle policy the canvas owns" },
   { member: "lifecycle.wake", reason: "lifecycle policy the canvas owns" },
+  { member: "lifecycle.restart", reason: "lifecycle policy the canvas owns" },
   { member: "lifecycle.resize", reason: "layout policy the canvas owns" },
   {
     member: "chrome.setTheme",
