@@ -71,11 +71,12 @@ import {
   type PortSampler,
   type PortScanTarget,
 } from "../ports/index.ts";
+import { agentDistroSettingStore } from "../agentDistro/agentDistro.ts";
 import {
   agentLayerOfRecord,
   resolveAgentLayer,
   withAgentLayer,
-} from "../agentDistro/agentDistro.ts";
+} from "../agentDistro/layer.ts";
 import { buildTerminalSpawnInput, ptyHostClient } from "../ptyHost/index.ts";
 import { notifyDirty } from "../publisher.ts";
 import {
@@ -817,7 +818,10 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
     // stamped on the record the spawn below reads its PATH from — so the tile's
     // chip and the terminal's PATH are one value. A woken terminal gets the
     // CURRENT layer, never the one it slept with: its old PTY is gone.
-    const stamped = withAgentLayer(meta, resolveAgentLayer());
+    const stamped = withAgentLayer(
+      meta,
+      resolveAgentLayer(agentDistroSettingStore.get()),
+    );
     // Both halves are born in ONE entry — snapshot is a required field, so the
     // entry IS its snapshot; `registerAndInstall` registers it and fans the
     // snapshot snapshot out in one step (the seed counterpart to

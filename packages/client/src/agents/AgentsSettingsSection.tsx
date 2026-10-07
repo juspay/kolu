@@ -16,10 +16,10 @@ import DocLink from "../ui/DocLink";
 import SegmentedControl from "../ui/SegmentedControl";
 import Toggle from "../ui/Toggle";
 import { preferences, updatePreferences } from "../wire";
+import { agentDistroStatusText } from "./agentDistroText";
 import {
   agentDistroListing,
   agentDistroStatusOf,
-  agentDistroStatusText,
   unknownAgentProfile,
 } from "./useAgentDistro";
 

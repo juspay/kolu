@@ -4,6 +4,7 @@
 import { AGENT_DISTRO_BUNDLE_ENV } from "@kolu/padi/agentDistroBake";
 import { describe, expect, it } from "vitest";
 import {
+  assertDefaultAgentProfile,
   parseAgentDistroList,
   readAgentDistroListing,
 } from "./agentDistroListing.ts";
@@ -73,5 +74,21 @@ describe("readAgentDistroListing", () => {
       ["/nix/store/x-agent-distro-bundle/bin/agent-distro", "--list", "--json"],
     ]);
     expect(listing.kind).toBe("available");
+  });
+});
+
+describe("assertDefaultAgentProfile", () => {
+  it("passes when the listing leads with kolu's default, and when unbaked", () => {
+    const listing = parseAgentDistroList(FIXTURE);
+    expect(assertDefaultAgentProfile(listing, "vanilla")).toBe(listing);
+    expect(
+      assertDefaultAgentProfile({ kind: "unavailable" }, "vanilla"),
+    ).toEqual({ kind: "unavailable" });
+  });
+
+  it("fails the boot when the two defaults disagree", () => {
+    expect(() =>
+      assertDefaultAgentProfile(parseAgentDistroList(FIXTURE), "juspay"),
+    ).toThrow(/leads with 'vanilla'.*'juspay'/);
   });
 });

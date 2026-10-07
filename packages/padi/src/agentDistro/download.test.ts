@@ -29,11 +29,10 @@ import {
 } from "../padiSurfaceCtx.ts";
 import {
   __resetAgentDistroDownloadsForTest,
-  __setAgentDistroBakeForTest,
   agentDistroSettingStore,
   onAgentDistroSettingWrite,
 } from "./agentDistro.ts";
-import type { AgentDistroBake } from "./bake.ts";
+import { __setAgentDistroBakeForTest, type AgentDistroBake } from "./bake.ts";
 
 const PLACEHOLDER = "@KOLU_XDG_STATE_HOME@";
 const ON: AgentDistroSetting = { enabled: true, profile: "vanilla" };

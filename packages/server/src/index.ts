@@ -54,7 +54,10 @@ import {
 } from "./iframePreviewRoute.ts";
 import { log } from "./log.ts";
 import { enumerateDaemonInventoryOnce } from "./padi/daemonInventory.ts";
-import { readAgentDistroListing } from "./agentDistroListing.ts";
+import {
+  assertDefaultAgentProfile,
+  readAgentDistroListing,
+} from "./agentDistroListing.ts";
 import { installNewTerminalPolicyPusher } from "./padi/newTerminalPolicy.ts";
 import { installPadiCellPusher } from "./padi/padiCellPusher.ts";
 import {
@@ -92,6 +95,7 @@ import {
   servedGroup,
 } from "./surface.ts";
 import { resolveTlsOptions } from "./tls.ts";
+import { DEFAULT_PREFERENCES } from "kolu-common/surface";
 
 // The web face's boot contract (`KoluBootFlags`) lives in `bootFlags.ts` —
 // the leaf `packages/kolu-cli`'s command tree also imports, so schema and
@@ -834,7 +838,10 @@ export async function bootKoluWeb(flags: KoluBootFlags): Promise<void> {
     onAgentDistroChanged: () => agentDistroPusher.republish(),
     // Read once, here: a baked picker that fails is a broken build and crashes the
     // boot; an unbaked (from-source) kolu reads `unavailable`.
-    agentDistroListing: readAgentDistroListing(),
+    agentDistroListing: assertDefaultAgentProfile(
+      readAgentDistroListing(),
+      DEFAULT_PREFERENCES.agentDistro.profile,
+    ),
   });
 
   // The ROOT procedures — kolu-server's own seven, bound as the third served

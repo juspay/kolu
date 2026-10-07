@@ -7,11 +7,11 @@
  *  The first chip a user ever sees is the moment to say where the setting lives,
  *  so it raises the one-shot `agents` tip. */
 
-import { agentBundleShortHash } from "@kolu/padi-client/surface";
 import { type Component, onMount } from "solid-js";
 import { CONTEXTUAL_TIPS } from "../settings/tips";
 import { useTips } from "../settings/useTips";
 import Tip from "../ui/Tip";
+import { agentBundleShortHash } from "./agentDistroText";
 
 const AgentProfileChip: Component<{ profile: string; bundle: string }> = (
   props,

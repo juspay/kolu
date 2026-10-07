@@ -50,7 +50,7 @@ import {
   osfactsSocketHolders,
   processIdentityAsync,
 } from "osfacts-client";
-import type { AgentLayer } from "../agentDistro/agentDistro.ts";
+import type { AgentLayer } from "../agentDistro/layer.ts";
 import { AGENT_DISTRO_PLUGINS_ENV, agentBinDir } from "../agentDistro/bake.ts";
 import type { KavalObservation } from "../kavalObservation.ts";
 import { log } from "../log.ts";

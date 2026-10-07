@@ -86,36 +86,3 @@ createRoot(() =>
     }),
   ),
 );
-
-/** "1.1 GB", "640 MB" — the unit a download reads in. */
-export function formatBytes(bytes: number): string {
-  return bytes >= 1e9
-    ? `${(bytes / 1e9).toFixed(1)} GB`
-    : `${Math.round(bytes / 1e6)} MB`;
-}
-
-/** The words for a status that needs any: "Downloading agents… 1.1 GB of 2.0 GB",
- *  or the updater's own error message. `undefined` for the quiet states. */
-export function agentDistroStatusText(
-  status: AgentDistroStatus | undefined,
-): { text: string; tone: "busy" | "error" } | undefined {
-  if (status === undefined) return undefined;
-  switch (status.kind) {
-    case "downloading":
-      return {
-        tone: "busy",
-        text:
-          status.progress === undefined
-            ? "Downloading agents…"
-            : `Downloading agents… ${formatBytes(status.progress.done)} of ${formatBytes(status.progress.total)}`,
-      };
-    case "error":
-      return { tone: "error", text: status.message };
-    case "off":
-    case "unavailable":
-    case "ready":
-      return undefined;
-    default:
-      return status satisfies never;
-  }
-}

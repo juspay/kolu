@@ -42,3 +42,23 @@ export function readAgentDistroListing(
     run(join(bundle, "bin", "agent-distro"), ["--list", "--json"]),
   );
 }
+
+/** kolu's default profile (`DEFAULT_PREFERENCES.agentDistro.profile`) and the
+ *  default this build's listing names first (`nix/agent-distro.nix`'s
+ *  `defaultProfile`) are two spellings of one decision on two clocks — a
+ *  preference default edit, an agent-distro pin bump. A build where they
+ *  disagree would hand a fresh install a profile the listing does not lead with
+ *  (or does not have), so it fails at boot. */
+export function assertDefaultAgentProfile(
+  listing: AgentDistroListing,
+  defaultProfile: string,
+): AgentDistroListing {
+  if (
+    listing.kind === "available" &&
+    listing.profiles[0]?.name !== defaultProfile
+  )
+    throw new Error(
+      `agent-distro listing leads with '${listing.profiles[0]?.name}', but kolu's default Agents profile is '${defaultProfile}' — nix/agent-distro.nix and DEFAULT_PREFERENCES disagree`,
+    );
+  return listing;
+}

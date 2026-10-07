@@ -44,8 +44,8 @@ export function agentDistroSettingEqual(
   return a.enabled === b.enabled && a.profile === b.profile;
 }
 
-/** Bytes fetched so far of the bundle being downloaded. Present only when the
- *  updater reports them (see padi's `updaterProgress.ts`). */
+/** Bytes fetched so far of the bundle being downloaded, from the updater's
+ *  `--progress` lines (padi's `updaterProtocol.ts`). Absent until the first. */
 export const AgentDistroProgressSchema = Schema.Struct({
   done: Schema.Number,
   total: Schema.Number,
@@ -117,12 +117,4 @@ export function agentDistroStatusEqual(
     default:
       return a satisfies never;
   }
-}
-
-/** The short hash a tile's chip shows for a bundle: the first 8 characters of
- *  its store hash (`/nix/store/<hash>-name` → `<hash>[0..8]`). Not a store path
- *  (a from-source fixture, say) → the path's last segment, cut to 8. */
-export function agentBundleShortHash(bundle: string): string {
-  const base = bundle.split("/").filter(Boolean).at(-1) ?? bundle;
-  return base.slice(0, 8);
 }

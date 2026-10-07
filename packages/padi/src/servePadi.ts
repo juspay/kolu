@@ -59,11 +59,11 @@ import { createLiveActivitySource } from "./activity/liveActivity.ts";
 import { EMPTY_URGENCY } from "./activity/urgency.ts";
 import { createEdgeMemory } from "./attention/edgeMemory.ts";
 import {
-  agentDistroBake,
   agentDistroSettingStore,
   checkAgentDistroSetting,
   onAgentDistroSettingWrite,
 } from "./agentDistro/agentDistro.ts";
+import { agentDistroBake } from "./agentDistro/bake.ts";
 import { createEventSeq } from "./attention/eventSeq.ts";
 import { createFleetGate } from "./attention/fleetGate.ts";
 import { createSettleEvents } from "./attention/settleEvents.ts";

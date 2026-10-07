@@ -7,14 +7,9 @@ import { mkdirSync, mkdtempSync, realpathSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import {
-  __setAgentDistroBakeForTest,
-  assessAgentDistro,
-  checkAgentDistroSetting,
-  resolveAgentLayer,
-  withAgentLayer,
-} from "./agentDistro.ts";
-import type { AgentDistroBake } from "./bake.ts";
+import { assessAgentDistro, checkAgentDistroSetting } from "./agentDistro.ts";
+import { __setAgentDistroBakeForTest, type AgentDistroBake } from "./bake.ts";
+import { resolveAgentLayer, withAgentLayer } from "./layer.ts";
 
 const PLACEHOLDER = "@KOLU_XDG_STATE_HOME@";
 const ON = { enabled: true, profile: "vanilla" } as const;

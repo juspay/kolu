@@ -159,3 +159,21 @@ export function hostUpdaterConfig(
   };
   return { text: JSON.stringify(concrete), stateDir: concrete.state };
 }
+
+// ── This process's bake ───────────────────────────────────────────────
+
+let bakeMemo: { value: AgentDistroBake | null } | undefined;
+
+/** This process's bake, read once. Called at boot by `servePadi` so a broken
+ *  bake crashes the daemon there, not at the first spawn. */
+export function agentDistroBake(): AgentDistroBake | null {
+  bakeMemo ??= { value: readAgentDistroBake() };
+  return bakeMemo.value;
+}
+
+/** Test seam: replace (or clear, with `undefined`) the memoized bake. */
+export function __setAgentDistroBakeForTest(
+  bake: AgentDistroBake | null | undefined,
+): void {
+  bakeMemo = bake === undefined ? undefined : { value: bake };
+}

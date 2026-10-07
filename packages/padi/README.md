@@ -435,7 +435,7 @@ every NEW terminal it spawns ([Agents](https://kolu.dev/agents)). Two cells
   the user's choice is never mapped to another profile. Not on the MCP face.
 - **`agentDistroStatus` (read-only)** — whether the selected profile's agents
   are on THIS host: `ready` (with the bundle new terminals get), `downloading`
-  (with the bytes fetched so far, from the updater's `--progress` lines), `error` (the
+  (with the bytes fetched so far, from the updater's `--progress` lines; any line outside that contract is the run's error), `error` (the
   updater's own message), `off`, or `unavailable` (an unbaked, from-source padi).
 - **The spawn layer** — at each spawn (fresh or wake) padi resolves the bundle:
   the host's `<state>/current` (what agent-distro's updater fetched) if it
@@ -452,6 +452,12 @@ every NEW terminal it spawns ([Agents](https://kolu.dev/agents)). Two cells
   binary cache into the host's store and flips `current`. No retry loop: a
   failure is shown, and the next time the setting turns that profile on, it
   tries again.
+- **Where it lives** — `src/agentDistro/`, one module per thing that changes
+  on its own clock: `bake.ts` (what the build baked), `onHost.ts` (agent-distro's
+  on-disk layout on this host, and the host's `nix`), `layer.ts` (what a terminal
+  spawned now gets, and its record stamp), `updaterProtocol.ts` + `updater.ts`
+  (agent-distro's `--progress` line format, and running the process), and
+  `agentDistro.ts` (kolu's policy: the write gate, the status, the one download).
 - **The bake** (`src/agentDistro/bake.ts`) — `KOLU_AGENT_DISTRO_UPDATER` (the
   profile listing + per-profile updater configs, both arms),
   `KOLU_AGENT_DISTRO_BUNDLE` (the local floor, `default` wrapper only) and
