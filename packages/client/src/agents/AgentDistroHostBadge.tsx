@@ -5,6 +5,7 @@
 
 import type { HostKey } from "kolu-common/hostKey";
 import { type Component, Show } from "solid-js";
+import AgentDistroLogo from "./AgentDistroLogo";
 import { agentDistroStatusText } from "./agentDistroText";
 import { agentDistroStatusOf } from "./useAgentDistro";
 
@@ -22,9 +23,13 @@ const AgentDistroHostBadge: Component<{
           data-testid={props.measuring ? undefined : "host-agents-status"}
           data-tone={n().tone}
           title={n().text}
-          class={`mr-2.5 max-w-[16rem] truncate text-[0.65rem] ${n().tone === "error" ? "text-warning" : "text-fg-3"}`}
+          class={`mr-2.5 flex max-w-[16rem] items-center gap-1 text-[0.65rem] ${n().tone === "error" ? "text-warning" : "text-fg-3"}`}
         >
-          {n().tone === "error" ? `⚠ Agents: ${n().text}` : n().text}
+          {/* The mark takes the badge's colour (warning on an error). */}
+          <AgentDistroLogo size={12} />
+          <span class="truncate">
+            {n().tone === "error" ? `Agents: ${n().text}` : n().text}
+          </span>
         </span>
       )}
     </Show>

@@ -8067,6 +8067,18 @@
       "exampleRows": [],
       "executions": 1,
       "firstSeenSha": "0197e0a03c9d02836f77aa841c150244d95392c7"
+    },
+    {
+      "revisionId": "revision-db116d32c70985a30005",
+      "scenarioKey": "scenario-cc35652b6a7be6f88b13",
+      "feature": "features/agents.feature",
+      "scenario": "Clicking a tile's agents pill opens Settings at the Agents rows",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "07e42001b02aabecdf6000c84b7844b001811a0e676dc088d67268a2c04d4bda",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "a5c3f5c02aebb174b6709a7346f49502539369b3"
     }
   ]
 }

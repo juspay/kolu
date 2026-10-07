@@ -99,6 +99,14 @@ Then(
   },
 );
 
+When(
+  "I click the focused tile's agents chip",
+  async function (this: KoluWorld) {
+    await this.page.click(`${FOCUSED_TILE} [data-testid="tile-agent-chip"]`);
+    await this.waitForFrame();
+  },
+);
+
 Then(
   "the focused tile should show no agents chip",
   async function (this: KoluWorld) {

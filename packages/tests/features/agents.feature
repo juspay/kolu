@@ -41,3 +41,15 @@ Feature: Agents come with kolu
     Then the focused tile should show no agents chip
     And the terminal should have no fixture agents on its PATH
     And there should be no page errors
+
+  Scenario: Clicking a tile's agents pill opens Settings at the Agents rows
+    When I click the settings button
+    And I turn Agents on
+    Then padi should give new terminals the "vanilla" agents
+    When I press Escape
+    And I create a terminal
+    Then the focused tile should show the "vanilla" agents chip
+    When I click the focused tile's agents chip
+    Then the settings popover should be visible
+    And the Agents section should offer the "vanilla" and "juspay" profiles
+    And there should be no page errors

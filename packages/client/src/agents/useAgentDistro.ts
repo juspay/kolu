@@ -23,6 +23,7 @@ import { createEffect, createMemo, createRoot, mapArray, on } from "solid-js";
 import { toast } from "solid-sonner";
 import { hostLabel } from "../host/hostChipTone";
 import { app, hostKeys, padiMap, preferences } from "../wire";
+import AgentDistroLogo from "./AgentDistroLogo";
 import { watchFirstDownload } from "./firstDownload";
 
 // App-lifetime, owned subscriptions — the `useForwards` reason: a bare module
@@ -44,10 +45,14 @@ const byHost = createRoot(() => {
       // The first download on a host is the one moment worth a toast: from then
       // on its next new terminal has the agents.
       watchFirstDownload(() => sub.value(), {
-        onReady: () => toast.success(`Agents ready on ${hostLabel(host)}`),
+        onReady: () =>
+          toast.success(`Agents ready on ${hostLabel(host)}`, {
+            icon: AgentDistroLogo({ size: 16 }),
+          }),
         onError: (message) =>
           toast.error(
             `Agents could not be downloaded on ${hostLabel(host)}: ${message}`,
+            { icon: AgentDistroLogo({ size: 16 }) },
           ),
       });
       return { enc, read: () => sub.value() };

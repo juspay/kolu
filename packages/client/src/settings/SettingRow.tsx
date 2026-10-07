@@ -17,6 +17,8 @@ export type Hint = { text: string; tone?: keyof typeof TONE_CONFIG };
 
 const SettingRow: Component<{
   label: string;
+  /** Optional mark shown before the label (the Agents row's agent-distro logo). */
+  icon?: JSX.Element;
   hint?: Hint;
   /** Optional product-docs slug — renders a "Docs →" link under the hint. */
   doc?: DocSlug;
@@ -28,7 +30,10 @@ const SettingRow: Component<{
      *  mobile chrome sheet) rather than clipping it off the popover edge. On a
      *  wide popover everything stays on one line. */}
     <div class="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
-      <span class="text-sm font-medium text-fg">{props.label}</span>
+      <span class="flex items-center gap-1.5 text-sm font-medium text-fg">
+        {props.icon}
+        {props.label}
+      </span>
       {props.children}
     </div>
     <Show when={props.hint}>

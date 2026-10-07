@@ -19,6 +19,7 @@ import SettingRow, { type Hint } from "../settings/SettingRow";
 import SegmentedControl from "../ui/SegmentedControl";
 import Toggle from "../ui/Toggle";
 import { preferences, updatePreferences } from "../wire";
+import AgentDistroLogo from "./AgentDistroLogo";
 import { agentDistroStatusText, harnessLine } from "./agentDistroText";
 import {
   agentDistroListing,
@@ -70,7 +71,12 @@ const AgentsSettingsSection: Component = () => {
 
   return (
     <>
-      <SettingRow label="Agents" hint={agentsHint()} doc="agents">
+      <SettingRow
+        label="Agents"
+        icon={<AgentDistroLogo size={16} />}
+        hint={agentsHint()}
+        doc="agents"
+      >
         <Toggle
           testId="agents-enabled-toggle"
           enabled={setting().enabled}

@@ -18,6 +18,7 @@ import { useRightPanel } from "../right-panel/useRightPanel";
 import { runAction, type UiAction } from "../runAction";
 import { screenshotTerminal } from "../screenshotTerminal";
 import { CONTEXTUAL_TIPS } from "../settings/tips";
+import { openSettings } from "../settings/useSettingsOpen";
 import { useTips } from "../settings/useTips";
 import AgentIndicator from "../terminal/AgentIndicator";
 import { useSubPanel } from "../terminal/useSubPanel";
@@ -127,7 +128,14 @@ const TileTitleActions: Component<{
         {(bundle) => (
           <Show when={meta()?.agentProfile}>
             {(profile) => (
-              <AgentProfileChip profile={profile()} bundle={bundle()} />
+              <AgentProfileChip
+                profile={profile()}
+                bundle={bundle()}
+                buttonClass={TILE_BUTTON_CLASS}
+                // Same select-first wiring as the theme pill; the profile for
+                // NEW terminals is changed in Settings → Agents.
+                onClick={(e) => onTile(e, openSettings)}
+              />
             )}
           </Show>
         )}
