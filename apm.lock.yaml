@@ -1,5 +1,5 @@
 lockfile_version: '1'
-generated_at: '2026-10-03T14:25:13.151886+00:00'
+generated_at: '2026-10-07T13:54:20.762472+00:00'
 apm_version: 0.31.0
 dependencies:
 - repo_url: _local/agents
@@ -220,7 +220,7 @@ deployments:
   owners:
   - .
   active_owner: .
-  content_hash: sha256:bf4cd29d9a5cb6f77a0cb71bda63e498ea9a98f117efdd68a37654ee930c2360
+  content_hash: sha256:5ce15f4225f38ed466e3b4204fd02f0f0544a5a368c03224f70221c7f34046da
 - kind: project-relative
   target: claude
   value: .claude/rules/architecture.md
@@ -230,15 +230,6 @@ deployments:
   - .
   active_owner: .
   content_hash: sha256:30f09a786cdd84670745106b3ed38ae4309896ff0ebe77ae852758ac2a97f3d3
-- kind: project-relative
-  target: claude
-  value: .claude/rules/atlas.md
-  runtime: null
-  scope: project
-  owners:
-  - .
-  active_owner: .
-  content_hash: sha256:57ea93f2bc1378ed4eb5b7ac66d96fc8bcd1a03dad53654984e9c0644b46a8b9
 - kind: project-relative
   target: claude
   value: .claude/rules/changelog.md
@@ -265,7 +256,7 @@ deployments:
   owners:
   - .
   active_owner: .
-  content_hash: sha256:fdc198a054a2ffc48f3f03589ddfc3a5cefd52e5dd1089056d39846ecf515e4e
+  content_hash: sha256:5005d460bcbdda99801798d5647ab638a56851be8a9ed2aeea060a57827c9ed5
 - kind: project-relative
   target: claude
   value: .claude/rules/doc-links.md
@@ -286,15 +277,6 @@ deployments:
   content_hash: sha256:10b8b8a82496f6736bc38de7133e6c8e057da3323d8465827368745a19ac5ad3
 - kind: project-relative
   target: claude
-  value: .claude/rules/docs.md
-  runtime: null
-  scope: project
-  owners:
-  - .
-  active_owner: .
-  content_hash: sha256:c78ee3eb709a228c4d8c86031ac2c9de2967fed129c97c07f8e5998d5c1f085c
-- kind: project-relative
-  target: claude
   value: .claude/rules/e2e-testing.md
   runtime: null
   scope: project
@@ -310,7 +292,7 @@ deployments:
   owners:
   - .
   active_owner: .
-  content_hash: sha256:1d7007b47ad49659a6fd21490d50aa37edbdcb86e38833e1b041b82ab9003c76
+  content_hash: sha256:ba9cde44f25bea4fd27a64c15f34fe3f7a47c99843623d62f05ec19cf9ae4478
 - kind: project-relative
   target: claude
   value: .claude/rules/logo.md
@@ -392,24 +374,6 @@ deployments:
   - .
   active_owner: .
   content_hash: sha256:14a24f0b23adb7a5fe704ad56167d0f6a4de14eed88a2b35bc3de61a143374dc
-- kind: project-relative
-  target: claude
-  value: .claude/skills/atlas
-  runtime: null
-  scope: project
-  owners:
-  - .
-  active_owner: .
-  content_hash: null
-- kind: project-relative
-  target: claude
-  value: .claude/skills/atlas/SKILL.md
-  runtime: null
-  scope: project
-  owners:
-  - .
-  active_owner: .
-  content_hash: sha256:90c199cede70ed79e54bfe7f8c5295b8b32761f997fc3d04b2a50c7f294bf6d5
 - kind: project-relative
   target: claude
   value: .claude/skills/blog-post
@@ -1132,24 +1096,6 @@ deployments:
   content_hash: sha256:7d5da8acb1a224586218d1e2ee690756d277c06f7daf96af5a749f095f7449a0
 - kind: project-relative
   target: legacy
-  value: .agents/skills/atlas
-  runtime: null
-  scope: project
-  owners:
-  - .
-  active_owner: .
-  content_hash: null
-- kind: project-relative
-  target: legacy
-  value: .agents/skills/atlas/SKILL.md
-  runtime: null
-  scope: project
-  owners:
-  - .
-  active_owner: .
-  content_hash: sha256:90c199cede70ed79e54bfe7f8c5295b8b32761f997fc3d04b2a50c7f294bf6d5
-- kind: project-relative
-  target: legacy
   value: .agents/skills/blog-post
   runtime: null
   scope: project
@@ -1486,8 +1432,6 @@ mcp_config_provenance:
   chrome-devtools: nix-chrome-devtools-mcp
   kolu: agents
 local_deployed_files:
-- .agents/skills/atlas
-- .agents/skills/atlas/SKILL.md
 - .agents/skills/blog-post
 - .agents/skills/blog-post/SKILL.md
 - .agents/skills/ci
@@ -1520,13 +1464,11 @@ local_deployed_files:
 - .claude/rules/apm-sources.md
 - .claude/rules/apm-workflow.md
 - .claude/rules/architecture.md
-- .claude/rules/atlas.md
 - .claude/rules/changelog.md
 - .claude/rules/conventions.md
 - .claude/rules/diataxis.md
 - .claude/rules/doc-links.md
 - .claude/rules/dock-fleet-mirror.md
-- .claude/rules/docs.md
 - .claude/rules/e2e-testing.md
 - .claude/rules/implementer.md
 - .claude/rules/logo.md
@@ -1538,8 +1480,6 @@ local_deployed_files:
 - .claude/rules/surface.md
 - .claude/rules/toast-conventions.md
 - .claude/rules/website-docs.md
-- .claude/skills/atlas
-- .claude/skills/atlas/SKILL.md
 - .claude/skills/blog-post
 - .claude/skills/blog-post/SKILL.md
 - .claude/skills/ci
@@ -1567,7 +1507,6 @@ local_deployed_files:
 - .claude/skills/test
 - .claude/skills/test/SKILL.md
 local_deployed_file_hashes:
-  .agents/skills/atlas/SKILL.md: sha256:90c199cede70ed79e54bfe7f8c5295b8b32761f997fc3d04b2a50c7f294bf6d5
   .agents/skills/blog-post/SKILL.md: sha256:40feaa0aca3b989eedf2774b97645413951f2573bc78bcf75ef8c87e89bb1cb5
   .agents/skills/ci/SKILL.md: sha256:5e1a73886b4988d96175e6ca309287e68b2a5f541342b7ddeaceea5e8918aa5e
   .agents/skills/ci/pu/diagnose.sh: sha256:7e33aa16ca3a8fb4a52aa35d423bbaf014621564da65b718e68a233efbef89b3
@@ -1587,17 +1526,15 @@ local_deployed_file_hashes:
   .agents/skills/test/SKILL.md: sha256:028bf746254fd136f3bcc779c4ba32200e658880c52ad48a5c609442f2d4969f
   .claude/commands/whatchanged.md: sha256:283ce7bfddb6213172b2a89259c2b89b65d063c6f1d156dd6ee2b98760183f69
   .claude/rules/apm-sources.md: sha256:90626875e2a63e5658f0b5e77524c9c4f949f4ce890bd1f1ce9a2663d4fc8ea7
-  .claude/rules/apm-workflow.md: sha256:bf4cd29d9a5cb6f77a0cb71bda63e498ea9a98f117efdd68a37654ee930c2360
+  .claude/rules/apm-workflow.md: sha256:5ce15f4225f38ed466e3b4204fd02f0f0544a5a368c03224f70221c7f34046da
   .claude/rules/architecture.md: sha256:30f09a786cdd84670745106b3ed38ae4309896ff0ebe77ae852758ac2a97f3d3
-  .claude/rules/atlas.md: sha256:57ea93f2bc1378ed4eb5b7ac66d96fc8bcd1a03dad53654984e9c0644b46a8b9
   .claude/rules/changelog.md: sha256:e74edc80adeff7a9408c132ea6e9b6dd4f5b58e402c6f89a30e721249c34336b
   .claude/rules/conventions.md: sha256:b2e84f70814df15f631df10a65ab55171a186025d50726141aab768d6f0d882f
-  .claude/rules/diataxis.md: sha256:fdc198a054a2ffc48f3f03589ddfc3a5cefd52e5dd1089056d39846ecf515e4e
+  .claude/rules/diataxis.md: sha256:5005d460bcbdda99801798d5647ab638a56851be8a9ed2aeea060a57827c9ed5
   .claude/rules/doc-links.md: sha256:280a14103c848247ab9f2bf0f2284569c0d9cf00b7d1deafb29bf60b12a661c3
   .claude/rules/dock-fleet-mirror.md: sha256:10b8b8a82496f6736bc38de7133e6c8e057da3323d8465827368745a19ac5ad3
-  .claude/rules/docs.md: sha256:c78ee3eb709a228c4d8c86031ac2c9de2967fed129c97c07f8e5998d5c1f085c
   .claude/rules/e2e-testing.md: sha256:408e0da29b40bbbb27a1f629f8babf24e7a640ac95e7c2d93dcdba7b4535dfee
-  .claude/rules/implementer.md: sha256:1d7007b47ad49659a6fd21490d50aa37edbdcb86e38833e1b041b82ab9003c76
+  .claude/rules/implementer.md: sha256:ba9cde44f25bea4fd27a64c15f34fe3f7a47c99843623d62f05ec19cf9ae4478
   .claude/rules/logo.md: sha256:05f412b96dcdd5a7e6de9bce3cdb164a89cabe5da6ed0c865662b33743470e25
   .claude/rules/nix.md: sha256:1ac0f3738deafba04c3af189c863990809999021f4e9d0e6b38969ec1460acf3
   .claude/rules/solidjs.md: sha256:11e846469ab1433a9735b1a42818eb8f0fcba508b10df792e74b5a05426b2d3d
@@ -1607,7 +1544,6 @@ local_deployed_file_hashes:
   .claude/rules/surface.md: sha256:50947e97303eccdab96b160878ad3cdebfe7f0222ed64c7ce401da65174738ec
   .claude/rules/toast-conventions.md: sha256:e987215118a5269b05f064a477ca26ad986b014531dfb00bc7ba6b6bd3dce5bc
   .claude/rules/website-docs.md: sha256:14a24f0b23adb7a5fe704ad56167d0f6a4de14eed88a2b35bc3de61a143374dc
-  .claude/skills/atlas/SKILL.md: sha256:90c199cede70ed79e54bfe7f8c5295b8b32761f997fc3d04b2a50c7f294bf6d5
   .claude/skills/blog-post/SKILL.md: sha256:40feaa0aca3b989eedf2774b97645413951f2573bc78bcf75ef8c87e89bb1cb5
   .claude/skills/ci/SKILL.md: sha256:5e1a73886b4988d96175e6ca309287e68b2a5f541342b7ddeaceea5e8918aa5e
   .claude/skills/ci/pu/diagnose.sh: sha256:7e33aa16ca3a8fb4a52aa35d423bbaf014621564da65b718e68a233efbef89b3
