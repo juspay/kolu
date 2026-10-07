@@ -3,16 +3,16 @@
  *
  *  The control is one segmented choice, "Off" plus one segment per profile the
  *  pinned agent-distro ships. "Off" writes `enabled: false`; a profile writes
- *  `{ enabled: true, profile }`. The hint says what that choice means right now
- *  (`agentsHint`): off, what turning it on does; on, the profile, its agents with
- *  versions, this machine's status, and any remote host that is downloading or
- *  failed. Every change also toasts what it did, so a switch is never silent.
+ *  `{ enabled: true, profile }`. The hint says what that choice means
+ *  (`agentsHint`): off, what turning it on does; on, the profile and its agents
+ *  with versions. Under it, while on, one status line per machine — this one,
+ *  then each remote host that is not ready (`agentStatusLines`). Every change
+ *  also toasts what it did, so a switch is never silent.
  *
  *  It writes only the preference; kolu-server pushes it to every host, and each
  *  host applies it to its NEXT new terminal. */
 
-import { LOCAL_HOST } from "kolu-common/hostKey";
-import type { Component } from "solid-js";
+import { type Component, Show } from "solid-js";
 import { toast } from "solid-sonner";
 import SettingRow from "../settings/SettingRow";
 import SegmentedControl from "../ui/SegmentedControl";
@@ -23,12 +23,10 @@ import {
   agentsHint,
   agentsSegmentOf,
   agentsSegments,
+  selectedAgentProfile,
 } from "@kolu/agent-distro/status";
-import {
-  agentDistroListing,
-  agentDistroStatusOf,
-  remoteAgentStatuses,
-} from "./useAgentDistro";
+import AgentStatusLines from "./AgentStatusLines";
+import { agentDistroListing, agentStatusLinesNow } from "./useAgentDistro";
 
 /** Write the choice, and say what it did (colocated per the toast rule). */
 function choose(segment: string): void {
@@ -52,18 +50,20 @@ const AgentsSettingsSection: Component = () => {
     return agentsSegments(l?.kind === "available" ? l.profiles : []);
   };
   const hint = () =>
-    agentsHint({
-      setting: preferences().agentDistro,
-      listing: listing(),
-      local: agentDistroStatusOf(LOCAL_HOST),
-      remotes: remoteAgentStatuses(),
-    });
+    agentsHint({ setting: preferences().agentDistro, listing: listing() });
+  const showStatus = () =>
+    selectedAgentProfile(preferences().agentDistro, listing()) !== undefined;
 
   return (
     <SettingRow
       label="Agents"
       icon={<AgentDistroLogo size={16} />}
       hint={hint()}
+      details={
+        <Show when={showStatus()}>
+          <AgentStatusLines lines={agentStatusLinesNow()} />
+        </Show>
+      }
       doc="agents"
     >
       <SegmentedControl

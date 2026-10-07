@@ -88,6 +88,48 @@ Then(
   },
 );
 
+/** The host tab strip's agents mark (scoped to the real strip — its hidden
+ *  measuring twin renders one too, without the test id). The e2e kolu has one
+ *  host, this machine. */
+const HOST_AGENTS_MARK =
+  '[data-testid="host-chip-row"] [data-testid="host-agents-mark"]';
+
+Then(
+  "this machine's Agents status should say {string}",
+  async function (this: KoluWorld, text: string) {
+    // The first status line is this machine's.
+    await this.page
+      .locator(
+        '[data-testid="agents-status-lines"] [data-testid="agents-status-text"]',
+      )
+      .first()
+      .filter({ hasText: text })
+      .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+  },
+);
+
+Then(
+  "the host tab's agents mark should be {string}",
+  async function (this: KoluWorld, state: string) {
+    await this.page
+      .locator(`${HOST_AGENTS_MARK}[data-state="${state}"]`)
+      .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+  },
+);
+
+Then(
+  "the host tab should show no agents mark",
+  async function (this: KoluWorld) {
+    await this.page
+      .locator(HOST_AGENTS_MARK)
+      .waitFor({ state: "detached", timeout: POLL_TIMEOUT });
+  },
+);
+
+When("I click the host tab's agents mark", async function (this: KoluWorld) {
+  await this.page.click(HOST_AGENTS_MARK);
+});
+
 When(
   "I choose the {string} Agents profile",
   async function (this: KoluWorld, profile: string) {

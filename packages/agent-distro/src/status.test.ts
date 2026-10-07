@@ -3,43 +3,86 @@ import { agentBundleShortHash } from "./bundle.ts";
 import type { AgentDistroListing } from "./listing.ts";
 import {
   AGENTS_OFF,
-  agentDistroStatusText,
+  AGENTS_RETRY,
+  type AgentDistroStatusShape,
+  agentMarkLabel,
+  agentMarkOf,
+  agentStatusLines,
   agentsHint,
   agentsSegmentOf,
   agentsSegments,
+  downloadBytes,
   harnessLine,
 } from "./status.ts";
 
-describe("agentDistroStatusText", () => {
-  it("shows bytes while fetching", () => {
-    expect(
-      agentDistroStatusText({
+const READY_BUNDLE =
+  "/nix/store/nd11nx5f1dkf02cr9dhxqq4axg23vzgc-agent-distro-vanilla";
+
+describe("agentMarkOf — the one status → treatment fold", () => {
+  const cases: [string, AgentDistroStatusShape | undefined, unknown][] = [
+    ["no frame yet, not checking", undefined, { kind: "none" }],
+    ["off", { kind: "off" }, { kind: "none" }],
+    ["unavailable", { kind: "unavailable" }, { kind: "none" }],
+    [
+      "ready",
+      { kind: "ready", profile: "vanilla", bundle: READY_BUNDLE },
+      { kind: "ready", profile: "vanilla", hash: "nd11nx5f" },
+    ],
+    [
+      "downloading with bytes",
+      {
         kind: "downloading",
         profile: "vanilla",
         progress: { done: 1_100_000_000, total: 2_000_000_000 },
+      },
+      { kind: "downloading", fraction: 0.55, bytes: "1.1 GB of 2.0 GB" },
+    ],
+    [
+      "downloading, no numbers yet",
+      { kind: "downloading", profile: "vanilla" },
+      { kind: "downloading", fraction: 0, bytes: undefined },
+    ],
+    [
+      "error",
+      { kind: "error", profile: "vanilla", message: "cache not usable" },
+      { kind: "failed", message: "cache not usable" },
+    ],
+  ];
+  for (const [name, status, mark] of cases)
+    it(name, () => expect(agentMarkOf(status, false)).toEqual(mark));
+
+  it("checking wins until the first frame — derived on the client, no server state", () => {
+    expect(agentMarkOf(undefined, true)).toEqual({ kind: "checking" });
+  });
+});
+
+describe("downloadBytes", () => {
+  it("says no numbers when there are none — including a 0-byte total", () => {
+    expect(downloadBytes(undefined)).toBeUndefined();
+    expect(downloadBytes({ done: 0, total: 0 })).toBeUndefined();
+    expect(downloadBytes({ done: 603_000_000, total: 2_200_000_000 })).toBe(
+      "603 MB of 2.2 GB",
+    );
+  });
+});
+
+describe("agentMarkLabel", () => {
+  it("words each treatment; none has no words", () => {
+    expect(agentMarkLabel({ kind: "none" })).toBeUndefined();
+    expect(agentMarkLabel({ kind: "checking" })).toBe("Agents: checking…");
+    expect(
+      agentMarkLabel({ kind: "ready", profile: "vanilla", hash: "8rcmf6rd" }),
+    ).toBe("Agents: vanilla 8rcmf6rd · ready for new terminals");
+    expect(
+      agentMarkLabel({
+        kind: "downloading",
+        fraction: 0.55,
+        bytes: "1.1 GB of 2.0 GB",
       }),
-    ).toEqual({ tone: "busy", text: "Downloading agents… 1.1 GB of 2.0 GB" });
-  });
-
-  it("says no numbers when there are none to say — including a 0-byte total", () => {
-    for (const progress of [undefined, { done: 0, total: 0 }])
-      expect(
-        agentDistroStatusText({
-          kind: "downloading",
-          profile: "vanilla",
-          ...(progress ? { progress } : {}),
-        }),
-      ).toEqual({ tone: "busy", text: "Downloading agents…" });
-  });
-
-  it("is silent for ready, off and unavailable; an error is its message", () => {
-    expect(
-      agentDistroStatusText({ kind: "ready", profile: "v", bundle: "/b" }),
-    ).toBeUndefined();
-    expect(agentDistroStatusText({ kind: "off" })).toBeUndefined();
-    expect(
-      agentDistroStatusText({ kind: "error", profile: "v", message: "m" }),
-    ).toEqual({ tone: "error", text: "m" });
+    ).toBe("Downloading agents… 1.1 GB of 2.0 GB");
+    expect(agentMarkLabel({ kind: "failed", message: "nix missing" })).toBe(
+      `Agents: nix missing\n${AGENTS_RETRY}`,
+    );
   });
 });
 
@@ -128,7 +171,7 @@ describe("the one Agents control", () => {
 });
 
 describe("agentsHint", () => {
-  const base = { listing: LISTING, local: undefined, remotes: [] };
+  const base = { listing: LISTING };
 
   it("off: what turning it on does", () => {
     expect(
@@ -139,77 +182,14 @@ describe("agentsHint", () => {
     });
   });
 
-  it("on and ready: description, agents with versions, ready with the short hash", () => {
-    expect(
-      agentsHint({
-        ...base,
-        setting: VANILLA_ON,
-        local: { kind: "ready", profile: "vanilla", bundle: BUNDLE },
-      }),
-    ).toEqual({
+  it("on: the description, then the agents with versions", () => {
+    expect(agentsHint({ ...base, setting: VANILLA_ON })).toEqual({
       tone: "muted",
       text: [
         "Upstream harnesses with your own provider",
         "claude 2.1.291 · codex 0.160.1",
-        "Ready for new terminals — vanilla nd11nx5f",
       ].join("\n"),
     });
-  });
-
-  it("this machine downloading shows the bytes; failing shows the error in warn", () => {
-    expect(
-      agentsHint({
-        ...base,
-        setting: VANILLA_ON,
-        local: {
-          kind: "downloading",
-          profile: "vanilla",
-          progress: { done: 1_100_000_000, total: 2_000_000_000 },
-        },
-      })?.text.split("\n")[2],
-    ).toBe("Downloading agents… 1.1 GB of 2.0 GB");
-    expect(
-      agentsHint({
-        ...base,
-        setting: VANILLA_ON,
-        local: {
-          kind: "error",
-          profile: "vanilla",
-          message: "cache not usable",
-        },
-      }),
-    ).toMatchObject({ tone: "warn" });
-  });
-
-  it("adds a line per remote host that is downloading or failed, and none for the rest", () => {
-    const hint = agentsHint({
-      ...base,
-      setting: VANILLA_ON,
-      local: { kind: "ready", profile: "vanilla", bundle: BUNDLE },
-      remotes: [
-        {
-          label: "box",
-          status: {
-            kind: "downloading",
-            profile: "vanilla",
-            progress: { done: 603_000_000, total: 2_200_000_000 },
-          },
-        },
-        {
-          label: "zest",
-          status: { kind: "error", profile: "vanilla", message: "nix missing" },
-        },
-        {
-          label: "idle",
-          status: { kind: "ready", profile: "vanilla", bundle: BUNDLE },
-        },
-      ],
-    });
-    expect(hint?.text.split("\n").slice(3)).toEqual([
-      "Downloading on box… 603 MB of 2.2 GB",
-      "Failed on zest: nix missing",
-    ]);
-    expect(hint?.tone).toBe("warn");
   });
 
   it("keeps the unknown-profile warning, never resetting the choice", () => {
@@ -225,5 +205,86 @@ describe("agentsHint", () => {
     expect(
       agentsHint({ ...base, listing: undefined, setting: VANILLA_ON }),
     ).toBeUndefined();
+  });
+});
+
+describe("agentStatusLines", () => {
+  const ready = { kind: "ready", profile: "vanilla", bundle: BUNDLE } as const;
+  const host = (
+    label: string,
+    status: AgentDistroStatusShape | undefined,
+    checking = false,
+  ) => ({ label, status, checking });
+
+  it("this machine alone, ready: one line, no host count", () => {
+    expect(
+      agentStatusLines({ local: host("this machine", ready), remotes: [] }),
+    ).toEqual([
+      {
+        host: "this machine",
+        bar: "ok",
+        fill: 1,
+        text: "ready · vanilla nd11nx5f",
+      },
+    ]);
+  });
+
+  it("every host ready: collapses into the first line, with the count", () => {
+    expect(
+      agentStatusLines({
+        local: host("this machine", ready),
+        remotes: [host("box", ready), host("zest", ready)],
+      }),
+    ).toEqual([
+      {
+        host: "this machine",
+        bar: "ok",
+        fill: 1,
+        text: "ready · vanilla nd11nx5f · on 3 hosts",
+      },
+    ]);
+  });
+
+  it("this machine first, then each remote that is not ready — in its state's colour", () => {
+    expect(
+      agentStatusLines({
+        local: host("this machine", ready),
+        remotes: [
+          host("box", {
+            kind: "downloading",
+            profile: "vanilla",
+            progress: { done: 1_100_000_000, total: 2_000_000_000 },
+          }),
+          host("done", ready),
+          host("pu-3", {
+            kind: "error",
+            profile: "vanilla",
+            message: "cache not usable",
+          }),
+          host("ci-2", undefined, true),
+        ],
+      }),
+    ).toEqual([
+      {
+        host: "this machine",
+        bar: "ok",
+        fill: 1,
+        text: "ready · vanilla nd11nx5f",
+      },
+      { host: "box", bar: "busy", fill: 0.55, text: "1.1 GB of 2.0 GB" },
+      { host: "pu-3", bar: "warn", fill: 1, text: "cache not usable" },
+      { host: "ci-2", bar: "empty", fill: 0, text: "checking…" },
+    ]);
+  });
+
+  it("does not collapse when this machine is not ready, even if every remote is", () => {
+    expect(
+      agentStatusLines({
+        local: host("this machine", { kind: "downloading", profile: "v" }),
+        remotes: [host("box", ready)],
+      }),
+    ).toEqual([
+      { host: "this machine", bar: "busy", fill: 0, text: "downloading…" },
+    ]);
   });
 });

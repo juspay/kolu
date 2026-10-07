@@ -4,7 +4,7 @@ import Tooltip from "@corvu/tooltip";
 import type { Component, JSX } from "solid-js";
 
 const Tip: Component<{
-  label: string;
+  label: JSX.Element;
   class?: string;
   children: JSX.Element;
 }> = (props) => {

@@ -37,13 +37,15 @@ The hint under the row says where things stand:
 
 - **Off** — what turning it on does: agent-distro's agents go first on the PATH
   of new terminals, ahead of agents you installed yourself.
-- **A profile** — its description; the agents it puts on your PATH with their
-  versions, e.g. `claude 2.1.291 · codex 0.160.1 · omp 18.6.3 · …`; then this
-  machine's status: "Ready for new terminals — vanilla 3fa9c2d1", the download
-  progress, or the error.
-- **Any other host** that is downloading or failed gets a line of its own
-  ("Downloading on box… 603 MB of 2.2 GB", "Failed on box: …"), so you can see
-  the whole fleet from here.
+- **A profile** — its description, then the agents it puts on your PATH with
+  their versions, e.g. `claude 2.1.291 · codex 0.160.1 · omp 18.6.3 · …`.
+
+With a profile on, under the hint is one status line per machine: the host's
+name, a thin bar, and a few words. **This machine** comes first, then every
+other host that is not ready yet — downloading (the bar fills with bytes,
+"1.1 GB of 2.0 GB"), failed (a warning-coloured bar and the error), or
+"checking…" while a host has not answered yet. When every host is ready the
+lines fold into one, e.g. "ready · vanilla 8rcmf6rd · on 3 hosts".
 
 The setting is one for all of kolu — not per host, not per terminal.
 
@@ -82,9 +84,21 @@ full path.
 Agents work the same on every host you [add](/remote-hosts), but nothing is
 copied over ssh. The first time a host is used with agents on, that host
 **downloads them itself**, from agent-distro's binary cache into its own Nix
-store. The host's tab shows it while it happens:
+store. You can watch it happen on the host's tab.
 
-> Downloading agents… 1.1 GB of 2.0 GB
+Every host tab with agents on carries agent-distro's mark right after the
+host name, and the mark's look says where that host stands:
+
+| The mark | Means |
+| --- | --- |
+| plain, in the tab's text colour | ready for new terminals |
+| a thin ring around it, filling up | downloading — hover for the bar and "1.1 GB of 2.0 GB" |
+| warning colour with a small dot | the download failed — hover for agent-distro's message and the fix |
+| dimmed, with a spinning arc | checking: the host is connected but has not said yet |
+| no mark at all | agents are off |
+
+Hovering the mark says it in words; clicking it opens Settings (without
+switching tabs).
 
 When it lands, kolu says "Agents ready on *host*", and the next new terminal
 there has them. Terminals opened on that host before then have no agents (and no
@@ -92,7 +106,8 @@ chip). The same status shows in Settings for this machine.
 
 The host needs Nix with flakes, and its Nix must be allowed to use agent-distro's
 cache (`https://cache.nixos.asia/oss`). If it isn't, the download is skipped —
-the host never compiles agents — and the tab shows agent-distro's own message,
+the host never compiles agents — and the tab's mark turns to the warning colour,
+with agent-distro's own message on hover,
 for example "cache … not usable; add it to nix.settings substituters /
 trusted-public-keys". Fix the host's Nix settings, then turn Agents off and on
 again to retry; nothing retries on its own.

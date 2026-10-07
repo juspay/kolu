@@ -1,5 +1,5 @@
 lockfile_version: '1'
-generated_at: '2026-10-07T13:37:22.292247+00:00'
+generated_at: '2026-10-07T14:44:31.312444+00:00'
 apm_version: 0.31.0
 dependencies:
 - repo_url: _local/agents
@@ -319,7 +319,7 @@ deployments:
   owners:
   - .
   active_owner: .
-  content_hash: sha256:f417efde635a8440c22d8a008675332fd0ce51b485db67d9a267fbbc76156183
+  content_hash: sha256:b0faa09b139bb569dd597b996ce36d6a32bec4cf3e71aa253f79ceedcde046ef
 - kind: project-relative
   target: claude
   value: .claude/rules/nix.md
@@ -1598,7 +1598,7 @@ local_deployed_file_hashes:
   .claude/rules/docs.md: sha256:c78ee3eb709a228c4d8c86031ac2c9de2967fed129c97c07f8e5998d5c1f085c
   .claude/rules/e2e-testing.md: sha256:408e0da29b40bbbb27a1f629f8babf24e7a640ac95e7c2d93dcdba7b4535dfee
   .claude/rules/implementer.md: sha256:1d7007b47ad49659a6fd21490d50aa37edbdcb86e38833e1b041b82ab9003c76
-  .claude/rules/logo.md: sha256:f417efde635a8440c22d8a008675332fd0ce51b485db67d9a267fbbc76156183
+  .claude/rules/logo.md: sha256:b0faa09b139bb569dd597b996ce36d6a32bec4cf3e71aa253f79ceedcde046ef
   .claude/rules/nix.md: sha256:1ac0f3738deafba04c3af189c863990809999021f4e9d0e6b38969ec1460acf3
   .claude/rules/solidjs.md: sha256:11e846469ab1433a9735b1a42818eb8f0fcba508b10df792e74b5a05426b2d3d
   .claude/rules/state.md: sha256:4f604dec0848e4d23aed72232107e3070c9b9a7fe44c62f68a230b227a136811

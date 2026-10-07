@@ -59,8 +59,21 @@ Feature: Agents come with kolu
     Then the Agents hint should say "Off. Pick a profile"
     When I choose the "juspay" Agents profile
     Then a toast should say "Agents: juspay for new terminals"
-    And the Agents hint should say "Ready for new terminals — juspay"
+    And this machine's Agents status should say "ready · juspay"
     When I choose the "off" Agents profile
     Then a toast should say "Agents off for new terminals"
     And the Agents hint should say "Off. Pick a profile"
+    And there should be no page errors
+
+  Scenario: This machine's tab carries the agents mark while Agents are on, and it opens Settings
+    Then the host tab should show no agents mark
+    When I click the settings button
+    And I choose the "vanilla" Agents profile
+    Then the host tab's agents mark should be "ready"
+    When I press Escape
+    Then the settings popover should not be visible
+    When I click the host tab's agents mark
+    Then the settings popover should be visible
+    When I choose the "off" Agents profile
+    Then the host tab should show no agents mark
     And there should be no page errors

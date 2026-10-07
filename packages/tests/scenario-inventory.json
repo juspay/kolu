@@ -8091,6 +8091,30 @@
       "exampleRows": [],
       "executions": 1,
       "firstSeenSha": "8dc52a8a8bdf8f98ede3a0ab7874993c9c915c18"
+    },
+    {
+      "revisionId": "revision-8aed74ca7adc779a74f3",
+      "scenarioKey": "scenario-9ce014499c8faf59c25c",
+      "feature": "features/agents.feature",
+      "scenario": "Switching Agents says what happened, and the hint shows this machine's status",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "1aff552930edf0e24f5c18044572896e94cfa05d57f2777da171a936fceb1afa",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "a75f8ac9e77f39d3faaab1f2c238ca44638305f3"
+    },
+    {
+      "revisionId": "revision-cef221d90092656fb0b8",
+      "scenarioKey": "scenario-92f90da1a9b422cc3c5f",
+      "feature": "features/agents.feature",
+      "scenario": "This machine's tab carries the agents mark while Agents are on, and it opens Settings",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "42b3aff3599fd7e35082a297603b7a2e146f3bacbea6e430e1693dc6086346b5",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "a75f8ac9e77f39d3faaab1f2c238ca44638305f3"
     }
   ]
 }

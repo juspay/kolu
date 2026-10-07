@@ -15,9 +15,11 @@ process that touches agent-distro reads them from the same place.
   `bin/agent-distro` and `profiles/<name>`, the updater's `current` link, a
   store path's short hash, and making `lib.mkUpdater`'s config concrete for a
   host's state home.
-- `./status` — the human wording for a host's status, a profile's agents and
-  the Settings hint, over structural status/setting types (the wire schemas are
-  `@kolu/padi-client`'s; the client pins that the two agree).
+- `./status` — how a host's status shows: the one fenced fold from status to
+  the host tab's mark treatment (`agentMarkOf`), its words, the Settings hint,
+  and the per-host status lines with their collapse rule — over structural
+  status/setting types (the wire schemas are `@kolu/padi-client`'s; the client
+  pins that the two agree).
 - `./solid` — agent-distro's logo (`doc/logo.svg`, vendored byte-identical from
   the npins pin) and the one `AgentDistroLogo` component that draws it.
 

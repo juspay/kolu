@@ -2,8 +2,8 @@
  *  Label is the hero (`text-fg font-medium`); hint recedes (`text-fg-3/70`) so
  *  attention lands on the control, not the copy. TONE_CONFIG owns both the
  *  color class and the glyph prefix so a new tone entry updates both in one
- *  place. Default tone is "muted". Optional `doc` renders a trailing docs link
- *  under the hint. */
+ *  place. Default tone is "muted". Optional `details` render under the hint,
+ *  and optional `doc` a trailing docs link below them. */
 
 import { type Component, type JSX, Show } from "solid-js";
 import DocLink, { type DocSlug } from "../ui/DocLink";
@@ -20,6 +20,8 @@ const SettingRow: Component<{
   /** Optional mark shown before the label (the Agents row's agent-distro logo). */
   icon?: JSX.Element;
   hint?: Hint;
+  /** Optional detail under the hint (the Agents row's per-host status lines). */
+  details?: JSX.Element;
   /** Optional product-docs slug — renders a "Docs →" link under the hint. */
   doc?: DocSlug;
   children: JSX.Element;
@@ -53,6 +55,7 @@ const SettingRow: Component<{
         );
       }}
     </Show>
+    {props.details}
     <Show when={props.doc}>
       {(slug) => (
         <div class="mt-1 text-xs">

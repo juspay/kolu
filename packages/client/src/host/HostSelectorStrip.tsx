@@ -76,7 +76,7 @@ import { addHost } from "./addHost";
 import { focusOnMount } from "./focusOnMount";
 import { HostDiagnosticsPopover } from "./HostDiagnosticsPopover";
 import { HostIdentityLabel } from "./HostIdentityLabel";
-import AgentDistroHostBadge from "../agents/AgentDistroHostBadge";
+import AgentDistroHostMark from "../agents/AgentDistroHostMark";
 import { forwardRingLabel, HostStatusDot } from "./HostStatusDot";
 import { activeKavalPresence } from "../kaval/useDaemonStatus";
 import {
@@ -141,10 +141,9 @@ const HostChipShell: Component<{
   };
   status?: JSX.Element;
   attention: JSX.Element;
-  /** The host's agent-distro note (a download in progress, or its error). The
-   *  measuring twin renders it too: it is up to 16rem wide, and a chip whose
-   *  width estimate leaves it out would break the one-row rule while a host
-   *  downloads. */
+  /** The host's agents mark, right after the host name (nothing when agents are
+   *  off). The measuring twin renders it too, so a chip's width estimate counts
+   *  it and the strip keeps to one row. */
   agents?: JSX.Element;
 }> = (props) => (
   <div
@@ -168,8 +167,8 @@ const HostChipShell: Component<{
         labelClass={`truncate max-w-[5rem] lg:max-w-[10rem] font-medium${props.decoration ?? ""}`}
       />
     </button>
-    {props.attention}
     {props.agents}
+    {props.attention}
   </div>
 );
 
@@ -278,7 +277,7 @@ const HostChip: Component<{
             class="-ml-1 mr-2.5"
           />
         }
-        agents={<AgentDistroHostBadge host={props.host} />}
+        agents={<AgentDistroHostMark host={props.host} />}
       />
       <Show when={diagOpen()}>
         <HostDiagnosticsPopover
@@ -819,7 +818,7 @@ const HostSelectorStrip: Component = () => {
                         class="-ml-1 mr-2.5"
                       />
                     }
-                    agents={<AgentDistroHostBadge host={host} measuring />}
+                    agents={<AgentDistroHostMark host={host} measuring />}
                   />
                 </div>
               </div>

@@ -12,11 +12,11 @@
  * is never silently changed — the user picks a real one in Settings).
  */
 
-import type { AgentDistroStatus } from "@kolu/padi-client/surface";
 import {
   decodeHostKey,
   encodeHostKey,
   type HostKey,
+  LOCAL_HOST,
 } from "kolu-common/hostKey";
 import type { AgentDistroListing } from "kolu-common/surface";
 import { createEffect, createMemo, createRoot, mapArray, on } from "solid-js";
@@ -24,7 +24,13 @@ import { toast } from "solid-sonner";
 import { hostLabel } from "../host/hostChipTone";
 import { app, hostKeys, padiMap, preferences } from "../wire";
 import AgentDistroLogo from "@kolu/agent-distro/solid";
-import type { HostAgentStatus } from "@kolu/agent-distro/status";
+import {
+  type AgentMark,
+  type AgentStatusLine,
+  agentMarkOf,
+  agentStatusLines,
+  type HostAgentStatus,
+} from "@kolu/agent-distro/status";
 import { watchDownload } from "./firstDownload";
 
 // App-lifetime, owned subscriptions — the `useForwards` reason: a bare module
@@ -64,29 +70,49 @@ const byHost = createRoot(() => {
             { id: toastId, icon: AgentDistroLogo({ size: 16 }) },
           ),
       });
-      return { enc, host, read: () => sub.value() };
+      // "Checking": the host is up and agents are on, but its status cell has
+      // not sent its first frame. Derived here from the cell's own pending
+      // state; padi has no such status.
+      const checking = () =>
+        preferences().agentDistro.enabled &&
+        padiMap.entry(host).state().kind === "connected" &&
+        sub.pending();
+      return { enc, host, read: () => sub.value(), checking };
     },
   );
   const index = createMemo(
-    () => new Map(roots().map(({ enc, read }) => [enc, read])),
+    () => new Map(roots().map((entry) => [entry.enc, entry])),
   );
   return { index, roots };
 });
 
-/** `host`'s agent-distro status, or `undefined` until its first frame. */
-export function agentDistroStatusOf(
-  host: HostKey,
-): AgentDistroStatus | undefined {
-  return byHost.index().get(encodeHostKey(host))?.();
+/** `host`'s agent-distro facts: its status (`undefined` until the first frame)
+ *  and whether we are still waiting for it. `label` is how Settings names it. */
+export function hostAgentStatus(host: HostKey, label: string): HostAgentStatus {
+  const entry = byHost.index().get(encodeHostKey(host));
+  return {
+    label,
+    status: entry?.read(),
+    checking: entry?.checking() ?? false,
+  };
 }
 
-/** Every REMOTE pool member's status, for the fleet lines under Settings'
- *  Agents row. */
-export function remoteAgentStatuses(): readonly HostAgentStatus[] {
-  return byHost
-    .roots()
-    .filter(({ host }) => host.kind !== "local")
-    .map(({ host, read }) => ({ label: hostLabel(host), status: read() }));
+/** How `host`'s tab shows its agents — the shared fold over its facts. */
+export function hostAgentMark(host: HostKey): AgentMark {
+  const { status, checking } = hostAgentStatus(host, "");
+  return agentMarkOf(status, checking);
+}
+
+/** The status lines under Settings' Agents row: this machine, then the remote
+ *  pool members (the fold decides which of them show). */
+export function agentStatusLinesNow(): readonly AgentStatusLine[] {
+  return agentStatusLines({
+    local: hostAgentStatus(LOCAL_HOST, "this machine"),
+    remotes: byHost
+      .roots()
+      .filter(({ host }) => host.kind !== "local")
+      .map(({ host }) => hostAgentStatus(host, hostLabel(host))),
+  });
 }
 
 /** The stored profile, when the listing does not offer it. */

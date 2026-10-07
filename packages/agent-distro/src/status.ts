@@ -1,8 +1,9 @@
 /**
- * The words kolu shows for agent-distro — pure functions of a host's status, a
- * profile or a setting; no subscriptions. Their volatility is the copy (a
- * reworded status, a new hint line), apart from the live facts the client
- * subscribes to.
+ * How kolu shows agent-distro — pure functions of a host's status, a profile or
+ * a setting; no subscriptions. The one fold from a host's status to how its tab
+ * mark and Settings line look (`agentMarkOf`), and the words around it. Their
+ * volatility is the presentation (a reworded status, a new treatment), apart
+ * from the live facts the client subscribes to.
  *
  * The status and setting types here are STRUCTURAL: the wire schemas live in
  * `@kolu/padi-client`'s surface (the cells padi serves), and this package
@@ -49,31 +50,106 @@ export function formatBytes(bytes: number): string {
     : `${Math.round(bytes / 1e6)} MB`;
 }
 
-/** The words for a status that needs any: "Downloading agents… 1.1 GB of 2.0 GB",
- *  or the updater's own error message. `undefined` for the quiet states. */
-export function agentDistroStatusText(
+/** "1.1 GB of 2.0 GB" for a download's progress, or `undefined` when there are no
+ *  numbers to say. A total of 0 is a run with nothing left to fetch (the host
+ *  already had every path): "0 MB of 0 MB" would be noise, not progress. */
+export function downloadBytes(
+  progress: { readonly done: number; readonly total: number } | undefined,
+): string | undefined {
+  return progress === undefined || progress.total === 0
+    ? undefined
+    : `${formatBytes(progress.done)} of ${formatBytes(progress.total)}`;
+}
+
+/** How much of a download is done, 0 to 1 — the fill of the tab's ring and of
+ *  the Settings bar. 0 while there are no numbers yet. */
+function downloadFraction(
+  progress: { readonly done: number; readonly total: number } | undefined,
+): number {
+  return progress === undefined || progress.total === 0
+    ? 0
+    : Math.min(1, progress.done / progress.total);
+}
+
+/** How a host shows its agents: the treatment of its tab's agent-distro mark,
+ *  and of its line in Settings.
+ *
+ *   - `none`: no mark at all (agents off on this host, a padi without the bake,
+ *     or a host we cannot hear from) — the tab is as it would be without agents;
+ *   - `checking`: the host is connected and agents are on, but its status has not
+ *     arrived yet (a dimmed mark with a spinning arc);
+ *   - `ready`: the selected profile is on the host for new terminals;
+ *   - `downloading`: the host is fetching it (a ring filling with bytes);
+ *   - `failed`: the download failed (the warning colour and a dot). */
+export type AgentMark =
+  | { readonly kind: "none" }
+  | { readonly kind: "checking" }
+  | { readonly kind: "ready"; readonly profile: string; readonly hash: string }
+  | {
+      readonly kind: "downloading";
+      readonly fraction: number;
+      readonly bytes: string | undefined;
+    }
+  | { readonly kind: "failed"; readonly message: string };
+
+/** THE fold from a host's status to how it shows. Every surface that paints a
+ *  host's agents (the tab mark, the Settings line) goes through it, and it is
+ *  fenced (`satisfies never`): a new status kind must decide here, once.
+ *
+ *  `checking` is the client's own fact (connected, agents on, and the status
+ *  cell has not sent its first frame); there is no server state for it. */
+export function agentMarkOf(
   status: AgentDistroStatusShape | undefined,
-): { text: string; tone: "busy" | "error" } | undefined {
-  if (status === undefined) return undefined;
+  checking: boolean,
+): AgentMark {
+  if (checking) return { kind: "checking" };
+  if (status === undefined) return { kind: "none" };
   switch (status.kind) {
-    case "downloading":
-      return {
-        tone: "busy",
-        text:
-          // A total of 0 is a run with nothing left to fetch (the host already
-          // had every path): "0 MB of 0 MB" would be noise, not progress.
-          status.progress === undefined || status.progress.total === 0
-            ? "Downloading agents…"
-            : `Downloading agents… ${formatBytes(status.progress.done)} of ${formatBytes(status.progress.total)}`,
-      };
-    case "error":
-      return { tone: "error", text: status.message };
     case "off":
     case "unavailable":
+      return { kind: "none" };
     case "ready":
-      return undefined;
+      return {
+        kind: "ready",
+        profile: status.profile,
+        hash: agentBundleShortHash(status.bundle),
+      };
+    case "downloading":
+      return {
+        kind: "downloading",
+        fraction: downloadFraction(status.progress),
+        bytes: downloadBytes(status.progress),
+      };
+    case "error":
+      return { kind: "failed", message: status.message };
     default:
       return status satisfies never;
+  }
+}
+
+/** The one-line fix under a failed download. A failure is remembered per
+ *  profile until the setting turns that profile on again — the only retry. */
+export const AGENTS_RETRY =
+  "Fix that, then turn Agents off and back on in Settings to retry.";
+
+/** A mark's words: its tooltip (beside the bar while downloading) and its
+ *  accessible name. `undefined` for `none`, which shows nothing. */
+export function agentMarkLabel(mark: AgentMark): string | undefined {
+  switch (mark.kind) {
+    case "none":
+      return undefined;
+    case "checking":
+      return "Agents: checking…";
+    case "ready":
+      return `Agents: ${mark.profile} ${mark.hash} · ready for new terminals`;
+    case "downloading":
+      return mark.bytes === undefined
+        ? "Downloading agents…"
+        : `Downloading agents… ${mark.bytes}`;
+    case "failed":
+      return `Agents: ${mark.message}\n${AGENTS_RETRY}`;
+    default:
+      return mark satisfies never;
   }
 }
 
@@ -112,27 +188,93 @@ export function agentsSegmentOf(setting: AgentDistroSettingShape): string {
   return setting.enabled ? setting.profile : AGENTS_OFF;
 }
 
-/** One host's agent-distro status, for the fleet lines under the Agents row. */
+/** One host's agent-distro facts, for its line in Settings. */
 export interface HostAgentStatus {
   readonly label: string;
   readonly status: AgentDistroStatusShape | undefined;
+  /** Connected, agents on, and no status frame yet (see {@link agentMarkOf}). */
+  readonly checking: boolean;
 }
 
-/** The Agents row's hint, line by line:
+/** One status line under the Agents row: the host, a bar, and a short text. */
+export interface AgentStatusLine {
+  readonly host: string;
+  /** The bar's colour: accent while downloading, ok when ready, warning when
+   *  failed, and an empty bar when there is nothing to fill. */
+  readonly bar: "busy" | "ok" | "warn" | "empty";
+  /** The bar's fill, 0 to 1. */
+  readonly fill: number;
+  readonly text: string;
+}
+
+function statusLine(host: HostAgentStatus): AgentStatusLine {
+  const mark = agentMarkOf(host.status, host.checking);
+  const line = (
+    bar: AgentStatusLine["bar"],
+    fill: number,
+    text: string,
+  ): AgentStatusLine => ({ host: host.label, bar, fill, text });
+  switch (mark.kind) {
+    case "ready":
+      return line("ok", 1, `ready · ${mark.profile} ${mark.hash}`);
+    case "downloading":
+      return line("busy", mark.fraction, mark.bytes ?? "downloading…");
+    case "failed":
+      return line("warn", 1, mark.message);
+    case "checking":
+      return line("empty", 0, "checking…");
+    case "none":
+      return line(
+        "empty",
+        0,
+        host.status === undefined
+          ? "not connected"
+          : host.status.kind === "unavailable"
+            ? "built without agent-distro"
+            : "off",
+      );
+    default:
+      return mark satisfies never;
+  }
+}
+
+/** The status lines under the Agents row: this machine first, then every remote
+ *  host that is not ready. When EVERY host is ready they collapse into the first
+ *  line ("ready · vanilla 8rcmf6rd · on 3 hosts"), so the row stays short in the
+ *  common case. */
+export function agentStatusLines(input: {
+  readonly local: HostAgentStatus;
+  readonly remotes: readonly HostAgentStatus[];
+}): readonly AgentStatusLine[] {
+  const local = statusLine(input.local);
+  const remotes = input.remotes.map(statusLine);
+  const notReady = remotes.filter((l) => l.bar !== "ok");
+  if (local.bar === "ok" && notReady.length === 0 && remotes.length > 0)
+    return [
+      { ...local, text: `${local.text} · on ${remotes.length + 1} hosts` },
+    ];
+  return [local, ...notReady];
+}
+
+/** The profile the setting selects, when agents are on and the listing ships
+ *  it — the one case where the Agents row shows its status lines. */
+export function selectedAgentProfile(
+  setting: AgentDistroSettingShape,
+  listing: AgentDistroListing | undefined,
+): AgentDistroProfile | undefined {
+  if (!setting.enabled || listing?.kind !== "available") return undefined;
+  return listing.profiles.find((p) => p.name === setting.profile);
+}
+
+/** The Agents row's hint:
  *
  *   - off: what turning it on does;
  *   - an unknown stored profile: the warning (never reset);
- *   - on: the profile's description; its agents with versions; THIS machine's
- *     status ("Ready for new terminals — vanilla 3fa9c2d1", the download bytes,
- *     or the error); then one line per REMOTE host that is downloading or
- *     failed, so the fleet shows from here.
- *
- *  `warn` when anything it reports is an error. */
+ *   - on: the profile's description, then its agents with versions. Where each
+ *     host stands is the status lines' job ({@link agentStatusLines}). */
 export function agentsHint(input: {
   readonly setting: AgentDistroSettingShape;
   readonly listing: AgentDistroListing | undefined;
-  readonly local: AgentDistroStatusShape | undefined;
-  readonly remotes: readonly HostAgentStatus[];
 }): { readonly text: string; readonly tone: "muted" | "warn" } | undefined {
   const { setting, listing } = input;
   if (listing === undefined) return undefined;
@@ -146,38 +288,14 @@ export function agentsHint(input: {
       text: "Off. Pick a profile to put agent-distro's agents first on the PATH of new terminals, ahead of agents you installed yourself.",
       tone: "muted",
     };
-  const profile = listing.profiles.find((p) => p.name === setting.profile);
+  const profile = selectedAgentProfile(setting, listing);
   if (profile === undefined)
     return {
       text: `"${setting.profile}" is not a profile this kolu ships — pick one.`,
       tone: "warn",
     };
-  let warn = false;
-  const lines = [profile.description, harnessLine(profile)];
-  const local = input.local;
-  if (local?.kind === "ready")
-    lines.push(
-      `Ready for new terminals — ${local.profile} ${agentBundleShortHash(local.bundle)}`,
-    );
-  else {
-    const text = agentDistroStatusText(local);
-    if (text !== undefined) {
-      lines.push(text.text);
-      warn ||= text.tone === "error";
-    }
-  }
-  for (const remote of input.remotes) {
-    const s = remote.status;
-    if (s?.kind === "downloading") {
-      const bytes =
-        s.progress === undefined || s.progress.total === 0
-          ? ""
-          : ` ${formatBytes(s.progress.done)} of ${formatBytes(s.progress.total)}`;
-      lines.push(`Downloading on ${remote.label}…${bytes}`);
-    } else if (s?.kind === "error") {
-      lines.push(`Failed on ${remote.label}: ${s.message}`);
-      warn = true;
-    }
-  }
-  return { text: lines.join("\n"), tone: warn ? "warn" : "muted" };
+  return {
+    text: [profile.description, harnessLine(profile)].join("\n"),
+    tone: "muted",
+  };
 }
