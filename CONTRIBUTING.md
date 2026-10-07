@@ -13,35 +13,23 @@ No proposal needed for: bug fixes that restore obvious behavior, build/packaging
 
 ## 2. Proposals — what and why, not how
 
-Anything user-facing — new shortcuts, settings, UI, defaults, persisted data, or new runtime dependencies — needs a merged proposal before any implementation PR.
+Anything user-facing — new shortcuts, settings, UI, defaults, persisted data, or new runtime dependencies — needs an accepted proposal before any implementation PR.
 
-A proposal is an **Atlas note** — a markdown/MDX file in [`docs/atlas/src/content/atlas/`](./docs/atlas/src/content/atlas/). Pick the `kind` that fits what you're proposing and mark it `status: proposed`. Create `<your-slug>.mdx` with this frontmatter:
+A proposal is a **GitHub issue** — open it with a fixed body: *Motivation · User-facing behavior · Prototype (optional) · Implementation notes (optional)*. There is no separate proposal pool; the issue tracker is the record, and agreeing on a proposal is handled in the discussion that follows.
 
-```yaml
----
-title: Your proposal, in Title Case
-description: One line — what changes from the user's perspective.
-kind: feature        # the category it belongs in — feature · bug · analysis · reference
-status: proposed     # proposed → accepted → implemented (or superseded)
-maturity: seedling
----
-```
+Discuss on the issue. Once **accepted**, a maintainer labels it `accepted` — that's the whole graduation. The issue stays a *living* document afterward (git is its record — there is no frozen copy).
 
-Then write the body — *Summary · Motivation · User-facing behavior · Prototype (optional) · Implementation notes (optional)* — run `just atlas::build` to render it, and open a PR adding the `.mdx` **and** its generated `docs/atlas/dist/<slug>.html` (the `ci::atlas-sync` gate checks the two stay in sync). Your note appears in the [Atlas index](./docs/atlas/dist/index.html) under its category, flagged **proposed** — nothing to wire up, and authorship is just the git history.
-
-Discuss on the PR. Once **accepted**, a maintainer flips the note to `status: accepted` — that's the whole graduation; the `kind` was right from the start. The note stays a *living* document afterward (git is its record — there is no frozen copy).
-
-Your PR **may optionally bundle an implementation** alongside the proposal — but acceptance merges **only the proposal**. The implementation is reviewed and merged separately (by you or anyone else), so the decision to *ship the idea* never rides on the state of the code.
+Your PR **may optionally bundle an implementation** alongside the proposal — but acceptance is **only the proposal**. The implementation is reviewed and merged separately (by you or anyone else), so the decision to *ship the idea* never rides on the state of the code.
 
 Implementation details are optional — the "Implementation notes" section is for hints; skip it if you don't have an opinion. The implementer figures out the *how*.
 
 ### Drafts welcome
 
-Open the PR as a GitHub *draft* if you're still brainstorming or have open questions you want directional feedback on. Mark it ready for review when the questions narrow.
+Open a draft PR early if you're still brainstorming or have open questions you want directional feedback on. Mark it ready for review when the questions narrow.
 
 ### Why proposals matter
 
-A merged proposal under your authorship is a substantial contribution in its own right — clarifying a vague idea into a concrete, debatable document is half the work, and the implementation usually follows mechanically. **Proposals from people who never write the code are welcome and valued.**
+An accepted proposal under your authorship is a substantial contribution in its own right — clarifying a vague idea into a concrete, debatable document is half the work, and the implementation usually follows mechanically. **Proposals from people who never write the code are welcome and valued.**
 
 **Feature PRs that skip the proposal step will be closed with a pointer back here.** It's the only way to keep the project's surface area honest.
 

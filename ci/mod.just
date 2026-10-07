@@ -51,7 +51,7 @@ nix_shell := if env('IN_NIX_SHELL', '') != '' { '' } else { 'nix develop --accep
 [macos]
 [parallel]
 [metadata("ci")]
-default: nix agent-flake-nix agent-bake website-nix website-pnpm-hash-fresh surface-examples-nix solid-browser-example-nix odu-nix home-manager e2e e2e-governance dev-smoke smoke fmt biome unit daemon upgrade-window surface-example-build surface-app-example-build pnpm-hash-fresh atlas-sync
+default: nix agent-flake-nix agent-bake website-nix website-pnpm-hash-fresh surface-examples-nix solid-browser-example-nix odu-nix home-manager e2e e2e-governance dev-smoke smoke fmt biome unit daemon upgrade-window surface-example-build surface-app-example-build pnpm-hash-fresh
 
 # Single per-platform `pnpm install`. The runner fans every recipe out into
 # its own process and starts them all in parallel as soon as setup completes,
@@ -367,18 +367,6 @@ fmt: install
 # debt can no longer accrue invisibly on master (#1362).
 biome: install
     {{ nix_shell }} biome lint --error-on-warnings .
-
-
-# Atlas sync gate. The check lives in the docs/atlas module
-# (`atlas::check-sync`): it rebuilds the self-contained Atlas and fails if the
-# committed docs/atlas/dist/ is stale (a note changed without committing the
-# regenerated HTML). Co-located with what it guards; this node keeps it in the
-# CI DAG and posts the ci::atlas-sync status. Run locally as
-# `just atlas::check-sync`. atlas uses an isolated (--ignore-workspace)
-# node_modules, so its install never races the root pnpm install above.
-atlas-sync:
-    {{ nix_shell }} just atlas::check-sync
-
 
 # ── odu convenience (coordinator-side; NOT part of the [metadata("ci")] DAG) ──
 # Thin wrappers over `nix run ./ci#odu` so the live dashboard is one just away.
