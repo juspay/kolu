@@ -21,7 +21,7 @@ const AgentStatusLines: Component<{ lines: readonly AgentStatusLine[] }> = (
 ) => (
   <div
     data-testid="agents-status-lines"
-    class="mt-2 grid grid-cols-[7.5rem_1fr_auto] items-center gap-x-2.5 gap-y-1.5 text-xs"
+    class="mt-2 grid grid-cols-[7.5rem_minmax(2.5rem,1fr)_auto] items-center gap-x-2.5 gap-y-1.5 text-xs"
   >
     <For each={props.lines}>
       {(line) => (
@@ -43,7 +43,7 @@ const AgentStatusLines: Component<{ lines: readonly AgentStatusLine[] }> = (
             data-testid="agents-status-text"
             data-bar={line.bar}
             title={line.text}
-            class={`max-w-[14rem] truncate font-mono text-[0.7rem] ${line.bar === "warn" ? "text-warning" : "text-fg-3"}`}
+            class={`max-w-[18rem] truncate font-mono text-[0.7rem] ${line.bar === "warn" ? "text-warning" : "text-fg-3"}`}
           >
             {line.text}
           </span>
