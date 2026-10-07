@@ -1,8 +1,7 @@
 /**
  * The agent-distro profiles Settings offers — read ONCE at boot from the picker
- * this kolu's build baked (`$KOLU_AGENT_DISTRO_BUNDLE/bin/agent-distro`, built by
- * `nix/agent-distro.nix`), through agent-distro's own machine listing
- * (`--list --json`). kolu never imports agent-distro's code or re-describes its
+ * this kolu's build baked (named by the floor's manifest, `@kolu/agent-distro`'s
+ * Nix half), through agent-distro's own machine listing (`--list --json`). kolu never imports agent-distro's code or re-describes its
  * profiles: the names, descriptions and versions are whatever the pinned build
  * prints.
  *
@@ -12,24 +11,35 @@
  */
 
 import { execFileSync } from "node:child_process";
+import { readFileSync } from "node:fs";
 import {
   type AgentDistroListing,
   LIST_JSON_ARGS,
   parseAgentDistroList,
 } from "@kolu/agent-distro/listing";
-import { floorPicker } from "@kolu/agent-distro/bundle";
+import {
+  manifestFile,
+  parseAgentDistroManifest,
+} from "@kolu/agent-distro/manifest";
 import { plainProfileDescription } from "@kolu/agent-distro/status";
 import { AGENT_DISTRO_BUNDLE_ENV } from "@kolu/padi/agentDistroBake";
 
-/** Read the listing off the baked picker (`env` / `run` injectable for tests). */
+/** Read the listing off the baked picker the floor's manifest names, and
+ *  check it leads with the manifest's default profile (`env` / `run` /
+ *  `readText` injectable for tests). */
 export function readAgentDistroListing(
   env: Record<string, string | undefined> = process.env,
   run: (bin: string, args: string[]) => string = (bin, args) =>
     execFileSync(bin, args, { encoding: "utf8" }),
+  readText: (path: string) => string = (path) => readFileSync(path, "utf8"),
 ): AgentDistroListing {
   const bundle = env[AGENT_DISTRO_BUNDLE_ENV];
   if (bundle === undefined || bundle === "") return { kind: "unavailable" };
-  return parseAgentDistroList(run(floorPicker(bundle), [...LIST_JSON_ARGS]));
+  const manifest = parseAgentDistroManifest(readText(manifestFile(bundle)));
+  return assertDefaultAgentProfile(
+    parseAgentDistroList(run(manifest.picker, [...LIST_JSON_ARGS])),
+    manifest.default,
+  );
 }
 /** Refuse a listing with a profile kolu has no plain words for. Settings
  *  describes each profile to people who have never heard of agent-distro
@@ -43,12 +53,11 @@ export function assertPlainProfiles(
   return listing;
 }
 
-/** kolu's default profile (`DEFAULT_PREFERENCES.agentDistro.profile`) and the
- *  default this build's listing names first (`nix/agent-distro.nix`'s
- *  `defaultProfile`) are two spellings of one decision on two clocks — a
- *  preference default edit, an agent-distro pin bump. A build where they
- *  disagree would hand a fresh install a profile the listing does not lead with
- *  (or does not have), so it fails at boot. */
+/** The default profile is typed once (`@kolu/agent-distro`'s `defaults.json`,
+ *  read by the Nix half into the manifest and by `DEFAULT_PREFERENCES`), but the
+ *  picker's LISTING ORDER is agent-distro's — so a build whose picker does not
+ *  lead with that default would hand a fresh install a profile the listing does
+ *  not lead with (or does not have). It fails at boot. */
 export function assertDefaultAgentProfile(
   listing: AgentDistroListing,
   defaultProfile: string,
@@ -58,7 +67,7 @@ export function assertDefaultAgentProfile(
     listing.profiles[0]?.name !== defaultProfile
   )
     throw new Error(
-      `agent-distro listing leads with '${listing.profiles[0]?.name}', but kolu's default Agents profile is '${defaultProfile}' — nix/agent-distro.nix and DEFAULT_PREFERENCES disagree`,
+      `agent-distro listing leads with '${listing.profiles[0]?.name}', but kolu's default Agents profile is '${defaultProfile}' — the floor's picker and packages/agent-distro/defaults.json disagree`,
     );
   return listing;
 }

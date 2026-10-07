@@ -42,6 +42,7 @@ import {
   type AgentDistroProfile,
   AgentDistroProfileSchema,
 } from "@kolu/agent-distro/listing";
+import { DEFAULT_AGENT_PROFILE } from "@kolu/agent-distro/manifest";
 
 import {
   AgentDistroSettingSchema,
@@ -415,10 +416,9 @@ export const DEFAULT_PREFERENCES: typeof PreferencesSchema.Type = {
   },
   // OFF by default: kolu adds nothing to a terminal's PATH until the user
   // turns Agents on (Settings → Agents; the first-run step that asks is K2).
-  // `vanilla` (plain upstream harnesses) is the profile it starts on — the one
-  // `nix/agent-distro.nix` lists first and bakes as its default; kolu-server's
-  // boot check and the `default` wrapper's build-time proof keep the names one.
-  agentDistro: { enabled: false, profile: "vanilla" },
+  // The profile it starts on is typed once, in `@kolu/agent-distro`'s
+  // `defaults.json` — the file the Nix half bakes as its default too.
+  agentDistro: { enabled: false, profile: DEFAULT_AGENT_PROFILE },
 };
 
 // `applyPreferencesPatch` references `Preferences` / `PreferencesPatch`

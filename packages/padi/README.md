@@ -471,8 +471,10 @@ every NEW terminal it spawns ([Agents](https://kolu.dev/agents)). Two cells
 - **The bake** (`src/agentDistro/bake.ts`) — `KOLU_AGENT_DISTRO_UPDATER` (the
   profile listing + per-profile updater configs, both arms),
   `KOLU_AGENT_DISTRO_BUNDLE` (the local floor, `default` wrapper only) and
-  `KOLU_AGENT_PLUGIN_DIR` (both arms), written by `default.nix` from
-  `nix/agent-distro.nix`. Unbaked reads as none; a half bake throws at boot.
+  `KOLU_AGENT_PLUGIN_DIR` (both arms), baked by `@kolu/agent-distro`'s Nix half
+  (`packages/agent-distro/default.nix`). The floor is read through its manifest
+  (`share/kolu/agent-distro.json`), never a directory layout. Unbaked reads as
+  none; a half bake, or a floor without its manifest, throws at boot.
   Every one is `KOLU_*`, so no terminal inherits them. A change to any of them
   changes the wrapper's own store path, so the agent-tools bake record
   (`agentToolsBake.ts`) already drains a same-build resident that predates it.

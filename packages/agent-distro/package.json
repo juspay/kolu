@@ -9,6 +9,7 @@
     "./listing": "./src/listing.ts",
     "./progress": "./src/progress.ts",
     "./bundle": "./src/bundle.ts",
+    "./manifest": "./src/manifest.ts",
     "./status": "./src/status.ts",
     "./solid": "./src/solid/AgentDistroLogo.tsx"
   },

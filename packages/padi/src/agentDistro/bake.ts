@@ -1,7 +1,7 @@
 /**
  * The agent-distro BAKE: what a nix wrapper tells this padi about the coding
  * agents a terminal can be given. Three env vars, all written only by
- * `default.nix` (built by `nix/agent-distro.nix`):
+ * `default.nix`, from `@kolu/agent-distro`'s Nix half (`packages/agent-distro/default.nix`):
  *
  *   - `KOLU_AGENT_DISTRO_UPDATER` (both arms) — a JSON file listing the profiles
  *     this build knows, in listing order, and per profile the updater command +
@@ -9,8 +9,8 @@
  *     `lib.mkUpdater`). Its profile list is the map a pushed setting is checked
  *     against; its config names the host's `current` link.
  *   - `KOLU_AGENT_DISTRO_BUNDLE` (local arm only) — the FLOOR: every profile's
- *     bundle, laid out `profiles/<name>/bin`, in this kolu's own closure. A remote
- *     host has no floor; it downloads.
+ *     bundle, in this kolu's own closure, described by its manifest
+ *     (`@kolu/agent-distro/manifest`). A remote host has no floor; it downloads.
  *   - `KOLU_AGENT_PLUGIN_DIR` (both arms) — this kolu's `agent-plugin`, handed to
  *     each harness as `AGENT_DISTRO_PLUGINS`.
  *
@@ -26,6 +26,11 @@
 
 import { readFileSync } from "node:fs";
 import { concreteUpdaterConfig } from "@kolu/agent-distro/bundle";
+import {
+  type AgentDistroManifest,
+  manifestFile,
+  parseAgentDistroManifest,
+} from "@kolu/agent-distro/manifest";
 import { Schema } from "effect";
 
 export const AGENT_DISTRO_UPDATER_ENV = "KOLU_AGENT_DISTRO_UPDATER";
@@ -43,7 +48,7 @@ export const AGENT_DISTRO_BAKE_ENVS = [
   AGENT_PLUGIN_DIR_ENV,
 ] as const;
 
-/** `nix/agent-distro.nix`'s `updater` file. */
+/** The Nix half's `updater` file. */
 const UpdaterListingSchema = Schema.Struct({
   stateHomePlaceholder: Schema.String.check(Schema.isMinLength(1)),
   profiles: Schema.Array(
@@ -58,7 +63,7 @@ const UpdaterListingSchema = Schema.Struct({
 export interface AgentDistroProfileBake {
   readonly name: string;
   /** `node <tree>/src/update/update.ts` — `lib.mkUpdater`'s `command` with its
-   *  trailing build-time config path removed (`nix/agent-distro.nix` asserts it
+   *  trailing build-time config path removed (the Nix half asserts it
    *  was there); padi appends the host-concrete config instead. */
   readonly command: readonly string[];
   /** The baked config, verbatim, with `stateHomePlaceholder` still in it. */
@@ -66,9 +71,9 @@ export interface AgentDistroProfileBake {
 }
 
 export interface AgentDistroBake {
-  /** The local floor (`profiles/<name>/bin` layout), or `undefined` on a host
-   *  that has none and must download. */
-  readonly floor: string | undefined;
+  /** The local floor's manifest, or `undefined` on a host that has none and
+   *  must download. */
+  readonly floor: AgentDistroManifest | undefined;
   /** This kolu's `agent-plugin` directory. */
   readonly plugins: string;
   /** The placeholder the configs carry where the host's state home goes. */
@@ -106,9 +111,14 @@ export function readAgentDistroBake(
       configText: readText(p.config),
     });
   }
-  const floor = env[AGENT_DISTRO_BUNDLE_ENV];
+  const floorDir = env[AGENT_DISTRO_BUNDLE_ENV];
+  // A baked floor without a readable, valid manifest is a broken build: throw.
+  const floor =
+    floorDir === undefined || floorDir === ""
+      ? undefined
+      : parseAgentDistroManifest(readText(manifestFile(floorDir)));
   return {
-    floor: floor === undefined || floor === "" ? undefined : floor,
+    floor,
     plugins,
     stateHomePlaceholder: listing.stateHomePlaceholder,
     profiles,
@@ -119,8 +129,8 @@ export function readAgentDistroBake(
  *  state home replaced with `stateHome` everywhere it appears. Returns the JSON
  *  text to hand the updater and the state directory it names (whose `current`
  *  link is that profile's downloaded bundle). Throws if the baked config does not
- *  carry the placeholder in its `state` — a config not built by
- *  `nix/agent-distro.nix` would otherwise point every host at the build machine's
+ *  carry the placeholder in its `state` — a config not built by the Nix half
+ *  would otherwise point every host at the build machine's
  *  home. */
 export function hostUpdaterConfig(
   bake: Pick<AgentDistroBake, "stateHomePlaceholder">,

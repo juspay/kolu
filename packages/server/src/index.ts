@@ -55,7 +55,6 @@ import {
 import { log } from "./log.ts";
 import { enumerateDaemonInventoryOnce } from "./padi/daemonInventory.ts";
 import {
-  assertDefaultAgentProfile,
   assertPlainProfiles,
   readAgentDistroListing,
 } from "./agentDistroListing.ts";
@@ -96,7 +95,6 @@ import {
   servedGroup,
 } from "./surface.ts";
 import { resolveTlsOptions } from "./tls.ts";
-import { DEFAULT_PREFERENCES } from "kolu-common/surface";
 
 // The web face's boot contract (`KoluBootFlags`) lives in `bootFlags.ts` —
 // the leaf `packages/kolu-cli`'s command tree also imports, so schema and
@@ -840,12 +838,7 @@ export async function bootKoluWeb(flags: KoluBootFlags): Promise<void> {
     // Read once, here: a baked picker that fails is a broken build and crashes the
     // boot; an unbaked (from-source) kolu reads `unavailable`. A profile kolu
     // cannot describe in plain words crashes the boot too.
-    agentDistroListing: assertPlainProfiles(
-      assertDefaultAgentProfile(
-        readAgentDistroListing(),
-        DEFAULT_PREFERENCES.agentDistro.profile,
-      ),
-    ),
+    agentDistroListing: assertPlainProfiles(readAgentDistroListing()),
   });
 
   // The ROOT procedures — kolu-server's own seven, bound as the third served

@@ -2,16 +2,17 @@
  * A stand-in agent-distro BAKE for the e2e server — the three env vars
  * `default.nix` sets on a real kolu (`KOLU_AGENT_DISTRO_BUNDLE`,
  * `KOLU_AGENT_DISTRO_UPDATER`, `KOLU_AGENT_PLUGIN_DIR`), pointing at a tiny
- * on-disk bundle with the same layout `nix/agent-distro.nix` builds:
+ * on-disk bundle described the way `@kolu/agent-distro`'s Nix half describes the
+ * real one — by its manifest, `share/kolu/agent-distro.json`, which names:
  *
- *     bin/agent-distro               prints a `--list --json` listing
- *     profiles/<name>/bin/claude     prints "agent-distro fixture: <name> claude"
- *     profiles/<name>/bin/agent-distro
+ *     the picker                     prints a `--list --json` listing
+ *     each profile's bin/claude      prints "agent-distro fixture: <name> claude"
+ *     each profile's bin/agent-distro
  *
  * The real floor is gigabytes of compiled harnesses; what the e2e lane proves is
  * kolu's half — Settings lists the profiles, the next terminal (not the current
  * one) gets the chosen profile's `claude` first on its PATH and wears its chip,
- * and off removes both. The Nix build proves the real floor has this layout.
+ * and off removes both. The Nix build proves the real manifest's entries exist.
  *
  * The updater configs point at a state dir that never exists and an updater that
  * is never run (the floor is always there), so `current` never shadows the floor.
@@ -71,6 +72,19 @@ export function agentDistroFixtureEnv(): Record<string, string> {
   fs.writeFileSync(
     updater,
     JSON.stringify({ stateHomePlaceholder: PLACEHOLDER, profiles }),
+  );
+  // The manifest — the only thing about the floor's shape kolu reads.
+  fs.mkdirSync(path.join(root, "share", "kolu"), { recursive: true });
+  fs.writeFileSync(
+    path.join(root, "share", "kolu", "agent-distro.json"),
+    JSON.stringify({
+      default: FIXTURE_PROFILES[0],
+      picker: path.join(root, "bin", "agent-distro"),
+      profiles: FIXTURE_PROFILES.map((name) => {
+        const dir = path.join(root, "profiles", name);
+        return { name, dir, bin: path.join(dir, "bin"), hash: name };
+      }),
+    }),
   );
   const plugin = path.join(root, "plugin");
   fs.mkdirSync(plugin, { recursive: true });

@@ -27,6 +27,18 @@ function bake(opts: { floor: boolean }): AgentDistroBake {
       symlinkSync(target, join(floor, "profiles", p));
     }
   }
+  // The floor as its manifest names it: each profile's dir is a link (as a
+  // store profile dir is reached), so the resolved path is what gets pinned.
+  const manifest = {
+    default: "vanilla",
+    picker: join(floor, "picker"),
+    profiles: ["vanilla", "juspay"].map((name) => ({
+      name,
+      dir: join(floor, "profiles", name),
+      bin: join(floor, "profiles", name, "bin"),
+      hash: name,
+    })),
+  };
   const profile = (name: string) => ({
     name,
     command: ["/bin/false"],
@@ -36,7 +48,7 @@ function bake(opts: { floor: boolean }): AgentDistroBake {
     }),
   });
   return {
-    floor: opts.floor ? floor : undefined,
+    floor: opts.floor ? manifest : undefined,
     plugins: "/p/plugin",
     stateHomePlaceholder: PLACEHOLDER,
     profiles: new Map([

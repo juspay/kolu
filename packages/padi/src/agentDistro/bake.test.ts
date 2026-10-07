@@ -43,8 +43,20 @@ const config = (profile: string) =>
     offsetSeconds: 7200,
   });
 
+const MANIFEST = {
+  default: "vanilla",
+  picker: "/s/picker/bin/agent-distro",
+  profiles: ["vanilla", "juspay"].map((name) => ({
+    name,
+    dir: `/s/${name}`,
+    bin: `/s/${name}/bin`,
+    hash: name,
+  })),
+};
+
 const files: Record<string, string> = {
   "/l/listing.json": LISTING,
+  "/f/floor/share/kolu/agent-distro.json": JSON.stringify(MANIFEST),
   "/c/v.json": config("vanilla"),
   "/c/j.json": config("juspay"),
 };
@@ -62,7 +74,7 @@ describe("readAgentDistroBake", () => {
     ).toBeNull();
   });
 
-  it("reads the profiles in listing order, the plugin dir and the floor", () => {
+  it("reads the profiles in listing order, the plugin dir and the floor's manifest", () => {
     const bake = readAgentDistroBake(
       {
         [AGENT_DISTRO_UPDATER_ENV]: "/l/listing.json",
@@ -71,9 +83,22 @@ describe("readAgentDistroBake", () => {
       },
       read,
     );
-    expect(bake?.floor).toBe("/f/floor");
+    expect(bake?.floor).toEqual(MANIFEST);
     expect(bake?.plugins).toBe("/p/plugin");
     expect([...(bake?.profiles.keys() ?? [])]).toEqual(["vanilla", "juspay"]);
+  });
+
+  it("a baked floor without its manifest is a broken build: it throws", () => {
+    expect(() =>
+      readAgentDistroBake(
+        {
+          [AGENT_DISTRO_UPDATER_ENV]: "/l/listing.json",
+          [AGENT_PLUGIN_DIR_ENV]: "/p/plugin",
+          [AGENT_DISTRO_BUNDLE_ENV]: "/no/manifest",
+        },
+        read,
+      ),
+    ).toThrow();
   });
 
   it("a remote bake has no floor", () => {

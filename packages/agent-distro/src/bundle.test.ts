@@ -6,20 +6,14 @@ import {
   agentBundleShortHash,
   concreteUpdaterConfig,
   currentLink,
-  floorPicker,
-  floorProfileDir,
 } from "./bundle.ts";
 
 const PLACEHOLDER = "@KOLU_XDG_STATE_HOME@";
 
 describe("layout", () => {
-  it("names a bundle's bin, the floor's picker and profile dirs, and a state dir's current", () => {
+  it("names a bundle's bin and a state dir's current", () => {
     expect(agentBinDir("/nix/store/x-vanilla")).toBe(
       "/nix/store/x-vanilla/bin",
-    );
-    expect(floorPicker("/nix/store/f")).toBe("/nix/store/f/bin/agent-distro");
-    expect(floorProfileDir("/nix/store/f", "juspay")).toBe(
-      "/nix/store/f/profiles/juspay",
     );
     expect(currentLink("/s/agent-distro/abc")).toBe(
       "/s/agent-distro/abc/current",

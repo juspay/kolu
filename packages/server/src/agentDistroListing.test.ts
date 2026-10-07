@@ -46,19 +46,46 @@ describe("readAgentDistroListing", () => {
     expect(ran).toBe(false);
   });
 
-  it("baked → runs the floor's picker with --list --json", () => {
+  const BUNDLE = "/nix/store/x-agent-distro-bundle";
+  const manifest = (dflt: string) =>
+    JSON.stringify({
+      default: dflt,
+      picker: "/nix/store/p-picker/bin/agent-distro",
+      profiles: [
+        { name: "vanilla", dir: "/s/v", bin: "/s/v/bin", hash: "v" },
+        { name: "juspay", dir: "/s/j", bin: "/s/j/bin", hash: "j" },
+      ],
+    });
+  const readManifest = (dflt: string) => (path: string) => {
+    if (path !== `${BUNDLE}/share/kolu/agent-distro.json`)
+      throw new Error(`unexpected read ${path}`);
+    return manifest(dflt);
+  };
+
+  it("baked → runs the picker the floor's manifest names, with --list --json", () => {
     const calls: string[][] = [];
     const listing = readAgentDistroListing(
-      { [AGENT_DISTRO_BUNDLE_ENV]: "/nix/store/x-agent-distro-bundle" },
+      { [AGENT_DISTRO_BUNDLE_ENV]: BUNDLE },
       (bin, args) => {
         calls.push([bin, ...args]);
         return FIXTURE;
       },
+      readManifest("vanilla"),
     );
     expect(calls).toEqual([
-      ["/nix/store/x-agent-distro-bundle/bin/agent-distro", "--list", "--json"],
+      ["/nix/store/p-picker/bin/agent-distro", "--list", "--json"],
     ]);
     expect(listing.kind).toBe("available");
+  });
+
+  it("fails the boot when the picker does not lead with the manifest's default", () => {
+    expect(() =>
+      readAgentDistroListing(
+        { [AGENT_DISTRO_BUNDLE_ENV]: BUNDLE },
+        () => FIXTURE,
+        readManifest("juspay"),
+      ),
+    ).toThrow(/leads with 'vanilla'.*'juspay'/);
   });
 });
 

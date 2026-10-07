@@ -152,6 +152,18 @@ function bake(): AgentDistroBake {
     mkdirSync(join(target, "bin"), { recursive: true });
     symlinkSync(target, join(floor, "profiles", p));
   }
+  // The floor as its manifest names it: each profile's dir is a link (as a
+  // store profile dir is reached), so the resolved path is what gets pinned.
+  const manifest = {
+    default: "vanilla",
+    picker: join(floor, "picker"),
+    profiles: ["vanilla", "juspay"].map((name) => ({
+      name,
+      dir: join(floor, "profiles", name),
+      bin: join(floor, "profiles", name, "bin"),
+      hash: name,
+    })),
+  };
   // The updater config names the profile's state dir (where a host's `current`
   // would live), under the placeholder padi makes concrete per host.
   const profile = (name: string) => ({
@@ -163,7 +175,7 @@ function bake(): AgentDistroBake {
     }),
   });
   return {
-    floor,
+    floor: manifest,
     plugins: "/p/plugin",
     stateHomePlaceholder: PLACEHOLDER,
     profiles: new Map([

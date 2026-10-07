@@ -1,8 +1,9 @@
 /**
  * The shape of agent-distro's bundles and state on disk, as kolu relies on it:
  * where a bundle keeps its commands, how its store path is shortened for a
- * tile, where kolu's floor keeps each profile, and how a host's state
- * directory is named in the updater config `lib.mkUpdater` writes.
+ * tile, and how a host's state directory is named in the updater config
+ * `lib.mkUpdater` writes. (Where kolu's floor keeps each profile is the floor's
+ * own manifest — `./manifest.ts` — never a layout known here.)
  *
  * Pure string algebra (POSIX store paths; no `node:path`), so the browser can
  * use the short hash and padi the rest.
@@ -15,16 +16,6 @@ import { Schema } from "effect";
  *  harnesses out there. */
 export function agentBinDir(bundle: string): string {
   return `${bundle}/bin`;
-}
-
-/** The picker kolu's floor bundle carries at its root (`--list --json`). */
-export function floorPicker(floor: string): string {
-  return `${floor}/bin/agent-distro`;
-}
-
-/** A profile's directory inside kolu's floor bundle (`profiles/<name>`). */
-export function floorProfileDir(floor: string, profile: string): string {
-  return `${floor}/profiles/${profile}`;
 }
 
 /** The link agent-distro's updater flips, under a state directory, to the
