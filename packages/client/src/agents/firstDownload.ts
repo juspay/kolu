@@ -12,8 +12,12 @@
  */
 
 import type { AgentDistroStatus } from "@kolu/agent-distro/schema";
+import { downloadEdge } from "@kolu/agent-distro/status";
 import { createEffect, on } from "solid-js";
 
+/** Run `handlers` at a host's download moments — which moment is
+ *  `downloadEdge`'s call (`@kolu/agent-distro/status`); this is only the Solid
+ *  effect that watches the cell. */
 export function watchDownload(
   read: () => AgentDistroStatus | undefined,
   handlers: {
@@ -26,14 +30,19 @@ export function watchDownload(
     on(
       () => read()?.kind,
       (now, prev) => {
-        if (now === "downloading" && prev !== "downloading") {
-          handlers.onStart();
-          return;
+        switch (downloadEdge(prev, now)) {
+          case "start":
+            return handlers.onStart();
+          case "ready":
+            return handlers.onReady();
+          case "failed": {
+            const status = read();
+            if (status?.kind === "error") handlers.onError(status.message);
+            return;
+          }
+          case "none":
+            return;
         }
-        if (prev !== "downloading") return;
-        if (now === "ready") handlers.onReady();
-        const status = read();
-        if (status?.kind === "error") handlers.onError(status.message);
       },
     ),
   );

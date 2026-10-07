@@ -332,8 +332,11 @@ const DiagnosticInfoContent: Component<{ activeId: TerminalId | null }> = (
               {(heap) => (
                 <Row label="JS heap">
                   <span class="font-mono text-fg">
-                    {heap().usedMB} / {heap().totalMB} MB
-                    <span class="text-fg-3/70"> (limit {heap().limitMB})</span>
+                    {heap().usedMB} / {heap().totalMB} MiB
+                    <span class="text-fg-3/70">
+                      {" "}
+                      (limit {heap().limitMB} MiB)
+                    </span>
                   </span>
                 </Row>
               )}

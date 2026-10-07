@@ -7,8 +7,8 @@
  *     selected profile's agents are on that machine, being downloaded, or failed.
  *
  * Two app-lifetime reactions ride here too, colocated with the facts they react
- * to: a toast when a host's first download lands ("Agents ready on <host>"), and
- * an error toast when the stored profile is not one this kolu ships (the setting
+ * to: toasts at a host's download moments (worded by `agentToast`), and an error
+ * toast when the stored profile is not one this kolu ships (the setting
  * is never silently changed — the user picks a real one in Settings).
  */
 
@@ -29,7 +29,10 @@ import {
   type AgentStatusLine,
   agentMarkOf,
   agentStatusLines,
+  agentToast,
   type HostAgentStatus,
+  unknownProfileMessage,
+  unknownProfileOf,
 } from "@kolu/agent-distro/status";
 import { watchDownload } from "./firstDownload";
 
@@ -57,27 +60,21 @@ const byHost = createRoot(() => {
         onStart: () => {
           // No timeout: it stands until the download settles, then becomes
           // the success or the error below (same id).
-          toastId = toast.loading(
-            `Downloading the coding agents to ${hostLabel(host)}…`,
-            {
-              duration: Number.POSITIVE_INFINITY,
-              icon: AgentDistroLogo({ size: 16 }),
-            },
-          );
+          toastId = toast.loading(agentToast.downloading(hostLabel(host)), {
+            duration: Number.POSITIVE_INFINITY,
+            icon: AgentDistroLogo({ size: 16 }),
+          });
         },
         onReady: () =>
-          toast.success(
-            `Coding agents ready on ${hostLabel(host)} — new terminals there start with them`,
-            {
-              id: toastId,
-              icon: AgentDistroLogo({ size: 16 }),
-            },
-          ),
+          toast.success(agentToast.ready(hostLabel(host)), {
+            id: toastId,
+            icon: AgentDistroLogo({ size: 16 }),
+          }),
         onError: (message) =>
-          toast.error(
-            `The coding agents could not be downloaded to ${hostLabel(host)}: ${message}`,
-            { id: toastId, icon: AgentDistroLogo({ size: 16 }) },
-          ),
+          toast.error(agentToast.failed(hostLabel(host), message), {
+            id: toastId,
+            icon: AgentDistroLogo({ size: 16 }),
+          }),
       });
       // "Checking": the host is up and agents are on, but its status cell has
       // not sent its first frame. Derived here from the cell's own pending
@@ -124,21 +121,16 @@ export function agentStatusLinesNow(): readonly AgentStatusLine[] {
   });
 }
 
-/** The stored profile, when the listing does not offer it. */
+/** The stored profile, when the listing does not offer it (`unknownProfileOf`). */
 export function unknownAgentProfile(): string | undefined {
-  const listing = agentDistroListing();
-  if (listing?.kind !== "available") return undefined;
-  const { profile } = preferences().agentDistro;
-  return listing.profiles.some((p) => p.name === profile) ? undefined : profile;
+  return unknownProfileOf(preferences().agentDistro, agentDistroListing());
 }
 
 createRoot(() =>
   createEffect(
     on(unknownAgentProfile, (profile) => {
       if (profile === undefined) return;
-      toast.error(
-        `Your saved coding-agents choice "${profile}" is not one this kolu offers — pick one in Settings → Agents.`,
-      );
+      toast.error(unknownProfileMessage(profile));
     }),
   ),
 );

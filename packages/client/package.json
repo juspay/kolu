@@ -18,6 +18,7 @@
     "@effect/platform-browser": "catalog:",
     "@kolu/agent-distro": "workspace:*",
     "@kolu/artifact-sdk": "workspace:*",
+    "@kolu/byte-units": "workspace:*",
     "@kolu/html-escape": "workspace:*",
     "@kolu/padi": "workspace:*",
     "@kolu/padi-client": "workspace:*",

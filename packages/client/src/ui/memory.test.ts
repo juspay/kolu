@@ -11,25 +11,25 @@ describe("bytesToMB", () => {
 });
 
 describe("formatMB", () => {
-  it("drops to KB below 100 KB so a tiny buffer doesn't read as 0.0 MB", () => {
-    expect(formatMB(23_000)).toBe("22 KB");
-    expect(formatMB(50_000)).toBe("49 KB");
+  it("drops to KiB below ~100 KiB so a tiny buffer doesn't read as 0.0 MiB", () => {
+    expect(formatMB(23_000)).toBe("22 KiB");
+    expect(formatMB(50_000)).toBe("49 KiB");
   });
 
   it("renders MB with one decimal at or above 100 KB", () => {
-    expect(formatMB(150 * MB)).toBe("150.0 MB");
-    expect(formatMB(1.5 * MB)).toBe("1.5 MB");
+    expect(formatMB(150 * MB)).toBe("150.0 MiB");
+    expect(formatMB(1.5 * MB)).toBe("1.5 MiB");
   });
 });
 
 describe("formatMBCompact", () => {
   it("renders whole MB for the rail's glanceable readout", () => {
-    expect(formatMBCompact(142 * MB)).toBe("142 MB");
-    expect(formatMBCompact(0)).toBe("0 MB");
+    expect(formatMBCompact(142 * MB)).toBe("142 MiB");
+    expect(formatMBCompact(0)).toBe("0 MiB");
   });
 
   it("rounds to the nearest whole MB", () => {
-    expect(formatMBCompact(141.4 * MB)).toBe("141 MB");
-    expect(formatMBCompact(141.6 * MB)).toBe("142 MB");
+    expect(formatMBCompact(141.4 * MB)).toBe("141 MiB");
+    expect(formatMBCompact(141.6 * MB)).toBe("142 MiB");
   });
 });

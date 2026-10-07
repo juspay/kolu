@@ -1,3 +1,4 @@
+import { GIB, MIB } from "@kolu/byte-units";
 import { describe, expect, it } from "vitest";
 import { agentBundleShortHash } from "./bundle.ts";
 import type { AgentDistroListing } from "./listing.ts";
@@ -7,16 +8,24 @@ import {
   AGENTS_RETRY,
   DOWNLOAD_MIN_FILL,
   agentMarkLabel,
+  agentChipLabel,
   agentMarkOf,
+  agentRestartAction,
   agentRestartReady,
   agentStaleLabel,
   agentStalenessOf,
   agentStatusLines,
+  agentToast,
+  AGENTS_OFF_MEANS,
   agentsHint,
   agentsSegmentOf,
   agentsSegments,
   downloadBytes,
+  downloadEdge,
   harnessLine,
+  restartedLabel,
+  unknownProfileMessage,
+  unknownProfileOf,
 } from "./status.ts";
 
 const READY_BUNDLE =
@@ -24,9 +33,13 @@ const READY_BUNDLE =
 
 describe("agentMarkOf — the one status → treatment fold", () => {
   const cases: [string, AgentDistroStatus | undefined, unknown][] = [
-    ["no frame yet, not checking", undefined, { kind: "none" }],
-    ["off", { kind: "off" }, { kind: "none" }],
-    ["unavailable", { kind: "unavailable" }, { kind: "none" }],
+    ["no frame yet, not checking", undefined, { kind: "none", why: "unheard" }],
+    ["off", { kind: "off" }, { kind: "none", why: "off" }],
+    [
+      "unavailable",
+      { kind: "unavailable" },
+      { kind: "none", why: "unavailable" },
+    ],
     [
       "ready",
       { kind: "ready", profile: "vanilla", bundle: READY_BUNDLE },
@@ -37,9 +50,9 @@ describe("agentMarkOf — the one status → treatment fold", () => {
       {
         kind: "downloading",
         profile: "vanilla",
-        progress: { done: 1_100_000_000, total: 2_000_000_000 },
+        progress: { done: 1.1 * GIB, total: 2 * GIB },
       },
-      { kind: "downloading", fraction: 0.55, bytes: "1.1 GB of 2.0 GB" },
+      { kind: "downloading", fraction: 0.55, bytes: "1.1 GiB of 2.0 GiB" },
     ],
     [
       "downloading, no numbers yet",
@@ -65,15 +78,17 @@ describe("downloadBytes", () => {
   it("says no numbers when there are none — including a 0-byte total", () => {
     expect(downloadBytes(undefined)).toBeUndefined();
     expect(downloadBytes({ done: 0, total: 0 })).toBeUndefined();
-    expect(downloadBytes({ done: 603_000_000, total: 2_200_000_000 })).toBe(
-      "603 MB of 2.2 GB",
+    expect(downloadBytes({ done: 603 * MIB, total: 2.2 * GIB })).toBe(
+      "603 MiB of 2.2 GiB",
     );
   });
 });
 
 describe("agentMarkLabel", () => {
   it("words each treatment; none has no words", () => {
-    expect(agentMarkLabel({ kind: "none" }, "this machine")).toBeUndefined();
+    expect(
+      agentMarkLabel({ kind: "none", why: "off" }, "this machine"),
+    ).toBeUndefined();
     expect(agentMarkLabel({ kind: "checking" }, "this machine")).toBe(
       "Coding agents: checking this machine…",
     );
@@ -90,11 +105,11 @@ describe("agentMarkLabel", () => {
         {
           kind: "downloading",
           fraction: 0.55,
-          bytes: "1.1 GB of 2.0 GB",
+          bytes: "1.1 GiB of 2.0 GiB",
         },
         "this machine",
       ),
-    ).toBe("Downloading the coding agents to this machine… 1.1 GB of 2.0 GB");
+    ).toBe("Downloading the coding agents to this machine… 1.1 GiB of 2.0 GiB");
     expect(
       agentMarkLabel({ kind: "failed", message: "nix missing" }, "box"),
     ).toBe(
@@ -174,7 +189,7 @@ describe("the one Agents control", () => {
   it("hovers say, in plain words, what each choice is — upstream's text after", () => {
     if (LISTING.kind !== "available") throw new Error("fixture");
     expect(agentsSegments(LISTING.profiles).map((s) => s.hint)).toEqual([
-      "New terminals use only the agents you installed yourself.",
+      AGENTS_OFF_MEANS,
       "Stock agents, your own API keys.\nagent-distro describes it as: Upstream harnesses with your own provider",
       "Juspay's agents and skills, through Juspay's gateway.\nagent-distro describes it as: Juspay skills + Kolu",
     ]);
@@ -214,7 +229,7 @@ describe("agentsHint", () => {
         "Kolu can bring AI coding agents along — kept up to date, nothing to install:",
         "Claude Code 2.1.291 · Codex 0.160.1",
         "Pick vanilla (stock agents, your own API keys) or juspay (Juspay's agents and skills, through Juspay's gateway). New terminals then start with those agents; what you installed yourself stays as a fallback.",
-        "Off: terminals use only what you installed.",
+        `Off — ${AGENTS_OFF_MEANS}`,
       ].join("\n"),
     });
   });
@@ -232,10 +247,7 @@ describe("agentsHint", () => {
   it("keeps the unknown-choice warning, never resetting the choice", () => {
     expect(
       agentsHint({ ...base, setting: { enabled: true, profile: "gone" } }),
-    ).toEqual({
-      tone: "warn",
-      text: 'Your saved choice "gone" is not one this kolu offers — pick one above.',
-    });
+    ).toEqual({ tone: "warn", text: unknownProfileMessage("gone") });
   });
 
   it("says nothing until the listing arrives", () => {
@@ -312,7 +324,7 @@ describe("agentStatusLines", () => {
           host("box", {
             kind: "downloading",
             profile: "vanilla",
-            progress: { done: 1_100_000_000, total: 2_000_000_000 },
+            progress: { done: 1.1 * GIB, total: 2 * GIB },
           }),
           host("done", ready),
           host("pu-3", {
@@ -330,7 +342,7 @@ describe("agentStatusLines", () => {
         fill: 1,
         text: "ready · vanilla nd11nx5f",
       },
-      { host: "box", bar: "busy", fill: 0.55, text: "1.1 GB of 2.0 GB" },
+      { host: "box", bar: "busy", fill: 0.55, text: "1.1 GiB of 2.0 GiB" },
       { host: "pu-3", bar: "warn", fill: 1, text: "cache not usable" },
       { host: "ci-2", bar: "empty", fill: 0, text: "checking…" },
     ]);
@@ -505,5 +517,87 @@ describe("agentStaleLabel", () => {
     ).toBe(
       "This terminal has the vanilla coding agents (nd11nx5f). New terminals get juspay, which is still downloading to this machine; Restart appears once it is ready.",
     );
+  });
+});
+
+describe("unknownProfileOf — the one test for a saved choice kolu does not offer", () => {
+  it("names the stored profile only when the listing lacks it, on or off", () => {
+    expect(unknownProfileOf({ enabled: true, profile: "gone" }, LISTING)).toBe(
+      "gone",
+    );
+    expect(unknownProfileOf({ enabled: false, profile: "gone" }, LISTING)).toBe(
+      "gone",
+    );
+    expect(
+      unknownProfileOf({ enabled: true, profile: "vanilla" }, LISTING),
+    ).toBeUndefined();
+    expect(
+      unknownProfileOf({ enabled: true, profile: "gone" }, undefined),
+    ).toBeUndefined();
+  });
+});
+
+describe("agentRestartAction — what the stale pill's restart does, decided once", () => {
+  const had = { profile: "vanilla", hash: "nd11nx5f" };
+  it("agents stay on: the conversation resumes — not destructive", () => {
+    expect(
+      agentRestartAction({
+        kind: "stale",
+        had,
+        now: { kind: "profile", profile: "juspay", hash: "ivzki9f3" },
+      }),
+    ).toEqual({
+      label: "Restart",
+      armedLabel: "Restart agent",
+      destructive: false,
+    });
+  });
+  it("agents now off: a plain shell, the agent ends — destructive", () => {
+    expect(
+      agentRestartAction({ kind: "stale", had, now: { kind: "off" } }),
+    ).toEqual({
+      label: "Restart",
+      armedLabel: "Kill agent and restart",
+      destructive: true,
+    });
+  });
+});
+
+describe("the words outside the folds", () => {
+  it("the pill's hover, the restart toast (from what padi did), the toasts", () => {
+    expect(
+      agentChipLabel(
+        "vanilla",
+        "/nix/store/nd11nx5f1dkf02cr9dhxqq4axg23vzgc-agent-distro-vanilla",
+      ),
+    ).toBe(
+      "This terminal started with the vanilla coding agents (nd11nx5f). Click to choose what new terminals get.",
+    );
+    expect(restartedLabel({ agentProfile: undefined, resumed: false })).toBe(
+      "Restarted as a plain shell",
+    );
+    expect(restartedLabel({ agentProfile: "juspay", resumed: false })).toBe(
+      "Restarted with the juspay agents",
+    );
+    expect(restartedLabel({ agentProfile: "juspay", resumed: true })).toBe(
+      "Restarted with the juspay agents; the conversation resumed",
+    );
+    expect(agentToast.on("juspay")).toBe("New terminals get the juspay agents");
+    expect(agentToast.ready("box")).toBe(
+      "Coding agents ready on box — new terminals there start with them",
+    );
+  });
+});
+
+describe("downloadEdge — the moments a host's download is worth a toast", () => {
+  it("start when a download begins or is first heard under way; ready / failed only out of a download", () => {
+    expect(downloadEdge("off", "downloading")).toBe("start");
+    expect(downloadEdge(undefined, "downloading")).toBe("start");
+    expect(downloadEdge("downloading", "downloading")).toBe("none");
+    expect(downloadEdge("downloading", "ready")).toBe("ready");
+    expect(downloadEdge("downloading", "error")).toBe("failed");
+    expect(downloadEdge(undefined, "ready")).toBe("none");
+    expect(downloadEdge("off", "error")).toBe("none");
+    expect(downloadEdge("ready", undefined)).toBe("none");
   });
 });

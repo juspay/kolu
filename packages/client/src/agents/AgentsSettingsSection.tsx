@@ -20,6 +20,8 @@ import { preferences, updatePreferences } from "../wire";
 import AgentDistroLogo from "@kolu/agent-distro/solid";
 import {
   AGENTS_OFF,
+  AGENTS_OFF_MEANS,
+  agentToast,
   agentsHint,
   agentsSegmentOf,
   agentsSegments,
@@ -32,13 +34,14 @@ import { agentDistroListing, agentStatusLinesNow } from "./useAgentDistro";
 function choose(segment: string): void {
   if (segment === AGENTS_OFF) {
     updatePreferences({ agentDistro: { enabled: false } });
-    toast("Coding agents off for new terminals", {
+    toast(agentToast.off, {
+      description: AGENTS_OFF_MEANS,
       icon: AgentDistroLogo({ size: 16 }),
     });
     return;
   }
   updatePreferences({ agentDistro: { enabled: true, profile: segment } });
-  toast.success(`New terminals get the ${segment} agents`, {
+  toast.success(agentToast.on(segment), {
     icon: AgentDistroLogo({ size: 16 }),
   });
 }

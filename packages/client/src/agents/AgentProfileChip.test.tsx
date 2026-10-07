@@ -14,7 +14,7 @@
 import { createSignal } from "solid-js";
 import { render } from "solid-js/web";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { AgentStaleness } from "@kolu/agent-distro/status";
+import { agentChipLabel, type AgentStaleness } from "@kolu/agent-distro/status";
 import type { ChipRestart } from "./AgentProfileChip";
 import { RESTART_ARM_MS } from "./restartGuard";
 
@@ -26,9 +26,7 @@ vi.mock("../settings/useTips", () => ({
   }),
 }));
 
-const { default: AgentProfileChip, agentChipLabel } = await import(
-  "./AgentProfileChip"
-);
+const { default: AgentProfileChip } = await import("./AgentProfileChip");
 
 const BUNDLE =
   "/nix/store/nd11nx5f1dkf02cr9dhxqq4axg23vzgc-agent-distro-vanilla";
@@ -37,6 +35,13 @@ const STALE: AgentStaleness = {
   had: { profile: "vanilla", hash: "nd11nx5f" },
   now: { kind: "profile", profile: "juspay", hash: "ivzki9f3" },
 };
+
+/** The action for a stale terminal whose agents stay on (`agentRestartAction`). */
+const RESTART_AGENT = {
+  label: "Restart",
+  armedLabel: "Restart agent",
+  destructive: false,
+} as const;
 
 let dispose: (() => void) | undefined;
 beforeEach(() => vi.useFakeTimers());
@@ -85,7 +90,7 @@ function mount(opts: {
 function restartable(run = vi.fn(() => Promise.resolve())) {
   return {
     run,
-    restart: { guarded: false, armedLabel: "Restart agent", run },
+    restart: { guarded: false, action: RESTART_AGENT, run },
   };
 }
 
@@ -207,7 +212,7 @@ describe("AgentProfileChip — stale", () => {
     );
     const { chip } = mount({
       staleness: STALE,
-      restart: { guarded: false, armedLabel: "Restart agent", run },
+      restart: { guarded: false, action: RESTART_AGENT, run },
     });
     chip.click();
     chip.click();

@@ -1,11 +1,14 @@
-/** Byte-count formatting + the Chromium JS-heap probe — the single source of
- *  truth for BYTE display across the client, memory and on-disk alike. Shared by
+/** Byte-count readouts + the Chromium JS-heap probe. The units are
+ *  `@kolu/byte-units`' (binary: KiB · MiB · GiB) — the one formatter every byte
+ *  figure in kolu goes through; this module only picks each readout's
+ *  granularity. Shared by
  *  the Diagnostic Info dialog (the full `used / total (limit)` breakdown), the
  *  chrome-bar rail (the compact whole-MB readouts) and the State Backups dialog
  *  (snapshot sizes), so the granularity rules live in one place rather than one
  *  formatter per surface with its own thresholds. */
 
-import { BYTES_PER_MB, bytesToWholeMB } from "kolu-common/surface";
+import { formatBytes, formatMiB } from "@kolu/byte-units";
+import { BYTES_PER_MB } from "kolu-common/surface";
 
 /** Bytes → megabytes, rounded to 0.1 MB. A number (not a string) so the
  *  diagnostic JSON snapshot stays machine-parseable. */
@@ -13,19 +16,19 @@ export function bytesToMB(bytes: number): number {
   return Math.round((bytes / BYTES_PER_MB) * 10) / 10;
 }
 
-/** Bytes → a display string, dropping to KB below 100 KB — a fresh 80×24 buffer
- *  is ~23 KB, and "0.0 MB" obscures more than it communicates. */
+/** Bytes → a display string, dropping to KiB below ~100 KiB — a fresh 80×24
+ *  buffer is ~23 KiB, and "0.0 MiB" obscures more than it communicates. */
 export function formatMB(bytes: number): string {
-  if (bytes < 100_000) return `${Math.round(bytes / 1024)} KB`;
-  return `${bytesToMB(bytes).toFixed(1)} MB`;
+  if (bytes < 100_000) return formatBytes(bytes);
+  return formatMiB(bytes, 1);
 }
 
-/** Bytes → a compact whole-MB string for the rail (e.g. `142 MB`). Coarser than
- *  {@link formatMB} on purpose: the rail wants a glanceable figure. Built on the
- *  shared {@link bytesToWholeMB}, the same computation the server-side sampler
- *  dedups on — so the rendered figure and the dedup boundary can't drift. */
+/** Bytes → a compact whole-MiB string for the rail (e.g. `142 MiB`). Coarser
+ *  than {@link formatMB} on purpose: the rail wants a glanceable figure. Whole
+ *  MiB is the same rounding the server-side sampler dedups on
+ *  (`bytesToWholeMB`), so the figure and the dedup boundary can't drift. */
 export function formatMBCompact(bytes: number): string {
-  return `${bytesToWholeMB(bytes)} MB`;
+  return formatMiB(bytes, 0);
 }
 
 /** {@link formatMBCompact} with a null guard for the "no figure yet" case

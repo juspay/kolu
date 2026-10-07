@@ -3,7 +3,9 @@
     "@kolu/agent-distro": {
       "dir": "packages/agent-distro",
       "vendored": true,
-      "workspace": [],
+      "workspace": [
+        "@kolu/byte-units"
+      ],
       "external": {
         "effect": "4.0.0",
         "solid-js": "^1.9.0"
@@ -19,6 +21,12 @@
         "esbuild": "^0.28.1",
         "ts-pattern": "^5.9.0"
       }
+    },
+    "@kolu/byte-units": {
+      "dir": "packages/byte-units",
+      "vendored": true,
+      "workspace": [],
+      "external": {}
     },
     "@kolu/daemon-test-gate": {
       "dir": "packages/daemon-test-gate",
@@ -612,6 +620,7 @@
       "workspace": [
         "@kolu/agent-distro",
         "@kolu/artifact-sdk",
+        "@kolu/byte-units",
         "@kolu/html-escape",
         "@kolu/padi",
         "@kolu/padi-client",
@@ -681,6 +690,7 @@
       "dir": "packages/common",
       "workspace": [
         "@kolu/agent-distro",
+        "@kolu/byte-units",
         "@kolu/padi-client",
         "@kolu/surface",
         "@kolu/surface-app",

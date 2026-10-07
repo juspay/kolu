@@ -70,8 +70,8 @@ const Ring: Component<{ mark: AgentMark }> = (props) => (
   </svg>
 );
 
-/** The words beside the mark on hover: a 90px bar and the bytes while
- *  downloading, otherwise the label (a failure's message, then its fix). */
+/** The words beside the mark on hover — `agentMarkLabel`'s, the one wording
+ *  (the bytes ride in it) — and, while downloading, a 90px bar. */
 const MarkTip: Component<{ mark: AgentMark; where: string }> = (props) => (
   <Show
     when={props.mark.kind === "downloading" && props.mark}
@@ -83,7 +83,7 @@ const MarkTip: Component<{ mark: AgentMark; where: string }> = (props) => (
   >
     {(m) => (
       <span class="flex items-center gap-1.5">
-        <span>Downloading the coding agents to {props.where}…</span>
+        <span>{agentMarkLabel(m(), props.where)}</span>
         {/* The same bar as the Settings status lines: 5px, radius 3, on edge. */}
         <span class="h-[5px] w-[90px] shrink-0 overflow-hidden rounded-[3px] bg-edge">
           <span
@@ -91,9 +91,6 @@ const MarkTip: Component<{ mark: AgentMark; where: string }> = (props) => (
             style={{ width: `${m().fraction * 100}%` }}
           />
         </span>
-        <Show when={m().bytes}>
-          {(bytes) => <span class="font-mono text-fg-3">{bytes()}</span>}
-        </Show>
       </span>
     )}
   </Show>

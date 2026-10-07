@@ -27,6 +27,7 @@
   },
   "dependencies": {
     "@kolu/agent-distro": "workspace:*",
+    "@kolu/byte-units": "workspace:*",
     "@kolu/padi-client": "workspace:*",
     "@kolu/surface": "workspace:*",
     "@kolu/surface-app": "workspace:*",

@@ -232,7 +232,7 @@ describe("parseSavedSession refuses a file too big for one wire frame", () => {
     // for the malformed-JSON branch: the size gate must run first.
     const huge = `{"pad":"${"x".repeat(5 * 1024 * 1024)}"}`;
     expect(() => parseSavedSession(huge)).toThrow(/the limit is/);
-    expect(() => parseSavedSession(huge)).toThrow(/5\.0 MB/);
+    expect(() => parseSavedSession(huge)).toThrow(/5\.0 MiB/);
   });
 
   it("still accepts an ordinary export", () => {

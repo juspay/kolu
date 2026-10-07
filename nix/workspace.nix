@@ -98,6 +98,7 @@ let
     "kolu-pi" = ../packages/integrations/pi;
     "kolu-pty" = ../packages/integrations/pty;
     "kolu-xyne" = ../packages/integrations/xyne;
+    "@kolu/byte-units" = ../packages/byte-units;
     "nonempty" = ../packages/nonempty;
     "kolu-shared" = ../packages/shared;
     "terminal-snapshot" = ../packages/terminal-snapshot;

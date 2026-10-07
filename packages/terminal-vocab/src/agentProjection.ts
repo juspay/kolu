@@ -114,6 +114,15 @@ export function agentBucket(
   }
 }
 
+/** Is the agent LIVE — working, or blocked on you — so that ending its process
+ *  would cost something (the tile pill's Restart asks twice for exactly this)?
+ *  A just-finished agent (`waiting`) is not: its turn is over. Defined FROM
+ *  {@link agentBucket}, so its fence decides here too. */
+export function agentLive(state: AgentInfo["state"]): boolean {
+  const bucket = agentBucket(state);
+  return bucket === "working" || bucket === "awaiting";
+}
+
 /** The coarse agent buckets a wait or a watch accepts as TARGETS — the
  *  {@link agentBucket} fold's vocabulary minus `other` (an `other` bucket never
  *  matches a real agent, so accepting it would only ever time out).

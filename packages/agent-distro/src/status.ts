@@ -9,18 +9,13 @@
  * cells carry — so a field added to the wire is a field these folds handle.
  */
 
+import { formatBytes } from "@kolu/byte-units";
 import { agentBundleShortHash } from "./bundle.ts";
 import type { AgentDistroSetting, AgentDistroStatus } from "./schema.ts";
 import type { AgentDistroListing, AgentDistroProfile } from "./listing.ts";
 
-/** "1.1 GB", "640 MB" — the unit a download reads in. */
-export function formatBytes(bytes: number): string {
-  return bytes >= 1e9
-    ? `${(bytes / 1e9).toFixed(1)} GB`
-    : `${Math.round(bytes / 1e6)} MB`;
-}
-
-/** "1.1 GB of 2.0 GB" for a download's progress, or `undefined` when there are no
+/** "1.1 GiB of 2.0 GiB" for a download's progress (`@kolu/byte-units`' binary
+ *  units — the units Nix reports the bundle in), or `undefined` when there are no
  *  numbers to say. A total of 0 is a run with nothing left to fetch (the host
  *  already had every path): "0 MB of 0 MB" would be noise, not progress. */
 export function downloadBytes(
@@ -58,7 +53,12 @@ function downloadFraction(
  *   - `downloading`: the host is fetching it (a ring filling with bytes);
  *   - `failed`: the download failed (the warning colour and a dot). */
 export type AgentMark =
-  | { readonly kind: "none" }
+  | {
+      readonly kind: "none";
+      /** Why there is no mark: agents are off on the host, the host's padi has
+       *  no agents built in, or we have not heard from the host. */
+      readonly why: "off" | "unavailable" | "unheard";
+    }
   | { readonly kind: "checking" }
   | { readonly kind: "ready"; readonly profile: string; readonly hash: string }
   | {
@@ -79,11 +79,12 @@ export function agentMarkOf(
   checking: boolean,
 ): AgentMark {
   if (checking) return { kind: "checking" };
-  if (status === undefined) return { kind: "none" };
+  if (status === undefined) return { kind: "none", why: "unheard" };
   switch (status.kind) {
     case "off":
+      return { kind: "none", why: "off" };
     case "unavailable":
-      return { kind: "none" };
+      return { kind: "none", why: "unavailable" };
     case "ready":
       return {
         kind: "ready",
@@ -174,6 +175,11 @@ function orList(items: readonly string[]): string {
     : `${items.slice(0, -1).join(", ")} or ${items[items.length - 1]}`;
 }
 
+/** What Off means, in the one wording every surface uses (the Off segment's
+ *  hover, the row's hint, the toast). */
+export const AGENTS_OFF_MEANS =
+  "New terminals use only the agents you installed yourself.";
+
 /** The Settings "Agents" segment that means off. Not a profile name: agent-distro
  *  reserves `default` and the harness names, and `agentsSegments` refuses a
  *  listing that ships a profile called this. */
@@ -191,7 +197,7 @@ export function agentsSegments(
     {
       value: AGENTS_OFF,
       label: "Off",
-      hint: "New terminals use only the agents you installed yourself.",
+      hint: AGENTS_OFF_MEANS,
     },
     ...profiles.map((p) => ({
       value: p.name,
@@ -225,6 +231,13 @@ export interface AgentStatusLine {
   readonly text: string;
 }
 
+/** A status line's words for a host with no mark, by the fold's reason. */
+const NONE_LINE: Record<Extract<AgentMark, { kind: "none" }>["why"], string> = {
+  off: "agents off",
+  unavailable: "no coding agents in this build",
+  unheard: "not connected",
+};
+
 function statusLine(host: HostAgentStatus): AgentStatusLine {
   const mark = agentMarkOf(host.status, host.checking);
   const line = (
@@ -242,15 +255,7 @@ function statusLine(host: HostAgentStatus): AgentStatusLine {
     case "checking":
       return line("empty", 0, "checking…");
     case "none":
-      return line(
-        "empty",
-        0,
-        host.status === undefined
-          ? "not connected"
-          : host.status.kind === "unavailable"
-            ? "no coding agents in this build"
-            : "agents off",
-      );
+      return line("empty", 0, NONE_LINE[mark.why]);
     default:
       return mark satisfies never;
   }
@@ -293,6 +298,24 @@ export function agentStatusLines(input: {
     return [{ ...local, text: `${what} · on ${remotes.length + 1} hosts` }];
   }
   return [local, ...notReady];
+}
+
+/** The stored profile, when the listing does not offer it — the ONE test for a
+ *  saved choice kolu no longer (or never) ships. The choice is never reset:
+ *  Settings warns and a toast says so ({@link unknownProfileMessage}). */
+export function unknownProfileOf(
+  setting: AgentDistroSetting,
+  listing: AgentDistroListing | undefined,
+): string | undefined {
+  if (listing?.kind !== "available") return undefined;
+  return listing.profiles.some((p) => p.name === setting.profile)
+    ? undefined
+    : setting.profile;
+}
+
+/** The one wording of {@link unknownProfileOf}'s answer. */
+export function unknownProfileMessage(profile: string): string {
+  return `Your saved coding-agents choice "${profile}" is not one this kolu offers — pick one in Settings → Agents.`;
 }
 
 /** The profile the setting selects, when agents are on and the listing ships
@@ -338,17 +361,16 @@ export function agentsHint(input: {
         "Kolu can bring AI coding agents along — kept up to date, nothing to install:",
         ...(lead === undefined ? [] : [harnessLine(lead)]),
         `Pick ${orList(choices)}. New terminals then start with those agents; what you installed yourself stays as a fallback.`,
-        "Off: terminals use only what you installed.",
+        `Off — ${AGENTS_OFF_MEANS}`,
       ].join("\n"),
       tone: "muted",
     };
   }
+  const unknown = unknownProfileOf(setting, listing);
+  if (unknown !== undefined)
+    return { text: unknownProfileMessage(unknown), tone: "warn" };
   const profile = selectedAgentProfile(setting, listing);
-  if (profile === undefined)
-    return {
-      text: `Your saved choice "${setting.profile}" is not one this kolu offers — pick one above.`,
-      tone: "warn",
-    };
+  if (profile === undefined) return undefined;
   return {
     text: [
       `${capitalize(plainProfileDescription(profile))}.`,
@@ -472,4 +494,87 @@ export function agentStaleLabel(
   if (now.hash === undefined)
     return `${had} New terminals get ${now.profile}, which is still downloading to this machine; Restart appears once it is ready.`;
   return `${had} New terminals get ${now.profile} (${now.hash}). Restart to switch; the agent's conversation resumes on the new agents, other programs end.`;
+}
+
+/** What the stale pill's restart does, decided ONCE: while agents stay on, the
+ *  agent's conversation resumes on the new agents (padi replays its resume
+ *  command); with agents now off it comes back as a plain shell, so a live
+ *  agent ends — `destructive`, painted in the warning colour. padi makes the
+ *  same decision from the same fact (the setting) and reports what it did
+ *  (`lifecycle.restart`'s `resumed`). */
+export function agentRestartAction(
+  stale: Extract<AgentStaleness, { kind: "stale" }>,
+): {
+  readonly label: string;
+  readonly armedLabel: string;
+  readonly destructive: boolean;
+} {
+  const destructive = stale.now.kind === "off";
+  return {
+    label: "Restart",
+    armedLabel: destructive ? "Kill agent and restart" : "Restart agent",
+    destructive,
+  };
+}
+
+/** A current pill's hover: what this terminal got, and what a click does. */
+export function agentChipLabel(profile: string, bundle: string): string {
+  return `This terminal started with the ${profile} coding agents (${agentBundleShortHash(bundle)}). Click to choose what new terminals get.`;
+}
+
+/** The toast after a restart, from what padi reports it did. */
+export function restartedLabel(restarted: {
+  readonly agentProfile: string | undefined;
+  readonly resumed: boolean;
+}): string {
+  if (restarted.agentProfile === undefined) return "Restarted as a plain shell";
+  return restarted.resumed
+    ? `Restarted with the ${restarted.agentProfile} agents; the conversation resumed`
+    : `Restarted with the ${restarted.agentProfile} agents`;
+}
+
+/** Every toast the agents feature raises, worded once. */
+export const agentToast = {
+  /** A switch to a profile. */
+  on: (profile: string) => `New terminals get the ${profile} agents`,
+  /** A switch to Off (title; {@link AGENTS_OFF_MEANS} is its description). */
+  off: "Coding agents off",
+  /** A host started fetching the selected profile's agents. */
+  downloading: (host: string) => `Downloading the coding agents to ${host}…`,
+  /** …and they landed. */
+  ready: (host: string) =>
+    `Coding agents ready on ${host} — new terminals there start with them`,
+  /** …or they could not be fetched. */
+  failed: (host: string, message: string) =>
+    `The coding agents could not be downloaded to ${host}: ${message}`,
+} as const;
+
+/** The moments a host's download is worth a toast, read off two consecutive
+ *  statuses — ONE fold, fenced, so the client keeps only the effect that
+ *  watches the cell:
+ *
+ *   - `start`: anything else (including nothing yet) → downloading — a
+ *     download began, or is under way when the host is first heard from;
+ *   - `ready`: downloading → ready;
+ *   - `failed`: downloading → error;
+ *   - `none`: everything else (a first frame, a progress tick, an unrelated
+ *     change). */
+export function downloadEdge(
+  prev: AgentDistroStatus["kind"] | undefined,
+  now: AgentDistroStatus["kind"] | undefined,
+): "start" | "ready" | "failed" | "none" {
+  if (now === undefined) return "none";
+  switch (now) {
+    case "downloading":
+      return prev !== "downloading" ? "start" : "none";
+    case "ready":
+      return prev === "downloading" ? "ready" : "none";
+    case "error":
+      return prev === "downloading" ? "failed" : "none";
+    case "off":
+    case "unavailable":
+      return "none";
+    default:
+      return now satisfies never;
+  }
 }

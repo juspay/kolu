@@ -100,6 +100,8 @@ const DECLARED_ALLOWED = new Set([
   // in kolu's contract-with-upstream package; its manifest is `effect` plus
   // `solid-js` (for the logo component), both already in the framework tier.
   "@kolu/agent-distro",
+  // agent-distro's one formatter for a download's bytes: a zero-dependency leaf.
+  "@kolu/byte-units",
   "@kolu/padi-client",
   "@kolu/surface",
   "@kolu/surface-daemon",
@@ -166,6 +168,7 @@ const DECLARED_ALLOWED = new Set([
  *  second pin to make `tsc` pass. That is the gap this split exists to show. */
 const IMPORTED_ALLOWED = new Set([
   "@kolu/agent-distro",
+  "@kolu/byte-units",
   "@kolu/log",
   "@kolu/padi-client",
   "@kolu/shell-quote",

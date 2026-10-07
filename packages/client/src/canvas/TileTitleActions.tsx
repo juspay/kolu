@@ -16,11 +16,11 @@ import { type Component, createMemo, Show } from "solid-js";
 import AgentProfileChip, { type ChipRestart } from "../agents/AgentProfileChip";
 import { hostAgentStatus } from "../agents/useAgentDistro";
 import {
-  type AgentStaleness,
+  agentRestartAction,
   agentRestartReady,
   agentStalenessOf,
 } from "@kolu/agent-distro/status";
-import { agentBucket } from "@kolu/terminal-vocab/agentProjection";
+import { agentLive } from "@kolu/terminal-vocab/agentProjection";
 import { ACTIONS } from "../input/actions";
 import { useRightPanel } from "../right-panel/useRightPanel";
 import { runAction, runActionPromise, type UiAction } from "../runAction";
@@ -49,15 +49,6 @@ import type { HostKey } from "kolu-common/hostKey";
  *  the theme name. Other buttons are square. */
 const TILE_BUTTON_CLASS =
   "flex items-center justify-center h-7 rounded-lg transition-colors cursor-pointer shrink-0 pointer-events-auto hover:bg-black/20 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50";
-
-/** What the guarded Restart's second click does to a live agent: with agents
- *  still on, its conversation comes back on the new agents; with agents now off
- *  it comes back as a plain shell, so the agent is gone. */
-function armedRestartLabel(
-  stale: Extract<AgentStaleness, { kind: "stale" }>,
-): string {
-  return stale.now.kind === "off" ? "Kill agent and restart" : "Restart agent";
-}
 
 const TileTitleActions: Component<{
   id: TerminalId;
@@ -101,18 +92,16 @@ const TileTitleActions: Component<{
     if (s.kind !== "stale" || !agentRestartReady(s)) return undefined;
     return {
       guarded: liveAgent(),
-      armedLabel: armedRestartLabel(s),
+      action: agentRestartAction(s),
       run: (e) =>
         onTilePromise(e, () => runActionPromise(crud.handleRestart(props.id))),
     };
   };
   // A live agent (working, or blocked on you) — Restart would end its process,
-  // so the pill asks twice.
+  // so the pill asks twice. `agentLive` is the shared fold's answer.
   const liveAgent = () => {
     const agent = live()?.agent;
-    if (agent == null) return false;
-    const bucket = agentBucket(agent.state);
-    return bucket === "working" || bucket === "awaiting";
+    return agent != null && agentLive(agent.state);
   };
   const themeName = () => getTerminalThemeName(props.id);
   const subCount = () => store.getDisplayInfo(props.id)?.subCount ?? 0;

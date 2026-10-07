@@ -24,6 +24,8 @@ import Tip from "../ui/Tip";
 import AgentDistroLogo from "@kolu/agent-distro/solid";
 import { agentBundleShortHash } from "@kolu/agent-distro/bundle";
 import {
+  agentChipLabel,
+  type agentRestartAction,
   type AgentStaleness,
   agentStaleLabel,
 } from "@kolu/agent-distro/status";
@@ -33,17 +35,11 @@ import { createRestartGuard } from "./restartGuard";
 export interface ChipRestart {
   /** A live agent — the first press arms instead of acting. */
   readonly guarded: boolean;
-  /** The armed action text: what the second press does to the agent. */
-  readonly armedLabel: string;
+  /** What the restart does (`agentRestartAction`): its labels, and whether it
+   *  ends a live agent (painted in the warning colour when armed). */
+  readonly action: ReturnType<typeof agentRestartAction>;
   /** Runs the restart (the caller selects the tile first); settles when done. */
   readonly run: (e: MouseEvent) => Promise<unknown>;
-}
-
-/** The pill's tooltip — what this terminal got, and what a click does. Short:
- *  the exact store path is for the accessible name, not the hover. Exported
- *  for the test. */
-export function agentChipLabel(profile: string, bundle: string): string {
-  return `This terminal started with the ${profile} coding agents (${agentBundleShortHash(bundle)}). Click to choose what new terminals get.`;
 }
 
 const AgentProfileChip: Component<{
@@ -77,8 +73,10 @@ const AgentProfileChip: Component<{
       ? agentChipLabel(props.profile, props.bundle)
       : agentStaleLabel(s);
   };
-  const action = () =>
-    guard.armed() ? (props.restart?.armedLabel ?? "Restart") : "Restart";
+  const action = () => {
+    const a = props.restart?.action;
+    return a === undefined ? "" : guard.armed() ? a.armedLabel : a.label;
+  };
   return (
     <Tip label={<span class="block max-w-sm">{label()}</span>}>
       <button
@@ -122,7 +120,7 @@ const AgentProfileChip: Component<{
           <span
             data-testid="tile-agent-restart"
             class={
-              guard.armed() && action().startsWith("Kill")
+              guard.armed() && props.restart?.action.destructive
                 ? "text-warning"
                 : "text-accent"
             }

@@ -43,6 +43,7 @@ import {
   AgentDistroProfileSchema,
 } from "@kolu/agent-distro/listing";
 import { DEFAULT_AGENT_PROFILE } from "@kolu/agent-distro/manifest";
+import { MIB } from "@kolu/byte-units";
 
 import {
   HostDaemonInventorySchema,
@@ -831,7 +832,8 @@ export const DEFAULT_DAEMON_INVENTORY: DaemonInventory = {
 
 /** Bytes in one megabyte. The single source of truth both the server-side dedup
  *  boundary and the client-side rail rendering read, so they can't drift. */
-export const BYTES_PER_MB = 1_048_576;
+/** One MiB — `@kolu/byte-units`' constant, the unit every byte readout uses. */
+export const BYTES_PER_MB = MIB;
 
 /** The whole-megabyte figure the rail displays for a byte count. One
  *  computation, shared: the server's `processMemory` dedup (drop a set when the
