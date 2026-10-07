@@ -23,6 +23,7 @@ import { createEffect, createMemo, createRoot, mapArray, on } from "solid-js";
 import { toast } from "solid-sonner";
 import { hostLabel } from "../host/hostChipTone";
 import { app, hostKeys, padiMap, preferences } from "../wire";
+import { watchFirstDownload } from "./firstDownload";
 
 // App-lifetime, owned subscriptions — the `useForwards` reason: a bare module
 // `.use()` is torn down a microtask after load and its first frame lands on nobody.
@@ -42,19 +43,13 @@ const byHost = createRoot(() => {
       const sub = padiMap.entry(host).cells.agentDistroStatus.use();
       // The first download on a host is the one moment worth a toast: from then
       // on its next new terminal has the agents.
-      createEffect(
-        on(
-          () => sub.value(),
-          (now, prev) => {
-            if (prev?.kind === "downloading" && now?.kind === "ready")
-              toast.success(`Agents ready on ${hostLabel(host)}`);
-            if (prev?.kind === "downloading" && now?.kind === "error")
-              toast.error(
-                `Agents could not be downloaded on ${hostLabel(host)}: ${now.message}`,
-              );
-          },
-        ),
-      );
+      watchFirstDownload(() => sub.value(), {
+        onReady: () => toast.success(`Agents ready on ${hostLabel(host)}`),
+        onError: (message) =>
+          toast.error(
+            `Agents could not be downloaded on ${hostLabel(host)}: ${message}`,
+          ),
+      });
       return { enc, read: () => sub.value() };
     },
   );

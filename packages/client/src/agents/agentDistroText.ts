@@ -33,7 +33,9 @@ export function agentDistroStatusText(
       return {
         tone: "busy",
         text:
-          status.progress === undefined
+          // A total of 0 is a run with nothing left to fetch (the host already
+          // had every path): "0 MB of 0 MB" would be noise, not progress.
+          status.progress === undefined || status.progress.total === 0
             ? "Downloading agents…"
             : `Downloading agents… ${formatBytes(status.progress.done)} of ${formatBytes(status.progress.total)}`,
       };
