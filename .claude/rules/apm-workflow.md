@@ -14,7 +14,7 @@ APM is not a global CLI — it runs via `uvx` through justfile recipes in `agent
 
 `.claude/skills/<name>/` and `.claude/rules/<name>.md` are generated from the source trees below — grep **all three** before assuming something isn't apm-managed:
 
-- **Root `.apm/`** — this repo's own package: skills like `atlas`, `test`, `dev-server`, `evidence`, `release`; instructions like this file, under `.apm/instructions/`.
+- **Root `.apm/`** — this repo's own package: skills like `test`, `dev-server`, `evidence`, `release`; instructions like this file, under `.apm/instructions/`.
 - **`agents/.apm/`** — the reusable `agents/` package (a local `path:` dependency in the root `apm.yml`): the skills `surface`, `hostility-review`, `diataxis`.
 
 - **`agent-plugin/skills/kolu/`** — the exported kolu skill and its `TUI.md` reference, consumed by `agents/apm.yml` as a local path dependency. Edit this source, not a generated runtime copy.

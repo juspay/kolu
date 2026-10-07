@@ -76,8 +76,8 @@ The DAG groups work by responsibility:
   osfacts checks.
 - Browser recipes own end-to-end behavior and its append-only governance
   ledger.
-- Living-documentation and example recipes prove Surface examples and Atlas
-  output remain buildable and synchronized.
+- Living-documentation and example recipes prove Surface examples remain
+  buildable and the rendered outputs stay synchronized.
 
 For the exact current membership and dependency edges, inspect
 [`ci/mod.just`](./mod.just); local entry points and their dependency-bearing

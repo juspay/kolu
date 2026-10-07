@@ -33,9 +33,9 @@ along transitively. It also registers `kolu mcp` for every supported agent
 runtime because `/kolu` is MCP-first; the `kolu` binary must be available on the
 host's `PATH`.
 
-**Project-supplied skills.** A consuming project brings its own `/atlas`,
-`/test`, and `/dev-server` skills — those are inherently project-specific and
-are deliberately not vendored here (kolu's own live at `../.apm/skills/`).
+**Project-supplied skills.** A consuming project brings its own `/test` and
+`/dev-server` skills — those are inherently project-specific and are
+deliberately not vendored here (kolu's own live at `../.apm/skills/`).
 
 ## Using this in your own project
 
