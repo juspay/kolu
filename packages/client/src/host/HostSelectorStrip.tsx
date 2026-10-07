@@ -76,6 +76,7 @@ import { addHost } from "./addHost";
 import { focusOnMount } from "./focusOnMount";
 import { HostDiagnosticsPopover } from "./HostDiagnosticsPopover";
 import { HostIdentityLabel } from "./HostIdentityLabel";
+import AgentDistroHostBadge from "../agents/AgentDistroHostBadge";
 import { forwardRingLabel, HostStatusDot } from "./HostStatusDot";
 import { activeKavalPresence } from "../kaval/useDaemonStatus";
 import {
@@ -140,6 +141,9 @@ const HostChipShell: Component<{
   };
   status?: JSX.Element;
   attention: JSX.Element;
+  /** The host's agent-distro note (a download in progress, or its error) — the
+   *  live chip's only; the measuring twin leaves it out. */
+  agents?: JSX.Element;
 }> = (props) => (
   <div
     {...props.tab}
@@ -163,6 +167,7 @@ const HostChipShell: Component<{
       />
     </button>
     {props.attention}
+    {props.agents}
   </div>
 );
 
@@ -271,6 +276,7 @@ const HostChip: Component<{
             class="-ml-1 mr-2.5"
           />
         }
+        agents={<AgentDistroHostBadge host={props.host} />}
       />
       <Show when={diagOpen()}>
         <HostDiagnosticsPopover

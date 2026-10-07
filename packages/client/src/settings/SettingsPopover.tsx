@@ -8,6 +8,7 @@ import type {
   ShuffleBehavior,
 } from "kolu-common/surface";
 import { type Component, Show } from "solid-js";
+import AgentsSettingsSection from "../agents/AgentsSettingsSection";
 import { Portal } from "solid-js/web";
 import SegmentedControl, {
   type SegmentedControlOption,
@@ -202,6 +203,7 @@ const SettingsPopover: Component<{
               onChange={(on) => updatePreferences({ startupTips: on })}
             />
           </SettingRow>
+          <AgentsSettingsSection />
         </div>
       </Portal>
     </Show>

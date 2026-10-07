@@ -1,7 +1,8 @@
 /** Per-tile chrome rendered into the CanvasTile title bar.
  *
- *  Order (left → right between title and close): agent indicator, theme
- *  pill, split toggle, search, screenshot.
+ *  Order (left → right between title and close): agent indicator, agents
+ *  chip (the agent-distro profile + bundle the terminal was spawned with),
+ *  theme pill, split toggle, search, screenshot.
  *
  *  Reads singleton state and verbs directly — store, sub-panel, theme manager,
  *  right panel, tips, plus the command palette, terminal CRUD, and per-terminal
@@ -11,6 +12,7 @@
 import { activeArm, sleepingArm } from "@kolu/padi-client/surface";
 import type { TerminalId } from "kolu-common/surface";
 import { type Component, Show } from "solid-js";
+import AgentProfileChip from "../agents/AgentProfileChip";
 import { ACTIONS } from "../input/actions";
 import { useRightPanel } from "../right-panel/useRightPanel";
 import { runAction, type UiAction } from "../runAction";
@@ -119,6 +121,15 @@ const TileTitleActions: Component<{
           >
             <AgentIndicator agent={agent()} />
           </button>
+        )}
+      </Show>
+      <Show when={meta()?.agentBundle}>
+        {(bundle) => (
+          <Show when={meta()?.agentProfile}>
+            {(profile) => (
+              <AgentProfileChip profile={profile()} bundle={bundle()} />
+            )}
+          </Show>
         )}
       </Show>
       <Show when={themeName()}>
