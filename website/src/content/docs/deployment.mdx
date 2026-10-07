@@ -184,7 +184,9 @@ there so it downloads the agent instead of building it.
 
 The coding agents kolu puts on terminals' PATH ([Agents](/agents)) follow a
 different rule. On this machine they ship inside kolu itself — every profile —
-so they come down with kolu from the same cache. A remote host is never sent
+so they come down with kolu from the same cache on the two systems the cache is
+filled for (x86_64 Linux and Apple Silicon). On aarch64 Linux the cache has no
+build of them, so the first `nix run` there compiles them, which takes a while. A remote host is never sent
 them: it downloads its profile's bundle itself, from agent-distro's cache (the
 same `https://cache.nixos.asia/oss` above), so that host's Nix needs the block
 above too; without it the host shows the "cache not usable" message rather than

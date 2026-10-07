@@ -141,8 +141,10 @@ const HostChipShell: Component<{
   };
   status?: JSX.Element;
   attention: JSX.Element;
-  /** The host's agent-distro note (a download in progress, or its error) — the
-   *  live chip's only; the measuring twin leaves it out. */
+  /** The host's agent-distro note (a download in progress, or its error). The
+   *  measuring twin renders it too: it is up to 16rem wide, and a chip whose
+   *  width estimate leaves it out would break the one-row rule while a host
+   *  downloads. */
   agents?: JSX.Element;
 }> = (props) => (
   <div
@@ -817,6 +819,7 @@ const HostSelectorStrip: Component = () => {
                         class="-ml-1 mr-2.5"
                       />
                     }
+                    agents={<AgentDistroHostBadge host={host} />}
                   />
                 </div>
               </div>

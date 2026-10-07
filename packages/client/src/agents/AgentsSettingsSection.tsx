@@ -49,12 +49,14 @@ const AgentsSettingsSection: Component = () => {
       <Show
         when={profiles()}
         fallback={
-          <p class="text-xs text-fg-3/70" data-testid="agents-unavailable">
-            <Show when={agentDistroListing()?.kind === "unavailable"}>
+          // Nothing while the listing's first frame is in flight; words only
+          // for a kolu that really has no agent-distro.
+          <Show when={agentDistroListing()?.kind === "unavailable"}>
+            <p class="text-xs text-fg-3/70" data-testid="agents-unavailable">
               This kolu was built without agent-distro, so there are no agents
               to choose from.
-            </Show>
-          </p>
+            </p>
+          </Show>
         }
       >
         {(list) => (

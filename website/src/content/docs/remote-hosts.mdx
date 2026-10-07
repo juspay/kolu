@@ -125,7 +125,7 @@ padi they talk to.
 The **coding agents** do not ride that closure. With [Agents](/agents) on, the
 first time a host is used the host **downloads them itself** from agent-distro's
 binary cache into its own Nix store; nothing is copied over ssh. The host's tab
-shows "Downloading agents… 1.1 GB of 2.0 GB" until they land, then kolu says
+shows "Downloading agents…" until they land, then kolu says
 "Agents ready on *host*" and the next new terminal there has them. A host whose
 Nix cannot use that cache shows agent-distro's own message instead (add the
 cache to the host's `nix.settings`, then turn Agents off and on to retry); it

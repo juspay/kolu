@@ -1,6 +1,6 @@
 ---
 title: Agents come with kolu
-description: "Settings → Agents puts Claude Code, Codex, Oh My Pi, OpenCode and Pi — from agent-distro, with kolu's own plugin loaded — on the PATH of every new terminal, on this machine and on every host you add. Pick a profile, see it on each tile, turn it off."
+description: "Settings → Agents puts Claude Code, Codex, Oh My Pi, OpenCode (both builds) and Pi — from agent-distro, with kolu's own plugin loaded — on the PATH of every new terminal, on this machine and on every host you add. Pick a profile, see it on each tile, turn it off."
 order: 49
 section: "Agents & Attention"
 koluHero:
@@ -26,13 +26,14 @@ default; other profiles add skills or a provider gateway.
 
 ## Pick a profile
 
-Open **Settings** (the wrench in the top bar). The **Agents** section, marked
+Open **Settings** (the gear in the top bar). The **Agents** section, marked
 "Provided by agent-distro", has two controls:
 
 <CardGrid>
   <Card title="Enabled">
-    On by default. Off means kolu adds nothing to any terminal's PATH — a
-    `claude` you installed yourself is what runs.
+    On by default — including on an install that predates the setting. Off
+    means kolu adds nothing to any terminal's PATH — a `claude` you installed
+    yourself is what runs.
   </Card>
   <Card title="Profile">
     Every profile the pinned agent-distro ships, with the selected one's
@@ -64,8 +65,9 @@ With agents on, a new terminal's PATH reads, from the front:
 
 So the bundled `claude` wins over one you installed yourself. That is on purpose,
 and the Settings text says so next to the switch. kolu re-applies this order after
-your `.bashrc` / `.zshrc` run, so a dotfile that sets `PATH` outright does not
-undo it (bash and zsh; other shells get the order at spawn only — see
+your `.bashrc` / `.zshrc` run, so neither a dotfile that sets `PATH` outright nor
+one that puts its own directory first (`export PATH=$HOME/.local/bin:$PATH`, as
+Claude Code's own installer writes) undoes it (bash and zsh; other shells get the order at spawn only — see
 [Shell integration](/shell-integration)).
 
 To run your own `claude` in a kolu terminal, turn Agents off, or call it by its
@@ -78,7 +80,7 @@ copied over ssh. The first time a host is used with agents on, that host
 **downloads them itself**, from agent-distro's binary cache into its own Nix
 store. The host's tab shows it while it happens:
 
-> Downloading agents… 1.1 GB of 2.0 GB
+> Downloading agents…
 
 When it lands, kolu says "Agents ready on *host*", and the next new terminal
 there has them. Terminals opened on that host before then have no agents (and no

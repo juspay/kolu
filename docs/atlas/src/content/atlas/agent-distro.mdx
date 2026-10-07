@@ -4,7 +4,7 @@ description: Kolu puts agent-distro's coding agents, with kolu's own plugin, on 
 parents: [feature]
 status: accepted
 maturity: seedling
-updated: 2026-10-07
+updated: 2026-10-06
 ---
 
 import Callout from "../../components/Callout.astro";
@@ -73,7 +73,9 @@ Shipped in <PrLink pr={2265} />.
 Known limits are decided, not open: garbage collection can remove an old bundle
 under a running agent; two updaters on one machine are harmless; byte progress
 waits on agent-distro's U4; a fetched (remote) bundle has no `agent-distro`
-picker of its own.
+picker of its own; a host fetches `github:juspay/agent-distro` at its latest
+`main`, while padi checks a profile name against the listing pinned in kolu's
+build, so a profile added upstream is refused until kolu's pin moves.
 
 ## ADK2–ADK4 — next
 
