@@ -35,7 +35,11 @@ const SettingRow: Component<{
       {(hint) => {
         const cfg = () => TONE_CONFIG[hint().tone ?? "muted"];
         return (
-          <p class={`mt-1.5 text-xs leading-relaxed ${cfg().colorClass}`}>
+          // `whitespace-pre-line`: a hint may carry a second line (the Agent
+          // profile row's harness list); a one-line hint renders as before.
+          <p
+            class={`mt-1.5 text-xs leading-relaxed whitespace-pre-line ${cfg().colorClass}`}
+          >
             <Show when={cfg().glyph}>
               <span aria-hidden="true">{cfg().glyph}</span>
             </Show>

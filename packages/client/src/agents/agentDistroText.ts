@@ -6,6 +6,7 @@
  */
 
 import type { AgentDistroStatus } from "@kolu/padi-client/surface";
+import type { AgentDistroProfile } from "kolu-common/surface";
 
 /** The short hash a tile's chip shows for a bundle: the first 8 characters of
  *  its store hash (`/nix/store/<hash>-name` → `<hash>[0..8]`). Not a store path
@@ -48,4 +49,11 @@ export function agentDistroStatusText(
     default:
       return status satisfies never;
   }
+}
+
+/** What a profile puts on the PATH, as the Settings hint's second line:
+ *  "claude 2.1.291 · codex 0.80.1 · omp 18.7.0 · …" — each harness's command
+ *  name (what you type) and version, in the listing's order. */
+export function harnessLine(profile: AgentDistroProfile): string {
+  return profile.harnesses.map((h) => `${h.name} ${h.version}`).join(" · ");
 }

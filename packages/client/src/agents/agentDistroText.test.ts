@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { agentBundleShortHash, agentDistroStatusText } from "./agentDistroText";
+import {
+  agentBundleShortHash,
+  agentDistroStatusText,
+  harnessLine,
+} from "./agentDistroText";
 
 describe("agentDistroStatusText", () => {
   it("shows bytes while fetching", () => {
@@ -41,5 +45,26 @@ describe("agentBundleShortHash", () => {
         "/nix/store/nd11nx5f1dkf02cr9dhxqq4axg23vzgc-agent-distro-vanilla",
       ),
     ).toBe("nd11nx5f");
+  });
+});
+
+describe("harnessLine", () => {
+  it("lists each harness's command and version, in listing order", () => {
+    expect(
+      harnessLine({
+        name: "vanilla",
+        description: "d",
+        harnesses: [
+          {
+            name: "claude",
+            title: "Claude Code",
+            tagline: "t",
+            version: "2.1.291",
+          },
+          { name: "codex", title: "Codex", tagline: "t", version: "0.80.1" },
+          { name: "omp", title: "Oh My Pi", tagline: "t", version: "18.7.0" },
+        ],
+      }),
+    ).toBe("claude 2.1.291 · codex 0.80.1 · omp 18.7.0");
   });
 });

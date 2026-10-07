@@ -26,9 +26,15 @@ Then(
         .locator(`[data-testid="agents-profile-${name}"]`)
         .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
     }
-    await this.page
-      .locator('[data-testid="settings-agents"]')
-      .getByText("Provided by agent-distro")
+    const popover = this.page.locator('[data-testid="settings-popover"]');
+    // The Agents row's hint names where the agents come from…
+    await popover
+      .getByText("Provided by agent-distro", { exact: false })
+      .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    // …and the Agent profile row's hint lists what the selected profile ships,
+    // from the listing (the fixture's harness is `claude 0.0.0`).
+    await popover
+      .getByText("claude 0.0.0", { exact: false })
       .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
   },
 );

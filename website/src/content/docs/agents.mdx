@@ -26,18 +26,20 @@ default; other profiles add skills or a provider gateway.
 
 ## Pick a profile
 
-Open **Settings** (the gear in the top bar). The **Agents** section, marked
-"Provided by agent-distro", has two controls:
+Open **Settings** (the gear in the top bar). Two rows set it:
 
 <CardGrid>
-  <Card title="Enabled">
-    On by default — including on an install that predates the setting. Off
-    means kolu adds nothing to any terminal's PATH — a `claude` you installed
-    yourself is what runs.
+  <Card title="Agents">
+    On by default — including on an install that predates the setting. Its hint
+    says the agents are provided by agent-distro and come first on the PATH of
+    new terminals. Off means kolu adds nothing to any terminal's PATH — a
+    `claude` you installed yourself is what runs.
   </Card>
-  <Card title="Profile">
-    Every profile the pinned agent-distro ships, with the selected one's
-    description underneath. `vanilla` is selected on a fresh install.
+  <Card title="Agent profile">
+    Every profile the pinned agent-distro ships; `vanilla` is selected on a
+    fresh install. Under it: the selected profile's description, then the
+    agents it puts on your PATH with their versions, e.g.
+    `claude 2.1.291 · codex 0.80.1 · omp 18.7.0 · …`.
   </Card>
 </CardGrid>
 
@@ -105,7 +107,7 @@ kolu, so switching profile there is instant and works offline.
 
 ## Turning it off
 
-Settings → Agents → **Enabled** off. From the next new terminal on, on every
+Settings → **Agents** off. From the next new terminal on, on every
 host, kolu adds no agents and no plugin variable; your own tools are what run.
 Terminals already open keep what they have, and keep their chip, until you close
 them.
