@@ -19,11 +19,13 @@
     let
       platform = import ./nix/each-system.nix;
       commitHash = import ./nix/commit-hash.nix self;
-      # Import Kolu once per system; `packages` and `checks` both consume these
-      # so each derivation set is evaluated once.
-      koluBySystem = platform.withPkgs (pkgs:
+      # Import nixpkgs and Kolu once per system; `packages` and `checks` both
+      # consume these so each derivation set is evaluated once.
+      pkgsBySystem = platform.withPkgs (pkgs: pkgs);
+      koluBySystem = platform.mapSystems (system:
         import ./default.nix {
-          inherit pkgs commitHash;
+          pkgs = pkgsBySystem.${system};
+          inherit commitHash;
         });
     in
     {
@@ -79,7 +81,7 @@
         # context dropped, so realising this check evaluates every system but
         # builds none of them.
         agent-distro-systems =
-          (import ./nix/nixpkgs.nix { inherit system; }).writeText "agent-distro-systems"
+          pkgsBySystem.${system}.writeText "agent-distro-systems"
             (builtins.unsafeDiscardStringContext (builtins.toJSON
               (platform.mapSystems (s: koluBySystem.${s}.agent-distro-bundle.drvPath))));
       });

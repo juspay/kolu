@@ -22,7 +22,8 @@
 
 import { spawn } from "node:child_process";
 import {
-  existsSync,
+  accessSync,
+  constants as fsConstants,
   mkdtempSync,
   realpathSync,
   rmSync,
@@ -82,9 +83,17 @@ function hostStateHome(): string {
     : join(homedir(), ".local", "state");
 }
 
+/** `path` resolved, or `undefined` when it does not exist. ONE `realpathSync`,
+ *  never an exists-then-resolve pair: the updater flips `current` atomically, and
+ *  a spawn landing between a separate check and the resolve would throw on a link
+ *  that is merely mid-flip. Only `ENOENT` is "absent"; anything else is thrown. */
 function realpathOrUndefined(path: string): string | undefined {
-  if (!existsSync(path)) return undefined;
-  return realpathSync(path);
+  try {
+    return realpathSync(path);
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") return undefined;
+    throw err;
+  }
 }
 
 /** Where `profile`'s bundle is on this host right now: the `current` the updater
@@ -207,10 +216,16 @@ function publishStatus(status: AgentDistroStatus): void {
   padiSurfaceCtx.cells.agentDistroStatus.set(status);
 }
 
-/** The status for `setting` as of now, without side effects. */
-export function agentDistroStatusFor(
+/** Where `setting` stands on this host, as of now, without side effects.
+ *  `needsDownload` is NOT a status anyone sees: it is the one state a caller
+ *  must act on (start the download) before there is something true to publish,
+ *  so it is kept out of {@link AgentDistroStatus} rather than spelled as a
+ *  `downloading` that nothing is doing. */
+export function assessAgentDistro(
   setting: AgentDistroSetting,
-): AgentDistroStatus {
+):
+  | AgentDistroStatus
+  | { readonly kind: "needsDownload"; readonly profile: string } {
   if (!setting.enabled) return { kind: "off" };
   const bake = agentDistroBake();
   if (bake === null) return { kind: "unavailable" };
@@ -227,42 +242,103 @@ export function agentDistroStatusFor(
   const message = failed.get(setting.profile);
   if (message !== undefined)
     return { kind: "error", profile: setting.profile, message };
-  // Not ready, not running, not failed: the caller starts the download.
-  return { kind: "downloading", profile: setting.profile };
+  return { kind: "needsDownload", profile: setting.profile };
+}
+
+/** Bring this host's status in line with `setting` and publish it: a profile
+ *  with no bundle, no running download and no recorded failure gets its one
+ *  download started first, so what is published is always something true. */
+function settle(setting: AgentDistroSetting): void {
+  let assessed = assessAgentDistro(setting);
+  if (assessed.kind === "needsDownload") {
+    const bake = agentDistroBake();
+    const profile = bake?.profiles.get(setting.profile);
+    // `assessAgentDistro` only answers `needsDownload` for a baked, known
+    // profile (`resolveAgentLayer` throws on an unknown one).
+    if (bake === null || profile === undefined)
+      throw new Error(`agent-distro: no bake for profile '${setting.profile}'`);
+    startDownload(bake, profile);
+    assessed = assessAgentDistro(setting);
+    if (assessed.kind === "needsDownload")
+      throw new Error(
+        `agent-distro: starting the '${setting.profile}' download recorded neither a run nor a failure`,
+      );
+  }
+  publishStatus(assessed);
 }
 
 /** The `agentDistro` cell's `onWrite`: a CHANGED setting (the cell's `equals`
  *  drops a re-push of the same value, so a reconnect does not land here). Fires
- *  BEFORE the store write, so it reads `next`, never the store. Publishes the
- *  status, and on a host without the profile's bundle starts the one download. */
+ *  BEFORE the store write, so it reads `next`, never the store. Turning a
+ *  profile on forgets its last failure — that is the retry. */
 export function onAgentDistroSettingWrite(next: AgentDistroSetting): void {
   if (next.enabled) failed.delete(next.profile);
-  const status = agentDistroStatusFor(next);
-  publishStatus(status);
-  if (status.kind === "downloading" && !downloading.has(next.profile)) {
-    const bake = agentDistroBake();
-    const profile = bake?.profiles.get(next.profile);
-    if (bake && profile) startDownload(bake, profile);
+  settle(next);
+}
+
+/** Re-publish for whatever setting is current — after a download settles or
+ *  reports bytes. A download for a profile no longer selected changes nothing
+ *  visible, but its result is kept for when it is. */
+function republish(): void {
+  try {
+    settle(agentDistroSettingStore.get());
+  } catch (err) {
+    // Runs from a download's own callbacks, where a throw has nowhere to go but
+    // an unhandled rejection; logged loudly instead.
+    log.error({ err }, "agent-distro status could not be re-published");
   }
 }
 
-/** Re-publish the status for whatever setting is current — after a download
- *  settles or reports bytes. A download for a profile no longer selected
- *  changes nothing visible, but its result is kept for when it is. */
-function republish(): void {
-  publishStatus(agentDistroStatusFor(agentDistroSettingStore.get()));
+/** The host's `nix`, as the updater will find it — on padi's own PATH. A padi
+ *  started over a non-login ssh session on a non-NixOS host (or macOS) often
+ *  lacks the Nix profile on PATH, and the updater would then die with a bare
+ *  spawn error; naming it here gives the host tab the real fix. */
+function nixOnPath(): string | undefined {
+  for (const dir of (process.env.PATH ?? "").split(":")) {
+    if (dir === "") continue;
+    const candidate = join(dir, "nix");
+    try {
+      accessSync(candidate, fsConstants.X_OK);
+      return candidate;
+    } catch {
+      // Not in this PATH entry; the next one may have it.
+    }
+  }
+  return undefined;
 }
 
+/** Start `profile`'s one download. Every way it can fail — no `nix`, a config
+ *  that will not write, the updater's own failure, a skip, a throw while reading
+ *  the result — ends as a recorded failure (the host's `error` status) and a
+ *  loud log line; none is swallowed and none retries on its own. */
 function startDownload(
   bake: AgentDistroBake,
   profile: AgentDistroProfileBake,
 ): void {
   const plog = log.child({ agentDistroProfile: profile.name });
+  const fail = (message: string, err?: unknown) => {
+    downloading.delete(profile.name);
+    failed.set(profile.name, message);
+    plog.error({ err, message }, "agent-distro download failed");
+  };
+  if (nixOnPath() === undefined) {
+    fail(
+      `nix is not on padi's PATH on this host, so the agents cannot be downloaded — make \`nix\` reachable for non-login ssh sessions (e.g. add /nix/var/nix/profiles/default/bin to PATH in ~/.bashrc or /etc/environment), then turn Agents off and on`,
+    );
+    return;
+  }
+  let dir: string;
+  let configPath: string;
+  try {
+    const { text } = hostUpdaterConfig(bake, profile, hostStateHome());
+    dir = mkdtempSync(join(tmpdir(), "kolu-agent-distro-"));
+    configPath = join(dir, "update.json");
+    writeFileSync(configPath, text, { mode: 0o600 });
+  } catch (err) {
+    fail(`could not prepare the updater: ${String(err)}`, err);
+    return;
+  }
   downloading.set(profile.name, {});
-  const { text } = hostUpdaterConfig(bake, profile, hostStateHome());
-  const dir = mkdtempSync(join(tmpdir(), "kolu-agent-distro-"));
-  const configPath = join(dir, "update.json");
-  writeFileSync(configPath, text, { mode: 0o600 });
   plog.info({}, "downloading agent-distro bundle");
   void runUpdater({
     command: profile.command,
@@ -273,27 +349,30 @@ function startDownload(
     },
   })
     .then((outcome) => {
-      downloading.delete(profile.name);
       if (!outcome.ok) {
-        failed.set(profile.name, outcome.message);
-        plog.error(
-          { message: outcome.message },
-          "agent-distro download failed",
-        );
+        fail(outcome.message);
       } else if (bundleOnHost(bake, profile) === undefined) {
         // The updater exits 0 on a SKIP (cache unusable, bundle not fully
         // cached): nothing landed, and its stderr says why.
-        failed.set(profile.name, outcome.message);
-        plog.error(
-          { message: outcome.message },
-          "agent-distro updater finished without a bundle",
-        );
+        fail(outcome.message);
       } else {
+        downloading.delete(profile.name);
         plog.info({}, "agent-distro bundle ready");
       }
-      republish();
     })
-    .finally(() => rmSync(dir, { recursive: true, force: true }));
+    .catch((err: unknown) =>
+      fail(`reading the download's result failed: ${String(err)}`, err),
+    )
+    .finally(() => {
+      rmSync(dir, { recursive: true, force: true });
+      republish();
+    });
+}
+
+/** Test seam: forget every download and failure. */
+export function __resetAgentDistroDownloadsForTest(): void {
+  downloading.clear();
+  failed.clear();
 }
 
 type UpdaterOutcome =

@@ -50,11 +50,16 @@ let
     [ defaultProfile ] ++ lib.remove defaultProfile (lib.attrNames distro.profiles);
 
   # Some harnesses are unfree (Claude Code), so the launchers need a package
-  # set that allows them. Node and the runtime tree are free, so the updater's
-  # store paths are the same either way.
+  # set that allows them: kolu's own nixpkgs and overlays, re-instantiated with
+  # `allowUnfree`. That is a SECOND evaluation of nixpkgs (kolu's set does not
+  # allow unfree), paid only when the bundle or the updater configs are forced —
+  # `default`, `padi-agent` and `agent-distro-bundle`, never the dev shell. Node
+  # and the runtime tree are free, so the updater's store paths are the same
+  # either way.
   pkgsUnfree = import pkgs.path {
     inherit (pkgs.stdenv.hostPlatform) system;
-    config.allowUnfree = true;
+    inherit (pkgs) overlays;
+    config = pkgs.config // { allowUnfree = true; };
   };
 
   launchers = lib.genAttrs profileNames (name:
@@ -118,10 +123,18 @@ let
         nix = "nix";
         substituters.${distro.lib.cache.url} = distro.lib.cache.publicKey;
       };
+      # `mkUpdater`'s `command` ENDS with its own (build-time) config path; padi
+      # runs the updater with a host-concrete copy of that config instead, so
+      # the baked command is the command minus its last argument. Asserted, so
+      # an upstream change to `command`'s shape fails this build rather than a
+      # host's download.
+      command =
+        assert lib.assertMsg (lib.last u.command == "${u.config}")
+          "agent-distro's mkUpdater command no longer ends with its config path; nix/agent-distro.nix strips it";
+        lib.init u.command;
     in
     {
-      inherit name;
-      inherit (u) command;
+      inherit name command;
       config = "${u.config}";
     };
 

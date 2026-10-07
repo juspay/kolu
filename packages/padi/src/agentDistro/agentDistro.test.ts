@@ -9,7 +9,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   __setAgentDistroBakeForTest,
-  agentDistroStatusFor,
+  assessAgentDistro,
   checkAgentDistroSetting,
   resolveAgentLayer,
   withAgentLayer,
@@ -97,20 +97,21 @@ describe("resolveAgentLayer", () => {
   it("a remote host before its first download → nothing yet", () => {
     __setAgentDistroBakeForTest(bake({ floor: false }));
     expect(resolveAgentLayer(ON)).toBeUndefined();
-    expect(agentDistroStatusFor(ON)).toEqual({
-      kind: "downloading",
+    // Not a status anyone sees: the one state the caller must act on.
+    expect(assessAgentDistro(ON)).toEqual({
+      kind: "needsDownload",
       profile: "vanilla",
     });
   });
 
   it("status reads ready with the bundle a new terminal gets", () => {
     __setAgentDistroBakeForTest(bake({ floor: true }));
-    expect(agentDistroStatusFor(ON)).toEqual({
+    expect(assessAgentDistro(ON)).toEqual({
       kind: "ready",
       profile: "vanilla",
       bundle: join(root, "store-vanilla-kolu"),
     });
-    expect(agentDistroStatusFor({ enabled: false, profile: "x" })).toEqual({
+    expect(assessAgentDistro({ enabled: false, profile: "x" })).toEqual({
       kind: "off",
     });
   });

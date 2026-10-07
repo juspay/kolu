@@ -72,7 +72,9 @@ const UpdaterConfigSchema = Schema.Struct({
 
 export interface AgentDistroProfileBake {
   readonly name: string;
-  /** `node <tree>/src/update/update.ts` — the updater, minus its config arg. */
+  /** `node <tree>/src/update/update.ts` — `lib.mkUpdater`'s `command` with its
+   *  trailing build-time config path removed (`nix/agent-distro.nix` asserts it
+   *  was there); padi appends the host-concrete config instead. */
   readonly command: readonly string[];
   /** The baked config, verbatim, with `stateHomePlaceholder` still in it. */
   readonly configText: string;
