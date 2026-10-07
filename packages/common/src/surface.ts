@@ -35,6 +35,7 @@
 // the seal forbids the REVERSE (padi importing kolu). Types re-exported below so existing
 // `kolu-common/surface` importers are unchanged.
 import {
+  AgentDistroSettingSchema,
   HostDaemonInventorySchema,
   type NewTerminalPolicy,
   type ToastOnlyPolicy,
@@ -229,6 +230,48 @@ export const RightPanelPrefsSchema = Schema.Struct({
   codeTabTreeSize: Schema.Number,
 });
 
+/** The Agents setting — whether new terminals get agent-distro's coding agents
+ *  on their PATH, and which profile's. Global, not per host or per terminal:
+ *  kolu-server pushes it to every bound padi (its memory-only `agentDistro`
+ *  cell), and padi applies it at each NEW terminal's spawn — a running terminal
+ *  keeps the bundle it started with. `profile` names one of the profiles the
+ *  pinned agent-distro ships (kolu-server's `agentDistroListing` cell); an
+ *  unknown one is an error the UI shows, never silently reset. */
+export const AgentDistroPrefsSchema = AgentDistroSettingSchema;
+
+/** One harness a profile ships, as agent-distro's `--list --json` describes it. */
+export const AgentDistroHarnessSchema = Schema.Struct({
+  name: Schema.String,
+  title: Schema.String,
+  tagline: Schema.String,
+  version: Schema.String,
+});
+
+/** One profile the pinned agent-distro ships — its name, the one-line
+ *  description Settings shows as the row hint, and its harnesses. */
+export const AgentDistroProfileSchema = Schema.Struct({
+  name: Schema.String.check(Schema.isMinLength(1)),
+  description: Schema.String,
+  harnesses: Schema.Array(AgentDistroHarnessSchema),
+});
+
+/** What `agent-distro --list --json` prints (agent-distro's U1). `profiles[0]`
+ *  is the default. */
+export const AgentDistroListOutputSchema = Schema.Struct({
+  profiles: Schema.Array(AgentDistroProfileSchema).check(Schema.isMinLength(1)),
+});
+
+/** kolu-server's `agentDistroListing` cell: the profiles Settings offers, read
+ *  ONCE at boot from the baked picker. `unavailable` is a from-source kolu (no
+ *  wrapper baked agent-distro) — explicit absence, which Settings says in words. */
+export const AgentDistroListingSchema = Schema.Union([
+  Schema.Struct({ kind: Schema.Literal("unavailable") }),
+  Schema.Struct({
+    kind: Schema.Literal("available"),
+    profiles: AgentDistroListOutputSchema.fields.profiles,
+  }),
+]);
+
 export const PreferencesSchema = Schema.Struct({
   seenTips: Schema.Array(Schema.String),
   startupTips: Schema.Boolean,
@@ -258,6 +301,8 @@ export const PreferencesSchema = Schema.Struct({
    *  rendering shift on focus swap at the cost of WebGL throughput. */
   terminalRenderer: Schema.Literals(["auto", "webgl", "dom"]),
   rightPanel: RightPanelPrefsSchema,
+  /** The Agents setting — see {@link AgentDistroPrefsSchema}. */
+  agentDistro: AgentDistroPrefsSchema,
 });
 
 /** Preference patch — top-level fields are optional; nested objects are deep-partial.
@@ -269,13 +314,16 @@ export const PreferencesSchema = Schema.Struct({
  *  unset, and `Schema.optional` would round-trip an explicit `undefined` through
  *  `null`, which the local-authority merge below would then write as a real value. */
 export const PreferencesPatchSchema = PreferencesSchema.mapFields(
-  Struct.omit(["rightPanel"]),
+  Struct.omit(["rightPanel", "agentDistro"]),
 )
   .mapFields(Struct.map(Schema.optionalKey))
   .mapFields(
     Struct.assign({
       rightPanel: Schema.optionalKey(
         RightPanelPrefsSchema.mapFields(Struct.map(Schema.optionalKey)),
+      ),
+      agentDistro: Schema.optionalKey(
+        AgentDistroPrefsSchema.mapFields(Struct.map(Schema.optionalKey)),
       ),
     }),
   );
@@ -296,6 +344,9 @@ export type ColorScheme = typeof ColorSchemeSchema.Type;
 export type NewTerminalTheme = typeof NewTerminalThemeSchema.Type;
 export type ShuffleBehavior = typeof ShuffleBehaviorSchema.Type;
 export type ViewerMode = typeof ViewerModeSchema.Type;
+export type AgentDistroPrefs = typeof AgentDistroPrefsSchema.Type;
+export type AgentDistroProfile = typeof AgentDistroProfileSchema.Type;
+export type AgentDistroListing = typeof AgentDistroListingSchema.Type;
 
 /** The candidate-pool filter a shuffle should apply, from the
  *  `shuffleBehavior` preference and the app's resolved dark mode.
@@ -376,6 +427,10 @@ export const DEFAULT_PREFERENCES: typeof PreferencesSchema.Type = {
     size: 0.25,
     codeTabTreeSize: 0.35,
   },
+  // On by default, plain upstream harnesses. `vanilla` is the profile
+  // `nix/agent-distro.nix` lists first and bakes as its default; the
+  // `default` wrapper's build-time proof keeps the two names one.
+  agentDistro: { enabled: true, profile: "vanilla" },
 };
 
 // `applyPreferencesPatch` references `Preferences` / `PreferencesPatch`
@@ -387,7 +442,7 @@ type _Preferences = typeof PreferencesSchema.Type;
 type _PreferencesPatch = typeof PreferencesPatchSchema.Type;
 
 /** Pure merge of a `PreferencesPatch` into the current preferences.
- *  `rightPanel` is deep-merged so callers can patch a single nested field
+ *  `rightPanel` and `agentDistro` are deep-merged so callers can patch a single nested field
  *  without supplying the rest of the object. Lives on the surface spec
  *  (`cells.preferences.patch`) so server (`implementSurface`) and client
  *  (`surfaceClient`'s default `applyPatch`) reach the same logic without
@@ -396,12 +451,15 @@ export function applyPreferencesPatch(
   current: _Preferences,
   patch: _PreferencesPatch,
 ): _Preferences {
-  const { rightPanel: rpPatch, ...rest } = patch;
+  const { rightPanel: rpPatch, agentDistro: adPatch, ...rest } = patch;
   return {
     ...current,
     ...rest,
     ...(rpPatch !== undefined && {
       rightPanel: { ...current.rightPanel, ...rpPatch },
+    }),
+    ...(adPatch !== undefined && {
+      agentDistro: { ...current.agentDistro, ...adPatch },
     }),
   };
 }
@@ -929,6 +987,17 @@ export const koluSurface = defineSurfaceWithPolicy<ToastOnlyPolicy>()({
       equals: (a, b) => a === b,
       verbs: ["get", "set"],
       client: { onError: { kind: "toast", label: "Viewer mode" } },
+    },
+
+    /** The agent-distro profiles Settings offers (see
+     *  {@link AgentDistroListingSchema}) — read once at boot from the baked
+     *  picker's `--list --json`, seeded into an in-memory store, never written
+     *  after. Read-only on the client. */
+    agentDistroListing: {
+      schema: AgentDistroListingSchema,
+      default: { kind: "unavailable" } satisfies AgentDistroListing,
+      verbs: ["get"],
+      client: { onError: { kind: "toast", label: "Agents listing" } },
     },
 
     /** Live process-memory readout (kolu-server + padi + kaval RSS) for the rail.

@@ -90,6 +90,7 @@ import {
 import { Effect } from "effect";
 import { assertDaemonSpawnAllowed } from "kaval";
 import type { PadiConvergence } from "kolu-common/surface";
+import { AGENT_DISTRO_BAKE_ENVS } from "@kolu/padi/agentDistroBake";
 import { AGENT_TOOLS_BAKE_ENV, composeSpawnEnv } from "kolu-pty";
 import {
   bakedOsFactsBin,
@@ -194,6 +195,15 @@ export function daemonEnv(
   // names deleted the question.
   if (process.env[AGENT_TOOLS_BAKE_ENV])
     env[AGENT_TOOLS_BAKE_ENV] = process.env[AGENT_TOOLS_BAKE_ENV];
+  // The agent-distro bake (the profile listing + updater configs, the local floor
+  // bundle, this kolu's plugin dir) — forwarded for the same reason and in the same
+  // way as the toolchain above: a remote padi carries its own from `padi-agent`, so
+  // this is what gives a locally-supervised padi the same facts. All `KOLU_*`, so
+  // `cleanEnv` keeps every one of them out of a terminal.
+  for (const name of AGENT_DISTRO_BAKE_ENVS) {
+    const value = process.env[name];
+    if (value) env[name] = value;
+  }
   // Forward kaval's build identity for the FROM-SOURCE / dev path ONLY: the nix-built
   // padi wrapper BAKES `KAVAL_BUILD_ID` / `KAVAL_COMMIT_HASH` (padi owns kaval — its
   // closure knows them at build time; see default.nix), so a production padi already

@@ -40,6 +40,7 @@ import {
   migratePreferences_1_30_0,
   migratePreferences_1_32_0,
   migratePreferences_1_34_0,
+  migratePreferences_1_37_0,
 } from "./state.ts";
 
 const dirs: string[] = [];
@@ -56,7 +57,7 @@ function makeStore(): Conf<Record<string, unknown>> {
   dirs.push(dir);
   return new Conf<Record<string, unknown>>({
     cwd: dir,
-    projectVersion: "1.36.0",
+    projectVersion: "1.37.0",
     configFileMode: 0o600,
     defaults: {
       preferences: DEFAULT_PREFERENCES,
@@ -89,6 +90,10 @@ describe("the persisted state file — aggregate bytes", () => {
 \t\t"rightPanel": {
 \t\t\t"size": 0.25,
 \t\t\t"codeTabTreeSize": 0.35
+\t\t},
+\t\t"agentDistro": {
+\t\t\t"enabled": true,
+\t\t\t"profile": "vanilla"
 \t\t}
 \t},
 \t"hosts": [],
@@ -156,10 +161,12 @@ describe("the migration ladder over legacy on-disk blobs", () => {
         `"terminalRenderer":"auto","rightPanel":{"collapsed":true,"size":0.25,"codeTabTreeSize":0.35}}`,
     ) as Record<string, unknown>;
 
-    // The ladder, in order — the same three bodies `state.ts`'s `migrations` map
-    // calls at 1.30.0 / 1.32.0 / 1.34.0.
-    const migrated = migratePreferences_1_34_0(
-      migratePreferences_1_32_0(migratePreferences_1_30_0(legacy)),
+    // The ladder, in order — the same four bodies `state.ts`'s `migrations` map
+    // calls at 1.30.0 / 1.32.0 / 1.34.0 / 1.37.0.
+    const migrated = migratePreferences_1_37_0(
+      migratePreferences_1_34_0(
+        migratePreferences_1_32_0(migratePreferences_1_30_0(legacy)),
+      ),
     );
 
     // The BYTES the ladder produces, key order included (the 1.32 step's
@@ -170,7 +177,8 @@ describe("the migration ladder over legacy on-disk blobs", () => {
       `{"seenTips":["shuffle"],"startupTips":true,"newTerminalTheme":"inherit",` +
         `"newTerminalCollapsed":true,"shuffleBehavior":"auto","scrollLock":true,` +
         `"attentionAlerts":false,"colorScheme":"dark","terminalRenderer":"auto",` +
-        `"rightPanel":{"size":0.25,"codeTabTreeSize":0.35}}`,
+        `"rightPanel":{"size":0.25,"codeTabTreeSize":0.35},` +
+        `"agentDistro":{"enabled":true,"profile":"vanilla"}}`,
     );
     // …and it DECODES. This is the assertion a drifted zod→Schema mapping breaks:
     // under zod a stray/missing key surfaced only at the first client connect
@@ -196,14 +204,33 @@ describe("the migration ladder over legacy on-disk blobs", () => {
         `"activityAlerts":true,"colorScheme":"dark","terminalRenderer":"dom",` +
         `"rightPanel":{"size":0.25,"codeTabTreeSize":0.35}}`,
     ) as Record<string, unknown>;
-    const migrated = migratePreferences_1_34_0(legacy);
+    const migrated = migratePreferences_1_37_0(
+      migratePreferences_1_34_0(legacy),
+    );
     expect(JSON.stringify(migrated)).toBe(
       `{"seenTips":[],"startupTips":true,"newTerminalTheme":"shuffle",` +
         `"newTerminalCollapsed":false,"shuffleBehavior":"auto","scrollLock":true,` +
         `"colorScheme":"dark","terminalRenderer":"dom","rightPanel":{"size":0.25,` +
-        `"codeTabTreeSize":0.35},"attentionAlerts":true}`,
+        `"codeTabTreeSize":0.35},"attentionAlerts":true,` +
+        `"agentDistro":{"enabled":true,"profile":"vanilla"}}`,
     );
     expect(accepts(PreferencesSchema, migrated)).toBe(true);
+  });
+
+  it("the 1.37 rung seeds the Agents default and never resets a stored choice", () => {
+    const pre = JSON.parse(JSON.stringify(DEFAULT_PREFERENCES)) as Record<
+      string,
+      unknown
+    >;
+    delete pre.agentDistro;
+    expect(JSON.stringify(migratePreferences_1_37_0(pre))).toBe(
+      JSON.stringify(DEFAULT_PREFERENCES),
+    );
+    const chosen = {
+      ...DEFAULT_PREFERENCES,
+      agentDistro: { enabled: false, profile: "juspay" },
+    };
+    expect(migratePreferences_1_37_0(chosen)).toEqual(chosen);
   });
 
   it("a 1.34-era blob is already current — the ladder is a no-op on its bytes", () => {

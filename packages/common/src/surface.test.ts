@@ -15,6 +15,7 @@ import {
 import { Result, Schema } from "effect";
 import { describe, expect, it } from "vitest";
 import {
+  applyPreferencesPatch,
   DaemonInventorySchema,
   DEFAULT_PREFERENCES,
   type KoluForward,
@@ -363,5 +364,25 @@ describe("the forwards cell declares what identifies a row", () => {
     const declared = koluSurface.spec.cells.forwards.arrayKey;
     expect(declared).toBe("key");
     expect(Object.keys(KoluForwardSchema.fields)).toContain(declared);
+  });
+});
+
+describe("applyPreferencesPatch — the Agents setting", () => {
+  it("deep-merges a one-field agentDistro patch", () => {
+    const off = applyPreferencesPatch(DEFAULT_PREFERENCES, {
+      agentDistro: { enabled: false },
+    });
+    expect(off.agentDistro).toEqual({ enabled: false, profile: "vanilla" });
+    const juspay = applyPreferencesPatch(off, {
+      agentDistro: { profile: "juspay" },
+    });
+    expect(juspay.agentDistro).toEqual({ enabled: false, profile: "juspay" });
+  });
+
+  it("defaults to on, vanilla", () => {
+    expect(DEFAULT_PREFERENCES.agentDistro).toEqual({
+      enabled: true,
+      profile: "vanilla",
+    });
   });
 });
