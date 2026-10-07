@@ -70,9 +70,10 @@ export function assessAgentDistro(
   if (!setting.enabled) return { kind: "off" };
   const bake = agentDistroBake();
   if (bake === null) return { kind: "unavailable" };
-  const layer = resolveAgentLayer(setting);
-  if (layer !== undefined)
-    return { kind: "ready", profile: layer.profile, bundle: layer.bundle };
+  // A download's own state comes FIRST: a download starts only when there is
+  // no bundle, and the updater flips `current` before it reports — so while it
+  // runs, or after it failed (say, it landed a bundle other than the one it
+  // reported), an existing `current` is not yet a fact to call ready.
   const download = downloadOf(setting.profile);
   if (download?.kind === "running")
     return {
@@ -89,6 +90,9 @@ export function assessAgentDistro(
       reason: download.failure.reason,
       message: download.failure.message,
     };
+  const layer = resolveAgentLayer(setting);
+  if (layer !== undefined)
+    return { kind: "ready", profile: layer.profile, bundle: layer.bundle };
   return { kind: "needsDownload", profile: setting.profile };
 }
 
