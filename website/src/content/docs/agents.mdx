@@ -1,6 +1,6 @@
 ---
 title: Agents come with kolu
-description: "Turn on Settings → Agents and Claude Code, Codex, Oh My Pi, OpenCode (both builds) and Pi — from agent-distro, with kolu's own plugin loaded — are on the PATH of every new terminal, on this machine and on every host you add. Pick a profile, see it on each tile, turn it off."
+description: "Pick a profile in Settings → Agents and Claude Code, Codex, Oh My Pi, OpenCode (both builds) and Pi — from agent-distro, with kolu's own plugin loaded — are on the PATH of every new terminal, on this machine and on every host you add. Pick a profile, see it on each tile, turn it off."
 order: 49
 section: "Agents & Attention"
 koluHero:
@@ -11,10 +11,8 @@ koluHero:
 ---
 
 import Aside from "../../components/docs/Aside.astro";
-import Card from "../../components/docs/Card.astro";
-import CardGrid from "../../components/docs/CardGrid.astro";
 
-Turn on **Settings → Agents**, open a new terminal and type `claude`. It runs.
+Pick a profile in **Settings → Agents**, open a new terminal and type `claude`. It runs.
 So do `codex`, `omp`, `opencode`, `opencode2` and `pi`. You did not install any of
 them: kolu put them on the terminal's PATH, from
 [agent-distro](https://github.com/juspay/agent-distro), a distribution of coding
@@ -22,29 +20,30 @@ agents that kolu pins and ships. Each agent starts with kolu's own plugin loaded
 so it can drive other kolu terminals out of the box.
 
 Agents are **off by default** — on a fresh install and on one that predates the
-setting — so kolu changes no terminal's PATH until you ask. Beyond the switch, the
-only choice you make is the **profile**: which set of agents and skills you
-get. `vanilla` (plain upstream agents, signed in with your own provider) is the
+setting — so kolu changes no terminal's PATH until you ask. Turning them on and
+choosing what you get is one choice, the **profile**: which set of agents and
+skills. `vanilla` (plain upstream agents, signed in with your own provider) is the
 default; other profiles add skills or a provider gateway.
 
 ## Pick a profile
 
-Open **Settings** (the gear in the top bar). Two rows set it:
+Open **Settings** (the gear in the top bar). One row, **Agents** (with
+agent-distro's mark), sets it: **Off**, or one of the profiles the pinned
+agent-distro ships (`vanilla`, `juspay`, …). Picking a profile turns agents on
+with it; **Off** turns them off. Either way a toast says what changed for new
+terminals.
 
-<CardGrid>
-  <Card title="Agents">
-    Off by default. Turn it on and new terminals get the agents. Its hint says
-    they are provided by agent-distro and come first on the PATH of new
-    terminals. Off means kolu adds nothing to any terminal's PATH — a `claude`
-    you installed yourself is what runs.
-  </Card>
-  <Card title="Agent profile">
-    Every profile the pinned agent-distro ships; `vanilla` is selected on a
-    fresh install. Under it: the selected profile's description, then the
-    agents it puts on your PATH with their versions, e.g.
-    `claude 2.1.291 · codex 0.80.1 · omp 18.7.0 · …`.
-  </Card>
-</CardGrid>
+The hint under the row says where things stand:
+
+- **Off** — what turning it on does: agent-distro's agents go first on the PATH
+  of new terminals, ahead of agents you installed yourself.
+- **A profile** — its description; the agents it puts on your PATH with their
+  versions, e.g. `claude 2.1.291 · codex 0.160.1 · omp 18.6.3 · …`; then this
+  machine's status: "Ready for new terminals — vanilla 3fa9c2d1", the download
+  progress, or the error.
+- **Any other host** that is downloading or failed gets a line of its own
+  ("Downloading on box… 603 MB of 2.2 GB", "Failed on box: …"), so you can see
+  the whole fleet from here.
 
 The setting is one for all of kolu — not per host, not per terminal.
 
@@ -110,7 +109,7 @@ kolu, so switching profile there is instant and works offline.
 
 ## Turning it off
 
-Settings → **Agents** off. From the next new terminal on, on every
+Settings → **Agents** → **Off**. From the next new terminal on, on every
 host, kolu adds no agents and no plugin variable; your own tools are what run.
 Terminals already open keep what they have, and keep their chip, until you close
 them.

@@ -1,7 +1,7 @@
 /**
- * The one transition worth telling the user about: a host's download settling.
- * `downloading → ready` means its next new terminal has the agents;
- * `downloading → error` means it will not, and why.
+ * A host's download, as the three moments worth telling the user about: it
+ * starts (`→ downloading`), it lands (`downloading → ready`: the next new
+ * terminal there has the agents), or it fails (`downloading → error`, and why).
  *
  * Tracks the status's `kind` STRING, never the status value: a cell's value is
  * reconciled in place into one store object (`@kolu/surface`'s
@@ -14,9 +14,10 @@
 import type { AgentDistroStatus } from "@kolu/padi-client/surface";
 import { createEffect, on } from "solid-js";
 
-export function watchFirstDownload(
+export function watchDownload(
   read: () => AgentDistroStatus | undefined,
   handlers: {
+    readonly onStart: () => void;
     readonly onReady: () => void;
     readonly onError: (message: string) => void;
   },
@@ -25,6 +26,10 @@ export function watchFirstDownload(
     on(
       () => read()?.kind,
       (now, prev) => {
+        if (now === "downloading" && prev !== "downloading") {
+          handlers.onStart();
+          return;
+        }
         if (prev !== "downloading") return;
         if (now === "ready") handlers.onReady();
         const status = read();

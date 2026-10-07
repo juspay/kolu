@@ -18,41 +18,75 @@ import { waitForBufferContains } from "../support/buffer.ts";
 /** The focused tile — the one a just-created terminal lands in. */
 const FOCUSED_TILE = '[data-testid="canvas-tile"]:has([data-focused])';
 
+/** Is the Agents control on a profile (not "Off")? Read off the segment the
+ *  control marks pressed. */
+async function agentsOn(world: KoluWorld): Promise<boolean> {
+  const off = world.page.locator('[data-testid="agents-profile-off"]');
+  await off.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+  return (await off.getAttribute("aria-pressed")) !== "true";
+}
+
 Then(
   "the Agents section should offer the {string} and {string} profiles",
   async function (this: KoluWorld, a: string, b: string) {
-    for (const name of [a, b]) {
+    // ONE control: Off, then a segment per profile.
+    for (const value of ["off", a, b]) {
       await this.page
-        .locator(`[data-testid="agents-profile-${name}"]`)
+        .locator(`[data-testid="agents-profile-${value}"]`)
         .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
     }
     const popover = this.page.locator('[data-testid="settings-popover"]');
-    // The Agents row's hint names where the agents come from…
+    // Off, the hint says what turning it on does; on, it lists what the
+    // selected profile ships, from the listing (the fixture's `claude 0.0.0`).
+    const expected = (await agentsOn(this))
+      ? "claude 0.0.0"
+      : "Pick a profile to put agent-distro's agents first";
     await popover
-      .getByText("Provided by agent-distro", { exact: false })
-      .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
-    // …and the Agent profile row's hint lists what the selected profile ships,
-    // from the listing (the fixture's harness is `claude 0.0.0`).
-    await popover
-      .getByText("claude 0.0.0", { exact: false })
+      .getByText(expected, { exact: false })
       .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
   },
 );
 
 When("I turn Agents {word}", async function (this: KoluWorld, state: string) {
   assert.ok(state === "on" || state === "off", `on|off, got ${state}`);
-  const toggle = this.page.locator('[data-testid="agents-enabled-toggle"]');
-  const isOn = (await toggle.getAttribute("data-enabled")) !== null;
-  if (isOn !== (state === "on")) await toggle.click();
+  const want = state === "on";
+  // "On" is the default profile, `vanilla`, unless a profile is already on.
+  if ((await agentsOn(this)) !== want)
+    await this.page.click(
+      `[data-testid="agents-profile-${want ? "vanilla" : "off"}"]`,
+    );
   await this.page.waitForFunction(
     (on) =>
       (document
-        .querySelector('[data-testid="agents-enabled-toggle"]')
-        ?.hasAttribute("data-enabled") ?? false) === on,
-    state === "on",
+        .querySelector('[data-testid="agents-profile-off"]')
+        ?.getAttribute("aria-pressed") ===
+        "true") ===
+      !on,
+    want,
     { timeout: POLL_TIMEOUT },
   );
 });
+
+Then(
+  "a toast should say {string}",
+  async function (this: KoluWorld, text: string) {
+    await this.page
+      .locator("[data-sonner-toaster] li")
+      .filter({ hasText: text })
+      .first()
+      .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+  },
+);
+
+Then(
+  "the Agents hint should say {string}",
+  async function (this: KoluWorld, text: string) {
+    await this.page
+      .locator('[data-testid="settings-popover"]')
+      .getByText(text, { exact: false })
+      .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+  },
+);
 
 When(
   "I choose the {string} Agents profile",

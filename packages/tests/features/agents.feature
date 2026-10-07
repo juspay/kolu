@@ -53,3 +53,14 @@ Feature: Agents come with kolu
     Then the settings popover should be visible
     And the Agents section should offer the "vanilla" and "juspay" profiles
     And there should be no page errors
+
+  Scenario: Switching Agents says what happened, and the hint shows this machine's status
+    When I click the settings button
+    Then the Agents hint should say "Off. Pick a profile"
+    When I choose the "juspay" Agents profile
+    Then a toast should say "Agents: juspay for new terminals"
+    And the Agents hint should say "Ready for new terminals — juspay"
+    When I choose the "off" Agents profile
+    Then a toast should say "Agents off for new terminals"
+    And the Agents hint should say "Off. Pick a profile"
+    And there should be no page errors

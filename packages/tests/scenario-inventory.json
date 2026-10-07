@@ -8079,6 +8079,18 @@
       "exampleRows": [],
       "executions": 1,
       "firstSeenSha": "a5c3f5c02aebb174b6709a7346f49502539369b3"
+    },
+    {
+      "revisionId": "revision-aafe640c47c17bc62ca7",
+      "scenarioKey": "scenario-9ce014499c8faf59c25c",
+      "feature": "features/agents.feature",
+      "scenario": "Switching Agents says what happened, and the hint shows this machine's status",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "3cbcbdf375ed2fd66effb06b2e308ce0758aa3f75466cec49323b9e55e48e8ba",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "8dc52a8a8bdf8f98ede3a0ab7874993c9c915c18"
     }
   ]
 }

@@ -24,7 +24,8 @@ import { toast } from "solid-sonner";
 import { hostLabel } from "../host/hostChipTone";
 import { app, hostKeys, padiMap, preferences } from "../wire";
 import AgentDistroLogo from "./AgentDistroLogo";
-import { watchFirstDownload } from "./firstDownload";
+import type { HostAgentStatus } from "./agentDistroText";
+import { watchDownload } from "./firstDownload";
 
 // App-lifetime, owned subscriptions — the `useForwards` reason: a bare module
 // `.use()` is torn down a microtask after load and its first frame lands on nobody.
@@ -42,30 +43,50 @@ const byHost = createRoot(() => {
     (enc) => {
       const host = decodeHostKey(enc);
       const sub = padiMap.entry(host).cells.agentDistroStatus.use();
-      // The first download on a host is the one moment worth a toast: from then
-      // on its next new terminal has the agents.
-      watchFirstDownload(() => sub.value(), {
+      // A host's download is worth a toast at each of its three moments: one
+      // loading toast when it starts, updated in place (`{ id }`) to success —
+      // its next new terminal has the agents — or to the error.
+      let toastId: string | number | undefined;
+      watchDownload(() => sub.value(), {
+        onStart: () => {
+          toastId = toast.loading(`Downloading agents on ${hostLabel(host)}…`, {
+            icon: AgentDistroLogo({ size: 16 }),
+          });
+        },
         onReady: () =>
           toast.success(`Agents ready on ${hostLabel(host)}`, {
+            id: toastId,
             icon: AgentDistroLogo({ size: 16 }),
           }),
         onError: (message) =>
           toast.error(
             `Agents could not be downloaded on ${hostLabel(host)}: ${message}`,
-            { icon: AgentDistroLogo({ size: 16 }) },
+            { id: toastId, icon: AgentDistroLogo({ size: 16 }) },
           ),
       });
-      return { enc, read: () => sub.value() };
+      return { enc, host, read: () => sub.value() };
     },
   );
-  return createMemo(() => new Map(roots().map(({ enc, read }) => [enc, read])));
+  const index = createMemo(
+    () => new Map(roots().map(({ enc, read }) => [enc, read])),
+  );
+  return { index, roots };
 });
 
 /** `host`'s agent-distro status, or `undefined` until its first frame. */
 export function agentDistroStatusOf(
   host: HostKey,
 ): AgentDistroStatus | undefined {
-  return byHost().get(encodeHostKey(host))?.();
+  return byHost.index().get(encodeHostKey(host))?.();
+}
+
+/** Every REMOTE pool member's status, for the fleet lines under Settings'
+ *  Agents row. */
+export function remoteAgentStatuses(): readonly HostAgentStatus[] {
+  return byHost
+    .roots()
+    .filter(({ host }) => host.kind !== "local")
+    .map(({ host, read }) => ({ label: hostLabel(host), status: read() }));
 }
 
 /** The stored profile, when the listing does not offer it. */

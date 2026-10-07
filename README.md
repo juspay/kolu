@@ -57,8 +57,8 @@ Read the full [Philosophy](https://kolu.dev/philosophy).
 
 - **[Canvas, tiles, and dock](https://kolu.dev/canvas)** — arrange real
   terminals freely, then find any one instantly.
-- **[Agents come with kolu](https://kolu.dev/agents)** — turn on Settings →
-  Agents and `claude`, `codex`, `omp`, `opencode`, `opencode2` and `pi` are on
+- **[Agents come with kolu](https://kolu.dev/agents)** — pick a profile in
+  Settings → Agents and `claude`, `codex`, `omp`, `opencode`, `opencode2` and `pi` are on
   every new terminal's PATH, from
   [agent-distro](https://github.com/juspay/agent-distro); pick a profile there.
 - **[Agent attention](https://kolu.dev/agent-detection)** — see which agents are

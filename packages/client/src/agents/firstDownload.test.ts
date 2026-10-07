@@ -7,7 +7,7 @@ import type { AgentDistroStatus } from "@kolu/padi-client/surface";
 import { createRoot } from "solid-js";
 import { createStore, reconcile } from "solid-js/store";
 import { describe, expect, it } from "vitest";
-import { watchFirstDownload } from "./firstDownload";
+import { watchDownload } from "./firstDownload";
 
 /** Solid flushes `createEffect` on a microtask; a macrotask tick drains it. */
 const flush = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
@@ -17,20 +17,22 @@ function harness() {
     v: undefined,
   });
   const write = (next: AgentDistroStatus) => setStore("v", reconcile(next));
+  const started: number[] = [];
   const ready: number[] = [];
   const errors: string[] = [];
   let dispose = () => {};
   createRoot((d) => {
     dispose = d;
-    watchFirstDownload(() => store.v, {
+    watchDownload(() => store.v, {
+      onStart: () => started.push(1),
       onReady: () => ready.push(1),
       onError: (m) => errors.push(m),
     });
   });
-  return { store, write, ready, errors, dispose };
+  return { store, write, started, ready, errors, dispose };
 }
 
-describe("watchFirstDownload", () => {
+describe("watchDownload", () => {
   it("fires once on downloading → ready, though the value object never changes identity", async () => {
     const h = harness();
     h.write({ kind: "downloading", profile: "vanilla" });
@@ -46,6 +48,7 @@ describe("watchFirstDownload", () => {
     await flush();
     // The premise: reconcile kept the same object across the transition.
     expect(h.store.v).toBe(before);
+    expect(h.started).toEqual([1]);
     expect(h.ready).toEqual([1]);
     expect(h.errors).toEqual([]);
     h.dispose();
@@ -71,6 +74,21 @@ describe("watchFirstDownload", () => {
     h.write({ kind: "ready", profile: "vanilla", bundle: "/nix/store/x" });
     await flush();
     expect(h.ready).toEqual([]);
+    expect(h.started).toEqual([]);
+    h.dispose();
+  });
+
+  it("a progress tick is not a second start", async () => {
+    const h = harness();
+    h.write({ kind: "downloading", profile: "vanilla" });
+    await flush();
+    h.write({
+      kind: "downloading",
+      profile: "vanilla",
+      progress: { done: 5, total: 9 },
+    });
+    await flush();
+    expect(h.started).toEqual([1]);
     h.dispose();
   });
 });
