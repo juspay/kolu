@@ -77,7 +77,9 @@ export function migratePreferences_1_30_0(
 }
 
 /** 1.37.0 — the Agents setting joined preferences. Seeds the default
- *  `agentDistro` onto a record that has none; a record that already carries one
+ *  `agentDistro` — OFF, `vanilla` — onto a record that has none, so an existing
+ *  install keeps exactly the PATH it had until the user turns Agents on; a
+ *  record that already carries one
  *  (a re-run, or a value written by a newer build) is returned untouched, so a
  *  user's choice is never reset. Exported for `state.test.ts`. */
 export function migratePreferences_1_37_0(
@@ -741,7 +743,8 @@ const CONF_MIGRATIONS = {
   // `agentDistro` — the Agents setting (on/off + agent-distro profile) — is now a
   // preferences field. Spread the default in under an existing value, the same
   // spread-defaults shape as the 1.6.0/1.7.0 rightPanel steps, so an existing
-  // user gets agents on with `vanilla`, exactly like a fresh install.
+  // user gets agents OFF (profile `vanilla`), exactly like a fresh install: an
+  // upgrade changes nobody's PATH.
   "1.37.0": (store: Conf<PersistedState>) => {
     store.set(
       "preferences",

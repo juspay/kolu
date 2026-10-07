@@ -369,19 +369,19 @@ describe("the forwards cell declares what identifies a row", () => {
 
 describe("applyPreferencesPatch — the Agents setting", () => {
   it("deep-merges a one-field agentDistro patch", () => {
-    const off = applyPreferencesPatch(DEFAULT_PREFERENCES, {
-      agentDistro: { enabled: false },
+    const on = applyPreferencesPatch(DEFAULT_PREFERENCES, {
+      agentDistro: { enabled: true },
     });
-    expect(off.agentDistro).toEqual({ enabled: false, profile: "vanilla" });
-    const juspay = applyPreferencesPatch(off, {
+    expect(on.agentDistro).toEqual({ enabled: true, profile: "vanilla" });
+    const juspay = applyPreferencesPatch(on, {
       agentDistro: { profile: "juspay" },
     });
-    expect(juspay.agentDistro).toEqual({ enabled: false, profile: "juspay" });
+    expect(juspay.agentDistro).toEqual({ enabled: true, profile: "juspay" });
   });
 
-  it("defaults to on, vanilla", () => {
+  it("defaults to OFF, on the vanilla profile — kolu adds nothing to a PATH until asked", () => {
     expect(DEFAULT_PREFERENCES.agentDistro).toEqual({
-      enabled: true,
+      enabled: false,
       profile: "vanilla",
     });
   });

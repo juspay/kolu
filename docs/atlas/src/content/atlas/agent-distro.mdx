@@ -4,7 +4,7 @@ description: Kolu puts agent-distro's coding agents, with kolu's own plugin, on 
 parents: [feature]
 status: accepted
 maturity: seedling
-updated: 2026-10-06
+updated: 2026-10-07
 ---
 
 import Callout from "../../components/Callout.astro";
@@ -49,6 +49,9 @@ profile and any bundle version without agent-distro pinning kolu.
 
 Shipped in <PrLink pr={2265} />.
 
+- **Off by default.** Fresh and existing installs alike (the 1.37.0 migration
+  seeds it off), so kolu changes no terminal's PATH until the user turns Agents
+  on; ADK2's first-run step is where a new user is asked.
 - **One setting, global.** A kolu preference, pushed into each bound padi by the
   same mechanism as the new-terminal theme policy (`padiCellPusher.ts`). padi
   refuses a profile its build does not know; the UI shows an unknown stored

@@ -1,6 +1,6 @@
 ---
 title: Agents come with kolu
-description: "Settings → Agents puts Claude Code, Codex, Oh My Pi, OpenCode (both builds) and Pi — from agent-distro, with kolu's own plugin loaded — on the PATH of every new terminal, on this machine and on every host you add. Pick a profile, see it on each tile, turn it off."
+description: "Turn on Settings → Agents and Claude Code, Codex, Oh My Pi, OpenCode (both builds) and Pi — from agent-distro, with kolu's own plugin loaded — are on the PATH of every new terminal, on this machine and on every host you add. Pick a profile, see it on each tile, turn it off."
 order: 49
 section: "Agents & Attention"
 koluHero:
@@ -14,13 +14,16 @@ import Aside from "../../components/docs/Aside.astro";
 import Card from "../../components/docs/Card.astro";
 import CardGrid from "../../components/docs/CardGrid.astro";
 
-Open a terminal in kolu and type `claude`. It runs. So do `codex`, `omp`,
-`opencode`, `opencode2` and `pi`. You did not install any of them: kolu put them
-on the terminal's PATH, from [agent-distro](https://github.com/juspay/agent-distro),
-a distribution of coding agents that kolu pins and ships. Each agent starts with
-kolu's own plugin loaded, so it can drive other kolu terminals out of the box.
+Turn on **Settings → Agents**, open a new terminal and type `claude`. It runs.
+So do `codex`, `omp`, `opencode`, `opencode2` and `pi`. You did not install any of
+them: kolu put them on the terminal's PATH, from
+[agent-distro](https://github.com/juspay/agent-distro), a distribution of coding
+agents that kolu pins and ships. Each agent starts with kolu's own plugin loaded,
+so it can drive other kolu terminals out of the box.
 
-The only choice you make is the **profile**: which set of agents and skills you
+Agents are **off by default** — on a fresh install and on one that predates the
+setting — so kolu changes no terminal's PATH until you ask. Beyond the switch, the
+only choice you make is the **profile**: which set of agents and skills you
 get. `vanilla` (plain upstream agents, signed in with your own provider) is the
 default; other profiles add skills or a provider gateway.
 
@@ -30,10 +33,10 @@ Open **Settings** (the gear in the top bar). Two rows set it:
 
 <CardGrid>
   <Card title="Agents">
-    On by default — including on an install that predates the setting. Its hint
-    says the agents are provided by agent-distro and come first on the PATH of
-    new terminals. Off means kolu adds nothing to any terminal's PATH — a
-    `claude` you installed yourself is what runs.
+    Off by default. Turn it on and new terminals get the agents. Its hint says
+    they are provided by agent-distro and come first on the PATH of new
+    terminals. Off means kolu adds nothing to any terminal's PATH — a `claude`
+    you installed yourself is what runs.
   </Card>
   <Card title="Agent profile">
     Every profile the pinned agent-distro ships; `vanilla` is selected on a

@@ -427,10 +427,12 @@ export const DEFAULT_PREFERENCES: typeof PreferencesSchema.Type = {
     size: 0.25,
     codeTabTreeSize: 0.35,
   },
-  // On by default, plain upstream harnesses. `vanilla` is the profile
-  // `nix/agent-distro.nix` lists first and bakes as its default; the
-  // `default` wrapper's build-time proof keeps the two names one.
-  agentDistro: { enabled: true, profile: "vanilla" },
+  // OFF by default: kolu adds nothing to a terminal's PATH until the user
+  // turns Agents on (Settings → Agents; the first-run step that asks is K2).
+  // `vanilla` (plain upstream harnesses) is the profile it starts on — the one
+  // `nix/agent-distro.nix` lists first and bakes as its default; kolu-server's
+  // boot check and the `default` wrapper's build-time proof keep the names one.
+  agentDistro: { enabled: false, profile: "vanilla" },
 };
 
 // `applyPreferencesPatch` references `Preferences` / `PreferencesPatch`

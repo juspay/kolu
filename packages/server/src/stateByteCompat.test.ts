@@ -92,7 +92,7 @@ describe("the persisted state file — aggregate bytes", () => {
 \t\t\t"codeTabTreeSize": 0.35
 \t\t},
 \t\t"agentDistro": {
-\t\t\t"enabled": true,
+\t\t\t"enabled": false,
 \t\t\t"profile": "vanilla"
 \t\t}
 \t},
@@ -178,7 +178,7 @@ describe("the migration ladder over legacy on-disk blobs", () => {
         `"newTerminalCollapsed":true,"shuffleBehavior":"auto","scrollLock":true,` +
         `"attentionAlerts":false,"colorScheme":"dark","terminalRenderer":"auto",` +
         `"rightPanel":{"size":0.25,"codeTabTreeSize":0.35},` +
-        `"agentDistro":{"enabled":true,"profile":"vanilla"}}`,
+        `"agentDistro":{"enabled":false,"profile":"vanilla"}}`,
     );
     // …and it DECODES. This is the assertion a drifted zod→Schema mapping breaks:
     // under zod a stray/missing key surfaced only at the first client connect
@@ -212,12 +212,12 @@ describe("the migration ladder over legacy on-disk blobs", () => {
         `"newTerminalCollapsed":false,"shuffleBehavior":"auto","scrollLock":true,` +
         `"colorScheme":"dark","terminalRenderer":"dom","rightPanel":{"size":0.25,` +
         `"codeTabTreeSize":0.35},"attentionAlerts":true,` +
-        `"agentDistro":{"enabled":true,"profile":"vanilla"}}`,
+        `"agentDistro":{"enabled":false,"profile":"vanilla"}}`,
     );
     expect(accepts(PreferencesSchema, migrated)).toBe(true);
   });
 
-  it("the 1.37 rung seeds the Agents default and never resets a stored choice", () => {
+  it("the 1.37 rung seeds the Agents default (off) and never resets a stored choice", () => {
     const pre = JSON.parse(JSON.stringify(DEFAULT_PREFERENCES)) as Record<
       string,
       unknown
@@ -226,9 +226,14 @@ describe("the migration ladder over legacy on-disk blobs", () => {
     expect(JSON.stringify(migratePreferences_1_37_0(pre))).toBe(
       JSON.stringify(DEFAULT_PREFERENCES),
     );
+    // An existing install is upgraded to OFF: nobody's PATH changes.
+    expect(
+      (migratePreferences_1_37_0(pre).agentDistro as { enabled: boolean })
+        .enabled,
+    ).toBe(false);
     const chosen = {
       ...DEFAULT_PREFERENCES,
-      agentDistro: { enabled: false, profile: "juspay" },
+      agentDistro: { enabled: true, profile: "juspay" },
     };
     expect(migratePreferences_1_37_0(chosen)).toEqual(chosen);
   });

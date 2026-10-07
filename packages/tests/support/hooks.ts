@@ -1232,7 +1232,7 @@ Before(
         size: 0.25,
         codeTabTreeSize: 0.35,
       },
-      // Agents OFF for the suite (the shipped default is on): the fixture bake
+      // Agents OFF for the suite, as shipped (the default is off): the fixture bake
       // gives every terminal a `claude` that would shadow the mock agent bins the
       // agent-detection scenarios run. `agents.feature` turns them on itself.
       agentDistro: { enabled: false, profile: "vanilla" },
