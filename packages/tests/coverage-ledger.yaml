@@ -2204,3 +2204,16 @@ retirements:
       file: packages/tests/features/agents.feature
       symbol: "Scenario: Switching Agents says what happened, and the hint shows this machine's status"
       test: This machine's status moved from a hint line ("Ready for new terminals — juspay") into the Agents row's per-host status lines ("ready · juspay <hash>"); the one assertion now reads that line. Every other step — the off hint, both toasts, switching back off — is unchanged.
+  - id: revise-agents-stale-restart-proof
+    revisionId: revision-f40f8b11bea6bbbbb293
+    action: revised
+    status: landed
+    promise: A terminal whose agents went stale restarts in place with the new ones
+    defectSurface: [agents, terminal-lifecycle]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-d196165af8ece9b11831]
+    sameCodePathEvidence:
+      file: packages/tests/features/agents.feature
+      symbol: "Scenario: A terminal whose agents went stale restarts in place with the new ones"
+      test: The folder check was `cd /tmp` then `cwd=/tmp`, which is `/private/tmp` on macOS; it now works in a fresh `mktemp -d` resolved with `pwd -P` and compares `pwd -P` after the restart against the one recorded before. Two assertions are added — the shell pid changed and an exported variable is gone — proving the old PTY is gone, not reused. Every other step is unchanged.

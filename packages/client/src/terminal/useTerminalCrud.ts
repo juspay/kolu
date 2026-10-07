@@ -427,11 +427,19 @@ export const useTerminalCrud = createSharedRoot(() => {
   /** Restart a terminal IN PLACE (`lifecycle.restart`): a new PTY on the same
    *  id, in the same folder and canvas spot, so it picks up what a new terminal
    *  gets now — the stale-agents pill's Restart. The tile flips dormant and back
-   *  through the ordinary metadata subscription; `done` is the success toast
-   *  ("Restarted with juspay"). */
-  function handleRestart(id: TerminalId, done: string): UiAction {
+   *  through the ordinary metadata subscription. padi answers once the new PTY
+   *  is up, with the profile it actually got, and the toast says exactly that. */
+  function handleRestart(id: TerminalId): UiAction {
     return activePadiRpc.lifecycle.restart({ id }).pipe(
-      Effect.tap(() => Effect.sync(() => toast.success(done))),
+      Effect.tap((restarted) =>
+        Effect.sync(() =>
+          toast.success(
+            restarted.agentProfile === undefined
+              ? "Restarted without agents"
+              : `Restarted with ${restarted.agentProfile}`,
+          ),
+        ),
+      ),
       toastFailure("Failed to restart terminal"),
     );
   }

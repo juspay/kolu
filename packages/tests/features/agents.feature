@@ -85,7 +85,7 @@ Feature: Agents come with kolu
     When I press Escape
     And I create a terminal
     Then the focused tile should show the "vanilla" agents chip
-    When I run "cd /tmp"
+    When I run 'cd "$(mktemp -d)" && cd "$(pwd -P)" && pwd -P > here && echo $$ > pid && export X=1'
     And I remember the focused tile
     And I click the settings button
     And I choose the "juspay" Agents profile
@@ -97,6 +97,6 @@ Feature: Agents come with kolu
     And the focused tile should be the one I remembered
     And the focused tile should show the "juspay" agents chip
     And the terminal's claude should be the "juspay" fixture
-    When I run "pwd | sed 's/^/cwd=/'"
-    Then the active terminal should show "cwd=/tmp"
+    When I run 'echo "v=${X:-unset} pid=$([ "$(cat pid)" != "$$" ] && echo changed) cwd=$([ "$(cat here)" = "$(pwd -P)" ] && echo same)"'
+    Then the active terminal should show "v=unset pid=changed cwd=same"
     And there should be no page errors

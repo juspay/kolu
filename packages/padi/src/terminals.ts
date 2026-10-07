@@ -36,6 +36,7 @@ import { getTerminal, terminalEntries } from "./terminal-registry.ts";
 import {
   beginSleepLocal,
   releaseSleptLocalPty,
+  restartSleptLocal,
 } from "./terminalEndpoint/local.ts";
 // Load-order is cycle-sensitive: importing `terminalEndpoint/metadata.ts`
 // before `terminalEndpoint/local.ts` is what makes the surface cycle
@@ -210,6 +211,20 @@ export async function sleepTerminal(id: TerminalId): Promise<void> {
   if (!beginSleepLocal(id)) return;
   saveSession(snapshotSession());
   await releaseSleptLocalPty(id);
+}
+
+/** Restart a terminal IN PLACE — a fresh PTY on the same id, same cwd, layout,
+ *  parent, theme and title policy, with the agents a new terminal gets now.
+ *  The flip to sleeping is persisted first, exactly as {@link sleepTerminal}
+ *  does: a crash between the flip and the respawn then leaves a dormant record
+ *  the user can wake, never an active one whose PTY is gone. `undefined` when
+ *  `id` is not an active terminal. See `restartSleptLocal` for the rest. */
+export async function restartTerminal(
+  id: TerminalId,
+): Promise<TerminalInfo | undefined> {
+  if (!beginSleepLocal(id)) return undefined;
+  saveSession(snapshotSession());
+  return restartSleptLocal(id);
 }
 
 /** Refuse a parent edge that is nonsense in any tree model: self-parent, or an

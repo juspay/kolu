@@ -17,7 +17,9 @@ process that touches agent-distro reads them from the same place.
   host's state home.
 - `./status` — how a host's status shows: the one fenced fold from status to
   the host tab's mark treatment (`agentMarkOf`), its words, the Settings hint,
-  and the per-host status lines with their collapse rule — over structural
+  the per-host status lines with their collapse rule, and whether a terminal's
+  agents went stale (`agentStalenessOf`, `agentRestartReady`, `agentStaleLabel`)
+  — over structural
   status/setting types (the wire schemas are `@kolu/padi-client`'s; the client
   pins that the two agree).
 - `./solid` — agent-distro's logo (`doc/logo.svg`, vendored byte-identical from

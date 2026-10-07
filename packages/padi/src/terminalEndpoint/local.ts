@@ -788,7 +788,7 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
     if (initial?.rightPanel) meta.rightPanel = initial.rightPanel;
     if (initial?.intent) meta.intent = initial.intent;
 
-    return this.registerActiveAndSpawn(id, meta, aw, opts);
+    return this.registerActiveAndSpawn(id, meta, aw, opts).info;
   }
 
   /** Register a fresh ACTIVE sync-shadow entry under `id` (proxy handle + the
@@ -810,7 +810,7 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
     meta: AuthoredActiveTerminal,
     snapshot: TerminalSnapshot,
     opts: PtySpawnOpts,
-  ): TerminalInfo {
+  ): { info: TerminalInfo; wired: Promise<boolean> } {
     const tlog = log.child({ terminal: id });
     const prior = getTerminal(id);
     const proxy = new PtyHostTerminalProxy(id, ptyHostClient);
@@ -841,8 +841,12 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
     // terminal-list source (its keys stream), so no separate list emit is needed.
     publishTerminalState(id);
 
-    void this.spawnAndWire(id, opts, proxy, entry, prior, tlog);
-    return entry.info;
+    // `wired` settles once the PTY is spawned AND its sensors are wired (true),
+    // or the spawn was unwound (false). It never rejects. Most callers answer at
+    // once and let the tile follow; `restart` waits on it, so it never reports
+    // a restart that did not happen.
+    const wired = this.spawnAndWire(id, opts, proxy, entry, prior, tlog);
+    return { info: entry.info, wired };
   }
 
   /** Re-install the sensor set of a terminal padi ALREADY HOLDS, against the
@@ -1048,7 +1052,7 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
     entry: ActiveTerminalProcess,
     prior: TerminalProcess | undefined,
     tlog: typeof log,
-  ): Promise<void> {
+  ): Promise<boolean> {
     // Phase 1 — the spawn RPC. A failure here means no PTY was created
     // (`host.spawn` either returns a live child or throws), so there's nothing
     // to kill: just unwind the sync shadow.
@@ -1059,9 +1063,9 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
       tlog.error({ err }, "pty-host terminal.spawn failed");
       proxy.markFailed(err);
       this.unwindSpawnShadow(id, entry, prior);
-      return;
+      return false;
     }
-    if (!res) return; // raced during spawn — spawnViaClient already cleaned up
+    if (!res) return false; // raced during spawn — spawnViaClient already cleaned up
 
     proxy.markReady(res.pid);
     // A decoded wire value is `readonly` — rebuild rather than assign into it.
@@ -1091,7 +1095,7 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
         err,
         "pty-host sensor wiring failed after spawn; killing the orphaned PTY",
       );
-      return;
+      return false;
     }
     // WAKE: replay the agent as type-ahead now that the sensor set is wired, so
     // the command-run tap catches the resumed invocation and the agent indicator
@@ -1100,6 +1104,7 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
     // race — only set on wake (`resumeAgentCommand` output), never an ordinary spawn.
     if (opts.resumeCommand) proxy.write(`${opts.resumeCommand}\r`);
     tlog.info({ pid: res.pid, total: listTerminals().length }, "created");
+    return true;
   }
 
   /** Unwind the active sync-shadow `entry` whose async spawn/wiring failed.
@@ -1568,6 +1573,15 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
    *  re-derived by the producer. Returns the active info, or undefined when `id` is
    *  not a sleeping terminal. */
   wake(id: TerminalId): TerminalInfo | undefined {
+    return this.wakeWith(id, { resume: true })?.info;
+  }
+
+  /** {@link wake}, choosing whether to replay the agent's resume form, and
+   *  handing back the spawn's `wired` settle. */
+  private wakeWith(
+    id: TerminalId,
+    opts: { resume: boolean },
+  ): { info: TerminalInfo; wired: Promise<boolean> } | undefined {
     const entry = getTerminal(id);
     if (!entry || entry.meta.state !== "sleeping") return undefined;
     // The resume FORM switches on the authored `restoreTarget`: `exact` resumes the
@@ -1575,7 +1589,9 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
     // `legacyMostRecent` (migrated pre-1.29 records) the most-recent marker (claude
     // `-c`, codex `resume --last`, opencode `--continue`); `none` / absent / a
     // non-resumable agent → null, a bare shell (juspay/kolu#1492).
-    const resumeCommand = resumeFormFor(entry.meta.restoreTarget);
+    const resumeCommand = opts.resume
+      ? resumeFormFor(entry.meta.restoreTarget)
+      : null;
     // Reset the OBSERVATION (pr/agent/foreground re-derived by the re-spawned PTY's
     // producer), keeping the saved cwd. The authored memory + resume target ride the
     // active entry built in `registerActiveAndSpawn`.
@@ -1592,26 +1608,73 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
     });
   }
 
-  /** Restart an ACTIVE terminal IN PLACE: a fresh PTY on the SAME id, in its
-   *  current cwd, with everything authored (canvas layout, parent edge, theme,
-   *  title policy, intent) riding through untouched. It is sleep's flip and kill
-   *  followed by {@link wake} — the one respawn-by-id path — so the new PTY gets
-   *  the spawn layer as of NOW (notably the agents a new terminal would get) and
-   *  a live agent's conversation resumes the way a wake resumes it.
+  /** The second half of a RESTART, after the caller flipped `id` to sleeping
+   *  (`beginSleep`) and persisted that: kill the old PTY, then respawn on the
+   *  SAME id through {@link wakeWith} — the one respawn-by-id path — so the new
+   *  PTY gets the spawn layer as of NOW (notably the agents a new terminal gets),
+   *  in its current cwd, with everything authored (canvas layout, parent edge,
+   *  theme, title policy, intent) riding through.
+   *
+   *  A live agent's conversation resumes (as a wake resumes it) only while agents
+   *  stay ON: the new PTY then has the new agents to resume it with. With agents
+   *  now off the restart comes back as a bare shell — replaying the old agent's
+   *  command would run whatever `claude` the user has of their own, or nothing.
    *
    *  Unlike a sleep it keeps the terminal's scratch (pasted images, dropped
-   *  files): nothing here ends the terminal, only its process. A kill that
-   *  fails THROWS, leaving the record sleeping (honest: no live PTY is known to
-   *  be ours) for the caller to see and the user to wake. Resolves `undefined`
-   *  when `id` is not an active terminal, or when it stopped being OUR sleeping
-   *  record across the kill's await (a concurrent wake/discard won). */
-  async restart(id: TerminalId): Promise<TerminalInfo | undefined> {
-    if (!this.beginSleep(id)) return undefined;
+   *  files): only the process ends.
+   *
+   *  Resolves once the new PTY is spawned and wired, with its info. Outcomes:
+   *   - the kill FAILED (kaval's terminate timed out): ask kaval whether the PTY
+   *     is still there. If it is, the record goes back to active on that same
+   *     PTY — nothing changed — and this THROWS saying so. If it is gone, carry
+   *     on: the PTY is dead either way.
+   *   - a concurrent wake/discard won the id during the kill: answer with what
+   *     holds the id now (an active terminal's info), or `undefined` if nothing.
+   *   - the respawn failed: the wake path restored the sleeping record (F2), and
+   *     this THROWS — the tile is asleep, and waking it retries. */
+  async restartSlept(id: TerminalId): Promise<TerminalInfo | undefined> {
     const slept = getTerminal(id);
-    await runEndpointEdge(ptyHostClient.surface.terminal.kill({ id }));
-    if (getTerminal(id) !== slept) return undefined;
-    log.child({ terminal: id }).info("restarting");
-    return this.wake(id);
+    if (slept === undefined || slept.meta.state !== "sleeping")
+      throw new Error(`restart(${id}): expected a freshly slept record`);
+    const tlog = log.child({ terminal: id });
+    try {
+      await runEndpointEdge(ptyHostClient.surface.terminal.kill({ id }));
+    } catch (err) {
+      const live = (
+        await runEndpointEdge(ptyHostClient.surface.terminal.list({}))
+      ).entries.find((e) => e.id === id);
+      if (live !== undefined) {
+        if (getTerminal(id) === slept) {
+          // Put the record back on the PTY that is still running: the boot's
+          // adoption, over a registry entry that IS the current truth (it was
+          // flipped a moment ago), so nothing is rewound.
+          this.adoptTerminal(
+            id,
+            decodeAuthoredActive({ ...slept.meta, state: "active" }),
+            slept.snapshot,
+            live,
+          );
+          publishTerminalState(id);
+        }
+        tlog.error({ err }, "restart: the old PTY would not stop; kept it");
+        throw new Error(
+          `the terminal's shell would not stop (${err instanceof Error ? err.message : String(err)}); it keeps running as it was`,
+        );
+      }
+      tlog.warn({ err }, "restart: kill failed but the PTY is gone; going on");
+    }
+    const now = getTerminal(id);
+    if (now !== slept)
+      return now?.meta.state === "active" ? now.info : undefined;
+    const resume = agentDistroSettingStore.get().enabled;
+    tlog.info({ resume }, "restarting");
+    const woken = this.wakeWith(id, { resume });
+    if (woken === undefined) return undefined;
+    if (!(await woken.wired))
+      throw new Error(
+        "the new shell did not start; the terminal is asleep — wake it to try again",
+      );
+    return getTerminal(id)?.info;
   }
 
   /** Discard a HANDLE-LESS terminal — the shared core behind {@link discardSleeping}
@@ -1864,11 +1927,12 @@ export function wakeLocalTerminal(id: TerminalId): TerminalInfo | undefined {
   return localEndpointImpl.wake(id);
 }
 
-/** Restart an active terminal in place — see `LocalTerminalEndpoint.restart`. */
-export function restartLocalTerminal(
+/** The kill + respawn half of a restart, for a terminal `beginSleepLocal` just
+ *  flipped — see `LocalTerminalEndpoint.restartSlept`. */
+export function restartSleptLocal(
   id: TerminalId,
 ): Promise<TerminalInfo | undefined> {
-  return localEndpointImpl.restart(id);
+  return localEndpointImpl.restartSlept(id);
 }
 
 /** Discard a sleeping terminal's record (no PTY to kill). */

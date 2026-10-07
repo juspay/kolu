@@ -124,7 +124,6 @@ import {
 } from "./terminal-registry.ts";
 import {
   discardLocalSleeping,
-  restartLocalTerminal,
   wakeLocalTerminal,
 } from "./terminalEndpoint/local.ts";
 import { composePadiTerminal } from "./terminalEndpoint/metadata.ts";
@@ -141,6 +140,7 @@ import {
   setTerminalIntent,
   setTerminalParent,
   setTerminalTheme,
+  restartTerminal,
   sleepTerminal,
 } from "./terminals.ts";
 import { unwrapGit } from "./terminalWorkspace/endpoint.ts";
@@ -867,9 +867,12 @@ export function buildPadiSurfaceDeps(deps: {
         restart: ({ input }) =>
           handle(async () => {
             log.info({ terminal: input.id }, "restart");
-            const info = await restartLocalTerminal(input.id);
+            const info = await restartTerminal(input.id);
             if (!info) throw terminalNotFound(input.id);
-            return info;
+            const meta = getTerminal(input.id)?.meta;
+            return meta?.state === "active" && meta.agentProfile !== undefined
+              ? { ...info, agentProfile: meta.agentProfile }
+              : info;
           }),
         discardSleeping: ({ input }) =>
           handle(() => {

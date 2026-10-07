@@ -437,14 +437,20 @@ every NEW terminal it spawns ([Agents](https://kolu.dev/agents)). Two cells
   are on THIS host: `ready` (with the bundle new terminals get), `downloading`
   (with the bytes fetched so far, from the updater's `--progress` lines; any line outside that contract is the run's error), `error` (the
   updater's own message), `off`, or `unavailable` (an unbaked, from-source padi).
-- **The spawn layer** — at each spawn (fresh or wake) padi resolves the bundle:
+- **The spawn layer** — at each spawn (fresh, wake or restart) padi resolves the bundle:
   the host's `<state>/current` (what agent-distro's updater fetched) if it
   exists, else the FLOOR this build carries (local machine only), else none
   yet. The resolved store path is stamped on the terminal record
   (`agentProfile` / `agentBundle` — the tile chip) and its `bin/` joins the
   terminal's toolchain AFTER kolu's own tools, riding the same
   `KOLU_TERMINAL_TOOLS_PATH` stamp the rcfile re-asserts; `AGENT_DISTRO_PLUGINS`
-  names this kolu's `agent-plugin`. A running terminal never changes bundle.
+  names this kolu's `agent-plugin`. A running terminal never changes bundle,
+  except through `lifecycle.restart`: a fresh PTY on the same id (same cwd,
+  layout, parent, theme), flipped through sleep and wake, so it re-resolves the
+  layer. The live agent's conversation resumes when agents stay on; with agents
+  now off it comes back as a plain shell. The call answers once the new PTY is
+  up, with the profile it got; a kill that fails with the PTY still alive puts
+  the record back on it and fails.
 - **First use on a remote host** — `padi-agent` carries no floor. When the
   setting turns a profile on and the host has no `current` for it, padi runs
   agent-distro's updater once (`lib.mkUpdater`'s command and config, the config's

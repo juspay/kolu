@@ -391,14 +391,27 @@ export function agentStalenessOf(input: {
   }
 }
 
+/** Can a stale terminal restart INTO something right now? Yes when agents are
+ *  now off (it restarts as a plain shell), or when the host has settled on the
+ *  bundle a new terminal gets. Not while the new profile is still downloading
+ *  (or failed): a restart then would come back with no agents at all. */
+export function agentRestartReady(
+  stale: Extract<AgentStaleness, { kind: "stale" }>,
+): boolean {
+  return stale.now.kind === "off" || stale.now.hash !== undefined;
+}
+
 /** The stale pill's tooltip: what this terminal has, what a new one gets, and
- *  what a restart does. */
+ *  what a restart does — the agent's conversation comes back on the new agents
+ *  while agents stay on; with agents now off it comes back as a plain shell. */
 export function agentStaleLabel(
   stale: Extract<AgentStaleness, { kind: "stale" }>,
 ): string {
-  const now =
-    stale.now.kind === "off"
-      ? "agents are now off"
-      : `new terminals get ${stale.now.profile}${stale.now.hash === undefined ? "" : ` ${stale.now.hash}`}`;
-  return `This terminal has ${stale.had.profile} ${stale.had.hash}. ${now.charAt(0).toUpperCase()}${now.slice(1)}. Restart to switch; same folder, running programs end.`;
+  const had = `This terminal has ${stale.had.profile} ${stale.had.hash}.`;
+  const { now } = stale;
+  if (now.kind === "off")
+    return `${had} Agents are now off. Restart to switch; it comes back as a plain shell, and running programs end.`;
+  if (now.hash === undefined)
+    return `${had} New terminals get ${now.profile}, which is still downloading on this host; Restart appears once it is ready.`;
+  return `${had} New terminals get ${now.profile} ${now.hash}. Restart to switch; the agent's conversation resumes on the new agents, other programs end.`;
 }

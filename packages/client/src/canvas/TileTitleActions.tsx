@@ -2,12 +2,13 @@
  *
  *  Order (left → right between title and close): agent indicator, agents
  *  chip (the agent-distro profile + bundle the terminal was spawned with),
- *  theme pill, split toggle, search, screenshot.
+ *  Restart when those agents went stale, theme pill, split toggle, search, screenshot.
  *
  *  Reads singleton state and verbs directly — store, sub-panel, theme manager,
  *  right panel, tips, plus the command palette, terminal CRUD, and per-terminal
- *  search singletons — per `no-preference-prop-drilling`. The only prop is the
- *  tile `id`. Extracted from App.tsx per kolu#626. */
+ *  search singletons — per `no-preference-prop-drilling`. The props are the
+ *  tile `id` and its `host` (the agents-staleness check reads that host's
+ *  status). Extracted from App.tsx per kolu#626. */
 
 import { activeArm, sleepingArm } from "@kolu/padi-client/surface";
 import type { TerminalId } from "kolu-common/surface";
@@ -17,12 +18,13 @@ import AgentRestartButton from "../agents/AgentRestartButton";
 import { hostAgentStatus } from "../agents/useAgentDistro";
 import {
   type AgentStaleness,
+  agentRestartReady,
   agentStalenessOf,
 } from "@kolu/agent-distro/status";
 import { agentBucket } from "@kolu/terminal-vocab/agentProjection";
 import { ACTIONS } from "../input/actions";
 import { useRightPanel } from "../right-panel/useRightPanel";
-import { runAction, type UiAction } from "../runAction";
+import { runAction, runActionPromise, type UiAction } from "../runAction";
 import { screenshotTerminal } from "../screenshotTerminal";
 import { CONTEXTUAL_TIPS } from "../settings/tips";
 import { openSettings } from "../settings/useSettingsOpen";
@@ -41,24 +43,28 @@ import {
 import Tip from "../ui/Tip";
 import { useCommandPalette } from "../useCommandPalette";
 import { useThemeManager } from "../useThemeManager";
-import { activeHost, preferences } from "../wire";
+import { preferences } from "../wire";
+import type { HostKey } from "kolu-common/hostKey";
 
 /** Tile chrome buttons share this affordance. Theme pill is wider — it shows
  *  the theme name. Other buttons are square. */
 const TILE_BUTTON_CLASS =
   "flex items-center justify-center h-7 rounded-lg transition-colors cursor-pointer shrink-0 pointer-events-auto hover:bg-black/20 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50";
 
-/** The success toast after a stale terminal restarts — what it has now. */
-function restartedToast(
-  now: Extract<AgentStaleness, { kind: "stale" }>["now"],
+/** What the guarded Restart's second click does to a live agent: with agents
+ *  still on, its conversation comes back on the new agents; with agents now off
+ *  it comes back as a plain shell, so the agent is gone. */
+function armedRestartLabel(
+  stale: Extract<AgentStaleness, { kind: "stale" }>,
 ): string {
-  return now.kind === "off"
-    ? "Restarted without agents"
-    : `Restarted with ${now.profile}`;
+  return stale.now.kind === "off" ? "Kill agent and restart" : "Restart agent";
 }
 
 const TileTitleActions: Component<{
   id: TerminalId;
+  /** The host this tile's terminal lives on — the agents status a stale check
+   *  compares against. */
+  host: HostKey;
 }> = (props) => {
   const store = useTerminalStore();
   const crud = useTerminalCrud();
@@ -84,7 +90,7 @@ const TileTitleActions: Component<{
       ? ({ kind: "current" } as const)
       : agentStalenessOf({
           terminal: m,
-          status: hostAgentStatus(activeHost(), "").status,
+          status: hostAgentStatus(props.host, "").status,
           setting: preferences().agentDistro,
         });
   });
@@ -179,21 +185,25 @@ const TileTitleActions: Component<{
           </Show>
         )}
       </Show>
+      {/* Restart only when there is something to restart INTO: agents now off
+       *  (a plain shell), or the new bundle is on the host. While the new
+       *  profile downloads the pill stays stale and says so; no button. */}
       <Show
         when={(() => {
           const s = staleness();
-          return s.kind === "stale" ? s : undefined;
+          return s.kind === "stale" && agentRestartReady(s) ? s : undefined;
         })()}
       >
         {(stale) => (
           <AgentRestartButton
             guarded={liveAgent()}
+            armedLabel={armedRestartLabel(stale())}
             buttonClass={TILE_BUTTON_CLASS}
-            onRestart={(e) =>
-              onTileAction(e, "restart terminal", () =>
-                crud.handleRestart(props.id, restartedToast(stale().now)),
-              )
-            }
+            onRestart={(e) => {
+              e.stopPropagation();
+              store.setActiveSilently(props.id);
+              return runActionPromise(crud.handleRestart(props.id));
+            }}
           />
         )}
       </Show>

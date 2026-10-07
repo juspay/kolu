@@ -951,6 +951,14 @@ export const PadiCreateInputSchema = Schema.Struct({
   ...CreateTerminalInputSchema.fields,
 });
 
+/** `lifecycle.restart`'s answer: the restarted terminal, and the agent-distro
+ *  profile its new PTY got (absent when it got none) — read off padi's record
+ *  after the respawn, so a caller reports what happened, not what it hoped. */
+export const PadiRestartOutputSchema = Schema.Struct({
+  ...TerminalInfoSchema.fields,
+  agentProfile: Schema.optionalKey(Schema.String),
+});
+
 /** A bare terminal-id input — kill/sleep/wake/discardSleeping/screen.state. */
 export const PadiTerminalIdInputSchema = Schema.Struct({
   id: TerminalIdSchema,
@@ -2195,11 +2203,13 @@ export const padiSurface = defineSurfaceWithPolicy<ClientErrorPolicy>()({
       },
       /** Restart an active terminal IN PLACE: a fresh PTY on the same id, in
        *  its cwd, its layout / parent / theme / title policy untouched — so it
-       *  picks up what a new terminal gets now (the agents' PATH layer). Refuses
-       *  an id that is not an active terminal. */
+       *  picks up what a new terminal gets now (the agents' PATH layer). A live
+       *  agent's conversation resumes while agents stay on; with agents off it
+       *  comes back as a plain shell. Answers once the new PTY is up, with the
+       *  profile it got. Refuses an id that is not an active terminal. */
       restart: {
         input: PadiTerminalIdInputSchema,
-        output: TerminalInfoSchema,
+        output: PadiRestartOutputSchema,
         error: TerminalNotFound,
       },
       discardSleeping: { input: PadiTerminalIdInputSchema },

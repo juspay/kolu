@@ -7,6 +7,7 @@ import {
   type AgentDistroStatusShape,
   agentMarkLabel,
   agentMarkOf,
+  agentRestartReady,
   agentStaleLabel,
   agentStalenessOf,
   agentStatusLines,
@@ -392,10 +393,32 @@ describe("agentStalenessOf — is a terminal's agents what a new one gets", () =
   });
 });
 
+describe("agentRestartReady", () => {
+  const had = { profile: "vanilla", hash: "nd11nx5f" };
+  it("yes when agents are now off, or the new bundle is known; no while it downloads", () => {
+    expect(
+      agentRestartReady({ kind: "stale", had, now: { kind: "off" } }),
+    ).toBe(true);
+    expect(
+      agentRestartReady({
+        kind: "stale",
+        had,
+        now: { kind: "profile", profile: "juspay", hash: "ivzki9f3" },
+      }),
+    ).toBe(true);
+    expect(
+      agentRestartReady({
+        kind: "stale",
+        had,
+        now: { kind: "profile", profile: "juspay", hash: undefined },
+      }),
+    ).toBe(false);
+  });
+});
+
 describe("agentStaleLabel", () => {
   const had = { profile: "vanilla", hash: "nd11nx5f" };
-  const tail = "Restart to switch; same folder, running programs end.";
-  it("names both bundles", () => {
+  it("agents stay on: the conversation resumes on the new agents", () => {
     expect(
       agentStaleLabel({
         kind: "stale",
@@ -403,15 +426,15 @@ describe("agentStaleLabel", () => {
         now: { kind: "profile", profile: "juspay", hash: "ivzki9f3" },
       }),
     ).toBe(
-      `This terminal has vanilla nd11nx5f. New terminals get juspay ivzki9f3. ${tail}`,
+      "This terminal has vanilla nd11nx5f. New terminals get juspay ivzki9f3. Restart to switch; the agent's conversation resumes on the new agents, other programs end.",
     );
   });
-  it("says agents are now off", () => {
+  it("agents now off: a plain shell", () => {
     expect(agentStaleLabel({ kind: "stale", had, now: { kind: "off" } })).toBe(
-      `This terminal has vanilla nd11nx5f. Agents are now off. ${tail}`,
+      "This terminal has vanilla nd11nx5f. Agents are now off. Restart to switch; it comes back as a plain shell, and running programs end.",
     );
   });
-  it("leaves out a hash the host has not given", () => {
+  it("the new profile still downloading: says so, no Restart yet", () => {
     expect(
       agentStaleLabel({
         kind: "stale",
@@ -419,7 +442,7 @@ describe("agentStaleLabel", () => {
         now: { kind: "profile", profile: "juspay", hash: undefined },
       }),
     ).toBe(
-      `This terminal has vanilla nd11nx5f. New terminals get juspay. ${tail}`,
+      "This terminal has vanilla nd11nx5f. New terminals get juspay, which is still downloading on this host; Restart appears once it is ready.",
     );
   });
 });

@@ -54,7 +54,7 @@ The setting is one for all of kolu — not per host, not per terminal.
 A change applies to the **next new terminal**. A terminal that is already open
 keeps exactly the agents it started with: kolu puts the exact build of that
 profile on its PATH, so a later profile switch (or a newer build arriving) never
-changes a running agent under you.
+changes a running agent under you — until you **Restart** it (below).
 
 Every tile shows which it got: a small chip in the tile's title bar with the
 profile name and a short hash of the bundle, e.g. `vanilla 3fa9c2d1`. Hover it
@@ -65,12 +65,20 @@ When you switch, old terminals offer **Restart**. A terminal whose agents are
 no longer what a new terminal there would get — you picked another profile,
 turned agents off, or a newer build of the same profile arrived — shows its chip
 muted and struck through, with a ↻, and a **Restart** button beside it. Hover the
-chip to see what it has and what new terminals get. Restart gives the terminal a
-fresh shell in place: the same tile, folder, splits and theme, now with the
-current agents (and a toast, "Restarted with juspay"). Whatever was running in it
-ends; if an agent is working or waiting for you, the first click only asks —
-the button reads "Kill agent and restart" for five seconds, and a second click
-confirms.
+chip to see what it has and what new terminals get. While the new profile is
+still downloading on that host the chip says so and there is no button yet:
+restarting then would leave the terminal with no agents.
+
+Restart gives the terminal a fresh shell in place: the same tile, folder, splits
+and theme, now with the current agents, and a toast saying what it got
+("Restarted with juspay"). With agents still on, the agent's conversation
+resumes on the new agents; any other program running in the terminal ends. With
+agents now off it comes back as a plain shell, and the agent ends too. If an
+agent is working or waiting for you, the first click only asks: for five seconds
+the button reads "Restart agent" (or "Kill agent and restart" when agents are
+off), and a second click confirms. The old shell is stopped the way sleep stops
+it — killed outright — so it does not write its history file, and anything you
+started with `nohup` keeps running.
 
 ## Where they sit on the PATH
 
