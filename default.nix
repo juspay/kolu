@@ -118,6 +118,9 @@ let
       ./default.nix
       ./nix
       ./npins
+      # padi-agent bakes this kolu's agent-plugin dir (KOLU_AGENT_PLUGIN_DIR), so
+      # the tree a remote resolves padi-agent from must carry it.
+      ./agent-plugin
     ];
     inherit pkgs commitHash;
     agents = agentPackages.prove;
@@ -141,6 +144,52 @@ let
   # quotes values that need it, so the set can grow past today's store paths
   # without a value containing a space silently mis-sourcing.
   agentFlakeEnv = pkgs.writeText "agent-flake-env" (pkgs.lib.toShellVars agentBakedEnv);
+
+  # agent-distro — the coding agents a kolu terminal gets on its PATH, built with
+  # kolu's nixpkgs from the npins pin by agent-distro's own Nix library. See
+  # nix/agent-distro.nix for the layout and the three values baked below.
+  agentDistro = import ./nix/agent-distro.nix {
+    inherit pkgs;
+    src = sources.agent-distro;
+    pluginSrc = ./agent-plugin;
+  };
+  # The two values BOTH arms bake (the local floor is the local arm's alone):
+  # the per-profile updater listing padi validates a pushed profile against and
+  # resolves a host's `current` with, and this kolu's agent-plugin dir. One
+  # definition, so `default` and `padi-agent` cannot bake different ones.
+  agentDistroSharedBakeArgs = pkgs.lib.concatStringsSep " " [
+    ''--set KOLU_AGENT_DISTRO_UPDATER "${agentDistro.updater}"''
+    ''--set KOLU_AGENT_PLUGIN_DIR "${agentDistro.pluginDir}"''
+  ];
+  # The proof both arms run on the bake they resolve, after sourcing their
+  # composed wrappers: the updater listing names the profiles (default first)
+  # and every file it points at exists, and the plugin dir is a plugin. A
+  # broken bake fails the BUILD that would ship it, not a user's spawn.
+  agentDistroBakeProof = ''
+    echo "resolved KOLU_AGENT_DISTRO_UPDATER=$KOLU_AGENT_DISTRO_UPDATER"
+    echo "resolved KOLU_AGENT_PLUGIN_DIR=$KOLU_AGENT_PLUGIN_DIR"
+    if [ ! -f "''${KOLU_AGENT_PLUGIN_DIR:-}/plugin.json" ]; then
+      echo "FAIL: KOLU_AGENT_PLUGIN_DIR has no plugin.json — every harness would launch without kolu's plugin." >&2
+      exit 1
+    fi
+    first=$(jq -r '.profiles[0].name' "$KOLU_AGENT_DISTRO_UPDATER")
+    if [ "$first" != ${agentDistro.defaultProfile} ]; then
+      echo "FAIL: the updater listing's first profile is '$first', not kolu's default '${agentDistro.defaultProfile}' (DEFAULT_PREFERENCES.agentDistro.profile)." >&2
+      exit 1
+    fi
+    for f in $(jq -r '.profiles[] | (.command[], .config)' "$KOLU_AGENT_DISTRO_UPDATER"); do
+      if [ ! -e "$f" ]; then
+        echo "FAIL: the agent-distro updater listing names '$f', which does not exist — a host could never fetch its agents." >&2
+        exit 1
+      fi
+    done
+    for c in $(jq -r '.profiles[].config' "$KOLU_AGENT_DISTRO_UPDATER"); do
+      if ! jq -e --arg p "${agentDistro.stateHomePlaceholder}" '.state | startswith($p)' "$c" >/dev/null; then
+        echo "FAIL: $c does not keep its state under the host-home placeholder — every host would use the build machine's home." >&2
+        exit 1
+      fi
+    done
+  '';
 
   # osfacts — the single OS process/socket sampler padi's port scan spawns
   # (OSF2). Read from koluEnv rather than re-deriving the path, so the wrapper
@@ -607,14 +656,23 @@ let
   # ordering question. A bare `.#koluBin` — the binary the tests build — therefore
   # carries NO toolchain at all, by design: it is not a wrapper a user runs.
   # The remote arm asserts the same fact the same way — see `padi-agent` below.
-  default = pkgs.runCommand "kolu"
+  #
+  # `floor` — whether this wrapper also bakes the agent-distro FLOOR
+  # (`KOLU_AGENT_DISTRO_BUNDLE`, every profile's agents). The wrapper a user runs
+  # (`default`) does: local terminals get their agents with no download. The
+  # `kolu` CLI that rides `padi-agent` onto a REMOTE host must not: the floor is
+  # ~2 GB, and a host fetches its own agents from the binary cache instead of
+  # receiving them over ssh. Both bake the rest of the agent-distro bake.
+  mkKoluWrapper = { floor }: pkgs.runCommand "kolu"
     {
-      nativeBuildInputs = [ pkgs.makeWrapper ];
+      nativeBuildInputs = [ pkgs.makeWrapper pkgs.jq ];
       meta.mainProgram = "kolu";
     } ''
     mkdir -p $out/bin
     makeWrapper ${koluBin}/bin/kolu $out/bin/kolu \
       --set KOLU_AGENT_TOOLS_PATH "$out/bin:${koluAgentTools}/bin" \
+      ${pkgs.lib.optionalString floor ''--set KOLU_AGENT_DISTRO_BUNDLE "${agentDistro.bundle}"''} \
+      ${agentDistroSharedBakeArgs} \
       --run 'export KOLU_STATE_DIR="''${KOLU_STATE_DIR:-''${XDG_CONFIG_HOME:-$HOME/.config}/kolu}"; ${exportPadiStateDirRun}'
 
     # ── The composed-wrapper proof, IN the derivation it proves ───────────────
@@ -678,7 +736,39 @@ let
         exit 1
       fi
     done
-  '';
+
+    # ── The agent-distro bake, proven on the same composed env ────────────────
+    ${agentDistroBakeProof}
+  '' + (if floor then ''
+    # The local arm also carries the FLOOR: every profile's bundle, so a local
+    # terminal gets its agents with no download. Prove the floor and the
+    # updater listing name the same profiles, and that every profile's dir is
+    # really there with its harnesses and its own `agent-distro` picker.
+    echo "resolved KOLU_AGENT_DISTRO_BUNDLE=$KOLU_AGENT_DISTRO_BUNDLE"
+    listing=$("$KOLU_AGENT_DISTRO_BUNDLE/bin/agent-distro" --list --json)
+    if [ "$(jq -c '[.profiles[].name]' <<<"$listing")" != "$(jq -c '[.profiles[].name]' "$KOLU_AGENT_DISTRO_UPDATER")" ]; then
+      echo "FAIL: the floor's picker lists different profiles than the updater listing — Settings would offer a profile padi refuses." >&2
+      exit 1
+    fi
+    for p in $(jq -r '.profiles[].name' <<<"$listing"); do
+      d="$KOLU_AGENT_DISTRO_BUNDLE/profiles/$p/bin"
+      for h in agent-distro $(jq -r --arg p "$p" '.profiles[] | select(.name == $p) | .harnesses[].name' <<<"$listing"); do
+        if [ ! -x "$d/$h" ]; then
+          echo "FAIL: no executable '$h' in $d — a local terminal on profile '$p' could not run it." >&2
+          exit 1
+        fi
+      done
+    done
+  '' else ''
+    if [ -n "''${KOLU_AGENT_DISTRO_BUNDLE:-}" ]; then
+      echo "FAIL: a floor-less kolu wrapper resolved a floor bundle — it would ship every profile's agents to a remote host." >&2
+      exit 1
+    fi
+  '');
+
+  default = mkKoluWrapper { floor = true; };
+  # The `kolu` CLI a remote host is provisioned with (inside `padi-agent`).
+  koluRemote = mkKoluWrapper { floor = false; };
 
   # kaval (R-4 Phase B): the standalone PTY daemon — owns the node-pty children,
   # mirrors their screens, and serves `ptyHostSurface` over its own unix socket.
@@ -888,7 +978,7 @@ let
   # agent by re-importing this very `default.nix` from the assembled tree and
   # forcing that attr's `drvPath`; its own comment records the invariant that
   # makes the recursion terminate — a proven attr must never reach the
-  # `agentFlakeSrc` thunk. This closure reaches it three ways (`default` →
+  # `agentFlakeSrc` thunk. This closure reaches it three ways (`koluRemote` →
   # `koluBin`, and both TUI wrappers, all of which bake the flake ref), so
   # proving it is an infinite regress — a real `error: stack overflow` this
   # composition was first written into. The rule belongs to the mechanism, not to
@@ -903,15 +993,19 @@ let
   # The self-reference forces a wrapper step, which `postBuild` supplies.
   padi-agent = pkgs.buildEnv {
     name = "padi-agent";
-    paths = [ padi default ] ++ agentToolPackages;
-    nativeBuildInputs = [ pkgs.makeWrapper ];
+    paths = [ padi koluRemote ] ++ agentToolPackages;
+    nativeBuildInputs = [ pkgs.makeWrapper pkgs.jq ];
     postBuild = ''
-      wrapProgram $out/bin/padi --set KOLU_AGENT_TOOLS_PATH "$out/bin"
+      # The agent-distro bake rides the same outer wrapper. No floor: a remote
+      # host fetches its agents from the binary cache itself, on first use —
+      # nothing is copied over ssh beyond the small updater configs named here.
+      wrapProgram $out/bin/padi --set KOLU_AGENT_TOOLS_PATH "$out/bin" \
+        ${agentDistroSharedBakeArgs}
 
       # ── The composed-wrapper proof, IN the derivation that is DIALED ─────────
       # `padi-agent` — not `padi`, not `default` — is what BOTH dial paths
       # provision onto a host, so it is where the remote guarantee has to be
-      # proven. Without this, dropping `default` (the `kolu` binary) or a TUI
+      # proven. Without this, dropping `koluRemote` (the `kolu` binary) or a TUI
       # from `paths=` above still BUILDS, still evaluates green in
       # `ci::agent-flake-nix` (which only forces `drvPath`), and still passes
       # every TypeScript test (they all inject the bake directly) — failing only
@@ -930,7 +1024,7 @@ let
         if [ ! -e "$out/bin/$b" ]; then
           echo "FAIL: padi-agent has no '$b' in its own bin/ — a REMOTE agent" >&2
           echo "provisioned with this closure could not run it. Check that" >&2
-          echo "'paths' still carries 'default' and every agentToolPackages entry." >&2
+          echo "'paths' still carries 'koluRemote' and every agentToolPackages entry." >&2
           exit 1
         fi
       done
@@ -975,6 +1069,13 @@ let
           exit 1
         fi
       done
+
+      # The agent-distro bake a remote padi resolves — and, by design, NO floor.
+      ${agentDistroBakeProof}
+      if [ -n "''${KOLU_AGENT_DISTRO_BUNDLE:-}" ]; then
+        echo "FAIL: padi-agent bakes a floor bundle — a remote host must download its agents, never receive them over ssh." >&2
+        exit 1
+      fi
     '';
     meta.mainProgram = "padi";
   };
@@ -988,4 +1089,7 @@ let
 in
 {
   inherit agentFlakeSrc agentFlakeEnv default koluBin kaval kaval-tui kolu-rpc padi padi-agent padi-tui koluEnv pnpmDeps typecheck osfacts;
+  # The local floor of coding agents, exposed so CI builds it and nix-cache.yml
+  # pushes it (a `nix run` user then substitutes it rather than compiling).
+  agent-distro-bundle = agentDistro.bundle;
 }

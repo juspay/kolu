@@ -5,7 +5,9 @@
 # deliberately does not import nixpkgs; output projections that already have a
 # per-system package set can reuse it without evaluating the pin a second time.
 let
-  systems = [ "x86_64-linux" "aarch64-linux" "aarch64-darwin" "x86_64-darwin" ];
+  # No x86_64-darwin: agent-distro (the coding agents every kolu terminal can
+  # get, nix/agent-distro.nix) does not build for Intel Macs.
+  systems = [ "x86_64-linux" "aarch64-linux" "aarch64-darwin" ];
   mapSystems = f:
     builtins.listToAttrs (map
       (system: {
