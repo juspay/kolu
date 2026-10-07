@@ -2212,7 +2212,7 @@ retirements:
     defectSurface: [agents, terminal-lifecycle]
     destinationLayer: L5
     replacements: []
-    survivorRevisionIds: [revision-d196165af8ece9b11831]
+    survivorRevisionIds: [revision-501f4a91e1c463f011a6]
     sameCodePathEvidence:
       file: packages/tests/features/agents.feature
       symbol: "Scenario: A terminal whose agents went stale restarts in place with the new ones"
