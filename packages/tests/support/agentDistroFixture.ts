@@ -25,26 +25,47 @@ import path from "node:path";
 const PLACEHOLDER = "@KOLU_XDG_STATE_HOME@";
 export const FIXTURE_PROFILES = ["vanilla", "juspay"] as const;
 
+/** The fixture's ONE harness, as its listing names it — steps read the line
+ *  Settings shows off this (`harnessLine`), never a hand-typed copy. */
+export const FIXTURE_HARNESS = {
+  name: "claude",
+  title: "Claude Code",
+  tagline: "fixture",
+  version: "0.0.0",
+} as const;
+
+/** A fixture profile, as the picker lists it. */
+export function fixtureProfile(name: string): {
+  name: string;
+  description: string;
+  harnesses: (typeof FIXTURE_HARNESS)[];
+} {
+  return {
+    name,
+    description: `Fixture profile ${name}`,
+    harnesses: [FIXTURE_HARNESS],
+  };
+}
+
+/** What a profile's stub `claude` prints — the step that runs it waits for
+ *  this, and it is never typed (the command is just `claude`). */
+export function fixtureClaudeSays(profile: string): string {
+  return `agent-distro fixture: ${profile} claude`;
+}
+
+/** Every fixture path carries this, so a step can tell a fixture agent on the
+ *  PATH from anything else. */
+export const FIXTURE_MARK = "kolu-e2e-agent-distro";
+
 const script = (file: string, body: string) => {
   fs.writeFileSync(file, `#!/bin/sh\n${body}\n`, { mode: 0o755 });
 };
 
 /** Build the fixture once (per worker) and return the env that bakes it. */
 export function agentDistroFixtureEnv(): Record<string, string> {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), "kolu-e2e-agent-distro-"));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), `${FIXTURE_MARK}-`));
   const listing = JSON.stringify({
-    profiles: FIXTURE_PROFILES.map((name) => ({
-      name,
-      description: `Fixture profile ${name}`,
-      harnesses: [
-        {
-          name: "claude",
-          title: "Claude Code",
-          tagline: "fixture",
-          version: "0.0.0",
-        },
-      ],
-    })),
+    profiles: FIXTURE_PROFILES.map(fixtureProfile),
   });
   const picker = `printf '%s\\n' '${listing}'`;
   fs.mkdirSync(path.join(root, "bin"), { recursive: true });
@@ -52,18 +73,15 @@ export function agentDistroFixtureEnv(): Record<string, string> {
   const profiles = FIXTURE_PROFILES.map((name) => {
     const bin = path.join(root, "profiles", name, "bin");
     fs.mkdirSync(bin, { recursive: true });
-    script(
-      path.join(bin, "claude"),
-      `echo "agent-distro fixture: ${name} claude"`,
-    );
+    script(path.join(bin, "claude"), `echo "${fixtureClaudeSays(name)}"`);
     script(path.join(bin, "agent-distro"), picker);
     const config = path.join(root, `update-${name}.json`);
     fs.writeFileSync(
       config,
       JSON.stringify({
         profile: name,
-        state: `${PLACEHOLDER}/kolu-e2e-agent-distro/${name}`,
-        history: `${PLACEHOLDER}/kolu-e2e-agent-distro/history.log`,
+        state: `${PLACEHOLDER}/${FIXTURE_MARK}/${name}`,
+        history: `${PLACEHOLDER}/${FIXTURE_MARK}/history.log`,
       }),
     );
     return { name, command: ["/bin/false"], config };

@@ -2199,7 +2199,7 @@ retirements:
     defectSurface: [agents, settings]
     destinationLayer: L5
     replacements: []
-    survivorRevisionIds: [revision-0e287c9d4e472f18064f]
+    survivorRevisionIds: [revision-3cea4adcee8da6504f6b]
     sameCodePathEvidence:
       file: packages/tests/features/agents.feature
       symbol: "Scenario: Switching Agents says what happened, and the hint shows this machine's status"
@@ -2212,7 +2212,7 @@ retirements:
     defectSurface: [agents, terminal-lifecycle]
     destinationLayer: L5
     replacements: []
-    survivorRevisionIds: [revision-19d000046b4b0d5275e3]
+    survivorRevisionIds: [revision-ca1d63be66a95ca81f03]
     sameCodePathEvidence:
       file: packages/tests/features/agents.feature
       symbol: "Scenario: A terminal whose agents went stale restarts in place with the new ones"
@@ -2225,7 +2225,7 @@ retirements:
     defectSurface: [agents, terminal-lifecycle, attach]
     destinationLayer: L5
     replacements: []
-    survivorRevisionIds: [revision-19d000046b4b0d5275e3]
+    survivorRevisionIds: [revision-ca1d63be66a95ca81f03]
     sameCodePathEvidence:
       file: packages/tests/features/agents.feature
       symbol: "Scenario: A terminal whose agents went stale restarts in place with the new ones"
@@ -2238,7 +2238,7 @@ retirements:
     defectSurface: [agents, settings]
     destinationLayer: L5
     replacements: []
-    survivorRevisionIds: [revision-0e287c9d4e472f18064f]
+    survivorRevisionIds: [revision-3cea4adcee8da6504f6b]
     sameCodePathEvidence:
       file: packages/tests/features/agents.feature
       symbol: "Scenario: Switching Agents says what happened, and the hint shows this machine's status"
@@ -2251,8 +2251,47 @@ retirements:
     defectSurface: [agents, terminal-lifecycle]
     destinationLayer: L5
     replacements: []
-    survivorRevisionIds: [revision-19d000046b4b0d5275e3]
+    survivorRevisionIds: [revision-ca1d63be66a95ca81f03]
     sameCodePathEvidence:
       file: packages/tests/features/agents.feature
       symbol: "Scenario: A terminal whose agents went stale restarts in place with the new ones"
       test: The restart toast was reworded ("Restarted with the juspay agents"); the scenario asserts the new text. The Restart is now a press on the single agents pill rather than a separate button — the step definitions changed, the scenario's steps did not.
+  - id: revise-agents-switch-asserts-data
+    revisionId: revision-0e287c9d4e472f18064f
+    action: revised
+    status: landed
+    promise: Switching Agents says what happened, and the hint shows this machine's status
+    defectSurface: [agents, settings]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-3cea4adcee8da6504f6b]
+    sameCodePathEvidence:
+      file: packages/tests/features/agents.feature
+      symbol: "Scenario: Switching Agents says what happened, and the hint shows this machine's status"
+      test: The scenario no longer types the UI's prose. Its steps assert the toasts and the Off hint with the very wording functions the UI uses (agentToast, AGENTS_OFF_MEANS from @kolu/agent-distro/status), this machine's status by its data-bar attribute, and turn Agents off through the existing "I turn Agents off" step. Same journey, same order.
+  - id: revise-agents-mark-turn-off
+    revisionId: revision-cef221d90092656fb0b8
+    action: revised
+    status: landed
+    promise: This machine's tab carries the agents mark while Agents are on, and it opens Settings
+    defectSurface: [agents, host-strip]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-9ec558eb63289587db7b]
+    sameCodePathEvidence:
+      file: packages/tests/features/agents.feature
+      symbol: "Scenario: This machine's tab carries the agents mark while Agents are on, and it opens Settings"
+      test: The last switch uses the "I turn Agents off" step (which clicks the Off segment by the shared AGENTS_OFF id) instead of naming "off" as if it were a profile. Every assertion is unchanged.
+  - id: revise-agents-restart-asserts-data
+    revisionId: revision-19d000046b4b0d5275e3
+    action: revised
+    status: landed
+    promise: A terminal whose agents went stale restarts in place with the new ones
+    defectSurface: [agents, terminal-lifecycle]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-ca1d63be66a95ca81f03]
+    sameCodePathEvidence:
+      file: packages/tests/features/agents.feature
+      symbol: "Scenario: A terminal whose agents went stale restarts in place with the new ones"
+      test: The restart toast is asserted with restartedLabel (the function the toast is worded by) instead of a typed copy of its text. Every other step is unchanged.

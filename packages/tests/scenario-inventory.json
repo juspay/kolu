@@ -8175,6 +8175,42 @@
       "exampleRows": [],
       "executions": 1,
       "firstSeenSha": "52d7f7ab13a529ee0eed0235ce62e0eb17b37b55"
+    },
+    {
+      "revisionId": "revision-ca1d63be66a95ca81f03",
+      "scenarioKey": "scenario-a118447e6b2e9c279271",
+      "feature": "features/agents.feature",
+      "scenario": "A terminal whose agents went stale restarts in place with the new ones",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "472d7cbf11125a2c5f460c4d90fe6cb55acc328c029e909dd82e8279246e32b6",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "b62e57ef438b0d3e54b7f7a9e60e3b16fdf776d4"
+    },
+    {
+      "revisionId": "revision-3cea4adcee8da6504f6b",
+      "scenarioKey": "scenario-9ce014499c8faf59c25c",
+      "feature": "features/agents.feature",
+      "scenario": "Switching Agents says what happened, and the hint shows this machine's status",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "25373bcd569961ea086bc846c7ef73dea869fcb468950962e90ef5d84d03d39f",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "b62e57ef438b0d3e54b7f7a9e60e3b16fdf776d4"
+    },
+    {
+      "revisionId": "revision-9ec558eb63289587db7b",
+      "scenarioKey": "scenario-92f90da1a9b422cc3c5f",
+      "feature": "features/agents.feature",
+      "scenario": "This machine's tab carries the agents mark while Agents are on, and it opens Settings",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "a1fb82e8d76e533ec4ff7ee1650fb91de72a6c29dfeeae03f50d1e38b9ba80ee",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "b62e57ef438b0d3e54b7f7a9e60e3b16fdf776d4"
     }
   ]
 }

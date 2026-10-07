@@ -11,6 +11,18 @@
 import assert from "node:assert";
 import { Then, When } from "@cucumber/cucumber";
 import type { AgentDistroStatus } from "@kolu/agent-distro/schema";
+import {
+  AGENTS_OFF,
+  AGENTS_OFF_MEANS,
+  agentToast,
+  harnessLine,
+  restartedLabel,
+} from "@kolu/agent-distro/status";
+import {
+  FIXTURE_MARK,
+  fixtureClaudeSays,
+  fixtureProfile,
+} from "../support/agentDistroFixture.ts";
 import { waitForPadiCell } from "../support/padiCellWait.ts";
 import { type KoluWorld, POLL_TIMEOUT } from "../support/world.ts";
 import { readBufferText, waitForBufferContains } from "../support/buffer.ts";
@@ -18,10 +30,13 @@ import { readBufferText, waitForBufferContains } from "../support/buffer.ts";
 /** The focused tile — the one a just-created terminal lands in. */
 const FOCUSED_TILE = '[data-testid="canvas-tile"]:has([data-focused])';
 
+/** The Agents control's segment for `value` (a profile, or `AGENTS_OFF`). */
+const segment = (value: string) => `[data-testid="agents-profile-${value}"]`;
+
 /** Is the Agents control on a profile (not "Off")? Read off the segment the
  *  control marks pressed. */
 async function agentsOn(world: KoluWorld): Promise<boolean> {
-  const off = world.page.locator('[data-testid="agents-profile-off"]');
+  const off = world.page.locator(segment(AGENTS_OFF));
   await off.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
   return (await off.getAttribute("aria-pressed")) !== "true";
 }
@@ -30,17 +45,17 @@ Then(
   "the Agents section should offer the {string} and {string} profiles",
   async function (this: KoluWorld, a: string, b: string) {
     // ONE control: Off, then a segment per profile.
-    for (const value of ["off", a, b]) {
+    for (const value of [AGENTS_OFF, a, b]) {
       await this.page
-        .locator(`[data-testid="agents-profile-${value}"]`)
+        .locator(segment(value))
         .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
     }
     const popover = this.page.locator('[data-testid="settings-popover"]');
-    // Off, the hint says what kolu can bring; on, it lists what the selected
-    // profile ships, from the listing (the fixture's `Claude Code 0.0.0`).
+    // Off, the hint says what Off means; on, it lists what the selected profile
+    // ships — both worded by the same functions the UI uses.
     const expected = (await agentsOn(this))
-      ? "Claude Code 0.0.0"
-      : "Kolu can bring AI coding agents along";
+      ? harnessLine(fixtureProfile(a))
+      : AGENTS_OFF_MEANS;
     await popover
       .getByText(expected, { exact: false })
       .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
@@ -52,41 +67,58 @@ When("I turn Agents {word}", async function (this: KoluWorld, state: string) {
   const want = state === "on";
   // "On" is the default profile, `vanilla`, unless a profile is already on.
   if ((await agentsOn(this)) !== want)
-    await this.page.click(
-      `[data-testid="agents-profile-${want ? "vanilla" : "off"}"]`,
-    );
+    await this.page.click(segment(want ? "vanilla" : AGENTS_OFF));
   await this.page.waitForFunction(
-    (on) =>
+    ([on, offSel]) =>
       (document
-        .querySelector('[data-testid="agents-profile-off"]')
+        .querySelector(offSel as string)
         ?.getAttribute("aria-pressed") ===
         "true") ===
       !on,
-    want,
+    [want, segment(AGENTS_OFF)] as const,
     { timeout: POLL_TIMEOUT },
   );
 });
 
+/** A toast carrying `text` — always a string from `@kolu/agent-distro/status`,
+ *  the very function the UI words it with. */
+async function toastSays(world: KoluWorld, text: string): Promise<void> {
+  await world.page
+    .locator("[data-sonner-toaster] li")
+    .filter({ hasText: text })
+    .first()
+    .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+}
+
 Then(
-  "a toast should say {string}",
-  async function (this: KoluWorld, text: string) {
-    await this.page
-      .locator("[data-sonner-toaster] li")
-      .filter({ hasText: text })
-      .first()
-      .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+  "a toast should say new terminals get the {string} agents",
+  async function (this: KoluWorld, profile: string) {
+    await toastSays(this, agentToast.on(profile));
   },
 );
 
+Then("a toast should say agents are off", async function (this: KoluWorld) {
+  await toastSays(this, agentToast.off);
+});
+
 Then(
-  "the Agents hint should say {string}",
-  async function (this: KoluWorld, text: string) {
-    await this.page
-      .locator('[data-testid="settings-popover"]')
-      .getByText(text, { exact: false })
-      .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+  "a toast should say the terminal restarted with the {string} agents",
+  async function (this: KoluWorld, profile: string) {
+    // A plain shell restarted: nothing to resume.
+    await toastSays(
+      this,
+      restartedLabel({ agentProfile: profile, resumed: false }),
+    );
   },
 );
+
+Then("the Agents hint should explain Off", async function (this: KoluWorld) {
+  await this.page
+    .locator('[data-testid="settings-popover"]')
+    .getByText(AGENTS_OFF_MEANS, { exact: false })
+    .first()
+    .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+});
 
 /** The host tab strip's agents mark (scoped to the real strip — its hidden
  *  measuring twin renders one too, without the test id). The e2e kolu has one
@@ -95,15 +127,14 @@ const HOST_AGENTS_MARK =
   '[data-testid="host-chip-row"] [data-testid="host-agents-mark"]';
 
 Then(
-  "this machine's Agents status should say {string}",
-  async function (this: KoluWorld, text: string) {
-    // The first status line is this machine's.
+  "this machine's Agents status should be ready",
+  async function (this: KoluWorld) {
+    // The first status line is this machine's; its bar says the state.
     await this.page
       .locator(
-        '[data-testid="agents-status-lines"] [data-testid="agents-status-text"]',
+        '[data-testid="agents-status-lines"] [data-testid="agents-status-text"][data-bar="ok"]',
       )
       .first()
-      .filter({ hasText: text })
       .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
   },
 );
@@ -133,7 +164,7 @@ When("I click the host tab's agents mark", async function (this: KoluWorld) {
 When(
   "I choose the {string} Agents profile",
   async function (this: KoluWorld, profile: string) {
-    await this.page.click(`[data-testid="agents-profile-${profile}"]`);
+    await this.page.click(segment(profile));
     await this.waitForFrame();
   },
 );
@@ -207,10 +238,7 @@ Then(
   "the terminal's claude should be the {string} fixture",
   async function (this: KoluWorld, profile: string) {
     await this.terminalRunAndWait("claude");
-    await waitForBufferContains(
-      this.page,
-      `agent-distro fixture: ${profile} claude`,
-    );
+    await waitForBufferContains(this.page, fixtureClaudeSays(profile));
   },
 );
 
@@ -220,7 +248,7 @@ Then(
   "the terminal should have no fixture agents on its PATH",
   async function (this: KoluWorld) {
     await this.terminalRunAndWait(
-      'echo "fixture-agents=$(command -v claude | grep -c kolu-e2e-agent-distro)"',
+      `echo "fixture-agents=$(command -v claude | grep -c ${FIXTURE_MARK})"`,
     );
     await waitForBufferContains(this.page, "fixture-agents=0");
   },
