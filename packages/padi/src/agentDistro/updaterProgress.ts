@@ -1,27 +1,40 @@
 /**
- * How agent-distro's updater reports download progress — the ONE place padi
+ * How agent-distro's updater reports a run to a machine — the ONE place padi
  * knows it, so the relay changes in one spot when the updater does.
  *
- * agent-distro's U4 gives the updater a `--progress` mode: its `nix build` runs
- * with `--log-format internal-json`, and stdout becomes one JSON object per
- * line, `{"progress":{"done":<bytes>,"total":<bytes>}}` while fetching. The pin
- * kolu builds against predates U4, whose updater rejects an unknown mode, so
- * {@link UPDATER_PROGRESS_ARGS} is empty and no line parses as progress: the
- * host shows "Downloading agents…" without byte counts until the pin moves.
- * Bumping the pin past U4 is the one-line change here (`["--progress"]`).
+ * Under `--progress` (agent-distro's `src/update/update.ts`; `lib/mk-updater.nix`
+ * documents it as `command ++ [ "--progress" ]`) the updater's stdout is one JSON
+ * object per line: `{"progress":{"done":<bytes>,"total":<bytes>}}` while nix
+ * fetches, then exactly one `{"result":…}` — `updated` / `unchanged` with the
+ * bundle it landed, or `skipped` / `failed` with the reason in its own words.
+ * Every human line goes to stderr.
  */
 
-/** Extra argv after the config path. Empty until the pinned updater has U4. */
-export const UPDATER_PROGRESS_ARGS: readonly string[] = [];
+/** Extra argv after the config path: the machine-readable mode. */
+export const UPDATER_PROGRESS_ARGS: readonly string[] = ["--progress"];
 
 export interface UpdaterProgress {
   readonly done: number;
   readonly total: number;
 }
 
-/** One stdout line → a progress reading, or `null` for any other line (the
- *  updater's own status lines, a final `result` object, blank lines). */
-export function parseUpdaterProgressLine(line: string): UpdaterProgress | null {
+/** The updater's final word on a run. */
+export type UpdaterResult =
+  | { readonly result: "updated" | "unchanged"; readonly bundle: string }
+  | { readonly result: "skipped" | "failed"; readonly reason: string };
+
+/** One stdout line, read. `null` for anything that is neither (a blank line). */
+export type UpdaterLine =
+  | { readonly progress: UpdaterProgress }
+  | { readonly result: UpdaterResult };
+
+const isCount = (v: unknown): v is number =>
+  typeof v === "number" && Number.isFinite(v) && v >= 0;
+
+/** Read one stdout line of a `--progress` run. Anything that is not one of the
+ *  two documented objects reads as `null` — the caller decides what an ABSENT
+ *  result means (a crash), never this parser. */
+export function parseUpdaterLine(line: string): UpdaterLine | null {
   const trimmed = line.trim();
   if (!trimmed.startsWith("{")) return null;
   let parsed: unknown;
@@ -30,17 +43,28 @@ export function parseUpdaterProgressLine(line: string): UpdaterProgress | null {
   } catch {
     return null;
   }
-  const progress = (parsed as { progress?: unknown } | null)?.progress as
+  if (typeof parsed !== "object" || parsed === null) return null;
+  const record = parsed as Record<string, unknown>;
+  const progress = record.progress as
     | { done?: unknown; total?: unknown }
     | undefined;
-  if (
-    typeof progress?.done !== "number" ||
-    typeof progress.total !== "number" ||
-    !Number.isFinite(progress.done) ||
-    !Number.isFinite(progress.total) ||
-    progress.done < 0 ||
-    progress.total < 0
-  )
-    return null;
-  return { done: progress.done, total: progress.total };
+  if (progress !== undefined) {
+    return isCount(progress?.done) && isCount(progress?.total)
+      ? { progress: { done: progress.done, total: progress.total } }
+      : null;
+  }
+  switch (record.result) {
+    case "updated":
+    case "unchanged":
+      return typeof record.bundle === "string"
+        ? { result: { result: record.result, bundle: record.bundle } }
+        : null;
+    case "skipped":
+    case "failed":
+      return typeof record.reason === "string"
+        ? { result: { result: record.result, reason: record.reason } }
+        : null;
+    default:
+      return null;
+  }
 }

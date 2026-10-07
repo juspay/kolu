@@ -39,25 +39,40 @@ const PLACEHOLDER = "@KOLU_XDG_STATE_HOME@";
 const ON: AgentDistroSetting = { enabled: true, profile: "vanilla" };
 const OFF: AgentDistroSetting = { enabled: false, profile: "vanilla" };
 
-// The stub updater: `node stub.mjs <config> [progress args]`, like the real one.
+// The stub updater: `node stub.mjs <config> --progress`, speaking the real
+// updater's `--progress` protocol — progress lines, then one result line, human
+// words on stderr.
 const STUB = `
 import { appendFileSync, mkdirSync, readFileSync, symlinkSync } from "node:fs";
 const args = process.argv.slice(2);
 appendFileSync(process.env.STUB_LOG, JSON.stringify(args) + "\\n");
 const cfg = JSON.parse(readFileSync(args[0], "utf8"));
+const out = (o) => process.stdout.write(JSON.stringify(o) + "\\n");
 const land = () => {
   mkdirSync(cfg.state, { recursive: true });
   symlinkSync(process.env.STUB_BUNDLE, cfg.state + "/current");
+  out({ result: "updated", bundle: process.env.STUB_BUNDLE });
 };
 switch (process.env.STUB_MODE) {
-  case "ok": land(); break;
-  case "slow": await new Promise((r) => setTimeout(r, 300)); land(); break;
+  case "ok":
+    out({ progress: { done: 1100000000, total: 2000000000 } });
+    land();
+    break;
+  case "slow":
+    out({ progress: { done: 1100000000, total: 2000000000 } });
+    await new Promise((r) => setTimeout(r, 400));
+    land();
+    break;
   case "skip":
     process.stderr.write("agent-distro: vanilla update skipped: cache https://cache.example not usable; add it to nix.settings substituters/trusted-public-keys\\n");
+    out({ result: "skipped", reason: "cache https://cache.example not usable; add it to nix.settings substituters/trusted-public-keys" });
     break;
   case "fail":
-    process.stderr.write("agent-distro: vanilla update failed (exit 1)\\n");
+    out({ result: "failed", reason: "nix build exit 1" });
     process.exit(1);
+  case "crash":
+    process.stderr.write("TypeError: boom\\n");
+    process.exit(3);
 }
 `;
 
@@ -174,14 +189,36 @@ describe("a host's first download", () => {
     });
   });
 
-  it("hands the updater exactly ONE config path — the host-concrete one", async () => {
+  it("hands the updater ONE config path — the host-concrete one — then --progress", async () => {
     write(ON);
     await until((s) => s?.kind === "ready");
     const [argv] = invocations();
-    // Not the baked config (which would make the updater read its second
-    // argument as a mode and die), and no stray extra argument.
-    expect(argv).toHaveLength(1);
+    // Not the baked config (which the updater would read, then take the second
+    // path for a mode and die), and nothing but the progress flag after it.
+    expect(argv).toHaveLength(2);
     expect(argv?.[0]).toMatch(/kolu-agent-distro-[^/]+\/update\.json$/);
+    expect(argv?.[1]).toBe("--progress");
+  });
+
+  it("relays the bytes: downloading { done, total }", async () => {
+    process.env.STUB_MODE = "slow";
+    write(ON);
+    await until((s) => s?.kind === "downloading" && s.progress !== undefined);
+    expect(last()).toEqual({
+      kind: "downloading",
+      profile: "vanilla",
+      progress: { done: 1_100_000_000, total: 2_000_000_000 },
+    });
+    await until((s) => s?.kind === "ready");
+  });
+
+  it("a run that dies without its result line is an error naming it", async () => {
+    process.env.STUB_MODE = "crash";
+    write(ON);
+    await until((s) => s?.kind === "error");
+    expect(last()).toMatchObject({
+      message: "the updater exited 3 without a result: TypeError: boom",
+    });
   });
 
   it("an updater SKIP (exit 0, nothing landed) is an error with its own words", async () => {
@@ -192,7 +229,7 @@ describe("a host's first download", () => {
       kind: "error",
       profile: "vanilla",
       message:
-        "vanilla update skipped: cache https://cache.example not usable; add it to nix.settings substituters/trusted-public-keys",
+        "cache https://cache.example not usable; add it to nix.settings substituters/trusted-public-keys",
     });
   });
 
@@ -200,7 +237,7 @@ describe("a host's first download", () => {
     process.env.STUB_MODE = "fail";
     write(ON);
     await until((s) => s?.kind === "error");
-    expect(last()).toMatchObject({ message: "vanilla update failed (exit 1)" });
+    expect(last()).toMatchObject({ message: "nix build exit 1" });
     await new Promise((r) => setTimeout(r, 200));
     expect(invocations()).toHaveLength(1);
   });

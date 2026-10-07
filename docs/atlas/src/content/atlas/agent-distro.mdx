@@ -63,16 +63,15 @@ Shipped in <PrLink pr={2265} />.
 - **Hosts download their own agents.** `padi-agent` carries no floor. On first use
   padi runs agent-distro's `lib.mkUpdater` command (its config made concrete for
   the host's state home), which fetches from the binary cache into the host's
-  store; the host tab shows progress and a toast announces "Agents ready". No
-  retry loop.
+  store; the host tab shows its `--progress` byte counts and a toast announces
+  "Agents ready". No retry loop.
 - **Nix.** agent-distro is an npins pin, no flake input. The floor is built with
   kolu's nixpkgs via agent-distro's own `mkLaunchers` / `mkPicker`, exposed as
   `agent-distro-bundle` (so the cache job pushes it), and baked only on the
   `default` wrapper. `x86_64-darwin` left kolu's systems.
 
 Known limits are decided, not open: garbage collection can remove an old bundle
-under a running agent; two updaters on one machine are harmless; byte progress
-waits on agent-distro's U4; a fetched (remote) bundle has no `agent-distro`
+under a running agent; two updaters on one machine are harmless; a fetched (remote) bundle has no `agent-distro`
 picker of its own; a host fetches `github:juspay/agent-distro` at its latest
 `main`, while padi checks a profile name against the listing pinned in kolu's
 build, so a profile added upstream is refused until kolu's pin moves.

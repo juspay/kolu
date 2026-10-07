@@ -435,7 +435,7 @@ every NEW terminal it spawns ([Agents](https://kolu.dev/agents)). Two cells
   the user's choice is never mapped to another profile. Not on the MCP face.
 - **`agentDistroStatus` (read-only)** — whether the selected profile's agents
   are on THIS host: `ready` (with the bundle new terminals get), `downloading`
-  (with byte counts once the pinned updater reports them), `error` (the
+  (with the bytes fetched so far, from the updater's `--progress` lines), `error` (the
   updater's own message), `off`, or `unavailable` (an unbaked, from-source padi).
 - **The spawn layer** — at each spawn (fresh or wake) padi resolves the bundle:
   the host's `<state>/current` (what agent-distro's updater fetched) if it

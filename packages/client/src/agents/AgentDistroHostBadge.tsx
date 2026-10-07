@@ -1,5 +1,4 @@
-/** A host tab's agent-distro note: "Downloading agents…" (with "1.1 GB of 2.0 GB"
- *  once the pinned updater reports bytes — padi's `updaterProgress.ts`) while
+/** A host tab's agent-distro note: "Downloading agents… 1.1 GB of 2.0 GB" while
  *  the host fetches the selected profile's bundle from the binary cache, or the
  *  updater's own error when it could not. Nothing at all when agents are ready,
  *  off, or unavailable — the tab stays as it was. Full text on hover. */
