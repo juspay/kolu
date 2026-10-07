@@ -447,9 +447,10 @@ every NEW terminal it spawns ([Agents](https://kolu.dev/agents)). Two cells
   names this kolu's `agent-plugin`. A running terminal never changes bundle,
   except through `lifecycle.restart`: a fresh PTY on the same id (same cwd,
   layout, parent, theme), flipped through sleep and wake, so it re-resolves the
-  layer. The live agent's conversation resumes when agents stay on; with agents
-  now off it comes back as a plain shell. The call answers once the new PTY is
-  up, with the profile it got; a kill that fails with the PTY still alive puts
+  layer — what that means for the user (the conversation, a plain shell) is
+  [kolu.dev/agents](https://kolu.dev/agents#restarting-a-terminal-onto-the-current-agents).
+  The call answers once the new PTY is up, with the `agents` it got and whether
+  it `resumed` the conversation; a kill that fails with the PTY still alive puts
   the record back on it and fails. An attach that lands in the restart's
   dormant middle waits for the new PTY rather than answering `TerminalNotFound`
   (which a client's attach loop reads as "gone" and stops on).
@@ -458,14 +459,16 @@ every NEW terminal it spawns ([Agents](https://kolu.dev/agents)). Two cells
   agent-distro's updater once (`lib.mkUpdater`'s command and config, the config's
   state home made concrete for this host), which fetches the bundle from the
   binary cache into the host's store and flips `current`. No retry loop: a
-  failure is shown, and the next time the setting turns that profile on, it
-  tries again.
+  failure is published with a typed `reason` (`nixMissing` | `updater`) and its
+  cause — the remedy and retry are worded once, in `@kolu/agent-distro/status` —
+  and the next time the setting turns that profile on, it tries again.
 - **Where it lives** — `src/agentDistro/`, one module per thing that changes
   on its own clock: `bake.ts` (what the build baked), `onHost.ts` (looking up
   agent-distro's state on this host, and the host's `nix`), `layer.ts` (what a
   terminal spawned now gets, and its record stamp), `updater.ts` (running the
-  updater process), and `agentDistro.ts` (kolu's policy: the write gate, the
-  status, the one download). kolu's contract with upstream agent-distro — the
+  updater process), `download.ts` (the download state machine: running ·
+  failed with a typed reason), and `agentDistro.ts` (kolu's policy: the write
+  gate, the status, when to download). kolu's contract with upstream agent-distro — the
   `--progress` line format, the bundle/state layout, the listing — is
   [`@kolu/agent-distro`](../agent-distro), which padi imports.
 - **The bake** (`src/agentDistro/bake.ts`) — `KOLU_AGENT_DISTRO_UPDATER` (the

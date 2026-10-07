@@ -1,7 +1,7 @@
 # @kolu/agent-distro's Nix half — kolu's whole build-side contract with
 # agent-distro (https://github.com/juspay/agent-distro), consumed from its npins
-# pin and built with kolu's own nixpkgs: the coding agents (`claude`, `codex`,
-# `omp`, `opencode`, `opencode2`, `pi`) a kolu terminal can get on its PATH.
+# pin and built with kolu's own nixpkgs: the coding agents a kolu terminal can
+# get on its PATH (which ones, for users: kolu.dev/agents).
 # The package's TypeScript half (src/) reads what this file bakes.
 #
 # Everything here is agent-distro's own library — its validated `profiles`, its

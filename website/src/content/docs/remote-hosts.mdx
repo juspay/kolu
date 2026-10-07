@@ -122,16 +122,13 @@ server](/mcp) immediately — again with nothing installed by hand. Because the
 tools ride the same closure as the daemon, they are always the same build as the
 padi they talk to.
 
-The **coding agents** do not ride that closure. With [Agents](/agents) on, the
-first time a host is used the host **downloads them itself** from agent-distro's
-binary cache into its own Nix store; nothing is copied over ssh. The agent-distro
-mark on the host's tab grows a ring that fills as they download (hover for "1.1 GB
-of 2.0 GB"), then kolu says
-"Agents ready on *host*" and the next new terminal there has them. A host whose
-Nix cannot use that cache shows the mark in the warning colour, with
-agent-distro's own message on hover (add the
-cache to the host's `nix.settings`, then turn Agents off and on to retry); it
-never compiles agents.
+The **coding agents** do not ride that closure. With [AI coding agents](/agents)
+on, the first time a host is used the host **downloads them itself** from
+agent-distro's binary cache into its own Nix store; nothing is copied over ssh.
+The host's tab shows the download and says when it has landed; what a host
+needs, and what to do when a download fails, is on that page
+([When a download fails](/agents#when-a-download-fails)). It never compiles
+agents.
 
 Each host is a **tab**: **local** is a Home icon plus the machine hostname
 kolu is running on; remotes show the ssh target. Every tab carries a

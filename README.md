@@ -57,10 +57,9 @@ Read the full [Philosophy](https://kolu.dev/philosophy).
 
 - **[Canvas, tiles, and dock](https://kolu.dev/canvas)** — arrange real
   terminals freely, then find any one instantly.
-- **[AI coding agents](https://kolu.dev/agents)** — kolu can bring Claude Code,
-  Codex, OpenCode, Pi and Oh My Pi into every new terminal, kept up to date, with
-  nothing to install: turn them on in Settings → Agents. They come from
-  [agent-distro](https://github.com/juspay/agent-distro).
+- **[AI coding agents](https://kolu.dev/agents)** — kolu can bring AI coding
+  agents into every new terminal, kept up to date, with nothing to install: turn
+  them on in Settings → Agents.
 - **[Agent attention](https://kolu.dev/agent-detection)** — see which agents are
   working, finished, or waiting for you.
 - **[Durable sessions](https://kolu.dev/sessions)** — keep shells and agents
