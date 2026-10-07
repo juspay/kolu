@@ -667,104 +667,105 @@ let
     {
       nativeBuildInputs = [ pkgs.makeWrapper pkgs.jq ];
       meta.mainProgram = "kolu";
-    } ''
-    mkdir -p $out/bin
-    makeWrapper ${koluBin}/bin/kolu $out/bin/kolu \
-      --set KOLU_AGENT_TOOLS_PATH "$out/bin:${koluAgentTools}/bin" \
-      ${pkgs.lib.optionalString floor ''--set KOLU_AGENT_DISTRO_BUNDLE "${agentDistro.bundle}"''} \
-      ${agentDistroSharedBakeArgs} \
-      --run 'export KOLU_STATE_DIR="''${KOLU_STATE_DIR:-''${XDG_CONFIG_HOME:-$HOME/.config}/kolu}"; ${exportPadiStateDirRun}'
+    }
+    (''
+      mkdir -p $out/bin
+      makeWrapper ${koluBin}/bin/kolu $out/bin/kolu \
+        --set KOLU_AGENT_TOOLS_PATH "$out/bin:${koluAgentTools}/bin" \
+        ${pkgs.lib.optionalString floor ''--set KOLU_AGENT_DISTRO_BUNDLE "${agentDistro.bundle}"''} \
+        ${agentDistroSharedBakeArgs} \
+        --run 'export KOLU_STATE_DIR="''${KOLU_STATE_DIR:-''${XDG_CONFIG_HOME:-$HOME/.config}/kolu}"; ${exportPadiStateDirRun}'
 
-    # ── The composed-wrapper proof, IN the derivation it proves ───────────────
-    # The toolchain a LOCAL terminal ends up with is a property of the two nested
-    # production wrappers COMPOSED — this one wraps `koluBin` — and nothing in
-    # the TypeScript suite exercises that composition: every unit test injects
-    # the variable directly. That gap shipped a real defect green (koluBin's
-    # `--set` silently discarding this wrapper's value, so every locally-spawned
-    # terminal lost `kolu`), invisible to `just check`, `nix build`, and every
-    # unit test.
-    #
-    # So assert it here rather than in a sibling derivation: `nix build .#default`,
-    # `nix run .`, the home-manager module and the NixOS service all realise this
-    # wrapper, and each of them now realises its proof. A separate check attr
-    # could only be a build input of something ELSE (it must read `${"$"}{default}`,
-    # so `default` depending on it is a cycle) — which is how the guarantee for a
-    # purely local property came to hang off the remote closure.
-    #
-    # Neutralise each wrapper's final `exec …` so sourcing runs only the env
-    # prelude, then chain them in the real order: outer (this) → inner (koluBin).
-    # Assert the shape BEFORE relying on it: if nixpkgs' makeWrapper ever stops
-    # emitting exactly one `^exec ` line, the `sed` would match nothing and the
-    # sourcings would run the real `kolu` inside the sandbox instead of asserting
-    # anything — a guard that exists because a one-word change shipped green must
-    # not itself be able to fail open on a one-word upstream change.
-    for w in $out/bin/kolu ${koluBin}/bin/kolu; do
-      if [ "$(grep -c '^exec ' "$w")" != 1 ]; then
-        echo "FAIL: $w has no single '^exec ' line — makeWrapper's output shape" >&2
-        echo "changed, and this check would silently fail open. Fix the sed." >&2
-        exit 1
-      fi
-    done
-    sed 's|^exec .*||' $out/bin/kolu > outer.sh
-    sed 's|^exec .*||' ${koluBin}/bin/kolu > inner.sh
-    . ./outer.sh
-    . ./inner.sh
-
-    echo "resolved KOLU_AGENT_TOOLS_PATH=$KOLU_AGENT_TOOLS_PATH"
-    IFS=: read -ra dirs <<< "$KOLU_AGENT_TOOLS_PATH"
-    # One loop over a name→message table, so the check is written once but each
-    # binary keeps its OWN failure message — they name exactly what a local
-    # terminal loses, and each was falsified separately.
-    #
-    # Both TUIs, not just one: they arrive together from `agentToolPackages`
-    # today, so a proof that names only `kaval-tui` would stay green if
-    # `padi-tui` were dropped from that list — leaving local terminals able to
-    # run `kaval-tui` and `kolu mcp` but not the `padi-tui wait` loop.
-    for b in kolu kaval-tui padi-tui; do
-      case "$b" in
-        kolu) why="a local terminal could not run 'kolu mcp' OR any terminal verb ('kolu ls' / 'send' / 'wait' / 'snapshot' / ...) — kolu is the ONE terminal CLI, so losing it here costs an agent every way it has of driving its siblings. An inner-wrapper --set that clobbers this one is the known cause." ;;
-        kaval-tui) why="a local terminal could not attach to its siblings." ;;
-        padi-tui) why="a local terminal could not run the 'padi-tui wait' done-signal loop." ;;
-      esac
-      found=0
-      for d in "''${dirs[@]}"; do
-        [ -z "$d" ] && continue
-        [ -e "$d/$b" ] && found=1
-      done
-      if [ "$found" != 1 ]; then
-        echo "FAIL: no '$b' on the composed KOLU_AGENT_TOOLS_PATH — $why" >&2
-        exit 1
-      fi
-    done
-
-    # ── The agent-distro bake, proven on the same composed env ────────────────
-    ${agentDistroBakeProof}
-  '' + (if floor then ''
-    # The local arm also carries the FLOOR: every profile's bundle, so a local
-    # terminal gets its agents with no download. Prove the floor and the
-    # updater listing name the same profiles, and that every profile's dir is
-    # really there with its harnesses and its own `agent-distro` picker.
-    echo "resolved KOLU_AGENT_DISTRO_BUNDLE=$KOLU_AGENT_DISTRO_BUNDLE"
-    listing=$("$KOLU_AGENT_DISTRO_BUNDLE/bin/agent-distro" --list --json)
-    if [ "$(jq -c '[.profiles[].name]' <<<"$listing")" != "$(jq -c '[.profiles[].name]' "$KOLU_AGENT_DISTRO_UPDATER")" ]; then
-      echo "FAIL: the floor's picker lists different profiles than the updater listing — Settings would offer a profile padi refuses." >&2
-      exit 1
-    fi
-    for p in $(jq -r '.profiles[].name' <<<"$listing"); do
-      d="$KOLU_AGENT_DISTRO_BUNDLE/profiles/$p/bin"
-      for h in agent-distro $(jq -r --arg p "$p" '.profiles[] | select(.name == $p) | .harnesses[].name' <<<"$listing"); do
-        if [ ! -x "$d/$h" ]; then
-          echo "FAIL: no executable '$h' in $d — a local terminal on profile '$p' could not run it." >&2
+      # ── The composed-wrapper proof, IN the derivation it proves ───────────────
+      # The toolchain a LOCAL terminal ends up with is a property of the two nested
+      # production wrappers COMPOSED — this one wraps `koluBin` — and nothing in
+      # the TypeScript suite exercises that composition: every unit test injects
+      # the variable directly. That gap shipped a real defect green (koluBin's
+      # `--set` silently discarding this wrapper's value, so every locally-spawned
+      # terminal lost `kolu`), invisible to `just check`, `nix build`, and every
+      # unit test.
+      #
+      # So assert it here rather than in a sibling derivation: `nix build .#default`,
+      # `nix run .`, the home-manager module and the NixOS service all realise this
+      # wrapper, and each of them now realises its proof. A separate check attr
+      # could only be a build input of something ELSE (it must read `${"$"}{default}`,
+      # so `default` depending on it is a cycle) — which is how the guarantee for a
+      # purely local property came to hang off the remote closure.
+      #
+      # Neutralise each wrapper's final `exec …` so sourcing runs only the env
+      # prelude, then chain them in the real order: outer (this) → inner (koluBin).
+      # Assert the shape BEFORE relying on it: if nixpkgs' makeWrapper ever stops
+      # emitting exactly one `^exec ` line, the `sed` would match nothing and the
+      # sourcings would run the real `kolu` inside the sandbox instead of asserting
+      # anything — a guard that exists because a one-word change shipped green must
+      # not itself be able to fail open on a one-word upstream change.
+      for w in $out/bin/kolu ${koluBin}/bin/kolu; do
+        if [ "$(grep -c '^exec ' "$w")" != 1 ]; then
+          echo "FAIL: $w has no single '^exec ' line — makeWrapper's output shape" >&2
+          echo "changed, and this check would silently fail open. Fix the sed." >&2
           exit 1
         fi
       done
-    done
-  '' else ''
-    if [ -n "''${KOLU_AGENT_DISTRO_BUNDLE:-}" ]; then
-      echo "FAIL: a floor-less kolu wrapper resolved a floor bundle — it would ship every profile's agents to a remote host." >&2
-      exit 1
-    fi
-  '');
+      sed 's|^exec .*||' $out/bin/kolu > outer.sh
+      sed 's|^exec .*||' ${koluBin}/bin/kolu > inner.sh
+      . ./outer.sh
+      . ./inner.sh
+
+      echo "resolved KOLU_AGENT_TOOLS_PATH=$KOLU_AGENT_TOOLS_PATH"
+      IFS=: read -ra dirs <<< "$KOLU_AGENT_TOOLS_PATH"
+      # One loop over a name→message table, so the check is written once but each
+      # binary keeps its OWN failure message — they name exactly what a local
+      # terminal loses, and each was falsified separately.
+      #
+      # Both TUIs, not just one: they arrive together from `agentToolPackages`
+      # today, so a proof that names only `kaval-tui` would stay green if
+      # `padi-tui` were dropped from that list — leaving local terminals able to
+      # run `kaval-tui` and `kolu mcp` but not the `padi-tui wait` loop.
+      for b in kolu kaval-tui padi-tui; do
+        case "$b" in
+          kolu) why="a local terminal could not run 'kolu mcp' OR any terminal verb ('kolu ls' / 'send' / 'wait' / 'snapshot' / ...) — kolu is the ONE terminal CLI, so losing it here costs an agent every way it has of driving its siblings. An inner-wrapper --set that clobbers this one is the known cause." ;;
+          kaval-tui) why="a local terminal could not attach to its siblings." ;;
+          padi-tui) why="a local terminal could not run the 'padi-tui wait' done-signal loop." ;;
+        esac
+        found=0
+        for d in "''${dirs[@]}"; do
+          [ -z "$d" ] && continue
+          [ -e "$d/$b" ] && found=1
+        done
+        if [ "$found" != 1 ]; then
+          echo "FAIL: no '$b' on the composed KOLU_AGENT_TOOLS_PATH — $why" >&2
+          exit 1
+        fi
+      done
+
+      # ── The agent-distro bake, proven on the same composed env ────────────────
+      ${agentDistroBakeProof}
+    '' + (if floor then ''
+      # The local arm also carries the FLOOR: every profile's bundle, so a local
+      # terminal gets its agents with no download. Prove the floor and the
+      # updater listing name the same profiles, and that every profile's dir is
+      # really there with its harnesses and its own `agent-distro` picker.
+      echo "resolved KOLU_AGENT_DISTRO_BUNDLE=$KOLU_AGENT_DISTRO_BUNDLE"
+      listing=$("$KOLU_AGENT_DISTRO_BUNDLE/bin/agent-distro" --list --json)
+      if [ "$(jq -c '[.profiles[].name]' <<<"$listing")" != "$(jq -c '[.profiles[].name]' "$KOLU_AGENT_DISTRO_UPDATER")" ]; then
+        echo "FAIL: the floor's picker lists different profiles than the updater listing — Settings would offer a profile padi refuses." >&2
+        exit 1
+      fi
+      for p in $(jq -r '.profiles[].name' <<<"$listing"); do
+        d="$KOLU_AGENT_DISTRO_BUNDLE/profiles/$p/bin"
+        for h in agent-distro $(jq -r --arg p "$p" '.profiles[] | select(.name == $p) | .harnesses[].name' <<<"$listing"); do
+          if [ ! -x "$d/$h" ]; then
+            echo "FAIL: no executable '$h' in $d — a local terminal on profile '$p' could not run it." >&2
+            exit 1
+          fi
+        done
+      done
+    '' else ''
+      if [ -n "''${KOLU_AGENT_DISTRO_BUNDLE:-}" ]; then
+        echo "FAIL: a floor-less kolu wrapper resolved a floor bundle — it would ship every profile's agents to a remote host." >&2
+        exit 1
+      fi
+    ''));
 
   default = mkKoluWrapper { floor = true; };
   # The `kolu` CLI a remote host is provisioned with (inside `padi-agent`).
