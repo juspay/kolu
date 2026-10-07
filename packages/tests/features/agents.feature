@@ -94,6 +94,7 @@ Feature: Agents come with kolu
     Then the focused tile's agents chip should be stale with a Restart button
     When I click Restart on the focused tile
     Then a toast should say "Restarted with juspay"
+    And the focused tile should paint a fresh screen without "export X=1"
     And the focused tile should be the one I remembered
     And the focused tile should show the "juspay" agents chip
     And the terminal's claude should be the "juspay" fixture

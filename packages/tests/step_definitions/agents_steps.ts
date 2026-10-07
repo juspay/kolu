@@ -13,7 +13,7 @@ import { Then, When } from "@cucumber/cucumber";
 import type { AgentDistroStatus } from "@kolu/padi-client/surface";
 import { waitForPadiCell } from "../support/padiCellWait.ts";
 import { type KoluWorld, POLL_TIMEOUT } from "../support/world.ts";
-import { waitForBufferContains } from "../support/buffer.ts";
+import { readBufferText, waitForBufferContains } from "../support/buffer.ts";
 
 /** The focused tile — the one a just-created terminal lands in. */
 const FOCUSED_TILE = '[data-testid="canvas-tile"]:has([data-focused])';
@@ -264,3 +264,23 @@ Then(
 When("I click Restart on the focused tile", async function (this: KoluWorld) {
   await this.page.click(`${FOCUSED_TILE} [data-testid="tile-agent-restart"]`);
 });
+
+/** The restarted tile PAINTS its new shell without a reload: the focused tile's
+ *  OWN xterm buffer (read in the page, not the server's screen) is non-empty and
+ *  no longer holds the old shell's text — so a fresh snapshot reached this
+ *  pane's xterm, rather than the pane sitting blank on a dead attach. */
+Then(
+  "the focused tile should paint a fresh screen without {string}",
+  async function (this: KoluWorld, old: string) {
+    const deadline = Date.now() + POLL_TIMEOUT;
+    let text = "";
+    while (Date.now() < deadline) {
+      text = await readBufferText(this.page);
+      if (text.trim() !== "" && !text.includes(old)) return;
+      await this.page.waitForTimeout(100);
+    }
+    assert.fail(
+      `the restarted tile did not paint a fresh screen; its xterm holds: ${JSON.stringify(text.slice(-400))}`,
+    );
+  },
+);

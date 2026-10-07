@@ -140,6 +140,7 @@ import {
   setTerminalIntent,
   setTerminalParent,
   setTerminalTheme,
+  requireAttachableTerminal,
   restartTerminal,
   sleepTerminal,
 } from "./terminals.ts";
@@ -238,7 +239,9 @@ async function* attachFrames(
   resizeTo: EndpointGrid | undefined,
   signal: AbortSignal,
 ): AsyncGenerator<TerminalAttachFrame> {
-  const entry = requireActiveTerminal(id);
+  // Restart-aware: an attach landing in the dormant middle of a restart waits
+  // for the new PTY instead of being told the terminal is gone.
+  const entry = await requireAttachableTerminal(id);
   const { snapshot, topLine, reflowEpoch, grid, deltas } =
     await resolveTerminalEndpoint(entry.meta.location).attach(
       id,

@@ -32,7 +32,12 @@ import type { TerminalId } from "@kolu/terminal-vocab/schema";
 import { Schema } from "effect";
 import { notifyDirty } from "./publisher.ts";
 import { type SessionSnapshot, saveSession } from "./session/session.ts";
-import { getTerminal, terminalEntries } from "./terminal-registry.ts";
+import {
+  type ActiveTerminalProcess,
+  getTerminal,
+  requireActiveTerminal,
+  terminalEntries,
+} from "./terminal-registry.ts";
 import {
   beginSleepLocal,
   releaseSleptLocalPty,
@@ -223,8 +228,50 @@ export async function restartTerminal(
   id: TerminalId,
 ): Promise<TerminalInfo | undefined> {
   if (!beginSleepLocal(id)) return undefined;
-  saveSession(snapshotSession());
-  return restartSleptLocal(id);
+  // Registered in the SAME synchronous step as the flip, so no attach can see
+  // the dormant middle of a restart without also seeing the restart.
+  const done = (async () => {
+    saveSession(snapshotSession());
+    return restartSleptLocal(id);
+  })();
+  restartsInFlight.set(
+    id,
+    done.then(
+      () => undefined,
+      () => undefined,
+    ),
+  );
+  try {
+    return await done;
+  } finally {
+    restartsInFlight.delete(id);
+  }
+}
+
+/** Restarts in flight, by terminal id — each settles (never rejects) when its
+ *  restart has. See {@link requireAttachableTerminal}. */
+const restartsInFlight = new Map<TerminalId, Promise<undefined>>();
+
+/** The terminal an ATTACH may open. Ordinarily that is `requireActiveTerminal`:
+ *  a sleeping or absent id answers `TerminalNotFound`, which a client's attach
+ *  loop reads as "this terminal is gone" and stops.
+ *
+ *  A RESTART is the exception, because its sleeping arm is not a fact about the
+ *  terminal — it is the few milliseconds between killing the old PTY and
+ *  respawning the new one on the same id. A client can miss that flip entirely
+ *  (the relay batches a collection's updates per tick, so `sleeping` then
+ *  `active` can reach it as one `active`): its live pane stays mounted, its
+ *  attach ends with the old PTY and re-opens — and, landing in that window, it
+ *  would be told the terminal is gone and stop for good, leaving the tile blank
+ *  until a reload. So an attach that lands during a restart WAITS for it, then
+ *  attaches to the new PTY (or, if the respawn failed, gets the ordinary
+ *  answer for a sleeping terminal). */
+export async function requireAttachableTerminal(
+  id: TerminalId,
+): Promise<ActiveTerminalProcess> {
+  const pending = restartsInFlight.get(id);
+  if (pending !== undefined) await pending;
+  return requireActiveTerminal(id);
 }
 
 /** Refuse a parent edge that is nonsense in any tree model: self-parent, or an

@@ -52,7 +52,11 @@ import {
   unregisterTerminal,
 } from "../terminal-registry.ts";
 import { saveTerminalFile } from "../terminalScratch.ts";
-import { restartTerminal, sleepTerminal } from "../terminals.ts";
+import {
+  requireAttachableTerminal,
+  restartTerminal,
+  sleepTerminal,
+} from "../terminals.ts";
 import { discardLocalSleeping, wakeLocalTerminal } from "./local.ts";
 import { installSnapshot } from "./metadata.ts";
 import { activeEntry } from "./terminalFixtures.testlib.ts";
@@ -345,5 +349,61 @@ describe("restart — a new PTY in place", () => {
     await sleepTerminal(ID);
     expect(getTerminal(ID)?.meta.state).toBe("sleeping");
     expect(calls.log.filter((e) => e === `kill:${ID}`)).toHaveLength(2);
+  });
+});
+
+describe("an attach during a restart", () => {
+  /** Start a restart and hold it inside the kill, with the record sleeping. */
+  async function holdRestartInKill() {
+    seedVanillaTerminal();
+    const killStarted = deferred();
+    const hold = deferred();
+    calls.killGate = () => {
+      killStarted.resolve();
+      return hold.promise;
+    };
+    const restart = restartTerminal(ID);
+    await killStarted.promise;
+    expect(getTerminal(ID)?.meta.state).toBe("sleeping");
+    return { restart, release: hold.resolve };
+  }
+
+  it("waits out the dormant middle, then opens the NEW PTY — never 'the terminal is gone'", async () => {
+    const { restart, release } = await holdRestartInKill();
+    let settled = false;
+    const attachable = requireAttachableTerminal(ID).then((entry) => {
+      settled = true;
+      return entry;
+    });
+    await Promise.resolve();
+    expect(settled).toBe(false);
+
+    release();
+    await restart;
+    const entry = await attachable;
+    expect(entry.meta.state).toBe("active");
+    expect(entry.info.pid).toBe(NEW_PID);
+  });
+
+  it("a restart whose respawn fails: the waiting attach gets the ordinary not-found", async () => {
+    calls.spawnFails = true;
+    const { restart, release } = await holdRestartInKill();
+    const attachable = requireAttachableTerminal(ID);
+    release();
+    await expect(restart).rejects.toThrow(/did not start/);
+    await expect(attachable).rejects.toMatchObject({
+      _tag: "TerminalNotFound",
+    });
+  });
+
+  it("outside a restart nothing waits: a sleeping or absent id is not attachable", async () => {
+    await expect(requireAttachableTerminal(ID)).rejects.toMatchObject({
+      _tag: "TerminalNotFound",
+    });
+    seedVanillaTerminal();
+    await sleepTerminal(ID);
+    await expect(requireAttachableTerminal(ID)).rejects.toMatchObject({
+      _tag: "TerminalNotFound",
+    });
   });
 });

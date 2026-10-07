@@ -2217,3 +2217,16 @@ retirements:
       file: packages/tests/features/agents.feature
       symbol: "Scenario: A terminal whose agents went stale restarts in place with the new ones"
       test: The folder check was `cd /tmp` then `cwd=/tmp`, which is `/private/tmp` on macOS; it now works in a fresh `mktemp -d` resolved with `pwd -P` and compares `pwd -P` after the restart against the one recorded before. Two assertions are added — the shell pid changed and an exported variable is gone — proving the old PTY is gone, not reused. Every other step is unchanged.
+  - id: revise-agents-restart-paints
+    revisionId: revision-d196165af8ece9b11831
+    action: revised
+    status: landed
+    promise: A terminal whose agents went stale restarts in place with the new ones
+    defectSurface: [agents, terminal-lifecycle, attach]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-501f4a91e1c463f011a6]
+    sameCodePathEvidence:
+      file: packages/tests/features/agents.feature
+      symbol: "Scenario: A terminal whose agents went stale restarts in place with the new ones"
+      test: Adds one assertion right after the restart toast, before anything is typed or reloaded — the focused tile's own xterm buffer is non-empty and no longer holds the old shell's command line, so the restarted pane painted a fresh snapshot rather than sitting blank on a dead attach. Every other step is unchanged.

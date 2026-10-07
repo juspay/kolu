@@ -8139,6 +8139,18 @@
       "exampleRows": [],
       "executions": 1,
       "firstSeenSha": "a99d716838505ce9942c02cad4b16a5b055be3b0"
+    },
+    {
+      "revisionId": "revision-501f4a91e1c463f011a6",
+      "scenarioKey": "scenario-a118447e6b2e9c279271",
+      "feature": "features/agents.feature",
+      "scenario": "A terminal whose agents went stale restarts in place with the new ones",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "92daa17774e4cd7c1ca971cb21f4ef1e957fb0c4e6d7287c44ec916305cb32bb",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "10685f396a680717a8a79f638d3e0294ee0fc781"
     }
   ]
 }

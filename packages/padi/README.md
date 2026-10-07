@@ -450,7 +450,9 @@ every NEW terminal it spawns ([Agents](https://kolu.dev/agents)). Two cells
   layer. The live agent's conversation resumes when agents stay on; with agents
   now off it comes back as a plain shell. The call answers once the new PTY is
   up, with the profile it got; a kill that fails with the PTY still alive puts
-  the record back on it and fails.
+  the record back on it and fails. An attach that lands in the restart's
+  dormant middle waits for the new PTY rather than answering `TerminalNotFound`
+  (which a client's attach loop reads as "gone" and stops on).
 - **First use on a remote host** — `padi-agent` carries no floor. When the
   setting turns a profile on and the host has no `current` for it, padi runs
   agent-distro's updater once (`lib.mkUpdater`'s command and config, the config's
