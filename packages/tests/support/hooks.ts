@@ -18,10 +18,8 @@ import * as path from "node:path";
 import { After, AfterAll, Before, BeforeAll, Status } from "@cucumber/cucumber";
 import { padiKavalSocketPath } from "@kolu/padi/stateRoot";
 import { padiGatePath, padiSocketPath } from "@kolu/padi-client/rendezvous";
-import type {
-  AgentDistroSetting,
-  NewTerminalPolicy,
-} from "@kolu/padi-client/surface";
+import type { NewTerminalPolicy } from "@kolu/padi-client/surface";
+import type { AgentDistroSetting } from "@kolu/agent-distro/schema";
 import getPort from "get-port";
 import { composeSpawnEnv, NIX_ENV_WHITELIST, pickEnv } from "kolu-pty";
 import type { Browser, BrowserContext, Page } from "playwright";

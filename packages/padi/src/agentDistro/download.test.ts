@@ -21,7 +21,7 @@ import { join } from "node:path";
 import type {
   AgentDistroSetting,
   AgentDistroStatus,
-} from "@kolu/padi-client/surface";
+} from "@kolu/agent-distro/schema";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   __resetPadiSurfaceCtxForTest,

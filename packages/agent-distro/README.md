@@ -24,6 +24,12 @@ The **TypeScript half**, as data and pure functions:
 - `./manifest` — the floor manifest's schema, where it sits and its parser,
   and `DEFAULT_AGENT_PROFILE` (from `defaults.json`). Readers find the picker
   and each profile's directory through it, never through a layout of their own.
+- `./schema` — the value schemas that cross the padi wire for agent-distro,
+  defined once: `AgentDistroSetting` (what kolu-server pushes; kolu-common's
+  preference field is this schema), `AgentDistroStatus` (what padi reports, with
+  its progress), their defaults and equality. padi-client DECLARES the cells
+  that carry them; padi, kolu-common, the server and the client import the
+  values from here.
 - `./bundle` — agent-distro's bundle and state shape: a bundle's `bin/`, the
   updater's `current` link, a store path's short hash, and making
   `lib.mkUpdater`'s config concrete for a host's state home.
@@ -31,9 +37,8 @@ The **TypeScript half**, as data and pure functions:
   the host tab's mark treatment (`agentMarkOf`), its words, the Settings hint,
   the per-host status lines with their collapse rule, and whether a terminal's
   agents went stale (`agentStalenessOf`, `agentRestartReady`, `agentStaleLabel`)
-  — over structural
-  status/setting types (the wire schemas are `@kolu/padi-client`'s; the client
-  pins that the two agree).
+  — typed against `./schema`, so a field added to the wire is one the folds
+  must handle.
 - `./solid` — agent-distro's logo (`doc/logo.svg`, vendored byte-identical from
   the npins pin) and the one `AgentDistroLogo` component that draws it.
 
@@ -41,6 +46,9 @@ The **TypeScript half**, as data and pure functions:
 (kolu-server's `agentDistroListing.ts`), resolving and downloading bundles on a
 host (padi's `src/agentDistro/`), pushing the setting (kolu-server's
 `padiCellPusher.ts`) and the Settings and tile components (the client) stay
-where they run and import from here. This package imports nothing from padi, the server or the client.
+where they run and import from here. This package imports nothing from padi, the
+server or the client, and depends only on `effect` (plus `solid-js` for the
+logo). Because `@kolu/padi-client` depends on it, it is in the closure an
+out-of-repo consumer vendors with padi-client, so its versions are literal.
 
 User docs: [kolu.dev/agents](https://kolu.dev/agents).

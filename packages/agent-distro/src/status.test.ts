@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { agentBundleShortHash } from "./bundle.ts";
 import type { AgentDistroListing } from "./listing.ts";
+import type { AgentDistroStatus } from "./schema.ts";
 import {
   AGENTS_OFF,
   AGENTS_RETRY,
   DOWNLOAD_MIN_FILL,
-  type AgentDistroStatusShape,
   agentMarkLabel,
   agentMarkOf,
   agentRestartReady,
@@ -23,7 +23,7 @@ const READY_BUNDLE =
   "/nix/store/nd11nx5f1dkf02cr9dhxqq4axg23vzgc-agent-distro-vanilla";
 
 describe("agentMarkOf — the one status → treatment fold", () => {
-  const cases: [string, AgentDistroStatusShape | undefined, unknown][] = [
+  const cases: [string, AgentDistroStatus | undefined, unknown][] = [
     ["no frame yet, not checking", undefined, { kind: "none" }],
     ["off", { kind: "off" }, { kind: "none" }],
     ["unavailable", { kind: "unavailable" }, { kind: "none" }],
@@ -249,7 +249,7 @@ describe("agentStatusLines", () => {
   const ready = { kind: "ready", profile: "vanilla", bundle: BUNDLE } as const;
   const host = (
     label: string,
-    status: AgentDistroStatusShape | undefined,
+    status: AgentDistroStatus | undefined,
     checking = false,
   ) => ({ label, status, checking });
 

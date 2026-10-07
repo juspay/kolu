@@ -10,7 +10,7 @@
 
 import assert from "node:assert";
 import { Then, When } from "@cucumber/cucumber";
-import type { AgentDistroStatus } from "@kolu/padi-client/surface";
+import type { AgentDistroStatus } from "@kolu/agent-distro/schema";
 import { waitForPadiCell } from "../support/padiCellWait.ts";
 import { type KoluWorld, POLL_TIMEOUT } from "../support/world.ts";
 import { readBufferText, waitForBufferContains } from "../support/buffer.ts";

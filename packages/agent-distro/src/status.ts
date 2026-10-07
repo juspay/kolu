@@ -5,43 +5,13 @@
  * volatility is the presentation (a reworded status, a new treatment), apart
  * from the live facts the client subscribes to.
  *
- * The status and setting types here are STRUCTURAL: the wire schemas live in
- * `@kolu/padi-client`'s surface (the cells padi serves), and this package
- * imports nothing from padi, the server or the client. The client asserts at
- * compile time that the wire types and these are the same shape
- * (`client/src/agents/statusShape.ts`), so the two cannot drift.
+ * The status and setting types are `./schema.ts`'s — the very schemas padi's
+ * cells carry — so a field added to the wire is a field these folds handle.
  */
 
 import { agentBundleShortHash } from "./bundle.ts";
+import type { AgentDistroSetting, AgentDistroStatus } from "./schema.ts";
 import type { AgentDistroListing, AgentDistroProfile } from "./listing.ts";
-
-/** A host's agent-distro state for the currently selected profile — the
- *  shape of `@kolu/padi-client`'s `AgentDistroStatus`. */
-export type AgentDistroStatusShape =
-  | { readonly kind: "off" }
-  | { readonly kind: "unavailable" }
-  | {
-      readonly kind: "downloading";
-      readonly profile: string;
-      readonly progress?: { readonly done: number; readonly total: number };
-    }
-  | {
-      readonly kind: "ready";
-      readonly profile: string;
-      readonly bundle: string;
-    }
-  | {
-      readonly kind: "error";
-      readonly profile: string;
-      readonly message: string;
-    };
-
-/** The Agents setting — the shape of `@kolu/padi-client`'s
- *  `AgentDistroSetting` and kolu's `agentDistro` preference. */
-export interface AgentDistroSettingShape {
-  readonly enabled: boolean;
-  readonly profile: string;
-}
 
 /** "1.1 GB", "640 MB" — the unit a download reads in. */
 export function formatBytes(bytes: number): string {
@@ -105,7 +75,7 @@ export type AgentMark =
  *  `checking` is the client's own fact (connected, agents on, and the status
  *  cell has not sent its first frame); there is no server state for it. */
 export function agentMarkOf(
-  status: AgentDistroStatusShape | undefined,
+  status: AgentDistroStatus | undefined,
   checking: boolean,
 ): AgentMark {
   if (checking) return { kind: "checking" };
@@ -232,14 +202,14 @@ export function agentsSegments(
 }
 
 /** Which segment the Agents control shows for a setting. */
-export function agentsSegmentOf(setting: AgentDistroSettingShape): string {
+export function agentsSegmentOf(setting: AgentDistroSetting): string {
   return setting.enabled ? setting.profile : AGENTS_OFF;
 }
 
 /** One host's agent-distro facts, for its line in Settings. */
 export interface HostAgentStatus {
   readonly label: string;
-  readonly status: AgentDistroStatusShape | undefined;
+  readonly status: AgentDistroStatus | undefined;
   /** Connected, agents on, and no status frame yet (see {@link agentMarkOf}). */
   readonly checking: boolean;
 }
@@ -328,7 +298,7 @@ export function agentStatusLines(input: {
 /** The profile the setting selects, when agents are on and the listing ships
  *  it — the one case where the Agents row shows its status lines. */
 export function selectedAgentProfile(
-  setting: AgentDistroSettingShape,
+  setting: AgentDistroSetting,
   listing: AgentDistroListing | undefined,
 ): AgentDistroProfile | undefined {
   if (!setting.enabled || listing?.kind !== "available") return undefined;
@@ -346,7 +316,7 @@ export function selectedAgentProfile(
  *     versions. Where each machine stands is the status lines' job
  *     ({@link agentStatusLines}). */
 export function agentsHint(input: {
-  readonly setting: AgentDistroSettingShape;
+  readonly setting: AgentDistroSetting;
   readonly listing: AgentDistroListing | undefined;
 }): { readonly text: string; readonly tone: "muted" | "warn" } | undefined {
   const { setting, listing } = input;
@@ -427,8 +397,8 @@ export type AgentStaleness =
  *  stale: there is nothing yet to restart into. Fenced over the status kind. */
 export function agentStalenessOf(input: {
   readonly terminal: TerminalAgentsShape;
-  readonly status: AgentDistroStatusShape | undefined;
-  readonly setting: AgentDistroSettingShape;
+  readonly status: AgentDistroStatus | undefined;
+  readonly setting: AgentDistroSetting;
 }): AgentStaleness {
   const { agentProfile, agentBundle } = input.terminal;
   if (agentProfile === undefined || agentBundle === undefined)

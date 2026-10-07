@@ -7,7 +7,7 @@
  * reads its PATH back off the record, so the chip and the PATH are one value.
  */
 
-import type { AgentDistroSetting } from "@kolu/padi-client/surface";
+import type { AgentDistroSetting } from "@kolu/agent-distro/schema";
 import { agentDistroBake } from "./bake.ts";
 import { bundleOnHost } from "./onHost.ts";
 

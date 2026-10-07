@@ -11,7 +11,7 @@
  * through a real reconciled store.
  */
 
-import type { AgentDistroStatus } from "@kolu/padi-client/surface";
+import type { AgentDistroStatus } from "@kolu/agent-distro/schema";
 import { createEffect, on } from "solid-js";
 
 export function watchDownload(

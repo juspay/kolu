@@ -1207,6 +1207,9 @@ importers:
 
   packages/padi-client:
     dependencies:
+      '@kolu/agent-distro':
+        specifier: workspace:*
+        version: link:../agent-distro
       '@kolu/surface':
         specifier: workspace:*
         version: link:../surface
@@ -2454,6 +2457,9 @@ importers:
       '@cucumber/messages':
         specifier: 32.2.0
         version: 32.2.0
+      '@kolu/agent-distro':
+        specifier: workspace:*
+        version: link:../agent-distro
       '@kolu/daemon-test-gate':
         specifier: workspace:*
         version: link:../daemon-test-gate

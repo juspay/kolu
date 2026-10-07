@@ -114,7 +114,7 @@ import {
   agentDistroStatusEqual,
   DEFAULT_AGENT_DISTRO_SETTING,
   DEFAULT_AGENT_DISTRO_STATUS,
-} from "./agentDistro.ts";
+} from "@kolu/agent-distro/schema";
 import type { ClientErrorPolicy } from "./clientPolicy.ts";
 import {
   FsGitReadErrorSchema,
@@ -186,10 +186,10 @@ export {
   newTerminalPolicyEqual,
 } from "./newTerminalPolicy.ts";
 export * from "./vocab.ts";
-// The agent-distro setting kolu-server pushes and the host status padi reports —
-// declared here for the same seal reason as the new-terminal policy above, and
-// built into `kolu-common`'s preference field. See `./agentDistro.ts`.
-export * from "./agentDistro.ts";
+// The agent-distro setting kolu-server pushes and the host status padi reports
+// are VALUE schemas of `@kolu/agent-distro/schema` (kolu's contract with
+// upstream, defined once); only the cells that carry them are declared here.
+// Importers take them from there — no re-export, so there is one door.
 // The transcript-export wire vocabulary rides the same entry as everything else
 // `padiSurface` speaks. It had a door of its own until the two halves of ONE
 // vocabulary were noticed to be split by nothing but which symbols the spec

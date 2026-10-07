@@ -1,19 +1,20 @@
 /**
- * agent-distro on a host — the two facts that cross the padi wire for it.
+ * agent-distro on a host — the two value shapes that cross the padi wire for
+ * it, defined ONCE, here, beside the rest of kolu's contract with upstream:
  *
  *   - `AgentDistroSetting` — what the binding kolu-server PUSHES into padi's
  *     memory-only `agentDistro` cell: whether new terminals get agent-distro's
  *     coding agents on their PATH, and which profile's. It is the user's global
- *     Agents preference, verbatim; padi applies it at each NEW terminal's spawn.
+ *     Agents preference, verbatim (kolu-common builds its preference field from
+ *     this schema); padi applies it at each NEW terminal's spawn.
  *   - `AgentDistroStatus` — what padi REPORTS about its own host in the
  *     read-only `agentDistroStatus` cell: whether the selected profile's agents
  *     are there yet, being downloaded, or failed to arrive.
  *
- * Declared here, not in `kolu-common`, for the seal reason `./newTerminalPolicy.ts`
- * gives: `padiSurface` references both, and `@kolu/padi` may not import
- * `kolu-common`. `kolu-common` builds its preference field from the same schema,
- * so the value kolu-server pushes is the value the user chose — one shape, no
- * translation step to drift.
+ * The cell DECLARATIONS stay in `@kolu/padi-client` (padi's surface is its own);
+ * only the value schemas live here, so padi-client, padi, kolu-common, the
+ * server and the client all read one definition. This package depends on
+ * nothing but `effect` for it (and `solid-js` only for the logo component).
  */
 
 import { Schema } from "effect";
@@ -45,7 +46,7 @@ export function agentDistroSettingEqual(
 }
 
 /** Bytes fetched so far of the bundle being downloaded, from the updater's
- *  `--progress` lines (padi's `updaterProtocol.ts`). Absent until the first. */
+ *  `--progress` lines (`./progress.ts`). Absent until the first. */
 export const AgentDistroProgressSchema = Schema.Struct({
   done: Schema.Number,
   total: Schema.Number,

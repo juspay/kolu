@@ -2,9 +2,10 @@
   "members": {
     "@kolu/agent-distro": {
       "dir": "packages/agent-distro",
+      "vendored": true,
       "workspace": [],
       "external": {
-        "effect": "catalog:",
+        "effect": "4.0.0",
         "solid-js": "^1.9.0"
       }
     },
@@ -91,6 +92,7 @@
       "dir": "packages/padi-client",
       "vendored": true,
       "workspace": [
+        "@kolu/agent-distro",
         "@kolu/surface",
         "@kolu/surface-daemon",
         "@kolu/surface-daemon-supervisor",

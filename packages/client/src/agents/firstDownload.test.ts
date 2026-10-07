@@ -3,7 +3,7 @@
  *  the value object keeps its identity across the transition. A watcher keyed
  *  on that object (the shipped bug) sees nothing; this one must see the edge. */
 
-import type { AgentDistroStatus } from "@kolu/padi-client/surface";
+import type { AgentDistroStatus } from "@kolu/agent-distro/schema";
 import { createRoot } from "solid-js";
 import { createStore, reconcile } from "solid-js/store";
 import { describe, expect, it } from "vitest";

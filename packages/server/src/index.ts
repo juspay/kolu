@@ -15,11 +15,11 @@ import {
   resolvePadiStateRoot,
 } from "@kolu/padi/assembly";
 import {
-  agentDistroSettingEqual,
   PADI_FORWARDING_POLICY,
   type PadiProcessMemory,
   padiSurface,
 } from "@kolu/padi-client/surface";
+import { agentDistroSettingEqual } from "@kolu/agent-distro/schema";
 import { directDispatch } from "@kolu/surface/links/direct";
 import { surfaceClientRef } from "@kolu/surface/project";
 import { parseAllowedOrigins } from "@kolu/surface/ws-origin";

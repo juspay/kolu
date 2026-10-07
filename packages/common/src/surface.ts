@@ -45,11 +45,11 @@ import {
 import { DEFAULT_AGENT_PROFILE } from "@kolu/agent-distro/manifest";
 
 import {
-  AgentDistroSettingSchema,
   HostDaemonInventorySchema,
   type NewTerminalPolicy,
   type ToastOnlyPolicy,
 } from "@kolu/padi-client/surface";
+import { AgentDistroSettingSchema } from "@kolu/agent-distro/schema";
 import {
   defineSurfaceWithPolicy,
   type SurfaceTypes,

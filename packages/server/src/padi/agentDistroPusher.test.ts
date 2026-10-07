@@ -13,7 +13,7 @@ import type { Logger } from "@kolu/log";
 import {
   type AgentDistroSetting,
   agentDistroSettingEqual,
-} from "@kolu/padi-client/surface";
+} from "@kolu/agent-distro/schema";
 import { describe, expect, it, vi } from "vitest";
 import {
   installPadiCellPusher,

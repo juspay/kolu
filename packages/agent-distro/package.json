@@ -10,6 +10,7 @@
     "./progress": "./src/progress.ts",
     "./bundle": "./src/bundle.ts",
     "./manifest": "./src/manifest.ts",
+    "./schema": "./src/schema.ts",
     "./status": "./src/status.ts",
     "./solid": "./src/solid/AgentDistroLogo.tsx"
   },
@@ -18,7 +19,7 @@
     "test:unit": "vitest run"
   },
   "dependencies": {
-    "effect": "catalog:",
+    "effect": "4.0.0",
     "solid-js": "^1.9.0"
   },
   "devDependencies": {

@@ -19,7 +19,6 @@
 
 import { rmSync } from "node:fs";
 import {
-  DEFAULT_AGENT_DISTRO_STATUS,
   DEFAULT_PADI_VERSION,
   isPadiDeclaredError,
   KavalContractSkew,
@@ -31,6 +30,7 @@ import {
   type padiSurface,
   ScratchWriteRejected,
 } from "@kolu/padi-client/surface";
+import { DEFAULT_AGENT_DISTRO_STATUS } from "@kolu/agent-distro/schema";
 import { watchScopeOf } from "@kolu/padi-client/watchScope";
 import { base64DecodedLength } from "@kolu/surface/frame-chunking";
 import { derived, everyMsOr, source } from "@kolu/surface/reactor";

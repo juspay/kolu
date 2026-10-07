@@ -26,6 +26,7 @@
     "test:unit": "vitest run"
   },
   "dependencies": {
+    "@kolu/agent-distro": "workspace:*",
     "@kolu/surface": "workspace:*",
     "@kolu/surface-daemon": "workspace:*",
     "@kolu/surface-daemon-supervisor": "workspace:*",

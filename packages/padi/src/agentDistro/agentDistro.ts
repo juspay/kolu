@@ -22,7 +22,7 @@ import {
   type AgentDistroSetting,
   type AgentDistroStatus,
   DEFAULT_AGENT_DISTRO_SETTING,
-} from "@kolu/padi-client/surface";
+} from "@kolu/agent-distro/schema";
 import { type CellStore, inMemoryStore } from "@kolu/surface/server";
 import { log } from "../log.ts";
 import { padiSurfaceCtx } from "../padiSurfaceCtx.ts";
