@@ -101,6 +101,9 @@ const DECLARED_ALLOWED = new Set([
   // `solid-js` (for the logo component), both already in the framework tier.
   "@kolu/agent-distro",
   // agent-distro's one formatter for a download's bytes: a zero-dependency leaf.
+  // DECLARED only — padi-client imports agent-distro's `/schema`, which never
+  // reaches the formatter, so a consumer copies the directory but compiles none
+  // of it.
   "@kolu/byte-units",
   "@kolu/padi-client",
   "@kolu/surface",
@@ -168,7 +171,6 @@ const DECLARED_ALLOWED = new Set([
  *  second pin to make `tsc` pass. That is the gap this split exists to show. */
 const IMPORTED_ALLOWED = new Set([
   "@kolu/agent-distro",
-  "@kolu/byte-units",
   "@kolu/log",
   "@kolu/padi-client",
   "@kolu/shell-quote",
