@@ -1,0 +1,84 @@
+---
+title: Agents Come With Kolu (agent-distro)
+description: Kolu puts agent-distro's coding agents, with kolu's own plugin, on the PATH of every new terminal on every host — one Settings choice (the profile), a per-tile chip, and hosts that download their own agents. ADK1 shipped; ADK2–ADK4 follow.
+parents: [feature]
+status: accepted
+maturity: seedling
+updated: 2026-10-07
+---
+
+import Callout from "../../components/Callout.astro";
+import Footnote from "../../components/Footnote.astro";
+import PrLink from "../../components/PrLink.astro";
+
+Run kolu, open a terminal on any host, type `claude` — it runs. So do `codex`,
+`omp`, `opencode` and `pi`, each with kolu's plugin loaded. They come from
+[agent-distro](https://github.com/juspay/agent-distro), which kolu pins and
+names in Settings; the one choice a user makes is the **profile**. User docs:
+[kolu.dev/agents](https://kolu.dev/agents).
+
+<Callout type="note">
+The plan of record spans two repositories (agent-distro's U0–U4, kolu's
+ADK1–ADK4) and lives with the planner; this note records kolu's side. ADK1 is
+implemented; ADK2–ADK4 are not started.
+</Callout>
+
+## The shape
+
+Two repositories, one promise. **agent-distro** owns the agents: which harnesses
+exist, what a profile adds, how a bundle is updated. **kolu** owns the one user
+decision and puts that profile's harnesses on the PATH of every new terminal, on
+every host. Kolu consumes agent-distro across a process boundary — its Nix
+library at build time, its `--list --json` and its updater at run time — and
+never imports its code.<Footnote>The process boundary is what works on a remote
+host, where padi is the only kolu process, and it keeps the two repos
+independently releasable.</Footnote> Kolu's plugin reaches every harness at launch
+through `AGENT_DISTRO_PLUGINS` (agent-distro's U2), so it is present in any
+profile and any bundle version without agent-distro pinning kolu.
+
+| layer | owns |
+| --- | --- |
+| preference `agentDistro` (kolu-server conf, 1.37.0) | on/off + profile, global |
+| kolu-server cell `agentDistroListing` | the profiles, read once from the baked picker |
+| padi cell `agentDistro` (memory-only, pushed) | the setting, per host, re-pushed on every connect |
+| padi cell `agentDistroStatus` | ready · downloading · error · off · unavailable |
+| padi spawn | resolve the bundle, pin it on the record, put its `bin/` on PATH |
+| `nix/agent-distro.nix` | the floor bundle, per-profile updater configs, the plugin dir |
+
+## ADK1 — Choose your agents in Settings (implemented)
+
+- **One setting, global.** A kolu preference, pushed into each bound padi by the
+  same mechanism as the new-terminal theme policy (`padiCellPusher.ts`). padi
+  refuses a profile its build does not know; the UI shows an unknown stored
+  profile as an error and never resets it.
+- **New terminals only, each one says which.** At spawn padi resolves the host's
+  `<state>/current` if the updater put one there, else the floor kolu ships
+  (local machine only). The exact store path is stamped on the terminal record
+  (`agentProfile` / `agentBundle`) and its `bin/` joins the toolchain after kolu's
+  own tools, riding the `KOLU_TERMINAL_TOOLS_PATH` stamp. The tile chip shows the
+  profile and the bundle's short hash.
+- **Off means off.** Nothing on PATH, no plugin variable, no chip.
+- **Hosts download their own agents.** `padi-agent` carries no floor. On first use
+  padi runs agent-distro's `lib.mkUpdater` command (its config made concrete for
+  the host's state home), which fetches from the binary cache into the host's
+  store; the host tab shows progress and a toast announces "Agents ready". No
+  retry loop.
+- **Nix.** agent-distro is an npins pin, no flake input. The floor is built with
+  kolu's nixpkgs via agent-distro's own `mkLaunchers` / `mkPicker`, exposed as
+  `agent-distro-bundle` (so the cache job pushes it), and baked only on the
+  `default` wrapper. `x86_64-darwin` left kolu's systems.
+
+Known limits are decided, not open: garbage collection can remove an old bundle
+under a running agent; two updaters on one machine are harmless; byte progress
+waits on agent-distro's U4; a fetched (remote) bundle has no `agent-distro`
+picker of its own.
+
+## ADK2–ADK4 — next
+
+- **ADK2 · First run asks.** A step in the welcome flow bound to the same
+  preference, shown only while it has never been written.
+- **ADK3 · Agents stay current.** padi runs the updater four times a day on every
+  host and flips `current`; Settings shows versions and history; a landed update
+  toasts.
+- **ADK4 · The terminal tells you the next move** (optional). One tip in the
+  tile's title bar from a terminal's live facts.
