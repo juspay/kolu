@@ -35,7 +35,7 @@ import ChangeHighlights from "../../components/ChangeHighlights.astro";
 - <Change kind="heads-up" title="Agents are on by default — including on your existing install" pr={2265}>After this upgrade, new terminals put kolu's bundled <code>claude</code>, <code>codex</code>, <code>omp</code>, <code>opencode</code>, <code>opencode2</code> and <code>pi</code> <strong>ahead of</strong> the ones you installed yourself. To keep running your own, turn it off in **Settings → Agents**; terminals already open are not affected either way.</Change>
 - <Change kind="added" title="Agents come with kolu — choose a profile in Settings" pr={2265}>New terminals now have <code>claude</code>, <code>codex</code>, <code>omp</code>, <code>opencode</code>, <code>opencode2</code> and <code>pi</code> on their PATH, from [agent-distro](https://github.com/juspay/agent-distro), each with kolu's own plugin loaded. **Settings → Agents** turns it on or off and picks the profile (<code>vanilla</code> by default). A change reaches the next new terminal, never a running one, and every tile shows a small chip with the profile and bundle it started with. On a [remote host](/remote-hosts) the host downloads the agents itself the first time — its tab shows "Downloading agents… 1.1 GB of 2.0 GB", then "Agents ready".</Change>
 
-### Install
+### [Install](/quickstart)
 
 - <Change kind="heads-up" title="Intel Macs are no longer a supported kolu system" pr={2265}>kolu's flake drops <code>x86_64-darwin</code>: agent-distro, which now supplies every terminal's agents, does not build for Intel Macs. Apple Silicon Macs and Linux (x86_64, aarch64) are unchanged.</Change>
 

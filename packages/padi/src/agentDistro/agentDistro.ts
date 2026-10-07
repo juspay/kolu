@@ -324,18 +324,28 @@ function startDownload(
   };
   if (nixOnPath() === undefined) {
     fail(
-      `nix is not on padi's PATH on this host, so the agents cannot be downloaded — make \`nix\` reachable for non-login ssh sessions (e.g. add /nix/var/nix/profiles/default/bin to PATH in ~/.bashrc or /etc/environment), then turn Agents off and on`,
+      `nix is not on padi's PATH on this host, so the agents cannot be downloaded — make \`nix\` reachable for non-login ssh sessions — add /nix/var/nix/profiles/default/bin to PATH in /etc/environment (or at the very top of ~/.bashrc, before any early return for non-interactive shells) — then turn Agents off and on`,
     );
     return;
   }
-  let dir: string;
+  let dir: string | undefined;
   let configPath: string;
+  const removeDir = () => {
+    if (dir === undefined) return;
+    try {
+      rmSync(dir, { recursive: true, force: true });
+    } catch (err) {
+      // A leftover temp config is litter, not a failed download.
+      plog.error({ err, dir }, "could not remove the updater's temp config");
+    }
+  };
   try {
     const { text } = hostUpdaterConfig(bake, profile, hostStateHome());
     dir = mkdtempSync(join(tmpdir(), "kolu-agent-distro-"));
     configPath = join(dir, "update.json");
     writeFileSync(configPath, text, { mode: 0o600 });
   } catch (err) {
+    removeDir();
     fail(`could not prepare the updater: ${String(err)}`, err);
     return;
   }
@@ -367,8 +377,9 @@ function startDownload(
       fail(`reading the download's result failed: ${String(err)}`, err),
     )
     .finally(() => {
-      rmSync(dir, { recursive: true, force: true });
+      // Status first: nothing below may keep the host's tab from moving on.
       republish();
+      removeDir();
     });
 }
 
@@ -412,12 +423,23 @@ export function runUpdater(opts: {
       { stdio: ["ignore", "pipe", "pipe"] },
     );
     let result: UpdaterResult | undefined;
+    // The first protocol violation, quoted — it outranks whatever the run
+    // reports after it, so a format change upstream is a visible error, never
+    // a "Downloading agents…" that silently stops counting.
+    let violation: string | undefined;
     const stderr: string[] = [];
     createInterface({ input: child.stdout }).on("line", (line) => {
       const read = parseUpdaterLine(line);
       if (read === null) return;
-      if ("progress" in read) opts.onProgress(read.progress);
-      else result = read.result;
+      if ("malformed" in read) {
+        violation ??= `the updater wrote an unexpected --progress line: ${read.malformed}`;
+      } else if ("progress" in read) {
+        opts.onProgress(read.progress);
+      } else if (result !== undefined) {
+        violation ??= `the updater wrote a second result line: ${line.trim()}`;
+      } else {
+        result = read.result;
+      }
     });
     createInterface({ input: child.stderr }).on("line", (line) => {
       stderr.push(line);
@@ -428,6 +450,10 @@ export function runUpdater(opts: {
       resolve({ ok: false, message: `cannot run the updater: ${err.message}` }),
     );
     child.on("close", (code, signal) => {
+      if (violation !== undefined) {
+        resolve({ ok: false, message: violation });
+        return;
+      }
       if (result === undefined) {
         const said = lastWord(stderr);
         const how =

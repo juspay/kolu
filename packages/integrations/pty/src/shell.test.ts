@@ -883,7 +883,8 @@ describeDaemon("prepareShellInit PATH re-assert (real shells)", () => {
 });
 
 describeDaemon("PATH_PREPEND_CASES — one oracle, both implementations", () => {
-  // The rule "prepend without duplicating" is written twice, in two languages:
+  // The rule "move the stamped dirs to the front, in order, each once" is
+  // written twice, in two languages:
   // `prependPathEntries` (TS, the spawn env) and `PATH_REASSERT` (POSIX shell,
   // the rcfile — the only carrier for a `fish` user, who gets no wrapper rc from
   // selectShellInit). Co-locating them in one file does not keep them equal; one

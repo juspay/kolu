@@ -70,6 +70,16 @@ switch (process.env.STUB_MODE) {
   case "fail":
     out({ result: "failed", reason: "nix build exit 1" });
     process.exit(1);
+  case "garbage":
+    // A progress line in a shape the contract does not have, then a result
+    // that names a bundle without landing one.
+    out({ progress: { done: "a lot", total: 2 } });
+    out({ result: "unchanged", bundle: process.env.STUB_BUNDLE });
+    break;
+  case "tworesults":
+    out({ result: "skipped", reason: "first" });
+    out({ result: "skipped", reason: "second" });
+    break;
   case "crash":
     process.stderr.write("TypeError: boom\\n");
     process.exit(3);
@@ -210,6 +220,30 @@ describe("a host's first download", () => {
       progress: { done: 1_100_000_000, total: 2_000_000_000 },
     });
     await until((s) => s?.kind === "ready");
+  });
+
+  it("a line outside the --progress contract is the run's error, quoted", async () => {
+    process.env.STUB_MODE = "garbage";
+    write(ON);
+    await until((s) => s?.kind === "error");
+    expect(last()).toEqual({
+      kind: "error",
+      profile: "vanilla",
+      message:
+        'the updater wrote an unexpected --progress line: {"progress":{"done":"a lot","total":2}}',
+    });
+  });
+
+  it("a second result line is the run's error, quoted", async () => {
+    process.env.STUB_MODE = "tworesults";
+    write(ON);
+    await until((s) => s?.kind === "error");
+    expect(last()).toEqual({
+      kind: "error",
+      profile: "vanilla",
+      message:
+        'the updater wrote a second result line: {"result":"skipped","reason":"second"}',
+    });
   });
 
   it("a run that dies without its result line is an error naming it", async () => {

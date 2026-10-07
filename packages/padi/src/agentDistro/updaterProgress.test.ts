@@ -40,18 +40,24 @@ describe("parseUpdaterLine", () => {
     ).toEqual({ result: { result: "failed", reason: "nix build exit 1" } });
   });
 
-  it("reads nothing else", () => {
+  it("a blank line is nothing", () => {
+    expect(parseUpdaterLine("")).toBeNull();
+    expect(parseUpdaterLine("   ")).toBeNull();
+  });
+
+  it("any other line is MALFORMED — stdout is JSON-only under --progress", () => {
     for (const line of [
-      "",
       "agent-distro: vanilla updated nothing -> /nix/store/x",
       '{"result":"updated"}',
       '{"result":"skipped"}',
       '{"result":"bogus","reason":"x"}',
       '{"progress":{"done":"1","total":2}}',
       '{"progress":{"done":-1,"total":2}}',
+      '{"progress":null}',
+      '{"other":1}',
       "null",
       "{not json",
     ])
-      expect(parseUpdaterLine(line)).toBeNull();
+      expect(parseUpdaterLine(line)).toEqual({ malformed: line });
   });
 });

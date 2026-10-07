@@ -7,13 +7,18 @@ import type { HostKey } from "kolu-common/hostKey";
 import { type Component, Show } from "solid-js";
 import { agentDistroStatusOf, agentDistroStatusText } from "./useAgentDistro";
 
-const AgentDistroHostBadge: Component<{ host: HostKey }> = (props) => {
+const AgentDistroHostBadge: Component<{
+  host: HostKey;
+  /** Rendered inside the strip's hidden measuring row: same text and width,
+   *  but no `data-testid`, so a test query finds only the visible badge. */
+  measuring?: boolean;
+}> = (props) => {
   const note = () => agentDistroStatusText(agentDistroStatusOf(props.host));
   return (
     <Show when={note()}>
       {(n) => (
         <span
-          data-testid="host-agents-status"
+          data-testid={props.measuring ? undefined : "host-agents-status"}
           data-tone={n().tone}
           title={n().text}
           class={`mr-2.5 max-w-[16rem] truncate text-[0.65rem] ${n().tone === "error" ? "text-warning" : "text-fg-3"}`}

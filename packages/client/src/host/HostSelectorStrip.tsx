@@ -819,7 +819,7 @@ const HostSelectorStrip: Component = () => {
                         class="-ml-1 mr-2.5"
                       />
                     }
-                    agents={<AgentDistroHostBadge host={host} />}
+                    agents={<AgentDistroHostBadge host={host} measuring />}
                   />
                 </div>
               </div>
