@@ -6,16 +6,18 @@
  *   - `./bake.ts` — what this build was baked with (profiles, floor, plugins);
  *   - `./onHost.ts` — where agent-distro's bundles are on this host;
  *   - `./layer.ts` — what a terminal spawned now gets, and its record stamp;
- *   - `./updater.ts` — running agent-distro's updater (its `--progress` line
- *     format is `@kolu/agent-distro/progress`, kolu's contract with upstream).
+ *   - `./download.ts` — the download state machine (running · failed, with a
+ *     typed reason) and its one run of agent-distro's updater (`./updater.ts`;
+ *     the line format is `@kolu/agent-distro/progress`).
  *
  * kolu-server pushes the user's setting into the memory-only `agentDistro` cell
  * (the `newTerminalPolicy` pattern: re-pushed on every connect, so padi keeps no
  * copy of a preference). This module refuses a profile the build does not know,
  * keeps the read-only `agentDistroStatus` cell true, and — on a host with no
  * bundle for the selected profile (a remote host has no floor) — runs the
- * updater once. Nothing retries on its own: a failure is shown in the updater's
- * own words, and the next time the setting turns that profile on, it tries again.
+ * updater once. Nothing retries on its own: a failure is published with its typed
+ * reason and cause, and the next time the setting turns that profile on, it tries
+ * again (the remedy and retry are worded in `@kolu/agent-distro/status`).
  */
 
 import {
@@ -26,16 +28,9 @@ import {
 import { type CellStore, inMemoryStore } from "@kolu/surface/server";
 import { log } from "../log.ts";
 import { padiSurfaceCtx } from "../padiSurfaceCtx.ts";
-import {
-  type AgentDistroBake,
-  type AgentDistroProfileBake,
-  agentDistroBake,
-  hostUpdaterConfig,
-} from "./bake.ts";
+import { agentDistroBake } from "./bake.ts";
+import { downloadOf, forgetFailure, startDownload } from "./download.ts";
 import { resolveAgentLayer } from "./layer.ts";
-import { bundleOnHost, hostStateHome, nixOnPath } from "./onHost.ts";
-import { runUpdater, writeUpdaterConfig } from "./updater.ts";
-import type { UpdaterProgress } from "@kolu/agent-distro/progress";
 
 /** The backing store of the `agentDistro` cell, shared by the cell declaration
  *  and the spawn path — so a spawn resolves against exactly what the binder
@@ -58,14 +53,6 @@ export function checkAgentDistroSetting(next: AgentDistroSetting): void {
   }
 }
 
-// ── Download (a host with no bundle for the selected profile) ────────────
-
-/** Profiles whose download is running, with the latest byte counts. */
-const downloading = new Map<string, { progress?: UpdaterProgress }>();
-/** Profiles whose last download failed, with the updater's message. Cleared
- *  when the setting next turns that profile on — the only retry there is. */
-const failed = new Map<string, string>();
-
 function publishStatus(status: AgentDistroStatus): void {
   padiSurfaceCtx.cells.agentDistroStatus.set(status);
 }
@@ -86,16 +73,22 @@ export function assessAgentDistro(
   const layer = resolveAgentLayer(setting);
   if (layer !== undefined)
     return { kind: "ready", profile: layer.profile, bundle: layer.bundle };
-  const running = downloading.get(setting.profile);
-  if (running !== undefined)
+  const download = downloadOf(setting.profile);
+  if (download?.kind === "running")
     return {
       kind: "downloading",
       profile: setting.profile,
-      ...(running.progress !== undefined ? { progress: running.progress } : {}),
+      ...(download.progress !== undefined
+        ? { progress: download.progress }
+        : {}),
     };
-  const message = failed.get(setting.profile);
-  if (message !== undefined)
-    return { kind: "error", profile: setting.profile, message };
+  if (download?.kind === "failed")
+    return {
+      kind: "error",
+      profile: setting.profile,
+      reason: download.failure.reason,
+      message: download.failure.message,
+    };
   return { kind: "needsDownload", profile: setting.profile };
 }
 
@@ -111,7 +104,7 @@ function settle(setting: AgentDistroSetting): void {
     // profile (`resolveAgentLayer` throws on an unknown one).
     if (bake === null || profile === undefined)
       throw new Error(`agent-distro: no bake for profile '${setting.profile}'`);
-    startDownload(bake, profile);
+    startDownload(bake, profile, republish);
     assessed = assessAgentDistro(setting);
     if (assessed.kind === "needsDownload")
       throw new Error(
@@ -126,7 +119,7 @@ function settle(setting: AgentDistroSetting): void {
  *  BEFORE the store write, so it reads `next`, never the store. Turning a
  *  profile on forgets its last failure — that is the retry. */
 export function onAgentDistroSettingWrite(next: AgentDistroSetting): void {
-  if (next.enabled) failed.delete(next.profile);
+  if (next.enabled) forgetFailure(next.profile);
   settle(next);
 }
 
@@ -141,79 +134,4 @@ function republish(): void {
     // an unhandled rejection; logged loudly instead.
     log.error({ err }, "agent-distro status could not be re-published");
   }
-}
-
-/** Start `profile`'s one download. Every way it can fail — no `nix`, a config
- *  that will not write, the updater's own failure or skip, a protocol
- *  violation, a throw while reading the result — ends as a recorded failure (the
- *  host's `error` status) and a loud log line; none is swallowed and none
- *  retries on its own. */
-function startDownload(
-  bake: AgentDistroBake,
-  profile: AgentDistroProfileBake,
-): void {
-  const plog = log.child({ agentDistroProfile: profile.name });
-  const fail = (message: string, err?: unknown) => {
-    downloading.delete(profile.name);
-    failed.set(profile.name, message);
-    plog.error({ err, message }, "agent-distro download failed");
-  };
-  if (nixOnPath() === undefined) {
-    fail(
-      "nix is not on padi's PATH on this host, so the agents cannot be downloaded — make `nix` reachable for non-login ssh sessions — add /nix/var/nix/profiles/default/bin to PATH in /etc/environment (or at the very top of ~/.bashrc, before any early return for non-interactive shells) — then turn Agents off and on",
-    );
-    return;
-  }
-  let config: ReturnType<typeof writeUpdaterConfig>;
-  try {
-    config = writeUpdaterConfig(
-      hostUpdaterConfig(bake, profile, hostStateHome()).text,
-    );
-  } catch (err) {
-    fail(`could not prepare the updater: ${String(err)}`, err);
-    return;
-  }
-  downloading.set(profile.name, {});
-  plog.info({}, "downloading agent-distro bundle");
-  void runUpdater({
-    command: profile.command,
-    configPath: config.configPath,
-    onProgress: (progress) => {
-      downloading.set(profile.name, { progress });
-      republish();
-    },
-  })
-    .then((outcome) => {
-      if (!outcome.ok) {
-        // A skip (cache unusable, bundle not fully cached) exits 0 but is a
-        // `skipped` result: nothing landed, and its reason says why.
-        fail(outcome.message);
-      } else if (bundleOnHost(bake, profile) === undefined) {
-        fail(
-          `the updater reported "${outcome.message}" but this host has no current bundle for ${profile.name}`,
-        );
-      } else {
-        downloading.delete(profile.name);
-        plog.info({}, "agent-distro bundle ready");
-      }
-    })
-    .catch((err: unknown) =>
-      fail(`reading the download's result failed: ${String(err)}`, err),
-    )
-    .finally(() => {
-      // Status first: nothing below may keep the host's tab from moving on.
-      republish();
-      try {
-        config.remove();
-      } catch (err) {
-        // A leftover temp config is litter, not a failed download.
-        plog.error({ err }, "could not remove the updater's temp config");
-      }
-    });
-}
-
-/** Test seam: forget every download and failure. */
-export function __resetAgentDistroDownloadsForTest(): void {
-  downloading.clear();
-  failed.clear();
 }

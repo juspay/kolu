@@ -226,7 +226,7 @@ export async function sleepTerminal(id: TerminalId): Promise<void> {
  *  `id` is not an active terminal. See `restartSleptLocal` for the rest. */
 export async function restartTerminal(
   id: TerminalId,
-): Promise<TerminalInfo | undefined> {
+): Promise<{ info: TerminalInfo; resumed: boolean } | undefined> {
   if (!beginSleepLocal(id)) return undefined;
   // Registered in the SAME synchronous step as the flip, so no attach can see
   // the dormant middle of a restart without also seeing the restart.

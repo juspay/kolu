@@ -3,11 +3,14 @@
  * spawn-time decision. A layer is the profile, the EXACT bundle store path whose
  * `bin/` goes on PATH (the terminal pins it: a later update or profile switch
  * never touches a running terminal), and the plugin dir. The record carries the
- * profile and bundle (`agentProfile` / `agentBundle`, the tile chip); the spawn
+ * profile and bundle (`agents`, the tile pill); the spawn
  * reads its PATH back off the record, so the chip and the PATH are one value.
  */
 
-import type { AgentDistroSetting } from "@kolu/agent-distro/schema";
+import type {
+  AgentDistroSetting,
+  TerminalAgents,
+} from "@kolu/agent-distro/schema";
 import { agentDistroBake } from "./bake.ts";
 import { bundleOnHost } from "./onHost.ts";
 
@@ -40,23 +43,22 @@ export function resolveAgentLayer(
     : { profile: profile.name, bundle, plugins: bake.plugins };
 }
 
-/** The two record fields a layer stamps. */
+/** The one record field a layer stamps (`@kolu/agent-distro/schema`). */
 interface AgentLayerFields {
-  agentProfile?: string;
-  agentBundle?: string;
+  agents?: TerminalAgents;
 }
 
-/** `record` with its agent fields replaced by `layer`'s — or removed, for no
- *  layer. Never keeps a previous spawn's pair (a woken terminal's). */
+/** `record` with its `agents` replaced by `layer`'s — or removed, for no
+ *  layer. Re-stamped WHOLE: never keeps a previous spawn's (a woken one's). */
 export function withAgentLayer<R extends AgentLayerFields>(
   record: R,
   layer: AgentLayer | undefined,
 ): R {
-  const { agentProfile: _profile, agentBundle: _bundle, ...rest } = record;
+  const { agents: _agents, ...rest } = record;
   return (
     layer === undefined
       ? rest
-      : { ...rest, agentProfile: layer.profile, agentBundle: layer.bundle }
+      : { ...rest, agents: { profile: layer.profile, bundle: layer.bundle } }
   ) as R;
 }
 
@@ -65,16 +67,11 @@ export function withAgentLayer<R extends AgentLayerFields>(
 export function agentLayerOfRecord(
   record: AgentLayerFields,
 ): AgentLayer | undefined {
-  if (record.agentProfile === undefined || record.agentBundle === undefined)
-    return undefined;
+  if (record.agents === undefined) return undefined;
   const bake = agentDistroBake();
   if (bake === null)
     throw new Error(
       "a terminal record carries an agent layer, but this padi has no agent-distro bake",
     );
-  return {
-    profile: record.agentProfile,
-    bundle: record.agentBundle,
-    plugins: bake.plugins,
-  };
+  return { ...record.agents, plugins: bake.plugins };
 }

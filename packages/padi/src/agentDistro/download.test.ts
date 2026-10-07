@@ -28,13 +28,12 @@ import {
   setPadiSurfaceCtx,
 } from "../padiSurfaceCtx.ts";
 import {
-  __resetAgentDistroDownloadsForTest,
   agentDistroSettingStore,
   onAgentDistroSettingWrite,
 } from "./agentDistro.ts";
+import { __resetAgentDistroDownloadsForTest } from "./download.ts";
 import { __setAgentDistroBakeForTest, type AgentDistroBake } from "./bake.ts";
 
-const PLACEHOLDER = "@KOLU_XDG_STATE_HOME@";
 const ON: AgentDistroSetting = { enabled: true, profile: "vanilla" };
 const OFF: AgentDistroSetting = { enabled: false, profile: "vanilla" };
 
@@ -74,6 +73,13 @@ switch (process.env.STUB_MODE) {
     // that names a bundle without landing one.
     out({ progress: { done: "a lot", total: 2 } });
     out({ result: "unchanged", bundle: process.env.STUB_BUNDLE });
+    break;
+  case "elsewhere":
+    // Lands one bundle but reports another — the host would resolve something
+    // other than what the updater says it fetched.
+    mkdirSync(cfg.state, { recursive: true });
+    symlinkSync(process.env.STUB_BUNDLE, cfg.state + "/current");
+    out({ result: "updated", bundle: "/nix/store/0000000000000000000000000000000-other" });
     break;
   case "tworesults":
     out({ result: "skipped", reason: "first" });
@@ -141,18 +147,19 @@ beforeEach(() => {
   const bake: AgentDistroBake = {
     floor: undefined, // a remote host
     plugins: "/p/plugin",
-    stateHomePlaceholder: PLACEHOLDER,
     profiles: new Map([
       [
         "vanilla",
         {
           name: "vanilla",
           command: [process.execPath, stub],
+          // Concrete for this host, as the bake reader makes it once.
           configText: JSON.stringify({
             profile: "vanilla",
-            state: `${PLACEHOLDER}/agent-distro/vanilla`,
-            history: `${PLACEHOLDER}/agent-distro/history.log`,
+            state: join(root, "state", "agent-distro", "vanilla"),
+            history: join(root, "state", "agent-distro", "history.log"),
           }),
+          stateDir: join(root, "state", "agent-distro", "vanilla"),
         },
       ],
     ]),
@@ -228,6 +235,7 @@ describe("a host's first download", () => {
     expect(last()).toEqual({
       kind: "error",
       profile: "vanilla",
+      reason: "updater",
       message:
         'the updater wrote an unexpected --progress line: {"progress":{"done":"a lot","total":2}}',
     });
@@ -240,6 +248,7 @@ describe("a host's first download", () => {
     expect(last()).toEqual({
       kind: "error",
       profile: "vanilla",
+      reason: "updater",
       message:
         'the updater wrote a second result line: {"result":"skipped","reason":"second"}',
     });
@@ -250,6 +259,7 @@ describe("a host's first download", () => {
     write(ON);
     await until((s) => s?.kind === "error");
     expect(last()).toMatchObject({
+      reason: "updater",
       message: "the updater exited 3 without a result: TypeError: boom",
     });
   });
@@ -261,6 +271,7 @@ describe("a host's first download", () => {
     expect(last()).toEqual({
       kind: "error",
       profile: "vanilla",
+      reason: "updater",
       message:
         "cache https://cache.example not usable; add it to nix.settings substituters/trusted-public-keys",
     });
@@ -297,14 +308,28 @@ describe("a host's first download", () => {
     expect(invocations()).toHaveLength(1);
   });
 
-  it("no `nix` on padi's PATH is an error that says so, and runs nothing", () => {
+  it("no `nix` on padi's PATH is a typed `nixMissing` failure stating the cause — no remedy, no retry — and runs nothing", () => {
     process.env.PATH = join(root, "nowhere");
     write(ON);
-    const status = last();
-    expect(status?.kind).toBe("error");
-    expect(status?.kind === "error" ? status.message : "").toMatch(
-      /nix is not on padi's PATH/,
-    );
+    expect(last()).toEqual({
+      kind: "error",
+      profile: "vanilla",
+      reason: "nixMissing",
+      message:
+        "nix is not on padi's PATH on this host, so the agents cannot be downloaded",
+    });
     expect(invocations()).toHaveLength(0);
+  });
+
+  it("a reported bundle this host does not resolve is a failure, not a ready", async () => {
+    process.env.STUB_MODE = "elsewhere";
+    write(ON);
+    await until((s) => s?.kind === "error");
+    expect(last()).toEqual({
+      kind: "error",
+      profile: "vanilla",
+      reason: "updater",
+      message: `the updater landed /nix/store/0000000000000000000000000000000-other, but this host resolves ${join(root, "store-fetched-vanilla")} for vanilla`,
+    });
   });
 });

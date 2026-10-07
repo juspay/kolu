@@ -14,6 +14,7 @@ import {
   UPDATER_PROGRESS_ARGS,
   type UpdaterProgress,
   type UpdaterResult,
+  updaterLastWord,
 } from "@kolu/agent-distro/progress";
 
 /** Write a host-concrete updater config into its own temp dir. A write that
@@ -35,18 +36,11 @@ export function writeUpdaterConfig(text: string): {
   return { configPath, remove };
 }
 
+/** How a run ended: the bundle it landed (`updated` / `unchanged`), or why
+ *  nothing landed (a skip, a failure, a crash, a protocol violation). */
 export type UpdaterOutcome =
-  | { readonly ok: true; readonly message: string }
+  | { readonly ok: true; readonly bundle: string }
   | { readonly ok: false; readonly message: string };
-
-/** The updater's last stderr line, minus the `agent-distro: ` prefix it puts on
- *  every message — what a run that died WITHOUT its result line last said. */
-function lastWord(lines: readonly string[]): string | undefined {
-  return lines
-    .findLast((l) => l.trim() !== "")
-    ?.trim()
-    .replace(/^agent-distro:\s*/, "");
-}
 
 /** Run agent-distro's updater once (`--progress`) and settle with its outcome.
  *  Progress lines feed `onProgress`; the outcome is the updater's own `result`
@@ -101,7 +95,7 @@ export function runUpdater(opts: {
         return;
       }
       if (result === undefined) {
-        const said = lastWord(stderr);
+        const said = updaterLastWord(stderr);
         const how =
           signal !== null ? `was killed (${signal})` : `exited ${code}`;
         resolve({
@@ -113,7 +107,7 @@ export function runUpdater(opts: {
       switch (result.result) {
         case "updated":
         case "unchanged":
-          resolve({ ok: true, message: `${result.result}: ${result.bundle}` });
+          resolve({ ok: true, bundle: result.bundle });
           return;
         case "skipped":
         case "failed":

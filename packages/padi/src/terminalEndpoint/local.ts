@@ -1577,11 +1577,14 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
   }
 
   /** {@link wake}, choosing whether to replay the agent's resume form, and
-   *  handing back the spawn's `wired` settle. */
+   *  handing back the spawn's `wired` settle and whether a resume form was
+   *  replayed (`resumed`). */
   private wakeWith(
     id: TerminalId,
     opts: { resume: boolean },
-  ): { info: TerminalInfo; wired: Promise<boolean> } | undefined {
+  ):
+    | { info: TerminalInfo; wired: Promise<boolean>; resumed: boolean }
+    | undefined {
     const entry = getTerminal(id);
     if (!entry || entry.meta.state !== "sleeping") return undefined;
     // The resume FORM switches on the authored `restoreTarget`: `exact` resumes the
@@ -1601,11 +1604,14 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
     log
       .child({ terminal: id })
       .info({ resuming: resumeCommand !== null }, "waking");
-    return this.registerActiveAndSpawn(id, meta, wokenAwareness, {
-      cwd: wokenAwareness.cwd,
-      parentId: meta.parentId,
-      resumeCommand: resumeCommand ?? undefined,
-    });
+    return {
+      ...this.registerActiveAndSpawn(id, meta, wokenAwareness, {
+        cwd: wokenAwareness.cwd,
+        parentId: meta.parentId,
+        resumeCommand: resumeCommand ?? undefined,
+      }),
+      resumed: resumeCommand !== null,
+    };
   }
 
   /** The second half of a RESTART, after the caller flipped `id` to sleeping
@@ -1632,7 +1638,9 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
    *     holds the id now (an active terminal's info), or `undefined` if nothing.
    *   - the respawn failed: the wake path restored the sleeping record (F2), and
    *     this THROWS — the tile is asleep, and waking it retries. */
-  async restartSlept(id: TerminalId): Promise<TerminalInfo | undefined> {
+  async restartSlept(
+    id: TerminalId,
+  ): Promise<{ info: TerminalInfo; resumed: boolean } | undefined> {
     const slept = getTerminal(id);
     if (slept === undefined || slept.meta.state !== "sleeping")
       throw new Error(`restart(${id}): expected a freshly slept record`);
@@ -1665,7 +1673,12 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
     }
     const now = getTerminal(id);
     if (now !== slept)
-      return now?.meta.state === "active" ? now.info : undefined;
+      return now?.meta.state === "active"
+        ? { info: now.info, resumed: false }
+        : undefined;
+    // The ONE decision of whether the conversation comes back: while agents
+    // stay on (the new PTY has agents to resume it with). The client words the
+    // same rule (`agentRestartAction`) and reports what this returns.
     const resume = agentDistroSettingStore.get().enabled;
     tlog.info({ resume }, "restarting");
     const woken = this.wakeWith(id, { resume });
@@ -1674,7 +1687,8 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
       throw new Error(
         "the new shell did not start; the terminal is asleep — wake it to try again",
       );
-    return getTerminal(id)?.info;
+    const info = getTerminal(id)?.info;
+    return info === undefined ? undefined : { info, resumed: woken.resumed };
   }
 
   /** Discard a HANDLE-LESS terminal — the shared core behind {@link discardSleeping}
@@ -1931,7 +1945,7 @@ export function wakeLocalTerminal(id: TerminalId): TerminalInfo | undefined {
  *  flipped — see `LocalTerminalEndpoint.restartSlept`. */
 export function restartSleptLocal(
   id: TerminalId,
-): Promise<TerminalInfo | undefined> {
+): Promise<{ info: TerminalInfo; resumed: boolean } | undefined> {
   return localEndpointImpl.restartSlept(id);
 }
 

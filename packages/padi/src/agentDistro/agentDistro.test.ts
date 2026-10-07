@@ -11,7 +11,6 @@ import { assessAgentDistro, checkAgentDistroSetting } from "./agentDistro.ts";
 import { __setAgentDistroBakeForTest, type AgentDistroBake } from "./bake.ts";
 import { resolveAgentLayer, withAgentLayer } from "./layer.ts";
 
-const PLACEHOLDER = "@KOLU_XDG_STATE_HOME@";
 const ON = { enabled: true, profile: "vanilla" } as const;
 
 let root: string;
@@ -39,18 +38,23 @@ function bake(opts: { floor: boolean }): AgentDistroBake {
       hash: name,
     })),
   };
-  const profile = (name: string) => ({
-    name,
-    command: ["/bin/false"],
-    configText: JSON.stringify({
-      state: `${PLACEHOLDER}/agent-distro/${name}`,
-      history: `${PLACEHOLDER}/agent-distro/history.log`,
-    }),
-  });
+  // Each profile's updater config, already made concrete for this host (as the
+  // bake reader does once), and the state dir it names.
+  const profile = (name: string) => {
+    const stateDir = join(root, "state", "agent-distro", name);
+    return {
+      name,
+      command: ["/bin/false"],
+      configText: JSON.stringify({
+        state: stateDir,
+        history: join(root, "state", "agent-distro", "history.log"),
+      }),
+      stateDir,
+    };
+  };
   return {
     floor: opts.floor ? manifest : undefined,
     plugins: "/p/plugin",
-    stateHomePlaceholder: PLACEHOLDER,
     profiles: new Map([
       ["vanilla", profile("vanilla")],
       ["juspay", profile("juspay")],
@@ -145,19 +149,18 @@ describe("checkAgentDistroSetting — the write gate", () => {
 });
 
 describe("withAgentLayer — the record stamp the chip reads", () => {
-  it("stamps profile + bundle, and strips a previous spawn's pair for no layer", () => {
+  it("stamps the agents struct whole, and strips a previous spawn's for no layer", () => {
     const stamped = withAgentLayer(
-      { agentProfile: "juspay", agentBundle: "/old", other: 1 },
+      { agents: { profile: "juspay", bundle: "/old" }, other: 1 },
       { profile: "vanilla", bundle: "/new", plugins: "/p" },
     );
     expect(stamped).toEqual({
-      agentProfile: "vanilla",
-      agentBundle: "/new",
+      agents: { profile: "vanilla", bundle: "/new" },
       other: 1,
     });
     expect(
       withAgentLayer(
-        { agentProfile: "juspay", agentBundle: "/old", other: 1 },
+        { agents: { profile: "juspay", bundle: "/old" }, other: 1 },
         undefined,
       ),
     ).toEqual({ other: 1 });

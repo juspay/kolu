@@ -114,7 +114,10 @@ describe("padiSurface contract", () => {
     // WRITES, so the minor is what drains a 5.7 padi that has no such cell.
     // 5.9 adds `lifecycle.restart`, a procedure a 5.9 binder CALLS — the minor
     // drains a 5.8 padi that would not serve it.
-    expect(PADI_SURFACE_VERSION).toBe("5.9");
+    // 5.10 makes the record's agents one struct, adds a REQUIRED `reason` to an
+    // error agentDistroStatus, and gives `lifecycle.restart` its `resumed` —
+    // the required field is why a 5.10 decoder must not meet a 5.9 padi.
+    expect(PADI_SURFACE_VERSION).toBe("5.10");
     expect(DEFAULT_PADI_VERSION.contractVersion).toBe(PADI_SURFACE_VERSION);
     expect(
       Schema.decodeUnknownSync(PadiVersionSchema)(DEFAULT_PADI_VERSION),
@@ -152,6 +155,9 @@ describe("padiSurface contract", () => {
     expect(isContractVersionCompatible("5.8", "5.7")).toBe(true);
     expect(isContractVersionCompatible("5.8", "5.9")).toBe(false);
     expect(isContractVersionCompatible("5.9", "5.8")).toBe(true);
+    // Numeric, not lexical: 5.10 is the minor after 5.9.
+    expect(isContractVersionCompatible("5.9", "5.10")).toBe(false);
+    expect(isContractVersionCompatible("5.10", "5.9")).toBe(true);
     // A major bump is mutually incompatible in both directions.
     expect(isContractVersionCompatible("6.0", "5.0")).toBe(false);
     expect(isContractVersionCompatible("5.0", "6.0")).toBe(false);

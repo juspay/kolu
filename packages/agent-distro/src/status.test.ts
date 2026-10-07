@@ -6,6 +6,7 @@ import type { AgentDistroStatus } from "./schema.ts";
 import {
   AGENTS_OFF,
   AGENTS_RETRY,
+  agentFailureRemedy,
   DOWNLOAD_MIN_FILL,
   agentMarkLabel,
   agentChipLabel,
@@ -62,8 +63,13 @@ describe("agentMarkOf — the one status → treatment fold", () => {
     ],
     [
       "error",
-      { kind: "error", profile: "vanilla", message: "cache not usable" },
-      { kind: "failed", message: "cache not usable" },
+      {
+        kind: "error",
+        profile: "vanilla",
+        reason: "updater",
+        message: "cache not usable",
+      },
+      { kind: "failed", reason: "updater", message: "cache not usable" },
     ],
   ];
   for (const [name, status, mark] of cases)
@@ -111,7 +117,10 @@ describe("agentMarkLabel", () => {
       ),
     ).toBe("Downloading the coding agents to this machine… 1.1 GiB of 2.0 GiB");
     expect(
-      agentMarkLabel({ kind: "failed", message: "nix missing" }, "box"),
+      agentMarkLabel(
+        { kind: "failed", reason: "updater", message: "nix missing" },
+        "box",
+      ),
     ).toBe(
       `The coding agents could not be downloaded to box: nix missing\n${AGENTS_RETRY}`,
     );
@@ -330,6 +339,7 @@ describe("agentStatusLines", () => {
           host("pu-3", {
             kind: "error",
             profile: "vanilla",
+            reason: "updater",
             message: "cache not usable",
           }),
           host("ci-2", undefined, true),
@@ -372,7 +382,7 @@ describe("agentStalenessOf — is a terminal's agents what a new one gets", () =
     "/nix/store/8rcmf6rdyyyyyyyyyyyyyyyyyyyyyyyy-agent-distro-vanilla";
   const JUSPAY =
     "/nix/store/ivzki9f3zzzzzzzzzzzzzzzzzzzzzzzz-agent-distro-juspay";
-  const terminal = { agentProfile: "vanilla", agentBundle: OLD };
+  const terminal = { agents: { profile: "vanilla", bundle: OLD } };
   const had = { profile: "vanilla", hash: "nd11nx5f" };
   const on = (profile: string) => ({ enabled: true, profile });
   const ready = (profile: string, bundle: string) =>
@@ -416,7 +426,12 @@ describe("agentStalenessOf — is a terminal's agents what a new one gets", () =
     for (const status of [
       undefined,
       { kind: "downloading", profile: "juspay" } as const,
-      { kind: "error", profile: "juspay", message: "m" } as const,
+      {
+        kind: "error",
+        profile: "juspay",
+        reason: "updater",
+        message: "m",
+      } as const,
       ready("vanilla", OLD),
     ])
       expect(
@@ -458,7 +473,12 @@ describe("agentStalenessOf — is a terminal's agents what a new one gets", () =
       { kind: "off" } as const,
       { kind: "unavailable" } as const,
       { kind: "downloading", profile: "vanilla" } as const,
-      { kind: "error", profile: "vanilla", message: "m" } as const,
+      {
+        kind: "error",
+        profile: "vanilla",
+        reason: "updater",
+        message: "m",
+      } as const,
     ])
       expect(
         agentStalenessOf({ terminal, status, setting: on("vanilla") }),
@@ -599,5 +619,29 @@ describe("downloadEdge — the moments a host's download is worth a toast", () =
     expect(downloadEdge(undefined, "ready")).toBe("none");
     expect(downloadEdge("off", "error")).toBe("none");
     expect(downloadEdge("ready", undefined)).toBe("none");
+  });
+});
+
+describe("a failure's words: cause, then remedy (by reason), then the retry — each once", () => {
+  it("nixMissing carries the host-setup remedy; the retry appears exactly once", () => {
+    const label =
+      agentMarkLabel(
+        {
+          kind: "failed",
+          reason: "nixMissing",
+          message: "nix is not on padi's PATH on this host",
+        },
+        "box",
+      ) ?? "";
+    const lines = label.split("\n");
+    expect(lines[0]).toBe(
+      "The coding agents could not be downloaded to box: nix is not on padi's PATH on this host",
+    );
+    expect(lines[1]).toBe(agentFailureRemedy("nixMissing"));
+    expect(lines.filter((l) => l === AGENTS_RETRY)).toHaveLength(1);
+    expect(lines).toHaveLength(3);
+  });
+  it("an updater failure is its own words, then the retry", () => {
+    expect(agentFailureRemedy("updater")).toBeUndefined();
   });
 });

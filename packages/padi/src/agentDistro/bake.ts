@@ -32,6 +32,7 @@ import {
   parseAgentDistroManifest,
 } from "@kolu/agent-distro/manifest";
 import { Schema } from "effect";
+import { hostStateHome } from "./onHost.ts";
 
 export const AGENT_DISTRO_UPDATER_ENV = "KOLU_AGENT_DISTRO_UPDATER";
 export const AGENT_DISTRO_BUNDLE_ENV = "KOLU_AGENT_DISTRO_BUNDLE";
@@ -63,11 +64,15 @@ const UpdaterListingSchema = Schema.Struct({
 export interface AgentDistroProfileBake {
   readonly name: string;
   /** `node <tree>/src/update/update.ts` — `lib.mkUpdater`'s `command` with its
-   *  trailing build-time config path removed (the Nix half asserts it
-   *  was there); padi appends the host-concrete config instead. */
+   *  trailing build-time config path removed (the Nix half asserts it was
+   *  there); padi appends the host-concrete config instead. */
   readonly command: readonly string[];
-  /** The baked config, verbatim, with `stateHomePlaceholder` still in it. */
+  /** The updater config made concrete for THIS host — the placeholder state
+   *  home replaced by the host's own, ONCE, when the bake is read. */
   readonly configText: string;
+  /** The state directory that config names (its `current` link is the
+   *  profile's downloaded bundle) — computed with `configText`, never again. */
+  readonly stateDir: string;
 }
 
 export interface AgentDistroBake {
@@ -76,18 +81,19 @@ export interface AgentDistroBake {
   readonly floor: AgentDistroManifest | undefined;
   /** This kolu's `agent-plugin` directory. */
   readonly plugins: string;
-  /** The placeholder the configs carry where the host's state home goes. */
-  readonly stateHomePlaceholder: string;
   /** Every profile this build knows, keyed by name, in listing order. */
   readonly profiles: ReadonlyMap<string, AgentDistroProfileBake>;
 }
 
 const decodeListing = Schema.decodeUnknownSync(UpdaterListingSchema);
 
-/** Read the bake off `env` (injectable for tests). `null` when unbaked. */
+/** Read the bake off `env` (injectable for tests). `null` when unbaked. Each
+ *  profile's updater config is made concrete for `stateHome` HERE, once: its
+ *  state directory is then a field, not a re-parse at every spawn. */
 export function readAgentDistroBake(
   env: Record<string, string | undefined> = process.env,
   readText: (path: string) => string = (path) => readFileSync(path, "utf8"),
+  stateHome: string = hostStateHome(),
 ): AgentDistroBake | null {
   const listingPath = env[AGENT_DISTRO_UPDATER_ENV];
   if (listingPath === undefined || listingPath === "") return null;
@@ -105,10 +111,19 @@ export function readAgentDistroBake(
         `${AGENT_DISTRO_UPDATER_ENV} (${listingPath}) lists profile '${p.name}' twice`,
       );
     }
+    // Throws if the baked config does not keep its state under the
+    // placeholder — a config not built by the Nix half would point every host
+    // at the build machine's home.
+    const concrete = concreteUpdaterConfig(
+      readText(p.config),
+      listing.stateHomePlaceholder,
+      stateHome,
+    );
     profiles.set(p.name, {
       name: p.name,
       command: p.command,
-      configText: readText(p.config),
+      configText: concrete.text,
+      stateDir: concrete.stateDir,
     });
   }
   const floorDir = env[AGENT_DISTRO_BUNDLE_ENV];
@@ -117,31 +132,7 @@ export function readAgentDistroBake(
     floorDir === undefined || floorDir === ""
       ? undefined
       : parseAgentDistroManifest(readText(manifestFile(floorDir)));
-  return {
-    floor,
-    plugins,
-    stateHomePlaceholder: listing.stateHomePlaceholder,
-    profiles,
-  };
-}
-
-/** One profile's updater config, made concrete for THIS host: the placeholder
- *  state home replaced with `stateHome` everywhere it appears. Returns the JSON
- *  text to hand the updater and the state directory it names (whose `current`
- *  link is that profile's downloaded bundle). Throws if the baked config does not
- *  carry the placeholder in its `state` — a config not built by the Nix half
- *  would otherwise point every host at the build machine's
- *  home. */
-export function hostUpdaterConfig(
-  bake: Pick<AgentDistroBake, "stateHomePlaceholder">,
-  profile: AgentDistroProfileBake,
-  stateHome: string,
-): { readonly text: string; readonly stateDir: string } {
-  return concreteUpdaterConfig(
-    profile.configText,
-    bake.stateHomePlaceholder,
-    stateHome,
-  );
+  return { floor, plugins, profiles };
 }
 
 // ── This process's bake ───────────────────────────────────────────────

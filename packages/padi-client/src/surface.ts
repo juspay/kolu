@@ -114,6 +114,7 @@ import {
   agentDistroStatusEqual,
   DEFAULT_AGENT_DISTRO_SETTING,
   DEFAULT_AGENT_DISTRO_STATUS,
+  TerminalAgentsSchema,
 } from "@kolu/agent-distro/schema";
 import type { ClientErrorPolicy } from "./clientPolicy.ts";
 import {
@@ -510,8 +511,15 @@ export * from "./transcriptSchema.ts";
  *  5.9 (additive · minor) — `lifecycle.restart`: respawn an active terminal in
  *  place (same id, cwd, layout, parent, theme), so a terminal whose agents went
  *  stale picks up the current ones. A 5.9 binder may call it; the minor rule
- *  drains a 5.8 padi before such a call can reach a padi without the member. */
-export const PADI_SURFACE_VERSION = "5.9";
+ *  drains a 5.8 padi before such a call can reach a padi without the member.
+ *
+ *  5.10 (minor) — one writer per agents fact. The terminal record's agent
+ *  fields become ONE optional struct, `agents: { profile, bundle }` (it was the
+ *  pair `agentProfile` / `agentBundle`); an `error` agentDistroStatus gains a
+ *  REQUIRED `reason` (`nixMissing` | `updater`), which is why this is a version:
+ *  a 5.10 decoder refuses a 5.9 error frame, and the minor rule drains a 5.9
+ *  padi first; and `lifecycle.restart` answers `{ …, agents?, resumed }`. */
+export const PADI_SURFACE_VERSION = "5.10";
 
 /** The `version` cell payload — padi's self-declared surface contract version. */
 export const PadiVersionSchema = Schema.Struct({
@@ -951,12 +959,14 @@ export const PadiCreateInputSchema = Schema.Struct({
   ...CreateTerminalInputSchema.fields,
 });
 
-/** `lifecycle.restart`'s answer: the restarted terminal, and the agent-distro
- *  profile its new PTY got (absent when it got none) — read off padi's record
- *  after the respawn, so a caller reports what happened, not what it hoped. */
+/** `lifecycle.restart`'s answer — what padi DID, read off its record after the
+ *  respawn, so a caller reports what happened, not what it hoped: the restarted
+ *  terminal, the agents its new PTY got (absent when none), and whether the
+ *  live agent's conversation was resumed on them. */
 export const PadiRestartOutputSchema = Schema.Struct({
   ...TerminalInfoSchema.fields,
-  agentProfile: Schema.optionalKey(Schema.String),
+  agents: Schema.optionalKey(TerminalAgentsSchema),
+  resumed: Schema.Boolean,
 });
 
 /** A bare terminal-id input — kill/sleep/wake/discardSleeping/screen.state. */

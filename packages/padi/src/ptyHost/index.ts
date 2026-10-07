@@ -676,7 +676,7 @@ export function buildTerminalSpawnInput(args: {
   id: string;
   cwd?: string;
   /** The agent layer padi resolved for THIS terminal — the same value stamped on
-   *  its record (`agentProfile` / `agentBundle`), so the chip and the PATH can
+   *  its record (its one `agents` struct), so the pill and the PATH can
    *  never disagree. */
   agents?: AgentLayer;
 }): Effect.Effect<PtyHostSpawnInput, unknown> {

@@ -9,7 +9,6 @@ import {
   AGENT_DISTRO_BUNDLE_ENV,
   AGENT_DISTRO_UPDATER_ENV,
   AGENT_PLUGIN_DIR_ENV,
-  hostUpdaterConfig,
   readAgentDistroBake,
 } from "./bake.ts";
 
@@ -134,26 +133,24 @@ describe("readAgentDistroBake", () => {
   });
 });
 
-describe("hostUpdaterConfig", () => {
+describe("each profile's config, made concrete once, at read", () => {
   const bake = readAgentDistroBake(
     {
       [AGENT_DISTRO_UPDATER_ENV]: "/l/listing.json",
       [AGENT_PLUGIN_DIR_ENV]: "/p/plugin",
     },
     read,
+    "/home/u/.local/state",
   );
   const vanilla = bake?.profiles.get("vanilla");
   if (!bake || !vanilla) throw new Error("fixture bake did not read");
 
-  it("puts the host's state home where the placeholder was, in state and history", () => {
-    const { text, stateDir } = hostUpdaterConfig(
-      bake,
-      vanilla,
-      "/home/u/.local/state",
+  it("puts the host's state home where the placeholder was, and keeps the state dir", () => {
+    expect(vanilla.stateDir).toBe(
+      "/home/u/.local/state/agent-distro/abcvanilla",
     );
-    expect(stateDir).toBe("/home/u/.local/state/agent-distro/abcvanilla");
-    const parsed = JSON.parse(text) as Record<string, unknown>;
-    expect(parsed.state).toBe(stateDir);
+    const parsed = JSON.parse(vanilla.configText) as Record<string, unknown>;
+    expect(parsed.state).toBe(vanilla.stateDir);
     expect(parsed.history).toBe(
       "/home/u/.local/state/agent-distro/history.log",
     );
@@ -162,14 +159,17 @@ describe("hostUpdaterConfig", () => {
     expect(parsed.periodSeconds).toBe(21600);
   });
 
-  it("refuses a config whose state is not under the placeholder", () => {
+  it("refuses, at read, a config whose state is not under the placeholder", () => {
     expect(() =>
-      hostUpdaterConfig(
-        bake,
+      readAgentDistroBake(
         {
-          ...vanilla,
-          configText: JSON.stringify({ state: "/root/x", history: "/root/h" }),
+          [AGENT_DISTRO_UPDATER_ENV]: "/l/listing.json",
+          [AGENT_PLUGIN_DIR_ENV]: "/p/plugin",
         },
+        (path) =>
+          path === "/c/v.json"
+            ? JSON.stringify({ state: "/root/x", history: "/root/h" })
+            : read(path),
         "/home/u/.local/state",
       ),
     ).toThrow(/not under/);

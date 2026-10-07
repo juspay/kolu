@@ -11,7 +11,12 @@
 
 import { formatBytes } from "@kolu/byte-units";
 import { agentBundleShortHash } from "./bundle.ts";
-import type { AgentDistroSetting, AgentDistroStatus } from "./schema.ts";
+import type {
+  AgentDistroFailureReason,
+  AgentDistroSetting,
+  AgentDistroStatus,
+  TerminalAgents,
+} from "./schema.ts";
 import type { AgentDistroListing, AgentDistroProfile } from "./listing.ts";
 
 /** "1.1 GiB of 2.0 GiB" for a download's progress (`@kolu/byte-units`' binary
@@ -66,7 +71,11 @@ export type AgentMark =
       readonly fraction: number;
       readonly bytes: string | undefined;
     }
-  | { readonly kind: "failed"; readonly message: string };
+  | {
+      readonly kind: "failed";
+      readonly reason: AgentDistroFailureReason;
+      readonly message: string;
+    };
 
 /** THE fold from a host's status to how it shows. Every surface that paints a
  *  host's agents (the tab mark, the Settings line) goes through it, and it is
@@ -98,16 +107,32 @@ export function agentMarkOf(
         bytes: downloadBytes(status.progress),
       };
     case "error":
-      return { kind: "failed", message: status.message };
+      return { kind: "failed", reason: status.reason, message: status.message };
     default:
       return status satisfies never;
   }
 }
 
-/** The one-line fix under a failed download. A failure is remembered per
+/** The one-line retry under a failed download — worded HERE only (padi's
+ *  messages state the cause, never the retry). A failure is remembered per
  *  profile until the setting turns that profile on again — the only retry. */
 export const AGENTS_RETRY =
   "Fix that, then switch Agents off and back on in Settings to try again.";
+
+/** The host-setup remedy for a failure, by its typed reason — `undefined` when
+ *  the cause (the updater's own words) already says what to do. */
+export function agentFailureRemedy(
+  reason: AgentDistroFailureReason,
+): string | undefined {
+  switch (reason) {
+    case "nixMissing":
+      return "Make `nix` reachable for non-login ssh sessions: add /nix/var/nix/profiles/default/bin to PATH in /etc/environment (or at the very top of ~/.bashrc, before any early return for non-interactive shells).";
+    case "updater":
+      return undefined;
+    default:
+      return reason satisfies never;
+  }
+}
 
 /** A mark's words: its tooltip (beside the bar while downloading) and its
  *  accessible name. `where` names the machine — "this machine" for the local
@@ -127,8 +152,14 @@ export function agentMarkLabel(
       return mark.bytes === undefined
         ? `Downloading the coding agents to ${where}…`
         : `Downloading the coding agents to ${where}… ${mark.bytes}`;
-    case "failed":
-      return `The coding agents could not be downloaded to ${where}: ${mark.message}\n${AGENTS_RETRY}`;
+    case "failed": {
+      const remedy = agentFailureRemedy(mark.reason);
+      return [
+        `The coding agents could not be downloaded to ${where}: ${mark.message}`,
+        ...(remedy === undefined ? [] : [remedy]),
+        AGENTS_RETRY,
+      ].join("\n");
+    }
     default:
       return mark satisfies never;
   }
@@ -380,13 +411,6 @@ export function agentsHint(input: {
   };
 }
 
-/** The agents a terminal was spawned with — the two fields its record carries
- *  (both set, or neither when agents were off at spawn). */
-export interface TerminalAgentsShape {
-  readonly agentProfile?: string;
-  readonly agentBundle?: string;
-}
-
 /** Whether a terminal's agents are still what a NEW terminal on its host would
  *  get. `stale` names what it has and what a new terminal gets now — `off`, or
  *  a profile with its short hash when the host has said which bundle (a host
@@ -418,13 +442,14 @@ export type AgentStaleness =
  *  (downloading, failed, no frame yet) does not make a same-profile terminal
  *  stale: there is nothing yet to restart into. Fenced over the status kind. */
 export function agentStalenessOf(input: {
-  readonly terminal: TerminalAgentsShape;
+  /** The terminal's record (its one `agents` field). */
+  readonly terminal: { readonly agents?: TerminalAgents };
   readonly status: AgentDistroStatus | undefined;
   readonly setting: AgentDistroSetting;
 }): AgentStaleness {
-  const { agentProfile, agentBundle } = input.terminal;
-  if (agentProfile === undefined || agentBundle === undefined)
-    return { kind: "current" };
+  const agents = input.terminal.agents;
+  if (agents === undefined) return { kind: "current" };
+  const { profile: agentProfile, bundle: agentBundle } = agents;
   const had = {
     profile: agentProfile,
     hash: agentBundleShortHash(agentBundle),

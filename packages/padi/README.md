@@ -441,7 +441,7 @@ every NEW terminal it spawns ([Agents](https://kolu.dev/agents)). Two cells
   the host's `<state>/current` (what agent-distro's updater fetched) if it
   exists, else the FLOOR this build carries (local machine only), else none
   yet. The resolved store path is stamped on the terminal record
-  (`agentProfile` / `agentBundle` — the tile chip) and its `bin/` joins the
+  (its one `agents` struct — the tile pill) and its `bin/` joins the
   terminal's toolchain AFTER kolu's own tools, riding the same
   `KOLU_TERMINAL_TOOLS_PATH` stamp the rcfile re-asserts; `AGENT_DISTRO_PLUGINS`
   names this kolu's `agent-plugin`. A running terminal never changes bundle,

@@ -8,7 +8,7 @@
  *     intent) survive; the terminal's scratch survives; the old PTY is killed and
  *     a new one spawned, and the call resolves only once it is;
  *   - the new PTY gets the agents a NEW terminal gets — the record is re-stamped
- *     (`agentProfile` / `agentBundle`) from the current setting;
+ *     (its one `agents` struct) from the current setting;
  *   - a live agent's conversation resumes only while agents stay on; with agents
  *     now off it comes back as a bare shell;
  *   - races and failures say what really happened: a refused id touches
@@ -139,7 +139,6 @@ const ID = "44444444-4444-4444-8444-444444444444";
 const PARENT = "55555555-5555-4555-8555-555555555555";
 const LAYOUT = { x: 120, y: 80, w: 640, h: 400 };
 
-const PLACEHOLDER = "@KOLU_XDG_STATE_HOME@";
 let root: string;
 let savedStateHome: string | undefined;
 
@@ -166,18 +165,23 @@ function bake(): AgentDistroBake {
   };
   // The updater config names the profile's state dir (where a host's `current`
   // would live), under the placeholder padi makes concrete per host.
-  const profile = (name: string) => ({
-    name,
-    command: ["/bin/false"],
-    configText: JSON.stringify({
-      state: `${PLACEHOLDER}/agent-distro/${name}`,
-      history: `${PLACEHOLDER}/agent-distro/history.log`,
-    }),
-  });
+  // Each profile's updater config, already made concrete for this host (as the
+  // bake reader does once), and the state dir it names.
+  const profile = (name: string) => {
+    const stateDir = join(root, "state", "agent-distro", name);
+    return {
+      name,
+      command: ["/bin/false"],
+      configText: JSON.stringify({
+        state: stateDir,
+        history: join(root, "state", "agent-distro", "history.log"),
+      }),
+      stateDir,
+    };
+  };
   return {
     floor: manifest,
     plugins: "/p/plugin",
-    stateHomePlaceholder: PLACEHOLDER,
     profiles: new Map([
       ["vanilla", profile("vanilla")],
       ["juspay", profile("juspay")],
@@ -222,8 +226,7 @@ function seedVanillaTerminal(): void {
       ...entry.meta,
       parentId: PARENT,
       canvasLayout: LAYOUT,
-      agentProfile: "vanilla",
-      agentBundle: join(root, "store-vanilla-kolu"),
+      agents: { profile: "vanilla", bundle: join(root, "store-vanilla-kolu") },
     },
   });
   installSnapshot(ID);
@@ -252,9 +255,9 @@ describe("restart — a new PTY in place", () => {
       Buffer.from("not read yet").toString("base64"),
     );
 
-    const info = await restartTerminal(ID);
+    const restarted = await restartTerminal(ID);
 
-    expect(info).toEqual({ id: ID, pid: NEW_PID });
+    expect(restarted?.info).toEqual({ id: ID, pid: NEW_PID });
     expect(calls.log).toEqual(["save", `kill:${ID}`, "spawn:/work/repo"]);
     const meta = activeMeta();
     expect(meta.parentId).toBe(PARENT);
@@ -268,22 +271,23 @@ describe("restart — a new PTY in place", () => {
   it("re-stamps the agents a new terminal gets now", async () => {
     seedVanillaTerminal();
     await restartTerminal(ID);
-    expect(activeMeta().agentProfile).toBe("juspay");
-    expect(activeMeta().agentBundle).toBe(join(root, "store-juspay-kolu"));
+    expect(activeMeta().agents).toEqual({
+      profile: "juspay",
+      bundle: join(root, "store-juspay-kolu"),
+    });
   });
 
-  it("agents on: the live agent's conversation resumes", async () => {
+  it("agents on: the live agent's conversation resumes, and padi says so", async () => {
     seedVanillaTerminal();
-    await restartTerminal(ID);
+    expect((await restartTerminal(ID))?.resumed).toBe(true);
     await vi.waitFor(() => expect(calls.writes.length).toBe(1));
   });
 
   it("agents now off: a bare shell — no agents, nothing replayed", async () => {
     agentDistroSettingStore.set({ enabled: false, profile: "juspay" });
     seedVanillaTerminal();
-    await restartTerminal(ID);
-    expect(activeMeta().agentProfile).toBeUndefined();
-    expect(activeMeta().agentBundle).toBeUndefined();
+    expect((await restartTerminal(ID))?.resumed).toBe(false);
+    expect(activeMeta().agents).toBeUndefined();
     expect(calls.writes).toEqual([]);
   });
 
@@ -299,7 +303,7 @@ describe("restart — a new PTY in place", () => {
 
     await expect(restartTerminal(ID)).rejects.toThrow(/would not stop/);
     expect(getTerminal(ID)?.meta.state).toBe("active");
-    expect(activeMeta().agentProfile).toBe("vanilla");
+    expect(activeMeta().agents?.profile).toBe("vanilla");
     expect(calls.log.some((e) => e.startsWith("spawn:"))).toBe(false);
   });
 
@@ -307,8 +311,8 @@ describe("restart — a new PTY in place", () => {
     seedVanillaTerminal();
     calls.killFails = true;
 
-    expect((await restartTerminal(ID))?.pid).toBe(NEW_PID);
-    expect(activeMeta().agentProfile).toBe("juspay");
+    expect((await restartTerminal(ID))?.info.pid).toBe(NEW_PID);
+    expect(activeMeta().agents?.profile).toBe("juspay");
   });
 
   it("a wake that wins the id during the kill: answered with the woken terminal, spawned once", async () => {
@@ -325,7 +329,7 @@ describe("restart — a new PTY in place", () => {
     expect(wakeLocalTerminal(ID)?.id).toBe(ID);
     hold.resolve();
 
-    expect((await restart)?.id).toBe(ID);
+    expect((await restart)?.info.id).toBe(ID);
     expect(calls.log.filter((e) => e.startsWith("spawn:"))).toHaveLength(1);
   });
 

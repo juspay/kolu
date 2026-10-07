@@ -58,7 +58,12 @@ describe("watchDownload", () => {
     const h = harness();
     h.write({ kind: "downloading", profile: "vanilla" });
     await flush();
-    h.write({ kind: "error", profile: "vanilla", message: "cache not usable" });
+    h.write({
+      kind: "error",
+      profile: "vanilla",
+      reason: "updater",
+      message: "cache not usable",
+    });
     await flush();
     expect(h.errors).toEqual(["cache not usable"]);
     expect(h.ready).toEqual([]);

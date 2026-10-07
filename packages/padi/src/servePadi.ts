@@ -870,12 +870,17 @@ export function buildPadiSurfaceDeps(deps: {
         restart: ({ input }) =>
           handle(async () => {
             log.info({ terminal: input.id }, "restart");
-            const info = await restartTerminal(input.id);
-            if (!info) throw terminalNotFound(input.id);
+            const restarted = await restartTerminal(input.id);
+            if (!restarted) throw terminalNotFound(input.id);
+            // What padi DID, off its record: the agents the new PTY got, and
+            // whether the conversation was resumed on them.
             const meta = getTerminal(input.id)?.meta;
-            return meta?.state === "active" && meta.agentProfile !== undefined
-              ? { ...info, agentProfile: meta.agentProfile }
-              : info;
+            const agents = meta?.state === "active" ? meta.agents : undefined;
+            return {
+              ...restarted.info,
+              ...(agents === undefined ? {} : { agents }),
+              resumed: restarted.resumed,
+            };
           }),
         discardSleeping: ({ input }) =>
           handle(() => {

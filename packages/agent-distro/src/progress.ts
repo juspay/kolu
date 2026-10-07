@@ -71,3 +71,15 @@ export function parseUpdaterLine(line: string): UpdaterLine | null {
       return malformed;
   }
 }
+
+/** What the updater last SAID on stderr, as words: its last non-blank line,
+ *  minus the `agent-distro: ` prefix upstream puts on every message it writes
+ *  there. `undefined` when it said nothing. Part of the same contract as the
+ *  `--progress` lines — where a run that died without its result line left its
+ *  last word. */
+export function updaterLastWord(stderr: readonly string[]): string | undefined {
+  return stderr
+    .findLast((l) => l.trim() !== "")
+    ?.trim()
+    .replace(/^agent-distro:\s*/, "");
+}

@@ -52,6 +52,21 @@ export const AgentDistroProgressSchema = Schema.Struct({
   total: Schema.Number,
 });
 
+/** Why a host's download failed, typed so the remedy is worded in ONE place
+ *  (`./status.ts`), never baked into padi's message:
+ *
+ *   - `nixMissing` — `nix` is not on padi's PATH on that host, so nothing can be
+ *     fetched;
+ *   - `updater` — agent-distro's updater ran and failed or skipped (its own
+ *     words are the message). */
+export const AgentDistroFailureReasonSchema = Schema.Union([
+  Schema.Literal("nixMissing"),
+  Schema.Literal("updater"),
+]);
+
+export type AgentDistroFailureReason =
+  typeof AgentDistroFailureReasonSchema.Type;
+
 /** A host's agent-distro state for the CURRENTLY selected profile.
  *
  *   - `off` — the setting is off (or not pushed yet): new terminals get nothing.
@@ -60,9 +75,10 @@ export const AgentDistroProgressSchema = Schema.Struct({
  *   - `downloading` — the host is fetching the profile's bundle from the binary
  *     cache into its own store. New terminals get no agents until it lands.
  *   - `ready` — new terminals get `bundle` (the exact store path they pin).
- *   - `error` — the download failed or was skipped; `message` is the updater's
- *     own words (e.g. "cache … not usable; add it to nix.settings …"). Nothing
- *     retries on its own; turning the setting off and on again tries again.
+ *   - `error` — the download failed or was skipped: `reason` says which kind of
+ *     failure, `message` states its cause (the updater's own words, e.g. "cache
+ *     … not usable; add it to nix.settings …"). Neither carries the retry or the
+ *     remedy — those are worded once, in `./status.ts`.
  *
  *  A `Schema.Union` of structs discriminated on `kind`, like
  *  `NewTerminalPolicySchema`. */
@@ -82,6 +98,7 @@ export const AgentDistroStatusSchema = Schema.Union([
   Schema.Struct({
     kind: Schema.Literal("error"),
     profile: Schema.String,
+    reason: AgentDistroFailureReasonSchema,
     message: Schema.String,
   }),
 ]);
@@ -113,9 +130,27 @@ export function agentDistroStatusEqual(
       );
     case "error":
       return (
-        b.kind === "error" && a.profile === b.profile && a.message === b.message
+        b.kind === "error" &&
+        a.profile === b.profile &&
+        a.reason === b.reason &&
+        a.message === b.message
       );
     default:
       return a satisfies never;
   }
 }
+
+/** The agents a terminal was spawned with — ONE optional field on its record,
+ *  `agents`: present (both halves) when padi put agent-distro's agents on the
+ *  terminal's PATH at spawn, absent when it put none. A running terminal never
+ *  changes it (it pins the bundle it started with); a respawn re-stamps it
+ *  whole. */
+export const TerminalAgentsSchema = Schema.Struct({
+  /** The profile whose agents went on the PATH. */
+  profile: Schema.String.check(Schema.isMinLength(1)),
+  /** The exact bundle store path whose `bin/` went on the PATH — the tile
+   *  pill's short hash. */
+  bundle: Schema.String.check(Schema.isMinLength(1)),
+});
+
+export type TerminalAgents = typeof TerminalAgentsSchema.Type;

@@ -180,22 +180,18 @@ const TileTitleActions: Component<{
           </button>
         )}
       </Show>
-      <Show when={meta()?.agentBundle}>
-        {(bundle) => (
-          <Show when={meta()?.agentProfile}>
-            {(profile) => (
-              <AgentProfileChip
-                profile={profile()}
-                bundle={bundle()}
-                buttonClass={TILE_BUTTON_CLASS}
-                staleness={staleness()}
-                // Same select-first wiring as the theme pill; the profile for
-                // NEW terminals is changed in Settings → Agents.
-                onClick={(e) => onTile(e, openSettings)}
-                restart={restartOffer()}
-              />
-            )}
-          </Show>
+      <Show when={meta()?.agents}>
+        {(agents) => (
+          <AgentProfileChip
+            profile={agents().profile}
+            bundle={agents().bundle}
+            buttonClass={TILE_BUTTON_CLASS}
+            staleness={staleness()}
+            // Same select-first wiring as the theme pill; the profile for
+            // NEW terminals is changed in Settings → Agents.
+            onClick={(e) => onTile(e, openSettings)}
+            restart={restartOffer()}
+          />
         )}
       </Show>
       <Show when={themeName()}>

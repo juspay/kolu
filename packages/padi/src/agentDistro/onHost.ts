@@ -11,11 +11,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { currentLink } from "@kolu/agent-distro/bundle";
 import { manifestProfile } from "@kolu/agent-distro/manifest";
-import {
-  type AgentDistroBake,
-  type AgentDistroProfileBake,
-  hostUpdaterConfig,
-} from "./bake.ts";
+import type { AgentDistroBake, AgentDistroProfileBake } from "./bake.ts";
 
 /** The host's state home, where agent-distro keeps `current` — the same
  *  `$XDG_STATE_HOME` (default `~/.local/state`) its Home Manager module uses. */
@@ -47,8 +43,7 @@ export function bundleOnHost(
   bake: AgentDistroBake,
   profile: AgentDistroProfileBake,
 ): string | undefined {
-  const { stateDir } = hostUpdaterConfig(bake, profile, hostStateHome());
-  const current = realpathOrUndefined(currentLink(stateDir));
+  const current = realpathOrUndefined(currentLink(profile.stateDir));
   if (current !== undefined) return current;
   if (bake.floor === undefined) return undefined;
   const entry = manifestProfile(bake.floor, profile.name);
