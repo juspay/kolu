@@ -1,5 +1,13 @@
 {
   "members": {
+    "@kolu/agent-distro": {
+      "dir": "packages/agent-distro",
+      "workspace": [],
+      "external": {
+        "effect": "catalog:",
+        "solid-js": "^1.9.0"
+      }
+    },
     "@kolu/artifact-sdk": {
       "dir": "packages/artifact-sdk",
       "workspace": [
@@ -46,6 +54,7 @@
     "@kolu/padi": {
       "dir": "packages/padi",
       "workspace": [
+        "@kolu/agent-distro",
         "@kolu/padi-client",
         "@kolu/serve-dir",
         "@kolu/surface",
@@ -599,6 +608,7 @@
     "kolu-client": {
       "dir": "packages/client",
       "workspace": [
+        "@kolu/agent-distro",
         "@kolu/artifact-sdk",
         "@kolu/html-escape",
         "@kolu/padi",
@@ -668,6 +678,7 @@
     "kolu-common": {
       "dir": "packages/common",
       "workspace": [
+        "@kolu/agent-distro",
         "@kolu/padi-client",
         "@kolu/surface",
         "@kolu/surface-app",
@@ -802,6 +813,7 @@
     "kolu-server": {
       "dir": "packages/server",
       "workspace": [
+        "@kolu/agent-distro",
         "@kolu/artifact-sdk",
         "@kolu/heap-diag",
         "@kolu/log",

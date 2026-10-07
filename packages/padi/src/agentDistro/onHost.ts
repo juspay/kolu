@@ -1,6 +1,6 @@
 /**
- * Where agent-distro's things are on THIS host — the one module that knows the
- * on-disk layout: the host's state home (`$XDG_STATE_HOME`, else
+ * Where agent-distro's things are on THIS host — the host-side lookups over the
+ * layout `@kolu/agent-distro/bundle` names: the host's state home (`$XDG_STATE_HOME`, else
  * `~/.local/state`), the `current` link agent-distro's updater flips under it,
  * the floor's `profiles/<name>` dirs, and the host's own `nix`. Its volatility is
  * agent-distro's state layout and the host's environment, not kolu's policy.
@@ -9,6 +9,7 @@
 import { accessSync, constants as fsConstants, realpathSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { currentLink, floorProfileDir } from "@kolu/agent-distro/bundle";
 import {
   type AgentDistroBake,
   type AgentDistroProfileBake,
@@ -46,11 +47,11 @@ export function bundleOnHost(
   profile: AgentDistroProfileBake,
 ): string | undefined {
   const { stateDir } = hostUpdaterConfig(bake, profile, hostStateHome());
-  const current = realpathOrUndefined(join(stateDir, "current"));
+  const current = realpathOrUndefined(currentLink(stateDir));
   if (current !== undefined) return current;
   if (bake.floor === undefined) return undefined;
   const floorDir = realpathOrUndefined(
-    join(bake.floor, "profiles", profile.name),
+    floorProfileDir(bake.floor, profile.name),
   );
   if (floorDir === undefined) {
     // The floor is a build fact; a profile the listing names but the floor lacks

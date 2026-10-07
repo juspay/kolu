@@ -26,6 +26,7 @@
     "vitest": "^5.0.3"
   },
   "dependencies": {
+    "@kolu/agent-distro": "workspace:*",
     "@kolu/padi-client": "workspace:*",
     "@kolu/surface": "workspace:*",
     "@kolu/surface-app": "workspace:*",

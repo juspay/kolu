@@ -453,11 +453,13 @@ every NEW terminal it spawns ([Agents](https://kolu.dev/agents)). Two cells
   failure is shown, and the next time the setting turns that profile on, it
   tries again.
 - **Where it lives** — `src/agentDistro/`, one module per thing that changes
-  on its own clock: `bake.ts` (what the build baked), `onHost.ts` (agent-distro's
-  on-disk layout on this host, and the host's `nix`), `layer.ts` (what a terminal
-  spawned now gets, and its record stamp), `updaterProtocol.ts` + `updater.ts`
-  (agent-distro's `--progress` line format, and running the process), and
-  `agentDistro.ts` (kolu's policy: the write gate, the status, the one download).
+  on its own clock: `bake.ts` (what the build baked), `onHost.ts` (looking up
+  agent-distro's state on this host, and the host's `nix`), `layer.ts` (what a
+  terminal spawned now gets, and its record stamp), `updater.ts` (running the
+  updater process), and `agentDistro.ts` (kolu's policy: the write gate, the
+  status, the one download). kolu's contract with upstream agent-distro — the
+  `--progress` line format, the bundle/state layout, the listing — is
+  [`@kolu/agent-distro`](../agent-distro), which padi imports.
 - **The bake** (`src/agentDistro/bake.ts`) — `KOLU_AGENT_DISTRO_UPDATER` (the
   profile listing + per-profile updater configs, both arms),
   `KOLU_AGENT_DISTRO_BUNDLE` (the local floor, `default` wrapper only) and

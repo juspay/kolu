@@ -30,6 +30,7 @@
   },
   "dependencies": {
     "@effect/platform-node": "catalog:",
+    "@kolu/agent-distro": "workspace:*",
     "@kolu/padi-client": "workspace:*",
     "@kolu/serve-dir": "workspace:*",
     "@kolu/surface": "workspace:*",

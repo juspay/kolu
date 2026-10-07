@@ -23,8 +23,8 @@ import { createEffect, createMemo, createRoot, mapArray, on } from "solid-js";
 import { toast } from "solid-sonner";
 import { hostLabel } from "../host/hostChipTone";
 import { app, hostKeys, padiMap, preferences } from "../wire";
-import AgentDistroLogo from "./AgentDistroLogo";
-import type { HostAgentStatus } from "./agentDistroText";
+import AgentDistroLogo from "@kolu/agent-distro/solid";
+import type { HostAgentStatus } from "@kolu/agent-distro/status";
 import { watchDownload } from "./firstDownload";
 
 // App-lifetime, owned subscriptions — the `useForwards` reason: a bare module

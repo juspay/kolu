@@ -1,11 +1,12 @@
-/** The profile listing Settings offers, parsed from agent-distro's own
- *  `--list --json` (a fixture of its U1 output). */
+/** The profile listing Settings offers: running the baked picker, and the boot
+ *  check that kolu's default profile leads it. (Parsing `--list --json` is
+ *  `@kolu/agent-distro/listing`'s, tested there.) */
 
 import { AGENT_DISTRO_BUNDLE_ENV } from "@kolu/padi/agentDistroBake";
 import { describe, expect, it } from "vitest";
+import { parseAgentDistroList } from "@kolu/agent-distro/listing";
 import {
   assertDefaultAgentProfile,
-  parseAgentDistroList,
   readAgentDistroListing,
 } from "./agentDistroListing.ts";
 
@@ -30,23 +31,6 @@ const FIXTURE = JSON.stringify({
       harnesses: [],
     },
   ],
-});
-
-describe("parseAgentDistroList", () => {
-  it("reads every profile, the default first", () => {
-    const listing = parseAgentDistroList(FIXTURE);
-    expect(listing.kind).toBe("available");
-    if (listing.kind !== "available") return;
-    expect(listing.profiles.map((p) => p.name)).toEqual(["vanilla", "juspay"]);
-    expect(listing.profiles[0]?.harnesses[0]?.title).toBe("Claude Code");
-  });
-
-  it("throws on output that is not a listing — a broken picker crashes the boot", () => {
-    expect(() =>
-      parseAgentDistroList("vanilla claude Claude Code 2.1"),
-    ).toThrow();
-    expect(() => parseAgentDistroList('{"profiles":[]}')).toThrow();
-  });
 });
 
 describe("readAgentDistroListing", () => {

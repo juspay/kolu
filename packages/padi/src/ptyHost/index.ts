@@ -51,7 +51,8 @@ import {
   processIdentityAsync,
 } from "osfacts-client";
 import type { AgentLayer } from "../agentDistro/layer.ts";
-import { AGENT_DISTRO_PLUGINS_ENV, agentBinDir } from "../agentDistro/bake.ts";
+import { agentBinDir } from "@kolu/agent-distro/bundle";
+import { AGENT_DISTRO_PLUGINS_ENV } from "../agentDistro/bake.ts";
 import type { KavalObservation } from "../kavalObservation.ts";
 import { log } from "../log.ts";
 import {

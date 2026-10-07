@@ -16,6 +16,7 @@
     "@corvu/resizable": "^0.2.5",
     "@corvu/tooltip": "^0.2.2",
     "@effect/platform-browser": "catalog:",
+    "@kolu/agent-distro": "workspace:*",
     "@kolu/artifact-sdk": "workspace:*",
     "@kolu/html-escape": "workspace:*",
     "@kolu/padi": "workspace:*",

@@ -13,8 +13,8 @@ import { type Component, onMount } from "solid-js";
 import { CONTEXTUAL_TIPS } from "../settings/tips";
 import { useTips } from "../settings/useTips";
 import Tip from "../ui/Tip";
-import AgentDistroLogo from "./AgentDistroLogo";
-import { agentBundleShortHash } from "./agentDistroText";
+import AgentDistroLogo from "@kolu/agent-distro/solid";
+import { agentBundleShortHash } from "@kolu/agent-distro/bundle";
 
 /** The pill's tooltip — what agent-distro gave this terminal, and what a click
  *  does. Exported for the test. */

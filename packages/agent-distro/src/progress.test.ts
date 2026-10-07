@@ -2,7 +2,7 @@
  *  writes it (lines captured from its `jsonReport`). */
 
 import { describe, expect, it } from "vitest";
-import { parseUpdaterLine, UPDATER_PROGRESS_ARGS } from "./updaterProtocol.ts";
+import { parseUpdaterLine, UPDATER_PROGRESS_ARGS } from "./progress.ts";
 
 describe("parseUpdaterLine", () => {
   it("asks for the machine-readable mode", () => {

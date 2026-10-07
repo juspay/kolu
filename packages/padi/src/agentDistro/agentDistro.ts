@@ -6,7 +6,8 @@
  *   - `./bake.ts` — what this build was baked with (profiles, floor, plugins);
  *   - `./onHost.ts` — where agent-distro's bundles are on this host;
  *   - `./layer.ts` — what a terminal spawned now gets, and its record stamp;
- *   - `./updater.ts` + `./updaterProtocol.ts` — running agent-distro's updater.
+ *   - `./updater.ts` — running agent-distro's updater (its `--progress` line
+ *     format is `@kolu/agent-distro/progress`, kolu's contract with upstream).
  *
  * kolu-server pushes the user's setting into the memory-only `agentDistro` cell
  * (the `newTerminalPolicy` pattern: re-pushed on every connect, so padi keeps no
@@ -34,7 +35,7 @@ import {
 import { resolveAgentLayer } from "./layer.ts";
 import { bundleOnHost, hostStateHome, nixOnPath } from "./onHost.ts";
 import { runUpdater, writeUpdaterConfig } from "./updater.ts";
-import type { UpdaterProgress } from "./updaterProtocol.ts";
+import type { UpdaterProgress } from "@kolu/agent-distro/progress";
 
 /** The backing store of the `agentDistro` cell, shared by the cell declaration
  *  and the spawn path — so a spawn resolves against exactly what the binder

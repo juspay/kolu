@@ -1,23 +1,45 @@
 /**
- * The words kolu shows for agent-distro — pure functions of a status or a
- * bundle path, no subscriptions. Their volatility is the copy, which revs on its
- * own clock (a reworded status, a different short-hash length) apart from the
- * live facts `useAgentDistro.ts` subscribes to.
+ * The words kolu shows for agent-distro — pure functions of a host's status, a
+ * profile or a setting; no subscriptions. Their volatility is the copy (a
+ * reworded status, a new hint line), apart from the live facts the client
+ * subscribes to.
+ *
+ * The status and setting types here are STRUCTURAL: the wire schemas live in
+ * `@kolu/padi-client`'s surface (the cells padi serves), and this package
+ * imports nothing from padi, the server or the client. The client asserts at
+ * compile time that the wire types and these are the same shape
+ * (`client/src/agents/statusShape.ts`), so the two cannot drift.
  */
 
-import type { AgentDistroStatus } from "@kolu/padi-client/surface";
-import type {
-  AgentDistroListing,
-  AgentDistroPrefs,
-  AgentDistroProfile,
-} from "kolu-common/surface";
+import { agentBundleShortHash } from "./bundle.ts";
+import type { AgentDistroListing, AgentDistroProfile } from "./listing.ts";
 
-/** The short hash a tile's chip shows for a bundle: the first 8 characters of
- *  its store hash (`/nix/store/<hash>-name` → `<hash>[0..8]`). Not a store path
- *  (a from-source fixture, say) → the path's last segment, cut to 8. */
-export function agentBundleShortHash(bundle: string): string {
-  const base = bundle.split("/").filter(Boolean).at(-1) ?? bundle;
-  return base.slice(0, 8);
+/** A host's agent-distro state for the currently selected profile — the
+ *  shape of `@kolu/padi-client`'s `AgentDistroStatus`. */
+export type AgentDistroStatusShape =
+  | { readonly kind: "off" }
+  | { readonly kind: "unavailable" }
+  | {
+      readonly kind: "downloading";
+      readonly profile: string;
+      readonly progress?: { readonly done: number; readonly total: number };
+    }
+  | {
+      readonly kind: "ready";
+      readonly profile: string;
+      readonly bundle: string;
+    }
+  | {
+      readonly kind: "error";
+      readonly profile: string;
+      readonly message: string;
+    };
+
+/** The Agents setting — the shape of `@kolu/padi-client`'s
+ *  `AgentDistroSetting` and kolu's `agentDistro` preference. */
+export interface AgentDistroSettingShape {
+  readonly enabled: boolean;
+  readonly profile: string;
 }
 
 /** "1.1 GB", "640 MB" — the unit a download reads in. */
@@ -30,7 +52,7 @@ export function formatBytes(bytes: number): string {
 /** The words for a status that needs any: "Downloading agents… 1.1 GB of 2.0 GB",
  *  or the updater's own error message. `undefined` for the quiet states. */
 export function agentDistroStatusText(
-  status: AgentDistroStatus | undefined,
+  status: AgentDistroStatusShape | undefined,
 ): { text: string; tone: "busy" | "error" } | undefined {
   if (status === undefined) return undefined;
   switch (status.kind) {
@@ -86,14 +108,14 @@ export function agentsSegments(
 }
 
 /** Which segment the Agents control shows for a setting. */
-export function agentsSegmentOf(setting: AgentDistroPrefs): string {
+export function agentsSegmentOf(setting: AgentDistroSettingShape): string {
   return setting.enabled ? setting.profile : AGENTS_OFF;
 }
 
 /** One host's agent-distro status, for the fleet lines under the Agents row. */
 export interface HostAgentStatus {
   readonly label: string;
-  readonly status: AgentDistroStatus | undefined;
+  readonly status: AgentDistroStatusShape | undefined;
 }
 
 /** The Agents row's hint, line by line:
@@ -107,9 +129,9 @@ export interface HostAgentStatus {
  *
  *  `warn` when anything it reports is an error. */
 export function agentsHint(input: {
-  readonly setting: AgentDistroPrefs;
+  readonly setting: AgentDistroSettingShape;
   readonly listing: AgentDistroListing | undefined;
-  readonly local: AgentDistroStatus | undefined;
+  readonly local: AgentDistroStatusShape | undefined;
   readonly remotes: readonly HostAgentStatus[];
 }): { readonly text: string; readonly tone: "muted" | "warn" } | undefined {
   const { setting, listing } = input;

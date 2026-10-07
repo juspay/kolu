@@ -12,23 +12,13 @@
  */
 
 import { execFileSync } from "node:child_process";
-import { join } from "node:path";
-import { AGENT_DISTRO_BUNDLE_ENV } from "@kolu/padi/agentDistroBake";
-import { Schema } from "effect";
 import {
   type AgentDistroListing,
-  AgentDistroListOutputSchema,
-} from "kolu-common/surface";
-
-const decodeListOutput = Schema.decodeUnknownSync(AgentDistroListOutputSchema);
-
-/** Parse the picker's `--list --json` stdout. Throws on anything else. */
-export function parseAgentDistroList(stdout: string): AgentDistroListing {
-  return {
-    kind: "available",
-    profiles: decodeListOutput(JSON.parse(stdout)).profiles,
-  };
-}
+  LIST_JSON_ARGS,
+  parseAgentDistroList,
+} from "@kolu/agent-distro/listing";
+import { floorPicker } from "@kolu/agent-distro/bundle";
+import { AGENT_DISTRO_BUNDLE_ENV } from "@kolu/padi/agentDistroBake";
 
 /** Read the listing off the baked picker (`env` / `run` injectable for tests). */
 export function readAgentDistroListing(
@@ -38,11 +28,8 @@ export function readAgentDistroListing(
 ): AgentDistroListing {
   const bundle = env[AGENT_DISTRO_BUNDLE_ENV];
   if (bundle === undefined || bundle === "") return { kind: "unavailable" };
-  return parseAgentDistroList(
-    run(join(bundle, "bin", "agent-distro"), ["--list", "--json"]),
-  );
+  return parseAgentDistroList(run(floorPicker(bundle), [...LIST_JSON_ARGS]));
 }
-
 /** kolu's default profile (`DEFAULT_PREFERENCES.agentDistro.profile`) and the
  *  default this build's listing names first (`nix/agent-distro.nix`'s
  *  `defaultProfile`) are two spellings of one decision on two clocks — a

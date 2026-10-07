@@ -35,6 +35,15 @@
 // the seal forbids the REVERSE (padi importing kolu). Types re-exported below so existing
 // `kolu-common/surface` importers are unchanged.
 import {
+  AgentDistroHarnessSchema,
+  type AgentDistroListing,
+  AgentDistroListingSchema,
+  AgentDistroListOutputSchema,
+  type AgentDistroProfile,
+  AgentDistroProfileSchema,
+} from "@kolu/agent-distro/listing";
+
+import {
   AgentDistroSettingSchema,
   HostDaemonInventorySchema,
   type NewTerminalPolicy,
@@ -239,38 +248,17 @@ export const RightPanelPrefsSchema = Schema.Struct({
  *  unknown one is an error the UI shows, never silently reset. */
 export const AgentDistroPrefsSchema = AgentDistroSettingSchema;
 
-/** One harness a profile ships, as agent-distro's `--list --json` describes it. */
-export const AgentDistroHarnessSchema = Schema.Struct({
-  name: Schema.String,
-  title: Schema.String,
-  tagline: Schema.String,
-  version: Schema.String,
-});
-
-/** One profile the pinned agent-distro ships — its name, the one-line
- *  description Settings shows as the row hint, and its harnesses. */
-export const AgentDistroProfileSchema = Schema.Struct({
-  name: Schema.String.check(Schema.isMinLength(1)),
-  description: Schema.String,
-  harnesses: Schema.Array(AgentDistroHarnessSchema),
-});
-
-/** What `agent-distro --list --json` prints (agent-distro's U1). `profiles[0]`
- *  is the default. */
-export const AgentDistroListOutputSchema = Schema.Struct({
-  profiles: Schema.Array(AgentDistroProfileSchema).check(Schema.isMinLength(1)),
-});
-
-/** kolu-server's `agentDistroListing` cell: the profiles Settings offers, read
- *  ONCE at boot from the baked picker. `unavailable` is a from-source kolu (no
- *  wrapper baked agent-distro) — explicit absence, which Settings says in words. */
-export const AgentDistroListingSchema = Schema.Union([
-  Schema.Struct({ kind: Schema.Literal("unavailable") }),
-  Schema.Struct({
-    kind: Schema.Literal("available"),
-    profiles: AgentDistroListOutputSchema.fields.profiles,
-  }),
-]);
+// agent-distro's `--list --json` vocabulary and kolu's listing cell value live in
+// `@kolu/agent-distro` (kolu's contract with upstream); re-exported here so the
+// surface and its importers reach them through their usual door.
+export {
+  AgentDistroHarnessSchema,
+  type AgentDistroListing,
+  AgentDistroListingSchema,
+  AgentDistroListOutputSchema,
+  type AgentDistroProfile,
+  AgentDistroProfileSchema,
+};
 
 export const PreferencesSchema = Schema.Struct({
   seenTips: Schema.Array(Schema.String),
@@ -345,8 +333,6 @@ export type NewTerminalTheme = typeof NewTerminalThemeSchema.Type;
 export type ShuffleBehavior = typeof ShuffleBehaviorSchema.Type;
 export type ViewerMode = typeof ViewerModeSchema.Type;
 export type AgentDistroPrefs = typeof AgentDistroPrefsSchema.Type;
-export type AgentDistroProfile = typeof AgentDistroProfileSchema.Type;
-export type AgentDistroListing = typeof AgentDistroListingSchema.Type;
 
 /** The candidate-pool filter a shuffle should apply, from the
  *  `shuffleBehavior` preference and the app's resolved dark mode.

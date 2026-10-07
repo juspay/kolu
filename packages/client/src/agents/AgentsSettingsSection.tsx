@@ -17,13 +17,13 @@ import { toast } from "solid-sonner";
 import SettingRow from "../settings/SettingRow";
 import SegmentedControl from "../ui/SegmentedControl";
 import { preferences, updatePreferences } from "../wire";
-import AgentDistroLogo from "./AgentDistroLogo";
+import AgentDistroLogo from "@kolu/agent-distro/solid";
 import {
   AGENTS_OFF,
   agentsHint,
   agentsSegmentOf,
   agentsSegments,
-} from "./agentDistroText";
+} from "@kolu/agent-distro/status";
 import {
   agentDistroListing,
   agentDistroStatusOf,

@@ -1,14 +1,14 @@
 import { describe, expect, it } from "vitest";
-import type { AgentDistroListing } from "kolu-common/surface";
+import { agentBundleShortHash } from "./bundle.ts";
+import type { AgentDistroListing } from "./listing.ts";
 import {
   AGENTS_OFF,
-  agentBundleShortHash,
   agentDistroStatusText,
   agentsHint,
   agentsSegmentOf,
   agentsSegments,
   harnessLine,
-} from "./agentDistroText";
+} from "./status.ts";
 
 describe("agentDistroStatusText", () => {
   it("shows bytes while fetching", () => {

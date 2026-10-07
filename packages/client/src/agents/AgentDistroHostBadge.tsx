@@ -5,8 +5,8 @@
 
 import type { HostKey } from "kolu-common/hostKey";
 import { type Component, Show } from "solid-js";
-import AgentDistroLogo from "./AgentDistroLogo";
-import { agentDistroStatusText } from "./agentDistroText";
+import AgentDistroLogo from "@kolu/agent-distro/solid";
+import { agentDistroStatusText } from "@kolu/agent-distro/status";
 import { agentDistroStatusOf } from "./useAgentDistro";
 
 const AgentDistroHostBadge: Component<{

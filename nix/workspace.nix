@@ -105,6 +105,7 @@ let
     "@kolu/theme" = ../packages/theme;
     "memorable-names" = ../packages/memorable-names;
     "@kolu/terminal-vocab" = ../packages/terminal-vocab;
+    "@kolu/agent-distro" = ../packages/agent-distro;
     "@kolu/terminal-protocol" = ../packages/terminal-protocol;
     "kaval" = ../packages/kaval;
     "kaval-tui" = ../packages/kaval-tui;

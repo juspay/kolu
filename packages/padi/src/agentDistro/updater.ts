@@ -1,6 +1,6 @@
 /**
  * Running agent-distro's updater once — the process side of its `--progress`
- * contract (the line format is `./updaterProtocol.ts`). Its volatility is the
+ * contract (the line format is `@kolu/agent-distro/progress`). Its volatility is the
  * updater's invocation: argv, stdout/stderr, exit, and the temp config it reads.
  */
 
@@ -14,7 +14,7 @@ import {
   UPDATER_PROGRESS_ARGS,
   type UpdaterProgress,
   type UpdaterResult,
-} from "./updaterProtocol.ts";
+} from "@kolu/agent-distro/progress";
 
 /** Write a host-concrete updater config into its own temp dir. A write that
  *  fails removes the dir before rethrowing, so a failed prepare leaves nothing

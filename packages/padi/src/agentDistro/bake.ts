@@ -25,7 +25,7 @@
  */
 
 import { readFileSync } from "node:fs";
-import { join } from "node:path";
+import { concreteUpdaterConfig } from "@kolu/agent-distro/bundle";
 import { Schema } from "effect";
 
 export const AGENT_DISTRO_UPDATER_ENV = "KOLU_AGENT_DISTRO_UPDATER";
@@ -43,13 +43,6 @@ export const AGENT_DISTRO_BAKE_ENVS = [
   AGENT_PLUGIN_DIR_ENV,
 ] as const;
 
-/** The directory a terminal gets on its PATH for a bundle — its `bin/`. A
- *  bundle is a resolved store path (a profile dir of the floor, or a host's
- *  `current` target), and both lay their harnesses out under `bin/`. */
-export function agentBinDir(bundle: string): string {
-  return join(bundle, "bin");
-}
-
 /** `nix/agent-distro.nix`'s `updater` file. */
 const UpdaterListingSchema = Schema.Struct({
   stateHomePlaceholder: Schema.String.check(Schema.isMinLength(1)),
@@ -60,14 +53,6 @@ const UpdaterListingSchema = Schema.Struct({
       config: Schema.String.check(Schema.isMinLength(1)),
     }),
   ).check(Schema.isMinLength(1)),
-});
-
-/** The updater config `lib.mkUpdater` writes (agent-distro's
- *  `src/update/update.ts` `Config`). Only the two path fields padi rewrites are
- *  read; the rest is passed through to the updater untouched. */
-const UpdaterConfigSchema = Schema.Struct({
-  state: Schema.String,
-  history: Schema.String,
 });
 
 export interface AgentDistroProfileBake {
@@ -93,7 +78,6 @@ export interface AgentDistroBake {
 }
 
 const decodeListing = Schema.decodeUnknownSync(UpdaterListingSchema);
-const decodeConfigFields = Schema.decodeUnknownSync(UpdaterConfigSchema);
 
 /** Read the bake off `env` (injectable for tests). `null` when unbaked. */
 export function readAgentDistroBake(
@@ -143,21 +127,11 @@ export function hostUpdaterConfig(
   profile: AgentDistroProfileBake,
   stateHome: string,
 ): { readonly text: string; readonly stateDir: string } {
-  const raw = JSON.parse(profile.configText) as Record<string, unknown>;
-  const fields = decodeConfigFields(raw);
-  if (!fields.state.startsWith(bake.stateHomePlaceholder)) {
-    throw new Error(
-      `agent-distro updater config for '${profile.name}' has state '${fields.state}', not under ${bake.stateHomePlaceholder}`,
-    );
-  }
-  const place = (path: string) =>
-    path.split(bake.stateHomePlaceholder).join(stateHome);
-  const concrete = {
-    ...raw,
-    state: place(fields.state),
-    history: place(fields.history),
-  };
-  return { text: JSON.stringify(concrete), stateDir: concrete.state };
+  return concreteUpdaterConfig(
+    profile.configText,
+    bake.stateHomePlaceholder,
+    stateHome,
+  );
 }
 
 // ── This process's bake ───────────────────────────────────────────────
