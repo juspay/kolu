@@ -135,6 +135,7 @@ const ID = "44444444-4444-4444-8444-444444444444";
 const PARENT = "55555555-5555-4555-8555-555555555555";
 const LAYOUT = { x: 120, y: 80, w: 640, h: 400 };
 
+const PLACEHOLDER = "@KOLU_XDG_STATE_HOME@";
 let root: string;
 let savedStateHome: string | undefined;
 
@@ -147,15 +148,20 @@ function bake(): AgentDistroBake {
     mkdirSync(join(target, "bin"), { recursive: true });
     symlinkSync(target, join(floor, "profiles", p));
   }
+  // The updater config names the profile's state dir (where a host's `current`
+  // would live), under the placeholder padi makes concrete per host.
   const profile = (name: string) => ({
     name,
     command: ["/bin/false"],
-    configText: "{}",
+    configText: JSON.stringify({
+      state: `${PLACEHOLDER}/agent-distro/${name}`,
+      history: `${PLACEHOLDER}/agent-distro/history.log`,
+    }),
   });
   return {
     floor,
     plugins: "/p/plugin",
-    stateHomePlaceholder: "@KOLU_XDG_STATE_HOME@",
+    stateHomePlaceholder: PLACEHOLDER,
     profiles: new Map([
       ["vanilla", profile("vanilla")],
       ["juspay", profile("juspay")],
