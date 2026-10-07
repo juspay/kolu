@@ -37,7 +37,7 @@ export const CONTEXTUAL_TIPS = {
    *  setting that put the agents there lives. */
   agents: {
     id: "agents",
-    text: "Agents come with kolu: Settings → Agents to pick a profile",
+    text: "Terminals can start with AI coding agents ready to use — choose them in Settings → Agents",
     doc: "agents",
   },
   themeFromPalette: {

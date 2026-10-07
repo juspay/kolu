@@ -61,14 +61,20 @@ export function downloadBytes(
     : `${formatBytes(progress.done)} of ${formatBytes(progress.total)}`;
 }
 
-/** How much of a download is done, 0 to 1 — the fill of the tab's ring and of
- *  the Settings bar. 0 while there are no numbers yet. */
+/** The least a download's ring and bar ever show, so "downloading, nothing
+ *  counted yet" never looks the same as an empty track. */
+export const DOWNLOAD_MIN_FILL = 0.06;
+
+/** How much of a download is done, {@link DOWNLOAD_MIN_FILL} to 1 — the fill of
+ *  the tab's ring and of the Settings bar. */
 function downloadFraction(
   progress: { readonly done: number; readonly total: number } | undefined,
 ): number {
-  return progress === undefined || progress.total === 0
-    ? 0
-    : Math.min(1, progress.done / progress.total);
+  const done =
+    progress === undefined || progress.total === 0
+      ? 0
+      : progress.done / progress.total;
+  return Math.min(1, Math.max(DOWNLOAD_MIN_FILL, done));
 }
 
 /** How a host shows its agents: the treatment of its tab's agent-distro mark,
@@ -130,34 +136,72 @@ export function agentMarkOf(
 /** The one-line fix under a failed download. A failure is remembered per
  *  profile until the setting turns that profile on again — the only retry. */
 export const AGENTS_RETRY =
-  "Fix that, then turn Agents off and back on in Settings to retry.";
+  "Fix that, then switch Agents off and back on in Settings to try again.";
 
 /** A mark's words: its tooltip (beside the bar while downloading) and its
- *  accessible name. `undefined` for `none`, which shows nothing. */
-export function agentMarkLabel(mark: AgentMark): string | undefined {
+ *  accessible name. `where` names the machine — "this machine" for the local
+ *  tab, the host's own label on a remote one. `undefined` for `none`. */
+export function agentMarkLabel(
+  mark: AgentMark,
+  where: string,
+): string | undefined {
   switch (mark.kind) {
     case "none":
       return undefined;
     case "checking":
-      return "Agents: checking…";
+      return `Coding agents: checking ${where}…`;
     case "ready":
-      return `Agents: ${mark.profile} ${mark.hash} · ready for new terminals`;
+      return `Coding agents ready on ${where}: ${mark.profile} (${mark.hash}) — new terminals there start with them`;
     case "downloading":
       return mark.bytes === undefined
-        ? "Downloading agents…"
-        : `Downloading agents… ${mark.bytes}`;
+        ? `Downloading the coding agents to ${where}…`
+        : `Downloading the coding agents to ${where}… ${mark.bytes}`;
     case "failed":
-      return `Agents: ${mark.message}\n${AGENTS_RETRY}`;
+      return `The coding agents could not be downloaded to ${where}: ${mark.message}\n${AGENTS_RETRY}`;
     default:
       return mark satisfies never;
   }
 }
 
-/** What a profile puts on the PATH, as the Settings hint's second line:
- *  "claude 2.1.291 · codex 0.80.1 · omp 18.7.0 · …" — each harness's command
- *  name (what you type) and version, in the listing's order. */
+/** The agents a profile brings, named the way people know them, with their
+ *  versions: "Claude Code 2.1.291 · Codex 0.160.1 · Oh My Pi 18.6.3 · …" —
+ *  each harness's title and version from the listing, in its order. Never
+ *  hand-written: it is whatever the pinned agent-distro ships. */
 export function harnessLine(profile: AgentDistroProfile): string {
-  return profile.harnesses.map((h) => `${h.name} ${h.version}`).join(" · ");
+  return profile.harnesses.map((h) => `${h.title} ${h.version}`).join(" · ");
+}
+
+/** What each profile kolu ships IS, in plain words, written to sit mid-sentence
+ *  (lower-case start unless it opens with a name). Upstream's own descriptions
+ *  assume you already know agent-distro ("Upstream harnesses with your own
+ *  provider"), so Settings leads with these and keeps upstream's text in the
+ *  hover. A profile with no entry is refused at kolu-server boot
+ *  (`assertPlainProfiles`): a pin bump that adds one must add its sentence. */
+export const PROFILE_PLAIN: Readonly<Record<string, string>> = {
+  vanilla: "stock agents, your own API keys",
+  juspay: "Juspay's agents and skills, through Juspay's gateway",
+};
+
+/** `profile`'s plain description (see {@link PROFILE_PLAIN}); throws for a
+ *  profile kolu has no words for. */
+export function plainProfileDescription(profile: AgentDistroProfile): string {
+  const plain = PROFILE_PLAIN[profile.name];
+  if (plain === undefined)
+    throw new Error(
+      `kolu has no plain description for agent-distro profile '${profile.name}' — add it to PROFILE_PLAIN in @kolu/agent-distro/status`,
+    );
+  return plain;
+}
+
+function capitalize(text: string): string {
+  return `${text.charAt(0).toUpperCase()}${text.slice(1)}`;
+}
+
+/** "a", "a or b", "a, b or c". */
+function orList(items: readonly string[]): string {
+  return items.length <= 1
+    ? (items[0] ?? "")
+    : `${items.slice(0, -1).join(", ")} or ${items[items.length - 1]}`;
 }
 
 /** The Settings "Agents" segment that means off. Not a profile name: agent-distro
@@ -174,11 +218,15 @@ export function agentsSegments(
       `agent-distro ships a profile named '${AGENTS_OFF}', which Settings uses for Off`,
     );
   return [
-    { value: AGENTS_OFF, label: "Off" },
+    {
+      value: AGENTS_OFF,
+      label: "Off",
+      hint: "New terminals use only the agents you installed yourself.",
+    },
     ...profiles.map((p) => ({
       value: p.name,
       label: p.name,
-      hint: p.description,
+      hint: `${capitalize(plainProfileDescription(p))}.\nagent-distro describes it as: ${p.description}`,
     })),
   ];
 }
@@ -230,8 +278,8 @@ function statusLine(host: HostAgentStatus): AgentStatusLine {
         host.status === undefined
           ? "not connected"
           : host.status.kind === "unavailable"
-            ? "built without agent-distro"
-            : "off",
+            ? "no coding agents in this build"
+            : "agents off",
       );
     default:
       return mark satisfies never;
@@ -240,8 +288,8 @@ function statusLine(host: HostAgentStatus): AgentStatusLine {
 
 /** The status lines under the Agents row: this machine first, then every remote
  *  host that is not ready. When EVERY host is ready they collapse into the first
- *  line ("ready · vanilla 8rcmf6rd · on 3 hosts"), so the row stays short in the
- *  common case. */
+ *  line ("ready · vanilla 8rcmf6rd · on 3 hosts" — the hash only when every
+ *  machine holds that same build), so the row stays short in the common case. */
 export function agentStatusLines(input: {
   readonly local: HostAgentStatus;
   readonly remotes: readonly HostAgentStatus[];
@@ -249,10 +297,31 @@ export function agentStatusLines(input: {
   const local = statusLine(input.local);
   const remotes = input.remotes.map(statusLine);
   const notReady = remotes.filter((l) => l.bar !== "ok");
-  if (local.bar === "ok" && notReady.length === 0 && remotes.length > 0)
-    return [
-      { ...local, text: `${local.text} · on ${remotes.length + 1} hosts` },
-    ];
+  if (local.bar === "ok" && notReady.length === 0 && remotes.length > 0) {
+    // Every machine is ready. They name ONE build only when they all hold the
+    // same one — this machine's built-in bundle and a remote's download are
+    // different store paths of the same profile, and the folded line must not
+    // claim the remote has this machine's hash.
+    const marks = [input.local, ...input.remotes].map((h) =>
+      agentMarkOf(h.status, h.checking),
+    );
+    const first = marks[0];
+    const shared =
+      first?.kind === "ready" &&
+      marks.every(
+        (m) =>
+          m.kind === "ready" &&
+          m.profile === first.profile &&
+          m.hash === first.hash,
+      );
+    const what =
+      first?.kind !== "ready"
+        ? local.text
+        : shared
+          ? `ready · ${first.profile} ${first.hash}`
+          : `ready · ${first.profile}`;
+    return [{ ...local, text: `${what} · on ${remotes.length + 1} hosts` }];
+  }
   return [local, ...notReady];
 }
 
@@ -266,12 +335,16 @@ export function selectedAgentProfile(
   return listing.profiles.find((p) => p.name === setting.profile);
 }
 
-/** The Agents row's hint:
+/** The Agents row's hint, written for someone who has never heard of
+ *  agent-distro, a profile or the PATH — what they get, then what to do:
  *
- *   - off: what turning it on does;
- *   - an unknown stored profile: the warning (never reset);
- *   - on: the profile's description, then its agents with versions. Where each
- *     host stands is the status lines' job ({@link agentStatusLines}). */
+ *   - off: that kolu can bring AI coding agents along, which ones (the default
+ *     profile's, from the listing, with versions), what each choice means, what
+ *     happens to new terminals, and what Off means;
+ *   - an unknown stored choice: the warning (never reset);
+ *   - on: what the chosen profile is, in plain words, then its agents with
+ *     versions. Where each machine stands is the status lines' job
+ *     ({@link agentStatusLines}). */
 export function agentsHint(input: {
   readonly setting: AgentDistroSettingShape;
   readonly listing: AgentDistroListing | undefined;
@@ -280,22 +353,37 @@ export function agentsHint(input: {
   if (listing === undefined) return undefined;
   if (listing.kind === "unavailable")
     return {
-      text: "This kolu was built without agent-distro, so there are no agents to choose from.",
+      text: "This kolu was built without coding agents, so there is nothing to choose here.",
       tone: "muted",
     };
-  if (!setting.enabled)
+  if (!setting.enabled) {
+    // kolu-server refuses a listing that does not lead with kolu's default
+    // profile, so the first profile is the one a first choice most likely is.
+    const lead = listing.profiles[0];
+    const choices = listing.profiles.map(
+      (p) => `${p.name} (${plainProfileDescription(p)})`,
+    );
     return {
-      text: "Off. Pick a profile to put agent-distro's agents first on the PATH of new terminals, ahead of agents you installed yourself.",
+      text: [
+        "Kolu can bring AI coding agents along — kept up to date, nothing to install:",
+        ...(lead === undefined ? [] : [harnessLine(lead)]),
+        `Pick ${orList(choices)}. New terminals then start with those agents; what you installed yourself stays as a fallback.`,
+        "Off: terminals use only what you installed.",
+      ].join("\n"),
       tone: "muted",
     };
+  }
   const profile = selectedAgentProfile(setting, listing);
   if (profile === undefined)
     return {
-      text: `"${setting.profile}" is not a profile this kolu ships — pick one.`,
+      text: `Your saved choice "${setting.profile}" is not one this kolu offers — pick one above.`,
       tone: "warn",
     };
   return {
-    text: [profile.description, harnessLine(profile)].join("\n"),
+    text: [
+      `${capitalize(plainProfileDescription(profile))}.`,
+      harnessLine(profile),
+    ].join("\n"),
     tone: "muted",
   };
 }
@@ -407,11 +495,11 @@ export function agentRestartReady(
 export function agentStaleLabel(
   stale: Extract<AgentStaleness, { kind: "stale" }>,
 ): string {
-  const had = `This terminal has ${stale.had.profile} ${stale.had.hash}.`;
+  const had = `This terminal has the ${stale.had.profile} coding agents (${stale.had.hash}).`;
   const { now } = stale;
   if (now.kind === "off")
-    return `${had} Agents are now off. Restart to switch; it comes back as a plain shell, and running programs end.`;
+    return `${had} Coding agents are now off. Restart to switch; it comes back as a plain shell, and running programs end.`;
   if (now.hash === undefined)
-    return `${had} New terminals get ${now.profile}, which is still downloading on this host; Restart appears once it is ready.`;
-  return `${had} New terminals get ${now.profile} ${now.hash}. Restart to switch; the agent's conversation resumes on the new agents, other programs end.`;
+    return `${had} New terminals get ${now.profile}, which is still downloading to this machine; Restart appears once it is ready.`;
+  return `${had} New terminals get ${now.profile} (${now.hash}). Restart to switch; the agent's conversation resumes on the new agents, other programs end.`;
 }

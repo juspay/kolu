@@ -16,6 +16,7 @@ import { openSettings } from "../settings/useSettingsOpen";
 import Tip from "../ui/Tip";
 import AgentDistroLogo from "@kolu/agent-distro/solid";
 import { type AgentMark, agentMarkLabel } from "@kolu/agent-distro/status";
+import { hostLabel } from "../host/hostChipTone";
 import { hostAgentMark } from "./useAgentDistro";
 
 /** The ring: r=10 in a 24 box, so its length is 2π·10. */
@@ -71,17 +72,20 @@ const Ring: Component<{ mark: AgentMark }> = (props) => (
 
 /** The words beside the mark on hover: a 90px bar and the bytes while
  *  downloading, otherwise the label (a failure's message, then its fix). */
-const MarkTip: Component<{ mark: AgentMark }> = (props) => (
+const MarkTip: Component<{ mark: AgentMark; where: string }> = (props) => (
   <Show
     when={props.mark.kind === "downloading" && props.mark}
     fallback={
-      <span class="whitespace-pre-line">{agentMarkLabel(props.mark)}</span>
+      <span class="block max-w-sm whitespace-pre-line">
+        {agentMarkLabel(props.mark, props.where)}
+      </span>
     }
   >
     {(m) => (
       <span class="flex items-center gap-1.5">
-        <span>Downloading agents…</span>
-        <span class="h-1 w-[90px] overflow-hidden rounded-sm bg-fg/15">
+        <span>Downloading the coding agents to {props.where}…</span>
+        {/* The same bar as the Settings status lines: 5px, radius 3, on edge. */}
+        <span class="h-[5px] w-[90px] shrink-0 overflow-hidden rounded-[3px] bg-edge">
           <span
             class="block h-full bg-accent"
             style={{ width: `${m().fraction * 100}%` }}
@@ -102,12 +106,15 @@ const AgentDistroHostMark: Component<{
   measuring?: boolean;
 }> = (props) => {
   const mark = createMemo(() => hostAgentMark(props.host));
+  /** Who the words are about: this machine, or the remote host by name. */
+  const where = () =>
+    props.host.kind === "local" ? "this machine" : hostLabel(props.host);
   const box = () => (
     <button
       type="button"
       data-testid={props.measuring ? undefined : "host-agents-mark"}
       data-state={mark().kind}
-      aria-label={agentMarkLabel(mark())}
+      aria-label={agentMarkLabel(mark(), where())}
       tabIndex={props.measuring ? -1 : undefined}
       onClick={(e) => {
         // The mark sits inside the tab: opening Settings must not switch host.
@@ -137,7 +144,10 @@ const AgentDistroHostMark: Component<{
   return (
     <Show when={mark().kind !== "none"}>
       <Show when={!props.measuring} fallback={box()}>
-        <Tip label={<MarkTip mark={mark()} />} class="flex items-center">
+        <Tip
+          label={<MarkTip mark={mark()} where={where()} />}
+          class="flex items-center"
+        >
           {box()}
         </Tip>
       </Show>

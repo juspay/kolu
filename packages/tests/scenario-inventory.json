@@ -8151,6 +8151,30 @@
       "exampleRows": [],
       "executions": 1,
       "firstSeenSha": "10685f396a680717a8a79f638d3e0294ee0fc781"
+    },
+    {
+      "revisionId": "revision-19d000046b4b0d5275e3",
+      "scenarioKey": "scenario-a118447e6b2e9c279271",
+      "feature": "features/agents.feature",
+      "scenario": "A terminal whose agents went stale restarts in place with the new ones",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "4703a447cddc28f15203875d2ea7187cd15216bd34ce4d54a34050f1686dec7f",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "52d7f7ab13a529ee0eed0235ce62e0eb17b37b55"
+    },
+    {
+      "revisionId": "revision-0e287c9d4e472f18064f",
+      "scenarioKey": "scenario-9ce014499c8faf59c25c",
+      "feature": "features/agents.feature",
+      "scenario": "Switching Agents says what happened, and the hint shows this machine's status",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "513d90ed8a11ce523d586bd1be5b298e92b899a1f387f77b5f08cc3e92931a35",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "52d7f7ab13a529ee0eed0235ce62e0eb17b37b55"
     }
   ]
 }

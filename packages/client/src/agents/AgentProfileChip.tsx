@@ -1,15 +1,18 @@
 /** The tile header's agent-distro pill: the agent-distro mark, the profile the
  *  terminal was spawned with, and the short hash of the exact bundle it pinned
- *  (dimmer). A real button in the theme pill's treatment — the caller passes the
- *  tile chrome's shared class and click wiring — that opens Settings at the
- *  Agents rows, where the profile for NEW terminals is changed. No pill at all
- *  when agent-distro was off at spawn: the caller renders this only for a record
- *  that carries both fields.
+ *  (dimmer). ONE button in the theme pill's treatment — the caller passes the
+ *  tile chrome's shared class — and no pill at all when agent-distro was off at
+ *  spawn (the caller renders this only for a record that carries both fields).
  *
- *  STALE (`agentStalenessOf`: a new terminal on this host would get different
- *  agents) it goes muted — the old profile struck through, a ↻ glyph — and its
- *  tooltip says what this terminal has, what new ones get, and what Restart
- *  does; the caller puts the Restart button beside it.
+ *  Current, a click opens Settings at the Agents row, where the profile for NEW
+ *  terminals is changed. STALE (`agentStalenessOf`: a new terminal on this host
+ *  would get different agents) the profile and hash dim, and — once there is
+ *  something to restart into — the same pill grows a thin divider and an accent
+ *  "↻ Restart", and the WHOLE pill becomes the restart: one element, one target.
+ *  A live agent arms it first ("↻ Restart agent", or "Kill agent and restart"
+ *  when agents are now off, for 5 s); a restart in flight dims the pill
+ *  (`restartGuard.ts`). The tooltip says what this terminal has, what new ones
+ *  get, and what a restart does.
  *
  *  The first pill a user ever sees is the moment to say where the setting lives,
  *  so it raises the one-shot `agents` tip. */
@@ -24,11 +27,23 @@ import {
   type AgentStaleness,
   agentStaleLabel,
 } from "@kolu/agent-distro/status";
+import { createRestartGuard } from "./restartGuard";
 
-/** The pill's tooltip — what agent-distro gave this terminal, and what a click
- *  does. Exported for the test. */
+/** A stale pill's restart, when there is something to restart into. */
+export interface ChipRestart {
+  /** A live agent — the first press arms instead of acting. */
+  readonly guarded: boolean;
+  /** The armed action text: what the second press does to the agent. */
+  readonly armedLabel: string;
+  /** Runs the restart (the caller selects the tile first); settles when done. */
+  readonly run: (e: MouseEvent) => Promise<unknown>;
+}
+
+/** The pill's tooltip — what this terminal got, and what a click does. Short:
+ *  the exact store path is for the accessible name, not the hover. Exported
+ *  for the test. */
 export function agentChipLabel(profile: string, bundle: string): string {
-  return `agent-distro · ${profile} · ${bundle} — click to change for new terminals`;
+  return `This terminal started with the ${profile} coding agents (${agentBundleShortHash(bundle)}). Click to choose what new terminals get.`;
 }
 
 const AgentProfileChip: Component<{
@@ -36,43 +51,84 @@ const AgentProfileChip: Component<{
   bundle: string;
   /** The tile chrome's shared button class (`TILE_BUTTON_CLASS`). */
   buttonClass: string;
+  /** A click on a pill that is not restarting (opens Settings). */
   onClick: (e: MouseEvent) => void;
   /** This terminal's agents against what a new one gets (default current). */
   staleness?: AgentStaleness;
+  /** Present when the pill is stale AND restartable: the pill IS the restart. */
+  restart?: ChipRestart;
 }> = (props) => {
   const { showTipOnce } = useTips();
   onMount(() => showTipOnce(CONTEXTUAL_TIPS.agents));
   const stale = () =>
     props.staleness?.kind === "stale" ? props.staleness : undefined;
+  let lastClick: MouseEvent | undefined;
+  const guard = createRestartGuard({
+    guarded: () => props.restart?.guarded ?? false,
+    restart: () => {
+      const r = props.restart;
+      const e = lastClick;
+      return r === undefined || e === undefined ? Promise.resolve() : r.run(e);
+    },
+  });
   const label = () => {
     const s = stale();
     return s === undefined
       ? agentChipLabel(props.profile, props.bundle)
       : agentStaleLabel(s);
   };
+  const action = () =>
+    guard.armed() ? (props.restart?.armedLabel ?? "Restart") : "Restart";
   return (
-    <Tip label={label()}>
+    <Tip label={<span class="block max-w-sm">{label()}</span>}>
       <button
         type="button"
         data-testid="tile-agent-chip"
         data-profile={props.profile}
         data-stale={stale() ? "" : undefined}
+        data-restart={props.restart ? "" : undefined}
+        data-armed={guard.armed() ? "" : undefined}
+        disabled={guard.busy()}
+        aria-busy={guard.busy()}
         class={`${props.buttonClass} gap-1.5 px-2 text-xs`}
-        classList={{ "opacity-60": stale() !== undefined }}
+        classList={{
+          "opacity-50 cursor-wait": guard.busy(),
+          // Armed: the pill itself says "the next press acts" — a faint accent
+          // wash, no heavier text.
+          "bg-accent/10": guard.armed(),
+        }}
         style={{ color: "var(--color-fg-3, currentColor)" }}
         onPointerDown={(e) => e.stopPropagation()}
-        onClick={(e) => props.onClick(e)}
-        aria-label={label()}
+        onClick={(e) => {
+          if (props.restart === undefined) {
+            props.onClick(e);
+            return;
+          }
+          e.stopPropagation();
+          lastClick = e;
+          guard.press();
+        }}
+        aria-label={`${props.restart ? `${action()} — ` : ""}${label()} Bundle: ${props.bundle}`}
       >
         <AgentDistroLogo size={14} />
-        <span classList={{ "line-through": stale() !== undefined }}>
+        <span classList={{ "opacity-75": stale() !== undefined }}>
           {props.profile}
         </span>
         <span class="opacity-60 tabular-nums">
           {agentBundleShortHash(props.bundle)}
         </span>
-        <Show when={stale()}>
-          <span aria-hidden="true">↻</span>
+        <Show when={props.restart}>
+          <span aria-hidden="true" class="h-3.5 w-px bg-current opacity-25" />
+          <span
+            data-testid="tile-agent-restart"
+            class={
+              guard.armed() && action().startsWith("Kill")
+                ? "text-warning"
+                : "text-accent"
+            }
+          >
+            ↻ {action()}
+          </span>
         </Show>
       </button>
     </Tip>

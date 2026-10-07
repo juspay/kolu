@@ -4,6 +4,7 @@ import type { AgentDistroListing } from "./listing.ts";
 import {
   AGENTS_OFF,
   AGENTS_RETRY,
+  DOWNLOAD_MIN_FILL,
   type AgentDistroStatusShape,
   agentMarkLabel,
   agentMarkOf,
@@ -43,7 +44,8 @@ describe("agentMarkOf — the one status → treatment fold", () => {
     [
       "downloading, no numbers yet",
       { kind: "downloading", profile: "vanilla" },
-      { kind: "downloading", fraction: 0, bytes: undefined },
+      // Nothing counted yet still shows a sliver — never an empty track.
+      { kind: "downloading", fraction: DOWNLOAD_MIN_FILL, bytes: undefined },
     ],
     [
       "error",
@@ -71,20 +73,32 @@ describe("downloadBytes", () => {
 
 describe("agentMarkLabel", () => {
   it("words each treatment; none has no words", () => {
-    expect(agentMarkLabel({ kind: "none" })).toBeUndefined();
-    expect(agentMarkLabel({ kind: "checking" })).toBe("Agents: checking…");
+    expect(agentMarkLabel({ kind: "none" }, "this machine")).toBeUndefined();
+    expect(agentMarkLabel({ kind: "checking" }, "this machine")).toBe(
+      "Coding agents: checking this machine…",
+    );
     expect(
-      agentMarkLabel({ kind: "ready", profile: "vanilla", hash: "8rcmf6rd" }),
-    ).toBe("Agents: vanilla 8rcmf6rd · ready for new terminals");
+      agentMarkLabel(
+        { kind: "ready", profile: "vanilla", hash: "8rcmf6rd" },
+        "box",
+      ),
+    ).toBe(
+      "Coding agents ready on box: vanilla (8rcmf6rd) — new terminals there start with them",
+    );
     expect(
-      agentMarkLabel({
-        kind: "downloading",
-        fraction: 0.55,
-        bytes: "1.1 GB of 2.0 GB",
-      }),
-    ).toBe("Downloading agents… 1.1 GB of 2.0 GB");
-    expect(agentMarkLabel({ kind: "failed", message: "nix missing" })).toBe(
-      `Agents: nix missing\n${AGENTS_RETRY}`,
+      agentMarkLabel(
+        {
+          kind: "downloading",
+          fraction: 0.55,
+          bytes: "1.1 GB of 2.0 GB",
+        },
+        "this machine",
+      ),
+    ).toBe("Downloading the coding agents to this machine… 1.1 GB of 2.0 GB");
+    expect(
+      agentMarkLabel({ kind: "failed", message: "nix missing" }, "box"),
+    ).toBe(
+      `The coding agents could not be downloaded to box: nix missing\n${AGENTS_RETRY}`,
     );
   });
 });
@@ -100,7 +114,7 @@ describe("agentBundleShortHash", () => {
 });
 
 describe("harnessLine", () => {
-  it("lists each harness's command and version, in listing order", () => {
+  it("names each agent the way people know it, with its version, in listing order", () => {
     expect(
       harnessLine({
         name: "vanilla",
@@ -116,7 +130,7 @@ describe("harnessLine", () => {
           { name: "omp", title: "Oh My Pi", tagline: "t", version: "18.7.0" },
         ],
       }),
-    ).toBe("claude 2.1.291 · codex 0.80.1 · omp 18.7.0");
+    ).toBe("Claude Code 2.1.291 · Codex 0.80.1 · Oh My Pi 18.7.0");
   });
 });
 
@@ -157,6 +171,21 @@ describe("the one Agents control", () => {
     ]);
   });
 
+  it("hovers say, in plain words, what each choice is — upstream's text after", () => {
+    if (LISTING.kind !== "available") throw new Error("fixture");
+    expect(agentsSegments(LISTING.profiles).map((s) => s.hint)).toEqual([
+      "New terminals use only the agents you installed yourself.",
+      "Stock agents, your own API keys.\nagent-distro describes it as: Upstream harnesses with your own provider",
+      "Juspay's agents and skills, through Juspay's gateway.\nagent-distro describes it as: Juspay skills + Kolu",
+    ]);
+  });
+
+  it("refuses a profile kolu has no plain words for", () => {
+    expect(() =>
+      agentsSegments([{ name: "mystery", description: "m", harnesses: [] }]),
+    ).toThrow(/PROFILE_PLAIN/);
+  });
+
   it("refuses a profile named like the Off segment", () => {
     expect(() =>
       agentsSegments([{ name: AGENTS_OFF, description: "", harnesses: [] }]),
@@ -176,31 +205,36 @@ describe("the one Agents control", () => {
 describe("agentsHint", () => {
   const base = { listing: LISTING };
 
-  it("off: what turning it on does", () => {
+  it("off: what kolu can bring, which agents (the default profile's, from the listing), the choices, the consequence", () => {
     expect(
       agentsHint({ ...base, setting: { enabled: false, profile: "vanilla" } }),
     ).toEqual({
       tone: "muted",
-      text: "Off. Pick a profile to put agent-distro's agents first on the PATH of new terminals, ahead of agents you installed yourself.",
-    });
-  });
-
-  it("on: the description, then the agents with versions", () => {
-    expect(agentsHint({ ...base, setting: VANILLA_ON })).toEqual({
-      tone: "muted",
       text: [
-        "Upstream harnesses with your own provider",
-        "claude 2.1.291 · codex 0.160.1",
+        "Kolu can bring AI coding agents along — kept up to date, nothing to install:",
+        "Claude Code 2.1.291 · Codex 0.160.1",
+        "Pick vanilla (stock agents, your own API keys) or juspay (Juspay's agents and skills, through Juspay's gateway). New terminals then start with those agents; what you installed yourself stays as a fallback.",
+        "Off: terminals use only what you installed.",
       ].join("\n"),
     });
   });
 
-  it("keeps the unknown-profile warning, never resetting the choice", () => {
+  it("on: what the profile is in plain words, then its agents with versions", () => {
+    expect(agentsHint({ ...base, setting: VANILLA_ON })).toEqual({
+      tone: "muted",
+      text: [
+        "Stock agents, your own API keys.",
+        "Claude Code 2.1.291 · Codex 0.160.1",
+      ].join("\n"),
+    });
+  });
+
+  it("keeps the unknown-choice warning, never resetting the choice", () => {
     expect(
       agentsHint({ ...base, setting: { enabled: true, profile: "gone" } }),
     ).toEqual({
       tone: "warn",
-      text: '"gone" is not a profile this kolu ships — pick one.',
+      text: 'Your saved choice "gone" is not one this kolu offers — pick one above.',
     });
   });
 
@@ -248,6 +282,28 @@ describe("agentStatusLines", () => {
     ]);
   });
 
+  it("every host ready on DIFFERENT builds: collapses without claiming one hash", () => {
+    const fetched = {
+      kind: "ready",
+      profile: "vanilla",
+      bundle:
+        "/nix/store/pcs6b3vjzzzzzzzzzzzzzzzzzzzzzzzz-agent-distro-vanilla",
+    } as const;
+    expect(
+      agentStatusLines({
+        local: host("this machine", ready),
+        remotes: [host("box", fetched)],
+      }),
+    ).toEqual([
+      {
+        host: "this machine",
+        bar: "ok",
+        fill: 1,
+        text: "ready · vanilla · on 2 hosts",
+      },
+    ]);
+  });
+
   it("this machine first, then each remote that is not ready — in its state's colour", () => {
     expect(
       agentStatusLines({
@@ -287,7 +343,12 @@ describe("agentStatusLines", () => {
         remotes: [host("box", ready)],
       }),
     ).toEqual([
-      { host: "this machine", bar: "busy", fill: 0, text: "downloading…" },
+      {
+        host: "this machine",
+        bar: "busy",
+        fill: DOWNLOAD_MIN_FILL,
+        text: "downloading…",
+      },
     ]);
   });
 });
@@ -426,12 +487,12 @@ describe("agentStaleLabel", () => {
         now: { kind: "profile", profile: "juspay", hash: "ivzki9f3" },
       }),
     ).toBe(
-      "This terminal has vanilla nd11nx5f. New terminals get juspay ivzki9f3. Restart to switch; the agent's conversation resumes on the new agents, other programs end.",
+      "This terminal has the vanilla coding agents (nd11nx5f). New terminals get juspay (ivzki9f3). Restart to switch; the agent's conversation resumes on the new agents, other programs end.",
     );
   });
   it("agents now off: a plain shell", () => {
     expect(agentStaleLabel({ kind: "stale", had, now: { kind: "off" } })).toBe(
-      "This terminal has vanilla nd11nx5f. Agents are now off. Restart to switch; it comes back as a plain shell, and running programs end.",
+      "This terminal has the vanilla coding agents (nd11nx5f). Coding agents are now off. Restart to switch; it comes back as a plain shell, and running programs end.",
     );
   });
   it("the new profile still downloading: says so, no Restart yet", () => {
@@ -442,7 +503,7 @@ describe("agentStaleLabel", () => {
         now: { kind: "profile", profile: "juspay", hash: undefined },
       }),
     ).toBe(
-      "This terminal has vanilla nd11nx5f. New terminals get juspay, which is still downloading on this host; Restart appears once it is ready.",
+      "This terminal has the vanilla coding agents (nd11nx5f). New terminals get juspay, which is still downloading to this machine; Restart appears once it is ready.",
     );
   });
 });

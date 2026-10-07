@@ -13,8 +13,7 @@
 import { activeArm, sleepingArm } from "@kolu/padi-client/surface";
 import type { TerminalId } from "kolu-common/surface";
 import { type Component, createMemo, Show } from "solid-js";
-import AgentProfileChip from "../agents/AgentProfileChip";
-import AgentRestartButton from "../agents/AgentRestartButton";
+import AgentProfileChip, { type ChipRestart } from "../agents/AgentProfileChip";
 import { hostAgentStatus } from "../agents/useAgentDistro";
 import {
   type AgentStaleness,
@@ -94,8 +93,21 @@ const TileTitleActions: Component<{
           setting: preferences().agentDistro,
         });
   });
-  // A live agent (working, or blocked on you) — Restart would kill it, so the
-  // button asks twice.
+  // Restart only when there is something to restart INTO: agents now off (a
+  // plain shell), or the new bundle is on the host. While the new profile
+  // downloads the pill stays stale and says so, with no restart on it.
+  const restartOffer = (): ChipRestart | undefined => {
+    const s = staleness();
+    if (s.kind !== "stale" || !agentRestartReady(s)) return undefined;
+    return {
+      guarded: liveAgent(),
+      armedLabel: armedRestartLabel(s),
+      run: (e) =>
+        onTilePromise(e, () => runActionPromise(crud.handleRestart(props.id))),
+    };
+  };
+  // A live agent (working, or blocked on you) — Restart would end its process,
+  // so the pill asks twice.
   const liveAgent = () => {
     const agent = live()?.agent;
     if (agent == null) return false;
@@ -144,6 +156,17 @@ const TileTitleActions: Component<{
     });
   };
 
+  /** {@link onTile} for an action whose settle the caller waits on — the agents
+   *  pill's restart, which stays busy until the restart has happened. */
+  const onTilePromise = <A,>(
+    e: MouseEvent,
+    run: () => Promise<A>,
+  ): Promise<A> => {
+    e.stopPropagation();
+    store.setActiveSilently(props.id);
+    return run();
+  };
+
   return (
     <>
       <Show when={activeArm(meta())?.agent}>
@@ -180,31 +203,10 @@ const TileTitleActions: Component<{
                 // Same select-first wiring as the theme pill; the profile for
                 // NEW terminals is changed in Settings → Agents.
                 onClick={(e) => onTile(e, openSettings)}
+                restart={restartOffer()}
               />
             )}
           </Show>
-        )}
-      </Show>
-      {/* Restart only when there is something to restart INTO: agents now off
-       *  (a plain shell), or the new bundle is on the host. While the new
-       *  profile downloads the pill stays stale and says so; no button. */}
-      <Show
-        when={(() => {
-          const s = staleness();
-          return s.kind === "stale" && agentRestartReady(s) ? s : undefined;
-        })()}
-      >
-        {(stale) => (
-          <AgentRestartButton
-            guarded={liveAgent()}
-            armedLabel={armedRestartLabel(stale())}
-            buttonClass={TILE_BUTTON_CLASS}
-            onRestart={(e) => {
-              e.stopPropagation();
-              store.setActiveSilently(props.id);
-              return runActionPromise(crud.handleRestart(props.id));
-            }}
-          />
         )}
       </Show>
       <Show when={themeName()}>

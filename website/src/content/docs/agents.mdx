@@ -1,6 +1,6 @@
 ---
-title: Agents come with kolu
-description: "Pick a profile in Settings → Agents and Claude Code, Codex, Oh My Pi, OpenCode (both builds) and Pi — from agent-distro, with kolu's own plugin loaded — are on the PATH of every new terminal, on this machine and on every host you add. Pick a profile, see it on each tile, turn it off."
+title: AI coding agents
+description: "Kolu can bring AI coding agents — Claude Code, Codex, OpenCode, Pi and Oh My Pi — into every new terminal, kept up to date, with nothing to install, on this machine and on every host you add. Turn them on in Settings → Agents."
 order: 49
 section: "Agents & Attention"
 koluHero:
@@ -12,18 +12,23 @@ koluHero:
 
 import Aside from "../../components/docs/Aside.astro";
 
-Pick a profile in **Settings → Agents**, open a new terminal and type `claude`. It runs.
-So do `codex`, `omp`, `opencode`, `opencode2` and `pi`. You did not install any of
-them: kolu put them on the terminal's PATH, from
-[agent-distro](https://github.com/juspay/agent-distro), a distribution of coding
-agents that kolu pins and ships. Each agent starts with kolu's own plugin loaded,
-so it can drive other kolu terminals out of the box.
+Kolu can bring the AI coding agents along: **Claude Code, Codex, OpenCode, Pi and
+Oh My Pi**, kept up to date, with nothing for you to install. Turn them on in
+**Settings → Agents**, open a new terminal and type `claude` — it runs. So do
+`codex`, `opencode`, `opencode2`, `pi` and `omp`. Each one starts with kolu's own
+plugin loaded, so it can drive your other kolu terminals out of the box. Agents
+you installed yourself keep working: kolu's come first, yours stay as the
+fallback.
 
-Agents are **off by default** — on a fresh install and on one that predates the
-setting — so kolu changes no terminal's PATH until you ask. Turning them on and
-choosing what you get is one choice, the **profile**: which set of agents and
-skills. `vanilla` (plain upstream agents, signed in with your own provider) is the
-default; other profiles add skills or a provider gateway.
+You choose between two sets:
+
+- **vanilla** — the stock agents, signed in with your own API keys.
+- **juspay** — Juspay's agents and skills, through Juspay's gateway.
+
+This is **off by default**, on a fresh install and on one that predates it, so
+kolu changes nothing in your terminals until you pick a set. The agents come from
+[agent-distro](https://github.com/juspay/agent-distro), a distribution of coding
+agents that kolu pins and ships; agent-distro calls each set a **profile**.
 
 ## Pick a profile
 
@@ -35,10 +40,11 @@ terminals.
 
 The hint under the row says where things stand:
 
-- **Off** — what turning it on does: agent-distro's agents go first on the PATH
-  of new terminals, ahead of agents you installed yourself.
-- **A profile** — its description, then the agents it puts on your PATH with
-  their versions, e.g. `claude 2.1.291 · codex 0.160.1 · omp 18.6.3 · …`.
+- **Off** — what kolu can bring (the agents, with their versions), what each
+  choice is, and that with Off your terminals use only what you installed.
+- **A profile** — what that set is, in plain words, then its agents with their
+  versions, e.g. `Claude Code 2.1.291 · Codex 0.160.1 · Oh My Pi 18.6.3 · …`.
+  Hover a choice for agent-distro's own description of it.
 
 With a profile on, under the hint is one status line per machine: the host's
 name, a thin bar, and a few words. **This machine** comes first, then every
@@ -62,21 +68,21 @@ for the full path. Two tiles with different chips started with different agents;
 **no chip** means agents were off when that terminal started.
 
 When you switch, old terminals offer **Restart**. A terminal whose agents are
-no longer what a new terminal there would get — you picked another profile,
-turned agents off, or a newer build of the same profile arrived — shows its chip
-muted and struck through, with a ↻, and a **Restart** button beside it. Hover the
-chip to see what it has and what new terminals get. While the new profile is
-still downloading on that host the chip says so and there is no button yet:
+no longer what a new terminal there would get — you picked another set, turned
+agents off, or a newer build of the same set arrived — dims its chip, and the
+chip itself grows a **↻ Restart**: the whole chip is the button. Hover it to see
+what the terminal has and what new terminals get. While the new set is still
+downloading to that machine the chip says so and offers no Restart yet:
 restarting then would leave the terminal with no agents.
 
 Restart gives the terminal a fresh shell in place: the same tile, folder, splits
 and theme, now with the current agents, and a toast saying what it got
-("Restarted with juspay"). With agents still on, the agent's conversation
+("Restarted with the juspay agents"). With agents still on, the agent's conversation
 resumes on the new agents; any other program running in the terminal ends. With
 agents now off it comes back as a plain shell, and the agent ends too. If an
 agent is working or waiting for you, the first click only asks: for five seconds
-the button reads "Restart agent" (or "Kill agent and restart" when agents are
-off), and a second click confirms. The old shell is stopped the way sleep stops
+the chip reads "↻ Restart agent" (or "Kill agent and restart" when agents are
+off), and a second click confirms. While the restart runs the chip dims. The old shell is stopped the way sleep stops
 it — killed outright — so it does not write its history file, and anything you
 started with `nohup` keeps running.
 

@@ -36,11 +36,11 @@ Then(
         .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
     }
     const popover = this.page.locator('[data-testid="settings-popover"]');
-    // Off, the hint says what turning it on does; on, it lists what the
-    // selected profile ships, from the listing (the fixture's `claude 0.0.0`).
+    // Off, the hint says what kolu can bring; on, it lists what the selected
+    // profile ships, from the listing (the fixture's `Claude Code 0.0.0`).
     const expected = (await agentsOn(this))
-      ? "claude 0.0.0"
-      : "Pick a profile to put agent-distro's agents first";
+      ? "Claude Code 0.0.0"
+      : "Kolu can bring AI coding agents along";
     await popover
       .getByText(expected, { exact: false })
       .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
@@ -252,17 +252,20 @@ Then(
 Then(
   "the focused tile's agents chip should be stale with a Restart button",
   async function (this: KoluWorld) {
+    // ONE pill: stale, restartable, carrying its "↻ Restart" action.
     await this.page
-      .locator(`${FOCUSED_TILE} [data-testid="tile-agent-chip"][data-stale]`)
-      .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
-    await this.page
-      .locator(`${FOCUSED_TILE} [data-testid="tile-agent-restart"]`)
+      .locator(
+        `${FOCUSED_TILE} [data-testid="tile-agent-chip"][data-stale][data-restart] [data-testid="tile-agent-restart"]`,
+      )
       .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
   },
 );
 
 When("I click Restart on the focused tile", async function (this: KoluWorld) {
-  await this.page.click(`${FOCUSED_TILE} [data-testid="tile-agent-restart"]`);
+  // The whole pill is the restart.
+  await this.page.click(
+    `${FOCUSED_TILE} [data-testid="tile-agent-chip"][data-restart]`,
+  );
 });
 
 /** The restarted tile PAINTS its new shell without a reload: the focused tile's

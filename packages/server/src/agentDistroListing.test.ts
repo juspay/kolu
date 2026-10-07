@@ -7,6 +7,7 @@ import { describe, expect, it } from "vitest";
 import { parseAgentDistroList } from "@kolu/agent-distro/listing";
 import {
   assertDefaultAgentProfile,
+  assertPlainProfiles,
   readAgentDistroListing,
 } from "./agentDistroListing.ts";
 
@@ -74,5 +75,24 @@ describe("assertDefaultAgentProfile", () => {
     expect(() =>
       assertDefaultAgentProfile(parseAgentDistroList(FIXTURE), "juspay"),
     ).toThrow(/leads with 'vanilla'.*'juspay'/);
+  });
+});
+
+describe("assertPlainProfiles", () => {
+  it("passes when kolu can describe every profile in plain words, and when unbaked", () => {
+    const listing = parseAgentDistroList(FIXTURE);
+    expect(assertPlainProfiles(listing)).toBe(listing);
+    expect(assertPlainProfiles({ kind: "unavailable" })).toEqual({
+      kind: "unavailable",
+    });
+  });
+
+  it("fails the boot on a profile kolu has no words for", () => {
+    expect(() =>
+      assertPlainProfiles({
+        kind: "available",
+        profiles: [{ name: "mystery", description: "m", harnesses: [] }],
+      }),
+    ).toThrow(/PROFILE_PLAIN/);
   });
 });

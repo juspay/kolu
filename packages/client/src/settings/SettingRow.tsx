@@ -24,6 +24,9 @@ const SettingRow: Component<{
   details?: JSX.Element;
   /** Optional product-docs slug — renders a "Docs →" link under the hint. */
   doc?: DocSlug;
+  /** Optional quieter link beside "Docs →" (the Agents row's "Provided by
+   *  agent-distro ↗"). */
+  aside?: JSX.Element;
   children: JSX.Element;
 }> = (props) => (
   <div>
@@ -58,8 +61,9 @@ const SettingRow: Component<{
     {props.details}
     <Show when={props.doc}>
       {(slug) => (
-        <div class="mt-1 text-xs">
+        <div class="mt-1 flex items-baseline gap-3 text-xs">
           <DocLink slug={slug()}>Docs →</DocLink>
+          {props.aside}
         </div>
       )}
     </Show>

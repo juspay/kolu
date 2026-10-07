@@ -97,8 +97,11 @@ function showAmbientTip() {
   present(tip);
 }
 
-/** Show a random tip in the banner on startup, if the setting is on. */
+/** Show a random tip in the banner on startup, if the setting is on — unless a
+ *  tip is already showing: a contextual tip (shown once, already marked seen)
+ *  must not be replaced a second after it appeared, before anyone read it. */
 function showStartupTip() {
+  if (activeTip() !== null) return;
   if (preferences().startupTips) showAmbientTip();
 }
 

@@ -55,18 +55,27 @@ const byHost = createRoot(() => {
       let toastId: string | number | undefined;
       watchDownload(() => sub.value(), {
         onStart: () => {
-          toastId = toast.loading(`Downloading agents on ${hostLabel(host)}…`, {
-            icon: AgentDistroLogo({ size: 16 }),
-          });
+          // No timeout: it stands until the download settles, then becomes
+          // the success or the error below (same id).
+          toastId = toast.loading(
+            `Downloading the coding agents to ${hostLabel(host)}…`,
+            {
+              duration: Number.POSITIVE_INFINITY,
+              icon: AgentDistroLogo({ size: 16 }),
+            },
+          );
         },
         onReady: () =>
-          toast.success(`Agents ready on ${hostLabel(host)}`, {
-            id: toastId,
-            icon: AgentDistroLogo({ size: 16 }),
-          }),
+          toast.success(
+            `Coding agents ready on ${hostLabel(host)} — new terminals there start with them`,
+            {
+              id: toastId,
+              icon: AgentDistroLogo({ size: 16 }),
+            },
+          ),
         onError: (message) =>
           toast.error(
-            `Agents could not be downloaded on ${hostLabel(host)}: ${message}`,
+            `The coding agents could not be downloaded to ${hostLabel(host)}: ${message}`,
             { id: toastId, icon: AgentDistroLogo({ size: 16 }) },
           ),
       });
@@ -128,7 +137,7 @@ createRoot(() =>
     on(unknownAgentProfile, (profile) => {
       if (profile === undefined) return;
       toast.error(
-        `Agents profile "${profile}" is not one this kolu ships — pick one in Settings → Agents.`,
+        `Your saved coding-agents choice "${profile}" is not one this kolu offers — pick one in Settings → Agents.`,
       );
     }),
   ),

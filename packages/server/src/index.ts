@@ -56,6 +56,7 @@ import { log } from "./log.ts";
 import { enumerateDaemonInventoryOnce } from "./padi/daemonInventory.ts";
 import {
   assertDefaultAgentProfile,
+  assertPlainProfiles,
   readAgentDistroListing,
 } from "./agentDistroListing.ts";
 import { installNewTerminalPolicyPusher } from "./padi/newTerminalPolicy.ts";
@@ -837,10 +838,13 @@ export async function bootKoluWeb(flags: KoluBootFlags): Promise<void> {
     onPolicyInputsChanged: () => newTerminalPolicyPusher.republish(),
     onAgentDistroChanged: () => agentDistroPusher.republish(),
     // Read once, here: a baked picker that fails is a broken build and crashes the
-    // boot; an unbaked (from-source) kolu reads `unavailable`.
-    agentDistroListing: assertDefaultAgentProfile(
-      readAgentDistroListing(),
-      DEFAULT_PREFERENCES.agentDistro.profile,
+    // boot; an unbaked (from-source) kolu reads `unavailable`. A profile kolu
+    // cannot describe in plain words crashes the boot too.
+    agentDistroListing: assertPlainProfiles(
+      assertDefaultAgentProfile(
+        readAgentDistroListing(),
+        DEFAULT_PREFERENCES.agentDistro.profile,
+      ),
     ),
   });
 

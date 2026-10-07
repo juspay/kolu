@@ -56,13 +56,13 @@ Feature: Agents come with kolu
 
   Scenario: Switching Agents says what happened, and the hint shows this machine's status
     When I click the settings button
-    Then the Agents hint should say "Off. Pick a profile"
+    Then the Agents hint should say "Kolu can bring AI coding agents along"
     When I choose the "juspay" Agents profile
-    Then a toast should say "Agents: juspay for new terminals"
+    Then a toast should say "New terminals get the juspay agents"
     And this machine's Agents status should say "ready · juspay"
     When I choose the "off" Agents profile
-    Then a toast should say "Agents off for new terminals"
-    And the Agents hint should say "Off. Pick a profile"
+    Then a toast should say "Coding agents off for new terminals"
+    And the Agents hint should say "Kolu can bring AI coding agents along"
     And there should be no page errors
 
   Scenario: This machine's tab carries the agents mark while Agents are on, and it opens Settings
@@ -93,7 +93,7 @@ Feature: Agents come with kolu
     When I press Escape
     Then the focused tile's agents chip should be stale with a Restart button
     When I click Restart on the focused tile
-    Then a toast should say "Restarted with juspay"
+    Then a toast should say "Restarted with the juspay agents"
     And the focused tile should paint a fresh screen without "export X=1"
     And the focused tile should be the one I remembered
     And the focused tile should show the "juspay" agents chip

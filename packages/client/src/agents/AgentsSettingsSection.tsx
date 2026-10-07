@@ -32,13 +32,13 @@ import { agentDistroListing, agentStatusLinesNow } from "./useAgentDistro";
 function choose(segment: string): void {
   if (segment === AGENTS_OFF) {
     updatePreferences({ agentDistro: { enabled: false } });
-    toast("Agents off for new terminals", {
+    toast("Coding agents off for new terminals", {
       icon: AgentDistroLogo({ size: 16 }),
     });
     return;
   }
   updatePreferences({ agentDistro: { enabled: true, profile: segment } });
-  toast.success(`Agents: ${segment} for new terminals`, {
+  toast.success(`New terminals get the ${segment} agents`, {
     icon: AgentDistroLogo({ size: 16 }),
   });
 }
@@ -65,6 +65,16 @@ const AgentsSettingsSection: Component = () => {
         </Show>
       }
       doc="agents"
+      aside={
+        <a
+          href="https://github.com/juspay/agent-distro"
+          target="_blank"
+          rel="noreferrer"
+          class="text-fg-3/70 hover:text-fg-2 hover:underline"
+        >
+          Provided by agent-distro ↗
+        </a>
+      }
     >
       <SegmentedControl
         options={segments()}

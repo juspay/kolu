@@ -16,6 +16,7 @@ import { toError } from "@kolu/surface/run-stream";
 import { Data, Effect } from "effect";
 import type { TerminalId } from "kolu-common/surface";
 import { toast } from "solid-sonner";
+import AgentDistroLogo from "@kolu/agent-distro/solid";
 import { usePendingLayouts } from "../canvas/usePendingLayouts";
 import { createSharedRoot } from "../createSharedRoot";
 import { exportScrollbackAsPdf } from "../exportScrollbackAsPdf";
@@ -435,8 +436,9 @@ export const useTerminalCrud = createSharedRoot(() => {
         Effect.sync(() =>
           toast.success(
             restarted.agentProfile === undefined
-              ? "Restarted without agents"
-              : `Restarted with ${restarted.agentProfile}`,
+              ? "Restarted as a plain shell"
+              : `Restarted with the ${restarted.agentProfile} agents`,
+            { icon: AgentDistroLogo({ size: 16 }) },
           ),
         ),
       ),

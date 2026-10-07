@@ -18,6 +18,7 @@ import {
   parseAgentDistroList,
 } from "@kolu/agent-distro/listing";
 import { floorPicker } from "@kolu/agent-distro/bundle";
+import { plainProfileDescription } from "@kolu/agent-distro/status";
 import { AGENT_DISTRO_BUNDLE_ENV } from "@kolu/padi/agentDistroBake";
 
 /** Read the listing off the baked picker (`env` / `run` injectable for tests). */
@@ -30,6 +31,18 @@ export function readAgentDistroListing(
   if (bundle === undefined || bundle === "") return { kind: "unavailable" };
   return parseAgentDistroList(run(floorPicker(bundle), [...LIST_JSON_ARGS]));
 }
+/** Refuse a listing with a profile kolu has no plain words for. Settings
+ *  describes each profile to people who have never heard of agent-distro
+ *  (`PROFILE_PLAIN`); a pin bump that adds a profile must say what it is, so
+ *  kolu stops at boot rather than showing upstream jargon or nothing. */
+export function assertPlainProfiles(
+  listing: AgentDistroListing,
+): AgentDistroListing {
+  if (listing.kind === "available")
+    for (const profile of listing.profiles) plainProfileDescription(profile);
+  return listing;
+}
+
 /** kolu's default profile (`DEFAULT_PREFERENCES.agentDistro.profile`) and the
  *  default this build's listing names first (`nix/agent-distro.nix`'s
  *  `defaultProfile`) are two spellings of one decision on two clocks — a
