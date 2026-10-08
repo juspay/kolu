@@ -8,25 +8,45 @@
 import { type Component, type JSX, Show } from "solid-js";
 import DocLink, { type DocSlug } from "../ui/DocLink";
 
+/** Where a hint is spoken: a Settings row (receding under its control), or a
+ *  welcome-card row, where it is one voice with the row's body text. */
+export type HintVoice = "setting" | "welcome";
+
 const TONE_CONFIG = {
-  muted: { colorClass: "text-fg-3/70", glyph: "" },
-  warn: { colorClass: "text-warning", glyph: "⚠ " },
+  muted: {
+    colorClass: { setting: "text-fg-3/70", welcome: "text-fg-3" },
+    glyph: "",
+  },
+  warn: {
+    colorClass: { setting: "text-warning", welcome: "text-warning" },
+    glyph: "⚠ ",
+  },
 } as const;
+
+/** Line height per voice: a welcome row's body is `leading-snug`. */
+const VOICE_LEADING: Record<HintVoice, string> = {
+  setting: "leading-relaxed",
+  welcome: "leading-snug",
+};
 
 export type Hint = { text: string; tone?: keyof typeof TONE_CONFIG };
 
-/** THE hint renderer — how a hint looks (its tone's colour and glyph), decided
- *  once, for a Settings row and anywhere else a setting's hint is shown (the
- *  welcome card's first-run Agents step). `class` is spacing only. */
-export const SettingHint: Component<{ hint: Hint; class?: string }> = (
-  props,
-) => {
+/** THE hint renderer — how a hint looks (its tone's colour and glyph, in the
+ *  voice of where it sits), decided once, for a Settings row and anywhere else
+ *  a setting's hint is shown (the welcome card's first-run Agents step).
+ *  `class` is spacing only. */
+export const SettingHint: Component<{
+  hint: Hint;
+  voice?: HintVoice;
+  class?: string;
+}> = (props) => {
   const cfg = () => TONE_CONFIG[props.hint.tone ?? "muted"];
+  const voice = () => props.voice ?? "setting";
   return (
     // `whitespace-pre-line`: a hint may carry a second line (the Agent
     // profile row's harness list); a one-line hint renders as before.
     <p
-      class={`text-xs leading-relaxed whitespace-pre-line ${cfg().colorClass} ${props.class ?? ""}`}
+      class={`text-xs whitespace-pre-line ${VOICE_LEADING[voice()]} ${cfg().colorClass[voice()]} ${props.class ?? ""}`}
     >
       <Show when={cfg().glyph}>
         <span aria-hidden="true">{cfg().glyph}</span>

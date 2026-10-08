@@ -491,7 +491,9 @@ Then(
       value === "off"
         ? { enabled: false, profile: FIXTURE_DEFAULT_PROFILE }
         : { enabled: true, profile: value },
+      FIXTURE_LISTING,
     );
+    assert.ok(label, "the fixture ships agents, so there is a done line");
     await this.page
       .locator('[data-testid="welcome-moments-done"]')
       .filter({ hasText: label })
@@ -519,5 +521,33 @@ Then(
     await this.page
       .locator(`[data-testid="welcome-dialog"] ${FIRST_RUN}`)
       .waitFor({ state: "detached", timeout: POLL_TIMEOUT });
+  },
+);
+
+/** Records, from the very first script on every later page load, whether the
+ *  first-run step EVER mounts — so "it never showed" is a fact about the whole
+ *  load, not about one instant after it. */
+When(
+  "I start watching for the first-run step",
+  async function (this: KoluWorld) {
+    await this.page.addInitScript((sel) => {
+      const w = window as unknown as { __firstRunStepSeen?: boolean };
+      w.__firstRunStepSeen = false;
+      new MutationObserver(() => {
+        if (document.querySelector(sel)) w.__firstRunStepSeen = true;
+      }).observe(document, { subtree: true, childList: true });
+    }, FIRST_RUN);
+  },
+);
+
+Then(
+  "the first-run step should never have shown since",
+  async function (this: KoluWorld) {
+    const seen = await this.page.evaluate(
+      () =>
+        (window as unknown as { __firstRunStepSeen?: boolean })
+          .__firstRunStepSeen,
+    );
+    assert.strictEqual(seen, false, "the first-run step flashed on reload");
   },
 );

@@ -18,9 +18,10 @@ export type WelcomeMomentId =
   | "shortcuts";
 
 export interface WelcomeMomentFlags {
-  /** `undefined` until the stored Agents choice is known: the moment is then
-   *  neither a row nor in the header, so a user who has chosen never sees it
-   *  flash before their preferences arrive. */
+  /** `undefined` while it is not known yet — preferences or the profile
+   *  listing not arrived, or this machine's status not caught up with a chosen
+   *  set (`firstRunAgentsDone`): the moment is then neither a row nor in the
+   *  header, so a user who has chosen never sees it flash on a reload. */
   chooseAgentsDone: boolean | undefined;
   pinDone: boolean;
   reachDone: boolean;

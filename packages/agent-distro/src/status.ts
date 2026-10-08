@@ -73,7 +73,11 @@ export function agentDistroChoice(
  *   - a profile chosen: done once this machine has settled with it — the agents
  *     are there (`ready`) or its padi has none to fetch (`unavailable`). While
  *     this machine is still downloading, or the download failed, the step
- *     stays, so a first-run user watches the agents arrive.
+ *     stays, so a first-run user watches the agents arrive. Until this
+ *     machine's status has caught up with the choice — no frame yet, padi
+ *     still `off`, or a status for another profile — it is not known yet
+ *     (`undefined`), so a user who already chose never sees the row flash on a
+ *     reload or after a kolu-server restart.
  *
  *  That last reading is deliberate beyond the first run too: switching to a
  *  profile this machine must download, in Settings while no terminals are open,
@@ -92,15 +96,18 @@ export function firstRunAgentsDone(input: {
   if (!agentsChosen(stored)) return false;
   if (!stored.enabled) return true;
   if (unknownProfileOf(stored, listing) !== undefined) return true;
-  if (local === undefined) return false;
+  if (local === undefined) return undefined;
   switch (local.kind) {
-    case "ready":
     case "unavailable":
       return true;
     case "off":
+      return undefined;
+    case "ready":
     case "downloading":
     case "error":
-      return false;
+      // A status for another profile is one padi has not caught up from.
+      if (local.profile !== stored.profile) return undefined;
+      return local.kind === "ready";
     default:
       return local satisfies never;
   }
@@ -109,8 +116,14 @@ export function firstRunAgentsDone(input: {
 /** The first-run step's title — what the welcome card asks. */
 export const AGENTS_FIRST_RUN_TITLE = "Choose your coding agents";
 
-/** The welcome card's done line for the first-run step, from the choice. */
-export function agentsChosenLabel(setting: AgentDistroSetting): string {
+/** The welcome card's done line for the first-run step, from the choice —
+ *  `undefined` in a kolu built without agents, where nobody chose anything and
+ *  the step is done only because there is nothing to choose. */
+export function agentsChosenLabel(
+  setting: AgentDistroSetting,
+  listing: AgentDistroListing | undefined,
+): string | undefined {
+  if (listing?.kind === "unavailable") return undefined;
   return setting.enabled ? `Agents: ${setting.profile} ✓` : `Agents off ✓`;
 }
 
@@ -517,6 +530,40 @@ export function selectedAgentProfile(
   return listing.profiles.find((p) => p.name === setting.profile);
 }
 
+/** The opening of both Agents hints: what kolu can bring. */
+export const AGENTS_LEAD =
+  "Kolu can bring AI coding agents along — kept up to date, nothing to install:";
+
+/** What Off means, as a choice's line in both hints. */
+export const AGENTS_OFF_LINE = `Off — ${AGENTS_OFF_MEANS}`;
+
+/** The welcome card's form of the Agents hint — the same vocabulary as
+ *  {@link agentsHint}, laid out for a welcome row: the lead with the agents of
+ *  the profile in view on ONE line, then ONE line for the segment `segment`
+ *  (the one under the keyboard focus, else the pressed one, else the resting
+ *  one), so ← → read each choice out and the two lines never disagree. On Off
+ *  the lead names the default profile's agents — what kolu would bring. `undefined` until the listing arrives, and for
+ *  a kolu built without agents (the step does not ask there). */
+export function agentsStepHint(input: {
+  readonly listing: AgentDistroListing | undefined;
+  readonly segment: string | undefined;
+}): { readonly lead: string; readonly choice: string | undefined } | undefined {
+  const { listing, segment } = input;
+  if (listing?.kind !== "available") return undefined;
+  const profile = listing.profiles.find((p) => p.name === segment);
+  const inView = profile ?? listing.profiles[0];
+  const agents = inView === undefined ? "" : harnessLine(inView);
+  const lead = agents === "" ? AGENTS_LEAD : `${AGENTS_LEAD} ${agents}`;
+  if (segment === AGENTS_OFF) return { lead, choice: AGENTS_OFF_LINE };
+  return {
+    lead,
+    choice:
+      profile === undefined
+        ? undefined
+        : `${profile.name} — ${plainProfileDescription(profile)}`,
+  };
+}
+
 /** The Agents row's hint, written for someone who has never heard of
  *  agent-distro, a profile or the PATH — what they get, then what to do:
  *
@@ -532,39 +579,6 @@ export function selectedAgentProfile(
  *
  *  It takes the STORED value — `null` while nothing is chosen — because that
  *  difference is one of the things it says. */
-/** The opening of both Agents hints: what kolu can bring. */
-export const AGENTS_LEAD =
-  "Kolu can bring AI coding agents along — kept up to date, nothing to install:";
-
-/** What Off means, as a choice's line in both hints. */
-export const AGENTS_OFF_LINE = `Off — ${AGENTS_OFF_MEANS}`;
-
-/** The welcome card's form of the Agents hint — the same vocabulary as
- *  {@link agentsHint}, laid out for a welcome row: the lead with the default
- *  profile's agents on ONE line, then ONE line for the segment `segment` (the
- *  one under the keyboard focus, else the pressed one, else the resting one),
- *  so ← → read each choice out. `undefined` until the listing arrives, and for
- *  a kolu built without agents (the step does not ask there). */
-export function agentsStepHint(input: {
-  readonly listing: AgentDistroListing | undefined;
-  readonly segment: string | undefined;
-}): { readonly lead: string; readonly choice: string | undefined } | undefined {
-  const { listing, segment } = input;
-  if (listing?.kind !== "available") return undefined;
-  const first = listing.profiles[0];
-  const lead =
-    first === undefined ? AGENTS_LEAD : `${AGENTS_LEAD} ${harnessLine(first)}`;
-  if (segment === AGENTS_OFF) return { lead, choice: AGENTS_OFF_LINE };
-  const profile = listing.profiles.find((p) => p.name === segment);
-  return {
-    lead,
-    choice:
-      profile === undefined
-        ? undefined
-        : `${profile.name} — ${plainProfileDescription(profile)}`,
-  };
-}
-
 export function agentsHint(input: {
   readonly stored: AgentDistroSetting | null;
   readonly listing: AgentDistroListing | undefined;

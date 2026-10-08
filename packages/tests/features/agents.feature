@@ -152,9 +152,11 @@ Feature: Agents come with kolu
     And I choose the "juspay" first-run agents
     Then padi should give new terminals the "juspay" agents
     And the welcome card should not ask about agents
-    When I reload the page
+    When I start watching for the first-run step
+    And I reload the page
     Then the welcome card's done line should say agents are "juspay"
     And the welcome card should not ask about agents
+    And the first-run step should never have shown since
     When I click the settings button
     Then the Agents control in Settings should show "juspay" chosen
     And there should be no page errors

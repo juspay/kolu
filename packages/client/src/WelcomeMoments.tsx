@@ -20,15 +20,7 @@ import {
 import { installInstructions, type PwaInstall } from "@kolu/solid-pwa-install";
 import { LOCAL_HOST } from "kolu-common/hostKey";
 import { useSurfaceApp } from "@kolu/surface-app/solid";
-import {
-  type Component,
-  createMemo,
-  For,
-  type JSX,
-  Match,
-  Show,
-  Switch,
-} from "solid-js";
+import { type Component, createMemo, For, type JSX, Show } from "solid-js";
 import AgentsChooser from "./agents/AgentsChooser";
 import {
   agentDistroListing,
@@ -56,13 +48,19 @@ import {
  *  the logo wherever it names agent-distro); the others keep their emoji. */
 const doneLabel = (id: WelcomeMomentId): JSX.Element | undefined => {
   switch (id) {
-    case "chooseAgents":
-      return (
+    case "chooseAgents": {
+      // No entry in a kolu built without agents: nobody chose anything there.
+      const label = agentsChosenLabel(
+        agentDistroSetting(),
+        agentDistroListing(),
+      );
+      return label === undefined ? undefined : (
         <span class="inline-flex items-center gap-1 align-bottom">
           <AgentDistroLogo size={12} />
-          {agentsChosenLabel(agentDistroSetting())}
+          {label}
         </span>
       );
+    }
     case "pin":
       return "📌 Pinned ✓";
     case "reach":
@@ -136,7 +134,11 @@ const ChooseAgentsMoment: Component = () => (
             <Show when={parts.stepHint()?.choice}>
               {(choice) => (
                 <div data-testid="welcome-agents-choice">
-                  <SettingHint hint={{ text: choice() }} class="mt-1" />
+                  <SettingHint
+                    hint={{ text: choice() }}
+                    voice="welcome"
+                    class="mt-1"
+                  />
                 </div>
               )}
             </Show>
@@ -158,63 +160,49 @@ const PinMoment: Component<{
   instr: ReturnType<typeof installInstructions>;
   onInstall: () => void;
 }> = (props) => (
-  <div class="flex items-start gap-3" data-testid="welcome-moment-pin">
-    <span
-      class="shrink-0 w-5 text-center text-base leading-5 pt-px"
-      aria-hidden="true"
-    >
-      📌
-    </span>
-    <div class="min-w-0 flex-1">
-      <div class="flex items-center gap-3 min-h-5">
-        <div class="min-w-0 flex-1 text-sm font-medium leading-5 text-fg">
-          Pin it
-        </div>
-        <Show when={props.pinState === "one-click"}>
-          <button
-            type="button"
-            data-testid="welcome-install"
-            class="shrink-0 px-3 py-1.5 text-xs rounded-lg bg-accent text-surface-1 font-medium hover:brightness-110 transition-all"
-            onClick={() => props.onInstall()}
-          >
-            Install
-          </button>
-        </Show>
-      </div>
-      <Switch>
-        <Match when={props.pinState === "one-click"}>
-          <div class="text-xs leading-snug text-fg-3 mt-0.5">
-            Its own window, dock icon, and a live badge for finished agents.
-          </div>
-        </Match>
-        <Match when={true}>
-          <div data-testid="welcome-install-manual">
-            <div class="text-xs leading-snug text-fg-3 mt-0.5">
-              Add kolu as an app — its own window, dock icon, and a live agent
-              badge.
+  <MomentShell
+    testId="welcome-moment-pin"
+    icon="📌"
+    title="Pin it"
+    trailing={
+      <Show when={props.pinState === "one-click"}>
+        <button
+          type="button"
+          data-testid="welcome-install"
+          class="shrink-0 px-3 py-1.5 text-xs rounded-lg bg-accent text-surface-1 font-medium hover:brightness-110 transition-all"
+          onClick={() => props.onInstall()}
+        >
+          Install
+        </button>
+      </Show>
+    }
+    body={
+      props.pinState === "one-click"
+        ? "Its own window, dock icon, and a live badge for finished agents."
+        : "Add kolu as an app — its own window, dock icon, and a live agent badge."
+    }
+    details={
+      <Show when={props.pinState !== "one-click"}>
+        <div data-testid="welcome-install-manual">
+          <details class="mt-1 text-xs text-fg-3">
+            <summary class="cursor-pointer text-accent hover:underline">
+              {props.instr.title} →
+            </summary>
+            <ol class="mt-1 ml-4 list-decimal space-y-0.5">
+              <For each={props.instr.steps}>{(s) => <li>{s}</li>}</For>
+            </ol>
+          </details>
+          <Show when={props.pinState === "manual-insecure"}>
+            <div class="mt-1 text-xs text-fg-3">
+              Want one-click install + the live badge? Serve over HTTPS —{" "}
+              <DocLink slug="remote-access">Tailscale →</DocLink>
             </div>
-            <details class="mt-1 text-xs text-fg-3">
-              <summary class="cursor-pointer text-accent hover:underline">
-                {props.instr.title} →
-              </summary>
-              <ol class="mt-1 ml-4 list-decimal space-y-0.5">
-                <For each={props.instr.steps}>{(s) => <li>{s}</li>}</For>
-              </ol>
-            </details>
-            <Show when={props.pinState === "manual-insecure"}>
-              <div class="mt-1 text-xs text-fg-3">
-                Want one-click install + the live badge? Serve over HTTPS —{" "}
-                <DocLink slug="remote-access">Tailscale →</DocLink>
-              </div>
-            </Show>
-          </div>
-        </Match>
-      </Switch>
-      <div class="mt-0.5 text-xs">
-        <DocLink slug="install-pwa">Learn more →</DocLink>
-      </div>
-    </div>
-  </div>
+          </Show>
+        </div>
+      </Show>
+    }
+    docSlug="install-pwa"
+  />
 );
 
 const WelcomeMoments: Component<{

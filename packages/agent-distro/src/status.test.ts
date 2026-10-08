@@ -345,24 +345,61 @@ describe("the stored Agents value — `null` is never chosen", () => {
 
 describe("agentsStepHint — the welcome card's form of the hint", () => {
   const LEAD = `${AGENTS_LEAD} Claude Code 2.1.291 · Codex 0.160.1`;
+  /** The listing with juspay carrying agents of its own, so the lead can
+   *  follow the profile in view. */
+  const STEP_LISTING: AgentDistroListing = {
+    kind: "available",
+    profiles: [
+      ...(LISTING.kind === "available" ? LISTING.profiles.slice(0, 1) : []),
+      {
+        name: "juspay",
+        description: "Juspay skills + Kolu",
+        harnesses: [
+          {
+            name: "claude",
+            title: "Claude Code",
+            tagline: "t",
+            version: "9.9.9",
+          },
+        ],
+      },
+    ],
+  };
 
-  it("the lead names the default profile's agents on one line; the choice line follows the segment", () => {
-    expect(agentsStepHint({ listing: LISTING, segment: "vanilla" })).toEqual({
+  it("the lead names the agents of the profile in view on one line; the choice line follows the segment", () => {
+    expect(
+      agentsStepHint({ listing: STEP_LISTING, segment: "vanilla" }),
+    ).toEqual({
       lead: LEAD,
       choice: "vanilla — stock agents, your own API keys",
     });
-    expect(agentsStepHint({ listing: LISTING, segment: "juspay" })).toEqual({
-      lead: LEAD,
+    expect(
+      agentsStepHint({ listing: STEP_LISTING, segment: "juspay" }),
+    ).toEqual({
+      lead: `${AGENTS_LEAD} Claude Code 9.9.9`,
       choice: "juspay — Juspay's agents and skills, through Juspay's gateway",
     });
-    expect(agentsStepHint({ listing: LISTING, segment: AGENTS_OFF })).toEqual({
+  });
+
+  it("on Off, or with nothing in view, the lead names the default profile's agents", () => {
+    expect(
+      agentsStepHint({ listing: STEP_LISTING, segment: AGENTS_OFF }),
+    ).toEqual({
       lead: LEAD,
       choice: `Off — ${AGENTS_OFF_MEANS}`,
     });
-    expect(agentsStepHint({ listing: LISTING, segment: undefined })).toEqual({
+    expect(
+      agentsStepHint({ listing: STEP_LISTING, segment: undefined }),
+    ).toEqual({
       lead: LEAD,
       choice: undefined,
     });
+  });
+
+  it("a profile with no agents listed leaves the lead bare, never a dangling space", () => {
+    expect(agentsStepHint({ listing: LISTING, segment: "juspay" })?.lead).toBe(
+      AGENTS_LEAD,
+    );
   });
 
   it("shares its vocabulary with the Settings hint", () => {
@@ -414,9 +451,10 @@ describe("firstRunAgentsDone — the first-run step's done-predicate", () => {
       );
   });
 
-  it("with a profile chosen, waits until this machine has settled", () => {
-    const want: Record<AgentDistroStatus["kind"], boolean> = {
-      off: false,
+  it("with a profile chosen, waits until this machine has settled — not known until its status catches up", () => {
+    const want: Record<AgentDistroStatus["kind"], boolean | undefined> = {
+      // padi still off: the push has not landed (a reload, a server restart).
+      off: undefined,
       unavailable: true,
       downloading: false,
       ready: true,
@@ -436,7 +474,18 @@ describe("firstRunAgentsDone — the first-run step's done-predicate", () => {
         listing: LISTING,
         local: undefined,
       }),
-    ).toBe(false);
+    ).toBeUndefined();
+  });
+
+  it("a status for another profile is one padi has not caught up from: not known yet", () => {
+    for (const kind of ["ready", "downloading", "error"] as const)
+      expect(
+        firstRunAgentsDone({
+          stored: { enabled: true, profile: "juspay" },
+          listing: LISTING,
+          local: STATUSES[kind],
+        }),
+      ).toBeUndefined();
   });
 
   it("is not known until the listing arrives — without it the step could only offer Off", () => {
@@ -468,11 +517,15 @@ describe("firstRunAgentsDone — the first-run step's done-predicate", () => {
   });
 
   it("its done line names the choice", () => {
-    expect(agentsChosenLabel(VANILLA_ON)).toBe("Agents: vanilla ✓");
-    expect(agentsChosenLabel({ enabled: true, profile: "juspay" })).toBe(
-      "Agents: juspay ✓",
-    );
-    expect(agentsChosenLabel(OFF)).toBe("Agents off ✓");
+    expect(agentsChosenLabel(VANILLA_ON, LISTING)).toBe("Agents: vanilla ✓");
+    expect(
+      agentsChosenLabel({ enabled: true, profile: "juspay" }, LISTING),
+    ).toBe("Agents: juspay ✓");
+    expect(agentsChosenLabel(OFF, LISTING)).toBe("Agents off ✓");
+  });
+
+  it("has no done line in a kolu built without agents — nobody chose anything", () => {
+    expect(agentsChosenLabel(OFF, { kind: "unavailable" })).toBeUndefined();
   });
 });
 
