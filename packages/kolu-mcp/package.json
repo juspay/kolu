@@ -23,7 +23,7 @@
     "@kolu/surface-mcp": "workspace:*",
     "@kolu/terminal-protocol": "workspace:*",
     "@kolu/terminal-vocab": "workspace:*",
-    "@modelcontextprotocol/sdk": "^1.29.0",
+    "@modelcontextprotocol/sdk": "^1.31.0",
     "effect": "catalog:",
     "kolu-git": "workspace:*",
     "ts-pattern": "^5.9.0"
