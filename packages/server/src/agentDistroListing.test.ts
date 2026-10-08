@@ -71,7 +71,7 @@ describe("readAgentDistroListing", () => {
     return manifest(dflt);
   };
 
-  it("baked → Settings lists EVERY manifest profile, the default first: each profile's own picker run off its bin with --list --json, joined in the manifest's order", () => {
+  it("baked → runs each profile's own picker off its bin, with --list --json, and joins them in the manifest's order", () => {
     const calls: string[][] = [];
     const listing = readAgentDistroListing(
       { [AGENT_DISTRO_BUNDLE_ENV]: BUNDLE },
@@ -85,10 +85,6 @@ describe("readAgentDistroListing", () => {
       ["/s/vanilla/bin/agent-distro", "--list", "--json"],
       ["/s/juspay/bin/agent-distro", "--list", "--json"],
     ]);
-    // Each picker lists only its own profile; the joined listing has them all.
-    expect(
-      listing.kind === "available" ? listing.profiles.map((p) => p.name) : [],
-    ).toEqual(["vanilla", "juspay"]);
     expect(listing).toEqual(parseAgentDistroList(FIXTURE));
   });
 

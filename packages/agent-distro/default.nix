@@ -23,11 +23,7 @@
 #     --json` kolu-server lists the profile with) and its store hash. Generated
 #     from the very values that build the directories, so nothing downstream
 #     knows a layout by hand. kolu bakes no picker of its own: the one writer of
-#     the picker is agent-distro. Each profile's picker knows only that profile,
-#     and does two jobs: on a terminal's PATH it answers "what is in this
-#     terminal" (the one set it has); run by kolu-server, one per profile and
-#     joined in the manifest's order, the pickers answer "which sets exist"
-#     (every profile, for Settings).
+#     the picker is agent-distro.
 #   * `updater` — per-profile updater configs: how a host fetches a profile's
 #     bundle from the binary cache into its own store (agent-distro's
 #     `lib.mkUpdater`), and where that host keeps `current`. Baked on BOTH arms;
