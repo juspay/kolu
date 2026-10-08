@@ -2199,7 +2199,7 @@ retirements:
     defectSurface: [agents, settings]
     destinationLayer: L5
     replacements: []
-    survivorRevisionIds: [revision-c4a5b418be020e12c418]
+    survivorRevisionIds: [revision-01c5d50fad30161d8a79]
     sameCodePathEvidence:
       file: packages/tests/features/agents.feature
       symbol: "Scenario: Switching Agents says what happened, and the hint shows this machine's status"
@@ -2238,7 +2238,7 @@ retirements:
     defectSurface: [agents, settings]
     destinationLayer: L5
     replacements: []
-    survivorRevisionIds: [revision-c4a5b418be020e12c418]
+    survivorRevisionIds: [revision-01c5d50fad30161d8a79]
     sameCodePathEvidence:
       file: packages/tests/features/agents.feature
       symbol: "Scenario: Switching Agents says what happened, and the hint shows this machine's status"
@@ -2264,7 +2264,7 @@ retirements:
     defectSurface: [agents, settings]
     destinationLayer: L5
     replacements: []
-    survivorRevisionIds: [revision-c4a5b418be020e12c418]
+    survivorRevisionIds: [revision-01c5d50fad30161d8a79]
     sameCodePathEvidence:
       file: packages/tests/features/agents.feature
       symbol: "Scenario: Switching Agents says what happened, and the hint shows this machine's status"
@@ -2368,7 +2368,7 @@ retirements:
     defectSurface: [agents, settings]
     destinationLayer: L5
     replacements: []
-    survivorRevisionIds: [revision-c4a5b418be020e12c418]
+    survivorRevisionIds: [revision-01c5d50fad30161d8a79]
     sameCodePathEvidence:
       file: packages/tests/features/agents.feature
       symbol: "Scenario: Switching Agents says what happened, and the hint shows this machine's status"
@@ -2407,8 +2407,34 @@ retirements:
     defectSurface: [agents, welcome]
     destinationLayer: L5
     replacements: []
-    survivorRevisionIds: [revision-869d41330dad7b3be9c0]
+    survivorRevisionIds: [revision-adf8ee8e93d7dd1fb8cb]
     sameCodePathEvidence:
       file: packages/tests/features/agents.feature
       symbol: "Scenario: The first run can pick Off from the keyboard"
       test: A product decision changed what Off does — the welcome card keeps asking while agents are off. After Enter on Off the scenario now asserts the row stays with Off pressed and no done entry, then across a reload that it is still there, rests the keyboard on vanilla and does not take the focus; the arrow walk and the no-agents terminal are unchanged.
+  - id: revise-agents-switch-off-keyboard-focus
+    revisionId: revision-c4a5b418be020e12c418
+    action: revised
+    status: landed
+    promise: Switching Agents says what happened, and the hint shows this machine's status
+    defectSurface: [agents, settings]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-01c5d50fad30161d8a79]
+    sameCodePathEvidence:
+      file: packages/tests/features/agents.feature
+      symbol: "Scenario: Switching Agents says what happened, and the hint shows this machine's status"
+      test: After turning Agents off, two steps are added — tab into the Agents control in Settings, and keyboard focus lands on the "off" segment (the chosen one). Every earlier step is unchanged.
+  - id: revise-agents-first-run-off-tab-in
+    revisionId: revision-869d41330dad7b3be9c0
+    action: revised
+    status: landed
+    promise: The first run can pick Off from the keyboard
+    defectSurface: [agents, welcome]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-adf8ee8e93d7dd1fb8cb]
+    sameCodePathEvidence:
+      file: packages/tests/features/agents.feature
+      symbol: "Scenario: The first run can pick Off from the keyboard"
+      test: Across the reload with Off chosen, the hint now says what Off (the chosen segment) means; tabbing into the first-run choice then puts keyboard focus on "vanilla", and only then does the hint say what vanilla means. The resting-keyboard, no-focus-taken and no-agents-terminal assertions are unchanged.
