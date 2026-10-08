@@ -642,14 +642,14 @@ describe("scheduled updates: a failed run is retried, a skip waits", () => {
 
   it("an ask that met a run in flight asks again on the next tick", async () => {
     await servingWith("update");
-    expect(checkForAgentUpdate({ force: true })).toBe("started"); // a Check now
     const first = runs();
+    expect(checkForAgentUpdate({ force: true })).toBe("started"); // a Check now
     onAgentUpdateTick(true, t0); // the boundary meets it: no run, no attempt
-    expect(runs()).toBe(first);
     await settled();
+    expect(runs()).toBe(first + 1); // the Check now's run only
     process.env.STUB_MODE = "fail";
     onAgentUpdateTick(false, t0 + 60_000); // asked again
     await settled();
-    expect(runs()).toBe(first + 1);
+    expect(runs()).toBe(first + 2);
   });
 });

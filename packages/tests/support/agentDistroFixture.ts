@@ -85,6 +85,14 @@ import { join } from "node:path";
 const root = ${JSON.stringify(root)};
 const cfg = JSON.parse(readFileSync(process.argv[2], "utf8"));
 const out = (o) => process.stdout.write(JSON.stringify(o) + "\\n");
+// Anything that goes wrong here is the run's failure, in words — never a bare
+// crash whose only trace is Node's version line.
+const failed = (err) => {
+  out({ result: "failed", reason: "fixture updater: " + (err && err.stack ? err.stack.split("\\n")[0] : String(err)) });
+  process.exit(1);
+};
+process.on("uncaughtException", failed);
+process.on("unhandledRejection", failed);
 const next = join(root, "next-" + cfg.profile);
 const mode = existsSync(next) ? readFileSync(next, "utf8").trim() : "unchanged";
 rmSync(next, { force: true });
@@ -93,7 +101,13 @@ mkdirSync(cfg.state, { recursive: true });
 writeFileSync(join(root, "state-home"), join(cfg.state, ".."));
 const current = join(cfg.state, "current");
 const floor = join(root, "profiles", cfg.profile);
-if (!existsSync(current)) symlinkSync(floor, current);
+// No \`current\` yet — or one left dangling — points at the floor.
+try {
+  realpathSync(current);
+} catch {
+  rmSync(current, { force: true });
+  symlinkSync(floor, current);
+}
 // Local time with its offset, as upstream's \`timestamp()\` writes it
 // (\`date +%Y-%m-%dT%H:%M:%S%:z\`), never UTC's \`Z\`.
 const pad = (n) => String(n).padStart(2, "0");
