@@ -1110,28 +1110,28 @@ describe("K3 — updates while a bundle serves", () => {
     expect(agentMarkLabel(mark, "box")).toContain("512 MiB of 2.0 GiB");
   });
 
-  it("the line says the last run, in its own outcome's words", () => {
+  it("the line's note says the last run, in its own outcome's words", () => {
     const line = (r: AgentDistroReceipt) =>
-      agentStatusLines({ local: host(ready, r), remotes: [] })[0]?.text;
+      agentStatusLines({ local: host(ready, r), remotes: [] })[0]?.note;
     expect(
       line(receipt({ lastRun: { at: 1, outcome: "updated", words: "x" } })),
-    ).toBe("ready · vanilla nd11nx5f · updated @1");
+    ).toBe("updated @1");
     expect(
       line(receipt({ lastRun: { at: 2, outcome: "unchanged", words: "" } })),
-    ).toBe("ready · vanilla nd11nx5f · checked @2, up to date");
+    ).toBe("checked @2, up to date");
     expect(
       line(receipt({ lastRun: { at: 3, outcome: "skipped", words: "x" } })),
-    ).toBe("ready · vanilla nd11nx5f · checked @3, no newer set ready yet");
+    ).toBe("checked @3, no newer set ready yet");
     expect(
       line(receipt({ lastRun: { at: 4, outcome: "failed", words: "x" } })),
-    ).toBe("ready · vanilla nd11nx5f · last update failed @4");
+    ).toBe("last update failed @4");
     // A receipt for another profile is one padi has not caught up from.
     expect(
       line({
         ...receipt({ lastRun: { at: 1, outcome: "updated", words: "x" } }),
         profile: "juspay",
       }),
-    ).toBe("ready · vanilla nd11nx5f");
+    ).toBeUndefined();
   });
 
   it("the line shows a run in flight, and its bytes once it downloads", () => {
@@ -1140,7 +1140,8 @@ describe("K3 — updates while a bundle serves", () => {
         host: "this machine",
         bar: "ok",
         fill: 1,
-        text: "ready · vanilla nd11nx5f · checking for updates…",
+        text: "ready · vanilla nd11nx5f",
+        note: "checking for newer agents…",
         update: "checking",
       },
     ]);
@@ -1150,7 +1151,8 @@ describe("K3 — updates while a bundle serves", () => {
           host: "this machine",
           bar: "busy",
           fill: 0.25,
-          text: "ready · vanilla nd11nx5f · updating 512 MiB of 2.0 GiB",
+          text: "ready · vanilla nd11nx5f",
+          note: "updating · 512 MiB of 2.0 GiB",
           update: "downloading",
         },
       ],

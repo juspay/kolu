@@ -551,6 +551,9 @@ export interface AgentStatusLine {
   /** The bar's fill, 0 to 1. */
   readonly fill: number;
   readonly text: string;
+  /** A second, quieter line under `text`: a ready host's update running
+   *  ("updating 1.1 GiB of 2.0 GiB") or its last run ("updated 3h ago"). */
+  readonly note?: string;
 }
 
 /** A status line's words for a host with no mark, by the fold's reason. */
@@ -574,15 +577,13 @@ function statusLine(host: HostAgentStatus): AgentStatusLine {
         const download = mark.update.download;
         return download === undefined
           ? {
-              ...line("ok", 1, `${ready} · checking for updates…`),
+              ...line("ok", 1, ready),
+              note: "checking for newer agents…",
               update: "checking",
             }
           : {
-              ...line(
-                "busy",
-                download.fraction,
-                `${ready} · updating${download.bytes === undefined ? "…" : ` ${download.bytes}`}`,
-              ),
+              ...line("busy", download.fraction, ready),
+              note: `updating${download.bytes === undefined ? "…" : ` · ${download.bytes}`}`,
               update: "downloading",
             };
       }
@@ -590,7 +591,8 @@ function statusLine(host: HostAgentStatus): AgentStatusLine {
       return run === undefined
         ? line("ok", 1, ready)
         : {
-            ...line("ok", 1, `${ready} · ${lastRunPhrase(run, host.ago)}`),
+            ...line("ok", 1, ready),
+            note: lastRunPhrase(run, host.ago),
             lastRun: run.outcome,
           };
     }
@@ -615,8 +617,9 @@ function settledReady(host: HostAgentStatus): boolean {
 }
 
 /** The status lines under the Agents row: this machine first, then every remote
- *  host that is not ready (or is updating). A ready line ends with its last
- *  update run ("updated 3h ago", "checked 2h ago, up to date"). When EVERY host
+ *  host that is not ready (or is updating). A ready line carries a note: its
+ *  update running, or its last run ("updated 3h ago", "checked 2h ago, up to
+ *  date"). When EVERY host
  *  is ready with nothing running they collapse into the first line ("ready ·
  *  vanilla 8rcmf6rd · on 3 hosts" — the hash only when every machine holds that
  *  same build), so the row stays short in the common case; the History lists
@@ -661,7 +664,9 @@ export function agentStatusLines(input: {
         : shared
           ? `ready · ${first.profile} ${first.hash}`
           : `ready · ${first.profile}`;
-    return [{ ...local, text: `${what} · on ${remotes.length + 1} hosts` }];
+    // Folded: one line for many machines, so no one machine's note.
+    const { note: _note, lastRun: _lastRun, ...folded } = local;
+    return [{ ...folded, text: `${what} · on ${remotes.length + 1} hosts` }];
   }
   return [local, ...notReady];
 }

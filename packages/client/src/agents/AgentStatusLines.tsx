@@ -2,10 +2,11 @@
  *  (this one first, then each remote that is not ready), as a three-column grid
  *  — the host with agent-distro's mark, a thin bar, and a short mono text. The
  *  bar wears the state's colour: accent while downloading, ok when ready,
- *  warning when failed, empty before the host answers. Which lines show, and
+ *  warning when failed, empty before the host answers. A ready line's note — an
+ *  update running, or the last one — sits under its text, quieter. Which lines show, and
  *  their collapse into one when every host is ready, is `agentStatusLines`. */
 
-import { type Component, For } from "solid-js";
+import { type Component, For, Show } from "solid-js";
 import AgentDistroLogo from "@kolu/agent-distro/solid";
 import type { AgentStatusLine } from "@kolu/agent-distro/status";
 
@@ -39,15 +40,32 @@ const AgentStatusLines: Component<{ lines: readonly AgentStatusLine[] }> = (
               style={{ width: `${line.fill * 100}%` }}
             />
           </span>
-          <span
-            data-testid="agents-status-text"
-            data-bar={line.bar}
-            data-update={line.update}
-            data-last-run={line.lastRun}
-            title={line.text}
-            class={`truncate font-mono text-[0.7rem] ${line.bar === "warn" ? "text-warning" : "text-fg-3/70"}`}
-          >
-            {line.text}
+          <span class="flex min-w-0 flex-col">
+            <span
+              data-testid="agents-status-text"
+              data-bar={line.bar}
+              data-update={line.update}
+              data-last-run={line.lastRun}
+              title={
+                line.note === undefined
+                  ? line.text
+                  : `${line.text}\n${line.note}`
+              }
+              class={`truncate font-mono text-[0.7rem] ${line.bar === "warn" ? "text-warning" : "text-fg-3/70"}`}
+            >
+              {line.text}
+            </span>
+            <Show when={line.note}>
+              {(note) => (
+                <span
+                  data-testid="agents-status-note"
+                  title={note()}
+                  class="truncate font-mono text-[0.65rem] text-fg-3/55"
+                >
+                  {note()}
+                </span>
+              )}
+            </Show>
           </span>
         </>
       )}
