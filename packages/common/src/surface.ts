@@ -35,10 +35,8 @@
 // the seal forbids the REVERSE (padi importing kolu). Types re-exported below so existing
 // `kolu-common/surface` importers are unchanged.
 import {
-  AgentDistroHarnessSchema,
   type AgentDistroListing,
   AgentDistroListingSchema,
-  AgentDistroListOutputSchema,
   type AgentDistroProfile,
   AgentDistroProfileSchema,
 } from "@kolu/agent-distro/listing";
@@ -249,14 +247,13 @@ export const RightPanelPrefsSchema = Schema.Struct({
  *  unknown one is an error the UI shows, never silently reset. */
 export const AgentDistroPrefsSchema = AgentDistroSettingSchema;
 
-// agent-distro's `--list --json` vocabulary and kolu's listing cell value live in
-// `@kolu/agent-distro` (kolu's contract with upstream); re-exported here so the
-// surface and its importers reach them through their usual door.
+// kolu's listing cell value — composed from each bundle's own `profile.json`
+// and `versions` — lives in `@kolu/agent-distro` (kolu's contract with
+// upstream); re-exported here so the surface and its importers reach it
+// through their usual door.
 export {
-  AgentDistroHarnessSchema,
   type AgentDistroListing,
   AgentDistroListingSchema,
-  AgentDistroListOutputSchema,
   type AgentDistroProfile,
   AgentDistroProfileSchema,
 };
@@ -965,9 +962,9 @@ export const koluSurface = defineSurfaceWithPolicy<ToastOnlyPolicy>()({
     },
 
     /** The agent-distro profiles Settings offers (see
-     *  {@link AgentDistroListingSchema}) — read once at boot from the baked
-     *  picker's `--list --json`, seeded into an in-memory store, never written
-     *  after. Read-only on the client. */
+     *  {@link AgentDistroListingSchema}) — read once at boot off the floor's
+     *  profile bundles (each one's `profile.json` and `versions`), seeded into
+     *  an in-memory store, never written after. Read-only on the client. */
     agentDistroListing: {
       schema: AgentDistroListingSchema,
       default: { kind: "unavailable" } satisfies AgentDistroListing,

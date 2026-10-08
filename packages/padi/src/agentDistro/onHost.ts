@@ -68,9 +68,18 @@ export function bundleOnHost(
  *  lacks the Nix profile on PATH, and the updater would then die with a bare
  *  spawn error; naming it here gives the host tab the real fix. */
 export function nixOnPath(): string | undefined {
-  for (const dir of (process.env.PATH ?? "").split(":")) {
+  return commandOnPath("nix", process.env.PATH);
+}
+
+/** Where `command` resolves on `path` (a `PATH` value), searched front to back
+ *  as `execvp` does: the first executable match, or `undefined`. */
+export function commandOnPath(
+  command: string,
+  path: string | undefined,
+): string | undefined {
+  for (const dir of (path ?? "").split(":")) {
     if (dir === "") continue;
-    const candidate = join(dir, "nix");
+    const candidate = join(dir, command);
     try {
       accessSync(candidate, fsConstants.X_OK);
       return candidate;

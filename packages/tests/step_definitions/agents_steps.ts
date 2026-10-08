@@ -39,6 +39,7 @@ import {
   FIXTURE_SKIP_REASON,
   fixtureClaudeSays,
   fixtureNextRun,
+  fixturePickerSays,
   fixtureProfile,
   fixtureResetUpdates,
 } from "../support/agentDistroFixture.ts";
@@ -299,6 +300,17 @@ Then(
   async function (this: KoluWorld, profile: string) {
     await this.terminalRunAndWait("claude");
     await waitForBufferContains(this.page, fixtureClaudeSays(profile));
+  },
+);
+
+/** Runs `agent-distro` — the picker the chosen profile's bundle carries — in
+ *  the terminal and waits for its line. The marker is never typed, so the
+ *  shell's echo cannot satisfy it. */
+Then(
+  "the terminal's agent-distro should name the {string} profile",
+  async function (this: KoluWorld, profile: string) {
+    await this.terminalRunAndWait("agent-distro");
+    await waitForBufferContains(this.page, fixturePickerSays(profile));
   },
 );
 

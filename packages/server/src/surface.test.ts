@@ -43,7 +43,7 @@ describe("surfaces map — two siblings (the W1 padi seam)", () => {
     // about the VIEWER, and the second input to the new-terminal policy
     // kolu-server derives; a terminal never appears in it), and
     // `agentDistroListing` (the agent-distro profiles THIS kolu's build ships,
-    // read once from its baked picker — a build fact, not a host's).
+    // read once off the floor's profile bundles — a build fact, not a host's).
     // No collections, no events.
     expect(Object.keys(spec.cells ?? {}).sort()).toEqual([
       "agentDistroListing",

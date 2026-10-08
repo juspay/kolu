@@ -4,10 +4,13 @@
  * values that build the directories, at `share/kolu/agent-distro.json` inside
  * the bundle:
  *
- *     { default, picker, profiles: [{ name, dir, bin, hash }] }
+ *     { default, profiles: [{ name, dir, bin, hash }] }
  *
- * Readers (padi resolving a profile's directory, kolu-server listing profiles)
- * go through this file and never through a directory layout of their own. The
+ * Each profile's directory is agent-distro's bundle as is: its harness
+ * commands and its own picker in `bin/`, and the two files that describe it
+ * (`./listing`). Readers (padi resolving a profile's directory, kolu-server
+ * reading each profile's bundle) go through this file and never through a
+ * directory layout of their own. The
  * default profile is typed once, in `../defaults.json`, which the Nix half
  * reads as well.
  */
@@ -21,14 +24,13 @@ export const DEFAULT_AGENT_PROFILE: string = defaults.defaultProfile;
 export const AgentDistroManifestSchema = Schema.Struct({
   /** The default profile, as the build that wrote this manifest knew it. */
   default: Schema.String,
-  /** The picker over every profile (`--list --json` is its machine listing). */
-  picker: Schema.String,
   profiles: Schema.Array(
     Schema.Struct({
       name: Schema.String,
       /** The profile's directory — what a terminal pins (its chip's bundle). */
       dir: Schema.String,
-      /** `dir`'s `bin/` — what goes on a terminal's PATH. */
+      /** `dir`'s `bin/` — what goes on a terminal's PATH, the profile's own
+       *  picker (`agent-distro`) among its commands. */
       bin: Schema.String,
       /** `dir`'s store hash. */
       hash: Schema.String,

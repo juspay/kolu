@@ -468,7 +468,8 @@ _out_. The map, grouped:
   `terminal-protocol`, `transcript-core` / `transcript-html`, `agent-distro`
   (kolu's contract with upstream [agent-distro](https://github.com/juspay/agent-distro):
   its Nix half builds the agents' local floor, writes the floor's manifest and
-  bakes and proves it onto each wrapper; its TypeScript half holds the listing,
+  bakes and proves it onto each wrapper; its TypeScript half holds the listing
+  (composed from each bundle's own `profile.json` and versions file),
   the updater's progress protocol, its schedule and due rule, its history log
   and a bundle's versions file, the manifest reader, the setting, status and
   receipt value schemas padi's cells carry, the wording, and the logo — padi,

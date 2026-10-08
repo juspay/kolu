@@ -407,12 +407,22 @@ export function harnessLine(profile: AgentDistroProfile): string {
   return versionsLine(profile.harnesses);
 }
 
+/** A version as agent-distro's picker shows it: without the package's `+`
+ *  revision suffix (`1.18.35+53d1eab` → `1.18.35`) — upstream's
+ *  `displayVersion` (`lib/picker.nix`), mirrored here once so every line kolu
+ *  draws says what `agent-distro` in the same terminal says. */
+function displayVersion(version: string): string {
+  return version.split("+")[0] ?? version;
+}
+
 /** The same line for any list of agents with versions — a host's receipt
  *  (`AgentDistroReceipt.versions`), what that machine actually has now. */
 export function versionsLine(
   agents: readonly Pick<AgentVersion, "title" | "version">[],
 ): string {
-  return agents.map((h) => `${h.title} ${h.version}`).join(" · ");
+  return agents
+    .map((h) => `${h.title} ${displayVersion(h.version)}`)
+    .join(" · ");
 }
 
 /** What each profile kolu ships IS, in plain words, written to sit mid-sentence

@@ -12,7 +12,6 @@ import {
 
 const MANIFEST = {
   default: "vanilla",
-  picker: "/nix/store/p-agent-distro-picker/bin/agent-distro",
   profiles: [
     {
       name: "vanilla",
@@ -43,8 +42,8 @@ describe("the floor manifest", () => {
     expect(() =>
       parseAgentDistroManifest(JSON.stringify({ ...MANIFEST, profiles: [] })),
     ).toThrow();
-    const { picker: _picker, ...noPicker } = MANIFEST;
-    expect(() => parseAgentDistroManifest(JSON.stringify(noPicker))).toThrow();
+    const { default: _default, ...noDefault } = MANIFEST;
+    expect(() => parseAgentDistroManifest(JSON.stringify(noDefault))).toThrow();
   });
 });
 

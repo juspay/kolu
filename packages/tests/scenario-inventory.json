@@ -8440,6 +8440,18 @@
       "exampleRows": [],
       "executions": 1,
       "firstSeenSha": "0d117da222c051f35efb833aab970e033e05e72a"
+    },
+    {
+      "revisionId": "revision-f7f15d67caa3628ca084",
+      "scenarioKey": "scenario-a6fd77af8cddebb82d9e",
+      "feature": "features/agents.feature",
+      "scenario": "Turning Agents on changes the next terminal, not the current one",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "0d469cd20db42781ae9e4025aa0df0e0189753b20a7a99fcf7d94741692ec43d",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "fbd089422c4745458761157c537d2df106155da9"
     }
   ]
 }

@@ -1,8 +1,8 @@
 /**
  * The client's view of agent-distro — the Agents setting's live facts.
  *
- *   - the profile LISTING kolu-server read from its baked picker (what Settings
- *     offers);
+ *   - the profile LISTING kolu-server read off the floor's profile bundles
+ *     (what Settings offers);
  *   - each host's agent STATUS (padi's `agentDistroStatus` cell): whether the
  *     selected profile's agents are on that machine, being downloaded, or failed
  *     — and whether an update is running there;
