@@ -68,9 +68,11 @@ The package graduated to a **process**: `package = process = restart-hash`.
   drains a resident whose record names a different toolchain than its own
   build's, so a kolu-CLI-only upgrade still reaches new terminals
   (`./src/agentToolsBake.ts`, juspay/kolu#2146). The toolchain path
-  starts with the wrapper that also bakes agent-distro, so an upgrade that moves
-  only the agent-distro pin moves the record too, restarts padi, and the boot
-  check (below) runs — a coupling `default.nix`'s wrapper proofs assert.
+  starts with the wrapper that also bakes agent-distro, so on the machine
+  running kolu (the floor rides that wrapper) an upgrade that moves only the
+  agent-distro pin moves the record too, restarts padi, and the boot check
+  (below) runs; a remote host's `padi-agent` carries no pin, so a pin-only bump
+  leaves it untouched — a coupling `default.nix`'s wrapper proofs assert.
 - **Identity IS the state-root** (`./stateRoot`). Binding requires an explicit
   root (`--state-root` or `KOLU_PADI_STATE_DIR`) — there is no silent default
   (#1334). Production nix wrappers supply `$HOME/.local/state/padi` (not
@@ -474,8 +476,9 @@ that profile current on its host. Three cells, one procedure (`padiSurface`
   upstream's own `--scheduled` numbers (`scheduledAskNow`); a skip waits for the next boundary, and an ask
   that met a run in flight asks again on the next look. Before any of that,
   padi's START looks once (the boot check) — on an upgrade that brings a newer
-  kolu (a pin bump moves the `agent-tools-bake` record, so the old padi is
-  drained) or a reboot. `startAgentDistroUpdates` arms it; the
+  kolu (on the machine running kolu a pin bump moves the `agent-tools-bake`
+  record, so the old padi is drained; a remote host's `padi-agent` carries no
+  pin) or a reboot. `startAgentDistroUpdates` arms it; the
   first tick that finds agents on and a baked profile spends it. If an update
   is due anyway, that tick asks as a scheduled one (a counted attempt, with its
   retries); otherwise it runs one update FORCED, as `checkNow` does — so a newer

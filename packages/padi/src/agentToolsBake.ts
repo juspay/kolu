@@ -14,8 +14,9 @@
  * build's `kolu` at the head of `PATH`, shadowing the host's (#2146). The
  * toolchain path starts with the `$out/bin` of the wrapper that also bakes
  * agent-distro, so agent-distro's bake drift is covered by this record without
- * naming it — a pin bump moves the path; `default.nix`'s in-derivation proofs
- * pin that coupling.
+ * naming it — a pin bump moves the path on the machine running kolu (the floor
+ * rides that wrapper); a remote host's `padi-agent` carries no pin.
+ * `default.nix`'s in-derivation proofs pin that coupling.
  *
  * ## The mechanism
  *
