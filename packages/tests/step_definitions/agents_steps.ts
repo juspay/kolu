@@ -367,7 +367,7 @@ Then(
   },
 );
 
-// ── The first-run step: the welcome card asks once ─────────────────────────────
+// ── The first-run step: the welcome card asks until agents are on ──────────────
 
 Then(
   "the welcome card's first row should ask which agents I want",
@@ -495,23 +495,74 @@ Then(
   },
 );
 
+/** Keyboard focus is on the `value` segment of the control in `scope`, and it
+ *  is the one tab stop there. */
+async function assertFocusedSegment(
+  world: KoluWorld,
+  value: string,
+  scope: string,
+): Promise<void> {
+  const want = value === "off" ? AGENTS_OFF : value;
+  const sel = segment(want, scope);
+  await world.page.waitForFunction(
+    (s) => document.activeElement === document.querySelector(s),
+    sel,
+    { timeout: POLL_TIMEOUT },
+  );
+  // One tab stop: only the focused segment is in the tab order.
+  for (const v of SEGMENTS)
+    assert.strictEqual(
+      await world.page.locator(segment(v, scope)).getAttribute("tabindex"),
+      v === want ? "0" : "-1",
+      `tabindex of the ${v} segment`,
+    );
+}
+
 Then(
   "keyboard focus should be on the first-run {string} segment",
   async function (this: KoluWorld, value: string) {
-    const want = value === "off" ? AGENTS_OFF : value;
-    const sel = segment(want, FIRST_RUN);
-    await this.page.waitForFunction(
-      (s) => document.activeElement === document.querySelector(s),
-      sel,
-      { timeout: POLL_TIMEOUT },
-    );
-    // One tab stop: only the focused segment is in the tab order.
-    for (const v of SEGMENTS)
-      assert.strictEqual(
-        await this.page.locator(segment(v, FIRST_RUN)).getAttribute("tabindex"),
-        v === want ? "0" : "-1",
-        `tabindex of the ${v} segment`,
-      );
+    await assertFocusedSegment(this, value, FIRST_RUN);
+  },
+);
+
+Then(
+  "keyboard focus should be on the Settings {string} Agents segment",
+  async function (this: KoluWorld, value: string) {
+    await assertFocusedSegment(this, value, IN_SETTINGS);
+  },
+);
+
+/** A real Tab into the Agents control in `scope`: focus a throwaway stop placed
+ *  just before the control, then press Tab — the browser lands on whatever the
+ *  control puts in the tab order. */
+async function tabInto(world: KoluWorld, scope: string): Promise<void> {
+  const group = `${scope} [data-testid="${AGENTS_SEGMENT_TESTID}-toggle"]`;
+  await world.page
+    .locator(group)
+    .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+  await world.page.evaluate((sel) => {
+    const control = document.querySelector(sel);
+    if (control === null) throw new Error(`no ${sel}`);
+    const before = document.createElement("button");
+    before.dataset.testid = "tab-into-sentinel";
+    control.before(before);
+    before.focus();
+    before.addEventListener("blur", () => before.remove(), { once: true });
+  }, group);
+  await world.page.keyboard.press("Tab");
+}
+
+When(
+  "I tab into the first-run agents choice",
+  async function (this: KoluWorld) {
+    await tabInto(this, FIRST_RUN);
+  },
+);
+
+When(
+  "I tab into the Agents control in Settings",
+  async function (this: KoluWorld) {
+    await tabInto(this, IN_SETTINGS);
   },
 );
 

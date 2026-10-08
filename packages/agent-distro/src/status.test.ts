@@ -531,6 +531,12 @@ describe("firstRunAgentsDone — the first-run step's done-predicate", () => {
     expect(agentsChosenLabel(OFF, LISTING)).toBeUndefined();
   });
 
+  it("has no done line for a stored profile this kolu does not ship — Settings warns about it", () => {
+    expect(
+      agentsChosenLabel({ enabled: true, profile: "gone" }, LISTING),
+    ).toBeUndefined();
+  });
+
   it("has no done line in a kolu built without agents — nobody chose anything", () => {
     expect(agentsChosenLabel(OFF, { kind: "unavailable" })).toBeUndefined();
     expect(

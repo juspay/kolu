@@ -2,10 +2,12 @@
 /**
  * `SegmentedControl`'s keyboard contract, for every caller: ONE tab stop (a
  * roving tabindex) — the caller's `restingValue` when it gives one, else the
- * pressed option — and ← → / Home / End move focus within the group without picking; Enter or Space
- * on the focused option picks it once, as does a click. With no value, nothing
- * is pressed. Re-emitted options for the same values keep their buttons and the
- * focus, and autofocus never steals focus from something else.
+ * pressed option — and ← → / Home / End move focus within the group without
+ * picking; Enter or Space on the focused option picks it once, as does a
+ * click. With no value, nothing is pressed. The option in view is the focused
+ * one while focus is in the group, else the pressed one, else the tab stop.
+ * Re-emitted options for the same values keep their buttons and the focus, and
+ * autofocus never steals focus from something else.
  */
 
 import { createSignal } from "solid-js";
@@ -42,7 +44,7 @@ function mount(
   const [options, setOptions] =
     createSignal<readonly { value: V; label: string }[]>(OPTIONS);
   const picks: V[] = [];
-  const stopTrail: (V | undefined)[] = [];
+  const viewTrail: (V | undefined)[] = [];
   host = document.createElement("div");
   document.body.append(host);
   dispose = render(
@@ -52,7 +54,7 @@ function mount(
         value={value()}
         restingValue={restingValue}
         autofocus={extra.autofocus}
-        onTabStopChange={(v) => stopTrail.push(v)}
+        onInViewChange={(v) => viewTrail.push(v)}
         onChange={(v) => {
           picks.push(v);
           setValue(() => v);
@@ -75,7 +77,7 @@ function mount(
     document.activeElement?.dispatchEvent(
       new KeyboardEvent("keydown", { key: k, bubbles: true, cancelable: true }),
     );
-  return { button, tabStops, pressed, key, picks, setOptions, stopTrail };
+  return { button, tabStops, pressed, key, picks, setOptions, viewTrail };
 }
 
 describe("SegmentedControl — the roving tab stop", () => {
@@ -85,7 +87,7 @@ describe("SegmentedControl — the roving tab stop", () => {
     expect(c.pressed()).toEqual(["juspay"]);
   });
 
-  it("with nothing pressed: no aria-pressed anywhere, the resting option holds the stop", () => {
+  it("with nothing pressed: no aria-pressed anywhere, the resting option holds it", () => {
     const c = mount(undefined, "vanilla");
     expect(c.pressed()).toEqual([]);
     expect(c.tabStops()).toEqual(["vanilla"]);
@@ -116,7 +118,7 @@ describe("SegmentedControl — the roving tab stop", () => {
     expect(c.pressed()).toEqual(["juspay"]);
   });
 
-  it("a resting option holds the stop even while another is pressed, so Enter acts on it", () => {
+  it("a resting option holds the stop while another is pressed; Enter acts on it", () => {
     // Off pressed, the keyboard resting on a profile: Enter turns it on.
     const c = mount("off", "vanilla");
     expect(c.pressed()).toEqual(["off"]);
@@ -154,21 +156,36 @@ describe("SegmentedControl — picking from the keyboard", () => {
     expect(c.picks).toEqual(["juspay"]);
   });
 
-  it("tells the host the tab stop — at mount, as the keyboard moves, and back when it leaves", () => {
+  it("tells the host the option in view — at mount, as the keyboard moves, and back when it leaves", () => {
     const c = mount("juspay");
     c.button("juspay")?.focus();
     c.key("ArrowLeft");
     c.button("vanilla")?.blur();
-    expect(c.stopTrail).toEqual(["juspay", "vanilla", "juspay"]);
-    // The stop it reports is the one the buttons carry.
-    expect(c.tabStops()).toEqual([c.stopTrail.at(-1)]);
+    expect(c.viewTrail).toEqual(["juspay", "vanilla", "juspay"]);
+    expect(c.tabStops()).toEqual([c.viewTrail.at(-1)]);
+  });
+
+  it("with no focus in the group, the pressed option is in view — not the resting one", () => {
+    // Off pressed, the keyboard resting on a profile: the line under the
+    // control must say what Off means until focus enters the group.
+    const c = mount("off", "vanilla");
+    expect(c.viewTrail).toEqual(["off"]);
+    expect(c.tabStops()).toEqual(["vanilla"]);
+    c.button("vanilla")?.focus();
+    expect(c.viewTrail).toEqual(["off", "vanilla"]);
+    c.button("vanilla")?.blur();
+    expect(c.viewTrail).toEqual(["off", "vanilla", "off"]);
+  });
+
+  it("with nothing pressed, the tab stop is in view", () => {
+    expect(mount(undefined, "vanilla").viewTrail).toEqual(["vanilla"]);
   });
 
   it("reports the resting option, not a pressed value the options do not hold", () => {
     // An unknown stored choice: nothing it names is on offer, so the stop — and
     // what the host is told — is the resting option.
     const c = mount("gone" as V, "vanilla");
-    expect(c.stopTrail).toEqual(["vanilla"]);
+    expect(c.viewTrail).toEqual(["vanilla"]);
     expect(c.tabStops()).toEqual(["vanilla"]);
   });
 });
