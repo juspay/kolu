@@ -24,9 +24,11 @@ import {
 import { plainProfileDescription } from "@kolu/agent-distro/status";
 import { AGENT_DISTRO_BUNDLE_ENV } from "@kolu/padi/agentDistroBake";
 
-/** Read the listing off the floor's bundles, in its manifest's order, and
- *  check it leads with the manifest's default profile (`env` / `readText`
- *  injectable for tests). */
+/** THE boot read: the listing off the floor's bundles, in its manifest's
+ *  order, with every boot check applied — it leads with the manifest's default
+ *  profile, and kolu has plain words for each profile. kolu-server's boot and
+ *  the Nix floor proof both call exactly this, so a new check lands in both
+ *  (`env` / `readText` injectable for tests). */
 export function readAgentDistroListing(
   env: Record<string, string | undefined> = process.env,
   readText: (path: string) => string = (path) => readFileSync(path, "utf8"),
@@ -34,9 +36,11 @@ export function readAgentDistroListing(
   const bundle = env[AGENT_DISTRO_BUNDLE_ENV];
   if (bundle === undefined || bundle === "") return { kind: "unavailable" };
   const manifest = parseAgentDistroManifest(readText(manifestFile(bundle)));
-  return assertDefaultAgentProfile(
-    floorListing(manifest, readText),
-    manifest.default,
+  return assertPlainProfiles(
+    assertDefaultAgentProfile(
+      floorListing(manifest, readText),
+      manifest.default,
+    ),
   );
 }
 

@@ -23,20 +23,14 @@ export function profileFile(bundle: string): string {
   return `${bundle}/share/agent-distro/profile.json`;
 }
 
-const decodeProfileFile = Schema.decodeUnknownSync(ProfileFileSchema);
+// An unknown field is refused, as upstream's own parser refuses it.
+const decodeProfileFile = Schema.decodeUnknownSync(ProfileFileSchema, {
+  onExcessProperty: "error",
+});
 
-/** Parse a `profile.json`. Throws on anything else, and on a field upstream's
- *  parser would refuse too (an unknown one) — a format change upstream must be
- *  loud, never a profile described by half its file. */
+/** Parse a `profile.json`. Throws on anything else, including a field upstream
+ *  does not write — a format change upstream must be loud, never a profile
+ *  described by half its file. */
 export function parseProfileFile(text: string): ProfileFile {
-  const value: unknown = JSON.parse(text);
-  const file = decodeProfileFile(value);
-  const extra = Object.keys(value as object).filter(
-    (key) => !(key in ProfileFileSchema.fields),
-  );
-  if (extra.length > 0)
-    throw new Error(
-      `agent-distro profile.json has unknown field ${extra[0]}: ${text}`,
-    );
-  return file;
+  return decodeProfileFile(JSON.parse(text));
 }

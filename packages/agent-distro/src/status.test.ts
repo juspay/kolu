@@ -1,7 +1,7 @@
 import { GIB, MIB } from "@kolu/byte-units";
 import { describe, expect, it } from "vitest";
 import { agentBundleShortHash } from "./bundle.ts";
-import type { AgentDistroListing } from "./listing.ts";
+import { type AgentDistroListing, profileOfBundle } from "./listing.ts";
 import { DEFAULT_AGENT_PROFILE } from "./manifest.ts";
 import type { AgentDistroReceipt, AgentDistroStatus } from "./schema.ts";
 import {
@@ -185,17 +185,51 @@ describe("harnessLine", () => {
     ).toBe("Claude Code 2.1.291 · Codex 0.80.1 · Oh My Pi 18.7.0");
   });
 
-  it("says what a host's receipt says for the same bundle — both read its versions file", () => {
-    const versions = parseVersions(
-      "claude\tClaude Code\t2.1.292\nopencode\tOpenCode\t1.18.35+53d1eab\n",
+  it("cuts a version's `+` revision suffix, as agent-distro's own picker shows it", () => {
+    expect(
+      versionsLine([
+        { title: "OpenCode", version: "1.18.35+53d1eab" },
+        { title: "Claude Code", version: "2.1.292" },
+      ]),
+    ).toBe("OpenCode 1.18.35 · Claude Code 2.1.292");
+    // The raw string is kept where it is parsed; only the line cuts it.
+    expect(
+      parseVersions("opencode\tOpenCode\t1.18.35+53d1eab")[0]?.version,
+    ).toBe("1.18.35+53d1eab");
+  });
+
+  it("Settings' line for a bundle is its receipt's line — both read the same versions file", () => {
+    const VERSIONS =
+      "claude\tClaude Code\t2.1.292\nopencode\tOpenCode\t1.18.35+53d1eab\n";
+    const files: Record<string, string> = {
+      "/s/v/share/agent-distro/profile.json":
+        '{"description":"Upstream harnesses with your own provider","name":"vanilla"}',
+      "/s/v/share/agent-distro/versions": VERSIONS,
+    };
+    const read = (path: string): string => {
+      const text = files[path];
+      if (text === undefined) throw new Error(`ENOENT: ${path}`);
+      return text;
+    };
+    // What Settings lists before this machine's receipt (kolu-server's read)…
+    const listing: AgentDistroListing = {
+      kind: "available",
+      profiles: [profileOfBundle("vanilla", "/s/v", read)],
+    };
+    const hint = (localReceipt: AgentDistroReceipt | undefined) =>
+      agentsHint({ stored: VANILLA_ON, listing, localReceipt })?.text;
+    // …and what it shows once the receipt is in (padi's read of the same file).
+    const receipt: AgentDistroReceipt = {
+      profile: "vanilla",
+      bundle: "/s/v",
+      versions: [...parseVersions(read("/s/v/share/agent-distro/versions"))],
+      events: [],
+      running: [],
+    };
+    expect(hint(receipt)).toBe(hint(undefined));
+    expect(hint(undefined)).toBe(
+      "Stock agents, your own API keys.\nClaude Code 2.1.292 · OpenCode 1.18.35",
     );
-    const line = harnessLine({
-      name: "vanilla",
-      description: "d",
-      harnesses: [...versions],
-    });
-    expect(line).toBe(versionsLine(versions));
-    expect(line).toBe("Claude Code 2.1.292 · OpenCode 1.18.35+53d1eab");
   });
 });
 

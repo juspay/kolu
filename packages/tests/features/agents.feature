@@ -25,6 +25,7 @@ Feature: Agents come with kolu
     When I create a terminal
     Then the focused tile should show the "vanilla" agents chip
     And the terminal's claude should be the "vanilla" fixture
+    And the terminal's agent-distro should name the "vanilla" profile
     And there should be no page errors
 
   Scenario: Switching profile reaches the next terminal, and off removes both

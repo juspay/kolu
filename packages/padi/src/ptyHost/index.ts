@@ -560,6 +560,15 @@ export interface TerminalEnvSpec {
   serverVersion: string;
 }
 
+/** What a terminal's agent layer puts in its spawn env: the bundle's own
+ *  `bin/` on PATH (its harness launchers and its picker, `agent-distro`) and
+ *  the plugin dir. The one mapping from a layer to `TerminalEnvSpec.agents`. */
+export function agentSpawnEnv(
+  layer: AgentLayer,
+): NonNullable<TerminalEnvSpec["agents"]> {
+  return { binDir: agentBinDir(layer.bundle), plugins: layer.plugins };
+}
+
 /**
  * Compose the fully-specified spawn input the pty-host wire expects, from kolu's
  * spawn policy applied against the host's facts. Pure (no IO): the env is
@@ -713,12 +722,7 @@ export function buildTerminalSpawnInput(args: {
         padiSocket: getPadiServeSocketPath(),
         toolsPath: readAgentToolsBake(),
         ...(args.agents !== undefined
-          ? {
-              agents: {
-                binDir: agentBinDir(args.agents.bundle),
-                plugins: args.agents.plugins,
-              },
-            }
+          ? { agents: agentSpawnEnv(args.agents) }
           : {}),
         serverVersion: requireSpawnServerVersion(),
       },

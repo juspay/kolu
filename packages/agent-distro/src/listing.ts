@@ -12,14 +12,13 @@ import type { AgentDistroManifest } from "./manifest.ts";
 import { parseProfileFile, profileFile } from "./profileFile.ts";
 import { AgentVersionSchema, parseVersions, versionsFile } from "./versions.ts";
 
-/** One harness a profile ships: a line of its bundle's `versions`. */
-export const AgentDistroHarnessSchema = AgentVersionSchema;
-
-/** One profile: its name, the one-line description, its harnesses. */
+/** One profile: its name, the one-line description, and its harnesses — the
+ *  lines of its bundle's `versions`, at least one (upstream's own listing
+ *  parser refuses an empty one too). */
 export const AgentDistroProfileSchema = Schema.Struct({
   name: Schema.String.check(Schema.isMinLength(1)),
   description: Schema.String,
-  harnesses: Schema.Array(AgentDistroHarnessSchema),
+  harnesses: Schema.Array(AgentVersionSchema).check(Schema.isMinLength(1)),
 });
 
 export type AgentDistroProfile = typeof AgentDistroProfileSchema.Type;
@@ -39,10 +38,12 @@ export const AgentDistroListingSchema = Schema.Union([
 
 export type AgentDistroListing = typeof AgentDistroListingSchema.Type;
 
+const decodeProfile = Schema.decodeUnknownSync(AgentDistroProfileSchema);
+
 /** The ONE composition of a profile's entry from its bundle's two files.
  *  `name` is the profile the caller expects at `bundle`; a `profile.json` that
  *  names another is a broken build and throws, as does either file missing or
- *  out of upstream's format. */
+ *  out of upstream's format, or a `versions` that names no harness. */
 export function profileOfBundle(
   name: string,
   bundle: string,
@@ -53,15 +54,16 @@ export function profileOfBundle(
     throw new Error(
       `agent-distro bundle ${bundle} describes profile '${file.name}', but the floor manifest names it '${name}'`,
     );
-  return {
+  return decodeProfile({
     name,
     description: file.description,
-    harnesses: [...parseVersions(readText(versionsFile(bundle)))],
-  };
+    harnesses: parseVersions(readText(versionsFile(bundle))),
+  });
 }
 
-/** Every floor profile, in the manifest's order (the default first, as the Nix
- *  half writes it), each read off its own bundle. */
+/** Every floor profile, in the manifest's order (which the Nix half writes
+ *  default first; kolu-server's boot read checks it), each read off its own
+ *  bundle. */
 export function floorListing(
   manifest: AgentDistroManifest,
   readText: (path: string) => string,

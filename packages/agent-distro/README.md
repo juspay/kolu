@@ -67,7 +67,10 @@ The **TypeScript half**, as data and pure functions:
   the one fenced fold from status to the host tab's mark (`agentMarkOf`); its
   words (`agentMarkWords`, `agentMarkLabel`), which the hover, the download
   toasts and the Settings line share, with a failure's cause, remedy and retry
-  worded once (`agentFailureLines`); the moments a download is worth a toast
+  worded once (`agentFailureLines`); the agents line with versions
+  (`versionsLine`, each version cut of its `+` suffix by `displayVersion`,
+  upstream's picker's own rule, so Settings, the receipt line and
+  `agent-distro` agree); the moments a download is worth a toast
   (`downloadEdge`); the stored preference — `null` until someone chooses — and
   the one fold from it to the setting new terminals get (`agentDistroSettingOf`,
   `agentsChosen`), the one whole-value writer behind the Agents control

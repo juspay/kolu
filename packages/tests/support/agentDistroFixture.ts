@@ -7,7 +7,7 @@
  * profile's bundle, laid out as upstream's:
  *
  *     bin/claude                        prints "agent-distro fixture: <name> claude"
- *     bin/agent-distro                  the profile's picker: prints its listing
+ *     bin/agent-distro                  the profile's picker: prints "agent-distro picker fixture: <name>"
  *     share/agent-distro/profile.json   its name and description (kolu-server reads it)
  *     share/agent-distro/versions       its harnesses (kolu-server and padi read it)
  *
@@ -61,6 +61,13 @@ export function fixtureProfile(name: string): {
  *  this, and it is never typed (the command is just `claude`). */
 export function fixtureClaudeSays(profile: string): string {
   return `agent-distro fixture: ${profile} claude`;
+}
+
+/** What a profile's stub picker (`agent-distro`) prints: one plain line, as a
+ *  command for people does. Not a substring of {@link fixtureClaudeSays}'s
+ *  line, nor it of this, so neither run can satisfy the other's wait. */
+export function fixturePickerSays(profile: string): string {
+  return `agent-distro picker fixture: ${profile}`;
 }
 
 /** Every fixture path carries this, so a step can tell a fixture agent on the
@@ -219,11 +226,8 @@ function buildFixture(): Record<string, string> {
     fs.mkdirSync(bin, { recursive: true });
     script(path.join(bin, "claude"), `echo "${fixtureClaudeSays(name)}"`);
     // The profile's own picker, as upstream's bundle carries it: a command for
-    // people (it prints this profile's listing), which kolu never runs.
-    script(
-      path.join(bin, "agent-distro"),
-      `printf '%s\\n' '${JSON.stringify({ profiles: [profile] })}'`,
-    );
+    // people, which kolu never runs.
+    script(path.join(bin, "agent-distro"), `echo "${fixturePickerSays(name)}"`);
     // The two files the bundle describes itself with, as a real one writes them.
     const share = path.join(root, "profiles", name, "share", "agent-distro");
     fs.mkdirSync(share, { recursive: true });

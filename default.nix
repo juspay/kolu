@@ -151,9 +151,9 @@ let
     inherit pkgs;
     src = sources.agent-distro;
     pluginSrc = ./agent-plugin;
-    # kolu-server's own boot read of the floor's profiles (the very functions
-    # `index.ts` calls), printing the listing it would serve. The floor proof
-    # runs it on the bake it resolved.
+    # kolu-server's own boot read of the floor's profiles (the one function
+    # `index.ts` calls, every boot check inside it), printing the listing it
+    # would serve. The floor proof runs it on the bake it resolved.
     readListing = pkgs.lib.escapeShellArgs [
       "${runtimeNode}/bin/node"
       "--import"
@@ -162,7 +162,7 @@ let
       "-e"
       ''
         const m = await import("${kolu}/packages/server/src/agentDistroListing.ts");
-        process.stdout.write(JSON.stringify(m.assertPlainProfiles(m.readAgentDistroListing())) + "\n");
+        process.stdout.write(JSON.stringify(m.readAgentDistroListing()) + "\n");
       ''
     ];
   };

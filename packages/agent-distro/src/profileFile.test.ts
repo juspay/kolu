@@ -35,7 +35,7 @@ describe("parseProfileFile", () => {
   it("throws on a field upstream does not write", () => {
     expect(() =>
       parseProfileFile('{"name":"vanilla","description":"d","tagline":"t"}'),
-    ).toThrow(/unknown field tagline/);
+    ).toThrow(/tagline/);
   });
 
   it("sits under the bundle", () => {

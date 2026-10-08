@@ -54,10 +54,7 @@ import {
 } from "./iframePreviewRoute.ts";
 import { log } from "./log.ts";
 import { enumerateDaemonInventoryOnce } from "./padi/daemonInventory.ts";
-import {
-  assertPlainProfiles,
-  readAgentDistroListing,
-} from "./agentDistroListing.ts";
+import { readAgentDistroListing } from "./agentDistroListing.ts";
 import { installNewTerminalPolicyPusher } from "./padi/newTerminalPolicy.ts";
 import { installPadiCellPusher } from "./padi/padiCellPusher.ts";
 import {
@@ -838,7 +835,7 @@ export async function bootKoluWeb(flags: KoluBootFlags): Promise<void> {
     // Read once, here: a baked floor that does not describe itself is a broken build and crashes the
     // boot; an unbaked (from-source) kolu reads `unavailable`. A profile kolu
     // cannot describe in plain words crashes the boot too.
-    agentDistroListing: assertPlainProfiles(readAgentDistroListing()),
+    agentDistroListing: readAgentDistroListing(),
   });
 
   // The ROOT procedures — kolu-server's own seven, bound as the third served

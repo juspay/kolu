@@ -229,12 +229,10 @@ let
       echo "FAIL: the floor manifest and the updater listing name different profiles — Settings would offer a profile padi refuses." >&2
       exit 1
     fi
+    # The listing names exactly the manifest's profiles by construction; a
+    # bundle that describes another profile makes this read fail.
     if ! listing=$(${readListing}); then
       echo "FAIL: kolu-server could not read the floor's profiles — it would refuse to boot on this build." >&2
-      exit 1
-    fi
-    if [ "$(jq -c '[.profiles[].name]' <<<"$listing")" != "$(jq -c '[.profiles[].name]' "$m")" ]; then
-      echo "FAIL: kolu-server lists different profiles than the floor manifest." >&2
       exit 1
     fi
     for p in $(jq -r '.profiles[].name' "$m"); do

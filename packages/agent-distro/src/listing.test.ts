@@ -59,16 +59,24 @@ describe("profileOfBundle", () => {
       profileOfBundle("vanilla", "/s/v", readFrom(noVersions)),
     ).toThrow(/ENOENT/);
   });
+
+  it("throws on a versions file that names no harness — a profile with no agents is a broken bundle", () => {
+    const empty = { ...FILES, "/s/v/share/agent-distro/versions": "" };
+    expect(() => profileOfBundle("vanilla", "/s/v", readFrom(empty))).toThrow();
+  });
 });
 
 describe("floorListing", () => {
-  it("lists every floor profile in the manifest's order, the default first", () => {
-    const listing = floorListing(MANIFEST, readFrom(FILES));
+  it("keeps the manifest's order — even one that does not lead with its default (kolu-server's boot read refuses that, not this)", () => {
+    const juspayFirst: AgentDistroManifest = {
+      default: "vanilla",
+      profiles: [...MANIFEST.profiles].reverse(),
+    };
+    const listing = floorListing(juspayFirst, readFrom(FILES));
     expect(listing.kind).toBe("available");
     if (listing.kind !== "available") return;
-    expect(listing.profiles.map((p) => p.name)).toEqual(["vanilla", "juspay"]);
-    expect(listing.profiles[0]?.name).toBe(MANIFEST.default);
-    expect(listing.profiles[1]?.harnesses).toEqual([
+    expect(listing.profiles.map((p) => p.name)).toEqual(["juspay", "vanilla"]);
+    expect(listing.profiles[0]?.harnesses).toEqual([
       { name: "claude", title: "Claude Code", version: "2.1.292" },
     ]);
   });

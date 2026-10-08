@@ -94,6 +94,20 @@ describe("readAgentDistroListing", () => {
     ).toThrow(/leads with 'juspay'.*'vanilla'/);
   });
 
+  it("fails the boot on a profile kolu has no plain words for — the boot read carries every check", () => {
+    const files = floorFiles("vanilla", ["vanilla", "mystery"]);
+    files["/s/mystery/share/agent-distro/profile.json"] =
+      '{"description":"m","name":"mystery"}';
+    files["/s/mystery/share/agent-distro/versions"] =
+      "claude\tClaude Code\t1\n";
+    expect(() =>
+      readAgentDistroListing(
+        { [AGENT_DISTRO_BUNDLE_ENV]: BUNDLE },
+        readFrom(files),
+      ),
+    ).toThrow(/PROFILE_PLAIN/);
+  });
+
   it("fails the boot when a bundle does not describe itself", () => {
     const files = floorFiles("vanilla");
     delete files["/s/juspay/share/agent-distro/profile.json"];

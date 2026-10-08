@@ -14,11 +14,16 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { agentBinDir } from "@kolu/agent-distro/bundle";
+import type { PtyHostSystemInfo } from "kaval";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import {
+  agentSpawnEnv,
+  composeSpawnInput,
+  setSpawnServerVersion,
+} from "../ptyHost/index.ts";
 import { assessAgentDistro, checkAgentDistroSetting } from "./agentDistro.ts";
 import { __setAgentDistroBakeForTest, type AgentDistroBake } from "./bake.ts";
-import { layerOnHost, withAgentLayer } from "./layer.ts";
+import { type AgentLayer, layerOnHost, withAgentLayer } from "./layer.ts";
 
 const ON = { enabled: true, profile: "vanilla" } as const;
 
@@ -30,11 +35,41 @@ function storeBundle(dir: string): void {
     writeFileSync(join(dir, "bin", command), "#!/bin/sh\n", { mode: 0o755 });
 }
 
-/** Throws unless `agent-distro` is an executable in the PATH dir a terminal
- *  gets for `bundle` — padi's spawn puts exactly `agentBinDir(bundle)` there. */
-function pickerOnPath(bundle: string): void {
-  accessSync(join(agentBinDir(bundle), "agent-distro"), fsConstants.X_OK);
+/** Where a shell would find `command` on the PATH a terminal spawned with
+ *  `layer` gets — the spawn input padi really composes, searched front to
+ *  back as `execvp` does. */
+function whichOnSpawnPath(
+  layer: AgentLayer,
+  command: string,
+): string | undefined {
+  const input = composeSpawnInput(
+    { id: "T-agents-path" },
+    {
+      shell: "/bin/sh",
+      home: root,
+      platform: "linux",
+      rcDir: root,
+    } as PtyHostSystemInfo,
+    {
+      kavalSocket: "/tmp/kaval-test/pty-host.sock",
+      toolsPath: [],
+      agents: agentSpawnEnv(layer),
+      serverVersion: "9.9.9-test",
+    },
+  );
+  for (const dir of (input.env.PATH ?? "").split(":")) {
+    const candidate = join(dir, command);
+    try {
+      accessSync(candidate, fsConstants.X_OK);
+      return candidate;
+    } catch {
+      // Not in this PATH entry; the next one may have it.
+    }
+  }
+  return undefined;
 }
+
+setSpawnServerVersion("9.9.9-test");
 
 let root: string;
 let savedStateHome: string | undefined;
@@ -43,7 +78,7 @@ function bake(opts: { floor: boolean }): AgentDistroBake {
   const floor = join(root, "floor");
   if (opts.floor) {
     for (const p of ["vanilla", "juspay"]) {
-      const target = join(root, `store-${p}-kolu`);
+      const target = join(root, `agent-distro-${p}`);
       storeBundle(target);
       mkdirSync(join(floor, "profiles"), { recursive: true });
       symlinkSync(target, join(floor, "profiles", p));
@@ -112,14 +147,14 @@ describe("layerOnHost — the bundle on disk", () => {
     __setAgentDistroBakeForTest(bake({ floor: true }));
     expect(layerOnHost(ON)).toEqual({
       profile: "vanilla",
-      bundle: join(root, "store-vanilla-kolu"),
+      bundle: join(root, "agent-distro-vanilla"),
       plugins: "/p/plugin",
     });
   });
 
   it("the host's `current` wins over the floor, resolved to its target", () => {
     __setAgentDistroBakeForTest(bake({ floor: true }));
-    const fetched = join(root, "store-fetched-vanilla");
+    const fetched = join(root, "agent-distro-vanilla-fetched");
     storeBundle(fetched);
     const stateDir = join(root, "state", "agent-distro", "vanilla");
     mkdirSync(stateDir, { recursive: true });
@@ -127,25 +162,32 @@ describe("layerOnHost — the bundle on disk", () => {
     expect(layerOnHost(ON)?.bundle).toBe(fetched);
   });
 
-  it("a terminal's PATH dir is the bundle's own bin/, so `agent-distro` is on it — on the floor and on a host's `current`", () => {
-    __setAgentDistroBakeForTest(bake({ floor: true }));
-    const onFloor = layerOnHost(ON);
-    if (onFloor === undefined) throw new Error("no layer on the floor");
-    expect(agentBinDir(onFloor.bundle)).toBe(
-      join(root, "store-vanilla-kolu", "bin"),
-    );
-    pickerOnPath(onFloor.bundle);
-    // A remote host (no floor), once its download lands `current`.
-    __setAgentDistroBakeForTest(bake({ floor: false }));
-    const fetched = join(root, "store-fetched-vanilla");
-    storeBundle(fetched);
-    const stateDir = join(root, "state", "agent-distro", "vanilla");
-    mkdirSync(stateDir, { recursive: true });
-    symlinkSync(fetched, join(stateDir, "current"));
-    const downloaded = layerOnHost(ON);
-    if (downloaded === undefined) throw new Error("no layer after download");
-    expect(agentBinDir(downloaded.bundle)).toBe(join(fetched, "bin"));
-    pickerOnPath(downloaded.bundle);
+  it("a new terminal's PATH finds `agent-distro` in the pinned bundle's bin/ — on the floor and on a host's `current`", () => {
+    const savedPath = process.env.PATH;
+    process.env.PATH = "/usr/bin:/bin";
+    try {
+      __setAgentDistroBakeForTest(bake({ floor: true }));
+      const onFloor = layerOnHost(ON);
+      if (onFloor === undefined) throw new Error("no layer on the floor");
+      expect(whichOnSpawnPath(onFloor, "agent-distro")).toBe(
+        join(root, "agent-distro-vanilla", "bin", "agent-distro"),
+      );
+      // A remote host (no floor), once its download lands `current`.
+      __setAgentDistroBakeForTest(bake({ floor: false }));
+      const fetched = join(root, "agent-distro-vanilla-fetched");
+      storeBundle(fetched);
+      const stateDir = join(root, "state", "agent-distro", "vanilla");
+      mkdirSync(stateDir, { recursive: true });
+      symlinkSync(fetched, join(stateDir, "current"));
+      const downloaded = layerOnHost(ON);
+      if (downloaded === undefined) throw new Error("no layer after download");
+      expect(whichOnSpawnPath(downloaded, "agent-distro")).toBe(
+        join(fetched, "bin", "agent-distro"),
+      );
+    } finally {
+      if (savedPath === undefined) delete process.env.PATH;
+      else process.env.PATH = savedPath;
+    }
   });
 
   it("a remote host before its first download → nothing yet", () => {
@@ -164,7 +206,7 @@ describe("layerOnHost — the bundle on disk", () => {
       kind: "ready",
       layer: {
         profile: "vanilla",
-        bundle: join(root, "store-vanilla-kolu"),
+        bundle: join(root, "agent-distro-vanilla"),
         plugins: "/p/plugin",
       },
     });
