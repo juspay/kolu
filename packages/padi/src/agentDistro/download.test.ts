@@ -43,6 +43,8 @@ import { __resetAgentDistroDownloadsForTest } from "./download.ts";
 import { __setAgentDistroBakeForTest, type AgentDistroBake } from "./bake.ts";
 
 const ON: AgentDistroSetting = { enabled: true, profile: "vanilla" };
+/** The fixture profiles' updater schedule: 02/08/14/20 UTC. */
+const SCHEDULE = { periodSeconds: 21600, offsetSeconds: 7200 } as const;
 const OFF: AgentDistroSetting = { enabled: false, profile: "vanilla" };
 
 // The stub updater: `node stub.mjs <config> --progress`, speaking the real
@@ -236,12 +238,11 @@ beforeEach(() => {
           profile: name,
           state: join(root, "state", "agent-distro", name),
           history: join(root, "state", "agent-distro", "history.log"),
-          periodSeconds: 21600,
-          offsetSeconds: 7200,
+          ...SCHEDULE,
         }),
         stateDir: join(root, "state", "agent-distro", name),
         historyFile: join(root, "state", "agent-distro", "history.log"),
-        schedule: { periodSeconds: 21600, offsetSeconds: 7200 },
+        schedule: SCHEDULE,
       },
     ] as const;
   const bake: AgentDistroBake = {
@@ -678,9 +679,7 @@ describe("scheduled updates: a failed run is retried, a skip waits", () => {
   // The policy's tick, on a fake wall clock (only `Date`: the stub still runs
   // in real time) from the next real boundary (02/08/14/20 UTC) — later than
   // any stamp a stub run writes now.
-  const t0 =
-    (Math.floor((Date.now() / 1000 - 7200) / 21600) + 1) * 21600 * 1000 +
-    7200 * 1000;
+  const t0 = nextBoundary(Math.floor(Date.now() / 1000), SCHEDULE) * 1000;
   beforeEach(() => {
     vi.useFakeTimers({ toFake: ["Date"] });
   });
@@ -766,7 +765,6 @@ describe("scheduled updates: a failed run is retried, a skip waits", () => {
 });
 
 describe("the boot check: padi's start looks once, forced unless it is due anyway", () => {
-  const SCHEDULE = { periodSeconds: 21600, offsetSeconds: 7200 };
   /** The fake wall clock (only \`Date\`: the stub runs in real time), an hour
    *  into the next real boundary's period — so a run's checks stay in ONE
    *  boundary, and a stamp written now by real time is before it. */

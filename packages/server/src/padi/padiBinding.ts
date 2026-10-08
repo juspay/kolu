@@ -40,7 +40,6 @@ import { createRequire } from "node:module";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import {
   currentPadiBuildId,
-  agentBakeOf,
   drainResidentOnAgentToolsBakeDrift,
   padiRuntimeHome,
   padiStderrLogPath,
@@ -777,17 +776,15 @@ export function ensurePadiBindingWith(
       // The kit's build axis cannot see the agent-tools bake (an env fact, not a
       // dependency edge of padi's source closure), so a padi surviving a kolu
       // upgrade keeps stamping its dead build's toolchain — the stale `kolu`
-      // shadow — into every NEW terminal; likewise agent-distro's bake, so a
-      // kolu whose agent-distro pin moved would leave padi on the old floor and
-      // updater config, and its boot update check would never run. The daemon
-      // records its bake beside its manifest; when a resident's record differs
-      // from what this build forwards (`daemonEnv`'s forwards), drain it once
+      // shadow — into every NEW terminal. The daemon records its bake beside its
+      // manifest; when a resident's record names a different toolchain than this
+      // build forwards (`daemonEnv`'s unconditional forward), drain it once
       // (persist + exit; its kaval + PTYs survive) so the converge below
       // respawns it with the current bake. Same-machine comparison only — the
       // ssh binder must never run this (see agentToolsBake.ts).
       if (!toolsBakeChecked) {
         toolsBakeChecked = true;
-        const ownBake = agentBakeOf(process.env);
+        const ownBake = process.env[AGENT_TOOLS_BAKE_ENV] ?? "";
         const drift = yield* drainResidentOnAgentToolsBakeDrift({
           runtimeDir: home.dir,
           socketPath: home.socketPath,
@@ -800,7 +797,7 @@ export function ensurePadiBindingWith(
         if (drift.kind === "drained") {
           log.info(
             { recorded: drift.recorded, ownBake },
-            `padi toolchain change on boot: ${drift.drifted.map((name) => `${name} recorded=${drift.recorded[name]} expected=${ownBake[name]}`).join("; ")}` +
+            `padi toolchain change on boot: recorded=${drift.recorded} expected=${ownBake}` +
               " — draining the survivor once (persist + exit; its kaval + PTYs survive) and " +
               "respawning with this build's toolchain (drain-on-tools-drift, #2146).",
           );

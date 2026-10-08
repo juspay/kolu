@@ -89,7 +89,7 @@ export const SHARED_ARTIFACTS: readonly SharedArtifact[] = [
     versionField: null,
     diskBasenames: ["agent-tools-bake"],
     diskBasenamePatterns: [],
-    why: "The bake the running daemon acts on — the toolchain it stamps into terminals and agent-distro's bake (updater listing, floor, plugin dir) — recorded so a same-machine supervisor of a newer build can see bake drift and recycle the daemon (#2146); a record predating the agent-distro fields compares on the toolchain alone. Absent (an older daemon) → no drift verdict; the build-mismatch drain covers that window because the build introducing the record changed padi's source closure.",
+    why: "The toolchain bake the running daemon stamps into terminals, recorded so a same-machine supervisor of a newer build can see toolchain drift and recycle the daemon (#2146). Absent (an older daemon) → no drift verdict; the build-mismatch drain covers that window because the build introducing the record changed padi's source closure.",
   },
   {
     id: "padi-state-root-config",

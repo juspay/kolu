@@ -25,10 +25,7 @@ export {
 // `padi --stdio` front's. Re-exported through this barrel (not a deep
 // `@kolu/padi/agent-tools-bake` import) for the same package-boundary-seal
 // reason as `currentPadiBuildId` above.
-export {
-  agentBakeOf,
-  drainResidentOnAgentToolsBakeDrift,
-} from "./agentToolsBake.ts";
+export { drainResidentOnAgentToolsBakeDrift } from "./agentToolsBake.ts";
 // padi's staleKey read — the binder's build-convergence key (#1670). Re-exported
 // through this barrel (not a deep `@kolu/padi/buildId` import) so the binder honors
 // the package-boundary seal: on boot it compares its own baked `PADI_BUILD_ID`

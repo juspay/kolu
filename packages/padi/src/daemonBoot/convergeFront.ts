@@ -70,15 +70,13 @@ import {
   probeDaemonIdentity,
 } from "@kolu/surface-daemon-supervisor";
 import { Effect } from "effect";
+import { AGENT_TOOLS_BAKE_ENV } from "kolu-pty";
 import {
   bakedOsFactsBin,
   osfactsSocketHolders,
   processIdentityAsync,
 } from "osfacts-client";
-import {
-  agentBakeOf,
-  drainResidentOnAgentToolsBakeDrift,
-} from "../agentToolsBake.ts";
+import { drainResidentOnAgentToolsBakeDrift } from "../agentToolsBake.ts";
 import { padiConvergencePolicy } from "../convergencePolicy.ts";
 import { padiStderrLogPath } from "../stateRoot.ts";
 import { currentPadiBuildId } from "./buildId.ts";
@@ -181,11 +179,10 @@ export function convergeStdioFront(
     // from the freshly provisioned closure, so its own bake IS the toolchain a
     // current daemon would hand terminals. A resident whose record names a
     // different one survived a provision that changed only the client CLIs —
-    // invisible to the build axis — or a provision that moved only the
-    // agent-distro pin (its bake rides the same record) — and must be drained (persist + exit; kaval
+    // invisible to the build axis — and must be drained (persist + exit; kaval
     // + PTYs survive) so the converge below respawns it from THIS closure.
     // Same-machine comparison by construction: front and resident share a host.
-    const ownBake = agentBakeOf(process.env);
+    const ownBake = process.env[AGENT_TOOLS_BAKE_ENV] ?? "";
     const drift = yield* drainResidentOnAgentToolsBakeDrift({
       runtimeDir: home.dir,
       socketPath: home.socketPath,

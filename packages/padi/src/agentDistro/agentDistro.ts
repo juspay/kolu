@@ -28,16 +28,17 @@
  * upstream's retries — up to three runs a boundary, five minutes after the
  * failed one ended (`@kolu/agent-distro/schedule`); a skip waits for the next
  * boundary. It also looks once when padi STARTS — on an upgrade that brings a
- * newer kolu (whose agent-distro bake, riding the `agent-tools-bake` record,
- * drains the old padi: `../agentToolsBake.ts`) or a reboot of the host: the
+ * newer kolu (the wrapper that bakes agent-distro also names the toolchain path
+ * the `agent-tools-bake` record carries, so a pin bump drains the old padi:
+ * `../agentToolsBake.ts`) or a reboot of the host: the
  * boot check, spent by the first tick that finds agents on and a baked profile.
  * If the due rule says an update is due anyway, that tick asks as a scheduled
  * one (a counted attempt, with its retries); otherwise it runs one update
  * FORCED, as `checkNow` does — so a newer kolu brings upstream's newer bundle
  * with it — and, like `checkNow`, that run is no scheduled attempt: it counts
  * toward no boundary's three and a failure of it earns no retry. A first
- * download in flight, or nothing serving, spends it without a run (that
- * download already fetches upstream's newest). The old bundle keeps serving until the new one has fully landed; a
+ * download in flight (which already fetches upstream's newest), or nothing
+ * serving, spends it without a run. The old bundle keeps serving until the new one has fully landed; a
  * run that skips or fails leaves it serving. Its status stays `ready`: the run
  * shows in the read-only `agentDistroReceipt` cell (which Settings words on the
  * host's own line) and the log.
@@ -386,12 +387,12 @@ export function onAgentUpdateTick(boundaryPassed: boolean): void {
   if (!setting.enabled || profile === undefined) return;
   const { schedule } = profile;
   const now = Math.floor(nowMs / 1000);
-  let asksAsAtBoundary = boundaryPassed;
   if (bootCheckPending) {
     bootCheckPending = false;
     if (updateDue(now, lastSuccessOf(profile), schedule)) {
-      // Due anyway: the scheduled ask takes it, so upstream's retries apply.
-      asksAsAtBoundary = true;
+      // Due anyway: the scheduled ask below takes it, so upstream's retries
+      // apply. The first tick with agents on is always a `poke()` (the setting
+      // write's, or the timer's start), which ticks with `boundaryPassed`.
     } else {
       const boot = checkForAgentUpdate({
         force: true,
@@ -405,7 +406,7 @@ export function onAgentUpdateTick(boundaryPassed: boolean): void {
     !scheduledAskNow({
       now,
       schedule,
-      boundaryPassed: asksAsAtBoundary,
+      boundaryPassed,
       askAgain,
       attempts,
     })
