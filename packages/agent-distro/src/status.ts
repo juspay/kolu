@@ -61,9 +61,10 @@ export function agentDistroChoice(
     : { enabled: true, profile: segment };
 }
 
-/** Is the first-run "choose your agents" step done? `undefined` while the
- *  profile listing has not arrived — the step is then neither asked nor done,
- *  because without the listing it could only offer Off. Otherwise:
+/** Is the first-run "choose your agents" step done? `undefined` is "not known
+ *  yet" — the step is then neither asked nor done: while the profile listing
+ *  has not arrived (without it the step could only offer Off), and while this
+ *  machine's status has not caught up with a choice (below). Otherwise:
  *
  *   - a kolu built without agents (`unavailable` listing): done — there is
  *     nothing to choose;
@@ -77,7 +78,9 @@ export function agentDistroChoice(
  *     machine's status has caught up with the choice — no frame yet, padi
  *     still `off`, or a status for another profile — it is not known yet
  *     (`undefined`), so a user who already chose never sees the row flash on a
- *     reload or after a kolu-server restart.
+ *     reload or after a kolu-server restart. A padi that never leaves `off`
+ *     after a choice therefore leaves the step neither asked nor done, by
+ *     design: there is nothing true to show about it.
  *
  *  That last reading is deliberate beyond the first run too: switching to a
  *  profile this machine must download, in Settings while no terminals are open,
@@ -391,7 +394,7 @@ export function agentsSegments(
 }
 
 /** Which segment the Agents control shows for a setting. */
-export function agentsSegmentOf(setting: AgentDistroSetting): string {
+function agentsSegmentOf(setting: AgentDistroSetting): string {
   return setting.enabled ? setting.profile : AGENTS_OFF;
 }
 
@@ -531,19 +534,19 @@ export function selectedAgentProfile(
 }
 
 /** The opening of both Agents hints: what kolu can bring. */
-export const AGENTS_LEAD =
+const AGENTS_LEAD =
   "Kolu can bring AI coding agents along — kept up to date, nothing to install:";
 
 /** What Off means, as a choice's line in both hints. */
-export const AGENTS_OFF_LINE = `Off — ${AGENTS_OFF_MEANS}`;
+const AGENTS_OFF_LINE = `Off — ${AGENTS_OFF_MEANS}`;
 
 /** The welcome card's form of the Agents hint — the same vocabulary as
  *  {@link agentsHint}, laid out for a welcome row: the lead with the agents of
- *  the profile in view on ONE line, then ONE line for the segment `segment`
- *  (the one under the keyboard focus, else the pressed one, else the resting
- *  one), so ← → read each choice out and the two lines never disagree. On Off
- *  the lead names the default profile's agents — what kolu would bring. `undefined` until the listing arrives, and for
- *  a kolu built without agents (the step does not ask there). */
+ *  the profile in view on ONE line, then ONE line for `segment` — the control's
+ *  keyboard tab stop, which it reports — so ← → read each choice out and the
+ *  two lines never disagree. On Off the lead names the default profile's
+ *  agents, what kolu would bring. `undefined` until the listing arrives, and
+ *  for a kolu built without agents (the step does not ask there). */
 export function agentsStepHint(input: {
   readonly listing: AgentDistroListing | undefined;
   readonly segment: string | undefined;

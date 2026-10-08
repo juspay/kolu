@@ -5,10 +5,8 @@ import type { AgentDistroListing } from "./listing.ts";
 import { DEFAULT_AGENT_PROFILE } from "./manifest.ts";
 import type { AgentDistroStatus } from "./schema.ts";
 import {
-  AGENTS_LEAD,
   AGENTS_NOT_CHOSEN,
   AGENTS_OFF,
-  AGENTS_OFF_LINE,
   agentsStepHint,
   agentDistroChoice,
   agentDistroSettingOf,
@@ -33,7 +31,6 @@ import {
   agentToast,
   AGENTS_OFF_MEANS,
   agentsHint,
-  agentsSegmentOf,
   agentsSegments,
   downloadBytes,
   downloadEdge,
@@ -229,15 +226,6 @@ describe("the one Agents control", () => {
       agentsSegments([{ name: AGENTS_OFF, description: "", harnesses: [] }]),
     ).toThrow();
   });
-
-  it("shows Off when disabled, whatever profile is remembered", () => {
-    expect(agentsSegmentOf({ enabled: false, profile: "juspay" })).toBe(
-      AGENTS_OFF,
-    );
-    expect(agentsSegmentOf({ enabled: true, profile: "juspay" })).toBe(
-      "juspay",
-    );
-  });
 });
 
 describe("agentsHint", () => {
@@ -311,7 +299,7 @@ describe("the stored Agents value — `null` is never chosen", () => {
     expect(agentsChosen(VANILLA_ON)).toBe(true);
   });
 
-  it("agentsPressedSegment: none while nothing is chosen, the choice after", () => {
+  it("agentsPressedSegment: none while nothing is chosen, the choice after (Off whatever profile is remembered)", () => {
     expect(agentsPressedSegment(null)).toBeUndefined();
     expect(agentsPressedSegment({ enabled: false, profile: "juspay" })).toBe(
       AGENTS_OFF,
@@ -344,7 +332,9 @@ describe("the stored Agents value — `null` is never chosen", () => {
 });
 
 describe("agentsStepHint — the welcome card's form of the hint", () => {
-  const LEAD = `${AGENTS_LEAD} Claude Code 2.1.291 · Codex 0.160.1`;
+  const BARE_LEAD =
+    "Kolu can bring AI coding agents along — kept up to date, nothing to install:";
+  const LEAD = `${BARE_LEAD} Claude Code 2.1.291 · Codex 0.160.1`;
   /** The listing with juspay carrying agents of its own, so the lead can
    *  follow the profile in view. */
   const STEP_LISTING: AgentDistroListing = {
@@ -376,7 +366,7 @@ describe("agentsStepHint — the welcome card's form of the hint", () => {
     expect(
       agentsStepHint({ listing: STEP_LISTING, segment: "juspay" }),
     ).toEqual({
-      lead: `${AGENTS_LEAD} Claude Code 9.9.9`,
+      lead: `${BARE_LEAD} Claude Code 9.9.9`,
       choice: "juspay — Juspay's agents and skills, through Juspay's gateway",
     });
   });
@@ -398,14 +388,17 @@ describe("agentsStepHint — the welcome card's form of the hint", () => {
 
   it("a profile with no agents listed leaves the lead bare, never a dangling space", () => {
     expect(agentsStepHint({ listing: LISTING, segment: "juspay" })?.lead).toBe(
-      AGENTS_LEAD,
+      BARE_LEAD,
     );
   });
 
   it("shares its vocabulary with the Settings hint", () => {
     const settings = agentsHint({ listing: LISTING, stored: null })?.text ?? "";
-    expect(settings.startsWith(AGENTS_LEAD)).toBe(true);
-    expect(settings).toContain(AGENTS_OFF_LINE);
+    // juspay lists no agents in LISTING, so its step lead is the bare opening.
+    const bare = agentsStepHint({ listing: LISTING, segment: "juspay" });
+    const off = agentsStepHint({ listing: LISTING, segment: AGENTS_OFF });
+    expect(settings.startsWith(bare?.lead ?? "-")).toBe(true);
+    expect(settings).toContain(off?.choice ?? "-");
   });
 
   it("says nothing before the listing, or in a kolu built without agents", () => {

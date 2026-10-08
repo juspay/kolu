@@ -1,4 +1,5 @@
-/** Pure selection for the welcome-moments card.
+/** Selection for the welcome-moments card — pure, plus the one memo its
+ *  first-run flag rides ({@link latchKnown}).
  *
  *  Moments in priority order: Choose your coding agents · Pin · From another
  *  device · Run agents · Search · Add another machine · Shortcuts.
@@ -7,6 +8,8 @@
  *  never "done". The first-run agents choice leads, so it is the first row a
  *  new user reads; its done-predicate is `firstRunAgentsDone`
  *  (`@kolu/agent-distro/status`). */
+
+import { type Accessor, createMemo } from "solid-js";
 
 export type WelcomeMomentId =
   | "chooseAgents"
@@ -21,7 +24,9 @@ export interface WelcomeMomentFlags {
   /** `undefined` while it is not known yet — preferences or the profile
    *  listing not arrived, or this machine's status not caught up with a chosen
    *  set (`firstRunAgentsDone`): the moment is then neither a row nor in the
-   *  header, so a user who has chosen never sees it flash on a reload. */
+   *  header, so a user who has chosen never sees it flash on a reload. Read
+   *  through {@link latchKnown}, so a pick does not unmount the row while this
+   *  machine catches up with it. */
   chooseAgentsDone: boolean | undefined;
   pinDone: boolean;
   reachDone: boolean;
@@ -74,4 +79,16 @@ export function selectWelcomeMoments(
     else undone.push(id);
   }
   return { done, rows: undone.slice(0, 3) };
+}
+
+/** The last KNOWN reading of `read` — a `true` or `false` stays until the next
+ *  `true` or `false`, and `undefined` ("not known yet") changes nothing. A
+ *  fresh load starts with nothing known, so the moment stays hidden until it
+ *  is (no reload flash); and a pick, which leaves this machine's status behind
+ *  the choice for a moment, keeps the row it was made in instead of unmounting
+ *  it (and its focus) and mounting it again when a download begins. */
+export function latchKnown(
+  read: Accessor<boolean | undefined>,
+): Accessor<boolean | undefined> {
+  return createMemo<boolean | undefined>((last) => read() ?? last);
 }

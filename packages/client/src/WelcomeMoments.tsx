@@ -28,7 +28,7 @@ import {
   agentDistroStored,
   hostAgentStatus,
 } from "./agents/useAgentDistro";
-import { SettingHint } from "./settings/SettingRow";
+import { type HintVoice, SettingHint } from "./settings/SettingRow";
 import { useHostMembers } from "./host/useHostMembers";
 import { ACTIONS, advertisedNewTerminalKey } from "./input/actions";
 import { formatKeybind } from "./input/keyboard";
@@ -39,6 +39,7 @@ import { useActionContext } from "./useActionContext";
 import { useCommandPalette } from "./useCommandPalette";
 import { preferencesArrived } from "./wire";
 import {
+  latchKnown,
   selectWelcomeMoments,
   type WelcomeMomentId,
 } from "./welcomeMomentsSelect";
@@ -76,12 +77,21 @@ const doneLabel = (id: WelcomeMomentId): JSX.Element | undefined => {
   }
 };
 
+/** A welcome row's body voice — its line height and grey, typed ONCE: the
+ *  shell's body reads it, and so does a hint laid out inside a row (the agents
+ *  step's choice line, through `SettingHint`), so the row is one shade. */
+const MOMENT_VOICE: HintVoice = {
+  leading: "leading-snug",
+  muted: "text-fg-3",
+};
+
 const MomentShell: Component<{
   /** The row's mark: an emoji, or a logo (the agents step's). */
   icon: JSX.Element;
   title: string;
   body: JSX.Element;
-  /** Optional block under the body (the agents step's control, hint, status). */
+  /** Optional block under the body — the agents step's control, choice line
+   *  and status lines; the Pin row's manual-install steps. */
   details?: JSX.Element;
   docSlug: DocSlug;
   trailing?: JSX.Element;
@@ -106,7 +116,11 @@ const MomentShell: Component<{
           <div class="shrink-0 flex items-center">{props.trailing}</div>
         </Show>
       </div>
-      <div class="text-xs leading-snug text-fg-3 mt-0.5">{props.body}</div>
+      <div
+        class={`text-xs mt-0.5 ${MOMENT_VOICE.leading} ${MOMENT_VOICE.muted}`}
+      >
+        {props.body}
+      </div>
       {props.details}
       <div class="mt-0.5 text-xs">
         <DocLink slug={props.docSlug}>Learn more →</DocLink>
@@ -136,7 +150,7 @@ const ChooseAgentsMoment: Component = () => (
                 <div data-testid="welcome-agents-choice">
                   <SettingHint
                     hint={{ text: choice() }}
-                    voice="welcome"
+                    voice={MOMENT_VOICE}
                     class="mt-1"
                   />
                 </div>
@@ -165,7 +179,9 @@ const PinMoment: Component<{
     icon="📌"
     title="Pin it"
     trailing={
-      <Show when={props.pinState === "one-click"}>
+      // Only the one-click state has an action: the others pass none, so the
+      // shell draws no empty trailing box beside the title.
+      props.pinState === "one-click" ? (
         <button
           type="button"
           data-testid="welcome-install"
@@ -174,7 +190,7 @@ const PinMoment: Component<{
         >
           Install
         </button>
-      </Show>
+      ) : undefined
     }
     body={
       props.pinState === "one-click"
@@ -247,15 +263,20 @@ const WelcomeMoments: Component<{
     return state === "installed" ? null : state;
   };
 
+  // The step's last KNOWN reading: a pick leaves this machine's status behind
+  // the choice for a moment, and the row stays through it (`latchKnown`).
+  const chooseAgentsDone = latchKnown(() =>
+    preferencesArrived()
+      ? firstRunAgentsDone({
+          stored: agentDistroStored(),
+          listing: agentDistroListing(),
+          local: hostAgentStatus(LOCAL_HOST, "").status,
+        })
+      : undefined,
+  );
   const selection = createMemo(() =>
     selectWelcomeMoments({
-      chooseAgentsDone: preferencesArrived()
-        ? firstRunAgentsDone({
-            stored: agentDistroStored(),
-            listing: agentDistroListing(),
-            local: hostAgentStatus(LOCAL_HOST, "").status,
-          })
-        : undefined,
+      chooseAgentsDone: chooseAgentsDone(),
       pinDone: pinState() === "installed",
       reachDone: location.protocol === "https:",
       hostsDone: hosts().length > 1,
@@ -393,7 +414,7 @@ const WelcomeMoments: Component<{
 
   return (
     <div class="space-y-3" data-testid="welcome-moments">
-      <Show when={selection().done.length > 0}>
+      <Show when={doneIds().length > 0}>
         <div data-testid="welcome-moments-done" class="text-xs text-fg-3">
           <For each={doneIds()}>
             {(id, i) => (

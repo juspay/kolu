@@ -1,6 +1,6 @@
 /** One row in SettingsPopover — label + control on top, optional hint underneath.
- *  Label is the hero (`text-fg font-medium`); hint recedes (`text-fg-3/70`) so
- *  attention lands on the control, not the copy. TONE_CONFIG owns both the
+ *  Label is the hero (`text-fg font-medium`); hint recedes (`SETTING_VOICE`)
+ *  so attention lands on the control, not the copy. TONE_CONFIG owns both the
  *  color class and the glyph prefix so a new tone entry updates both in one
  *  place. Default tone is "muted". Optional `details` render under the hint,
  *  and optional `doc` a trailing docs link below them. */
@@ -8,26 +8,27 @@
 import { type Component, type JSX, Show } from "solid-js";
 import DocLink, { type DocSlug } from "../ui/DocLink";
 
-/** Where a hint is spoken: a Settings row (receding under its control), or a
- *  welcome-card row, where it is one voice with the row's body text. */
-export type HintVoice = "setting" | "welcome";
+/** Where a hint is spoken: its line height, and the grey of a muted hint.
+ *  Each place that lays a hint out owns its voice — a Settings row's is
+ *  {@link SETTING_VOICE}; a welcome row hands in its own body voice, so the
+ *  hint reads as one with the row's text. */
+export interface HintVoice {
+  readonly leading: string;
+  readonly muted: string;
+}
 
-const TONE_CONFIG = {
-  muted: {
-    colorClass: { setting: "text-fg-3/70", welcome: "text-fg-3" },
-    glyph: "",
-  },
-  warn: {
-    colorClass: { setting: "text-warning", welcome: "text-warning" },
-    glyph: "⚠ ",
-  },
-} as const;
-
-/** Line height per voice: a welcome row's body is `leading-snug`. */
-const VOICE_LEADING: Record<HintVoice, string> = {
-  setting: "leading-relaxed",
-  welcome: "leading-snug",
+/** A Settings row's voice: the hint recedes under its control. */
+const SETTING_VOICE: HintVoice = {
+  leading: "leading-relaxed",
+  muted: "text-fg-3/70",
 };
+
+/** Per tone: its colour in a given voice, and its glyph. A muted hint takes the
+ *  voice's grey; a warning keeps its own colour wherever it is spoken. */
+const TONE_CONFIG = {
+  muted: { colorClass: (voice: HintVoice) => voice.muted, glyph: "" },
+  warn: { colorClass: (_voice: HintVoice) => "text-warning", glyph: "⚠ " },
+} as const;
 
 export type Hint = { text: string; tone?: keyof typeof TONE_CONFIG };
 
@@ -41,12 +42,12 @@ export const SettingHint: Component<{
   class?: string;
 }> = (props) => {
   const cfg = () => TONE_CONFIG[props.hint.tone ?? "muted"];
-  const voice = () => props.voice ?? "setting";
+  const voice = () => props.voice ?? SETTING_VOICE;
   return (
     // `whitespace-pre-line`: a hint may carry a second line (the Agent
     // profile row's harness list); a one-line hint renders as before.
     <p
-      class={`text-xs whitespace-pre-line ${VOICE_LEADING[voice()]} ${cfg().colorClass[voice()]} ${props.class ?? ""}`}
+      class={`text-xs whitespace-pre-line ${voice().leading} ${cfg().colorClass(voice())} ${props.class ?? ""}`}
     >
       <Show when={cfg().glyph}>
         <span aria-hidden="true">{cfg().glyph}</span>

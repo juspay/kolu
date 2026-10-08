@@ -23,9 +23,12 @@
 import { Key } from "@solid-primitives/keyed";
 import {
   type Component,
+  createMemo,
+  createRenderEffect,
   createSignal,
   type JSX,
   onCleanup,
+  on,
   onMount,
   Show,
 } from "solid-js";
@@ -99,9 +102,11 @@ export default function SegmentedControl<T extends string>(props: {
    *  the focus (or what holds it is in the same dialog), so a control that
    *  mounts late never steals it from, say, an open palette. */
   autofocus?: boolean;
-  /** Told the option under the keyboard focus as it moves within the group,
-   *  and `undefined` when focus leaves it. */
-  onFocusChange?: (value: T | undefined) => void;
+  /** Told the roving tab stop ({@link rovingTabStop}) — at mount and each
+   *  time it moves: the option under the keyboard focus while focus is in the
+   *  group, else the pressed one, else the resting one. THE answer to "which
+   *  option is in view", so a caller that speaks about it never re-derives it. */
+  onTabStopChange?: (value: T | undefined) => void;
   /** Prefix for `data-testid` attributes on the group and each option. */
   testIdPrefix: string;
   /** ARIA role for the group container. `"toolbar"` opts into the rich
@@ -121,18 +126,19 @@ export default function SegmentedControl<T extends string>(props: {
 }): JSX.Element {
   const buttons = new Map<T, HTMLButtonElement>();
   const [focused, setFocused] = createSignal<T | undefined>();
-  const focusOn = (value: T | undefined) => {
-    setFocused(() => value);
-    props.onFocusChange?.(value);
-  };
-  const tabStop = () =>
+  const focusOn = (value: T | undefined) => setFocused(() => value);
+  // A memo: every button reads it, and the caller hears it only when it moves.
+  const tabStop = createMemo(() =>
     rovingTabStop({
       options: props.options,
       focused: focused(),
       value: props.value,
       restingValue: props.restingValue,
-    });
+    }),
+  );
   const tabIndexOf = (value: T) => (tabStop() === value ? 0 : -1);
+  // A render effect, so the caller hears the stop before the first paint.
+  createRenderEffect(on(tabStop, (stop) => props.onTabStopChange?.(stop)));
   const keep = (value: T) => (el: HTMLButtonElement) => {
     buttons.set(value, el);
     onCleanup(() => {

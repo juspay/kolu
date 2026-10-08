@@ -42,7 +42,7 @@ function mount(
   const [options, setOptions] =
     createSignal<readonly { value: V; label: string }[]>(OPTIONS);
   const picks: V[] = [];
-  const focusTrail: (V | undefined)[] = [];
+  const stopTrail: (V | undefined)[] = [];
   host = document.createElement("div");
   document.body.append(host);
   dispose = render(
@@ -52,7 +52,7 @@ function mount(
         value={value()}
         restingValue={restingValue}
         autofocus={extra.autofocus}
-        onFocusChange={(v) => focusTrail.push(v)}
+        onTabStopChange={(v) => stopTrail.push(v)}
         onChange={(v) => {
           picks.push(v);
           setValue(() => v);
@@ -75,7 +75,7 @@ function mount(
     document.activeElement?.dispatchEvent(
       new KeyboardEvent("keydown", { key: k, bubbles: true, cancelable: true }),
     );
-  return { button, tabStops, pressed, key, picks, setOptions, focusTrail };
+  return { button, tabStops, pressed, key, picks, setOptions, stopTrail };
 }
 
 describe("SegmentedControl — the roving tab stop", () => {
@@ -144,18 +144,22 @@ describe("SegmentedControl — picking from the keyboard", () => {
     expect(c.picks).toEqual(["juspay"]);
   });
 
-  it("tells the host which option the keyboard is on, and when it leaves", () => {
-    const c = mount(undefined, "vanilla");
-    c.button("vanilla")?.focus();
+  it("tells the host the tab stop — at mount, as the keyboard moves, and back when it leaves", () => {
+    const c = mount("juspay", "vanilla");
+    c.button("juspay")?.focus();
     c.key("ArrowLeft");
-    c.button("off")?.blur();
-    // (happy-dom may not set `relatedTarget` on the move, so only the order of
-    // the named stops and the final leave are pinned.)
-    expect(c.focusTrail.filter((v) => v !== undefined)).toEqual([
-      "vanilla",
-      "off",
-    ]);
-    expect(c.focusTrail.at(-1)).toBeUndefined();
+    c.button("vanilla")?.blur();
+    expect(c.stopTrail).toEqual(["juspay", "vanilla", "juspay"]);
+    // The stop it reports is the one the buttons carry.
+    expect(c.tabStops()).toEqual([c.stopTrail.at(-1)]);
+  });
+
+  it("reports the resting option, not a pressed value the options do not hold", () => {
+    // An unknown stored choice: nothing it names is on offer, so the stop — and
+    // what the host is told — is the resting option.
+    const c = mount("gone" as V, "vanilla");
+    expect(c.stopTrail).toEqual(["vanilla"]);
+    expect(c.tabStops()).toEqual(["vanilla"]);
   });
 });
 
