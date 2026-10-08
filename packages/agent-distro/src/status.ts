@@ -11,6 +11,7 @@
 
 import { formatBytes } from "@kolu/byte-units";
 import { agentBundleShortHash } from "./bundle.ts";
+import { DEFAULT_AGENT_PROFILE } from "./manifest.ts";
 import type {
   AgentDistroFailureReason,
   AgentDistroSetting,
@@ -18,6 +19,125 @@ import type {
   TerminalAgents,
 } from "./schema.ts";
 import type { AgentDistroListing, AgentDistroProfile } from "./listing.ts";
+
+/** What "never chosen" means for new terminals: off, on the default profile, so
+ *  turning agents on later starts there. ONE shared value, so a reader of the
+ *  fold sees no change on an unrelated preference write while nothing is chosen. */
+const NEVER_CHOSEN_SETTING: AgentDistroSetting = Object.freeze({
+  enabled: false,
+  profile: DEFAULT_AGENT_PROFILE,
+});
+
+/** Has anyone chosen yet? THE one test for "never chosen" — the absence of a
+ *  value. Every fold here that cares asks it; read elsewhere only where that
+ *  difference shows: the first-run step and the Agents control's selection and
+ *  hint. */
+export function agentsChosen(
+  stored: AgentDistroSetting | null,
+): stored is AgentDistroSetting {
+  return stored !== null;
+}
+
+/** THE fold from the stored Agents preference to the setting it means. `null`
+ *  is "nobody has chosen yet", and it behaves as off ({@link NEVER_CHOSEN_SETTING}).
+ *  Every consumer that needs the effective setting (the push to padi, a tile's
+ *  pill, the status lines) reads it through here, so `null` is handled in
+ *  exactly one place and padi's wire schema never sees it. */
+export function agentDistroSettingOf(
+  stored: AgentDistroSetting | null,
+): AgentDistroSetting {
+  return agentsChosen(stored) ? stored : NEVER_CHOSEN_SETTING;
+}
+
+/** The whole value a pick on the Agents control writes — the ONE writer both
+ *  the Settings row and the first-run step go through. Off keeps the profile
+ *  already stored, so turning agents back on returns to it. */
+export function agentDistroChoice(
+  segment: string,
+  stored: AgentDistroSetting | null,
+): AgentDistroSetting {
+  return segment === AGENTS_OFF
+    ? { enabled: false, profile: agentDistroSettingOf(stored).profile }
+    : { enabled: true, profile: segment };
+}
+
+/** Is the first-run "choose your agents" step done? `undefined` is "not known
+ *  yet" — the step is then neither asked nor done: while the profile listing
+ *  has not arrived (without it the step could only offer Off), and while this
+ *  machine's status has not caught up with a choice (below). Otherwise:
+ *
+ *   - a kolu built without agents (`unavailable` listing): done — there is
+ *     nothing to choose;
+ *   - agents off — nothing chosen yet, or Off picked: not done. Off is not a
+ *     final answer: until agents are on, the welcome card keeps the choice at
+ *     the top, and picking Off leaves it there with no agents added. (Whether
+ *     anyone chose still matters elsewhere — {@link agentsChosen} decides the
+ *     step's autofocus and Settings' "nothing chosen yet" line.);
+ *   - a stored profile this kolu does not ship (Settings warns about it; its
+ *     status would never reach `ready`): done;
+ *   - a profile chosen: done once this machine has settled with it — the agents
+ *     are there (`ready`) or its padi has none to fetch (`unavailable`). While
+ *     this machine is still downloading, or the download failed, the step
+ *     stays, so a first-run user watches the agents arrive. Until this
+ *     machine's status has caught up with the choice — no frame yet, padi
+ *     still `off`, or a status for another profile — it is not known yet
+ *     (`undefined`), so a user who already chose never sees the row flash on a
+ *     reload or after a kolu-server restart. A padi that never leaves `off`
+ *     after a choice therefore leaves the step neither asked nor done, by
+ *     design: there is nothing true to show about it.
+ *
+ *  That last reading is deliberate beyond the first run too: switching to a
+ *  profile this machine must download, in Settings while no terminals are open,
+ *  brings the row back until the download lands — watching it arrive is the
+ *  same job. Fenced over the status kind. */
+export function firstRunAgentsDone(input: {
+  readonly stored: AgentDistroSetting | null;
+  /** The profile listing, `undefined` until its first frame. */
+  readonly listing: AgentDistroListing | undefined;
+  /** This machine's status, `undefined` until its first frame. */
+  readonly local: AgentDistroStatus | undefined;
+}): boolean | undefined {
+  const { stored, listing, local } = input;
+  if (listing === undefined) return undefined;
+  if (listing.kind === "unavailable") return true;
+  if (!agentsChosen(stored) || !stored.enabled) return false;
+  if (unknownProfileOf(stored, listing) !== undefined) return true;
+  if (local === undefined) return undefined;
+  switch (local.kind) {
+    case "unavailable":
+      return true;
+    case "off":
+      return undefined;
+    case "ready":
+    case "downloading":
+    case "error":
+      // A status for another profile is one padi has not caught up from.
+      if (local.profile !== stored.profile) return undefined;
+      return local.kind === "ready";
+    default:
+      return local satisfies never;
+  }
+}
+
+/** The first-run step's title — what the welcome card asks. */
+export const AGENTS_FIRST_RUN_TITLE = "Choose your coding agents";
+
+/** The welcome card's done line for the first-run step: the chosen profile
+ *  ("Agents: vanilla ✓"). `undefined` while agents are off — the step is not
+ *  done then ({@link firstRunAgentsDone}) — and in a kolu built without agents,
+ *  where nobody chose anything and the step is done only because there is
+ *  nothing to choose. */
+export function agentsChosenLabel(
+  setting: AgentDistroSetting,
+  listing: AgentDistroListing | undefined,
+): string | undefined {
+  if (listing?.kind === "unavailable" || !setting.enabled) return undefined;
+  return `Agents: ${setting.profile} ✓`;
+}
+
+/** What the Settings hint adds while nothing is chosen. */
+export const AGENTS_NOT_CHOSEN =
+  "Nothing chosen yet, so new terminals get no coding agents until you pick.";
 
 /** "1.1 GiB of 2.0 GiB" for a download's progress (`@kolu/byte-units`' binary
  *  units — the units Nix reports the bundle in), or `undefined` when there are no
@@ -279,8 +399,35 @@ export function agentsSegments(
 }
 
 /** Which segment the Agents control shows for a setting. */
-export function agentsSegmentOf(setting: AgentDistroSetting): string {
+function agentsSegmentOf(setting: AgentDistroSetting): string {
   return setting.enabled ? setting.profile : AGENTS_OFF;
+}
+
+/** The segment the Agents control shows PRESSED for the stored value — none
+ *  while nothing is chosen, because nothing is. */
+export function agentsPressedSegment(
+  stored: AgentDistroSetting | null,
+): string | undefined {
+  return agentsChosen(stored) ? agentsSegmentOf(stored) : undefined;
+}
+
+/** kolu's default profile, as the listing carries it — THE one reading of
+ *  "the default is the listing's first": kolu-server refuses a listing that
+ *  does not lead with kolu's default profile. `undefined` when the listing has
+ *  not arrived, the build ships no agents, or it lists no profiles. */
+function defaultProfileOf(
+  listing: AgentDistroListing | undefined,
+): AgentDistroProfile | undefined {
+  return listing?.kind === "available" ? listing.profiles[0] : undefined;
+}
+
+/** Where the Agents control's keyboard rests while agents are off (nothing
+ *  chosen, or Off pressed): the default profile ({@link defaultProfileOf}), so
+ *  Enter turns agents on with it. Off when there is none. */
+export function agentsRestingSegment(
+  listing: AgentDistroListing | undefined,
+): string {
+  return defaultProfileOf(listing)?.name ?? AGENTS_OFF;
 }
 
 /** One host's agent-distro facts, for its line in Settings. */
@@ -400,21 +547,61 @@ export function selectedAgentProfile(
   return listing.profiles.find((p) => p.name === setting.profile);
 }
 
+/** The opening of both Agents hints: what kolu can bring. */
+const AGENTS_LEAD =
+  "Kolu can bring AI coding agents along — kept up to date, nothing to install:";
+
+/** What Off means, as a choice's line in both hints. */
+const AGENTS_OFF_LINE = `Off — ${AGENTS_OFF_MEANS}`;
+
+/** The welcome card's form of the Agents hint — the same vocabulary as
+ *  {@link agentsHint}, laid out for a welcome row: the lead with the agents of
+ *  the profile in view on ONE line, then ONE line for `segment` — the control's
+ *  keyboard tab stop, which it reports — so ← → read each choice out and the
+ *  two lines never disagree. On Off the lead names the default profile's
+ *  agents, what kolu would bring. `undefined` until the listing arrives, and
+ *  for a kolu built without agents (the step does not ask there). */
+export function agentsStepHint(input: {
+  readonly listing: AgentDistroListing | undefined;
+  readonly segment: string | undefined;
+}): { readonly lead: string; readonly choice: string | undefined } | undefined {
+  const { listing, segment } = input;
+  if (listing?.kind !== "available") return undefined;
+  const profile = listing.profiles.find((p) => p.name === segment);
+  const inView = profile ?? defaultProfileOf(listing);
+  const agents = inView === undefined ? "" : harnessLine(inView);
+  const lead = agents === "" ? AGENTS_LEAD : `${AGENTS_LEAD} ${agents}`;
+  if (segment === AGENTS_OFF) return { lead, choice: AGENTS_OFF_LINE };
+  return {
+    lead,
+    choice:
+      profile === undefined
+        ? undefined
+        : `${profile.name} — ${plainProfileDescription(profile)}`,
+  };
+}
+
 /** The Agents row's hint, written for someone who has never heard of
  *  agent-distro, a profile or the PATH — what they get, then what to do:
  *
  *   - off: that kolu can bring AI coding agents along, which ones (the default
  *     profile's, from the listing, with versions), what each choice means, what
  *     happens to new terminals, and what Off means;
+ *   - nothing chosen yet: the same, then that nothing is chosen
+ *     ({@link AGENTS_NOT_CHOSEN});
  *   - an unknown stored choice: the warning (never reset);
  *   - on: what the chosen profile is, in plain words, then its agents with
  *     versions. Where each machine stands is the status lines' job
- *     ({@link agentStatusLines}). */
+ *     ({@link agentStatusLines}).
+ *
+ *  It takes the STORED value — `null` while nothing is chosen — because that
+ *  difference is one of the things it says. */
 export function agentsHint(input: {
-  readonly setting: AgentDistroSetting;
+  readonly stored: AgentDistroSetting | null;
   readonly listing: AgentDistroListing | undefined;
 }): { readonly text: string; readonly tone: "muted" | "warn" } | undefined {
-  const { setting, listing } = input;
+  const { listing } = input;
+  const setting = agentDistroSettingOf(input.stored);
   if (listing === undefined) return undefined;
   if (listing.kind === "unavailable")
     return {
@@ -422,18 +609,18 @@ export function agentsHint(input: {
       tone: "muted",
     };
   if (!setting.enabled) {
-    // kolu-server refuses a listing that does not lead with kolu's default
-    // profile, so the first profile is the one a first choice most likely is.
-    const lead = listing.profiles[0];
+    // The default profile's agents: the one a first choice most likely is.
+    const lead = defaultProfileOf(listing);
     const choices = listing.profiles.map(
       (p) => `${p.name} (${plainProfileDescription(p)})`,
     );
     return {
       text: [
-        "Kolu can bring AI coding agents along — kept up to date, nothing to install:",
+        AGENTS_LEAD,
         ...(lead === undefined ? [] : [harnessLine(lead)]),
         `Pick ${orList(choices)}. New terminals then start with those agents; what you installed yourself stays as a fallback.`,
-        `Off — ${AGENTS_OFF_MEANS}`,
+        AGENTS_OFF_LINE,
+        ...(agentsChosen(input.stored) ? [] : [AGENTS_NOT_CHOSEN]),
       ].join("\n"),
       tone: "muted",
     };

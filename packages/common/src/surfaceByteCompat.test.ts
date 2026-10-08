@@ -40,7 +40,7 @@ describe("Preferences — the conf store's `preferences` field", () => {
         '"newTerminalCollapsed":false,"shuffleBehavior":"auto","scrollLock":true,' +
         '"attentionAlerts":true,"colorScheme":"dark","terminalRenderer":"auto",' +
         '"rightPanel":{"size":0.25,"codeTabTreeSize":0.35},' +
-        '"agentDistro":{"enabled":false,"profile":"vanilla"}}',
+        '"agentDistro":null}',
     );
   });
 

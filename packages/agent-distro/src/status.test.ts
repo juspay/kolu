@@ -2,9 +2,19 @@ import { GIB, MIB } from "@kolu/byte-units";
 import { describe, expect, it } from "vitest";
 import { agentBundleShortHash } from "./bundle.ts";
 import type { AgentDistroListing } from "./listing.ts";
+import { DEFAULT_AGENT_PROFILE } from "./manifest.ts";
 import type { AgentDistroStatus } from "./schema.ts";
 import {
+  AGENTS_NOT_CHOSEN,
   AGENTS_OFF,
+  agentsStepHint,
+  agentDistroChoice,
+  agentDistroSettingOf,
+  agentsChosen,
+  agentsChosenLabel,
+  agentsPressedSegment,
+  agentsRestingSegment,
+  firstRunAgentsDone,
   AGENTS_RETRY,
   agentFailureLines,
   agentFailureRemedy,
@@ -21,7 +31,6 @@ import {
   agentToast,
   AGENTS_OFF_MEANS,
   agentsHint,
-  agentsSegmentOf,
   agentsSegments,
   downloadBytes,
   downloadEdge,
@@ -184,6 +193,10 @@ const LISTING: AgentDistroListing = {
   ],
 };
 const VANILLA_ON = { enabled: true, profile: "vanilla" };
+/** The opening both Agents hints share, as the reader sees it — typed once here
+ *  so a reworded lead fails every test that pins it. */
+const BARE_LEAD =
+  "Kolu can bring AI coding agents along — kept up to date, nothing to install:";
 const BUNDLE =
   "/nix/store/nd11nx5f1dkf02cr9dhxqq4axg23vzgc-agent-distro-vanilla";
 
@@ -217,15 +230,6 @@ describe("the one Agents control", () => {
       agentsSegments([{ name: AGENTS_OFF, description: "", harnesses: [] }]),
     ).toThrow();
   });
-
-  it("shows Off when disabled, whatever profile is remembered", () => {
-    expect(agentsSegmentOf({ enabled: false, profile: "juspay" })).toBe(
-      AGENTS_OFF,
-    );
-    expect(agentsSegmentOf({ enabled: true, profile: "juspay" })).toBe(
-      "juspay",
-    );
-  });
 });
 
 describe("agentsHint", () => {
@@ -233,11 +237,11 @@ describe("agentsHint", () => {
 
   it("off: what kolu can bring, which agents (the default profile's, from the listing), the choices, the consequence", () => {
     expect(
-      agentsHint({ ...base, setting: { enabled: false, profile: "vanilla" } }),
+      agentsHint({ ...base, stored: { enabled: false, profile: "vanilla" } }),
     ).toEqual({
       tone: "muted",
       text: [
-        "Kolu can bring AI coding agents along — kept up to date, nothing to install:",
+        BARE_LEAD,
         "Claude Code 2.1.291 · Codex 0.160.1",
         "Pick vanilla (stock agents, your own API keys) or juspay (Juspay's agents and skills, through Juspay's gateway). New terminals then start with those agents; what you installed yourself stays as a fallback.",
         `Off — ${AGENTS_OFF_MEANS}`,
@@ -246,7 +250,7 @@ describe("agentsHint", () => {
   });
 
   it("on: what the profile is in plain words, then its agents with versions", () => {
-    expect(agentsHint({ ...base, setting: VANILLA_ON })).toEqual({
+    expect(agentsHint({ ...base, stored: VANILLA_ON })).toEqual({
       tone: "muted",
       text: [
         "Stock agents, your own API keys.",
@@ -257,13 +261,280 @@ describe("agentsHint", () => {
 
   it("keeps the unknown-choice warning, never resetting the choice", () => {
     expect(
-      agentsHint({ ...base, setting: { enabled: true, profile: "gone" } }),
+      agentsHint({ ...base, stored: { enabled: true, profile: "gone" } }),
     ).toEqual({ tone: "warn", text: unknownProfileMessage("gone") });
   });
 
   it("says nothing until the listing arrives", () => {
     expect(
-      agentsHint({ ...base, listing: undefined, setting: VANILLA_ON }),
+      agentsHint({ ...base, listing: undefined, stored: VANILLA_ON }),
+    ).toBeUndefined();
+  });
+
+  it("nothing chosen: the off explanation, then that nothing is chosen yet", () => {
+    const off = agentsHint({
+      ...base,
+      stored: { enabled: false, profile: "vanilla" },
+    });
+    expect(agentsHint({ ...base, stored: null })).toEqual({
+      tone: "muted",
+      text: `${off?.text}\n${AGENTS_NOT_CHOSEN}`,
+    });
+  });
+});
+
+describe("the stored Agents value — `null` is never chosen", () => {
+  it("agentDistroSettingOf: null is off on the default profile; a value is itself", () => {
+    expect(agentDistroSettingOf(null)).toEqual({
+      enabled: false,
+      profile: DEFAULT_AGENT_PROFILE,
+    });
+    // One shared value, so a memo over the fold never re-notifies on null.
+    expect(agentDistroSettingOf(null)).toBe(agentDistroSettingOf(null));
+    expect(DEFAULT_AGENT_PROFILE).toBe("vanilla");
+    const juspayOff = { enabled: false, profile: "juspay" };
+    expect(agentDistroSettingOf(juspayOff)).toBe(juspayOff);
+    expect(agentDistroSettingOf(VANILLA_ON)).toBe(VANILLA_ON);
+  });
+
+  it("agentsChosen is the absence of a value, and nothing else", () => {
+    expect(agentsChosen(null)).toBe(false);
+    expect(agentsChosen({ enabled: false, profile: "vanilla" })).toBe(true);
+    expect(agentsChosen(VANILLA_ON)).toBe(true);
+  });
+
+  it("agentsPressedSegment: none while nothing is chosen, the choice after (Off whatever profile is remembered)", () => {
+    expect(agentsPressedSegment(null)).toBeUndefined();
+    expect(agentsPressedSegment({ enabled: false, profile: "juspay" })).toBe(
+      AGENTS_OFF,
+    );
+    expect(agentsPressedSegment(VANILLA_ON)).toBe("vanilla");
+  });
+
+  it("agentsRestingSegment: the default (the listing's first) profile, Off when there is none", () => {
+    expect(agentsRestingSegment(LISTING)).toBe("vanilla");
+    expect(agentsRestingSegment({ kind: "available", profiles: [] })).toBe(
+      AGENTS_OFF,
+    );
+    expect(agentsRestingSegment({ kind: "unavailable" })).toBe(AGENTS_OFF);
+    expect(agentsRestingSegment(undefined)).toBe(AGENTS_OFF);
+  });
+
+  it("agentDistroChoice writes the whole value; Off keeps the stored profile", () => {
+    expect(agentDistroChoice("juspay", null)).toEqual({
+      enabled: true,
+      profile: "juspay",
+    });
+    expect(agentDistroChoice(AGENTS_OFF, null)).toEqual({
+      enabled: false,
+      profile: DEFAULT_AGENT_PROFILE,
+    });
+    expect(
+      agentDistroChoice(AGENTS_OFF, { enabled: true, profile: "juspay" }),
+    ).toEqual({ enabled: false, profile: "juspay" });
+    expect(
+      agentDistroChoice("vanilla", { enabled: false, profile: "juspay" }),
+    ).toEqual(VANILLA_ON);
+  });
+});
+
+describe("agentsStepHint — the welcome card's form of the hint", () => {
+  const LEAD = `${BARE_LEAD} Claude Code 2.1.291 · Codex 0.160.1`;
+  /** The listing with juspay carrying agents of its own, so the lead can
+   *  follow the profile in view. */
+  const STEP_LISTING: AgentDistroListing = {
+    kind: "available",
+    profiles: [
+      ...(LISTING.kind === "available" ? LISTING.profiles.slice(0, 1) : []),
+      {
+        name: "juspay",
+        description: "Juspay skills + Kolu",
+        harnesses: [
+          {
+            name: "claude",
+            title: "Claude Code",
+            tagline: "t",
+            version: "9.9.9",
+          },
+        ],
+      },
+    ],
+  };
+
+  it("the lead names the agents of the profile in view on one line; the choice line follows the segment", () => {
+    expect(
+      agentsStepHint({ listing: STEP_LISTING, segment: "vanilla" }),
+    ).toEqual({
+      lead: LEAD,
+      choice: "vanilla — stock agents, your own API keys",
+    });
+    expect(
+      agentsStepHint({ listing: STEP_LISTING, segment: "juspay" }),
+    ).toEqual({
+      lead: `${BARE_LEAD} Claude Code 9.9.9`,
+      choice: "juspay — Juspay's agents and skills, through Juspay's gateway",
+    });
+  });
+
+  it("on Off, or with nothing in view, the lead names the default profile's agents", () => {
+    expect(
+      agentsStepHint({ listing: STEP_LISTING, segment: AGENTS_OFF }),
+    ).toEqual({
+      lead: LEAD,
+      choice: `Off — ${AGENTS_OFF_MEANS}`,
+    });
+    expect(
+      agentsStepHint({ listing: STEP_LISTING, segment: undefined }),
+    ).toEqual({
+      lead: LEAD,
+      choice: undefined,
+    });
+  });
+
+  it("a profile with no agents listed leaves the lead bare, never a dangling space", () => {
+    expect(agentsStepHint({ listing: LISTING, segment: "juspay" })?.lead).toBe(
+      BARE_LEAD,
+    );
+  });
+
+  it("shares its vocabulary with the Settings hint", () => {
+    const settings = agentsHint({ listing: LISTING, stored: null })?.text ?? "";
+    // juspay lists no agents in LISTING, so its step lead is the bare opening.
+    const bare = agentsStepHint({ listing: LISTING, segment: "juspay" });
+    const off = agentsStepHint({ listing: LISTING, segment: AGENTS_OFF });
+    expect(settings.startsWith(bare?.lead ?? "-")).toBe(true);
+    expect(settings).toContain(off?.choice ?? "-");
+  });
+
+  it("says nothing before the listing, or in a kolu built without agents", () => {
+    expect(
+      agentsStepHint({ listing: undefined, segment: "vanilla" }),
+    ).toBeUndefined();
+    expect(
+      agentsStepHint({ listing: { kind: "unavailable" }, segment: AGENTS_OFF }),
+    ).toBeUndefined();
+  });
+});
+
+describe("firstRunAgentsDone — the first-run step's done-predicate", () => {
+  const OFF = { enabled: false, profile: "vanilla" };
+  /** One status of every kind — `satisfies` keeps it exhaustive. */
+  const STATUSES = {
+    off: { kind: "off" },
+    unavailable: { kind: "unavailable" },
+    downloading: { kind: "downloading", profile: "vanilla" },
+    ready: { kind: "ready", profile: "vanilla", bundle: BUNDLE },
+    error: {
+      kind: "error",
+      profile: "vanilla",
+      reason: "updater",
+      message: "m",
+    },
+  } as const satisfies {
+    [K in AgentDistroStatus["kind"]]: Extract<AgentDistroStatus, { kind: K }>;
+  };
+  const kinds = Object.keys(STATUSES) as AgentDistroStatus["kind"][];
+
+  it("is never done while nothing is chosen, whatever this machine says", () => {
+    for (const local of [undefined, ...Object.values(STATUSES)])
+      expect(
+        firstRunAgentsDone({ stored: null, listing: LISTING, local }),
+      ).toBe(false);
+  });
+
+  it("is never done while Off is chosen either — Off keeps the choice at the top", () => {
+    for (const local of [undefined, ...Object.values(STATUSES)]) {
+      expect(firstRunAgentsDone({ stored: OFF, listing: LISTING, local })).toBe(
+        false,
+      );
+      // Off with a remembered profile kolu no longer ships is still just Off.
+      expect(
+        firstRunAgentsDone({
+          stored: { enabled: false, profile: "gone" },
+          listing: LISTING,
+          local,
+        }),
+      ).toBe(false);
+    }
+  });
+
+  it("with a profile chosen, waits until this machine has settled — not known until its status catches up", () => {
+    const want: Record<AgentDistroStatus["kind"], boolean | undefined> = {
+      // padi still off: the push has not landed (a reload, a server restart).
+      off: undefined,
+      unavailable: true,
+      downloading: false,
+      ready: true,
+      error: false,
+    };
+    for (const kind of kinds)
+      expect(
+        firstRunAgentsDone({
+          stored: VANILLA_ON,
+          listing: LISTING,
+          local: STATUSES[kind],
+        }),
+      ).toBe(want[kind]);
+    expect(
+      firstRunAgentsDone({
+        stored: VANILLA_ON,
+        listing: LISTING,
+        local: undefined,
+      }),
+    ).toBeUndefined();
+  });
+
+  it("a status for another profile is one padi has not caught up from: not known yet", () => {
+    for (const kind of ["ready", "downloading", "error"] as const)
+      expect(
+        firstRunAgentsDone({
+          stored: { enabled: true, profile: "juspay" },
+          listing: LISTING,
+          local: STATUSES[kind],
+        }),
+      ).toBeUndefined();
+  });
+
+  it("is not known until the listing arrives — without it the step could only offer Off", () => {
+    for (const stored of [null, OFF, VANILLA_ON])
+      expect(
+        firstRunAgentsDone({ stored, listing: undefined, local: undefined }),
+      ).toBeUndefined();
+  });
+
+  it("is done at once in a kolu built without agents — there is nothing to choose", () => {
+    for (const stored of [null, OFF, VANILLA_ON])
+      expect(
+        firstRunAgentsDone({
+          stored,
+          listing: { kind: "unavailable" },
+          local: undefined,
+        }),
+      ).toBe(true);
+  });
+
+  it("is done for a stored profile this kolu does not ship — Settings warns; the row must not pin forever", () => {
+    expect(
+      firstRunAgentsDone({
+        stored: { enabled: true, profile: "gone" },
+        listing: LISTING,
+        local: STATUSES.downloading,
+      }),
+    ).toBe(true);
+  });
+
+  it("its done line names the chosen profile, and there is none while agents are off", () => {
+    expect(agentsChosenLabel(VANILLA_ON, LISTING)).toBe("Agents: vanilla ✓");
+    expect(
+      agentsChosenLabel({ enabled: true, profile: "juspay" }, LISTING),
+    ).toBe("Agents: juspay ✓");
+    expect(agentsChosenLabel(OFF, LISTING)).toBeUndefined();
+  });
+
+  it("has no done line in a kolu built without agents — nobody chose anything", () => {
+    expect(agentsChosenLabel(OFF, { kind: "unavailable" })).toBeUndefined();
+    expect(
+      agentsChosenLabel(VANILLA_ON, { kind: "unavailable" }),
     ).toBeUndefined();
   });
 });

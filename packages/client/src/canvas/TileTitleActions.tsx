@@ -14,7 +14,10 @@ import { activeArm, sleepingArm } from "@kolu/padi-client/surface";
 import type { TerminalId } from "kolu-common/surface";
 import { type Component, createMemo, Show } from "solid-js";
 import AgentProfileChip, { type ChipRestart } from "../agents/AgentProfileChip";
-import { hostAgentStatus } from "../agents/useAgentDistro";
+import {
+  agentDistroSetting,
+  hostAgentStatusOf,
+} from "../agents/useAgentDistro";
 import {
   agentRestartAction,
   agentRestartReady,
@@ -42,7 +45,6 @@ import {
 import Tip from "../ui/Tip";
 import { useCommandPalette } from "../useCommandPalette";
 import { useThemeManager } from "../useThemeManager";
-import { preferences } from "../wire";
 import type { HostKey } from "kolu-common/hostKey";
 
 /** Tile chrome buttons share this affordance. Theme pill is wider — it shows
@@ -80,8 +82,8 @@ const TileTitleActions: Component<{
       ? ({ kind: "current" } as const)
       : agentStalenessOf({
           terminal: m,
-          status: hostAgentStatus(props.host, "").status,
-          setting: preferences().agentDistro,
+          status: hostAgentStatusOf(props.host),
+          setting: agentDistroSetting(),
         });
   });
   // Restart only when there is something to restart INTO: agents now off (a

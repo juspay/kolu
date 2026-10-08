@@ -27,7 +27,11 @@ const WelcomeDialog: Component<{
     refocusOnClose
     size="md"
   >
-    <Dialog.Content class={`${chrome.class} p-6`} style={chrome.style}>
+    <Dialog.Content
+      data-testid="welcome-dialog"
+      class={`${chrome.class} p-6`}
+      style={chrome.style}
+    >
       <div class="flex items-center gap-2 mb-1">
         <img src="/favicon.svg" alt="kolu" class="w-6 h-6" />
         <Dialog.Label class="text-base font-semibold text-fg">

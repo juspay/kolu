@@ -44,7 +44,10 @@ export type FileTreeProps = {
    *  the Code tab overlays: one `node_modules/` row, never its contents).
    *  Pierre infers ordinary directories from path prefixes, so a slash-free
    *  entry is a file — the discriminator `onSelect` filters on, spelled once as
-   *  `isDirectoryPath` in `@kolu/solid-pierre/paths`. */
+   *  `isDirectoryPath` in `@kolu/solid-pierre/paths`. A changed inventory is
+   *  a NEW array (never one mutated in place): the tree answers `paths` and
+   *  `expandPaths` by identity, so the same arrays handed again are not a
+   *  change and re-open nothing. */
   paths: string[];
   gitStatus?: GitStatusEntry[];
   /** The host-owned selection to reflect in the tree. Writes here are
@@ -236,6 +239,11 @@ export const FileTree: Component<FileTreeProps> = (props) => {
   // `undefined` on the first post-`defer` run — which would drop the very
   // first delta's removals.
   let appliedPaths: readonly string[] = [];
+  // The host's `paths` and `expandPaths` arrays the tree last answered, by
+  // identity. Seeded at mount like `appliedPaths`, for the same reason.
+  let answered:
+    | { paths: string[]; expandPaths: readonly string[] | undefined }
+    | undefined;
 
   // Provenance gate for `onSelectionChange` (juspay/kolu#1841). Pierre is a
   // CONTROLLED component: the host drives its selection via `props.selectedPath`
@@ -481,6 +489,7 @@ export const FileTree: Component<FileTreeProps> = (props) => {
       // scroll). The folder is already expanded via `initialExpandedPaths`.
       if (reveal) tree.scrollToPath(reveal.path, { offset: "center" });
       appliedPaths = dropRedundantDirKeys(props.paths);
+      answered = { paths: props.paths, expandPaths: props.expandPaths };
       // Adopted empty; the (non-deferred) shadow-CSS effect below runs right
       // after this one in creation order and is what writes the content — one
       // call site for the rule, so the mount case can't drift from the change
@@ -519,7 +528,9 @@ export const FileTree: Component<FileTreeProps> = (props) => {
   // visible: the search-projected ancestors (`expandPaths`) and the selected
   // file's ancestors, so a freshly-added nested file or a filter match is
   // revealed. Expanding an already-open folder is a no-op, so this never
-  // collapses anything.
+  // collapses anything — and it runs only for a NEW `paths` or `expandPaths`,
+  // so a folder the user collapsed stays collapsed until the projection
+  // itself changes.
   //
   // On a throw: Pierre's `batch` has no rollback, so partial ops can leave
   // the store half-applied while `appliedPaths` still names the old inventory
@@ -537,7 +548,15 @@ export const FileTree: Component<FileTreeProps> = (props) => {
   createEffect(
     on(
       [() => props.paths, () => props.expandPaths],
-      ([paths]) => {
+      ([paths, expandPaths]) => {
+        // `on` re-runs whenever a source notifies, not when a value changes. A
+        // host that hands every prop through ONE changing object (the Code
+        // tab's per-mode frame) notifies both reads on any tick — a git-status
+        // frame included — with the very same arrays. Answering that would
+        // re-open `expandPaths` over a folder the user just collapsed.
+        if (answered?.paths === paths && answered.expandPaths === expandPaths)
+          return;
+        answered = { paths, expandPaths };
         // Capture once so closures (pathOps filter) keep a narrowed FileTree
         // handle — mutable `let tree` does not flow into arrow callbacks.
         const t = tree;
@@ -596,6 +615,8 @@ export const FileTree: Component<FileTreeProps> = (props) => {
           } catch (recoverErr) {
             // Recovery failed — bookkeeping may still be desynced; surface
             // loudly and leave appliedPaths so a later inventory can retry.
+            // Only a LATER (new) inventory: `answered` already names these
+            // arrays, so the same arrays handed again do not retry.
             const recovered = toError(recoverErr);
             props.onError(
               recovered.cause == null

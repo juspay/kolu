@@ -42,7 +42,6 @@ import {
   type AgentDistroProfile,
   AgentDistroProfileSchema,
 } from "@kolu/agent-distro/listing";
-import { DEFAULT_AGENT_PROFILE } from "@kolu/agent-distro/manifest";
 import { mibOf } from "@kolu/byte-units";
 
 import {
@@ -291,18 +290,24 @@ export const PreferencesSchema = Schema.Struct({
    *  rendering shift on focus swap at the cost of WebGL throughput. */
   terminalRenderer: Schema.Literals(["auto", "webgl", "dom"]),
   rightPanel: RightPanelPrefsSchema,
-  /** The Agents setting — see {@link AgentDistroPrefsSchema}. */
-  agentDistro: AgentDistroPrefsSchema,
+  /** The Agents setting — see {@link AgentDistroPrefsSchema}. `null` until
+   *  someone chooses: "never chosen" is the absence of a value, and it behaves
+   *  as off (`agentDistroSettingOf` in `@kolu/agent-distro/status` is the one
+   *  fold to the effective setting). */
+  agentDistro: Schema.NullOr(AgentDistroPrefsSchema),
 });
 
-/** Preference patch — top-level fields are optional; nested objects are deep-partial.
+/** Preference patch — top-level fields are optional; `rightPanel` is deep-partial.
  *
  *  The zod original was `.omit({rightPanel}).partial().extend({rightPanel:
  *  RightPanelPrefsSchema.partial().optional()})`; Effect spells the same three moves
  *  as field maps (`Struct.omit` / `Struct.map(optionalKey)` / `Struct.assign`).
  *  `optionalKey` — never `optional` — per the #17 law: a patch field is ABSENT when
  *  unset, and `Schema.optional` would round-trip an explicit `undefined` through
- *  `null`, which the local-authority merge below would then write as a real value. */
+ *  `null`, which the local-authority merge below would then write as a real value.
+ *
+ *  `agentDistro` is written WHOLE and never `null`: a choice is one value (built
+ *  by `agentDistroChoice`), and "never chosen" cannot be re-entered by any write. */
 export const PreferencesPatchSchema = PreferencesSchema.mapFields(
   Struct.omit(["rightPanel", "agentDistro"]),
 )
@@ -312,9 +317,7 @@ export const PreferencesPatchSchema = PreferencesSchema.mapFields(
       rightPanel: Schema.optionalKey(
         RightPanelPrefsSchema.mapFields(Struct.map(Schema.optionalKey)),
       ),
-      agentDistro: Schema.optionalKey(
-        AgentDistroPrefsSchema.mapFields(Struct.map(Schema.optionalKey)),
-      ),
+      agentDistro: Schema.optionalKey(AgentDistroPrefsSchema),
     }),
   );
 
@@ -415,11 +418,9 @@ export const DEFAULT_PREFERENCES: typeof PreferencesSchema.Type = {
     size: 0.25,
     codeTabTreeSize: 0.35,
   },
-  // OFF by default: kolu adds nothing to a terminal's PATH until the user
-  // turns Agents on (Settings → Agents; the first-run step that asks is K2).
-  // The profile it starts on is typed once, in `@kolu/agent-distro`'s
-  // `defaults.json` — the file the Nix half bakes as its default too.
-  agentDistro: { enabled: false, profile: DEFAULT_AGENT_PROFILE },
+  // Nobody has chosen yet: kolu adds nothing to a terminal's PATH, and the
+  // welcome card's first-run step asks (Settings → Agents is the same choice).
+  agentDistro: null,
 };
 
 // `applyPreferencesPatch` references `Preferences` / `PreferencesPatch`
@@ -431,8 +432,8 @@ type _Preferences = typeof PreferencesSchema.Type;
 type _PreferencesPatch = typeof PreferencesPatchSchema.Type;
 
 /** Pure merge of a `PreferencesPatch` into the current preferences.
- *  `rightPanel` and `agentDistro` are deep-merged so callers can patch a single nested field
- *  without supplying the rest of the object. Lives on the surface spec
+ *  `rightPanel` is deep-merged so callers can patch a single nested field
+ *  without supplying the rest of the object; `agentDistro` is replaced whole. Lives on the surface spec
  *  (`cells.preferences.patch`) so server (`implementSurface`) and client
  *  (`surfaceClient`'s default `applyPatch`) reach the same logic without
  *  a duplicate import. */
@@ -440,15 +441,12 @@ export function applyPreferencesPatch(
   current: _Preferences,
   patch: _PreferencesPatch,
 ): _Preferences {
-  const { rightPanel: rpPatch, agentDistro: adPatch, ...rest } = patch;
+  const { rightPanel: rpPatch, ...rest } = patch;
   return {
     ...current,
     ...rest,
     ...(rpPatch !== undefined && {
       rightPanel: { ...current.rightPanel, ...rpPatch },
-    }),
-    ...(adPatch !== undefined && {
-      agentDistro: { ...current.agentDistro, ...adPatch },
     }),
   };
 }

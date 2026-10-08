@@ -1,6 +1,6 @@
 ---
 title: AI coding agents
-description: "Kolu can bring AI coding agents into every new terminal — kept up to date, nothing to install — on this machine and on every host you add. Turn them on in Settings → Agents."
+description: "Kolu can bring AI coding agents into every new terminal — kept up to date, nothing to install — on this machine and on every host you add. Until agents are on, kolu asks which you want in the welcome card whenever no terminals are open, and in the Tutorial; Settings → Agents sets it at any time."
 order: 49
 section: "Agents & Attention"
 koluHero:
@@ -13,9 +13,9 @@ koluHero:
 import Aside from "../../components/docs/Aside.astro";
 
 Kolu can bring the AI coding agents along — **Claude Code, Codex, OpenCode, Pi
-and Oh My Pi** — kept up to date, with nothing for you to install. Turn them on in
-**Settings → Agents**, open a new terminal and type `claude`: it runs, and so do
-the others. Each one starts with kolu's own plugin loaded, so it can drive your
+and Oh My Pi** — kept up to date, with nothing for you to install. Kolu asks
+which set you want ([First run](#first-run)); pick one, open a new terminal and
+type `claude`: it runs, and so do the others. Each one starts with kolu's own plugin loaded, so it can drive your
 other kolu terminals out of the box. Agents you installed yourself keep working:
 kolu's come first, yours stay as the fallback.
 
@@ -23,20 +23,51 @@ You choose between the sets kolu ships — today **vanilla** (the stock agents)
 and **juspay** (Juspay's). Settings says what each one is, in a sentence, the
 moment you look at it ([Pick a set](#pick-a-set)).
 
-This is **off by default**, on a fresh install and on one that predates it, so
-kolu changes nothing in your terminals until you pick a set. The agents come from
+Until you choose, nothing changes: kolu adds no agents to your terminals until
+you pick a set, on a fresh install and on one that predates this. The agents come from
 [agent-distro](https://github.com/juspay/agent-distro), a distribution of coding
 agents that kolu pins and ships; agent-distro calls each set a **profile**.
 
+## First run
+
+Until agents are on, kolu asks in three places:
+
+- the **welcome card**, whenever no terminals are open — the question leads it:
+  **Choose your coding agents**;
+- the palette's **Tutorial** command, which shows the same welcome at any time;
+- **Settings → Agents**, at any time, which says so while nothing is chosen yet.
+
+It is the same choice everywhere — **Off**, or one of the sets. Until agents are
+on, the welcome card keeps the choice at the top; pick **Off** and it stays
+there, with no agents added. If you upgraded and your session brings your terminals back, you will not see the
+welcome card: your terminals have no agents until you choose in Settings or the
+Tutorial.
+
+The first time, the choice already has the keyboard: press **Enter** to take
+**vanilla**, the stock agents; **←** and **→** move to **Off** and **juspay**, and
+the line under the choice says what each one means as you move. Once you pick a
+set, the question folds away into the welcome's done line — "Agents: vanilla ✓".
+On the machine running kolu that is at once, because the agents ship inside
+kolu; it stays only while this machine is still downloading them, or if that
+download failed.
+
+Pick **Off** and the question stays, with **Off** pressed. It no longer takes
+the keyboard when the welcome card appears, so an **Enter** out of habit
+changes nothing. When you tab into it, the keyboard lands on **vanilla**, so
+**Enter** there turns agents on.
+
+Nothing forces the question. **⌘⏎** still opens a terminal from anywhere; it just
+gets no agents, and the question stays until you answer it.
+
 ## Pick a set
 
-Open **Settings** (the gear in the top bar). One row, **Agents**, sets it:
+To change it later, open **Settings** (the gear in the top bar). One row, **Agents**, sets it:
 **Off**, or one of the sets the pinned agent-distro ships. Picking a set turns
 agents on with it; **Off** turns them off. Either way kolu tells you what changed
 for new terminals.
 
 The hint under the row says where things stand: with Off, what kolu can bring
-and what Off means; with a set chosen, what that set is and which agents (with
+and what Off means (and, before your first choice, that nothing is chosen yet); with a set chosen, what that set is and which agents (with
 their versions) it puts on your terminals. Hover a choice for agent-distro's own
 description of it.
 
@@ -142,7 +173,8 @@ the retry, and it downloads again. Nothing retries on its own.
 Settings → **Agents** → **Off**. From the next new terminal on, on every host,
 kolu adds no agents and no plugin variable; your own tools are what run.
 Terminals already open keep what they have, and keep their pill, until you close
-them (or restart them, which brings them back as a plain shell).
+them (or restart them, which brings them back as a plain shell). While agents
+are off, the welcome card keeps the choice at the top of every empty canvas.
 
 ## What doesn't change
 
