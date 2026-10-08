@@ -722,7 +722,7 @@
         "@parcel/watcher": "^2.5.1",
         "effect": "4.0.0",
         "p-limit": "^7.3.1",
-        "simple-git": "^3.36.0"
+        "simple-git": "^4.0.1"
       }
     },
     "kolu-github": {
