@@ -2,6 +2,16 @@
  * The daemon's AGENT-TOOLS BAKE RECORD, and the supervisor-side drift drain it
  * exists for (juspay/kolu#2146).
  *
+ * The record names EVERY bake env padi acts on: the toolchain
+ * (`KOLU_AGENT_TOOLS_PATH`) and agent-distro's bake (`./agentDistro/bake.ts`:
+ * the updater listing, the local floor, the plugin dir). The agent-distro pin
+ * reaches padi only through those env values, never its source closure, so
+ * without them a kolu upgrade that moves only that pin would leave the resident
+ * padi serving the old floor and updater config — and its boot check (one
+ * update run at start, `./agentDistro/agentDistro.ts`) would never run. With
+ * them a pin bump is bake drift: the supervisor drains the resident, the
+ * converge respawns it, and the new padi's boot check fetches upstream's newest.
+ *
  * ## The hole this closes
  *
  * The toolchain a padi stamps into every terminal (`KOLU_AGENT_TOOLS_PATH`, read
@@ -17,8 +27,8 @@
  *
  * Two halves, deliberately split daemon/supervisor:
  *
- *   - **The daemon states a fact.** At boot padi writes its own bake — the raw
- *     `KOLU_AGENT_TOOLS_PATH` value, `""` when unbaked — to `agent-tools-bake`
+ *   - **The daemon states a fact.** At boot padi writes its own bake — every
+ *     bake env's raw value, `""` when unset — to `agent-tools-bake`
  *     in its runtime rendezvous dir, beside the `state-root` manifest it already
  *     writes about itself. The runtime dir is boot-wiped, so the record can
  *     never outlive the daemon it describes.
@@ -60,6 +70,10 @@
  *
  * ## Dispositions across a mixed-version window
  *
+ *   - A record PREDATING the agent-distro fields (one line: the raw tools
+ *     value): read as the toolchain alone, its agent-distro fields absent —
+ *     never `""` — so only the toolchain is compared. Such a daemon is another
+ *     build anyway (`foreign-build`, the kit's drain).
  *   - Record ABSENT (a pre-record daemon, or a probe racing the boot write):
  *     no drift verdict. A pre-record daemon has a different `PADI_BUILD_ID` by
  *     construction (the build that introduced the record changed padi's source
@@ -83,14 +97,42 @@ import {
 } from "@kolu/surface-daemon-supervisor";
 import { Effect } from "effect";
 import { AGENT_TOOLS_BAKE_ENV } from "kolu-pty";
+import { AGENT_DISTRO_BAKE_ENVS } from "./agentDistro/bake.ts";
 
 /** The record's filename inside padi's runtime rendezvous dir (`padi-<digest>/`),
  *  beside `padi.sock` / `padi.pid` / `state-root`. Registered in the
  *  upgrade-window shared-artifact inventory (`upgradeWindow/sharedArtifacts.testlib.ts`). */
 export const AGENT_TOOLS_BAKE_RECORD_FILE = "agent-tools-bake";
 
-/** Write the record: the raw `KOLU_AGENT_TOOLS_PATH` value this daemon process
- *  was handed, `""` when unbaked — explicit absence-of-toolchain, distinct from
+/** Every bake env padi acts on, in the record's order: the toolchain, then
+ *  agent-distro's bake. */
+export const AGENT_BAKE_ENVS = [
+  AGENT_TOOLS_BAKE_ENV,
+  ...AGENT_DISTRO_BAKE_ENVS,
+] as const;
+export type AgentBakeName = (typeof AGENT_BAKE_ENVS)[number];
+
+/** A process's bake: every name's raw value, `""` when unset. */
+export type AgentBake = Readonly<Record<AgentBakeName, string>>;
+
+/** A resident's recorded bake. A name is ABSENT (not `""`) when the record
+ *  predates it — a one-line record carries the toolchain alone. */
+export type AgentBakeRecord = Readonly<Partial<Record<AgentBakeName, string>>>;
+
+/** The bake `env` carries — what a daemon spawned with `env` records. A
+ *  supervisor reads its own with this over `process.env`: kolu-server's binder
+ *  forwards each set name verbatim (`daemonEnv`) and the front's re-exec
+ *  inherits its env, so an unset name on either side is `""` on both. */
+export function agentBakeOf(
+  env: Record<string, string | undefined>,
+): AgentBake {
+  return Object.fromEntries(
+    AGENT_BAKE_ENVS.map((name) => [name, env[name] ?? ""]),
+  ) as AgentBake;
+}
+
+/** Write the record: {@link agentBakeOf} this daemon's env, as one JSON
+ *  object — `""` for an unset name is explicit absence-of-bake, distinct from
  *  an absent FILE (a daemon predating the record). Same write shape as kaval's
  *  `writeStateRootManifest` (owner-only dir + file). `env` is injectable so
  *  tests never touch the process env. */
@@ -101,25 +143,53 @@ export function writeAgentToolsBakeRecord(
   mkdirSync(runtimeDir, { recursive: true, mode: 0o700 });
   writeFileSync(
     join(runtimeDir, AGENT_TOOLS_BAKE_RECORD_FILE),
-    `${env[AGENT_TOOLS_BAKE_ENV] ?? ""}\n`,
+    `${JSON.stringify(agentBakeOf(env))}\n`,
     { mode: 0o600 },
   );
 }
 
-/** Read the record back: the recorded raw bake (possibly `""` — an unbaked
- *  daemon), or `undefined` when the file is absent/unreadable (a daemon
- *  predating the record). Never throws — mirrors `readStateRootManifest`,
- *  except `""` stays distinct from absence (both are meaningful here). */
+/** Read the record back, or `undefined` when the file is absent, unreadable, or
+ *  not a record (no verdict, as for a daemon predating the record). Never
+ *  throws — mirrors `readStateRootManifest`, except `""` stays distinct from
+ *  absence (both are meaningful here). A record of the toolchain alone (one
+ *  line, the raw value — written before the agent-distro fields; a tools PATH
+ *  never starts with `{`) reads as just that field. */
 export function readAgentToolsBakeRecord(
   runtimeDir: string,
-): string | undefined {
+): AgentBakeRecord | undefined {
   let raw: string;
   try {
     raw = readFileSync(join(runtimeDir, AGENT_TOOLS_BAKE_RECORD_FILE), "utf8");
   } catch {
     return undefined;
   }
-  return raw.split("\n", 1)[0] ?? "";
+  if (!raw.startsWith("{"))
+    return { [AGENT_TOOLS_BAKE_ENV]: raw.split("\n", 1)[0] ?? "" };
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return undefined;
+  }
+  if (typeof parsed !== "object" || parsed === null) return undefined;
+  const fields = parsed as Record<string, unknown>;
+  const record: Partial<Record<AgentBakeName, string>> = {};
+  for (const name of AGENT_BAKE_ENVS) {
+    const value = fields[name];
+    if (typeof value === "string") record[name] = value;
+  }
+  return record;
+}
+
+/** The names whose recorded value differs from `own` — only those the record
+ *  carries: a name it predates is no evidence either way. */
+export function agentBakeDrift(
+  recorded: AgentBakeRecord,
+  own: AgentBake,
+): readonly AgentBakeName[] {
+  return AGENT_BAKE_ENVS.filter(
+    (name) => recorded[name] !== undefined && recorded[name] !== own[name],
+  );
 }
 
 /** What the drift pre-check found and did. `in-sync` folds every no-verdict
@@ -130,25 +200,30 @@ export function readAgentToolsBakeRecord(
  *  follows. */
 export type AgentToolsBakeDriftOutcome =
   | { readonly kind: "in-sync" }
-  | { readonly kind: "foreign-build"; readonly recorded: string }
-  | { readonly kind: "no-resident"; readonly recorded: string }
-  | {
+  | ({ readonly kind: "foreign-build" } & AgentBakeDriftFact)
+  | ({ readonly kind: "no-resident" } & AgentBakeDriftFact)
+  | ({
       readonly kind: "probe-failed";
-      readonly recorded: string;
       readonly error: string;
-    }
-  | { readonly kind: "drained"; readonly recorded: string }
-  | {
+    } & AgentBakeDriftFact)
+  | ({ readonly kind: "drained" } & AgentBakeDriftFact)
+  | ({
       readonly kind: "drain-failed";
-      readonly recorded: string;
       readonly error: string;
-    };
+    } & AgentBakeDriftFact);
+
+/** What drifted: the resident's record, and the names that differ from the
+ *  supervisor's own bake. */
+export interface AgentBakeDriftFact {
+  readonly recorded: AgentBakeRecord;
+  readonly drifted: readonly AgentBakeName[];
+}
 
 /**
  * The same-machine supervisor pre-check: if the resident daemon's recorded bake
- * names a different toolchain than `ownBake` (what THIS supervisor's build
- * would hand terminals), drain the resident so the converge that follows
- * respawns it with the current toolchain.
+ * differs from `ownBake` (what THIS supervisor's build would hand the daemon —
+ * the toolchain, or agent-distro's bake), drain the resident so the converge
+ * that follows respawns it with the current bake.
  *
  * `probe` is the caller's own convergence probe (the kit's
  * `probeDaemonIdentity` product — the same value it hands `createEndpoint`), so
@@ -164,8 +239,9 @@ export function drainResidentOnAgentToolsBakeDrift(opts: {
   readonly runtimeDir: string;
   /** The resident's socket — what the probe dials. */
   readonly socketPath: string;
-  /** The bake THIS supervisor's build carries (raw env value; `""` = unbaked). */
-  readonly ownBake: string;
+  /** The bake THIS supervisor's build carries ({@link agentBakeOf} its env);
+   *  an empty toolchain (`""`) is an unbaked supervisor, which never judges. */
+  readonly ownBake: AgentBake;
   /** This supervisor's `PADI_BUILD_ID` (`currentPadiBuildId()`; `""` off-nix).
    *  A resident of a DIFFERENT build is `foreign-build` — deferred untouched to
    *  the kit's own build axis, so its drain-once breadcrumb, budget, and the
@@ -183,13 +259,11 @@ export function drainResidentOnAgentToolsBakeDrift(opts: {
     // The whole drift policy, inline so the record's `""`-vs-absent distinction
     // is decided exactly once: an unbaked supervisor never judges; an absent
     // record is the build-mismatch machinery's window, not ours.
-    if (
-      opts.ownBake === "" ||
-      recorded === undefined ||
-      recorded === opts.ownBake
-    ) {
+    if (opts.ownBake[AGENT_TOOLS_BAKE_ENV] === "" || recorded === undefined)
       return { kind: "in-sync" } as const;
-    }
+    const drifted = agentBakeDrift(recorded, opts.ownBake);
+    if (drifted.length === 0) return { kind: "in-sync" } as const;
+    const fact = { recorded, drifted };
     const probed = yield* opts.probe(opts.socketPath).pipe(
       Effect.map((probe) => ({ kind: "ok" as const, probe })),
       Effect.catch((error) =>
@@ -197,25 +271,25 @@ export function drainResidentOnAgentToolsBakeDrift(opts: {
       ),
     );
     if (probed.kind === "err") {
-      return { kind: "probe-failed", recorded, error: probed.error } as const;
+      return { kind: "probe-failed", ...fact, error: probed.error } as const;
     }
     if (probed.probe === null) {
-      return { kind: "no-resident", recorded } as const;
+      return { kind: "no-resident", ...fact } as const;
     }
     const probe = probed.probe;
     if (!buildsMatch(daemonBuild(opts.ownBuildId), probe.identity.build)) {
       probe.dispose();
-      return { kind: "foreign-build", recorded } as const;
+      return { kind: "foreign-build", ...fact } as const;
     }
     return yield* drainAndAwaitExit(probe.fireDrain, probe.awaitExit, {
       ceilingMs: probe.drainCeilingMs,
     }).pipe(
       Effect.map(({ took, drainRejection }) =>
         took
-          ? ({ kind: "drained", recorded } as const)
+          ? ({ kind: "drained", ...fact } as const)
           : ({
               kind: "drain-failed",
-              recorded,
+              ...fact,
               error:
                 `the daemon's socket did not close within ${probe.drainCeilingMs}ms` +
                 drainRejectionSuffix(drainRejection),
@@ -224,7 +298,7 @@ export function drainResidentOnAgentToolsBakeDrift(opts: {
       Effect.catch((error) =>
         Effect.succeed({
           kind: "drain-failed",
-          recorded,
+          ...fact,
           error: String(error),
         } as const),
       ),
