@@ -11,7 +11,12 @@
  * is a buildEnv sibling, invisible to that derivation. So a kolu upgrade that
  * changes only the client CLIs leaves the resident padi "current" on every axis
  * the convergence kit can see, while every terminal it spawns keeps a dead
- * build's `kolu` at the head of `PATH`, shadowing the host's (#2146).
+ * build's `kolu` at the head of `PATH`, shadowing the host's (#2146). The
+ * toolchain path starts with the `$out/bin` of the wrapper that also bakes
+ * agent-distro, so agent-distro's bake drift is covered by this record without
+ * naming it — a pin bump moves the path on the machine running kolu (the floor
+ * rides that wrapper); a remote host's `padi-agent` carries no pin.
+ * `default.nix`'s in-derivation proofs pin that coupling.
  *
  * ## The mechanism
  *

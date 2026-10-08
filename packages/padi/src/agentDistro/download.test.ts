@@ -15,6 +15,7 @@ import {
   mkdtempSync,
   readFileSync,
   realpathSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -24,6 +25,7 @@ import type {
   AgentDistroSetting,
   AgentDistroStatus,
 } from "@kolu/agent-distro/schema";
+import { nextBoundary } from "@kolu/agent-distro/schedule";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   __resetPadiSurfaceCtxForTest,
@@ -35,11 +37,14 @@ import {
   newTerminalLayer,
   onAgentUpdateTick,
   onAgentDistroSettingWrite,
+  startAgentDistroUpdates,
 } from "./agentDistro.ts";
 import { __resetAgentDistroDownloadsForTest } from "./download.ts";
 import { __setAgentDistroBakeForTest, type AgentDistroBake } from "./bake.ts";
 
 const ON: AgentDistroSetting = { enabled: true, profile: "vanilla" };
+/** The fixture profiles' updater schedule: 02/08/14/20 UTC. */
+const SCHEDULE = { periodSeconds: 21600, offsetSeconds: 7200 } as const;
 const OFF: AgentDistroSetting = { enabled: false, profile: "vanilla" };
 
 // The stub updater: `node stub.mjs <config> --progress`, speaking the real
@@ -61,14 +66,23 @@ const land = () => {
   out({ result: "updated", bundle: process.env.STUB_BUNDLE });
 };
 // What the real updater writes beside \`current\`: the stamp of a successful
-// run, and one history line per event.
+// run (at the test's fake wall clock when it hands one over), and one history
+// line per event.
 const stamp = () =>
-  writeFileSync(cfg.state + "/last-success", Math.floor(Date.now() / 1000) + "\\n");
+  writeFileSync(cfg.state + "/last-success", Math.floor((Number(process.env.STUB_NOW_MS) || Date.now()) / 1000) + "\\n");
 const record = (event) =>
   appendFileSync(cfg.history, new Date().toISOString().slice(0, 19) + "Z " + cfg.profile + " " + event + "\\n");
 switch (process.env.STUB_MODE) {
   case "ok":
     out({ progress: { done: 1100000000, total: 2000000000 } });
+    land();
+    break;
+  case "okstamped":
+    // A first download as the real updater makes it: the stamp, the history
+    // line, then the result (upstream's \`src/update/update.ts\` order).
+    mkdirSync(cfg.state, { recursive: true });
+    stamp();
+    record("updated: versions not recorded by this bundle");
     land();
     break;
   case "slow":
@@ -204,6 +218,7 @@ beforeEach(() => {
     "STUB_BUNDLE",
     "STUB_BUNDLE2",
     "STUB_MODE",
+    "STUB_NOW_MS",
   ])
     saved[k] = process.env[k];
   process.env.XDG_STATE_HOME = join(root, "state");
@@ -223,12 +238,11 @@ beforeEach(() => {
           profile: name,
           state: join(root, "state", "agent-distro", name),
           history: join(root, "state", "agent-distro", "history.log"),
-          periodSeconds: 21600,
-          offsetSeconds: 7200,
+          ...SCHEDULE,
         }),
         stateDir: join(root, "state", "agent-distro", name),
         historyFile: join(root, "state", "agent-distro", "history.log"),
-        schedule: { periodSeconds: 21600, offsetSeconds: 7200 },
+        schedule: SCHEDULE,
       },
     ] as const;
   const bake: AgentDistroBake = {
@@ -665,9 +679,7 @@ describe("scheduled updates: a failed run is retried, a skip waits", () => {
   // The policy's tick, on a fake wall clock (only `Date`: the stub still runs
   // in real time) from the next real boundary (02/08/14/20 UTC) — later than
   // any stamp a stub run writes now.
-  const t0 =
-    (Math.floor((Date.now() / 1000 - 7200) / 21600) + 1) * 21600 * 1000 +
-    7200 * 1000;
+  const t0 = nextBoundary(Math.floor(Date.now() / 1000), SCHEDULE) * 1000;
   beforeEach(() => {
     vi.useFakeTimers({ toFake: ["Date"] });
   });
@@ -749,5 +761,131 @@ describe("scheduled updates: a failed run is retried, a skip waits", () => {
     tick(false, t0 + 60_000); // asked again
     await settled();
     expect(runs()).toBe(first + 2);
+  });
+});
+
+describe("the boot check: padi's start looks once, forced unless it is due anyway", () => {
+  /** The fake wall clock (only \`Date\`: the stub runs in real time), an hour
+   *  into the next real boundary's period — so a run's checks stay in ONE
+   *  boundary, and a stamp written now by real time is before it. */
+  const boundary = nextBoundary(Math.floor(Date.now() / 1000), SCHEDULE);
+  const T = (boundary + 3600) * 1000;
+  /** After the boundary: the due rule alone answers \`notDue\`. */
+  const FRESH = boundary + 60;
+  /** Before it: due. */
+  const STALE = boundary - 3600;
+  const stateDir = () => join(root, "state", "agent-distro", "vanilla");
+  const stamp = (sec: number) =>
+    writeFileSync(join(stateDir(), "last-success"), `${sec}\n`);
+  /** A bundle already serving here (\`current\`), stamped \`last-success\`. */
+  function servingOnHost(stampSec: number): void {
+    mkdirSync(stateDir(), { recursive: true });
+    symlinkSync(process.env.STUB_BUNDLE as string, join(stateDir(), "current"));
+    stamp(stampSec);
+  }
+  let stop: (() => void) | undefined;
+  /** padi boots: nothing pushed yet (the cell's default), the timer started. */
+  function boot(): void {
+    agentDistroSettingStore.set({ enabled: false, profile: "" });
+    stop = startAgentDistroUpdates();
+  }
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(T);
+    // The stub stamps at the fake clock, as a run at \`T\` would.
+    process.env.STUB_NOW_MS = String(T);
+  });
+  afterEach(() => {
+    stop?.();
+    stop = undefined;
+    vi.useRealTimers();
+  });
+  /** The pushed setting's tick (queued a microtask after the write) has run,
+   *  and any run it started has ended. */
+  async function settled(): Promise<void> {
+    await new Promise((r) => setTimeout(r, 0));
+    await until((s) => s?.kind === "ready" && s.update === undefined);
+  }
+  /** The timer's tick at \`T + ms\`. */
+  async function tickAt(ms: number, boundaryPassed = false): Promise<void> {
+    vi.setSystemTime(T + ms);
+    onAgentUpdateTick(boundaryPassed);
+    await settled();
+  }
+  const runs = () => invocations().length;
+
+  it("agents on, a bundle serving, a fresh stamp: exactly one forced run — and the next tick runs nothing", async () => {
+    servingOnHost(FRESH);
+    process.env.STUB_MODE = "unchanged";
+    boot();
+    write(ON);
+    await settled();
+    expect(runs()).toBe(1);
+    expect(receipts.at(-1)?.lastRun?.outcome).toBe("unchanged");
+    // The same process: the due rule, as before (the run stamped just now).
+    await tickAt(60_000, true);
+    expect(runs()).toBe(1);
+    expect(checkForAgentUpdate({ force: false })).toBe("notDue");
+  });
+
+  it("pushed off: no run; turned on later in the same process: one forced run, then the due rule", async () => {
+    servingOnHost(FRESH);
+    process.env.STUB_MODE = "unchanged";
+    boot();
+    write(OFF);
+    await new Promise((r) => setTimeout(r, 0));
+    expect(runs()).toBe(0);
+    write(ON);
+    await settled();
+    expect(runs()).toBe(1);
+    // Turned off and on again: the boot check is spent; the stamp is fresh.
+    write(OFF);
+    write(ON);
+    await settled();
+    expect(runs()).toBe(1);
+  });
+
+  it("no bundle on the host yet (a remote host): the first download runs, and no second run follows it", async () => {
+    process.env.STUB_MODE = "okstamped";
+    boot();
+    write(ON);
+    await settled();
+    expect(runs()).toBe(1);
+    // The ask that met the download asks again: the stamp it wrote is fresh.
+    await tickAt(60_000);
+    await tickAt(120_000, true);
+    expect(runs()).toBe(1);
+  });
+
+  it("due anyway (a stale stamp): it asks as a scheduled one, so a failure is retried five minutes later", async () => {
+    servingOnHost(STALE);
+    process.env.STUB_MODE = "fail";
+    boot();
+    write(ON);
+    await settled();
+    expect(runs()).toBe(1);
+    await tickAt(300_000); // attempt 2
+    expect(runs()).toBe(2);
+  });
+
+  it("a forced boot run is no scheduled attempt: its failure earns no retry, and the boundary keeps all three", async () => {
+    servingOnHost(FRESH);
+    process.env.STUB_MODE = "fail";
+    boot();
+    write(ON);
+    await settled();
+    expect(runs()).toBe(1);
+    // A scheduled failure would retry at +5 and +10 minutes.
+    await tickAt(300_000);
+    await tickAt(600_000);
+    expect(runs()).toBe(1);
+    // The SAME boundary, now due: upstream's three attempts, all of them.
+    stamp(STALE);
+    await tickAt(660_000, true); // attempt 1
+    await tickAt(960_000); // attempt 2
+    await tickAt(1_260_000); // attempt 3
+    expect(runs()).toBe(4);
+    await tickAt(1_560_000); // out of attempts
+    expect(runs()).toBe(4);
   });
 });

@@ -27,8 +27,20 @@
  * boundary), and `checkNow` runs one at once. A scheduled run that FAILS gets
  * upstream's retries — up to three runs a boundary, five minutes after the
  * failed one ended (`@kolu/agent-distro/schedule`); a skip waits for the next
- * boundary. The old bundle keeps serving until the new one has fully landed; a
- * run that skips or fails leaves it serving. Its status stays `ready`: the run
+ * boundary. It also looks once when padi STARTS — on an upgrade that brings a
+ * newer kolu (the wrapper that bakes agent-distro also names the toolchain path
+ * the `agent-tools-bake` record carries, so on the machine running kolu, where
+ * the floor rides that wrapper, a pin bump drains the old padi; a remote host's
+ * `padi-agent` carries no pin: `../agentToolsBake.ts`) or a reboot of the host:
+ * the boot check, spent by the first tick that finds agents on and a baked
+ * profile. If the due rule says an update is due anyway, that tick asks as a
+ * scheduled one (a counted attempt, with its retries); otherwise it runs one
+ * update FORCED, as `checkNow` does — so a newer kolu brings upstream's newer
+ * bundle with it — and, like `checkNow`, that run is no scheduled attempt: it
+ * counts toward no boundary's three and a failure of it earns no retry. A first
+ * download in flight (which already fetches upstream's newest), or nothing
+ * serving, spends it without a run. The old bundle keeps serving until the new
+ * one has fully landed; a run that skips or fails leaves it serving. Its status stays `ready`: the run
  * shows in the read-only `agentDistroReceipt` cell (which Settings words on the
  * host's own line) and the log.
  */
@@ -342,6 +354,10 @@ let askAgain = false;
  *  its end is that run's), or `false` when no scheduled run is in flight. */
 let scheduledInFlight: { readonly before: AgentUpdateRun | undefined } | false =
   false;
+/** padi has started and has not yet spent its one boot check. Armed by
+ *  {@link startAgentDistroUpdates}; spent by the first tick that finds agents
+ *  on and a baked profile, whatever that tick then does. */
+let bootCheckPending = false;
 
 /** A scheduled run ended, now: note whether it FAILED, which earns a retry
  *  five minutes after this end (a skip does not). */
@@ -359,13 +375,29 @@ function scheduledRunEnded(): void {
 
 /** The timer's tick (`./scheduler.ts`): ask "is an update due" at a boundary,
  *  after an ask that met a run in flight, or to retry a failed scheduled run
- *  (`scheduledAskNow`); run one if upstream's rule says so. */
+ *  (`scheduledAskNow`); run one if upstream's rule says so. The first tick after
+ *  boot with agents on spends the boot check (the module header). */
 export function onAgentUpdateTick(boundaryPassed: boolean): void {
   const nowMs = Date.now();
   const setting = agentDistroSettingStore.get();
-  const schedule = agentDistroBake()?.profiles.get(setting.profile)?.schedule;
-  if (!setting.enabled || schedule === undefined) return;
+  const profile = agentDistroBake()?.profiles.get(setting.profile);
+  if (!setting.enabled || profile === undefined) return;
+  const { schedule } = profile;
   const now = Math.floor(nowMs / 1000);
+  if (bootCheckPending) {
+    bootCheckPending = false;
+    // Due anyway, the scheduled ask below takes it, so upstream's retries apply:
+    // the first tick with agents on is a `poke()`, which passes `boundaryPassed`.
+    if (
+      !updateDue(now, lastSuccessOf(profile), schedule) &&
+      checkForAgentUpdate({
+        force: true,
+        onStart: () =>
+          log.info("agent-distro: boot check; running the updater once"),
+      }) === "started"
+    )
+      return;
+  }
   if (!scheduledAskNow({ now, schedule, boundaryPassed, askAgain, attempts }))
     return;
   const outcome = checkForAgentUpdate({
@@ -387,10 +419,12 @@ let updateTimer: ReturnType<typeof startUpdateTimer> | undefined;
 
 /** Start keeping the chosen profile current: the timer asks at each schedule
  *  boundary (and right away whenever the setting changes) and the due rule
- *  decides. Idle while agents are off or this padi is unbaked. Also publishes
- *  the receipt for the setting padi boots with. Called once, at boot. */
+ *  decides — after the one boot check, which this arms. Idle while agents are
+ *  off or this padi is unbaked. Also publishes the receipt for the setting padi
+ *  boots with. Called once, at boot. */
 export function startAgentDistroUpdates(): () => void {
   publishReceiptLoud(agentDistroSettingStore.get());
+  bootCheckPending = true;
   updateTimer?.stop();
   const timer = startUpdateTimer({
     schedule: () => {

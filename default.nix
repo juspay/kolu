@@ -633,6 +633,14 @@ let
   # carries NO toolchain at all, by design: it is not a wrapper a user runs.
   # The remote arm asserts the same fact the same way — see `padi-agent` below.
   #
+  # The value's first entry is `$out/bin` — THIS wrapper, which also bakes
+  # agent-distro (`bakeArgs`). So a change to that bake changes `$out`, hence the
+  # recorded toolchain path, and drains a resident padi through the #2146 bake
+  # record; the respawned padi's boot check then fetches upstream's newest. On
+  # the machine running kolu a pin bump is such a change, since the floor rides
+  # this wrapper; `padi-agent` carries no pin (see there). The proof below pins
+  # both halves.
+  #
   # `floor` — whether this wrapper also bakes the agents' local floor (every
   # profile, ~2 GB). The wrapper a user runs (`default`) does; the `kolu` CLI
   # that rides `padi-agent` onto a REMOTE host must not — a host fetches its own.
@@ -686,6 +694,17 @@ let
 
         echo "resolved KOLU_AGENT_TOOLS_PATH=$KOLU_AGENT_TOOLS_PATH"
         IFS=: read -ra dirs <<< "$KOLU_AGENT_TOOLS_PATH"
+        # The coupling the agent-distro bake rides: the toolchain path padi records
+        # (#2146) starts with THIS wrapper's `$out/bin`, and this wrapper bakes
+        # agent-distro — so a change to that bake moves the record and restarts padi.
+        if [ -z "''${KOLU_AGENT_DISTRO_UPDATER:-}" ] || [ "''${dirs[0]}" != "$out/bin" ]; then
+          echo "FAIL: the composed KOLU_AGENT_TOOLS_PATH must start with this wrapper's" >&2
+          echo "\$out/bin, and this wrapper must bake KOLU_AGENT_DISTRO_UPDATER — else a" >&2
+          echo "change to that bake (on the machine running kolu, an agent-distro pin bump," >&2
+          echo "which moves the floor) would no longer restart padi, so a newer kolu would" >&2
+          echo "not bring the newer agents." >&2
+          exit 1
+        fi
         # One loop over a name→message table, so the check is written once but each
         # binary keeps its OWN failure message — they name exactly what a local
         # terminal loses, and each was falsified separately.
@@ -947,7 +966,14 @@ let
     nativeBuildInputs = [ pkgs.makeWrapper pkgs.jq ];
     postBuild = ''
       # The agent-distro bake rides the same outer wrapper. No floor: a remote
-      # host fetches its agents itself, on first use.
+      # host fetches its agents itself, on first use. The toolchain path is this
+      # wrapper's own `$out/bin`, so any change to the bake a host is dialed with
+      # (the updater config, the plugin dir) or to `padi-agent` itself drains the
+      # host's padi through the #2146 bake record (the `--stdio` front), and the
+      # respawned padi's boot check fetches upstream's newest. A pin-only bump
+      # changes none of it, by design: the updater config names the unpinned
+      # flake, so a host's agents come from upstream, never from kolu's pin.
+      # The proof below pins both halves.
       wrapProgram $out/bin/padi --set KOLU_AGENT_TOOLS_PATH "$out/bin" \
         ${agentDistro.bakeArgs { floor = false; }}
 
@@ -999,6 +1025,16 @@ let
 
       echo "resolved KOLU_AGENT_TOOLS_PATH=$KOLU_AGENT_TOOLS_PATH"
       IFS=: read -ra agent_dirs <<< "$KOLU_AGENT_TOOLS_PATH"
+      # The coupling the host's bake rides: its toolchain path is THIS wrapper's
+      # `$out/bin`, and this wrapper bakes agent-distro (no pin: see above).
+      if [ -z "''${KOLU_AGENT_DISTRO_UPDATER:-}" ] || [ "''${agent_dirs[0]}" != "$out/bin" ]; then
+        echo "FAIL: the composed KOLU_AGENT_TOOLS_PATH of the padi a remote host is dialed" >&2
+        echo "with must start with padi-agent's \$out/bin, and that wrapper must bake" >&2
+        echo "KOLU_AGENT_DISTRO_UPDATER — else a change to the bake the host is dialed" >&2
+        echo "with, or to padi-agent, would no longer restart the host's padi, and its" >&2
+        echo "boot check would not fetch upstream's newest." >&2
+        exit 1
+      fi
       # Same shape as the local proof: one loop over a name→message table, so
       # each binary keeps its OWN failure message naming exactly what a remote
       # agent loses. Each was falsified separately.
