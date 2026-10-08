@@ -20,6 +20,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type {
+  AgentDistroReceipt,
   AgentDistroSetting,
   AgentDistroStatus,
 } from "@kolu/agent-distro/schema";
@@ -30,6 +31,7 @@ import {
 } from "../padiSurfaceCtx.ts";
 import {
   agentDistroSettingStore,
+  checkForAgentUpdate,
   newTerminalLayer,
   onAgentDistroSettingWrite,
 } from "./agentDistro.ts";
@@ -43,7 +45,7 @@ const OFF: AgentDistroSetting = { enabled: false, profile: "vanilla" };
 // updater's `--progress` protocol — progress lines, then one result line, human
 // words on stderr.
 const STUB = `
-import { appendFileSync, mkdirSync, readFileSync, rmSync, symlinkSync } from "node:fs";
+import { appendFileSync, mkdirSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 const args = process.argv.slice(2);
 appendFileSync(process.env.STUB_LOG, JSON.stringify(args) + "\\n");
 const cfg = JSON.parse(readFileSync(args[0], "utf8"));
@@ -57,6 +59,12 @@ const land = () => {
   flip();
   out({ result: "updated", bundle: process.env.STUB_BUNDLE });
 };
+// What the real updater writes beside \`current\`: the stamp of a successful
+// run, and one history line per event.
+const stamp = () =>
+  writeFileSync(cfg.state + "/last-success", Math.floor(Date.now() / 1000) + "\n");
+const record = (event) =>
+  appendFileSync(cfg.history, new Date().toISOString().slice(0, 19) + "Z " + cfg.profile + " " + event + "\n");
 switch (process.env.STUB_MODE) {
   case "ok":
     out({ progress: { done: 1100000000, total: 2000000000 } });
@@ -99,12 +107,33 @@ switch (process.env.STUB_MODE) {
   case "crash":
     process.stderr.write("TypeError: boom\\n");
     process.exit(3);
+  case "update": {
+    // An update while a bundle serves: bytes, a while, then the newer bundle.
+    out({ progress: { done: 512, total: 2048 } });
+    await new Promise((r) => setTimeout(r, 400));
+    mkdirSync(cfg.state, { recursive: true });
+    rmSync(cfg.state + "/current", { force: true });
+    symlinkSync(process.env.STUB_BUNDLE2, cfg.state + "/current");
+    stamp();
+    record("updated: Claude Code 2.1.286 → 2.1.291");
+    out({ result: "updated", bundle: process.env.STUB_BUNDLE2 });
+    break;
+  }
+  case "unchanged":
+    stamp();
+    out({ result: "unchanged", bundle: realpathSync(cfg.state + "/current") });
+    break;
+  case "skipupdate":
+    record("skipped: bundle not fully cached yet (would build claude-code)");
+    out({ result: "skipped", reason: "bundle not fully cached yet (would build claude-code)" });
+    break;
 }
 `;
 
 let root: string;
 let stubLog: string;
 let published: AgentDistroStatus[];
+let receipts: AgentDistroReceipt[];
 const saved: Record<string, string | undefined> = {};
 
 function write(next: AgentDistroSetting): void {
@@ -137,6 +166,13 @@ beforeEach(() => {
   writeFileSync(stub, STUB);
   const bundle = join(root, "store-fetched-vanilla");
   mkdirSync(join(bundle, "bin"), { recursive: true });
+  // The newer bundle an update lands, with its versions file.
+  const bundle2 = join(root, "store-newer-vanilla");
+  mkdirSync(join(bundle2, "share", "agent-distro"), { recursive: true });
+  writeFileSync(
+    join(bundle2, "share", "agent-distro", "versions"),
+    "claude\tClaude Code\t2.1.291\n",
+  );
   // A `nix` for padi's PATH check; the stub never calls it.
   const fakeBin = join(root, "fakebin");
   mkdirSync(fakeBin);
@@ -147,6 +183,7 @@ beforeEach(() => {
     "PATH",
     "STUB_LOG",
     "STUB_BUNDLE",
+    "STUB_BUNDLE2",
     "STUB_MODE",
   ])
     saved[k] = process.env[k];
@@ -154,6 +191,7 @@ beforeEach(() => {
   process.env.PATH = `${fakeBin}:${saved.PATH ?? ""}`;
   process.env.STUB_LOG = stubLog;
   process.env.STUB_BUNDLE = bundle;
+  process.env.STUB_BUNDLE2 = bundle2;
   process.env.STUB_MODE = "ok";
   const bake: AgentDistroBake = {
     floor: undefined, // a remote host
@@ -169,8 +207,12 @@ beforeEach(() => {
             profile: "vanilla",
             state: join(root, "state", "agent-distro", "vanilla"),
             history: join(root, "state", "agent-distro", "history.log"),
+            periodSeconds: 21600,
+            offsetSeconds: 7200,
           }),
           stateDir: join(root, "state", "agent-distro", "vanilla"),
+          historyFile: join(root, "state", "agent-distro", "history.log"),
+          schedule: { periodSeconds: 21600, offsetSeconds: 7200 },
         },
       ],
     ]),
@@ -179,12 +221,16 @@ beforeEach(() => {
   __resetAgentDistroDownloadsForTest();
   agentDistroSettingStore.set(OFF);
   published = [];
+  receipts = [];
   setPadiSurfaceCtx({
     cells: new Proxy({} as never, {
       get: (_t, name) => ({
         get: () => undefined,
-        set: (v: AgentDistroStatus) => {
-          if (name === "agentDistroStatus") published.push(v);
+        set: (v: unknown) => {
+          if (name === "agentDistroStatus")
+            published.push(v as AgentDistroStatus);
+          if (name === "agentDistroReceipt")
+            receipts.push(v as AgentDistroReceipt);
         },
         patch: () => {},
       }),
@@ -383,5 +429,123 @@ describe("a host's first download", () => {
     expect(newTerminalLayer()?.bundle).toBe(
       join(root, "store-fetched-vanilla"),
     );
+  });
+});
+
+describe("an update while a bundle serves", () => {
+  const first = join("store-fetched-vanilla");
+  /** Land the first download, then make the next run do `mode`. */
+  async function serving(mode: string): Promise<void> {
+    write(ON);
+    await until((s) => s?.kind === "ready" && s.update === undefined);
+    process.env.STUB_MODE = mode;
+  }
+  const lastReceipt = () => receipts.at(-1);
+
+  it("keeps the old bundle serving — ready + update, bytes on it — until the new one lands", async () => {
+    await serving("update");
+    expect(checkForAgentUpdate({ force: true })).toBe("started");
+    await until((s) => s?.kind === "ready" && s.update?.progress !== undefined);
+    expect(last()).toEqual({
+      kind: "ready",
+      profile: "vanilla",
+      bundle: join(root, first),
+      update: { progress: { done: 512, total: 2048 } },
+    });
+    // A new terminal mid-run still gets the old bundle, never nothing.
+    expect(newTerminalLayer()?.bundle).toBe(join(root, first));
+    await until(
+      (s) =>
+        s?.kind === "ready" && s.bundle === join(root, "store-newer-vanilla"),
+    );
+    expect(last()).toEqual({
+      kind: "ready",
+      profile: "vanilla",
+      bundle: join(root, "store-newer-vanilla"),
+    });
+    expect(newTerminalLayer()?.bundle).toBe(join(root, "store-newer-vanilla"));
+    // The receipt says what changed, in the updater's words, with the new
+    // bundle's versions — published before the status that flips.
+    expect(lastReceipt()).toMatchObject({
+      profile: "vanilla",
+      versions: [{ name: "claude", title: "Claude Code", version: "2.1.291" }],
+      lastRun: { outcome: "updated", words: "Claude Code 2.1.286 → 2.1.291" },
+      events: [{ kind: "updated", words: "Claude Code 2.1.286 → 2.1.291" }],
+    });
+  });
+
+  it("only one run at a time: a check during a run is refused, and does not start another", async () => {
+    await serving("update");
+    expect(checkForAgentUpdate({ force: true })).toBe("started");
+    expect(checkForAgentUpdate({ force: true })).toBe("running");
+    expect(checkForAgentUpdate({ force: false })).toBe("running");
+    await until((s) => s?.kind === "ready" && s.update === undefined);
+    // The first download and the one update.
+    expect(invocations()).toHaveLength(2);
+  });
+
+  it("a skipped update is not an error: the old bundle keeps serving, the receipt says so", async () => {
+    await serving("skipupdate");
+    checkForAgentUpdate({ force: true });
+    await until((s) => s?.kind === "ready" && s.update === undefined);
+    expect(last()).toEqual({
+      kind: "ready",
+      profile: "vanilla",
+      bundle: join(root, first),
+    });
+    expect(lastReceipt()?.lastRun).toMatchObject({
+      outcome: "skipped",
+      words: "bundle not fully cached yet (would build claude-code)",
+    });
+    expect(lastReceipt()?.events[0]?.kind).toBe("skipped");
+  });
+
+  it("a failed update (a crash, no history line) is not an error either: the receipt carries it", async () => {
+    await serving("crash");
+    checkForAgentUpdate({ force: true });
+    await until((s) => s?.kind === "ready" && s.update === undefined);
+    expect(last()?.kind).toBe("ready");
+    expect(lastReceipt()?.lastRun).toMatchObject({ outcome: "failed" });
+    expect(lastReceipt()?.lastRun?.words).toMatch(/exited 3 without a result/);
+  });
+
+  it("an unchanged run: same bundle, the receipt says it checked and is up to date", async () => {
+    await serving("unchanged");
+    checkForAgentUpdate({ force: true });
+    await until(() => lastReceipt()?.lastRun?.outcome === "unchanged");
+    expect(last()).toEqual({
+      kind: "ready",
+      profile: "vanilla",
+      bundle: join(root, first),
+    });
+  });
+
+  it("the due rule: a fresh stamp is not due; the scheduled check then starts nothing", async () => {
+    await serving("unchanged");
+    checkForAgentUpdate({ force: true });
+    await until(() => lastReceipt()?.lastRun?.outcome === "unchanged");
+    expect(checkForAgentUpdate({ force: false })).toBe("notDue");
+    // A day later it is due again.
+    const runs = invocations().length;
+    expect(
+      checkForAgentUpdate({ force: false, now: Date.now() + 86_400_000 }),
+    ).toBe("started");
+    await until((s) => s?.kind === "ready" && s.update === undefined);
+    expect(invocations()).toHaveLength(runs + 1);
+  });
+
+  it("refuses with nothing serving: agents off, or a first download that has not landed", async () => {
+    expect(checkForAgentUpdate({ force: true })).toBe("notReady");
+    process.env.STUB_MODE = "fail";
+    write(ON);
+    await until((s) => s?.kind === "error");
+    expect(checkForAgentUpdate({ force: true })).toBe("notReady");
+  });
+
+  it("a first download still in flight refuses as running", async () => {
+    process.env.STUB_MODE = "slow";
+    write(ON);
+    expect(checkForAgentUpdate({ force: true })).toBe("running");
+    await until((s) => s?.kind === "ready");
   });
 });

@@ -28,9 +28,13 @@ import {
   type PadiTerminal,
   type PadiWatchStatesInput,
   type padiSurface,
+  AgentDistroCheckRefused,
   ScratchWriteRejected,
 } from "@kolu/padi-client/surface";
-import { DEFAULT_AGENT_DISTRO_STATUS } from "@kolu/agent-distro/schema";
+import {
+  DEFAULT_AGENT_DISTRO_STATUS,
+  EMPTY_AGENT_DISTRO_RECEIPT,
+} from "@kolu/agent-distro/schema";
 import { watchScopeOf } from "@kolu/padi-client/watchScope";
 import { base64DecodedLength } from "@kolu/surface/frame-chunking";
 import { derived, everyMsOr, source } from "@kolu/surface/reactor";
@@ -61,6 +65,7 @@ import { createEdgeMemory } from "./attention/edgeMemory.ts";
 import {
   agentDistroSettingStore,
   checkAgentDistroSetting,
+  checkForAgentUpdate,
   onAgentDistroSettingWrite,
 } from "./agentDistro/agentDistro.ts";
 import { agentDistroBake } from "./agentDistro/bake.ts";
@@ -455,6 +460,11 @@ export function buildPadiSurfaceDeps(deps: {
       // binder's first push says otherwise.
       agentDistroStatus: {
         store: inMemoryStore(DEFAULT_AGENT_DISTRO_STATUS),
+      },
+      // Read-only: written only by the agent-distro module, from the updater's
+      // own files — at boot, after every run, and when the setting changes.
+      agentDistroReceipt: {
+        store: inMemoryStore(EMPTY_AGENT_DISTRO_RECEIPT),
       },
       // Every TCP listener on THIS padi's host — written by the port sampler (the
       // same pass that feeds each terminal's `ports`), read by the printed-URL
@@ -1210,6 +1220,16 @@ export function buildPadiSurfaceDeps(deps: {
         exportHtml: ({ input }) => handle(() => exportTranscriptHtml(input)),
       },
 
+      // "Check now": ONE update of the selected profile, at once, whatever the
+      // schedule says. Answers once it has started; the status cells show it.
+      agentDistro: {
+        checkNow: () =>
+          handle(() => {
+            const outcome = checkForAgentUpdate({ force: true });
+            if (outcome === "running" || outcome === "notReady")
+              throw new AgentDistroCheckRefused({ reason: outcome });
+          }),
+      },
       session: {
         restore: ({ input }) => handle(() => restoreSession(input)),
         import: ({ input }) => handle(() => importSession(input)),

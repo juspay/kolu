@@ -13,8 +13,12 @@
  */
 
 import assert from "node:assert";
-import { Then, When } from "@cucumber/cucumber";
-import type { AgentDistroStatus } from "@kolu/agent-distro/schema";
+import { After, Given, Then, When } from "@cucumber/cucumber";
+import { agentBundleShortHash } from "@kolu/agent-distro/bundle";
+import type {
+  AgentDistroReceipt,
+  AgentDistroStatus,
+} from "@kolu/agent-distro/schema";
 import {
   AGENTS_NOT_CHOSEN,
   AGENTS_OFF,
@@ -25,13 +29,17 @@ import {
   agentsStepHint,
   harnessLine,
   restartedLabel,
+  THIS_MACHINE,
 } from "@kolu/agent-distro/status";
 import {
   FIXTURE_DEFAULT_PROFILE,
   FIXTURE_MARK,
   FIXTURE_PROFILES,
+  FIXTURE_SKIP_REASON,
   fixtureClaudeSays,
+  fixtureNextRun,
   fixtureProfile,
+  fixtureResetUpdates,
 } from "../support/agentDistroFixture.ts";
 import { waitForPadiCell } from "../support/padiCellWait.ts";
 import { escapeRegExp } from "../support/regexp.ts";
@@ -672,5 +680,180 @@ Then(
           .__firstRunStepSeen,
     );
     assert.strictEqual(seen, false, "the first-run step flashed on reload");
+  },
+);
+
+// ── Kept up to date: updates, Check now, History ──────────────────────────────
+
+/** This machine's line under the Agents row (the first). */
+const LOCAL_LINE = `${IN_SETTINGS} [data-testid="agents-status-lines"] [data-testid="agents-status-text"]`;
+
+/** An update scenario lands bundles and history in the fixture's state: undo it,
+ *  so the next scenario on this worker meets the floor. */
+After({ tags: "@agent-updates" }, () => {
+  fixtureResetUpdates();
+});
+
+/** padi's current value of an agent-distro cell, once `accept` holds. */
+async function padiValue<T>(
+  memberVerb: string,
+  accept: (v: T) => boolean,
+  what: string,
+): Promise<T> {
+  let seen: T | undefined;
+  await waitForPadiCell({
+    memberVerb,
+    accept: (v) => {
+      if (!accept(v as T)) return false;
+      seen = v as T;
+      return true;
+    },
+    what,
+    timeoutMs: POLL_TIMEOUT,
+  });
+  if (seen === undefined) throw new Error(`no value for ${what}`);
+  return seen;
+}
+
+Given(
+  "the next {string} agents update finds a newer set",
+  (profile: string) => {
+    fixtureNextRun(profile, "update");
+  },
+);
+
+Given(
+  "the next {string} agents update finds the newer set not ready to download",
+  (profile: string) => {
+    fixtureNextRun(profile, "skip");
+  },
+);
+
+When("I click Check now", async function (this: KoluWorld) {
+  await this.page.click(`${IN_SETTINGS} [data-testid="agents-check-now"]`);
+});
+
+Then(
+  "this machine's Agents line should show an update {word}",
+  async function (this: KoluWorld, phase: string) {
+    assert.ok(phase === "checking" || phase === "downloading", phase);
+    await this.page
+      .locator(`${LOCAL_LINE}[data-update="${phase}"]`)
+      .first()
+      .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    // The button says a run is going, off the same status.
+    await this.page
+      .locator(`${IN_SETTINGS} [data-testid="agents-check-now"][data-busy]`)
+      .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+  },
+);
+
+Then(
+  "this machine's Agents line should say the last run {word}",
+  async function (this: KoluWorld, outcome: string) {
+    await this.page
+      .locator(`${LOCAL_LINE}[data-last-run="${outcome}"]`)
+      .first()
+      .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+  },
+);
+
+/** The words of this machine's last `updated` run, as padi's receipt has them. */
+async function updatedWords(): Promise<string> {
+  const receipt = await padiValue<AgentDistroReceipt>(
+    "agentDistroReceipt/get",
+    (r) => r.lastRun?.outcome === "updated",
+    "a receipt with an updated run",
+  );
+  return receipt.lastRun?.words ?? "";
+}
+
+Then(
+  "a toast should say what the update changed on this machine",
+  async function (this: KoluWorld) {
+    const words = agentToast.updated(THIS_MACHINE, await updatedWords());
+    const toast = this.page
+      .locator("[data-sonner-toaster] [data-sonner-toast]")
+      .filter({
+        has: this.page.locator("[data-title]", {
+          hasText: new RegExp(`^${escapeRegExp(words.title)}$`),
+        }),
+      })
+      .first();
+    await toast.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    const description = await toast.locator("[data-description]").innerText();
+    assert.strictEqual(description.trim(), words.description);
+  },
+);
+
+Then(
+  "no toast should say an update landed on this machine",
+  async function (this: KoluWorld) {
+    // The run has settled (the line says so) before this is asked.
+    const title = agentToast.updated(THIS_MACHINE, "").title;
+    assert.strictEqual(
+      await this.page
+        .locator("[data-sonner-toaster] [data-title]")
+        .filter({ hasText: new RegExp(`^${escapeRegExp(title)}$`) })
+        .count(),
+      0,
+      "an update toast showed",
+    );
+  },
+);
+
+Then(
+  "the Agents History should list the {word} event",
+  async function (this: KoluWorld, kind: string) {
+    const history = this.page.locator(
+      `${IN_SETTINGS} [data-testid="agents-history"]`,
+    );
+    if ((await history.getAttribute("open")) === null)
+      await history.locator("summary").click();
+    await history
+      .locator(`[data-testid="agents-history-row"][data-kind="${kind}"]`)
+      .first()
+      .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    // The row quotes padi's own event words.
+    const receipt = await padiValue<AgentDistroReceipt>(
+      "agentDistroReceipt/get",
+      (r) => r.events.some((e) => e.kind === kind),
+      `a receipt with a ${kind} event`,
+    );
+    const event = receipt.events.find((e) => e.kind === kind);
+    if (kind === "skipped")
+      assert.strictEqual(event?.words, FIXTURE_SKIP_REASON);
+    const text = await history
+      .locator(`[data-testid="agents-history-row"][data-kind="${kind}"]`)
+      .first()
+      .innerText();
+    assert.ok(
+      text.endsWith(event?.words ?? "-"),
+      `history row ${JSON.stringify(text)} does not quote ${JSON.stringify(event?.words)}`,
+    );
+  },
+);
+
+Then(
+  "the focused tile's agents chip should carry the bundle new terminals get now",
+  async function (this: KoluWorld) {
+    const status = await padiValue<AgentDistroStatus>(
+      "agentDistroStatus/get",
+      (s) => s.kind === "ready" && s.update === undefined,
+      "agents ready",
+    );
+    if (status.kind !== "ready") throw new Error("not ready");
+    const hash = agentBundleShortHash(status.bundle);
+    // Not the floor's: an update landed.
+    assert.notStrictEqual(
+      hash,
+      agentBundleShortHash(`/${status.profile}`),
+      "new terminals still get the floor",
+    );
+    await this.page
+      .locator(
+        `${FOCUSED_TILE} [data-testid="tile-agent-chip"][data-hash="${hash}"]:not([data-stale])`,
+      )
+      .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
   },
 );

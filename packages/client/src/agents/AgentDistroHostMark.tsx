@@ -1,7 +1,9 @@
 /** A host tab's agents mark: agent-distro's logo right after the host name, with
  *  the host's agent state as its treatment (the fold is `agentMarkOf`):
  *
- *   - ready: the mark in the tab's own text colour;
+ *   - ready: the mark in the tab's own text colour — and while a newer set
+ *     downloads there (the old one still serves), the same ring filling with
+ *     bytes, never the first-download treatment;
  *   - downloading: a thin ring around it, filled by bytes done over total;
  *   - failed: the mark in the warning colour, with a warning dot;
  *   - checking (connected, no status yet): the mark dimmed, a spinning arc;
@@ -20,11 +22,22 @@ import {
   agentMarkLabel,
   agentMarkWords,
 } from "@kolu/agent-distro/status";
-import { hostLabel } from "../host/hostChipTone";
-import { hostAgentMark } from "./useAgentDistro";
+import { agentsWhere, hostAgentMark } from "./useAgentDistro";
 
 /** The ring: r=10 in a 24 box, so its length is 2π·10. */
 const RING = 2 * Math.PI * 10;
+
+/** The bytes a mark is filling with — a first download's, or an update's on
+ *  a ready host — or `undefined` when nothing is coming down. */
+function filling(
+  mark: AgentMark,
+):
+  | { readonly fraction: number; readonly bytes: string | undefined }
+  | undefined {
+  if (mark.kind === "downloading") return mark;
+  if (mark.kind === "ready") return mark.update?.download;
+  return undefined;
+}
 
 const Ring: Component<{ mark: AgentMark }> = (props) => (
   <svg
@@ -42,7 +55,7 @@ const Ring: Component<{ mark: AgentMark }> = (props) => (
       style={{ stroke: "color-mix(in oklch, currentColor 14%, transparent)" }}
     />
     <Switch>
-      <Match when={props.mark.kind === "downloading" && props.mark}>
+      <Match when={filling(props.mark)}>
         {(m) => (
           <circle
             cx="12"
@@ -78,7 +91,7 @@ const Ring: Component<{ mark: AgentMark }> = (props) => (
  *  and, while downloading, a 90px bar with the bytes after it. */
 const MarkTip: Component<{ mark: AgentMark; where: string }> = (props) => (
   <Show
-    when={props.mark.kind === "downloading" && props.mark}
+    when={filling(props.mark)}
     fallback={
       <span class="block max-w-sm whitespace-pre-line">
         {agentMarkLabel(props.mark, props.where)}
@@ -87,7 +100,11 @@ const MarkTip: Component<{ mark: AgentMark; where: string }> = (props) => (
   >
     {(m) => (
       <span class="flex items-center gap-1.5">
-        <span>{agentMarkWords(m(), props.where)?.title}</span>
+        <span>
+          {props.mark.kind === "ready"
+            ? agentMarkWords(props.mark, props.where)?.detail.join(" ")
+            : agentMarkWords(props.mark, props.where)?.title}
+        </span>
         {/* The same bar as the Settings status lines: 5px, radius 3, on edge. */}
         <span class="h-[5px] w-[90px] shrink-0 overflow-hidden rounded-[3px] bg-edge">
           <span
@@ -111,13 +128,17 @@ const AgentDistroHostMark: Component<{
 }> = (props) => {
   const mark = createMemo(() => hostAgentMark(props.host));
   /** Who the words are about: this machine, or the remote host by name. */
-  const where = () =>
-    props.host.kind === "local" ? "this machine" : hostLabel(props.host);
+  const where = () => agentsWhere(props.host);
   const box = () => (
     <button
       type="button"
       data-testid={props.measuring ? undefined : "host-agents-mark"}
       data-state={mark().kind}
+      data-update={(() => {
+        const m = mark();
+        if (m.kind !== "ready" || m.update === undefined) return undefined;
+        return m.update.download === undefined ? "checking" : "downloading";
+      })()}
       aria-label={agentMarkLabel(mark(), where())}
       tabIndex={props.measuring ? -1 : undefined}
       onClick={(e) => {
@@ -131,7 +152,7 @@ const AgentDistroHostMark: Component<{
         "opacity-[0.55]": mark().kind === "checking",
       }}
     >
-      <Show when={mark().kind === "downloading" || mark().kind === "checking"}>
+      <Show when={filling(mark()) !== undefined || mark().kind === "checking"}>
         <Ring mark={mark()} />
       </Show>
       <AgentDistroLogo size={13} />

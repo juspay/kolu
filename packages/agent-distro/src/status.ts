@@ -12,13 +12,16 @@
 import { formatBytes } from "@kolu/byte-units";
 import { agentBundleShortHash } from "./bundle.ts";
 import { DEFAULT_AGENT_PROFILE } from "./manifest.ts";
+import type { AgentUpdateEvent, AgentUpdateRun } from "./history.ts";
 import type {
   AgentDistroFailureReason,
+  AgentDistroReceipt,
   AgentDistroSetting,
   AgentDistroStatus,
   TerminalAgents,
 } from "./schema.ts";
 import type { AgentDistroListing, AgentDistroProfile } from "./listing.ts";
+import type { AgentVersion } from "./versions.ts";
 
 /** What "never chosen" means for new terminals: off, on the default profile, so
  *  turning agents on later starts there. ONE shared value, so a reader of the
@@ -176,7 +179,10 @@ function downloadFraction(
  *     or a host we cannot hear from) — the tab is as it would be without agents;
  *   - `checking`: the host is connected and agents are on, but its status has not
  *     arrived yet (a dimmed mark with a spinning arc);
- *   - `ready`: the selected profile is on the host for new terminals;
+ *   - `ready`: the selected profile is on the host for new terminals — with
+ *     `update` while the updater runs there (the old set keeps serving; a ring
+ *     fills with bytes once a newer set downloads, the mark keeps its plain
+ *     colour);
  *   - `downloading`: the host is fetching it (a ring filling with bytes);
  *   - `failed`: the download failed (the warning colour and a dot). */
 export type AgentMark =
@@ -187,7 +193,19 @@ export type AgentMark =
       readonly why: "off" | "unavailable" | "unheard";
     }
   | { readonly kind: "checking" }
-  | { readonly kind: "ready"; readonly profile: string; readonly hash: string }
+  | {
+      readonly kind: "ready";
+      readonly profile: string;
+      readonly hash: string;
+      /** The updater is running there; `download` once a newer set is coming
+       *  down (its ring fill and bytes). */
+      readonly update?: {
+        readonly download?: {
+          readonly fraction: number;
+          readonly bytes: string | undefined;
+        };
+      };
+    }
   | {
       readonly kind: "downloading";
       readonly fraction: number;
@@ -216,12 +234,27 @@ export function agentMarkOf(
       return { kind: "none", why: "off" };
     case "unavailable":
       return { kind: "none", why: "unavailable" };
-    case "ready":
-      return {
+    case "ready": {
+      const ready = {
         kind: "ready",
         profile: status.profile,
         hash: agentBundleShortHash(status.bundle),
+      } as const;
+      if (status.update === undefined) return ready;
+      const progress = status.update.progress;
+      return {
+        ...ready,
+        update:
+          progress === undefined
+            ? {}
+            : {
+                download: {
+                  fraction: downloadFraction(progress),
+                  bytes: downloadBytes(progress),
+                },
+              },
       };
+    }
     case "downloading":
       return {
         kind: "downloading",
@@ -291,7 +324,14 @@ export function agentMarkWords(
     case "ready":
       return {
         title: `Coding agents ready on ${where}: ${mark.profile} (${mark.hash}) — new terminals there start with them`,
-        detail: [],
+        detail:
+          mark.update === undefined
+            ? []
+            : [
+                mark.update.download === undefined
+                  ? AGENTS_UPDATE_CHECKING
+                  : AGENTS_UPDATE_DOWNLOADING,
+              ],
       };
     case "downloading":
       return {
@@ -307,6 +347,13 @@ export function agentMarkWords(
   }
 }
 
+/** What a ready host says while the updater looks for a newer set. */
+export const AGENTS_UPDATE_CHECKING = "Checking for newer agents…";
+
+/** What a ready host says while a newer set downloads. */
+export const AGENTS_UPDATE_DOWNLOADING =
+  "Downloading newer agents — new terminals keep these until they have fully arrived.";
+
 /** A mark's words as one text — its accessible name, with a download's bytes
  *  after the headline. `undefined` for `none`. */
 export function agentMarkLabel(
@@ -315,10 +362,13 @@ export function agentMarkLabel(
 ): string | undefined {
   const words = agentMarkWords(mark, where);
   if (words === undefined) return undefined;
-  const bytes =
-    mark.kind === "downloading" && mark.bytes !== undefined
-      ? ` ${mark.bytes}`
-      : "";
+  const shown =
+    mark.kind === "downloading"
+      ? mark.bytes
+      : mark.kind === "ready"
+        ? mark.update?.download?.bytes
+        : undefined;
+  const bytes = shown === undefined ? "" : ` ${shown}`;
   return [`${words.title}${bytes}`, ...words.detail].join("\n");
 }
 
@@ -327,7 +377,15 @@ export function agentMarkLabel(
  *  each harness's title and version from the listing, in its order. Never
  *  hand-written: it is whatever the pinned agent-distro ships. */
 export function harnessLine(profile: AgentDistroProfile): string {
-  return profile.harnesses.map((h) => `${h.title} ${h.version}`).join(" · ");
+  return versionsLine(profile.harnesses);
+}
+
+/** The same line for any list of agents with versions — a host's receipt
+ *  (`AgentDistroReceipt.versions`), what that machine actually has now. */
+export function versionsLine(
+  agents: readonly Pick<AgentVersion, "title" | "version">[],
+): string {
+  return agents.map((h) => `${h.title} ${h.version}`).join(" · ");
 }
 
 /** What each profile kolu ships IS, in plain words, written to sit mid-sentence
@@ -439,11 +497,54 @@ export interface HostAgentStatus {
   readonly status: AgentDistroStatus | undefined;
   /** Connected, agents on, and no status frame yet (see {@link agentMarkOf}). */
   readonly checking: boolean;
+  /** What the host keeps of its updates — `undefined` until its first frame. */
+  readonly receipt: AgentDistroReceipt | undefined;
+  /** "3h ago" for a time the host stamped (epoch ms, on ITS clock). */
+  readonly ago: AgoPhrase;
 }
+
+/** Formats an epoch-ms time as "3h ago" — the client's ONE relative-time
+ *  phrase, bound to one host's clock and handed in, so these folds stay
+ *  clock-free. */
+export type AgoPhrase = (atMs: number) => string;
+
+/** The receipt, when it is about `profile` — a receipt for another profile is
+ *  one the host has not caught up from. */
+function receiptFor(
+  receipt: AgentDistroReceipt | undefined,
+  profile: string,
+): AgentDistroReceipt | undefined {
+  return receipt?.profile === profile ? receipt : undefined;
+}
+
+/** What a ready host's line adds about its last update run. */
+function lastRunPhrase(run: AgentUpdateRun, ago: AgoPhrase): string {
+  const when = ago(run.at);
+  switch (run.outcome) {
+    case "updated":
+      return `updated ${when}`;
+    case "unchanged":
+      return `checked ${when}, up to date`;
+    case "skipped":
+      return `checked ${when}, no newer set ready yet`;
+    case "failed":
+      return `last update failed ${when}`;
+    default:
+      return run.outcome satisfies never;
+  }
+}
+
+/** How every surface names the machine kolu runs on — its status line, its tab
+ *  mark's words, its toasts. */
+export const THIS_MACHINE = "this machine";
 
 /** One status line under the Agents row: the host, a bar, and a short text. */
 export interface AgentStatusLine {
   readonly host: string;
+  /** An update running there: still checking, or downloading a newer set. */
+  readonly update?: "checking" | "downloading";
+  /** How the last update run there ended, when the line says it. */
+  readonly lastRun?: AgentUpdateRun["outcome"];
   /** The bar's colour: accent while downloading, ok when ready, warning when
    *  failed, and an empty bar when there is nothing to fill. */
   readonly bar: "busy" | "ok" | "warn" | "empty";
@@ -467,8 +568,32 @@ function statusLine(host: HostAgentStatus): AgentStatusLine {
     text: string,
   ): AgentStatusLine => ({ host: host.label, bar, fill, text });
   switch (mark.kind) {
-    case "ready":
-      return line("ok", 1, `ready · ${mark.profile} ${mark.hash}`);
+    case "ready": {
+      const ready = `ready · ${mark.profile} ${mark.hash}`;
+      if (mark.update !== undefined) {
+        const download = mark.update.download;
+        return download === undefined
+          ? {
+              ...line("ok", 1, `${ready} · checking for updates…`),
+              update: "checking",
+            }
+          : {
+              ...line(
+                "busy",
+                download.fraction,
+                `${ready} · updating${download.bytes === undefined ? "…" : ` ${download.bytes}`}`,
+              ),
+              update: "downloading",
+            };
+      }
+      const run = receiptFor(host.receipt, mark.profile)?.lastRun;
+      return run === undefined
+        ? line("ok", 1, ready)
+        : {
+            ...line("ok", 1, `${ready} · ${lastRunPhrase(run, host.ago)}`),
+            lastRun: run.outcome,
+          };
+    }
     case "downloading":
       return line("busy", mark.fraction, mark.bytes ?? "downloading…");
     case "failed":
@@ -483,18 +608,37 @@ function statusLine(host: HostAgentStatus): AgentStatusLine {
   }
 }
 
+/** Is the host ready, with no update running there? */
+function settledReady(host: HostAgentStatus): boolean {
+  const mark = agentMarkOf(host.status, host.checking);
+  return mark.kind === "ready" && mark.update === undefined;
+}
+
 /** The status lines under the Agents row: this machine first, then every remote
- *  host that is not ready. When EVERY host is ready they collapse into the first
- *  line ("ready · vanilla 8rcmf6rd · on 3 hosts" — the hash only when every
- *  machine holds that same build), so the row stays short in the common case. */
+ *  host that is not ready (or is updating). A ready line ends with its last
+ *  update run ("updated 3h ago", "checked 2h ago, up to date"). When EVERY host
+ *  is ready with nothing running they collapse into the first line ("ready ·
+ *  vanilla 8rcmf6rd · on 3 hosts" — the hash only when every machine holds that
+ *  same build), so the row stays short in the common case; the History lists
+ *  each machine's runs. */
 export function agentStatusLines(input: {
   readonly local: HostAgentStatus;
   readonly remotes: readonly HostAgentStatus[];
 }): readonly AgentStatusLine[] {
   const local = statusLine(input.local);
-  const remotes = input.remotes.map(statusLine);
-  const notReady = remotes.filter((l) => l.bar !== "ok");
-  if (local.bar === "ok" && notReady.length === 0 && remotes.length > 0) {
+  const remoteLines = input.remotes.map((host) => ({
+    host,
+    line: statusLine(host),
+  }));
+  const notReady = remoteLines
+    .filter(({ host }) => !settledReady(host))
+    .map(({ line }) => line);
+  const remotes = remoteLines.map(({ line }) => line);
+  if (
+    settledReady(input.local) &&
+    notReady.length === 0 &&
+    remotes.length > 0
+  ) {
     // Every machine is ready. They name ONE build only when they all hold the
     // same one — this machine's built-in bundle and a remote's download are
     // different store paths of the same profile, and the folded line must not
@@ -594,7 +738,8 @@ export function agentsStepHint(input: {
  *     ({@link AGENTS_NOT_CHOSEN});
  *   - an unknown stored choice: the warning (never reset);
  *   - on: what the chosen profile is, in plain words, then its agents with
- *     versions. Where each machine stands is the status lines' job
+ *     versions — this machine's own, from its receipt, once it has one (an
+ *     update moves them past the listing's). Where each machine stands is the status lines' job
  *     ({@link agentStatusLines}).
  *
  *  It takes the STORED value — `null` while nothing is chosen — because that
@@ -602,6 +747,10 @@ export function agentsStepHint(input: {
 export function agentsHint(input: {
   readonly stored: AgentDistroSetting | null;
   readonly listing: AgentDistroListing | undefined;
+  /** This machine's receipt: once agents are on, its versions name what this
+   *  machine has now — the listing's are the set kolu was built with, which an
+   *  update leaves behind. */
+  readonly localReceipt: AgentDistroReceipt | undefined;
 }): { readonly text: string; readonly tone: "muted" | "warn" } | undefined {
   const { listing } = input;
   const setting = agentDistroSettingOf(input.stored);
@@ -633,10 +782,13 @@ export function agentsHint(input: {
     return { text: unknownProfileMessage(unknown), tone: "warn" };
   const profile = selectedAgentProfile(setting, listing);
   if (profile === undefined) return undefined;
+  const versions = receiptFor(input.localReceipt, profile.name)?.versions;
   return {
     text: [
       `${capitalize(plainProfileDescription(profile))}.`,
-      harnessLine(profile),
+      versions === undefined || versions.length === 0
+        ? harnessLine(profile)
+        : versionsLine(versions),
     ].join("\n"),
     tone: "muted",
   };
@@ -810,7 +962,126 @@ export const agentToast = {
   on: (profile: string) => `New terminals get the ${profile} agents`,
   /** A switch to Off (title; {@link AGENTS_OFF_MEANS} is its description). */
   off: "Coding agents off",
+  /** An update landed on `host` (the {@link downloadEdge} `updated` moment):
+   *  the change in the updater's own words, and what it means for terminals. */
+  updated: (host: string, words: string) =>
+    ({
+      title: `Coding agents updated on ${host}`,
+      description: `${words}\nNew terminals there start with them; open ones offer Restart.`,
+    }) as const,
 } as const;
+
+/** The Settings button that runs the update check on every machine now. */
+export const AGENTS_CHECK_NOW = {
+  label: "Check now",
+  /** While any machine's update run is in flight. */
+  busyLabel: "Checking…",
+  hint: "Look for newer coding agents on every machine now. Nothing is compiled: a newer set is downloaded only once it is ready to download, and terminals already open keep theirs.",
+} as const;
+
+/** A Check now that could not reach a host (a transport drop, a host gone). */
+export function agentCheckFailed(host: string, message: string): string {
+  return `Could not check for newer coding agents on ${host}: ${message}`;
+}
+
+/** Can `status`'s host run an update check now — ready, with no run there? */
+export function agentUpdateCheckable(
+  status: AgentDistroStatus | undefined,
+): boolean {
+  return status?.kind === "ready" && status.update === undefined;
+}
+
+/** Is an update run in flight on any of these hosts — the Check now button's
+ *  busy state, read off the status cells. */
+export function agentUpdateRunning(
+  statuses: readonly (AgentDistroStatus | undefined)[],
+): boolean {
+  return statuses.some((s) => s?.kind === "ready" && s.update !== undefined);
+}
+
+/** The History disclosure under the status lines. */
+export const AGENTS_HISTORY = {
+  title: "History",
+  empty: "No updates yet.",
+} as const;
+
+/** How a history event's kind reads in a row. */
+const EVENT_LABEL: Record<AgentUpdateEvent["kind"], string> = {
+  updated: "updated",
+  skipped: "skipped",
+  failed: "failed",
+};
+
+/** One row of the History: which machine, when, and what happened in the
+ *  updater's own words. `warn` for a failure. */
+export interface AgentUpdateHistoryRow {
+  readonly host: string;
+  readonly when: string;
+  readonly kind: AgentUpdateEvent["kind"];
+  readonly text: string;
+  readonly tone: "muted" | "warn";
+}
+
+function historyRow(
+  host: string,
+  event: AgentUpdateEvent,
+  ago: AgoPhrase,
+): AgentUpdateHistoryRow {
+  return {
+    host,
+    when: ago(Date.parse(event.at)),
+    kind: event.kind,
+    text: `${EVENT_LABEL[event.kind]}: ${event.words}`,
+    tone: event.kind === "failed" ? "warn" : "muted",
+  };
+}
+
+/** The History's rows: each machine's last events (its receipt's, for the
+ *  selected profile), this machine first, newest first within each. */
+export function agentUpdateHistoryRows(input: {
+  readonly hosts: readonly Pick<HostAgentStatus, "label" | "receipt" | "ago">[];
+  readonly profile: string;
+}): readonly AgentUpdateHistoryRow[] {
+  return input.hosts.flatMap((h) =>
+    (receiptFor(h.receipt, input.profile)?.events ?? []).map((e) =>
+      historyRow(h.label, e, h.ago),
+    ),
+  );
+}
+
+/** The facts of a status that its moments are read from — plain strings, so a
+ *  watcher can track them by value (a cell's value is one reconciled store
+ *  object, the same before and after a change). */
+export interface DownloadEdgeFacts {
+  readonly kind: AgentDistroStatus["kind"];
+  /** The profile, for a status that names one. */
+  readonly profile?: string;
+  /** The bundle new terminals get, while `ready`. */
+  readonly bundle?: string;
+}
+
+/** A status's {@link DownloadEdgeFacts}. */
+export function downloadEdgeFacts(
+  status: AgentDistroStatus | undefined,
+): DownloadEdgeFacts | undefined {
+  if (status === undefined) return undefined;
+  switch (status.kind) {
+    case "off":
+    case "unavailable":
+      return { kind: status.kind };
+    case "downloading":
+    case "error":
+      return { kind: status.kind, profile: status.profile };
+    case "ready":
+      return {
+        kind: status.kind,
+        profile: status.profile,
+        bundle: status.bundle,
+      };
+    default:
+      return status satisfies never;
+  }
+}
 
 /** The moments a host's download is worth a toast, read off two consecutive
  *  statuses — ONE fold, fenced, so the client keeps only the effect that
@@ -819,27 +1090,35 @@ export const agentToast = {
  *   - `start`: anything else (including nothing yet) → downloading — a
  *     download began, or is under way when the host is first heard from;
  *   - `ready`: downloading → ready;
+ *   - `updated`: ready → ready with ANOTHER bundle of the SAME profile — an
+ *     update landed while the old set served (a switch to another profile is
+ *     not one);
  *   - `failed`: downloading → error;
  *   - `dropped`: downloading → off / unavailable — the user turned agents off
  *     mid-download, so its standing toast goes away;
- *   - `none`: everything else (a first frame, a progress tick, an unrelated
- *     change). */
+ *   - `none`: everything else (a first frame, a progress tick, an update run
+ *     starting or finding nothing, an unrelated change). */
 export function downloadEdge(
-  prev: AgentDistroStatus["kind"] | undefined,
-  now: AgentDistroStatus["kind"] | undefined,
-): "start" | "ready" | "failed" | "dropped" | "none" {
+  prev: DownloadEdgeFacts | undefined,
+  now: DownloadEdgeFacts | undefined,
+): "start" | "ready" | "updated" | "failed" | "dropped" | "none" {
   if (now === undefined) return "none";
-  switch (now) {
+  switch (now.kind) {
     case "downloading":
-      return prev !== "downloading" ? "start" : "none";
+      return prev?.kind !== "downloading" ? "start" : "none";
     case "ready":
-      return prev === "downloading" ? "ready" : "none";
+      if (prev?.kind === "downloading") return "ready";
+      return prev?.kind === "ready" &&
+        prev.profile === now.profile &&
+        prev.bundle !== now.bundle
+        ? "updated"
+        : "none";
     case "error":
-      return prev === "downloading" ? "failed" : "none";
+      return prev?.kind === "downloading" ? "failed" : "none";
     case "off":
     case "unavailable":
-      return prev === "downloading" ? "dropped" : "none";
+      return prev?.kind === "downloading" ? "dropped" : "none";
     default:
-      return now satisfies never;
+      return now.kind satisfies never;
   }
 }

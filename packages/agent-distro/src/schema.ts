@@ -18,6 +18,8 @@
  */
 
 import { Schema } from "effect";
+import { AgentUpdateEventSchema, AgentUpdateRunSchema } from "./history.ts";
+import { AgentVersionSchema } from "./versions.ts";
 
 /** The Agents setting: on/off and the profile name. `profile` is checked against
  *  the profiles this padi's build knows (its baked updater listing) when the
@@ -76,6 +78,9 @@ export type AgentDistroFailureReason =
  *   - `downloading` — the host is fetching the profile's bundle from the binary
  *     cache into its own store. New terminals get no agents until it lands.
  *   - `ready` — new terminals get `bundle` (the exact store path they pin).
+ *     With `update`, the updater is running for this profile while `bundle`
+ *     keeps serving: checking for a newer set, then downloading it (`progress`).
+ *     New terminals keep getting `bundle` until the newer one has fully landed.
  *   - `error` — the download failed or was skipped: `reason` says which kind of
  *     failure, `message` states its cause (the updater's own words, e.g. "cache
  *     … not usable; add it to nix.settings …"). Neither carries the retry or the
@@ -97,6 +102,11 @@ export const AgentDistroStatusSchema = Schema.Union([
     kind: Schema.Literal("ready"),
     profile: Schema.String,
     bundle: Schema.String,
+    update: Schema.optionalKey(
+      Schema.Struct({
+        progress: Schema.optionalKey(AgentDistroProgressSchema),
+      }),
+    ),
   }),
   Schema.Struct({
     kind: Schema.Literal("error"),
@@ -129,7 +139,12 @@ export function agentDistroStatusEqual(
       );
     case "ready":
       return (
-        b.kind === "ready" && a.profile === b.profile && a.bundle === b.bundle
+        b.kind === "ready" &&
+        a.profile === b.profile &&
+        a.bundle === b.bundle &&
+        (a.update === undefined) === (b.update === undefined) &&
+        a.update?.progress?.done === b.update?.progress?.done &&
+        a.update?.progress?.total === b.update?.progress?.total
       );
     case "error":
       return (
@@ -141,6 +156,50 @@ export function agentDistroStatusEqual(
     default:
       return a satisfies never;
   }
+}
+
+/** What a host keeps of agent-distro's updates for the selected profile — the
+ *  read-only `agentDistroReceipt` cell, published from the updater's own files:
+ *
+ *   - `profile`: which profile it is about;
+ *   - `bundle`: the bundle those versions are of;
+ *   - `versions`: the agents in the bundle the host serves now, from the
+ *     bundle's versions file (empty when it serves none);
+ *   - `lastRun`: the last update run, when there was one — how it ended and the
+ *     updater's words;
+ *   - `events`: the last few history events, newest first.
+ *
+ *  Never part of the status: a background update that fails or skips leaves
+ *  the agents working, so it shows here and in padi's log, not as an error. */
+export const AgentDistroReceiptSchema = Schema.Struct({
+  /** The profile this receipt is about — the setting's (empty before the
+   *  first push). A reader drops a receipt for another profile as one padi
+   *  has not caught up from. */
+  profile: Schema.String,
+  /** The bundle new terminals get there now, whose versions these are —
+   *  absent when none serves. A reader pairs an update it sees in the status
+   *  with the receipt for that same bundle. */
+  bundle: Schema.optionalKey(Schema.String),
+  versions: Schema.Array(AgentVersionSchema),
+  lastRun: Schema.optionalKey(AgentUpdateRunSchema),
+  events: Schema.Array(AgentUpdateEventSchema),
+});
+
+export type AgentDistroReceipt = typeof AgentDistroReceiptSchema.Type;
+
+/** Before padi has read anything: no versions, no runs. */
+export const EMPTY_AGENT_DISTRO_RECEIPT: AgentDistroReceipt = {
+  profile: "",
+  versions: [],
+  events: [],
+};
+
+/** Structural equality — the receipt cell's dedup point. */
+export function agentDistroReceiptEqual(
+  a: AgentDistroReceipt,
+  b: AgentDistroReceipt,
+): boolean {
+  return JSON.stringify(a) === JSON.stringify(b);
 }
 
 /** The agents a terminal was spawned with — ONE optional field on its record,

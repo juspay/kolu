@@ -50,6 +50,8 @@ function bake(opts: { floor: boolean }): AgentDistroBake {
         history: join(root, "state", "agent-distro", "history.log"),
       }),
       stateDir,
+      historyFile: join(root, "state", "agent-distro", "history.log"),
+      schedule: { periodSeconds: 21600, offsetSeconds: 7200 },
     };
   };
   return {

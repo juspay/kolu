@@ -3,7 +3,8 @@
  *  behind it with its toasts, the hint that says what the choice means in its
  *  two layouts (`agentsHint` for Settings, `agentsStepHint` for the welcome
  *  card's step), and, once a profile is picked, one status line per machine
- *  (`agentStatusLines`). Settings → Agents and the welcome card's first-run step
+ *  (`agentStatusLines`), and Settings' updates footer — Check now and the
+ *  History. Settings → Agents and the welcome card's first-run step
  *  both render it, so neither keeps a copy of the control, the writer or a
  *  sentence; each lays the parts out in its own row (`children` receives them).
  *
@@ -36,11 +37,15 @@ import {
   selectedAgentProfile,
 } from "@kolu/agent-distro/status";
 import AgentStatusLines from "./AgentStatusLines";
+import AgentUpdateHistory from "./AgentUpdateHistory";
+import AgentsCheckNowButton from "./AgentsCheckNowButton";
 import {
   agentDistroListing,
   agentDistroSetting,
   agentDistroStored,
   agentStatusLinesNow,
+  agentUpdateHistoryNow,
+  localAgentReceipt,
 } from "./useAgentDistro";
 
 /** Write the choice — whole, through the one builder — and say what it did
@@ -75,6 +80,9 @@ export interface AgentsChooserParts {
     | undefined;
   /** The per-machine status lines — present only while a profile is picked. */
   readonly status: JSX.Element;
+  /** Keeping them current — Check now and the History; present only while a
+   *  profile is picked. Settings shows it; the welcome card does not. */
+  readonly updates: JSX.Element;
 }
 
 export default function AgentsChooser(props: {
@@ -89,6 +97,9 @@ export default function AgentsChooser(props: {
     const l = agentDistroListing();
     return l?.kind === "available" ? l.profiles : [];
   };
+  const picked = () =>
+    selectedAgentProfile(agentDistroSetting(), agentDistroListing()) !==
+    undefined;
   // The segment in view is the control's own answer, as it reports it — not
   // re-derived here, so the line under it can never name another segment.
   const [inView, setInView] = createSignal<string | undefined>();
@@ -115,17 +126,21 @@ export default function AgentsChooser(props: {
       agentsHint({
         stored: agentDistroStored(),
         listing: agentDistroListing(),
+        localReceipt: localAgentReceipt(),
       }),
     stepHint: () =>
       agentsStepHint({ listing: agentDistroListing(), segment: inView() }),
     status: (
-      <Show
-        when={
-          selectedAgentProfile(agentDistroSetting(), agentDistroListing()) !==
-          undefined
-        }
-      >
+      <Show when={picked()}>
         <AgentStatusLines lines={agentStatusLinesNow()} />
+      </Show>
+    ),
+    updates: (
+      <Show when={picked()}>
+        <div class="mt-1.5 flex items-start justify-between gap-2">
+          <AgentUpdateHistory rows={agentUpdateHistoryNow()} />
+          <AgentsCheckNowButton />
+        </div>
       </Show>
     ),
   });

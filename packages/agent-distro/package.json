@@ -12,6 +12,9 @@
     "./manifest": "./src/manifest.ts",
     "./schema": "./src/schema.ts",
     "./status": "./src/status.ts",
+    "./schedule": "./src/schedule.ts",
+    "./history": "./src/history.ts",
+    "./versions": "./src/versions.ts",
     "./solid": "./src/solid/AgentDistroLogo.tsx"
   },
   "scripts": {

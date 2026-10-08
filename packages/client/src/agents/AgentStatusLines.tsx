@@ -42,6 +42,8 @@ const AgentStatusLines: Component<{ lines: readonly AgentStatusLine[] }> = (
           <span
             data-testid="agents-status-text"
             data-bar={line.bar}
+            data-update={line.update}
+            data-last-run={line.lastRun}
             title={line.text}
             class={`truncate font-mono text-[0.7rem] ${line.bar === "warn" ? "text-warning" : "text-fg-3/70"}`}
           >

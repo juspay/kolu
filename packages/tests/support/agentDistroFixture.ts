@@ -14,8 +14,14 @@
  * one) gets the chosen profile's `claude` first on its PATH and wears its chip,
  * and off removes both. The Nix build proves the real manifest's entries exist.
  *
- * The updater configs point at a state dir that never exists and an updater that
- * is never run (the floor is always there), so `current` never shadows the floor.
+ * The UPDATER is a stand-in too (`fixtureUpdaterScript`), run by padi exactly
+ * as the real one is (`node <script> <config> --progress`) and writing what the
+ * real one writes beside `current`: the `last-success` stamp and the history
+ * log. By default a run finds nothing newer (`unchanged`: `current` points at
+ * the floor's own profile dir, so nothing a step can see moves). A step steers
+ * the NEXT run of a profile with {@link fixtureNextRun}: land a newer bundle
+ * (`update` — its own dir, hash and claude version), or skip it as the real one
+ * does when the cache does not hold the bundle yet (`skip`).
  */
 
 import fs from "node:fs";
@@ -60,13 +66,118 @@ export function fixtureClaudeSays(profile: string): string {
  *  PATH from anything else. */
 export const FIXTURE_MARK = "kolu-e2e-agent-distro";
 
+/** Why the fixture updater skips, in the real updater's words. */
+export const FIXTURE_SKIP_REASON =
+  "bundle not fully cached yet (would build claude-code)";
+
+/** How the next fixture updater run of a profile ends. */
+export type FixtureRun = "unchanged" | "update" | "skip";
+
+/** The stand-in updater. It reads its config (state dir, history log,
+ *  profile), then the one-shot `next-<profile>` file in the fixture root (if a
+ *  step wrote one), and does what it says. An `update` reports bytes, holds a
+ *  moment so the run is visible, then lands a new bundle dir whose versions
+ *  file moves the claude version one step on. */
+function fixtureUpdaterScript(root: string): string {
+  return `
+import { appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+const root = ${JSON.stringify(root)};
+const cfg = JSON.parse(readFileSync(process.argv[2], "utf8"));
+const out = (o) => process.stdout.write(JSON.stringify(o) + "\\n");
+const next = join(root, "next-" + cfg.profile);
+const mode = existsSync(next) ? readFileSync(next, "utf8").trim() : "unchanged";
+rmSync(next, { force: true });
+mkdirSync(cfg.state, { recursive: true });
+// Where this host keeps the fixture's state, for the reset between scenarios.
+writeFileSync(join(root, "state-home"), join(cfg.state, ".."));
+const current = join(cfg.state, "current");
+const floor = join(root, "profiles", cfg.profile);
+if (!existsSync(current)) symlinkSync(floor, current);
+const record = (event) => {
+  mkdirSync(join(cfg.history, ".."), { recursive: true });
+  appendFileSync(cfg.history, new Date().toISOString().slice(0, 19) + "Z " + cfg.profile + " " + event + "\\n");
+};
+const stamp = () => writeFileSync(join(cfg.state, "last-success"), Math.floor(Date.now() / 1000) + "\\n");
+const claudeVersion = (bundle) =>
+  readFileSync(join(bundle, "share", "agent-distro", "versions"), "utf8").split("\\t")[2].trim();
+if (mode === "skip") {
+  record("skipped: " + ${JSON.stringify(FIXTURE_SKIP_REASON)});
+  out({ result: "skipped", reason: ${JSON.stringify(FIXTURE_SKIP_REASON)} });
+} else if (mode === "update") {
+  out({ progress: { done: 1048576, total: 4194304 } });
+  await new Promise((r) => setTimeout(r, 1500));
+  const old = realpathSync(current);
+  const n = readdirSync(join(root, "updates")).length + 1;
+  const fresh = join(root, "updates", "u" + n + cfg.profile);
+  const from = claudeVersion(old);
+  const to = "0.0." + n;
+  mkdirSync(join(fresh, "bin"), { recursive: true });
+  writeFileSync(join(fresh, "bin", "claude"), readFileSync(join(floor, "bin", "claude")), { mode: 0o755 });
+  mkdirSync(join(fresh, "share", "agent-distro"), { recursive: true });
+  writeFileSync(join(fresh, "share", "agent-distro", "versions"), "claude\\tClaude Code\\t" + to + "\\n");
+  out({ progress: { done: 4194304, total: 4194304 } });
+  rmSync(current, { force: true });
+  symlinkSync(fresh, current);
+  stamp();
+  record("updated: Claude Code " + from + " → " + to);
+  out({ result: "updated", bundle: realpathSync(current) });
+} else {
+  // A moment, as a real check takes, so the run is visible.
+  await new Promise((r) => setTimeout(r, 800));
+  stamp();
+  out({ result: "unchanged", bundle: realpathSync(current) });
+}
+`;
+}
+
+/** The fixture's root — the floor dir the bake names. */
+function fixtureRoot(): string {
+  const root = memo?.KOLU_AGENT_DISTRO_BUNDLE;
+  if (root === undefined)
+    throw new Error("the agent-distro fixture is not built in this worker");
+  return root;
+}
+
+/** Make the next fixture updater run of `profile` end as `run`. */
+export function fixtureNextRun(profile: string, run: FixtureRun): void {
+  fs.writeFileSync(path.join(fixtureRoot(), `next-${profile}`), run);
+}
+
+/** Undo every run's traces — the state dir with its `current`, stamps and
+ *  history, the landed bundles, any unconsumed `next-*` — so the next scenario
+ *  meets the floor again. */
+export function fixtureResetUpdates(): void {
+  const root = fixtureRoot();
+  const stateHome = path.join(root, "state-home");
+  if (fs.existsSync(stateHome))
+    fs.rmSync(fs.readFileSync(stateHome, "utf8"), {
+      recursive: true,
+      force: true,
+    });
+  fs.rmSync(path.join(root, "updates"), { recursive: true, force: true });
+  fs.mkdirSync(path.join(root, "updates"));
+  for (const profile of FIXTURE_PROFILES)
+    fs.rmSync(path.join(root, `next-${profile}`), { force: true });
+}
+
+let memo: Record<string, string> | undefined;
+
 const script = (file: string, body: string) => {
   fs.writeFileSync(file, `#!/bin/sh\n${body}\n`, { mode: 0o755 });
 };
 
 /** Build the fixture once (per worker) and return the env that bakes it. */
 export function agentDistroFixtureEnv(): Record<string, string> {
+  memo ??= buildFixture();
+  return memo;
+}
+
+function buildFixture(): Record<string, string> {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), `${FIXTURE_MARK}-`));
+  fs.mkdirSync(path.join(root, "updates"), { recursive: true });
+  const updaterScript = path.join(root, "updater.mjs");
+  fs.writeFileSync(updaterScript, fixtureUpdaterScript(root));
   const listing = JSON.stringify({
     profiles: FIXTURE_PROFILES.map(fixtureProfile),
   });
@@ -78,6 +189,13 @@ export function agentDistroFixtureEnv(): Record<string, string> {
     fs.mkdirSync(bin, { recursive: true });
     script(path.join(bin, "claude"), `echo "${fixtureClaudeSays(name)}"`);
     script(path.join(bin, "agent-distro"), picker);
+    // The floor's versions, as a real bundle lists them.
+    const share = path.join(root, "profiles", name, "share", "agent-distro");
+    fs.mkdirSync(share, { recursive: true });
+    fs.writeFileSync(
+      path.join(share, "versions"),
+      `${FIXTURE_HARNESS.name}\t${FIXTURE_HARNESS.title}\t${FIXTURE_HARNESS.version}\n`,
+    );
     const config = path.join(root, `update-${name}.json`);
     fs.writeFileSync(
       config,
@@ -85,9 +203,13 @@ export function agentDistroFixtureEnv(): Record<string, string> {
         profile: name,
         state: `${PLACEHOLDER}/${FIXTURE_MARK}/${name}`,
         history: `${PLACEHOLDER}/${FIXTURE_MARK}/history.log`,
+        // Upstream's schedule (lib/schedule.nix), as `lib.mkUpdater` writes it.
+        periodSeconds: 21600,
+        offsetSeconds: 7200,
       }),
     );
-    return { name, command: ["/bin/false"], config };
+    // This node, by absolute path: padi spawns it with its own PATH.
+    return { name, command: [process.execPath, updaterScript], config };
   });
   const updater = path.join(root, "updater.json");
   fs.writeFileSync(

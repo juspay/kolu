@@ -105,6 +105,7 @@ import {
 } from "../terminalEndpoint/reattach.ts";
 import { resolveTerminalEndpoint } from "../terminalEndpoint/resolve.ts";
 import { snapshotSession } from "../terminals.ts";
+import { startAgentDistroUpdates } from "../agentDistro/agentDistro.ts";
 import { currentPadiBuildIdentity } from "./buildId.ts";
 import { buildControlCoreDeps } from "./controlCore.ts";
 
@@ -404,6 +405,10 @@ function serveDaemonSurfaces(params: {
   );
   // Wire the late-bound ctx so every padi domain writer publishes deltas.
   setPadiSurfaceCtx(runtime.ctx.padi);
+  // Keep the chosen coding agents current on this host (agent-distro's
+  // schedule; idle until the binder pushes agents on). Its timer is unref'd, so
+  // it never holds a draining padi open.
+  startAgentDistroUpdates();
   // Observe the surface runtime's `done` and treat a rejection as FATAL — the
   // #2101 G2 reversal of the log-and-continue disposition #1792 gave it.
   //

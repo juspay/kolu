@@ -27,6 +27,10 @@
 import { readFileSync } from "node:fs";
 import { concreteUpdaterConfig } from "@kolu/agent-distro/bundle";
 import {
+  type UpdaterSchedule,
+  updaterScheduleOf,
+} from "@kolu/agent-distro/schedule";
+import {
   type AgentDistroManifest,
   manifestFile,
   parseAgentDistroManifest,
@@ -73,6 +77,11 @@ export interface AgentDistroProfileBake {
   /** The state directory that config names (its `current` link is the
    *  profile's downloaded bundle) — computed with `configText`, never again. */
   readonly stateDir: string;
+  /** The history log that config names — where the updater writes what each
+   *  run did (shared by every profile on the host). */
+  readonly historyFile: string;
+  /** When an update is due — upstream's schedule, as the config carries it. */
+  readonly schedule: UpdaterSchedule;
 }
 
 export interface AgentDistroBake {
@@ -124,6 +133,9 @@ export function readAgentDistroBake(
       command: p.command,
       configText: concrete.text,
       stateDir: concrete.stateDir,
+      historyFile: concrete.historyFile,
+      // Throws on a config without upstream's schedule: a broken build.
+      schedule: updaterScheduleOf(concrete.text),
     });
   }
   const floorDir = env[AGENT_DISTRO_BUNDLE_ENV];

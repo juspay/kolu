@@ -159,6 +159,16 @@ describe("each profile's config, made concrete once, at read", () => {
     expect(parsed.periodSeconds).toBe(21600);
   });
 
+  it("keeps the history log and upstream's schedule, read once", () => {
+    expect(vanilla.historyFile).toBe(
+      "/home/u/.local/state/agent-distro/history.log",
+    );
+    expect(vanilla.schedule).toEqual({
+      periodSeconds: 21600,
+      offsetSeconds: 7200,
+    });
+  });
+
   it("refuses, at read, a config whose state is not under the placeholder", () => {
     expect(() =>
       readAgentDistroBake(

@@ -43,14 +43,19 @@ const decodeConfigPaths = Schema.decodeUnknownSync(UpdaterConfigPathsSchema);
 /** An updater config made concrete for one host: `placeholder` (the state home
  *  the config was built against) replaced with the host's real `stateHome` in
  *  `state` and `history`; every other field passed through untouched. Returns
- *  the JSON to hand the updater and the state directory it names. Throws if
+ *  the JSON to hand the updater, the state directory and the history log it
+ *  names. Throws if
  *  `state` is not under the placeholder — a config not built that way would
  *  point every host at the build machine's home. */
 export function concreteUpdaterConfig(
   configText: string,
   placeholder: string,
   stateHome: string,
-): { readonly text: string; readonly stateDir: string } {
+): {
+  readonly text: string;
+  readonly stateDir: string;
+  readonly historyFile: string;
+} {
   const raw = JSON.parse(configText) as Record<string, unknown>;
   const fields = decodeConfigPaths(raw);
   if (!fields.state.startsWith(placeholder)) {
@@ -64,5 +69,9 @@ export function concreteUpdaterConfig(
     state: place(fields.state),
     history: place(fields.history),
   };
-  return { text: JSON.stringify(concrete), stateDir: concrete.state };
+  return {
+    text: JSON.stringify(concrete),
+    stateDir: concrete.state,
+    historyFile: concrete.history,
+  };
 }

@@ -2,7 +2,7 @@
  *  row, like every other setting.
  *
  *  The choice itself — the control, its writer and toasts, the hint, the
- *  per-machine status lines — is `AgentsChooser`, the same one the welcome
+ *  per-machine status lines, Check now and the History — is `AgentsChooser`, the same one the welcome
  *  card's first-run step renders. This row adds only what belongs to Settings:
  *  the label with agent-distro's logo, the docs link and "Provided by
  *  agent-distro ↗". */
@@ -19,7 +19,12 @@ const AgentsSettingsSection: Component = () => (
         label="Agents"
         icon={<AgentDistroLogo size={16} />}
         hint={parts.hint()}
-        details={parts.status}
+        details={
+          <>
+            {parts.status}
+            {parts.updates}
+          </>
+        }
         doc="agents"
         aside={
           <a
