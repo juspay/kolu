@@ -184,7 +184,10 @@ those times — 02:00, 08:00, 14:00 and 20:00 UTC, agent-distro's own schedule �
 every machine with agents on looks for a newer build of the set you chose, and
 downloads it if there is one. Only the chosen set is kept current; switching
 sets downloads the new one as before. A machine that was asleep through one of
-those times looks once within minutes of waking. One whose look fails — it was
+those times looks once within minutes of waking. And whenever kolu starts on a
+machine with agents on — after a deploy of a newer kolu, a restart of kolu, or a
+reboot of a host — that machine looks once right away, so a newer kolu brings
+the newer agents with it. One whose look fails — it was
 offline, say — tries again up to twice, five minutes after the failed look
 ended, as agent-distro's own schedule does.
 

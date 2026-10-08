@@ -469,7 +469,14 @@ that profile current on its host. Three cells, one procedure (`padiSurface`
   FAILS (offline at the boundary) is retried on the next looks — three
   attempts per boundary, each retry five minutes after the failed run ENDED,
   upstream's own `--scheduled` numbers (`scheduledAskNow`); a skip waits for the next boundary, and an ask
-  that met a run in flight asks again on the next look. A due update runs the same
+  that met a run in flight asks again on the next look. Before any of that,
+  padi's START runs one update (the boot check): `startAgentDistroUpdates`
+  arms it, and the first tick that finds agents on and a bundle serving runs
+  it FORCED, as `checkNow` does — so a deploy of a newer kolu brings
+  upstream's newer bundle with it rather than waiting for the next boundary.
+  It fires once per process; a first push with agents off, or a first
+  download in flight, spends it; and it is no scheduled attempt (no boundary
+  count, no five-minute retry). A due update runs the same
   updater in `--progress` mode (never `--scheduled`, which is launchd's and
   blocks on retries) through the same run state machine, as an UPDATE: the
   bundle that served when it started keeps serving — even after the updater
