@@ -691,8 +691,19 @@ const LOCAL_LINE = `${IN_SETTINGS} [data-testid="agents-status-lines"] [data-tes
 /** Any scenario that turned agents on ran the fixture's updater (turning them
  *  on asks once whether an update is due), and an update scenario lands
  *  bundles and history: undo it after EVERY scenario, so the next one on this
- *  worker meets the floor and no `last-success`. */
-After(() => {
+ *  worker meets the floor and no `last-success`. First wait until padi has no
+ *  run in flight: deleting a run's state under it fails that run, and the next
+ *  scenario's ask would meet it still going. */
+After(async () => {
+  await waitForPadiCell({
+    memberVerb: "agentDistroStatus/get",
+    accept: (v) => {
+      const s = v as AgentDistroStatus;
+      return s.kind !== "downloading" && !(s.kind === "ready" && s.update);
+    },
+    what: "no agent-distro run in flight",
+    timeoutMs: POLL_TIMEOUT,
+  });
   fixtureResetUpdates();
 });
 
