@@ -27,6 +27,7 @@
   },
   "dependencies": {
     "@kolu/agent-distro": "workspace:*",
+    "@kolu/byte-units": "workspace:*",
     "@kolu/surface": "workspace:*",
     "@kolu/surface-daemon": "workspace:*",
     "@kolu/surface-daemon-supervisor": "workspace:*",

@@ -30,6 +30,7 @@
  *  HTML/SVG follows (phase 4) with zero changes here beyond the renderer
  *  list. */
 
+import { formatBytes } from "@kolu/byte-units";
 import { resolveLinkHref } from "@kolu/solid-browser";
 import {
   type FileWithSource,
@@ -46,6 +47,7 @@ import { VideoRenderer } from "@kolu/solid-fileview/renderers/video";
 import { resolveWikilink } from "@kolu/solid-markdown";
 import type { SelectedLineRange } from "@kolu/solid-pierre";
 import { encodeHostKey } from "kolu-common/hostKey";
+import { MAX_READ_BYTES } from "kolu-git/schemas";
 import { binaryPreviewFamily, isMarkdown } from "kolu-common/preview";
 import type { TerminalId } from "kolu-common/surface";
 import {
@@ -82,7 +84,7 @@ const TruncatedBanner: Component<{ show: boolean }> = (p) => (
       data-testid="browse-truncation-banner"
       class="border-b border-edge bg-surface-1/30 px-2 py-1 text-[10px] text-warning"
     >
-      File truncated (exceeds 1 MB)
+      File truncated (exceeds {formatBytes(MAX_READ_BYTES)})
     </div>
   </Show>
 );

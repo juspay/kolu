@@ -6,7 +6,9 @@ import type { AgentDistroStatus } from "./schema.ts";
 import {
   AGENTS_OFF,
   AGENTS_RETRY,
+  agentFailureLines,
   agentFailureRemedy,
+  agentMarkWords,
   DOWNLOAD_MIN_FILL,
   agentMarkLabel,
   agentChipLabel,
@@ -353,7 +355,12 @@ describe("agentStatusLines", () => {
         text: "ready · vanilla nd11nx5f",
       },
       { host: "box", bar: "busy", fill: 0.55, text: "1.1 GiB of 2.0 GiB" },
-      { host: "pu-3", bar: "warn", fill: 1, text: "cache not usable" },
+      {
+        host: "pu-3",
+        bar: "warn",
+        fill: 1,
+        text: `The coding agents could not be downloaded to pu-3: cache not usable\n${AGENTS_RETRY}`,
+      },
       { host: "ci-2", bar: "empty", fill: 0, text: "checking…" },
     ]);
   });
@@ -422,16 +429,10 @@ describe("agentStalenessOf — is a terminal's agents what a new one gets", () =
     });
   });
 
-  it("another profile the host has not settled on yet: stale, no hash", () => {
+  it("another profile the host has not settled on yet: stale, waiting on its download", () => {
     for (const status of [
       undefined,
       { kind: "downloading", profile: "juspay" } as const,
-      {
-        kind: "error",
-        profile: "juspay",
-        reason: "updater",
-        message: "m",
-      } as const,
       ready("vanilla", OLD),
     ])
       expect(
@@ -439,8 +440,24 @@ describe("agentStalenessOf — is a terminal's agents what a new one gets", () =
       ).toEqual({
         kind: "stale",
         had,
-        now: { kind: "profile", profile: "juspay", hash: undefined },
+        now: { kind: "waiting", profile: "juspay", on: "downloading" },
       });
+    expect(
+      agentStalenessOf({
+        terminal,
+        status: {
+          kind: "error",
+          profile: "juspay",
+          reason: "updater",
+          message: "m",
+        },
+        setting: on("juspay"),
+      }),
+    ).toEqual({
+      kind: "stale",
+      had,
+      now: { kind: "waiting", profile: "juspay", on: "failed" },
+    });
   });
 
   it("same profile, and an update landed: the host's ready bundle differs", () => {
@@ -467,22 +484,45 @@ describe("agentStalenessOf — is a terminal's agents what a new one gets", () =
     ).toEqual({ kind: "current" });
   });
 
-  it("same profile while the host has not settled: current — nothing to restart into", () => {
+  it("same profile with no word from the host yet: current", () => {
     for (const status of [
       undefined,
       { kind: "off" } as const,
       { kind: "unavailable" } as const,
-      { kind: "downloading", profile: "vanilla" } as const,
-      {
-        kind: "error",
-        profile: "vanilla",
-        reason: "updater",
-        message: "m",
-      } as const,
     ])
       expect(
         agentStalenessOf({ terminal, status, setting: on("vanilla") }),
       ).toEqual({ kind: "current" });
+  });
+
+  it("same profile while the host downloads or failed: stale — a new terminal there gets no agents", () => {
+    expect(
+      agentStalenessOf({
+        terminal,
+        status: { kind: "downloading", profile: "vanilla" },
+        setting: on("vanilla"),
+      }),
+    ).toEqual({
+      kind: "stale",
+      had,
+      now: { kind: "waiting", profile: "vanilla", on: "downloading" },
+    });
+    expect(
+      agentStalenessOf({
+        terminal,
+        status: {
+          kind: "error",
+          profile: "vanilla",
+          reason: "updater",
+          message: "m",
+        },
+        setting: on("vanilla"),
+      }),
+    ).toEqual({
+      kind: "stale",
+      had,
+      now: { kind: "waiting", profile: "vanilla", on: "failed" },
+    });
   });
 });
 
@@ -499,13 +539,14 @@ describe("agentRestartReady", () => {
         now: { kind: "profile", profile: "juspay", hash: "ivzki9f3" },
       }),
     ).toBe(true);
-    expect(
-      agentRestartReady({
-        kind: "stale",
-        had,
-        now: { kind: "profile", profile: "juspay", hash: undefined },
-      }),
-    ).toBe(false);
+    for (const on of ["downloading", "failed"] as const)
+      expect(
+        agentRestartReady({
+          kind: "stale",
+          had,
+          now: { kind: "waiting", profile: "juspay", on },
+        }),
+      ).toBe(false);
   });
 });
 
@@ -532,11 +573,33 @@ describe("agentStaleLabel", () => {
       agentStaleLabel({
         kind: "stale",
         had,
-        now: { kind: "profile", profile: "juspay", hash: undefined },
+        now: { kind: "waiting", profile: "juspay", on: "downloading" },
       }),
     ).toBe(
       "This terminal has the vanilla coding agents (nd11nx5f). New terminals get juspay, which is still downloading to this machine; Restart appears once it is ready.",
     );
+  });
+  it("the download failed: new terminals get none, no Restart yet", () => {
+    expect(
+      agentStaleLabel({
+        kind: "stale",
+        had,
+        now: { kind: "waiting", profile: "vanilla", on: "failed" },
+      }),
+    ).toBe(
+      "This terminal has the vanilla coding agents (nd11nx5f). vanilla could not be downloaded to this machine, so new terminals get no coding agents; Restart appears once it is ready.",
+    );
+  });
+  it("the restart's consequence is agentRestartAction's own words", () => {
+    for (const now of [
+      { kind: "off" } as const,
+      { kind: "profile", profile: "juspay", hash: "ivzki9f3" } as const,
+    ]) {
+      const stale = { kind: "stale", had, now } as const;
+      expect(agentStaleLabel(stale)).toContain(
+        `Restart to switch; ${agentRestartAction(stale).outcome}.`,
+      );
+    }
   });
 });
 
@@ -570,6 +633,8 @@ describe("agentRestartAction — what the stale pill's restart does, decided onc
       label: "Restart",
       armedLabel: "Restart agent",
       destructive: false,
+      outcome:
+        "the agent's conversation resumes on the new agents, other programs end",
     });
   });
   it("agents now off: a plain shell, the agent ends — destructive", () => {
@@ -579,6 +644,7 @@ describe("agentRestartAction — what the stale pill's restart does, decided onc
       label: "Restart",
       armedLabel: "Kill agent and restart",
       destructive: true,
+      outcome: "it comes back as a plain shell, and running programs end",
     });
   });
 });
@@ -603,9 +669,6 @@ describe("the words outside the folds", () => {
       "Restarted with the juspay agents; the conversation resumed",
     );
     expect(agentToast.on("juspay")).toBe("New terminals get the juspay agents");
-    expect(agentToast.ready("box")).toBe(
-      "Coding agents ready on box — new terminals there start with them",
-    );
   });
 });
 
@@ -619,6 +682,11 @@ describe("downloadEdge — the moments a host's download is worth a toast", () =
     expect(downloadEdge(undefined, "ready")).toBe("none");
     expect(downloadEdge("off", "error")).toBe("none");
     expect(downloadEdge("ready", undefined)).toBe("none");
+  });
+  it("dropped when agents are turned off under a running download", () => {
+    expect(downloadEdge("downloading", "off")).toBe("dropped");
+    expect(downloadEdge("downloading", "unavailable")).toBe("dropped");
+    expect(downloadEdge("ready", "off")).toBe("none");
   });
 });
 
@@ -643,5 +711,39 @@ describe("a failure's words: cause, then remedy (by reason), then the retry — 
   });
   it("an updater failure is its own words, then the retry", () => {
     expect(agentFailureRemedy("updater")).toBeUndefined();
+    expect(
+      agentFailureLines(
+        { reason: "updater", message: "cache not usable" },
+        "box",
+      ),
+    ).toEqual([
+      "The coding agents could not be downloaded to box: cache not usable",
+      AGENTS_RETRY,
+    ]);
+  });
+  it("the hover, the toast and the Settings line say the same lines", () => {
+    const failure = {
+      reason: "nixMissing",
+      message: "nix is not on padi's PATH on this host",
+    } as const;
+    const lines = agentFailureLines(failure, "box");
+    const mark = { kind: "failed", ...failure } as const;
+    // Hover / accessible name.
+    expect(agentMarkLabel(mark, "box")).toBe(lines.join("\n"));
+    // Toast: the cause as its title, the rest as its description.
+    expect(agentMarkWords(mark, "box")).toEqual({
+      title: lines[0],
+      detail: lines.slice(1),
+    });
+    // Settings line.
+    const [line] = agentStatusLines({
+      local: {
+        label: "box",
+        status: { kind: "error", profile: "vanilla", ...failure },
+        checking: false,
+      },
+      remotes: [],
+    });
+    expect(line?.text).toBe(lines.join("\n"));
   });
 });

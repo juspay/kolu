@@ -71,12 +71,11 @@ import {
   type PortSampler,
   type PortScanTarget,
 } from "../ports/index.ts";
-import { agentDistroSettingStore } from "../agentDistro/agentDistro.ts";
 import {
-  agentLayerOfRecord,
-  resolveAgentLayer,
-  withAgentLayer,
-} from "../agentDistro/layer.ts";
+  agentDistroSettingStore,
+  newTerminalLayer,
+} from "../agentDistro/agentDistro.ts";
+import { agentLayerOfRecord, withAgentLayer } from "../agentDistro/layer.ts";
 import { buildTerminalSpawnInput, ptyHostClient } from "../ptyHost/index.ts";
 import { notifyDirty } from "../publisher.ts";
 import {
@@ -817,11 +816,10 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
     // The agent layer is decided HERE, once, for every spawn (fresh or wake), and
     // stamped on the record the spawn below reads its PATH from — so the tile's
     // chip and the terminal's PATH are one value. A woken terminal gets the
-    // CURRENT layer, never the one it slept with: its old PTY is gone.
-    const stamped = withAgentLayer(
-      meta,
-      resolveAgentLayer(agentDistroSettingStore.get()),
-    );
+    // CURRENT layer, never the one it slept with: its old PTY is gone. It is
+    // the host's status's own answer, so a host reading `downloading` or
+    // `error` gives a new terminal no agents.
+    const stamped = withAgentLayer(meta, newTerminalLayer());
     // Both halves are born in ONE entry — snapshot is a required field, so the
     // entry IS its snapshot; `registerAndInstall` registers it and fans the
     // snapshot snapshot out in one step (the seed counterpart to
@@ -1672,9 +1670,15 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
       tlog.warn({ err }, "restart: kill failed but the PTY is gone; going on");
     }
     const now = getTerminal(id);
+    // A wake won the id during the kill. Every wake but a restart's replays the
+    // resume form (and a second restart waits on this one), so it resumed
+    // exactly when the slept record had a form to replay.
     if (now !== slept)
       return now?.meta.state === "active"
-        ? { info: now.info, resumed: false }
+        ? {
+            info: now.info,
+            resumed: resumeFormFor(slept.meta.restoreTarget) !== null,
+          }
         : undefined;
     // The ONE decision of whether the conversation comes back: while agents
     // stay on (the new PTY has agents to resume it with). The client words the

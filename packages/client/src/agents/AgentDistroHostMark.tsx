@@ -15,7 +15,11 @@ import { type Component, createMemo, Match, Show, Switch } from "solid-js";
 import { openSettings } from "../settings/useSettingsOpen";
 import Tip from "../ui/Tip";
 import AgentDistroLogo from "@kolu/agent-distro/solid";
-import { type AgentMark, agentMarkLabel } from "@kolu/agent-distro/status";
+import {
+  type AgentMark,
+  agentMarkLabel,
+  agentMarkWords,
+} from "@kolu/agent-distro/status";
 import { hostLabel } from "../host/hostChipTone";
 import { hostAgentMark } from "./useAgentDistro";
 
@@ -70,8 +74,8 @@ const Ring: Component<{ mark: AgentMark }> = (props) => (
   </svg>
 );
 
-/** The words beside the mark on hover — `agentMarkLabel`'s, the one wording
- *  (the bytes ride in it) — and, while downloading, a 90px bar. */
+/** The words beside the mark on hover — `agentMarkWords`', the one wording —
+ *  and, while downloading, a 90px bar with the bytes after it. */
 const MarkTip: Component<{ mark: AgentMark; where: string }> = (props) => (
   <Show
     when={props.mark.kind === "downloading" && props.mark}
@@ -83,7 +87,7 @@ const MarkTip: Component<{ mark: AgentMark; where: string }> = (props) => (
   >
     {(m) => (
       <span class="flex items-center gap-1.5">
-        <span>{agentMarkLabel(m(), props.where)}</span>
+        <span>{agentMarkWords(m(), props.where)?.title}</span>
         {/* The same bar as the Settings status lines: 5px, radius 3, on edge. */}
         <span class="h-[5px] w-[90px] shrink-0 overflow-hidden rounded-[3px] bg-edge">
           <span
@@ -91,6 +95,9 @@ const MarkTip: Component<{ mark: AgentMark; where: string }> = (props) => (
             style={{ width: `${m().fraction * 100}%` }}
           />
         </span>
+        <Show when={m().bytes}>
+          {(bytes) => <span class="font-mono text-fg-3">{bytes()}</span>}
+        </Show>
       </span>
     )}
   </Show>

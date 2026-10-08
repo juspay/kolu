@@ -9,7 +9,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { assessAgentDistro, checkAgentDistroSetting } from "./agentDistro.ts";
 import { __setAgentDistroBakeForTest, type AgentDistroBake } from "./bake.ts";
-import { resolveAgentLayer, withAgentLayer } from "./layer.ts";
+import { layerOnHost, withAgentLayer } from "./layer.ts";
 
 const ON = { enabled: true, profile: "vanilla" } as const;
 
@@ -73,22 +73,20 @@ afterEach(() => {
   else process.env.XDG_STATE_HOME = savedStateHome;
 });
 
-describe("resolveAgentLayer", () => {
+describe("layerOnHost — the bundle on disk", () => {
   it("off → nothing", () => {
     __setAgentDistroBakeForTest(bake({ floor: true }));
-    expect(
-      resolveAgentLayer({ enabled: false, profile: "vanilla" }),
-    ).toBeUndefined();
+    expect(layerOnHost({ enabled: false, profile: "vanilla" })).toBeUndefined();
   });
 
   it("an unbaked padi → nothing, even when on", () => {
     __setAgentDistroBakeForTest(null);
-    expect(resolveAgentLayer(ON)).toBeUndefined();
+    expect(layerOnHost(ON)).toBeUndefined();
   });
 
   it("the local floor: the profile's EXACT resolved dir, never the symlink", () => {
     __setAgentDistroBakeForTest(bake({ floor: true }));
-    expect(resolveAgentLayer(ON)).toEqual({
+    expect(layerOnHost(ON)).toEqual({
       profile: "vanilla",
       bundle: join(root, "store-vanilla-kolu"),
       plugins: "/p/plugin",
@@ -102,12 +100,12 @@ describe("resolveAgentLayer", () => {
     const stateDir = join(root, "state", "agent-distro", "vanilla");
     mkdirSync(stateDir, { recursive: true });
     symlinkSync(fetched, join(stateDir, "current"));
-    expect(resolveAgentLayer(ON)?.bundle).toBe(fetched);
+    expect(layerOnHost(ON)?.bundle).toBe(fetched);
   });
 
   it("a remote host before its first download → nothing yet", () => {
     __setAgentDistroBakeForTest(bake({ floor: false }));
-    expect(resolveAgentLayer(ON)).toBeUndefined();
+    expect(layerOnHost(ON)).toBeUndefined();
     // Not a status anyone sees: the one state the caller must act on.
     expect(assessAgentDistro(ON)).toEqual({
       kind: "needsDownload",
@@ -115,12 +113,15 @@ describe("resolveAgentLayer", () => {
     });
   });
 
-  it("status reads ready with the bundle a new terminal gets", () => {
+  it("status reads ready with the layer a new terminal gets", () => {
     __setAgentDistroBakeForTest(bake({ floor: true }));
     expect(assessAgentDistro(ON)).toEqual({
       kind: "ready",
-      profile: "vanilla",
-      bundle: join(root, "store-vanilla-kolu"),
+      layer: {
+        profile: "vanilla",
+        bundle: join(root, "store-vanilla-kolu"),
+        plugins: "/p/plugin",
+      },
     });
     expect(assessAgentDistro({ enabled: false, profile: "x" })).toEqual({
       kind: "off",

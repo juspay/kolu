@@ -10,7 +10,7 @@ import Commit, { REPO_URL } from "./Commit";
 import { docUrl } from "./DocLink";
 import { OpenIcon } from "./Icons";
 import InfoDialogShell, { DetailRow, VersionChip } from "./InfoDialog";
-import { mbText } from "./memory";
+import { mibText } from "./memory";
 import { clientStale, StaleBadge } from "./StaleBadge";
 import { clientHeapUsedBytes, serverRssBytes } from "./useMemoryUsage";
 import { serverStartedAt } from "./useProcessUptime";
@@ -102,9 +102,9 @@ const KoluInfoDialog: Component<{
               dialog names. padi and kaval have their own host-chip marks +
               dialogs, so their RSS reads out there rather than being folded in here. */}
           <span>
-            server {mbText(serverRssBytes())}
+            server {mibText(serverRssBytes())}
             <span class="text-fg-3"> / </span>
-            browser {mbText(clientHeapUsedBytes())}
+            browser {mibText(clientHeapUsedBytes())}
           </span>
         </DetailRow>
       </div>

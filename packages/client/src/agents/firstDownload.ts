@@ -1,7 +1,8 @@
 /**
- * A host's download, as the three moments worth telling the user about: it
- * starts (`→ downloading`), it lands (`downloading → ready`: the next new
- * terminal there has the agents), or it fails (`downloading → error`, and why).
+ * A host's download, as the moments worth telling the user about: it starts
+ * (`→ downloading`), it lands (`downloading → ready`: the next new terminal
+ * there has the agents), it fails (`downloading → error`, and why), or the user
+ * turns agents off under it (`downloading → off`).
  *
  * Tracks the status's `kind` STRING, never the status value: a cell's value is
  * reconciled in place into one store object (`@kolu/surface`'s
@@ -15,34 +16,24 @@ import type { AgentDistroStatus } from "@kolu/agent-distro/schema";
 import { downloadEdge } from "@kolu/agent-distro/status";
 import { createEffect, on } from "solid-js";
 
-/** Run `handlers` at a host's download moments — which moment is
- *  `downloadEdge`'s call (`@kolu/agent-distro/status`); this is only the Solid
- *  effect that watches the cell. */
+/** A download moment worth telling the user about (`downloadEdge`'s, minus
+ *  `none`). */
+export type DownloadMoment = Exclude<ReturnType<typeof downloadEdge>, "none">;
+
+/** Run `onMoment` at a host's download moments, with the status that made it —
+ *  which moment is `downloadEdge`'s call (`@kolu/agent-distro/status`); this is
+ *  only the Solid effect that watches the cell. */
 export function watchDownload(
   read: () => AgentDistroStatus | undefined,
-  handlers: {
-    readonly onStart: () => void;
-    readonly onReady: () => void;
-    readonly onError: (message: string) => void;
-  },
+  onMoment: (moment: DownloadMoment, status: AgentDistroStatus) => void,
 ): void {
   createEffect(
     on(
       () => read()?.kind,
       (now, prev) => {
-        switch (downloadEdge(prev, now)) {
-          case "start":
-            return handlers.onStart();
-          case "ready":
-            return handlers.onReady();
-          case "failed": {
-            const status = read();
-            if (status?.kind === "error") handlers.onError(status.message);
-            return;
-          }
-          case "none":
-            return;
-        }
+        const moment = downloadEdge(prev, now);
+        const status = read();
+        if (moment !== "none" && status !== undefined) onMoment(moment, status);
       },
     ),
   );

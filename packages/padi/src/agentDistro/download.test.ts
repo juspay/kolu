@@ -10,6 +10,7 @@
 
 import {
   chmodSync,
+  existsSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -29,6 +30,7 @@ import {
 } from "../padiSurfaceCtx.ts";
 import {
   agentDistroSettingStore,
+  newTerminalLayer,
   onAgentDistroSettingWrite,
 } from "./agentDistro.ts";
 import { __resetAgentDistroDownloadsForTest } from "./download.ts";
@@ -41,14 +43,18 @@ const OFF: AgentDistroSetting = { enabled: false, profile: "vanilla" };
 // updater's `--progress` protocol — progress lines, then one result line, human
 // words on stderr.
 const STUB = `
-import { appendFileSync, mkdirSync, readFileSync, symlinkSync } from "node:fs";
+import { appendFileSync, mkdirSync, readFileSync, rmSync, symlinkSync } from "node:fs";
 const args = process.argv.slice(2);
 appendFileSync(process.env.STUB_LOG, JSON.stringify(args) + "\\n");
 const cfg = JSON.parse(readFileSync(args[0], "utf8"));
 const out = (o) => process.stdout.write(JSON.stringify(o) + "\\n");
-const land = () => {
+const flip = () => {
   mkdirSync(cfg.state, { recursive: true });
+  rmSync(cfg.state + "/current", { force: true });
   symlinkSync(process.env.STUB_BUNDLE, cfg.state + "/current");
+};
+const land = () => {
+  flip();
   out({ result: "updated", bundle: process.env.STUB_BUNDLE });
 };
 switch (process.env.STUB_MODE) {
@@ -74,11 +80,16 @@ switch (process.env.STUB_MODE) {
     out({ progress: { done: "a lot", total: 2 } });
     out({ result: "unchanged", bundle: process.env.STUB_BUNDLE });
     break;
+  case "flipfirst":
+    // As the real updater does: \`current\` flips, then a while later the result.
+    flip();
+    await new Promise((r) => setTimeout(r, 400));
+    out({ result: "updated", bundle: process.env.STUB_BUNDLE });
+    break;
   case "elsewhere":
     // Lands one bundle but reports another — the host would resolve something
     // other than what the updater says it fetched.
-    mkdirSync(cfg.state, { recursive: true });
-    symlinkSync(process.env.STUB_BUNDLE, cfg.state + "/current");
+    flip();
     out({ result: "updated", bundle: "/nix/store/0000000000000000000000000000000-other" });
     break;
   case "tworesults":
@@ -331,5 +342,46 @@ describe("a host's first download", () => {
       reason: "updater",
       message: `the updater landed /nix/store/0000000000000000000000000000000-other, but this host resolves ${join(root, "store-fetched-vanilla")} for vanilla`,
     });
+  });
+
+  it("mid-run, after `current` flips: still downloading, and a new terminal gets no agents", async () => {
+    process.env.STUB_MODE = "flipfirst";
+    write(ON);
+    const current = join(root, "state", "agent-distro", "vanilla", "current");
+    const deadline = Date.now() + 5_000;
+    while (!existsSync(current)) {
+      if (Date.now() > deadline) throw new Error("the stub never flipped");
+      await new Promise((r) => setTimeout(r, 20));
+    }
+    expect(last()).toEqual({ kind: "downloading", profile: "vanilla" });
+    expect(newTerminalLayer()).toBeUndefined();
+    await until((s) => s?.kind === "ready");
+    expect(newTerminalLayer()?.bundle).toBe(
+      join(root, "store-fetched-vanilla"),
+    );
+  });
+
+  it("a host in error gives a new terminal no agents — even with the landed `current` on disk", async () => {
+    process.env.STUB_MODE = "elsewhere";
+    write(ON);
+    await until((s) => s?.kind === "error");
+    expect(newTerminalLayer()).toBeUndefined();
+  });
+
+  it("the retry after a mismatch downloads again — the disowned `current` is never ready", async () => {
+    process.env.STUB_MODE = "elsewhere";
+    write(ON);
+    await until((s) => s?.kind === "error");
+    process.env.STUB_MODE = "ok";
+    write(OFF);
+    write(ON);
+    // Not straight to ready on the bundle the failed run disowned.
+    expect(last()).toEqual({ kind: "downloading", profile: "vanilla" });
+    expect(newTerminalLayer()).toBeUndefined();
+    await until((s) => s?.kind === "ready");
+    expect(invocations()).toHaveLength(2);
+    expect(newTerminalLayer()?.bundle).toBe(
+      join(root, "store-fetched-vanilla"),
+    );
   });
 });

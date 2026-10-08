@@ -1,12 +1,12 @@
 import type { PadiProcessMemory } from "@kolu/padi-client/surface";
-import { BYTES_PER_MB as MB } from "kolu-common/surface";
+import { MIB } from "@kolu/byte-units";
 import { describe, expect, it, vi } from "vitest";
 import { sampleServerMemory } from "./memorySampler.ts";
 
 /** padi up: an `ok` `{ padi, kaval }` pair. */
 const padiUp = async (): Promise<PadiProcessMemory> => ({
-  padi: { status: "ok", rssBytes: 20 * MB },
-  kaval: { status: "ok", rssBytes: 30 * MB },
+  padi: { status: "ok", rssBytes: 20 * MIB },
+  kaval: { status: "ok", rssBytes: 30 * MIB },
 });
 
 describe("sampleServerMemory — the poll read behind the derived processMemory cell", () => {
@@ -14,16 +14,16 @@ describe("sampleServerMemory — the poll read behind the derived processMemory 
     const m = await sampleServerMemory(padiUp);
     // kolu-server measures itself, so its RSS is a real positive figure (not injected).
     expect(m.serverRssBytes).toBeGreaterThan(0);
-    expect(m.padi).toEqual({ status: "ok", rssBytes: 20 * MB });
-    expect(m.kaval).toEqual({ status: "ok", rssBytes: 30 * MB });
+    expect(m.padi).toEqual({ status: "ok", rssBytes: 20 * MIB });
+    expect(m.kaval).toEqual({ status: "ok", rssBytes: 30 * MIB });
   });
 
   it("passes padi's honest three-way through verbatim — an `error` kaval poll stays distinct from `absent`", async () => {
     const m = await sampleServerMemory(async () => ({
-      padi: { status: "ok", rssBytes: 20 * MB },
+      padi: { status: "ok", rssBytes: 20 * MIB },
       kaval: { status: "error" },
     }));
-    expect(m.padi).toEqual({ status: "ok", rssBytes: 20 * MB });
+    expect(m.padi).toEqual({ status: "ok", rssBytes: 20 * MIB });
     expect(m.kaval).toEqual({ status: "error" });
   });
 

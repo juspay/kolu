@@ -5,8 +5,10 @@
  * constants, so the two sides cannot drift on the rejection threshold.
  *
  * That is why it rides the CLIENT package rather than the daemon: a sender has
- * to know the gate BEFORE it encodes a file, and this module imports nothing at
- * all, so saying so costs a hydrating consumer no closure whatsoever. padi
+ * to know the gate BEFORE it encodes a file, and this module imports only
+ * `@kolu/byte-units` (a zero-dependency leaf, so the limit reads in the units
+ * every other size does), so saying so costs a hydrating consumer next to no
+ * closure. padi
  * imports it back for the authoritative check — the arrow points out, and one
  * threshold serves both ends of the wire.
  *
@@ -18,12 +20,14 @@
  * keeps the gate; the framework keeps the arithmetic.
  */
 
+import { formatBytes, MIB } from "@kolu/byte-units";
+
 /** Hard cap on a single dropped file. This leaves room for a useful bug-repro
  *  video. It is a POLICY cap on the file, and deliberately larger than any one
  *  wire frame: the upload is chunked (`FRAME_CHUNK_BYTES`), so the file size
  *  and the frame size are independent numbers. Before chunking they were the
  *  same number, and a 26 MB drop killed the tab's socket. */
-export const MAX_UPLOAD_BYTES = 50 * 1024 * 1024;
+export const MAX_UPLOAD_BYTES = 50 * MIB;
 
 /** The video containers a dropped file may carry — padi's OWN list, in extension
  *  form (no leading dot). The CANONICAL source (L17): padi owns the upload/file
@@ -145,8 +149,7 @@ export function rejectionFor(name: string, bytes: number): string | null {
  *  `rejectionFor` size branch so the message is consistent. */
 export function sizeRejectionFor(label: string, bytes: number): string | null {
   if (bytes > MAX_UPLOAD_BYTES) {
-    const mb = (MAX_UPLOAD_BYTES / (1024 * 1024)).toFixed(0);
-    return `File too large: "${label}" exceeds the ${mb} MB limit`;
+    return `File too large: "${label}" exceeds the ${formatBytes(MAX_UPLOAD_BYTES)} limit`;
   }
   return null;
 }

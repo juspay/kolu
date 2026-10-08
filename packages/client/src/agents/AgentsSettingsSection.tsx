@@ -21,6 +21,7 @@ import AgentDistroLogo from "@kolu/agent-distro/solid";
 import {
   AGENTS_OFF,
   AGENTS_OFF_MEANS,
+  AGENTS_SEGMENT_TESTID,
   agentToast,
   agentsHint,
   agentsSegmentOf,
@@ -83,7 +84,7 @@ const AgentsSettingsSection: Component = () => {
         options={segments()}
         value={agentsSegmentOf(preferences().agentDistro)}
         onChange={choose}
-        testIdPrefix="agents-profile"
+        testIdPrefix={AGENTS_SEGMENT_TESTID}
       />
     </SettingRow>
   );

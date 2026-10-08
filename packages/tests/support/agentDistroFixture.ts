@@ -24,6 +24,9 @@ import path from "node:path";
 
 const PLACEHOLDER = "@KOLU_XDG_STATE_HOME@";
 export const FIXTURE_PROFILES = ["vanilla", "juspay"] as const;
+/** The profile the fixture's listing leads with — the one "turn Agents on"
+ *  picks. */
+export const FIXTURE_DEFAULT_PROFILE = FIXTURE_PROFILES[0];
 
 /** The fixture's ONE harness, as its listing names it — steps read the line
  *  Settings shows off this (`harnessLine`), never a hand-typed copy. */
@@ -96,7 +99,7 @@ export function agentDistroFixtureEnv(): Record<string, string> {
   fs.writeFileSync(
     path.join(root, "share", "kolu", "agent-distro.json"),
     JSON.stringify({
-      default: FIXTURE_PROFILES[0],
+      default: FIXTURE_DEFAULT_PROFILE,
       picker: path.join(root, "bin", "agent-distro"),
       profiles: FIXTURE_PROFILES.map((name) => {
         const dir = path.join(root, "profiles", name);

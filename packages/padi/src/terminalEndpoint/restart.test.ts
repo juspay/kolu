@@ -40,6 +40,10 @@ import {
   __setAgentDistroBakeForTest,
   type AgentDistroBake,
 } from "../agentDistro/bake.ts";
+import {
+  __resetAgentDistroDownloadsForTest,
+  __setDownloadForTest,
+} from "../agentDistro/download.ts";
 import { koluScratchDir, setDaemonProcessId } from "../koluRoot.ts";
 import {
   __resetPadiSurfaceCtxForTest,
@@ -212,6 +216,7 @@ afterEach(() => {
   if (savedStateHome === undefined) delete process.env.XDG_STATE_HOME;
   else process.env.XDG_STATE_HOME = savedStateHome;
   __setAgentDistroBakeForTest(undefined);
+  __resetAgentDistroDownloadsForTest();
   agentDistroSettingStore.set({ enabled: false, profile: "vanilla" });
   __resetPadiSurfaceCtxForTest();
 });
@@ -277,6 +282,22 @@ describe("restart — a new PTY in place", () => {
     });
   });
 
+  it.each([
+    ["downloading", { kind: "running" }],
+    [
+      "error",
+      {
+        kind: "failed",
+        failure: { reason: "updater", message: "nix build exit 1" },
+      },
+    ],
+  ] as const)("a host reading %s: the new PTY gets no agents, though a bundle is on disk", async (_, state) => {
+    __setDownloadForTest("juspay", state);
+    seedVanillaTerminal();
+    await restartTerminal(ID);
+    expect(activeMeta().agents).toBeUndefined();
+  });
+
   it("agents on: the live agent's conversation resumes, and padi says so", async () => {
     seedVanillaTerminal();
     expect((await restartTerminal(ID))?.resumed).toBe(true);
@@ -329,7 +350,10 @@ describe("restart — a new PTY in place", () => {
     expect(wakeLocalTerminal(ID)?.id).toBe(ID);
     hold.resolve();
 
-    expect((await restart)?.info.id).toBe(ID);
+    const answered = await restart;
+    expect(answered?.info.id).toBe(ID);
+    // The wake that won replayed the live agent's conversation; padi says so.
+    expect(answered?.resumed).toBe(true);
     expect(calls.log.filter((e) => e.startsWith("spawn:"))).toHaveLength(1);
   });
 

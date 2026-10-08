@@ -2,7 +2,11 @@
  *  writes it (lines captured from its `jsonReport`). */
 
 import { describe, expect, it } from "vitest";
-import { parseUpdaterLine, UPDATER_PROGRESS_ARGS } from "./progress.ts";
+import {
+  parseUpdaterLine,
+  UPDATER_PROGRESS_ARGS,
+  updaterLastWord,
+} from "./progress.ts";
 
 describe("parseUpdaterLine", () => {
   it("asks for the machine-readable mode", () => {
@@ -59,5 +63,23 @@ describe("parseUpdaterLine", () => {
       "{not json",
     ])
       expect(parseUpdaterLine(line)).toEqual({ malformed: line });
+  });
+});
+
+describe("updaterLastWord — the cause from the updater's stderr", () => {
+  it("takes the last non-blank line, without the updater's `agent-distro:` prefix", () => {
+    expect(
+      updaterLastWord([
+        "agent-distro: fetching vanilla",
+        "agent-distro: vanilla update skipped: cache not usable",
+        "  ",
+      ]),
+    ).toBe("vanilla update skipped: cache not usable");
+  });
+  it("keeps a line the updater did not prefix as it is", () => {
+    expect(updaterLastWord(["TypeError: boom"])).toBe("TypeError: boom");
+  });
+  it("nothing said is undefined", () => {
+    expect(updaterLastWord(["", " "])).toBeUndefined();
   });
 });

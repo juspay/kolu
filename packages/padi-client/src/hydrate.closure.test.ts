@@ -100,10 +100,8 @@ const DECLARED_ALLOWED = new Set([
   // in kolu's contract-with-upstream package; its manifest is `effect` plus
   // `solid-js` (for the logo component), both already in the framework tier.
   "@kolu/agent-distro",
-  // agent-distro's one formatter for a download's bytes: a zero-dependency leaf.
-  // DECLARED only — padi-client imports agent-distro's `/schema`, which never
-  // reaches the formatter, so a consumer copies the directory but compiles none
-  // of it.
+  // The one byte formatter (binary units): a zero-dependency leaf. Imported by
+  // `upload.ts` so the drop limit is worded in the units every size is.
   "@kolu/byte-units",
   "@kolu/padi-client",
   "@kolu/surface",
@@ -171,6 +169,7 @@ const DECLARED_ALLOWED = new Set([
  *  second pin to make `tsc` pass. That is the gap this split exists to show. */
 const IMPORTED_ALLOWED = new Set([
   "@kolu/agent-distro",
+  "@kolu/byte-units",
   "@kolu/log",
   "@kolu/padi-client",
   "@kolu/shell-quote",

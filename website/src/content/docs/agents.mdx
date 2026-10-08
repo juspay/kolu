@@ -13,16 +13,15 @@ koluHero:
 import Aside from "../../components/docs/Aside.astro";
 
 Kolu can bring the AI coding agents along — **Claude Code, Codex, OpenCode, Pi
-and OMP** — kept up to date, with nothing for you to install. Turn them on in
+and Oh My Pi** — kept up to date, with nothing for you to install. Turn them on in
 **Settings → Agents**, open a new terminal and type `claude`: it runs, and so do
 the others. Each one starts with kolu's own plugin loaded, so it can drive your
 other kolu terminals out of the box. Agents you installed yourself keep working:
 kolu's come first, yours stay as the fallback.
 
-You choose between two sets:
-
-- **vanilla** — the stock agents, signed in with your own API keys.
-- **juspay** — Juspay's agents and skills, through Juspay's gateway.
+You choose between the sets kolu ships — today **vanilla** (the stock agents)
+and **juspay** (Juspay's). Settings says what each one is, in a sentence, the
+moment you look at it ([Pick a set](#pick-a-set)).
 
 This is **off by default**, on a fresh install and on one that predates it, so
 kolu changes nothing in your terminals until you pick a set. The agents come from
@@ -65,9 +64,9 @@ different agents; **no pill** means agents were off when that terminal started.
 When a terminal's agents are no longer what a new terminal there would get — you
 picked another set, turned agents off, or a newer build of the same set arrived —
 its pill dims and becomes a **Restart** button. Hover it to see what the terminal
-has and what new terminals get. While the new set is still downloading to that
-machine, the pill says so and offers no Restart yet: restarting then would leave
-the terminal with no agents.
+has and what new terminals get. While that machine is still downloading the set,
+or its download failed, new terminals there get no agents — so the pill says so
+and offers no Restart yet: restarting then would leave the terminal with none.
 
 Restart gives the terminal a fresh shell in place — the same tile, folder, splits
 and theme — with the current agents. With agents still on, the agent's
@@ -132,9 +131,11 @@ so switching there is instant and works offline.
 The host needs Nix with flakes, reachable on padi's PATH, and its Nix must be
 allowed to use agent-distro's cache (`https://cache.nixos.asia/oss`). If it is
 not, the download is skipped — the host never compiles agents — and the host's
-mark turns to the warning colour; its hover gives the cause, and the setup fix
-when the cause is a missing `nix`. Fix it, then switch Agents off and back on in
-Settings: that is the retry. Nothing retries on its own.
+mark turns to the warning colour. Its hover, the toast and the host's line in
+Settings all say the same thing: the cause, the setup fix when the cause is a
+missing `nix`, and how to retry. Until it is fixed, new terminals on that host
+get no agents. Fix it, then switch Agents off and back on in Settings: that is
+the retry, and it downloads again. Nothing retries on its own.
 
 ## Turning it off
 

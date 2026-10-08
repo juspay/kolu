@@ -435,12 +435,16 @@ every NEW terminal it spawns ([Agents](https://kolu.dev/agents)). Two cells
   the user's choice is never mapped to another profile. Not on the MCP face.
 - **`agentDistroStatus` (read-only)** — whether the selected profile's agents
   are on THIS host: `ready` (with the bundle new terminals get), `downloading`
-  (with the bytes fetched so far, from the updater's `--progress` lines; any line outside that contract is the run's error), `error` (the
-  updater's own message), `off`, or `unavailable` (an unbaked, from-source padi).
-- **The spawn layer** — at each spawn (fresh, wake or restart) padi resolves the bundle:
-  the host's `<state>/current` (what agent-distro's updater fetched) if it
-  exists, else the FLOOR this build carries (local machine only), else none
-  yet. The resolved store path is stamped on the terminal record
+  (with the bytes fetched so far, from the updater's `--progress` lines; any line outside that contract is the run's error), `error` (a
+  typed reason and its cause), `off`, or `unavailable` (an unbaked, from-source padi).
+- **The spawn layer** — at each spawn (fresh, wake or restart) padi asks the SAME
+  question the status answers (`newTerminalLayer`, over `assessAgentDistro`):
+  only a host reading `ready` gives a layer, so a host `downloading` or in
+  `error` spawns terminals with no agents. The ready bundle is the host's
+  `<state>/current` (what agent-distro's updater fetched) if it exists, else the
+  FLOOR this build carries (local machine only) — never a `current` a download
+  disowned (it landed a bundle other than the one it reported); the retry
+  downloads again. The resolved store path is stamped on the terminal record
   (its one `agents` struct — the tile pill) and its `bin/` joins the
   terminal's toolchain AFTER kolu's own tools, riding the same
   `KOLU_TERMINAL_TOOLS_PATH` stamp the rcfile re-asserts; `AGENT_DISTRO_PLUGINS`

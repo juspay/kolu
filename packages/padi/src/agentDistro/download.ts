@@ -28,6 +28,11 @@ export interface DownloadFailure {
 const running = new Map<string, { progress?: UpdaterProgress }>();
 /** Profiles whose last download failed. */
 const failed = new Map<string, DownloadFailure>();
+/** The bundle a profile's `current` points at that a download DISOWNED: the
+ *  updater said it landed another. Outlives {@link forgetFailure} — the retry
+ *  must download again, not adopt it — and is cleared only when a download
+ *  lands and the host resolves exactly what the updater reported. */
+const disowned = new Map<string, string>();
 
 /** Where `profile`'s download stands: running (with bytes), failed, or never
  *  started / forgotten (`undefined`). */
@@ -43,9 +48,17 @@ export function downloadOf(
   return failure === undefined ? undefined : { kind: "failed", failure };
 }
 
-/** Forget `profile`'s last failure — the policy's retry. */
+/** Forget `profile`'s last failure — the policy's retry. A bundle that failure
+ *  disowned stays disowned ({@link disownedBundleOf}). */
 export function forgetFailure(profile: string): void {
   failed.delete(profile);
+}
+
+/** The bundle on this host that a download of `profile` disowned, if any: what
+ *  `current` points at is not the bundle the updater reported, so no terminal
+ *  may get it. */
+export function disownedBundleOf(profile: string): string | undefined {
+  return disowned.get(profile);
 }
 
 /** Start `profile`'s one download. Every way it can fail — no `nix`, a config
@@ -104,6 +117,7 @@ export function startDownload(
       // exactly that one, or new terminals would get something else.
       const here = bundleOnHost(bake, profile);
       if (here !== outcome.bundle) {
+        if (here !== undefined) disowned.set(profile.name, here);
         fail(
           "updater",
           here === undefined
@@ -113,6 +127,7 @@ export function startDownload(
         return;
       }
       running.delete(profile.name);
+      disowned.delete(profile.name);
       plog.info({ bundle: here }, "agent-distro bundle ready");
     })
     .catch((err: unknown) =>
@@ -134,8 +149,18 @@ export function startDownload(
     });
 }
 
-/** Test seam: forget every download and failure. */
+/** Test seam: forget every download, failure and disowned bundle. */
 export function __resetAgentDistroDownloadsForTest(): void {
   running.clear();
   failed.clear();
+  disowned.clear();
+}
+
+/** Test seam: put `profile`'s download in a state without running one. */
+export function __setDownloadForTest(
+  profile: string,
+  state: { kind: "running" } | { kind: "failed"; failure: DownloadFailure },
+): void {
+  if (state.kind === "running") running.set(profile, {});
+  else failed.set(profile, state.failure);
 }

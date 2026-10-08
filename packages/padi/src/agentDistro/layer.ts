@@ -1,6 +1,6 @@
 /**
  * What a terminal gets from agent-distro, and how its record remembers it — the
- * spawn-time decision. A layer is the profile, the EXACT bundle store path whose
+ * spawn-time facts. A layer is the profile, the EXACT bundle store path whose
  * `bin/` goes on PATH (the terminal pins it: a later update or profile switch
  * never touches a running terminal), and the plugin dir. The record carries the
  * profile and bundle (`agents`, the tile pill); the spawn
@@ -22,9 +22,11 @@ export interface AgentLayer {
   readonly plugins: string;
 }
 
-/** The agent layer for a terminal spawned NOW, or `undefined` when it gets none
- *  (setting off, an unbaked padi, or a host whose bundle has not arrived). */
-export function resolveAgentLayer(
+/** The layer the bundle ON DISK would give, or `undefined` when there is none
+ *  (setting off, an unbaked padi, or a host whose bundle has not arrived). NOT
+ *  what a new terminal gets: that also hangs on the download's state, and is
+ *  answered once, by `newTerminalLayer` (`./agentDistro.ts`). */
+export function layerOnHost(
   setting: AgentDistroSetting,
 ): AgentLayer | undefined {
   if (!setting.enabled) return undefined;

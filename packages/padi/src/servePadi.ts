@@ -441,7 +441,7 @@ export function buildPadiSurfaceDeps(deps: {
       // what makes `lifecycle.create` resolve against the wire-written authority.
       newTerminalPolicy: { store: newTerminalPolicyStore },
       // The Agents setting the binding kolu-server pushes. The SAME module store
-      // the spawn path resolves against (`resolveAgentLayer`). `onMutate` refuses
+      // the spawn path resolves against (`newTerminalLayer`). `onMutate` refuses
       // a profile this build does not know (the write fails loud at the binder);
       // `onWrite` publishes the host status and starts a remote host's one
       // download. Both run only for a CHANGED value — the spec's `equals` drops a

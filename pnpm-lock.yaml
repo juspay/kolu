@@ -1228,6 +1228,9 @@ importers:
       '@kolu/agent-distro':
         specifier: workspace:*
         version: link:../agent-distro
+      '@kolu/byte-units':
+        specifier: workspace:*
+        version: link:../byte-units
       '@kolu/surface':
         specifier: workspace:*
         version: link:../surface
@@ -1469,6 +1472,9 @@ importers:
       '@babel/parser':
         specifier: ^7.29.2
         version: 7.29.2
+      '@kolu/byte-units':
+        specifier: workspace:*
+        version: link:../byte-units
       '@kolu/daemon-test-gate':
         specifier: workspace:*
         version: link:../daemon-test-gate

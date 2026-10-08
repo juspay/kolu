@@ -31,7 +31,7 @@ import { writeTextToClipboard } from "./ui/clipboard";
 import { createDisclosure } from "./ui/createDisclosure";
 import DocLink from "./ui/DocLink";
 import ModalDialog from "./ui/ModalDialog";
-import { formatMB, readJsHeap } from "./ui/memory";
+import { formatSize, readJsHeap } from "./ui/memory";
 import Row from "./ui/Row";
 import Section from "./ui/Section";
 import { surface } from "./ui/Surface";
@@ -332,10 +332,10 @@ const DiagnosticInfoContent: Component<{ activeId: TerminalId | null }> = (
               {(heap) => (
                 <Row label="JS heap">
                   <span class="font-mono text-fg">
-                    {heap().usedMB} / {heap().totalMB} MiB
+                    {heap().usedMiB} / {heap().totalMiB} MiB
                     <span class="text-fg-3/70">
                       {" "}
-                      (limit {heap().limitMB} MiB)
+                      (limit {heap().limitMiB} MiB)
                     </span>
                   </span>
                 </Row>
@@ -344,7 +344,7 @@ const DiagnosticInfoContent: Component<{ activeId: TerminalId | null }> = (
             <Show when={snapshot().session.serverRss}>
               {(rss) => (
                 <Row label="Server RSS">
-                  <span class="font-mono text-fg">{formatMB(rss())}</span>
+                  <span class="font-mono text-fg">{formatSize(rss())}</span>
                 </Row>
               )}
             </Show>
@@ -355,7 +355,7 @@ const DiagnosticInfoContent: Component<{ activeId: TerminalId | null }> = (
                     const rss = snapshot().session.padiRss;
                     return rss === "error"
                       ? "poll failed"
-                      : formatMB(rss as number);
+                      : formatSize(rss as number);
                   })()}
                 </span>
               </Row>
@@ -367,7 +367,7 @@ const DiagnosticInfoContent: Component<{ activeId: TerminalId | null }> = (
                     const rss = snapshot().session.kavalRss;
                     return rss === "error"
                       ? "poll failed"
-                      : formatMB(rss as number);
+                      : formatSize(rss as number);
                   })()}
                 </span>
               </Row>
@@ -580,10 +580,10 @@ const DiagnosticInfoContent: Component<{ activeId: TerminalId | null }> = (
                           {(bb) => (
                             <span>
                               {" "}
-                              · buf: {formatMB(bb().primary)}
+                              · buf: {formatSize(bb().primary)}
                               <Show when={bb().alternate > 0}>
                                 {" "}
-                                (+alt {formatMB(bb().alternate)})
+                                (+alt {formatSize(bb().alternate)})
                               </Show>
                             </span>
                           )}
@@ -664,7 +664,7 @@ const DiagnosticInfoContent: Component<{ activeId: TerminalId | null }> = (
                       </span>
                       <span class="text-fg-3">·</span>
                       <span class="text-fg-2 tabular-nums">
-                        {formatMB(c.bytesEst)}
+                        {formatSize(c.bytesEst)}
                       </span>
                       <Show when={c.contextLost}>
                         <span class="text-fg-3">·</span>

@@ -14,7 +14,11 @@
 import { createSignal } from "solid-js";
 import { render } from "solid-js/web";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { agentChipLabel, type AgentStaleness } from "@kolu/agent-distro/status";
+import {
+  agentChipLabel,
+  agentRestartAction,
+  type AgentStaleness,
+} from "@kolu/agent-distro/status";
 import type { ChipRestart } from "./AgentProfileChip";
 import { RESTART_ARM_MS } from "./restartGuard";
 
@@ -36,12 +40,8 @@ const STALE: AgentStaleness = {
   now: { kind: "profile", profile: "juspay", hash: "ivzki9f3" },
 };
 
-/** The action for a stale terminal whose agents stay on (`agentRestartAction`). */
-const RESTART_AGENT = {
-  label: "Restart",
-  armedLabel: "Restart agent",
-  destructive: false,
-} as const;
+/** The action for a stale terminal whose agents stay on. */
+const RESTART_AGENT = agentRestartAction(STALE);
 
 let dispose: (() => void) | undefined;
 beforeEach(() => vi.useFakeTimers());

@@ -67,7 +67,8 @@ export const AgentDistroFailureReasonSchema = Schema.Union([
 export type AgentDistroFailureReason =
   typeof AgentDistroFailureReasonSchema.Type;
 
-/** A host's agent-distro state for the CURRENTLY selected profile.
+/** A host's agent-distro state for the CURRENTLY selected profile — and what a
+ *  terminal spawned there now gets: padi's spawn path reads the same answer.
  *
  *   - `off` — the setting is off (or not pushed yet): new terminals get nothing.
  *   - `unavailable` — this padi was built without agent-distro (a from-source
@@ -78,7 +79,9 @@ export type AgentDistroFailureReason =
  *   - `error` — the download failed or was skipped: `reason` says which kind of
  *     failure, `message` states its cause (the updater's own words, e.g. "cache
  *     … not usable; add it to nix.settings …"). Neither carries the retry or the
- *     remedy — those are worded once, in `./status.ts`.
+ *     remedy — those are worded once, in `./status.ts`. New terminals get no
+ *     agents; a bundle the updater landed but did not report stays unused, and
+ *     the retry downloads again.
  *
  *  A `Schema.Union` of structs discriminated on `kind`, like
  *  `NewTerminalPolicySchema`. */

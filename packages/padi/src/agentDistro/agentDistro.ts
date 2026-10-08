@@ -5,7 +5,7 @@
  *
  *   - `./bake.ts` — what this build was baked with (profiles, floor, plugins);
  *   - `./onHost.ts` — where agent-distro's bundles are on this host;
- *   - `./layer.ts` — what a terminal spawned now gets, and its record stamp;
+ *   - `./layer.ts` — the layer a bundle on disk gives, and its record stamp;
  *   - `./download.ts` — the download state machine (running · failed, with a
  *     typed reason) and its one run of agent-distro's updater (`./updater.ts`;
  *     the line format is `@kolu/agent-distro/progress`).
@@ -29,8 +29,13 @@ import { type CellStore, inMemoryStore } from "@kolu/surface/server";
 import { log } from "../log.ts";
 import { padiSurfaceCtx } from "../padiSurfaceCtx.ts";
 import { agentDistroBake } from "./bake.ts";
-import { downloadOf, forgetFailure, startDownload } from "./download.ts";
-import { resolveAgentLayer } from "./layer.ts";
+import {
+  disownedBundleOf,
+  downloadOf,
+  forgetFailure,
+  startDownload,
+} from "./download.ts";
+import { type AgentLayer, layerOnHost } from "./layer.ts";
 
 /** The backing store of the `agentDistro` cell, shared by the cell declaration
  *  and the spawn path — so a spawn resolves against exactly what the binder
@@ -57,7 +62,12 @@ function publishStatus(status: AgentDistroStatus): void {
   padiSurfaceCtx.cells.agentDistroStatus.set(status);
 }
 
-/** Where `setting` stands on this host, as of now, without side effects.
+/** Where `setting` stands on this host, as of now, without side effects — the
+ *  ONE answer to "what does a new terminal get here": the published status is
+ *  this with the layer reduced to its profile and bundle, and the spawn path
+ *  stamps this layer ({@link newTerminalLayer}). So a host never reads one
+ *  thing while its new terminals get another.
+ *
  *  `needsDownload` is NOT a status anyone sees: it is the one state a caller
  *  must act on (start the download) before there is something true to publish,
  *  so it is kept out of {@link AgentDistroStatus} rather than spelled as a
@@ -65,15 +75,16 @@ function publishStatus(status: AgentDistroStatus): void {
 export function assessAgentDistro(
   setting: AgentDistroSetting,
 ):
-  | AgentDistroStatus
+  | Exclude<AgentDistroStatus, { kind: "ready" }>
+  | { readonly kind: "ready"; readonly layer: AgentLayer }
   | { readonly kind: "needsDownload"; readonly profile: string } {
   if (!setting.enabled) return { kind: "off" };
   const bake = agentDistroBake();
   if (bake === null) return { kind: "unavailable" };
-  // A download's own state comes FIRST: a download starts only when there is
-  // no bundle, and the updater flips `current` before it reports — so while it
-  // runs, or after it failed (say, it landed a bundle other than the one it
-  // reported), an existing `current` is not yet a fact to call ready.
+  // A download's own state comes FIRST: the updater flips `current` before it
+  // reports, so while it runs, or after it failed (say, it landed a bundle
+  // other than the one it reported), an existing `current` is not a bundle any
+  // terminal gets.
   const download = downloadOf(setting.profile);
   if (download?.kind === "running")
     return {
@@ -90,10 +101,19 @@ export function assessAgentDistro(
       reason: download.failure.reason,
       message: download.failure.message,
     };
-  const layer = resolveAgentLayer(setting);
-  if (layer !== undefined)
-    return { kind: "ready", profile: layer.profile, bundle: layer.bundle };
+  const layer = layerOnHost(setting);
+  // A bundle a download disowned is never ready, even once its failure is
+  // forgotten: the retry downloads again.
+  if (layer !== undefined && layer.bundle !== disownedBundleOf(layer.profile))
+    return { kind: "ready", layer };
   return { kind: "needsDownload", profile: setting.profile };
+}
+
+/** What a terminal spawned NOW gets on this host — the same answer the host's
+ *  status gives ({@link assessAgentDistro}): a layer only when it reads ready. */
+export function newTerminalLayer(): AgentLayer | undefined {
+  const assessed = assessAgentDistro(agentDistroSettingStore.get());
+  return assessed.kind === "ready" ? assessed.layer : undefined;
 }
 
 /** Bring this host's status in line with `setting` and publish it: a profile
@@ -105,7 +125,7 @@ function settle(setting: AgentDistroSetting): void {
     const bake = agentDistroBake();
     const profile = bake?.profiles.get(setting.profile);
     // `assessAgentDistro` only answers `needsDownload` for a baked, known
-    // profile (`resolveAgentLayer` throws on an unknown one).
+    // profile (`layerOnHost` throws on an unknown one).
     if (bake === null || profile === undefined)
       throw new Error(`agent-distro: no bake for profile '${setting.profile}'`);
     startDownload(bake, profile, republish);
@@ -115,7 +135,15 @@ function settle(setting: AgentDistroSetting): void {
         `agent-distro: starting the '${setting.profile}' download recorded neither a run nor a failure`,
       );
   }
-  publishStatus(assessed);
+  publishStatus(
+    assessed.kind === "ready"
+      ? {
+          kind: "ready",
+          profile: assessed.layer.profile,
+          bundle: assessed.layer.bundle,
+        }
+      : assessed,
+  );
 }
 
 /** The `agentDistro` cell's `onWrite`: a CHANGED setting (the cell's `equals`

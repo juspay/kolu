@@ -1,17 +1,14 @@
 import type { ProcessMemory } from "kolu-common/surface";
-import {
-  BYTES_PER_MB as MB,
-  processMemoryMbEqual,
-  surfaces,
-} from "kolu-common/surface";
+import { MIB } from "@kolu/byte-units";
+import { processMemoryMiBEqual, surfaces } from "kolu-common/surface";
 import { describe, expect, it } from "vitest";
 
 /** A readout with all three processes `ok`; override per test. */
 function mem(over: Partial<ProcessMemory> = {}): ProcessMemory {
   return {
-    serverRssBytes: 100 * MB,
-    padi: { status: "ok", rssBytes: 20 * MB },
-    kaval: { status: "ok", rssBytes: 30 * MB },
+    serverRssBytes: 100 * MIB,
+    padi: { status: "ok", rssBytes: 20 * MIB },
+    kaval: { status: "ok", rssBytes: 30 * MIB },
     ...over,
   };
 }
@@ -81,53 +78,53 @@ describe("surfaces map — two siblings (the W1 padi seam)", () => {
   });
 });
 
-describe("processMemoryMbEqual", () => {
+describe("processMemoryMiBEqual", () => {
   // The cell carries all three server-side processes (kolu-server + padi + kaval);
-  // it dedups at whole-MB granularity across every one so a sub-MB wobble on any
+  // it dedups at whole-MiB granularity across every one so a sub-MiB wobble on any
   // process never re-publishes to every connected client.
-  it("treats sub-MB wobble as equal (so the cell doesn't re-publish)", () => {
+  it("treats sub-MiB wobble as equal (so the cell doesn't re-publish)", () => {
     expect(
-      processMemoryMbEqual(
+      processMemoryMiBEqual(
         mem(),
         mem({
-          serverRssBytes: 100 * MB + 1024,
-          padi: { status: "ok", rssBytes: 20 * MB + 1024 },
+          serverRssBytes: 100 * MIB + 1024,
+          padi: { status: "ok", rssBytes: 20 * MIB + 1024 },
         }),
       ),
     ).toBe(true);
   });
 
-  it("treats a whole-MB move on any process as a change", () => {
-    expect(processMemoryMbEqual(mem(), mem({ serverRssBytes: 101 * MB }))).toBe(
-      false,
-    );
+  it("treats a whole-MiB move on any process as a change", () => {
     expect(
-      processMemoryMbEqual(
+      processMemoryMiBEqual(mem(), mem({ serverRssBytes: 101 * MIB })),
+    ).toBe(false);
+    expect(
+      processMemoryMiBEqual(
         mem(),
-        mem({ padi: { status: "ok", rssBytes: 21 * MB } }),
+        mem({ padi: { status: "ok", rssBytes: 21 * MIB } }),
       ),
     ).toBe(false);
     expect(
-      processMemoryMbEqual(
+      processMemoryMiBEqual(
         mem(),
-        mem({ kaval: { status: "ok", rssBytes: 31 * MB } }),
+        mem({ kaval: { status: "ok", rssBytes: 31 * MIB } }),
       ),
     ).toBe(false);
   });
 
   it("treats a status flip (ok → absent / error) as a change", () => {
     expect(
-      processMemoryMbEqual(mem(), mem({ kaval: { status: "absent" } })),
+      processMemoryMiBEqual(mem(), mem({ kaval: { status: "absent" } })),
     ).toBe(false);
     expect(
-      processMemoryMbEqual(
+      processMemoryMiBEqual(
         mem({ kaval: { status: "absent" } }),
         mem({ kaval: { status: "error" } }),
       ),
     ).toBe(false);
     // Two absent (or two error) readings carry no number — equal.
     expect(
-      processMemoryMbEqual(
+      processMemoryMiBEqual(
         mem({ kaval: { status: "absent" } }),
         mem({ kaval: { status: "absent" } }),
       ),

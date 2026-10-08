@@ -14,16 +14,20 @@ import type { AgentDistroStatus } from "@kolu/agent-distro/schema";
 import {
   AGENTS_OFF,
   AGENTS_OFF_MEANS,
+  AGENTS_SEGMENT_TESTID,
   agentToast,
   harnessLine,
   restartedLabel,
 } from "@kolu/agent-distro/status";
 import {
+  FIXTURE_DEFAULT_PROFILE,
   FIXTURE_MARK,
+  FIXTURE_PROFILES,
   fixtureClaudeSays,
   fixtureProfile,
 } from "../support/agentDistroFixture.ts";
 import { waitForPadiCell } from "../support/padiCellWait.ts";
+import { escapeRegExp } from "../support/regexp.ts";
 import { type KoluWorld, POLL_TIMEOUT } from "../support/world.ts";
 import { readBufferText, waitForBufferContains } from "../support/buffer.ts";
 
@@ -31,14 +35,27 @@ import { readBufferText, waitForBufferContains } from "../support/buffer.ts";
 const FOCUSED_TILE = '[data-testid="canvas-tile"]:has([data-focused])';
 
 /** The Agents control's segment for `value` (a profile, or `AGENTS_OFF`). */
-const segment = (value: string) => `[data-testid="agents-profile-${value}"]`;
+const segment = (value: string) =>
+  `[data-testid="${AGENTS_SEGMENT_TESTID}-${value}"]`;
 
-/** Is the Agents control on a profile (not "Off")? Read off the segment the
- *  control marks pressed. */
-async function agentsOn(world: KoluWorld): Promise<boolean> {
+/** The profile the Agents control has selected, or `undefined` for Off — read
+ *  off the segment the control marks pressed. */
+async function selectedProfile(world: KoluWorld): Promise<string | undefined> {
   const off = world.page.locator(segment(AGENTS_OFF));
   await off.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
-  return (await off.getAttribute("aria-pressed")) !== "true";
+  if ((await off.getAttribute("aria-pressed")) === "true") return undefined;
+  for (const profile of FIXTURE_PROFILES)
+    if (
+      (await world.page
+        .locator(segment(profile))
+        .getAttribute("aria-pressed")) === "true"
+    )
+      return profile;
+  assert.fail("the Agents control is on, but no profile segment is pressed");
+}
+
+async function agentsOn(world: KoluWorld): Promise<boolean> {
+  return (await selectedProfile(world)) !== undefined;
 }
 
 Then(
@@ -51,11 +68,13 @@ Then(
         .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
     }
     const popover = this.page.locator('[data-testid="settings-popover"]');
-    // Off, the hint says what Off means; on, it lists what the selected profile
+    // Off, the hint says what Off means; on, it lists what the SELECTED profile
     // ships — both worded by the same functions the UI uses.
-    const expected = (await agentsOn(this))
-      ? harnessLine(fixtureProfile(a))
-      : AGENTS_OFF_MEANS;
+    const selected = await selectedProfile(this);
+    const expected =
+      selected === undefined
+        ? AGENTS_OFF_MEANS
+        : harnessLine(fixtureProfile(selected));
     await popover
       .getByText(expected, { exact: false })
       .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
@@ -65,9 +84,9 @@ Then(
 When("I turn Agents {word}", async function (this: KoluWorld, state: string) {
   assert.ok(state === "on" || state === "off", `on|off, got ${state}`);
   const want = state === "on";
-  // "On" is the default profile, `vanilla`, unless a profile is already on.
+  // "On" is the listing's default profile, unless a profile is already on.
   if ((await agentsOn(this)) !== want)
-    await this.page.click(segment(want ? "vanilla" : AGENTS_OFF));
+    await this.page.click(segment(want ? FIXTURE_DEFAULT_PROFILE : AGENTS_OFF));
   await this.page.waitForFunction(
     ([on, offSel]) =>
       (document
@@ -80,12 +99,13 @@ When("I turn Agents {word}", async function (this: KoluWorld, state: string) {
   );
 });
 
-/** A toast carrying `text` — always a string from `@kolu/agent-distro/status`,
- *  the very function the UI words it with. */
+/** A toast whose title is EXACTLY `text` — always a string from
+ *  `@kolu/agent-distro/status`, the very function the UI words it with. Exact,
+ *  so one wording never passes for a longer one that starts with it. */
 async function toastSays(world: KoluWorld, text: string): Promise<void> {
   await world.page
-    .locator("[data-sonner-toaster] li")
-    .filter({ hasText: text })
+    .locator("[data-sonner-toaster] [data-title]")
+    .filter({ hasText: new RegExp(`^${escapeRegExp(text)}$`) })
     .first()
     .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
 }
@@ -129,12 +149,16 @@ const HOST_AGENTS_MARK =
 Then(
   "this machine's Agents status should be ready",
   async function (this: KoluWorld) {
-    // The first status line is this machine's; its bar says the state.
+    // The first status line is this machine's; its bar says the state, and its
+    // words name the profile the control has selected.
+    const profile = await selectedProfile(this);
+    assert.ok(profile, "Agents are off; there is no profile to be ready");
     await this.page
       .locator(
         '[data-testid="agents-status-lines"] [data-testid="agents-status-text"][data-bar="ok"]',
       )
       .first()
+      .filter({ hasText: new RegExp(`^ready · ${escapeRegExp(profile)} `) })
       .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
   },
 );

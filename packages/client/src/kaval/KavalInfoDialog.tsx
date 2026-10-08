@@ -20,7 +20,7 @@ import Commit, { REPO_URL } from "../ui/Commit";
 import { docUrl } from "../ui/DocLink";
 import { OpenIcon } from "../ui/Icons";
 import InfoDialogShell, { DetailRow, VersionChip } from "../ui/InfoDialog";
-import { formatMBCompact } from "../ui/memory";
+import { formatMiB } from "@kolu/byte-units";
 import RunningDaemonsSection from "../ui/RunningDaemonsSection";
 import { daemonScanBoundHost, localScanKavals } from "../ui/useDaemonInventory";
 import {
@@ -243,7 +243,7 @@ const KavalInfoDialog: Component<{
               padi's readout, folded into the rail cell server-side. */}
           <span data-testid="kaval-dialog-memory">
             {match(kavalMemoryDisplay())
-              .with({ kind: "ok" }, (m) => formatMBCompact(m.rssBytes))
+              .with({ kind: "ok" }, (m) => formatMiB(m.rssBytes, 0))
               .with({ kind: "error" }, () => "poll failed")
               .with(P.nullish, () => "unavailable")
               .exhaustive()}

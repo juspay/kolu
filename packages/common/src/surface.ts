@@ -43,7 +43,7 @@ import {
   AgentDistroProfileSchema,
 } from "@kolu/agent-distro/listing";
 import { DEFAULT_AGENT_PROFILE } from "@kolu/agent-distro/manifest";
-import { MIB } from "@kolu/byte-units";
+import { mibOf } from "@kolu/byte-units";
 
 import {
   HostDaemonInventorySchema,
@@ -830,45 +830,32 @@ export const DEFAULT_DAEMON_INVENTORY: DaemonInventory = {
   boundPadi: null,
 };
 
-/** Bytes in one megabyte. The single source of truth both the server-side dedup
- *  boundary and the client-side rail rendering read, so they can't drift. */
-/** One MiB — `@kolu/byte-units`' constant, the unit every byte readout uses. */
-export const BYTES_PER_MB = MIB;
-
-/** The whole-megabyte figure the rail displays for a byte count. One
- *  computation, shared: the server's `processMemory` dedup (drop a set when the
- *  displayed MB doesn't move) and the client's `formatMBCompact` rendering both
- *  read it, so the dedup boundary and the rendered figure provably agree rather
- *  than relying on two byte-for-byte-identical copies. */
-export function bytesToWholeMB(bytes: number): number {
-  return Math.round(bytes / BYTES_PER_MB);
-}
-
-/** Two per-process RSS readings render the same whole-MB figure — same status and,
- *  when `ok`, the same whole megabytes (an `absent`/`error` pair carries no number
+/** Two per-process RSS readings render the same whole-MiB figure — same status and,
+ *  when `ok`, the same whole MiB (an `absent`/`error` pair carries no number
  *  to compare). */
-function rssMbEqual(a: ProcessRss, b: ProcessRss): boolean {
+function rssMiBEqual(a: ProcessRss, b: ProcessRss): boolean {
   if (a.status !== b.status) return false;
   if (a.status === "ok" && b.status === "ok") {
-    return bytesToWholeMB(a.rssBytes) === bytesToWholeMB(b.rssBytes);
+    return mibOf(a.rssBytes, 0) === mibOf(b.rssBytes, 0);
   }
   return true;
 }
 
-/** Two readouts are equal when all three processes render the same whole-MB figure
- *  — the `processMemory` cell's `equals`, so a sub-MB RSS wobble never re-publishes
+/** Two readouts are equal when all three processes render the same whole-MiB figure
+ *  — the `processMemory` cell's `equals`, so a sub-MiB RSS wobble never re-publishes
  *  to every connected client. Declared HERE at the spec (the derived poll cell is
  *  the one writer, per the reactive bridge's "equals lives at the member, once"
- *  law) and built on the shared {@link bytesToWholeMB} so the dedup boundary and the
+ *  law) and built on `@kolu/byte-units`' `mibOf` — the rounding the rail's
+ *  `formatMiB(bytes, 0)` renders with — so the dedup boundary and the
  *  client's rendered figure are one computation. */
-export function processMemoryMbEqual(
+export function processMemoryMiBEqual(
   a: ProcessMemory,
   b: ProcessMemory,
 ): boolean {
   return (
-    bytesToWholeMB(a.serverRssBytes) === bytesToWholeMB(b.serverRssBytes) &&
-    rssMbEqual(a.padi, b.padi) &&
-    rssMbEqual(a.kaval, b.kaval)
+    mibOf(a.serverRssBytes, 0) === mibOf(b.serverRssBytes, 0) &&
+    rssMiBEqual(a.padi, b.padi) &&
+    rssMiBEqual(a.kaval, b.kaval)
   );
 }
 
@@ -1006,8 +993,8 @@ export const koluSurface = defineSurfaceWithPolicy<ToastOnlyPolicy>()({
       // Whole-MB dedup — a DERIVED poll cell (`derived.cell(source(...))` in
       // `server/src/index.ts`), so the graph is the one writer and `equals` is the
       // ONE wire dedup point, declared here at the member (the reactive bridge's law).
-      // A sub-MB RSS wobble never re-publishes to every connected client.
-      equals: processMemoryMbEqual,
+      // A sub-MiB RSS wobble never re-publishes to every connected client.
+      equals: processMemoryMiBEqual,
       verbs: ["get"],
       client: { onError: { kind: "toast", label: "Memory readout" } },
     },

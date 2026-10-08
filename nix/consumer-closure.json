@@ -101,6 +101,7 @@
       "vendored": true,
       "workspace": [
         "@kolu/agent-distro",
+        "@kolu/byte-units",
         "@kolu/surface",
         "@kolu/surface-daemon",
         "@kolu/surface-daemon-supervisor",

@@ -20,16 +20,22 @@ function harness() {
   const started: number[] = [];
   const ready: number[] = [];
   const errors: string[] = [];
+  const dropped: number[] = [];
   let dispose = () => {};
   createRoot((d) => {
     dispose = d;
-    watchDownload(() => store.v, {
-      onStart: () => started.push(1),
-      onReady: () => ready.push(1),
-      onError: (m) => errors.push(m),
-    });
+    watchDownload(
+      () => store.v,
+      (moment, status) => {
+        if (moment === "start") started.push(1);
+        if (moment === "ready") ready.push(1);
+        if (moment === "dropped") dropped.push(1);
+        if (moment === "failed" && status.kind === "error")
+          errors.push(status.message);
+      },
+    );
   });
-  return { store, write, started, ready, errors, dispose };
+  return { store, write, started, ready, errors, dropped, dispose };
 }
 
 describe("watchDownload", () => {
@@ -80,6 +86,16 @@ describe("watchDownload", () => {
     await flush();
     expect(h.ready).toEqual([]);
     expect(h.started).toEqual([]);
+    h.dispose();
+  });
+
+  it("downloading → off is the dropped moment, so the standing toast can close", async () => {
+    const h = harness();
+    h.write({ kind: "downloading", profile: "vanilla" });
+    await flush();
+    h.write({ kind: "off" });
+    await flush();
+    expect(h.dropped).toEqual([1]);
     h.dispose();
   });
 

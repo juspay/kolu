@@ -134,35 +134,70 @@ export function agentFailureRemedy(
   }
 }
 
-/** A mark's words: its tooltip (beside the bar while downloading) and its
- *  accessible name. `where` names the machine — "this machine" for the local
- *  tab, the host's own label on a remote one. `undefined` for `none`. */
-export function agentMarkLabel(
+/** A failed download's words, in the one order every surface shows them — the
+ *  cause, the remedy (by reason, when there is one), the retry — each once. The
+ *  tab mark's hover, the failure toast and the Settings line all read this. */
+export function agentFailureLines(
+  failure: {
+    readonly reason: AgentDistroFailureReason;
+    readonly message: string;
+  },
+  where: string,
+): readonly [string, ...string[]] {
+  const remedy = agentFailureRemedy(failure.reason);
+  return [
+    `The coding agents could not be downloaded to ${where}: ${failure.message}`,
+    ...(remedy === undefined ? [] : [remedy]),
+    AGENTS_RETRY,
+  ];
+}
+
+/** A mark's words, as a headline and the lines under it — the ONE wording its
+ *  hover, the download toasts and the Settings line share. `where` names the
+ *  machine — "this machine" for the local tab, the host's own label on a
+ *  remote one. A download's bytes are not in it: each surface shows
+ *  `mark.bytes` beside its own bar. `undefined` for `none`. */
+export function agentMarkWords(
   mark: AgentMark,
   where: string,
-): string | undefined {
+): { readonly title: string; readonly detail: readonly string[] } | undefined {
   switch (mark.kind) {
     case "none":
       return undefined;
     case "checking":
-      return `Coding agents: checking ${where}…`;
+      return { title: `Coding agents: checking ${where}…`, detail: [] };
     case "ready":
-      return `Coding agents ready on ${where}: ${mark.profile} (${mark.hash}) — new terminals there start with them`;
+      return {
+        title: `Coding agents ready on ${where}: ${mark.profile} (${mark.hash}) — new terminals there start with them`,
+        detail: [],
+      };
     case "downloading":
-      return mark.bytes === undefined
-        ? `Downloading the coding agents to ${where}…`
-        : `Downloading the coding agents to ${where}… ${mark.bytes}`;
+      return {
+        title: `Downloading the coding agents to ${where}…`,
+        detail: [],
+      };
     case "failed": {
-      const remedy = agentFailureRemedy(mark.reason);
-      return [
-        `The coding agents could not be downloaded to ${where}: ${mark.message}`,
-        ...(remedy === undefined ? [] : [remedy]),
-        AGENTS_RETRY,
-      ].join("\n");
+      const [title, ...detail] = agentFailureLines(mark, where);
+      return { title, detail };
     }
     default:
       return mark satisfies never;
   }
+}
+
+/** A mark's words as one text — its accessible name, with a download's bytes
+ *  after the headline. `undefined` for `none`. */
+export function agentMarkLabel(
+  mark: AgentMark,
+  where: string,
+): string | undefined {
+  const words = agentMarkWords(mark, where);
+  if (words === undefined) return undefined;
+  const bytes =
+    mark.kind === "downloading" && mark.bytes !== undefined
+      ? ` ${mark.bytes}`
+      : "";
+  return [`${words.title}${bytes}`, ...words.detail].join("\n");
 }
 
 /** The agents a profile brings, named the way people know them, with their
@@ -215,6 +250,11 @@ export const AGENTS_OFF_MEANS =
  *  reserves `default` and the harness names, and `agentsSegments` refuses a
  *  listing that ships a profile called this. */
 export const AGENTS_OFF = "off";
+
+/** The Agents control's test-id prefix: each segment is
+ *  `${AGENTS_SEGMENT_TESTID}-${value}` (the client's `SegmentedControl`
+ *  convention), so the e2e suite clicks the very segment Settings renders. */
+export const AGENTS_SEGMENT_TESTID = "agents-profile";
 
 /** The segments of the one Agents control: Off, then one per profile. */
 export function agentsSegments(
@@ -282,7 +322,8 @@ function statusLine(host: HostAgentStatus): AgentStatusLine {
     case "downloading":
       return line("busy", mark.fraction, mark.bytes ?? "downloading…");
     case "failed":
-      return line("warn", 1, mark.message);
+      // The whole failure text: the line shows its start, its hover all of it.
+      return line("warn", 1, agentFailureLines(mark, host.label).join("\n"));
     case "checking":
       return line("empty", 0, "checking…");
     case "none":
@@ -412,9 +453,10 @@ export function agentsHint(input: {
 }
 
 /** Whether a terminal's agents are still what a NEW terminal on its host would
- *  get. `stale` names what it has and what a new terminal gets now — `off`, or
- *  a profile with its short hash when the host has said which bundle (a host
- *  still downloading the new profile has not). */
+ *  get. `stale` names what it has and what a new terminal gets now: `off`; a
+ *  profile with its short hash, once the host is ready with it; or a profile the
+ *  host is still `waiting` on — downloading it, or failed to — when a new
+ *  terminal there gets no agents at all. */
 export type AgentStaleness =
   | { readonly kind: "current" }
   | {
@@ -425,22 +467,29 @@ export type AgentStaleness =
         | {
             readonly kind: "profile";
             readonly profile: string;
-            readonly hash: string | undefined;
+            readonly hash: string;
+          }
+        | {
+            readonly kind: "waiting";
+            readonly profile: string;
+            readonly on: "downloading" | "failed";
           };
     };
 
 /** THE stale test, one fold: a terminal is stale when it has agents and a new
- *  terminal on its host would get different ones —
+ *  terminal on its host would get something else —
  *
  *   - agents are now off;
- *   - the setting names a different profile;
- *   - same profile, but the host's ready bundle is a different build (an update
- *     landed).
+ *   - the host is ready with a different bundle (another profile, or an update
+ *     of the same one);
+ *   - the host is downloading the selected profile, or failed to: a new
+ *     terminal there gets no agents (padi's status is the spawn's own answer).
  *
  *  A terminal without agents is never stale (turning agents on does not nag the
- *  terminals that predate it), and a host that has not settled on a bundle
- *  (downloading, failed, no frame yet) does not make a same-profile terminal
- *  stale: there is nothing yet to restart into. Fenced over the status kind. */
+ *  terminals that predate it), and with no word from the host yet — no status,
+ *  or one that has not caught up with the setting — a same-profile terminal is
+ *  current and another profile's wait is a download not heard of yet. Fenced
+ *  over the status kind. */
 export function agentStalenessOf(input: {
   /** The terminal's record (its one `agents` field). */
   readonly terminal: { readonly agents?: TerminalAgents };
@@ -449,76 +498,56 @@ export function agentStalenessOf(input: {
 }): AgentStaleness {
   const agents = input.terminal.agents;
   if (agents === undefined) return { kind: "current" };
-  const { profile: agentProfile, bundle: agentBundle } = agents;
   const had = {
-    profile: agentProfile,
-    hash: agentBundleShortHash(agentBundle),
+    profile: agents.profile,
+    hash: agentBundleShortHash(agents.bundle),
   };
-  const { setting, status } = input;
+  const { setting } = input;
   if (!setting.enabled) return { kind: "stale", had, now: { kind: "off" } };
-  // The bundle a new terminal gets, when the host has settled on one for the
-  // selected profile.
-  const ready =
-    status?.kind === "ready" && status.profile === setting.profile
-      ? status.bundle
-      : undefined;
-  if (setting.profile !== agentProfile)
-    return {
-      kind: "stale",
-      had,
-      now: {
-        kind: "profile",
-        profile: setting.profile,
-        hash: ready === undefined ? undefined : agentBundleShortHash(ready),
-      },
-    };
-  if (status === undefined) return { kind: "current" };
+  const stale = (now: Extract<AgentStaleness, { kind: "stale" }>["now"]) =>
+    ({ kind: "stale", had, now }) as const;
+  const waiting = (on: "downloading" | "failed") =>
+    stale({ kind: "waiting", profile: setting.profile, on });
+  const sameProfile = setting.profile === agents.profile;
+  // A status for another profile is one the host has not caught up from.
+  const status =
+    input.status === undefined ||
+    ("profile" in input.status && input.status.profile !== setting.profile)
+      ? undefined
+      : input.status;
+  if (status === undefined)
+    return sameProfile ? { kind: "current" } : waiting("downloading");
   switch (status.kind) {
     case "ready":
-      return ready !== undefined && ready !== agentBundle
-        ? {
-            kind: "stale",
-            had,
-            now: {
-              kind: "profile",
-              profile: setting.profile,
-              hash: agentBundleShortHash(ready),
-            },
-          }
-        : { kind: "current" };
+      return status.bundle === agents.bundle
+        ? { kind: "current" }
+        : stale({
+            kind: "profile",
+            profile: status.profile,
+            hash: agentBundleShortHash(status.bundle),
+          });
+    case "downloading":
+      return waiting("downloading");
+    case "error":
+      return waiting("failed");
     case "off":
     case "unavailable":
-    case "downloading":
-    case "error":
-      return { kind: "current" };
+      // The host gives nothing — a status the setting will move it off; there
+      // is nothing yet to restart into, and no profile to name.
+      return sameProfile ? { kind: "current" } : waiting("downloading");
     default:
       return status satisfies never;
   }
 }
 
 /** Can a stale terminal restart INTO something right now? Yes when agents are
- *  now off (it restarts as a plain shell), or when the host has settled on the
- *  bundle a new terminal gets. Not while the new profile is still downloading
- *  (or failed): a restart then would come back with no agents at all. */
+ *  now off (it restarts as a plain shell), or when the host is ready with the
+ *  bundle a new terminal gets. Not while it is still `waiting`: a restart then
+ *  would come back with no agents at all. */
 export function agentRestartReady(
   stale: Extract<AgentStaleness, { kind: "stale" }>,
 ): boolean {
-  return stale.now.kind === "off" || stale.now.hash !== undefined;
-}
-
-/** The stale pill's tooltip: what this terminal has, what a new one gets, and
- *  what a restart does — the agent's conversation comes back on the new agents
- *  while agents stay on; with agents now off it comes back as a plain shell. */
-export function agentStaleLabel(
-  stale: Extract<AgentStaleness, { kind: "stale" }>,
-): string {
-  const had = `This terminal has the ${stale.had.profile} coding agents (${stale.had.hash}).`;
-  const { now } = stale;
-  if (now.kind === "off")
-    return `${had} Coding agents are now off. Restart to switch; it comes back as a plain shell, and running programs end.`;
-  if (now.hash === undefined)
-    return `${had} New terminals get ${now.profile}, which is still downloading to this machine; Restart appears once it is ready.`;
-  return `${had} New terminals get ${now.profile} (${now.hash}). Restart to switch; the agent's conversation resumes on the new agents, other programs end.`;
+  return stale.now.kind !== "waiting";
 }
 
 /** What the stale pill's restart does, decided ONCE: while agents stay on, the
@@ -526,20 +555,46 @@ export function agentStaleLabel(
  *  command); with agents now off it comes back as a plain shell, so a live
  *  agent ends — `destructive`, painted in the warning colour. padi makes the
  *  same decision from the same fact (the setting) and reports what it did
- *  (`lifecycle.restart`'s `resumed`). */
+ *  (`lifecycle.restart`'s `resumed`). `outcome` is that decision in words. */
 export function agentRestartAction(
   stale: Extract<AgentStaleness, { kind: "stale" }>,
 ): {
   readonly label: string;
   readonly armedLabel: string;
   readonly destructive: boolean;
+  readonly outcome: string;
 } {
   const destructive = stale.now.kind === "off";
   return {
     label: "Restart",
     armedLabel: destructive ? "Kill agent and restart" : "Restart agent",
     destructive,
+    outcome: destructive
+      ? "it comes back as a plain shell, and running programs end"
+      : "the agent's conversation resumes on the new agents, other programs end",
   };
+}
+
+/** The stale pill's tooltip: what this terminal has, what a new one gets, and
+ *  — when it can restart into it — what a restart does
+ *  ({@link agentRestartAction}'s `outcome`). */
+export function agentStaleLabel(
+  stale: Extract<AgentStaleness, { kind: "stale" }>,
+): string {
+  const had = `This terminal has the ${stale.had.profile} coding agents (${stale.had.hash}).`;
+  const { now } = stale;
+  switch (now.kind) {
+    case "waiting":
+      return now.on === "downloading"
+        ? `${had} New terminals get ${now.profile}, which is still downloading to this machine; Restart appears once it is ready.`
+        : `${had} ${now.profile} could not be downloaded to this machine, so new terminals get no coding agents; Restart appears once it is ready.`;
+    case "off":
+      return `${had} Coding agents are now off. Restart to switch; ${agentRestartAction(stale).outcome}.`;
+    case "profile":
+      return `${had} New terminals get ${now.profile} (${now.hash}). Restart to switch; ${agentRestartAction(stale).outcome}.`;
+    default:
+      return now satisfies never;
+  }
 }
 
 /** A current pill's hover: what this terminal got, and what a click does. */
@@ -558,20 +613,13 @@ export function restartedLabel(restarted: {
     : `Restarted with the ${restarted.agentProfile} agents`;
 }
 
-/** Every toast the agents feature raises, worded once. */
+/** The Agents setting's own toasts, worded once. A host's download toasts are
+ *  its mark's words ({@link agentMarkWords}), raised at {@link downloadEdge}. */
 export const agentToast = {
   /** A switch to a profile. */
   on: (profile: string) => `New terminals get the ${profile} agents`,
   /** A switch to Off (title; {@link AGENTS_OFF_MEANS} is its description). */
   off: "Coding agents off",
-  /** A host started fetching the selected profile's agents. */
-  downloading: (host: string) => `Downloading the coding agents to ${host}…`,
-  /** …and they landed. */
-  ready: (host: string) =>
-    `Coding agents ready on ${host} — new terminals there start with them`,
-  /** …or they could not be fetched. */
-  failed: (host: string, message: string) =>
-    `The coding agents could not be downloaded to ${host}: ${message}`,
 } as const;
 
 /** The moments a host's download is worth a toast, read off two consecutive
@@ -582,12 +630,14 @@ export const agentToast = {
  *     download began, or is under way when the host is first heard from;
  *   - `ready`: downloading → ready;
  *   - `failed`: downloading → error;
+ *   - `dropped`: downloading → off / unavailable — the user turned agents off
+ *     mid-download, so its standing toast goes away;
  *   - `none`: everything else (a first frame, a progress tick, an unrelated
  *     change). */
 export function downloadEdge(
   prev: AgentDistroStatus["kind"] | undefined,
   now: AgentDistroStatus["kind"] | undefined,
-): "start" | "ready" | "failed" | "none" {
+): "start" | "ready" | "failed" | "dropped" | "none" {
   if (now === undefined) return "none";
   switch (now) {
     case "downloading":
@@ -598,7 +648,7 @@ export function downloadEdge(
       return prev === "downloading" ? "failed" : "none";
     case "off":
     case "unavailable":
-      return "none";
+      return prev === "downloading" ? "dropped" : "none";
     default:
       return now satisfies never;
   }

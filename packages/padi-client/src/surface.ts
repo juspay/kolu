@@ -498,28 +498,19 @@ export * from "./transcriptSchema.ts";
  *  direction is the ordinary graceful one — an older decoder strips the unknown
  *  key and never subscribes to the new cell.
  *
- *  5.8 (additive · minor) — agent-distro. Two NEW cells: `agentDistro`, the
- *  Agents setting the binding kolu-server pushes (memory-only, `get`/`set`, the
+ *  5.8 (minor) — agent-distro. Two NEW cells: `agentDistro`, the Agents
+ *  setting the binding kolu-server pushes (memory-only, `get`/`set`, the
  *  `newTerminalPolicy` shape), and `agentDistroStatus`, padi's read-only report
  *  of whether that profile's agents are on its host (`ready`), being fetched
- *  (`downloading`), or failed to arrive. The authored terminal record gains two
- *  OPTIONAL fields, `agentProfile` / `agentBundle`, set at spawn when the
- *  terminal got agents. The minor carries the usual obligation: a 5.8 binder
- *  CALLS `agentDistro.set`, and the minor rule drains a 5.7 padi before that
- *  call can reach a padi with no such member.
- *
- *  5.9 (additive · minor) — `lifecycle.restart`: respawn an active terminal in
- *  place (same id, cwd, layout, parent, theme), so a terminal whose agents went
- *  stale picks up the current ones. A 5.9 binder may call it; the minor rule
- *  drains a 5.8 padi before such a call can reach a padi without the member.
- *
- *  5.10 (minor) — one writer per agents fact. The terminal record's agent
- *  fields become ONE optional struct, `agents: { profile, bundle }` (it was the
- *  pair `agentProfile` / `agentBundle`); an `error` agentDistroStatus gains a
- *  REQUIRED `reason` (`nixMissing` | `updater`), which is why this is a version:
- *  a 5.10 decoder refuses a 5.9 error frame, and the minor rule drains a 5.9
- *  padi first; and `lifecycle.restart` answers `{ …, agents?, resumed }`. */
-export const PADI_SURFACE_VERSION = "5.10";
+ *  (`downloading`), or failed to arrive (`error`, with its typed `reason`). The
+ *  authored terminal record gains ONE optional field, `agents: { profile,
+ *  bundle }`, stamped at spawn when the terminal got agents. A NEW procedure,
+ *  `lifecycle.restart`, respawns an active terminal in place (same id, cwd,
+ *  layout, parent, theme) and answers `{ id, pid, agents?, resumed }`. The
+ *  minor carries the usual obligation: a 5.8 binder CALLS `agentDistro.set`
+ *  and may call `lifecycle.restart`, and the minor rule drains a 5.7 padi
+ *  before either can reach a padi with no such member. */
+export const PADI_SURFACE_VERSION = "5.8";
 
 /** The `version` cell payload — padi's self-declared surface contract version. */
 export const PadiVersionSchema = Schema.Struct({

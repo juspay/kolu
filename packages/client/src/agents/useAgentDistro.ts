@@ -7,7 +7,7 @@
  *     selected profile's agents are on that machine, being downloaded, or failed.
  *
  * Two app-lifetime reactions ride here too, colocated with the facts they react
- * to: toasts at a host's download moments (worded by `agentToast`), and an error
+ * to: toasts at a host's download moments (its mark's words, `agentMarkWords`), and an error
  * toast when the stored profile is not one this kolu ships (the setting
  * is never silently changed — the user picks a real one in Settings).
  */
@@ -28,8 +28,8 @@ import {
   type AgentMark,
   type AgentStatusLine,
   agentMarkOf,
+  agentMarkWords,
   agentStatusLines,
-  agentToast,
   type HostAgentStatus,
   unknownProfileMessage,
   unknownProfileOf,
@@ -52,30 +52,49 @@ const byHost = createRoot(() => {
     (enc) => {
       const host = decodeHostKey(enc);
       const sub = padiMap.entry(host).cells.agentDistroStatus.use();
-      // A host's download is worth a toast at each of its three moments: one
-      // loading toast when it starts, updated in place (`{ id }`) to success —
-      // its next new terminal has the agents — or to the error.
+      // A host's download is worth a toast at each of its moments: one loading
+      // toast when it starts, updated in place (`{ id }`) to success — its next
+      // new terminal has the agents — or to the error, or closed when agents
+      // are turned off under it. Its words are the host mark's own.
       let toastId: string | number | undefined;
-      watchDownload(() => sub.value(), {
-        onStart: () => {
-          // No timeout: it stands until the download settles, then becomes
-          // the success or the error below (same id).
-          toastId = toast.loading(agentToast.downloading(hostLabel(host)), {
-            duration: Number.POSITIVE_INFINITY,
+      watchDownload(
+        () => sub.value(),
+        (moment, status) => {
+          if (moment === "dropped") {
+            if (toastId !== undefined) toast.dismiss(toastId);
+            toastId = undefined;
+            return;
+          }
+          const words = agentMarkWords(
+            agentMarkOf(status, false),
+            hostLabel(host),
+          );
+          if (words === undefined)
+            throw new Error(`a ${moment} download moment with no words`);
+          const options = {
+            description: words.detail.join("\n") || undefined,
             icon: AgentDistroLogo({ size: 16 }),
-          });
+          };
+          switch (moment) {
+            case "start":
+              // No timeout: it stands until the download settles, then
+              // becomes the success or the error below (same id).
+              toastId = toast.loading(words.title, {
+                ...options,
+                duration: Number.POSITIVE_INFINITY,
+              });
+              return;
+            case "ready":
+              toast.success(words.title, { ...options, id: toastId });
+              return;
+            case "failed":
+              toast.error(words.title, { ...options, id: toastId });
+              return;
+            default:
+              return moment satisfies never;
+          }
         },
-        onReady: () =>
-          toast.success(agentToast.ready(hostLabel(host)), {
-            id: toastId,
-            icon: AgentDistroLogo({ size: 16 }),
-          }),
-        onError: (message) =>
-          toast.error(agentToast.failed(hostLabel(host), message), {
-            id: toastId,
-            icon: AgentDistroLogo({ size: 16 }),
-          }),
-      });
+      );
       // "Checking": the host is up and agents are on, but its status cell has
       // not sent its first frame. Derived here from the cell's own pending
       // state; padi has no such status.
