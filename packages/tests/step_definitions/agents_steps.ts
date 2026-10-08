@@ -788,10 +788,23 @@ Then(
 Then(
   "this machine's Agents line should say the last run {word}",
   async function (this: KoluWorld, outcome: string) {
-    await this.page
-      .locator(`${LOCAL_LINE}[data-last-run="${outcome}"]`)
-      .first()
-      .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    try {
+      await this.page
+        .locator(`${LOCAL_LINE}[data-last-run="${outcome}"]`)
+        .first()
+        .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    } catch (err) {
+      // Say what padi's receipt holds instead — the updater's own words.
+      const receipt = await padiValue<AgentDistroReceipt>(
+        "agentDistroReceipt/get",
+        () => true,
+        "the receipt",
+      );
+      throw new Error(
+        `the line never said the last run ${outcome}; padi's receipt: ${JSON.stringify(receipt)}`,
+        { cause: err },
+      );
+    }
   },
 );
 
