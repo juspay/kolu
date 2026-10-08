@@ -8380,6 +8380,66 @@
       "exampleRows": [],
       "executions": 1,
       "firstSeenSha": "44240febb48b8cad0df33e4c708cfb9514085819"
+    },
+    {
+      "revisionId": "revision-54f0c818cd247da4a0b8",
+      "scenarioKey": "scenario-42e9b1e25a151d6e11ca",
+      "feature": "features/agents.feature",
+      "scenario": "A newer set the cache does not hold yet is skipped: no toast, the History says so",
+      "kind": "scenario",
+      "tags": ["@agent-updates"],
+      "bodyHash": "b0e17226cde46a0957cb80468b6aeb7cc08f078301a83e570c1d3eba9f508b25",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "0d117da222c051f35efb833aab970e033e05e72a"
+    },
+    {
+      "revisionId": "revision-50cff4247b5772411ef3",
+      "scenarioKey": "scenario-59f0b3fe9aec02fdcefc",
+      "feature": "features/agents.feature",
+      "scenario": "Check now lands a newer set: the toast says what changed, the open tile offers Restart, a new terminal gets it",
+      "kind": "scenario",
+      "tags": ["@agent-updates"],
+      "bodyHash": "9cd6fa6b6e93cf5d55b8e889184a2d0344cd299d349a79c21d9e44f5e3f85d7e",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "0d117da222c051f35efb833aab970e033e05e72a"
+    },
+    {
+      "revisionId": "revision-349ba3a7594a9aaa57b5",
+      "scenarioKey": "scenario-b5dfc9386d59efed5310",
+      "feature": "features/agents.feature",
+      "scenario": "Check now with nothing newer: no toast, the line says it checked and is up to date",
+      "kind": "scenario",
+      "tags": ["@agent-updates"],
+      "bodyHash": "09d26902eaa891f47ab0955dd9adf5e4d17373326769b32731b4a5505252eb2a",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "0d117da222c051f35efb833aab970e033e05e72a"
+    },
+    {
+      "revisionId": "revision-01c5d50fad30161d8a79",
+      "scenarioKey": "scenario-9ce014499c8faf59c25c",
+      "feature": "features/agents.feature",
+      "scenario": "Switching Agents says what happened, and the hint shows this machine's status",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "cf57d96ff590793ee585c94d1d221f6509fa2e76a00456d5d421f1d7e052b1cc",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "0d117da222c051f35efb833aab970e033e05e72a"
+    },
+    {
+      "revisionId": "revision-adf8ee8e93d7dd1fb8cb",
+      "scenarioKey": "scenario-c159f4ec7c082a663ee2",
+      "feature": "features/agents.feature",
+      "scenario": "The first run can pick Off from the keyboard",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "7fe4d92e632d4247067de1eaa94091964c3f975fad41dff52de1c031b67b24ae",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "0d117da222c051f35efb833aab970e033e05e72a"
     }
   ]
 }
