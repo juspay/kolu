@@ -24,6 +24,7 @@
  * package nothing to hold, because a type import is erased.
  */
 
+import { existsSync } from "node:fs";
 import { Option } from "effect";
 import { type Command, Flag } from "effect/cli";
 // The port's ONE definition, read from the zero-import LEAF rather than through
@@ -87,6 +88,22 @@ export const webFlags = {
     ),
     Flag.optional,
   ),
+  // A boot-time FILE, so a path that names nothing is refused HERE rather than
+  // at server boot: "--preferences-seed: no such file" belongs beside the flag
+  // that named it. Only EXISTENCE is checked here — the shape (an unknown key, a
+  // wrong value type, an `agentDistro.profile` this build does not ship) is the
+  // server's to validate, because the schema and the shipped profile listing
+  // live there (`packages/server/src/preferencesSeed.ts`).
+  preferencesSeed: Flag.String("preferences-seed").pipe(
+    Flag.withDescription(
+      "Path to a JSON preferences patch (the shape Settings writes) that seeds a store which has never been written to. Applied once at boot; your own Settings changes win thereafter.",
+    ),
+    Flag.filter(
+      (path) => existsSync(path),
+      (path) => `--preferences-seed: no such file: ${path}`,
+    ),
+    Flag.optional,
+  ),
 } as const;
 
 /** What the PARSER hands back for {@link webFlags} — Effect CLI's own inference
@@ -113,5 +130,6 @@ export function bootFlagsOf(parsed: ParsedWebFlags): KoluBootFlags {
     allowNixShellWithEnvWhitelist: Option.getOrUndefined(
       parsed.allowNixShellWithEnvWhitelist,
     ),
+    preferencesSeed: Option.getOrUndefined(parsed.preferencesSeed),
   };
 }

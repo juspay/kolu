@@ -307,6 +307,31 @@ which would add tens of megabytes to the daemon's closure. The fonts are also
 substituting a face, because a screenshot in the wrong font looks plausible and
 is wrong.
 
+## `web` — the server's own flags
+
+```
+kolu web [--bind ADDR] [--port N] [--tls] [--tls-cert F] [--tls-key F] [--verbose]
+         [--preferences-seed FILE]
+```
+
+`--bind` / `--port` / `--tls` / `--tls-cert` / `--tls-key` / `--verbose` are the
+listener and logging knobs — [Deployment](https://kolu.dev/deployment) covers
+them. `web` dials no padi, so it **refuses** the shared endpoint flags rather
+than ignoring them.
+
+`--preferences-seed FILE` seeds a store that has **never been written to** from a
+JSON **preferences patch** — the same object Settings writes, e.g.
+`{"colorScheme":"light","agentDistro":{"enabled":true,"profile":"juspay"}}` — so a
+provisioned install opens pre-configured instead of asking. It applies once at
+boot and is ignored the moment anything writes preferences (any Settings change):
+a first-boot seed, not a lock, and nothing is merged with an existing choice. The
+path must exist (refused at parse, before any server boot); an unparseable file,
+an unknown key, a wrong value type, or an `agentDistro.profile` this build does
+not ship **stops the server at boot**, naming the file — never a silent fall back
+to defaults. The
+[home-manager module](https://kolu.dev/deployment#seed-initial-preferences)
+passes this flag from `services.kolu.preferences`.
+
 ## Boundaries
 
 It owns dispatch, the endpoint policy, and the padi connect layer — nothing

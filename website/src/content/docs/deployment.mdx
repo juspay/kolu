@@ -1,6 +1,6 @@
 ---
 title: Deployment
-description: "Run kolu as a home-manager service on Linux or macOS, configure its address and browser origins, inspect logs, and capture heap diagnostics."
+description: "Run kolu as a home-manager service on Linux or macOS, seed its initial preferences, configure its address and browser origins, inspect logs, and capture heap diagnostics."
 order: 72
 section: Operate
 koluHero:
@@ -116,6 +116,49 @@ services.kolu = {
   port = 8080;
 };
 ```
+
+## Seed initial preferences
+
+A fresh install can come up pre-configured instead of asking. Set
+`services.kolu.preferences` to a **preferences patch** — the same object the
+app's Settings writes — and kolu seeds it on first boot:
+
+```nix
+services.kolu = {
+  preferences = {
+    colorScheme = "light";
+    agentDistro = {
+      enabled = true;
+      profile = "juspay";
+    };
+  };
+};
+```
+
+The option is freeform attrs, deliberately **not** a mirror of kolu's
+preferences schema (which would go stale), so it accepts any key the app does:
+`colorScheme` (`"light"` / `"dark"` / `"system"`), `agentDistro`
+(`{ enabled, profile }` — `"vanilla"` or `"juspay"`), `newTerminalTheme`,
+`shuffleBehavior`, `terminalRenderer`, `attentionAlerts`, `scrollLock`,
+`startupTips`, `newTerminalCollapsed`, `seenTips`, and `rightPanel`.
+
+**It applies only until you change anything in Settings.** Any change writes the
+whole preferences object, and from then on your stored value wins and the seed
+is ignored — a first-boot seed, not a lock, and nothing is merged with an
+existing choice.
+
+A seed that is unparseable, carries an unknown key or a wrong value type, or
+names an `agentDistro.profile` this kolu does not ship **stops the server at
+boot**, naming the file. That is on purpose: a typo in a Nix config should fail
+loudly, not quietly turn the agents off.
+
+Seeding `agentDistro` answers the welcome card's "choose your agents" question
+before it is asked ([AI coding agents](/agents)), so a fresh install opens with
+the agents already chosen and downloading.
+
+Running kolu without the module — `nix run`, or a plain binary — passes the same
+patch as a file: `kolu web --preferences-seed ./prefs.json`. See
+[Operations](/operations#three-things-to-know-first) for where the store lives.
 
 ## Bind a different address
 

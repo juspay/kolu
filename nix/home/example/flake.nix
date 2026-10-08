@@ -27,6 +27,15 @@
         services.kolu = {
           enable = true;
           package = kolu.packages.${pkgs.stdenv.hostPlatform.system}.default;
+          # Exercises `--preferences-seed`: a first boot that comes up with the
+          # light scheme and the Juspay agents already chosen.
+          preferences = {
+            colorScheme = "light";
+            agentDistro = {
+              enabled = true;
+              profile = "juspay";
+            };
+          };
         };
         home.stateVersion = "24.11";
       };

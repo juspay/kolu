@@ -80,9 +80,13 @@ import { padiMemoryReadable } from "./padiMemoryGate.ts";
 import { createKoluForwards } from "./portForward/forwards.ts";
 import { makeHostPortsReader } from "./portForward/hostPorts.ts";
 import { makeViewerHostResolver } from "./portForward/resolveViewerHost.ts";
+import {
+  assertSeededAgentProfile,
+  loadPreferencesSeed,
+} from "./preferencesSeed.ts";
 import { pwaIdentityForHostname } from "./pwaIdentity.ts";
 import { buildAppRouter, CurrentViewer } from "./router.ts";
-import { stateBackupRing } from "./state.ts";
+import { applyPreferencesSeed, stateBackupRing } from "./state.ts";
 import {
   listServerStateBackups,
   restoreServerStateBackup,
@@ -755,6 +759,26 @@ export async function bootKoluWeb(flags: KoluBootFlags): Promise<void> {
    *  this supplies the pool membership it walks. */
   const viewerHost = makeViewerHostResolver({ hosts: () => pool.hosts() });
 
+  // Read the agent-distro listing ONCE, here, for two consumers: a
+  // `--preferences-seed` that names a profile must be checked against the
+  // profiles this build actually ships (fail-fast — a typo in a Nix config must
+  // crash the boot, not silently turn agents off), and the same listing is the
+  // `agentDistroListing` cell's only value below. A baked picker that fails, or
+  // a profile kolu cannot describe in plain words, crashes the boot
+  // (`readAgentDistroListing` / `assertPlainProfiles`).
+  const agentDistroListing = assertPlainProfiles(readAgentDistroListing());
+
+  // The seed, applied before any reader of the store (the two pushers installed
+  // just below read `preferences` on every padi connect edge; the surface cell
+  // serves it to the first browser). Read + checked here so a bad file crashes
+  // the boot naming it; `applyPreferencesSeed` owns the "only while unwritten"
+  // rule. No seed flag is a no-op.
+  if (flags.preferencesSeed !== undefined) {
+    const seed = loadPreferencesSeed(flags.preferencesSeed);
+    assertSeededAgentProfile(flags.preferencesSeed, seed, agentDistroListing);
+    applyPreferencesSeed(seed);
+  }
+
   // The new-terminal THEME POLICY pusher (#2045). padi resolves every new terminal's
   // theme now — for the browser, the CLI, and an MCP agent alike — but it knows nothing
   // about preferences, so kolu-server derives the resolved policy off its own
@@ -835,10 +859,8 @@ export async function bootKoluWeb(flags: KoluBootFlags): Promise<void> {
     // opens follows the setting the user just changed.
     onPolicyInputsChanged: () => newTerminalPolicyPusher.republish(),
     onAgentDistroChanged: () => agentDistroPusher.republish(),
-    // Read once, here: a baked picker that fails is a broken build and crashes the
-    // boot; an unbaked (from-source) kolu reads `unavailable`. A profile kolu
-    // cannot describe in plain words crashes the boot too.
-    agentDistroListing: assertPlainProfiles(readAgentDistroListing()),
+    // Read once, above, and reused here — the `agentDistroListing` cell's value.
+    agentDistroListing,
   });
 
   // The ROOT procedures — kolu-server's own seven, bound as the third served

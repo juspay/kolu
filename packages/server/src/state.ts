@@ -28,6 +28,7 @@ import {
   copyFileSync,
   existsSync,
   mkdtempSync,
+  readFileSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
@@ -38,8 +39,10 @@ import Conf from "conf";
 import { Result, Schema } from "effect";
 import { PersistedHostsSchema } from "kolu-common/hostKey";
 import {
+  applyPreferencesPatch,
   DEFAULT_PREFERENCES,
   type Preferences,
+  type PreferencesPatch,
   PreferencesSchema,
   ViewerModeSchema,
 } from "kolu-common/surface";
@@ -279,13 +282,16 @@ const stateDir: string = rawStateDir;
 
 log.info({ path: stateDir }, "state directory");
 
+/** The conf store's file — the ONE derivation of it. The backup ring's
+ *  `configPath`, the `Conf`'s own `path`, and the seed probe below all read this
+ *  one value, so the ring can never snapshot a different file than the store
+ *  writes. */
+const configPath = join(stateDir, "config.json");
+
 /** kolu-server's state-backup ring (#1658) — the one binding every ring verb
  *  rides (boot snapshot here, the daily tick from `bootKoluWeb`, list/restore
  *  from `stateBackups.ts`). Opening it reads nothing and arms nothing. */
-export const stateBackupRing = openStateBackupRing(
-  join(stateDir, "config.json"),
-  log,
-);
+export const stateBackupRing = openStateBackupRing(configPath, log);
 
 // Snapshot the pre-existing store into the backup ring BEFORE the `Conf`
 // construction below can write it — the ladder itself rewrites the file, so a
@@ -299,6 +305,36 @@ export const stateBackupRing = openStateBackupRing(
 // unit test touching the store does — cannot start a process-lifetime timer.
 // padi's `daemonMain` makes exactly the same split, for the same reason.
 stateBackupRing.snapshot();
+
+/** Did the on-disk store already carry a written `preferences` before `conf`
+ *  merged its defaults?
+ *
+ *  Read HERE — ahead of the `Conf` construction below, which merges
+ *  `CONF_DEFAULTS` in and WRITES the merged shape — because afterwards
+ *  `store.has("preferences")` is true on a fresh install too (the default has
+ *  been written) and cannot answer this. It is what makes `--preferences-seed`
+ *  "initial means initial": the seed applies only while this is false, so the
+ *  moment the user changes anything in Settings (which writes the whole
+ *  `preferences` object) their value wins and the seed is ignored.
+ *
+ *  A missing file is a fresh install (false). Unparseable bytes are conf's to
+ *  refuse — it throws on read (`clearInvalidConfig` is false) — so this probe
+ *  answers `true` rather than pre-empting that with a JSON error of its own. */
+function preferencesWrittenOnDisk(path: string): boolean {
+  if (!existsSync(path)) return false;
+  try {
+    const parsed: unknown = JSON.parse(readFileSync(path, "utf8"));
+    return (
+      typeof parsed === "object" &&
+      parsed !== null &&
+      Object.hasOwn(parsed, "preferences")
+    );
+  } catch {
+    return true;
+  }
+}
+
+const preferencesWereWritten = preferencesWrittenOnDisk(configPath);
 
 /** Delete a key that is no longer in `PersistedStateSchema` off the raw store —
  *  the conf-ladder idiom for stripping a legacy/orphan key (Conf's typed
@@ -828,6 +864,27 @@ if (Result.isFailure(result)) {
     { issue: summary, path: store.path },
     `Persisted state does not match schema (${summary}) at ${store.path}.`,
   );
+}
+
+/** Apply a `--preferences-seed` patch to a store that has never been written to.
+ *
+ *  "Initial means initial": the seed is merged over {@link DEFAULT_PREFERENCES}
+ *  and written only while {@link preferencesWereWritten} is false — i.e. while the
+ *  store has never carried a `preferences` key on disk. The moment anything writes
+ *  the whole object (Settings' one write path, the state-backup restore), the
+ *  stored value wins and every later boot ignores the seed, so a seed can never
+ *  fight a user's own choice and no "managed by Nix" lock exists.
+ *
+ *  Called ONCE at boot (`bootKoluWeb`) before any reader of the store, with the
+ *  patch already read and checked (`preferencesSeed.ts` — this function trusts it,
+ *  so a bad file crashes the boot there, naming the file). */
+export function applyPreferencesSeed(patch: PreferencesPatch): void {
+  if (preferencesWereWritten) {
+    log.debug("preferences already written; --preferences-seed ignored");
+    return;
+  }
+  store.set("preferences", applyPreferencesPatch(DEFAULT_PREFERENCES, patch));
+  log.info("preferences seeded from --preferences-seed");
 }
 
 /** The DECODED shape a backup restore hands back — the FULL persisted shape,

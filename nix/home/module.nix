@@ -12,6 +12,26 @@ let
     else
       [ ];
 
+  # `services.kolu.preferences` is a preferences PATCH — the shape the app's
+  # Settings writes — written to a JSON file the server reads via
+  # `--preferences-seed`. It seeds a store that has never been written to, so the
+  # first boot feels pre-configured; the user's own Settings changes win from then
+  # on. Freeform attrs (`lib.types.attrsOf lib.types.anything`), deliberately NOT
+  # a mirror of the TypeScript schema, which would go stale — see the option's
+  # description for the common keys.
+  #
+  # Lazy on purpose: with no preferences set, `lib.optionals` yields `[ ]` and the
+  # `pkgs.writeText` derivation is never forced, so the generation grows no empty
+  # seed file.
+  preferencesSeed =
+    pkgs.writeText "kolu-preferences-seed.json"
+      (builtins.toJSON cfg.preferences);
+  preferencesArgs =
+    lib.optionals (cfg.preferences != { }) [
+      "--preferences-seed"
+      (toString preferencesSeed)
+    ];
+
   # `web` is spelled explicitly: bare `kolu` lists its subcommands and exits
   # non-zero now (it stopped being an alias for the server when the terminal
   # verbs landed), and the bind address is `--bind` — `--host` means "which
@@ -25,6 +45,7 @@ let
     (toString cfg.port)
   ]
   ++ tlsArgs
+  ++ preferencesArgs
   ++ lib.optionals cfg.verbose [ "--verbose" ];
 
   # ── I1 (juspay/kolu#2101): the generation IS the agent depot ────────────────
@@ -197,6 +218,51 @@ in
     };
 
     verbose = lib.mkEnableOption "debug-level logging";
+
+    preferences = lib.mkOption {
+      type = lib.types.attrsOf lib.types.anything;
+      default = { };
+      example = lib.literalExpression ''
+        {
+          colorScheme = "light";
+          agentDistro = {
+            enabled = true;
+            profile = "juspay";
+          };
+        }
+      '';
+      description = ''
+        A **preferences patch** seeded into kolu's state store on first boot —
+        the same object **Settings** writes, so a fresh install opens
+        pre-configured instead of asking. Written to a JSON file and handed to
+        the server as `--preferences-seed`.
+
+        It applies **only until the user changes anything in Settings**: any
+        change writes the whole preferences object, and from then on the stored
+        value wins and this option is ignored. It is a first-boot seed, not a
+        lock, and nothing is merged with an existing choice.
+
+        Freeform attrs, deliberately **not** a mirror of kolu's preferences
+        schema (which would go stale): any key the app accepts is accepted here.
+        The common ones:
+
+        - `colorScheme` — `"light"`, `"dark"`, or `"system"`.
+        - `agentDistro` — the coding agents, `{ enabled = true; profile = "vanilla" | "juspay"; }`.
+          Seeding it answers the welcome card's "choose your agents" step and
+          starts the download on first boot.
+        - `newTerminalTheme` — `"inherit"` or `"shuffle"`; `shuffleBehavior` —
+          `"auto"`, `"dark"`, `"light"`, `"random"`, or `"colourful"`.
+        - `terminalRenderer` — `"auto"`, `"webgl"`, or `"dom"`.
+        - `attentionAlerts`, `scrollLock`, `startupTips`, `newTerminalCollapsed` — booleans.
+        - `seenTips` — a list of tip ids; `rightPanel` — `{ size, codeTabTreeSize }`.
+
+        A file that is unparseable, carries an unknown key or a wrong value
+        type, or names an `agentDistro.profile` this kolu does not ship
+        **crashes the server at boot**, naming the file — never a silent fall
+        back to defaults. See
+        <https://kolu.dev/deployment#seed-initial-preferences>.
+      '';
+    };
 
     diagnostics = {
       dir = lib.mkOption {

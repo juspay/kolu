@@ -40,4 +40,12 @@ export interface KoluBootFlags {
   readonly tlsKey: string | undefined;
   readonly verbose: boolean;
   readonly allowNixShellWithEnvWhitelist: string | undefined;
+  /** Path to a JSON **preferences patch** (`PreferencesPatchSchema`'s shape — the
+   *  same object Settings writes) that seeds a store which has never been written
+   *  to. Applied once at boot, before any reader of the store; ignored the moment
+   *  the user changes anything in Settings ("initial means initial"). A file that
+   *  is missing, unparseable, carries an unknown key / wrong value type, or names
+   *  an `agentDistro.profile` this build does not ship CRASHES the boot — never a
+   *  silent fall back to defaults. */
+  readonly preferencesSeed: string | undefined;
 }

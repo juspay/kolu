@@ -326,6 +326,7 @@ describe("bootFlagsOf", () => {
         tlsKey: Option.some("/tmp/k.pem"),
         verbose: true,
         allowNixShellWithEnvWhitelist: Option.some("FOO,BAR"),
+        preferencesSeed: Option.some("/tmp/prefs.json"),
       }),
     ).toEqual({
       bind: "::1",
@@ -335,6 +336,7 @@ describe("bootFlagsOf", () => {
       tlsKey: "/tmp/k.pem",
       verbose: true,
       allowNixShellWithEnvWhitelist: "FOO,BAR",
+      preferencesSeed: "/tmp/prefs.json",
     });
   });
 
@@ -347,12 +349,30 @@ describe("bootFlagsOf", () => {
       tlsKey: Option.none(),
       verbose: false,
       allowNixShellWithEnvWhitelist: Option.none(),
+      preferencesSeed: Option.none(),
     });
     expect(flags.tlsCert).toBeUndefined();
     expect(flags.tlsKey).toBeUndefined();
     expect(flags.allowNixShellWithEnvWhitelist).toBeUndefined();
+    expect(flags.preferencesSeed).toBeUndefined();
     // The server's TLS resolution is a plain truthiness check, so a leaked
     // `None` object would read as "a cert was given" and try to read it.
     expect(Boolean(flags.tlsCert)).toBe(false);
+  });
+});
+
+describe("kolu web --preferences-seed", () => {
+  it("refuses a path that names no file, before any server boot", async () => {
+    // A parse-time refusal, so — like the numeric-range and misplaced-flag cases
+    // above — the library renders the sentence ("no such file: …") to the
+    // console rather than onto the error value. The assertable signal is the
+    // refusal itself, and it is the part that matters: reaching the handler would
+    // boot a server on a flag the operator already got wrong.
+    const exit = await run([
+      "web",
+      "--preferences-seed",
+      "/nonexistent/kolu-prefs.json",
+    ]);
+    expect(Exit.isFailure(exit)).toBe(true);
   });
 });

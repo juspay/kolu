@@ -28,10 +28,16 @@ they are what a careless stop or a careless test run damages.
 ## Three things to know first
 
 **Two state directories.** `KOLU_STATE_DIR` is the server's config store
-(`~/.config/kolu` by default). `KOLU_PADI_STATE_DIR` is padi's **state root**
-(`~/.local/state/padi`) — saved sessions, `padi.log`, and the anchor for
-everything else. The production launcher supplies both; a bare `padi` with
-neither set refuses to start rather than guess.
+(`~/.config/kolu` by default) — its `config.json` holds your preferences, your
+host fleet, and the last browser light/dark reading. `KOLU_PADI_STATE_DIR` is
+padi's **state root** (`~/.local/state/padi`) — saved sessions, `padi.log`, and
+the anchor for everything else. The production launcher supplies both; a bare
+`padi` with neither set refuses to start rather than guess.
+
+`kolu web --preferences-seed <file.json>` seeds a `config.json` that has never
+been written to — the first-boot pre-configuration the [home-manager
+module](/deployment#seed-initial-preferences) uses. Any change in Settings then
+writes the whole preferences object, and the seed is ignored from that boot on.
 
 **Two logs, and they answer different questions.** The daemons write their own
 files because nothing else owns their output — they are spawned detached. The

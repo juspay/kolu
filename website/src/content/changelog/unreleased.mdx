@@ -38,6 +38,10 @@ import ChangeHighlights from "../../components/ChangeHighlights.astro";
 
 - <Change kind="heads-up" title="Intel Macs are no longer a supported kolu system" pr={2265}>kolu's flake drops <code>x86_64-darwin</code>: agent-distro, which now supplies every terminal's agents, does not build for Intel Macs. Apple Silicon Macs and Linux (x86_64, aarch64) are unchanged.</Change>
 
+### [Deployment](/deployment)
+
+- <Change kind="added" title="A fresh install can come up pre-configured">The [home-manager module](/deployment#seed-initial-preferences) gains <code>services.kolu.preferences</code>, and <code>kolu web</code> gains <code>--preferences-seed &lt;file.json&gt;</code>: a preferences patch — the same object Settings writes — seeded into a store that has never been written to, so the first boot opens with your colour scheme and coding agents already chosen, skipping the welcome card's "choose your agents" step and starting the download. It applies only until you change anything in Settings; from then on your stored value wins, and nothing is merged with an existing choice. A seed that is unparseable, carries an unknown key or a wrong value type, or names a coding-agents profile this kolu does not ship stops the server at boot, naming the file — never a silent fall back to defaults.</Change>
+
 ### Performance
 
 - <Change kind="changed" title="kolu redraws only what changed" pr={2263}>Small updates no longer rebuild big parts of the screen. With 20 rows in the [Dock](/dock), one agent update used to rebuild all 20; now it rebuilds none. Pressing ↓ in a 50-row command palette used to wake all 50 rows; now it wakes 2, and the palette no longer rebuilds itself every second while closed. Nothing resets under you either: [unfold your phone](/mobile), switch [Code tab](/code-tab) modes, or save a file, and your terminals, open folders and scroll position stay put.</Change>

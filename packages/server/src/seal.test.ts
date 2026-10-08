@@ -161,6 +161,13 @@ const WEB_SHELL_FILES = [
   // `padiSession.currentState()`, never `currentClient()`. A side-effect-free leaf so the
   // gate is pinnable apart from index.ts's boot-only closure. Web-shell policy.
   "padiMemoryGate",
+  // `--preferences-seed`'s FILE reader + checks: decode the seed as a preferences
+  // patch (the shape Settings writes — no second allowlist) and refuse a
+  // `agentDistro.profile` this build does not ship, each naming the file. A leaf
+  // (its only non-builtin deps are the patch schema and a TYPE from
+  // `@kolu/agent-distro/listing`), read by `index.ts`'s boot before the store's
+  // readers run. Web-shell code — a boot-input check, no terminal domain.
+  "preferencesSeed",
   "pwaIdentity",
   "router",
   "state",
