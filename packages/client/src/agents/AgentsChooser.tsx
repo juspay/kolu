@@ -8,8 +8,10 @@
  *  sentence; each lays the parts out in its own row (`children` receives them).
  *
  *  While nothing is chosen (`null` stored) no segment is pressed, because
- *  nothing is. While agents are off — nothing chosen, or Off pressed — the
- *  keyboard rests on the default profile, so Enter turns agents on with it.
+ *  nothing is. In the asking row (the welcome card's step), while agents are
+ *  off — nothing chosen, or Off pressed — the keyboard rests on the default
+ *  profile, so Enter turns agents on with it; Settings rests on the pressed
+ *  segment, as every other control there does.
  *
  *  It writes only the preference; kolu-server pushes it to every host, and each
  *  host applies it to its NEXT new terminal. */
@@ -76,6 +78,9 @@ export interface AgentsChooserParts {
 }
 
 export default function AgentsChooser(props: {
+  /** This row asks for a choice (the welcome card's step): while agents are
+   *  off the keyboard rests on the default profile, so Enter turns them on. */
+  asking?: boolean;
   /** Focus the control on mount (the first-run step, while nothing is chosen). */
   autofocus?: boolean;
   children: (parts: AgentsChooserParts) => JSX.Element;
@@ -84,7 +89,7 @@ export default function AgentsChooser(props: {
     const l = agentDistroListing();
     return l?.kind === "available" ? l.profiles : [];
   };
-  // The segment in view is the control's own tab stop, as it reports it — not
+  // The segment in view is the control's own answer, as it reports it — not
   // re-derived here, so the line under it can never name another segment.
   const [inView, setInView] = createSignal<string | undefined>();
   return props.children({
@@ -92,16 +97,16 @@ export default function AgentsChooser(props: {
       <SegmentedControl
         options={agentsSegments(profiles())}
         value={agentsPressedSegment(agentDistroStored())}
-        // While agents are off (nothing chosen, or Off pressed) the keyboard
-        // rests on the default profile, so Enter turns agents on; once a
-        // profile is on, the pressed one holds the stop.
+        // In the asking row, while agents are off (nothing chosen, or Off
+        // pressed) the keyboard rests on the default profile, so Enter turns
+        // agents on; otherwise the pressed segment holds the stop.
         restingValue={
-          agentDistroSetting().enabled
-            ? undefined
-            : agentsRestingSegment(agentDistroListing())
+          props.asking && !agentDistroSetting().enabled
+            ? agentsRestingSegment(agentDistroListing())
+            : undefined
         }
         autofocus={props.autofocus}
-        onTabStopChange={(v) => setInView(v)}
+        onInViewChange={(v) => setInView(v)}
         onChange={choose}
         testIdPrefix={AGENTS_SEGMENT_TESTID}
       />

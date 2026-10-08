@@ -124,14 +124,16 @@ export const AGENTS_FIRST_RUN_TITLE = "Choose your coding agents";
 
 /** The welcome card's done line for the first-run step: the chosen profile
  *  ("Agents: vanilla ✓"). `undefined` while agents are off — the step is not
- *  done then ({@link firstRunAgentsDone}) — and in a kolu built without agents,
+ *  done then ({@link firstRunAgentsDone}) — in a kolu built without agents,
  *  where nobody chose anything and the step is done only because there is
- *  nothing to choose. */
+ *  nothing to choose, and for a stored profile the listing does not ship (no
+ *  check mark on a choice Settings warns about, {@link unknownProfileOf}). */
 export function agentsChosenLabel(
   setting: AgentDistroSetting,
   listing: AgentDistroListing | undefined,
 ): string | undefined {
   if (listing?.kind === "unavailable" || !setting.enabled) return undefined;
+  if (unknownProfileOf(setting, listing) !== undefined) return undefined;
   return `Agents: ${setting.profile} ✓`;
 }
 
@@ -421,8 +423,9 @@ function defaultProfileOf(
   return listing?.kind === "available" ? listing.profiles[0] : undefined;
 }
 
-/** Where the Agents control's keyboard rests while agents are off (nothing
- *  chosen, or Off pressed): the default profile ({@link defaultProfileOf}), so
+/** Where the welcome card's Agents control — the row that asks — rests the
+ *  keyboard while agents are off (nothing chosen, or Off pressed): the default
+ *  profile ({@link defaultProfileOf}), so
  *  Enter turns agents on with it. Off when there is none. */
 export function agentsRestingSegment(
   listing: AgentDistroListing | undefined,

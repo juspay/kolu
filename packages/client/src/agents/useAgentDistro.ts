@@ -144,7 +144,7 @@ function hostAgentChecking(host: HostKey): boolean {
 
 /** `host`'s agent-distro facts for its line in Settings: its status, whether we
  *  are still waiting for it, and `label`, how Settings names the host. */
-export function hostAgentStatus(host: HostKey, label: string): HostAgentStatus {
+function hostAgentStatus(host: HostKey, label: string): HostAgentStatus {
   return {
     label,
     status: hostAgentStatusOf(host),

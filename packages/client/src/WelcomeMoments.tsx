@@ -140,7 +140,7 @@ const MomentShell: Component<{
  *  picked Off sees the row at every empty canvas, but an Enter out of habit
  *  must not switch agents on. ⌘⏎ still creates a terminal from anywhere. */
 const ChooseAgentsMoment: Component = () => (
-  <AgentsChooser autofocus={!agentsChosen(agentDistroStored())}>
+  <AgentsChooser asking autofocus={!agentsChosen(agentDistroStored())}>
     {(parts) => (
       <MomentShell
         testId="welcome-moment-choose-agents"

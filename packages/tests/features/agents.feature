@@ -69,6 +69,8 @@ Feature: Agents come with kolu
     When I turn Agents off
     Then a toast should say agents are off
     And the Agents hint should explain Off
+    When I tab into the Agents control in Settings
+    Then keyboard focus should be on the Settings "off" Agents segment
     And there should be no page errors
 
   Scenario: This machine's tab carries the agents mark while Agents are on, and it opens Settings
@@ -148,9 +150,12 @@ Feature: Agents come with kolu
     Then the welcome card's first row should ask which agents I want
     And the first-run agents choice should show "off" chosen
     And the first-run step should rest the keyboard on "vanilla"
-    And the first-run step should say what "vanilla" means
     And the first-run step should not have taken keyboard focus
+    And the first-run step should say what "off" means
     And the welcome card's done line should not mention agents
+    When I tab into the first-run agents choice
+    Then keyboard focus should be on the first-run "vanilla" segment
+    And the first-run step should say what "vanilla" means
     When I create a terminal
     Then the focused tile should show no agents chip
     And the terminal should have no fixture agents on its PATH

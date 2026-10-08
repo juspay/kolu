@@ -94,12 +94,13 @@ export function migratePreferences_1_37_0(
   };
 }
 
-/** 1.38.0 — "never chosen" became the ABSENCE of an Agents value (`null`), so
- *  the welcome card can ask once. A stored `agentDistro` with `enabled: false`
- *  becomes `null`; one with `enabled: true` is kept whole. The Agents setting
- *  never shipped in a release before this (1.37's seed sat in unreleased
- *  work), so an Off record on disk is either that seed or a development build's
- *  choice — and asking that person once is the honest outcome. Exported for
+/** 1.38.0 — "never chosen" became the ABSENCE of an Agents value (`null`); it
+ *  decides the welcome step's autofocus and Settings' "nothing chosen yet"
+ *  line. A stored `agentDistro` with `enabled: false` becomes `null`; one with
+ *  `enabled: true` is kept whole. The Agents setting never shipped in a release
+ *  before this (1.37's seed sat in unreleased work), so an Off record on disk is
+ *  either that seed or a development build's choice — and treating that person
+ *  as one who has not chosen yet is the honest outcome. Exported for
  *  `state.test.ts`. */
 export function migratePreferences_1_38_0(
   current: Record<string, unknown>,
