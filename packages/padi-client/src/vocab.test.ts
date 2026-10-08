@@ -16,6 +16,8 @@ import type { AgentInfo, TerminalSnapshot } from "@kolu/terminal-vocab/schema";
 import { Result, Schema } from "effect";
 import { describe, expect, it } from "vitest";
 import {
+  backfillGitFact,
+  backfillSavedTerminal,
   type AuthoredActiveTerminal,
   type AuthoredSleepingTerminal,
   composeTerminalMetadata,
@@ -49,10 +51,10 @@ const claude = (sessionId: string): AgentInfo => ({
  *  sleeping wire. */
 const snapshot = (over: Partial<TerminalSnapshot> = {}): TerminalSnapshot => ({
   cwd: "/repo",
-  git: null,
+  git: { kind: "none" },
   pr: { kind: "absent" },
   agent: claude("ses-A"),
-  foreground: { name: "vim", title: null },
+  foreground: { name: "vim", title: null, shell: false },
   ports: { status: "unknown" },
   ...over,
 });
@@ -62,6 +64,7 @@ describe("composeTerminalMetadata — the sleeping arm is the restore-relevant p
     const authored: AuthoredSleepingTerminal = {
       location: LOCAL_LOCATION,
       lastActivityAt: 7,
+      promptedAt: null,
       state: "sleeping",
       sleptAt: 123,
     };
@@ -77,6 +80,7 @@ describe("composeTerminalMetadata — the sleeping arm is the restore-relevant p
     const authored: AuthoredSleepingTerminal = {
       location: LOCAL_LOCATION,
       lastActivityAt: 7,
+      promptedAt: null,
       lastAgentCommand: "claude",
       restoreTarget: {
         kind: "exact",
@@ -105,6 +109,7 @@ describe("composeTerminalMetadata — the sleeping arm is the restore-relevant p
     const authored: AuthoredSleepingTerminal = {
       location: LOCAL_LOCATION,
       lastActivityAt: 7,
+      promptedAt: null,
       lastAgentCommand: "claude",
       restoreTarget: { kind: "none" },
       state: "sleeping",
@@ -119,13 +124,14 @@ describe("composeTerminalMetadata — the sleeping arm is the restore-relevant p
     const authored: AuthoredActiveTerminal = {
       location: LOCAL_LOCATION,
       lastActivityAt: 0,
+      promptedAt: null,
       state: "active",
     };
     const wire = composeTerminalMetadata(authored, snapshot());
     if (wire.state !== "active") throw new Error("expected active arm");
     expect(wire.pr).toEqual({ kind: "absent" });
     expect(wire.agent).toEqual(claude("ses-A"));
-    expect(wire.foreground).toEqual({ name: "vim", title: null });
+    expect(wire.foreground).toEqual({ name: "vim", title: null, shell: false });
   });
 });
 
@@ -174,5 +180,50 @@ describe("encodeHostLocation / decodeHostLocation — the daemon-status key code
     const emptyRemote = { kind: "remote" as const, hostId: "" };
     expect(encodeHostLocation(emptyRemote)).toBe("remote:");
     expect(() => decodeHostLocation(encodeHostLocation(emptyRemote))).toThrow();
+  });
+});
+
+describe("backfillGitFact — the old nullable git becomes the three-case fact", () => {
+  const info = {
+    repoRoot: "/r",
+    repoName: "r",
+    worktreePath: "/r",
+    branch: "main",
+    isWorktree: false,
+    mainRepoRoot: "/r",
+    remoteUrl: null,
+  };
+
+  it("a bare GitInfo was a resolved repo", () => {
+    expect(backfillGitFact({ id: "t", git: info })).toEqual({
+      id: "t",
+      git: { kind: "repo", info },
+    });
+  });
+
+  it("null said nothing about which — it becomes unresolved", () => {
+    expect(backfillGitFact({ id: "t", git: null })).toEqual({
+      id: "t",
+      git: { kind: "unresolved" },
+    });
+  });
+
+  it("is idempotent: a fact already carrying `kind` passes through", () => {
+    for (const git of [
+      { kind: "none" },
+      { kind: "unresolved" },
+      { kind: "repo", info },
+    ]) {
+      const t = { id: "t", git };
+      expect(backfillGitFact(t)).toBe(t);
+    }
+  });
+
+  it("runs after the remoteUrl backfill in the saved-terminal ladder", () => {
+    const { remoteUrl: _, ...preRemoteUrl } = info;
+    expect(backfillSavedTerminal({ id: "t", git: preRemoteUrl }).git).toEqual({
+      kind: "repo",
+      info,
+    });
   });
 });

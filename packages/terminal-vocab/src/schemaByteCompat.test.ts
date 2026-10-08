@@ -45,38 +45,44 @@ const encodeJson = <T, E>(schema: Schema.Codec<T, E>) => {
 };
 
 describe("AgentMemory — the flat on-disk memory pair", () => {
-  it("encodes lastActivityAt=null with the key PRESENT", () => {
+  it("encodes lastActivityAt=null and promptedAt=null with the keys PRESENT", () => {
     // The `null` is a value on disk, not an absence: `withDecodingDefaultKey`
     // passes through on encode, so a fresh writer emits exactly what every
     // previous kolu wrote.
     expect(encodeJson(AgentMemorySchema)(seedMemory())).toBe(
-      '{"lastActivityAt":null}',
+      '{"lastActivityAt":null,"promptedAt":null}',
     );
   });
 
-  it("encodes a live memory with both keys, in declaration order", () => {
+  it("encodes a live memory with every key, in declaration order", () => {
     expect(
       encodeJson(AgentMemorySchema)({
         lastActivityAt: 1_712_345_678_901,
+        promptedAt: 1_712_345_600_000,
         lastAgentCommand: "claude --model sonnet",
       }),
     ).toBe(
-      '{"lastActivityAt":1712345678901,"lastAgentCommand":"claude --model sonnet"}',
+      '{"lastActivityAt":1712345678901,"promptedAt":1712345600000,"lastAgentCommand":"claude --model sonnet"}',
     );
   });
 
-  it("BACKFILLS a legacy record with no lastActivityAt key to null", () => {
+  it("BACKFILLS a legacy record with no lastActivityAt / promptedAt key to null", () => {
     // The documented rolling-deploy/backfill tolerance: a record persisted
     // before the field existed must still load, reading as "never active"
     // rather than a forged Unix-epoch 0.
     expect(Schema.decodeUnknownSync(AgentMemorySchema)({})).toEqual({
       lastActivityAt: null,
+      promptedAt: null,
     });
     expect(
       Schema.decodeUnknownSync(AgentMemorySchema)({
         lastAgentCommand: "codex",
       }),
-    ).toEqual({ lastActivityAt: null, lastAgentCommand: "codex" });
+    ).toEqual({
+      lastActivityAt: null,
+      promptedAt: null,
+      lastAgentCommand: "codex",
+    });
   });
 
   it("leaves lastAgentCommand ABSENT rather than undefined when unset", () => {
@@ -84,11 +90,14 @@ describe("AgentMemory — the flat on-disk memory pair", () => {
       lastActivityAt: 5,
     });
     expect("lastAgentCommand" in decoded).toBe(false);
-    expect(JSON.stringify(decoded)).toBe('{"lastActivityAt":5}');
+    expect(JSON.stringify(decoded)).toBe(
+      '{"lastActivityAt":5,"promptedAt":null}',
+    );
   });
 
   it("round-trips a stored record byte-for-byte", () => {
-    const stored = '{"lastActivityAt":1712345678901,"lastAgentCommand":"grok"}';
+    const stored =
+      '{"lastActivityAt":1712345678901,"promptedAt":1712345600000,"lastAgentCommand":"grok"}';
     const decoded = Schema.decodeUnknownSync(AgentMemorySchema)(
       JSON.parse(stored),
     );
@@ -108,7 +117,7 @@ describe("TerminalSnapshot — the persisted + served producer emission", () => 
     expect(
       encodeJson(TerminalSnapshotSchema)(seedSnapshot("/home/u/code")),
     ).toBe(
-      '{"cwd":"/home/u/code","git":null,"pr":{"kind":"pending"},"agent":null,' +
+      '{"cwd":"/home/u/code","git":{"kind":"unresolved"},"pr":{"kind":"pending"},"agent":null,' +
         '"foreground":null,"ports":{"status":"unknown"}}',
     );
   });
@@ -117,13 +126,16 @@ describe("TerminalSnapshot — the persisted + served producer emission", () => 
     const full = {
       cwd: "/home/u/code/kolu",
       git: {
-        repoRoot: "/home/u/code/kolu",
-        repoName: "kolu",
-        worktreePath: "/home/u/code/kolu",
-        branch: "effect",
-        isWorktree: false,
-        mainRepoRoot: "/home/u/code/kolu",
-        remoteUrl: "https://github.com/juspay/kolu",
+        kind: "repo",
+        info: {
+          repoRoot: "/home/u/code/kolu",
+          repoName: "kolu",
+          worktreePath: "/home/u/code/kolu",
+          branch: "effect",
+          isWorktree: false,
+          mainRepoRoot: "/home/u/code/kolu",
+          remoteUrl: "https://github.com/juspay/kolu",
+        },
       },
       pr: {
         kind: "ok",
@@ -149,7 +161,7 @@ describe("TerminalSnapshot — the persisted + served producer emission", () => 
         contextTokens: 47_000,
         startedAt: 1_712_345_678_901,
       },
-      foreground: { name: "claude", title: "user@host: ~/code" },
+      foreground: { name: "claude", title: "user@host: ~/code", shell: false },
       ports: {
         status: "known",
         list: [
@@ -166,9 +178,9 @@ describe("TerminalSnapshot — the persisted + served producer emission", () => 
 
     expect(encodeJson(TerminalSnapshotSchema)(full)).toBe(
       '{"cwd":"/home/u/code/kolu",' +
-        '"git":{"repoRoot":"/home/u/code/kolu","repoName":"kolu","worktreePath":"/home/u/code/kolu",' +
+        '"git":{"kind":"repo","info":{"repoRoot":"/home/u/code/kolu","repoName":"kolu","worktreePath":"/home/u/code/kolu",' +
         '"branch":"effect","isWorktree":false,"mainRepoRoot":"/home/u/code/kolu",' +
-        '"remoteUrl":"https://github.com/juspay/kolu"},' +
+        '"remoteUrl":"https://github.com/juspay/kolu"}},' +
         '"pr":{"kind":"ok","value":{"number":2100,"title":"Wave 3",' +
         '"url":"https://github.com/juspay/kolu/pull/2100","state":"open","checks":"pass",' +
         '"checkRuns":[{"name":"unit","outcome":"pass"}],' +
@@ -177,7 +189,7 @@ describe("TerminalSnapshot — the persisted + served producer emission", () => 
         '"sessionId":"f47ac10b-58cc-4372-a567-0e02b2c3d479","model":"claude-opus-5",' +
         '"summary":null,"taskProgress":null,"workflow":null,"contextTokens":47000,' +
         '"startedAt":1712345678901},' +
-        '"foreground":{"name":"claude","title":"user@host: ~/code"},' +
+        '"foreground":{"name":"claude","title":"user@host: ~/code","shell":false},' +
         '"ports":{"status":"known","list":[{"port":5173,"name":"node","command":"node vite","scope":"loopback","family":"v4"}]}}',
     );
   });
@@ -187,7 +199,7 @@ describe("TerminalSnapshot — the persisted + served producer emission", () => 
     // being composed into this snapshot, not just decoded standalone.
     const decoded = Schema.decodeUnknownSync(TerminalSnapshotSchema)({
       cwd: "/w",
-      git: null,
+      git: { kind: "none" },
       pr: {
         kind: "ok",
         value: {
@@ -230,7 +242,7 @@ describe("TerminalSnapshot — the persisted + served producer emission", () => 
         grid: { cols: 120, rows: 40 },
       }),
     ).toBe(
-      '{"cwd":"/w","git":null,"pr":{"kind":"pending"},"agent":null,' +
+      '{"cwd":"/w","git":{"kind":"unresolved"},"pr":{"kind":"pending"},"agent":null,' +
         '"foreground":null,"ports":{"status":"unknown"},' +
         '"grid":{"cols":120,"rows":40}}',
     );
@@ -350,13 +362,13 @@ describe("discriminants — the five unions keep their field and values", () => 
 });
 
 describe("leaf schemas", () => {
-  it("Foreground keeps a nullable title", () => {
+  it("Foreground keeps a nullable title and says whether it is the shell", () => {
     const encode = encodeJson(ForegroundSchema);
-    expect(encode({ name: "vim", title: "vim file.ts" })).toBe(
-      '{"name":"vim","title":"vim file.ts"}',
+    expect(encode({ name: "vim", title: "vim file.ts", shell: false })).toBe(
+      '{"name":"vim","title":"vim file.ts","shell":false}',
     );
-    expect(encode({ name: "bash", title: null })).toBe(
-      '{"name":"bash","title":null}',
+    expect(encode({ name: "bash", title: null, shell: true })).toBe(
+      '{"name":"bash","title":null,"shell":true}',
     );
   });
 

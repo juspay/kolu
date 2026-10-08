@@ -67,13 +67,14 @@ const activeMeta: AuthoredActiveTerminal = {
   state: "active",
   location: LOCAL_LOCATION,
   lastActivityAt: 42,
+  promptedAt: null,
   themeName: "rose",
   intent: "fix the auth race",
 };
 
 const activeSnapshot: TerminalSnapshot = {
   cwd: "/work/repo",
-  git: null,
+  git: { kind: "none" as const },
   pr: { kind: "pending" },
   agent: null,
   foreground: null,
@@ -95,7 +96,7 @@ const parkedMeta: AuthoredParkedTerminal = Schema.decodeUnknownSync(
 
 const parkedSnapshot: TerminalSnapshot = {
   cwd: "/work/parked",
-  git: null,
+  git: { kind: "none" as const },
   pr: { kind: "absent" },
   agent: null,
   foreground: null,
@@ -103,7 +104,7 @@ const parkedSnapshot: TerminalSnapshot = {
 };
 
 const base = {
-  git: null,
+  git: { kind: "none" as const },
   pr: { kind: "absent" } as const,
   location: LOCAL_LOCATION,
 };
@@ -116,6 +117,7 @@ function savedActive(id: string, cwd: string): SavedActiveTerminal {
     state: "active",
     cwd,
     lastActivityAt: 5,
+    promptedAt: null,
     restoreTarget: { kind: "none" },
   };
 }

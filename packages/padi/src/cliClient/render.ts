@@ -46,7 +46,11 @@ import {
   relativeTime,
   WAIT_STATES,
 } from "@kolu/terminal-vocab/agentProjection";
-import type { AgentInfo, TerminalId } from "@kolu/terminal-vocab/schema";
+import type {
+  AgentInfo,
+  GitFact,
+  TerminalId,
+} from "@kolu/terminal-vocab/schema";
 import columnify from "columnify";
 
 // The prefix-resolution rule and the screen tail MOVED to `@kolu/padi-client` —
@@ -207,13 +211,19 @@ function orDash(value: string | null | undefined): string {
 /** `repo·branch` from the raw repo/branch source — each half sanitized (repo
  *  names come from fs paths, branches from git, so both can carry control bytes),
  *  or a dash when the terminal isn't in a git repo (both `null`). */
-function repoBranchText(
-  repoName: string | null,
-  branch: string | null,
-): string {
-  return repoName === null && branch === null
-    ? DASH
-    : `${orDash(repoName)}·${orDash(branch)}`;
+/** The repo·branch cell — `kolu·master` in a repo, a dash outside one, and `?`
+ *  while the terminal's git context has not resolved yet (it may be either). */
+function gitText(git: GitFact): string {
+  switch (git.kind) {
+    case "repo":
+      return `${git.info.repoName}·${git.info.branch}`;
+    case "none":
+      return DASH;
+    case "unresolved":
+      return "?";
+    default:
+      return git satisfies never;
+  }
 }
 
 /** The agent · state cell — `claude · working`, or a dash when no agent runs. */
@@ -281,10 +291,7 @@ export function formatStatus(
     .map(([id, v]) => ({
       ID: shortId(id),
       STATE: v.state,
-      REPO·BRANCH: repoBranchText(
-        v.git?.repoName ?? null,
-        v.git?.branch ?? null,
-      ),
+      REPO·BRANCH: gitText(v.git),
       PR: prValueText(v.pr),
       AGENT: agentValue(activeAgent(v)),
       FOREGROUND: orDash(activeForeground(v)?.name),
@@ -334,7 +341,7 @@ export function formatWatchEvent(
   v: PadiTerminal,
   opts: { now: number; live: boolean },
 ): string {
-  const where = repoBranchText(v.git?.repoName ?? null, v.git?.branch ?? null);
+  const where = gitText(v.git);
   const cells = [
     clockTime(opts.now),
     shortId(id),

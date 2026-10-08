@@ -209,4 +209,62 @@ describe("importLegacyConfigOnce", () => {
     );
     expect(existsSync(`${oldPath}.pre-padi-import.bak`)).toBe(true);
   });
+
+  it("brings a legacy session's nullable `git` up to padi's current shape on import", () => {
+    writeLegacy({
+      session: {
+        terminals: [
+          { id: "11111111-1111-1111-1111-111111111111", cwd: "/r", git: null },
+        ],
+        activeTerminalId: null,
+      },
+    });
+    const stores = openPadiStateStores(stateRoot);
+    importLegacyConfigOnce(stores, log);
+    expect(stores.session.get()?.terminals[0]?.git).toEqual({
+      kind: "unresolved",
+    });
+  });
+});
+
+describe("padi's own migration ladder", () => {
+  it("1.1.0: a 1.0.0 file's saved `git` becomes the three-case fact", () => {
+    const info = {
+      repoRoot: "/r",
+      repoName: "r",
+      worktreePath: "/r",
+      branch: "main",
+      isWorktree: false,
+      mainRepoRoot: "/r",
+      remoteUrl: null,
+    };
+    writeFileSync(
+      join(stateRoot, "config.json"),
+      JSON.stringify({
+        session: {
+          terminals: [
+            { id: "a", state: "active", cwd: "/tmp", git: null },
+            { id: "b", state: "active", cwd: "/r", git: info },
+          ],
+          activeTerminalId: "a",
+          savedAt: 1,
+        },
+        __internal__: { migrations: { version: "1.0.0" } },
+      }),
+    );
+    const stores = openPadiStateStores(stateRoot);
+    expect(stores.session.get()?.terminals.map((t) => t.git)).toEqual([
+      { kind: "unresolved" },
+      { kind: "repo", info },
+    ]);
+    const onDisk = JSON.parse(
+      readFileSync(join(stateRoot, "config.json"), "utf8"),
+    ) as { __internal__: { migrations: { version: string } } };
+    expect(onDisk.__internal__.migrations.version).toBe("1.1.0");
+  });
+
+  it("a fresh state-root has no session to migrate", () => {
+    const stores = openPadiStateStores(stateRoot);
+    expect(stores.session.get()).toBeNull();
+  });
 });

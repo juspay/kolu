@@ -104,8 +104,9 @@ function resolveByContainment(
 function candidateRootsFor(
   meta: TerminalMetadata | undefined,
 ): readonly string[] {
-  const git = meta?.git;
-  if (!git) return [];
+  // No repo roots to offer outside a repo, nor before git has resolved.
+  if (meta?.git.kind !== "repo") return [];
+  const git = meta.git.info;
   const roots = new Set<string>();
   if (git.repoRoot) roots.add(git.repoRoot);
   if (git.mainRepoRoot) roots.add(git.mainRepoRoot);

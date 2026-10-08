@@ -177,8 +177,10 @@ export function gitInfoEqual(a: GitInfo | null, b: GitInfo | null): boolean {
  * makes `git init` in the current shell cwd reach the client without an
  * OSC 7 re-emit (the shell doesn't re-emit because cwd didn't change).
  *
- * `onChange` fires once per actual change — never for a dedup miss. Initial
- * resolve is best-effort: if the cwd isn't a git repo at start, the cwd
+ * `onChange` fires for the FIRST answer unconditionally — `null` (not a repo)
+ * included, so a caller can tell "resolved, not a repo" from "not resolved yet"
+ * — then once per actual change, never for a dedup miss. Initial resolve is
+ * best-effort: if the cwd isn't a git repo at start, the cwd
  * watcher sits waiting for `.git` to appear; the HEAD watcher takes over
  * once it does.
  *
@@ -197,6 +199,9 @@ export function subscribeGitInfo(
 ): { setCwd(next: string): void; stop(): void } {
   let currentCwd = initialCwd;
   let currentInfo: GitInfo | null = null;
+  // False until the first answer is published: that one goes out even when it
+  // is `null`, because "not a repo" is an answer the caller has not heard yet.
+  let answered = false;
   // Head mode watches `.git/HEAD` (in-repo); cwd mode watches the parent
   // for `.git` appearing (out-of-repo). The two are mutually exclusive.
   let watcher: WatcherSlot | null = null;
@@ -256,7 +261,8 @@ export function subscribeGitInfo(
       );
     }
     ensureMode(next !== null ? "head" : "cwd");
-    if (gitInfoEqual(next, currentInfo)) return;
+    if (answered && gitInfoEqual(next, currentInfo)) return;
+    answered = true;
     currentInfo = next;
     onChange(next);
   }

@@ -287,7 +287,11 @@ const CodeTab: Component<{
     },
   });
 
-  const repoPath = () => props.meta?.git?.repoRoot ?? null;
+  // No repo to browse outside one, nor before git has resolved.
+  const repoPath = () => {
+    const git = props.meta?.git;
+    return git?.kind === "repo" ? git.info.repoRoot : null;
+  };
 
   // History records repo-relative `{ mode, path }` locations with no repo
   // identity of their own, so a stack captured in repo A must not be replayed

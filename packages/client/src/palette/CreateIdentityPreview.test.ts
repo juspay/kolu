@@ -57,13 +57,16 @@ describe("createPreviewModel", () => {
       {
         cwd: "/home/u/code/kolu",
         git: {
-          repoRoot: "/home/u/code/kolu",
-          repoName: "kolu",
-          worktreePath: "/home/u/code/kolu",
-          branch: "main",
-          isWorktree: false,
-          mainRepoRoot: "/home/u/code/kolu",
-          remoteUrl: null,
+          kind: "repo",
+          info: {
+            repoRoot: "/home/u/code/kolu",
+            repoName: "kolu",
+            worktreePath: "/home/u/code/kolu",
+            branch: "main",
+            isWorktree: false,
+            mainRepoRoot: "/home/u/code/kolu",
+            remoteUrl: null,
+          },
         },
       } as never,
       null,

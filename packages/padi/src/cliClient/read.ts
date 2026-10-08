@@ -187,7 +187,7 @@ export function readWholeHistory(
 function isResolved(v: PadiTerminal): boolean {
   if (v.state !== "active") return true;
   return (
-    v.git !== null ||
+    v.git.kind !== "unresolved" ||
     v.agent !== null ||
     v.foreground !== null ||
     v.pr.kind !== "pending"
@@ -210,7 +210,7 @@ function isResolved(v: PadiTerminal): boolean {
 function sensedMask(v: PadiTerminal): number {
   if (v.state !== "active") return 0b1111;
   return (
-    (v.git !== null ? 0b0001 : 0) |
+    (v.git.kind !== "unresolved" ? 0b0001 : 0) |
     (v.agent !== null ? 0b0010 : 0) |
     (v.foreground !== null ? 0b0100 : 0) |
     (v.pr.kind !== "pending" ? 0b1000 : 0)
@@ -244,10 +244,10 @@ type SettleOutcome = "settled" | "link-closed";
  *
  *  It cannot be made conditional on what the FIRST frame looks like, which is the
  *  obvious fix and is wrong. A record mid-spawn and a record that will never have
- *  more to say are BYTE-IDENTICAL: `git: null` means "no repo" or "not probed
- *  yet", `pr: pending` means "no repo to ask about" or "the forge call is in
- *  flight". There is no field that separates them, so no first-frame predicate
- *  can. (Measured: gating the window on "was anything unresolved at first sight?"
+ *  more to say are BYTE-IDENTICAL: `pr: pending` means "no repo to ask about"
+ *  or "the forge call is in flight", and `agent: null` / `foreground: null` mean
+ *  "none" or "not observed yet". `git` alone now says which (`unresolved` vs an
+ *  answer), and one field is not the row, so no first-frame predicate can. (Measured: gating the window on "was anything unresolved at first sight?"
  *  returns `—` for a terminal created a beat earlier in a git repo, where the flat
  *  sleep returned its branch.)
  *

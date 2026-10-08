@@ -136,7 +136,12 @@ export function attentionDiagnostic(input: {
 
   return {
     id: input.id,
-    label: input.meta.git?.branch ?? input.meta.cwd,
+    // The branch names the row in a repo; otherwise (no repo, or git not
+    // resolved yet) the cwd does.
+    label:
+      input.meta.git.kind === "repo"
+        ? input.meta.git.info.branch
+        : input.meta.cwd,
     agentKind: agent?.kind ?? null,
     agentState,
     glyph: input.glyph,

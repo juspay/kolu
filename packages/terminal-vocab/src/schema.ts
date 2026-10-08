@@ -143,6 +143,12 @@ export const ForegroundSchema = Schema.Struct({
   name: Schema.String,
   /** Raw terminal title from OSC 0/2 (e.g. "user@host: ~/code", "vim file.ts"). */
   title: Schema.NullOr(Schema.String),
+  /** Whether the foreground IS the terminal's shell — an idle prompt, nothing
+   *  running in front of it. padi's own answer (`isShellIdle`, the one place
+   *  "foreground === root" is decided), not a guess from `name`: the shell is
+   *  the user's login shell, whatever it is called, and a command-rooted
+   *  terminal has no shell at all (always `false`). */
+  shell: Schema.Boolean,
 });
 
 // ── Listening TCP ports ───────────────────────────────────────────────
@@ -445,6 +451,32 @@ export function listenerAt(host: HostListeners, port: number): ListenerAt {
   return bind === undefined ? { kind: "absent" } : { kind: "unclaimed", bind };
 }
 
+// ── Git context — an honest three-way fact ─────────────────────────────
+
+/** A terminal's git context as THREE cases, not a `GitInfo | null` that
+ *  conflates "not a repo" with "not checked yet" — the same move `pr`
+ *  (`kind: "pending"`) and `ports` (`status: "unknown"`) make:
+ *
+ *   - `{ kind: "unresolved" }` — the git sensor has not answered for this
+ *     terminal yet (a fresh spawn, a restored record). Says nothing about the cwd.
+ *   - `{ kind: "none" }` — the sensor answered: the cwd is not in a git repo.
+ *   - `{ kind: "repo", info }` — the sensor answered with the repo.
+ *
+ *  A reader that needs the repo narrows `kind === "repo"`; a reader that acts on
+ *  "not a repo" tests `kind === "none"`, so a terminal whose sensor has not yet
+ *  answered is never told it is outside a repo. */
+export const GitFactSchema = Schema.Union([
+  Schema.Struct({ kind: Schema.Literal("unresolved") }),
+  Schema.Struct({ kind: Schema.Literal("none") }),
+  Schema.Struct({ kind: Schema.Literal("repo"), info: GitInfoSchema }),
+]);
+export type GitFact = typeof GitFactSchema.Type;
+
+/** The git sensor's answer as a fact: `null` (resolved, not a repo) is `none`. */
+export function gitFactOf(info: GitInfo | null): GitFact {
+  return info === null ? { kind: "none" } : { kind: "repo", info };
+}
+
 // ── The TerminalSnapshot — what a host PRODUCER emits ──────────────────────
 //
 // The de-entanglement (awareness-derive-store.mdx): a host PRODUCER emits one
@@ -503,7 +535,8 @@ export function gridsEqual(a: TerminalGrid, b: TerminalGrid): boolean {
 
 export const TerminalSnapshotSchema = Schema.Struct({
   cwd: Schema.String,
-  git: Schema.NullOr(GitInfoSchema),
+  /** The git context — see {@link GitFactSchema}. */
+  git: GitFactSchema,
   /** Forge PR resolution — discriminated union (see PrResultSchema). */
   pr: PrResultSchema,
   /** The LIVE agent right now, or null when the user is at the shell. */
@@ -542,11 +575,12 @@ export type TerminalSnapshot = typeof TerminalSnapshotSchema.Type;
 export type AgentIdentity = typeof AgentIdentitySchema.Type;
 export type RestoreTarget = typeof RestoreTargetSchema.Type;
 
-/** The two facts a host CANNOT observe — recency is a CLOCK reading, the launch
- *  line is what the user TYPED. Irrecoverable from a screen, so kolu remembers
- *  them; written by kolu's fold ALONE (a producer's `TerminalSnapshot` cannot spell
- *  either field). Kept FLAT on kolu's authored record (`updateMemory` is the one
- *  narrowed writer), so the on-disk JSON path for these two is unchanged. */
+/** The facts a host CANNOT observe — recency and the first live turn are CLOCK
+ *  readings, the launch line is what the user TYPED. Irrecoverable from a screen,
+ *  so kolu remembers them; written by kolu's fold ALONE (a producer's
+ *  `TerminalSnapshot` cannot spell any of them). Kept FLAT on kolu's authored
+ *  record (`updateMemory` is the one narrowed writer), so the on-disk JSON path
+ *  for each is a top-level key. */
 export const AgentMemorySchema = Schema.Struct({
   /** Workspace-switcher recency: epoch-millis of the last LIVE agent observation,
    *  on kolu's clock — an agent-IDENTITY change (start / finish / new session)
@@ -572,6 +606,19 @@ export const AgentMemorySchema = Schema.Struct({
   lastActivityAt: Schema.NullOr(Schema.Number).pipe(
     Schema.withDecodingDefaultKey(Effect.succeed(null)),
   ),
+  /** When the CURRENT agent (its identity: kind + session id) first went LIVE —
+   *  working or blocked on you (`agentLive`, in `agentProjection`) — on kolu's
+   *  clock. `null` while no agent runs, and while a freshly started agent still
+   *  sits at its first prompt (`waiting`): that is the fact it exists to carry,
+   *  and `lastActivityAt` cannot, because the identity change stamps recency the
+   *  moment an agent is DETECTED. Stamped once per agent identity; a new identity
+   *  resets it (a new session has its own first prompt). Readers test it against
+   *  `null` only — it is never compared to a clock, so it needs no reprojection.
+   *  Same key-level backfill as `lastActivityAt`: a record written before the
+   *  field existed decodes to `null`. */
+  promptedAt: Schema.NullOr(Schema.Number).pipe(
+    Schema.withDecodingDefaultKey(Effect.succeed(null)),
+  ),
   /** Normalized agent CLI invocation last observed (e.g. `"claude --model
    *  sonnet"`). Preserved across intervening non-agent input; drives the "resume
    *  agent on restore" offer. Absent for terminals that never ran a known agent. */
@@ -579,7 +626,7 @@ export const AgentMemorySchema = Schema.Struct({
 });
 export type AgentMemory = typeof AgentMemorySchema.Type;
 
-/** kolu's stored value: the last-seen `TerminalSnapshot` + the two remembered facts.
+/** kolu's stored value: the last-seen `TerminalSnapshot` + the remembered facts.
  *  NESTED, not merged, so the half published to the snapshots collection is
  *  `current.snapshot` — structurally WITHOUT the memory fields, not a runtime
  *  strip. The fold accumulator; never crosses a wire (kolu folds in-process). */
@@ -605,7 +652,7 @@ export type Known<T> = "unknown" | { value: T };
  *  `terminalEvents` stream that serializes these is R9.3). */
 export type TerminalEvent =
   | { kind: "cwd"; cwd: string }
-  | { kind: "git"; git: GitInfo | null }
+  | { kind: "git"; git: GitFact }
   | { kind: "pr"; pr: PrResult }
   | { kind: "foreground"; foreground: Foreground | null }
   | { kind: "agent"; agent: Known<AgentInfo | null> }
@@ -614,12 +661,12 @@ export type TerminalEvent =
   | { kind: "commandRun"; command: string; replayed: boolean };
 
 /** A fresh terminal's initial `TerminalSnapshot`: spawn-time cwd, everything else at
- *  its "not yet resolved" seed (git absent, PR pending, no agent, no foreground, no
+ *  its "not yet resolved" seed (git unresolved, PR pending, no agent, no foreground, no
  *  ports). The fold fills it in from now. The ONE home for the snapshot-default set. */
 export function seedSnapshot(cwd: string): TerminalSnapshot {
   return {
     cwd,
-    git: null,
+    git: { kind: "unresolved" },
     pr: { kind: "pending" },
     agent: null,
     foreground: null,
@@ -632,7 +679,7 @@ export function seedSnapshot(cwd: string): TerminalSnapshot {
  *  for the memory-default set (a fresh spawn seeds empty memory; wake/adopt
  *  seed from the durable record). */
 export function seedMemory(): AgentMemory {
-  return { lastActivityAt: null };
+  return { lastActivityAt: null, promptedAt: null };
 }
 
 // ── Process resident-set size — an honest three-way readout ────────────────

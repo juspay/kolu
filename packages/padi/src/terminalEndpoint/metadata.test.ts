@@ -57,7 +57,12 @@ function fakeTerminal(): ActiveTerminalProcess {
     info: { id: ID, pid: 0 },
     // The authored record now carries memory FLAT, so `lastActivityAt` rides
     // `meta` (it left the snapshot with the cutover).
-    meta: { state: "active", location: LOCAL_LOCATION, lastActivityAt: 0 },
+    meta: {
+      state: "active",
+      location: LOCAL_LOCATION,
+      lastActivityAt: 0,
+      promptedAt: null,
+    },
     snapshot: snapshot(),
     // Tests never touch the PTY handle; the publish path doesn't read it.
     handle: {} as ActiveTerminalProcess["handle"],
@@ -69,7 +74,7 @@ function fakeTerminal(): ActiveTerminalProcess {
 function snapshot(): TerminalSnapshot {
   return {
     cwd: "/tmp",
-    git: null,
+    git: { kind: "none" },
     pr: { kind: "pending" },
     agent: null,
     foreground: null,
@@ -159,7 +164,7 @@ describe("metadata publish routing", () => {
     for (let i = 0; i < 50; i += 1) {
       commitSnapshot(ID, {
         ...snapshot(),
-        foreground: { name: "claude", title: `tick ${i}` },
+        foreground: { name: "claude", title: `tick ${i}`, shell: false },
       });
     }
     await settle();
@@ -172,7 +177,7 @@ describe("metadata publish routing", () => {
     // too would double-arm — the memory write itself stays silent.
     updateMemory(
       ID,
-      { lastActivityAt: 123, lastAgentCommand: "claude" },
+      { lastActivityAt: 123, promptedAt: null, lastAgentCommand: "claude" },
       {
         kind: "exact",
         command: "claude",
@@ -194,7 +199,11 @@ describe("metadata publish routing", () => {
     // decodes SYNCHRONOUSLY inside the autosave, so the throw took padi down the
     // first time an agent was detected in a terminal with no remembered launch
     // line (the agent indicator then froze/vanished in the browser).
-    updateMemory(ID, { lastActivityAt: 123 }, { kind: "none" });
+    updateMemory(
+      ID,
+      { lastActivityAt: 123, promptedAt: null },
+      { kind: "none" },
+    );
     const entry = getTerminal(ID) as ActiveTerminalProcess;
     expect("lastAgentCommand" in entry.meta).toBe(false);
     // The real consumer: `snapshotSession`'s decode of the composed record.
@@ -219,7 +228,7 @@ describe("metadata publish routing", () => {
   it("type fence: an TerminalSnapshot commit cannot carry a remembered memory field", () => {
     commitSnapshot(ID, {
       cwd: "/tmp",
-      git: null,
+      git: { kind: "none" },
       pr: { kind: "pending" },
       agent: null,
       foreground: null,
@@ -291,7 +300,7 @@ describe("commit seams guard the publish boundary (emit stays infallible)", () =
     expect(() =>
       updateMemory(
         ID,
-        { lastActivityAt: 77, lastAgentCommand: "claude" },
+        { lastActivityAt: 77, promptedAt: null, lastAgentCommand: "claude" },
         { kind: "none" },
       ),
     ).not.toThrow();

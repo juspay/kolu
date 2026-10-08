@@ -144,7 +144,8 @@ export function workspaceSearchText(entry: {
   meta: TerminalMetadata;
 }): string {
   const { meta } = entry;
-  const git = meta.git;
+  // Only a resolved repo contributes git fields to the search text.
+  const git = meta.git.kind === "repo" ? meta.git.info : undefined;
   const arm = activeArm(meta);
   const fg = arm?.foreground;
   const agent = arm?.agent;

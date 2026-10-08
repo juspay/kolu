@@ -45,14 +45,14 @@ const id = (s: string): TerminalId => s as TerminalId;
 const claudeAgent = (state: string): AgentInfo =>
   ({ kind: "claude-code", state }) as AgentInfo;
 
-/** A minimal `active` record. `git`/`agent`/`foreground` default to the all-null
+/** A minimal `active` record. `git`/`agent`/`foreground` default to the unsensed
  *  shape `isResolved` treats as still-sensing (so `settledSnapshot` keeps waiting);
  *  a case overrides one to mark it resolved. */
 function active(over: Record<string, unknown>): PadiTerminal {
   return {
     state: "active",
     agent: null,
-    git: null,
+    git: { kind: "unresolved" },
     pr: { kind: "pending" },
     foreground: null,
     ...over,
@@ -290,7 +290,7 @@ describe("settledSnapshot — the `status` read", () => {
     const tget = new FakeSource<PadiTerminal>();
     keys.push([id("t1")]);
     activity.push([]);
-    tget.push(active({ git: { branch: "main" } })); // git non-null → resolved
+    tget.push(active({ git: { kind: "repo", info: { branch: "main" } } })); // git answered → resolved
     // Streams stay OPEN — the settle is driven by the sensors, not a dropped link.
     const client = fakeClient({
       keys,
@@ -314,7 +314,7 @@ describe("settledSnapshot — the `status` read", () => {
     const tget = new FakeSource<PadiTerminal>();
     keys.push([id("t1")]);
     activity.push([]);
-    tget.push(active({ git: { branch: "main" } })); // resolved on ARRIVAL
+    tget.push(active({ git: { kind: "repo", info: { branch: "main" } } })); // resolved on ARRIVAL
     const client = fakeClient({
       keys,
       activity,
@@ -344,9 +344,9 @@ describe("settledSnapshot — the `status` read", () => {
     activity.push([]);
     const busy = (state: string): PadiTerminal =>
       active({
-        git: { branch: "main" },
+        git: { kind: "repo", info: { branch: "main" } },
         agent: claudeAgent(state),
-        foreground: { name: "claude", title: `${state}…` },
+        foreground: { name: "claude", title: `${state}…`, shell: false },
       });
     tget.push(busy("thinking"));
     const client = fakeClient({
@@ -386,7 +386,7 @@ describe("settledSnapshot — the `status` read", () => {
     const t2 = new FakeSource<PadiTerminal>();
     keys.push([id("t1")]);
     activity.push([]);
-    t1.push(active({ foreground: { name: "bash", title: null } }));
+    t1.push(active({ foreground: { name: "bash", title: null, shell: true } }));
     const client = fakeClient({
       keys,
       activity,
@@ -397,13 +397,13 @@ describe("settledSnapshot — the `status` read", () => {
     setTimeout(() => {
       t1.push(
         active({
-          foreground: { name: "bash", title: null },
-          git: { branch: "main" },
+          foreground: { name: "bash", title: null, shell: true },
+          git: { kind: "repo", info: { branch: "main" } },
         }),
       );
     }, 60);
     setTimeout(() => {
-      t2.push(active({ git: { branch: "main" } }));
+      t2.push(active({ git: { kind: "repo", info: { branch: "main" } } }));
       keys.push([id("t1"), id("t2")]);
     }, 120);
 
@@ -416,7 +416,7 @@ describe("settledSnapshot — the `status` read", () => {
       entries.find(([k]) => k === id("t1"))?.[1] as
         | { git: unknown }
         | undefined,
-    ).toMatchObject({ git: { branch: "main" } });
+    ).toMatchObject({ git: { kind: "repo", info: { branch: "main" } } });
   });
 
   it("does not wait out `maxMs` on an empty roster", async () => {

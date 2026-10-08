@@ -39,13 +39,16 @@ const sentinel: SavedActiveTerminal = {
   // the round-trip rather than coincidentally matching a `{ kind: "local" }` seed.
   location: { kind: "remote", hostId: "sentinel-host" },
   git: {
-    repoRoot: "/sentinel/repo",
-    repoName: "sentinel-repo",
-    worktreePath: "/sentinel/wt",
-    branch: "sentinel-branch",
-    isWorktree: true,
-    mainRepoRoot: "/sentinel/main",
-    remoteUrl: "git@example.com:sentinel.git",
+    kind: "repo",
+    info: {
+      repoRoot: "/sentinel/repo",
+      repoName: "sentinel-repo",
+      worktreePath: "/sentinel/wt",
+      branch: "sentinel-branch",
+      isWorktree: true,
+      mainRepoRoot: "/sentinel/main",
+      remoteUrl: "git@example.com:sentinel.git",
+    },
   },
   // A RESOLVED pr — distinct from the `{ kind: "pending" }` seed — so the
   // restore-relevant carry-through can't pass by coinciding with a default.
@@ -73,6 +76,7 @@ const sentinel: SavedActiveTerminal = {
     },
   },
   lastActivityAt: 1_718_000_000_000,
+  promptedAt: null,
   // A surviving PTY keeps the agents it was spawned with, so adoption must keep
   // the pill's one `agents` struct rather than re-resolve it.
   agents: {
@@ -157,7 +161,11 @@ describe("adoption preserves the whole record — the #1275 lossy-adoption class
       sentinel,
       liveEntry({ foregroundProcess: "vim", title: "vim file.ts" }),
     );
-    expect(aw.foreground).toEqual({ name: "vim", title: "vim file.ts" });
+    expect(aw.foreground).toEqual({
+      name: "vim",
+      title: "vim file.ts",
+      shell: false,
+    });
   });
 });
 
@@ -167,7 +175,11 @@ describe("orphanSnapshot — adopting a live PTY with no saved record (F1)", () 
       liveEntry({ cwd: "/orphan/cwd", foregroundProcess: "claude" }),
     );
     expect(aw.cwd).toBe("/orphan/cwd");
-    expect(aw.foreground).toEqual({ name: "claude", title: null });
+    expect(aw.foreground).toEqual({
+      name: "claude",
+      title: null,
+      shell: false,
+    });
     // An orphan has NO saved record, so the restore-relevant snapshot fields seed
     // at their `seedSnapshot` defaults and the producers re-derive them: a fresh
     // PTY's pr is `pending` and its agent is null until a tap resolves them.

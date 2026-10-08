@@ -3,7 +3,13 @@ import { describe, expect, it } from "vitest";
 import { paneDirectory } from "./paneDirectory";
 
 const meta = (cwd: string, repoRoot?: string | null): TerminalMetadata =>
-  ({ cwd, git: repoRoot === undefined ? null : { repoRoot } }) as never;
+  ({
+    cwd,
+    git:
+      repoRoot === undefined
+        ? { kind: "none" }
+        : { kind: "repo", info: { repoRoot } },
+  }) as never;
 
 describe("paneDirectory", () => {
   it("splits at the repo root, shortening each half by the shared shortener", () => {

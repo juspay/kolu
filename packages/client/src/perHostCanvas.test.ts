@@ -192,10 +192,11 @@ const savedTerminal = (id: string): SavedSession["terminals"][number] => ({
   id,
   state: "active" as const,
   cwd: `/${id}`,
-  git: null,
+  git: { kind: "none" },
   pr: { kind: "absent" as const },
   location: { kind: "local" as const },
   lastActivityAt: 0,
+  promptedAt: null,
 });
 
 const activeMeta = (): TerminalMetadata =>

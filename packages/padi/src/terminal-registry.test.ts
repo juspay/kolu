@@ -32,7 +32,7 @@ const ID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa" as TerminalId;
 
 const snapshot = (): TerminalSnapshot => ({
   cwd: "/w",
-  git: null,
+  git: { kind: "none" },
   pr: { kind: "absent" },
   agent: null,
   foreground: null,
@@ -42,7 +42,12 @@ const snapshot = (): TerminalSnapshot => ({
 function seedActive(): void {
   registerTerminal(ID, {
     info: { id: ID, pid: 1 },
-    meta: { state: "active", location: LOCAL_LOCATION, lastActivityAt: 1 },
+    meta: {
+      state: "active",
+      location: LOCAL_LOCATION,
+      lastActivityAt: 1,
+      promptedAt: null,
+    },
     snapshot: snapshot(),
     handle: {} as ActiveTerminalProcess["handle"],
   });
@@ -55,6 +60,7 @@ function seedSleeping(): void {
       state: "sleeping",
       location: LOCAL_LOCATION,
       lastActivityAt: 1,
+      promptedAt: null,
       sleptAt: 1,
     },
     snapshot: snapshot(),
@@ -68,6 +74,7 @@ function seedParked(): void {
       state: "parked",
       location: LOCAL_LOCATION,
       lastActivityAt: 1,
+      promptedAt: null,
       parkedAt: 1,
     },
     snapshot: snapshot(),

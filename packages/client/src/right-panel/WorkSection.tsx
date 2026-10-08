@@ -153,8 +153,9 @@ const WorkSection: Component<{
    *  `WorkSection.test.tsx` is the executable form of that claim and carries
    *  the #2037 regression narrative. */
   const identity = createMemo(() => {
-    const git = props.meta.git;
-    if (!git) return null;
+    // No identity chips outside a repo, nor before git has resolved.
+    if (props.meta.git.kind !== "repo") return null;
+    const git = props.meta.git.info;
     // Past the git guard, so `terminalKey` takes its git arm: group = repo
     // name, label = branch. The cwd arm is unreachable here by construction.
     const { group, label } = terminalKey(props.meta);

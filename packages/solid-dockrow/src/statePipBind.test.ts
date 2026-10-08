@@ -36,13 +36,14 @@ function meta(overrides: Partial<ActiveTerminal> = {}): TerminalMetadata {
   return {
     state: "active",
     cwd: "/work/repo",
-    git: null,
+    git: { kind: "none" },
     location: LOCAL_LOCATION,
     pr: { kind: "absent" },
     agent: null,
     foreground: null,
     ports: { status: "unknown" },
     lastActivityAt: 1,
+    promptedAt: null,
     ...overrides,
   };
 }
@@ -99,7 +100,7 @@ describe("bindStatePip — colour comes from the same value as motion", () => {
         state: "sleeping",
         sleptAt: 1,
         cwd: "/work/repo",
-        git: null,
+        git: { kind: "none" },
         pr: { kind: "absent" },
         location: LOCAL_LOCATION,
         lastActivityAt: 1,

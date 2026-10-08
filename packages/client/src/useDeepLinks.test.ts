@@ -236,6 +236,7 @@ describe("verdict-time stamping contract (#1900 R1 / codex F4)", () => {
       "if (!listIsAuthoritative()) return",
       "no longer on",
     ],
+    ["not a repo", 'target.git.kind === "none"', "isn't in a git repository"],
     [
       "backstop timeout",
       "if (pending() !== route) return",
@@ -245,8 +246,8 @@ describe("verdict-time stamping contract (#1900 R1 / codex F4)", () => {
     expect(between(start, end)).toContain("disarmResolved();");
   });
 
-  it("keeps exactly the four disarming verdicts stamping (extra guard)", () => {
-    expect((routerSrc.match(/\bdisarmResolved\(\);/g) ?? []).length).toBe(4);
+  it("keeps exactly the five disarming verdicts stamping (extra guard)", () => {
+    expect((routerSrc.match(/\bdisarmResolved\(\);/g) ?? []).length).toBe(5);
   });
 
   it("stamps the ENACTED path only AFTER enact returns (retryable on throw)", () => {

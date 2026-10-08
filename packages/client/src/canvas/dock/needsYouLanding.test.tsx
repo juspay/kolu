@@ -51,7 +51,7 @@ function metaFor(id: TerminalId): TerminalMetadata {
   return {
     state: "active",
     cwd: "/tmp/work",
-    git: null,
+    git: { kind: "none" },
     location: LOCAL_LOCATION,
     pr: { kind: "absent" },
     agent:

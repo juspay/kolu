@@ -34,6 +34,13 @@ import { prTooltip } from "@kolu/solid-dockrow/rowValues";
 import { useStatePip } from "./statePipBind";
 import { pairDisplayRow, type TerminalDisplayInfo } from "./terminalDisplay";
 
+/** The terminal's repo when git resolved to one. The header shows no branch
+ *  and no worktree badge for `none` (not a repo) or `unresolved` (not yet
+ *  known) alike — both have nothing to name. */
+function repoOf(meta: TerminalMetadata) {
+  return meta.git.kind === "repo" ? meta.git.info : undefined;
+}
+
 const TerminalMeta: Component<{
   info: TerminalDisplayInfo | undefined;
   /** The LIVE per-terminal record — read straight from `getMetadata(id)`, the
@@ -95,7 +102,7 @@ const TerminalMeta: Component<{
                   </span>
                 )}
               </Show>
-              <Show when={v().meta.git?.isWorktree}>
+              <Show when={repoOf(v().meta)?.isWorktree}>
                 <WorktreeBadge />
               </Show>
               {/* Foreground process title — OSC 2 string when present.
@@ -156,7 +163,7 @@ const TerminalMeta: Component<{
                   <IntentMarkdownInline
                     markdown={annotationLine(
                       v().meta.intent,
-                      v().meta.git?.branch ?? "—",
+                      repoOf(v().meta)?.branch ?? "—",
                     )}
                   />
                 </button>
@@ -224,10 +231,10 @@ export const TerminalMetaCompact: Component<{
       {(v) => (
         <div class="flex items-center gap-1.5 min-h-7 text-sm font-medium min-w-0">
           <NameSpan info={v().info} meta={v().meta} />
-          <Show when={v().meta.git?.isWorktree}>
+          <Show when={repoOf(v().meta)?.isWorktree}>
             <WorktreeBadge />
           </Show>
-          <Show when={v().meta.intent ?? v().meta.git?.branch}>
+          <Show when={v().meta.intent ?? repoOf(v().meta)?.branch}>
             <span
               data-testid="terminal-meta-branch"
               class="text-xs truncate min-w-0"
@@ -236,7 +243,7 @@ export const TerminalMetaCompact: Component<{
               <IntentMarkdownInline
                 markdown={annotationLine(
                   v().meta.intent,
-                  v().meta.git?.branch ?? "",
+                  repoOf(v().meta)?.branch ?? "",
                 )}
               />
             </span>

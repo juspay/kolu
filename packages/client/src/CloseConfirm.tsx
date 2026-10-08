@@ -53,7 +53,13 @@ const CloseConfirm: Component<{
   onCloseAndRemove: () => void;
 }> = (props) => {
   let cancelRef!: HTMLButtonElement;
-  const isWorktree = () => props.target?.meta.git?.isWorktree ?? false;
+  /** The target's repo, when git resolved to one — the dialog names no repo
+   *  (and offers no worktree removal) for `none` or `unresolved`. */
+  const repo = () => {
+    const git = props.target?.meta.git;
+    return git?.kind === "repo" ? git.info : undefined;
+  };
+  const isWorktree = () => repo()?.isWorktree ?? false;
   const removalEligibility = () => props.target?.worktreeRemoval;
   const canRemoveWorktree = () =>
     isWorktree() && removalEligibility()?.eligible === true;
@@ -123,7 +129,7 @@ const CloseConfirm: Component<{
             </p>
           </Show>
 
-          <Show when={props.target?.meta.git}>
+          <Show when={repo()}>
             {(git) => (
               <div class="flex items-center gap-1.5 text-fg-3 text-xs bg-surface-2 rounded-lg px-2.5 py-2">
                 <WorktreeIcon class="w-3.5 h-3.5 shrink-0" />
@@ -135,7 +141,7 @@ const CloseConfirm: Component<{
               </div>
             )}
           </Show>
-          <Show when={props.target?.meta.git?.worktreePath}>
+          <Show when={repo()?.worktreePath}>
             {(path) => (
               <div class="text-xs text-fg-3 truncate" title={path()}>
                 {path()}

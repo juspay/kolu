@@ -125,10 +125,11 @@ function savedActive(id: string): SavedActiveTerminal {
     state: "active",
     cwd: "/repo",
     lastActivityAt: 5,
+    promptedAt: null,
     themeName: "Dracula",
     intent: SAVED_INTENT,
     restoreTarget: { kind: "none" },
-    git: null,
+    git: { kind: "none" },
     pr: { kind: "absent" },
     location: LOCAL_LOCATION,
   };

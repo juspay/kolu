@@ -60,13 +60,14 @@ function makeMeta(overrides: Partial<ActiveTerminal> = {}): ActiveTerminal {
   return {
     state: "active",
     cwd: "/tmp",
-    git: null,
+    git: { kind: "none" },
     location: LOCAL_LOCATION,
     pr: { kind: "absent" },
     agent: null,
     foreground: null,
     ports: { status: "unknown" },
     lastActivityAt: null,
+    promptedAt: null,
     ...overrides,
   };
 }
@@ -78,13 +79,14 @@ function makeSleepingMeta(
     state: "sleeping",
     sleptAt: 1_700_000_000_000,
     cwd: "/tmp",
-    git: null,
+    git: { kind: "none" },
     // `pr` is restore-relevant now (true-when-dead, persisted like `git`), so it
     // rides the sleeping arm's `PersistedSnapshot` — the old frozen-`pr`
     // special case is gone and `pr` is a normal required field on both arms.
     pr: { kind: "absent" },
     location: LOCAL_LOCATION,
     lastActivityAt,
+    promptedAt: null,
   };
 }
 

@@ -129,10 +129,9 @@ export function useDeepLinks(): void {
         rightPanel.reveal();
       })
       .with({ kind: "code" }, (r) => {
-        const repoRoot = meta.git?.repoRoot;
-        if (!repoRoot)
+        if (meta.git.kind !== "repo")
           throw new Error(
-            "deep-link: code route enacted without a sensed repoRoot",
+            `deep-link: code route enacted on a terminal whose git is ${meta.git.kind}`,
           );
         openInCodeTab({
           terminalId: id,
@@ -261,33 +260,23 @@ export function useDeepLinks(): void {
     });
   }
 
-  /** A `code` route still waiting on (or lacking) its target's repo root — the
-   *  git sensor is a THIRD async fact, settled INDEPENDENTLY of membership, and
-   *  `git` is `null` both for "no repo" and "not sensed yet". The one place this
-   *  hedge is spelled (see the LEDGER note below), read by both the settle gate
-   *  (wait) and the backstop (message). */
+  /** A `code` route still waiting on its target's git context — the git sensor
+   *  is a THIRD async fact, settled INDEPENDENTLY of membership. Only
+   *  `unresolved` waits: `none` is an answer (the settle gate toasts it at once)
+   *  and `repo` enacts. Read by both the settle gate (wait) and the backstop
+   *  (message). */
   function codeRouteAwaitingRepo(
     route: TerminalRoute,
     meta: TerminalMeta,
   ): boolean {
-    return route.kind === "code" && !meta.git?.repoRoot;
+    return route.kind === "code" && meta.git.kind === "unresolved";
   }
 
   // The settle-then-verdict effect (CodeTab's `pendingOpen` precedent, over
   // terminal membership). Waits for the active host's list to settle, then
   // enacts or toasts "gone" — a bookmark never toasts mid-cold-boot because the
   // list is still `pending`.
-  //
-  // LEDGER (deferred): `codeRouteAwaitingRepo`'s `git == null` conflates "git
-  // not sensed yet" with "terminal has no repo" because `git` is
-  // `GitInfoSchema.nullable()` in terminal-vocab/src/schema.ts — the ONE
-  // snapshot field that doesn't model its async resolution as a discriminated
-  // union the way its siblings `pr` (PrResultSchema) and `agent` do. The ideal
-  // fix aligns git's schema shape with them — `{ kind: "sensing" } | { kind:
-  // "none" } | { kind: "repo"; info }` — so a code route enacts only on the
-  // `repo` arm and toasts immediately on `none`. That is a cross-package + wire
-  // migration; deferred. Until then the backstop hedges the no-repo case with a
-  // git-specific message instead of the host-unreachable one.
+
   createEffect(() => {
     const route = pending();
     if (!route) return;
@@ -351,6 +340,14 @@ export function useDeepLinks(): void {
     // "not a git repository"; the effect re-runs when the git fact lands
     // (getMetadata is reactive), bounded by the 8s backstop.
     if (codeRouteAwaitingRepo(route, target)) return;
+    if (route.kind === "code" && target.git.kind === "none") {
+      // The sensor answered: no repo. A verdict, not a wait — say so now.
+      disarmResolved();
+      toast.error(
+        "Couldn't open that file — that terminal isn't in a git repository.",
+      );
+      return;
+    }
     // The ONLY non-disarming clear: an ENACTED route's intent survives so
     // cold-boot hydration keeps the reached view. Clear `pending` FIRST (so a
     // throwing enact can't leave the effect armed into a retry loop), then enact,
@@ -367,10 +364,9 @@ export function useDeepLinks(): void {
   // wait forever. Two DIFFERENT reasons land here, and the message must tell
   // them apart: (1) membership never settled — host unreachable / stuck warming
   // — the plain "couldn't reach the host" case; (2) a `code` route whose host
-  // WAS reached and whose terminal exists, but whose `git` never resolved to a
-  // repo root — because `git: null` is both "not sensed yet" and "no repo"
-  // (see the settle-effect ledger), we can't prove which, so hedge with a
-  // git-specific message rather than falsely blame the host. The git wording is
+  // WAS reached and whose terminal exists, but whose `git` never resolved at
+  // all (still `unresolved` — a `none` answer is toasted by the settle gate), so
+  // name the git sensor rather than falsely blame the host. The git wording is
   // gated on `route.kind === "code"` so a terminal/inspector route that timed
   // out via the membership path never masquerades as a "no git repo".
   createEffect(() => {
@@ -384,7 +380,7 @@ export function useDeepLinks(): void {
       const target = store.getMetadata(route.terminalId);
       if (target && codeRouteAwaitingRepo(route, target)) {
         toast.error(
-          "Couldn't open that file — that terminal doesn't appear to be in a git repository.",
+          "Couldn't open that file — that terminal's git repository never resolved.",
         );
       } else if (!listIsAuthoritative()) {
         // The wait expired with the list still non-authoritative: the host's

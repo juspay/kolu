@@ -478,7 +478,7 @@ Given(
       state: "sleeping",
       sleptAt: Date.now(),
       cwd: os.homedir(),
-      git: null,
+      git: { kind: "none" },
       // `pr` is restore-relevant (persisted) post-cutover, no schema default — a
       // saved sleeping record carries it (the live PR sensor re-resolves on wake).
       pr: { kind: "absent" },
@@ -494,7 +494,7 @@ Given(
       state: "sleeping",
       sleptAt: Date.now(),
       cwd: os.tmpdir(),
-      git: null,
+      git: { kind: "none" },
       pr: { kind: "absent" },
       location: LOCAL_LOCATION,
       lastActivityAt: 0,

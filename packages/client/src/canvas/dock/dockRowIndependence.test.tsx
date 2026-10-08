@@ -62,7 +62,7 @@ function metaWith(agent: AgentInfo | null, intent?: string): TerminalMetadata {
   return {
     state: "active",
     cwd: "/home/dev/proj",
-    git: GIT,
+    git: { kind: "repo", info: GIT },
     location: LOCAL_LOCATION,
     pr: { kind: "absent" },
     agent,

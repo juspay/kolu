@@ -136,8 +136,9 @@ export function decodeHostLocation(s: string): HostLocation {
 //     · agent · foreground) — what a memoryless host re-observes, served on the
 //     `terminalWorkspace.snapshots` collection and held in `entry.snapshot`;
 //   - kolu's AUTHORED record (`entry.meta`): the kolu-owned `location`, the
-//     client/UI fields, the two REMEMBERED `AgentMemory` facts (`lastActivityAt`
-//     /`lastAgentCommand`, written ONLY by the fold's `updateMemory`), and the
+//     client/UI fields, the REMEMBERED `AgentMemory` facts (`lastActivityAt`
+//     /`promptedAt`/`lastAgentCommand`, written ONLY by the fold's
+//     `updateMemory`), and the
 //     active|sleeping discriminant;
 //   - the discriminant `state`/`sleptAt`.
 //
@@ -234,8 +235,8 @@ const SleepingDiscriminantSchema = Schema.Struct({
 // The terminal record is bisected: the OBSERVATION (cwd · git · pr · agent ·
 // foreground) rides the registry entry's own `awareness` field, folded by kolu
 // from the producer's stream. What rides `entry.meta` is the AUTHORED record: the
-// kolu-owned `location`, the client/UI fields, the two REMEMBERED `AgentMemory`
-// facts (`lastActivityAt`/`lastAgentCommand`, written only by the fold's
+// kolu-owned `location`, the client/UI fields, the REMEMBERED `AgentMemory`
+// facts (`lastActivityAt`/`promptedAt`/`lastAgentCommand`, written only by the fold's
 // `updateMemory`), and the active|sleeping discriminant.
 //
 // The authored TYPE names no OBSERVED field, so `entry.meta.cwd = x` is a COMPILE
@@ -484,7 +485,8 @@ export const CreateTerminalInputSchema = Schema.Struct({
  *  `restoreOnly` parameter — an ordinary `createTerminal` can't name this shape at all.
  *
  *  `lastActivityAt` keeps recency ordering stable across a restart (without it a
- *  restored terminal resets to `0`). `lastAgentCommand` + `restoreTarget` bridge the
+ *  restored terminal resets to `0`); `promptedAt` keeps a resumed agent from
+ *  reading as one still at its first prompt. `lastAgentCommand` + `restoreTarget` bridge the
  *  agent-resume window: threading them onto the respawned terminal keeps restore's
  *  closing re-persist (`restoreSession`'s `saveSession(snapshotSession())`) from
  *  writing `none` over a resuming agent's id before the fold re-derives it — so a
@@ -492,6 +494,7 @@ export const CreateTerminalInputSchema = Schema.Struct({
  *  the target on disk. */
 export const RestoreOnlyMetadataSchema = Schema.Struct({
   lastActivityAt: Schema.optionalKey(Schema.Number),
+  promptedAt: Schema.optionalKey(Schema.Number),
   lastAgentCommand: Schema.optionalKey(Schema.String),
   restoreTarget: Schema.optionalKey(RestoreTargetSchema),
 });
@@ -1028,11 +1031,34 @@ export function backfillRemoteUrl(
 ): Record<string, unknown> {
   const git = t.git;
   if (!git || typeof git !== "object") return t;
-  if ("remoteUrl" in git) return t;
+  // A `GitFact` (it carries `kind`) postdates the field — nothing to backfill.
+  if ("kind" in git || "remoteUrl" in git) return t;
   return {
     ...t,
     git: { ...(git as Record<string, unknown>), remoteUrl: null },
   };
+}
+
+/** Backfill the three-case `git` fact on a saved terminal from before `git`
+ *  became a `GitFact` (`@kolu/terminal-vocab`'s `GitFactSchema`). The old field
+ *  was `GitInfo | null`:
+ *   - a bare `GitInfo` was a resolved repo → `{ kind: "repo", info }`;
+ *   - `null` meant "no repo" OR "not sensed yet", and nothing on the record says
+ *     which → `{ kind: "unresolved" }`. Restore re-samples it either way: the
+ *     live git sensor's first answer replaces it.
+ *  Runs AFTER `backfillRemoteUrl`, which completes a legacy bare `GitInfo` first.
+ *  Idempotent and keyed on shape: a `git` that already carries `kind` passes
+ *  through untouched; a record with no `git` key is left for the schema to
+ *  reject. */
+export function backfillGitFact(
+  t: Record<string, unknown>,
+): Record<string, unknown> {
+  if (!("git" in t)) return t;
+  const git = t.git;
+  if (git === null) return { ...t, git: { kind: "unresolved" } };
+  if (typeof git === "object" && !("kind" in git))
+    return { ...t, git: { kind: "repo", info: git } };
+  return t;
 }
 
 /** Backfill `location = { kind: "local" }` on a saved terminal from before
@@ -1135,7 +1161,9 @@ export function backfillSavedTerminal(
   t: Record<string, unknown>,
 ): Record<string, unknown> {
   return backfillSnapshotCutover(
-    backfillTerminalState(backfillLocation(backfillRemoteUrl(t))),
+    backfillTerminalState(
+      backfillLocation(backfillGitFact(backfillRemoteUrl(t))),
+    ),
   );
 }
 

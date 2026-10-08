@@ -24,8 +24,7 @@
  *  "presentation" function that drifts from identity.
  */
 
-import type { GitInfo } from "kolu-git/schemas";
-import type { TerminalId } from "./schema.ts";
+import type { GitFact, TerminalId } from "./schema.ts";
 
 /** Replace home directory prefix with `~` for compact display. */
 export function shortenCwd(cwd: string): string {
@@ -75,7 +74,7 @@ export type TerminalKey = {
  *  be called from places (e.g. `buildTerminalDisplayInfos`) that don't yet
  *  know the id, without forcing them to fabricate one. */
 export type TerminalLocation = {
-  git: GitInfo | null;
+  git: GitFact;
   cwd: string;
 };
 
@@ -84,7 +83,9 @@ export type TerminalIdentity = TerminalLocation & {
 };
 
 /** Canonical projection. The mapping is `git → (repoName, branch)` for
- *  git-aware terminals, `no git → (basename, shortenCwd)` otherwise.
+ *  git-aware terminals, `no git → (basename, shortenCwd)` otherwise — and a
+ *  terminal whose git context has not resolved yet keys by its cwd too: until
+ *  the sensor answers, the cwd is all that is known about where it is.
  *
  *  Why basename + shortened-cwd for non-git: `group` is the compact
  *  heading (a basename so paths like `/home/alice/projects/foo` show as
@@ -98,8 +99,15 @@ export function terminalKey(t: TerminalLocation): {
   group: string;
   label: string;
 } {
-  if (t.git) return { group: t.git.repoName, label: t.git.branch };
-  return { group: cwdBasename(t.cwd), label: shortenCwd(t.cwd) };
+  switch (t.git.kind) {
+    case "repo":
+      return { group: t.git.info.repoName, label: t.git.info.branch };
+    case "none":
+    case "unresolved":
+      return { group: cwdBasename(t.cwd), label: shortenCwd(t.cwd) };
+    default:
+      return t.git satisfies never;
+  }
 }
 
 /** The one-line CAPTION for a terminal — `"repo (branch)"` inside a git
@@ -125,7 +133,7 @@ export function terminalKey(t: TerminalLocation): {
  *  vocabulary. */
 export function terminalCaption(t: TerminalLocation): string {
   const { group, label } = terminalKey(t);
-  return t.git ? `${group} (${label})` : group;
+  return t.git.kind === "repo" ? `${group} (${label})` : group;
 }
 
 /** Compute keys for every terminal in one pass.

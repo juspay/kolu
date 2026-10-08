@@ -73,7 +73,7 @@ export interface TerminalFixture {
 export function activeTerminal(opts: TerminalFixture): PadiTerminal {
   const snapshot: TerminalSnapshot = {
     cwd: "/tmp",
-    git: null,
+    git: { kind: "none" },
     pr: { kind: "pending" },
     agent: opts.agent ?? null,
     foreground: null,
@@ -84,6 +84,7 @@ export function activeTerminal(opts: TerminalFixture): PadiTerminal {
       state: "active",
       location: LOCAL_LOCATION,
       lastActivityAt: opts.lastActivityAt ?? 0,
+      promptedAt: null,
       ...(opts.parentId === undefined ? {} : { parentId: opts.parentId }),
       ...(opts.intent === undefined ? {} : { intent: opts.intent }),
     },

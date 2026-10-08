@@ -129,8 +129,11 @@ function buildHostCodeTab(ctx: { isActive: () => boolean }) {
   // main terminal OR any split — so focusing a split re-keys every query below
   // onto THAT pane's repo and selection. Meaningful only under `ctx.isActive` —
   // see the header.
-  const shownRepoPath = (): string | null =>
-    store.focused().meta?.git?.repoRoot ?? null;
+  const shownRepoPath = (): string | null => {
+    // No repo to show outside one, nor before git has resolved.
+    const git = store.focused().meta?.git;
+    return git?.kind === "repo" ? git.info.repoRoot : null;
+  };
   const codeView = (): CodeTabView => rightPanel.codeMode();
   const codeDiffMode = (): GitDiffMode | undefined =>
     codeView() === "browse" ? undefined : (codeView() as GitDiffMode);

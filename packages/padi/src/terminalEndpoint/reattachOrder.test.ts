@@ -98,7 +98,7 @@ const LAST = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
 const ORPHAN = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
 
 const base = {
-  git: null,
+  git: { kind: "none" as const },
   pr: { kind: "absent" } as const,
   location: LOCAL_LOCATION,
 };
@@ -110,6 +110,7 @@ function active(id: string, cwd: string): SavedActiveTerminal {
     state: "active",
     cwd,
     lastActivityAt: 5,
+    promptedAt: null,
     themeName: "Dracula",
     restoreTarget: { kind: "none" },
   };

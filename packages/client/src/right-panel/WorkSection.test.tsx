@@ -56,13 +56,16 @@ function terminal(git: {
     state: "active",
     cwd: git.cwd,
     git: {
-      repoRoot: git.cwd,
-      repoName: git.repoName,
-      worktreePath: git.cwd,
-      branch: git.branch,
-      isWorktree: git.isWorktree ?? false,
-      mainRepoRoot: `/home/srid/code/${git.repoName}`,
-      remoteUrl: null,
+      kind: "repo",
+      info: {
+        repoRoot: git.cwd,
+        repoName: git.repoName,
+        worktreePath: git.cwd,
+        branch: git.branch,
+        isWorktree: git.isWorktree ?? false,
+        mainRepoRoot: `/home/srid/code/${git.repoName}`,
+        remoteUrl: null,
+      },
     },
     location: LOCAL_LOCATION,
     pr: git.pr ?? { kind: "absent" },
@@ -70,6 +73,7 @@ function terminal(git: {
     foreground: null,
     ports: { status: "unknown" },
     lastActivityAt: 0,
+    promptedAt: null,
   };
 }
 

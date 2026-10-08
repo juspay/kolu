@@ -533,8 +533,8 @@ function readScreenTextFor(id: TerminalId, tailLines: number): Promise<string> {
   return entry.handle.getScreenText(undefined, undefined, tailLines);
 }
 
-/** Did any AUTHORED fact the fold writes change — the two memory fields the
- *  authored record stores (`lastActivityAt`, `lastAgentCommand`) plus the
+/** Did any AUTHORED fact the fold writes change — the memory fields the
+ *  authored record stores (`lastActivityAt`, `promptedAt`, `lastAgentCommand`) plus the
  *  fold-derived `restoreTarget`? Compares the restore target BY VALUE
  *  (`restoreTargetEqual` over `restoreTargetOf`) rather than re-deriving the move
  *  from the target's raw inputs, so this fence can never desync from the projection
@@ -546,6 +546,7 @@ function readScreenTextFor(id: TerminalId, tailLines: number): Promise<string> {
 function authoredFactsEqual(a: TerminalState, b: TerminalState): boolean {
   return (
     a.memory.lastActivityAt === b.memory.lastActivityAt &&
+    a.memory.promptedAt === b.memory.promptedAt &&
     a.memory.lastAgentCommand === b.memory.lastAgentCommand &&
     restoreTargetEqual(restoreTargetOf(a), restoreTargetOf(b))
   );
@@ -606,12 +607,19 @@ interface TerminalLifecycle {
  *  surviving foreground tap (which replays a snapshot on subscribe), so this is
  *  only the pre-tap value the tile renders for the boot frame — null when the
  *  daemon reports no foreground name. `title` is unknown to the foreground field,
- *  so it stays null until the title tap fires. */
+ *  so it stays null until the title tap fires. `shell` cannot be decided here —
+ *  the list carries no foreground pid to compare with the root (`isShellIdle`) —
+ *  so the seed says `false`, the cautious reading for every consumer (a tip that
+ *  waits for the shell keeps waiting), until the tap's replay answers. */
 function liveForeground(
   liveEntry: PtyHostListEntry,
 ): TerminalSnapshot["foreground"] {
   return liveEntry.foregroundProcess
-    ? { name: liveEntry.foregroundProcess, title: liveEntry.title ?? null }
+    ? {
+        name: liveEntry.foregroundProcess,
+        title: liveEntry.title ?? null,
+        shell: false,
+      }
     : null;
 }
 
@@ -764,14 +772,18 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
     const aw = seedSnapshot(cwd);
 
     // The AUTHORED half — location + memory + the client-owned chrome seeded before
-    // providers run (#642). `lastActivityAt` is the one memory field a caller seeds:
-    // session restore threads the saved recency through so it survives restart (it
-    // lives on the authored record now, the fold's `updateMemory` rewrites it live).
+    // providers run (#642). `lastActivityAt` and `promptedAt` are the memory fields a
+    // caller seeds: session restore threads the saved recency and first-live-turn
+    // stamp through so they survive restart (they live on the authored record now,
+    // the fold's `updateMemory` rewrites them live).
     const meta: AuthoredActiveTerminal = {
       ...createAuthoredActive(LOCAL_LOCATION),
     };
     if (opts.initialMetadata?.lastActivityAt !== undefined)
       meta.lastActivityAt = opts.initialMetadata.lastActivityAt;
+    // Likewise a resumed agent's first live turn, so its first-prompt tip stays gone.
+    if (opts.initialMetadata?.promptedAt !== undefined)
+      meta.promptedAt = opts.initialMetadata.promptedAt;
     // Session restore threads the saved agent-resume facts through so the restore-time
     // re-persist can't write `none` over a resuming agent before the fold re-derives
     // them (the fold's `updateMemory` rewrites both live once the agent is re-observed).
@@ -1219,13 +1231,14 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
 
     // Seed the fold accumulator from the entry's durable state (the caller —
     // spawnPty/wake/adopt — registered it before we get here). A fact the producer
-    // can't re-observe (the two memory facts, the resume target) survives because
+    // can't re-observe (the memory facts, the resume target) survives because
     // it is simply never in an observation.
     const seedEntry = getTerminal(id)!;
     let current: TerminalState = {
       snapshot: seedEntry.snapshot,
       memory: {
         lastActivityAt: seedEntry.meta.lastActivityAt,
+        promptedAt: seedEntry.meta.promptedAt,
         lastAgentCommand: seedEntry.meta.lastAgentCommand,
       },
     };
@@ -1263,8 +1276,8 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
       // is still a fresh launch that must refresh the recent-agents MRU `lastSeen`;
       // gating it on the fold delta would drop that bump — the old command sensor fired
       // `trackRecentAgent` on every non-replayed mark, independent of the memory write.
-      if (o.kind === "git" && o.git)
-        trackRecentRepo(o.git.mainRepoRoot, o.git.repoName);
+      if (o.kind === "git" && o.git.kind === "repo")
+        trackRecentRepo(o.git.info.mainRepoRoot, o.git.info.repoName);
       if (o.kind === "commandRun" && !o.replayed) trackRecentAgent(o.command);
       if (current === before) return; // `unknown`/dedup no-op — nothing else to commit
       // Three effect arms, each gated by ITS OWN delta — no firehose on any:

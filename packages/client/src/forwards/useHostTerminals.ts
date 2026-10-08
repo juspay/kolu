@@ -89,9 +89,7 @@ export function useHostTerminals(): HostTerminals {
         candidates: candidates(),
         armOf: (id) => {
           const arm = activeArm(store.getMetadata(id));
-          return arm === undefined
-            ? undefined
-            : { git: arm.git ?? null, cwd: arm.cwd };
+          return arm === undefined ? undefined : { git: arm.git, cwd: arm.cwd };
         },
         activate: (id) => store.activate(id),
       }),

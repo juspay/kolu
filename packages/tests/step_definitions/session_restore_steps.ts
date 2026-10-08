@@ -30,7 +30,7 @@ async function postSavedSession(
   const dirs = [os.homedir(), os.tmpdir(), "/"].slice(0, count);
   await postSavedSessionPayload(
     world,
-    dirs.map((cwd, i) => ({ id: String(i), cwd, git: null })),
+    dirs.map((cwd, i) => ({ id: String(i), cwd, git: { kind: "none" } })),
   );
 }
 
@@ -244,7 +244,9 @@ Given(
   "a saved session with theme {string}",
   async function (this: KoluWorld, themeName: string) {
     this.savedSessionTerminalCount = 1;
-    const terminals = [{ id: "0", cwd: os.homedir(), git: null, themeName }];
+    const terminals = [
+      { id: "0", cwd: os.homedir(), git: { kind: "none" }, themeName },
+    ];
     this.savedSessionTerminals = terminals;
     await postSavedSessionPayload(this, terminals);
   },
@@ -260,7 +262,7 @@ Given(
       {
         id: "0",
         cwd: os.homedir(),
-        git: null,
+        git: { kind: "none" },
         canvasLayout: { x, y, w, h },
       },
     ];
@@ -307,13 +309,13 @@ Given(
       {
         id: "0",
         cwd: os.homedir(),
-        git: null,
+        git: { kind: "none" },
         canvasLayout: { x: -1200, y: -800, w: 480, h: 320 },
       },
       {
         id: "1",
         cwd: os.tmpdir(),
-        git: null,
+        git: { kind: "none" },
         canvasLayout: { x: 1200, y: 800, w: 480, h: 320 },
       },
     ];
@@ -460,7 +462,7 @@ Given(
       [...Array(this.savedSessionTerminalCount ?? 0)].map((_, i) => ({
         id: String(i),
         cwd: [os.homedir(), os.tmpdir(), "/"][i] ?? "/",
-        git: null,
+        git: { kind: "none" },
       }));
     const updated: SavedTerminal[] = terminals.map((t) =>
       t.id === id
@@ -554,7 +556,9 @@ Given(
   "a saved session at cwd {string}",
   async function (this: KoluWorld, cwd: string) {
     this.savedSessionTerminalCount = 1;
-    const terminals: SavedTerminal[] = [{ id: "0", cwd, git: null }];
+    const terminals: SavedTerminal[] = [
+      { id: "0", cwd, git: { kind: "none" } },
+    ];
     this.savedSessionTerminals = terminals;
     await postSavedSessionPayload(this, terminals);
   },

@@ -1,5 +1,6 @@
 import { type ActiveTerminal, LOCAL_LOCATION } from "@kolu/padi-client/surface";
 import { terminalCaption } from "@kolu/terminal-vocab/terminalKey";
+import type { GitFact } from "@kolu/terminal-vocab/schema";
 import type { GitInfo } from "kolu-git/schemas";
 import { describe, expect, it } from "vitest";
 import {
@@ -12,27 +13,31 @@ function makeMeta(overrides: Partial<ActiveTerminal> = {}): ActiveTerminal {
   return {
     state: "active",
     cwd: "/home/user/project",
-    git: null,
+    git: { kind: "none" },
     location: LOCAL_LOCATION,
     pr: { kind: "pending" },
     agent: null,
     foreground: null,
     ports: { status: "unknown" },
     lastActivityAt: 0,
+    promptedAt: null,
     ...overrides,
   };
 }
 
-function makeGit(overrides: Partial<GitInfo> = {}): GitInfo {
+function makeGit(overrides: Partial<GitInfo> = {}): GitFact {
   return {
-    repoRoot: "/home/user/repo",
-    repoName: "repo",
-    worktreePath: "/home/user/repo",
-    branch: "main",
-    isWorktree: false,
-    mainRepoRoot: "/home/user/repo",
-    remoteUrl: null,
-    ...overrides,
+    kind: "repo",
+    info: {
+      repoRoot: "/home/user/repo",
+      repoName: "repo",
+      worktreePath: "/home/user/repo",
+      branch: "main",
+      isWorktree: false,
+      mainRepoRoot: "/home/user/repo",
+      remoteUrl: null,
+      ...overrides,
+    },
   };
 }
 

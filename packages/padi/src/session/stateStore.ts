@@ -9,14 +9,16 @@
  * three keys padi owns. **`preferences` stays kolu-server's** (a koluSurface cell,
  * user-scoped, not padi's); it never moves here.
  *
- * The migration ladder is intentionally empty today: kolu-server ran the legacy
- * ladder before the one-shot import, so padi only needs to persist its current
- * project-version marker and refuse a marker written by a future padi.
+ * kolu-server ran the legacy ladder before the one-shot import, so padi's own
+ * ladder starts at padi's own schema changes (`PADI_STATE_MIGRATIONS`); it also
+ * persists the project-version marker and refuses a marker written by a future
+ * padi.
  */
 
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { ActivityFeed, SavedSession } from "@kolu/padi-client/surface";
+import { backfillSavedSession } from "@kolu/padi-client/surface";
 import type { CellStore } from "@kolu/surface/server";
 import { confStore } from "@kolu/surface/server";
 import Conf from "conf";
@@ -38,8 +40,27 @@ interface PadiPersistedState {
   importedLegacyConfig: boolean;
 }
 
-/** padi's state schema version — bump when padi grows its own migration ladder. */
-export const PADI_STATE_SCHEMA_VERSION = "1.0.0";
+/** padi's state schema version — the last step of {@link PADI_STATE_MIGRATIONS}. */
+export const PADI_STATE_SCHEMA_VERSION = "1.1.0";
+
+/** padi's migration ladder, keyed by the version each step brings the file to.
+ *
+ *  - `1.1.0`: a saved terminal's `git` became the three-case `GitFact`
+ *    (`unresolved | none | repo`). The stored session is brought up to the
+ *    current shape by the SAME saved-terminal backfill the restore and import
+ *    paths run (`backfillSavedSession`), so the file and every reader agree. The
+ *    session cell is served straight off this store — undecoded — so the disk
+ *    shape must be current, not merely decodable. */
+const PADI_STATE_MIGRATIONS: Record<
+  string,
+  (store: Conf<PadiPersistedState>) => void
+> = {
+  "1.1.0": (store) => {
+    const session = store.get("session");
+    if (session === null) return;
+    store.set("session", backfillSavedSession(session) as SavedSession);
+  },
+};
 
 /** The three `CellStore`s padi injects at boot, plus the underlying `Conf` (which
  *  the one-shot import writes into raw). */
@@ -194,10 +215,10 @@ export function openPadiStateStores(stateRoot: string): PadiStateStoreOpen {
       lastPairedDaemon: null,
       importedLegacyConfig: false,
     },
-    // Conf persists `projectVersion` only when migrations are enabled. The
-    // empty ladder makes the field real today; the preflight above prevents a
-    // rollback binary from silently rewriting a future version backwards.
-    migrations: {},
+    // Conf persists `projectVersion` only when migrations are enabled; the
+    // preflight above prevents a rollback binary from silently rewriting a
+    // future version backwards.
+    migrations: PADI_STATE_MIGRATIONS,
   });
   return {
     kind: "ready",

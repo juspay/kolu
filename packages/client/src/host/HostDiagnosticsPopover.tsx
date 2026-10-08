@@ -211,7 +211,7 @@ export const HostDiagnosticsPopover: Component<{
         const tile = arms().get(id);
         return tile === undefined
           ? undefined
-          : { git: tile.git ?? null, cwd: tile.cwd };
+          : { git: tile.git, cwd: tile.cwd };
       },
       activate: (id) => {
         // Switch host first when the row is foreign, then activate — the same

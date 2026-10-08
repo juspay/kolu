@@ -15,13 +15,14 @@ function makeMeta(overrides: Partial<ActiveTerminal> = {}): ActiveTerminal {
   return {
     state: "active",
     cwd: "/home/srid/code/drishti",
-    git: null,
+    git: { kind: "none" },
     location: LOCAL_LOCATION,
     pr: { kind: "absent" },
     agent: null,
     foreground: null,
     ports: { status: "unknown" },
     lastActivityAt: null,
+    promptedAt: null,
     ...overrides,
   };
 }
@@ -66,7 +67,7 @@ describe("attentionDiagnostic — separates the three causes of a paint/count sp
       id: "e100e85c",
       meta: makeMeta({
         agent: null,
-        foreground: { name: "codex", title: "⠧ drishti-osfacts" },
+        foreground: { name: "codex", title: "⠧ drishti-osfacts", shell: false },
       }),
       glyph: "codex",
       pipVariant: "idle",
@@ -129,7 +130,7 @@ describe("attentionDiagnostic — separates the three causes of a paint/count sp
       id: "t4",
       meta: makeMeta({
         agent: null,
-        foreground: { name: "codex", title: "⠹ building" },
+        foreground: { name: "codex", title: "⠹ building", shell: false },
       }),
       glyph: "shell",
       pipVariant: "idle",
@@ -147,7 +148,9 @@ describe("attentionDiagnostic — separates the three causes of a paint/count sp
   it("stays silent on an ordinary idle shell", () => {
     const d = attentionDiagnostic({
       id: "t5",
-      meta: makeMeta({ foreground: { name: "bash", title: null } }),
+      meta: makeMeta({
+        foreground: { name: "bash", title: null, shell: true },
+      }),
       glyph: "shell",
       pipVariant: "idle",
       motion: "none",

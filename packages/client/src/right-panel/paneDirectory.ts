@@ -29,7 +29,8 @@ export function paneDirectory(
 ): PaneDirectory | null {
   if (!meta) return null;
   const { cwd } = meta;
-  const repoRoot = meta.git?.repoRoot ?? null;
+  // Outside a repo, or before git resolves, the pane is described by its path.
+  const repoRoot = meta.git.kind === "repo" ? meta.git.info.repoRoot : null;
   // The root is only a root if the pane is actually under it — a terminal whose
   // cwd left the repo (a `cd` ahead of the git sensor catching up) gets the
   // plain path rather than a highlighted prefix that is not where it lives.

@@ -22,7 +22,7 @@ import { isReplacedDaemon, type PairedDaemon } from "./pairedDaemon.ts";
 const A = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const B = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
 const base = {
-  git: null,
+  git: { kind: "none" as const },
   pr: { kind: "absent" } as const,
   location: LOCAL_LOCATION,
 };
@@ -34,6 +34,7 @@ function activeRecord(id: string): SavedActiveTerminal {
     state: "active",
     cwd: "/x",
     lastActivityAt: 1,
+    promptedAt: null,
     restoreTarget: { kind: "none" },
   };
 }
@@ -55,6 +56,7 @@ describe("isReplacedDaemon", () => {
       sleptAt: 1,
       cwd: "/x",
       lastActivityAt: 1,
+      promptedAt: null,
     };
     expect(
       isReplacedDaemon({

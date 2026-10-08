@@ -97,9 +97,11 @@ export function openInCodeTab(req: OpenInCodeTabInput): void {
     throw new Error(
       `openInCodeTab: no terminal metadata for ${req.terminalId}`,
     );
-  const repoRoot = target.git?.repoRoot;
-  if (repoRoot === undefined)
-    throw new Error(`openInCodeTab: terminal ${req.terminalId} has no repo`);
+  if (target.git.kind !== "repo")
+    throw new Error(
+      `openInCodeTab: terminal ${req.terminalId} has no repo (git ${target.git.kind})`,
+    );
+  const repoRoot = target.git.info.repoRoot;
   const request: OpenInCodeTabRequest = {
     ref: req.ref,
     cwd: req.cwd,

@@ -3,8 +3,8 @@
  *  mirror, the recognized-agent basename, the git→PR wire, the screen-scrape poll,
  *  the adapter registry — all re-seeded empty each start) and EMITS per-field
  *  `TerminalEvent`s through `emit`. It takes NO seed and touches no host
- *  store: it cannot CONSTRUCT the two memory facts (`lastActivityAt` /
- *  `lastAgentCommand`), so however buggy / restarted / hostile its stream, it
+ *  store: it cannot CONSTRUCT the memory facts (`lastActivityAt` /
+ *  `promptedAt` / `lastAgentCommand`), so however buggy / restarted / hostile its stream, it
  *  cannot overwrite a remembered fact — the fence is the EMIT TYPE (`TerminalSnapshot`),
  *  not a runtime mutator split. padi folds the stream into a `TerminalState`
  *  (`./fold.ts`, with memory on the host clock); a memoryless dashboard consumer
@@ -62,7 +62,7 @@ import type {
   TerminalId,
   TerminalPorts,
 } from "@kolu/terminal-vocab/schema";
-import { gridsEqual, portsEqual } from "@kolu/terminal-vocab/schema";
+import { gitFactOf, gridsEqual, portsEqual } from "@kolu/terminal-vocab/schema";
 import { claimSession, releaseTerminal } from "./sessionOwnership.ts";
 
 /** The engine's transient agent working state — the last-emitted agent value (the
@@ -191,24 +191,31 @@ function processBasename(proc: string): string {
 function startForegroundSensor(
   terminalId: TerminalId,
   signals: SensorSignals,
+  pid: number,
+  commandRooted: boolean,
   emit: (o: TerminalEvent) => void,
   log: Logger,
 ): () => void {
   const plog = log.child({ provider: "process", terminal: terminalId });
-  // Foreground `{name, title}` — one concept, two coherent fields, so it's one
-  // value not four scattered bindings. The name is tracked from
+  // Foreground `{name, title, shell}` — one concept, coherent fields, so it's one
+  // value not scattered bindings. The name and `shell` are tracked from
   // `signals.foreground` (the pty-host tap) rather than read synchronously
-  // off a handle — so this works when pty-host lives across a socket; the
+  // off a handle — so this works when pty-host lives across a socket; `shell` is
+  // `isShellIdle`'s answer, the same one the agent detectors read; the
   // title is tracked from `signals.title`. `current` is what we've snapshot;
   // `published` is what we last wrote, so `recompute` republishes only on a
   // real change.
-  type FgState = { name: string | null; title: string | null };
-  const current: FgState = { name: null, title: null };
-  let published: FgState = { name: null, title: null };
+  type FgState = { name: string | null; title: string | null; shell: boolean };
+  const current: FgState = { name: null, title: null, shell: false };
+  let published: FgState = { name: null, title: null, shell: false };
   plog.debug("started");
 
   function recompute() {
-    if (current.name === published.name && current.title === published.title)
+    if (
+      current.name === published.name &&
+      current.title === published.title &&
+      current.shell === published.shell
+    )
       return;
     plog.debug(
       { from: published.name, to: current.name, title: current.title },
@@ -220,13 +227,14 @@ function startForegroundSensor(
       foreground:
         current.name === null
           ? null
-          : { name: current.name, title: current.title },
+          : { name: current.name, title: current.title, shell: current.shell },
     });
   }
 
   const cleanupForeground = signals.foreground.consume({
     onEvent: (fg) => {
       current.name = processBasename(fg.process);
+      current.shell = isShellIdle(fg.foregroundPid, pid, commandRooted);
       recompute();
     },
     onError: (err) => plog.error({ err }, "foreground subscription failed"),
@@ -346,9 +354,10 @@ function startGitSensor(
   const watcher = subscribeGitInfo(
     cwd,
     (git) => {
-      // Emit the raw `git` observation; kolu's fold owns the recent-repo MRU
+      // Emit the `git` observation — its first answer, `none` included, moves
+      // the snapshot off `unresolved`; kolu's fold owns the recent-repo MRU
       // (`trackRecentRepo`) now — a memoryless producer remembers nothing.
-      emit({ kind: "git", git });
+      emit({ kind: "git", git: gitFactOf(git) });
       gitChannel.publish(git);
       plog.debug(
         { repo: git?.repoName, branch: git?.branch },
@@ -1191,7 +1200,14 @@ export function startSensors(
   const stopAgents = Object.values(AGENT_PLUGINS).map((plugin) =>
     startAgent(plugin.adapter),
   );
-  const stopProcess = startForegroundSensor(terminalId, signals, emit, log);
+  const stopProcess = startForegroundSensor(
+    terminalId,
+    signals,
+    pid,
+    commandRooted,
+    emit,
+    log,
+  );
   const stopPorts = startPortSensor(terminalId, signals, emit, log);
   const stopGrid = startGridSensor(terminalId, signals, emit, log);
   return () => {

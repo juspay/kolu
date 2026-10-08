@@ -98,7 +98,7 @@ const FUTURE_ID = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
 const OTHER_ID = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
 
 const base = {
-  git: null,
+  git: { kind: "none" as const },
   pr: { kind: "absent" } as const,
   location: LOCAL_LOCATION,
 };
@@ -110,6 +110,7 @@ function active(id: string, cwd: string): SavedActiveTerminal {
     state: "active",
     cwd,
     lastActivityAt: 5,
+    promptedAt: null,
     themeName: "Dracula",
     intent: "saved intent",
     restoreTarget: { kind: "none" },

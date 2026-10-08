@@ -25,6 +25,7 @@ describe("workspaceSearchText", () => {
         state: "active",
         intent: "FABLE ship it",
         cwd: "/home/u/kolu",
+        git: { kind: "none" },
       } as TerminalMetadata,
     });
     expect(text).toContain("kolu");

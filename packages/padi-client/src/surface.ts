@@ -525,8 +525,21 @@ export * from "./transcriptSchema.ts";
  *  procedure, `agentDistro.checkNow`, which runs an update at once and refuses
  *  with the declared `AgentDistroCheckRefused` while a run is going or nothing
  *  serves. A 5.9 client CALLS `checkNow` and subscribes to the receipt, so the
- *  minor drains a 5.8 padi that has neither. */
-export const PADI_SURFACE_VERSION = "5.9";
+ *  minor drains a 5.8 padi that has neither.
+ *
+ *  5.10 (minor) — the terminal record's `git` becomes a three-case `GitFact`
+ *  (`unresolved | none | repo`, `@kolu/terminal-vocab`'s `GitFactSchema`) in
+ *  place of `GitInfo | null`, so a reader can tell "not a repo" from "git not
+ *  checked yet"; the record's `foreground` gains a REQUIRED `shell` (padi's own
+ *  `isShellIdle` answer: is the program in front the terminal's shell); and the
+ *  authored record gains `promptedAt` (when the current agent first went live —
+ *  `null` until then; a key-level backfill, so an older record decodes). The
+ *  `git` and `shell` changes are NOT additive — a 5.10 decoder
+ *  refuses a 5.9 padi's `git: null` (and its `shell`-less foreground), and a 5.9
+ *  decoder refuses a 5.10 padi's `{ kind }` — so the minor is what keeps the two from meeting: a 5.10 binder
+ *  drains a 5.9 padi before consuming its surface, and a 5.9 binder against a
+ *  5.10 padi is build-mismatched and drains it first. */
+export const PADI_SURFACE_VERSION = "5.10";
 
 /** The `version` cell payload — padi's self-declared surface contract version. */
 export const PadiVersionSchema = Schema.Struct({

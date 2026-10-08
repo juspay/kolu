@@ -4,10 +4,11 @@ import { resumableTerminalIds } from "./resumable.ts";
 
 const base = {
   cwd: "/work/repo",
-  git: null,
+  git: { kind: "none" },
   pr: { kind: "absent" as const },
   location: LOCAL_LOCATION,
   lastActivityAt: 0,
+  promptedAt: null,
 } as const;
 
 /** A claude-code native session id — a UUID, the only shape that passes

@@ -36,7 +36,13 @@ vi.mock("../wire", () => {
       keys: () => bag.keys(),
       byKey: (id: TerminalId) =>
         bag.metaOf(id) !== undefined
-          ? () => ({ state: "active", ...(bag.metaOf(id) as TestMeta) })
+          ? () => ({
+              // Every record names its git fact; a fixture that is not about
+              // git takes "not a repo".
+              state: "active",
+              git: { kind: "none" },
+              ...(bag.metaOf(id) as TestMeta),
+            })
           : undefined,
     }),
     // `createHostWire`'s `terminalKeys` opens this un-enrolled keys-stream ref via
@@ -437,20 +443,23 @@ describe("getMetadata identity stability (the #1714 right-panel-flicker guard)",
   // Only `cwd` + `git.repoRoot` matter here (the leaf a consumer tracks); a
   // partial `git` is enough, cast past the full composed shape like the sibling
   // reprojection tests do.
-  /** Full GitInfo — partial `{ repoRoot }` leaves repoName/branch undefined
+  /** A full repo fact — partial `{ repoRoot }` leaves repoName/branch undefined
    *  and `terminalKey` projects (undefined, undefined), which fail-loud in
    *  `buildTerminalDisplayInfos` (displayInfos runs for every metadata fixture). */
   function meta(overrides: Record<string, unknown> = {}): TestMeta {
     return {
       cwd: "/p",
       git: {
-        repoRoot: "/p",
-        repoName: "p",
-        worktreePath: "/p",
-        branch: "main",
-        isWorktree: false,
-        mainRepoRoot: "/p",
-        remoteUrl: null,
+        kind: "repo",
+        info: {
+          repoRoot: "/p",
+          repoName: "p",
+          worktreePath: "/p",
+          branch: "main",
+          isWorktree: false,
+          mainRepoRoot: "/p",
+          remoteUrl: null,
+        },
       },
       ...overrides,
     } as unknown as TestMeta;
@@ -510,7 +519,8 @@ describe("getMetadata identity stability (the #1714 right-panel-flicker guard)",
       let seen: string | null | undefined;
       createEffect(() => {
         runs++;
-        seen = getMetadata(a)?.git?.repoRoot ?? null;
+        const git = getMetadata(a)?.git;
+        seen = git?.kind === "repo" ? git.info.repoRoot : null;
       });
       await flush();
       expect(runs).toBe(1);
@@ -533,13 +543,16 @@ describe("getMetadata identity stability (the #1714 right-panel-flicker guard)",
         ...s,
         a: meta({
           git: {
-            repoRoot: "/q",
-            repoName: "q",
-            worktreePath: "/q",
-            branch: "main",
-            isWorktree: false,
-            mainRepoRoot: "/q",
-            remoteUrl: null,
+            kind: "repo",
+            info: {
+              repoRoot: "/q",
+              repoName: "q",
+              worktreePath: "/q",
+              branch: "main",
+              isWorktree: false,
+              mainRepoRoot: "/q",
+              remoteUrl: null,
+            },
           },
           lastActivityAt: START + 1_000,
         }),
