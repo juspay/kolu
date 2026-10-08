@@ -68,9 +68,13 @@ export function agentDistroChoice(
  *
  *   - a kolu built without agents (`unavailable` listing): done — there is
  *     nothing to choose;
- *   - nothing chosen: not done;
- *   - Off chosen, or a stored profile this kolu does not ship (Settings warns
- *     about it; its status would never reach `ready`): done;
+ *   - agents off — nothing chosen yet, or Off picked: not done. Off is not a
+ *     final answer: until agents are on, the welcome card keeps the choice at
+ *     the top, and picking Off leaves it there with no agents added. (Whether
+ *     anyone chose still matters elsewhere — {@link agentsChosen} decides the
+ *     step's autofocus and Settings' "nothing chosen yet" line.);
+ *   - a stored profile this kolu does not ship (Settings warns about it; its
+ *     status would never reach `ready`): done;
  *   - a profile chosen: done once this machine has settled with it — the agents
  *     are there (`ready`) or its padi has none to fetch (`unavailable`). While
  *     this machine is still downloading, or the download failed, the step
@@ -96,8 +100,7 @@ export function firstRunAgentsDone(input: {
   const { stored, listing, local } = input;
   if (listing === undefined) return undefined;
   if (listing.kind === "unavailable") return true;
-  if (!agentsChosen(stored)) return false;
-  if (!stored.enabled) return true;
+  if (!agentsChosen(stored) || !stored.enabled) return false;
   if (unknownProfileOf(stored, listing) !== undefined) return true;
   if (local === undefined) return undefined;
   switch (local.kind) {
@@ -119,15 +122,17 @@ export function firstRunAgentsDone(input: {
 /** The first-run step's title — what the welcome card asks. */
 export const AGENTS_FIRST_RUN_TITLE = "Choose your coding agents";
 
-/** The welcome card's done line for the first-run step, from the choice —
- *  `undefined` in a kolu built without agents, where nobody chose anything and
- *  the step is done only because there is nothing to choose. */
+/** The welcome card's done line for the first-run step: the chosen profile
+ *  ("Agents: vanilla ✓"). `undefined` while agents are off — the step is not
+ *  done then ({@link firstRunAgentsDone}) — and in a kolu built without agents,
+ *  where nobody chose anything and the step is done only because there is
+ *  nothing to choose. */
 export function agentsChosenLabel(
   setting: AgentDistroSetting,
   listing: AgentDistroListing | undefined,
 ): string | undefined {
-  if (listing?.kind === "unavailable") return undefined;
-  return setting.enabled ? `Agents: ${setting.profile} ✓` : `Agents off ✓`;
+  if (listing?.kind === "unavailable" || !setting.enabled) return undefined;
+  return `Agents: ${setting.profile} ✓`;
 }
 
 /** What the Settings hint adds while nothing is chosen. */
@@ -416,9 +421,9 @@ function defaultProfileOf(
   return listing?.kind === "available" ? listing.profiles[0] : undefined;
 }
 
-/** The segment that holds the Agents control's keyboard focus while none is
- *  pressed: the default profile ({@link defaultProfileOf}), so Enter picks it.
- *  Off when there is none. */
+/** Where the Agents control's keyboard rests while agents are off (nothing
+ *  chosen, or Off pressed): the default profile ({@link defaultProfileOf}), so
+ *  Enter turns agents on with it. Off when there is none. */
 export function agentsRestingSegment(
   listing: AgentDistroListing | undefined,
 ): string {

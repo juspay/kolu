@@ -77,7 +77,7 @@ const DoneEntry: Component<{ id: WelcomeMomentId; text: string }> = (props) =>
       {props.text}
     </span>
   ) : (
-    <>{props.text}</>
+    props.text
   );
 
 /** A welcome row's body voice — its line height and grey, typed ONCE: the
@@ -132,11 +132,13 @@ const MomentShell: Component<{
   </div>
 );
 
-/** The first-run agents choice: the same `AgentsChooser` as Settings → Agents
- *  (control, hint, status lines), laid out as a welcome row with agent-distro's
- *  logo. While nothing is chosen the control takes focus on mount, resting on
- *  the listing's first profile, so Enter picks it; ⌘⏎ still creates a terminal
- *  from anywhere, and ignoring the step leaves it here until chosen. */
+/** The agents choice: the same `AgentsChooser` as Settings → Agents (control,
+ *  hint, status lines), laid out as a welcome row with agent-distro's logo. It
+ *  stays at the top while agents are off — nothing chosen, or Off picked — with
+ *  the keyboard resting on the default profile, so Enter turns agents on. Only
+ *  while NOTHING is chosen does the control take focus on mount: someone who
+ *  picked Off sees the row at every empty canvas, but an Enter out of habit
+ *  must not switch agents on. ⌘⏎ still creates a terminal from anywhere. */
 const ChooseAgentsMoment: Component = () => (
   <AgentsChooser autofocus={!agentsChosen(agentDistroStored())}>
     {(parts) => (

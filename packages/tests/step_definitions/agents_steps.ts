@@ -419,6 +419,60 @@ Then(
 );
 
 Then(
+  "the first-run agents choice should show {string} chosen",
+  async function (this: KoluWorld, value: string) {
+    const want = value === "off" ? AGENTS_OFF : value;
+    await this.page
+      .locator(`${segment(want, FIRST_RUN)}[aria-pressed="true"]`)
+      .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    assert.strictEqual(await pressedSegment(this, FIRST_RUN), want);
+  },
+);
+
+/** The one tab stop of the first-run control is `value` — where Tab lands —
+ *  whatever is pressed. */
+Then(
+  "the first-run step should rest the keyboard on {string}",
+  async function (this: KoluWorld, value: string) {
+    const want = value === "off" ? AGENTS_OFF : value;
+    await this.page
+      .locator(`${segment(want, FIRST_RUN)}[tabindex="0"]`)
+      .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    for (const v of SEGMENTS)
+      assert.strictEqual(
+        await this.page.locator(segment(v, FIRST_RUN)).getAttribute("tabindex"),
+        v === want ? "0" : "-1",
+        `tabindex of the ${v} segment`,
+      );
+  },
+);
+
+/** Off was picked: the row shows, but the keyboard does not jump to it. The
+ *  control focuses itself a frame after it mounts, so wait past that. */
+Then(
+  "the first-run step should not have taken keyboard focus",
+  async function (this: KoluWorld) {
+    await this.page
+      .locator(FIRST_RUN)
+      .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    await this.page.evaluate(
+      () =>
+        new Promise<void>((resolve) =>
+          requestAnimationFrame(() =>
+            requestAnimationFrame(() => setTimeout(resolve, 250)),
+          ),
+        ),
+    );
+    const inside = await this.page.evaluate(
+      (sel) =>
+        document.querySelector(sel)?.contains(document.activeElement) ?? false,
+      FIRST_RUN,
+    );
+    assert.strictEqual(inside, false, "the first-run step took the focus");
+  },
+);
+
+Then(
   "the Agents control in Settings should have nothing chosen",
   async function (this: KoluWorld) {
     assert.strictEqual(await pressedSegment(this), undefined);
@@ -488,17 +542,35 @@ Then(
   "the welcome card's done line should say agents are {string}",
   async function (this: KoluWorld, value: string) {
     const label = agentsChosenLabel(
-      value === "off"
-        ? { enabled: false, profile: FIXTURE_DEFAULT_PROFILE }
-        : { enabled: true, profile: value },
+      { enabled: true, profile: value },
       FIXTURE_LISTING,
     );
-    assert.ok(label, "the fixture ships agents, so there is a done line");
+    assert.ok(label, "a chosen profile has a done line");
     await this.page
       .locator('[data-testid="welcome-moments-done"]')
       .filter({ hasText: label })
       .first()
       .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+  },
+);
+
+/** No agents entry in the done line: there is none while agents are off. The
+ *  header itself may be absent (nothing else done). */
+Then(
+  "the welcome card's done line should not mention agents",
+  async function (this: KoluWorld) {
+    await this.page
+      .locator('[data-testid="welcome-moments"]')
+      .first()
+      .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    assert.strictEqual(
+      await this.page
+        .locator('[data-testid="welcome-moments-done"]')
+        .filter({ hasText: /Agents/ })
+        .count(),
+      0,
+      "the done line names agents while they are off",
+    );
   },
 );
 

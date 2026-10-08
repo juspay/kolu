@@ -8,8 +8,8 @@
  *  sentence; each lays the parts out in its own row (`children` receives them).
  *
  *  While nothing is chosen (`null` stored) no segment is pressed, because
- *  nothing is, and the keyboard's resting place is the listing's first profile,
- *  so Enter picks it.
+ *  nothing is. While agents are off — nothing chosen, or Off pressed — the
+ *  keyboard rests on the default profile, so Enter turns agents on with it.
  *
  *  It writes only the preference; kolu-server pushes it to every host, and each
  *  host applies it to its NEXT new terminal. */
@@ -92,7 +92,14 @@ export default function AgentsChooser(props: {
       <SegmentedControl
         options={agentsSegments(profiles())}
         value={agentsPressedSegment(agentDistroStored())}
-        restingValue={agentsRestingSegment(agentDistroListing())}
+        // While agents are off (nothing chosen, or Off pressed) the keyboard
+        // rests on the default profile, so Enter turns agents on; once a
+        // profile is on, the pressed one holds the stop.
+        restingValue={
+          agentDistroSetting().enabled
+            ? undefined
+            : agentsRestingSegment(agentDistroListing())
+        }
         autofocus={props.autofocus}
         onTabStopChange={(v) => setInView(v)}
         onChange={choose}

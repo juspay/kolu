@@ -12,8 +12,9 @@
  *  exactly as before while the scope switcher renders the toolbar variant
  *  (and grows its hit targets on a coarse pointer when `touch` is set).
  *
- *  Keyboard, for every caller: ONE tab stop (a roving tabindex) — the pressed
- *  option, or `restingValue` while none is — and ← → (Home / End) move focus
+ *  Keyboard, for every caller: ONE tab stop (a roving tabindex) — the
+ *  caller's `restingValue` when it gives one, else the pressed option — and
+ *  ← → (Home / End) move focus
  *  within the group, wrapping; Enter or Space picks the focused option, once.
  *  Neither Corvu nor `@solid-primitives` ships a roving-focus primitive, so it
  *  lives here, once. Buttons are keyed by `value` (`Key`), so a caller that
@@ -52,8 +53,10 @@ export interface SegmentedControlOption<T extends string> {
   dividerBefore?: boolean;
 }
 
-/** The roving tab stop: the option focus last moved to while inside the group,
- *  else the pressed one, else the resting one, else the first. */
+/** The roving tab stop — ONE rule: the option focus last moved to while inside
+ *  the group, else the resting one (where the caller wants the keyboard to
+ *  land), else the pressed one, else the first. Each candidate counts only if
+ *  the options hold it. */
 export function rovingTabStop<T extends string>(input: {
   readonly options: readonly { readonly value: T }[];
   readonly focused: T | undefined;
@@ -63,8 +66,8 @@ export function rovingTabStop<T extends string>(input: {
   const has = (v: T | undefined): v is T =>
     v !== undefined && input.options.some((o) => o.value === v);
   if (has(input.focused)) return input.focused;
-  if (has(input.value)) return input.value;
   if (has(input.restingValue)) return input.restingValue;
+  if (has(input.value)) return input.value;
   return input.options[0]?.value;
 }
 
@@ -95,8 +98,10 @@ export default function SegmentedControl<T extends string>(props: {
   /** The pressed option — `undefined` when none is (nothing chosen yet). */
   value: T | undefined;
   onChange: (value: T) => void;
-  /** The option that holds the tab stop while none is pressed (default: the
-   *  first). */
+  /** Where the keyboard rests on entering the group when the pressed option is
+   *  not the one to act on — say, nothing pressed yet, or a pressed "Off" whose
+   *  Enter should turn something on. Wins over `value` for the tab stop; leave
+   *  it unset and the pressed option (else the first) holds it. */
   restingValue?: T;
   /** Focus the tab stop when the control mounts — only if nothing else holds
    *  the focus (or what holds it is in the same dialog), so a control that
@@ -104,7 +109,7 @@ export default function SegmentedControl<T extends string>(props: {
   autofocus?: boolean;
   /** Told the roving tab stop ({@link rovingTabStop}) — at mount and each
    *  time it moves: the option under the keyboard focus while focus is in the
-   *  group, else the pressed one, else the resting one. THE answer to "which
+   *  group, else the resting one, else the pressed one. THE answer to "which
    *  option is in view", so a caller that speaks about it never re-derives it. */
   onTabStopChange?: (value: T | undefined) => void;
   /** Prefix for `data-testid` attributes on the group and each option. */

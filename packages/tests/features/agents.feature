@@ -1,6 +1,7 @@
 Feature: Agents come with kolu
-  The welcome card asks once, at first run, which coding agents new terminals
-  get; Settings → Agents is the same choice later. The choice puts
+  Until agents are on, the welcome card asks which coding agents new terminals
+  get; picking Off keeps the question there. Settings → Agents is the same
+  choice at any time. The choice puts
   agent-distro's coding agents on the PATH of NEW terminals, for the chosen
   profile. A running terminal keeps what it started with, and every tile says
   which profile it got. The suite starts every scenario never chosen, as a
@@ -140,8 +141,16 @@ Feature: Agents come with kolu
     Then keyboard focus should be on the first-run "off" segment
     When I press Enter
     Then a toast should say agents are off
-    And the welcome card should not ask about agents
-    And the welcome card's done line should say agents are "off"
+    And the first-run agents choice should show "off" chosen
+    And the welcome card's first row should ask which agents I want
+    And the welcome card's done line should not mention agents
+    When I reload the page
+    Then the welcome card's first row should ask which agents I want
+    And the first-run agents choice should show "off" chosen
+    And the first-run step should rest the keyboard on "vanilla"
+    And the first-run step should say what "vanilla" means
+    And the first-run step should not have taken keyboard focus
+    And the welcome card's done line should not mention agents
     When I create a terminal
     Then the focused tile should show no agents chip
     And the terminal should have no fixture agents on its PATH

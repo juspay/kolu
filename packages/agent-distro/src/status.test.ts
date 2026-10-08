@@ -442,11 +442,20 @@ describe("firstRunAgentsDone — the first-run step's done-predicate", () => {
       ).toBe(false);
   });
 
-  it("is done as soon as Off is chosen, whatever this machine says", () => {
-    for (const local of [undefined, ...Object.values(STATUSES)])
+  it("is never done while Off is chosen either — Off keeps the choice at the top", () => {
+    for (const local of [undefined, ...Object.values(STATUSES)]) {
       expect(firstRunAgentsDone({ stored: OFF, listing: LISTING, local })).toBe(
-        true,
+        false,
       );
+      // Off with a remembered profile kolu no longer ships is still just Off.
+      expect(
+        firstRunAgentsDone({
+          stored: { enabled: false, profile: "gone" },
+          listing: LISTING,
+          local,
+        }),
+      ).toBe(false);
+    }
   });
 
   it("with a profile chosen, waits until this machine has settled — not known until its status catches up", () => {
@@ -514,16 +523,19 @@ describe("firstRunAgentsDone — the first-run step's done-predicate", () => {
     ).toBe(true);
   });
 
-  it("its done line names the choice", () => {
+  it("its done line names the chosen profile, and there is none while agents are off", () => {
     expect(agentsChosenLabel(VANILLA_ON, LISTING)).toBe("Agents: vanilla ✓");
     expect(
       agentsChosenLabel({ enabled: true, profile: "juspay" }, LISTING),
     ).toBe("Agents: juspay ✓");
-    expect(agentsChosenLabel(OFF, LISTING)).toBe("Agents off ✓");
+    expect(agentsChosenLabel(OFF, LISTING)).toBeUndefined();
   });
 
   it("has no done line in a kolu built without agents — nobody chose anything", () => {
     expect(agentsChosenLabel(OFF, { kind: "unavailable" })).toBeUndefined();
+    expect(
+      agentsChosenLabel(VANILLA_ON, { kind: "unavailable" }),
+    ).toBeUndefined();
   });
 });
 

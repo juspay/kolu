@@ -774,7 +774,8 @@ const CONF_MIGRATIONS = {
       ) as unknown as Preferences,
     );
   },
-  // `agentDistro` is `null` until someone chooses, so the welcome card asks once.
+  // `agentDistro` is `null` until someone chooses (it decides the welcome step's
+  // autofocus and Settings' "nothing chosen yet").
   // An Off record becomes `null` (it is 1.37's seed or a dev build's choice —
   // that setting never shipped in a release); an On record is kept whole.
   "1.38.0": (store: Conf<PersistedState>) => {

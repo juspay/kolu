@@ -1,8 +1,8 @@
 // @vitest-environment happy-dom
 /**
  * `SegmentedControl`'s keyboard contract, for every caller: ONE tab stop (a
- * roving tabindex) — the pressed option, or `restingValue` while none is — and
- * ← → / Home / End move focus within the group without picking; Enter or Space
+ * roving tabindex) — the caller's `restingValue` when it gives one, else the
+ * pressed option — and ← → / Home / End move focus within the group without picking; Enter or Space
  * on the focused option picks it once, as does a click. With no value, nothing
  * is pressed. Re-emitted options for the same values keep their buttons and the
  * focus, and autofocus never steals focus from something else.
@@ -116,6 +116,16 @@ describe("SegmentedControl — the roving tab stop", () => {
     expect(c.pressed()).toEqual(["juspay"]);
   });
 
+  it("a resting option holds the stop even while another is pressed, so Enter acts on it", () => {
+    // Off pressed, the keyboard resting on a profile: Enter turns it on.
+    const c = mount("off", "vanilla");
+    expect(c.pressed()).toEqual(["off"]);
+    expect(c.tabStops()).toEqual(["vanilla"]);
+    c.button("vanilla")?.focus();
+    c.key("Enter");
+    expect(c.picks).toEqual(["vanilla"]);
+  });
+
   it("leaving the group hands the stop back to the pressed option", () => {
     const c = mount("off");
     c.button("off")?.focus();
@@ -145,7 +155,7 @@ describe("SegmentedControl — picking from the keyboard", () => {
   });
 
   it("tells the host the tab stop — at mount, as the keyboard moves, and back when it leaves", () => {
-    const c = mount("juspay", "vanilla");
+    const c = mount("juspay");
     c.button("juspay")?.focus();
     c.key("ArrowLeft");
     c.button("vanilla")?.blur();
@@ -198,7 +208,7 @@ describe("SegmentedControl — autofocus", () => {
 });
 
 describe("rovingTabStop / rovingMove", () => {
-  it("prefers focused, then pressed, then resting, then the first — each only if offered", () => {
+  it("prefers focused, then resting, then pressed, then the first — each only if offered", () => {
     const options = OPTIONS;
     expect(
       rovingTabStop({
@@ -214,6 +224,14 @@ describe("rovingTabStop / rovingMove", () => {
         focused: undefined,
         value: "off",
         restingValue: "vanilla",
+      }),
+    ).toBe("vanilla");
+    expect(
+      rovingTabStop({
+        options,
+        focused: undefined,
+        value: "off",
+        restingValue: undefined,
       }),
     ).toBe("off");
     expect(
