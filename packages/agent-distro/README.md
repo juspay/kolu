@@ -42,7 +42,13 @@ The **TypeScript half**, as data and pure functions:
   words (`agentMarkWords`, `agentMarkLabel`), which the hover, the download
   toasts and the Settings line share, with a failure's cause, remedy and retry
   worded once (`agentFailureLines`); the moments a download is worth a toast
-  (`downloadEdge`); the Settings hint and segments; the per-host status lines
+  (`downloadEdge`); the stored preference — `null` until someone chooses — and
+  the one fold from it to the setting new terminals get (`agentDistroSettingOf`,
+  `agentsChosen`), the one whole-value writer behind the Agents control
+  (`agentDistroChoice`) and the first-run step's done-predicate and words
+  (`firstRunAgentsDone`, `agentsChosenLabel`); the Agents hint and segments,
+  with which is pressed and where the keyboard rests (`agentsPressedSegment`,
+  `agentsRestingSegment`); the per-host status lines
   with their collapse rule; a saved choice kolu does not ship
   (`unknownProfileOf`); whether a terminal's agents went stale and what its
   restart does (`agentStalenessOf`, `agentRestartReady`, `agentRestartAction`,

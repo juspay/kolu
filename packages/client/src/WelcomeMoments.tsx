@@ -134,7 +134,7 @@ const ChooseAgentsMoment: Component = () => (
             {(hint) => (
               <div
                 data-testid="welcome-agents-hint"
-                class="text-xs leading-snug mt-1 whitespace-pre-line"
+                class="text-xs leading-snug mt-0.5 whitespace-pre-line"
                 classList={{
                   "text-fg-3": hint().tone !== "warn",
                   "text-warning": hint().tone === "warn",
