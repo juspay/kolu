@@ -38,7 +38,9 @@ function realpathOrUndefined(path: string): string | undefined {
 /** Where `profile`'s bundle is on this host right now: the `current` the updater
  *  maintains, else the floor; `undefined` when neither exists (a remote host
  *  before its first download). Always a resolved store path, so whoever
- *  receives it pins that exact bundle. */
+ *  receives it pins that exact bundle. A `current` older than a newer kolu's
+ *  floor still wins, deliberately: padi's boot check fetches upstream's newest
+ *  right after the deploy, and offline the host keeps serving what it has. */
 export function bundleOnHost(
   bake: AgentDistroBake,
   profile: AgentDistroProfileBake,

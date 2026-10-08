@@ -15,6 +15,7 @@ import {
   mkdtempSync,
   readFileSync,
   realpathSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -35,6 +36,7 @@ import {
   newTerminalLayer,
   onAgentUpdateTick,
   onAgentDistroSettingWrite,
+  startAgentDistroUpdates,
 } from "./agentDistro.ts";
 import { __resetAgentDistroDownloadsForTest } from "./download.ts";
 import { __setAgentDistroBakeForTest, type AgentDistroBake } from "./bake.ts";
@@ -70,6 +72,11 @@ switch (process.env.STUB_MODE) {
   case "ok":
     out({ progress: { done: 1100000000, total: 2000000000 } });
     land();
+    break;
+  case "okstamped":
+    // A first download as the real updater makes it: it lands and stamps.
+    land();
+    stamp();
     break;
   case "slow":
     out({ progress: { done: 1100000000, total: 2000000000 } });
@@ -749,5 +756,119 @@ describe("scheduled updates: a failed run is retried, a skip waits", () => {
     tick(false, t0 + 60_000); // asked again
     await settled();
     expect(runs()).toBe(first + 2);
+  });
+});
+
+describe("the boot check: padi's start runs one update, whatever the due rule says", () => {
+  const stateDir = () => join(root, "state", "agent-distro", "vanilla");
+  /** A bundle already serving here (`current`), stamped `last-success` at
+   *  `stampSec` — by default now, after the latest boundary: fresh, so the due
+   *  rule alone answers `notDue`. */
+  function servingOnHost(stampSec = Math.floor(Date.now() / 1000)): void {
+    mkdirSync(stateDir(), { recursive: true });
+    symlinkSync(process.env.STUB_BUNDLE as string, join(stateDir(), "current"));
+    writeFileSync(join(stateDir(), "last-success"), `${stampSec}\n`);
+  }
+  let stop: (() => void) | undefined;
+  /** padi boots: nothing pushed yet (the cell's default), the timer started. */
+  function boot(): void {
+    agentDistroSettingStore.set({ enabled: false, profile: "" });
+    stop = startAgentDistroUpdates();
+  }
+  afterEach(() => {
+    stop?.();
+    stop = undefined;
+  });
+  /** The pushed setting's tick (queued a microtask after the write) has run,
+   *  and any run it started has ended. */
+  async function settled(): Promise<void> {
+    await new Promise((r) => setTimeout(r, 0));
+    await until((s) => s?.kind === "ready" && s.update === undefined);
+  }
+  const runs = () => invocations().length;
+
+  it("agents on, a bundle serving, a fresh stamp: exactly one run — and the next tick runs nothing", async () => {
+    servingOnHost();
+    process.env.STUB_MODE = "unchanged";
+    boot();
+    write(ON);
+    await settled();
+    expect(runs()).toBe(1);
+    expect(receipts.at(-1)?.lastRun?.outcome).toBe("unchanged");
+    // The same process, the stamp still fresh: the due rule, as before.
+    onAgentUpdateTick(true);
+    await settled();
+    expect(runs()).toBe(1);
+    expect(checkForAgentUpdate({ force: false })).toBe("notDue");
+  });
+
+  it("pushed off: no run; turning agents on later goes through the due rule", async () => {
+    servingOnHost();
+    process.env.STUB_MODE = "unchanged";
+    boot();
+    write(OFF);
+    await new Promise((r) => setTimeout(r, 0));
+    expect(runs()).toBe(0);
+    // Fresh stamp: not due.
+    write(ON);
+    await settled();
+    expect(runs()).toBe(0);
+    // Stale stamp (a day ago): due, so the setting's tick runs one.
+    write(OFF);
+    writeFileSync(
+      join(stateDir(), "last-success"),
+      `${Math.floor(Date.now() / 1000) - 86_400}\n`,
+    );
+    write(ON);
+    await settled();
+    expect(runs()).toBe(1);
+  });
+
+  it("no bundle on the host yet (a remote host): the first download runs, and no second run follows it", async () => {
+    process.env.STUB_MODE = "okstamped";
+    boot();
+    write(ON);
+    await settled();
+    expect(runs()).toBe(1);
+    // The ask that met the download asks again: the stamp it wrote is fresh.
+    onAgentUpdateTick(false);
+    onAgentUpdateTick(true);
+    await settled();
+    expect(runs()).toBe(1);
+  });
+
+  it("is no scheduled attempt: a failed boot run earns no retry, and the boundary keeps all three", async () => {
+    servingOnHost();
+    process.env.STUB_MODE = "fail";
+    boot();
+    write(ON);
+    await settled();
+    expect(runs()).toBe(1);
+    // Only `Date` faked: the stub runs in real time.
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      const at = (ms: number, boundaryPassed: boolean) => {
+        vi.setSystemTime(ms);
+        onAgentUpdateTick(boundaryPassed);
+      };
+      const t = Date.now();
+      at(t + 300_000, false); // a scheduled failure would retry now
+      at(t + 600_000, false);
+      expect(runs()).toBe(1);
+      // The next boundary (after the fresh stamp): upstream's three attempts.
+      const boundary =
+        (Math.floor((t / 1000 - 7200) / 21600) + 1) * 21600 * 1000 +
+        7200 * 1000;
+      at(boundary, true);
+      await settled();
+      at(boundary + 300_000, false);
+      await settled();
+      at(boundary + 600_000, false);
+      await settled();
+      at(boundary + 900_000, false);
+      expect(runs()).toBe(4);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
