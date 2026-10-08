@@ -207,12 +207,7 @@ export const HostDiagnosticsPopover: Component<{
       })(),
       // The join returns the TILE, and the tile is what the row names — a
       // split's own name would point at a pane the user cannot see as a thing.
-      armOf: (id) => {
-        const tile = arms().get(id);
-        return tile === undefined
-          ? undefined
-          : { git: tile.git, cwd: tile.cwd };
-      },
+      armOf: (id) => arms().get(id),
       activate: (id) => {
         // Switch host first when the row is foreign, then activate — the same
         // sequencing the palette uses, so a forward row and a palette row behave

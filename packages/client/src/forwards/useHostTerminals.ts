@@ -87,10 +87,7 @@ export function useHostTerminals(): HostTerminals {
       servingLink({
         port,
         candidates: candidates(),
-        armOf: (id) => {
-          const arm = activeArm(store.getMetadata(id));
-          return arm === undefined ? undefined : { git: arm.git, cwd: arm.cwd };
-        },
+        armOf: (id) => activeArm(store.getMetadata(id)),
         activate: (id) => store.activate(id),
       }),
     tilePorts: (tileId) =>

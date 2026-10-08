@@ -287,33 +287,16 @@ const CodeTab: Component<{
     },
   });
 
-  // Where the shown terminal stands with git, in three cases: still being
-  // sensed, outside any repo, or in one. With no terminal shown there is no
-  // repo either. Kept three-way here so "not checked yet" never reads as
-  // "not a repo" (the empty-state copy and `syncRepo` below both depend on it).
-  const repoAt = ():
-    | { kind: "unresolved" }
-    | { kind: "none" }
-    | { kind: "repo"; root: string } => {
-    const git = props.meta?.git;
-    if (git === undefined) return { kind: "none" };
-    switch (git.kind) {
-      case "unresolved":
-      case "none":
-        return { kind: git.kind };
-      case "repo":
-        return { kind: "repo", root: git.info.repoRoot };
-      default:
-        throw new Error(
-          `CodeTab: unknown git kind ${JSON.stringify(git satisfies never)}`,
-        );
-    }
-  };
+  // Where the shown terminal stands with git: still being sensed, outside any
+  // repo, or in one. With no terminal shown there is no repo either. The
+  // empty-state copy and `syncRepo` below both tell "not checked yet" apart
+  // from "not a repo".
+  const gitKind = () => props.meta?.git.kind ?? "none";
   // The repo root to browse, or `null` when there is nothing to browse yet or
   // at all — every consumer of a root needs a root, whichever case it is.
   const repoPath = () => {
-    const at = repoAt();
-    return at.kind === "repo" ? at.root : null;
+    const git = props.meta?.git;
+    return git?.kind === "repo" ? git.info.repoRoot : null;
   };
 
   // History records repo-relative `{ mode, path }` locations with no repo
@@ -339,10 +322,10 @@ const CodeTab: Component<{
   // drop the restored stack.
   createEffect(
     on(
-      () => [props.terminalId, repoAt()] as const,
-      ([tid, at]) => {
-        if (tid === null || at.kind === "unresolved") return;
-        rightPanel.syncRepo(tid, at.kind === "repo" ? at.root : null);
+      () => [props.terminalId, gitKind(), repoPath()] as const,
+      ([tid, kind, repo]) => {
+        if (tid === null || kind === "unresolved") return;
+        rightPanel.syncRepo(tid, repo);
       },
     ),
   );
@@ -1171,7 +1154,7 @@ const CodeTab: Component<{
         // Unresolved stays blank: saying "Not in a git repository" before git
         // has answered would be a guess.
         <Show
-          when={repoAt().kind === "none"}
+          when={gitKind() === "none"}
           fallback={<div class="h-full" data-testid="diff-git-unresolved" />}
         >
           <div

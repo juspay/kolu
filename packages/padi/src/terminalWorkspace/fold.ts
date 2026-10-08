@@ -258,13 +258,25 @@ export function fold(
     return snapshot === cur.snapshot ? cur : { ...cur, snapshot };
   }
   // An authoritative agent `{ value }` (incl. a shell-idle null = session ended).
+  // A NEW agent identity: NEW activity (`ctx.live`) whose identity differs from
+  // what the fold last held — a session starts / finishes / a new one appears. A
+  // re-observation of the survivor kolu already knew is `!ctx.live`.
+  // The `agentIdentityChanged(cur.snapshot.agent, …)` conjunct is NOT belt-and-
+  // suspenders with `ctx.live`: it is the fold's OWN identity fence. `ctx.live` is
+  // the caller's frame-phase judgment (against a baseline the fold doesn't hold);
+  // this fold acts only on a change it can see against its OWN persisted
+  // `snapshot.agent`, so it never trusts the caller's `ctx.live` blindly. Requiring
+  // BOTH is this file's producer-fence thesis applied to itself — a self-contained
+  // contract for any present-or-future caller, not a redundant AND to simplify away.
+  const newIdentity =
+    ctx.live && agentIdentityChanged(cur.snapshot.agent, o.agent.value);
   // FIRST LIVE TURN first (it rides every arm below), then RECENCY.
   const next: TerminalState = {
     ...cur,
     snapshot,
     memory: {
       ...cur.memory,
-      promptedAt: nextPromptedAt(cur, o.agent.value, ctx),
+      promptedAt: nextPromptedAt(cur, o.agent.value, newIdentity, ctx.at),
     },
   };
   // RECENCY, two arms that COMPOSE, kolu's clock stamps both — one stamp shape:
@@ -272,19 +284,8 @@ export function fold(
     ...next,
     memory: { ...next.memory, lastActivityAt: ctx.at },
   });
-  //  - IDENTITY-change arm (#1626, unthrottled): NEW activity (`ctx.live`) whose
-  //    identity differs from what the fold last held — a session starts / finishes /
-  //    a new one appears. A re-observation of the survivor kolu already knew is
-  //    `!ctx.live`, so it never takes this arm.
-  //    The `agentIdentityChanged(cur.snapshot.agent, …)` conjunct is NOT belt-and-
-  //    suspenders with `ctx.live`: it is the fold's OWN identity fence. `ctx.live` is
-  //    the caller's frame-phase judgment (against a baseline the fold doesn't hold);
-  //    this fold bumps only on a change it can see against its OWN persisted
-  //    `snapshot.agent`, so it never trusts the caller's `ctx.live` blindly. Requiring
-  //    BOTH is this file's producer-fence thesis applied to itself — a self-contained
-  //    contract for any present-or-future caller, not a redundant AND to simplify away.
-  if (ctx.live && agentIdentityChanged(cur.snapshot.agent, o.agent.value))
-    return stamped();
+  //  - IDENTITY-change arm (#1626, unthrottled): a new agent identity.
+  if (newIdentity) return stamped();
   //  - THROTTLED-output arm (the freeze fix): a same-identity DETAIL tick is the
   //    agent producing OUTPUT. Stamp it too, but only once per RECENCY_THROTTLE_MS so
   //    the ~1s firehose doesn't recreate the per-tick write noise #1626 removed. The
@@ -301,9 +302,9 @@ export function fold(
 /** `promptedAt` after one authoritative agent observation — "has the CURRENT
  *  agent had a live turn yet?" (see `AgentMemorySchema`). Three cases:
  *   - no agent → `null` (nothing to have been prompted);
- *   - a NEW agent identity (the same `ctx.live` ∧ identity-change fence the
- *     recency arm uses) → starts over: stamped only if it is already live, so a
- *     fresh agent detected at its first prompt (`waiting`) stays `null`;
+ *   - a NEW agent identity (`newIdentity`, the fence the recency arm uses too)
+ *     → starts over: stamped only if it is already live, so a fresh agent
+ *     detected at its first prompt (`waiting`) stays `null`;
  *   - the same agent → keeps its stamp, or takes one on its first live state.
  *  The identity fence matters on ADOPT: the seeded snapshot has no agent, so the
  *  survivor's re-observation is an identity change the baseline says is NOT live
@@ -311,11 +312,11 @@ export function fold(
 function nextPromptedAt(
   cur: TerminalState,
   agent: AgentInfo | null,
-  ctx: FoldCtx,
+  newIdentity: boolean,
+  at: number,
 ): number | null {
   if (agent === null) return null;
-  const firstLive = agentLive(agent.state) ? ctx.at : null;
-  if (ctx.live && agentIdentityChanged(cur.snapshot.agent, agent))
-    return firstLive;
+  const firstLive = agentLive(agent.state) ? at : null;
+  if (newIdentity) return firstLive;
   return cur.memory.promptedAt ?? firstLive;
 }
