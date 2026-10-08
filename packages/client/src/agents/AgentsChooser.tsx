@@ -137,11 +137,13 @@ export default function AgentsChooser(props: {
     ),
     updates: (
       <Show when={picked()}>
-        <div class="mt-1.5 flex items-start gap-2">
-          <div class="min-w-0 flex-1">
-            <AgentUpdateHistory rows={agentUpdateHistoryNow()} />
+        {/* Check now sits at the History summary's right; the History itself
+            takes the full width, so its rows have room for the words. */}
+        <div class="relative mt-1.5">
+          <AgentUpdateHistory rows={agentUpdateHistoryNow()} />
+          <div class="absolute right-0 top-0">
+            <AgentsCheckNowButton />
           </div>
-          <AgentsCheckNowButton />
         </div>
       </Show>
     ),
