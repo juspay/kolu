@@ -72,10 +72,13 @@ their versions) it puts on your terminals. Hover a choice for agent-distro's own
 description of it.
 
 With a set on, under the hint is one status line per machine — this machine
-first, then every other host that is not ready yet — each with a bar that fills
-while that machine downloads, turns to the warning colour if the download
-failed, and stays empty until the machine has answered. When every machine is
-ready the lines fold into one.
+first, then every other host that is not ready yet or is updating — each with a
+bar that fills while that machine downloads, turns to the warning colour if the
+download failed, and stays empty until the machine has answered. A ready line
+ends with when that machine last looked for newer agents ("updated 3h ago",
+"checked 2h ago, up to date"). When every machine is ready the lines fold into
+one. Below them sit **Check now** and the **History** ([Kept up to
+date](#kept-up-to-date)).
 
 The setting is one for all of kolu — not per host, not per terminal.
 
@@ -141,14 +144,17 @@ name, and the mark's look says where that host stands:
 | --- | --- |
 | plain, in the tab's text colour | ready for new terminals |
 | a thin ring around it, filling up | downloading — hover for the progress |
+| plain, with the ring filling | ready, and a newer set is downloading; the current one keeps serving ([Kept up to date](#kept-up-to-date)) |
 | warning colour with a small dot | the download failed — hover for why ([below](#when-a-download-fails)) |
 | dimmed, with a spinning arc | checking: the host is connected but has not said yet |
 | no mark at all | agents are off |
 
 Clicking the mark opens Settings, without switching tabs.
 
-The machine running kolu itself needs no download: every set ships inside kolu,
-so switching there is instant and works offline.
+The machine running kolu itself needs no first download: every set ships inside
+kolu, so switching there is instant and works offline. It still keeps itself
+up to date like any other host (below); the set kolu shipped with is what it
+falls back to when it has never been online.
 
 <Aside type="note" title="Disk">
   A host keeps its downloaded bundle in its own Nix store (and the machine
@@ -157,12 +163,49 @@ so switching there is instant and works offline.
   downloaded bundle for the same set.
 </Aside>
 
+## Kept up to date
+
+agent-distro publishes a newer tested set of agents up to four times a day. Four
+times a day — at 02:00, 08:00, 14:00 and 20:00 UTC, agent-distro's own
+schedule — every machine with agents on looks for a newer build of the set you
+chose, and downloads it if there is one. Only the chosen set is kept current;
+switching sets downloads the new one as before. A machine that was asleep or
+offline through one of those times looks once as soon as it is back.
+
+Nothing is ever compiled. A newer set is downloaded only once agent-distro's
+cache holds all of it; until then the machine skips it and looks again at the
+next time.
+
+While a newer set downloads, the one you have keeps working: new terminals get
+it until the new one has fully arrived. The host's mark keeps its plain colour
+and the ring fills around it; its line in Settings says "updating" with the
+progress. Then:
+
+- a toast says what changed, in agent-distro's own words ("Claude Code 2.1.286
+  → 2.1.291"), and on which machine;
+- new terminals there start with the new set;
+- a terminal already open keeps its own, and its pill offers **Restart**
+  ([above](#restarting-a-terminal-onto-the-current-agents)).
+
+A look that finds nothing newer, or skips because the newer set is not ready to
+download yet, says nothing. A look that fails says nothing either — the agents
+you have keep working — and shows in the History and the host's line.
+
+In **Settings → Agents**:
+
+- **Check now** looks for newer agents on every machine at once, whatever the
+  time. While any machine is looking it reads "Checking…".
+- **History** lists each machine's last five events — updated, skipped or failed —
+  with the time and agent-distro's own words.
+
 ## When a download fails
 
 The host needs Nix with flakes, reachable on padi's PATH, and its Nix must be
 allowed to use agent-distro's cache (`https://cache.nixos.asia/oss`). If it is
-not, the download is skipped — the host never compiles agents — and the host's
-mark turns to the warning colour. Its hover, the toast and the host's line in
+not, the first download is skipped — the host never compiles agents — and the
+host's mark turns to the warning colour. (A later update that cannot download
+is different: the agents the host already has keep working, and it shows only
+in the History — see [Kept up to date](#kept-up-to-date).) Its hover, the toast and the host's line in
 Settings all say the same thing: the cause, the setup fix when the cause is a
 missing `nix`, and how to retry. Until it is fixed, new terminals on that host
 get no agents. Fix it, then switch Agents off and back on in Settings: that is

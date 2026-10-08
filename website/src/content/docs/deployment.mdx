@@ -190,7 +190,11 @@ build of them, so the first `nix run` there compiles them, which takes a while. 
 them: it downloads its profile's bundle itself, from agent-distro's cache (the
 same `https://cache.nixos.asia/oss` above), so that host's Nix needs the block
 above too; without it the host's download fails rather than compiling (see
-[When a download fails](/agents#when-a-download-fails)).
+[When a download fails](/agents#when-a-download-fails)). Every machine, this one
+included, then keeps its agents current from the same cache, four times a day
+([Kept up to date](/agents#kept-up-to-date)) — so this machine's Nix needs the
+block as well for those updates, though the set kolu shipped with keeps working
+without it.
 
 Whether this machine has those binaries to copy depends on how you installed
 kolu. If you run kolu as a service through the **home-manager module**, it

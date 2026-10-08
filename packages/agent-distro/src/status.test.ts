@@ -1222,7 +1222,7 @@ describe("K3 — updates while a bundle serves", () => {
     expect(agentToast.updated("box", "Claude Code 2.1.286 → 2.1.291")).toEqual({
       title: "Coding agents updated on box",
       description:
-        "Claude Code 2.1.286 → 2.1.291\nNew terminals there start with them; open ones offer Restart.",
+        "Claude Code 2.1.286 → 2.1.291 — new terminals there start with them; open ones offer Restart.",
     });
   });
 

@@ -967,7 +967,7 @@ export const agentToast = {
   updated: (host: string, words: string) =>
     ({
       title: `Coding agents updated on ${host}`,
-      description: `${words}\nNew terminals there start with them; open ones offer Restart.`,
+      description: `${words} — new terminals there start with them; open ones offer Restart.`,
     }) as const,
 } as const;
 
