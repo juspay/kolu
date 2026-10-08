@@ -18,7 +18,7 @@ import {
   type HostKey,
   LOCAL_HOST,
 } from "kolu-common/hostKey";
-import type { AgentDistroListing } from "kolu-common/surface";
+import type { AgentDistroListing, AgentDistroPrefs } from "kolu-common/surface";
 import { createEffect, createMemo, createRoot, mapArray, on } from "solid-js";
 import { toast } from "solid-sonner";
 import { hostLabel } from "../host/hostChipTone";
@@ -27,6 +27,7 @@ import AgentDistroLogo from "@kolu/agent-distro/solid";
 import {
   type AgentMark,
   type AgentStatusLine,
+  agentDistroSettingOf,
   agentMarkOf,
   agentMarkWords,
   agentStatusLines,
@@ -44,6 +45,18 @@ const listingSub = createRoot(() => app.cells.agentDistroListing.use());
 export function agentDistroListing(): AgentDistroListing | undefined {
   return listingSub.value();
 }
+
+/** The STORED Agents preference — `null` while nobody has chosen. Read only
+ *  where that difference shows: the first-run step and the Agents control. */
+export function agentDistroStored(): AgentDistroPrefs | null {
+  return preferences().agentDistro;
+}
+
+/** The Agents setting new terminals get — the stored value through the one fold
+ *  (`agentDistroSettingOf`: never chosen is off). Every other reader uses this. */
+export const agentDistroSetting = createRoot(() =>
+  createMemo(() => agentDistroSettingOf(agentDistroStored())),
+);
 
 /** Per-host status reads, one subscription per pool member. */
 const byHost = createRoot(() => {
@@ -99,7 +112,7 @@ const byHost = createRoot(() => {
       // not sent its first frame. Derived here from the cell's own pending
       // state; padi has no such status.
       const checking = () =>
-        preferences().agentDistro.enabled &&
+        agentDistroSetting().enabled &&
         padiMap.entry(host).state().kind === "connected" &&
         sub.pending();
       return { enc, host, read: () => sub.value(), checking };
@@ -142,7 +155,7 @@ export function agentStatusLinesNow(): readonly AgentStatusLine[] {
 
 /** The stored profile, when the listing does not offer it (`unknownProfileOf`). */
 export function unknownAgentProfile(): string | undefined {
-  return unknownProfileOf(preferences().agentDistro, agentDistroListing());
+  return unknownProfileOf(agentDistroSetting(), agentDistroListing());
 }
 
 createRoot(() =>

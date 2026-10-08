@@ -11,6 +11,7 @@
 
 import { formatBytes } from "@kolu/byte-units";
 import { agentBundleShortHash } from "./bundle.ts";
+import { DEFAULT_AGENT_PROFILE } from "./manifest.ts";
 import type {
   AgentDistroFailureReason,
   AgentDistroSetting,
@@ -18,6 +19,76 @@ import type {
   TerminalAgents,
 } from "./schema.ts";
 import type { AgentDistroListing, AgentDistroProfile } from "./listing.ts";
+
+/** THE fold from the stored Agents preference to the setting it means. `null`
+ *  is "nobody has chosen yet", and it behaves as off — on the default profile,
+ *  so turning agents on later starts there. Every consumer that needs the
+ *  effective setting (the push to padi, a tile's pill, the status lines) reads
+ *  it through here, so `null` is handled in exactly one place and padi's wire
+ *  schema never sees it. */
+export function agentDistroSettingOf(
+  stored: AgentDistroSetting | null,
+): AgentDistroSetting {
+  return stored ?? { enabled: false, profile: DEFAULT_AGENT_PROFILE };
+}
+
+/** Has anyone chosen yet? The one test for "never chosen" — the absence of a
+ *  value. Read only where that difference shows: the first-run step and the
+ *  Agents control's selection and hint. */
+export function agentsChosen(stored: AgentDistroSetting | null): boolean {
+  return stored !== null;
+}
+
+/** The whole value a pick on the Agents control writes — the ONE writer both
+ *  the Settings row and the first-run step go through. Off keeps the profile
+ *  already stored, so turning agents back on returns to it. */
+export function agentDistroChoice(
+  segment: string,
+  stored: AgentDistroSetting | null,
+): AgentDistroSetting {
+  return segment === AGENTS_OFF
+    ? { enabled: false, profile: agentDistroSettingOf(stored).profile }
+    : { enabled: true, profile: segment };
+}
+
+/** Is the first-run "choose your agents" step done? Once a choice is written
+ *  AND it is off, or this machine has settled with it — the agents are there
+ *  (`ready`) or this build has none to fetch (`unavailable`). While this
+ *  machine is still downloading, or the download failed, the step stays, so a
+ *  first-run user watches the agents arrive. Fenced over the status kind. */
+export function firstRunAgentsDone(input: {
+  readonly stored: AgentDistroSetting | null;
+  /** This machine's status, `undefined` until its first frame. */
+  readonly local: AgentDistroStatus | undefined;
+}): boolean {
+  const { stored, local } = input;
+  if (stored === null) return false;
+  if (!stored.enabled) return true;
+  if (local === undefined) return false;
+  switch (local.kind) {
+    case "ready":
+    case "unavailable":
+      return true;
+    case "off":
+    case "downloading":
+    case "error":
+      return false;
+    default:
+      return local satisfies never;
+  }
+}
+
+/** The first-run step's title — what the welcome card asks. */
+export const AGENTS_FIRST_RUN_TITLE = "Choose your coding agents";
+
+/** The welcome card's done line for the first-run step, from the choice. */
+export function agentsChosenLabel(setting: AgentDistroSetting): string {
+  return setting.enabled ? `Agents: ${setting.profile} ✓` : `Agents off ✓`;
+}
+
+/** What the Agents control's hint adds while nothing is chosen. */
+export const AGENTS_NOT_CHOSEN =
+  "Nothing chosen yet, so new terminals get no coding agents until you pick.";
 
 /** "1.1 GiB of 2.0 GiB" for a download's progress (`@kolu/byte-units`' binary
  *  units — the units Nix reports the bundle in), or `undefined` when there are no
@@ -283,6 +354,24 @@ export function agentsSegmentOf(setting: AgentDistroSetting): string {
   return setting.enabled ? setting.profile : AGENTS_OFF;
 }
 
+/** The segment the Agents control shows PRESSED for the stored value — none
+ *  while nothing is chosen, because nothing is. */
+export function agentsPressedSegment(
+  stored: AgentDistroSetting | null,
+): string | undefined {
+  return stored === null ? undefined : agentsSegmentOf(stored);
+}
+
+/** The segment that holds the Agents control's keyboard focus while none is
+ *  pressed: the listing's first profile (kolu-server refuses a listing that
+ *  does not lead with the default), so Enter picks it. Off when the build
+ *  ships no profiles. */
+export function agentsRestingSegment(
+  profiles: readonly AgentDistroProfile[],
+): string {
+  return profiles[0]?.name ?? AGENTS_OFF;
+}
+
 /** One host's agent-distro facts, for its line in Settings. */
 export interface HostAgentStatus {
   readonly label: string;
@@ -406,15 +495,21 @@ export function selectedAgentProfile(
  *   - off: that kolu can bring AI coding agents along, which ones (the default
  *     profile's, from the listing, with versions), what each choice means, what
  *     happens to new terminals, and what Off means;
+ *   - nothing chosen yet: the same, then that nothing is chosen
+ *     ({@link AGENTS_NOT_CHOSEN});
  *   - an unknown stored choice: the warning (never reset);
  *   - on: what the chosen profile is, in plain words, then its agents with
  *     versions. Where each machine stands is the status lines' job
- *     ({@link agentStatusLines}). */
+ *     ({@link agentStatusLines}).
+ *
+ *  It takes the STORED value — `null` while nothing is chosen — because that
+ *  difference is one of the things it says. */
 export function agentsHint(input: {
-  readonly setting: AgentDistroSetting;
+  readonly stored: AgentDistroSetting | null;
   readonly listing: AgentDistroListing | undefined;
 }): { readonly text: string; readonly tone: "muted" | "warn" } | undefined {
-  const { setting, listing } = input;
+  const { listing } = input;
+  const setting = agentDistroSettingOf(input.stored);
   if (listing === undefined) return undefined;
   if (listing.kind === "unavailable")
     return {
@@ -434,6 +529,7 @@ export function agentsHint(input: {
         ...(lead === undefined ? [] : [harnessLine(lead)]),
         `Pick ${orList(choices)}. New terminals then start with those agents; what you installed yourself stays as a fallback.`,
         `Off — ${AGENTS_OFF_MEANS}`,
+        ...(agentsChosen(input.stored) ? [] : [AGENTS_NOT_CHOSEN]),
       ].join("\n"),
       tone: "muted",
     };

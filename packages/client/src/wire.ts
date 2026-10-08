@@ -644,6 +644,12 @@ export const connectionInfo = (): ConnectionInfo | undefined =>
 // imports both and is imported by neither, keeping the graph acyclic. Consumers import
 // those facades from `./hostScope/activeWire`, not from here.
 
+/** Has the server's first `preferences` frame arrived? Before it, `preferences()`
+ *  reads the defaults — fine for a theme, but not for a question like "has this
+ *  user ever chosen?", which waits for the real answer. */
+export const preferencesArrived = (): boolean =>
+  hostScoped.preferences.value() !== undefined;
+
 /** Local-store accessor for user preferences — authoritative after the first server yield. */
 export const preferences = (): Preferences =>
   hostScoped.preferences.value() ?? DEFAULT_PREFERENCES;

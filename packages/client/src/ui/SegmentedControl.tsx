@@ -10,9 +10,22 @@
  *  control-level `ariaRole` / `ariaLabel` / `dataMode` / `touch`) are all
  *  optional and inert when unset, so the plain settings call sites render
  *  exactly as before while the scope switcher renders the toolbar variant
- *  (and grows its hit targets on a coarse pointer when `touch` is set). */
+ *  (and grows its hit targets on a coarse pointer when `touch` is set).
+ *
+ *  Keyboard, for every caller: ONE tab stop (a roving tabindex) — the pressed
+ *  option, or `restingValue` while none is — and ← → (Home / End) move focus
+ *  within the group, wrapping; Enter or Space picks the focused option (it is
+ *  a button). Neither Corvu nor `@solid-primitives` ships a roving-focus
+ *  primitive, so it lives here, once. */
 
-import { type Component, For, type JSX, Show } from "solid-js";
+import {
+  type Component,
+  createSignal,
+  For,
+  type JSX,
+  onMount,
+  Show,
+} from "solid-js";
 import { Dynamic } from "solid-js/web";
 
 export interface SegmentedControlOption<T extends string> {
@@ -33,10 +46,54 @@ export interface SegmentedControlOption<T extends string> {
   dividerBefore?: boolean;
 }
 
+/** The roving tab stop: the option focus last moved to while inside the group,
+ *  else the pressed one, else the resting one, else the first. */
+export function rovingTabStop<T extends string>(input: {
+  readonly options: readonly { readonly value: T }[];
+  readonly focused: T | undefined;
+  readonly value: T | undefined;
+  readonly restingValue: T | undefined;
+}): T | undefined {
+  const has = (v: T | undefined): v is T =>
+    v !== undefined && input.options.some((o) => o.value === v);
+  if (has(input.focused)) return input.focused;
+  if (has(input.value)) return input.value;
+  if (has(input.restingValue)) return input.restingValue;
+  return input.options[0]?.value;
+}
+
+/** Where an arrow key moves focus from index `from` in a group of `count`
+ *  (wrapping), or `undefined` for a key the group does not handle. */
+export function rovingMove(
+  key: string,
+  from: number,
+  count: number,
+): number | undefined {
+  if (count === 0) return undefined;
+  switch (key) {
+    case "ArrowLeft":
+      return (from - 1 + count) % count;
+    case "ArrowRight":
+      return (from + 1) % count;
+    case "Home":
+      return 0;
+    case "End":
+      return count - 1;
+    default:
+      return undefined;
+  }
+}
+
 export default function SegmentedControl<T extends string>(props: {
   options: readonly SegmentedControlOption<T>[];
-  value: T;
+  /** The pressed option — `undefined` when none is (nothing chosen yet). */
+  value: T | undefined;
   onChange: (value: T) => void;
+  /** The option that holds the tab stop while none is pressed (default: the
+   *  first). */
+  restingValue?: T;
+  /** Focus the tab stop when the control mounts. */
+  autofocus?: boolean;
   /** Prefix for `data-testid` attributes on the group and each option. */
   testIdPrefix: string;
   /** ARIA role for the group container. `"toolbar"` opts into the rich
@@ -54,6 +111,36 @@ export default function SegmentedControl<T extends string>(props: {
    *  by the plain (settings) variant. */
   touch?: boolean;
 }): JSX.Element {
+  const buttons: HTMLButtonElement[] = [];
+  const [focused, setFocused] = createSignal<T | undefined>();
+  const tabStop = () =>
+    rovingTabStop({
+      options: props.options,
+      focused: focused(),
+      value: props.value,
+      restingValue: props.restingValue,
+    });
+  const tabIndexOf = (value: T) => (tabStop() === value ? 0 : -1);
+  const onKeyDown = (e: KeyboardEvent) => {
+    const from = props.options.findIndex((o) => o.value === focused());
+    const to = rovingMove(e.key, Math.max(from, 0), props.options.length);
+    if (to === undefined) return;
+    e.preventDefault();
+    buttons[to]?.focus();
+  };
+  // Leaving the group hands the tab stop back to the pressed option.
+  const onFocusOut = (e: FocusEvent) => {
+    if (!buttons.includes(e.relatedTarget as HTMLButtonElement))
+      setFocused(undefined);
+  };
+  onMount(() => {
+    if (!props.autofocus) return;
+    // After the frame, so a dialog's own initial focus does not win over it.
+    requestAnimationFrame(() => {
+      const i = props.options.findIndex((o) => o.value === tabStop());
+      buttons[i]?.focus();
+    });
+  });
   return (
     <Show
       when={props.ariaRole === "toolbar"}
@@ -63,12 +150,20 @@ export default function SegmentedControl<T extends string>(props: {
           class="flex rounded-lg overflow-hidden border border-edge"
         >
           <For each={props.options}>
-            {(opt) => (
+            {(opt, i) => (
               <button
                 type="button"
+                ref={(el) => {
+                  buttons[i()] = el;
+                }}
                 data-testid={`${props.testIdPrefix}-${opt.value}`}
                 aria-pressed={props.value === opt.value}
-                class="px-2 py-0.5 text-xs transition-colors cursor-pointer"
+                tabIndex={tabIndexOf(opt.value)}
+                onFocus={() => setFocused(() => opt.value)}
+                onFocusOut={onFocusOut}
+                onKeyDown={onKeyDown}
+                title={opt.hint}
+                class="px-2 py-0.5 text-xs transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/50"
                 classList={{
                   "bg-accent text-surface-0": props.value === opt.value,
                   "bg-surface-2 text-fg-2 hover:text-fg":
@@ -92,7 +187,7 @@ export default function SegmentedControl<T extends string>(props: {
         class="flex items-center gap-0.5 data-[touch=true]:gap-1 shrink-0 rounded bg-surface-2/40 p-0.5 data-[touch=true]:p-1"
       >
         <For each={props.options}>
-          {(opt) => (
+          {(opt, i) => (
             <>
               <Show when={opt.dividerBefore}>
                 <div
@@ -102,13 +197,20 @@ export default function SegmentedControl<T extends string>(props: {
               </Show>
               <button
                 type="button"
+                ref={(el) => {
+                  buttons[i()] = el;
+                }}
                 data-testid={`${props.testIdPrefix}-${opt.value}`}
                 aria-pressed={props.value === opt.value}
+                tabIndex={tabIndexOf(opt.value)}
+                onFocus={() => setFocused(() => opt.value)}
+                onFocusOut={onFocusOut}
+                onKeyDown={onKeyDown}
                 data-active={props.value === opt.value ? "" : undefined}
                 data-mode={opt.value}
                 title={opt.hint}
                 data-touch={props.touch || undefined}
-                class="flex items-center gap-1.5 px-2 data-[touch=true]:px-2.5 h-5 data-[touch=true]:h-7 rounded text-[10px] data-[touch=true]:text-[11px] font-mono cursor-pointer transition-colors text-fg-2 hover:text-fg hover:bg-surface-2/60 data-active:bg-surface-0 data-active:text-fg data-active:shadow-sm"
+                class="flex items-center gap-1.5 px-2 data-[touch=true]:px-2.5 h-5 data-[touch=true]:h-7 rounded text-[10px] data-[touch=true]:text-[11px] font-mono cursor-pointer transition-colors text-fg-2 hover:text-fg hover:bg-surface-2/60 data-active:bg-surface-0 data-active:text-fg data-active:shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
                 onClick={() => props.onChange(opt.value)}
               >
                 <Show when={opt.icon}>

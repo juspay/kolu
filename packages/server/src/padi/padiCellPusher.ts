@@ -4,8 +4,9 @@
  *
  *   - `newTerminalPolicy` — the RESOLVED new-terminal theme policy (#2045), derived
  *     from `preferences` + `viewerMode` (`./newTerminalPolicy.ts`);
- *   - `agentDistro` — the Agents setting, the user's preference verbatim
- *     (`../surface.ts`'s `currentAgentDistroSetting`).
+ *   - `agentDistro` — the Agents setting, the user's preference folded to the
+ *     setting it means ("never chosen" is off — `../surface.ts`'s
+ *     `currentAgentDistroSetting`).
  *
  * padi knows nothing about preferences, so the fact is derived here and pushed as a
  * resolved value. The padi cell is MEMORY-ONLY by design, so this pusher is what

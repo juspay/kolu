@@ -34,6 +34,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { openStateBackupRing } from "kolu-shared/state-backup";
+import { DEFAULT_AGENT_PROFILE } from "@kolu/agent-distro/manifest";
 import Conf from "conf";
 import { Result, Schema } from "effect";
 import { PersistedHostsSchema } from "kolu-common/hostKey";
@@ -76,17 +77,38 @@ export function migratePreferences_1_30_0(
   };
 }
 
-/** 1.37.0 — the Agents setting joined preferences. Seeds the default
- *  `agentDistro` — OFF, `vanilla` — onto a record that has none, so an existing
- *  install keeps exactly the PATH it had until the user turns Agents on; a
- *  record that already carries one
- *  (a re-run, or a value written by a newer build) is returned untouched, so a
- *  user's choice is never reset. Exported for `state.test.ts`. */
+/** 1.37.0 — the Agents setting joined preferences. Seeds what 1.37 shipped as
+ *  the default `agentDistro` — OFF, on the default profile — onto a record that
+ *  has none, so an existing install keeps exactly the PATH it had until the user
+ *  turns Agents on; a record that already carries one (a re-run, or a value
+ *  written by a newer build) is returned untouched, so a user's choice is never
+ *  reset. The seed is spelled here rather than read off `DEFAULT_PREFERENCES`,
+ *  whose default moved at 1.38: a rung says what ITS version did. Exported for
+ *  `state.test.ts`. */
 export function migratePreferences_1_37_0(
   current: Record<string, unknown>,
 ): Record<string, unknown> {
   if ("agentDistro" in current) return current;
-  return { ...current, agentDistro: DEFAULT_PREFERENCES.agentDistro };
+  return {
+    ...current,
+    agentDistro: { enabled: false, profile: DEFAULT_AGENT_PROFILE },
+  };
+}
+
+/** 1.38.0 — "never chosen" became the ABSENCE of an Agents value (`null`), so
+ *  the welcome card can ask once. A stored `agentDistro` with `enabled: false`
+ *  becomes `null`; one with `enabled: true` is kept whole. The Agents setting
+ *  never shipped in a release before this (1.37's seed sat in unreleased
+ *  work), so an Off record on disk is either that seed or a development build's
+ *  choice — and asking that person once is the honest outcome. Exported for
+ *  `state.test.ts`. */
+export function migratePreferences_1_38_0(
+  current: Record<string, unknown>,
+): Record<string, unknown> {
+  const stored = current.agentDistro as { enabled?: unknown } | null;
+  if (stored === null || stored === undefined || stored.enabled === true)
+    return current;
+  return { ...current, agentDistro: null };
 }
 
 /** 1.32.0 — the new-terminal collapsed DEFAULT moved off `rightPanel.collapsed`
@@ -233,7 +255,7 @@ function readPersistedRecord(
  * Must be valid semver. `conf` runs all migration handlers
  * whose keys are > the last-seen version and ≤ this value.
  */
-const SCHEMA_VERSION = "1.37.0";
+const SCHEMA_VERSION = "1.38.0";
 
 // Callers must pass an explicit directory via KOLU_STATE_DIR. A bare launch
 // with no env would silently clobber whatever happens to live at conf's
@@ -749,6 +771,17 @@ const CONF_MIGRATIONS = {
     store.set(
       "preferences",
       migratePreferences_1_37_0(
+        store.get("preferences") as Record<string, unknown>,
+      ) as unknown as Preferences,
+    );
+  },
+  // `agentDistro` is `null` until someone chooses, so the welcome card asks once.
+  // An Off record becomes `null` (it is 1.37's seed or a dev build's choice —
+  // that setting never shipped in a release); an On record is kept whole.
+  "1.38.0": (store: Conf<PersistedState>) => {
+    store.set(
+      "preferences",
+      migratePreferences_1_38_0(
         store.get("preferences") as Record<string, unknown>,
       ) as unknown as Preferences,
     );

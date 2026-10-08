@@ -1087,8 +1087,8 @@ async function waitForInheritPolicy(): Promise<void> {
   });
 }
 
-/** Block until padi's `agentDistro` cell reads OFF — the suite default the
- *  preferences reset above sets, so a terminal a scenario opens never gets the
+/** Block until padi's `agentDistro` cell reads OFF — what the suite's "never
+ *  chosen" preference folds to, so a terminal a scenario opens never gets the
  *  fixture agents (or their `claude`, which would shadow the mock agent bins)
  *  unless the scenario turns them on itself. Same hop, same reason as the policy
  *  wait above. */
@@ -1230,10 +1230,11 @@ Before(
         size: 0.25,
         codeTabTreeSize: 0.35,
       },
-      // Agents OFF for the suite, as shipped (the default is off): the fixture bake
-      // gives every terminal a `claude` that would shadow the mock agent bins the
-      // agent-detection scenarios run. `agents.feature` turns them on itself.
-      agentDistro: { enabled: false, profile: "vanilla" },
+      // Agents NEVER CHOSEN for the suite, as a fresh install ships (`null`, which
+      // behaves as off): the fixture bake gives every terminal a `claude` that
+      // would shadow the mock agent bins the agent-detection scenarios run, and
+      // the welcome card asks first. `agents.feature` chooses them itself.
+      agentDistro: null,
     });
     // Reset padi's terminals + cells as one retryable transaction. It waits for
     // padi to be live, which is what bounds the tight policy poll that follows.

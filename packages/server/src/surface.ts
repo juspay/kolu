@@ -55,11 +55,12 @@ import {
   type SurfaceHandlers,
 } from "@kolu/surface/server";
 import { surfaceAppServer } from "@kolu/surface-app/server";
+import type { AgentDistroSetting } from "@kolu/agent-distro/schema";
+import { agentDistroSettingOf } from "@kolu/agent-distro/status";
 import { Effect } from "effect";
 import type { RpcGroup } from "effect/rpc";
 import type {
   AgentDistroListing,
-  AgentDistroPrefs,
   ForwardCreateInput,
   Forwards,
   KoluBuildInfo,
@@ -203,10 +204,11 @@ export function currentNewTerminalPolicy(): NewTerminalPolicy {
   );
 }
 
-/** The Agents setting the padi pusher publishes — the user's preference verbatim,
- *  read off the SAME store the `preferences` cell serves. */
-export function currentAgentDistroSetting(): AgentDistroPrefs {
-  return preferencesStore.get().agentDistro;
+/** The Agents setting the padi pusher publishes — the user's preference read off
+ *  the SAME store the `preferences` cell serves, through the one fold that turns
+ *  "never chosen" (`null`) into off. padi's wire never sees the `null`. */
+export function currentAgentDistroSetting(): AgentDistroSetting {
+  return agentDistroSettingOf(preferencesStore.get().agentDistro);
 }
 
 // ── The bound padi's rail state — the projected payload the push cells derive from ──

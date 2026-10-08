@@ -1,11 +1,15 @@
 /** Pure selection for the welcome-moments card.
  *
- *  Moments in priority order: Pin · From another device · Run agents · Search ·
- *  Add another machine · Shortcuts. Done-predicates collapse into a muted header line;
- *  the card renders the first three still-undone moments. Run-agents, Search,
- *  and Shortcuts are never "done". */
+ *  Moments in priority order: Choose your coding agents · Pin · From another
+ *  device · Run agents · Search · Add another machine · Shortcuts.
+ *  Done-predicates collapse into a muted header line; the card renders the
+ *  first three still-undone moments. Run-agents, Search, and Shortcuts are
+ *  never "done". The first-run agents choice leads, so it is the first row a
+ *  new user reads; its done-predicate is `firstRunAgentsDone`
+ *  (`@kolu/agent-distro/status`). */
 
 export type WelcomeMomentId =
+  | "chooseAgents"
   | "pin"
   | "reach"
   | "agents"
@@ -14,6 +18,10 @@ export type WelcomeMomentId =
   | "shortcuts";
 
 export interface WelcomeMomentFlags {
+  /** `undefined` until the stored Agents choice is known: the moment is then
+   *  neither a row nor in the header, so a user who has chosen never sees it
+   *  flash before their preferences arrive. */
+  chooseAgentsDone: boolean | undefined;
   pinDone: boolean;
   reachDone: boolean;
   hostsDone: boolean;
@@ -27,6 +35,7 @@ export interface WelcomeMomentSelection {
 }
 
 const ORDER: readonly WelcomeMomentId[] = [
+  "chooseAgents",
   "pin",
   "reach",
   "agents",
@@ -37,6 +46,8 @@ const ORDER: readonly WelcomeMomentId[] = [
 
 function isDone(id: WelcomeMomentId, flags: WelcomeMomentFlags): boolean {
   switch (id) {
+    case "chooseAgents":
+      return flags.chooseAgentsDone === true;
     case "pin":
       return flags.pinDone;
     case "reach":
@@ -57,6 +68,7 @@ export function selectWelcomeMoments(
   const done: WelcomeMomentId[] = [];
   const undone: WelcomeMomentId[] = [];
   for (const id of ORDER) {
+    if (id === "chooseAgents" && flags.chooseAgentsDone === undefined) continue;
     if (isDone(id, flags)) done.push(id);
     else undone.push(id);
   }

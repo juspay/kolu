@@ -1,5 +1,6 @@
-/** Prioritized, state-aware welcome moments for new users — Pin it ·
- *  From another device · Run agents · Search everything · Add another machine · Shortcuts.
+/** Prioritized, state-aware welcome moments for new users — Choose your coding
+ *  agents · Pin it · From another device · Run agents · Search everything · Add
+ *  another machine · Shortcuts.
  *  Rendered inline by `EmptyState` (zero terminals) and inside
  *  `WelcomeDialog` (the palette "Tutorial" command).
  *
@@ -9,7 +10,15 @@
  *  shortcuts help disclosure, PWA install prompt); every moment carries a
  *  `DocLink`. */
 
+import AgentDistroLogo from "@kolu/agent-distro/solid";
+import {
+  AGENTS_FIRST_RUN_TITLE,
+  agentsChosen,
+  agentsChosenLabel,
+  firstRunAgentsDone,
+} from "@kolu/agent-distro/status";
 import { installInstructions, type PwaInstall } from "@kolu/solid-pwa-install";
+import { LOCAL_HOST } from "kolu-common/hostKey";
 import { useSurfaceApp } from "@kolu/surface-app/solid";
 import {
   type Component,
@@ -20,6 +29,12 @@ import {
   Show,
   Switch,
 } from "solid-js";
+import AgentsChooser from "./agents/AgentsChooser";
+import {
+  agentDistroSetting,
+  agentDistroStored,
+  hostAgentStatus,
+} from "./agents/useAgentDistro";
 import { useHostMembers } from "./host/useHostMembers";
 import { ACTIONS, advertisedNewTerminalKey } from "./input/actions";
 import { formatKeybind } from "./input/keyboard";
@@ -28,15 +43,31 @@ import DocLink, { type DocSlug } from "./ui/DocLink";
 import Kbd from "./ui/Kbd";
 import { useActionContext } from "./useActionContext";
 import { useCommandPalette } from "./useCommandPalette";
+import { preferencesArrived } from "./wire";
 import {
   selectWelcomeMoments,
   type WelcomeMomentId,
 } from "./welcomeMomentsSelect";
 
-const DONE_LABEL: Record<"pin" | "reach" | "host", string> = {
-  pin: "📌 Pinned ✓",
-  reach: "🌐 Reachable ✓",
-  host: "🖥️ Host added ✓",
+/** The done header's words per moment — `chooseAgents` names the choice, in
+ *  `@kolu/agent-distro/status`'s words. */
+const doneLabel = (id: WelcomeMomentId): string | undefined => {
+  switch (id) {
+    case "chooseAgents":
+      return `🤖 ${agentsChosenLabel(agentDistroSetting())}`;
+    case "pin":
+      return "📌 Pinned ✓";
+    case "reach":
+      return "🌐 Reachable ✓";
+    case "host":
+      return "🖥️ Host added ✓";
+    case "agents":
+    case "search":
+    case "shortcuts":
+      return undefined;
+    default:
+      return id satisfies never;
+  }
 };
 
 const MomentShell: Component<{
@@ -72,6 +103,55 @@ const MomentShell: Component<{
       </div>
     </div>
   </div>
+);
+
+/** The first-run agents choice: the same `AgentsChooser` as Settings → Agents
+ *  (control, hint, status lines), laid out as a welcome row with agent-distro's
+ *  logo. While nothing is chosen the control takes focus on mount, resting on
+ *  the listing's first profile, so Enter picks it; ⌘⏎ still creates a terminal
+ *  from anywhere, and ignoring the step leaves it here until chosen. */
+const ChooseAgentsMoment: Component = () => (
+  <AgentsChooser autofocus={!agentsChosen(agentDistroStored())}>
+    {(parts) => (
+      <div
+        class="flex items-start gap-3"
+        data-testid="welcome-moment-choose-agents"
+      >
+        <span
+          class="shrink-0 w-5 h-5 flex items-center justify-center pt-px text-fg"
+          aria-hidden="true"
+        >
+          <AgentDistroLogo size={16} />
+        </span>
+        <div class="min-w-0 flex-1">
+          <div class="flex flex-wrap items-center justify-between gap-x-3 gap-y-1.5 min-h-5">
+            <div class="min-w-0 text-sm font-medium leading-5 text-fg">
+              {AGENTS_FIRST_RUN_TITLE}
+            </div>
+            <div class="shrink-0 flex items-center">{parts.control}</div>
+          </div>
+          <Show when={parts.hint()}>
+            {(hint) => (
+              <div
+                data-testid="welcome-agents-hint"
+                class="text-xs leading-snug mt-1 whitespace-pre-line"
+                classList={{
+                  "text-fg-3": hint().tone !== "warn",
+                  "text-warning": hint().tone === "warn",
+                }}
+              >
+                {hint().text}
+              </div>
+            )}
+          </Show>
+          {parts.status}
+          <div class="mt-0.5 text-xs">
+            <DocLink slug="agents">Learn more →</DocLink>
+          </div>
+        </div>
+      </div>
+    )}
+  </AgentsChooser>
 );
 
 /** The pin-it states that actually paint a row — the four-state machine below
@@ -186,6 +266,12 @@ const WelcomeMoments: Component<{
 
   const selection = createMemo(() =>
     selectWelcomeMoments({
+      chooseAgentsDone: preferencesArrived()
+        ? firstRunAgentsDone({
+            stored: agentDistroStored(),
+            local: hostAgentStatus(LOCAL_HOST, "").status,
+          })
+        : undefined,
       pinDone: pinState() === "installed",
       reachDone: location.protocol === "https:",
       hostsDone: hosts().length > 1,
@@ -199,6 +285,8 @@ const WelcomeMoments: Component<{
 
   const renderRow = (id: WelcomeMomentId): JSX.Element => {
     switch (id) {
+      case "chooseAgents":
+        return <ChooseAgentsMoment />;
       case "pin":
         return (
           <Show when={pinRowState()}>
@@ -317,11 +405,7 @@ const WelcomeMoments: Component<{
 
   const doneLine = (): string =>
     selection()
-      .done.filter(
-        (id): id is "pin" | "reach" | "host" =>
-          id === "pin" || id === "reach" || id === "host",
-      )
-      .map((id) => DONE_LABEL[id])
+      .done.flatMap((id) => doneLabel(id) ?? [])
       .join(" · ");
 
   return (

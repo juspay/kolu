@@ -2,9 +2,18 @@ import { GIB, MIB } from "@kolu/byte-units";
 import { describe, expect, it } from "vitest";
 import { agentBundleShortHash } from "./bundle.ts";
 import type { AgentDistroListing } from "./listing.ts";
+import { DEFAULT_AGENT_PROFILE } from "./manifest.ts";
 import type { AgentDistroStatus } from "./schema.ts";
 import {
+  AGENTS_NOT_CHOSEN,
   AGENTS_OFF,
+  agentDistroChoice,
+  agentDistroSettingOf,
+  agentsChosen,
+  agentsChosenLabel,
+  agentsPressedSegment,
+  agentsRestingSegment,
+  firstRunAgentsDone,
   AGENTS_RETRY,
   agentFailureLines,
   agentFailureRemedy,
@@ -233,7 +242,7 @@ describe("agentsHint", () => {
 
   it("off: what kolu can bring, which agents (the default profile's, from the listing), the choices, the consequence", () => {
     expect(
-      agentsHint({ ...base, setting: { enabled: false, profile: "vanilla" } }),
+      agentsHint({ ...base, stored: { enabled: false, profile: "vanilla" } }),
     ).toEqual({
       tone: "muted",
       text: [
@@ -246,7 +255,7 @@ describe("agentsHint", () => {
   });
 
   it("on: what the profile is in plain words, then its agents with versions", () => {
-    expect(agentsHint({ ...base, setting: VANILLA_ON })).toEqual({
+    expect(agentsHint({ ...base, stored: VANILLA_ON })).toEqual({
       tone: "muted",
       text: [
         "Stock agents, your own API keys.",
@@ -257,14 +266,130 @@ describe("agentsHint", () => {
 
   it("keeps the unknown-choice warning, never resetting the choice", () => {
     expect(
-      agentsHint({ ...base, setting: { enabled: true, profile: "gone" } }),
+      agentsHint({ ...base, stored: { enabled: true, profile: "gone" } }),
     ).toEqual({ tone: "warn", text: unknownProfileMessage("gone") });
   });
 
   it("says nothing until the listing arrives", () => {
     expect(
-      agentsHint({ ...base, listing: undefined, setting: VANILLA_ON }),
+      agentsHint({ ...base, listing: undefined, stored: VANILLA_ON }),
     ).toBeUndefined();
+  });
+
+  it("nothing chosen: the off explanation, then that nothing is chosen yet", () => {
+    const off = agentsHint({
+      ...base,
+      stored: { enabled: false, profile: "vanilla" },
+    });
+    expect(agentsHint({ ...base, stored: null })).toEqual({
+      tone: "muted",
+      text: `${off?.text}\n${AGENTS_NOT_CHOSEN}`,
+    });
+  });
+});
+
+describe("the stored Agents value — `null` is never chosen", () => {
+  it("agentDistroSettingOf: null is off on the default profile; a value is itself", () => {
+    expect(agentDistroSettingOf(null)).toEqual({
+      enabled: false,
+      profile: DEFAULT_AGENT_PROFILE,
+    });
+    expect(DEFAULT_AGENT_PROFILE).toBe("vanilla");
+    const juspayOff = { enabled: false, profile: "juspay" };
+    expect(agentDistroSettingOf(juspayOff)).toBe(juspayOff);
+    expect(agentDistroSettingOf(VANILLA_ON)).toBe(VANILLA_ON);
+  });
+
+  it("agentsChosen is the absence of a value, and nothing else", () => {
+    expect(agentsChosen(null)).toBe(false);
+    expect(agentsChosen({ enabled: false, profile: "vanilla" })).toBe(true);
+    expect(agentsChosen(VANILLA_ON)).toBe(true);
+  });
+
+  it("agentsPressedSegment: none while nothing is chosen, the choice after", () => {
+    expect(agentsPressedSegment(null)).toBeUndefined();
+    expect(agentsPressedSegment({ enabled: false, profile: "juspay" })).toBe(
+      AGENTS_OFF,
+    );
+    expect(agentsPressedSegment(VANILLA_ON)).toBe("vanilla");
+  });
+
+  it("agentsRestingSegment: the listing's first profile, Off when there is none", () => {
+    if (LISTING.kind !== "available") throw new Error("fixture");
+    expect(agentsRestingSegment(LISTING.profiles)).toBe("vanilla");
+    expect(agentsRestingSegment([])).toBe(AGENTS_OFF);
+  });
+
+  it("agentDistroChoice writes the whole value; Off keeps the stored profile", () => {
+    expect(agentDistroChoice("juspay", null)).toEqual({
+      enabled: true,
+      profile: "juspay",
+    });
+    expect(agentDistroChoice(AGENTS_OFF, null)).toEqual({
+      enabled: false,
+      profile: DEFAULT_AGENT_PROFILE,
+    });
+    expect(
+      agentDistroChoice(AGENTS_OFF, { enabled: true, profile: "juspay" }),
+    ).toEqual({ enabled: false, profile: "juspay" });
+    expect(
+      agentDistroChoice("vanilla", { enabled: false, profile: "juspay" }),
+    ).toEqual(VANILLA_ON);
+  });
+});
+
+describe("firstRunAgentsDone — the first-run step's done-predicate", () => {
+  const OFF = { enabled: false, profile: "vanilla" };
+  /** One status of every kind — `satisfies` keeps it exhaustive. */
+  const STATUSES = {
+    off: { kind: "off" },
+    unavailable: { kind: "unavailable" },
+    downloading: { kind: "downloading", profile: "vanilla" },
+    ready: { kind: "ready", profile: "vanilla", bundle: BUNDLE },
+    error: {
+      kind: "error",
+      profile: "vanilla",
+      reason: "updater",
+      message: "m",
+    },
+  } as const satisfies {
+    [K in AgentDistroStatus["kind"]]: Extract<AgentDistroStatus, { kind: K }>;
+  };
+  const kinds = Object.keys(STATUSES) as AgentDistroStatus["kind"][];
+
+  it("is never done while nothing is chosen, whatever this machine says", () => {
+    for (const local of [undefined, ...Object.values(STATUSES)])
+      expect(firstRunAgentsDone({ stored: null, local })).toBe(false);
+  });
+
+  it("is done as soon as Off is chosen, whatever this machine says", () => {
+    for (const local of [undefined, ...Object.values(STATUSES)])
+      expect(firstRunAgentsDone({ stored: OFF, local })).toBe(true);
+  });
+
+  it("with a profile chosen, waits until this machine has settled", () => {
+    const want: Record<AgentDistroStatus["kind"], boolean> = {
+      off: false,
+      unavailable: true,
+      downloading: false,
+      ready: true,
+      error: false,
+    };
+    for (const kind of kinds)
+      expect(
+        firstRunAgentsDone({ stored: VANILLA_ON, local: STATUSES[kind] }),
+      ).toBe(want[kind]);
+    expect(firstRunAgentsDone({ stored: VANILLA_ON, local: undefined })).toBe(
+      false,
+    );
+  });
+
+  it("its done line names the choice", () => {
+    expect(agentsChosenLabel(VANILLA_ON)).toBe("Agents: vanilla ✓");
+    expect(agentsChosenLabel({ enabled: true, profile: "juspay" })).toBe(
+      "Agents: juspay ✓",
+    );
+    expect(agentsChosenLabel(OFF)).toBe("Agents off ✓");
   });
 });
 

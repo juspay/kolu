@@ -3,19 +3,25 @@
  *
  * The server runs with a fixture agent-distro bake (`support/agentDistroFixture.ts`):
  * profiles `vanilla` and `juspay`, each with a stub `claude` that names its
- * profile. The suite resets Agents OFF before every scenario; these steps turn it
- * on, switch it, and read the result where a user would — the tile's chip and
+ * profile. The suite resets Agents to NEVER CHOSEN (`null`, a fresh install)
+ * before every scenario; these steps choose, switch, and read the result where a
+ * user would — the welcome card's first-run step, Settings, the tile's chip and
  * what `claude` runs in a terminal.
+ *
+ * The same Agents control renders in Settings and in the welcome card's step, so
+ * every segment lookup is SCOPED to the one it means.
  */
 
 import assert from "node:assert";
 import { Then, When } from "@cucumber/cucumber";
 import type { AgentDistroStatus } from "@kolu/agent-distro/schema";
 import {
+  AGENTS_NOT_CHOSEN,
   AGENTS_OFF,
   AGENTS_OFF_MEANS,
   AGENTS_SEGMENT_TESTID,
   agentToast,
+  agentsChosenLabel,
   harnessLine,
   restartedLabel,
 } from "@kolu/agent-distro/status";
@@ -34,28 +40,45 @@ import { readBufferText, waitForBufferContains } from "../support/buffer.ts";
 /** The focused tile — the one a just-created terminal lands in. */
 const FOCUSED_TILE = '[data-testid="canvas-tile"]:has([data-focused])';
 
-/** The Agents control's segment for `value` (a profile, or `AGENTS_OFF`). */
-const segment = (value: string) =>
-  `[data-testid="${AGENTS_SEGMENT_TESTID}-${value}"]`;
+/** Where the Agents control renders: Settings, or the welcome card's first-run
+ *  step (inline at zero terminals, or in the Tutorial dialog). */
+const IN_SETTINGS = '[data-testid="settings-popover"]';
+const FIRST_RUN = '[data-testid="welcome-moment-choose-agents"]';
 
-/** The profile the Agents control has selected, or `undefined` for Off — read
- *  off the segment the control marks pressed. */
-async function selectedProfile(world: KoluWorld): Promise<string | undefined> {
-  const off = world.page.locator(segment(AGENTS_OFF));
-  await off.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
-  if ((await off.getAttribute("aria-pressed")) === "true") return undefined;
-  for (const profile of FIXTURE_PROFILES)
+/** The Agents control's segment for `value` (a profile, or `AGENTS_OFF`), inside
+ *  `scope`. */
+const segment = (value: string, scope = IN_SETTINGS) =>
+  `${scope} [data-testid="${AGENTS_SEGMENT_TESTID}-${value}"]`;
+
+/** Every segment the fixture's control offers: Off, then each profile. */
+const SEGMENTS = [AGENTS_OFF, ...FIXTURE_PROFILES];
+
+/** The segment the Agents control in `scope` shows pressed — `undefined` while
+ *  nothing is chosen (no segment pressed). */
+async function pressedSegment(
+  world: KoluWorld,
+  scope = IN_SETTINGS,
+): Promise<string | undefined> {
+  await world.page
+    .locator(segment(AGENTS_OFF, scope))
+    .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+  const pressed: string[] = [];
+  for (const value of SEGMENTS)
     if (
       (await world.page
-        .locator(segment(profile))
+        .locator(segment(value, scope))
         .getAttribute("aria-pressed")) === "true"
     )
-      return profile;
-  assert.fail("the Agents control is on, but no profile segment is pressed");
+      pressed.push(value);
+  assert.ok(pressed.length <= 1, `several segments pressed: ${pressed}`);
+  return pressed[0];
 }
 
-async function agentsOn(world: KoluWorld): Promise<boolean> {
-  return (await selectedProfile(world)) !== undefined;
+/** The profile the Agents control has selected, or `undefined` when agents are
+ *  off or nothing is chosen. */
+async function selectedProfile(world: KoluWorld): Promise<string | undefined> {
+  const pressed = await pressedSegment(world);
+  return pressed === AGENTS_OFF ? undefined : pressed;
 }
 
 Then(
@@ -84,8 +107,11 @@ Then(
 When("I turn Agents {word}", async function (this: KoluWorld, state: string) {
   assert.ok(state === "on" || state === "off", `on|off, got ${state}`);
   const want = state === "on";
-  // "On" is the listing's default profile, unless a profile is already on.
-  if ((await agentsOn(this)) !== want)
+  // "On" is the listing's default profile, unless a profile is already on; from
+  // never chosen, either way is a click.
+  const pressed = await pressedSegment(this);
+  const isOn = pressed !== undefined && pressed !== AGENTS_OFF;
+  if (want ? !isOn : pressed !== AGENTS_OFF)
     await this.page.click(segment(want ? FIXTURE_DEFAULT_PROFILE : AGENTS_OFF));
   await this.page.waitForFunction(
     ([on, offSel]) =>
@@ -336,6 +362,141 @@ Then(
     }
     assert.fail(
       `the restarted tile did not paint a fresh screen; its xterm holds: ${JSON.stringify(text.slice(-400))}`,
+    );
+  },
+);
+
+// ── The first-run step: the welcome card asks once ─────────────────────────────
+
+Then(
+  "the welcome card's first row should ask which agents I want",
+  async function (this: KoluWorld) {
+    const first = this.page
+      .locator(
+        '[data-testid="welcome-moments"] [data-testid^="welcome-moment-"]',
+      )
+      .first();
+    await first.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    assert.strictEqual(
+      await first.getAttribute("data-testid"),
+      "welcome-moment-choose-agents",
+    );
+  },
+);
+
+Then(
+  "the first-run agents choice should have nothing chosen",
+  async function (this: KoluWorld) {
+    assert.strictEqual(await pressedSegment(this, FIRST_RUN), undefined);
+    await this.page
+      .locator(FIRST_RUN)
+      .getByText(AGENTS_NOT_CHOSEN, { exact: false })
+      .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+  },
+);
+
+Then(
+  "the Agents control in Settings should have nothing chosen",
+  async function (this: KoluWorld) {
+    assert.strictEqual(await pressedSegment(this), undefined);
+    await this.page
+      .locator(IN_SETTINGS)
+      .getByText(AGENTS_NOT_CHOSEN, { exact: false })
+      .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+  },
+);
+
+Then(
+  "the Agents control in Settings should show {string} chosen",
+  async function (this: KoluWorld, value: string) {
+    // `off` names the Off segment; anything else is a profile.
+    const want = value === "off" ? AGENTS_OFF : value;
+    await this.page
+      .locator(`${segment(want)}[aria-pressed="true"]`)
+      .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    assert.strictEqual(await pressedSegment(this), want);
+  },
+);
+
+Then(
+  "keyboard focus should be on the first-run {string} segment",
+  async function (this: KoluWorld, value: string) {
+    const want = value === "off" ? AGENTS_OFF : value;
+    const sel = segment(want, FIRST_RUN);
+    await this.page.waitForFunction(
+      (s) => document.activeElement === document.querySelector(s),
+      sel,
+      { timeout: POLL_TIMEOUT },
+    );
+    // One tab stop: only the focused segment is in the tab order.
+    for (const v of SEGMENTS)
+      assert.strictEqual(
+        await this.page.locator(segment(v, FIRST_RUN)).getAttribute("tabindex"),
+        v === want ? "0" : "-1",
+        `tabindex of the ${v} segment`,
+      );
+  },
+);
+
+When(
+  "I choose the {string} first-run agents",
+  async function (this: KoluWorld, value: string) {
+    await this.page.click(
+      segment(value === "off" ? AGENTS_OFF : value, FIRST_RUN),
+    );
+    await this.waitForFrame();
+  },
+);
+
+Then(
+  "the welcome card should not ask about agents",
+  async function (this: KoluWorld) {
+    await this.page
+      .locator('[data-testid="welcome-moments"]')
+      .first()
+      .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    await this.page
+      .locator(FIRST_RUN)
+      .waitFor({ state: "detached", timeout: POLL_TIMEOUT });
+  },
+);
+
+Then(
+  "the welcome card's done line should say agents are {string}",
+  async function (this: KoluWorld, value: string) {
+    const label = agentsChosenLabel(
+      value === "off"
+        ? { enabled: false, profile: FIXTURE_DEFAULT_PROFILE }
+        : { enabled: true, profile: value },
+    );
+    await this.page
+      .locator('[data-testid="welcome-moments-done"]')
+      .filter({ hasText: label })
+      .first()
+      .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+  },
+);
+
+Then(
+  "the Tutorial should ask which agents I want",
+  async function (this: KoluWorld) {
+    await this.page
+      .locator(`[data-testid="welcome-dialog"] ${FIRST_RUN}`)
+      .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+  },
+);
+
+Then(
+  "the Tutorial should not ask about agents",
+  async function (this: KoluWorld) {
+    await this.page
+      .locator('[data-testid="welcome-dialog"] [data-testid="welcome-moments"]')
+      .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    assert.strictEqual(
+      await this.page
+        .locator(`[data-testid="welcome-dialog"] ${FIRST_RUN}`)
+        .count(),
+      0,
     );
   },
 );
