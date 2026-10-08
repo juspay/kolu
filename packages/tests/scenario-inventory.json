@@ -8211,6 +8211,163 @@
       "exampleRows": [],
       "executions": 1,
       "firstSeenSha": "b62e57ef438b0d3e54b7f7a9e60e3b16fdf776d4"
+    },
+    {
+      "revisionId": "revision-e7badd0d0a5d5fc1b0ac",
+      "scenarioKey": "scenario-a118447e6b2e9c279271",
+      "feature": "features/agents.feature",
+      "scenario": "A terminal whose agents went stale restarts in place with the new ones",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "c126cd24c4e9237376ddcdadfb7cf8a0c0967b54d7364028a6ba0c7884c7da66",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "f55a4d2a04bc3c377903817fb69d13ffe700ffea"
+    },
+    {
+      "revisionId": "revision-e8479d012dcbcb2a68c1",
+      "scenarioKey": "scenario-cc35652b6a7be6f88b13",
+      "feature": "features/agents.feature",
+      "scenario": "Clicking a tile's agents pill opens Settings at the Agents rows",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "28da9f07fcf9721d802a4bf6a080a2e44270ffd222bd2df04799ee41985aaad9",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "f55a4d2a04bc3c377903817fb69d13ffe700ffea"
+    },
+    {
+      "revisionId": "revision-8a77317d6f46807cedbe",
+      "scenarioKey": "scenario-cf4b38575d55077c9a20",
+      "feature": "features/agents.feature",
+      "scenario": "Ignoring the step opens a terminal without agents, and the Tutorial still asks",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "07a712ef75080a45917207d6d24efb29e7e78ac189293d783b56fe965ce3b012",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "f55a4d2a04bc3c377903817fb69d13ffe700ffea"
+    },
+    {
+      "revisionId": "revision-730e22460589c764cac3",
+      "scenarioKey": "scenario-de6f2a80e8a10c7282df",
+      "feature": "features/agents.feature",
+      "scenario": "Once chosen, the first-run step never shows again and Settings shows the choice",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "7bbbdc9384bed0e0c5660fae2d53615ab8a8aab80a7e59eea1864c3aa35124af",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "f55a4d2a04bc3c377903817fb69d13ffe700ffea"
+    },
+    {
+      "revisionId": "revision-d7cff02fe5e667c0b767",
+      "scenarioKey": "scenario-0a32199f68e4a19939f3",
+      "feature": "features/agents.feature",
+      "scenario": "Settings offers the Agents section with the build's profiles",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "02ddee586b966b8b2b7ac4b8efe474c7b4b73387921828adde850bc53b2bb0d0",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "f55a4d2a04bc3c377903817fb69d13ffe700ffea"
+    },
+    {
+      "revisionId": "revision-c4a5b418be020e12c418",
+      "scenarioKey": "scenario-9ce014499c8faf59c25c",
+      "feature": "features/agents.feature",
+      "scenario": "Switching Agents says what happened, and the hint shows this machine's status",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "86e995327bb6d53878e6151c9bbbb1115cefa6673d81d6e831db428fb7648458",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "f55a4d2a04bc3c377903817fb69d13ffe700ffea"
+    },
+    {
+      "revisionId": "revision-ced7c033264badc35f7f",
+      "scenarioKey": "scenario-1fc0d92e10c53304525e",
+      "feature": "features/agents.feature",
+      "scenario": "Switching profile reaches the next terminal, and off removes both",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "5ee7298aaa903f2f6f5be9892f605047e6e5cb0e6b8c2d74b2218346799483ac",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "f55a4d2a04bc3c377903817fb69d13ffe700ffea"
+    },
+    {
+      "revisionId": "revision-e4974925eb45b0a85480",
+      "scenarioKey": "scenario-c91d659fdf82ef5b9a35",
+      "feature": "features/agents.feature",
+      "scenario": "The first run asks which agents first, and Enter picks the default",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "77261401e7456b89620d1be774c22bb78ed18d8ccdf5cc09805af8aec476adf5",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "f55a4d2a04bc3c377903817fb69d13ffe700ffea"
+    },
+    {
+      "revisionId": "revision-cc8aae4b2e6ab151223a",
+      "scenarioKey": "scenario-c159f4ec7c082a663ee2",
+      "feature": "features/agents.feature",
+      "scenario": "The first run can pick Off from the keyboard",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "72471366b880f43330d31819787e77db92db12f161d06192ff6c14136444279d",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "f55a4d2a04bc3c377903817fb69d13ffe700ffea"
+    },
+    {
+      "revisionId": "revision-e42b01104502bd06077d",
+      "scenarioKey": "scenario-92f90da1a9b422cc3c5f",
+      "feature": "features/agents.feature",
+      "scenario": "This machine's tab carries the agents mark while Agents are on, and it opens Settings",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "6378a7152fcd3dd885e75d9d84cf38ec76912f4358871aa1640eab2aa9de735f",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "f55a4d2a04bc3c377903817fb69d13ffe700ffea"
+    },
+    {
+      "revisionId": "revision-31f81c468cd1ca2cc499",
+      "scenarioKey": "scenario-a6fd77af8cddebb82d9e",
+      "feature": "features/agents.feature",
+      "scenario": "Turning Agents on changes the next terminal, not the current one",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "2f9542cd4d7389f7618eb9904869dff4a6eed8837492a0d624ef995583701cb4",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "f55a4d2a04bc3c377903817fb69d13ffe700ffea"
+    },
+    {
+      "revisionId": "revision-ab87259db479a3784204",
+      "scenarioKey": "scenario-c4745bd38ec2d3e709e4",
+      "feature": "features/code-tab.feature",
+      "scenario": "Folder collapse during active filter persists the filter [<mode>]",
+      "kind": "outline",
+      "tags": [],
+      "bodyHash": "5581f91030a5133aae97ce5b445a98d64451e27dcd3653b6afe7a4362eea470a",
+      "exampleRows": [
+        {
+          "id": "example-2a4ac1e11fd969443d8e",
+          "name": "Folder collapse during active filter persists the filter [local]"
+        },
+        {
+          "id": "example-331beb55fe580f24edc0",
+          "name": "Folder collapse during active filter persists the filter [branch]"
+        },
+        {
+          "id": "example-e91f69ad1e22762c6fe1",
+          "name": "Folder collapse during active filter persists the filter [browse]"
+        }
+      ],
+      "executions": 3,
+      "firstSeenSha": "f55a4d2a04bc3c377903817fb69d13ffe700ffea"
     }
   ]
 }
