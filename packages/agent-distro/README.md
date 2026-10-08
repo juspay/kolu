@@ -68,8 +68,8 @@ The **TypeScript half**, as data and pure functions:
   words (`agentMarkWords`, `agentMarkLabel`), which the hover, the download
   toasts and the Settings line share, with a failure's cause, remedy and retry
   worded once (`agentFailureLines`); the agents line with versions
-  (`versionsLine`, each version cut of its `+` suffix by `displayVersion`,
-  upstream's picker's own rule, so Settings, the receipt line and
+  (`versionsLine`, which cuts each version's `+` suffix by upstream's
+  picker's own display rule, so Settings, the receipt line and
   `agent-distro` agree); the moments a download is worth a toast
   (`downloadEdge`); the stored preference — `null` until someone chooses — and
   the one fold from it to the setting new terminals get (`agentDistroSettingOf`,
@@ -90,6 +90,11 @@ The **TypeScript half**, as data and pure functions:
   the `updated` moment of `downloadEdge`; and the setting's own toasts
   (`agentToast`, with `updated` quoting the updater) — typed against `./schema`, so a field added to the wire is one
   the folds must handle.
+- `./testing` — test support only: `bundleFiles` (a profile bundle's
+  `profile.json` and `versions`, written as upstream writes them, at the paths
+  `./profileFile` and `./versions` name) and `readFrom` (a `readText` over
+  them). Every test that fakes a bundle — this package's, kolu-server's boot
+  read, the e2e fixture — goes through it.
 - `./solid` — agent-distro's logo (`doc/logo.svg`, vendored byte-identical from
   the npins pin) and the one `AgentDistroLogo` component that draws it.
 

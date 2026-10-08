@@ -3,6 +3,9 @@
 import { describe, expect, it } from "vitest";
 import { floorListing, profileOfBundle } from "./listing.ts";
 import type { AgentDistroManifest } from "./manifest.ts";
+import { profileFile } from "./profileFile.ts";
+import { bundleFiles, readFrom } from "./testing.ts";
+import { versionsFile } from "./versions.ts";
 
 const MANIFEST: AgentDistroManifest = {
   default: "vanilla",
@@ -12,35 +15,37 @@ const MANIFEST: AgentDistroManifest = {
   ],
 };
 
-/** Each bundle's files, as upstream writes them. */
-const FILES: Record<string, string> = {
-  "/s/v/share/agent-distro/profile.json":
-    '{"description":"Upstream harnesses with your own provider","name":"vanilla"}',
-  "/s/v/share/agent-distro/versions":
-    "claude\tClaude Code\t2.1.292\ncodex\tCodex\t0.160.1\n",
-  "/s/j/share/agent-distro/profile.json":
-    '{"description":"Juspay skills + Kolu, via Juspay\'s LiteLLM gateway","name":"juspay"}',
-  "/s/j/share/agent-distro/versions": "claude\tClaude Code\t2.1.292\n",
+const VANILLA = {
+  name: "vanilla",
+  description: "Upstream harnesses with your own provider",
+  harnesses: [
+    { name: "claude", title: "Claude Code", version: "2.1.292" },
+    { name: "codex", title: "Codex", version: "0.160.1" },
+  ],
+};
+const JUSPAY = {
+  name: "juspay",
+  description: "Juspay skills + Kolu, via Juspay's LiteLLM gateway",
+  harnesses: [{ name: "claude", title: "Claude Code", version: "2.1.292" }],
 };
 
-const readFrom =
-  (files: Record<string, string>) =>
-  (path: string): string => {
-    const text = files[path];
-    if (text === undefined) throw new Error(`ENOENT: ${path}`);
-    return text;
-  };
+/** Each bundle's files, as upstream writes them. */
+const FILES = {
+  ...bundleFiles("/s/v", VANILLA),
+  ...bundleFiles("/s/j", JUSPAY),
+};
+
+/** `FILES` without `path`. */
+const without = (path: string): Record<string, string> => {
+  const { [path]: _gone, ...rest } = FILES;
+  return rest;
+};
 
 describe("profileOfBundle", () => {
   it("composes a profile from its profile.json and versions", () => {
-    expect(profileOfBundle("vanilla", "/s/v", readFrom(FILES))).toEqual({
-      name: "vanilla",
-      description: "Upstream harnesses with your own provider",
-      harnesses: [
-        { name: "claude", title: "Claude Code", version: "2.1.292" },
-        { name: "codex", title: "Codex", version: "0.160.1" },
-      ],
-    });
+    expect(profileOfBundle("vanilla", "/s/v", readFrom(FILES))).toEqual(
+      VANILLA,
+    );
   });
 
   it("throws when the bundle describes another profile than the manifest names", () => {
@@ -50,18 +55,24 @@ describe("profileOfBundle", () => {
   });
 
   it("throws when either file is missing — a bundle that does not describe itself is a broken build", () => {
-    const { "/s/v/share/agent-distro/profile.json": _p, ...noProfile } = FILES;
     expect(() =>
-      profileOfBundle("vanilla", "/s/v", readFrom(noProfile)),
+      profileOfBundle(
+        "vanilla",
+        "/s/v",
+        readFrom(without(profileFile("/s/v"))),
+      ),
     ).toThrow(/ENOENT/);
-    const { "/s/v/share/agent-distro/versions": _v, ...noVersions } = FILES;
     expect(() =>
-      profileOfBundle("vanilla", "/s/v", readFrom(noVersions)),
+      profileOfBundle(
+        "vanilla",
+        "/s/v",
+        readFrom(without(versionsFile("/s/v"))),
+      ),
     ).toThrow(/ENOENT/);
   });
 
   it("throws on a versions file that names no harness — a profile with no agents is a broken bundle", () => {
-    const empty = { ...FILES, "/s/v/share/agent-distro/versions": "" };
+    const empty = { ...FILES, [versionsFile("/s/v")]: "" };
     expect(() => profileOfBundle("vanilla", "/s/v", readFrom(empty))).toThrow();
   });
 });
@@ -72,20 +83,16 @@ describe("floorListing", () => {
       default: "vanilla",
       profiles: [...MANIFEST.profiles].reverse(),
     };
-    const listing = floorListing(juspayFirst, readFrom(FILES));
-    expect(listing.kind).toBe("available");
-    if (listing.kind !== "available") return;
-    expect(listing.profiles.map((p) => p.name)).toEqual(["juspay", "vanilla"]);
-    expect(listing.profiles[0]?.harnesses).toEqual([
-      { name: "claude", title: "Claude Code", version: "2.1.292" },
-    ]);
+    expect(floorListing(juspayFirst, readFrom(FILES))).toEqual({
+      kind: "available",
+      profiles: [JUSPAY, VANILLA],
+    });
   });
 
   it("throws when one bundle names another profile", () => {
     const swapped = {
       ...FILES,
-      "/s/j/share/agent-distro/profile.json":
-        '{"description":"d","name":"vanilla"}',
+      ...bundleFiles("/s/j", { ...JUSPAY, name: "vanilla" }),
     };
     expect(() => floorListing(MANIFEST, readFrom(swapped))).toThrow(
       /names it 'juspay'/,

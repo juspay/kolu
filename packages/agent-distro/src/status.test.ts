@@ -56,7 +56,8 @@ import {
   unknownProfileOf,
   versionsLine,
 } from "./status.ts";
-import { parseVersions } from "./versions.ts";
+import { bundleFiles, readFrom } from "./testing.ts";
+import { parseVersions, versionsFile } from "./versions.ts";
 
 const READY_BUNDLE =
   "/nix/store/nd11nx5f1dkf02cr9dhxqq4axg23vzgc-agent-distro-vanilla";
@@ -199,18 +200,16 @@ describe("harnessLine", () => {
   });
 
   it("Settings' line for a bundle is its receipt's line — both read the same versions file", () => {
-    const VERSIONS =
-      "claude\tClaude Code\t2.1.292\nopencode\tOpenCode\t1.18.35+53d1eab\n";
-    const files: Record<string, string> = {
-      "/s/v/share/agent-distro/profile.json":
-        '{"description":"Upstream harnesses with your own provider","name":"vanilla"}',
-      "/s/v/share/agent-distro/versions": VERSIONS,
-    };
-    const read = (path: string): string => {
-      const text = files[path];
-      if (text === undefined) throw new Error(`ENOENT: ${path}`);
-      return text;
-    };
+    const read = readFrom(
+      bundleFiles("/s/v", {
+        name: "vanilla",
+        description: "Upstream harnesses with your own provider",
+        harnesses: [
+          { name: "claude", title: "Claude Code", version: "2.1.292" },
+          { name: "opencode", title: "OpenCode", version: "1.18.35+53d1eab" },
+        ],
+      }),
+    );
     // What Settings lists before this machine's receipt (kolu-server's read)…
     const listing: AgentDistroListing = {
       kind: "available",
@@ -222,7 +221,7 @@ describe("harnessLine", () => {
     const receipt: AgentDistroReceipt = {
       profile: "vanilla",
       bundle: "/s/v",
-      versions: [...parseVersions(read("/s/v/share/agent-distro/versions"))],
+      versions: [...parseVersions(read(versionsFile("/s/v")))],
       events: [],
       running: [],
     };

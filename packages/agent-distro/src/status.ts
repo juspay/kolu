@@ -411,7 +411,7 @@ export function harnessLine(profile: AgentDistroProfile): string {
  *  revision suffix (`1.18.35+53d1eab` → `1.18.35`) — upstream's
  *  `displayVersion` (`lib/picker.nix`), mirrored here once so every line kolu
  *  draws says what `agent-distro` in the same terminal says. */
-export function displayVersion(version: string): string {
+function displayVersion(version: string): string {
   return version.split("+")[0] ?? version;
 }
 

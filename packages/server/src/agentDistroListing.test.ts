@@ -3,7 +3,13 @@
  *  every profile. (Composing a profile from its two files is
  *  `@kolu/agent-distro/listing`'s, tested there.) */
 
-import type { AgentDistroListing } from "@kolu/agent-distro/listing";
+import type {
+  AgentDistroListing,
+  AgentDistroProfile,
+} from "@kolu/agent-distro/listing";
+import { manifestFile } from "@kolu/agent-distro/manifest";
+import { profileFile } from "@kolu/agent-distro/profileFile";
+import { bundleFiles, readFrom } from "@kolu/agent-distro/testing";
 import { AGENT_DISTRO_BUNDLE_ENV } from "@kolu/padi/agentDistroBake";
 import { describe, expect, it } from "vitest";
 import {
@@ -14,55 +20,45 @@ import {
 
 const BUNDLE = "/nix/store/x-agent-distro-bundle";
 
-/** The floor on disk: its manifest, and each profile bundle's two files. */
-const floorFiles = (
-  dflt: string,
-  order: readonly string[] = ["vanilla", "juspay"],
-): Record<string, string> => ({
-  [`${BUNDLE}/share/kolu/agent-distro.json`]: JSON.stringify({
-    default: dflt,
-    profiles: order.map((name) => ({
-      name,
-      dir: `/s/${name}`,
-      bin: `/s/${name}/bin`,
-      hash: name,
-    })),
-  }),
-  "/s/vanilla/share/agent-distro/profile.json":
-    '{"description":"Upstream harnesses with your own provider","name":"vanilla"}',
-  "/s/vanilla/share/agent-distro/versions":
-    "claude\tClaude Code\t2.1.292\ncodex\tCodex\t0.160.1\n",
-  "/s/juspay/share/agent-distro/profile.json":
-    '{"description":"Juspay skills + Kolu","name":"juspay"}',
-  "/s/juspay/share/agent-distro/versions": "claude\tClaude Code\t2.1.292\n",
-});
-
-const readFrom =
-  (files: Record<string, string>) =>
-  (path: string): string => {
-    const text = files[path];
-    if (text === undefined) throw new Error(`unexpected read ${path}`);
-    return text;
-  };
+const VANILLA: AgentDistroProfile = {
+  name: "vanilla",
+  description: "Upstream harnesses with your own provider",
+  harnesses: [
+    { name: "claude", title: "Claude Code", version: "2.1.292" },
+    { name: "codex", title: "Codex", version: "0.160.1" },
+  ],
+};
+const JUSPAY: AgentDistroProfile = {
+  name: "juspay",
+  description: "Juspay skills + Kolu",
+  harnesses: [{ name: "claude", title: "Claude Code", version: "2.1.292" }],
+};
 
 const LISTING: AgentDistroListing = {
   kind: "available",
-  profiles: [
-    {
-      name: "vanilla",
-      description: "Upstream harnesses with your own provider",
-      harnesses: [
-        { name: "claude", title: "Claude Code", version: "2.1.292" },
-        { name: "codex", title: "Codex", version: "0.160.1" },
-      ],
-    },
-    {
-      name: "juspay",
-      description: "Juspay skills + Kolu",
-      harnesses: [{ name: "claude", title: "Claude Code", version: "2.1.292" }],
-    },
-  ],
+  profiles: [VANILLA, JUSPAY],
 };
+
+/** The floor on disk: its manifest naming `profiles` in that order, each one's
+ *  bundle at `/s/<name>` with its two files. */
+const floorFiles = (
+  dflt: string,
+  profiles: readonly AgentDistroProfile[] = [VANILLA, JUSPAY],
+): Record<string, string> =>
+  Object.assign(
+    {
+      [manifestFile(BUNDLE)]: JSON.stringify({
+        default: dflt,
+        profiles: profiles.map(({ name }) => ({
+          name,
+          dir: `/s/${name}`,
+          bin: `/s/${name}/bin`,
+          hash: name,
+        })),
+      }),
+    },
+    ...profiles.map((p) => bundleFiles(`/s/${p.name}`, p)),
+  );
 
 describe("readAgentDistroListing", () => {
   it("unbaked → unavailable, and nothing is read", () => {
@@ -89,34 +85,30 @@ describe("readAgentDistroListing", () => {
     expect(() =>
       readAgentDistroListing(
         { [AGENT_DISTRO_BUNDLE_ENV]: BUNDLE },
-        readFrom(floorFiles("vanilla", ["juspay", "vanilla"])),
+        readFrom(floorFiles("vanilla", [JUSPAY, VANILLA])),
       ),
     ).toThrow(/leads with 'juspay'.*'vanilla'/);
   });
 
   it("fails the boot on a profile kolu has no plain words for — the boot read carries every check", () => {
-    const files = floorFiles("vanilla", ["vanilla", "mystery"]);
-    files["/s/mystery/share/agent-distro/profile.json"] =
-      '{"description":"m","name":"mystery"}';
-    files["/s/mystery/share/agent-distro/versions"] =
-      "claude\tClaude Code\t1\n";
+    const mystery = { ...JUSPAY, name: "mystery", description: "m" };
     expect(() =>
       readAgentDistroListing(
         { [AGENT_DISTRO_BUNDLE_ENV]: BUNDLE },
-        readFrom(files),
+        readFrom(floorFiles("vanilla", [VANILLA, mystery])),
       ),
     ).toThrow(/PROFILE_PLAIN/);
   });
 
   it("fails the boot when a bundle does not describe itself", () => {
     const files = floorFiles("vanilla");
-    delete files["/s/juspay/share/agent-distro/profile.json"];
+    delete files[profileFile("/s/juspay")];
     expect(() =>
       readAgentDistroListing(
         { [AGENT_DISTRO_BUNDLE_ENV]: BUNDLE },
         readFrom(files),
       ),
-    ).toThrow(/unexpected read \/s\/juspay\/share\/agent-distro\/profile.json/);
+    ).toThrow(/ENOENT: \/s\/juspay\/share\/agent-distro\/profile.json/);
   });
 });
 

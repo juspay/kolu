@@ -40,10 +40,6 @@ import {
   type AgentDistroProfile,
   AgentDistroProfileSchema,
 } from "@kolu/agent-distro/listing";
-import {
-  type AgentVersion,
-  AgentVersionSchema,
-} from "@kolu/agent-distro/versions";
 import { mibOf } from "@kolu/byte-units";
 
 import {
@@ -252,16 +248,14 @@ export const RightPanelPrefsSchema = Schema.Struct({
 export const AgentDistroPrefsSchema = AgentDistroSettingSchema;
 
 // kolu's listing cell value — composed from each bundle's own `profile.json`
-// and `versions` — and the harness version schema live in `@kolu/agent-distro`
-// (kolu's contract with upstream); re-exported here so the surface and its
-// importers reach them through their usual door.
+// and `versions` — lives in `@kolu/agent-distro` (kolu's contract with
+// upstream); re-exported here so the surface and its importers reach it
+// through their usual door.
 export {
   type AgentDistroListing,
   AgentDistroListingSchema,
   type AgentDistroProfile,
   AgentDistroProfileSchema,
-  type AgentVersion,
-  AgentVersionSchema,
 };
 
 export const PreferencesSchema = Schema.Struct({

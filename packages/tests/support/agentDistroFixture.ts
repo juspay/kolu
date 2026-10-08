@@ -27,6 +27,7 @@
  */
 
 import fs from "node:fs";
+import { bundleFiles } from "@kolu/agent-distro/testing";
 import os from "node:os";
 import path from "node:path";
 
@@ -221,24 +222,20 @@ function buildFixture(): Record<string, string> {
   const updaterScript = path.join(root, "updater.mjs");
   fs.writeFileSync(updaterScript, fixtureUpdaterScript(root));
   const profiles = FIXTURE_PROFILES.map((name) => {
-    const profile = fixtureProfile(name);
-    const bin = path.join(root, "profiles", name, "bin");
+    const dir = path.join(root, "profiles", name);
+    const bin = path.join(dir, "bin");
     fs.mkdirSync(bin, { recursive: true });
     script(path.join(bin, "claude"), `echo "${fixtureClaudeSays(name)}"`);
     // The profile's own picker, as upstream's bundle carries it: a command for
     // people, which kolu never runs.
     script(path.join(bin, "agent-distro"), `echo "${fixturePickerSays(name)}"`);
     // The two files the bundle describes itself with, as a real one writes them.
-    const share = path.join(root, "profiles", name, "share", "agent-distro");
-    fs.mkdirSync(share, { recursive: true });
-    fs.writeFileSync(
-      path.join(share, "profile.json"),
-      JSON.stringify({ description: profile.description, name }),
-    );
-    fs.writeFileSync(
-      path.join(share, "versions"),
-      `${FIXTURE_HARNESS.name}\t${FIXTURE_HARNESS.title}\t${FIXTURE_HARNESS.version}\n`,
-    );
+    for (const [file, text] of Object.entries(
+      bundleFiles(dir, fixtureProfile(name)),
+    )) {
+      fs.mkdirSync(path.dirname(file), { recursive: true });
+      fs.writeFileSync(file, text);
+    }
     const config = path.join(root, `update-${name}.json`);
     fs.writeFileSync(
       config,

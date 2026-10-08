@@ -13,6 +13,7 @@
     "./profileFile": "./src/profileFile.ts",
     "./schema": "./src/schema.ts",
     "./status": "./src/status.ts",
+    "./testing": "./src/testing.ts",
     "./schedule": "./src/schedule.ts",
     "./history": "./src/history.ts",
     "./versions": "./src/versions.ts",

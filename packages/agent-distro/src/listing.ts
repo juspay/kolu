@@ -9,15 +9,18 @@
 
 import { Schema } from "effect";
 import type { AgentDistroManifest } from "./manifest.ts";
-import { parseProfileFile, profileFile } from "./profileFile.ts";
+import {
+  ProfileFileSchema,
+  parseProfileFile,
+  profileFile,
+} from "./profileFile.ts";
 import { AgentVersionSchema, parseVersions, versionsFile } from "./versions.ts";
 
-/** One profile: its name, the one-line description, and its harnesses — the
- *  lines of its bundle's `versions`, at least one (upstream's own listing
- *  parser refuses an empty one too). */
+/** One profile: what its bundle's two files say — `profile.json`'s name and
+ *  description, and the lines of its `versions` as its harnesses, at least one
+ *  (upstream's own listing parser refuses an empty one too). */
 export const AgentDistroProfileSchema = Schema.Struct({
-  name: Schema.String.check(Schema.isMinLength(1)),
-  description: Schema.String,
+  ...ProfileFileSchema.fields,
   harnesses: Schema.Array(AgentVersionSchema).check(Schema.isMinLength(1)),
 });
 

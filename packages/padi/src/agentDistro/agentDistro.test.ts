@@ -4,8 +4,6 @@
  */
 
 import {
-  accessSync,
-  constants as fsConstants,
   mkdirSync,
   mkdtempSync,
   realpathSync,
@@ -16,14 +14,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { PtyHostSystemInfo } from "kaval";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import {
-  agentSpawnEnv,
-  composeSpawnInput,
-  setSpawnServerVersion,
-} from "../ptyHost/index.ts";
+import { agentSpawnEnv, composeSpawnInput } from "../ptyHost/index.ts";
 import { assessAgentDistro, checkAgentDistroSetting } from "./agentDistro.ts";
 import { __setAgentDistroBakeForTest, type AgentDistroBake } from "./bake.ts";
 import { type AgentLayer, layerOnHost, withAgentLayer } from "./layer.ts";
+import { commandOnPath } from "./onHost.ts";
 
 const ON = { enabled: true, profile: "vanilla" } as const;
 
@@ -35,9 +30,8 @@ function storeBundle(dir: string): void {
     writeFileSync(join(dir, "bin", command), "#!/bin/sh\n", { mode: 0o755 });
 }
 
-/** Where a shell would find `command` on the PATH a terminal spawned with
- *  `layer` gets — the spawn input padi really composes, searched front to
- *  back as `execvp` does. */
+/** Where a shell finds `command` on the PATH a terminal spawned with `layer`
+ *  gets — the spawn input padi really composes. */
 function whichOnSpawnPath(
   layer: AgentLayer,
   command: string,
@@ -57,19 +51,8 @@ function whichOnSpawnPath(
       serverVersion: "9.9.9-test",
     },
   );
-  for (const dir of (input.env.PATH ?? "").split(":")) {
-    const candidate = join(dir, command);
-    try {
-      accessSync(candidate, fsConstants.X_OK);
-      return candidate;
-    } catch {
-      // Not in this PATH entry; the next one may have it.
-    }
-  }
-  return undefined;
+  return commandOnPath(command, input.env.PATH);
 }
-
-setSpawnServerVersion("9.9.9-test");
 
 let root: string;
 let savedStateHome: string | undefined;
