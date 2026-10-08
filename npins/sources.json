@@ -9,9 +9,9 @@
       },
       "branch": "main",
       "submodules": false,
-      "revision": "89cf071ebef317b5bc830e0fe8da0491a3ab6e58",
-      "url": "https://github.com/juspay/agent-distro/archive/89cf071ebef317b5bc830e0fe8da0491a3ab6e58.tar.gz",
-      "hash": "sha256-NaVcfsFklgmu4vgTNe23oro02WwVuaxZeiMbVvOba3o="
+      "revision": "b7714a9e03f9a1238928bff44e6731bdef2f5c02",
+      "url": "https://github.com/juspay/agent-distro/archive/b7714a9e03f9a1238928bff44e6731bdef2f5c02.tar.gz",
+      "hash": "sha256-N0PSKyP3YM6vBYJKlRmB5NT8TpUt2eZENKEV9zQnCnE="
     },
     "iTerm2-Color-Schemes": {
       "type": "Git",
