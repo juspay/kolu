@@ -649,7 +649,7 @@ const App: Component = () => {
                             />
                           )}
                           renderTileTitleActions={(id) => (
-                            <TileTitleActions id={id} />
+                            <TileTitleActions id={id} host={activeHost()} />
                           )}
                           renderTileBody={outlet}
                         />

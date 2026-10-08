@@ -309,6 +309,11 @@ export const FsReadFileInputSchema = Schema.Struct({
  *  `<iframe>` (documents) or `<img>` (raster images) at. The variant-picker
  *  (`isBinaryPreviewable`) lives in the node-free `kolu-common/preview`
  *  classifier; the URL builder lives server-side in `iframePreviewRoute.ts`. */
+/** The most of a file `fs.readFile` returns: 1 MiB. Past it the content is
+ *  cut there and `truncated` set — the one number the reader and the banner
+ *  that reports the cut both read. */
+export const MAX_READ_BYTES = 1_048_576;
+
 export const FsReadFileOutputSchema = Schema.Union([
   Schema.Struct({
     kind: Schema.Literal("text"),

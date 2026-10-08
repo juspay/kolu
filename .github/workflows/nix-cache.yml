@@ -49,8 +49,9 @@ jobs:
       matrix:
         # ubuntu-latest → x86_64-linux; macos-latest → aarch64-darwin
         # (GitHub's current macos-latest image). Covers the two platforms
-        # that actually run kolu day-to-day; aarch64-linux / x86_64-darwin
-        # stay out of the matrix until something needs them warmed.
+        # that actually run kolu day-to-day; aarch64-linux stays out of the
+        # matrix until something needs it warmed (x86_64-darwin is no longer a
+        # kolu system at all — agent-distro does not build there).
         os: [ubuntu-latest, macos-latest]
     runs-on: ${{ matrix.os }}
     steps:

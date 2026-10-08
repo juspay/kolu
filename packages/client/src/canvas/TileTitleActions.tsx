@@ -1,21 +1,32 @@
 /** Per-tile chrome rendered into the CanvasTile title bar.
  *
- *  Order (left → right between title and close): agent indicator, theme
- *  pill, split toggle, search, screenshot.
+ *  Order (left → right between title and close): agent indicator, agents
+ *  chip (the agent-distro profile + bundle the terminal was spawned with),
+ *  Restart when those agents went stale, theme pill, split toggle, search, screenshot.
  *
  *  Reads singleton state and verbs directly — store, sub-panel, theme manager,
  *  right panel, tips, plus the command palette, terminal CRUD, and per-terminal
- *  search singletons — per `no-preference-prop-drilling`. The only prop is the
- *  tile `id`. Extracted from App.tsx per kolu#626. */
+ *  search singletons — per `no-preference-prop-drilling`. The props are the
+ *  tile `id` and its `host` (the agents-staleness check reads that host's
+ *  status). Extracted from App.tsx per kolu#626. */
 
 import { activeArm, sleepingArm } from "@kolu/padi-client/surface";
 import type { TerminalId } from "kolu-common/surface";
-import { type Component, Show } from "solid-js";
+import { type Component, createMemo, Show } from "solid-js";
+import AgentProfileChip, { type ChipRestart } from "../agents/AgentProfileChip";
+import { hostAgentStatus } from "../agents/useAgentDistro";
+import {
+  agentRestartAction,
+  agentRestartReady,
+  agentStalenessOf,
+} from "@kolu/agent-distro/status";
+import { agentLive } from "@kolu/terminal-vocab/agentProjection";
 import { ACTIONS } from "../input/actions";
 import { useRightPanel } from "../right-panel/useRightPanel";
-import { runAction, type UiAction } from "../runAction";
+import { runAction, runActionPromise, type UiAction } from "../runAction";
 import { screenshotTerminal } from "../screenshotTerminal";
 import { CONTEXTUAL_TIPS } from "../settings/tips";
+import { openSettings } from "../settings/useSettingsOpen";
 import { useTips } from "../settings/useTips";
 import AgentIndicator from "../terminal/AgentIndicator";
 import { useSubPanel } from "../terminal/useSubPanel";
@@ -31,6 +42,8 @@ import {
 import Tip from "../ui/Tip";
 import { useCommandPalette } from "../useCommandPalette";
 import { useThemeManager } from "../useThemeManager";
+import { preferences } from "../wire";
+import type { HostKey } from "kolu-common/hostKey";
 
 /** Tile chrome buttons share this affordance. Theme pill is wider — it shows
  *  the theme name. Other buttons are square. */
@@ -39,6 +52,9 @@ const TILE_BUTTON_CLASS =
 
 const TileTitleActions: Component<{
   id: TerminalId;
+  /** The host this tile's terminal lives on — the agents status a stale check
+   *  compares against. */
+  host: HostKey;
 }> = (props) => {
   const store = useTerminalStore();
   const crud = useTerminalCrud();
@@ -55,6 +71,38 @@ const TileTitleActions: Component<{
   // sleeping tile re-themes through the normal write sink).
   const live = () => activeArm(meta());
   const sleeping = () => sleepingArm(meta()) !== undefined;
+  // Are this LIVE terminal's agents still what a new terminal on its host gets?
+  // (The canvas shows the active host's tiles, so that is the host.) A sleeping
+  // terminal picks up the current agents when it wakes — nothing to offer.
+  const staleness = createMemo(() => {
+    const m = live();
+    return m === undefined
+      ? ({ kind: "current" } as const)
+      : agentStalenessOf({
+          terminal: m,
+          status: hostAgentStatus(props.host, "").status,
+          setting: preferences().agentDistro,
+        });
+  });
+  // Restart only when there is something to restart INTO: agents now off (a
+  // plain shell), or the new bundle is on the host. While the new profile
+  // downloads the pill stays stale and says so, with no restart on it.
+  const restartOffer = (): ChipRestart | undefined => {
+    const s = staleness();
+    if (s.kind !== "stale" || !agentRestartReady(s)) return undefined;
+    return {
+      guarded: liveAgent(),
+      action: agentRestartAction(s),
+      run: (e) =>
+        onTilePromise(e, () => runActionPromise(crud.handleRestart(props.id))),
+    };
+  };
+  // A live agent (working, or blocked on you) — Restart would end its process,
+  // so the pill asks twice. `agentLive` is the shared fold's answer.
+  const liveAgent = () => {
+    const agent = live()?.agent;
+    return agent != null && agentLive(agent.state);
+  };
   const themeName = () => getTerminalThemeName(props.id);
   const subCount = () => store.getDisplayInfo(props.id)?.subCount ?? 0;
   const splitExpanded = () =>
@@ -97,6 +145,17 @@ const TileTitleActions: Component<{
     });
   };
 
+  /** {@link onTile} for an action whose settle the caller waits on — the agents
+   *  pill's restart, which stays busy until the restart has happened. */
+  const onTilePromise = <A,>(
+    e: MouseEvent,
+    run: () => Promise<A>,
+  ): Promise<A> => {
+    e.stopPropagation();
+    store.setActiveSilently(props.id);
+    return run();
+  };
+
   return (
     <>
       <Show when={activeArm(meta())?.agent}>
@@ -119,6 +178,20 @@ const TileTitleActions: Component<{
           >
             <AgentIndicator agent={agent()} />
           </button>
+        )}
+      </Show>
+      <Show when={meta()?.agents}>
+        {(agents) => (
+          <AgentProfileChip
+            profile={agents().profile}
+            bundle={agents().bundle}
+            buttonClass={TILE_BUTTON_CLASS}
+            staleness={staleness()}
+            // Same select-first wiring as the theme pill; the profile for
+            // NEW terminals is changed in Settings → Agents.
+            onClick={(e) => onTile(e, openSettings)}
+            restart={restartOffer()}
+          />
         )}
       </Show>
       <Show when={themeName()}>

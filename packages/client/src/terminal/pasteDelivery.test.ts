@@ -222,7 +222,7 @@ describe("pre-send frame refusal (G9b)", () => {
     // Names what happened, the real limit, and that nothing was sent — no
     // "SocketCloseError: 1009" leaking a transport detail at the user.
     expect(refusal).toMatch(/Couldn't upload "bugbug\.mov"/);
-    expect(refusal).toMatch(/16\.0 MB/);
+    expect(refusal).toMatch(/16\.0 MiB/);
     expect(refusal).toMatch(/Nothing was sent/);
     expect(refusal).toMatch(/report it/);
   });

@@ -98,6 +98,7 @@ let
     "kolu-pi" = ../packages/integrations/pi;
     "kolu-pty" = ../packages/integrations/pty;
     "kolu-xyne" = ../packages/integrations/xyne;
+    "@kolu/byte-units" = ../packages/byte-units;
     "nonempty" = ../packages/nonempty;
     "kolu-shared" = ../packages/shared;
     "terminal-snapshot" = ../packages/terminal-snapshot;
@@ -105,6 +106,7 @@ let
     "@kolu/theme" = ../packages/theme;
     "memorable-names" = ../packages/memorable-names;
     "@kolu/terminal-vocab" = ../packages/terminal-vocab;
+    "@kolu/agent-distro" = ../packages/agent-distro;
     "@kolu/terminal-protocol" = ../packages/terminal-protocol;
     "kaval" = ../packages/kaval;
     "kaval-tui" = ../packages/kaval-tui;

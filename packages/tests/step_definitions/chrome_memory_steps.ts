@@ -52,7 +52,7 @@ Then(
     await assertChipMemoryLabel(
       this,
       "kolu-identity-chip",
-      /server RSS \d+\s*MB/,
+      /server RSS \d+\s*MiB/,
     );
   },
 );
@@ -62,7 +62,7 @@ Then(
   async function (this: KoluWorld) {
     // padi has its own rail chip now, so its RSS reads out on the Padi chip
     // (mirroring kaval), not folded into the Kolu chip's tooltip.
-    await assertChipMemoryLabel(this, "padi-identity-chip", /RSS \d+\s*MB/);
+    await assertChipMemoryLabel(this, "padi-identity-chip", /RSS \d+\s*MiB/);
   },
 );
 
@@ -72,7 +72,7 @@ Then(
     await assertChipMemoryLabel(
       this,
       "kolu-identity-chip",
-      /client heap \d+\s*MB/,
+      /client heap \d+\s*MiB/,
     );
   },
 );
@@ -80,7 +80,7 @@ Then(
 Then(
   "the identity rail details include kaval memory usage",
   async function (this: KoluWorld) {
-    await assertChipMemoryLabel(this, "kaval-identity-chip", /RSS \d+\s*MB/);
+    await assertChipMemoryLabel(this, "kaval-identity-chip", /RSS \d+\s*MiB/);
   },
 );
 
@@ -93,13 +93,13 @@ Then(
   "the Kaval details show kaval memory usage",
   async function (this: KoluWorld) {
     // The daemon's RSS lands once padi's osfacts-backed `processMemory` sampler
-    // publishes its first snapshot, so poll the dialog row until a real MB
+    // publishes its first snapshot, so poll the dialog row until a real MiB
     // figure replaces "unavailable".
     const memory = this.page.locator('[data-testid="kaval-dialog-memory"]');
     await memory.waitFor({ state: "visible", timeout: 15_000 });
     await this.page.waitForFunction(
       () =>
-        /\d+\s*MB/.test(
+        /\d+\s*MiB/.test(
           document.querySelector('[data-testid="kaval-dialog-memory"]')
             ?.textContent ?? "",
         ),

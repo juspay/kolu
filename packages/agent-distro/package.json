@@ -1,0 +1,31 @@
+{
+  "name": "@kolu/agent-distro",
+  "version": "0.1.0",
+  "private": true,
+  "license": "AGPL-3.0-or-later",
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    "./listing": "./src/listing.ts",
+    "./progress": "./src/progress.ts",
+    "./bundle": "./src/bundle.ts",
+    "./manifest": "./src/manifest.ts",
+    "./schema": "./src/schema.ts",
+    "./status": "./src/status.ts",
+    "./solid": "./src/solid/AgentDistroLogo.tsx"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test:unit": "vitest run"
+  },
+  "dependencies": {
+    "@kolu/byte-units": "workspace:*",
+    "effect": "4.0.0",
+    "solid-js": "^1.9.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.3"
+  }
+}

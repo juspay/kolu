@@ -1,6 +1,7 @@
 import * as assert from "node:assert";
 import { Then, When } from "@cucumber/cucumber";
 import { pollFor } from "../support/poll.ts";
+import { escapeRegExp } from "../support/regexp.ts";
 import { APP_KEY, type KoluWorld, POLL_TIMEOUT } from "../support/world.ts";
 
 const PALETTE_SELECTOR = '[data-testid="command-palette"]';
@@ -60,10 +61,6 @@ function paletteOption(
       .locator('[role="option"]')
       .filter({ hasText: new RegExp(`^${escapeRegExp(text)}`) }),
   );
-}
-
-function escapeRegExp(s: string): string {
-  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 When(

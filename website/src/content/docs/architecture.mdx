@@ -465,8 +465,15 @@ _out_. The map, grouped:
   sibling apps — [drishti](https://github.com/srid/drishti), and olai, which
   vendors `padi-client` + `solid-dockrow` out of a content-addressed pin.
 - **Contracts & small leaves** — `common` (the shared surface contract), `terminal-vocab`,
-  `terminal-protocol`, `transcript-core` / `transcript-html`, and a set of
-  zero-dependency utilities (`log`, `nonempty`, `shell-quote`, `html-escape`, …).
+  `terminal-protocol`, `transcript-core` / `transcript-html`, `agent-distro`
+  (kolu's contract with upstream [agent-distro](https://github.com/juspay/agent-distro):
+  its Nix half builds the agents' local floor, writes the floor's manifest and
+  bakes and proves it onto each wrapper; its TypeScript half holds the listing,
+  the updater's progress protocol, the manifest reader, the setting and status
+  value schemas padi's cells carry, the wording, and the logo — padi,
+  padi-client, the server and the client import it; it imports none of them),
+  and a set of
+  zero-dependency utilities (`log`, `nonempty`, `shell-quote`, `html-escape`, `byte-units` — the one way kolu writes a byte count, in binary units, …).
 
 The Nix composition follows those boundaries too. The root flake contains only
 the runnable kolu packages, their checks, and the development shells needed to

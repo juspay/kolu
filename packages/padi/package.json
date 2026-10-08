@@ -9,6 +9,7 @@
     "padi": "./src/daemonBoot/bin.ts"
   },
   "exports": {
+    "./agentDistroBake": "./src/agentDistro/bake.ts",
     "./assembly": "./src/assembly.ts",
     "./buildId": "./src/daemonBoot/buildId.ts",
     "./containingTerminal": "./src/containingTerminal.ts",
@@ -29,6 +30,7 @@
   },
   "dependencies": {
     "@effect/platform-node": "catalog:",
+    "@kolu/agent-distro": "workspace:*",
     "@kolu/padi-client": "workspace:*",
     "@kolu/serve-dir": "workspace:*",
     "@kolu/surface": "workspace:*",

@@ -76,6 +76,7 @@ import { addHost } from "./addHost";
 import { focusOnMount } from "./focusOnMount";
 import { HostDiagnosticsPopover } from "./HostDiagnosticsPopover";
 import { HostIdentityLabel } from "./HostIdentityLabel";
+import AgentDistroHostMark from "../agents/AgentDistroHostMark";
 import { forwardRingLabel, HostStatusDot } from "./HostStatusDot";
 import { activeKavalPresence } from "../kaval/useDaemonStatus";
 import {
@@ -140,6 +141,10 @@ const HostChipShell: Component<{
   };
   status?: JSX.Element;
   attention: JSX.Element;
+  /** The host's agents mark, right after the host name (nothing when agents are
+   *  off). The measuring twin renders it too, so a chip's width estimate counts
+   *  it and the strip keeps to one row. */
+  agents?: JSX.Element;
 }> = (props) => (
   <div
     {...props.tab}
@@ -162,6 +167,7 @@ const HostChipShell: Component<{
         labelClass={`truncate max-w-[5rem] lg:max-w-[10rem] font-medium${props.decoration ?? ""}`}
       />
     </button>
+    {props.agents}
     {props.attention}
   </div>
 );
@@ -271,6 +277,7 @@ const HostChip: Component<{
             class="-ml-1 mr-2.5"
           />
         }
+        agents={<AgentDistroHostMark host={props.host} />}
       />
       <Show when={diagOpen()}>
         <HostDiagnosticsPopover
@@ -811,6 +818,7 @@ const HostSelectorStrip: Component = () => {
                         class="-ml-1 mr-2.5"
                       />
                     }
+                    agents={<AgentDistroHostMark host={host} measuring />}
                   />
                 </div>
               </div>

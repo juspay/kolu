@@ -96,6 +96,13 @@ function publishedEntries(): string[] {
  * and TUI tier.
  */
 const DECLARED_ALLOWED = new Set([
+  // The agent-distro value schemas padi's two agents cells carry live once,
+  // in kolu's contract-with-upstream package; its manifest is `effect` plus
+  // `solid-js` (for the logo component), both already in the framework tier.
+  "@kolu/agent-distro",
+  // The one byte formatter (binary units): a zero-dependency leaf. Imported by
+  // `upload.ts` so the drop limit is worded in the units every size is.
+  "@kolu/byte-units",
   "@kolu/padi-client",
   "@kolu/surface",
   "@kolu/surface-daemon",
@@ -161,6 +168,8 @@ const DECLARED_ALLOWED = new Set([
  *  consumer still copies the directory — but it no longer has to graft the
  *  second pin to make `tsc` pass. That is the gap this split exists to show. */
 const IMPORTED_ALLOWED = new Set([
+  "@kolu/agent-distro",
+  "@kolu/byte-units",
   "@kolu/log",
   "@kolu/padi-client",
   "@kolu/shell-quote",

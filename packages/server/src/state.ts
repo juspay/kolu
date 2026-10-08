@@ -76,6 +76,19 @@ export function migratePreferences_1_30_0(
   };
 }
 
+/** 1.37.0 — the Agents setting joined preferences. Seeds the default
+ *  `agentDistro` — OFF, `vanilla` — onto a record that has none, so an existing
+ *  install keeps exactly the PATH it had until the user turns Agents on; a
+ *  record that already carries one
+ *  (a re-run, or a value written by a newer build) is returned untouched, so a
+ *  user's choice is never reset. Exported for `state.test.ts`. */
+export function migratePreferences_1_37_0(
+  current: Record<string, unknown>,
+): Record<string, unknown> {
+  if ("agentDistro" in current) return current;
+  return { ...current, agentDistro: DEFAULT_PREFERENCES.agentDistro };
+}
+
 /** 1.32.0 — the new-terminal collapsed DEFAULT moved off `rightPanel.collapsed`
  *  (a write-dead seed jammed next to live geometry) to a top-level
  *  `newTerminalCollapsed` preference beside `newTerminalTheme`. CARRY the old
@@ -220,7 +233,7 @@ function readPersistedRecord(
  * Must be valid semver. `conf` runs all migration handlers
  * whose keys are > the last-seen version and ≤ this value.
  */
-const SCHEMA_VERSION = "1.36.0";
+const SCHEMA_VERSION = "1.37.0";
 
 // Callers must pass an explicit directory via KOLU_STATE_DIR. A bare launch
 // with no env would silently clobber whatever happens to live at conf's
@@ -726,6 +739,19 @@ const CONF_MIGRATIONS = {
   // ever written by the `viewerMode` cell's store, never here.
   "1.36.0": (store: Conf<PersistedState>) => {
     if (!store.has("viewerMode")) store.set("viewerMode", "dark");
+  },
+  // `agentDistro` — the Agents setting (on/off + agent-distro profile) — is now a
+  // preferences field. Spread the default in under an existing value, the same
+  // spread-defaults shape as the 1.6.0/1.7.0 rightPanel steps, so an existing
+  // user gets agents OFF (profile `vanilla`), exactly like a fresh install: an
+  // upgrade changes nobody's PATH.
+  "1.37.0": (store: Conf<PersistedState>) => {
+    store.set(
+      "preferences",
+      migratePreferences_1_37_0(
+        store.get("preferences") as Record<string, unknown>,
+      ) as unknown as Preferences,
+    );
   },
 };
 

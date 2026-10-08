@@ -39,7 +39,8 @@ describe("Preferences — the conf store's `preferences` field", () => {
       '{"seenTips":[],"startupTips":true,"newTerminalTheme":"shuffle",' +
         '"newTerminalCollapsed":false,"shuffleBehavior":"auto","scrollLock":true,' +
         '"attentionAlerts":true,"colorScheme":"dark","terminalRenderer":"auto",' +
-        '"rightPanel":{"size":0.25,"codeTabTreeSize":0.35}}',
+        '"rightPanel":{"size":0.25,"codeTabTreeSize":0.35},' +
+        '"agentDistro":{"enabled":false,"profile":"vanilla"}}',
     );
   });
 
@@ -48,7 +49,8 @@ describe("Preferences — the conf store's `preferences` field", () => {
       '{"seenTips":["ports","dock"],"startupTips":false,"newTerminalTheme":"inherit",' +
       '"newTerminalCollapsed":true,"shuffleBehavior":"colourful","scrollLock":false,' +
       '"attentionAlerts":false,"colorScheme":"system","terminalRenderer":"webgl",' +
-      '"rightPanel":{"size":0.4,"codeTabTreeSize":0.5}}';
+      '"rightPanel":{"size":0.4,"codeTabTreeSize":0.5},' +
+      '"agentDistro":{"enabled":false,"profile":"juspay"}}';
     const decoded = Schema.decodeUnknownSync(PreferencesSchema)(
       JSON.parse(stored),
     );

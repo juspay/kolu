@@ -19,11 +19,13 @@
     let
       platform = import ./nix/each-system.nix;
       commitHash = import ./nix/commit-hash.nix self;
-      # Import Kolu once per system; `packages` and `checks` both consume these
-      # so each derivation set is evaluated once.
-      koluBySystem = platform.withPkgs (pkgs:
+      # Import nixpkgs and Kolu once per system; `packages` and `checks` both
+      # consume these so each derivation set is evaluated once.
+      pkgsBySystem = platform.withPkgs (pkgs: pkgs);
+      koluBySystem = platform.mapSystems (system:
         import ./default.nix {
-          inherit pkgs commitHash;
+          pkgs = pkgsBySystem.${system};
+          inherit commitHash;
         });
     in
     {
@@ -72,6 +74,16 @@
       # owns its independent check in website/flake.nix.
       checks = platform.mapSystems (system: {
         typecheck = koluBySystem.${system}.typecheck;
+        # The agent-distro floor must EVALUATE for every system kolu supports,
+        # including the ones CI never builds on (aarch64-linux): a harness recipe
+        # that fails to evaluate there would otherwise surface only as a broken
+        # `nix run` on a user's machine. Records each system's drvPath with its
+        # context dropped, so realising this check evaluates every system but
+        # builds none of them.
+        agent-distro-systems =
+          pkgsBySystem.${system}.writeText "agent-distro-systems"
+            (builtins.unsafeDiscardStringContext (builtins.toJSON
+              (platform.mapSystems (s: koluBySystem.${s}.agent-distro-bundle.drvPath))));
       });
       devShells = platform.withPkgs (pkgs:
         let default = import ./shell.nix { inherit pkgs; };

@@ -19,18 +19,20 @@ import { After, AfterAll, Before, BeforeAll, Status } from "@cucumber/cucumber";
 import { padiKavalSocketPath } from "@kolu/padi/stateRoot";
 import { padiGatePath, padiSocketPath } from "@kolu/padi-client/rendezvous";
 import type { NewTerminalPolicy } from "@kolu/padi-client/surface";
+import type { AgentDistroSetting } from "@kolu/agent-distro/schema";
 import getPort from "get-port";
 import { composeSpawnEnv, NIX_ENV_WHITELIST, pickEnv } from "kolu-pty";
 import type { Browser, BrowserContext, Page } from "playwright";
 import { chromium } from "playwright";
+import { agentDistroFixtureEnv } from "./agentDistroFixture.ts";
 import { AGENT_DIR_VARS, FAKE_BIN_NAMES } from "./agentHarnessLists.ts";
+import { waitForPadiCell } from "./padiCellWait.ts";
 import * as engine from "../screencast/engine.ts";
 import { getRecording } from "../screencast/recordings/index.ts";
 import {
   disposeRpcWire,
   isPadiWarmingUp,
   padiCall,
-  padiFirstFrame,
   RpcCallFailed,
   setRpcBaseUrl,
   surfaceCall,
@@ -777,6 +779,10 @@ function composeE2eServerEnv(): Record<string, string> {
   return env;
 }
 
+/** The fixture bake, built once per worker (its paths are stable across the
+ *  server respawns a worker makes). */
+const agentDistroFixture = agentDistroFixtureEnv();
+
 async function startServerChild(koluServer: string): Promise<void> {
   // Refuse a destructive ssh-leg bind BEFORE spawning the child — the spawn itself is
   // destructive, so the ack cannot wait until after (P2/F1).
@@ -828,6 +834,11 @@ async function startServerChild(koluServer: string): Promise<void> {
           // Route server state to an ephemeral $TMPDIR path so test runs
           // never touch ~/.config and the dir can be wiped in AfterAll.
           KOLU_STATE_DIR: koluStateDir,
+          // A stand-in agent-distro bake (see `agentDistroFixture.ts`): Settings
+          // lists its profiles, and a terminal spawned with Agents on gets its
+          // stub `claude`. The server forwards it to the padi it spawns, as the
+          // `default` wrapper's real bake is.
+          ...agentDistroFixture,
           // Per-worker padi state-root: the server forwards this to the padi
           // PROCESS it spawns, and padi's socket + gate AND its kaval's socket +
           // gate are all keyed by this path's digest. Combined with the per-worker
@@ -1055,8 +1066,6 @@ async function resetPadiScenarioState(timeoutMs: number): Promise<void> {
  *  legs are already live by the time this runs (`resetPadiScenarioState` waited for
  *  padi), so what remains is one server→padi hop. */
 const POLICY_PUSH_TIMEOUT = 5_000;
-const POLICY_READ_TIMEOUT = 1_000;
-const POLICY_POLL_INTERVAL = 50;
 
 /** Block until padi's `newTerminalPolicy` cell reads the `inherit` policy the
  *  preferences reset above implies.
@@ -1070,39 +1079,26 @@ const POLICY_POLL_INTERVAL = 50;
  * accepted by the server. A read that never converges is a broken push, not a slow
  * one: fail loudly with the last thing padi said. */
 async function waitForInheritPolicy(): Promise<void> {
-  const deadline = Date.now() + POLICY_PUSH_TIMEOUT;
-  let lastDiagnostic = "no attempt completed";
-  while (Date.now() < deadline) {
-    let payload: unknown;
-    try {
-      // A cell `get` is a SUBSCRIPTION; take its opening snapshot and unsubscribe.
-      // A re-served cell withholds even that frame until the authority's fold primes
-      // the mirror ("mirror never fabricates"), so the read timeout doubles as the
-      // wait for padi to have spoken at all.
-      payload = await padiFirstFrame("newTerminalPolicy/get", undefined, {
-        timeoutMs: POLICY_READ_TIMEOUT,
-      });
-    } catch (err) {
-      // The upstream-link gap is the one failure worth re-reading within the cap,
-      // exactly as it is for the resets above. Any other failure is a real
-      // route/contract fault and surfaces now, carrying what the server said.
-      if (!isPadiWarmingUp(err)) throw err;
-      lastDiagnostic = err instanceof Error ? err.message : String(err);
-      await sleep(POLICY_POLL_INTERVAL);
-      continue;
-    }
-    // No re-validation here: the wire DECODED this frame against the cell's own
-    // `NewTerminalPolicySchema` (that is what a typed member's success channel is),
-    // so a frame the schema rejects has already failed the call above as contract
-    // drift. Re-parsing would be a second, drifting copy of the same authority.
-    const policy = payload as NewTerminalPolicy;
-    if (policy.kind === "inherit") return;
-    lastDiagnostic = `padi still reads ${JSON.stringify(policy)}`;
-    await sleep(POLICY_POLL_INTERVAL);
-  }
-  throw new Error(
-    `[worker:${workerId}] kolu-server never pushed the inherit new-terminal policy to padi within ${POLICY_PUSH_TIMEOUT}ms (last read: ${lastDiagnostic})`,
-  );
+  await waitForPadiCell({
+    memberVerb: "newTerminalPolicy/get",
+    accept: (p) => (p as NewTerminalPolicy).kind === "inherit",
+    what: `the inherit new-terminal policy [worker:${workerId}]`,
+    timeoutMs: POLICY_PUSH_TIMEOUT,
+  });
+}
+
+/** Block until padi's `agentDistro` cell reads OFF — the suite default the
+ *  preferences reset above sets, so a terminal a scenario opens never gets the
+ *  fixture agents (or their `claude`, which would shadow the mock agent bins)
+ *  unless the scenario turns them on itself. Same hop, same reason as the policy
+ *  wait above. */
+async function waitForAgentsOff(): Promise<void> {
+  await waitForPadiCell({
+    memberVerb: "agentDistro/get",
+    accept: (s) => (s as AgentDistroSetting).enabled === false,
+    what: `the Agents setting off [worker:${workerId}]`,
+    timeoutMs: POLICY_PUSH_TIMEOUT,
+  });
 }
 
 BeforeAll(async () => {
@@ -1234,11 +1230,16 @@ Before(
         size: 0.25,
         codeTabTreeSize: 0.35,
       },
+      // Agents OFF for the suite, as shipped (the default is off): the fixture bake
+      // gives every terminal a `claude` that would shadow the mock agent bins the
+      // agent-detection scenarios run. `agents.feature` turns them on itself.
+      agentDistro: { enabled: false, profile: "vanilla" },
     });
     // Reset padi's terminals + cells as one retryable transaction. It waits for
     // padi to be live, which is what bounds the tight policy poll that follows.
     await resetPadiScenarioState(SCENARIO_PADI_LIVE_TIMEOUT);
     await waitForInheritPolicy();
+    await waitForAgentsOff();
 
     // @mobile tag → emulate a touch phone (flips `(pointer: coarse)` to true,
     // mounts the mobile drag handle). @compact → emulate a roomy touch device

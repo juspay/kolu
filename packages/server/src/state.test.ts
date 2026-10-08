@@ -10,6 +10,7 @@ import {
   migratePreferences_1_30_0,
   migratePreferences_1_32_0,
   migratePreferences_1_34_0,
+  migratePreferences_1_37_0,
   store,
 } from "./state.ts";
 
@@ -150,13 +151,15 @@ describe("migratePreferences_1_34_0", () => {
 describe("the CHAINED preference ladder (a pre-1.30 blob walking every rung)", () => {
   /** The rungs that read the `preferences` blob, in ladder order. 1.31.0 /
    *  1.33.0 / 1.35.0 / 1.36.0 never touch it (key strip, `hosts` seed, no-op,
-   *  `viewerMode` seed), so these three ARE the whole walk a pre-1.30 file
+   *  `viewerMode` seed), so these four (1.37.0 seeds `agentDistro`) ARE the whole walk a pre-1.30 file
    *  makes. Testing each rung in isolation cannot catch a cross-rung defect:
    *  1.32.0 spreads today's `DEFAULT_PREFERENCES` into the record, which hands
    *  1.34.0 an `attentionAlerts` the user never chose. */
   const walkLadder = (blob: Record<string, unknown>) =>
-    migratePreferences_1_34_0(
-      migratePreferences_1_32_0(migratePreferences_1_30_0(blob)),
+    migratePreferences_1_37_0(
+      migratePreferences_1_34_0(
+        migratePreferences_1_32_0(migratePreferences_1_30_0(blob)),
+      ),
     );
 
   /** The literal shape a pre-1.30 install carries on disk: the retired

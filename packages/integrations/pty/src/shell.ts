@@ -527,69 +527,85 @@ export function readAgentToolsBake(
   return splitPathEntries(raw);
 }
 
-/** The prepend/dedupe rule as DATA — the single oracle BOTH implementations are
+/** The prepend rule as DATA — the single oracle BOTH implementations are
  *  tested against, so the TypeScript half (`prependPathEntries`) and the shell
  *  half (`PATH_REASSERT`) cannot drift. Co-location in one file is not
  *  unification: the rule is written twice, in two languages, and only a shared
  *  table makes a change to either red until the other follows. Add a row and
  *  both halves are asserted against it.
  *
- *  Every row is behaviour both halves genuinely share, because that is the only
- *  thing a shared oracle can be. The rule is deliberately minimal — prepend,
- *  skip what is already there, leave the caller's `PATH` otherwise verbatim
- *  (the `"/usr/bin::/bin"` row pins that: an empty entry the caller had is still
- *  there afterwards). Sanitizing a caller's `PATH` is a DIFFERENT job and lives
- *  in exactly one place, `cleanEnv` — see the empty-entry note there. */
+ *  The rule: the stamped dirs end up at the FRONT, in their order, each once —
+ *  a dir the caller's `PATH` already holds is MOVED there, not left where it
+ *  was. That is what makes a stamped dir win a name collision even after a
+ *  dotfile prepends its own dir (`export PATH=$HOME/.local/bin:$PATH`, the shape
+ *  Claude Code's own installer writes — the `.local/bin` row): "skip what is
+ *  already there" would leave the user's copy ahead, and the Agents setting's
+ *  promise ("these come first") false. Everything else in the caller's `PATH`
+ *  stays verbatim and in order (the `"/usr/bin::/bin"` row pins that: an empty
+ *  entry the caller had is still there afterwards). Sanitizing a caller's
+ *  `PATH` is a DIFFERENT job and lives in exactly one place, `cleanEnv` — see
+ *  the empty-entry note there. */
 export const PATH_PREPEND_CASES: ReadonlyArray<{
   path: string;
   dirs: readonly string[];
   expect: string;
 }> = [
   { path: "/usr/bin:/bin", dirs: ["/a", "/b"], expect: "/a:/b:/usr/bin:/bin" },
-  { path: "/usr/bin:/a", dirs: ["/a"], expect: "/usr/bin:/a" },
+  // Already present, but behind something: moved to the front.
+  { path: "/usr/bin:/a", dirs: ["/a"], expect: "/a:/usr/bin" },
+  // A dotfile prepended its own dir after the spawn env did: the stamped dirs
+  // still come first, in their order, each once.
+  {
+    path: "/home/u/.local/bin:/a:/b:/usr/bin",
+    dirs: ["/a", "/b"],
+    expect: "/a:/b:/home/u/.local/bin:/usr/bin",
+  },
   { path: "", dirs: ["/a"], expect: "/a" },
   { path: "/usr/bin:/bin", dirs: [], expect: "/usr/bin:/bin" },
   // The caller's PATH is passed through unedited, empty entry and all.
   { path: "/usr/bin::/bin", dirs: ["/a"], expect: "/a:/usr/bin::/bin" },
+  // A dir named twice among the stamped dirs lands once.
+  { path: "/usr/bin", dirs: ["/a", "/a"], expect: "/a:/usr/bin" },
 ];
 
-/** Prepend `dirs` to a `PATH` value, preserving `dirs` order and dropping any
- *  entry already present (so a re-spawn or a nested terminal can't grow PATH
- *  without bound). Pure string algebra — the TS half of the two-context
+/** Put `dirs` at the front of a `PATH` value, in their order, each once — moving
+ *  any that `PATH` already holds rather than duplicating them (so a re-spawn or a
+ *  nested terminal can't grow PATH without bound, and a stamped dir always wins
+ *  a name collision). Pure string algebra — the TS half of the two-context
  *  guarantee whose shell half is `PATH_REASSERT`. Both are driven from
- *  `PATH_PREPEND_CASES` so the "prepend without duplicating" rule has one
- *  oracle, not one address.
+ *  `PATH_PREPEND_CASES` so the rule has one oracle, not one address.
  *
- *  The contract is exactly that and nothing more: the caller's existing `PATH`
- *  comes out verbatim, including any empty entry it carried. This function does
- *  NOT sanitize somebody else's `PATH` — that hardening happens once, at the
- *  `cleanEnv` boundary, so it isn't re-implemented here and again in POSIX shell
- *  in `PATH_REASSERT`. What IS filtered here is the `dirs` we were asked to add:
- *  an empty string among them would mean "put the current directory on PATH",
- *  which this function must never introduce on its own. */
+ *  The contract is exactly that and nothing more: the rest of the caller's
+ *  `PATH` comes out verbatim and in order, including any empty entry it carried.
+ *  This function does NOT sanitize somebody else's `PATH` — that hardening
+ *  happens once, at the `cleanEnv` boundary, so it isn't re-implemented here and
+ *  again in POSIX shell in `PATH_REASSERT`. What IS filtered here is the `dirs`
+ *  we were asked to add: an empty string among them would mean "put the current
+ *  directory on PATH", which this function must never introduce on its own. */
 export function prependPathEntries(
   currentPath: string | undefined,
   dirs: readonly string[],
 ): string {
   const current = currentPath ?? "";
   // A wholly empty (or absent) PATH is ZERO entries, not one empty entry — the
-  // same reading the shell half takes with `${PATH:+:$PATH}`, which appends
-  // nothing at all when `$PATH` is empty.
+  // same reading the shell half takes.
   const existing = current === "" ? [] : current.split(":");
-  const fresh = dirs.filter((d) => d !== "" && !existing.includes(d));
-  return [...fresh, ...existing].join(":");
+  const fresh = [...new Set(dirs.filter((d) => d !== ""))];
+  const rest = existing.filter((e) => !fresh.includes(e));
+  return [...fresh, ...rest].join(":");
 }
 
-/** The shell half of the guarantee: re-assert the tool dirs on `PATH` AFTER the
- *  user's dotfiles have been replayed.
+/** The shell half of the guarantee: re-assert the tool dirs at the front of
+ *  `PATH` AFTER the user's dotfiles have been replayed.
  *
  *  Spawn-env alone is not enough. The replay above re-sources `~/.bashrc` /
  *  `~/.zshrc`, and a dotfile that does an ABSOLUTE `export PATH=…` (common, and
  *  the whole reason the replay exists — see this module's header) silently drops
- *  whatever the spawn env put there. So the dirs are asserted twice: once in the
- *  spawn env (so a shell we don't wrap, and any non-shell argv, still gets them)
- *  and once here (so a wrapped shell keeps them no matter what the user's
- *  dotfiles do to PATH).
+ *  whatever the spawn env put there, while one that PREPENDS (`export
+ *  PATH=$HOME/.local/bin:$PATH`) pushes its own dir ahead of it. So the dirs are
+ *  asserted twice: once in the spawn env (so a shell we don't wrap, and any
+ *  non-shell argv, still gets them) and once here (so a wrapped shell has them
+ *  first no matter what the user's dotfiles do to PATH).
  *
  *  The dirs are read from `$KOLU_TERMINAL_TOOLS_PATH` at runtime rather than
  *  interpolated into this source: the block is then a FIXED string with no
@@ -597,29 +613,42 @@ export function prependPathEntries(
  *  space or a metacharacter is data in a variable, never source to re-parse).
  *  POSIX-only syntax — one text for both the bash and zsh wrappers.
  *
- *  Same minimal contract as the TS half: prepend, skip a dir already on `$PATH`,
- *  and otherwise leave `$PATH` byte-identical — it does not rewrite the inherited
- *  value, so an empty entry a dotfile left there survives. That is deliberate:
+ *  Same contract as the TS half: the stamped dirs move to the front, in order,
+ *  each once; every other `$PATH` entry stays verbatim and in order — including
+ *  an empty one a dotfile left there (the walk over `"$PATH:"` keeps it), since
  *  empty-entry hardening happens once at the `cleanEnv` boundary rather than
- *  being re-implemented here in POSIX shell, which is what would let the two
- *  halves drift. The `[ -z "$__kolu_dir" ] && continue` above filters the dirs
- *  we were ASKED to add, so this block never introduces one itself.
+ *  being re-implemented here in POSIX shell. The `[ -z "$__kolu_dir" ] &&
+ *  continue` in the first loop filters the dirs we were ASKED to add, so this
+ *  block never introduces an empty entry itself.
  *
  *  Exported so `PATH_PREPEND_CASES` can be asserted against THIS text under a
  *  real bash and zsh, not against a paraphrase of it. */
 export const PATH_REASSERT = [
   `__kolu_path_reassert() {`,
+  // 1. The stamped dirs, in order, each once, empties dropped.
   `  __kolu_new=""; __kolu_rest="\${1-}"`,
   `  while [ -n "$__kolu_rest" ]; do`,
   `    __kolu_dir="\${__kolu_rest%%:*}"`,
   `    case "$__kolu_rest" in *:*) __kolu_rest="\${__kolu_rest#*:}" ;; *) __kolu_rest="" ;; esac`,
   `    [ -z "$__kolu_dir" ] && continue`,
-  `    case ":$PATH:" in *":$__kolu_dir:"*) continue ;; esac`,
+  `    case ":$__kolu_new:" in *":$__kolu_dir:"*) continue ;; esac`,
   `    __kolu_new="\${__kolu_new:+$__kolu_new:}$__kolu_dir"`,
   `  done`,
-  `  [ -n "$__kolu_new" ] && PATH="$__kolu_new\${PATH:+:$PATH}"`,
+  `  if [ -n "$__kolu_new" ]; then`,
+  // 2. Every other PATH entry, verbatim and in order (empties included).
+  `    __kolu_kept=""; __kolu_any=0`,
+  `    if [ -n "\${PATH-}" ]; then`,
+  `      __kolu_rest="$PATH:"`,
+  `      while [ -n "$__kolu_rest" ]; do`,
+  `        __kolu_dir="\${__kolu_rest%%:*}"; __kolu_rest="\${__kolu_rest#*:}"`,
+  `        case ":$__kolu_new:" in *":$__kolu_dir:"*) continue ;; esac`,
+  `        if [ "$__kolu_any" = 1 ]; then __kolu_kept="$__kolu_kept:$__kolu_dir"; else __kolu_kept="$__kolu_dir"; __kolu_any=1; fi`,
+  `      done`,
+  `    fi`,
+  `    if [ "$__kolu_any" = 1 ]; then PATH="$__kolu_new:$__kolu_kept"; else PATH="$__kolu_new"; fi`,
+  `  fi`,
   `  export PATH`,
-  `  unset __kolu_new __kolu_rest __kolu_dir`,
+  `  unset __kolu_new __kolu_rest __kolu_dir __kolu_kept __kolu_any`,
   `}`,
   `__kolu_path_reassert "\${${TERMINAL_TOOLS_PATH_ENV}-}"`,
   `unset -f __kolu_path_reassert`,

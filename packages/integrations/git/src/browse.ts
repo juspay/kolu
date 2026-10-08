@@ -24,6 +24,7 @@ import type { Logger } from "kolu-shared";
 import pLimit from "p-limit";
 import { err, type GitResult, isFileGoneError, ok } from "./errors.ts";
 import { resolveExistingUnder } from "./safe-path.ts";
+import { MAX_READ_BYTES } from "./schemas.ts";
 
 const execFileAsync = promisify(execFile);
 
@@ -236,9 +237,6 @@ export async function listDirectory(
     });
   }
 }
-
-/** Max file size to read (1 MB). Larger files get a truncation notice. */
-const MAX_READ_BYTES = 1_048_576;
 
 /** Read a file's UTF-8 content, guarded against path traversal.
  *

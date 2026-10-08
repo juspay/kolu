@@ -35,10 +35,22 @@
 // the seal forbids the REVERSE (padi importing kolu). Types re-exported below so existing
 // `kolu-common/surface` importers are unchanged.
 import {
+  AgentDistroHarnessSchema,
+  type AgentDistroListing,
+  AgentDistroListingSchema,
+  AgentDistroListOutputSchema,
+  type AgentDistroProfile,
+  AgentDistroProfileSchema,
+} from "@kolu/agent-distro/listing";
+import { DEFAULT_AGENT_PROFILE } from "@kolu/agent-distro/manifest";
+import { mibOf } from "@kolu/byte-units";
+
+import {
   HostDaemonInventorySchema,
   type NewTerminalPolicy,
   type ToastOnlyPolicy,
 } from "@kolu/padi-client/surface";
+import { AgentDistroSettingSchema } from "@kolu/agent-distro/schema";
 import {
   defineSurfaceWithPolicy,
   type SurfaceTypes,
@@ -229,6 +241,27 @@ export const RightPanelPrefsSchema = Schema.Struct({
   codeTabTreeSize: Schema.Number,
 });
 
+/** The Agents setting — whether new terminals get agent-distro's coding agents
+ *  on their PATH, and which profile's. Global, not per host or per terminal:
+ *  kolu-server pushes it to every bound padi (its memory-only `agentDistro`
+ *  cell), and padi applies it at each NEW terminal's spawn — a running terminal
+ *  keeps the bundle it started with. `profile` names one of the profiles the
+ *  pinned agent-distro ships (kolu-server's `agentDistroListing` cell); an
+ *  unknown one is an error the UI shows, never silently reset. */
+export const AgentDistroPrefsSchema = AgentDistroSettingSchema;
+
+// agent-distro's `--list --json` vocabulary and kolu's listing cell value live in
+// `@kolu/agent-distro` (kolu's contract with upstream); re-exported here so the
+// surface and its importers reach them through their usual door.
+export {
+  AgentDistroHarnessSchema,
+  type AgentDistroListing,
+  AgentDistroListingSchema,
+  AgentDistroListOutputSchema,
+  type AgentDistroProfile,
+  AgentDistroProfileSchema,
+};
+
 export const PreferencesSchema = Schema.Struct({
   seenTips: Schema.Array(Schema.String),
   startupTips: Schema.Boolean,
@@ -258,6 +291,8 @@ export const PreferencesSchema = Schema.Struct({
    *  rendering shift on focus swap at the cost of WebGL throughput. */
   terminalRenderer: Schema.Literals(["auto", "webgl", "dom"]),
   rightPanel: RightPanelPrefsSchema,
+  /** The Agents setting — see {@link AgentDistroPrefsSchema}. */
+  agentDistro: AgentDistroPrefsSchema,
 });
 
 /** Preference patch — top-level fields are optional; nested objects are deep-partial.
@@ -269,13 +304,16 @@ export const PreferencesSchema = Schema.Struct({
  *  unset, and `Schema.optional` would round-trip an explicit `undefined` through
  *  `null`, which the local-authority merge below would then write as a real value. */
 export const PreferencesPatchSchema = PreferencesSchema.mapFields(
-  Struct.omit(["rightPanel"]),
+  Struct.omit(["rightPanel", "agentDistro"]),
 )
   .mapFields(Struct.map(Schema.optionalKey))
   .mapFields(
     Struct.assign({
       rightPanel: Schema.optionalKey(
         RightPanelPrefsSchema.mapFields(Struct.map(Schema.optionalKey)),
+      ),
+      agentDistro: Schema.optionalKey(
+        AgentDistroPrefsSchema.mapFields(Struct.map(Schema.optionalKey)),
       ),
     }),
   );
@@ -296,6 +334,7 @@ export type ColorScheme = typeof ColorSchemeSchema.Type;
 export type NewTerminalTheme = typeof NewTerminalThemeSchema.Type;
 export type ShuffleBehavior = typeof ShuffleBehaviorSchema.Type;
 export type ViewerMode = typeof ViewerModeSchema.Type;
+export type AgentDistroPrefs = typeof AgentDistroPrefsSchema.Type;
 
 /** The candidate-pool filter a shuffle should apply, from the
  *  `shuffleBehavior` preference and the app's resolved dark mode.
@@ -376,6 +415,11 @@ export const DEFAULT_PREFERENCES: typeof PreferencesSchema.Type = {
     size: 0.25,
     codeTabTreeSize: 0.35,
   },
+  // OFF by default: kolu adds nothing to a terminal's PATH until the user
+  // turns Agents on (Settings → Agents; the first-run step that asks is K2).
+  // The profile it starts on is typed once, in `@kolu/agent-distro`'s
+  // `defaults.json` — the file the Nix half bakes as its default too.
+  agentDistro: { enabled: false, profile: DEFAULT_AGENT_PROFILE },
 };
 
 // `applyPreferencesPatch` references `Preferences` / `PreferencesPatch`
@@ -387,7 +431,7 @@ type _Preferences = typeof PreferencesSchema.Type;
 type _PreferencesPatch = typeof PreferencesPatchSchema.Type;
 
 /** Pure merge of a `PreferencesPatch` into the current preferences.
- *  `rightPanel` is deep-merged so callers can patch a single nested field
+ *  `rightPanel` and `agentDistro` are deep-merged so callers can patch a single nested field
  *  without supplying the rest of the object. Lives on the surface spec
  *  (`cells.preferences.patch`) so server (`implementSurface`) and client
  *  (`surfaceClient`'s default `applyPatch`) reach the same logic without
@@ -396,12 +440,15 @@ export function applyPreferencesPatch(
   current: _Preferences,
   patch: _PreferencesPatch,
 ): _Preferences {
-  const { rightPanel: rpPatch, ...rest } = patch;
+  const { rightPanel: rpPatch, agentDistro: adPatch, ...rest } = patch;
   return {
     ...current,
     ...rest,
     ...(rpPatch !== undefined && {
       rightPanel: { ...current.rightPanel, ...rpPatch },
+    }),
+    ...(adPatch !== undefined && {
+      agentDistro: { ...current.agentDistro, ...adPatch },
     }),
   };
 }
@@ -783,44 +830,32 @@ export const DEFAULT_DAEMON_INVENTORY: DaemonInventory = {
   boundPadi: null,
 };
 
-/** Bytes in one megabyte. The single source of truth both the server-side dedup
- *  boundary and the client-side rail rendering read, so they can't drift. */
-export const BYTES_PER_MB = 1_048_576;
-
-/** The whole-megabyte figure the rail displays for a byte count. One
- *  computation, shared: the server's `processMemory` dedup (drop a set when the
- *  displayed MB doesn't move) and the client's `formatMBCompact` rendering both
- *  read it, so the dedup boundary and the rendered figure provably agree rather
- *  than relying on two byte-for-byte-identical copies. */
-export function bytesToWholeMB(bytes: number): number {
-  return Math.round(bytes / BYTES_PER_MB);
-}
-
-/** Two per-process RSS readings render the same whole-MB figure — same status and,
- *  when `ok`, the same whole megabytes (an `absent`/`error` pair carries no number
+/** Two per-process RSS readings render the same whole-MiB figure — same status and,
+ *  when `ok`, the same whole MiB (an `absent`/`error` pair carries no number
  *  to compare). */
-function rssMbEqual(a: ProcessRss, b: ProcessRss): boolean {
+function rssMiBEqual(a: ProcessRss, b: ProcessRss): boolean {
   if (a.status !== b.status) return false;
   if (a.status === "ok" && b.status === "ok") {
-    return bytesToWholeMB(a.rssBytes) === bytesToWholeMB(b.rssBytes);
+    return mibOf(a.rssBytes, 0) === mibOf(b.rssBytes, 0);
   }
   return true;
 }
 
-/** Two readouts are equal when all three processes render the same whole-MB figure
- *  — the `processMemory` cell's `equals`, so a sub-MB RSS wobble never re-publishes
+/** Two readouts are equal when all three processes render the same whole-MiB figure
+ *  — the `processMemory` cell's `equals`, so a sub-MiB RSS wobble never re-publishes
  *  to every connected client. Declared HERE at the spec (the derived poll cell is
  *  the one writer, per the reactive bridge's "equals lives at the member, once"
- *  law) and built on the shared {@link bytesToWholeMB} so the dedup boundary and the
+ *  law) and built on `@kolu/byte-units`' `mibOf` — the rounding the rail's
+ *  `formatMiB(bytes, 0)` renders with — so the dedup boundary and the
  *  client's rendered figure are one computation. */
-export function processMemoryMbEqual(
+export function processMemoryMiBEqual(
   a: ProcessMemory,
   b: ProcessMemory,
 ): boolean {
   return (
-    bytesToWholeMB(a.serverRssBytes) === bytesToWholeMB(b.serverRssBytes) &&
-    rssMbEqual(a.padi, b.padi) &&
-    rssMbEqual(a.kaval, b.kaval)
+    mibOf(a.serverRssBytes, 0) === mibOf(b.serverRssBytes, 0) &&
+    rssMiBEqual(a.padi, b.padi) &&
+    rssMiBEqual(a.kaval, b.kaval)
   );
 }
 
@@ -931,6 +966,17 @@ export const koluSurface = defineSurfaceWithPolicy<ToastOnlyPolicy>()({
       client: { onError: { kind: "toast", label: "Viewer mode" } },
     },
 
+    /** The agent-distro profiles Settings offers (see
+     *  {@link AgentDistroListingSchema}) — read once at boot from the baked
+     *  picker's `--list --json`, seeded into an in-memory store, never written
+     *  after. Read-only on the client. */
+    agentDistroListing: {
+      schema: AgentDistroListingSchema,
+      default: { kind: "unavailable" } satisfies AgentDistroListing,
+      verbs: ["get"],
+      client: { onError: { kind: "toast", label: "Agents listing" } },
+    },
+
     /** Live process-memory readout (kolu-server + padi + kaval RSS) for the rail.
      *  A DERIVED poll cell (`derived.cell(source(...))` in `server/src/index.ts`), so
      *  the reactor graph is the one writer — no ctx `.set`; clients read-only. It
@@ -947,8 +993,8 @@ export const koluSurface = defineSurfaceWithPolicy<ToastOnlyPolicy>()({
       // Whole-MB dedup — a DERIVED poll cell (`derived.cell(source(...))` in
       // `server/src/index.ts`), so the graph is the one writer and `equals` is the
       // ONE wire dedup point, declared here at the member (the reactive bridge's law).
-      // A sub-MB RSS wobble never re-publishes to every connected client.
-      equals: processMemoryMbEqual,
+      // A sub-MiB RSS wobble never re-publishes to every connected client.
+      equals: processMemoryMiBEqual,
       verbs: ["get"],
       client: { onError: { kind: "toast", label: "Memory readout" } },
     },

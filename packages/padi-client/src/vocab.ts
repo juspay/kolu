@@ -13,6 +13,7 @@
  * `@kolu/padi-client/surface`.
  */
 
+import { TerminalAgentsSchema } from "@kolu/agent-distro/schema";
 import type { WireSchema } from "@kolu/surface/define";
 import type { DaemonLifetimeInfo } from "@kolu/surface-daemon/lifetime";
 import {
@@ -271,6 +272,12 @@ const KoluAuthoredServerFieldsSchema = Schema.Struct({
    *  discriminant is what `resumeFormFor` switches on, so an absent field can't be
    *  misread as the most-recent fallback the old bare `resumeAgent` left ambiguous. */
   restoreTarget: Schema.optionalKey(RestoreTargetSchema),
+  /** The agents padi put on this terminal's PATH at spawn (the Agents setting as
+   *  it stood then) — `@kolu/agent-distro/schema`'s one struct. ABSENT when
+   *  agent-distro was off, or had nothing to give, at spawn: the tile then shows
+   *  no pill. Re-stamped whole by each spawn; a running terminal never changes
+   *  it, which is the point (it pins the bundle it started with). */
+  agents: Schema.optionalKey(TerminalAgentsSchema),
   ...AgentMemorySchema.fields,
 });
 

@@ -1,6 +1,6 @@
 ---
 paths:
-  - "{packages/client/favicon.svg,packages/client/public/icon-192.png,packages/client/public/icon-512.png,packages/client/public/icon-512-maskable.png,packages/client/index.html,packages/client/src/AboutDialog.tsx,packages/client/src/WelcomeDialog.tsx,packages/client/src/ChromeBar.tsx,packages/client/src/MobileChromeSheet.tsx,packages/client/src/terminal/useActivityAlerts.ts,packages/client/src/screenshotTerminal.ts,packages/client/src/kaval/KavalInfoDialog.tsx,packages/server/src/index.ts,packages/server/src/pwaIdentity.ts,packages/server/src/pwaIdentity.test.ts,packages/padi/logo.svg,packages/kaval/logo.svg,packages/kaval/README.md,website/default.nix,website/public/favicon.svg,website/public/padi-logo.svg,website/public/kaval-logo.svg,website/src/**,README.md}"
+  - "{packages/client/favicon.svg,packages/client/public/icon-192.png,packages/client/public/icon-512.png,packages/client/public/icon-512-maskable.png,packages/client/index.html,packages/client/src/AboutDialog.tsx,packages/client/src/WelcomeDialog.tsx,packages/client/src/ChromeBar.tsx,packages/client/src/MobileChromeSheet.tsx,packages/client/src/terminal/useActivityAlerts.ts,packages/client/src/screenshotTerminal.ts,packages/client/src/kaval/KavalInfoDialog.tsx,packages/server/src/index.ts,packages/server/src/pwaIdentity.ts,packages/server/src/pwaIdentity.test.ts,packages/padi/logo.svg,packages/kaval/logo.svg,packages/kaval/README.md,packages/agent-distro/src/solid/agent-distro-logo.svg,packages/agent-distro/src/solid/AgentDistroLogo.tsx,website/default.nix,website/public/favicon.svg,website/public/padi-logo.svg,website/public/kaval-logo.svg,website/src/**,README.md}"
 ---
 
 ## Kolu Logo
@@ -29,3 +29,10 @@ paths:
 - Keep the Kaval SVG background transparent. Let the consuming surface provide any tile or panel behind it.
 - Keep it icon-like, not wordmark-like: no long text, no tiny labels, no dense terminal clusters. It must read at 24px in the Kaval dialog and at favicon-adjacent sizes.
 - Preserve the meaning: Kaval is the PTY daemon that guards/watches terminals. A simple prompt, shield/watch shape, and a small session cue are enough.
+
+## agent-distro Logo
+
+- `packages/agent-distro/src/solid/agent-distro-logo.svg` is **vendored verbatim** from agent-distro's `doc/logo.svg` at the npins pin (`npins/sources.json` → `agent-distro`). Never edit it here: change it upstream, then re-copy it at the next pin bump and check it is byte-identical (`cmp`) to the pinned source.
+- Keep it as agent-distro ships it: `viewBox="0 0 24 24"`, strokes `currentColor` (so it takes the surrounding text colour), the three dots in their own fixed colours.
+- Render it only through `AgentDistroLogo` (`@kolu/agent-distro/solid`, `packages/agent-distro/src/solid/AgentDistroLogo.tsx`, a `size` prop). It inlines the SVG (`?raw`) rather than using an `<img>`, because an `<img>` cannot inherit `currentColor`.
+- Show it wherever kolu names agent-distro: the tile header's agents pill, the Settings "Agents" row, the host tab's agents mark (its state treatment around the logo), and the "Agents ready" / download-failed toasts. It is decorative (`aria-hidden`); the text beside it carries the meaning.

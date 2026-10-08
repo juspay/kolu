@@ -30,6 +30,7 @@ import {
   type padiSurface,
   ScratchWriteRejected,
 } from "@kolu/padi-client/surface";
+import { DEFAULT_AGENT_DISTRO_STATUS } from "@kolu/agent-distro/schema";
 import { watchScopeOf } from "@kolu/padi-client/watchScope";
 import { base64DecodedLength } from "@kolu/surface/frame-chunking";
 import { derived, everyMsOr, source } from "@kolu/surface/reactor";
@@ -57,6 +58,12 @@ import { createFinishQuiet } from "./activity/finishQuiet.ts";
 import { createLiveActivitySource } from "./activity/liveActivity.ts";
 import { EMPTY_URGENCY } from "./activity/urgency.ts";
 import { createEdgeMemory } from "./attention/edgeMemory.ts";
+import {
+  agentDistroSettingStore,
+  checkAgentDistroSetting,
+  onAgentDistroSettingWrite,
+} from "./agentDistro/agentDistro.ts";
+import { agentDistroBake } from "./agentDistro/bake.ts";
 import { createEventSeq } from "./attention/eventSeq.ts";
 import { createFleetGate } from "./attention/fleetGate.ts";
 import { createSettleEvents } from "./attention/settleEvents.ts";
@@ -133,6 +140,8 @@ import {
   setTerminalIntent,
   setTerminalParent,
   setTerminalTheme,
+  requireAttachableTerminal,
+  restartTerminal,
   sleepTerminal,
 } from "./terminals.ts";
 import { unwrapGit } from "./terminalWorkspace/endpoint.ts";
@@ -230,7 +239,9 @@ async function* attachFrames(
   resizeTo: EndpointGrid | undefined,
   signal: AbortSignal,
 ): AsyncGenerator<TerminalAttachFrame> {
-  const entry = requireActiveTerminal(id);
+  // Restart-aware: an attach landing in the dormant middle of a restart waits
+  // for the new PTY instead of being told the terminal is gone.
+  const entry = await requireAttachableTerminal(id);
   const { snapshot, topLine, reflowEpoch, grid, deltas } =
     await resolveTerminalEndpoint(entry.meta.location).attach(
       id,
@@ -292,6 +303,9 @@ export function buildPadiSurfaceDeps(deps: {
   stateRoot: string;
 }): PadiDeps {
   const { endpoint, log, startedAt, commit, lifetime, stateRoot } = deps;
+  // Read the agent-distro bake NOW so a broken one (a half bake, a listing that
+  // does not parse) crashes the daemon at boot rather than at the first spawn.
+  agentDistroBake();
   const fsGit = padiFsGitDeps(endpoint, log);
   // Dispose the PRIOR daemon-lifetime set (finish tracker + attention flow) so a
   // servePadi test rebuild doesn't stack resubscribe loops or two sets of sinks.
@@ -426,6 +440,22 @@ export function buildPadiSurfaceDeps(deps: {
       // The SAME module store `resolveNewTerminalTheme` reads — that identity is
       // what makes `lifecycle.create` resolve against the wire-written authority.
       newTerminalPolicy: { store: newTerminalPolicyStore },
+      // The Agents setting the binding kolu-server pushes. The SAME module store
+      // the spawn path resolves against (`newTerminalLayer`). `onMutate` refuses
+      // a profile this build does not know (the write fails loud at the binder);
+      // `onWrite` publishes the host status and starts a remote host's one
+      // download. Both run only for a CHANGED value — the spec's `equals` drops a
+      // reconnect's identical re-push.
+      agentDistro: {
+        store: agentDistroSettingStore,
+        onMutate: checkAgentDistroSetting,
+        onWrite: onAgentDistroSettingWrite,
+      },
+      // Read-only: written only by the agent-distro module. `off` until the
+      // binder's first push says otherwise.
+      agentDistroStatus: {
+        store: inMemoryStore(DEFAULT_AGENT_DISTRO_STATUS),
+      },
       // Every TCP listener on THIS padi's host — written by the port sampler (the
       // same pass that feeds each terminal's `ports`), read by the printed-URL
       // card, the Ports section's "elsewhere on this host" group, and kolu-server's
@@ -836,6 +866,21 @@ export function buildPadiSurfaceDeps(deps: {
             const info = wakeLocalTerminal(input.id);
             if (!info) throw terminalNotFound(input.id);
             return info;
+          }),
+        restart: ({ input }) =>
+          handle(async () => {
+            log.info({ terminal: input.id }, "restart");
+            const restarted = await restartTerminal(input.id);
+            if (!restarted) throw terminalNotFound(input.id);
+            // What padi DID, off its record: the agents the new PTY got, and
+            // whether the conversation was resumed on them.
+            const meta = getTerminal(input.id)?.meta;
+            const agents = meta?.state === "active" ? meta.agents : undefined;
+            return {
+              ...restarted.info,
+              ...(agents === undefined ? {} : { agents }),
+              resumed: restarted.resumed,
+            };
           }),
         discardSleeping: ({ input }) =>
           handle(() => {

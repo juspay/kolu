@@ -13,6 +13,7 @@ import type { Component, JSX } from "solid-js";
  *  with the basenames there — the set-equality test enforces both directions. */
 export const DOC_SLUGS = [
   "agent-detection",
+  "agents",
   "agent-fleets",
   "architecture",
   "canvas",

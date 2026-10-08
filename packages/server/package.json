@@ -11,6 +11,7 @@
   },
   "dependencies": {
     "@effect/platform-node": "catalog:",
+    "@kolu/agent-distro": "workspace:*",
     "@kolu/artifact-sdk": "workspace:*",
     "@kolu/heap-diag": "workspace:*",
     "@kolu/log": "workspace:*",
@@ -47,6 +48,7 @@
   },
   "devDependencies": {
     "@babel/parser": "^7.29.2",
+    "@kolu/byte-units": "workspace:*",
     "@kolu/daemon-test-gate": "workspace:*",
     "@kolu/surface-map": "workspace:*",
     "@types/node": "^22.0.0",

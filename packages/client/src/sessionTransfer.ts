@@ -13,6 +13,7 @@
  *  JSON-parse/validation step is split out as `parseSavedSession` so it can
  *  be unit-tested without a DOM. */
 
+import { formatMiB } from "@kolu/byte-units";
 import {
   backfillSavedSession,
   type SavedSession,
@@ -94,9 +95,8 @@ export function parseSavedSession(text: string): SavedSession {
   // `text.length` is UTF-16 code units, which is exactly what the ndjson
   // decoder counts, so the two measure the same thing.
   if (text.length > MAX_SESSION_IMPORT_BYTES) {
-    const mb = (n: number) => (n / (1024 * 1024)).toFixed(1);
     throw new Error(
-      `that session file is ${mb(text.length)} MB; the limit is ${mb(MAX_SESSION_IMPORT_BYTES)} MB. A real kolu export is a few hundred KB at most, so this one is very likely not a session export.`,
+      `that session file is ${formatMiB(text.length, 1)}; the limit is ${formatMiB(MAX_SESSION_IMPORT_BYTES, 1)}. A real kolu export is a few hundred KiB at most, so this one is very likely not a session export.`,
     );
   }
   let parsed: unknown;

@@ -48,7 +48,7 @@ import { runAction, runActionPromise, type UiAction } from "./runAction";
 import { formatTimeAgo } from "./terminal/staleness";
 import { createDisclosure } from "./ui/createDisclosure";
 import InlineConfirmButton from "./ui/InlineConfirmButton";
-import { formatMB } from "./ui/memory";
+import { formatSize } from "./ui/memory";
 import ModalDialog from "./ui/ModalDialog";
 import { surface } from "./ui/Surface";
 import { client, hostKeys, padiMap } from "./wire";
@@ -320,7 +320,7 @@ const StateBackupsDialog: Component = () => {
                       <div class="font-medium text-fg">
                         {formatTimeAgo(row.savedAtMs) || "—"}
                         <span class="ml-2 text-[11px] font-normal text-fg-3">
-                          {row.summary} · {formatMB(row.sizeBytes)}
+                          {row.summary} · {formatSize(row.sizeBytes)}
                         </span>
                       </div>
                       <div class="truncate font-mono text-[10px] text-fg-3">

@@ -176,14 +176,14 @@ export const RUN_EDGE_ALLOWLIST: readonly RunEdge[] = [
     why: "the two edges of an orderly async boot (locked decision 1): the reactor's poll dep is `() => Promise<T>` — its ENGINE is Effect's Atom, but its FACE is deliberately synchronous and non-Effect; and binding the listener, since `serveSurfaceApp` is a scoped `Effect` and `bootKoluWeb` is a plain async function with no Effect context to hand it (the node `request`-callback edge this file used to carry is GONE — the primitive owns that boundary now)",
   },
   {
-    path: "packages/server/src/padi/newTerminalPolicy.ts",
-    sites: 1,
-    why: "the policy pusher's edge: a cell `set` is an Effect, but every caller above it is a SYNCHRONOUS framework callback that hands down no Effect, Scope or Promise slot (`reactiveFamily`'s change edge; `CellHandlerDeps.onWrite: (next: T) => void`), so making the pusher an Effect would only move an un-run description into a `() => void` that discards it — and a discarded description is a policy push that silently stops firing",
-  },
-  {
     path: "packages/server/src/padi/padiBinding.ts",
     sites: 1,
     why: "the local padi `Connector` plug — `@kolu/surface-remote`'s reconnect loop asks for `(ctx) => Promise<Connection>` and OWNS the connection it gets, re-invoking it on its own redial path, so this is where kolu-server's Effect-native `converge(ep)` joins a Promise-shaped seam it does not own (that session machinery is the campaign's recorded residual)",
+  },
+  {
+    path: "packages/server/src/padi/padiCellPusher.ts",
+    sites: 1,
+    why: "the padi cell pusher's edge (the new-terminal theme policy and the Agents setting): a cell `set` is an Effect, but every caller above it is a SYNCHRONOUS framework callback that hands down no Effect, Scope or Promise slot (`reactiveFamily`'s change edge; `CellHandlerDeps.onWrite: (next: T) => void`), so making the pusher an Effect would only move an un-run description into a `() => void` that discards it — and a discarded description is a push that silently stops firing",
   },
   {
     path: "packages/server/src/padi/remotePadiBinding.ts",

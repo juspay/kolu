@@ -1,0 +1,150 @@
+---
+title: AI coding agents
+description: "Kolu can bring AI coding agents into every new terminal — kept up to date, nothing to install — on this machine and on every host you add. Turn them on in Settings → Agents."
+order: 49
+section: "Agents & Attention"
+koluHero:
+  eyebrow: agent-distro
+  headline: |
+    Type `claude`.
+    It's {already} there.
+---
+
+import Aside from "../../components/docs/Aside.astro";
+
+Kolu can bring the AI coding agents along — **Claude Code, Codex, OpenCode, Pi
+and Oh My Pi** — kept up to date, with nothing for you to install. Turn them on in
+**Settings → Agents**, open a new terminal and type `claude`: it runs, and so do
+the others. Each one starts with kolu's own plugin loaded, so it can drive your
+other kolu terminals out of the box. Agents you installed yourself keep working:
+kolu's come first, yours stay as the fallback.
+
+You choose between the sets kolu ships — today **vanilla** (the stock agents)
+and **juspay** (Juspay's). Settings says what each one is, in a sentence, the
+moment you look at it ([Pick a set](#pick-a-set)).
+
+This is **off by default**, on a fresh install and on one that predates it, so
+kolu changes nothing in your terminals until you pick a set. The agents come from
+[agent-distro](https://github.com/juspay/agent-distro), a distribution of coding
+agents that kolu pins and ships; agent-distro calls each set a **profile**.
+
+## Pick a set
+
+Open **Settings** (the gear in the top bar). One row, **Agents**, sets it:
+**Off**, or one of the sets the pinned agent-distro ships. Picking a set turns
+agents on with it; **Off** turns them off. Either way kolu tells you what changed
+for new terminals.
+
+The hint under the row says where things stand: with Off, what kolu can bring
+and what Off means; with a set chosen, what that set is and which agents (with
+their versions) it puts on your terminals. Hover a choice for agent-distro's own
+description of it.
+
+With a set on, under the hint is one status line per machine — this machine
+first, then every other host that is not ready yet — each with a bar that fills
+while that machine downloads, turns to the warning colour if the download
+failed, and stays empty until the machine has answered. When every machine is
+ready the lines fold into one.
+
+The setting is one for all of kolu — not per host, not per terminal.
+
+## New terminals only, and each one says which
+
+A change applies to the **next new terminal**. A terminal that is already open
+keeps exactly the agents it started with: kolu puts the exact build of that set
+on its PATH, so a later switch (or a newer build arriving) never changes a
+running agent under you — until you **Restart** it (below).
+
+Every tile shows which it got: a small pill in the tile's title bar with the set
+and a short hash of the build. Two tiles with different pills started with
+different agents; **no pill** means agents were off when that terminal started.
+
+## Restarting a terminal onto the current agents
+
+When a terminal's agents are no longer what a new terminal there would get — you
+picked another set, turned agents off, or a newer build of the same set arrived —
+its pill dims and becomes a **Restart** button. Hover it to see what the terminal
+has and what new terminals get. While that machine is still downloading the set,
+or its download failed, new terminals there get no agents — so the pill says so
+and offers no Restart yet: restarting then would leave the terminal with none.
+
+Restart gives the terminal a fresh shell in place — the same tile, folder, splits
+and theme — with the current agents. With agents still on, the agent's
+conversation resumes on the new agents, and any other program in the terminal
+ends. With agents now off it comes back as a plain shell, and the agent ends too.
+If an agent is working or waiting for you, the first click only asks; a second
+click within a few seconds confirms. The old shell is stopped the way sleep stops
+it — killed outright — so it does not write its history file, and anything you
+started with `nohup` keeps running.
+
+## Where they sit on the PATH
+
+With agents on, a new terminal's PATH reads, from the front:
+
+1. kolu's own tools (`kolu`, `kaval-tui`, `padi-tui`),
+2. the chosen set's agents,
+3. your own PATH — including anything your shell's dotfiles add.
+
+So the bundled `claude` wins over one you installed yourself. That is on purpose.
+kolu re-applies this order after your `.bashrc` / `.zshrc` run, so neither a
+dotfile that sets `PATH` outright nor one that puts its own directory first
+(`export PATH=$HOME/.local/bin:$PATH`, as Claude Code's own installer writes)
+undoes it (bash and zsh; other shells get the order at spawn only — see
+[Shell integration](/shell-integration)).
+
+To run your own `claude` in a kolu terminal, turn Agents off, or call it by its
+full path.
+
+## On other machines
+
+Agents work the same on every host you [add](/remote-hosts), but nothing is
+copied over ssh. The first time a host is used with agents on, that host
+**downloads them itself**, from agent-distro's binary cache into its own Nix
+store, and kolu tells you when they have landed. Terminals opened on that host
+before then have no agents (and no pill).
+
+Every host tab with agents on carries agent-distro's mark right after the host
+name, and the mark's look says where that host stands:
+
+| The mark | Means |
+| --- | --- |
+| plain, in the tab's text colour | ready for new terminals |
+| a thin ring around it, filling up | downloading — hover for the progress |
+| warning colour with a small dot | the download failed — hover for why ([below](#when-a-download-fails)) |
+| dimmed, with a spinning arc | checking: the host is connected but has not said yet |
+| no mark at all | agents are off |
+
+Clicking the mark opens Settings, without switching tabs.
+
+The machine running kolu itself needs no download: every set ships inside kolu,
+so switching there is instant and works offline.
+
+<Aside type="note" title="Disk">
+  A host keeps its downloaded bundle in its own Nix store (and the machine
+  running kolu also carries the bundles kolu ships). If you also install
+  agent-distro on a host through its Home Manager module, both share the same
+  downloaded bundle for the same set.
+</Aside>
+
+## When a download fails
+
+The host needs Nix with flakes, reachable on padi's PATH, and its Nix must be
+allowed to use agent-distro's cache (`https://cache.nixos.asia/oss`). If it is
+not, the download is skipped — the host never compiles agents — and the host's
+mark turns to the warning colour. Its hover, the toast and the host's line in
+Settings all say the same thing: the cause, the setup fix when the cause is a
+missing `nix`, and how to retry. Until it is fixed, new terminals on that host
+get no agents. Fix it, then switch Agents off and back on in Settings: that is
+the retry, and it downloads again. Nothing retries on its own.
+
+## Turning it off
+
+Settings → **Agents** → **Off**. From the next new terminal on, on every host,
+kolu adds no agents and no plugin variable; your own tools are what run.
+Terminals already open keep what they have, and keep their pill, until you close
+them (or restart them, which brings them back as a plain shell).
+
+## What doesn't change
+
+[Agent detection](/agent-detection) works the same either way: kolu watches the
+agent running in a terminal, whichever `claude` it is.

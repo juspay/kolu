@@ -182,6 +182,16 @@ refusal in the connect log and the host realises the agent itself; the fix is
 `trusted-users` on that machine, or the same `nix.conf` block above applied
 there so it downloads the agent instead of building it.
 
+The coding agents kolu puts on terminals' PATH ([AI coding agents](/agents)) follow a
+different rule. On this machine they ship inside kolu itself — every profile —
+so they come down with kolu from the same cache on the two systems the cache is
+filled for (x86_64 Linux and Apple Silicon). On aarch64 Linux the cache has no
+build of them, so the first `nix run` there compiles them, which takes a while. A remote host is never sent
+them: it downloads its profile's bundle itself, from agent-distro's cache (the
+same `https://cache.nixos.asia/oss` above), so that host's Nix needs the block
+above too; without it the host's download fails rather than compiling (see
+[When a download fails](/agents#when-a-download-fails)).
+
 Whether this machine has those binaries to copy depends on how you installed
 kolu. If you run kolu as a service through the **home-manager module**, it
 always does: the installed generation carries every agent closure kolu can

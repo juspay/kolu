@@ -107,6 +107,15 @@ import {
   CanvasLayoutSchema,
   RightPanelPerTerminalStateSchema,
 } from "./chromeVocab.ts";
+import {
+  AgentDistroSettingSchema,
+  AgentDistroStatusSchema,
+  agentDistroSettingEqual,
+  agentDistroStatusEqual,
+  DEFAULT_AGENT_DISTRO_SETTING,
+  DEFAULT_AGENT_DISTRO_STATUS,
+  TerminalAgentsSchema,
+} from "@kolu/agent-distro/schema";
 import type { ClientErrorPolicy } from "./clientPolicy.ts";
 import {
   FsGitReadErrorSchema,
@@ -178,6 +187,10 @@ export {
   newTerminalPolicyEqual,
 } from "./newTerminalPolicy.ts";
 export * from "./vocab.ts";
+// The agent-distro setting kolu-server pushes and the host status padi reports
+// are VALUE schemas of `@kolu/agent-distro/schema` (kolu's contract with
+// upstream, defined once); only the cells that carry them are declared here.
+// Importers take them from there — no re-export, so there is one door.
 // The transcript-export wire vocabulary rides the same entry as everything else
 // `padiSurface` speaks. It had a door of its own until the two halves of ONE
 // vocabulary were noticed to be split by nothing but which symbols the spec
@@ -483,8 +496,21 @@ export * from "./transcriptSchema.ts";
  *  5.6 padi's `PortInfo`, and the minor rule keeps it from ever meeting one (a
  *  newer binder drains a 5.6 padi before consuming its surface). The other
  *  direction is the ordinary graceful one — an older decoder strips the unknown
- *  key and never subscribes to the new cell. */
-export const PADI_SURFACE_VERSION = "5.7";
+ *  key and never subscribes to the new cell.
+ *
+ *  5.8 (minor) — agent-distro. Two NEW cells: `agentDistro`, the Agents
+ *  setting the binding kolu-server pushes (memory-only, `get`/`set`, the
+ *  `newTerminalPolicy` shape), and `agentDistroStatus`, padi's read-only report
+ *  of whether that profile's agents are on its host (`ready`), being fetched
+ *  (`downloading`), or failed to arrive (`error`, with its typed `reason`). The
+ *  authored terminal record gains ONE optional field, `agents: { profile,
+ *  bundle }`, stamped at spawn when the terminal got agents. A NEW procedure,
+ *  `lifecycle.restart`, respawns an active terminal in place (same id, cwd,
+ *  layout, parent, theme) and answers `{ id, pid, agents?, resumed }`. The
+ *  minor carries the usual obligation: a 5.8 binder CALLS `agentDistro.set`
+ *  and may call `lifecycle.restart`, and the minor rule drains a 5.7 padi
+ *  before either can reach a padi with no such member. */
+export const PADI_SURFACE_VERSION = "5.8";
 
 /** The `version` cell payload — padi's self-declared surface contract version. */
 export const PadiVersionSchema = Schema.Struct({
@@ -922,6 +948,16 @@ export const PadiCreateInputSchema = Schema.Struct({
   ),
   cwd: Schema.optionalKey(Schema.String),
   ...CreateTerminalInputSchema.fields,
+});
+
+/** `lifecycle.restart`'s answer — what padi DID, read off its record after the
+ *  respawn, so a caller reports what happened, not what it hoped: the restarted
+ *  terminal, the agents its new PTY got (absent when none), and whether the
+ *  live agent's conversation was resumed on them. */
+export const PadiRestartOutputSchema = Schema.Struct({
+  ...TerminalInfoSchema.fields,
+  agents: Schema.optionalKey(TerminalAgentsSchema),
+  resumed: Schema.Boolean,
 });
 
 /** A bare terminal-id input — kill/sleep/wake/discardSleeping/screen.state. */
@@ -1908,6 +1944,37 @@ export const padiSurface = defineSurfaceWithPolicy<ClientErrorPolicy>()({
       verbs: ["get", "set"],
       client: { onError: { kind: "toast", label: "New-terminal policy" } },
     },
+    /** The Agents setting — WRITTEN by the binding kolu-server (the user's
+     *  global preference, verbatim), READ by padi's spawn path: a terminal
+     *  spawned while it is on gets the profile's agents on its PATH. Memory-only
+     *  for the reason `newTerminalPolicy` is (the binder re-pushes on every
+     *  bind). The write REFUSES a profile this padi's build does not know
+     *  (`checkAgentDistroSetting`) rather than mapping it to another. NOT exposed
+     *  through the MCP face: an agent inherits the user's choice, it does not
+     *  make it. */
+    agentDistro: {
+      schema: AgentDistroSettingSchema,
+      default: DEFAULT_AGENT_DISTRO_SETTING,
+      // The one dedup point: a re-push of the same setting (every reconnect)
+      // publishes nothing and starts no download.
+      equals: agentDistroSettingEqual,
+      verbs: ["get", "set"],
+      client: { onError: { kind: "toast", label: "Agents setting" } },
+    },
+    /** Whether the selected profile's agents are on THIS padi's host — `ready`
+     *  (with the bundle new terminals get), `downloading` (a remote host's first
+     *  fetch from the binary cache), `error` (the updater's own message), `off`,
+     *  or `unavailable` (a padi built without agent-distro). Read-only on the
+     *  client; padi's agent-distro module is the sole writer. The host tab and
+     *  Settings render it. */
+    agentDistroStatus: {
+      schema: AgentDistroStatusSchema,
+      default: DEFAULT_AGENT_DISTRO_STATUS,
+      // A progress tick that moved no byte count publishes nothing.
+      equals: agentDistroStatusEqual,
+      verbs: ["get"],
+      client: { onError: { kind: "hostToast", label: "Agents status" } },
+    },
     /** Every TCP listener on THIS padi's host — what the terminal-scoped `ports`
      *  on each record cannot see: a server that detached from the terminal that
      *  started it. Read-only on the client; padi's port sampler is the sole writer,
@@ -2104,7 +2171,7 @@ export const padiSurface = defineSurfaceWithPolicy<ClientErrorPolicy>()({
         error: WatchSubscriptionNotFound,
       },
     },
-    /** Terminal lifecycle — create · kill · killAll · sleep · wake ·
+    /** Terminal lifecycle — create · kill · killAll · sleep · wake · restart ·
      *  discardSleeping · resize · sendInput · recycleKaval. */
     lifecycle: {
       // Every create STATES its placement (`PadiCreateInputSchema`) — a tile of
@@ -2133,6 +2200,17 @@ export const padiSurface = defineSurfaceWithPolicy<ClientErrorPolicy>()({
       wake: {
         input: PadiTerminalIdInputSchema,
         output: TerminalInfoSchema,
+        error: TerminalNotFound,
+      },
+      /** Restart an active terminal IN PLACE: a fresh PTY on the same id, in
+       *  its cwd, its layout / parent / theme / title policy untouched — so it
+       *  picks up what a new terminal gets now (the agents' PATH layer). A live
+       *  agent's conversation resumes while agents stay on; with agents off it
+       *  comes back as a plain shell. Answers once the new PTY is up, with the
+       *  profile it got. Refuses an id that is not an active terminal. */
+      restart: {
+        input: PadiTerminalIdInputSchema,
+        output: PadiRestartOutputSchema,
         error: TerminalNotFound,
       },
       discardSleeping: { input: PadiTerminalIdInputSchema },
@@ -2377,6 +2455,8 @@ export const PADI_FORWARDING_POLICY = {
   urgency: "value",
   status: "value",
   newTerminalPolicy: "value",
+  agentDistro: "value",
+  agentDistroStatus: "value",
   hostListeners: "value",
   hostInventory: "value",
   processMemory: "value",

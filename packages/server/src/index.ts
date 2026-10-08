@@ -19,6 +19,7 @@ import {
   type PadiProcessMemory,
   padiSurface,
 } from "@kolu/padi-client/surface";
+import { agentDistroSettingEqual } from "@kolu/agent-distro/schema";
 import { directDispatch } from "@kolu/surface/links/direct";
 import { surfaceClientRef } from "@kolu/surface/project";
 import { parseAllowedOrigins } from "@kolu/surface/ws-origin";
@@ -53,7 +54,12 @@ import {
 } from "./iframePreviewRoute.ts";
 import { log } from "./log.ts";
 import { enumerateDaemonInventoryOnce } from "./padi/daemonInventory.ts";
+import {
+  assertPlainProfiles,
+  readAgentDistroListing,
+} from "./agentDistroListing.ts";
 import { installNewTerminalPolicyPusher } from "./padi/newTerminalPolicy.ts";
+import { installPadiCellPusher } from "./padi/padiCellPusher.ts";
 import {
   ensurePadiBinding,
   handlePadiBootFailure,
@@ -83,6 +89,7 @@ import {
 } from "./stateBackups.ts";
 import {
   assembleServedHandlers,
+  currentAgentDistroSetting,
   currentNewTerminalPolicy,
   implementKoluSurface,
   servedGroup,
@@ -761,6 +768,18 @@ export async function bootKoluWeb(flags: KoluBootFlags): Promise<void> {
     getPolicy: currentNewTerminalPolicy,
     log,
   });
+  // The AGENTS SETTING pusher — the same mechanism, for padi's memory-only
+  // `agentDistro` cell: every bound padi (local and every remote host) learns the
+  // user's choice on each connect edge and on every preferences write, and applies
+  // it to its next new terminal. A padi that does not know the chosen profile
+  // refuses the write; the pusher logs that at error.
+  const agentDistroPusher = installPadiCellPusher({
+    cell: "agentDistro",
+    pool,
+    getValue: currentAgentDistroSetting,
+    equals: agentDistroSettingEqual,
+    log,
+  });
 
   // Serve kolu-server's own surface. SR8.c: `implementKoluSurface` builds EVERY member from
   // these plain domain deps — index.ts imports no reactor primitive, and no member is
@@ -815,6 +834,11 @@ export async function bootKoluWeb(flags: KoluBootFlags): Promise<void> {
     // re-derive and re-push to every connected padi, so the next terminal any face
     // opens follows the setting the user just changed.
     onPolicyInputsChanged: () => newTerminalPolicyPusher.republish(),
+    onAgentDistroChanged: () => agentDistroPusher.republish(),
+    // Read once, here: a baked picker that fails is a broken build and crashes the
+    // boot; an unbaked (from-source) kolu reads `unavailable`. A profile kolu
+    // cannot describe in plain words crashes the boot too.
+    agentDistroListing: assertPlainProfiles(readAgentDistroListing()),
   });
 
   // The ROOT procedures — kolu-server's own seven, bound as the third served

@@ -50,6 +50,9 @@ import {
   osfactsSocketHolders,
   processIdentityAsync,
 } from "osfacts-client";
+import type { AgentLayer } from "../agentDistro/layer.ts";
+import { agentBinDir } from "@kolu/agent-distro/bundle";
+import { AGENT_DISTRO_PLUGINS_ENV } from "../agentDistro/bake.ts";
 import type { KavalObservation } from "../kavalObservation.ts";
 import { log } from "../log.ts";
 import {
@@ -545,6 +548,12 @@ export interface TerminalEnvSpec {
    *  optional marker would add a representable state that means nothing.
    *  (`padiSocket?` is genuinely optional — its producer really can be unset.) */
   toolsPath: readonly string[];
+  /** The agent-distro layer this terminal gets, or `undefined` for none (the
+   *  Agents setting off at spawn, an unbaked daemon, or a host whose bundle has
+   *  not arrived). `binDir` joins the PATH AFTER `toolsPath`, so kolu's own
+   *  `kolu` / `kaval-tui` / `padi-tui` keep a name collision; `plugins` becomes
+   *  `AGENT_DISTRO_PLUGINS`. Both are exact store paths: the terminal pins them. */
+  agents?: { readonly binDir: string; readonly plugins: string };
   /** The kolu-server version this daemon reports — stamped as
    *  `TERM_PROGRAM_VERSION`. A daemon fact like the rest, so the composer reads
    *  it off the spec rather than off a module global. */
@@ -577,6 +586,13 @@ export interface TerminalEnvSpec {
  *      that MERGES with (rather than stomps) what came before — the dirs are
  *      prepended to the inherited `PATH`, so the user's own tools all still
  *      resolve, kolu's just win a name collision.
+ *   7. The agent-distro layer (`spec.agents`) — the selected profile's harness
+ *      dir joins the SAME toolchain list, after kolu's own tools (so it rides
+ *      the same PATH prepend and the same `KOLU_TERMINAL_TOOLS_PATH` stamp the
+ *      wrapper rcfile re-asserts after the user's dotfiles), and
+ *      `AGENT_DISTRO_PLUGINS` names this kolu's plugin dir so every harness
+ *      loads kolu's plugin, in any profile. Absent → neither is touched: a
+ *      `claude` the user installed is what runs.
  *
  * **Local-host only, today.** The host this process talks to IS this machine, so
  * `cleanEnv()`'s `env.SHELL`/`env.HOME` (describing *this* machine) win, and
@@ -622,10 +638,16 @@ export function composeSpawnInput(
   // Stamped under the TERMINAL name, never the BAKE name a wrapper writes: a
   // kolu launched from inside this terminal must not read the stamp as its own
   // build's toolchain. See kolu-pty's two constants.
-  if (spec.toolsPath.length > 0) {
-    env.PATH = prependPathEntries(env.PATH, spec.toolsPath);
-    env[TERMINAL_TOOLS_PATH_ENV] = spec.toolsPath.join(":");
+  const toolsPath =
+    spec.agents === undefined
+      ? spec.toolsPath
+      : [...spec.toolsPath, spec.agents.binDir];
+  if (toolsPath.length > 0) {
+    env.PATH = prependPathEntries(env.PATH, toolsPath);
+    env[TERMINAL_TOOLS_PATH_ENV] = toolsPath.join(":");
   }
+  if (spec.agents !== undefined)
+    env[AGENT_DISTRO_PLUGINS_ENV] = spec.agents.plugins;
   // The $KAVAL_SOCKET twin for padi: a `padi-tui` INSIDE this terminal reaches the
   // padi that OWNS it (the daemon that spawned it) with no --socket/--state-root —
   // so the /kolu agent-drives-agent loop runs `padi-tui wait` flagless. Stamped
@@ -653,6 +675,10 @@ export function composeSpawnInput(
 export function buildTerminalSpawnInput(args: {
   id: string;
   cwd?: string;
+  /** The agent layer padi resolved for THIS terminal — the same value stamped on
+   *  its record (its one `agents` struct), so the pill and the PATH can
+   *  never disagree. */
+  agents?: AgentLayer;
 }): Effect.Effect<PtyHostSpawnInput, unknown> {
   return Effect.gen(function* () {
     // A terminal can only be spawned once the endpoint is up, which records the
@@ -679,11 +705,23 @@ export function buildTerminalSpawnInput(args: {
     // `requireSpawnServerVersion()` DOES crash on an unset read — the app version
     // is injected at boot and a blank `TERM_PROGRAM_VERSION` must not ship — and it
     // is gathered here with the rest, so the composer reads no globals of its own.
-    return composeSpawnInput(args, yield* endpointState.info, {
-      kavalSocket,
-      padiSocket: getPadiServeSocketPath(),
-      toolsPath: readAgentToolsBake(),
-      serverVersion: requireSpawnServerVersion(),
-    });
+    return composeSpawnInput(
+      { id: args.id, cwd: args.cwd },
+      yield* endpointState.info,
+      {
+        kavalSocket,
+        padiSocket: getPadiServeSocketPath(),
+        toolsPath: readAgentToolsBake(),
+        ...(args.agents !== undefined
+          ? {
+              agents: {
+                binDir: agentBinDir(args.agents.bundle),
+                plugins: args.agents.plugins,
+              },
+            }
+          : {}),
+        serverVersion: requireSpawnServerVersion(),
+      },
+    );
   });
 }

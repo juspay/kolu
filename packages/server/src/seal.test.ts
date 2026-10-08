@@ -68,6 +68,10 @@ const WEB_SHELL_FILES = [
   // padi pool from the server shell and runs no terminal domain — the theme DECISION
   // (inherit vs shuffle, against which peers) is padi's, in @kolu/padi.
   "padi/newTerminalPolicy",
+  // The shared mechanism behind that pusher and the Agents-setting pusher: push a
+  // fact kolu-server derives from its own cells into a memory-only padi cell on
+  // every connect edge. Same web-shell orchestration, one level more generic.
+  "padi/padiCellPusher",
   // The W2.2 padi BINDER — the web shell's supervisor/client of the padi PROCESS
   // (spawn/adopt + dial + the reconnect-mirror session `reServeSurface` consumes).
   // Web-shell code (it runs no terminal domain — it re-serves padi's), so it lives
@@ -126,6 +130,10 @@ const WEB_SHELL_FILES = [
   // still cannot drift. Web-shell code (it names how the web face boots), not
   // terminal domain.
   "bootFlags",
+  // The agent-distro profile listing Settings offers — runs the baked picker's
+  // `--list --json` once at boot and seeds koluSurface's `agentDistroListing`
+  // cell. Web-shell code (a read of a build fact for the shell's own surface).
+  "agentDistroListing",
   "hostname",
   // W10 host-membership persistence — the pool (the web shell's authority for map
   // membership) is its one writer, so its atomic-JSON load/validate/save leaf lives
@@ -443,9 +451,14 @@ function inTerminalDomain(spec: string): boolean {
  *     — and it must be shared, because `padi --stdio` now converges its own daemon
  *     too, so this binder and padi's front cannot be allowed to hold two opinions
  *     about padi's contract version or its drain semantics.
+ *   - `/agentDistroBake` — the NAMES of the agent-distro bake env vars a nix
+ *     wrapper sets, so the binder forwards exactly the set padi reads onto the
+ *     padi it spawns, and the profile listing reads the same floor path. Names
+ *     and a pure reader only — no terminal domain.
  *  A deep `@kolu/padi/src/...` import (bypassing the barrel) or any UNLISTED subpath
  *  fails arm (b). TESTS get a wider door — the full published set — via arm (f). */
 const ALLOWED_PADI = [
+  "@kolu/padi/agentDistroBake",
   "@kolu/padi/assembly",
   "@kolu/padi/convergence-policy",
   "@kolu/padi/log",

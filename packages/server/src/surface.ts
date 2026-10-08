@@ -49,6 +49,7 @@ import {
   type CellStore,
   confStore,
   type ImplementSurfaceDeps,
+  inMemoryStore,
   implementSurfacesOnPublisher,
   publisherChannel,
   type SurfaceHandlers,
@@ -57,6 +58,8 @@ import { surfaceAppServer } from "@kolu/surface-app/server";
 import { Effect } from "effect";
 import type { RpcGroup } from "effect/rpc";
 import type {
+  AgentDistroListing,
+  AgentDistroPrefs,
   ForwardCreateInput,
   Forwards,
   KoluBuildInfo,
@@ -200,6 +203,12 @@ export function currentNewTerminalPolicy(): NewTerminalPolicy {
   );
 }
 
+/** The Agents setting the padi pusher publishes — the user's preference verbatim,
+ *  read off the SAME store the `preferences` cell serves. */
+export function currentAgentDistroSetting(): AgentDistroPrefs {
+  return preferencesStore.get().agentDistro;
+}
+
 // ── The bound padi's rail state — the projected payload the push cells derive from ──
 //
 // `padiLink` + `processStartedAt` both derive from the bound padi's `onState`. To keep
@@ -260,6 +269,13 @@ export interface KoluSurfaceDeps {
    *  not carried, because `currentNewTerminalPolicy` is the one reader of both stores
    *  and re-reads them itself (one path a policy reaches a padi by). */
   onPolicyInputsChanged: () => void;
+  /** A bare nudge: `preferences` just changed, so the Agents-setting pusher must
+   *  re-read {@link currentAgentDistroSetting} and re-push to every bound padi (its
+   *  per-link dedup drops an unchanged value). */
+  onAgentDistroChanged: () => void;
+  /** The agent-distro profile listing, read once at boot
+   *  (`./agentDistroListing.ts`) — the `agentDistroListing` cell's only value. */
+  agentDistroListing: AgentDistroListing;
 }
 
 // ── Surface implementation (SR8.a: served in boot; SR8.c: ONE home per member) ───
@@ -373,8 +389,14 @@ export function implementKoluSurface(deps: KoluSurfaceDeps) {
         // merge is a no-op): the three theme preferences are half the new-terminal
         // policy, so a real change must reach every bound padi at once rather than
         // waiting for its next (re)bind.
-        onWrite: () => deps.onPolicyInputsChanged(),
+        onWrite: () => {
+          deps.onPolicyInputsChanged();
+          // The Agents setting rides `preferences` too; its pusher re-reads it.
+          deps.onAgentDistroChanged();
+        },
       },
+      // The build's agent-distro profiles, read once at boot. Never written.
+      agentDistroListing: { store: inMemoryStore(deps.agentDistroListing) },
       // The viewer's raw OS light/dark reading — the other half of the policy, written
       // by the browser and remembered on disk (see `viewerModeStore`). Same `onWrite`
       // nudge for the same reason; the scalar `equals` lives on the spec, so a browser

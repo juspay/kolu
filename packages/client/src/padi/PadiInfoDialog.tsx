@@ -48,7 +48,7 @@ import Commit from "../ui/Commit";
 import { docUrl } from "../ui/DocLink";
 import { OpenIcon } from "../ui/Icons";
 import InfoDialogShell, { DetailRow, VersionChip } from "../ui/InfoDialog";
-import { formatMBCompact } from "../ui/memory";
+import { formatMiB } from "@kolu/byte-units";
 import RunningDaemonsSection from "../ui/RunningDaemonsSection";
 import {
   boundPadiConvergence,
@@ -317,7 +317,7 @@ const PadiInfoDialog: Component<{
         <DetailRow label="memory">
           <span data-testid="padi-dialog-memory">
             {match(padiMemoryDisplay())
-              .with({ kind: "ok" }, (m) => formatMBCompact(m.rssBytes))
+              .with({ kind: "ok" }, (m) => formatMiB(m.rssBytes, 0))
               .with({ kind: "error" }, () => "poll failed")
               .with(P.nullish, () => "unavailable")
               .exhaustive()}

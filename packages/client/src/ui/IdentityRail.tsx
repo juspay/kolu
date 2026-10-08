@@ -14,7 +14,7 @@ import type { WsStatus } from "../rpc/rpc";
 import { IdentityMark, identityMarkBtnClass, StatusDot } from "./IdentityMark";
 import { joinTip } from "./joinTip";
 import KoluInfoDialog from "./KoluInfoDialog";
-import { mbText } from "./memory";
+import { mibText } from "./memory";
 import { clientStale, StaleBadge } from "./StaleBadge";
 import Tip from "./Tip";
 import { clientHeapUsedBytes, serverRssBytes } from "./useMemoryUsage";
@@ -43,7 +43,7 @@ const IdentityRail: Component<{ status: WsStatus }> = (props) => {
       `kolu ${props.status}${daemonLive() ? "" : " (watchdog reconnecting)"}`,
       liveServer()?.version ? `server v${liveServer()?.version}` : undefined,
       liveServer()?.commit ? `server ${liveServer()?.commit}` : undefined,
-      `server RSS ${mbText(serverRssBytes())}`,
+      `server RSS ${mibText(serverRssBytes())}`,
       // The build-vs-server verdict: `stale()` already floors to `false` off a dead transport
       // (StaleBadge), but the outer `daemonLive()` gate distinguishes "unknown" (undefined)
       // from a definite "matches" — so a dead channel asserts NEITHER.
@@ -53,7 +53,7 @@ const IdentityRail: Component<{ status: WsStatus }> = (props) => {
           : "client build matches server"
         : undefined,
       pwa.clientCommit ? `client ${pwa.clientCommit}` : undefined,
-      `client heap ${mbText(clientHeapUsedBytes())}`,
+      `client heap ${mibText(clientHeapUsedBytes())}`,
     );
 
   return (

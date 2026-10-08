@@ -8,6 +8,7 @@ import type {
   ShuffleBehavior,
 } from "kolu-common/surface";
 import { type Component, Show } from "solid-js";
+import AgentsSettingsSection from "../agents/AgentsSettingsSection";
 import { Portal } from "solid-js/web";
 import SegmentedControl, {
   type SegmentedControlOption,
@@ -118,7 +119,9 @@ const SettingsPopover: Component<{
         <div
           ref={panelRef}
           data-testid="settings-popover"
-          class={`fixed z-50 ${chrome.class} p-4 min-w-[280px] space-y-4`}
+          // A fixed width that fits every row: hints wrap instead of setting the
+          // width, so switching a setting never moves the panel's left edge.
+          class={`fixed z-50 ${chrome.class} p-4 w-[min(92vw,30rem)] space-y-4`}
           style={{ ...panelStyle(), ...chrome.style }}
         >
           <SettingRow
@@ -202,6 +205,7 @@ const SettingsPopover: Component<{
               onChange={(on) => updatePreferences({ startupTips: on })}
             />
           </SettingRow>
+          <AgentsSettingsSection />
         </div>
       </Portal>
     </Show>

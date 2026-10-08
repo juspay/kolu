@@ -1,5 +1,16 @@
 {
   "members": {
+    "@kolu/agent-distro": {
+      "dir": "packages/agent-distro",
+      "vendored": true,
+      "workspace": [
+        "@kolu/byte-units"
+      ],
+      "external": {
+        "effect": "4.0.0",
+        "solid-js": "^1.9.0"
+      }
+    },
     "@kolu/artifact-sdk": {
       "dir": "packages/artifact-sdk",
       "workspace": [
@@ -10,6 +21,12 @@
         "esbuild": "^0.28.1",
         "ts-pattern": "^5.9.0"
       }
+    },
+    "@kolu/byte-units": {
+      "dir": "packages/byte-units",
+      "vendored": true,
+      "workspace": [],
+      "external": {}
     },
     "@kolu/daemon-test-gate": {
       "dir": "packages/daemon-test-gate",
@@ -46,6 +63,7 @@
     "@kolu/padi": {
       "dir": "packages/padi",
       "workspace": [
+        "@kolu/agent-distro",
         "@kolu/padi-client",
         "@kolu/serve-dir",
         "@kolu/surface",
@@ -82,6 +100,8 @@
       "dir": "packages/padi-client",
       "vendored": true,
       "workspace": [
+        "@kolu/agent-distro",
+        "@kolu/byte-units",
         "@kolu/surface",
         "@kolu/surface-daemon",
         "@kolu/surface-daemon-supervisor",
@@ -599,7 +619,9 @@
     "kolu-client": {
       "dir": "packages/client",
       "workspace": [
+        "@kolu/agent-distro",
         "@kolu/artifact-sdk",
+        "@kolu/byte-units",
         "@kolu/html-escape",
         "@kolu/padi",
         "@kolu/padi-client",
@@ -668,6 +690,8 @@
     "kolu-common": {
       "dir": "packages/common",
       "workspace": [
+        "@kolu/agent-distro",
+        "@kolu/byte-units",
         "@kolu/padi-client",
         "@kolu/surface",
         "@kolu/surface-app",
@@ -802,6 +826,7 @@
     "kolu-server": {
       "dir": "packages/server",
       "workspace": [
+        "@kolu/agent-distro",
         "@kolu/artifact-sdk",
         "@kolu/heap-diag",
         "@kolu/log",

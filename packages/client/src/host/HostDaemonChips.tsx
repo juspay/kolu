@@ -45,7 +45,7 @@ import {
   StatusDot,
 } from "../ui/IdentityMark";
 import { joinTip } from "../ui/joinTip";
-import { formatMBCompact } from "../ui/memory";
+import { formatMiB } from "@kolu/byte-units";
 import Tip from "../ui/Tip";
 import { activeHost, padiMap, setActiveHost } from "../wire";
 import { hostGlance, hostLabel, KAVAL_CHAIN_UNKNOWN } from "./hostChipTone";
@@ -117,7 +117,7 @@ function useHostProcessMemory(host: HostKey) {
  *  Kaval tips rendered a byte-identical `match(...).exhaustive()` block each. */
 function formatProcessMemoryText(m: ProcessRss | undefined): string {
   return match(m)
-    .with({ status: "ok" }, (d) => `RSS ${formatMBCompact(d.rssBytes)}`)
+    .with({ status: "ok" }, (d) => `RSS ${formatMiB(d.rssBytes, 0)}`)
     .with({ status: "error" }, () => "memory poll failed")
     .with({ status: "absent" }, () => "memory unavailable")
     .with(P.nullish, () => "memory unavailable")

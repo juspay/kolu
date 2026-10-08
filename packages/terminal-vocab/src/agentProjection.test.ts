@@ -9,6 +9,7 @@
 import { describe, expect, it } from "vitest";
 import {
   agentBucket,
+  agentLive,
   agentPaintClass,
   agentShortName,
   agentStatusLabel,
@@ -41,6 +42,19 @@ describe("agentBucket", () => {
   });
   it("surfaces an unknown state verbatim as `other` (fail-loud, not miscoloured)", () => {
     expect(agentBucket("brand_new_state" as AgentInfo["state"])).toBe("other");
+  });
+});
+
+describe("agentLive", () => {
+  it("is live while working or blocked on you; a finished agent is not", () => {
+    for (const st of [
+      "thinking",
+      "tool_use",
+      "running_background",
+      "awaiting_user",
+    ] as const)
+      expect(agentLive(st)).toBe(true);
+    expect(agentLive("waiting")).toBe(false);
   });
 });
 

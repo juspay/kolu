@@ -22,7 +22,7 @@
  * never a fake zero.
  *
  * Memory churns byte-by-byte, but the rail renders whole megabytes. The cell's
- * whole-MB `equals` (`processMemoryMbEqual`, the dedup that drops every read which
+ * whole-MiB `equals` (`processMemoryMiBEqual`, the dedup that drops every read which
  * doesn't move a displayed MB) is declared at the spec (`kolu-common/surface`), the
  * one wire dedup point for the derived member.
  */

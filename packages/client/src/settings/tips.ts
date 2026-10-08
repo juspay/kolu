@@ -33,6 +33,13 @@ export const CONTEXTUAL_TIPS = {
     text: "Drag a row's grip onto another row to nest it there as a split, or onto the repo header to give it its own tile back",
     doc: "dock",
   },
+  /** The first time a tile shows its agents chip — the moment to say where the
+   *  setting that put the agents there lives. */
+  agents: {
+    id: "agents",
+    text: "Terminals can start with AI coding agents ready to use — choose them in Settings → Agents",
+    doc: "agents",
+  },
   themeFromPalette: {
     id: "theme-palette",
     text: `Tip: ${formatKeybind(ACTIONS.commandPalette.keybind)} → Theme for quick switching`,

@@ -35,6 +35,7 @@
  *  Extracted from Terminal.tsx so the delivery gate is unit-testable without an
  *  xterm/DOM harness (Terminal.tsx cannot be imported under the node runner). */
 
+import { formatMiB } from "@kolu/byte-units";
 import {
   chunkBase64,
   FRAME_CHUNK_BASE64_CHARS,
@@ -63,8 +64,7 @@ export function oversizedFrameRefusal(
 ): string | null {
   const frameBytes = frameBytesFor(base64Chars);
   if (!exceedsFrameLimit(frameBytes)) return null;
-  const mib = (n: number) => (n / (1024 * 1024)).toFixed(1);
-  return `Couldn't upload "${label}" — one piece of it came to ${mib(frameBytes)} MB and the connection's limit is ${mib(RPC_MAX_FRAME_BYTES)} MB. Nothing was sent. That's a bug, please report it.`;
+  return `Couldn't upload "${label}" — one piece of it came to ${formatMiB(frameBytes, 1)} and the connection's limit is ${formatMiB(RPC_MAX_FRAME_BYTES, 1)}. Nothing was sent. That's a bug, please report it.`;
 }
 
 export function deliverScratchPaste(deps: {

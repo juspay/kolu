@@ -1,5 +1,18 @@
 {
   "pins": {
+    "agent-distro": {
+      "type": "Git",
+      "repository": {
+        "type": "GitHub",
+        "owner": "juspay",
+        "repo": "agent-distro"
+      },
+      "branch": "main",
+      "submodules": false,
+      "revision": "89cf071ebef317b5bc830e0fe8da0491a3ab6e58",
+      "url": "https://github.com/juspay/agent-distro/archive/89cf071ebef317b5bc830e0fe8da0491a3ab6e58.tar.gz",
+      "hash": "sha256-NaVcfsFklgmu4vgTNe23oro02WwVuaxZeiMbVvOba3o="
+    },
     "iTerm2-Color-Schemes": {
       "type": "Git",
       "repository": {
