@@ -534,11 +534,16 @@ export * from "./transcriptSchema.ts";
  *  `isShellIdle` answer: is the program in front the terminal's shell); and the
  *  authored record gains `promptedAt` (when the current agent first went live —
  *  `null` until then; a key-level backfill, so an older record decodes). The
- *  `git` and `shell` changes are NOT additive — a 5.10 decoder
- *  refuses a 5.9 padi's `git: null` (and its `shell`-less foreground), and a 5.9
- *  decoder refuses a 5.10 padi's `{ kind }` — so the minor is what keeps the two from meeting: a 5.10 binder
- *  drains a 5.9 padi before consuming its surface, and a 5.9 binder against a
- *  5.10 padi is build-mismatched and drains it first. */
+ *  `git` and `shell` changes are NOT additive — a 5.10 decoder refuses a 5.9
+ *  padi's `git: null` (and its `shell`-less foreground), and a 5.9 decoder
+ *  refuses a 5.10 padi's `{ kind }`. The minor protects only part of that. A
+ *  5.10 binder drains a 5.9 padi before consuming its surface, and a 5.9
+ *  binder drains a 5.10 padi too. But an older GATE-ONLY face (`kolu ls`, the
+ *  MCP face, `padi-tui --host`) only checks "majors equal and running minor ≥
+ *  required" (`isContractVersionCompatible`), so it passes the gate against a
+ *  5.10 padi and then meets a decode refusal on the record: loud, but not the
+ *  clean `DaemonContractSkewError`, and not the graceful direction 5.7
+ *  describes. Kept a minor anyway, as 5.3 and 5.7 were. */
 export const PADI_SURFACE_VERSION = "5.10";
 
 /** The `version` cell payload — padi's self-declared surface contract version. */

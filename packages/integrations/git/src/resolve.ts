@@ -253,13 +253,19 @@ export function subscribeGitInfo(
     // state. Acting on a stale cwd here would re-swap watchers and emit a
     // GitInfo for a directory we're no longer in.
     if (cwdAtStart !== currentCwd) return;
-    const next: GitInfo | null = result.ok ? result.value : null;
+    // A failure other than "not a repo" (git missing, dubious ownership, a
+    // timeout) is NOT an answer: publishing `null` would tell the caller "not
+    // a repo" when the sensor never found out. Log it, keep watching for
+    // `.git`, and publish nothing — the caller stays on what it last heard.
     if (!result.ok && result.error.code !== "NOT_A_REPO") {
       log?.error(
         { code: result.error.code, cwd: currentCwd },
         "git resolution failed",
       );
+      ensureMode("cwd");
+      return;
     }
+    const next: GitInfo | null = result.ok ? result.value : null;
     ensureMode(next !== null ? "head" : "cwd");
     if (answered && gitInfoEqual(next, currentInfo)) return;
     answered = true;

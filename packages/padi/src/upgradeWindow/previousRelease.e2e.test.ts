@@ -932,8 +932,10 @@ async function newTakesOverOldPadi(window: ResolvedWindow): Promise<void> {
   const plantedId = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
   // Built as a VALUE and encoded by the schema, never hand-written JSON: the
   // point of the assertion downstream is that the new padi SERVES this blob, and
-  // a blob the current schema cannot decode would fail there for a reason that
-  // has nothing to do with the takeover.
+  // a hand-written blob could fail there for a reason that has nothing to do
+  // with the takeover. Then the two fields the previous release wrote
+  // differently are put back in ITS shape — `git: null`, no `promptedAt` — so
+  // the new padi's state migration (1.1.0) is what has to make it servable.
   const plantedSession = {
     terminals: [
       {
@@ -951,9 +953,17 @@ async function newTakesOverOldPadi(window: ResolvedWindow): Promise<void> {
     activeTerminalId: plantedId,
     savedAt: 1_700_000_000_000,
   } satisfies SavedSession;
+  const encoded = encodeSavedSession(plantedSession);
+  const previousReleaseSession = {
+    ...encoded,
+    terminals: encoded.terminals.map(({ promptedAt: _, ...t }) => ({
+      ...t,
+      git: null,
+    })),
+  };
   writeFileSync(
     join(stateRoot, "config.json"),
-    `${JSON.stringify({ session: encodeSavedSession(plantedSession) }, null, 2)}\n`,
+    `${JSON.stringify({ session: previousReleaseSession }, null, 2)}\n`,
   );
 
   try {
@@ -1116,6 +1126,12 @@ async function newTakesOverOldPadi(window: ResolvedWindow): Promise<void> {
         served?.terminals.map((t) => t.id),
         "the new padi did not seed its session from disk",
       ).toEqual([plantedId]);
+      // The previous release's `git: null` reached this padi through its
+      // state migration: "never checked", not "not a repo".
+      expect(
+        served?.terminals.map((t) => t.git),
+        "the new padi did not migrate the previous release's `git: null`",
+      ).toEqual([{ kind: "unresolved" }]);
 
       // Same #11 grounding the other arm does: a takeover must not mint a
       // shared on-disk artifact nobody registered.

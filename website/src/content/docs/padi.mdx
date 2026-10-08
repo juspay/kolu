@@ -184,6 +184,10 @@ b7c20000  kolu·master         —         codex · waiting   codex             
 c9d40000  kolu·fix/fold       #1408 ✗   —                 nvim              5m
 ```
 
+REPO·BRANCH shows `—` for a terminal outside any repo and `?` while padi has
+not checked its git yet. With `--json`, the repo sits under `.git.info`, and
+`.git.kind` says which case it is: `repo`, `none` or `unresolved`.
+
 **Usually no flag.** padi keys its socket by a digest of its state-root, so
 inside a kolu terminal `$PADI_SOCKET` makes `padi-tui` flag-less — an agent
 driving its siblings never guesses a path. padi also puts the tools themselves on

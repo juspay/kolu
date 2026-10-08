@@ -147,7 +147,9 @@ export const ForegroundSchema = Schema.Struct({
    *  running in front of it. padi's own answer (`isShellIdle`, the one place
    *  "foreground === root" is decided), not a guess from `name`: the shell is
    *  the user's login shell, whatever it is called, and a command-rooted
-   *  terminal has no shell at all (always `false`). */
+   *  terminal has no shell at all (always `false`). It compares pids, so a
+   *  shell that `exec`s a program (`exec vim`) still reads `true`: the pid in
+   *  front is the shell's own. The agent detectors share that limit. */
   shell: Schema.Boolean,
 });
 

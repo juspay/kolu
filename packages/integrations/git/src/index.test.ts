@@ -1257,6 +1257,36 @@ describe.skipIf(SKIP_DARWIN_FSWATCH)("subscribeGitInfo watcher churn", () => {
     sub.stop();
   });
 
+  // A failure that is not "not a repo" (here: the cwd is gone, so git cannot
+  // even start) is not an answer. Publishing `null` would claim "not a repo";
+  // nothing is published, so the caller stays unresolved.
+  it("publishes nothing when git fails for a reason other than not-a-repo", async () => {
+    const gone = path.join(tmpDir, "first-answer-gone");
+    const errors: string[] = [];
+    const log = {
+      info() {},
+      debug() {},
+      warn() {},
+      error(_obj: unknown, msg: string) {
+        errors.push(msg);
+      },
+    };
+    const updates: (GitInfo | null)[] = [];
+    const sub = subscribeGitInfo(
+      gone,
+      (info) => {
+        updates.push(info);
+      },
+      log,
+    );
+
+    await waitFor(() => errors.includes("git resolution failed"));
+    await settleWatchers();
+    expect(updates).toEqual([]);
+
+    sub.stop();
+  });
+
   it("detects `git init` in the current cwd without an OSC 7 setCwd", async () => {
     const dir = path.join(tmpDir, "git-init-osc7-less");
     fs.mkdirSync(dir, { recursive: true });

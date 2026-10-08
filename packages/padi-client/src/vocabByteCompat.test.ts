@@ -76,6 +76,31 @@ describe("SavedSession — the conf store + the exported kolu-session.json", () 
     expect(roundTrip(stored(legacy))).toBe(stored(MINIMAL_ACTIVE));
   });
 
+  it('git: a LEGACY stored `"git":null` backfills to unresolved AND re-encodes in the new shape', () => {
+    // The bytes a previous release wrote: `git` was `GitInfo | null`, and there
+    // was no `promptedAt`. The schema alone refuses `null`; the backfill (which
+    // the 1.1.0 state migration and the import hatch both run) is what turns
+    // it into "never checked" — never "not a repo".
+    const legacy = MINIMAL_ACTIVE.replace(
+      '"git":{"kind":"none"}',
+      '"git":null',
+    ).replace('"promptedAt":null,', "");
+    const migrated = MINIMAL_ACTIVE.replace(
+      '"git":{"kind":"none"}',
+      '"git":{"kind":"unresolved"}',
+    );
+    const stored = (t: string) =>
+      `{"terminals":[${t}],"activeTerminalId":"t-1","savedAt":1700000000000}`;
+    expect(accepts(SavedSessionSchema, JSON.parse(stored(legacy)))).toBe(false);
+    expect(
+      JSON.stringify(
+        encodeSession(
+          decodeSession(backfillSavedSession(JSON.parse(stored(legacy)))),
+        ),
+      ),
+    ).toBe(stored(migrated));
+  });
+
   it("activeTerminalId: a LEGACY blob that OMITS the key decodes to null AND re-encodes WITH it", () => {
     // The whole reason the field carries a decoding default: keep decoding TOTAL
     // over a blob that pre-dates it. The emit half is what a decode-equality test

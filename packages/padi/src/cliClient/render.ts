@@ -208,15 +208,14 @@ function orDash(value: string | null | undefined): string {
   return value ? sanitize(value) || DASH : DASH;
 }
 
-/** `repo·branch` from the raw repo/branch source — each half sanitized (repo
- *  names come from fs paths, branches from git, so both can carry control bytes),
- *  or a dash when the terminal isn't in a git repo (both `null`). */
 /** The repo·branch cell — `kolu·master` in a repo, a dash outside one, and `?`
- *  while the terminal's git context has not resolved yet (it may be either). */
+ *  while the terminal's git context has not resolved yet (it may be either).
+ *  Each half is sanitized: repo names come from fs paths and branches from git,
+ *  so both can carry control bytes. */
 function gitText(git: GitFact): string {
   switch (git.kind) {
     case "repo":
-      return `${git.info.repoName}·${git.info.branch}`;
+      return `${orDash(git.info.repoName)}·${orDash(git.info.branch)}`;
     case "none":
       return DASH;
     case "unresolved":
