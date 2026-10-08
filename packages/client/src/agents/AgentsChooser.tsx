@@ -137,8 +137,10 @@ export default function AgentsChooser(props: {
     ),
     updates: (
       <Show when={picked()}>
-        <div class="mt-1.5 flex items-start justify-between gap-2">
-          <AgentUpdateHistory rows={agentUpdateHistoryNow()} />
+        <div class="mt-1.5 flex items-start gap-2">
+          <div class="min-w-0 flex-1">
+            <AgentUpdateHistory rows={agentUpdateHistoryNow()} />
+          </div>
           <AgentsCheckNowButton />
         </div>
       </Show>
