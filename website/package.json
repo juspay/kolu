@@ -15,7 +15,7 @@
   "dependencies": {
     "@fontsource-variable/fraunces": "^5.1.1",
     "@fontsource-variable/jetbrains-mono": "^5.1.2",
-    "astro": "^7.1.0"
+    "astro": "^7.2.8"
   },
   "devDependencies": {
     "@astrojs/markdown-remark": "^7.2.1",
@@ -38,12 +38,18 @@
   "pnpm": {
     "overrides": {
       "esbuild": "^0.28.1",
-      "fast-uri": "3.1.5",
-      "js-yaml": "^4.3.1",
-      "devalue": "^5.8.1",
+      "fast-uri": "3.1.8",
+      "js-yaml": "^4.3.2",
+      "devalue": "^5.9.3",
       "vite": "^8.1.0",
       "nanoid": "^3.3.18",
-      "postcss": "^8.5.23"
+      "postcss": "^8.5.23",
+      "http-cache-semantics": "^4.3.0",
+      "postcss-selector-parser": "^7.1.6",
+      "sharp": "^0.35.5",
+      "smol-toml": "^1.9.0",
+      "source-map-js": "^1.2.2",
+      "svgo": "^4.1.0"
     }
   }
 }
