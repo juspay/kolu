@@ -8368,6 +8368,18 @@
       ],
       "executions": 3,
       "firstSeenSha": "f55a4d2a04bc3c377903817fb69d13ffe700ffea"
+    },
+    {
+      "revisionId": "revision-869d41330dad7b3be9c0",
+      "scenarioKey": "scenario-c159f4ec7c082a663ee2",
+      "feature": "features/agents.feature",
+      "scenario": "The first run can pick Off from the keyboard",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "cdfeb9b4d693b4c7cb7da5b9dbb6d5f52ae08251c9a9751b6a0cff9cd818ce51",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "44240febb48b8cad0df33e4c708cfb9514085819"
     }
   ]
 }

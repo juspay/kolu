@@ -2399,3 +2399,16 @@ retirements:
       file: packages/tests/features/code-tab.feature
       symbol: "Scenario Outline: Folder collapse during active filter persists the filter [<mode>]"
       test: After the collapse, a new step stages a file the filter does not match and waits for the mode's change count to move, then checks again that the matches stay hidden — the git-status update that used to re-open the folder. Every earlier step is unchanged.
+  - id: revise-agents-first-run-off-keeps-asking
+    revisionId: revision-cc8aae4b2e6ab151223a
+    action: revised
+    status: landed
+    promise: The first run can pick Off from the keyboard
+    defectSurface: [agents, welcome]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-869d41330dad7b3be9c0]
+    sameCodePathEvidence:
+      file: packages/tests/features/agents.feature
+      symbol: "Scenario: The first run can pick Off from the keyboard"
+      test: A product decision changed what Off does — the welcome card keeps asking while agents are off. After Enter on Off the scenario now asserts the row stays with Off pressed and no done entry, then across a reload that it is still there, rests the keyboard on vanilla and does not take the focus; the arrow walk and the no-agents terminal are unchanged.
