@@ -23,7 +23,7 @@
     "kolu-shared": "workspace:*",
     "memorable-names": "workspace:*",
     "p-limit": "^7.3.1",
-    "simple-git": "^3.36.0"
+    "simple-git": "^4.0.1"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
