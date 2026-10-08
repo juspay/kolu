@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { simpleGit } from "simple-git";
+import { testGit } from "./testGit.ts";
 
 import {
   afterAll,
@@ -62,7 +62,7 @@ describe("getDiff", () => {
   async function initRepo() {
     const dir = path.join(tmpDir, `diff-repo-${Date.now()}`);
     fs.mkdirSync(dir, { recursive: true });
-    const git = simpleGit(dir);
+    const git = testGit(dir);
     await git.init();
     await git.checkoutLocalBranch("main");
     return { dir, git };
@@ -424,7 +424,7 @@ describe("resolveGitInfo", () => {
   async function initRepo(name: string, branch = "main") {
     const dir = path.join(tmpDir, name);
     fs.mkdirSync(dir, { recursive: true });
-    const git = simpleGit(dir);
+    const git = testGit(dir);
     await git.init();
     await git.checkoutLocalBranch(branch);
     fs.writeFileSync(path.join(dir, "file.txt"), "hello");
@@ -504,7 +504,7 @@ describe("resolveGitInfo", () => {
     // Canonical bare repo: `/tmp/foo` is itself bare; cwd == bare dir.
     const dir = path.join(tmpDir, "plain-bare");
     fs.mkdirSync(dir, { recursive: true });
-    await simpleGit(dir).init(true);
+    await testGit(dir).init(true);
 
     const result = await resolveGitInfo(dir);
     expect(result.ok).toBe(true);
@@ -519,7 +519,7 @@ describe("resolveGitInfo", () => {
     // repoName strips the suffix.
     const dir = path.join(tmpDir, "suffixed.git");
     fs.mkdirSync(dir, { recursive: true });
-    await simpleGit(dir).init(true);
+    await testGit(dir).init(true);
 
     const result = await resolveGitInfo(dir);
     expect(result.ok).toBe(true);
@@ -537,7 +537,7 @@ describe("resolveGitInfo", () => {
     const proj = path.join(tmpDir, "proj");
     const gitDir = path.join(proj, ".git");
     fs.mkdirSync(gitDir, { recursive: true });
-    await simpleGit(gitDir).init(true);
+    await testGit(gitDir).init(true);
     const sibling = path.join(proj, ".worktrees");
     fs.mkdirSync(sibling, { recursive: true });
 
@@ -566,7 +566,7 @@ describe("getStatus local mode includes untracked files alongside tracked change
   it("returns both modified tracked files and untracked files", async () => {
     const dir = path.join(tmpDir, "mixed-status");
     fs.mkdirSync(dir, { recursive: true });
-    const git = simpleGit(dir);
+    const git = testGit(dir);
     await git.init();
     await git.checkoutLocalBranch("main");
 
@@ -613,7 +613,7 @@ describe("worktreeCreate", () => {
     const seedDir = path.join(templateDir, "seed");
     templateBare = path.join(templateDir, "bare.git");
     fs.mkdirSync(seedDir);
-    const seedGit = simpleGit(seedDir);
+    const seedGit = testGit(seedDir);
     await seedGit.init();
     await seedGit.raw(["checkout", "-b", "master"]);
     fs.writeFileSync(path.join(seedDir, "README.md"), "init");
@@ -629,7 +629,7 @@ describe("worktreeCreate", () => {
     await seedGit.commit("new commit");
     latestMainCommit = (await seedGit.revparse(["HEAD"])).trim();
     await seedGit.raw(["clone", "--bare", seedDir, templateBare]);
-    await simpleGit(templateBare).raw([
+    await testGit(templateBare).raw([
       "update-ref",
       "refs/test/main-first",
       firstMainCommit,
@@ -646,7 +646,7 @@ describe("worktreeCreate", () => {
     const bareDir = path.join(tmpDir, "bare.git");
     const cloneDir = path.join(tmpDir, "clone");
     fs.cpSync(templateBare, bareDir, { recursive: true });
-    const bareGit = simpleGit(bareDir);
+    const bareGit = testGit(bareDir);
     if (defaultBranch === "master") {
       await bareGit.raw(["update-ref", "-d", "refs/heads/main"]);
       await bareGit.raw(["symbolic-ref", "HEAD", "refs/heads/master"]);
@@ -654,7 +654,7 @@ describe("worktreeCreate", () => {
       await bareGit.raw(["update-ref", "refs/heads/main", firstMainCommit]);
       await bareGit.raw(["symbolic-ref", "HEAD", "refs/heads/main"]);
     }
-    await simpleGit().clone(bareDir, cloneDir);
+    await testGit().clone(bareDir, cloneDir);
     return { bareDir, cloneDir };
   }
 
@@ -669,7 +669,7 @@ describe("worktreeCreate", () => {
     const repos = await setupRepos("master");
 
     // Change bare repo's default branch to "main" after the clone was made.
-    const bareGit = simpleGit(repos.bareDir);
+    const bareGit = testGit(repos.bareDir);
     await bareGit.raw([
       "update-ref",
       "refs/heads/main",
@@ -682,11 +682,11 @@ describe("worktreeCreate", () => {
     if (!result.ok) return;
     expect(result.value.branch).toBe("feat-default");
 
-    const worktreeGit = simpleGit(result.value.path);
+    const worktreeGit = testGit(result.value.path);
     const worktreeHead = (await worktreeGit.revparse(["HEAD"])).trim();
     expect(worktreeHead).toBe(firstMainCommit);
 
-    await simpleGit(repos.cloneDir).raw([
+    await testGit(repos.cloneDir).raw([
       "worktree",
       "remove",
       result.value.path,
@@ -699,13 +699,13 @@ describe("worktreeCreate", () => {
     const repos = await setupRepos();
 
     // Advance the bare ref after cloning, simulating someone else pushing.
-    await simpleGit(repos.bareDir).raw([
+    await testGit(repos.bareDir).raw([
       "update-ref",
       "refs/heads/main",
       latestMainCommit,
     ]);
 
-    const cloneGit = simpleGit(repos.cloneDir);
+    const cloneGit = testGit(repos.cloneDir);
     const staleCommit = (await cloneGit.revparse(["origin/main"])).trim();
     expect(staleCommit).not.toBe(latestMainCommit);
 
@@ -713,7 +713,7 @@ describe("worktreeCreate", () => {
     expect(result.ok).toBe(true);
     if (!result.ok) return;
 
-    const worktreeGit = simpleGit(result.value.path);
+    const worktreeGit = testGit(result.value.path);
     const worktreeHead = (await worktreeGit.revparse(["HEAD"])).trim();
     expect(worktreeHead).toBe(latestMainCommit);
 
@@ -733,7 +733,7 @@ describe("worktreeCreate", () => {
     if (second.ok) return;
     expect(second.error.code).toBe("WORKTREE_NAME_COLLISION");
 
-    await simpleGit(repos.cloneDir).raw([
+    await testGit(repos.cloneDir).raw([
       "worktree",
       "remove",
       first.value.path,
@@ -763,7 +763,7 @@ describe("watchGitHead", () => {
       path.join(gitDir, "config"),
       "[core]\n\trepositoryformatversion = 0\n\tbare = false\n",
     );
-    const git = simpleGit(dir);
+    const git = testGit(dir);
     return { dir, git, gitDir };
   }
 
@@ -959,7 +959,7 @@ describe("watchGitConfig", () => {
   async function initRepo(name: string) {
     const dir = path.join(tmpDir, name);
     fs.mkdirSync(dir, { recursive: true });
-    const git = simpleGit(dir);
+    const git = testGit(dir);
     await git.init();
     await git.checkoutLocalBranch("main");
     fs.writeFileSync(path.join(dir, "file.txt"), "hello");
@@ -1031,7 +1031,7 @@ describe.skipIf(SKIP_DARWIN_FSWATCH)("subscribeGitInfo dual watcher", () => {
   async function initRepo(name: string) {
     const dir = path.join(tmpDir, name);
     fs.mkdirSync(dir, { recursive: true });
-    const git = simpleGit(dir);
+    const git = testGit(dir);
     await git.init();
     await git.checkoutLocalBranch("main");
     fs.writeFileSync(path.join(dir, "file.txt"), "hello");
@@ -1107,7 +1107,7 @@ describe.skipIf(SKIP_DARWIN_FSWATCH)("subscribeGitInfo watcher churn", () => {
   async function initRepo(name: string) {
     const dir = path.join(tmpDir, name);
     fs.mkdirSync(dir, { recursive: true });
-    const git = simpleGit(dir);
+    const git = testGit(dir);
     await git.init();
     await git.checkoutLocalBranch("main");
     fs.writeFileSync(path.join(dir, "file.txt"), "hello");
@@ -1253,7 +1253,7 @@ describe.skipIf(SKIP_DARWIN_FSWATCH)("subscribeGitInfo watcher churn", () => {
     // `git init` (no setCwd / OSC 7 follow-up). The cwd watcher must fire
     // on `.git` appearing, trigger a re-resolve, and swap to the HEAD
     // watcher.
-    const git = simpleGit(dir);
+    const git = testGit(dir);
     await git.init();
     await git.checkoutLocalBranch("main");
     fs.writeFileSync(path.join(dir, "f.txt"), "x");
@@ -1288,7 +1288,7 @@ describe.skipIf(SKIP_DARWIN_FSWATCH)("subscribeGitInfo watcher churn", () => {
       counter.log,
     );
 
-    const git = simpleGit(dir);
+    const git = testGit(dir);
     await git.init();
     await git.checkoutLocalBranch("main");
     fs.writeFileSync(path.join(dir, "f.txt"), "x");
