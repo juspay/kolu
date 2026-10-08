@@ -61,7 +61,8 @@
     "solid-js": "^1.9.0",
     "solid-sonner": "^0.2.0",
     "terminal-snapshot": "workspace:*",
-    "ts-pattern": "^5.9.0"
+    "ts-pattern": "^5.9.0",
+    "yaml": "^2.8.3"
   },
   "devDependencies": {
     "@kolu/surface-daemon-supervisor": "workspace:*",

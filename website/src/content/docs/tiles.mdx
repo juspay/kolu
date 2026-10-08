@@ -81,6 +81,36 @@ drawn for the wrong width, it stays empty until you reveal it and then paints
 once, correctly. You should never have to nudge the divider to fix a split's
 rendering.
 
+## A tip in the title bar
+
+Between a tile's title and its buttons, a small tip sometimes suggests what to
+do next **in that terminal**. It follows what the terminal is doing, and shows at
+most one line:
+
+| When | The tip |
+| --- | --- |
+| You are at a shell outside any git repository | **Start in a project:** `cd` into a git repo |
+| You are at a shell inside a repository, and the terminal has [coding agents](/agents) | **Launch** the first agent it has (for example `claude`), or `agent-distro` to pick |
+| An agent has just started and is waiting for your first message | **Try a skill:** one of kolu's own, with a line on what it does — in Claude Code as a slash command (`/kolu`), in other agents as a request to use it |
+
+Each tip shows **once**: the first two once for you, the third once for each
+kind of agent — so your first Codex gets its own tip even after Claude Code had
+one. A tip leaves as soon as what it was about changes — you `cd` into a
+repository, start an agent, send that first message, or quit the agent — or
+when you press **×**, which counts as having seen it. Dismissing the first tip
+does not skip the second.
+
+The first two tips need the shell itself in front: with `ssh`, `vim` or any
+other program running, there is no tip until you are back at the prompt. A
+fresh terminal shows nothing until kolu has checked whether it is in a
+repository, so a terminal opened inside one never flashes the first tip.
+
+A tip shows only where you would see it: on the **active** tile, on the desktop
+layout, on a running terminal (a sleeping tile has none), and on a tile wide
+enough for it. A narrow tile keeps its title instead — and the tip is not used
+up: it appears once the tile is wide enough, or once you switch to that tile.
+Hover a tip to read all of it when it is cut short.
+
 ## On touch devices
 
 A **mobile key bar** sends the keys soft keyboards lack — Esc, Tab, arrows,

@@ -1200,7 +1200,11 @@ Before(
     await surfaceCall("surface/kolu/preferences/test__set", {
       // Reset all preferences to defaults (newTerminalTheme "inherit" so new
       // terminals get the default theme — deterministic for tests)
-      seenTips: [],
+      // The tile title bar's next-move tips (`agents/TileTip.tsx`) start SEEN:
+      // no scenario asserts on them, and one would shift the title bar under a
+      // scenario that does. Only rungs 1 and 2 can occur here — the fixture's
+      // `claude` is a stub, so no agent ever reaches its first prompt (rung 3).
+      seenTips: ["tip-cd-repo", "tip-launch-agent"],
       // Marketing recordings (KOLU_X11CAP) want a quiet canvas — no ambient
       // tip banners popping in mid-shot. Normal e2e runs keep them on.
       startupTips: !X11CAP,

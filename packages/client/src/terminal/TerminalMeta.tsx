@@ -107,8 +107,12 @@ const TerminalMeta: Component<{
               </Show>
               {/* Foreground process title — OSC 2 string when present.
                *  Replaces what used to be the cwd slot; cwd is now a
-               *  tooltip on the repo name. `flex-1` so it fills until
-               *  the progress bar (when shown) eats its right edge. */}
+               *  tooltip on the repo name. `flex-1` takes whatever slack
+               *  the row has — but the canvas title column is sized to its
+               *  content (`minmax(0,max-content)`, shared evenly with the
+               *  title-bar tip), so there is none: the workflow badge and
+               *  progress bar sit right after the title, not at the bar's
+               *  right edge. When the row must shrink, this is what gives. */}
               <Show when={activeArm(v().meta)?.foreground}>
                 {(fg) => (
                   <span
@@ -139,7 +143,7 @@ const TerminalMeta: Component<{
              *  (T1: brand mark appears once, on line 1). Sleeps with the name
              *  row so a dormant tile recedes on both chrome lines. */}
             <div
-              class="col-start-1 col-span-2 row-start-2 flex items-center gap-1.5 min-w-0 text-xs"
+              class="col-start-1 col-span-full row-start-2 flex items-center gap-1.5 min-w-0 text-xs"
               classList={{ [SLEEPING_RECEDE_CLASS]: pip().sleeping }}
             >
               <Tip label={v().meta.intent ? "Edit intent" : "Set intent"}>

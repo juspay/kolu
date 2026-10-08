@@ -12,8 +12,10 @@
  *    disabled. The maximize signal lives in `TerminalCanvas`, exposed here
  *    so chrome reflects state and double-click toggles it. */
 
+import { createElementSize } from "@solid-primitives/resize-observer";
 import { createDraggable } from "@thisbeyond/solid-dnd";
 import {
+  type Accessor,
   type Component,
   createEffect,
   createMemo,
@@ -80,6 +82,12 @@ const CanvasTile: Component<{
    *  (e.g. terminal screenshot, theme pill). Structural actions (close) are
    *  hardcoded. */
   renderTitleActions?: () => JSX.Element;
+  /** Optional one-line tip between the title and the actions (the terminal's
+   *  next-move tip). Handed the title bar's measured width (`null` until
+   *  measured): whether a bar is wide enough to show a tip is the TIP's
+   *  decision, made where it decides everything else about showing — the tile
+   *  never hides the slot behind its back. */
+  renderTitleTip?: (titleBarPx: Accessor<number | null>) => JSX.Element;
   renderBody: () => JSX.Element;
   getLayout: (id: string) => TileLayout | undefined;
   startResize: (
@@ -122,6 +130,8 @@ const CanvasTile: Component<{
   // sleep, reduced-motion, animationend/cancel) spends the cue for this
   // shell instance (not re-armed without remount).
   const [landing, setLanding] = createSignal(false);
+  const [titleBarEl, setTitleBarEl] = createSignal<HTMLElement>();
+  const titleBarSize = createElementSize(titleBarEl);
   const spendLanding = () => setLanding(false);
   onMount(() => {
     if (prefersReducedMotion() || props.sleeping || props.mode !== "tiled")
@@ -395,18 +405,31 @@ const CanvasTile: Component<{
          *  drag activators only attach when tiled — a maximized tile shouldn't
          *  start a drag on grab. Double-click toggles maximize.
          *
-         *  Layout is a 2-column grid: `minmax(0,1fr)` for the identity block,
-         *  `auto` for the action cluster. `items-start` hugs the actions to the
-         *  top edge. `renderTitle()` is spread across the grid via
-         *  `display:contents`, so `TerminalMeta`'s name row lands in column 1
-         *  of row 1 (beside the actions) while its branch/PR row spans BOTH
-         *  columns of row 2 — flowing full-width *under* the top-aligned
-         *  actions instead of being boxed into the narrow left column. Without
-         *  the span, the branch/PR row truncated early with dead space beneath
-         *  a wide action cluster (agent status + theme + icons). */}
+         *  Layout is a 4-column grid: the identity block, a spacer, the tip,
+         *  the action cluster. The identity block and the tip are both
+         *  `minmax(0,max-content)`, so free space grows them EQUALLY up to
+         *  their natural widths — when room is short, each truncates rather
+         *  than one squeezing the other to nothing — and the `1fr` spacer
+         *  takes what is left, keeping the tip and actions right-aligned.
+         *  `items-start` hugs the tip and actions to the top edge.
+         *  `renderTitle()` is spread across the grid via `display:contents`,
+         *  so `TerminalMeta`'s name row lands in column 1 of row 1 while its
+         *  branch/PR row spans EVERY column of row 2 — flowing full-width
+         *  *under* the top-aligned cluster instead of being boxed into the
+         *  narrow left column. Without the span, the branch/PR row truncated
+         *  early with dead space beneath a wide action cluster (agent status +
+         *  theme + icons). (A spanning item only sizes the flexible spacer, so
+         *  that row never widens the title or tip columns.)
+         *
+         *  The bar is MEASURED and its width handed to the tip, which stays
+         *  quiet on a bar too narrow for it (so a narrow tile keeps its title).
+         *  It is also a size container, for the tip's `cqw` width cap. Column
+         *  spacing is not a grid gap: the actions cell and the tip itself carry
+         *  their own left space, so an empty tip column costs no width. */}
         <div
+          ref={setTitleBarEl}
           data-testid="canvas-tile-titlebar"
-          class="grid [grid-template-columns:minmax(0,1fr)_auto] items-start gap-x-2 px-3 py-1.5 shrink-0 select-none border-l-4"
+          class="@container grid [grid-template-columns:minmax(0,max-content)_minmax(0,1fr)_minmax(0,max-content)_auto] items-start px-3 py-1.5 shrink-0 select-none border-l-4"
           classList={{
             "cursor-grab active:cursor-grabbing": !isMaximized(),
           }}
@@ -435,7 +458,13 @@ const CanvasTile: Component<{
           {...(props.mode === "tiled" ? draggable.dragActivators : {})}
         >
           <div class="contents">{props.renderTitle()}</div>
-          <div class="col-start-2 row-start-1 flex items-center gap-1 shrink-0">
+          <div
+            data-testid="canvas-tile-tip-slot"
+            class="col-start-3 row-start-1 flex items-center min-w-0"
+          >
+            {props.renderTitleTip?.(() => titleBarSize.width)}
+          </div>
+          <div class="col-start-4 row-start-1 flex items-center gap-1 shrink-0 pl-2">
             {props.renderTitleActions?.()}
             <button
               type="button"

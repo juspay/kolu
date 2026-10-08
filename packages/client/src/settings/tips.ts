@@ -61,6 +61,58 @@ export const CONTEXTUAL_TIPS = {
   },
 } as const satisfies Record<string, Tip>;
 
+/** One run of a tile tip's text — plain words, or a `code` run (a command or
+ *  name the user types), which the title-bar pill sets in monospace. */
+export type TileTipPart = string | { readonly code: string };
+
+/** The tile title bar's tips (`agents/TileTip.tsx`) — one per terminal, chosen
+ *  by `agents/terminalTip.ts` from what that terminal is doing. Their text is
+ *  built from the terminal's facts, so each entry is an id plus a builder. Seen
+ *  ids ride the same `seenTips` preference as every other tip. */
+export const TILE_TIPS = {
+  /** A shell outside any git repo. Once per user. */
+  cdRepo: {
+    id: "tip-cd-repo",
+    parts: (): readonly TileTipPart[] => [
+      "Start in a project: ",
+      { code: "cd" },
+      " into a git repo",
+    ],
+  },
+  /** A shell in a repo, with agents on its PATH. Once per user. */
+  launchAgent: {
+    id: "tip-launch-agent",
+    parts: (harness: string): readonly TileTipPart[] => [
+      "Launch ",
+      { code: harness },
+      ", or ",
+      { code: "agent-distro" },
+      " to pick",
+    ],
+  },
+  /** An agent at its first prompt. Once per agent kind. Claude Code runs a
+   *  plugin skill as a slash command; every other harness is asked in words. */
+  skill: {
+    id: (kind: string): TipId => `tip-skill:${kind}`,
+    parts: (
+      kind: string,
+      skill: { readonly name: string; readonly blurb: string },
+    ): readonly TileTipPart[] =>
+      kind === "claude-code"
+        ? ["Try a skill: ", { code: `/${skill.name}` }, ` — ${skill.blurb}`]
+        : [
+            "Try a skill: ask it to use the ",
+            { code: skill.name },
+            ` skill — ${skill.blurb}`,
+          ],
+  },
+} as const;
+
+/** A tile tip's text as one plain string (for `aria-label` and the hover). */
+export function tileTipText(parts: readonly TileTipPart[]): string {
+  return parts.map((p) => (typeof p === "string" ? p : p.code)).join("");
+}
+
 export const AMBIENT_TIPS: readonly Tip[] = [
   {
     id: "amb-sub",

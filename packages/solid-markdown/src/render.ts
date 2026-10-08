@@ -199,8 +199,10 @@ const FRONT_MATTER_RE =
  *  YAML body (null when there is no front-matter); `body` is the markdown that
  *  follows. Separating the two lets the caller either render the metadata as a
  *  table or drop it, while the body always parses as plain markdown — never as a
- *  spurious top-of-page `<hr>` + Setext heading. */
-function splitFrontMatter(markdown: string): {
+ *  spurious top-of-page `<hr>` + Setext heading. Exported so a reader of a
+ *  front-matter document that never renders it (kolu's plugin-skill loader)
+ *  splits it the same way. */
+export function splitFrontMatter(markdown: string): {
   yaml: string | null;
   body: string;
 } {

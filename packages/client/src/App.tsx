@@ -77,6 +77,7 @@ import { useColorScheme } from "./settings/useColorScheme";
 import { useTips } from "./settings/useTips";
 import TerminalContent from "./terminal/TerminalContent";
 import TerminalMeta from "./terminal/TerminalMeta";
+import TileTip from "./agents/TileTip";
 import { useTerminals } from "./terminal/useTerminals";
 import { useTileStore } from "./tile/useTileStore";
 import { realSizes } from "./ui/corvuResizable";
@@ -652,6 +653,9 @@ const App: Component = () => {
                           )}
                           renderTileTitleActions={(id) => (
                             <TileTitleActions id={id} host={activeHost()} />
+                          )}
+                          renderTileTitleTip={(id, titleBarPx) => (
+                            <TileTip id={id} titleBarPx={titleBarPx} />
                           )}
                           renderTileBody={outlet}
                         />
