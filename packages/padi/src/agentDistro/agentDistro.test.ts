@@ -3,32 +3,15 @@
  * and the write gate on the pushed setting.
  */
 
-import {
-  existsSync,
-  mkdirSync,
-  mkdtempSync,
-  realpathSync,
-  symlinkSync,
-  writeFileSync,
-} from "node:fs";
+import { mkdirSync, mkdtempSync, realpathSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { agentBinDir } from "@kolu/agent-distro/bundle";
-import { PICKER_COMMAND } from "@kolu/agent-distro/listing";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { assessAgentDistro, checkAgentDistroSetting } from "./agentDistro.ts";
 import { __setAgentDistroBakeForTest, type AgentDistroBake } from "./bake.ts";
 import { layerOnHost, withAgentLayer } from "./layer.ts";
 
 const ON = { enabled: true, profile: "vanilla" } as const;
-
-/** A store bundle as agent-distro builds it: `bin/` holds the harness
- *  commands AND the profile's own picker, `agent-distro`. */
-function storeBundle(dir: string): void {
-  mkdirSync(join(dir, "bin"), { recursive: true });
-  for (const command of ["claude", PICKER_COMMAND])
-    writeFileSync(join(dir, "bin", command), "#!/bin/sh\n", { mode: 0o755 });
-}
 
 let root: string;
 let savedStateHome: string | undefined;
@@ -38,7 +21,7 @@ function bake(opts: { floor: boolean }): AgentDistroBake {
   if (opts.floor) {
     for (const p of ["vanilla", "juspay"]) {
       const target = join(root, `store-${p}-kolu`);
-      storeBundle(target);
+      mkdirSync(join(target, "bin"), { recursive: true });
       mkdirSync(join(floor, "profiles"), { recursive: true });
       symlinkSync(target, join(floor, "profiles", p));
     }
@@ -47,6 +30,7 @@ function bake(opts: { floor: boolean }): AgentDistroBake {
   // store profile dir is reached), so the resolved path is what gets pinned.
   const manifest = {
     default: "vanilla",
+    picker: join(floor, "picker"),
     profiles: ["vanilla", "juspay"].map((name) => ({
       name,
       dir: join(floor, "profiles", name),
@@ -114,33 +98,11 @@ describe("layerOnHost — the bundle on disk", () => {
   it("the host's `current` wins over the floor, resolved to its target", () => {
     __setAgentDistroBakeForTest(bake({ floor: true }));
     const fetched = join(root, "store-fetched-vanilla");
-    storeBundle(fetched);
+    mkdirSync(join(fetched, "bin"), { recursive: true });
     const stateDir = join(root, "state", "agent-distro", "vanilla");
     mkdirSync(stateDir, { recursive: true });
     symlinkSync(fetched, join(stateDir, "current"));
     expect(layerOnHost(ON)?.bundle).toBe(fetched);
-  });
-
-  it("the PATH a terminal gets is the bundle's own bin/, with `agent-distro` in it — on the floor and after a download", () => {
-    __setAgentDistroBakeForTest(bake({ floor: true }));
-    const onFloor = layerOnHost(ON);
-    if (onFloor === undefined) throw new Error("no layer on the floor");
-    expect(existsSync(join(agentBinDir(onFloor.bundle), PICKER_COMMAND))).toBe(
-      true,
-    );
-    // A remote host, once its download lands `current`.
-    __setAgentDistroBakeForTest(bake({ floor: false }));
-    const fetched = join(root, "store-fetched-vanilla");
-    storeBundle(fetched);
-    const stateDir = join(root, "state", "agent-distro", "vanilla");
-    mkdirSync(stateDir, { recursive: true });
-    symlinkSync(fetched, join(stateDir, "current"));
-    const downloaded = layerOnHost(ON);
-    expect(downloaded?.bundle).toBe(fetched);
-    if (downloaded === undefined) throw new Error("no layer after download");
-    expect(
-      existsSync(join(agentBinDir(downloaded.bundle), PICKER_COMMAND)),
-    ).toBe(true);
   });
 
   it("a remote host before its first download → nothing yet", () => {

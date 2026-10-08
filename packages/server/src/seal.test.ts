@@ -130,8 +130,8 @@ const WEB_SHELL_FILES = [
   // still cannot drift. Web-shell code (it names how the web face boots), not
   // terminal domain.
   "bootFlags",
-  // The agent-distro profile listing Settings offers — runs each floor
-  // profile's own picker's `--list --json` once at boot and seeds koluSurface's `agentDistroListing`
+  // The agent-distro profile listing Settings offers — runs the baked picker's
+  // `--list --json` once at boot and seeds koluSurface's `agentDistroListing`
   // cell. Web-shell code (a read of a build fact for the shell's own surface).
   "agentDistroListing",
   "hostname",

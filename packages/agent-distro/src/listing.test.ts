@@ -1,7 +1,7 @@
 /** agent-distro's `--list --json`, parsed (a fixture of its U1 output). */
 
 import { describe, expect, it } from "vitest";
-import { parseAgentDistroList, parseProfileListing } from "./listing.ts";
+import { parseAgentDistroList } from "./listing.ts";
 
 const FIXTURE = JSON.stringify({
   profiles: [
@@ -40,28 +40,5 @@ describe("parseAgentDistroList", () => {
       parseAgentDistroList("vanilla claude Claude Code 2.1"),
     ).toThrow();
     expect(() => parseAgentDistroList('{"profiles":[]}')).toThrow();
-  });
-});
-
-describe("parseProfileListing — one profile bundle's own picker", () => {
-  const one = (name: string) =>
-    JSON.stringify({
-      profiles: [{ name, description: `the ${name} set`, harnesses: [] }],
-    });
-
-  it("reads the one profile it lists", () => {
-    expect(parseProfileListing("vanilla", one("vanilla")).description).toBe(
-      "the vanilla set",
-    );
-  });
-
-  it("throws when it lists another profile, or more than one — a broken build", () => {
-    expect(() => parseProfileListing("vanilla", one("juspay"))).toThrow(
-      /lists \[juspay\], not exactly 'vanilla'/,
-    );
-    expect(() => parseProfileListing("vanilla", FIXTURE)).toThrow(
-      /lists \[vanilla, juspay\]/,
-    );
-    expect(() => parseProfileListing("vanilla", '{"profiles":[]}')).toThrow();
   });
 });

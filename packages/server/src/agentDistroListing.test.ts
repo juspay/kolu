@@ -1,6 +1,6 @@
-/** The profile listing Settings offers: running each floor profile's own
- *  picker, and the boot check that kolu's default profile leads it. (Parsing
- *  `--list --json` is `@kolu/agent-distro/listing`'s, tested there.) */
+/** The profile listing Settings offers: running the baked picker, and the boot
+ *  check that kolu's default profile leads it. (Parsing `--list --json` is
+ *  `@kolu/agent-distro/listing`'s, tested there.) */
 
 import { AGENT_DISTRO_BUNDLE_ENV } from "@kolu/padi/agentDistroBake";
 import { describe, expect, it } from "vitest";
@@ -50,59 +50,39 @@ describe("readAgentDistroListing", () => {
   const manifest = (dflt: string) =>
     JSON.stringify({
       default: dflt,
-      profiles: ["vanilla", "juspay"].map((name) => ({
-        name,
-        dir: `/s/${name}`,
-        bin: `/s/${name}/bin`,
-        hash: name,
-      })),
+      picker: "/nix/store/p-picker/bin/agent-distro",
+      profiles: [
+        { name: "vanilla", dir: "/s/v", bin: "/s/v/bin", hash: "v" },
+        { name: "juspay", dir: "/s/j", bin: "/s/j/bin", hash: "j" },
+      ],
     });
-  // Each profile's own picker lists exactly that profile.
-  const PROFILES = JSON.parse(FIXTURE).profiles as { name: string }[];
-  const pickers = (bin: string) => {
-    const name = bin.match(/^\/s\/(\w+)\/bin\/agent-distro$/)?.[1];
-    const profile = PROFILES.find((p) => p.name === name);
-    if (profile === undefined) throw new Error(`unexpected run ${bin}`);
-    return JSON.stringify({ profiles: [profile] });
-  };
   const readManifest = (dflt: string) => (path: string) => {
     if (path !== `${BUNDLE}/share/kolu/agent-distro.json`)
       throw new Error(`unexpected read ${path}`);
     return manifest(dflt);
   };
 
-  it("baked → runs each profile's own picker off its bin, with --list --json, and joins them in the manifest's order", () => {
+  it("baked → runs the picker the floor's manifest names, with --list --json", () => {
     const calls: string[][] = [];
     const listing = readAgentDistroListing(
       { [AGENT_DISTRO_BUNDLE_ENV]: BUNDLE },
       (bin, args) => {
         calls.push([bin, ...args]);
-        return pickers(bin);
+        return FIXTURE;
       },
       readManifest("vanilla"),
     );
     expect(calls).toEqual([
-      ["/s/vanilla/bin/agent-distro", "--list", "--json"],
-      ["/s/juspay/bin/agent-distro", "--list", "--json"],
+      ["/nix/store/p-picker/bin/agent-distro", "--list", "--json"],
     ]);
-    expect(listing).toEqual(parseAgentDistroList(FIXTURE));
+    expect(listing.kind).toBe("available");
   });
 
-  it("fails the boot when a profile's picker lists anything but that profile", () => {
+  it("fails the boot when the picker does not lead with the manifest's default", () => {
     expect(() =>
       readAgentDistroListing(
         { [AGENT_DISTRO_BUNDLE_ENV]: BUNDLE },
         () => FIXTURE,
-        readManifest("vanilla"),
-      ),
-    ).toThrow(/not exactly 'vanilla'/);
-  });
-
-  it("fails the boot when the listing does not lead with the manifest's default", () => {
-    expect(() =>
-      readAgentDistroListing(
-        { [AGENT_DISTRO_BUNDLE_ENV]: BUNDLE },
-        pickers,
         readManifest("juspay"),
       ),
     ).toThrow(/leads with 'vanilla'.*'juspay'/);

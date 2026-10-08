@@ -965,8 +965,8 @@ export const koluSurface = defineSurfaceWithPolicy<ToastOnlyPolicy>()({
     },
 
     /** The agent-distro profiles Settings offers (see
-     *  {@link AgentDistroListingSchema}) — read once at boot from each floor
-     *  profile's picker's `--list --json`, seeded into an in-memory store, never written
+     *  {@link AgentDistroListingSchema}) — read once at boot from the baked
+     *  picker's `--list --json`, seeded into an in-memory store, never written
      *  after. Read-only on the client. */
     agentDistroListing: {
       schema: AgentDistroListingSchema,
