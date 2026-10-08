@@ -53,6 +53,65 @@ export function nextBoundary(now: number, schedule: UpdaterSchedule): number {
   return boundaryAtOrBefore(now, schedule) + schedule.periodSeconds;
 }
 
+/** How many scheduled runs one boundary gets, and how far apart, when a run
+ *  FAILS — upstream's own `--scheduled` numbers (`src/update/update.ts`
+ *  `scheduled()`: "up to 3 attempts five minutes apart"), mirrored so padi's
+ *  timer gives a machine that was offline at the boundary the same chances
+ *  launchd's would. A `skipped` run is not retried: it waits for the next
+ *  boundary, as upstream's does. */
+export const SCHEDULED_ATTEMPTS = 3;
+export const SCHEDULED_RETRY_SECONDS = 300;
+
+/** The scheduled runs one boundary has had so far, as padi counts them. */
+export interface ScheduledAttempts {
+  /** The boundary (epoch seconds) these attempts belong to. */
+  readonly boundary: number;
+  readonly count: number;
+  /** When the last one started, epoch seconds. */
+  readonly lastAt: number;
+  /** The last one ended `failed`. */
+  readonly lastFailed: boolean;
+}
+
+/** Record a scheduled run starting at `now`: the next attempt of the current
+ *  boundary, or the first of a new one. */
+export function attemptStarted(
+  prev: ScheduledAttempts | undefined,
+  now: number,
+  schedule: UpdaterSchedule,
+): ScheduledAttempts {
+  const boundary = boundaryAtOrBefore(now, schedule);
+  return {
+    boundary,
+    count: prev?.boundary === boundary ? prev.count + 1 : 1,
+    lastAt: now,
+    lastFailed: false,
+  };
+}
+
+/** Should the timer ask "is an update due" now (epoch seconds)? Yes when a
+ *  boundary has passed since it last asked, when its last ask met a run in
+ *  flight (`askAgain`: that ask did not count), or when the boundary's last
+ *  scheduled run FAILED and it has attempts left, five minutes on. Whether a
+ *  run then starts is still {@link updateDue}'s call. */
+export function scheduledAskNow(input: {
+  readonly now: number;
+  readonly schedule: UpdaterSchedule;
+  readonly boundaryPassed: boolean;
+  readonly askAgain: boolean;
+  readonly attempts: ScheduledAttempts | undefined;
+}): boolean {
+  if (input.boundaryPassed || input.askAgain) return true;
+  const a = input.attempts;
+  if (a === undefined) return false;
+  return (
+    a.lastFailed &&
+    a.boundary === boundaryAtOrBefore(input.now, input.schedule) &&
+    a.count < SCHEDULED_ATTEMPTS &&
+    input.now - a.lastAt >= SCHEDULED_RETRY_SECONDS
+  );
+}
+
 /** The file under a state directory where the updater stamps its last
  *  successful run (`updated` or `unchanged`), in epoch seconds. */
 export function lastSuccessFile(stateDir: string): string {

@@ -15,7 +15,10 @@ import Disclosure from "../ui/Disclosure";
 const AgentUpdateHistory: Component<{
   rows: readonly AgentUpdateHistoryRow[];
 }> = (props) => (
-  <Disclosure summary={AGENTS_HISTORY.title} data-testid="agents-history">
+  <Disclosure
+    summary={AGENTS_HISTORY.title(props.rows.length)}
+    data-testid="agents-history"
+  >
     <Show
       when={props.rows.length > 0}
       fallback={
@@ -31,8 +34,12 @@ const AgentUpdateHistory: Component<{
         <For each={props.rows}>
           {(row) => (
             <>
-              <span class="truncate font-medium text-fg-2">{row.host}</span>
-              <span class="font-mono text-[0.7rem] text-fg-3/70">
+              {/* The host in the status line's host weight, the time muted,
+                  the words between: each row has an anchor. */}
+              <span class="truncate font-sans font-medium text-fg-2">
+                {row.host}
+              </span>
+              <span class="font-mono text-[0.7rem] text-fg-3/50">
                 {row.when}
               </span>
               <span
@@ -41,7 +48,7 @@ const AgentUpdateHistory: Component<{
                 class="break-words font-mono text-[0.7rem]"
                 classList={{
                   "text-warning": row.tone === "warn",
-                  "text-fg-3/70": row.tone === "muted",
+                  "text-fg-3": row.tone === "muted",
                 }}
               >
                 {row.text}

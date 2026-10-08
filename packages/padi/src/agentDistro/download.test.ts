@@ -33,6 +33,7 @@ import {
   agentDistroSettingStore,
   checkForAgentUpdate,
   newTerminalLayer,
+  onAgentUpdateTick,
   onAgentDistroSettingWrite,
 } from "./agentDistro.ts";
 import { __resetAgentDistroDownloadsForTest } from "./download.ts";
@@ -122,6 +123,13 @@ switch (process.env.STUB_MODE) {
   case "unchanged":
     stamp();
     out({ result: "unchanged", bundle: realpathSync(cfg.state + "/current") });
+    break;
+  case "updateelsewhere":
+    // An update that flips \`current\` to a newer bundle but reports another.
+    mkdirSync(cfg.state, { recursive: true });
+    rmSync(cfg.state + "/current", { force: true });
+    symlinkSync(process.env.STUB_BUNDLE2, cfg.state + "/current");
+    out({ result: "updated", bundle: "/nix/store/0000000000000000000000000000000-other" });
     break;
   case "skipupdate":
     record("skipped: bundle not fully cached yet (would build claude-code)");
@@ -547,5 +555,101 @@ describe("an update while a bundle serves", () => {
     write(ON);
     expect(checkForAgentUpdate({ force: true })).toBe("running");
     await until((s) => s?.kind === "ready");
+  });
+});
+
+describe("an update that does not land cleanly keeps the agents", () => {
+  async function serving(mode: string): Promise<void> {
+    write(ON);
+    await until((s) => s?.kind === "ready" && s.update === undefined);
+    process.env.STUB_MODE = mode;
+  }
+
+  it("a landing other than the one reported: still ready on the old bundle, the new path disowned, the receipt says it failed", async () => {
+    await serving("updateelsewhere");
+    expect(checkForAgentUpdate({ force: true })).toBe("started");
+    await until((s) => s?.kind === "ready" && s.update === undefined);
+    // Never `error`: the old bundle keeps serving, and new terminals get it.
+    expect(last()).toEqual({
+      kind: "ready",
+      profile: "vanilla",
+      bundle: join(root, "store-fetched-vanilla"),
+    });
+    expect(newTerminalLayer()?.bundle).toBe(
+      join(root, "store-fetched-vanilla"),
+    );
+    expect(receipts.at(-1)?.lastRun).toMatchObject({ outcome: "failed" });
+    expect(receipts.at(-1)?.lastRun?.words).toMatch(/landed .*other/);
+    // The next update lands cleanly and replaces it.
+    process.env.STUB_MODE = "update";
+    expect(checkForAgentUpdate({ force: true })).toBe("started");
+    await until(
+      (s) =>
+        s?.kind === "ready" && s.bundle === join(root, "store-newer-vanilla"),
+    );
+  });
+});
+
+describe("scheduled updates: a failed run is retried, a skip waits", () => {
+  // The policy's tick, driven with a fake wall clock from the next real
+  // boundary (02/08/14/20 UTC): later than any stamp a stub run writes now.
+  const t0 =
+    (Math.floor((Date.now() / 1000 - 7200) / 21600) + 1) * 21600 * 1000 +
+    7200 * 1000;
+  const runs = () => invocations().length;
+  async function settled(): Promise<void> {
+    await until((s) => s?.kind === "ready" && s.update === undefined);
+  }
+  async function servingWith(mode: string): Promise<void> {
+    write(ON);
+    await settled();
+    process.env.STUB_MODE = mode;
+  }
+
+  it("a FAILED run (say, offline at the boundary) gets upstream's three attempts, five minutes apart", async () => {
+    await servingWith("fail");
+    const first = runs();
+    onAgentUpdateTick(true, t0);
+    await settled();
+    expect(runs()).toBe(first + 1);
+    onAgentUpdateTick(false, t0 + 60_000); // too soon
+    expect(runs()).toBe(first + 1);
+    onAgentUpdateTick(false, t0 + 300_000);
+    await settled();
+    expect(runs()).toBe(first + 2);
+    onAgentUpdateTick(false, t0 + 600_000);
+    await settled();
+    expect(runs()).toBe(first + 3);
+    onAgentUpdateTick(false, t0 + 900_000); // out of attempts
+    onAgentUpdateTick(false, t0 + 3_600_000);
+    expect(runs()).toBe(first + 3);
+    // The next boundary starts over.
+    onAgentUpdateTick(true, t0 + 6 * 3_600_000);
+    await settled();
+    expect(runs()).toBe(first + 4);
+  });
+
+  it("a SKIPPED run is not retried: it waits for the next boundary", async () => {
+    await servingWith("skipupdate");
+    const first = runs();
+    onAgentUpdateTick(true, t0);
+    await settled();
+    expect(runs()).toBe(first + 1);
+    onAgentUpdateTick(false, t0 + 300_000);
+    onAgentUpdateTick(false, t0 + 600_000);
+    expect(runs()).toBe(first + 1);
+  });
+
+  it("an ask that met a run in flight asks again on the next tick", async () => {
+    await servingWith("update");
+    expect(checkForAgentUpdate({ force: true })).toBe("started"); // a Check now
+    const first = runs();
+    onAgentUpdateTick(true, t0); // the boundary meets it: no run, no attempt
+    expect(runs()).toBe(first);
+    await settled();
+    process.env.STUB_MODE = "fail";
+    onAgentUpdateTick(false, t0 + 60_000); // asked again
+    await settled();
+    expect(runs()).toBe(first + 1);
   });
 });

@@ -160,17 +160,21 @@ falls back to when it has never been online.
   A host keeps its downloaded bundle in its own Nix store (and the machine
   running kolu also carries the bundles kolu ships). If you also install
   agent-distro on a host through its Home Manager module, both share the same
-  downloaded bundle for the same set.
+  downloaded bundle for the same set. Only the newest set is protected from
+  Nix's garbage collection: after an update, the one before it can be removed,
+  even while a terminal opened before the update still has it on its PATH.
 </Aside>
 
 ## Kept up to date
 
-agent-distro publishes a newer tested set of agents up to four times a day. Four
-times a day — at 02:00, 08:00, 14:00 and 20:00 UTC, agent-distro's own
-schedule — every machine with agents on looks for a newer build of the set you
-chose, and downloads it if there is one. Only the chosen set is kept current;
-switching sets downloads the new one as before. A machine that was asleep or
-offline through one of those times looks once as soon as it is back.
+agent-distro publishes a newer tested set of agents up to four times a day. At
+those times — 02:00, 08:00, 14:00 and 20:00 UTC, agent-distro's own schedule —
+every machine with agents on looks for a newer build of the set you chose, and
+downloads it if there is one. Only the chosen set is kept current; switching
+sets downloads the new one as before. A machine that was asleep through one of
+those times looks once within minutes of waking. One whose look fails — it was
+offline, say — tries again twice, five minutes apart, as agent-distro's own
+schedule does.
 
 Nothing is ever compiled. A newer set is downloaded only once agent-distro's
 cache holds all of it; until then the machine skips it and looks again at the
@@ -187,9 +191,16 @@ progress. Then:
 - a terminal already open keeps its own, and its pill offers **Restart**
   ([above](#restarting-a-terminal-onto-the-current-agents)).
 
-A look that finds nothing newer, or skips because the newer set is not ready to
-download yet, says nothing. A look that fails says nothing either — the agents
-you have keep working — and shows in the History and the host's line.
+A look that finds nothing newer, or skips (the newer set is not fully in the
+cache yet, or the machine's Nix cannot use the cache), says nothing; the host's
+line says it was skipped, and its hover and the History give agent-distro's
+reason. A look that fails says nothing either — the agents you have keep
+working — and shows on the host's line (and in the History, when agent-distro
+wrote it down: a run that crashed did not).
+
+A terminal keeps the set it started with until you restart it — or until a Nix
+garbage collection on that machine removes that set, which an update leaves
+unprotected. **Restart** gets the current set.
 
 In **Settings → Agents**:
 

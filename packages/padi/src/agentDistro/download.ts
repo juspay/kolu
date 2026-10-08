@@ -12,10 +12,12 @@
  *     the host's failure (`failed`, with a typed reason);
  *   - an UPDATE — a bundle already serves (`serving`). It keeps serving for
  *     the whole run (the updater flips `current` before it reports, so `current`
- *     is never read mid-run), and a run that skips or fails leaves it serving:
- *     a background update that does not land is NOT the host's failure. It is
- *     kept as the profile's last unlanded run ({@link unlandedRunOf}) for the
- *     receipt, and logged.
+ *     is never read mid-run), and a run that skips, fails, or lands something
+ *     other than what it reported leaves it serving: a background update that
+ *     does not land is NOT the host's failure. If `current` moved anyway, that
+ *     path is disowned and the old bundle is KEPT serving
+ *     ({@link keptBundleOf}). The run is kept as the profile's last unlanded run
+ *     ({@link unlandedRunOf}) for the receipt, and logged.
  *
  * A failure is recorded as a TYPED reason with its cause — never a remedy or a
  * retry instruction: those are worded once, in `@kolu/agent-distro/status`.
@@ -57,6 +59,9 @@ const disowned = new Map<string, string>();
  *  thing the updater's own files may not show: a crash writes no history line,
  *  and a repeated skip is written once. */
 const unlanded = new Map<string, AgentUpdateRun>();
+/** The bundle that keeps serving after an update that did not land cleanly
+ *  while `current` moved to a path it disowned. Cleared when a run lands. */
+const kept = new Map<string, string>();
 
 /** Where `profile`'s runs stand: one running (with bytes, and the bundle that
  *  serves meanwhile when it is an update), a failed first download, or nothing
@@ -86,6 +91,12 @@ export function forgetFailure(profile: string): void {
  *  may get it. */
 export function disownedBundleOf(profile: string): string | undefined {
   return disowned.get(profile);
+}
+
+/** The bundle `profile` keeps serving after an update that did not land
+ *  cleanly, while `current` points at a disowned path. */
+export function keptBundleOf(profile: string): string | undefined {
+  return kept.get(profile);
 }
 
 /** `profile`'s last run that landed nothing, if any. */
@@ -123,7 +134,8 @@ export function startRun(
   ) => {
     running.delete(profile.name);
     unlanded.set(profile.name, { at: Date.now(), outcome, words: message });
-    if (update) {
+    if (serving !== undefined) {
+      keepServing(serving);
       plog.warn(
         { err, outcome, message },
         "agent-distro update did not land; the current agents keep serving",
@@ -133,9 +145,32 @@ export function startRun(
     failed.set(profile.name, { reason, message });
     plog.error({ err, reason, message }, "agent-distro download failed");
   };
+  /** An update that did not land cleanly: if `current` moved anyway (a crash
+   *  after the flip, a landing other than the one reported), disown that path
+   *  and keep the bundle that served. */
+  const keepServing = (old: string) => {
+    let here: string | undefined;
+    try {
+      here = bundleOnHost(bake, profile);
+    } catch (err) {
+      plog.error({ err }, "could not resolve this host's current bundle");
+    }
+    if (here === undefined || here === old) return;
+    disowned.set(profile.name, here);
+    kept.set(profile.name, old);
+  };
   /** A host that resolves something other than what the updater reported:
-   *  never a bundle any terminal gets, update or not. */
+   *  never a bundle any terminal gets. For a first download that is the
+   *  host's failure; for an update the old bundle keeps serving. */
   const mismatch = (message: string) => {
+    if (update) {
+      plog.error(
+        { message },
+        "agent-distro update landed an unreported bundle",
+      );
+      unlandedEnd("failed", "updater", message);
+      return;
+    }
     running.delete(profile.name);
     failed.set(profile.name, { reason: "updater", message });
     plog.error({ message }, "agent-distro run landed an unreported bundle");
@@ -186,7 +221,7 @@ export function startRun(
       // exactly that one, or new terminals would get something else.
       const here = bundleOnHost(bake, profile);
       if (here !== outcome.bundle) {
-        if (here !== undefined) disowned.set(profile.name, here);
+        if (here !== undefined && !update) disowned.set(profile.name, here);
         mismatch(
           here === undefined
             ? `the updater landed ${outcome.bundle}, but this host has no current bundle for ${profile.name}`
@@ -196,6 +231,7 @@ export function startRun(
       }
       running.delete(profile.name);
       disowned.delete(profile.name);
+      kept.delete(profile.name);
       unlanded.delete(profile.name);
       plog.info(
         { bundle: here, result: outcome.result },
@@ -228,6 +264,7 @@ export function __resetAgentDistroDownloadsForTest(): void {
   failed.clear();
   disowned.clear();
   unlanded.clear();
+  kept.clear();
 }
 
 /** Test seam: put `profile`'s run in a state without running one. */

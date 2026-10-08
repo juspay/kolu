@@ -8,7 +8,12 @@
 
 import { describe, expect, it } from "vitest";
 import {
+  attemptStarted,
   lastSuccessFile,
+  SCHEDULED_ATTEMPTS,
+  SCHEDULED_RETRY_SECONDS,
+  type ScheduledAttempts,
+  scheduledAskNow,
   nextBoundary,
   parseLastSuccess,
   updateDue,
@@ -84,5 +89,56 @@ describe("last-success", () => {
     expect(parseLastSuccess(undefined)).toBeNull();
     expect(parseLastSuccess("")).toBeNull();
     expect(parseLastSuccess("yesterday")).toBeNull();
+  });
+});
+
+describe("scheduledAskNow — a boundary, a missed ask, and upstream's retries", () => {
+  // A fake clock walked in the timer's 5-minute steps from the 08:00 boundary.
+  const t0 = at("2026-10-08T08:00:00Z");
+  const ask = (
+    now: number,
+    attempts: ScheduledAttempts | undefined,
+    extra: { boundaryPassed?: boolean; askAgain?: boolean } = {},
+  ) =>
+    scheduledAskNow({
+      now,
+      schedule: UPSTREAM,
+      boundaryPassed: extra.boundaryPassed ?? false,
+      askAgain: extra.askAgain ?? false,
+      attempts,
+    });
+
+  it("mirrors upstream's numbers: 3 attempts, 5 minutes apart", () => {
+    expect(SCHEDULED_ATTEMPTS).toBe(3);
+    expect(SCHEDULED_RETRY_SECONDS).toBe(300);
+  });
+
+  it("a failed run (offline at the boundary) is retried twice, five minutes apart, then waits for the next boundary", () => {
+    expect(ask(t0, undefined, { boundaryPassed: true })).toBe(true);
+    let a = { ...attemptStarted(undefined, t0, UPSTREAM), lastFailed: true };
+    expect(ask(t0 + 60, a)).toBe(false); // too soon
+    expect(ask(t0 + 300, a)).toBe(true);
+    a = { ...attemptStarted(a, t0 + 300, UPSTREAM), lastFailed: true };
+    expect(a.count).toBe(2);
+    expect(ask(t0 + 600, a)).toBe(true);
+    a = { ...attemptStarted(a, t0 + 600, UPSTREAM), lastFailed: true };
+    expect(a.count).toBe(3);
+    expect(ask(t0 + 900, a)).toBe(false); // out of attempts
+    expect(ask(t0 + 3 * 3600, a)).toBe(false);
+    // The next boundary starts over.
+    const next = t0 + 6 * 3600;
+    expect(ask(next, a, { boundaryPassed: true })).toBe(true);
+    expect(attemptStarted(a, next, UPSTREAM).count).toBe(1);
+  });
+
+  it("a skipped run is not retried: it waits for the next boundary", () => {
+    const a = attemptStarted(undefined, t0, UPSTREAM); // lastFailed: false
+    expect(ask(t0 + 300, a)).toBe(false);
+    expect(ask(t0 + 3600, a)).toBe(false);
+  });
+
+  it("an ask that met a run in flight asks again on the next tick", () => {
+    expect(ask(t0 + 300, undefined, { askAgain: true })).toBe(true);
+    expect(ask(t0 + 300, undefined)).toBe(false);
   });
 });

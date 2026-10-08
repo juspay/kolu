@@ -231,8 +231,10 @@ Feature: Agents come with kolu
     And I choose the "vanilla" Agents profile
     Then this machine's Agents status should be ready
     And this machine's Agents line should say the last run unchanged
-    When I click Check now
+    When I remember this machine's last update run
+    And I click Check now
     Then this machine's Agents line should show an update checking
+    And this machine's last update run should be newer than the one I remembered
     And this machine's Agents line should say the last run unchanged
     And no toast should say an update landed on this machine
     And there should be no page errors

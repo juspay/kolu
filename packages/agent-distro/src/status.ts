@@ -323,13 +323,13 @@ export function agentMarkWords(
       return { title: `Coding agents: checking ${where}…`, detail: [] };
     case "ready":
       return {
-        title: `Coding agents ready on ${where}: ${mark.profile} (${mark.hash}) — new terminals there start with them`,
+        title: `Coding agents ready on ${where}: ${mark.profile} (${mark.hash}) — new terminals ${hereOrThere(where)} start with them`,
         detail:
           mark.update === undefined
             ? []
             : [
                 mark.update.download === undefined
-                  ? AGENTS_UPDATE_CHECKING
+                  ? capitalize(AGENTS_UPDATE_CHECKING)
                   : AGENTS_UPDATE_DOWNLOADING,
               ],
       };
@@ -348,7 +348,7 @@ export function agentMarkWords(
 }
 
 /** What a ready host says while the updater looks for a newer set. */
-export const AGENTS_UPDATE_CHECKING = "Checking for newer agents…";
+export const AGENTS_UPDATE_CHECKING = "checking for newer agents…";
 
 /** What a ready host says while a newer set downloads. */
 export const AGENTS_UPDATE_DOWNLOADING =
@@ -517,26 +517,89 @@ function receiptFor(
   return receipt?.profile === profile ? receipt : undefined;
 }
 
-/** What a ready host's line adds about its last update run. */
-function lastRunPhrase(run: AgentUpdateRun, ago: AgoPhrase): string {
+/** What a ready host's line adds about its last update run. A skip or a
+ *  failure never claims a cause: the note says what happened, and its hover
+ *  carries the updater's own reason verbatim. */
+function lastRunNote(run: AgentUpdateRun, ago: AgoPhrase): AgentStatusNote {
   const when = ago(run.at);
   switch (run.outcome) {
     case "updated":
-      return `updated ${when}`;
+      return { text: `updated ${when}`, tone: "muted" };
     case "unchanged":
-      return `checked ${when}, up to date`;
+      return { text: `checked ${when}, up to date`, tone: "muted" };
     case "skipped":
-      return `checked ${when}, no newer set ready yet`;
+      return {
+        text: `checked ${when}, skipped`,
+        detail: run.words,
+        tone: "muted",
+      };
     case "failed":
-      return `last update failed ${when}`;
+      return {
+        text: `last update failed ${when}`,
+        detail: run.words,
+        tone: "warn",
+      };
     default:
       return run.outcome satisfies never;
+  }
+}
+
+/** A host whose update history would not read says so on its line. */
+export const AGENTS_RECEIPT_UNREADABLE = "could not read its update history";
+
+/** How a mark is filling — a first download's bytes, or an update's on a ready
+ *  host — `undefined` when nothing is coming down. THE one reading the tab's
+ *  ring and the Settings line share. */
+export function agentMarkFill(
+  mark: AgentMark,
+):
+  | { readonly fraction: number; readonly bytes: string | undefined }
+  | undefined {
+  switch (mark.kind) {
+    case "downloading":
+      return { fraction: mark.fraction, bytes: mark.bytes };
+    case "ready":
+      return mark.update?.download;
+    case "none":
+    case "checking":
+    case "failed":
+      return undefined;
+    default:
+      return mark satisfies never;
+  }
+}
+
+/** A ready host's update phase — checking for a newer set, or downloading
+ *  one — or `undefined` when none runs (or the host is not ready). */
+export function agentMarkUpdate(
+  mark: AgentMark,
+): "checking" | "downloading" | undefined {
+  switch (mark.kind) {
+    case "ready":
+      return mark.update === undefined
+        ? undefined
+        : mark.update.download === undefined
+          ? "checking"
+          : "downloading";
+    case "none":
+    case "checking":
+    case "downloading":
+    case "failed":
+      return undefined;
+    default:
+      return mark satisfies never;
   }
 }
 
 /** How every surface names the machine kolu runs on — its status line, its tab
  *  mark's words, its toasts. */
 export const THIS_MACHINE = "this machine";
+
+/** The adverb that goes with a machine's name in a sentence: "here" for this
+ *  machine, "there" for a host the sentence has named. */
+function hereOrThere(where: string): "here" | "there" {
+  return where === THIS_MACHINE ? "here" : "there";
+}
 
 /** One status line under the Agents row: the host, a bar, and a short text. */
 export interface AgentStatusLine {
@@ -552,8 +615,16 @@ export interface AgentStatusLine {
   readonly fill: number;
   readonly text: string;
   /** A second, quieter line under `text`: a ready host's update running
-   *  ("updating 1.1 GiB of 2.0 GiB") or its last run ("updated 3h ago"). */
-  readonly note?: string;
+   *  ("updating · 1.1 GiB of 2.0 GiB") or its last run ("updated 3h ago"). */
+  readonly note?: AgentStatusNote;
+}
+
+/** A status line's note: its text, the updater's own words for its hover (a
+ *  skip's or a failure's reason), and its tone. */
+export interface AgentStatusNote {
+  readonly text: string;
+  readonly detail?: string;
+  readonly tone: "muted" | "warn";
 }
 
 /** A status line's words for a host with no mark, by the fold's reason. */
@@ -573,26 +644,48 @@ function statusLine(host: HostAgentStatus): AgentStatusLine {
   switch (mark.kind) {
     case "ready": {
       const ready = `ready · ${mark.profile} ${mark.hash}`;
-      if (mark.update !== undefined) {
-        const download = mark.update.download;
-        return download === undefined
-          ? {
-              ...line("ok", 1, ready),
-              note: "checking for newer agents…",
-              update: "checking",
-            }
-          : {
-              ...line("busy", download.fraction, ready),
-              note: `updating${download.bytes === undefined ? "…" : ` · ${download.bytes}`}`,
-              update: "downloading",
-            };
+      // The host IS ready while an update runs: the bar stays full and
+      // green; the note (and the tab's ring) carry the run.
+      const update = agentMarkUpdate(mark);
+      switch (update) {
+        case "checking":
+          return {
+            ...line("ok", 1, ready),
+            note: { text: AGENTS_UPDATE_CHECKING, tone: "muted" },
+            update,
+          };
+        case "downloading": {
+          const bytes = agentMarkFill(mark)?.bytes;
+          return {
+            ...line("ok", 1, ready),
+            note: {
+              text: `updating${bytes === undefined ? "…" : ` · ${bytes}`}`,
+              tone: "muted",
+            },
+            update,
+          };
+        }
+        case undefined:
+          break;
+        default:
+          return update satisfies never;
       }
-      const run = receiptFor(host.receipt, mark.profile)?.lastRun;
+      const receipt = receiptFor(host.receipt, mark.profile);
+      if (receipt?.error !== undefined)
+        return {
+          ...line("ok", 1, ready),
+          note: {
+            text: AGENTS_RECEIPT_UNREADABLE,
+            detail: receipt.error,
+            tone: "warn",
+          },
+        };
+      const run = receipt?.lastRun;
       return run === undefined
         ? line("ok", 1, ready)
         : {
             ...line("ok", 1, ready),
-            note: lastRunPhrase(run, host.ago),
+            note: lastRunNote(run, host.ago),
             lastRun: run.outcome,
           };
     }
@@ -787,13 +880,18 @@ export function agentsHint(input: {
     return { text: unknownProfileMessage(unknown), tone: "warn" };
   const profile = selectedAgentProfile(setting, listing);
   if (profile === undefined) return undefined;
-  const versions = receiptFor(input.localReceipt, profile.name)?.versions;
+  // This machine's own versions once its receipt is in — never the floor's
+  // passed off as this machine's: a bundle with no versions file names none.
+  // Before the receipt's first frame, the set kolu ships.
+  const receipt = receiptFor(input.localReceipt, profile.name);
+  const agents =
+    receipt === undefined
+      ? harnessLine(profile)
+      : versionsLine(receipt.versions);
   return {
     text: [
       `${capitalize(plainProfileDescription(profile))}.`,
-      versions === undefined || versions.length === 0
-        ? harnessLine(profile)
-        : versionsLine(versions),
+      ...(agents === "" ? [] : [agents]),
     ].join("\n"),
     tone: "muted",
   };
@@ -972,7 +1070,7 @@ export const agentToast = {
   updated: (host: string, words: string) =>
     ({
       title: `Coding agents updated on ${host}`,
-      description: `${words} — new terminals there start with them; open ones offer Restart.`,
+      description: `${words} — new terminals ${hereOrThere(host)} start with them; open ones offer Restart.`,
     }) as const,
 } as const;
 
@@ -981,7 +1079,7 @@ export const AGENTS_CHECK_NOW = {
   label: "Check now",
   /** While any machine's update run is in flight. */
   busyLabel: "Checking…",
-  hint: "Look for newer coding agents on every machine now. Nothing is compiled: a newer set is downloaded only once it is ready to download, and terminals already open keep theirs.",
+  hint: "Look for newer coding agents on every machine now. Nothing is compiled: a newer set is downloaded only once agent-distro's cache holds all of it, and terminals already open keep theirs.",
 } as const;
 
 /** A Check now that could not reach a host (a transport drop, a host gone). */
@@ -1006,7 +1104,9 @@ export function agentUpdateRunning(
 
 /** The History disclosure under the status lines. */
 export const AGENTS_HISTORY = {
-  title: "History",
+  /** The disclosure's summary — with how many events it holds, so a closed
+   *  one says there is something inside. */
+  title: (count: number) => (count === 0 ? "History" : `History (${count})`),
   empty: "No updates yet.",
 } as const;
 

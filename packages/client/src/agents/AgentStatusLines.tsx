@@ -2,8 +2,10 @@
  *  (this one first, then each remote that is not ready), as a three-column grid
  *  — the host with agent-distro's mark, a thin bar, and a short mono text. The
  *  bar wears the state's colour: accent while downloading, ok when ready,
- *  warning when failed, empty before the host answers. A ready line's note — an
- *  update running, or the last one — sits under its text, quieter. Which lines show, and
+ *  warning when failed, empty before the host answers — and full and green on
+ *  a ready host even while it updates. A ready line's note — an update
+ *  running, or the last one — sits under its text, quieter; a skip's or a
+ *  failure's reason is in its hover. Which lines show, and
  *  their collapse into one when every host is ready, is `agentStatusLines`. */
 
 import { type Component, For, Show } from "solid-js";
@@ -46,11 +48,7 @@ const AgentStatusLines: Component<{ lines: readonly AgentStatusLine[] }> = (
               data-bar={line.bar}
               data-update={line.update}
               data-last-run={line.lastRun}
-              title={
-                line.note === undefined
-                  ? line.text
-                  : `${line.text}\n${line.note}`
-              }
+              title={line.text}
               class={`truncate font-mono text-[0.7rem] ${line.bar === "warn" ? "text-warning" : "text-fg-3/70"}`}
             >
               {line.text}
@@ -59,10 +57,19 @@ const AgentStatusLines: Component<{ lines: readonly AgentStatusLine[] }> = (
               {(note) => (
                 <span
                   data-testid="agents-status-note"
-                  title={note()}
-                  class="truncate font-mono text-[0.65rem] text-fg-3/55"
+                  data-tone={note().tone}
+                  title={
+                    note().detail === undefined
+                      ? note().text
+                      : `${note().text}: ${note().detail}`
+                  }
+                  class="truncate font-mono text-[0.65rem]"
+                  classList={{
+                    "text-fg-3/55": note().tone === "muted",
+                    "text-warning": note().tone === "warn",
+                  }}
                 >
-                  {note()}
+                  {note().text}
                 </span>
               )}
             </Show>

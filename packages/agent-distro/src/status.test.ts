@@ -6,7 +6,12 @@ import { DEFAULT_AGENT_PROFILE } from "./manifest.ts";
 import type { AgentDistroReceipt, AgentDistroStatus } from "./schema.ts";
 import {
   AGENTS_CHECK_NOW,
+  AGENTS_HISTORY,
+  AGENTS_RECEIPT_UNREADABLE,
   AGENTS_UPDATE_CHECKING,
+  agentMarkFill,
+  agentMarkUpdate,
+  THIS_MACHINE,
   AGENTS_UPDATE_DOWNLOADING,
   agentUpdateCheckable,
   agentUpdateHistoryRows,
@@ -1105,8 +1110,17 @@ describe("K3 — updates while a bundle serves", () => {
       AGENTS_UPDATE_DOWNLOADING,
     ]);
     expect(agentMarkWords(agentMarkOf(checking, false), "box")?.detail).toEqual(
-      [AGENTS_UPDATE_CHECKING],
+      ["Checking for newer agents…"],
     );
+    // One fold for the phase and the fill, the tab's ring and the line alike.
+    expect(agentMarkUpdate(agentMarkOf(checking, false))).toBe("checking");
+    expect(agentMarkUpdate(mark)).toBe("downloading");
+    expect(agentMarkUpdate(agentMarkOf(ready, false))).toBeUndefined();
+    expect(agentMarkFill(mark)).toEqual({
+      fraction: 0.25,
+      bytes: "512 MiB of 2.0 GiB",
+    });
+    expect(agentMarkFill(agentMarkOf(checking, false))).toBeUndefined();
     expect(agentMarkLabel(mark, "box")).toContain("512 MiB of 2.0 GiB");
   });
 
@@ -1115,16 +1129,33 @@ describe("K3 — updates while a bundle serves", () => {
       agentStatusLines({ local: host(ready, r), remotes: [] })[0]?.note;
     expect(
       line(receipt({ lastRun: { at: 1, outcome: "updated", words: "x" } })),
-    ).toBe("updated @1");
+    ).toEqual({ text: "updated @1", tone: "muted" });
     expect(
       line(receipt({ lastRun: { at: 2, outcome: "unchanged", words: "" } })),
-    ).toBe("checked @2, up to date");
+    ).toEqual({ text: "checked @2, up to date", tone: "muted" });
+    // A skip claims no cause: the updater's reason rides in the hover.
+    const reason =
+      "cache https://cache.example not usable; add it to nix.settings substituters/trusted-public-keys";
     expect(
-      line(receipt({ lastRun: { at: 3, outcome: "skipped", words: "x" } })),
-    ).toBe("checked @3, no newer set ready yet");
+      line(receipt({ lastRun: { at: 3, outcome: "skipped", words: reason } })),
+    ).toEqual({ text: "checked @3, skipped", detail: reason, tone: "muted" });
     expect(
-      line(receipt({ lastRun: { at: 4, outcome: "failed", words: "x" } })),
-    ).toBe("last update failed @4");
+      line(
+        receipt({
+          lastRun: { at: 4, outcome: "failed", words: "nix build exit 1" },
+        }),
+      ),
+    ).toEqual({
+      text: "last update failed @4",
+      detail: "nix build exit 1",
+      tone: "warn",
+    });
+    // Files that would not read say so on the line.
+    expect(line(receipt({ error: "history line is not …" }))).toEqual({
+      text: AGENTS_RECEIPT_UNREADABLE,
+      detail: "history line is not …",
+      tone: "warn",
+    });
     // A receipt for another profile is one padi has not caught up from.
     expect(
       line({
@@ -1141,18 +1172,19 @@ describe("K3 — updates while a bundle serves", () => {
         bar: "ok",
         fill: 1,
         text: "ready · vanilla nd11nx5f",
-        note: "checking for newer agents…",
+        note: { text: AGENTS_UPDATE_CHECKING, tone: "muted" },
         update: "checking",
       },
     ]);
     expect(agentStatusLines({ local: host(downloading), remotes: [] })).toEqual(
       [
         {
+          // The host IS ready: the bar stays full and green while it updates.
           host: "this machine",
-          bar: "busy",
-          fill: 0.25,
+          bar: "ok",
+          fill: 1,
           text: "ready · vanilla nd11nx5f",
-          note: "updating · 512 MiB of 2.0 GiB",
+          note: { text: "updating · 512 MiB of 2.0 GiB", tone: "muted" },
           update: "downloading",
         },
       ],
@@ -1221,6 +1253,12 @@ describe("K3 — updates while a bundle serves", () => {
   });
 
   it("the update toast quotes the updater and names the machine", () => {
+    expect(
+      agentToast.updated(THIS_MACHINE, "Claude Code 2.1.286 → 2.1.291")
+        .description,
+    ).toBe(
+      "Claude Code 2.1.286 → 2.1.291 — new terminals here start with them; open ones offer Restart.",
+    );
     expect(agentToast.updated("box", "Claude Code 2.1.286 → 2.1.291")).toEqual({
       title: "Coding agents updated on box",
       description:
@@ -1236,6 +1274,8 @@ describe("K3 — updates while a bundle serves", () => {
     expect(agentUpdateRunning([ready, undefined])).toBe(false);
     expect(agentUpdateRunning([ready, downloading])).toBe(true);
     expect(AGENTS_CHECK_NOW.label).toBe("Check now");
+    expect(AGENTS_HISTORY.title(0)).toBe("History");
+    expect(AGENTS_HISTORY.title(4)).toBe("History (4)");
   });
 
   it("the hint names this machine's versions once it has them", () => {
@@ -1251,7 +1291,15 @@ describe("K3 — updates while a bundle serves", () => {
     expect(hint?.text).toBe(
       "Stock agents, your own API keys.\nClaude Code 2.1.299",
     );
-    // Another profile's receipt: the listing's versions stand.
+    // A bundle with no versions file names none — never the floor's.
+    expect(
+      agentsHint({
+        listing: LISTING,
+        stored: VANILLA_ON,
+        localReceipt: receipt({}),
+      })?.text,
+    ).toBe("Stock agents, your own API keys.");
+    // Another profile's receipt (not caught up yet): the set kolu ships.
     expect(
       agentsHint({
         listing: LISTING,

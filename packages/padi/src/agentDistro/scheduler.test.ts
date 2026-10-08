@@ -1,9 +1,10 @@
 /**
- * The update timer on a fake clock: it asks "is an update due" when it starts,
- * once each schedule boundary has passed (on time, late, or across a sleep),
- * and when poked — never in between, and never while there is nothing to keep
- * current. Whether a run starts is the policy's call (upstream's due rule), and
- * a run already going is refused there (`download.test.ts`).
+ * The update timer on a fake clock: it ticks when it starts, at every capped
+ * look and when poked, and says whether a schedule boundary has passed (on
+ * time, late, or across a sleep) — never while there is nothing to keep
+ * current. Whether to ask between boundaries (a retry) and whether a run starts
+ * is the policy's call (`./schedule`'s `scheduledAskNow`, upstream's due rule;
+ * `download.test.ts`).
  */
 
 import type { UpdaterSchedule } from "@kolu/agent-distro/schedule";
@@ -46,14 +47,19 @@ function fakeClock(start: number) {
 function start(opts: { clock: ReturnType<typeof fakeClock>; on?: boolean }) {
   let on = opts.on ?? true;
   const asks: number[] = [];
+  const ticks: number[] = [];
   const timer = startUpdateTimer({
     schedule: () => (on ? UPSTREAM : undefined),
-    onDue: () => asks.push(opts.clock.now()),
+    onTick: (boundaryPassed) => {
+      ticks.push(opts.clock.now());
+      if (boundaryPassed) asks.push(opts.clock.now());
+    },
     now: opts.clock.now,
     setTimer: opts.clock.setTimer,
   });
   return {
     asks,
+    ticks,
     timer,
     turn: (next: boolean) => {
       on = next;
@@ -64,13 +70,15 @@ function start(opts: { clock: ReturnType<typeof fakeClock>; on?: boolean }) {
 describe("startUpdateTimer", () => {
   it("asks once at boot, then waits for the boundary in capped steps", () => {
     const clock = fakeClock(at("2026-10-08T07:00:00Z"));
-    const { asks } = start({ clock });
+    const { asks, ticks } = start({ clock });
     expect(asks).toEqual([at("2026-10-08T07:00:00Z")]);
     // Capped: the next look is MAX_WAIT_MS away, not an hour.
     expect(clock.armedFor()).toBe(at("2026-10-08T07:00:00Z") + MAX_WAIT_MS);
     // Looks before the boundary do not ask.
     while ((clock.armedFor() ?? 0) < at("2026-10-08T08:00:00Z")) clock.fire();
     expect(asks).toHaveLength(1);
+    // …but every look still ticks, so the policy can retry between boundaries.
+    expect(ticks.length).toBeGreaterThan(1);
     // The look that lands on the boundary asks.
     expect(clock.armedFor()).toBe(at("2026-10-08T08:00:00Z"));
     clock.fire();
@@ -120,12 +128,12 @@ describe("startUpdateTimer", () => {
     expect(t.asks).toHaveLength(1);
   });
 
-  it("keeps its cadence when the due check throws", () => {
+  it("keeps its cadence when the policy's tick throws", () => {
     const clock = fakeClock(at("2026-10-08T07:59:00Z"));
     let calls = 0;
     startUpdateTimer({
       schedule: () => UPSTREAM,
-      onDue: () => {
+      onTick: () => {
         calls++;
         throw new Error("boom");
       },

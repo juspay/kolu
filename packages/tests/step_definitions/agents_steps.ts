@@ -688,9 +688,11 @@ Then(
 /** This machine's line under the Agents row (the first). */
 const LOCAL_LINE = `${IN_SETTINGS} [data-testid="agents-status-lines"] [data-testid="agents-status-text"]`;
 
-/** An update scenario lands bundles and history in the fixture's state: undo it,
- *  so the next scenario on this worker meets the floor. */
-After({ tags: "@agent-updates" }, () => {
+/** Any scenario that turned agents on ran the fixture's updater (turning them
+ *  on asks once whether an update is due), and an update scenario lands
+ *  bundles and history: undo it after EVERY scenario, so the next one on this
+ *  worker meets the floor and no `last-success`. */
+After(() => {
   fixtureResetUpdates();
 });
 
@@ -741,10 +743,45 @@ Then(
       .locator(`${LOCAL_LINE}[data-update="${phase}"]`)
       .first()
       .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    // The tab's mark says the same phase, from the same fold.
+    await this.page
+      .locator(
+        `${HOST_AGENTS_MARK}[data-state="ready"][data-update="${phase}"]`,
+      )
+      .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
     // The button says a run is going, off the same status.
     await this.page
       .locator(`${IN_SETTINGS} [data-testid="agents-check-now"][data-busy]`)
       .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+  },
+);
+
+/** This machine's last update run as padi's receipt has it, when a step
+ *  remembered it — so a later step can tell a NEW run from the one before. */
+let rememberedRunAt: number | undefined;
+
+When(
+  "I remember this machine's last update run",
+  async function (this: KoluWorld) {
+    const receipt = await padiValue<AgentDistroReceipt>(
+      "agentDistroReceipt/get",
+      (r) => r.lastRun !== undefined,
+      "a receipt with a last run",
+    );
+    rememberedRunAt = receipt.lastRun?.at;
+  },
+);
+
+Then(
+  "this machine's last update run should be newer than the one I remembered",
+  async function (this: KoluWorld) {
+    const before = rememberedRunAt;
+    assert.ok(before !== undefined, "no run remembered");
+    await padiValue<AgentDistroReceipt>(
+      "agentDistroReceipt/get",
+      (r) => (r.lastRun?.at ?? 0) > before,
+      "a receipt whose last run is newer than the remembered one",
+    );
   },
 );
 

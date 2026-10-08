@@ -459,13 +459,22 @@ that profile current on its host. Three cells, one procedure (`padiSurface`
   five minutes, because a node timer stands still while the machine sleeps: a
   machine that slept through a boundary asks within minutes of waking. The
   answer is upstream's rule (`updateDue` against the updater's `last-success`
-  stamp, mirrored in `@kolu/agent-distro/schedule`). A due update runs the same
+  stamp, mirrored in `@kolu/agent-distro/schedule`). A scheduled run that
+  FAILS (offline at the boundary) is retried on the next looks — three
+  attempts per boundary, five minutes apart, upstream's own `--scheduled`
+  numbers (`scheduledAskNow`); a skip waits for the next boundary, and an ask
+  that met a run in flight asks again on the next look. A due update runs the same
   updater in `--progress` mode (never `--scheduled`, which is launchd's and
   blocks on retries) through the same run state machine, as an UPDATE: the
   bundle that served when it started keeps serving — even after the updater
   flips `current` — until the run lands; then the status re-reads `current`,
-  so new terminals get the new bundle and running ones go stale. The local
-  machine updates too: `current` wins over the floor once it exists.
+  so new terminals get the new bundle and running ones go stale. An update
+  that lands a bundle other than the one it reported (or crashes after the
+  flip) disowns the new `current` and KEEPS the bundle that served — never an
+  `error`. The local machine updates too: `current` wins over the floor once
+  it exists. Only the newest bundle has a GC root (`current`): after an update
+  the previous one can be garbage-collected under a terminal still using it,
+  a limit the docs state rather than a root padi holds.
 - **The spawn layer** — at each spawn (fresh, wake or restart) padi asks the SAME
   question the status answers (`newTerminalLayer`, over `assessAgentDistro`):
   only a host reading `ready` gives a layer, so a host `downloading` or in

@@ -94,9 +94,18 @@ writeFileSync(join(root, "state-home"), join(cfg.state, ".."));
 const current = join(cfg.state, "current");
 const floor = join(root, "profiles", cfg.profile);
 if (!existsSync(current)) symlinkSync(floor, current);
+// Local time with its offset, as upstream's \`timestamp()\` writes it
+// (\`date +%Y-%m-%dT%H:%M:%S%:z\`), never UTC's \`Z\`.
+const pad = (n) => String(n).padStart(2, "0");
+const timestamp = (date = new Date()) => {
+  const offset = -date.getTimezoneOffset();
+  const zone = (offset < 0 ? "-" : "+") + pad(Math.floor(Math.abs(offset) / 60)) + ":" + pad(Math.abs(offset) % 60);
+  return date.getFullYear() + "-" + pad(date.getMonth() + 1) + "-" + pad(date.getDate())
+    + "T" + pad(date.getHours()) + ":" + pad(date.getMinutes()) + ":" + pad(date.getSeconds()) + zone;
+};
 const record = (event) => {
   mkdirSync(join(cfg.history, ".."), { recursive: true });
-  appendFileSync(cfg.history, new Date().toISOString().slice(0, 19) + "Z " + cfg.profile + " " + event + "\\n");
+  appendFileSync(cfg.history, timestamp() + " " + cfg.profile + " " + event + "\\n");
 };
 const stamp = () => writeFileSync(join(cfg.state, "last-success"), Math.floor(Date.now() / 1000) + "\\n");
 const claudeVersion = (bundle) =>

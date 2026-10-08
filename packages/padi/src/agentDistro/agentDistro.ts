@@ -35,7 +35,13 @@ import {
   DEFAULT_AGENT_DISTRO_SETTING,
   EMPTY_AGENT_DISTRO_RECEIPT,
 } from "@kolu/agent-distro/schema";
-import { updateDue } from "@kolu/agent-distro/schedule";
+import type { AgentUpdateRun } from "@kolu/agent-distro/history";
+import {
+  attemptStarted,
+  type ScheduledAttempts,
+  scheduledAskNow,
+  updateDue,
+} from "@kolu/agent-distro/schedule";
 import { type CellStore, inMemoryStore } from "@kolu/surface/server";
 import { log } from "../log.ts";
 import { padiSurfaceCtx } from "../padiSurfaceCtx.ts";
@@ -44,6 +50,7 @@ import {
   disownedBundleOf,
   downloadOf,
   forgetFailure,
+  keptBundleOf,
   startRun,
   unlandedRunOf,
 } from "./download.ts";
@@ -156,10 +163,17 @@ export function assessAgentDistro(setting: AgentDistroSetting):
       message: download.failure.message,
     };
   const layer = layerOnHost(setting);
-  // A bundle a download disowned is never ready, even once its failure is
+  // A bundle a run disowned is never ready, even once its failure is
   // forgotten: the retry downloads again.
   if (layer !== undefined && layer.bundle !== disownedBundleOf(layer.profile))
     return { kind: "ready", layer };
+  // An update that did not land cleanly keeps the bundle that served.
+  const kept = keptBundleOf(setting.profile);
+  if (kept !== undefined)
+    return {
+      kind: "ready",
+      layer: { profile: setting.profile, bundle: kept, plugins: bake.plugins },
+    };
   return { kind: "needsDownload", profile: setting.profile };
 }
 
@@ -209,18 +223,29 @@ export function onAgentDistroSettingWrite(next: AgentDistroSetting): void {
   if (next.enabled) forgetFailure(next.profile);
   settle(next);
   publishReceiptLoud(next);
+  // A new setting starts its own count of scheduled attempts.
+  attempts = undefined;
+  askAgain = false;
+  scheduledInFlight = false;
   // The timer reads the store, which the framework writes right after this
   // hook: ask on the next turn, against the new setting.
   queueMicrotask(() => updateTimer?.poke());
 }
 
-/** {@link publishReceipt}, with a file that will not read logged loudly
- *  rather than thrown into a caller that cannot act on it. */
+/** {@link publishReceipt}, never thrown into a caller that cannot act on it:
+ *  a file that will not read (a history line upstream changed the shape of,
+ *  say) is logged loudly AND published as the receipt's `error`, so the host's
+ *  line in Settings says so instead of keeping the last good receipt. */
 function publishReceiptLoud(setting: AgentDistroSetting): void {
   try {
     publishReceipt(setting);
   } catch (err) {
     log.error({ err }, "agent-distro receipt could not be read");
+    padiSurfaceCtx.cells.agentDistroReceipt.set({
+      ...EMPTY_AGENT_DISTRO_RECEIPT,
+      profile: setting.profile,
+      error: err instanceof Error ? err.message : String(err),
+    });
   }
 }
 
@@ -243,6 +268,7 @@ function republish(): void {
 const RUN_CALLBACKS = {
   onProgress: republish,
   onSettled: () => {
+    scheduledRunEnded();
     publishReceiptLoud(agentDistroSettingStore.get());
     republish();
   },
@@ -262,6 +288,8 @@ export type UpdateCheckRefusal =
 export function checkForAgentUpdate(opts: {
   readonly force: boolean;
   readonly now?: number;
+  /** Runs just before the run starts — the scheduled path counts its attempt. */
+  readonly onStart?: () => void;
 }): "started" | "notDue" | UpdateCheckRefusal {
   const setting = agentDistroSettingStore.get();
   if (!setting.enabled) return "notReady";
@@ -280,11 +308,69 @@ export function checkForAgentUpdate(opts: {
     )
   )
     return "notDue";
+  opts.onStart?.();
   startRun(bake, profile, assessed.layer.bundle, RUN_CALLBACKS);
-  // A run that could not even start (no `nix`) has already ended.
   republish();
-  if (downloadOf(profile.name)?.kind !== "running") publishReceiptLoud(setting);
+  // A run that could not even start (no `nix`) has already ended, without its
+  // callbacks: publish what it left.
+  if (downloadOf(profile.name)?.kind !== "running") {
+    scheduledRunEnded();
+    publishReceiptLoud(setting);
+  }
   return "started";
+}
+
+/** The scheduled runs of the current boundary (upstream's attempts), and
+ *  whether the last scheduled ask met a run in flight. Reset by a new setting. */
+let attempts: ScheduledAttempts | undefined;
+let askAgain = false;
+/** The run in flight is a scheduled one, so its end counts as an attempt's:
+ *  the profile's unlanded run as it stood when that run started (a new one at
+ *  its end is that run's), or `false` when no scheduled run is in flight. */
+let scheduledInFlight: { readonly before: AgentUpdateRun | undefined } | false =
+  false;
+
+/** A scheduled run ended: note whether it FAILED, which earns a retry five
+ *  minutes on (a skip does not). */
+function scheduledRunEnded(): void {
+  if (scheduledInFlight === false || attempts === undefined) return;
+  const { before } = scheduledInFlight;
+  scheduledInFlight = false;
+  const last = unlandedRunOf(agentDistroSettingStore.get().profile);
+  attempts = {
+    ...attempts,
+    lastFailed:
+      last !== undefined && last !== before && last.outcome === "failed",
+  };
+}
+
+/** The timer's tick (`./scheduler.ts`): ask "is an update due" at a boundary,
+ *  after an ask that met a run in flight, or to retry a failed scheduled run
+ *  (`scheduledAskNow`); run ONE if upstream's rule says so. `nowMs` is the
+ *  wall clock, handed in for the tests. */
+export function onAgentUpdateTick(
+  boundaryPassed: boolean,
+  nowMs: number = Date.now(),
+): void {
+  const setting = agentDistroSettingStore.get();
+  const schedule = agentDistroBake()?.profiles.get(setting.profile)?.schedule;
+  if (!setting.enabled || schedule === undefined) return;
+  const now = Math.floor(nowMs / 1000);
+  if (!scheduledAskNow({ now, schedule, boundaryPassed, askAgain, attempts }))
+    return;
+  const outcome = checkForAgentUpdate({
+    force: false,
+    now: nowMs,
+    onStart: () => {
+      attempts = attemptStarted(attempts, now, schedule);
+      scheduledInFlight = { before: unlandedRunOf(setting.profile) };
+      log.info(
+        { attempt: attempts.count },
+        "agent-distro update due; running it",
+      );
+    },
+  });
+  askAgain = outcome === "running";
 }
 
 /** The update timer, once started at boot. */
@@ -303,11 +389,7 @@ export function startAgentDistroUpdates(): () => void {
       if (!setting.enabled) return undefined;
       return agentDistroBake()?.profiles.get(setting.profile)?.schedule;
     },
-    onDue: () => {
-      const outcome = checkForAgentUpdate({ force: false });
-      if (outcome === "started")
-        log.info({}, "agent-distro update due; running it");
-    },
+    onTick: (boundaryPassed) => onAgentUpdateTick(boundaryPassed),
   });
   updateTimer = timer;
   return () => {

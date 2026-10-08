@@ -226,8 +226,13 @@ function hostAgentStatus(host: HostKey, label: string): HostAgentStatus {
     status: hostAgentStatusOf(host),
     checking: hostAgentChecking(host),
     receipt: entry?.receipt(),
-    // A host not in the pool yet has no times to phrase.
-    ago: entry?.ago ?? ((at) => agoPhrase(at, Date.now())),
+    // A host not in the pool yet has no receipt, so no times to phrase; its
+    // clock fence is the only honest way to phrase one, so never guess.
+    ago:
+      entry?.ago ??
+      (() => {
+        throw new Error(`no clock for agents host ${label}: not in the pool`);
+      }),
   };
 }
 
@@ -280,6 +285,10 @@ export function agentUpdateRunningNow(): boolean {
  *  going there is an ordinary answer; any other failure is that host's toast. */
 export function checkAgentsNow(): void {
   for (const { host, read } of byHost.roots()) {
+    // Only a connected host that is ready with no run there: a disconnected
+    // host's last-known `ready` is not a host that can answer (the backups
+    // dialog's precedent).
+    if (padiMap.entry(host).state().kind !== "connected") continue;
     if (!agentUpdateCheckable(read())) continue;
     runAction(
       "check for newer agents",

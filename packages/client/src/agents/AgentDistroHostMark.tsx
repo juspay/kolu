@@ -19,25 +19,15 @@ import Tip from "../ui/Tip";
 import AgentDistroLogo from "@kolu/agent-distro/solid";
 import {
   type AgentMark,
+  agentMarkFill,
   agentMarkLabel,
+  agentMarkUpdate,
   agentMarkWords,
 } from "@kolu/agent-distro/status";
 import { agentsWhere, hostAgentMark } from "./useAgentDistro";
 
 /** The ring: r=10 in a 24 box, so its length is 2π·10. */
 const RING = 2 * Math.PI * 10;
-
-/** The bytes a mark is filling with — a first download's, or an update's on
- *  a ready host — or `undefined` when nothing is coming down. */
-function filling(
-  mark: AgentMark,
-):
-  | { readonly fraction: number; readonly bytes: string | undefined }
-  | undefined {
-  if (mark.kind === "downloading") return mark;
-  if (mark.kind === "ready") return mark.update?.download;
-  return undefined;
-}
 
 const Ring: Component<{ mark: AgentMark }> = (props) => (
   <svg
@@ -55,7 +45,7 @@ const Ring: Component<{ mark: AgentMark }> = (props) => (
       style={{ stroke: "color-mix(in oklch, currentColor 14%, transparent)" }}
     />
     <Switch>
-      <Match when={filling(props.mark)}>
+      <Match when={agentMarkFill(props.mark)}>
         {(m) => (
           <circle
             cx="12"
@@ -91,7 +81,7 @@ const Ring: Component<{ mark: AgentMark }> = (props) => (
  *  and, while downloading, a 90px bar with the bytes after it. */
 const MarkTip: Component<{ mark: AgentMark; where: string }> = (props) => (
   <Show
-    when={filling(props.mark)}
+    when={agentMarkFill(props.mark)}
     fallback={
       <span class="block max-w-sm whitespace-pre-line">
         {agentMarkLabel(props.mark, props.where)}
@@ -134,11 +124,7 @@ const AgentDistroHostMark: Component<{
       type="button"
       data-testid={props.measuring ? undefined : "host-agents-mark"}
       data-state={mark().kind}
-      data-update={(() => {
-        const m = mark();
-        if (m.kind !== "ready" || m.update === undefined) return undefined;
-        return m.update.download === undefined ? "checking" : "downloading";
-      })()}
+      data-update={agentMarkUpdate(mark())}
       aria-label={agentMarkLabel(mark(), where())}
       tabIndex={props.measuring ? -1 : undefined}
       onClick={(e) => {
@@ -152,7 +138,9 @@ const AgentDistroHostMark: Component<{
         "opacity-[0.55]": mark().kind === "checking",
       }}
     >
-      <Show when={filling(mark()) !== undefined || mark().kind === "checking"}>
+      <Show
+        when={agentMarkFill(mark()) !== undefined || mark().kind === "checking"}
+      >
         <Ring mark={mark()} />
       </Show>
       <AgentDistroLogo size={13} />

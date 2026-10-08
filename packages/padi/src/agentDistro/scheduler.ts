@@ -1,9 +1,12 @@
 /**
  * padi's update timer — WHEN to ask "is an update due", never whether one is
  * (that is upstream's rule against its `last-success` stamp, applied by the
- * policy in `./agentDistro.ts`). It asks when it starts (or is poked, say by a
- * setting change), and again once a schedule boundary (02/08/14/20 UTC, read
- * off the updater config) has passed since it last asked.
+ * policy in `./agentDistro.ts`). It ticks when it starts (or is poked, say by a
+ * setting change) and at every capped look, telling the policy whether a
+ * schedule boundary (02/08/14/20 UTC, read off the updater config) has passed
+ * since the last boundary tick. The policy asks at a boundary, and between
+ * boundaries only to retry a failed run (upstream's attempts, `./schedule`'s
+ * `scheduledAskNow`) or an ask that met a run in flight.
  *
  * ## Timer choice — a chained, capped `setTimeout`
  *
@@ -30,8 +33,9 @@ export interface UpdateTimerDeps {
   /** The selected profile's schedule — `undefined` while there is nothing to
    *  keep current (agents off, no bake): the timer is then idle. */
   readonly schedule: () => UpdaterSchedule | undefined;
-  /** Ask the policy "is an update due" — it runs one if so. */
-  readonly onDue: () => void;
+  /** A look at the clock: `boundaryPassed` when a schedule boundary has
+   *  passed since the last such tick (or the timer was just started/poked). */
+  readonly onTick: (boundaryPassed: boolean) => void;
   /** Wall clock, epoch ms. */
   readonly now?: () => number;
   /** A one-shot timer; returns its cancel. Defaults to an `unref`'d
@@ -55,8 +59,8 @@ export function startUpdateTimer(deps: UpdateTimerDeps): {
   const setTimer = deps.setTimer ?? nodeTimer;
   let cancel: (() => void) | undefined;
   let stopped = false;
-  /** When the timer last asked, epoch ms. */
-  let askedAt: number | undefined;
+  /** When the timer last ticked with a boundary passed, epoch ms. */
+  let boundaryAt: number | undefined;
 
   const arm = (): void => {
     cancel?.();
@@ -69,10 +73,10 @@ export function startUpdateTimer(deps: UpdateTimerDeps): {
     cancel = setTimer(fire, Math.max(0, Math.min(boundaryMs - t, MAX_WAIT_MS)));
   };
 
-  const ask = (): void => {
-    askedAt = now();
+  const tick = (boundaryPassed: boolean): void => {
+    if (boundaryPassed) boundaryAt = now();
     try {
-      deps.onDue();
+      deps.onTick(boundaryPassed);
     } catch (err) {
       // The policy logs its own failures; a throw here is a bug in it. Keep
       // the cadence: a timer that stops because it threw once is silence.
@@ -85,18 +89,18 @@ export function startUpdateTimer(deps: UpdateTimerDeps): {
     const schedule = deps.schedule();
     if (schedule === undefined) return;
     const t = now();
-    // A boundary passed since the last ask — on time, late, or across a sleep.
-    if (
-      askedAt === undefined ||
-      nextBoundary(Math.floor(askedAt / 1000), schedule) * 1000 <= t
-    )
-      ask();
+    // A boundary passed since the last boundary tick — on time, late, or
+    // across a sleep.
+    tick(
+      boundaryAt === undefined ||
+        nextBoundary(Math.floor(boundaryAt / 1000), schedule) * 1000 <= t,
+    );
     arm();
   }
 
   const poke = (): void => {
     if (stopped) return;
-    if (deps.schedule() !== undefined) ask();
+    if (deps.schedule() !== undefined) tick(true);
     arm();
   };
 

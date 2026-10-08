@@ -167,7 +167,8 @@ export function agentDistroStatusEqual(
  *     bundle's versions file (empty when it serves none);
  *   - `lastRun`: the last update run, when there was one — how it ended and the
  *     updater's words;
- *   - `events`: the last few history events, newest first.
+ *   - `events`: the last few history events, newest first;
+ *   - `error`: why the files would not read, when they would not.
  *
  *  Never part of the status: a background update that fails or skips leaves
  *  the agents working, so it shows here and in padi's log, not as an error. */
@@ -183,6 +184,10 @@ export const AgentDistroReceiptSchema = Schema.Struct({
   versions: Schema.Array(AgentVersionSchema),
   lastRun: Schema.optionalKey(AgentUpdateRunSchema),
   events: Schema.Array(AgentUpdateEventSchema),
+  /** The updater's files would not read (a format upstream changed, say):
+   *  why, in padi's words. The rest is then empty — never a stale receipt
+   *  passed off as current. */
+  error: Schema.optionalKey(Schema.String),
 });
 
 export type AgentDistroReceipt = typeof AgentDistroReceiptSchema.Type;

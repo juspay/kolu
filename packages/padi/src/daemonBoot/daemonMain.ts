@@ -353,6 +353,9 @@ function serveDaemonSurfaces(params: {
   faultSignal: AbortSignal;
 } {
   const { stateRoot, onDrain, log, lifetime, boot } = params;
+  // The agent-distro update timer's stop, set once the ctx is wired below; a
+  // drain stops it first, so no update starts on a padi that is going away.
+  let stopAgentUpdates: (() => void) | undefined;
   const localEndpoint = resolveTerminalEndpoint(LOCAL_LOCATION);
   const runtime = implementSurfacesOnPublisher(
     padiDaemonSurfaces,
@@ -399,7 +402,10 @@ function serveDaemonSurfaces(params: {
         // padi's staleKey (`PADI_BUILD_ID`) — the binder's build-convergence key: a
         // same-contract build mismatch drains this padi once at binder boot (#1670).
         buildId: boot.identity.staleKey,
-        onDrain,
+        onDrain: () => {
+          stopAgentUpdates?.();
+          onDrain();
+        },
       }),
     },
   );
@@ -407,8 +413,8 @@ function serveDaemonSurfaces(params: {
   setPadiSurfaceCtx(runtime.ctx.padi);
   // Keep the chosen coding agents current on this host (agent-distro's
   // schedule; idle until the binder pushes agents on). Its timer is unref'd, so
-  // it never holds a draining padi open.
-  startAgentDistroUpdates();
+  // it never holds a draining padi open; a drain stops it (above).
+  stopAgentUpdates = startAgentDistroUpdates();
   // Observe the surface runtime's `done` and treat a rejection as FATAL — the
   // #2101 G2 reversal of the log-and-continue disposition #1792 gave it.
   //
