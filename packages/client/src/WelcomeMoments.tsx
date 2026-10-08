@@ -1,5 +1,6 @@
-/** Prioritized, state-aware welcome moments for new users — Pin it ·
- *  From another device · Run agents · Search everything · Add another machine · Shortcuts.
+/** Prioritized, state-aware welcome moments for new users — Choose your coding
+ *  agents · Pin it · From another device · Run agents · Search everything · Add
+ *  another machine · Shortcuts.
  *  Rendered inline by `EmptyState` (zero terminals) and inside
  *  `WelcomeDialog` (the palette "Tutorial" command).
  *
@@ -9,17 +10,25 @@
  *  shortcuts help disclosure, PWA install prompt); every moment carries a
  *  `DocLink`. */
 
-import { installInstructions, type PwaInstall } from "@kolu/solid-pwa-install";
-import { useSurfaceApp } from "@kolu/surface-app/solid";
+import AgentDistroLogo from "@kolu/agent-distro/solid";
 import {
-  type Component,
-  createMemo,
-  For,
-  type JSX,
-  Match,
-  Show,
-  Switch,
-} from "solid-js";
+  AGENTS_FIRST_RUN_TITLE,
+  agentsChosen,
+  agentsChosenLabel,
+  firstRunAgentsDone,
+} from "@kolu/agent-distro/status";
+import { installInstructions, type PwaInstall } from "@kolu/solid-pwa-install";
+import { LOCAL_HOST } from "kolu-common/hostKey";
+import { useSurfaceApp } from "@kolu/surface-app/solid";
+import { type Component, createMemo, For, type JSX, Show } from "solid-js";
+import AgentsChooser from "./agents/AgentsChooser";
+import {
+  agentDistroListing,
+  agentDistroSetting,
+  agentDistroStored,
+  hostAgentStatusOf,
+} from "./agents/useAgentDistro";
+import { type HintVoice, SettingHint } from "./settings/SettingRow";
 import { useHostMembers } from "./host/useHostMembers";
 import { ACTIONS, advertisedNewTerminalKey } from "./input/actions";
 import { formatKeybind } from "./input/keyboard";
@@ -28,21 +37,65 @@ import DocLink, { type DocSlug } from "./ui/DocLink";
 import Kbd from "./ui/Kbd";
 import { useActionContext } from "./useActionContext";
 import { useCommandPalette } from "./useCommandPalette";
+import { preferencesArrived } from "./wire";
 import {
+  latchKnown,
   selectWelcomeMoments,
   type WelcomeMomentId,
 } from "./welcomeMomentsSelect";
 
-const DONE_LABEL: Record<"pin" | "reach" | "host", string> = {
-  pin: "📌 Pinned ✓",
-  reach: "🌐 Reachable ✓",
-  host: "🖥️ Host added ✓",
+/** The done header's words per moment — `undefined` for a moment with no
+ *  entry. THE decision of which done moments the header shows; `chooseAgents`
+ *  names the choice in `@kolu/agent-distro/status`'s words, and has none in a
+ *  kolu built without agents (nobody chose anything there). */
+const doneText = (id: WelcomeMomentId): string | undefined => {
+  switch (id) {
+    case "chooseAgents":
+      return agentsChosenLabel(agentDistroSetting(), agentDistroListing());
+    case "pin":
+      return "📌 Pinned ✓";
+    case "reach":
+      return "🌐 Reachable ✓";
+    case "host":
+      return "🖥️ Host added ✓";
+    case "agents":
+    case "search":
+    case "shortcuts":
+      return undefined;
+    default:
+      return id satisfies never;
+  }
+};
+
+/** A done entry as drawn: the agents choice behind agent-distro's logo (kolu
+ *  shows the logo wherever it names agent-distro); the others keep their
+ *  emoji, which their words carry. */
+const DoneEntry: Component<{ id: WelcomeMomentId; text: string }> = (props) =>
+  props.id === "chooseAgents" ? (
+    <span class="inline-flex items-center gap-1 align-bottom">
+      <AgentDistroLogo size={12} />
+      {props.text}
+    </span>
+  ) : (
+    props.text
+  );
+
+/** A welcome row's body voice — its line height and grey, typed ONCE: the
+ *  shell's body reads it, and so does a hint laid out inside a row (the agents
+ *  step's choice line, through `SettingHint`), so the row is one shade. */
+const MOMENT_VOICE: HintVoice = {
+  leading: "leading-snug",
+  muted: "text-fg-3",
 };
 
 const MomentShell: Component<{
-  emoji: string;
+  /** The row's mark: an emoji, or a logo (the agents step's). */
+  icon: JSX.Element;
   title: string;
   body: JSX.Element;
+  /** Optional block under the body — the agents step's control, choice line
+   *  and status lines; the Pin row's manual-install steps. */
+  details?: JSX.Element;
   docSlug: DocSlug;
   trailing?: JSX.Element;
   testId?: string;
@@ -52,10 +105,10 @@ const MomentShell: Component<{
   // Open → next to a two-line description).
   <div class="flex items-start gap-3" data-testid={props.testId}>
     <span
-      class="shrink-0 w-5 text-center text-base leading-5 pt-px"
+      class="shrink-0 w-5 h-5 flex items-center justify-center text-base leading-5 pt-px text-fg"
       aria-hidden="true"
     >
-      {props.emoji}
+      {props.icon}
     </span>
     <div class="min-w-0 flex-1">
       <div class="flex items-center gap-3 min-h-5">
@@ -66,12 +119,55 @@ const MomentShell: Component<{
           <div class="shrink-0 flex items-center">{props.trailing}</div>
         </Show>
       </div>
-      <div class="text-xs leading-snug text-fg-3 mt-0.5">{props.body}</div>
+      <div
+        class={`text-xs mt-0.5 ${MOMENT_VOICE.leading} ${MOMENT_VOICE.muted}`}
+      >
+        {props.body}
+      </div>
+      {props.details}
       <div class="mt-0.5 text-xs">
         <DocLink slug={props.docSlug}>Learn more →</DocLink>
       </div>
     </div>
   </div>
+);
+
+/** The agents choice: the same `AgentsChooser` as Settings → Agents (control,
+ *  hint, status lines), laid out as a welcome row with agent-distro's logo. It
+ *  stays at the top while agents are off — nothing chosen, or Off picked — with
+ *  the keyboard resting on the default profile, so Enter turns agents on. Only
+ *  while NOTHING is chosen does the control take focus on mount: someone who
+ *  picked Off sees the row at every empty canvas, but an Enter out of habit
+ *  must not switch agents on. ⌘⏎ still creates a terminal from anywhere. */
+const ChooseAgentsMoment: Component = () => (
+  <AgentsChooser autofocus={!agentsChosen(agentDistroStored())}>
+    {(parts) => (
+      <MomentShell
+        testId="welcome-moment-choose-agents"
+        icon={<AgentDistroLogo size={16} />}
+        title={AGENTS_FIRST_RUN_TITLE}
+        body={parts.stepHint()?.lead}
+        details={
+          <>
+            <div class="mt-1.5 flex">{parts.control}</div>
+            <Show when={parts.stepHint()?.choice}>
+              {(choice) => (
+                <div data-testid="welcome-agents-choice">
+                  <SettingHint
+                    hint={{ text: choice() }}
+                    voice={MOMENT_VOICE}
+                    class="mt-1"
+                  />
+                </div>
+              )}
+            </Show>
+            {parts.status}
+          </>
+        }
+        docSlug="agents"
+      />
+    )}
+  </AgentsChooser>
 );
 
 /** The pin-it states that actually paint a row — the four-state machine below
@@ -83,63 +179,51 @@ const PinMoment: Component<{
   instr: ReturnType<typeof installInstructions>;
   onInstall: () => void;
 }> = (props) => (
-  <div class="flex items-start gap-3" data-testid="welcome-moment-pin">
-    <span
-      class="shrink-0 w-5 text-center text-base leading-5 pt-px"
-      aria-hidden="true"
-    >
-      📌
-    </span>
-    <div class="min-w-0 flex-1">
-      <div class="flex items-center gap-3 min-h-5">
-        <div class="min-w-0 flex-1 text-sm font-medium leading-5 text-fg">
-          Pin it
-        </div>
-        <Show when={props.pinState === "one-click"}>
-          <button
-            type="button"
-            data-testid="welcome-install"
-            class="shrink-0 px-3 py-1.5 text-xs rounded-lg bg-accent text-surface-1 font-medium hover:brightness-110 transition-all"
-            onClick={() => props.onInstall()}
-          >
-            Install
-          </button>
-        </Show>
-      </div>
-      <Switch>
-        <Match when={props.pinState === "one-click"}>
-          <div class="text-xs leading-snug text-fg-3 mt-0.5">
-            Its own window, dock icon, and a live badge for finished agents.
-          </div>
-        </Match>
-        <Match when={true}>
-          <div data-testid="welcome-install-manual">
-            <div class="text-xs leading-snug text-fg-3 mt-0.5">
-              Add kolu as an app — its own window, dock icon, and a live agent
-              badge.
+  <MomentShell
+    testId="welcome-moment-pin"
+    icon="📌"
+    title="Pin it"
+    trailing={
+      // Only the one-click state has an action: the others pass none, so the
+      // shell draws no empty trailing box beside the title.
+      props.pinState === "one-click" ? (
+        <button
+          type="button"
+          data-testid="welcome-install"
+          class="shrink-0 px-3 py-1.5 text-xs rounded-lg bg-accent text-surface-1 font-medium hover:brightness-110 transition-all"
+          onClick={() => props.onInstall()}
+        >
+          Install
+        </button>
+      ) : undefined
+    }
+    body={
+      props.pinState === "one-click"
+        ? "Its own window, dock icon, and a live badge for finished agents."
+        : "Add kolu as an app — its own window, dock icon, and a live agent badge."
+    }
+    details={
+      <Show when={props.pinState !== "one-click"}>
+        <div data-testid="welcome-install-manual">
+          <details class="mt-1 text-xs text-fg-3">
+            <summary class="cursor-pointer text-accent hover:underline">
+              {props.instr.title} →
+            </summary>
+            <ol class="mt-1 ml-4 list-decimal space-y-0.5">
+              <For each={props.instr.steps}>{(s) => <li>{s}</li>}</For>
+            </ol>
+          </details>
+          <Show when={props.pinState === "manual-insecure"}>
+            <div class="mt-1 text-xs text-fg-3">
+              Want one-click install + the live badge? Serve over HTTPS —{" "}
+              <DocLink slug="remote-access">Tailscale →</DocLink>
             </div>
-            <details class="mt-1 text-xs text-fg-3">
-              <summary class="cursor-pointer text-accent hover:underline">
-                {props.instr.title} →
-              </summary>
-              <ol class="mt-1 ml-4 list-decimal space-y-0.5">
-                <For each={props.instr.steps}>{(s) => <li>{s}</li>}</For>
-              </ol>
-            </details>
-            <Show when={props.pinState === "manual-insecure"}>
-              <div class="mt-1 text-xs text-fg-3">
-                Want one-click install + the live badge? Serve over HTTPS —{" "}
-                <DocLink slug="remote-access">Tailscale →</DocLink>
-              </div>
-            </Show>
-          </div>
-        </Match>
-      </Switch>
-      <div class="mt-0.5 text-xs">
-        <DocLink slug="install-pwa">Learn more →</DocLink>
-      </div>
-    </div>
-  </div>
+          </Show>
+        </div>
+      </Show>
+    }
+    docSlug="install-pwa"
+  />
 );
 
 const WelcomeMoments: Component<{
@@ -184,8 +268,20 @@ const WelcomeMoments: Component<{
     return state === "installed" ? null : state;
   };
 
+  // The step's last KNOWN reading: a pick leaves this machine's status behind
+  // the choice for a moment, and the row stays through it (`latchKnown`).
+  const chooseAgentsDone = latchKnown(() =>
+    preferencesArrived()
+      ? firstRunAgentsDone({
+          stored: agentDistroStored(),
+          listing: agentDistroListing(),
+          local: hostAgentStatusOf(LOCAL_HOST),
+        })
+      : undefined,
+  );
   const selection = createMemo(() =>
     selectWelcomeMoments({
+      chooseAgentsDone: chooseAgentsDone(),
       pinDone: pinState() === "installed",
       reachDone: location.protocol === "https:",
       hostsDone: hosts().length > 1,
@@ -199,6 +295,8 @@ const WelcomeMoments: Component<{
 
   const renderRow = (id: WelcomeMomentId): JSX.Element => {
     switch (id) {
+      case "chooseAgents":
+        return <ChooseAgentsMoment />;
       case "pin":
         return (
           <Show when={pinRowState()}>
@@ -215,7 +313,7 @@ const WelcomeMoments: Component<{
         return (
           <MomentShell
             testId="welcome-moment-reach"
-            emoji="🌐"
+            icon="🌐"
             title="From another device"
             body="Serve it over HTTPS with Tailscale, then pin it as an app on your laptop or phone."
             docSlug="remote-access"
@@ -233,7 +331,7 @@ const WelcomeMoments: Component<{
         return (
           <MomentShell
             testId="welcome-moment-agents"
-            emoji="🤖"
+            icon="🤖"
             title="Run agents"
             body="Open a repo, drop a tile, launch Claude / Codex / OpenCode."
             docSlug="agent-detection"
@@ -254,7 +352,7 @@ const WelcomeMoments: Component<{
         return (
           <MomentShell
             testId="welcome-moment-search"
-            emoji="⌕"
+            icon="⌕"
             title={ACTIONS.commandPalette.label}
             body="One box finds terminals, hosts, and commands — type a branch or machine name, no separate switcher."
             docSlug="switcher"
@@ -278,7 +376,7 @@ const WelcomeMoments: Component<{
         return (
           <MomentShell
             testId="welcome-moment-host"
-            emoji="🖥️"
+            icon="🖥️"
             title="Add another machine"
             body="Point kolu at another machine over ssh — the whole canvas becomes that host."
             docSlug="remote-hosts"
@@ -296,7 +394,7 @@ const WelcomeMoments: Component<{
         return (
           <MomentShell
             testId="welcome-moment-shortcuts"
-            emoji="⌨️"
+            icon="⌨️"
             title="Shortcuts"
             body="Cmd+/ (or Ctrl+/) opens the full keyboard-shortcuts overlay."
             docSlug="keyboard-shortcuts"
@@ -315,20 +413,26 @@ const WelcomeMoments: Component<{
     }
   };
 
-  const doneLine = (): string =>
-    selection()
-      .done.filter(
-        (id): id is "pin" | "reach" | "host" =>
-          id === "pin" || id === "reach" || id === "host",
-      )
-      .map((id) => DONE_LABEL[id])
-      .join(" · ");
+  // The done moments that have a header entry (the never-done ones have none).
+  const doneEntries = createMemo(() =>
+    selection().done.flatMap((id) => {
+      const text = doneText(id);
+      return text === undefined ? [] : [{ id, text }];
+    }),
+  );
 
   return (
     <div class="space-y-3" data-testid="welcome-moments">
-      <Show when={selection().done.length > 0}>
+      <Show when={doneEntries().length > 0}>
         <div data-testid="welcome-moments-done" class="text-xs text-fg-3">
-          {doneLine()}
+          <For each={doneEntries()}>
+            {(entry, i) => (
+              <>
+                {i() > 0 ? " · " : ""}
+                <DoneEntry id={entry.id} text={entry.text} />
+              </>
+            )}
+          </For>
         </div>
       </Show>
 

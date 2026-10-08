@@ -1,93 +1,41 @@
 /** Settings → Agents: the one agent-distro entry in Settings — a single ordinary
  *  row, like every other setting.
  *
- *  The control is one segmented choice, "Off" plus one segment per profile the
- *  pinned agent-distro ships. "Off" writes `enabled: false`; a profile writes
- *  `{ enabled: true, profile }`. The hint says what that choice means
- *  (`agentsHint`): off, what turning it on does; on, the profile and its agents
- *  with versions. Under it, while on, one status line per machine — this one,
- *  then each remote host that is not ready (`agentStatusLines`). Every change
- *  also toasts what it did, so a switch is never silent.
- *
- *  It writes only the preference; kolu-server pushes it to every host, and each
- *  host applies it to its NEXT new terminal. */
+ *  The choice itself — the control, its writer and toasts, the hint, the
+ *  per-machine status lines — is `AgentsChooser`, the same one the welcome
+ *  card's first-run step renders. This row adds only what belongs to Settings:
+ *  the label with agent-distro's logo, the docs link and "Provided by
+ *  agent-distro ↗". */
 
-import { type Component, Show } from "solid-js";
-import { toast } from "solid-sonner";
+import type { Component } from "solid-js";
 import SettingRow from "../settings/SettingRow";
-import SegmentedControl from "../ui/SegmentedControl";
-import { preferences, updatePreferences } from "../wire";
 import AgentDistroLogo from "@kolu/agent-distro/solid";
-import {
-  AGENTS_OFF,
-  AGENTS_OFF_MEANS,
-  AGENTS_SEGMENT_TESTID,
-  agentToast,
-  agentsHint,
-  agentsSegmentOf,
-  agentsSegments,
-  selectedAgentProfile,
-} from "@kolu/agent-distro/status";
-import AgentStatusLines from "./AgentStatusLines";
-import { agentDistroListing, agentStatusLinesNow } from "./useAgentDistro";
+import AgentsChooser from "./AgentsChooser";
 
-/** Write the choice, and say what it did (colocated per the toast rule). */
-function choose(segment: string): void {
-  if (segment === AGENTS_OFF) {
-    updatePreferences({ agentDistro: { enabled: false } });
-    toast(agentToast.off, {
-      description: AGENTS_OFF_MEANS,
-      icon: AgentDistroLogo({ size: 16 }),
-    });
-    return;
-  }
-  updatePreferences({ agentDistro: { enabled: true, profile: segment } });
-  toast.success(agentToast.on(segment), {
-    icon: AgentDistroLogo({ size: 16 }),
-  });
-}
-
-const AgentsSettingsSection: Component = () => {
-  const listing = () => agentDistroListing();
-  const segments = () => {
-    const l = listing();
-    return agentsSegments(l?.kind === "available" ? l.profiles : []);
-  };
-  const hint = () =>
-    agentsHint({ setting: preferences().agentDistro, listing: listing() });
-  const showStatus = () =>
-    selectedAgentProfile(preferences().agentDistro, listing()) !== undefined;
-
-  return (
-    <SettingRow
-      label="Agents"
-      icon={<AgentDistroLogo size={16} />}
-      hint={hint()}
-      details={
-        <Show when={showStatus()}>
-          <AgentStatusLines lines={agentStatusLinesNow()} />
-        </Show>
-      }
-      doc="agents"
-      aside={
-        <a
-          href="https://github.com/juspay/agent-distro"
-          target="_blank"
-          rel="noreferrer"
-          class="text-fg-3/70 hover:text-fg-2 hover:underline"
-        >
-          Provided by agent-distro ↗
-        </a>
-      }
-    >
-      <SegmentedControl
-        options={segments()}
-        value={agentsSegmentOf(preferences().agentDistro)}
-        onChange={choose}
-        testIdPrefix={AGENTS_SEGMENT_TESTID}
-      />
-    </SettingRow>
-  );
-};
+const AgentsSettingsSection: Component = () => (
+  <AgentsChooser>
+    {(parts) => (
+      <SettingRow
+        label="Agents"
+        icon={<AgentDistroLogo size={16} />}
+        hint={parts.hint()}
+        details={parts.status}
+        doc="agents"
+        aside={
+          <a
+            href="https://github.com/juspay/agent-distro"
+            target="_blank"
+            rel="noreferrer"
+            class="text-fg-3/70 hover:text-fg-2 hover:underline"
+          >
+            Provided by agent-distro ↗
+          </a>
+        }
+      >
+        {parts.control}
+      </SettingRow>
+    )}
+  </AgentsChooser>
+);
 
 export default AgentsSettingsSection;

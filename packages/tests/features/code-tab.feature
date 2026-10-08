@@ -369,6 +369,11 @@ Feature: Code tab (review + browse)
     And the Code tab should not show file "src/alpha-two.txt"
     And the Code tab filter input should contain "alpha"
     And the Code tab should not show file "other.txt"
+    # A git-status update that leaves the filter's answer unchanged must not
+    # re-open the folder (it used to, whenever one landed after the click).
+    When a file the filter does not match is added to the Code tab repo
+    Then the Code tab should not show file "src/alpha-one.txt"
+    And the Code tab should not show file "src/alpha-two.txt"
 
     Examples:
       | mode   |

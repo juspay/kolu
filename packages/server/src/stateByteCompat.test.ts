@@ -41,6 +41,7 @@ import {
   migratePreferences_1_32_0,
   migratePreferences_1_34_0,
   migratePreferences_1_37_0,
+  migratePreferences_1_38_0,
 } from "./state.ts";
 
 const dirs: string[] = [];
@@ -57,7 +58,7 @@ function makeStore(): Conf<Record<string, unknown>> {
   dirs.push(dir);
   return new Conf<Record<string, unknown>>({
     cwd: dir,
-    projectVersion: "1.37.0",
+    projectVersion: "1.38.0",
     configFileMode: 0o600,
     defaults: {
       preferences: DEFAULT_PREFERENCES,
@@ -91,10 +92,7 @@ describe("the persisted state file — aggregate bytes", () => {
 \t\t\t"size": 0.25,
 \t\t\t"codeTabTreeSize": 0.35
 \t\t},
-\t\t"agentDistro": {
-\t\t\t"enabled": false,
-\t\t\t"profile": "vanilla"
-\t\t}
+\t\t"agentDistro": null
 \t},
 \t"hosts": [],
 \t"viewerMode": "dark"
@@ -161,11 +159,13 @@ describe("the migration ladder over legacy on-disk blobs", () => {
         `"terminalRenderer":"auto","rightPanel":{"collapsed":true,"size":0.25,"codeTabTreeSize":0.35}}`,
     ) as Record<string, unknown>;
 
-    // The ladder, in order — the same four bodies `state.ts`'s `migrations` map
-    // calls at 1.30.0 / 1.32.0 / 1.34.0 / 1.37.0.
-    const migrated = migratePreferences_1_37_0(
-      migratePreferences_1_34_0(
-        migratePreferences_1_32_0(migratePreferences_1_30_0(legacy)),
+    // The ladder, in order — the same five bodies `state.ts`'s `migrations` map
+    // calls at 1.30.0 / 1.32.0 / 1.34.0 / 1.37.0 / 1.38.0.
+    const migrated = migratePreferences_1_38_0(
+      migratePreferences_1_37_0(
+        migratePreferences_1_34_0(
+          migratePreferences_1_32_0(migratePreferences_1_30_0(legacy)),
+        ),
       ),
     );
 
@@ -178,7 +178,7 @@ describe("the migration ladder over legacy on-disk blobs", () => {
         `"newTerminalCollapsed":true,"shuffleBehavior":"auto","scrollLock":true,` +
         `"attentionAlerts":false,"colorScheme":"dark","terminalRenderer":"auto",` +
         `"rightPanel":{"size":0.25,"codeTabTreeSize":0.35},` +
-        `"agentDistro":{"enabled":false,"profile":"vanilla"}}`,
+        `"agentDistro":null}`,
     );
     // …and it DECODES. This is the assertion a drifted zod→Schema mapping breaks:
     // under zod a stray/missing key surfaced only at the first client connect
@@ -204,15 +204,15 @@ describe("the migration ladder over legacy on-disk blobs", () => {
         `"activityAlerts":true,"colorScheme":"dark","terminalRenderer":"dom",` +
         `"rightPanel":{"size":0.25,"codeTabTreeSize":0.35}}`,
     ) as Record<string, unknown>;
-    const migrated = migratePreferences_1_37_0(
-      migratePreferences_1_34_0(legacy),
+    const migrated = migratePreferences_1_38_0(
+      migratePreferences_1_37_0(migratePreferences_1_34_0(legacy)),
     );
     expect(JSON.stringify(migrated)).toBe(
       `{"seenTips":[],"startupTips":true,"newTerminalTheme":"shuffle",` +
         `"newTerminalCollapsed":false,"shuffleBehavior":"auto","scrollLock":true,` +
         `"colorScheme":"dark","terminalRenderer":"dom","rightPanel":{"size":0.25,` +
         `"codeTabTreeSize":0.35},"attentionAlerts":true,` +
-        `"agentDistro":{"enabled":false,"profile":"vanilla"}}`,
+        `"agentDistro":null}`,
     );
     expect(accepts(PreferencesSchema, migrated)).toBe(true);
   });
@@ -224,7 +224,10 @@ describe("the migration ladder over legacy on-disk blobs", () => {
     >;
     delete pre.agentDistro;
     expect(JSON.stringify(migratePreferences_1_37_0(pre))).toBe(
-      JSON.stringify(DEFAULT_PREFERENCES),
+      JSON.stringify({
+        ...DEFAULT_PREFERENCES,
+        agentDistro: { enabled: false, profile: "vanilla" },
+      }),
     );
     // An existing install is upgraded to OFF: nobody's PATH changes.
     expect(
@@ -236,6 +239,25 @@ describe("the migration ladder over legacy on-disk blobs", () => {
       agentDistro: { enabled: true, profile: "juspay" },
     };
     expect(migratePreferences_1_37_0(chosen)).toEqual(chosen);
+  });
+
+  it("the 1.38 rung turns an Off record into never chosen, keeps On, and decodes", () => {
+    const off = {
+      ...DEFAULT_PREFERENCES,
+      agentDistro: { enabled: false, profile: "vanilla" },
+    };
+    expect(JSON.stringify(migratePreferences_1_38_0(off))).toBe(
+      JSON.stringify(DEFAULT_PREFERENCES),
+    );
+    expect(accepts(PreferencesSchema, migratePreferences_1_38_0(off))).toBe(
+      true,
+    );
+    const on = {
+      ...DEFAULT_PREFERENCES,
+      agentDistro: { enabled: true, profile: "juspay" },
+    };
+    expect(migratePreferences_1_38_0(on)).toEqual(on);
+    expect(accepts(PreferencesSchema, on)).toBe(true);
   });
 
   it("a 1.34-era blob is already current — the ladder is a no-op on its bytes", () => {

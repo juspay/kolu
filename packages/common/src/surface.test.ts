@@ -23,6 +23,7 @@ import {
   koluSurface,
   PadiConvergenceSchema,
   type Preferences,
+  PreferencesPatchSchema,
   resolveIsDark,
   resolveNewTerminalPolicy,
   sameForwards,
@@ -368,21 +369,31 @@ describe("the forwards cell declares what identifies a row", () => {
 });
 
 describe("applyPreferencesPatch — the Agents setting", () => {
-  it("deep-merges a one-field agentDistro patch", () => {
+  it("writes agentDistro WHOLE, replacing what was stored", () => {
     const on = applyPreferencesPatch(DEFAULT_PREFERENCES, {
-      agentDistro: { enabled: true },
+      agentDistro: { enabled: true, profile: "juspay" },
     });
-    expect(on.agentDistro).toEqual({ enabled: true, profile: "vanilla" });
-    const juspay = applyPreferencesPatch(on, {
-      agentDistro: { profile: "juspay" },
+    expect(on.agentDistro).toEqual({ enabled: true, profile: "juspay" });
+    const off = applyPreferencesPatch(on, {
+      agentDistro: { enabled: false, profile: "juspay" },
     });
-    expect(juspay.agentDistro).toEqual({ enabled: true, profile: "juspay" });
+    expect(off.agentDistro).toEqual({ enabled: false, profile: "juspay" });
+    // An unrelated patch leaves the choice alone.
+    expect(
+      applyPreferencesPatch(off, { scrollLock: false }).agentDistro,
+    ).toEqual(off.agentDistro);
   });
 
-  it("defaults to OFF, on the vanilla profile — kolu adds nothing to a PATH until asked", () => {
-    expect(DEFAULT_PREFERENCES.agentDistro).toEqual({
-      enabled: false,
-      profile: "vanilla",
-    });
+  it("refuses a partial or null agentDistro patch — never chosen cannot be re-entered", () => {
+    const patchAccepts = accepts(PreferencesPatchSchema);
+    expect(
+      patchAccepts({ agentDistro: { enabled: true, profile: "vanilla" } }),
+    ).toBe(true);
+    expect(patchAccepts({ agentDistro: { enabled: true } })).toBe(false);
+    expect(patchAccepts({ agentDistro: null })).toBe(false);
+  });
+
+  it("starts as never chosen (null) — kolu adds nothing to a PATH until asked", () => {
+    expect(DEFAULT_PREFERENCES.agentDistro).toBeNull();
   });
 });

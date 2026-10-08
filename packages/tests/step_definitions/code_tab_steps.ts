@@ -499,6 +499,43 @@ When(
   },
 );
 
+/** Change the repo OUTSIDE the active filter: stage a file the filter does not
+ *  match, then wait until the shown mode's git status has caught up (its change
+ *  count moves). The filter's answer is the same, but the inputs the tree is
+ *  handed tick — what a folder the user collapsed under the filter must
+ *  survive. Browse decorates from the local status, so it counts that one. */
+When(
+  "a file the filter does not match is added to the Code tab repo",
+  async function (this: KoluWorld) {
+    const shown = await this.page
+      .locator('[data-testid^="diff-mode-"][aria-pressed="true"]')
+      .getAttribute("data-mode");
+    const counted = shown === "branch" ? "branch" : "local";
+    const badge = this.page.locator(
+      `[data-testid="diff-mode-${counted}-count"]`,
+    );
+    const count = async () =>
+      (await badge.count()) === 0
+        ? 0
+        : Number((await badge.first().textContent())?.trim());
+    const before = await count();
+    await runShell(
+      this,
+      `${writeFileCommand("unmatched.txt", "u")} && git add unmatched.txt`,
+    );
+    await pollFor({
+      observe: count,
+      isDone: (n) => n > before,
+      onTimeout: (last, ms) =>
+        new Error(
+          `Code tab "${counted}" count stayed ${last} (was ${before}) after ${ms}ms`,
+        ),
+      timeoutMs: HYDRATION_TIMEOUT,
+    });
+    await this.waitForFrame();
+  },
+);
+
 When(
   "I right-click the directory node {string} in the Code tab",
   async function (this: KoluWorld, path: string) {

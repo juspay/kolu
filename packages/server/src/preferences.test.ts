@@ -3,6 +3,7 @@ import Conf from "conf";
 import { DEFAULT_PREFERENCES, type Preferences } from "kolu-common/surface";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { store } from "./state.ts";
+import { currentAgentDistroSetting } from "./surface.ts";
 
 beforeEach(() => store.set("preferences", DEFAULT_PREFERENCES));
 afterEach(() => store.set("preferences", DEFAULT_PREFERENCES));
@@ -24,5 +25,23 @@ describe("preference persistence", () => {
 
     expect(restarted.get("preferences").scrollLock).toBe(false);
     expect(restarted.get("preferences").attentionAlerts).toBe(false);
+  });
+});
+
+describe("the Agents setting pushed to padi", () => {
+  it("never chosen (null stored) pushes OFF; a stored choice pushes itself", () => {
+    store.set("preferences", { ...DEFAULT_PREFERENCES, agentDistro: null });
+    expect(currentAgentDistroSetting()).toEqual({
+      enabled: false,
+      profile: "vanilla",
+    });
+    store.set("preferences", {
+      ...DEFAULT_PREFERENCES,
+      agentDistro: { enabled: true, profile: "juspay" },
+    });
+    expect(currentAgentDistroSetting()).toEqual({
+      enabled: true,
+      profile: "juspay",
+    });
   });
 });
