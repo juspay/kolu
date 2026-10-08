@@ -2329,11 +2329,24 @@ retirements:
     defectSurface: [agents]
     destinationLayer: L5
     replacements: []
-    survivorRevisionIds: [revision-31f81c468cd1ca2cc499]
+    survivorRevisionIds: [revision-f7f15d67caa3628ca084]
     sameCodePathEvidence:
       file: packages/tests/features/agents.feature
       symbol: "Scenario: Turning Agents on changes the next terminal, not the current one"
       test: The feature's Background ("Given the terminal is ready") moved into this scenario as its first step, because the new first-run scenarios start with no terminal open. Every step and assertion is unchanged.
+  - id: revise-agents-turn-on-runs-picker
+    revisionId: revision-31f81c468cd1ca2cc499
+    action: revised
+    status: landed
+    promise: Turning Agents on changes the next terminal, not the current one
+    defectSurface: [agents]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-f7f15d67caa3628ca084]
+    sameCodePathEvidence:
+      file: packages/tests/features/agents.feature
+      symbol: "Scenario: Turning Agents on changes the next terminal, not the current one"
+      test: One step was appended (the new terminal runs `agent-distro` and sees the chosen profile's picker, #2272). Every earlier step and assertion is unchanged.
   - id: revise-agents-pill-opens-settings-own-terminal
     revisionId: revision-db116d32c70985a30005
     action: revised
