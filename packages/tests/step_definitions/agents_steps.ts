@@ -28,6 +28,7 @@ import {
   agentToast,
   agentsChosenLabel,
   agentsStepHint,
+  agentUpdateRunning,
   harnessLine,
   restartedLabel,
 } from "@kolu/agent-distro/status";
@@ -696,16 +697,16 @@ const LOCAL_LINE = `${IN_SETTINGS} [data-testid="agents-status-lines"] [data-tes
  *  on asks once whether an update is due), and an update scenario lands
  *  bundles and history: undo it after EVERY scenario, so the next one on this
  *  worker meets the floor and no `last-success`. First wait until padi has no
- *  run in flight: deleting a run's state under it fails that run, and the next
- *  scenario's ask would meet it still going. */
+ *  run in flight for ANY profile — the receipt's running set, read through the
+ *  same fold as Check now's busy state, not the status (which follows only the
+ *  selected profile, so a scenario that switched profiles and turned agents
+ *  off would pass with a run still going). Deleting a run's state under it
+ *  fails that run, and the next scenario's ask would meet it still going. */
 After(async () => {
   await waitForPadiCell({
-    memberVerb: "agentDistroStatus/get",
-    accept: (v) => {
-      const s = v as AgentDistroStatus;
-      return s.kind !== "downloading" && !(s.kind === "ready" && s.update);
-    },
-    what: "no agent-distro run in flight",
+    memberVerb: "agentDistroReceipt/get",
+    accept: (v) => !agentUpdateRunning([v as AgentDistroReceipt]),
+    what: "no agent-distro run in flight, for any profile",
     timeoutMs: POLL_TIMEOUT,
   });
   fixtureResetUpdates();

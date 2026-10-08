@@ -9,6 +9,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
+import type { AgentUpdateAuthor } from "@kolu/agent-distro/history";
 import {
   parseUpdaterLine,
   UPDATER_PROGRESS_ARGS,
@@ -39,7 +40,8 @@ export function writeUpdaterConfig(text: string): {
 /** How a run ended: the bundle it settled on (`updated` / `unchanged`), or
  *  why nothing landed — a `skipped` (cache unusable, bundle not fully cached;
  *  exit 0) or a `failed` (the updater's own failure, a crash, a protocol
- *  violation, a spawn error). */
+ *  violation, a spawn error) — and who wrote the why: the updater's own
+ *  result line, or padi's words about a run that gave none. */
 export type UpdaterOutcome =
   | {
       readonly ok: true;
@@ -50,12 +52,15 @@ export type UpdaterOutcome =
       readonly ok: false;
       readonly result: "skipped" | "failed";
       readonly message: string;
+      readonly by: AgentUpdateAuthor;
     };
 
+/** A run padi words as failed: it gave no result line of its own. */
 const failed = (message: string): UpdaterOutcome => ({
   ok: false,
   result: "failed",
   message,
+  by: "padi",
 });
 
 /** Run agent-distro's updater once (`--progress`) and settle with its outcome.
@@ -128,7 +133,12 @@ export function runUpdater(opts: {
           return;
         case "skipped":
         case "failed":
-          resolve({ ok: false, result: result.result, message: result.reason });
+          resolve({
+            ok: false,
+            result: result.result,
+            message: result.reason,
+            by: "updater",
+          });
           return;
         default:
           result satisfies never;

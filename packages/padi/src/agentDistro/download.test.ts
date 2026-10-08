@@ -24,7 +24,7 @@ import type {
   AgentDistroSetting,
   AgentDistroStatus,
 } from "@kolu/agent-distro/schema";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   __resetPadiSurfaceCtxForTest,
   setPadiSurfaceCtx,
@@ -131,6 +131,16 @@ switch (process.env.STUB_MODE) {
     symlinkSync(process.env.STUB_BUNDLE2, cfg.state + "/current");
     out({ result: "updated", bundle: "/nix/store/0000000000000000000000000000000-other" });
     break;
+  case "slowfail":
+    // A build that fails a while in.
+    await new Promise((r) => setTimeout(r, 400));
+    out({ result: "failed", reason: "nix build exit 1" });
+    process.exit(1);
+  case "vanish":
+    // Dies after removing \`current\` and before landing anything.
+    rmSync(cfg.state + "/current", { force: true });
+    process.stderr.write("TypeError: boom\\n");
+    process.exit(3);
   case "skipupdate":
     record("skipped: bundle not fully cached yet (would build claude-code)");
     out({ result: "skipped", reason: "bundle not fully cached yet (would build claude-code)" });
@@ -158,9 +168,10 @@ const invocations = (): string[][] =>
     .map((l) => JSON.parse(l) as string[]);
 
 async function until(pred: (s: AgentDistroStatus | undefined) => boolean) {
-  const deadline = Date.now() + 5_000;
+  // `performance`, not `Date`: the scheduled cases fake the wall clock.
+  const deadline = performance.now() + 5_000;
   while (!pred(last())) {
-    if (Date.now() > deadline)
+    if (performance.now() > deadline)
       throw new Error(`status never settled; last ${JSON.stringify(last())}`);
     await new Promise((r) => setTimeout(r, 20));
   }
@@ -504,17 +515,47 @@ describe("an update while a bundle serves", () => {
     expect(lastReceipt()?.lastRun).toMatchObject({
       outcome: "skipped",
       words: "bundle not fully cached yet (would build claude-code)",
+      by: "updater",
     });
     expect(lastReceipt()?.events[0]?.kind).toBe("skipped");
   });
 
-  it("a failed update (a crash, no history line) is not an error either: the receipt carries it", async () => {
+  it("a failed update (a crash, no result line, no history line) is not an error either: the receipt carries it in padi's words", async () => {
+    // The e2e fixture's crash handler always writes a result line, so THIS is
+    // where padi's no-result path is exercised.
     await serving("crash");
     checkForAgentUpdate({ force: true });
     await until((s) => s?.kind === "ready" && s.update === undefined);
     expect(last()?.kind).toBe("ready");
-    expect(lastReceipt()?.lastRun).toMatchObject({ outcome: "failed" });
-    expect(lastReceipt()?.lastRun?.words).toMatch(/exited 3 without a result/);
+    expect(lastReceipt()?.lastRun).toMatchObject({
+      outcome: "failed",
+      words: "the updater exited 3 without a result: TypeError: boom",
+      by: "padi",
+    });
+    expect(lastReceipt()?.events).toEqual([]);
+  });
+
+  it("an update that dies with no `current` left keeps the old bundle — never a first download", async () => {
+    await serving("vanish");
+    checkForAgentUpdate({ force: true });
+    await until((s) => s?.kind === "ready" && s.update === undefined);
+    expect(last()).toEqual({
+      kind: "ready",
+      profile: "vanilla",
+      bundle: join(root, first),
+    });
+    expect(newTerminalLayer()?.bundle).toBe(join(root, first));
+    // Nothing else started.
+    expect(invocations()).toHaveLength(2);
+  });
+
+  it("the receipt names every profile with a run in flight, from start to end", async () => {
+    await serving("update");
+    expect(lastReceipt()?.running).toEqual([]);
+    checkForAgentUpdate({ force: true });
+    expect(lastReceipt()?.running).toEqual(["vanilla"]);
+    await until((s) => s?.kind === "ready" && s.update === undefined);
+    expect(lastReceipt()?.running).toEqual([]);
   });
 
   it("an unchanged run: same bundle, the receipt says it checked and is up to date", async () => {
@@ -578,7 +619,10 @@ describe("an update that does not land cleanly keeps the agents", () => {
     expect(newTerminalLayer()?.bundle).toBe(
       join(root, "store-fetched-vanilla"),
     );
-    expect(receipts.at(-1)?.lastRun).toMatchObject({ outcome: "failed" });
+    expect(receipts.at(-1)?.lastRun).toMatchObject({
+      outcome: "failed",
+      by: "padi",
+    });
     expect(receipts.at(-1)?.lastRun?.words).toMatch(/landed .*other/);
     // The next update lands cleanly and replaces it.
     process.env.STUB_MODE = "update";
@@ -591,11 +635,23 @@ describe("an update that does not land cleanly keeps the agents", () => {
 });
 
 describe("scheduled updates: a failed run is retried, a skip waits", () => {
-  // The policy's tick, driven with a fake wall clock from the next real
-  // boundary (02/08/14/20 UTC): later than any stamp a stub run writes now.
+  // The policy's tick, on a fake wall clock (only `Date`: the stub still runs
+  // in real time) from the next real boundary (02/08/14/20 UTC) — later than
+  // any stamp a stub run writes now.
   const t0 =
     (Math.floor((Date.now() / 1000 - 7200) / 21600) + 1) * 21600 * 1000 +
     7200 * 1000;
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+  /** The timer's tick at wall-clock `atMs`. */
+  const tick = (boundaryPassed: boolean, atMs: number) => {
+    vi.setSystemTime(atMs);
+    onAgentUpdateTick(boundaryPassed);
+  };
   const runs = () => invocations().length;
   async function settled(): Promise<void> {
     await until((s) => s?.kind === "ready" && s.update === undefined);
@@ -609,34 +665,49 @@ describe("scheduled updates: a failed run is retried, a skip waits", () => {
   it("a FAILED run (say, offline at the boundary) gets upstream's three attempts, five minutes apart", async () => {
     await servingWith("fail");
     const first = runs();
-    onAgentUpdateTick(true, t0);
+    tick(true, t0);
     await settled();
     expect(runs()).toBe(first + 1);
-    onAgentUpdateTick(false, t0 + 60_000); // too soon
+    tick(false, t0 + 60_000); // too soon
     expect(runs()).toBe(first + 1);
-    onAgentUpdateTick(false, t0 + 300_000);
+    tick(false, t0 + 300_000);
     await settled();
     expect(runs()).toBe(first + 2);
-    onAgentUpdateTick(false, t0 + 600_000);
+    tick(false, t0 + 600_000);
     await settled();
     expect(runs()).toBe(first + 3);
-    onAgentUpdateTick(false, t0 + 900_000); // out of attempts
-    onAgentUpdateTick(false, t0 + 3_600_000);
+    tick(false, t0 + 900_000); // out of attempts
+    tick(false, t0 + 3_600_000);
     expect(runs()).toBe(first + 3);
     // The next boundary starts over.
-    onAgentUpdateTick(true, t0 + 6 * 3_600_000);
+    tick(true, t0 + 6 * 3_600_000);
     await settled();
     expect(runs()).toBe(first + 4);
+  });
+
+  it("the five minutes count from when the failed run ENDED", async () => {
+    await servingWith("slowfail");
+    const first = runs();
+    tick(true, t0);
+    // The run fails four minutes in.
+    vi.setSystemTime(t0 + 240_000);
+    await settled();
+    expect(runs()).toBe(first + 1);
+    tick(false, t0 + 300_000); // a minute after it failed
+    expect(runs()).toBe(first + 1);
+    tick(false, t0 + 540_000);
+    await settled();
+    expect(runs()).toBe(first + 2);
   });
 
   it("a SKIPPED run is not retried: it waits for the next boundary", async () => {
     await servingWith("skipupdate");
     const first = runs();
-    onAgentUpdateTick(true, t0);
+    tick(true, t0);
     await settled();
     expect(runs()).toBe(first + 1);
-    onAgentUpdateTick(false, t0 + 300_000);
-    onAgentUpdateTick(false, t0 + 600_000);
+    tick(false, t0 + 300_000);
+    tick(false, t0 + 600_000);
     expect(runs()).toBe(first + 1);
   });
 
@@ -644,11 +715,11 @@ describe("scheduled updates: a failed run is retried, a skip waits", () => {
     await servingWith("update");
     const first = runs();
     expect(checkForAgentUpdate({ force: true })).toBe("started"); // a Check now
-    onAgentUpdateTick(true, t0); // the boundary meets it: no run, no attempt
+    tick(true, t0); // the boundary meets it: no run, no attempt
     await settled();
     expect(runs()).toBe(first + 1); // the Check now's run only
     process.env.STUB_MODE = "fail";
-    onAgentUpdateTick(false, t0 + 60_000); // asked again
+    tick(false, t0 + 60_000); // asked again
     await settled();
     expect(runs()).toBe(first + 2);
   });

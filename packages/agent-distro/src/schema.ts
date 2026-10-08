@@ -168,6 +168,8 @@ export function agentDistroStatusEqual(
  *   - `lastRun`: the last update run, when there was one — how it ended and the
  *     updater's words;
  *   - `events`: the last few history events, newest first;
+ *   - `running`: every profile with a run in flight on the host — any
+ *     profile, not only this one (a run outlives a switch away from it);
  *   - `error`: why the files would not read, when they would not.
  *
  *  Never part of the status: a background update that fails or skips leaves
@@ -184,6 +186,9 @@ export const AgentDistroReceiptSchema = Schema.Struct({
   versions: Schema.Array(AgentVersionSchema),
   lastRun: Schema.optionalKey(AgentUpdateRunSchema),
   events: Schema.Array(AgentUpdateEventSchema),
+  /** Every profile with a run of the updater in flight on the host (a first
+   *  download or an update), whichever profile is selected. */
+  running: Schema.Array(Schema.String),
   /** The updater's files would not read (a format upstream changed, say):
    *  why, in padi's words. The rest is then empty — never a stale receipt
    *  passed off as current. */
@@ -197,6 +202,7 @@ export const EMPTY_AGENT_DISTRO_RECEIPT: AgentDistroReceipt = {
   profile: "",
   versions: [],
   events: [],
+  running: [],
 };
 
 /** Structural equality — the receipt cell's dedup point. */

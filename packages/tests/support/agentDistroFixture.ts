@@ -80,7 +80,7 @@ export type FixtureRun = "unchanged" | "update" | "skip";
  *  file moves the claude version one step on. */
 function fixtureUpdaterScript(root: string): string {
   return `
-import { appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 const root = ${JSON.stringify(root)};
 const cfg = JSON.parse(readFileSync(process.argv[2], "utf8"));
@@ -101,12 +101,20 @@ mkdirSync(cfg.state, { recursive: true });
 writeFileSync(join(root, "state-home"), join(cfg.state, ".."));
 const current = join(cfg.state, "current");
 const floor = join(root, "profiles", cfg.profile);
-// No \`current\` yet — or one left dangling — points at the floor.
+// No \`current\` yet points at the floor. A DANGLING one is not repaired:
+// upstream at the pin reads \`lstat ? realpath(current) : ''\`
+// (\`src/update/update.ts\`), which throws ENOENT on it — every run then fails
+// (padi reads such a \`current\` as absent). The fixture fails the same way,
+// through \`failed\` above, so a scenario that leaves one is visible.
+try {
+  lstatSync(current);
+} catch {
+  symlinkSync(floor, current);
+}
 try {
   realpathSync(current);
-} catch {
-  rmSync(current, { force: true });
-  symlinkSync(floor, current);
+} catch (err) {
+  failed(err);
 }
 // Local time with its offset, as upstream's \`timestamp()\` writes it
 // (\`date +%Y-%m-%dT%H:%M:%S%:z\`), never UTC's \`Z\`.

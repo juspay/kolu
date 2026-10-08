@@ -76,12 +76,20 @@ export const AgentUpdateOutcomeSchema = Schema.Literals([
 
 export type AgentUpdateOutcome = typeof AgentUpdateOutcomeSchema.Type;
 
-/** A host's last update run: when (epoch ms), how it ended, and the updater's
- *  words (what changed, or why not; empty for `unchanged`). */
+/** Who wrote a run's words: agent-distro's updater (its result line or its
+ *  history log), or padi (a run it could not start, an updater that died
+ *  without a result, a landing this host does not resolve). */
+export const AgentUpdateAuthorSchema = Schema.Literals(["updater", "padi"]);
+
+export type AgentUpdateAuthor = typeof AgentUpdateAuthorSchema.Type;
+
+/** A host's last update run: when (epoch ms), how it ended, its words (what
+ *  changed, or why not; empty for `unchanged`), and who wrote them. */
 export const AgentUpdateRunSchema = Schema.Struct({
   at: Schema.Number,
   outcome: AgentUpdateOutcomeSchema,
   words: Schema.String,
+  by: AgentUpdateAuthorSchema,
 });
 
 export type AgentUpdateRun = typeof AgentUpdateRunSchema.Type;
@@ -104,7 +112,12 @@ export function lastRunOf(
     stampAt !== undefined &&
     (eventAt === undefined || stampAt > eventAt + SAME_RUN_MS)
   )
-    return { at: stampAt, outcome: "unchanged", words: "" };
+    return { at: stampAt, outcome: "unchanged", words: "", by: "updater" };
   if (newest === undefined || eventAt === undefined) return undefined;
-  return { at: eventAt, outcome: newest.kind, words: newest.words };
+  return {
+    at: eventAt,
+    outcome: newest.kind,
+    words: newest.words,
+    by: "updater",
+  };
 }

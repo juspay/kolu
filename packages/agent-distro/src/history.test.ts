@@ -70,6 +70,7 @@ describe("lastRunOf — the last run, off the files alone", () => {
       outcome: "updated",
       words:
         "Oh My Pi 18.7.0, Codex 0.160.1, Claude Code 2.1.292, OpenCode 1.18.35+53d1eab, OpenCode v2 2.0.24, Pi 1.0.4",
+      by: "updater",
     });
   });
   it("an unchanged run when the stamp is later than every event", () => {
@@ -78,6 +79,7 @@ describe("lastRunOf — the last run, off the files alone", () => {
       at: later * 1000,
       outcome: "unchanged",
       words: "",
+      by: "updater",
     });
     expect(lastRunOf([], later)).toMatchObject({ outcome: "unchanged" });
   });

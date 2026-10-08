@@ -441,11 +441,14 @@ that profile current on its host. Three cells, one procedure (`padiSurface`
 - **`agentDistroReceipt` (read-only)** — what this host keeps of the setting's
   profile's updates, read off the updater's own files: the serving bundle and
   its versions (`share/agent-distro/versions`), the last run (`updated` ·
-  `unchanged` · `skipped` · `failed`, with the updater's words), and the last
-  five history events (`history.log`). Published at boot, after every run and
-  when the setting changes; readable with agents off. A background update that
-  skips or fails shows here and in the log, never as an `error` status.
-- **`agentDistro.checkNow` (procedure)** — run ONE update of the selected
+  `unchanged` · `skipped` · `failed`, with its words and who wrote them: the
+  updater, or padi for a run that gave no result line), the last five history
+  events (`history.log`), and `running` — every profile with a run in flight
+  on the host, whichever is selected. Published at boot, when a run starts and
+  ends, and when the setting changes; readable with agents off. A background
+  update that skips or fails shows here and in the log, never as an `error`
+  status.
+- **`agentDistro.checkNow` (procedure)** — run one update of the selected
   profile now, whatever the schedule says; answers once it has started.
   Refuses with the declared `AgentDistroCheckRefused` (`running` while a run of
   that profile is going — one at a time — or `notReady` when nothing serves:
@@ -461,8 +464,8 @@ that profile current on its host. Three cells, one procedure (`padiSurface`
   answer is upstream's rule (`updateDue` against the updater's `last-success`
   stamp, mirrored in `@kolu/agent-distro/schedule`). A scheduled run that
   FAILS (offline at the boundary) is retried on the next looks — three
-  attempts per boundary, five minutes apart, upstream's own `--scheduled`
-  numbers (`scheduledAskNow`); a skip waits for the next boundary, and an ask
+  attempts per boundary, each retry five minutes after the failed run ENDED,
+  upstream's own `--scheduled` numbers (`scheduledAskNow`); a skip waits for the next boundary, and an ask
   that met a run in flight asks again on the next look. A due update runs the same
   updater in `--progress` mode (never `--scheduled`, which is launchd's and
   blocks on retries) through the same run state machine, as an UPDATE: the
@@ -470,8 +473,8 @@ that profile current on its host. Three cells, one procedure (`padiSurface`
   flips `current` — until the run lands; then the status re-reads `current`,
   so new terminals get the new bundle and running ones go stale. An update
   that lands a bundle other than the one it reported (or crashes after the
-  flip) disowns the new `current` and KEEPS the bundle that served — never an
-  `error`. The local machine updates too: `current` wins over the floor once
+  flip) disowns the new `current` and KEEPS the bundle that served — as does
+  one that leaves no `current` at all — never an `error`. The local machine updates too: `current` wins over the floor once
   it exists. Only the newest bundle has a GC root (`current`): after an update
   the previous one can be garbage-collected under a terminal still using it,
   a limit the docs state rather than a root padi holds.

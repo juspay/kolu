@@ -519,7 +519,8 @@ export * from "./transcriptSchema.ts";
  *  current on its host on upstream's schedule. The `agentDistroStatus` `ready`
  *  arm gains an OPTIONAL `update: { progress? }` (a run in flight while the old
  *  bundle serves); a NEW read-only cell, `agentDistroReceipt` (the serving
- *  bundle's versions, the last run, the last few history events); and a NEW
+ *  bundle's versions, the last run and who wrote its words, the last few
+ *  history events, every profile with a run in flight); and a NEW
  *  procedure, `agentDistro.checkNow`, which runs an update at once and refuses
  *  with the declared `AgentDistroCheckRefused` while a run is going or nothing
  *  serves. A 5.9 client CALLS `checkNow` and subscribes to the receipt, so the
@@ -1991,8 +1992,9 @@ export const padiSurface = defineSurfaceWithPolicy<ClientErrorPolicy>()({
     },
     /** What this host keeps of agent-distro's updates for the setting's
      *  profile — the serving bundle's versions, the last update run and the
-     *  last few history events, read off the updater's own files. Read-only;
-     *  published at boot, after every run, and when the setting changes. A
+     *  last few history events, read off the updater's own files — and every
+     *  profile with a run in flight there. Read-only; published at boot, when a
+     *  run starts and ends, and when the setting changes. A
      *  background update that fails or skips shows here (and in padi's log),
      *  never as an `error` status: the agents still work. */
     agentDistroReceipt: {
@@ -2423,7 +2425,7 @@ export const padiSurface = defineSurfaceWithPolicy<ClientErrorPolicy>()({
       },
     },
     /** agent-distro on this host — merged onto the `agentDistro` cell's wire
-     *  node, as `session` is (no verb overlap). `checkNow` runs ONE update of
+     *  node, as `session` is (no verb overlap). `checkNow` runs one update of
      *  the selected profile at once, whatever the schedule says, and answers
      *  once it has started (the status cells show it running). Refuses while a
      *  run is going or nothing serves (`AgentDistroCheckRefused`). */

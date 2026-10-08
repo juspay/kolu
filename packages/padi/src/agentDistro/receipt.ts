@@ -44,11 +44,13 @@ const SAME_RUN_MS = 5_000;
  *  bundle new terminals get there now, if any), the last run, and the last few
  *  history events. `unlanded` is the profile's last run that landed nothing, as
  *  the run state remembers it — shown when it is newer than what the files
- *  say. Throws on a history or versions file that is not upstream's format. */
+ *  say; `running` is every profile with a run in flight. Throws on a history
+ *  or versions file that is not upstream's format. */
 export function readReceipt(
   profile: AgentDistroProfileBake,
   serving: string | undefined,
   unlanded: AgentUpdateRun | undefined,
+  running: readonly string[],
 ): AgentDistroReceipt {
   const events = recentEvents(
     readOrUndefined(profile.historyFile) ?? "",
@@ -69,5 +71,6 @@ export function readReceipt(
       versionsText === undefined ? [] : [...parseVersions(versionsText)],
     ...(lastRun === undefined ? {} : { lastRun }),
     events: [...events],
+    running: [...running],
   };
 }

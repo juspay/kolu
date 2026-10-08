@@ -22,11 +22,15 @@
  * (the remedy and retry are worded in `@kolu/agent-distro/status`).
  *
  * Once a bundle serves, it keeps the CHOSEN profile current: at each of
- * upstream's schedule boundaries (and after a sleep that missed one) it runs ONE
+ * upstream's schedule boundaries (and after a sleep that missed one) it runs an
  * update when upstream's due rule says so (`last-success` against the
- * boundary), and `checkNow` runs one at once. The old bundle keeps serving until
- * the new one has fully landed; a run that skips or fails leaves it serving and
- * shows only in the read-only `agentDistroReceipt` cell and the log.
+ * boundary), and `checkNow` runs one at once. A scheduled run that FAILS gets
+ * upstream's retries — up to three runs a boundary, five minutes after the
+ * failed one ended (`@kolu/agent-distro/schedule`); a skip waits for the next
+ * boundary. The old bundle keeps serving until the new one has fully landed; a
+ * run that skips or fails leaves it serving. Its status stays `ready`: the run
+ * shows in the read-only `agentDistroReceipt` cell (which Settings words on the
+ * host's own line) and the log.
  */
 
 import {
@@ -37,6 +41,7 @@ import {
 } from "@kolu/agent-distro/schema";
 import type { AgentUpdateRun } from "@kolu/agent-distro/history";
 import {
+  attemptEnded,
   attemptStarted,
   type ScheduledAttempts,
   scheduledAskNow,
@@ -51,6 +56,7 @@ import {
   downloadOf,
   forgetFailure,
   keptBundleOf,
+  runningProfiles,
   startRun,
   unlandedRunOf,
 } from "./download.ts";
@@ -85,8 +91,10 @@ function publishStatus(status: AgentDistroStatus): void {
 }
 
 /** Publish what this host keeps of `setting`'s profile's updates — readable
- *  with agents off too (the profile the setting still names). Nothing to say
- *  on an unbaked padi or before the first push (no profile). */
+ *  with agents off too (the profile the setting still names) — and which
+ *  profiles have a run in flight. Nothing else to say on an unbaked padi or
+ *  before the first push (no profile). Published when a run starts and when it
+ *  ends, so `running` is never stale. */
 function publishReceipt(setting: AgentDistroSetting): void {
   const bake = agentDistroBake();
   const profile = bake?.profiles.get(setting.profile);
@@ -94,6 +102,7 @@ function publishReceipt(setting: AgentDistroSetting): void {
     padiSurfaceCtx.cells.agentDistroReceipt.set({
       ...EMPTY_AGENT_DISTRO_RECEIPT,
       profile: setting.profile,
+      running: [...runningProfiles()],
     });
     return;
   }
@@ -104,7 +113,12 @@ function publishReceipt(setting: AgentDistroSetting): void {
   const serving =
     run?.kind === "running" ? run.serving : bundleOnHost(bake, profile);
   padiSurfaceCtx.cells.agentDistroReceipt.set(
-    readReceipt(profile, serving, unlandedRunOf(profile.name)),
+    readReceipt(
+      profile,
+      serving,
+      unlandedRunOf(profile.name),
+      runningProfiles(),
+    ),
   );
 }
 
@@ -197,6 +211,7 @@ function settle(setting: AgentDistroSetting): void {
     if (bake === null || profile === undefined)
       throw new Error(`agent-distro: no bake for profile '${setting.profile}'`);
     startRun(bake, profile, undefined, RUN_CALLBACKS);
+    publishReceiptLoud(setting);
     assessed = assessAgentDistro(setting);
     if (assessed.kind === "needsDownload")
       throw new Error(
@@ -244,6 +259,7 @@ function publishReceiptLoud(setting: AgentDistroSetting): void {
     padiSurfaceCtx.cells.agentDistroReceipt.set({
       ...EMPTY_AGENT_DISTRO_RECEIPT,
       profile: setting.profile,
+      running: [...runningProfiles()],
       error: err instanceof Error ? err.message : String(err),
     });
   }
@@ -282,7 +298,7 @@ export type UpdateCheckRefusal =
    *  failed first download (the setting's own retry handles that). */
   | "notReady";
 
-/** Run ONE update of the selected profile now — if `force`, whatever the
+/** Run one update of the selected profile now — if `force`, whatever the
  *  schedule says (`checkNow`); else only when upstream's due rule says one is
  *  due. Answers `started`, `notDue`, or why it refused. */
 export function checkForAgentUpdate(opts: {
@@ -310,13 +326,11 @@ export function checkForAgentUpdate(opts: {
     return "notDue";
   opts.onStart?.();
   startRun(bake, profile, assessed.layer.bundle, RUN_CALLBACKS);
-  republish();
   // A run that could not even start (no `nix`) has already ended, without its
-  // callbacks: publish what it left.
-  if (downloadOf(profile.name)?.kind !== "running") {
-    scheduledRunEnded();
-    publishReceiptLoud(setting);
-  }
+  // callbacks: count its end.
+  if (downloadOf(profile.name)?.kind !== "running") scheduledRunEnded();
+  publishReceiptLoud(setting);
+  republish();
   return "started";
 }
 
@@ -330,28 +344,25 @@ let askAgain = false;
 let scheduledInFlight: { readonly before: AgentUpdateRun | undefined } | false =
   false;
 
-/** A scheduled run ended: note whether it FAILED, which earns a retry five
- *  minutes on (a skip does not). */
+/** A scheduled run ended, now: note whether it FAILED, which earns a retry
+ *  five minutes after this end (a skip does not). */
 function scheduledRunEnded(): void {
   if (scheduledInFlight === false || attempts === undefined) return;
   const { before } = scheduledInFlight;
   scheduledInFlight = false;
   const last = unlandedRunOf(agentDistroSettingStore.get().profile);
-  attempts = {
-    ...attempts,
-    lastFailed:
-      last !== undefined && last !== before && last.outcome === "failed",
-  };
+  attempts = attemptEnded(
+    attempts,
+    Math.floor(Date.now() / 1000),
+    last !== undefined && last !== before && last.outcome === "failed",
+  );
 }
 
 /** The timer's tick (`./scheduler.ts`): ask "is an update due" at a boundary,
  *  after an ask that met a run in flight, or to retry a failed scheduled run
- *  (`scheduledAskNow`); run ONE if upstream's rule says so. `nowMs` is the
- *  wall clock, handed in for the tests. */
-export function onAgentUpdateTick(
-  boundaryPassed: boolean,
-  nowMs: number = Date.now(),
-): void {
+ *  (`scheduledAskNow`); run one if upstream's rule says so. */
+export function onAgentUpdateTick(boundaryPassed: boolean): void {
+  const nowMs = Date.now();
   const setting = agentDistroSettingStore.get();
   const schedule = agentDistroBake()?.profiles.get(setting.profile)?.schedule;
   if (!setting.enabled || schedule === undefined) return;

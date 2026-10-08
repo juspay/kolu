@@ -21,12 +21,16 @@
  *
  * A failure is recorded as a TYPED reason with its cause — never a remedy or a
  * retry instruction: those are worded once, in `@kolu/agent-distro/status`.
- * Nothing retries on its own; the policy forgets a failure when the setting
- * turns that profile on again.
+ * A first download that fails is never retried on its own: the policy forgets
+ * the failure when the setting turns that profile on again. (A failed scheduled
+ * UPDATE is retried by the policy, on upstream's numbers — `./agentDistro.ts`.)
  */
 
 import type { AgentDistroFailureReason } from "@kolu/agent-distro/schema";
-import type { AgentUpdateRun } from "@kolu/agent-distro/history";
+import type {
+  AgentUpdateAuthor,
+  AgentUpdateRun,
+} from "@kolu/agent-distro/history";
 import type { UpdaterProgress } from "@kolu/agent-distro/progress";
 import { log } from "../log.ts";
 import type { AgentDistroBake, AgentDistroProfileBake } from "./bake.ts";
@@ -99,6 +103,11 @@ export function keptBundleOf(profile: string): string | undefined {
   return kept.get(profile);
 }
 
+/** Every profile with a run going, whichever is selected. */
+export function runningProfiles(): readonly string[] {
+  return [...running.keys()];
+}
+
 /** `profile`'s last run that landed nothing, if any. */
 export function unlandedRunOf(profile: string): AgentUpdateRun | undefined {
   return unlanded.get(profile);
@@ -130,10 +139,16 @@ export function startRun(
     outcome: "skipped" | "failed",
     reason: AgentDistroFailureReason,
     message: string,
+    by: AgentUpdateAuthor,
     err?: unknown,
   ) => {
     running.delete(profile.name);
-    unlanded.set(profile.name, { at: Date.now(), outcome, words: message });
+    unlanded.set(profile.name, {
+      at: Date.now(),
+      outcome,
+      words: message,
+      by,
+    });
     if (serving !== undefined) {
       keepServing(serving);
       plog.warn(
@@ -145,9 +160,11 @@ export function startRun(
     failed.set(profile.name, { reason, message });
     plog.error({ err, reason, message }, "agent-distro download failed");
   };
-  /** An update that did not land cleanly: if `current` moved anyway (a crash
-   *  after the flip, a landing other than the one reported), disown that path
-   *  and keep the bundle that served. */
+  /** An update that did not land cleanly keeps the bundle that served: if
+   *  `current` moved anyway (a crash after the flip, a landing other than the
+   *  one reported), that path is disowned; if the host resolves nothing at all
+   *  any more, the old bundle is kept all the same — never a first download
+   *  that takes the agents away. */
   const keepServing = (old: string) => {
     let here: string | undefined;
     try {
@@ -155,8 +172,8 @@ export function startRun(
     } catch (err) {
       plog.error({ err }, "could not resolve this host's current bundle");
     }
-    if (here === undefined || here === old) return;
-    disowned.set(profile.name, here);
+    if (here === old) return;
+    if (here !== undefined) disowned.set(profile.name, here);
     kept.set(profile.name, old);
   };
   /** A host that resolves something other than what the updater reported:
@@ -168,7 +185,7 @@ export function startRun(
         { message },
         "agent-distro update landed an unreported bundle",
       );
-      unlandedEnd("failed", "updater", message);
+      unlandedEnd("failed", "updater", message, "padi");
       return;
     }
     running.delete(profile.name);
@@ -180,6 +197,7 @@ export function startRun(
       "failed",
       "nixMissing",
       "nix is not on padi's PATH on this host, so the agents cannot be downloaded",
+      "padi",
     );
     return;
   }
@@ -191,6 +209,7 @@ export function startRun(
       "failed",
       "updater",
       `could not prepare the updater: ${String(err)}`,
+      "padi",
       err,
     );
     return;
@@ -214,7 +233,7 @@ export function startRun(
       if (!outcome.ok) {
         // A skip (cache unusable, bundle not fully cached) exits 0 but is a
         // `skipped` result: nothing landed, and its reason says why.
-        unlandedEnd(outcome.result, "updater", outcome.message);
+        unlandedEnd(outcome.result, "updater", outcome.message, outcome.by);
         return;
       }
       // The updater names the bundle it settled on; this host must now resolve
@@ -243,6 +262,7 @@ export function startRun(
         "failed",
         "updater",
         `reading the run's result failed: ${String(err)}`,
+        "padi",
         err,
       ),
     )

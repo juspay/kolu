@@ -53,12 +53,13 @@ export function nextBoundary(now: number, schedule: UpdaterSchedule): number {
   return boundaryAtOrBefore(now, schedule) + schedule.periodSeconds;
 }
 
-/** How many scheduled runs one boundary gets, and how far apart, when a run
- *  FAILS — upstream's own `--scheduled` numbers (`src/update/update.ts`
- *  `scheduled()`: "up to 3 attempts five minutes apart"), mirrored so padi's
- *  timer gives a machine that was offline at the boundary the same chances
- *  launchd's would. A `skipped` run is not retried: it waits for the next
- *  boundary, as upstream's does. */
+/** How many scheduled runs one boundary gets, and how long to wait after one
+ *  FAILS before the next — upstream's own `--scheduled` numbers
+ *  (`src/update/update.ts` `scheduled()`: up to 3 attempts, sleeping five
+ *  minutes after a failed one), mirrored so padi's timer gives a machine that
+ *  was offline at the boundary the same chances launchd's would. The wait is
+ *  counted from the failed run's END, as upstream's sleep is. A `skipped` run
+ *  is not retried: it waits for the next boundary, as upstream's does. */
 export const SCHEDULED_ATTEMPTS = 3;
 export const SCHEDULED_RETRY_SECONDS = 300;
 
@@ -67,10 +68,9 @@ export interface ScheduledAttempts {
   /** The boundary (epoch seconds) these attempts belong to. */
   readonly boundary: number;
   readonly count: number;
-  /** When the last one started, epoch seconds. */
-  readonly lastAt: number;
-  /** The last one ended `failed`. */
-  readonly lastFailed: boolean;
+  /** How the last one ended — when (epoch seconds) and whether it FAILED —
+   *  or `undefined` while it runs. */
+  readonly lastEnd?: { readonly at: number; readonly failed: boolean };
 }
 
 /** Record a scheduled run starting at `now`: the next attempt of the current
@@ -84,16 +84,23 @@ export function attemptStarted(
   return {
     boundary,
     count: prev?.boundary === boundary ? prev.count + 1 : 1,
-    lastAt: now,
-    lastFailed: false,
   };
+}
+
+/** Record the running scheduled attempt ending at `now`, failed or not. */
+export function attemptEnded(
+  attempts: ScheduledAttempts,
+  now: number,
+  failed: boolean,
+): ScheduledAttempts {
+  return { ...attempts, lastEnd: { at: now, failed } };
 }
 
 /** Should the timer ask "is an update due" now (epoch seconds)? Yes when a
  *  boundary has passed since it last asked, when its last ask met a run in
  *  flight (`askAgain`: that ask did not count), or when the boundary's last
- *  scheduled run FAILED and it has attempts left, five minutes on. Whether a
- *  run then starts is still {@link updateDue}'s call. */
+ *  scheduled run FAILED and it has attempts left, five minutes after that run
+ *  ended. Whether a run then starts is still {@link updateDue}'s call. */
 export function scheduledAskNow(input: {
   readonly now: number;
   readonly schedule: UpdaterSchedule;
@@ -103,12 +110,12 @@ export function scheduledAskNow(input: {
 }): boolean {
   if (input.boundaryPassed || input.askAgain) return true;
   const a = input.attempts;
-  if (a === undefined) return false;
+  if (a?.lastEnd === undefined) return false;
   return (
-    a.lastFailed &&
+    a.lastEnd.failed &&
     a.boundary === boundaryAtOrBefore(input.now, input.schedule) &&
     a.count < SCHEDULED_ATTEMPTS &&
-    input.now - a.lastAt >= SCHEDULED_RETRY_SECONDS
+    input.now - a.lastEnd.at >= SCHEDULED_RETRY_SECONDS
   );
 }
 

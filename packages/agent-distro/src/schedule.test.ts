@@ -8,6 +8,7 @@
 
 import { describe, expect, it } from "vitest";
 import {
+  attemptEnded,
   attemptStarted,
   lastSuccessFile,
   SCHEDULED_ATTEMPTS,
@@ -115,13 +116,13 @@ describe("scheduledAskNow — a boundary, a missed ask, and upstream's retries",
 
   it("a failed run (offline at the boundary) is retried twice, five minutes apart, then waits for the next boundary", () => {
     expect(ask(t0, undefined, { boundaryPassed: true })).toBe(true);
-    let a = { ...attemptStarted(undefined, t0, UPSTREAM), lastFailed: true };
+    let a = attemptEnded(attemptStarted(undefined, t0, UPSTREAM), t0, true);
     expect(ask(t0 + 60, a)).toBe(false); // too soon
     expect(ask(t0 + 300, a)).toBe(true);
-    a = { ...attemptStarted(a, t0 + 300, UPSTREAM), lastFailed: true };
+    a = attemptEnded(attemptStarted(a, t0 + 300, UPSTREAM), t0 + 300, true);
     expect(a.count).toBe(2);
     expect(ask(t0 + 600, a)).toBe(true);
-    a = { ...attemptStarted(a, t0 + 600, UPSTREAM), lastFailed: true };
+    a = attemptEnded(attemptStarted(a, t0 + 600, UPSTREAM), t0 + 600, true);
     expect(a.count).toBe(3);
     expect(ask(t0 + 900, a)).toBe(false); // out of attempts
     expect(ask(t0 + 3 * 3600, a)).toBe(false);
@@ -131,8 +132,18 @@ describe("scheduledAskNow — a boundary, a missed ask, and upstream's retries",
     expect(attemptStarted(a, next, UPSTREAM).count).toBe(1);
   });
 
+  it("the five minutes count from the failed run's END, as upstream's sleep does", () => {
+    // A build that fails four minutes in.
+    const started = attemptStarted(undefined, t0, UPSTREAM);
+    expect(ask(t0 + 300, started)).toBe(false); // still running: no retry
+    const a = attemptEnded(started, t0 + 240, true);
+    expect(ask(t0 + 300, a)).toBe(false); // a minute after it failed
+    expect(ask(t0 + 539, a)).toBe(false);
+    expect(ask(t0 + 540, a)).toBe(true);
+  });
+
   it("a skipped run is not retried: it waits for the next boundary", () => {
-    const a = attemptStarted(undefined, t0, UPSTREAM); // lastFailed: false
+    const a = attemptEnded(attemptStarted(undefined, t0, UPSTREAM), t0, false);
     expect(ask(t0 + 300, a)).toBe(false);
     expect(ask(t0 + 3600, a)).toBe(false);
   });
