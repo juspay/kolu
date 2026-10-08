@@ -926,10 +926,12 @@ Then(
 Then(
   "the Agents line and History name this machine by its hostname",
   async function (this: KoluWorld) {
+    // The `data-host` the cell carries — its text also holds the logo's SVG.
     await this.page
-      .locator(`${IN_SETTINGS} [data-testid="agents-status-host"]`)
+      .locator(
+        `${IN_SETTINGS} [data-testid="agents-status-host"][data-host="${LOCAL_NAME}"]`,
+      )
       .first()
-      .filter({ hasText: new RegExp(`^${escapeRegExp(LOCAL_NAME)}$`) })
       .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
     const history = this.page.locator(
       `${IN_SETTINGS} [data-testid="agents-history"]`,
@@ -937,9 +939,8 @@ Then(
     if ((await history.getAttribute("open")) === null)
       await history.locator("summary").click();
     await history
-      .locator('[data-testid="agents-history-host"]')
+      .locator(`[data-testid="agents-history-host"][data-host="${LOCAL_NAME}"]`)
       .first()
-      .filter({ hasText: new RegExp(`^${escapeRegExp(LOCAL_NAME)}$`) })
       .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
   },
 );

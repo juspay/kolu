@@ -38,6 +38,7 @@ const AgentUpdateHistory: Component<{
                   the words between: each row has an anchor. */}
               <span
                 data-testid="agents-history-host"
+                data-host={row.host}
                 class="truncate font-sans font-medium text-fg-2"
               >
                 {row.host}

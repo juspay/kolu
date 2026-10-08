@@ -31,6 +31,7 @@ const AgentStatusLines: Component<{ lines: readonly AgentStatusLine[] }> = (
         <>
           <span
             data-testid="agents-status-host"
+            data-host={line.host}
             class="flex min-w-0 items-center gap-1.5 font-medium text-fg-2"
           >
             <AgentDistroLogo size={12} />
