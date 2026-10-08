@@ -108,7 +108,8 @@ const floor = join(root, "profiles", cfg.profile);
 // through \`failed\` above, so a scenario that leaves one is visible.
 try {
   lstatSync(current);
-} catch {
+} catch (err) {
+  if (err.code !== "ENOENT") failed(err);
   symlinkSync(floor, current);
 }
 try {

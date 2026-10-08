@@ -13,6 +13,7 @@ import {
   type AgentUpdateRun,
   lastRunOf,
   recentEvents,
+  SAME_RUN_MS,
 } from "@kolu/agent-distro/history";
 import { lastSuccessFile, parseLastSuccess } from "@kolu/agent-distro/schedule";
 import type { AgentDistroReceipt } from "@kolu/agent-distro/schema";
@@ -35,10 +36,6 @@ function readOrUndefined(path: string): string | undefined {
 export function lastSuccessOf(profile: AgentDistroProfileBake): number | null {
   return parseLastSuccess(readOrUndefined(lastSuccessFile(profile.stateDir)));
 }
-
-/** How far apart the run state's and the files' last runs may be and still be
- *  the same run. */
-const SAME_RUN_MS = 5_000;
 
 /** The receipt for `profile` on this host: the versions of `serving` (the
  *  bundle new terminals get there now, if any), the last run, and the last few

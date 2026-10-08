@@ -22,7 +22,7 @@ import {
   agentMarkFill,
   agentMarkLabel,
   agentMarkUpdate,
-  agentMarkWords,
+  agentMarkFillWords,
 } from "@kolu/agent-distro/status";
 import { agentsWhere, hostAgentMark } from "./useAgentDistro";
 
@@ -77,7 +77,8 @@ const Ring: Component<{ mark: AgentMark }> = (props) => (
   </svg>
 );
 
-/** The words beside the mark on hover — `agentMarkWords`', the one wording —
+/** The words beside the mark on hover — `agentMarkLabel`, or beside its bar
+ *  `agentMarkFillWords` (the folds choose the text) —
  *  and, while downloading, a 90px bar with the bytes after it. */
 const MarkTip: Component<{ mark: AgentMark; where: string }> = (props) => (
   <Show
@@ -90,11 +91,7 @@ const MarkTip: Component<{ mark: AgentMark; where: string }> = (props) => (
   >
     {(m) => (
       <span class="flex items-center gap-1.5">
-        <span>
-          {props.mark.kind === "ready"
-            ? agentMarkWords(props.mark, props.where)?.detail.join(" ")
-            : agentMarkWords(props.mark, props.where)?.title}
-        </span>
+        <span>{agentMarkFillWords(props.mark, props.where)}</span>
         {/* The same bar as the Settings status lines: 5px, radius 3, on edge. */}
         <span class="h-[5px] w-[90px] shrink-0 overflow-hidden rounded-[3px] bg-edge">
           <span

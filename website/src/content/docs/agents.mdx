@@ -199,7 +199,9 @@ progress. Then:
 A look that finds nothing newer, or skips (the newer set is not fully in the
 cache yet, or the machine's Nix cannot use the cache), says nothing; the host's
 line says it was skipped, and its hover and the History give agent-distro's
-reason. A look that fails says nothing either — the agents you have keep
+reason. A skip is not a problem, so once every machine is ready it folds into
+the **all hosts** line like a look that found nothing, and shows only in the
+History. A look that fails says nothing either — the agents you have keep
 working — and the host keeps its own status line saying so, even when every
 other machine is ready (and it is in the History, when agent-distro wrote it
 down: a run that crashed did not, so its line's hover gives kolu's words for
@@ -212,7 +214,9 @@ unprotected. **Restart** gets the current set.
 In **Settings → Agents**:
 
 - **Check now** looks for newer agents on every machine at once, whatever the
-  time. While any machine is looking it reads "Checking…".
+  time. It is greyed out while there is no machine it could ask — every
+  connected one is already looking, or not ready yet — and reads "Checking…"
+  while one of them is looking.
 - **History** lists each machine's last five events — updated, skipped or failed —
   one line each, with the time and agent-distro's own words (hover a line for
   all of them). A machine whose update history kolu could not read gets a line

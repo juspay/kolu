@@ -303,7 +303,6 @@ export type UpdateCheckRefusal =
  *  due. Answers `started`, `notDue`, or why it refused. */
 export function checkForAgentUpdate(opts: {
   readonly force: boolean;
-  readonly now?: number;
   /** Runs just before the run starts — the scheduled path counts its attempt. */
   readonly onStart?: () => void;
 }): "started" | "notDue" | UpdateCheckRefusal {
@@ -318,7 +317,7 @@ export function checkForAgentUpdate(opts: {
   if (
     !opts.force &&
     !updateDue(
-      Math.floor((opts.now ?? Date.now()) / 1000),
+      Math.floor(Date.now() / 1000),
       lastSuccessOf(profile),
       profile.schedule,
     )
@@ -371,7 +370,6 @@ export function onAgentUpdateTick(boundaryPassed: boolean): void {
     return;
   const outcome = checkForAgentUpdate({
     force: false,
-    now: nowMs,
     onStart: () => {
       attempts = attemptStarted(attempts, now, schedule);
       scheduledInFlight = { before: unlandedRunOf(setting.profile) };

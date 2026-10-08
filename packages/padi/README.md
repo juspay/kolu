@@ -442,7 +442,10 @@ that profile current on its host. Three cells, one procedure (`padiSurface`
   profile's updates, read off the updater's own files: the serving bundle and
   its versions (`share/agent-distro/versions`), the last run (`updated` ·
   `unchanged` · `skipped` · `failed`, with its words and who wrote them: the
-  updater, or padi for a run that gave no result line), the last five history
+  updater's result line or history, or padi's own for a run that gave no
+  result line — a missing `nix`, a config that would not write, a spawn error,
+  a protocol violation, a crash, or a landing this host does not resolve), the
+  last five history
   events (`history.log`), and `running` — every profile with a run in flight
   on the host, whichever is selected. Published at boot, when a run starts and
   ends, and when the setting changes; readable with agents off. A background

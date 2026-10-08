@@ -24,18 +24,12 @@ const AgentUpdateHistory: Component<{
     <Show
       when={props.rows.length > 0}
       fallback={
-        <span
-          data-testid="agents-history-empty"
-          class="font-mono text-[0.7rem] text-fg-3/70"
-        >
+        <span class="font-mono text-[0.7rem] text-fg-3/70">
           {AGENTS_HISTORY.empty}
         </span>
       }
     >
-      <div
-        data-testid="agents-history-rows"
-        class="scrollbar-subtle -mr-2 grid max-h-56 grid-cols-[6.5rem_4.5rem_minmax(0,1fr)] items-baseline gap-x-2.5 gap-y-1 overflow-y-auto pr-2 text-xs"
-      >
+      <div class="scrollbar-subtle -mr-2 grid max-h-56 grid-cols-[6.5rem_4.5rem_minmax(0,1fr)] items-baseline gap-x-2.5 gap-y-1 overflow-y-auto pr-2 text-xs">
         <For each={props.rows}>
           {(row) => (
             <>
@@ -44,6 +38,7 @@ const AgentUpdateHistory: Component<{
               <span
                 data-testid="agents-history-host"
                 data-host={row.host}
+                title={row.host}
                 class="truncate font-sans font-medium text-fg-2"
               >
                 {row.host}

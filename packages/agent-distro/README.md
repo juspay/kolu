@@ -29,8 +29,9 @@ The **TypeScript half**, as data and pure functions:
   numbers), the next boundary, and the `last-success` stamp's file and reader.
 - `./history` — the updater's `history.log` (`<time> <profile> <event>`, the
   event `updated:` / `skipped:` / `failed:` in its own words), its parser,
-  the `AgentUpdateEvent` and `AgentUpdateRun` schemas, and the last run read
-  off the log and the stamp (`lastRunOf`).
+  the `AgentUpdateEvent` and `AgentUpdateRun` schemas (a run's words carry
+  their author, `by`: `AgentUpdateAuthor`, the updater or padi), `SAME_RUN_MS`,
+  and the last run read off the log and the stamp (`lastRunOf`).
 - `./versions` — a bundle's `share/agent-distro/versions`
   (`name\ttitle\tversion` per harness) and its parser.
 - `./manifest` — the floor manifest's schema, where it sits and its parser,
@@ -43,7 +44,9 @@ The **TypeScript half**, as data and pure functions:
   reason, `AgentDistroFailureReason`), their defaults and equality, and
   `TerminalAgents` (the one `agents` field a terminal record is stamped with),
   and `AgentDistroReceipt` (what a host keeps of its updates: the serving
-  bundle's versions, the last run, the last five events).
+  bundle's versions, the last run, the last five events, `running` — every
+  profile with a run in flight there — and `error` when the updater's files
+  would not read).
   padi-client DECLARES the cells and record that carry them; padi, kolu-common,
   the server and the client import the values from here.
 - `./bundle` — agent-distro's bundle and state shape: a bundle's `bin/`, the

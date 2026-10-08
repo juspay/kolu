@@ -94,9 +94,10 @@ export const AgentUpdateRunSchema = Schema.Struct({
 
 export type AgentUpdateRun = typeof AgentUpdateRunSchema.Type;
 
-/** How far apart a run's stamp and its history line may be written and still
- *  be the same run (the updater writes both within the same moment). */
-const SAME_RUN_MS = 5_000;
+/** How far apart two records of one run may be and still be the same run —
+ *  its stamp and its history line (the updater writes both within the same
+ *  moment), or padi's own record of it and the files'. */
+export const SAME_RUN_MS = 5_000;
 
 /** The last run, read off the updater's files alone: the newest history event,
  *  unless the `last-success` stamp (epoch seconds) is later than it — then the

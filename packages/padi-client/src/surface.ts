@@ -520,7 +520,8 @@ export * from "./transcriptSchema.ts";
  *  arm gains an OPTIONAL `update: { progress? }` (a run in flight while the old
  *  bundle serves); a NEW read-only cell, `agentDistroReceipt` (the serving
  *  bundle's versions, the last run and who wrote its words, the last few
- *  history events, every profile with a run in flight); and a NEW
+ *  history events, every profile with a run in flight, and an `error` when
+ *  the updater's files would not read); and a NEW
  *  procedure, `agentDistro.checkNow`, which runs an update at once and refuses
  *  with the declared `AgentDistroCheckRefused` while a run is going or nothing
  *  serves. A 5.9 client CALLS `checkNow` and subscribes to the receipt, so the

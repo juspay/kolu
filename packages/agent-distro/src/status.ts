@@ -358,6 +358,29 @@ export const AGENTS_UPDATE_CHECKING = "checking for newer agents…";
 export const AGENTS_UPDATE_DOWNLOADING =
   "Downloading newer agents — new terminals keep these until they have fully arrived.";
 
+/** The words beside a mark's bar while it fills — a first download's headline,
+ *  or a ready host's update line — `undefined` when no bar fills. The ONE
+ *  choice of text for the tab's hover beside its bar. */
+export function agentMarkFillWords(
+  mark: AgentMark,
+  where: string,
+): string | undefined {
+  if (agentMarkFill(mark) === undefined) return undefined;
+  const words = agentMarkWords(mark, where);
+  switch (mark.kind) {
+    case "ready":
+      return words?.detail.join(" ");
+    case "downloading":
+      return words?.title;
+    case "none":
+    case "checking":
+    case "failed":
+      return undefined;
+    default:
+      return mark satisfies never;
+  }
+}
+
 /** A mark's words as one text — its accessible name, with a download's bytes
  *  after the headline. `undefined` for `none`. */
 export function agentMarkLabel(
@@ -1103,7 +1126,8 @@ export const agentToast = {
 /** The Settings button that runs the update check on every machine now. */
 export const AGENTS_CHECK_NOW = {
   label: "Check now",
-  /** While any machine's update run is in flight. */
+  /** While no connected machine can be asked and one is running an update
+   *  ({@link agentCheckNowLabel}). */
   busyLabel: "Checking…",
   hint: "Look for newer coding agents on every machine now. Nothing is compiled: a newer set is downloaded only once agent-distro's cache holds all of it, and terminals already open keep theirs.",
 } as const;
@@ -1113,17 +1137,53 @@ export function agentCheckFailed(host: string, message: string): string {
   return `Could not check for newer coding agents on ${host}: ${message}`;
 }
 
-/** Can `status`'s host run an update check now — ready, with no run there? */
+/** Can `status`'s host run an update check now — ready, with no update
+ *  running there? Read through the mark, as the status line and the tab are. */
 export function agentUpdateCheckable(
   status: AgentDistroStatus | undefined,
 ): boolean {
-  return status?.kind === "ready" && status.update === undefined;
+  const mark = agentMarkOf(status, false);
+  return mark.kind === "ready" && agentMarkUpdate(mark) === undefined;
+}
+
+/** One host as Check now sees it: whether it is connected, and its status. */
+export interface AgentCheckHost {
+  readonly connected: boolean;
+  readonly status: AgentDistroStatus | undefined;
+}
+
+/** Will Check now ask this host — connected (a disconnected host's last-known
+ *  `ready` cannot answer), ready, with no update running there? The ONE
+ *  per-host test the button's call and its busy state share. */
+export function agentHostCheckable(host: AgentCheckHost): boolean {
+  return host.connected && agentUpdateCheckable(host.status);
+}
+
+/** Is Check now busy — no connected host it could ask now? A first download
+ *  elsewhere, or a run of a profile no longer selected, does not make it
+ *  busy: only a fleet with nothing to ask does. */
+export function agentCheckNowBusy(hosts: readonly AgentCheckHost[]): boolean {
+  return !hosts.some(agentHostCheckable);
+}
+
+/** Check now's words: "Checking…" only while it is busy AND a connected host
+ *  is running an update — a fleet busy with first downloads, or not ready at
+ *  all, is not checking, so the button keeps its own label (disabled). */
+export function agentCheckNowLabel(hosts: readonly AgentCheckHost[]): string {
+  const checking =
+    agentCheckNowBusy(hosts) &&
+    hosts.some((h) => {
+      if (!h.connected) return false;
+      const mark = agentMarkOf(h.status, false);
+      return agentMarkUpdate(mark) !== undefined;
+    });
+  return checking ? AGENTS_CHECK_NOW.busyLabel : AGENTS_CHECK_NOW.label;
 }
 
 /** Is a run of the updater in flight on any of these hosts, for any profile —
  *  a first download or an update? Read off each host's receipt (its
- *  `running`), which covers every profile, not only the selected one: the
- *  Check now button's busy state. */
+ *  `running`), which covers every profile, not only the selected one — what
+ *  the e2e reset waits on before it deletes the updater's state. */
 export function agentUpdateRunning(
   receipts: readonly (AgentDistroReceipt | undefined)[],
 ): boolean {

@@ -8,6 +8,10 @@ import {
   AGENTS_CHECK_NOW,
   AGENTS_ALL_HOSTS,
   AGENTS_HISTORY,
+  agentCheckNowBusy,
+  agentCheckNowLabel,
+  agentHostCheckable,
+  agentMarkFillWords,
   AGENTS_RECEIPT_UNREADABLE,
   AGENTS_UPDATE_CHECKING,
   agentMarkFill,
@@ -1404,6 +1408,57 @@ describe("K3 — updates while a bundle serves", () => {
     expect(AGENTS_CHECK_NOW.label).toBe("Check now");
     expect(AGENTS_HISTORY.title(0)).toBe("History");
     expect(AGENTS_HISTORY.title(4)).toBe("History (4)");
+  });
+
+  it("Check now is busy only when no connected host can be asked, and says Checking… only while one runs an update", () => {
+    const firstDownload = {
+      kind: "downloading",
+      profile: "vanilla",
+    } as const satisfies AgentDistroStatus;
+    const at = (connected: boolean, status: AgentDistroStatus | undefined) => ({
+      connected,
+      status,
+    });
+    // A first download on a remote leaves the ready host askable: not busy.
+    const fleet = [at(true, ready), at(true, firstDownload)];
+    expect(agentHostCheckable(at(true, ready))).toBe(true);
+    expect(agentCheckNowBusy(fleet)).toBe(false);
+    expect(agentCheckNowLabel(fleet)).toBe(AGENTS_CHECK_NOW.label);
+    // A disconnected host's last-known ready cannot answer.
+    expect(agentHostCheckable(at(false, ready))).toBe(false);
+    expect(agentCheckNowBusy([at(false, ready)])).toBe(true);
+    // Every connected host updating: busy, and checking.
+    const updating = [at(true, checking), at(true, downloading)];
+    expect(agentCheckNowBusy(updating)).toBe(true);
+    expect(agentCheckNowLabel(updating)).toBe(AGENTS_CHECK_NOW.busyLabel);
+    // Busy with first downloads only: disabled, but nothing is checking.
+    expect(agentCheckNowBusy([at(true, firstDownload)])).toBe(true);
+    expect(agentCheckNowLabel([at(true, firstDownload)])).toBe(
+      AGENTS_CHECK_NOW.label,
+    );
+  });
+
+  it("the words beside a filling mark's bar: a first download's headline, an update's line", () => {
+    expect(agentMarkFillWords(agentMarkOf(downloading, false), "box")).toBe(
+      AGENTS_UPDATE_DOWNLOADING,
+    );
+    const first = agentMarkOf(
+      {
+        kind: "downloading",
+        profile: "vanilla",
+        progress: { done: 1, total: 4 },
+      },
+      false,
+    );
+    expect(agentMarkFillWords(first, "box")).toBe(
+      agentMarkWords(first, "box")?.title,
+    );
+    expect(
+      agentMarkFillWords(agentMarkOf(ready, false), "box"),
+    ).toBeUndefined();
+    expect(
+      agentMarkFillWords(agentMarkOf(checking, false), "box"),
+    ).toBeUndefined();
   });
 
   it("the hint names this machine's versions once it has them", () => {

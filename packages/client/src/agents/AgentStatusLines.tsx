@@ -59,8 +59,6 @@ const AgentStatusLines: Component<{ lines: readonly AgentStatusLine[] }> = (
             <Show when={line.note}>
               {(note) => (
                 <span
-                  data-testid="agents-status-note"
-                  data-tone={note().tone}
                   title={note().title}
                   class="truncate font-mono text-[0.65rem]"
                   classList={{

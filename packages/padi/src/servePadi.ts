@@ -462,7 +462,8 @@ export function buildPadiSurfaceDeps(deps: {
         store: inMemoryStore(DEFAULT_AGENT_DISTRO_STATUS),
       },
       // Read-only: written only by the agent-distro module, from the updater's
-      // own files — at boot, after every run, and when the setting changes.
+      // own files — at boot, when a run starts and ends, and when the setting
+      // changes.
       agentDistroReceipt: {
         store: inMemoryStore(EMPTY_AGENT_DISTRO_RECEIPT),
       },

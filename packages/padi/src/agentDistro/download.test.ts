@@ -212,29 +212,29 @@ beforeEach(() => {
   process.env.STUB_BUNDLE = bundle;
   process.env.STUB_BUNDLE2 = bundle2;
   process.env.STUB_MODE = "ok";
+  /** A profile as the bake reader makes it: concrete for this host. */
+  const profileBake = (name: string) =>
+    [
+      name,
+      {
+        name,
+        command: [process.execPath, stub],
+        configText: JSON.stringify({
+          profile: name,
+          state: join(root, "state", "agent-distro", name),
+          history: join(root, "state", "agent-distro", "history.log"),
+          periodSeconds: 21600,
+          offsetSeconds: 7200,
+        }),
+        stateDir: join(root, "state", "agent-distro", name),
+        historyFile: join(root, "state", "agent-distro", "history.log"),
+        schedule: { periodSeconds: 21600, offsetSeconds: 7200 },
+      },
+    ] as const;
   const bake: AgentDistroBake = {
     floor: undefined, // a remote host
     plugins: "/p/plugin",
-    profiles: new Map([
-      [
-        "vanilla",
-        {
-          name: "vanilla",
-          command: [process.execPath, stub],
-          // Concrete for this host, as the bake reader makes it once.
-          configText: JSON.stringify({
-            profile: "vanilla",
-            state: join(root, "state", "agent-distro", "vanilla"),
-            history: join(root, "state", "agent-distro", "history.log"),
-            periodSeconds: 21600,
-            offsetSeconds: 7200,
-          }),
-          stateDir: join(root, "state", "agent-distro", "vanilla"),
-          historyFile: join(root, "state", "agent-distro", "history.log"),
-          schedule: { periodSeconds: 21600, offsetSeconds: 7200 },
-        },
-      ],
-    ]),
+    profiles: new Map([profileBake("vanilla"), profileBake("juspay")]),
   };
   __setAgentDistroBakeForTest(bake);
   __resetAgentDistroDownloadsForTest();
@@ -574,12 +574,17 @@ describe("an update while a bundle serves", () => {
     checkForAgentUpdate({ force: true });
     await until(() => lastReceipt()?.lastRun?.outcome === "unchanged");
     expect(checkForAgentUpdate({ force: false })).toBe("notDue");
-    // A day later it is due again.
+    // A day later (only `Date` faked: the stub runs in real time) it is due
+    // again.
     const runs = invocations().length;
-    expect(
-      checkForAgentUpdate({ force: false, now: Date.now() + 86_400_000 }),
-    ).toBe("started");
-    await until((s) => s?.kind === "ready" && s.update === undefined);
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      vi.setSystemTime(Date.now() + 86_400_000);
+      expect(checkForAgentUpdate({ force: false })).toBe("started");
+      await until((s) => s?.kind === "ready" && s.update === undefined);
+    } finally {
+      vi.useRealTimers();
+    }
     expect(invocations()).toHaveLength(runs + 1);
   });
 
@@ -589,6 +594,28 @@ describe("an update while a bundle serves", () => {
     write(ON);
     await until((s) => s?.kind === "error");
     expect(checkForAgentUpdate({ force: true })).toBe("notReady");
+  });
+
+  it("a run of a profile no longer selected stays in the receipt's running list — after switching back, and with agents off — until it ends", async () => {
+    await serving("slow");
+    const JUSPAY: AgentDistroSetting = { enabled: true, profile: "juspay" };
+    write(JUSPAY); // juspay has no bundle: its first download starts
+    expect(lastReceipt()?.running).toEqual(["juspay"]);
+    write(ON); // back to vanilla, which serves
+    expect(lastReceipt()).toMatchObject({
+      profile: "vanilla",
+      running: ["juspay"],
+    });
+    write(OFF);
+    expect(last()).toEqual({ kind: "off" });
+    expect(lastReceipt()?.running).toEqual(["juspay"]);
+    const deadline = performance.now() + 5_000;
+    while ((lastReceipt()?.running.length ?? 0) > 0) {
+      if (performance.now() > deadline)
+        throw new Error("the juspay run never ended");
+      await new Promise((r) => setTimeout(r, 20));
+    }
+    expect(lastReceipt()?.running).toEqual([]);
   });
 
   it("a first download still in flight refuses as running", async () => {

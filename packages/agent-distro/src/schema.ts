@@ -165,8 +165,8 @@ export function agentDistroStatusEqual(
  *   - `bundle`: the bundle those versions are of;
  *   - `versions`: the agents in the bundle the host serves now, from the
  *     bundle's versions file (empty when it serves none);
- *   - `lastRun`: the last update run, when there was one — how it ended and the
- *     updater's words;
+ *   - `lastRun`: the last update run, when there was one — how it ended, its
+ *     words, and who wrote them (`by`: the updater, or padi);
  *   - `events`: the last few history events, newest first;
  *   - `running`: every profile with a run in flight on the host — any
  *     profile, not only this one (a run outlives a switch away from it);

@@ -46,18 +46,20 @@ import { getNowTicker } from "../terminal/staleness";
 import { app, hostKeys, padiMap, preferences } from "../wire";
 import AgentDistroLogo from "@kolu/agent-distro/solid";
 import {
+  type AgentCheckHost,
   type AgentMark,
   type AgentStatusLine,
   type AgentUpdateHistoryRow,
   agentCheckFailed,
+  agentCheckNowBusy,
+  agentCheckNowLabel,
   agentDistroSettingOf,
+  agentHostCheckable,
   agentMarkOf,
   agentMarkWords,
   agentStatusLines,
   agentToast,
-  agentUpdateCheckable,
   agentUpdateHistoryRows,
-  agentUpdateRunning,
   type HostAgentStatus,
   unknownProfileMessage,
   unknownProfileOf,
@@ -281,22 +283,36 @@ export function agentUpdateHistoryNow(): readonly AgentUpdateHistoryRow[] {
   });
 }
 
-/** Is a run of the updater going on any machine, for any profile — the Check
- *  now button's busy state. */
-export function agentUpdateRunningNow(): boolean {
-  return agentUpdateRunning(byHost.roots().map(({ receipt }) => receipt()));
+/** Every pool member as Check now sees it: connected, and its status. */
+function checkHostsNow(): readonly (AgentCheckHost & {
+  readonly host: HostKey;
+})[] {
+  return byHost.roots().map(({ host, read }) => ({
+    host,
+    connected: padiMap.entry(host).state().kind === "connected",
+    status: read(),
+  }));
+}
+
+/** Check now's busy state — no connected host it could ask now
+ *  (`agentCheckNowBusy`). */
+export function agentCheckNowBusyNow(): boolean {
+  return agentCheckNowBusy(checkHostsNow());
+}
+
+/** Check now's words (`agentCheckNowLabel`). */
+export function agentCheckNowLabelNow(): string {
+  return agentCheckNowLabel(checkHostsNow());
 }
 
 /** "Check now": ask every machine that serves agents to run its update check
  *  at once — one call per host. A host that refuses because a run is already
  *  going there is an ordinary answer; any other failure is that host's toast. */
 export function checkAgentsNow(): void {
-  for (const { host, read } of byHost.roots()) {
-    // Only a connected host that is ready with no run there: a disconnected
-    // host's last-known `ready` is not a host that can answer (the backups
-    // dialog's precedent).
-    if (padiMap.entry(host).state().kind !== "connected") continue;
-    if (!agentUpdateCheckable(read())) continue;
+  for (const h of checkHostsNow()) {
+    // The same per-host test as the button's busy state.
+    if (!agentHostCheckable(h)) continue;
+    const { host } = h;
     runAction(
       "check for newer agents",
       padiMap
