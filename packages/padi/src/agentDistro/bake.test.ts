@@ -44,7 +44,6 @@ const config = (profile: string) =>
 
 const MANIFEST = {
   default: "vanilla",
-  picker: "/s/picker/bin/agent-distro",
   profiles: ["vanilla", "juspay"].map((name) => ({
     name,
     dir: `/s/${name}`,

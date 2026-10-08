@@ -1,114 +1,129 @@
-/** The profile listing Settings offers: running the baked picker, and the boot
- *  check that kolu's default profile leads it. (Parsing `--list --json` is
+/** The profile listing Settings offers: reading the floor's bundles, and the
+ *  boot checks — kolu's default profile leads it, and kolu has plain words for
+ *  every profile. (Composing a profile from its two files is
  *  `@kolu/agent-distro/listing`'s, tested there.) */
 
+import type { AgentDistroListing } from "@kolu/agent-distro/listing";
 import { AGENT_DISTRO_BUNDLE_ENV } from "@kolu/padi/agentDistroBake";
 import { describe, expect, it } from "vitest";
-import { parseAgentDistroList } from "@kolu/agent-distro/listing";
 import {
   assertDefaultAgentProfile,
   assertPlainProfiles,
   readAgentDistroListing,
 } from "./agentDistroListing.ts";
 
-const FIXTURE = JSON.stringify({
+const BUNDLE = "/nix/store/x-agent-distro-bundle";
+
+/** The floor on disk: its manifest, and each profile bundle's two files. */
+const floorFiles = (
+  dflt: string,
+  order: readonly string[] = ["vanilla", "juspay"],
+): Record<string, string> => ({
+  [`${BUNDLE}/share/kolu/agent-distro.json`]: JSON.stringify({
+    default: dflt,
+    profiles: order.map((name) => ({
+      name,
+      dir: `/s/${name}`,
+      bin: `/s/${name}/bin`,
+      hash: name,
+    })),
+  }),
+  "/s/vanilla/share/agent-distro/profile.json":
+    '{"description":"Upstream harnesses with your own provider","name":"vanilla"}',
+  "/s/vanilla/share/agent-distro/versions":
+    "claude\tClaude Code\t2.1.292\ncodex\tCodex\t0.160.1\n",
+  "/s/juspay/share/agent-distro/profile.json":
+    '{"description":"Juspay skills + Kolu","name":"juspay"}',
+  "/s/juspay/share/agent-distro/versions": "claude\tClaude Code\t2.1.292\n",
+});
+
+const readFrom =
+  (files: Record<string, string>) =>
+  (path: string): string => {
+    const text = files[path];
+    if (text === undefined) throw new Error(`unexpected read ${path}`);
+    return text;
+  };
+
+const LISTING: AgentDistroListing = {
+  kind: "available",
   profiles: [
     {
       name: "vanilla",
       description: "Upstream harnesses with your own provider",
       harnesses: [
-        {
-          name: "claude",
-          title: "Claude Code",
-          tagline: "Anthropic login · plugin dirs per session",
-          version: "2.1.286",
-        },
-        { name: "codex", title: "Codex", tagline: "OpenAI", version: "0.42.0" },
+        { name: "claude", title: "Claude Code", version: "2.1.292" },
+        { name: "codex", title: "Codex", version: "0.160.1" },
       ],
     },
     {
       name: "juspay",
-      description: "Juspay skills + Kolu, via Juspay's LiteLLM gateway",
-      harnesses: [],
+      description: "Juspay skills + Kolu",
+      harnesses: [{ name: "claude", title: "Claude Code", version: "2.1.292" }],
     },
   ],
-});
+};
 
 describe("readAgentDistroListing", () => {
-  it("unbaked → unavailable, and nothing is run", () => {
-    let ran = false;
+  it("unbaked → unavailable, and nothing is read", () => {
+    let read = false;
     expect(
       readAgentDistroListing({}, () => {
-        ran = true;
-        return FIXTURE;
+        read = true;
+        return "";
       }),
     ).toEqual({ kind: "unavailable" });
-    expect(ran).toBe(false);
+    expect(read).toBe(false);
   });
 
-  const BUNDLE = "/nix/store/x-agent-distro-bundle";
-  const manifest = (dflt: string) =>
-    JSON.stringify({
-      default: dflt,
-      picker: "/nix/store/p-picker/bin/agent-distro",
-      profiles: [
-        { name: "vanilla", dir: "/s/v", bin: "/s/v/bin", hash: "v" },
-        { name: "juspay", dir: "/s/j", bin: "/s/j/bin", hash: "j" },
-      ],
-    });
-  const readManifest = (dflt: string) => (path: string) => {
-    if (path !== `${BUNDLE}/share/kolu/agent-distro.json`)
-      throw new Error(`unexpected read ${path}`);
-    return manifest(dflt);
-  };
-
-  it("baked → runs the picker the floor's manifest names, with --list --json", () => {
-    const calls: string[][] = [];
-    const listing = readAgentDistroListing(
-      { [AGENT_DISTRO_BUNDLE_ENV]: BUNDLE },
-      (bin, args) => {
-        calls.push([bin, ...args]);
-        return FIXTURE;
-      },
-      readManifest("vanilla"),
-    );
-    expect(calls).toEqual([
-      ["/nix/store/p-picker/bin/agent-distro", "--list", "--json"],
-    ]);
-    expect(listing.kind).toBe("available");
+  it("baked → each floor profile read off its own bundle, in the manifest's order", () => {
+    expect(
+      readAgentDistroListing(
+        { [AGENT_DISTRO_BUNDLE_ENV]: BUNDLE },
+        readFrom(floorFiles("vanilla")),
+      ),
+    ).toEqual(LISTING);
   });
 
-  it("fails the boot when the picker does not lead with the manifest's default", () => {
+  it("fails the boot when the manifest does not lead with its default", () => {
     expect(() =>
       readAgentDistroListing(
         { [AGENT_DISTRO_BUNDLE_ENV]: BUNDLE },
-        () => FIXTURE,
-        readManifest("juspay"),
+        readFrom(floorFiles("vanilla", ["juspay", "vanilla"])),
       ),
-    ).toThrow(/leads with 'vanilla'.*'juspay'/);
+    ).toThrow(/leads with 'juspay'.*'vanilla'/);
+  });
+
+  it("fails the boot when a bundle does not describe itself", () => {
+    const files = floorFiles("vanilla");
+    delete files["/s/juspay/share/agent-distro/profile.json"];
+    expect(() =>
+      readAgentDistroListing(
+        { [AGENT_DISTRO_BUNDLE_ENV]: BUNDLE },
+        readFrom(files),
+      ),
+    ).toThrow(/unexpected read \/s\/juspay\/share\/agent-distro\/profile.json/);
   });
 });
 
 describe("assertDefaultAgentProfile", () => {
   it("passes when the listing leads with kolu's default, and when unbaked", () => {
-    const listing = parseAgentDistroList(FIXTURE);
-    expect(assertDefaultAgentProfile(listing, "vanilla")).toBe(listing);
+    expect(assertDefaultAgentProfile(LISTING, "vanilla")).toBe(LISTING);
     expect(
       assertDefaultAgentProfile({ kind: "unavailable" }, "vanilla"),
     ).toEqual({ kind: "unavailable" });
   });
 
   it("fails the boot when the two defaults disagree", () => {
-    expect(() =>
-      assertDefaultAgentProfile(parseAgentDistroList(FIXTURE), "juspay"),
-    ).toThrow(/leads with 'vanilla'.*'juspay'/);
+    expect(() => assertDefaultAgentProfile(LISTING, "juspay")).toThrow(
+      /leads with 'vanilla'.*'juspay'/,
+    );
   });
 });
 
 describe("assertPlainProfiles", () => {
   it("passes when kolu can describe every profile in plain words, and when unbaked", () => {
-    const listing = parseAgentDistroList(FIXTURE);
-    expect(assertPlainProfiles(listing)).toBe(listing);
+    expect(assertPlainProfiles(LISTING)).toBe(LISTING);
     expect(assertPlainProfiles({ kind: "unavailable" })).toEqual({
       kind: "unavailable",
     });

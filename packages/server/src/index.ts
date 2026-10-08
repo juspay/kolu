@@ -835,7 +835,7 @@ export async function bootKoluWeb(flags: KoluBootFlags): Promise<void> {
     // opens follows the setting the user just changed.
     onPolicyInputsChanged: () => newTerminalPolicyPusher.republish(),
     onAgentDistroChanged: () => agentDistroPusher.republish(),
-    // Read once, here: a baked picker that fails is a broken build and crashes the
+    // Read once, here: a baked floor that does not describe itself is a broken build and crashes the
     // boot; an unbaked (from-source) kolu reads `unavailable`. A profile kolu
     // cannot describe in plain words crashes the boot too.
     agentDistroListing: assertPlainProfiles(readAgentDistroListing()),

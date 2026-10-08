@@ -3,11 +3,13 @@
  * `default.nix` sets on a real kolu (`KOLU_AGENT_DISTRO_BUNDLE`,
  * `KOLU_AGENT_DISTRO_UPDATER`, `KOLU_AGENT_PLUGIN_DIR`), pointing at a tiny
  * on-disk bundle described the way `@kolu/agent-distro`'s Nix half describes the
- * real one — by its manifest, `share/kolu/agent-distro.json`, which names:
+ * real one — by its manifest, `share/kolu/agent-distro.json`, which names each
+ * profile's bundle, laid out as upstream's:
  *
- *     the picker                     prints a `--list --json` listing
- *     each profile's bin/claude      prints "agent-distro fixture: <name> claude"
- *     each profile's bin/agent-distro
+ *     bin/claude                        prints "agent-distro fixture: <name> claude"
+ *     bin/agent-distro                  the profile's picker: prints its listing
+ *     share/agent-distro/profile.json   its name and description (kolu-server reads it)
+ *     share/agent-distro/versions       its harnesses (kolu-server and padi read it)
  *
  * The real floor is gigabytes of compiled harnesses; what the e2e lane proves is
  * kolu's half — Settings lists the profiles, the next terminal (not the current
@@ -39,11 +41,10 @@ export const FIXTURE_DEFAULT_PROFILE = FIXTURE_PROFILES[0];
 export const FIXTURE_HARNESS = {
   name: "claude",
   title: "Claude Code",
-  tagline: "fixture",
   version: "0.0.0",
 } as const;
 
-/** A fixture profile, as the picker lists it. */
+/** A fixture profile, as kolu-server reads it off the bundle's two files. */
 export function fixtureProfile(name: string): {
   name: string;
   description: string;
@@ -145,8 +146,10 @@ if (mode === "skip") {
   const from = claudeVersion(old);
   const to = "0.0." + n;
   mkdirSync(join(fresh, "bin"), { recursive: true });
-  writeFileSync(join(fresh, "bin", "claude"), readFileSync(join(floor, "bin", "claude")), { mode: 0o755 });
+  for (const command of ["claude", "agent-distro"])
+    writeFileSync(join(fresh, "bin", command), readFileSync(join(floor, "bin", command)), { mode: 0o755 });
   mkdirSync(join(fresh, "share", "agent-distro"), { recursive: true });
+  writeFileSync(join(fresh, "share", "agent-distro", "profile.json"), readFileSync(join(floor, "share", "agent-distro", "profile.json")));
   writeFileSync(join(fresh, "share", "agent-distro", "versions"), "claude\\tClaude Code\\t" + to + "\\n");
   out({ progress: { done: 4194304, total: 4194304 } });
   rmSync(current, { force: true });
@@ -210,20 +213,24 @@ function buildFixture(): Record<string, string> {
   fs.mkdirSync(path.join(root, "updates"), { recursive: true });
   const updaterScript = path.join(root, "updater.mjs");
   fs.writeFileSync(updaterScript, fixtureUpdaterScript(root));
-  const listing = JSON.stringify({
-    profiles: FIXTURE_PROFILES.map(fixtureProfile),
-  });
-  const picker = `printf '%s\\n' '${listing}'`;
-  fs.mkdirSync(path.join(root, "bin"), { recursive: true });
-  script(path.join(root, "bin", "agent-distro"), picker);
   const profiles = FIXTURE_PROFILES.map((name) => {
+    const profile = fixtureProfile(name);
     const bin = path.join(root, "profiles", name, "bin");
     fs.mkdirSync(bin, { recursive: true });
     script(path.join(bin, "claude"), `echo "${fixtureClaudeSays(name)}"`);
-    script(path.join(bin, "agent-distro"), picker);
-    // The floor's versions, as a real bundle lists them.
+    // The profile's own picker, as upstream's bundle carries it: a command for
+    // people (it prints this profile's listing), which kolu never runs.
+    script(
+      path.join(bin, "agent-distro"),
+      `printf '%s\\n' '${JSON.stringify({ profiles: [profile] })}'`,
+    );
+    // The two files the bundle describes itself with, as a real one writes them.
     const share = path.join(root, "profiles", name, "share", "agent-distro");
     fs.mkdirSync(share, { recursive: true });
+    fs.writeFileSync(
+      path.join(share, "profile.json"),
+      JSON.stringify({ description: profile.description, name }),
+    );
     fs.writeFileSync(
       path.join(share, "versions"),
       `${FIXTURE_HARNESS.name}\t${FIXTURE_HARNESS.title}\t${FIXTURE_HARNESS.version}\n`,
@@ -254,7 +261,6 @@ function buildFixture(): Record<string, string> {
     path.join(root, "share", "kolu", "agent-distro.json"),
     JSON.stringify({
       default: FIXTURE_DEFAULT_PROFILE,
-      picker: path.join(root, "bin", "agent-distro"),
       profiles: FIXTURE_PROFILES.map((name) => {
         const dir = path.join(root, "profiles", name);
         return { name, dir, bin: path.join(dir, "bin"), hash: name };

@@ -54,7 +54,9 @@ import {
   restartedLabel,
   unknownProfileMessage,
   unknownProfileOf,
+  versionsLine,
 } from "./status.ts";
+import { parseVersions } from "./versions.ts";
 
 const READY_BUNDLE =
   "/nix/store/nd11nx5f1dkf02cr9dhxqq4axg23vzgc-agent-distro-vanilla";
@@ -174,14 +176,26 @@ describe("harnessLine", () => {
           {
             name: "claude",
             title: "Claude Code",
-            tagline: "t",
             version: "2.1.291",
           },
-          { name: "codex", title: "Codex", tagline: "t", version: "0.80.1" },
-          { name: "omp", title: "Oh My Pi", tagline: "t", version: "18.7.0" },
+          { name: "codex", title: "Codex", version: "0.80.1" },
+          { name: "omp", title: "Oh My Pi", version: "18.7.0" },
         ],
       }),
     ).toBe("Claude Code 2.1.291 · Codex 0.80.1 · Oh My Pi 18.7.0");
+  });
+
+  it("says what a host's receipt says for the same bundle — both read its versions file", () => {
+    const versions = parseVersions(
+      "claude\tClaude Code\t2.1.292\nopencode\tOpenCode\t1.18.35+53d1eab\n",
+    );
+    const line = harnessLine({
+      name: "vanilla",
+      description: "d",
+      harnesses: [...versions],
+    });
+    expect(line).toBe(versionsLine(versions));
+    expect(line).toBe("Claude Code 2.1.292 · OpenCode 1.18.35+53d1eab");
   });
 });
 
@@ -195,10 +209,9 @@ const LISTING: AgentDistroListing = {
         {
           name: "claude",
           title: "Claude Code",
-          tagline: "t",
           version: "2.1.291",
         },
-        { name: "codex", title: "Codex", tagline: "t", version: "0.160.1" },
+        { name: "codex", title: "Codex", version: "0.160.1" },
       ],
     },
     {
@@ -369,7 +382,6 @@ describe("agentsStepHint — the welcome card's form of the hint", () => {
           {
             name: "claude",
             title: "Claude Code",
-            tagline: "t",
             version: "9.9.9",
           },
         ],

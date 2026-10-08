@@ -5,7 +5,7 @@
 # The package's TypeScript half (src/) reads what this file bakes.
 #
 # Everything here is agent-distro's own library — its validated `profiles`, its
-# `mkLaunchers`, `mkPicker`, `mkUpdater`, `stateDirectory` and `cache` — read off
+# `mkLaunchers`, `mkUpdater`, `stateDirectory` and `cache` — read off
 # its flake outputs with kolu's nixpkgs standing in for the flake's own input
 # (the same "one nixpkgs for every harness" move agent-distro's
 # lib/flake-source.nix makes for its upstreams). Kolu adds a manifest, a default
@@ -13,14 +13,18 @@
 #
 # What leaves this file:
 #
-#   * `bundle` — the LOCAL FLOOR: every profile's launchers, so switching profile
-#     on the machine running kolu is instant and offline. Its one file kolu
-#     reads is the MANIFEST, `share/kolu/agent-distro.json`:
-#         { default, picker, profiles: [{ name, dir, bin, hash }] }
-#     — the default profile, the picker kolu-server lists profiles with, and
-#     each profile's directory (what a terminal pins), its `bin/` (what goes on
-#     PATH) and its store hash. Generated from the very values that build the
-#     directories, so nothing downstream knows a layout by hand.
+#   * `bundle` — the LOCAL FLOOR: every profile's bundle, as agent-distro builds
+#     it, so switching profile on the machine running kolu is instant and
+#     offline. Each bundle describes itself (`share/agent-distro/profile.json`
+#     and `versions`, which kolu-server reads) and carries its own picker,
+#     `bin/agent-distro` — a command for people, never run for information.
+#     kolu's one file about the floor is the MANIFEST,
+#     `share/kolu/agent-distro.json`:
+#         { default, profiles: [{ name, dir, bin, hash }] }
+#     — the default profile, and each profile's directory (what a terminal
+#     pins), its `bin/` (what goes on PATH) and its store hash. Generated from
+#     the very values that build the directories, so nothing downstream knows a
+#     layout by hand.
 #   * `updater` — per-profile updater configs: how a host fetches a profile's
 #     bundle from the binary cache into its own store (agent-distro's
 #     `lib.mkUpdater`), and where that host keeps `current`. Baked on BOTH arms;
@@ -31,10 +35,14 @@
 #   * `bakeArgs { floor }` — the `--set` flags that bake the above onto a
 #     wrapper (the floor only when `floor`).
 #   * `proof { floor }` — the build-time check a wrapper runs on what it baked.
+#     On the floor it runs `readListing`, kolu-server's own boot read of the
+#     floor's profiles (the caller builds that command: this file does not know
+#     where kolu-server lives), so the build fails on a floor kolu-server would
+#     refuse.
 #
 # The default profile is typed ONCE, in ./defaults.json, which the TypeScript
 # half reads too (DEFAULT_PREFERENCES).
-{ pkgs, src, pluginSrc }:
+{ pkgs, src, pluginSrc, readListing }:
 let
   inherit (pkgs) lib;
 
@@ -77,30 +85,14 @@ let
       profile = distro.profiles.${name};
     });
 
-  # A picker over every profile, defaulting to `default`.
-  pickerFor = default: distro.lib.mkPicker {
-    pkgs = pkgsUnfree;
-    inherit default;
-    profiles = lib.genAttrs profileNames (name: {
-      profile = distro.profiles.${name};
-      launchers = launchers.${name};
-    });
-  };
-
-  # One profile's terminal-facing directory: its bundle (the harness commands
-  # and `share/agent-distro/versions`) plus a picker that defaults to it.
-  profileBundle = name: pkgs.symlinkJoin {
-    name = "agent-distro-${name}-kolu";
-    paths = [ launchers.${name}.bundle (pickerFor name) ];
-  };
-
-  # The manifest: the floor described by the SAME values that build it.
+  # The manifest: the floor described by the SAME values that build it. Each
+  # profile's directory is agent-distro's bundle as is — the very store path a
+  # host's updater lands as `current`.
   manifest = pkgs.writeText "agent-distro.json" (builtins.toJSON {
     default = defaultProfile;
-    picker = lib.getExe (pickerFor defaultProfile);
     profiles = map
       (name:
-        let dir = "${profileBundle name}";
+        let dir = "${launchers.${name}.bundle}";
         in {
           inherit name dir;
           bin = "${dir}/bin";
@@ -219,7 +211,10 @@ let
     done
   '' + (if floor then ''
     # The floor: present, described by its manifest, and every profile it
-    # names really there with its harnesses and its own picker.
+    # names really there — describing itself (read by kolu-server's own boot
+    # read, which throws on a bundle whose profile.json names another profile),
+    # with a launcher for every harness its versions file names, and its own
+    # picker.
     echo "resolved ${env.bundle}=''${${env.bundle}:-}"
     m="''${${env.bundle}:-}/share/kolu/agent-distro.json"
     if [ ! -f "$m" ]; then
@@ -234,9 +229,12 @@ let
       echo "FAIL: the floor manifest and the updater listing name different profiles — Settings would offer a profile padi refuses." >&2
       exit 1
     fi
-    listing=$("$(jq -r '.picker' "$m")" --list --json)
+    if ! listing=$(${readListing}); then
+      echo "FAIL: kolu-server could not read the floor's profiles — it would refuse to boot on this build." >&2
+      exit 1
+    fi
     if [ "$(jq -c '[.profiles[].name]' <<<"$listing")" != "$(jq -c '[.profiles[].name]' "$m")" ]; then
-      echo "FAIL: the floor's picker lists different profiles than its manifest." >&2
+      echo "FAIL: kolu-server lists different profiles than the floor manifest." >&2
       exit 1
     fi
     for p in $(jq -r '.profiles[].name' "$m"); do
@@ -247,7 +245,11 @@ let
         echo "FAIL: the floor manifest's entry for '$p' does not describe a real profile directory ($dir, $bin, $hash)." >&2
         exit 1
       fi
-      for h in agent-distro $(jq -r --arg p "$p" '.profiles[] | select(.name == $p) | .harnesses[].name' <<<"$listing"); do
+      if [ ! -x "$bin/agent-distro" ]; then
+        echo "FAIL: the floor's '$p' profile has no picker at $bin/agent-distro — a terminal could not run 'agent-distro'." >&2
+        exit 1
+      fi
+      for h in $(jq -r --arg p "$p" '.profiles[] | select(.name == $p) | .harnesses[].name' <<<"$listing"); do
         if [ ! -x "$bin/$h" ]; then
           echo "FAIL: the floor's '$p' profile has no '$h' at $bin/$h." >&2
           exit 1

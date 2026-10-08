@@ -38,7 +38,6 @@ import {
   AgentDistroHarnessSchema,
   type AgentDistroListing,
   AgentDistroListingSchema,
-  AgentDistroListOutputSchema,
   type AgentDistroProfile,
   AgentDistroProfileSchema,
 } from "@kolu/agent-distro/listing";
@@ -256,7 +255,6 @@ export {
   AgentDistroHarnessSchema,
   type AgentDistroListing,
   AgentDistroListingSchema,
-  AgentDistroListOutputSchema,
   type AgentDistroProfile,
   AgentDistroProfileSchema,
 };
@@ -965,8 +963,8 @@ export const koluSurface = defineSurfaceWithPolicy<ToastOnlyPolicy>()({
     },
 
     /** The agent-distro profiles Settings offers (see
-     *  {@link AgentDistroListingSchema}) — read once at boot from the baked
-     *  picker's `--list --json`, seeded into an in-memory store, never written
+     *  {@link AgentDistroListingSchema}) — read once at boot off the floor's
+     *  profile bundles (each one's `profile.json` and `versions`), seeded into an in-memory store, never written
      *  after. Read-only on the client. */
     agentDistroListing: {
       schema: AgentDistroListingSchema,

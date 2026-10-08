@@ -10,6 +10,7 @@
     "./progress": "./src/progress.ts",
     "./bundle": "./src/bundle.ts",
     "./manifest": "./src/manifest.ts",
+    "./profileFile": "./src/profileFile.ts",
     "./schema": "./src/schema.ts",
     "./status": "./src/status.ts",
     "./schedule": "./src/schedule.ts",
