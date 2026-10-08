@@ -3,8 +3,23 @@ import { describe, expect, it } from "vitest";
 import { agentBundleShortHash } from "./bundle.ts";
 import type { AgentDistroListing } from "./listing.ts";
 import { DEFAULT_AGENT_PROFILE } from "./manifest.ts";
-import type { AgentDistroStatus } from "./schema.ts";
+import type { AgentDistroReceipt, AgentDistroStatus } from "./schema.ts";
 import {
+  AGENTS_CHECK_NOW,
+  AGENTS_ALL_HOSTS,
+  AGENTS_HISTORY,
+  agentCheckNowBusy,
+  agentCheckNowLabel,
+  agentHostCheckable,
+  agentMarkFillWords,
+  AGENTS_RECEIPT_UNREADABLE,
+  AGENTS_UPDATE_CHECKING,
+  agentMarkFill,
+  agentMarkUpdate,
+  AGENTS_UPDATE_DOWNLOADING,
+  agentUpdateCheckable,
+  agentUpdateHistoryRows,
+  agentUpdateRunning,
   AGENTS_NOT_CHOSEN,
   AGENTS_OFF,
   agentsStepHint,
@@ -34,6 +49,7 @@ import {
   agentsSegments,
   downloadBytes,
   downloadEdge,
+  downloadEdgeFacts,
   harnessLine,
   restartedLabel,
   unknownProfileMessage,
@@ -104,10 +120,10 @@ describe("downloadBytes", () => {
 describe("agentMarkLabel", () => {
   it("words each treatment; none has no words", () => {
     expect(
-      agentMarkLabel({ kind: "none", why: "off" }, "this machine"),
+      agentMarkLabel({ kind: "none", why: "off" }, "naiveintent"),
     ).toBeUndefined();
-    expect(agentMarkLabel({ kind: "checking" }, "this machine")).toBe(
-      "Coding agents: checking this machine…",
+    expect(agentMarkLabel({ kind: "checking" }, "naiveintent")).toBe(
+      "Coding agents: checking naiveintent…",
     );
     expect(
       agentMarkLabel(
@@ -115,7 +131,7 @@ describe("agentMarkLabel", () => {
         "box",
       ),
     ).toBe(
-      "Coding agents ready on box: vanilla (8rcmf6rd) — new terminals there start with them",
+      "Coding agents ready on box: vanilla (8rcmf6rd) — new terminals on box start with them",
     );
     expect(
       agentMarkLabel(
@@ -124,9 +140,9 @@ describe("agentMarkLabel", () => {
           fraction: 0.55,
           bytes: "1.1 GiB of 2.0 GiB",
         },
-        "this machine",
+        "naiveintent",
       ),
-    ).toBe("Downloading the coding agents to this machine… 1.1 GiB of 2.0 GiB");
+    ).toBe("Downloading the coding agents to naiveintent… 1.1 GiB of 2.0 GiB");
     expect(
       agentMarkLabel(
         { kind: "failed", reason: "updater", message: "nix missing" },
@@ -233,7 +249,7 @@ describe("the one Agents control", () => {
 });
 
 describe("agentsHint", () => {
-  const base = { listing: LISTING };
+  const base = { listing: LISTING, localReceipt: undefined };
 
   it("off: what kolu can bring, which agents (the default profile's, from the listing), the choices, the consequence", () => {
     expect(
@@ -398,7 +414,9 @@ describe("agentsStepHint — the welcome card's form of the hint", () => {
   });
 
   it("shares its vocabulary with the Settings hint", () => {
-    const settings = agentsHint({ listing: LISTING, stored: null })?.text ?? "";
+    const settings =
+      agentsHint({ listing: LISTING, stored: null, localReceipt: undefined })
+        ?.text ?? "";
     // juspay lists no agents in LISTING, so its step lead is the bare opening.
     const bare = agentsStepHint({ listing: LISTING, segment: "juspay" });
     const off = agentsStepHint({ listing: LISTING, segment: AGENTS_OFF });
@@ -531,6 +549,12 @@ describe("firstRunAgentsDone — the first-run step's done-predicate", () => {
     expect(agentsChosenLabel(OFF, LISTING)).toBeUndefined();
   });
 
+  it("has no done line for a stored profile this kolu does not ship — Settings warns about it", () => {
+    expect(
+      agentsChosenLabel({ enabled: true, profile: "gone" }, LISTING),
+    ).toBeUndefined();
+  });
+
   it("has no done line in a kolu built without agents — nobody chose anything", () => {
     expect(agentsChosenLabel(OFF, { kind: "unavailable" })).toBeUndefined();
     expect(
@@ -539,20 +563,26 @@ describe("firstRunAgentsDone — the first-run step's done-predicate", () => {
   });
 });
 
+/** A fixed "ago" phrase, so a line's words do not hang on the clock. */
+const AGO = (at: number) => `@${at}`;
+
 describe("agentStatusLines", () => {
   const ready = { kind: "ready", profile: "vanilla", bundle: BUNDLE } as const;
   const host = (
     label: string,
     status: AgentDistroStatus | undefined,
     checking = false,
-  ) => ({ label, status, checking });
+  ) => ({ label, status, checking, receipt: undefined, ago: AGO });
 
   it("this machine alone, ready: one line, no host count", () => {
     expect(
-      agentStatusLines({ local: host("this machine", ready), remotes: [] }),
+      agentStatusLines({
+        local: host("naiveintent", ready),
+        remotes: [],
+      }),
     ).toEqual([
       {
-        host: "this machine",
+        host: "naiveintent",
         bar: "ok",
         fill: 1,
         text: "ready · vanilla nd11nx5f",
@@ -560,15 +590,16 @@ describe("agentStatusLines", () => {
     ]);
   });
 
-  it("every host ready: collapses into the first line, with the count", () => {
+  it("every host ready: collapses into one 'all hosts' line, with the count", () => {
     expect(
       agentStatusLines({
-        local: host("this machine", ready),
+        local: host("naiveintent", ready),
         remotes: [host("box", ready), host("zest", ready)],
       }),
     ).toEqual([
       {
-        host: "this machine",
+        // Labelled by the fold, never one machine's name.
+        host: AGENTS_ALL_HOSTS,
         bar: "ok",
         fill: 1,
         text: "ready · vanilla nd11nx5f · on 3 hosts",
@@ -585,12 +616,12 @@ describe("agentStatusLines", () => {
     } as const;
     expect(
       agentStatusLines({
-        local: host("this machine", ready),
+        local: host("naiveintent", ready),
         remotes: [host("box", fetched)],
       }),
     ).toEqual([
       {
-        host: "this machine",
+        host: AGENTS_ALL_HOSTS,
         bar: "ok",
         fill: 1,
         text: "ready · vanilla · on 2 hosts",
@@ -601,7 +632,7 @@ describe("agentStatusLines", () => {
   it("this machine first, then each remote that is not ready — in its state's colour", () => {
     expect(
       agentStatusLines({
-        local: host("this machine", ready),
+        local: host("naiveintent", ready),
         remotes: [
           host("box", {
             kind: "downloading",
@@ -620,7 +651,7 @@ describe("agentStatusLines", () => {
       }),
     ).toEqual([
       {
-        host: "this machine",
+        host: "naiveintent",
         bar: "ok",
         fill: 1,
         text: "ready · vanilla nd11nx5f",
@@ -639,12 +670,12 @@ describe("agentStatusLines", () => {
   it("does not collapse when this machine is not ready, even if every remote is", () => {
     expect(
       agentStatusLines({
-        local: host("this machine", { kind: "downloading", profile: "v" }),
+        local: host("naiveintent", { kind: "downloading", profile: "v" }),
         remotes: [host("box", ready)],
       }),
     ).toEqual([
       {
-        host: "this machine",
+        host: "naiveintent",
         bar: "busy",
         fill: DOWNLOAD_MIN_FILL,
         text: "downloading…",
@@ -825,40 +856,54 @@ describe("agentStaleLabel", () => {
   const had = { profile: "vanilla", hash: "nd11nx5f" };
   it("agents stay on: the conversation resumes on the new agents", () => {
     expect(
-      agentStaleLabel({
-        kind: "stale",
-        had,
-        now: { kind: "profile", profile: "juspay", hash: "ivzki9f3" },
-      }),
+      agentStaleLabel(
+        {
+          kind: "stale",
+          had,
+          now: { kind: "profile", profile: "juspay", hash: "ivzki9f3" },
+        },
+        "naiveintent",
+      ),
     ).toBe(
       "This terminal has the vanilla coding agents (nd11nx5f). New terminals get juspay (ivzki9f3). Restart to switch; the agent's conversation resumes on the new agents, other programs end.",
     );
   });
   it("agents now off: a plain shell", () => {
-    expect(agentStaleLabel({ kind: "stale", had, now: { kind: "off" } })).toBe(
+    expect(
+      agentStaleLabel(
+        { kind: "stale", had, now: { kind: "off" } },
+        "naiveintent",
+      ),
+    ).toBe(
       "This terminal has the vanilla coding agents (nd11nx5f). Coding agents are now off. Restart to switch; it comes back as a plain shell, and running programs end.",
     );
   });
   it("the new profile still downloading: says so, no Restart yet", () => {
     expect(
-      agentStaleLabel({
-        kind: "stale",
-        had,
-        now: { kind: "waiting", profile: "juspay", on: "downloading" },
-      }),
+      agentStaleLabel(
+        {
+          kind: "stale",
+          had,
+          now: { kind: "waiting", profile: "juspay", on: "downloading" },
+        },
+        "naiveintent",
+      ),
     ).toBe(
-      "This terminal has the vanilla coding agents (nd11nx5f). New terminals get juspay, which is still downloading to this machine; Restart appears once it is ready.",
+      "This terminal has the vanilla coding agents (nd11nx5f). New terminals get juspay, which is still downloading to naiveintent; Restart appears once it is ready.",
     );
   });
   it("the download failed: new terminals get none, no Restart yet", () => {
     expect(
-      agentStaleLabel({
-        kind: "stale",
-        had,
-        now: { kind: "waiting", profile: "vanilla", on: "failed" },
-      }),
+      agentStaleLabel(
+        {
+          kind: "stale",
+          had,
+          now: { kind: "waiting", profile: "vanilla", on: "failed" },
+        },
+        "naiveintent",
+      ),
     ).toBe(
-      "This terminal has the vanilla coding agents (nd11nx5f). vanilla could not be downloaded to this machine, so new terminals get no coding agents; Restart appears once it is ready.",
+      "This terminal has the vanilla coding agents (nd11nx5f). vanilla could not be downloaded to naiveintent, so new terminals get no coding agents; Restart appears once it is ready.",
     );
   });
   it("the restart's consequence is agentRestartAction's own words", () => {
@@ -867,7 +912,7 @@ describe("agentStaleLabel", () => {
       { kind: "profile", profile: "juspay", hash: "ivzki9f3" } as const,
     ]) {
       const stale = { kind: "stale", had, now } as const;
-      expect(agentStaleLabel(stale)).toContain(
+      expect(agentStaleLabel(stale, "naiveintent")).toContain(
         `Restart to switch; ${agentRestartAction(stale).outcome}.`,
       );
     }
@@ -944,20 +989,43 @@ describe("the words outside the folds", () => {
 });
 
 describe("downloadEdge — the moments a host's download is worth a toast", () => {
+  const k = (kind: AgentDistroStatus["kind"]) => ({ kind });
+  const ready = (bundle: string, profile = "vanilla") => ({
+    kind: "ready" as const,
+    profile,
+    bundle,
+  });
   it("start when a download begins or is first heard under way; ready / failed only out of a download", () => {
-    expect(downloadEdge("off", "downloading")).toBe("start");
-    expect(downloadEdge(undefined, "downloading")).toBe("start");
-    expect(downloadEdge("downloading", "downloading")).toBe("none");
-    expect(downloadEdge("downloading", "ready")).toBe("ready");
-    expect(downloadEdge("downloading", "error")).toBe("failed");
-    expect(downloadEdge(undefined, "ready")).toBe("none");
-    expect(downloadEdge("off", "error")).toBe("none");
-    expect(downloadEdge("ready", undefined)).toBe("none");
+    expect(downloadEdge(k("off"), k("downloading"))).toBe("start");
+    expect(downloadEdge(undefined, k("downloading"))).toBe("start");
+    expect(downloadEdge(k("downloading"), k("downloading"))).toBe("none");
+    expect(downloadEdge(k("downloading"), ready("/a"))).toBe("ready");
+    expect(downloadEdge(k("downloading"), k("error"))).toBe("failed");
+    expect(downloadEdge(undefined, ready("/a"))).toBe("none");
+    expect(downloadEdge(k("off"), k("error"))).toBe("none");
+    expect(downloadEdge(ready("/a"), undefined)).toBe("none");
   });
   it("dropped when agents are turned off under a running download", () => {
-    expect(downloadEdge("downloading", "off")).toBe("dropped");
-    expect(downloadEdge("downloading", "unavailable")).toBe("dropped");
-    expect(downloadEdge("ready", "off")).toBe("none");
+    expect(downloadEdge(k("downloading"), k("off"))).toBe("dropped");
+    expect(downloadEdge(k("downloading"), k("unavailable"))).toBe("dropped");
+    expect(downloadEdge(ready("/a"), k("off"))).toBe("none");
+  });
+  it("updated when a ready host's bundle of the SAME profile changes — never on a switch", () => {
+    expect(downloadEdge(ready("/a"), ready("/b"))).toBe("updated");
+    expect(downloadEdge(ready("/a"), ready("/a"))).toBe("none");
+    expect(downloadEdge(ready("/a"), ready("/b", "juspay"))).toBe("none");
+  });
+  it("reads its facts off a status, by value", () => {
+    expect(
+      downloadEdgeFacts({
+        kind: "ready",
+        profile: "vanilla",
+        bundle: "/a",
+        update: {},
+      }),
+    ).toEqual({ kind: "ready", profile: "vanilla", bundle: "/a" });
+    expect(downloadEdgeFacts({ kind: "off" })).toEqual({ kind: "off" });
+    expect(downloadEdgeFacts(undefined)).toBeUndefined();
   });
 });
 
@@ -1012,9 +1080,417 @@ describe("a failure's words: cause, then remedy (by reason), then the retry — 
         label: "box",
         status: { kind: "error", profile: "vanilla", ...failure },
         checking: false,
+        receipt: undefined,
+        ago: AGO,
       },
       remotes: [],
     });
     expect(line?.text).toBe(lines.join("\n"));
+  });
+});
+
+describe("K3 — updates while a bundle serves", () => {
+  const ready = { kind: "ready", profile: "vanilla", bundle: BUNDLE } as const;
+  const checking = { ...ready, update: {} } as const;
+  const downloading = {
+    ...ready,
+    update: { progress: { done: 512 * MIB, total: 2 * GIB } },
+  } as const;
+  const receipt = (over: Partial<AgentDistroReceipt>): AgentDistroReceipt => ({
+    profile: "vanilla",
+    versions: [],
+    events: [],
+    running: [],
+    ...over,
+  });
+  const host = (
+    status: AgentDistroStatus,
+    r: AgentDistroReceipt | undefined = undefined,
+  ) => ({
+    label: "naiveintent",
+    status,
+    checking: false,
+    receipt: r,
+    ago: AGO,
+  });
+
+  it("the mark stays ready while an update runs; a ring only once bytes move", () => {
+    expect(agentMarkOf(checking, false)).toEqual({
+      kind: "ready",
+      profile: "vanilla",
+      hash: "nd11nx5f",
+      update: {},
+    });
+    const mark = agentMarkOf(downloading, false);
+    expect(mark).toMatchObject({
+      kind: "ready",
+      update: { download: { fraction: 0.25, bytes: "512 MiB of 2.0 GiB" } },
+    });
+    expect(agentMarkWords(mark, "box")?.detail).toEqual([
+      AGENTS_UPDATE_DOWNLOADING,
+    ]);
+    expect(agentMarkWords(agentMarkOf(checking, false), "box")?.detail).toEqual(
+      ["Checking for newer agents…"],
+    );
+    // One fold for the phase and the fill, the tab's ring and the line alike.
+    expect(agentMarkUpdate(agentMarkOf(checking, false))).toBe("checking");
+    expect(agentMarkUpdate(mark)).toBe("downloading");
+    expect(agentMarkUpdate(agentMarkOf(ready, false))).toBeUndefined();
+    expect(agentMarkFill(mark)).toEqual({
+      fraction: 0.25,
+      bytes: "512 MiB of 2.0 GiB",
+    });
+    expect(agentMarkFill(agentMarkOf(checking, false))).toBeUndefined();
+    expect(agentMarkLabel(mark, "box")).toContain("512 MiB of 2.0 GiB");
+  });
+
+  it("the line's note says the last run, in its own outcome's words", () => {
+    const line = (r: AgentDistroReceipt) =>
+      agentStatusLines({ local: host(ready, r), remotes: [] })[0]?.note;
+    expect(
+      line(
+        receipt({
+          lastRun: { at: 1, outcome: "updated", words: "x", by: "updater" },
+        }),
+      ),
+    ).toEqual({
+      text: "updated @1",
+      title: "updated @1 — agent-distro's updater: x",
+      tone: "muted",
+    });
+    expect(
+      line(
+        receipt({
+          lastRun: { at: 2, outcome: "unchanged", words: "", by: "updater" },
+        }),
+      ),
+    ).toEqual({
+      text: "checked @2, up to date",
+      title: "checked @2, up to date",
+      tone: "muted",
+    });
+    // A skip claims no cause: the reason rides in the hover, with its author.
+    const reason =
+      "cache https://cache.example not usable; add it to nix.settings substituters/trusted-public-keys";
+    expect(
+      line(
+        receipt({
+          lastRun: { at: 3, outcome: "skipped", words: reason, by: "updater" },
+        }),
+      ),
+    ).toEqual({
+      text: "checked @3, skipped",
+      title: `checked @3, skipped — agent-distro's updater: ${reason}`,
+      tone: "muted",
+    });
+    // padi's own words are labelled padi's, never the updater's.
+    expect(
+      line(
+        receipt({
+          lastRun: {
+            at: 4,
+            outcome: "failed",
+            words: "the updater exited 3 without a result: TypeError: boom",
+            by: "padi",
+          },
+        }),
+      ),
+    ).toEqual({
+      text: "last update failed @4",
+      title:
+        "last update failed @4 — padi: the updater exited 3 without a result: TypeError: boom",
+      tone: "warn",
+    });
+    // Files that would not read say so on the line.
+    expect(line(receipt({ error: "history line is not …" }))).toEqual({
+      text: AGENTS_RECEIPT_UNREADABLE,
+      title: `${AGENTS_RECEIPT_UNREADABLE} — padi: history line is not …`,
+      tone: "warn",
+    });
+    // A receipt for another profile is one padi has not caught up from.
+    expect(
+      line({
+        ...receipt({
+          lastRun: { at: 1, outcome: "updated", words: "x", by: "updater" },
+        }),
+        profile: "juspay",
+      }),
+    ).toBeUndefined();
+  });
+
+  it("a host whose history will not read, or whose last run failed, keeps its own line among ready hosts", () => {
+    const failedRun = receipt({
+      lastRun: {
+        at: 4,
+        outcome: "failed",
+        words: "nix build exit 1",
+        by: "updater",
+      },
+    });
+    const unreadable = receipt({ error: "history line is not …" });
+    // A remote: its own line, note and all, never folded away.
+    const remote = agentStatusLines({
+      local: host(ready),
+      remotes: [{ ...host(ready, unreadable), label: "box" }],
+    });
+    expect(remote.map((l) => l.host)).toEqual(["naiveintent", "box"]);
+    expect(remote[1]?.note?.text).toBe(AGENTS_RECEIPT_UNREADABLE);
+    // The machine running kolu: its line keeps its note, the remotes their
+    // settled silence.
+    const local = agentStatusLines({
+      local: host(ready, failedRun),
+      remotes: [{ ...host(ready), label: "box" }],
+    });
+    expect(local.map((l) => l.host)).toEqual(["naiveintent"]);
+    expect(local[0]?.note).toMatchObject({
+      text: "last update failed @4",
+      tone: "warn",
+    });
+    // A skip or an up-to-date run is settled: they still fold.
+    const skipped = receipt({
+      lastRun: { at: 3, outcome: "skipped", words: "x", by: "updater" },
+    });
+    expect(
+      agentStatusLines({
+        local: host(ready, skipped),
+        remotes: [{ ...host(ready, skipped), label: "box" }],
+      }).map((l) => l.host),
+    ).toEqual([AGENTS_ALL_HOSTS]);
+  });
+
+  it("the line shows a run in flight, and its bytes once it downloads", () => {
+    expect(agentStatusLines({ local: host(checking), remotes: [] })).toEqual([
+      {
+        host: "naiveintent",
+        bar: "ok",
+        fill: 1,
+        text: "ready · vanilla nd11nx5f",
+        note: {
+          text: AGENTS_UPDATE_CHECKING,
+          title: AGENTS_UPDATE_CHECKING,
+          tone: "muted",
+        },
+        update: "checking",
+      },
+    ]);
+    expect(agentStatusLines({ local: host(downloading), remotes: [] })).toEqual(
+      [
+        {
+          // The host IS ready: the bar stays full and green while it updates.
+          host: "naiveintent",
+          bar: "ok",
+          fill: 1,
+          text: "ready · vanilla nd11nx5f",
+          note: {
+            text: "updating · 512 MiB of 2.0 GiB",
+            title: "updating · 512 MiB of 2.0 GiB",
+            tone: "muted",
+          },
+          update: "downloading",
+        },
+      ],
+    );
+  });
+
+  it("a host that is updating keeps its own line instead of folding", () => {
+    const lines = agentStatusLines({
+      local: host(ready),
+      remotes: [{ ...host(checking), label: "box" }],
+    });
+    expect(lines.map((l) => l.host)).toEqual(["naiveintent", "box"]);
+  });
+
+  it("History: each machine's events, the updater's words, warn for a failure", () => {
+    const rows = agentUpdateHistoryRows({
+      profile: "vanilla",
+      hosts: [
+        {
+          ago: AGO,
+          label: "naiveintent",
+          receipt: receipt({
+            events: [
+              {
+                at: "2026-10-08T02:00:05Z",
+                profile: "vanilla",
+                kind: "updated",
+                words: "Claude Code 2.1.286 → 2.1.291",
+              },
+            ],
+          }),
+        },
+        {
+          ago: AGO,
+          label: "box",
+          receipt: receipt({
+            events: [
+              {
+                at: "2026-10-08T02:00:09Z",
+                profile: "vanilla",
+                kind: "failed",
+                words: "nix build exit 1",
+              },
+            ],
+          }),
+        },
+        { label: "zest", receipt: undefined, ago: AGO },
+        {
+          ago: AGO,
+          label: "pu-3",
+          receipt: receipt({ error: "history line is not …" }),
+        },
+      ],
+    });
+    expect(rows).toEqual([
+      {
+        host: "naiveintent",
+        when: `@${Date.parse("2026-10-08T02:00:05Z")}`,
+        kind: "updated",
+        text: "updated: Claude Code 2.1.286 → 2.1.291",
+        title:
+          "updated — agent-distro's updater: Claude Code 2.1.286 → 2.1.291",
+        tone: "muted",
+      },
+      {
+        host: "box",
+        when: `@${Date.parse("2026-10-08T02:00:09Z")}`,
+        kind: "failed",
+        text: "failed: nix build exit 1",
+        title: "failed — agent-distro's updater: nix build exit 1",
+        tone: "warn",
+      },
+      // A history that would not read is a row saying so — never "No
+      // updates yet." for that host.
+      {
+        host: "pu-3",
+        when: "",
+        kind: "unreadable",
+        text: AGENTS_RECEIPT_UNREADABLE,
+        title: `${AGENTS_RECEIPT_UNREADABLE} — padi: history line is not …`,
+        tone: "warn",
+      },
+    ]);
+    // Only an unreadable history: the History is not empty.
+    expect(
+      agentUpdateHistoryRows({
+        profile: "vanilla",
+        hosts: [
+          {
+            ago: AGO,
+            label: "naiveintent",
+            receipt: receipt({ error: "boom" }),
+          },
+        ],
+      }),
+    ).toHaveLength(1);
+  });
+
+  it("the update toast quotes the updater and names the machine", () => {
+    // The machine by its name — the host tab's — never "this machine".
+    expect(
+      agentToast.updated("naiveintent", "Claude Code 2.1.286 → 2.1.291"),
+    ).toEqual({
+      title: "Coding agents updated on naiveintent",
+      description:
+        "Claude Code 2.1.286 → 2.1.291 — new terminals on naiveintent start with them; open ones offer Restart.",
+    });
+  });
+
+  it("Check now: only a ready host with no run can check; any run is busy", () => {
+    expect(agentUpdateCheckable(ready)).toBe(true);
+    expect(agentUpdateCheckable(checking)).toBe(false);
+    expect(agentUpdateCheckable({ kind: "off" })).toBe(false);
+    expect(agentUpdateCheckable(undefined)).toBe(false);
+    // Any run on any host, for ANY profile — not only the selected one's.
+    expect(agentUpdateRunning([receipt({}), undefined])).toBe(false);
+    expect(
+      agentUpdateRunning([receipt({}), receipt({ running: ["juspay"] })]),
+    ).toBe(true);
+    expect(AGENTS_CHECK_NOW.label).toBe("Check now");
+    expect(AGENTS_HISTORY.title(0)).toBe("History");
+    expect(AGENTS_HISTORY.title(4)).toBe("History (4)");
+  });
+
+  it("Check now is busy only when no connected host can be asked, and says Checking… only while one runs an update", () => {
+    const firstDownload = {
+      kind: "downloading",
+      profile: "vanilla",
+    } as const satisfies AgentDistroStatus;
+    const at = (connected: boolean, status: AgentDistroStatus | undefined) => ({
+      connected,
+      status,
+    });
+    // A first download on a remote leaves the ready host askable: not busy.
+    const fleet = [at(true, ready), at(true, firstDownload)];
+    expect(agentHostCheckable(at(true, ready))).toBe(true);
+    expect(agentCheckNowBusy(fleet)).toBe(false);
+    expect(agentCheckNowLabel(fleet)).toBe(AGENTS_CHECK_NOW.label);
+    // A disconnected host's last-known ready cannot answer.
+    expect(agentHostCheckable(at(false, ready))).toBe(false);
+    expect(agentCheckNowBusy([at(false, ready)])).toBe(true);
+    // Every connected host updating: busy, and checking.
+    const updating = [at(true, checking), at(true, downloading)];
+    expect(agentCheckNowBusy(updating)).toBe(true);
+    expect(agentCheckNowLabel(updating)).toBe(AGENTS_CHECK_NOW.busyLabel);
+    // Busy with first downloads only: disabled, but nothing is checking.
+    expect(agentCheckNowBusy([at(true, firstDownload)])).toBe(true);
+    expect(agentCheckNowLabel([at(true, firstDownload)])).toBe(
+      AGENTS_CHECK_NOW.label,
+    );
+  });
+
+  it("the words beside a filling mark's bar: a first download's headline, an update's line", () => {
+    expect(agentMarkFillWords(agentMarkOf(downloading, false), "box")).toBe(
+      AGENTS_UPDATE_DOWNLOADING,
+    );
+    const first = agentMarkOf(
+      {
+        kind: "downloading",
+        profile: "vanilla",
+        progress: { done: 1, total: 4 },
+      },
+      false,
+    );
+    expect(agentMarkFillWords(first, "box")).toBe(
+      agentMarkWords(first, "box")?.title,
+    );
+    expect(
+      agentMarkFillWords(agentMarkOf(ready, false), "box"),
+    ).toBeUndefined();
+    expect(
+      agentMarkFillWords(agentMarkOf(checking, false), "box"),
+    ).toBeUndefined();
+  });
+
+  it("the hint names this machine's versions once it has them", () => {
+    const hint = agentsHint({
+      listing: LISTING,
+      stored: VANILLA_ON,
+      localReceipt: receipt({
+        versions: [
+          { name: "claude", title: "Claude Code", version: "2.1.299" },
+        ],
+      }),
+    });
+    expect(hint?.text).toBe(
+      "Stock agents, your own API keys.\nClaude Code 2.1.299",
+    );
+    // A bundle with no versions file names none — never the floor's.
+    expect(
+      agentsHint({
+        listing: LISTING,
+        stored: VANILLA_ON,
+        localReceipt: receipt({}),
+      })?.text,
+    ).toBe("Stock agents, your own API keys.");
+    // Another profile's receipt (not caught up yet): the set kolu ships.
+    expect(
+      agentsHint({
+        listing: LISTING,
+        stored: VANILLA_ON,
+        localReceipt: { ...receipt({}), profile: "juspay" },
+      })?.text,
+    ).toBe(
+      "Stock agents, your own API keys.\nClaude Code 2.1.291 · Codex 0.160.1",
+    );
   });
 });

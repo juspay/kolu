@@ -107,11 +107,12 @@ export default function SegmentedControl<T extends string>(props: {
    *  the focus (or what holds it is in the same dialog), so a control that
    *  mounts late never steals it from, say, an open palette. */
   autofocus?: boolean;
-  /** Told the roving tab stop ({@link rovingTabStop}) — at mount and each
-   *  time it moves: the option under the keyboard focus while focus is in the
-   *  group, else the resting one, else the pressed one. THE answer to "which
-   *  option is in view", so a caller that speaks about it never re-derives it. */
-  onTabStopChange?: (value: T | undefined) => void;
+  /** Told the option in view — at mount and each time it moves: the one under
+   *  the keyboard focus while focus is in the group, else the pressed one, else
+   *  the tab stop ({@link rovingTabStop}). THE answer to "which option is in
+   *  view", so a caller that speaks about it never re-derives it — and a
+   *  resting option the keyboard has not reached never reads as the choice. */
+  onInViewChange?: (value: T | undefined) => void;
   /** Prefix for `data-testid` attributes on the group and each option. */
   testIdPrefix: string;
   /** ARIA role for the group container. `"toolbar"` opts into the rich
@@ -142,8 +143,17 @@ export default function SegmentedControl<T extends string>(props: {
     }),
   );
   const tabIndexOf = (value: T) => (tabStop() === value ? 0 : -1);
-  // A render effect, so the caller hears the stop before the first paint.
-  createRenderEffect(on(tabStop, (stop) => props.onTabStopChange?.(stop)));
+  // In view: the tab stop while focus is in the group (or nothing offered is
+  // pressed), else the pressed option — never a resting one the keyboard has
+  // not reached.
+  const inView = createMemo(() => {
+    const pressed = props.value;
+    const offered =
+      pressed !== undefined && props.options.some((o) => o.value === pressed);
+    return focused() !== undefined || !offered ? tabStop() : pressed;
+  });
+  // A render effect, so the caller hears it before the first paint.
+  createRenderEffect(on(inView, (v) => props.onInViewChange?.(v)));
   const keep = (value: T) => (el: HTMLButtonElement) => {
     buttons.set(value, el);
     onCleanup(() => {
@@ -166,7 +176,8 @@ export default function SegmentedControl<T extends string>(props: {
     const next = props.options[to];
     if (next !== undefined) buttons.get(next.value)?.focus();
   };
-  // Leaving the group hands the tab stop back to the pressed option.
+  // Leaving the group hands the tab stop back to the resting option, else the
+  // pressed one.
   const onFocusOut = (e: FocusEvent) => {
     const to = e.relatedTarget;
     if (

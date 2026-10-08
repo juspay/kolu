@@ -57,7 +57,7 @@ describe("padiSurface contract", () => {
     expect(padiSurface.tagPrefix).toBe("surface/");
   });
 
-  it("is version 5.7 — a minor over the D6 protocol epoch — and DEFAULT_PADI_VERSION carries + validates it", () => {
+  it("is version 5.9 — a minor over the D6 protocol epoch — and DEFAULT_PADI_VERSION carries + validates it", () => {
     // 1.1–1.3 were additive minors over 1.0 (recycleKaval, hostInventory, identity).
     // 2.0 was the first MAJOR: (a) it ADDED the per-terminal right-panel `collapsed`
     // field (the panel follows the terminal, #959) — a major because an older client's
@@ -113,7 +113,10 @@ describe("padiSurface contract", () => {
     // 5.8 adds agent-distro: the pushed `agentDistro` setting a 5.8 binder
     // WRITES and the `lifecycle.restart` it CALLS, so the minor is what drains
     // a 5.7 padi that has neither.
-    expect(PADI_SURFACE_VERSION).toBe("5.8");
+    // 5.9 adds agent-distro updates: the `agentDistro.checkNow` a 5.9 client
+    // CALLS and the `agentDistroReceipt` cell it reads, so the minor drains a
+    // 5.8 padi that has neither.
+    expect(PADI_SURFACE_VERSION).toBe("5.9");
     expect(DEFAULT_PADI_VERSION.contractVersion).toBe(PADI_SURFACE_VERSION);
     expect(
       Schema.decodeUnknownSync(PadiVersionSchema)(DEFAULT_PADI_VERSION),
@@ -149,6 +152,8 @@ describe("padiSurface contract", () => {
     expect(isContractVersionCompatible("5.7", "5.6")).toBe(true);
     expect(isContractVersionCompatible("5.7", "5.8")).toBe(false);
     expect(isContractVersionCompatible("5.8", "5.7")).toBe(true);
+    expect(isContractVersionCompatible("5.8", "5.9")).toBe(false);
+    expect(isContractVersionCompatible("5.9", "5.8")).toBe(true);
     // A major bump is mutually incompatible in both directions.
     expect(isContractVersionCompatible("6.0", "5.0")).toBe(false);
     expect(isContractVersionCompatible("5.0", "6.0")).toBe(false);
@@ -164,6 +169,7 @@ describe("padiSurface contract", () => {
       "newTerminalPolicy",
       "agentDistro",
       "agentDistroStatus",
+      "agentDistroReceipt",
       "hostListeners",
       "hostInventory",
       "processMemory",
@@ -193,6 +199,7 @@ describe("padiSurface contract", () => {
       "scratch",
       "preview",
       "transcript",
+      "agentDistro",
       "session",
       "backups",
     ]);
@@ -507,6 +514,8 @@ describe("padiDaemonContract — the composed tag set (D1 / #16)", () => {
       "surface/padi/newTerminalPolicy/set",
       "surface/padi/agentDistro/set",
       "surface/padi/agentDistroStatus/get",
+      "surface/padi/agentDistroReceipt/get",
+      "surface/padi/agentDistro/checkNow",
       "surface/control/core/hello",
       "surface/control/core/drain",
       "surface/control/core/clockNow",
@@ -553,6 +562,7 @@ describe("the declared error vocabulary (PLAN D4)", () => {
     // `preview.repoRootForTerminal`, `session.*`) cannot quietly lose one.
     expect(declared.sort()).toEqual(
       [
+        "agentDistro.checkNow",
         "chrome.setCanvasLayout",
         "chrome.setIntent",
         "chrome.setParent",

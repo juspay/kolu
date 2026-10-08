@@ -69,6 +69,8 @@ Feature: Agents come with kolu
     When I turn Agents off
     Then a toast should say agents are off
     And the Agents hint should explain Off
+    When I tab into the Agents control in Settings
+    Then keyboard focus should be on the Settings "off" Agents segment
     And there should be no page errors
 
   Scenario: This machine's tab carries the agents mark while Agents are on, and it opens Settings
@@ -148,9 +150,12 @@ Feature: Agents come with kolu
     Then the welcome card's first row should ask which agents I want
     And the first-run agents choice should show "off" chosen
     And the first-run step should rest the keyboard on "vanilla"
-    And the first-run step should say what "vanilla" means
     And the first-run step should not have taken keyboard focus
+    And the first-run step should say what "off" means
     And the welcome card's done line should not mention agents
+    When I tab into the first-run agents choice
+    Then keyboard focus should be on the first-run "vanilla" segment
+    And the first-run step should say what "vanilla" means
     When I create a terminal
     Then the focused tile should show no agents chip
     And the terminal should have no fixture agents on its PATH
@@ -191,4 +196,61 @@ Feature: Agents come with kolu
     And I select "Tutorial" in the palette
     Then the Tutorial should not ask about agents
     And the welcome card's done line should say agents are "vanilla"
+    And there should be no page errors
+
+  # ── Kept up to date ─────────────────────────────────────────────────────────
+
+  @agent-updates
+  Scenario: Check now lands a newer set: the toast says what changed, the open tile offers Restart, a new terminal gets it
+    Given the terminal is ready
+    When I click the settings button
+    And I choose the "vanilla" Agents profile
+    Then this machine's Agents status should be ready
+    And this machine's Agents line should say the last run unchanged
+    When I press Escape
+    And I create a terminal
+    Then the focused tile should show the "vanilla" agents chip
+    Given the next "vanilla" agents update finds a newer set
+    When I click the settings button
+    And I click Check now
+    Then this machine's Agents line should show an update downloading
+    And the host tab's agents mark should be "ready"
+    And a toast should say what the update changed on this machine
+    And this machine's Agents line should say the last run updated
+    And the Agents History should list the updated event
+    And the Agents line and History name this machine by its hostname
+    When I press Escape
+    Then the focused tile's agents chip should be stale with a Restart button
+    When I create a terminal
+    Then the focused tile's agents chip should carry the bundle new terminals get now
+    And there should be no page errors
+
+  @agent-updates
+  Scenario: Check now with nothing newer: no toast, the line says it checked and is up to date
+    Given the terminal is ready
+    When I click the settings button
+    And I choose the "vanilla" Agents profile
+    Then this machine's Agents status should be ready
+    And this machine's Agents line should say the last run unchanged
+    When I remember this machine's last update run
+    And I click Check now
+    Then this machine's Agents line should show an update checking
+    And this machine's last update run should be newer than the one I remembered
+    And this machine's Agents line should say the last run unchanged
+    And no toast should say an update landed on this machine
+    And there should be no page errors
+
+  @agent-updates
+  Scenario: A newer set the cache does not hold yet is skipped: no toast, the History says so
+    Given the terminal is ready
+    When I click the settings button
+    And I choose the "vanilla" Agents profile
+    Then this machine's Agents status should be ready
+    And this machine's Agents line should say the last run unchanged
+    Given the next "vanilla" agents update finds the newer set not ready to download
+    When I click Check now
+    Then this machine's Agents line should say the last run skipped
+    And no toast should say an update landed on this machine
+    And the Agents History should list the skipped event
+    And this machine's Agents status should be ready
     And there should be no page errors

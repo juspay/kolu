@@ -83,7 +83,7 @@ export const KOLU_MCP_EXPOSE = {
  *
  *  Beyond this list, the `test__set` cell verbs and the cells not named in the
  *  map (`version`, `processMemory`, `hostInventory`, `hostListeners`, `activityFeed`, `session`,
- *  `newTerminalPolicy`, `agentDistro`, `agentDistroStatus`) are denied
+ *  `newTerminalPolicy`, `agentDistro`, `agentDistroStatus`, `agentDistroReceipt`) are denied
  *  structurally by omission — resources are read-only projections and an
  *  unexposed member never registers. An agent's `lifecycle.create` still OBEYS
  *  `newTerminalPolicy` (that's #2045) and the Agents setting; it just cannot read
@@ -119,6 +119,11 @@ export const KOLU_MCP_DENIED: readonly { member: string; reason: string }[] = [
   { member: "lifecycle.sleep", reason: "lifecycle policy the canvas owns" },
   { member: "lifecycle.wake", reason: "lifecycle policy the canvas owns" },
   { member: "lifecycle.restart", reason: "lifecycle policy the canvas owns" },
+  {
+    member: "agentDistro.checkNow",
+    reason:
+      "an agent inherits the user's coding agents; when they update is the host's schedule or the user's Check now, not a tool call",
+  },
   { member: "lifecycle.resize", reason: "layout policy the canvas owns" },
   {
     member: "chrome.setTheme",

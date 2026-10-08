@@ -16,6 +16,7 @@ import { type Component, createMemo, Show } from "solid-js";
 import AgentProfileChip, { type ChipRestart } from "../agents/AgentProfileChip";
 import {
   agentDistroSetting,
+  agentsWhere,
   hostAgentStatusOf,
 } from "../agents/useAgentDistro";
 import {
@@ -189,6 +190,7 @@ const TileTitleActions: Component<{
             bundle={agents().bundle}
             buttonClass={TILE_BUTTON_CLASS}
             staleness={staleness()}
+            where={agentsWhere(props.host)}
             // Same select-first wiring as the theme pill; the profile for
             // NEW terminals is changed in Settings → Agents.
             onClick={(e) => onTile(e, openSettings)}

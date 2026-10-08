@@ -240,6 +240,26 @@ export class KavalContractSkew extends Schema.TaggedError<KavalContractSkew>(
   }
 }
 
+// ── agent-distro ──────────────────────────────────────────────────────────
+
+/** An update check (`agentDistro.checkNow`) this host will not start: a run of
+ *  the selected profile is already going (`running` — a first download or an
+ *  update; one at a time), or nothing serves to update (`notReady` — agents
+ *  off, a padi built without agents, or a first download that has not landed,
+ *  whose retry is turning the profile on again). Declared because a caller
+ *  that checks every host at once meets it as an ordinary answer. */
+export class AgentDistroCheckRefused extends Schema.TaggedError<AgentDistroCheckRefused>(
+  "padi/AgentDistroCheckRefused",
+)("AgentDistroCheckRefused", {
+  reason: Schema.Literals(["running", "notReady"]),
+}) {
+  override get message(): string {
+    return this.reason === "running"
+      ? "an agent-distro run is already going on this host"
+      : "this host has no agent-distro bundle to update";
+  }
+}
+
 // ── fs / git ──────────────────────────────────────────────────────────────
 
 /** The file is GONE — deleted under an open preview, a build output cleaned
@@ -336,6 +356,7 @@ const PADI_ERROR_CLASSES = [
   TranscriptNoAgent,
   TranscriptNotFound,
   KavalContractSkew,
+  AgentDistroCheckRefused,
   FileGone,
   WorktreeBaseBranchMissing,
   WorktreeNameCollision,

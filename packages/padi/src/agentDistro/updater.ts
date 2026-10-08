@@ -9,6 +9,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
+import type { AgentUpdateAuthor } from "@kolu/agent-distro/history";
 import {
   parseUpdaterLine,
   UPDATER_PROGRESS_ARGS,
@@ -36,11 +37,31 @@ export function writeUpdaterConfig(text: string): {
   return { configPath, remove };
 }
 
-/** How a run ended: the bundle it landed (`updated` / `unchanged`), or why
- *  nothing landed (a skip, a failure, a crash, a protocol violation). */
+/** How a run ended: the bundle it settled on (`updated` / `unchanged`), or
+ *  why nothing landed — a `skipped` (cache unusable, bundle not fully cached;
+ *  exit 0) or a `failed` (the updater's own failure, a crash, a protocol
+ *  violation, a spawn error) — and who wrote the why: the updater's own
+ *  result line, or padi's words about a run that gave none. */
 export type UpdaterOutcome =
-  | { readonly ok: true; readonly bundle: string }
-  | { readonly ok: false; readonly message: string };
+  | {
+      readonly ok: true;
+      readonly result: "updated" | "unchanged";
+      readonly bundle: string;
+    }
+  | {
+      readonly ok: false;
+      readonly result: "skipped" | "failed";
+      readonly message: string;
+      readonly by: AgentUpdateAuthor;
+    };
+
+/** A run padi words as failed: it gave no result line of its own. */
+const failed = (message: string): UpdaterOutcome => ({
+  ok: false,
+  result: "failed",
+  message,
+  by: "padi",
+});
 
 /** Run agent-distro's updater once (`--progress`) and settle with its outcome.
  *  Progress lines feed `onProgress`; the outcome is the updater's own `result`
@@ -55,7 +76,7 @@ export function runUpdater(opts: {
 }): Promise<UpdaterOutcome> {
   const [bin, ...args] = opts.command;
   if (bin === undefined)
-    return Promise.resolve({ ok: false, message: "empty updater command" });
+    return Promise.resolve(failed("empty updater command"));
   return new Promise((resolve) => {
     const child = spawn(
       bin,
@@ -87,31 +108,37 @@ export function runUpdater(opts: {
       if (stderr.length > 50) stderr.shift();
     });
     child.on("error", (err) =>
-      resolve({ ok: false, message: `cannot run the updater: ${err.message}` }),
+      resolve(failed(`cannot run the updater: ${err.message}`)),
     );
     child.on("close", (code, signal) => {
       if (violation !== undefined) {
-        resolve({ ok: false, message: violation });
+        resolve(failed(violation));
         return;
       }
       if (result === undefined) {
         const said = updaterLastWord(stderr);
         const how =
           signal !== null ? `was killed (${signal})` : `exited ${code}`;
-        resolve({
-          ok: false,
-          message: `the updater ${how} without a result${said === undefined ? "" : `: ${said}`}`,
-        });
+        resolve(
+          failed(
+            `the updater ${how} without a result${said === undefined ? "" : `: ${said}`}`,
+          ),
+        );
         return;
       }
       switch (result.result) {
         case "updated":
         case "unchanged":
-          resolve({ ok: true, bundle: result.bundle });
+          resolve({ ok: true, result: result.result, bundle: result.bundle });
           return;
         case "skipped":
         case "failed":
-          resolve({ ok: false, message: result.reason });
+          resolve({
+            ok: false,
+            result: result.result,
+            message: result.reason,
+            by: "updater",
+          });
           return;
         default:
           result satisfies never;

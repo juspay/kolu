@@ -21,6 +21,7 @@ function harness() {
   const ready: number[] = [];
   const errors: string[] = [];
   const dropped: number[] = [];
+  const updated: string[] = [];
   let dispose = () => {};
   createRoot((d) => {
     dispose = d;
@@ -30,12 +31,14 @@ function harness() {
         if (moment === "start") started.push(1);
         if (moment === "ready") ready.push(1);
         if (moment === "dropped") dropped.push(1);
+        if (moment === "updated" && status.kind === "ready")
+          updated.push(status.bundle);
         if (moment === "failed" && status.kind === "error")
           errors.push(status.message);
       },
     );
   });
-  return { store, write, started, ready, errors, dropped, dispose };
+  return { store, write, started, ready, errors, dropped, updated, dispose };
 }
 
 describe("watchDownload", () => {
@@ -110,6 +113,38 @@ describe("watchDownload", () => {
     });
     await flush();
     expect(h.started).toEqual([1]);
+    h.dispose();
+  });
+
+  it("an update landing (ready → ready, another bundle, same profile) is the updated moment — through the same reconciled object", async () => {
+    const h = harness();
+    h.write({ kind: "ready", profile: "vanilla", bundle: "/nix/store/old" });
+    await flush();
+    const before = h.store.v;
+    // The run: the old bundle serves while bytes move — no moment.
+    h.write({
+      kind: "ready",
+      profile: "vanilla",
+      bundle: "/nix/store/old",
+      update: { progress: { done: 1, total: 2 } },
+    });
+    await flush();
+    h.write({ kind: "ready", profile: "vanilla", bundle: "/nix/store/new" });
+    await flush();
+    expect(h.store.v).toBe(before);
+    expect(h.updated).toEqual(["/nix/store/new"]);
+    expect(h.ready).toEqual([]);
+    expect(h.started).toEqual([]);
+    h.dispose();
+  });
+
+  it("a switch to another profile is not an update", async () => {
+    const h = harness();
+    h.write({ kind: "ready", profile: "vanilla", bundle: "/nix/store/v" });
+    await flush();
+    h.write({ kind: "ready", profile: "juspay", bundle: "/nix/store/j" });
+    await flush();
+    expect(h.updated).toEqual([]);
     h.dispose();
   });
 });

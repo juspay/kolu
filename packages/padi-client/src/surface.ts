@@ -108,16 +108,20 @@ import {
   RightPanelPerTerminalStateSchema,
 } from "./chromeVocab.ts";
 import {
+  AgentDistroReceiptSchema,
   AgentDistroSettingSchema,
   AgentDistroStatusSchema,
+  agentDistroReceiptEqual,
   agentDistroSettingEqual,
   agentDistroStatusEqual,
   DEFAULT_AGENT_DISTRO_SETTING,
   DEFAULT_AGENT_DISTRO_STATUS,
+  EMPTY_AGENT_DISTRO_RECEIPT,
   TerminalAgentsSchema,
 } from "@kolu/agent-distro/schema";
 import type { ClientErrorPolicy } from "./clientPolicy.ts";
 import {
+  AgentDistroCheckRefused,
   FsGitReadErrorSchema,
   KavalContractSkew,
   PreviewTooLarge,
@@ -509,8 +513,20 @@ export * from "./transcriptSchema.ts";
  *  layout, parent, theme) and answers `{ id, pid, agents?, resumed }`. The
  *  minor carries the usual obligation: a 5.8 binder CALLS `agentDistro.set`
  *  and may call `lifecycle.restart`, and the minor rule drains a 5.7 padi
- *  before either can reach a padi with no such member. */
-export const PADI_SURFACE_VERSION = "5.8";
+ *  before either can reach a padi with no such member.
+ *
+ *  5.9 (minor) — agent-distro updates. padi now keeps the chosen profile
+ *  current on its host on upstream's schedule. The `agentDistroStatus` `ready`
+ *  arm gains an OPTIONAL `update: { progress? }` (a run in flight while the old
+ *  bundle serves); a NEW read-only cell, `agentDistroReceipt` (the serving
+ *  bundle's versions, the last run and who wrote its words, the last few
+ *  history events, every profile with a run in flight, and an `error` when
+ *  the updater's files would not read); and a NEW
+ *  procedure, `agentDistro.checkNow`, which runs an update at once and refuses
+ *  with the declared `AgentDistroCheckRefused` while a run is going or nothing
+ *  serves. A 5.9 client CALLS `checkNow` and subscribes to the receipt, so the
+ *  minor drains a 5.8 padi that has neither. */
+export const PADI_SURFACE_VERSION = "5.9";
 
 /** The `version` cell payload — padi's self-declared surface contract version. */
 export const PadiVersionSchema = Schema.Struct({
@@ -1975,6 +1991,20 @@ export const padiSurface = defineSurfaceWithPolicy<ClientErrorPolicy>()({
       verbs: ["get"],
       client: { onError: { kind: "hostToast", label: "Agents status" } },
     },
+    /** What this host keeps of agent-distro's updates for the setting's
+     *  profile — the serving bundle's versions, the last update run and the
+     *  last few history events, read off the updater's own files — and every
+     *  profile with a run in flight there. Read-only; published at boot, when a
+     *  run starts and ends, and when the setting changes. A
+     *  background update that fails or skips shows here (and in padi's log),
+     *  never as an `error` status: the agents still work. */
+    agentDistroReceipt: {
+      schema: AgentDistroReceiptSchema,
+      default: EMPTY_AGENT_DISTRO_RECEIPT,
+      equals: agentDistroReceiptEqual,
+      verbs: ["get"],
+      client: { onError: { kind: "hostToast", label: "Agents updates" } },
+    },
     /** Every TCP listener on THIS padi's host — what the terminal-scoped `ports`
      *  on each record cannot see: a server that detached from the terminal that
      *  started it. Read-only on the client; padi's port sampler is the sole writer,
@@ -2395,6 +2425,14 @@ export const padiSurface = defineSurfaceWithPolicy<ClientErrorPolicy>()({
         ]),
       },
     },
+    /** agent-distro on this host — merged onto the `agentDistro` cell's wire
+     *  node, as `session` is (no verb overlap). `checkNow` runs one update of
+     *  the selected profile at once, whatever the schedule says, and answers
+     *  once it has started (the status cells show it running). Refuses while a
+     *  run is going or nothing serves (`AgentDistroCheckRefused`). */
+    agentDistro: {
+      checkNow: { error: AgentDistroCheckRefused },
+    },
     /** Session restore/import/forfeit — executes host-side (padi as one writer). */
     session: {
       restore: {
@@ -2457,6 +2495,7 @@ export const PADI_FORWARDING_POLICY = {
   newTerminalPolicy: "value",
   agentDistro: "value",
   agentDistroStatus: "value",
+  agentDistroReceipt: "value",
   hostListeners: "value",
   hostInventory: "value",
   processMemory: "value",

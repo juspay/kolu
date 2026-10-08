@@ -13,8 +13,13 @@
  */
 
 import assert from "node:assert";
-import { Then, When } from "@cucumber/cucumber";
-import type { AgentDistroStatus } from "@kolu/agent-distro/schema";
+import os from "node:os";
+import { After, Given, Then, When } from "@cucumber/cucumber";
+import { agentBundleShortHash } from "@kolu/agent-distro/bundle";
+import type {
+  AgentDistroReceipt,
+  AgentDistroStatus,
+} from "@kolu/agent-distro/schema";
 import {
   AGENTS_NOT_CHOSEN,
   AGENTS_OFF,
@@ -23,6 +28,7 @@ import {
   agentToast,
   agentsChosenLabel,
   agentsStepHint,
+  agentUpdateRunning,
   harnessLine,
   restartedLabel,
 } from "@kolu/agent-distro/status";
@@ -30,8 +36,11 @@ import {
   FIXTURE_DEFAULT_PROFILE,
   FIXTURE_MARK,
   FIXTURE_PROFILES,
+  FIXTURE_SKIP_REASON,
   fixtureClaudeSays,
+  fixtureNextRun,
   fixtureProfile,
+  fixtureResetUpdates,
 } from "../support/agentDistroFixture.ts";
 import { waitForPadiCell } from "../support/padiCellWait.ts";
 import { escapeRegExp } from "../support/regexp.ts";
@@ -367,7 +376,7 @@ Then(
   },
 );
 
-// ── The first-run step: the welcome card asks once ─────────────────────────────
+// ── The first-run step: the welcome card asks until agents are on ──────────────
 
 Then(
   "the welcome card's first row should ask which agents I want",
@@ -495,23 +504,74 @@ Then(
   },
 );
 
+/** Keyboard focus is on the `value` segment of the control in `scope`, and it
+ *  is the one tab stop there. */
+async function assertFocusedSegment(
+  world: KoluWorld,
+  value: string,
+  scope: string,
+): Promise<void> {
+  const want = value === "off" ? AGENTS_OFF : value;
+  const sel = segment(want, scope);
+  await world.page.waitForFunction(
+    (s) => document.activeElement === document.querySelector(s),
+    sel,
+    { timeout: POLL_TIMEOUT },
+  );
+  // One tab stop: only the focused segment is in the tab order.
+  for (const v of SEGMENTS)
+    assert.strictEqual(
+      await world.page.locator(segment(v, scope)).getAttribute("tabindex"),
+      v === want ? "0" : "-1",
+      `tabindex of the ${v} segment`,
+    );
+}
+
 Then(
   "keyboard focus should be on the first-run {string} segment",
   async function (this: KoluWorld, value: string) {
-    const want = value === "off" ? AGENTS_OFF : value;
-    const sel = segment(want, FIRST_RUN);
-    await this.page.waitForFunction(
-      (s) => document.activeElement === document.querySelector(s),
-      sel,
-      { timeout: POLL_TIMEOUT },
-    );
-    // One tab stop: only the focused segment is in the tab order.
-    for (const v of SEGMENTS)
-      assert.strictEqual(
-        await this.page.locator(segment(v, FIRST_RUN)).getAttribute("tabindex"),
-        v === want ? "0" : "-1",
-        `tabindex of the ${v} segment`,
-      );
+    await assertFocusedSegment(this, value, FIRST_RUN);
+  },
+);
+
+Then(
+  "keyboard focus should be on the Settings {string} Agents segment",
+  async function (this: KoluWorld, value: string) {
+    await assertFocusedSegment(this, value, IN_SETTINGS);
+  },
+);
+
+/** A real Tab into the Agents control in `scope`: focus a throwaway stop placed
+ *  just before the control, then press Tab — the browser lands on whatever the
+ *  control puts in the tab order. */
+async function tabInto(world: KoluWorld, scope: string): Promise<void> {
+  const group = `${scope} [data-testid="${AGENTS_SEGMENT_TESTID}-toggle"]`;
+  await world.page
+    .locator(group)
+    .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+  await world.page.evaluate((sel) => {
+    const control = document.querySelector(sel);
+    if (control === null) throw new Error(`no ${sel}`);
+    const before = document.createElement("button");
+    before.dataset.testid = "tab-into-sentinel";
+    control.before(before);
+    before.focus();
+    before.addEventListener("blur", () => before.remove(), { once: true });
+  }, group);
+  await world.page.keyboard.press("Tab");
+}
+
+When(
+  "I tab into the first-run agents choice",
+  async function (this: KoluWorld) {
+    await tabInto(this, FIRST_RUN);
+  },
+);
+
+When(
+  "I tab into the Agents control in Settings",
+  async function (this: KoluWorld) {
+    await tabInto(this, IN_SETTINGS);
   },
 );
 
@@ -621,5 +681,268 @@ Then(
           .__firstRunStepSeen,
     );
     assert.strictEqual(seen, false, "the first-run step flashed on reload");
+  },
+);
+
+// ── Kept up to date: updates, Check now, History ──────────────────────────────
+
+/** The local machine's name on every agents surface — its hostname, as the host
+ *  tab shows it (the e2e server runs on this host). */
+const LOCAL_NAME = os.hostname();
+
+/** This machine's line under the Agents row (the first). */
+const LOCAL_LINE = `${IN_SETTINGS} [data-testid="agents-status-lines"] [data-testid="agents-status-text"]`;
+
+/** Any scenario that turned agents on ran the fixture's updater (turning them
+ *  on asks once whether an update is due), and an update scenario lands
+ *  bundles and history: undo it after EVERY scenario, so the next one on this
+ *  worker meets the floor and no `last-success`. First wait until padi has no
+ *  run in flight for ANY profile — the receipt's running set, read through
+ *  `agentUpdateRunning`, not the status (which follows only the selected
+ *  profile, so a scenario that switched profiles and turned agents off would
+ *  pass with a run still going). Deleting a run's state under it
+ *  fails that run, and the next scenario's ask would meet it still going. */
+After(async () => {
+  await waitForPadiCell({
+    memberVerb: "agentDistroReceipt/get",
+    accept: (v) => !agentUpdateRunning([v as AgentDistroReceipt]),
+    what: "no agent-distro run in flight, for any profile",
+    timeoutMs: POLL_TIMEOUT,
+  });
+  fixtureResetUpdates();
+});
+
+/** padi's current value of an agent-distro cell, once `accept` holds. */
+async function padiValue<T>(
+  memberVerb: string,
+  accept: (v: T) => boolean,
+  what: string,
+): Promise<T> {
+  let seen: T | undefined;
+  await waitForPadiCell({
+    memberVerb,
+    accept: (v) => {
+      if (!accept(v as T)) return false;
+      seen = v as T;
+      return true;
+    },
+    what,
+    timeoutMs: POLL_TIMEOUT,
+  });
+  if (seen === undefined) throw new Error(`no value for ${what}`);
+  return seen;
+}
+
+Given(
+  "the next {string} agents update finds a newer set",
+  (profile: string) => {
+    fixtureNextRun(profile, "update");
+  },
+);
+
+Given(
+  "the next {string} agents update finds the newer set not ready to download",
+  (profile: string) => {
+    fixtureNextRun(profile, "skip");
+  },
+);
+
+When("I click Check now", async function (this: KoluWorld) {
+  await this.page.click(`${IN_SETTINGS} [data-testid="agents-check-now"]`);
+});
+
+Then(
+  "this machine's Agents line should show an update {word}",
+  async function (this: KoluWorld, phase: string) {
+    assert.ok(phase === "checking" || phase === "downloading", phase);
+    await this.page
+      .locator(`${LOCAL_LINE}[data-update="${phase}"]`)
+      .first()
+      .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    // The tab's mark says the same phase, from the same fold.
+    await this.page
+      .locator(
+        `${HOST_AGENTS_MARK}[data-state="ready"][data-update="${phase}"]`,
+      )
+      .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    // The button is busy: its only machine is running an update, so there
+    // is no host it could ask (`agentCheckNowBusy`).
+    await this.page
+      .locator(`${IN_SETTINGS} [data-testid="agents-check-now"][data-busy]`)
+      .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+  },
+);
+
+/** This machine's last update run as padi's receipt has it, when a step
+ *  remembered it — so a later step can tell a NEW run from the one before. */
+let rememberedRunAt: number | undefined;
+
+When(
+  "I remember this machine's last update run",
+  async function (this: KoluWorld) {
+    const receipt = await padiValue<AgentDistroReceipt>(
+      "agentDistroReceipt/get",
+      (r) => r.lastRun !== undefined,
+      "a receipt with a last run",
+    );
+    rememberedRunAt = receipt.lastRun?.at;
+  },
+);
+
+Then(
+  "this machine's last update run should be newer than the one I remembered",
+  async function (this: KoluWorld) {
+    const before = rememberedRunAt;
+    assert.ok(before !== undefined, "no run remembered");
+    await padiValue<AgentDistroReceipt>(
+      "agentDistroReceipt/get",
+      (r) => (r.lastRun?.at ?? 0) > before,
+      "a receipt whose last run is newer than the remembered one",
+    );
+  },
+);
+
+Then(
+  "this machine's Agents line should say the last run {word}",
+  async function (this: KoluWorld, outcome: string) {
+    try {
+      await this.page
+        .locator(`${LOCAL_LINE}[data-last-run="${outcome}"]`)
+        .first()
+        .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    } catch (err) {
+      // Say what padi's receipt holds instead — the updater's own words.
+      const receipt = await padiValue<AgentDistroReceipt>(
+        "agentDistroReceipt/get",
+        () => true,
+        "the receipt",
+      );
+      throw new Error(
+        `the line never said the last run ${outcome}; padi's receipt: ${JSON.stringify(receipt)}`,
+        { cause: err },
+      );
+    }
+  },
+);
+
+/** The words of this machine's last `updated` run, as padi's receipt has them. */
+async function updatedWords(): Promise<string> {
+  const receipt = await padiValue<AgentDistroReceipt>(
+    "agentDistroReceipt/get",
+    (r) => r.lastRun?.outcome === "updated",
+    "a receipt with an updated run",
+  );
+  return receipt.lastRun?.words ?? "";
+}
+
+Then(
+  "a toast should say what the update changed on this machine",
+  async function (this: KoluWorld) {
+    const words = agentToast.updated(LOCAL_NAME, await updatedWords());
+    const toast = this.page
+      .locator("[data-sonner-toaster] [data-sonner-toast]")
+      .filter({
+        has: this.page.locator("[data-title]", {
+          hasText: new RegExp(`^${escapeRegExp(words.title)}$`),
+        }),
+      })
+      .first();
+    await toast.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    const description = await toast.locator("[data-description]").innerText();
+    assert.strictEqual(description.trim(), words.description);
+  },
+);
+
+Then(
+  "no toast should say an update landed on this machine",
+  async function (this: KoluWorld) {
+    // The run has settled (the line says so) before this is asked.
+    const title = agentToast.updated(LOCAL_NAME, "").title;
+    assert.strictEqual(
+      await this.page
+        .locator("[data-sonner-toaster] [data-title]")
+        .filter({ hasText: new RegExp(`^${escapeRegExp(title)}$`) })
+        .count(),
+      0,
+      "an update toast showed",
+    );
+  },
+);
+
+Then(
+  "the Agents History should list the {word} event",
+  async function (this: KoluWorld, kind: string) {
+    const history = this.page.locator(
+      `${IN_SETTINGS} [data-testid="agents-history"]`,
+    );
+    if ((await history.getAttribute("open")) === null)
+      await history.locator("summary").click();
+    await history
+      .locator(`[data-testid="agents-history-row"][data-kind="${kind}"]`)
+      .first()
+      .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    // The row quotes padi's own event words.
+    const receipt = await padiValue<AgentDistroReceipt>(
+      "agentDistroReceipt/get",
+      (r) => r.events.some((e) => e.kind === kind),
+      `a receipt with a ${kind} event`,
+    );
+    const event = receipt.events.find((e) => e.kind === kind);
+    if (kind === "skipped")
+      assert.strictEqual(event?.words, FIXTURE_SKIP_REASON);
+    const text = await history
+      .locator(`[data-testid="agents-history-row"][data-kind="${kind}"]`)
+      .first()
+      .innerText();
+    assert.ok(
+      text.endsWith(event?.words ?? "-"),
+      `history row ${JSON.stringify(text)} does not quote ${JSON.stringify(event?.words)}`,
+    );
+  },
+);
+
+Then(
+  "the focused tile's agents chip should carry the bundle new terminals get now",
+  async function (this: KoluWorld) {
+    const status = await padiValue<AgentDistroStatus>(
+      "agentDistroStatus/get",
+      (s) => s.kind === "ready" && s.update === undefined,
+      "agents ready",
+    );
+    if (status.kind !== "ready") throw new Error("not ready");
+    const hash = agentBundleShortHash(status.bundle);
+    // Not the floor's: an update landed.
+    assert.notStrictEqual(
+      hash,
+      agentBundleShortHash(`/${status.profile}`),
+      "new terminals still get the floor",
+    );
+    await this.page
+      .locator(
+        `${FOCUSED_TILE} [data-testid="tile-agent-chip"][data-hash="${hash}"]:not([data-stale])`,
+      )
+      .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+  },
+);
+
+Then(
+  "the Agents line and History name this machine by its hostname",
+  async function (this: KoluWorld) {
+    // The `data-host` the cell carries — its text also holds the logo's SVG.
+    await this.page
+      .locator(
+        `${IN_SETTINGS} [data-testid="agents-status-host"][data-host="${LOCAL_NAME}"]`,
+      )
+      .first()
+      .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    const history = this.page.locator(
+      `${IN_SETTINGS} [data-testid="agents-history"]`,
+    );
+    if ((await history.getAttribute("open")) === null)
+      await history.locator("summary").click();
+    await history
+      .locator(`[data-testid="agents-history-host"][data-host="${LOCAL_NAME}"]`)
+      .first()
+      .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
   },
 );

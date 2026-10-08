@@ -1,11 +1,16 @@
 /** The per-host status lines under Settings' Agents row: one line per machine
- *  (this one first, then each remote that is not ready), as a three-column grid
- *  — the host with agent-distro's mark, a thin bar, and a short mono text. The
+ *  (the machine running kolu first, then each remote that is not settled), as
+ *  a three-column grid — the host with agent-distro's mark, a thin bar, and a
+ *  short mono text. The
  *  bar wears the state's colour: accent while downloading, ok when ready,
- *  warning when failed, empty before the host answers. Which lines show, and
- *  their collapse into one when every host is ready, is `agentStatusLines`. */
+ *  warning when failed, empty before the host answers — and full and green on
+ *  a ready host even while it updates. A ready line's note — an update
+ *  running, or the last one — sits under its text, quieter; its hover (a skip's
+ *  or a failure's reason, and who wrote it) is the fold's. Which lines show,
+ *  and their collapse into one "all hosts" line when every host is settled, is
+ *  `agentStatusLines`. */
 
-import { type Component, For } from "solid-js";
+import { type Component, For, Show } from "solid-js";
 import AgentDistroLogo from "@kolu/agent-distro/solid";
 import type { AgentStatusLine } from "@kolu/agent-distro/status";
 
@@ -28,6 +33,7 @@ const AgentStatusLines: Component<{ lines: readonly AgentStatusLine[] }> = (
         <>
           <span
             data-testid="agents-status-host"
+            data-host={line.host}
             class="flex min-w-0 items-center gap-1.5 font-medium text-fg-2"
           >
             <AgentDistroLogo size={12} />
@@ -39,13 +45,31 @@ const AgentStatusLines: Component<{ lines: readonly AgentStatusLine[] }> = (
               style={{ width: `${line.fill * 100}%` }}
             />
           </span>
-          <span
-            data-testid="agents-status-text"
-            data-bar={line.bar}
-            title={line.text}
-            class={`truncate font-mono text-[0.7rem] ${line.bar === "warn" ? "text-warning" : "text-fg-3/70"}`}
-          >
-            {line.text}
+          <span class="flex min-w-0 flex-col">
+            <span
+              data-testid="agents-status-text"
+              data-bar={line.bar}
+              data-update={line.update}
+              data-last-run={line.lastRun}
+              title={line.text}
+              class={`truncate font-mono text-[0.7rem] ${line.bar === "warn" ? "text-warning" : "text-fg-3/70"}`}
+            >
+              {line.text}
+            </span>
+            <Show when={line.note}>
+              {(note) => (
+                <span
+                  title={note().title}
+                  class="truncate font-mono text-[0.65rem]"
+                  classList={{
+                    "text-fg-3/55": note().tone === "muted",
+                    "text-warning": note().tone === "warn",
+                  }}
+                >
+                  {note().text}
+                </span>
+              )}
+            </Show>
           </span>
         </>
       )}

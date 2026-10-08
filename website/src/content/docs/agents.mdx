@@ -1,6 +1,6 @@
 ---
 title: AI coding agents
-description: "Kolu can bring AI coding agents into every new terminal — kept up to date, nothing to install — on this machine and on every host you add. Until agents are on, kolu asks which you want in the welcome card whenever no terminals are open, and in the Tutorial; Settings → Agents sets it at any time."
+description: "Kolu can bring AI coding agents into every new terminal — kept up to date, nothing to install — on the machine running kolu and on every host you add. Until agents are on, kolu asks which you want in the welcome card whenever no terminals are open, and in the Tutorial; Settings → Agents sets it at any time."
 order: 49
 section: "Agents & Attention"
 koluHero:
@@ -35,7 +35,7 @@ Until agents are on, kolu asks in three places:
 - the **welcome card**, whenever no terminals are open — the question leads it:
   **Choose your coding agents**;
 - the palette's **Tutorial** command, which shows the same welcome at any time;
-- **Settings → Agents**, at any time, which says so while nothing is chosen yet.
+- **Settings → Agents**, at any time, which says when nothing is chosen yet.
 
 It is the same choice everywhere — **Off**, or one of the sets. Until agents are
 on, the welcome card keeps the choice at the top; pick **Off** and it stays
@@ -43,12 +43,12 @@ there, with no agents added. If you upgraded and your session brings your termin
 welcome card: your terminals have no agents until you choose in Settings or the
 Tutorial.
 
-The first time, the choice already has the keyboard: press **Enter** to take
+Until you pick anything, the choice already has the keyboard: press **Enter** to take
 **vanilla**, the stock agents; **←** and **→** move to **Off** and **juspay**, and
 the line under the choice says what each one means as you move. Once you pick a
 set, the question folds away into the welcome's done line — "Agents: vanilla ✓".
 On the machine running kolu that is at once, because the agents ship inside
-kolu; it stays only while this machine is still downloading them, or if that
+kolu; it stays only while that machine is still downloading them, or if that
 download failed.
 
 Pick **Off** and the question stays, with **Off** pressed. It no longer takes
@@ -57,7 +57,7 @@ changes nothing. When you tab into it, the keyboard lands on **vanilla**, so
 **Enter** there turns agents on.
 
 Nothing forces the question. **⌘⏎** still opens a terminal from anywhere; it just
-gets no agents, and the question stays until you answer it.
+gets no agents, and the question stays until agents are on.
 
 ## Pick a set
 
@@ -71,11 +71,19 @@ and what Off means (and, before your first choice, that nothing is chosen yet); 
 their versions) it puts on your terminals. Hover a choice for agent-distro's own
 description of it.
 
-With a set on, under the hint is one status line per machine — this machine
-first, then every other host that is not ready yet — each with a bar that fills
-while that machine downloads, turns to the warning colour if the download
-failed, and stays empty until the machine has answered. When every machine is
-ready the lines fold into one.
+With a set on, under the hint is one status line per machine, each named the way
+its host tab names it (the machine running kolu by its hostname) — the machine
+running kolu first, then every other host that is not ready yet, is updating,
+whose last look for newer agents failed, or whose update history kolu could not
+read — each with a bar that fills while that machine downloads, turns to the
+warning colour if the download failed, and stays empty until the machine has
+answered. Under a ready line, a quieter one says when that machine last looked
+for newer agents ("updated 3h ago", "checked 2h ago, up to date", "last update
+failed 1h ago"), or that it is updating now; hover it for the reason a look was
+skipped or failed, and who gave it — agent-distro, or kolu itself when
+agent-distro gave none. When every machine is ready with nothing to report, the
+lines fold into one, **all hosts**, with how many there are. Below them sit
+**Check now** and the **History** ([Kept up to date](#kept-up-to-date)).
 
 The setting is one for all of kolu — not per host, not per terminal.
 
@@ -141,28 +149,88 @@ name, and the mark's look says where that host stands:
 | --- | --- |
 | plain, in the tab's text colour | ready for new terminals |
 | a thin ring around it, filling up | downloading — hover for the progress |
+| plain, with the ring filling | ready, and a newer set is downloading; the current one keeps serving ([Kept up to date](#kept-up-to-date)) |
 | warning colour with a small dot | the download failed — hover for why ([below](#when-a-download-fails)) |
 | dimmed, with a spinning arc | checking: the host is connected but has not said yet |
 | no mark at all | agents are off |
 
 Clicking the mark opens Settings, without switching tabs.
 
-The machine running kolu itself needs no download: every set ships inside kolu,
-so switching there is instant and works offline.
+The machine running kolu itself needs no first download: every set ships inside
+kolu, so switching there is instant and works offline. It still keeps itself
+up to date like any other host (below); the set kolu shipped with is what it
+falls back to when it has never been online.
 
 <Aside type="note" title="Disk">
   A host keeps its downloaded bundle in its own Nix store (and the machine
   running kolu also carries the bundles kolu ships). If you also install
   agent-distro on a host through its Home Manager module, both share the same
-  downloaded bundle for the same set.
+  downloaded bundle for the same set. Only the newest set is protected from
+  Nix's garbage collection: after an update, the one before it can be removed,
+  even while a terminal opened before the update still has it on its PATH.
 </Aside>
+
+## Kept up to date
+
+agent-distro publishes a newer tested set of agents up to four times a day. At
+those times — 02:00, 08:00, 14:00 and 20:00 UTC, agent-distro's own schedule —
+every machine with agents on looks for a newer build of the set you chose, and
+downloads it if there is one. Only the chosen set is kept current; switching
+sets downloads the new one as before. A machine that was asleep through one of
+those times looks once within minutes of waking. One whose look fails — it was
+offline, say — tries again up to twice, five minutes after the failed look
+ended, as agent-distro's own schedule does.
+
+Nothing is ever compiled. A newer set is downloaded only once agent-distro's
+cache holds all of it; until then the machine skips it and looks again at the
+next time.
+
+While a newer set downloads, the one you have keeps working: new terminals get
+it until the new one has fully arrived. The host's mark keeps its plain colour
+and the ring fills around it; its line in Settings says "updating" with the
+progress. Then:
+
+- a toast says what changed, in agent-distro's own words ("Claude Code 2.1.286
+  → 2.1.291"), and on which machine;
+- new terminals there start with the new set;
+- a terminal already open keeps its own, and its pill offers **Restart**
+  ([above](#restarting-a-terminal-onto-the-current-agents)).
+
+A look that finds nothing newer, or skips (the newer set is not fully in the
+cache yet, or the machine's Nix cannot use the cache), says nothing; the host's
+line says it was skipped, and its hover and the History give agent-distro's
+reason. A skip is not a problem, so once every machine is ready it folds into
+the **all hosts** line like a look that found nothing, and shows only in the
+History. A look that fails says nothing either — the agents you have keep
+working — and the host keeps its own status line saying so, even when every
+other machine is ready (and it is in the History, when agent-distro wrote it
+down: a run that crashed did not, so its line's hover gives kolu's words for
+it).
+
+A terminal keeps the set it started with until you restart it — or until a Nix
+garbage collection on that machine removes that set, which an update leaves
+unprotected. **Restart** gets the current set.
+
+In **Settings → Agents**:
+
+- **Check now** looks for newer agents on every machine at once, whatever the
+  time. It is greyed out while there is no machine it could ask — every
+  connected one is already looking, or not ready yet — and reads "Checking…"
+  while one of them is looking.
+- **History** lists each machine's last five events — updated, skipped or failed —
+  one line each, with the time and agent-distro's own words (hover a line for
+  all of them). A machine whose update history kolu could not read gets a line
+  saying so. The list scrolls once it is long, so Settings stays on screen
+  however many machines you have.
 
 ## When a download fails
 
 The host needs Nix with flakes, reachable on padi's PATH, and its Nix must be
 allowed to use agent-distro's cache (`https://cache.nixos.asia/oss`). If it is
-not, the download is skipped — the host never compiles agents — and the host's
-mark turns to the warning colour. Its hover, the toast and the host's line in
+not, the first download is skipped — the host never compiles agents — and the
+host's mark turns to the warning colour. (A later update that cannot download
+is different: the agents the host already has keep working, and it shows on the
+host's status line and in the History — see [Kept up to date](#kept-up-to-date).) Its hover, the toast and the host's line in
 Settings all say the same thing: the cause, the setup fix when the cause is a
 missing `nix`, and how to retry. Until it is fixed, new terminals on that host
 get no agents. Fix it, then switch Agents off and back on in Settings: that is
