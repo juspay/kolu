@@ -193,6 +193,10 @@ const LISTING: AgentDistroListing = {
   ],
 };
 const VANILLA_ON = { enabled: true, profile: "vanilla" };
+/** The opening both Agents hints share, as the reader sees it — typed once here
+ *  so a reworded lead fails every test that pins it. */
+const BARE_LEAD =
+  "Kolu can bring AI coding agents along — kept up to date, nothing to install:";
 const BUNDLE =
   "/nix/store/nd11nx5f1dkf02cr9dhxqq4axg23vzgc-agent-distro-vanilla";
 
@@ -237,7 +241,7 @@ describe("agentsHint", () => {
     ).toEqual({
       tone: "muted",
       text: [
-        "Kolu can bring AI coding agents along — kept up to date, nothing to install:",
+        BARE_LEAD,
         "Claude Code 2.1.291 · Codex 0.160.1",
         "Pick vanilla (stock agents, your own API keys) or juspay (Juspay's agents and skills, through Juspay's gateway). New terminals then start with those agents; what you installed yourself stays as a fallback.",
         `Off — ${AGENTS_OFF_MEANS}`,
@@ -307,10 +311,13 @@ describe("the stored Agents value — `null` is never chosen", () => {
     expect(agentsPressedSegment(VANILLA_ON)).toBe("vanilla");
   });
 
-  it("agentsRestingSegment: the listing's first profile, Off when there is none", () => {
-    if (LISTING.kind !== "available") throw new Error("fixture");
-    expect(agentsRestingSegment(LISTING.profiles)).toBe("vanilla");
-    expect(agentsRestingSegment([])).toBe(AGENTS_OFF);
+  it("agentsRestingSegment: the default (the listing's first) profile, Off when there is none", () => {
+    expect(agentsRestingSegment(LISTING)).toBe("vanilla");
+    expect(agentsRestingSegment({ kind: "available", profiles: [] })).toBe(
+      AGENTS_OFF,
+    );
+    expect(agentsRestingSegment({ kind: "unavailable" })).toBe(AGENTS_OFF);
+    expect(agentsRestingSegment(undefined)).toBe(AGENTS_OFF);
   });
 
   it("agentDistroChoice writes the whole value; Off keeps the stored profile", () => {
@@ -332,8 +339,6 @@ describe("the stored Agents value — `null` is never chosen", () => {
 });
 
 describe("agentsStepHint — the welcome card's form of the hint", () => {
-  const BARE_LEAD =
-    "Kolu can bring AI coding agents along — kept up to date, nothing to install:";
   const LEAD = `${BARE_LEAD} Claude Code 2.1.291 · Codex 0.160.1`;
   /** The listing with juspay carrying agents of its own, so the lead can
    *  follow the profile in view. */

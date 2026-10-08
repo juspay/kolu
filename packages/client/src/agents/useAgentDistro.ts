@@ -18,6 +18,7 @@ import {
   type HostKey,
   LOCAL_HOST,
 } from "kolu-common/hostKey";
+import type { AgentDistroStatus } from "@kolu/agent-distro/schema";
 import type { AgentDistroListing, AgentDistroPrefs } from "kolu-common/surface";
 import { createEffect, createMemo, createRoot, mapArray, on } from "solid-js";
 import { toast } from "solid-sonner";
@@ -124,21 +125,36 @@ const byHost = createRoot(() => {
   return { index, roots };
 });
 
-/** `host`'s agent-distro facts: its status (`undefined` until the first frame)
- *  and whether we are still waiting for it. `label` is how Settings names it. */
+function hostEntry(host: HostKey) {
+  return byHost.index().get(encodeHostKey(host));
+}
+
+/** `host`'s agent-distro status — `undefined` until its first frame. The plain
+ *  read, for a reader that needs only that fact. */
+export function hostAgentStatusOf(
+  host: HostKey,
+): AgentDistroStatus | undefined {
+  return hostEntry(host)?.read();
+}
+
+/** Still waiting for `host`'s first status frame (see `checking` above). */
+function hostAgentChecking(host: HostKey): boolean {
+  return hostEntry(host)?.checking() ?? false;
+}
+
+/** `host`'s agent-distro facts for its line in Settings: its status, whether we
+ *  are still waiting for it, and `label`, how Settings names the host. */
 export function hostAgentStatus(host: HostKey, label: string): HostAgentStatus {
-  const entry = byHost.index().get(encodeHostKey(host));
   return {
     label,
-    status: entry?.read(),
-    checking: entry?.checking() ?? false,
+    status: hostAgentStatusOf(host),
+    checking: hostAgentChecking(host),
   };
 }
 
 /** How `host`'s tab shows its agents — the shared fold over its facts. */
 export function hostAgentMark(host: HostKey): AgentMark {
-  const { status, checking } = hostAgentStatus(host, "");
-  return agentMarkOf(status, checking);
+  return agentMarkOf(hostAgentStatusOf(host), hostAgentChecking(host));
 }
 
 /** The status lines under Settings' Agents row: this machine, then the remote

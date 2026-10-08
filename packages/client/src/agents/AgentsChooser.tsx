@@ -92,7 +92,7 @@ export default function AgentsChooser(props: {
       <SegmentedControl
         options={agentsSegments(profiles())}
         value={agentsPressedSegment(agentDistroStored())}
-        restingValue={agentsRestingSegment(profiles())}
+        restingValue={agentsRestingSegment(agentDistroListing())}
         autofocus={props.autofocus}
         onTabStopChange={(v) => setInView(v)}
         onChange={choose}

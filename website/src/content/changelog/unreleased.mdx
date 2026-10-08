@@ -97,7 +97,7 @@ import ChangeHighlights from "../../components/ChangeHighlights.astro";
 
 ### [The Code Tab](/code-tab)
 
-- <Change kind="fixed" title="A folder you close while filtering stays closed" pr={2268}>With text in the [Code tab's filter box](/code-tab#your-git-changes--live), closing a folder that holds matches could undo itself a moment later, whenever git status or the file list changed anywhere in the repo. The folder now stays closed until you change the filter.</Change>
+- <Change kind="fixed" title="A folder you close while filtering stays closed" pr={2268}>With text in the [Code tab's filter box](/code-tab#your-git-changes--live), closing a folder that holds matches could undo itself a moment later, whenever git status or the file list changed anywhere in the repo. The folder now stays closed until the set of matching files changes, such as a new file that matches.</Change>
 
 - <Change kind="added" title="Download a file straight from the Code tab's tree" pr={2257}>Right-click a file in the tree and choose **Download** — it saves under the file's own name, whatever its type, on your machine or a [remote host](/remote-hosts). Folders offer no Download, and neither do files git reports as deleted.</Change>
 

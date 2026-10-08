@@ -26,7 +26,7 @@ import {
   agentDistroListing,
   agentDistroSetting,
   agentDistroStored,
-  hostAgentStatus,
+  hostAgentStatusOf,
 } from "./agents/useAgentDistro";
 import { type HintVoice, SettingHint } from "./settings/SettingRow";
 import { useHostMembers } from "./host/useHostMembers";
@@ -44,24 +44,14 @@ import {
   type WelcomeMomentId,
 } from "./welcomeMomentsSelect";
 
-/** The done header's entry per moment — `chooseAgents` names the choice, in
- *  `@kolu/agent-distro/status`'s words, behind agent-distro's logo (kolu shows
- *  the logo wherever it names agent-distro); the others keep their emoji. */
-const doneLabel = (id: WelcomeMomentId): JSX.Element | undefined => {
+/** The done header's words per moment — `undefined` for a moment with no
+ *  entry. THE decision of which done moments the header shows; `chooseAgents`
+ *  names the choice in `@kolu/agent-distro/status`'s words, and has none in a
+ *  kolu built without agents (nobody chose anything there). */
+const doneText = (id: WelcomeMomentId): string | undefined => {
   switch (id) {
-    case "chooseAgents": {
-      // No entry in a kolu built without agents: nobody chose anything there.
-      const label = agentsChosenLabel(
-        agentDistroSetting(),
-        agentDistroListing(),
-      );
-      return label === undefined ? undefined : (
-        <span class="inline-flex items-center gap-1 align-bottom">
-          <AgentDistroLogo size={12} />
-          {label}
-        </span>
-      );
-    }
+    case "chooseAgents":
+      return agentsChosenLabel(agentDistroSetting(), agentDistroListing());
     case "pin":
       return "📌 Pinned ✓";
     case "reach":
@@ -76,6 +66,19 @@ const doneLabel = (id: WelcomeMomentId): JSX.Element | undefined => {
       return id satisfies never;
   }
 };
+
+/** A done entry as drawn: the agents choice behind agent-distro's logo (kolu
+ *  shows the logo wherever it names agent-distro); the others keep their
+ *  emoji, which their words carry. */
+const DoneEntry: Component<{ id: WelcomeMomentId; text: string }> = (props) =>
+  props.id === "chooseAgents" ? (
+    <span class="inline-flex items-center gap-1 align-bottom">
+      <AgentDistroLogo size={12} />
+      {props.text}
+    </span>
+  ) : (
+    <>{props.text}</>
+  );
 
 /** A welcome row's body voice — its line height and grey, typed ONCE: the
  *  shell's body reads it, and so does a hint laid out inside a row (the agents
@@ -270,7 +273,7 @@ const WelcomeMoments: Component<{
       ? firstRunAgentsDone({
           stored: agentDistroStored(),
           listing: agentDistroListing(),
-          local: hostAgentStatus(LOCAL_HOST, "").status,
+          local: hostAgentStatusOf(LOCAL_HOST),
         })
       : undefined,
   );
@@ -409,18 +412,22 @@ const WelcomeMoments: Component<{
   };
 
   // The done moments that have a header entry (the never-done ones have none).
-  const doneIds = () =>
-    selection().done.filter((id) => doneLabel(id) !== undefined);
+  const doneEntries = createMemo(() =>
+    selection().done.flatMap((id) => {
+      const text = doneText(id);
+      return text === undefined ? [] : [{ id, text }];
+    }),
+  );
 
   return (
     <div class="space-y-3" data-testid="welcome-moments">
-      <Show when={doneIds().length > 0}>
+      <Show when={doneEntries().length > 0}>
         <div data-testid="welcome-moments-done" class="text-xs text-fg-3">
-          <For each={doneIds()}>
-            {(id, i) => (
+          <For each={doneEntries()}>
+            {(entry, i) => (
               <>
                 {i() > 0 ? " · " : ""}
-                {doneLabel(id)}
+                <DoneEntry id={entry.id} text={entry.text} />
               </>
             )}
           </For>

@@ -406,14 +406,23 @@ export function agentsPressedSegment(
   return agentsChosen(stored) ? agentsSegmentOf(stored) : undefined;
 }
 
+/** kolu's default profile, as the listing carries it — THE one reading of
+ *  "the default is the listing's first": kolu-server refuses a listing that
+ *  does not lead with kolu's default profile. `undefined` when the listing has
+ *  not arrived, the build ships no agents, or it lists no profiles. */
+function defaultProfileOf(
+  listing: AgentDistroListing | undefined,
+): AgentDistroProfile | undefined {
+  return listing?.kind === "available" ? listing.profiles[0] : undefined;
+}
+
 /** The segment that holds the Agents control's keyboard focus while none is
- *  pressed: the listing's first profile (kolu-server refuses a listing that
- *  does not lead with the default), so Enter picks it. Off when the build
- *  ships no profiles. */
+ *  pressed: the default profile ({@link defaultProfileOf}), so Enter picks it.
+ *  Off when there is none. */
 export function agentsRestingSegment(
-  profiles: readonly AgentDistroProfile[],
+  listing: AgentDistroListing | undefined,
 ): string {
-  return profiles[0]?.name ?? AGENTS_OFF;
+  return defaultProfileOf(listing)?.name ?? AGENTS_OFF;
 }
 
 /** One host's agent-distro facts, for its line in Settings. */
@@ -554,7 +563,7 @@ export function agentsStepHint(input: {
   const { listing, segment } = input;
   if (listing?.kind !== "available") return undefined;
   const profile = listing.profiles.find((p) => p.name === segment);
-  const inView = profile ?? listing.profiles[0];
+  const inView = profile ?? defaultProfileOf(listing);
   const agents = inView === undefined ? "" : harnessLine(inView);
   const lead = agents === "" ? AGENTS_LEAD : `${AGENTS_LEAD} ${agents}`;
   if (segment === AGENTS_OFF) return { lead, choice: AGENTS_OFF_LINE };
@@ -595,9 +604,8 @@ export function agentsHint(input: {
       tone: "muted",
     };
   if (!setting.enabled) {
-    // kolu-server refuses a listing that does not lead with kolu's default
-    // profile, so the first profile is the one a first choice most likely is.
-    const lead = listing.profiles[0];
+    // The default profile's agents: the one a first choice most likely is.
+    const lead = defaultProfileOf(listing);
     const choices = listing.profiles.map(
       (p) => `${p.name} (${plainProfileDescription(p)})`,
     );

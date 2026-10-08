@@ -615,6 +615,8 @@ export const FileTree: Component<FileTreeProps> = (props) => {
           } catch (recoverErr) {
             // Recovery failed — bookkeeping may still be desynced; surface
             // loudly and leave appliedPaths so a later inventory can retry.
+            // Only a LATER (new) inventory: `answered` already names these
+            // arrays, so the same arrays handed again do not retry.
             const recovered = toError(recoverErr);
             props.onError(
               recovered.cause == null

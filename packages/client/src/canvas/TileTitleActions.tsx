@@ -14,7 +14,10 @@ import { activeArm, sleepingArm } from "@kolu/padi-client/surface";
 import type { TerminalId } from "kolu-common/surface";
 import { type Component, createMemo, Show } from "solid-js";
 import AgentProfileChip, { type ChipRestart } from "../agents/AgentProfileChip";
-import { agentDistroSetting, hostAgentStatus } from "../agents/useAgentDistro";
+import {
+  agentDistroSetting,
+  hostAgentStatusOf,
+} from "../agents/useAgentDistro";
 import {
   agentRestartAction,
   agentRestartReady,
@@ -79,7 +82,7 @@ const TileTitleActions: Component<{
       ? ({ kind: "current" } as const)
       : agentStalenessOf({
           terminal: m,
-          status: hostAgentStatus(props.host, "").status,
+          status: hostAgentStatusOf(props.host),
           setting: agentDistroSetting(),
         });
   });

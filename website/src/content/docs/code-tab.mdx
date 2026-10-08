@@ -43,8 +43,9 @@ uncommitted files and 12 changes versus your branch base without switching into
 either. Each view keeps its own file tree mounted, preserving expanded folders
 and scroll position when you switch away and back. Typing in the filter box
 narrows the tree to the files that match and opens their folders; a folder you
-close while filtering stays closed as git changes come in, until you change the
-filter. During loading or an error,
+close while filtering stays closed as git changes come in, until the set of
+matching files changes — a new match opens its folder again, while editing the
+filter to one that matches the same files does not. During loading or an error,
 the previous tree stays visible but dimmed and cannot be clicked. Saving the open file updates its contents in place, preserving the
 viewer and its scroll position.
 
