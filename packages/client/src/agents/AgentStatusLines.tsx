@@ -1,12 +1,14 @@
 /** The per-host status lines under Settings' Agents row: one line per machine
- *  (this one first, then each remote that is not ready), as a three-column grid
- *  — the host with agent-distro's mark, a thin bar, and a short mono text. The
+ *  (the machine running kolu first, then each remote that is not settled), as
+ *  a three-column grid — the host with agent-distro's mark, a thin bar, and a
+ *  short mono text. The
  *  bar wears the state's colour: accent while downloading, ok when ready,
  *  warning when failed, empty before the host answers — and full and green on
  *  a ready host even while it updates. A ready line's note — an update
- *  running, or the last one — sits under its text, quieter; a skip's or a
- *  failure's reason is in its hover. Which lines show, and
- *  their collapse into one when every host is ready, is `agentStatusLines`. */
+ *  running, or the last one — sits under its text, quieter; its hover (a skip's
+ *  or a failure's reason, and who wrote it) is the fold's. Which lines show,
+ *  and their collapse into one "all hosts" line when every host is settled, is
+ *  `agentStatusLines`. */
 
 import { type Component, For, Show } from "solid-js";
 import AgentDistroLogo from "@kolu/agent-distro/solid";
@@ -59,11 +61,7 @@ const AgentStatusLines: Component<{ lines: readonly AgentStatusLine[] }> = (
                 <span
                   data-testid="agents-status-note"
                   data-tone={note().tone}
-                  title={
-                    note().detail === undefined
-                      ? note().text
-                      : `${note().text}: ${note().detail}`
-                  }
+                  title={note().title}
                   class="truncate font-mono text-[0.65rem]"
                   classList={{
                     "text-fg-3/55": note().tone === "muted",

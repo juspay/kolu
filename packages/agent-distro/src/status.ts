@@ -12,7 +12,11 @@
 import { formatBytes } from "@kolu/byte-units";
 import { agentBundleShortHash } from "./bundle.ts";
 import { DEFAULT_AGENT_PROFILE } from "./manifest.ts";
-import type { AgentUpdateEvent, AgentUpdateRun } from "./history.ts";
+import type {
+  AgentUpdateAuthor,
+  AgentUpdateEvent,
+  AgentUpdateRun,
+} from "./history.ts";
 import type {
   AgentDistroFailureReason,
   AgentDistroReceipt,
@@ -517,28 +521,37 @@ function receiptFor(
   return receipt?.profile === profile ? receipt : undefined;
 }
 
+/** Who a reason's words are by, as a hover names them: the updater's own
+ *  result line or history, or padi's words about a run that gave none. */
+const AUTHOR: Record<AgentUpdateAuthor, string> = {
+  updater: "agent-distro's updater",
+  padi: "padi",
+};
+
+/** A hover that quotes `words` as `by`'s, under the short `text`. */
+function quoted(text: string, by: AgentUpdateAuthor, words: string): string {
+  return `${text} — ${AUTHOR[by]}: ${words}`;
+}
+
 /** What a ready host's line adds about its last update run. A skip or a
  *  failure never claims a cause: the note says what happened, and its hover
- *  carries the updater's own reason verbatim. */
+ *  quotes the reason verbatim, naming who wrote it. */
 function lastRunNote(run: AgentUpdateRun, ago: AgoPhrase): AgentStatusNote {
   const when = ago(run.at);
+  const note = (text: string, tone: AgentStatusNote["tone"]) => ({
+    text,
+    title: run.words === "" ? text : quoted(text, run.by, run.words),
+    tone,
+  });
   switch (run.outcome) {
     case "updated":
-      return { text: `updated ${when}`, tone: "muted" };
+      return note(`updated ${when}`, "muted");
     case "unchanged":
-      return { text: `checked ${when}, up to date`, tone: "muted" };
+      return note(`checked ${when}, up to date`, "muted");
     case "skipped":
-      return {
-        text: `checked ${when}, skipped`,
-        detail: run.words,
-        tone: "muted",
-      };
+      return note(`checked ${when}, skipped`, "muted");
     case "failed":
-      return {
-        text: `last update failed ${when}`,
-        detail: run.words,
-        tone: "warn",
-      };
+      return note(`last update failed ${when}`, "warn");
     default:
       return run.outcome satisfies never;
   }
@@ -546,6 +559,11 @@ function lastRunNote(run: AgentUpdateRun, ago: AgoPhrase): AgentStatusNote {
 
 /** A host whose update history would not read says so on its line. */
 export const AGENTS_RECEIPT_UNREADABLE = "could not read its update history";
+
+/** The hover for a receipt that would not read: padi's words for why. */
+function unreadableTitle(error: string): string {
+  return quoted(AGENTS_RECEIPT_UNREADABLE, "padi", error);
+}
 
 /** How a mark is filling — a first download's bytes, or an update's on a ready
  *  host — `undefined` when nothing is coming down. THE one reading the tab's
@@ -609,11 +627,11 @@ export interface AgentStatusLine {
   readonly note?: AgentStatusNote;
 }
 
-/** A status line's note: its text, the updater's own words for its hover (a
- *  skip's or a failure's reason), and its tone. */
+/** A status line's note: its text, its hover (the text, and a skip's or a
+ *  failure's reason quoted with who wrote it), and its tone. */
 export interface AgentStatusNote {
   readonly text: string;
-  readonly detail?: string;
+  readonly title: string;
   readonly tone: "muted" | "warn";
 }
 
@@ -641,17 +659,19 @@ function statusLine(host: HostAgentStatus): AgentStatusLine {
         case "checking":
           return {
             ...line("ok", 1, ready),
-            note: { text: AGENTS_UPDATE_CHECKING, tone: "muted" },
+            note: {
+              text: AGENTS_UPDATE_CHECKING,
+              title: AGENTS_UPDATE_CHECKING,
+              tone: "muted",
+            },
             update,
           };
         case "downloading": {
           const bytes = agentMarkFill(mark)?.bytes;
+          const text = `updating${bytes === undefined ? "…" : ` · ${bytes}`}`;
           return {
             ...line("ok", 1, ready),
-            note: {
-              text: `updating${bytes === undefined ? "…" : ` · ${bytes}`}`,
-              tone: "muted",
-            },
+            note: { text, title: text, tone: "muted" },
             update,
           };
         }
@@ -666,7 +686,7 @@ function statusLine(host: HostAgentStatus): AgentStatusLine {
           ...line("ok", 1, ready),
           note: {
             text: AGENTS_RECEIPT_UNREADABLE,
-            detail: receipt.error,
+            title: unreadableTitle(receipt.error),
             tone: "warn",
           },
         };
@@ -693,20 +713,28 @@ function statusLine(host: HostAgentStatus): AgentStatusLine {
   }
 }
 
-/** Is the host ready, with no update running there? */
+/** Is the host ready with nothing to say on its own line: no update running,
+ *  its update history readable, and its last run not a failure? A host that
+ *  is not keeps its own line, note and all. */
 function settledReady(host: HostAgentStatus): boolean {
   const mark = agentMarkOf(host.status, host.checking);
-  return mark.kind === "ready" && mark.update === undefined;
+  if (mark.kind !== "ready" || agentMarkUpdate(mark) !== undefined)
+    return false;
+  const receipt = receiptFor(host.receipt, mark.profile);
+  return receipt?.error === undefined && receipt?.lastRun?.outcome !== "failed";
 }
 
-/** The status lines under the Agents row: this machine first, then every remote
- *  host that is not ready (or is updating). A ready line carries a note: its
- *  update running, or its last run ("updated 3h ago", "checked 2h ago, up to
- *  date"). When EVERY host
- *  is ready with nothing running they collapse into the first line ("ready ·
- *  vanilla 8rcmf6rd · on 3 hosts" — the hash only when every machine holds that
- *  same build), so the row stays short in the common case; the History lists
- *  each machine's runs. */
+/** The label of the one line every host folds into. */
+export const AGENTS_ALL_HOSTS = "all hosts";
+
+/** The status lines under the Agents row: the machine running kolu first, then
+ *  every remote host that is not settled — not ready, updating, its history
+ *  unreadable, or its last run failed. A ready line carries a note: its update
+ *  running, or its last run ("updated 3h ago", "checked 2h ago, up to date").
+ *  When EVERY host is settled they collapse into one line, labelled
+ *  {@link AGENTS_ALL_HOSTS} ("ready · vanilla 8rcmf6rd · on 3 hosts" — the hash
+ *  only when every machine holds that same build), so the row stays short in
+ *  the common case; the History lists each machine's runs. */
 export function agentStatusLines(input: {
   readonly local: HostAgentStatus;
   readonly remotes: readonly HostAgentStatus[];
@@ -747,9 +775,15 @@ export function agentStatusLines(input: {
         : shared
           ? `ready · ${first.profile} ${first.hash}`
           : `ready · ${first.profile}`;
-    // Folded: one line for many machines, so no one machine's note.
+    // Folded: one line for many machines, so no one machine's name or note.
     const { note: _note, lastRun: _lastRun, ...folded } = local;
-    return [{ ...folded, text: `${what} · on ${remotes.length + 1} hosts` }];
+    return [
+      {
+        ...folded,
+        host: AGENTS_ALL_HOSTS,
+        text: `${what} · on ${remotes.length + 1} hosts`,
+      },
+    ];
   }
   return [local, ...notReady];
 }
@@ -1086,18 +1120,20 @@ export function agentUpdateCheckable(
   return status?.kind === "ready" && status.update === undefined;
 }
 
-/** Is an update run in flight on any of these hosts — the Check now button's
- *  busy state, read off the status cells. */
+/** Is a run of the updater in flight on any of these hosts, for any profile —
+ *  a first download or an update? Read off each host's receipt (its
+ *  `running`), which covers every profile, not only the selected one: the
+ *  Check now button's busy state. */
 export function agentUpdateRunning(
-  statuses: readonly (AgentDistroStatus | undefined)[],
+  receipts: readonly (AgentDistroReceipt | undefined)[],
 ): boolean {
-  return statuses.some((s) => s?.kind === "ready" && s.update !== undefined);
+  return receipts.some((r) => r !== undefined && r.running.length > 0);
 }
 
 /** The History disclosure under the status lines. */
 export const AGENTS_HISTORY = {
-  /** The disclosure's summary — with how many events it holds, so a closed
-   *  one says there is something inside. */
+  /** The disclosure's summary — with how many rows it holds, so a closed one
+   *  says there is something inside. */
   title: (count: number) => (count === 0 ? "History" : `History (${count})`),
   empty: "No updates yet.",
 } as const;
@@ -1109,13 +1145,16 @@ const EVENT_LABEL: Record<AgentUpdateEvent["kind"], string> = {
   failed: "failed",
 };
 
-/** One row of the History: which machine, when, and what happened in the
- *  updater's own words. `warn` for a failure. */
+/** One row of the History: which machine, when, and what happened — an
+ *  event in the updater's own words, or (`unreadable`) a host whose history
+ *  would not read. One line: `text` may be cut short; `title`, the hover, is
+ *  all of it, naming who wrote the words. `warn` for a failure. */
 export interface AgentUpdateHistoryRow {
   readonly host: string;
   readonly when: string;
-  readonly kind: AgentUpdateEvent["kind"];
+  readonly kind: AgentUpdateEvent["kind"] | "unreadable";
   readonly text: string;
+  readonly title: string;
   readonly tone: "muted" | "warn";
 }
 
@@ -1124,26 +1163,40 @@ function historyRow(
   event: AgentUpdateEvent,
   ago: AgoPhrase,
 ): AgentUpdateHistoryRow {
+  const label = EVENT_LABEL[event.kind];
   return {
     host,
     when: ago(Date.parse(event.at)),
     kind: event.kind,
-    text: `${EVENT_LABEL[event.kind]}: ${event.words}`,
+    text: `${label}: ${event.words}`,
+    title: quoted(label, "updater", event.words),
     tone: event.kind === "failed" ? "warn" : "muted",
   };
 }
 
 /** The History's rows: each machine's last events (its receipt's, for the
- *  selected profile), this machine first, newest first within each. */
+ *  selected profile), the machine running kolu first, newest first within
+ *  each. A host whose history would not read gets one row saying so — never
+ *  an empty History that reads as "no updates yet". */
 export function agentUpdateHistoryRows(input: {
   readonly hosts: readonly Pick<HostAgentStatus, "label" | "receipt" | "ago">[];
   readonly profile: string;
 }): readonly AgentUpdateHistoryRow[] {
-  return input.hosts.flatMap((h) =>
-    (receiptFor(h.receipt, input.profile)?.events ?? []).map((e) =>
-      historyRow(h.label, e, h.ago),
-    ),
-  );
+  return input.hosts.flatMap((h): readonly AgentUpdateHistoryRow[] => {
+    const receipt = receiptFor(h.receipt, input.profile);
+    if (receipt?.error !== undefined)
+      return [
+        {
+          host: h.label,
+          when: "",
+          kind: "unreadable",
+          text: AGENTS_RECEIPT_UNREADABLE,
+          title: unreadableTitle(receipt.error),
+          tone: "warn",
+        },
+      ];
+    return (receipt?.events ?? []).map((e) => historyRow(h.label, e, h.ago));
+  });
 }
 
 /** The facts of a status that its moments are read from — plain strings, so a

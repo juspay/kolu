@@ -6,6 +6,7 @@ import { DEFAULT_AGENT_PROFILE } from "./manifest.ts";
 import type { AgentDistroReceipt, AgentDistroStatus } from "./schema.ts";
 import {
   AGENTS_CHECK_NOW,
+  AGENTS_ALL_HOSTS,
   AGENTS_HISTORY,
   AGENTS_RECEIPT_UNREADABLE,
   AGENTS_UPDATE_CHECKING,
@@ -585,7 +586,7 @@ describe("agentStatusLines", () => {
     ]);
   });
 
-  it("every host ready: collapses into the first line, with the count", () => {
+  it("every host ready: collapses into one 'all hosts' line, with the count", () => {
     expect(
       agentStatusLines({
         local: host("naiveintent", ready),
@@ -593,7 +594,8 @@ describe("agentStatusLines", () => {
       }),
     ).toEqual([
       {
-        host: "naiveintent",
+        // Labelled by the fold, never one machine's name.
+        host: AGENTS_ALL_HOSTS,
         bar: "ok",
         fill: 1,
         text: "ready · vanilla nd11nx5f · on 3 hosts",
@@ -615,7 +617,7 @@ describe("agentStatusLines", () => {
       }),
     ).toEqual([
       {
-        host: "naiveintent",
+        host: AGENTS_ALL_HOSTS,
         bar: "ok",
         fill: 1,
         text: "ready · vanilla · on 2 hosts",
@@ -1094,6 +1096,7 @@ describe("K3 — updates while a bundle serves", () => {
     profile: "vanilla",
     versions: [],
     events: [],
+    running: [],
     ...over,
   });
   const host = (
@@ -1141,41 +1144,114 @@ describe("K3 — updates while a bundle serves", () => {
     const line = (r: AgentDistroReceipt) =>
       agentStatusLines({ local: host(ready, r), remotes: [] })[0]?.note;
     expect(
-      line(receipt({ lastRun: { at: 1, outcome: "updated", words: "x" } })),
-    ).toEqual({ text: "updated @1", tone: "muted" });
-    expect(
-      line(receipt({ lastRun: { at: 2, outcome: "unchanged", words: "" } })),
-    ).toEqual({ text: "checked @2, up to date", tone: "muted" });
-    // A skip claims no cause: the updater's reason rides in the hover.
-    const reason =
-      "cache https://cache.example not usable; add it to nix.settings substituters/trusted-public-keys";
-    expect(
-      line(receipt({ lastRun: { at: 3, outcome: "skipped", words: reason } })),
-    ).toEqual({ text: "checked @3, skipped", detail: reason, tone: "muted" });
+      line(
+        receipt({
+          lastRun: { at: 1, outcome: "updated", words: "x", by: "updater" },
+        }),
+      ),
+    ).toEqual({
+      text: "updated @1",
+      title: "updated @1 — agent-distro's updater: x",
+      tone: "muted",
+    });
     expect(
       line(
         receipt({
-          lastRun: { at: 4, outcome: "failed", words: "nix build exit 1" },
+          lastRun: { at: 2, outcome: "unchanged", words: "", by: "updater" },
+        }),
+      ),
+    ).toEqual({
+      text: "checked @2, up to date",
+      title: "checked @2, up to date",
+      tone: "muted",
+    });
+    // A skip claims no cause: the reason rides in the hover, with its author.
+    const reason =
+      "cache https://cache.example not usable; add it to nix.settings substituters/trusted-public-keys";
+    expect(
+      line(
+        receipt({
+          lastRun: { at: 3, outcome: "skipped", words: reason, by: "updater" },
+        }),
+      ),
+    ).toEqual({
+      text: "checked @3, skipped",
+      title: `checked @3, skipped — agent-distro's updater: ${reason}`,
+      tone: "muted",
+    });
+    // padi's own words are labelled padi's, never the updater's.
+    expect(
+      line(
+        receipt({
+          lastRun: {
+            at: 4,
+            outcome: "failed",
+            words: "the updater exited 3 without a result: TypeError: boom",
+            by: "padi",
+          },
         }),
       ),
     ).toEqual({
       text: "last update failed @4",
-      detail: "nix build exit 1",
+      title:
+        "last update failed @4 — padi: the updater exited 3 without a result: TypeError: boom",
       tone: "warn",
     });
     // Files that would not read say so on the line.
     expect(line(receipt({ error: "history line is not …" }))).toEqual({
       text: AGENTS_RECEIPT_UNREADABLE,
-      detail: "history line is not …",
+      title: `${AGENTS_RECEIPT_UNREADABLE} — padi: history line is not …`,
       tone: "warn",
     });
     // A receipt for another profile is one padi has not caught up from.
     expect(
       line({
-        ...receipt({ lastRun: { at: 1, outcome: "updated", words: "x" } }),
+        ...receipt({
+          lastRun: { at: 1, outcome: "updated", words: "x", by: "updater" },
+        }),
         profile: "juspay",
       }),
     ).toBeUndefined();
+  });
+
+  it("a host whose history will not read, or whose last run failed, keeps its own line among ready hosts", () => {
+    const failedRun = receipt({
+      lastRun: {
+        at: 4,
+        outcome: "failed",
+        words: "nix build exit 1",
+        by: "updater",
+      },
+    });
+    const unreadable = receipt({ error: "history line is not …" });
+    // A remote: its own line, note and all, never folded away.
+    const remote = agentStatusLines({
+      local: host(ready),
+      remotes: [{ ...host(ready, unreadable), label: "box" }],
+    });
+    expect(remote.map((l) => l.host)).toEqual(["naiveintent", "box"]);
+    expect(remote[1]?.note?.text).toBe(AGENTS_RECEIPT_UNREADABLE);
+    // The machine running kolu: its line keeps its note, the remotes their
+    // settled silence.
+    const local = agentStatusLines({
+      local: host(ready, failedRun),
+      remotes: [{ ...host(ready), label: "box" }],
+    });
+    expect(local.map((l) => l.host)).toEqual(["naiveintent"]);
+    expect(local[0]?.note).toMatchObject({
+      text: "last update failed @4",
+      tone: "warn",
+    });
+    // A skip or an up-to-date run is settled: they still fold.
+    const skipped = receipt({
+      lastRun: { at: 3, outcome: "skipped", words: "x", by: "updater" },
+    });
+    expect(
+      agentStatusLines({
+        local: host(ready, skipped),
+        remotes: [{ ...host(ready, skipped), label: "box" }],
+      }).map((l) => l.host),
+    ).toEqual([AGENTS_ALL_HOSTS]);
   });
 
   it("the line shows a run in flight, and its bytes once it downloads", () => {
@@ -1185,7 +1261,11 @@ describe("K3 — updates while a bundle serves", () => {
         bar: "ok",
         fill: 1,
         text: "ready · vanilla nd11nx5f",
-        note: { text: AGENTS_UPDATE_CHECKING, tone: "muted" },
+        note: {
+          text: AGENTS_UPDATE_CHECKING,
+          title: AGENTS_UPDATE_CHECKING,
+          tone: "muted",
+        },
         update: "checking",
       },
     ]);
@@ -1197,7 +1277,11 @@ describe("K3 — updates while a bundle serves", () => {
           bar: "ok",
           fill: 1,
           text: "ready · vanilla nd11nx5f",
-          note: { text: "updating · 512 MiB of 2.0 GiB", tone: "muted" },
+          note: {
+            text: "updating · 512 MiB of 2.0 GiB",
+            title: "updating · 512 MiB of 2.0 GiB",
+            tone: "muted",
+          },
           update: "downloading",
         },
       ],
@@ -1245,6 +1329,11 @@ describe("K3 — updates while a bundle serves", () => {
           }),
         },
         { label: "zest", receipt: undefined, ago: AGO },
+        {
+          ago: AGO,
+          label: "pu-3",
+          receipt: receipt({ error: "history line is not …" }),
+        },
       ],
     });
     expect(rows).toEqual([
@@ -1253,6 +1342,8 @@ describe("K3 — updates while a bundle serves", () => {
         when: `@${Date.parse("2026-10-08T02:00:05Z")}`,
         kind: "updated",
         text: "updated: Claude Code 2.1.286 → 2.1.291",
+        title:
+          "updated — agent-distro's updater: Claude Code 2.1.286 → 2.1.291",
         tone: "muted",
       },
       {
@@ -1260,9 +1351,33 @@ describe("K3 — updates while a bundle serves", () => {
         when: `@${Date.parse("2026-10-08T02:00:09Z")}`,
         kind: "failed",
         text: "failed: nix build exit 1",
+        title: "failed — agent-distro's updater: nix build exit 1",
+        tone: "warn",
+      },
+      // A history that would not read is a row saying so — never "No
+      // updates yet." for that host.
+      {
+        host: "pu-3",
+        when: "",
+        kind: "unreadable",
+        text: AGENTS_RECEIPT_UNREADABLE,
+        title: `${AGENTS_RECEIPT_UNREADABLE} — padi: history line is not …`,
         tone: "warn",
       },
     ]);
+    // Only an unreadable history: the History is not empty.
+    expect(
+      agentUpdateHistoryRows({
+        profile: "vanilla",
+        hosts: [
+          {
+            ago: AGO,
+            label: "naiveintent",
+            receipt: receipt({ error: "boom" }),
+          },
+        ],
+      }),
+    ).toHaveLength(1);
   });
 
   it("the update toast quotes the updater and names the machine", () => {
@@ -1281,8 +1396,11 @@ describe("K3 — updates while a bundle serves", () => {
     expect(agentUpdateCheckable(checking)).toBe(false);
     expect(agentUpdateCheckable({ kind: "off" })).toBe(false);
     expect(agentUpdateCheckable(undefined)).toBe(false);
-    expect(agentUpdateRunning([ready, undefined])).toBe(false);
-    expect(agentUpdateRunning([ready, downloading])).toBe(true);
+    // Any run on any host, for ANY profile — not only the selected one's.
+    expect(agentUpdateRunning([receipt({}), undefined])).toBe(false);
+    expect(
+      agentUpdateRunning([receipt({}), receipt({ running: ["juspay"] })]),
+    ).toBe(true);
     expect(AGENTS_CHECK_NOW.label).toBe("Check now");
     expect(AGENTS_HISTORY.title(0)).toBe("History");
     expect(AGENTS_HISTORY.title(4)).toBe("History (4)");

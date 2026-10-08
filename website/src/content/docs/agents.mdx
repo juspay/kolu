@@ -73,13 +73,17 @@ description of it.
 
 With a set on, under the hint is one status line per machine, each named the way
 its host tab names it (the machine running kolu by its hostname) — the machine
-running kolu first, then every other host that is not ready yet or is updating — each with a
-bar that fills while that machine downloads, turns to the warning colour if the
-download failed, and stays empty until the machine has answered. Under a ready
-line, a quieter one says when that machine last looked for newer agents
-("updated 3h ago", "checked 2h ago, up to date"), or that it is updating now. When every machine is ready the lines fold into
-one. Below them sit **Check now** and the **History** ([Kept up to
-date](#kept-up-to-date)).
+running kolu first, then every other host that is not ready yet, is updating,
+whose last look for newer agents failed, or whose update history kolu could not
+read — each with a bar that fills while that machine downloads, turns to the
+warning colour if the download failed, and stays empty until the machine has
+answered. Under a ready line, a quieter one says when that machine last looked
+for newer agents ("updated 3h ago", "checked 2h ago, up to date", "last update
+failed 1h ago"), or that it is updating now; hover it for the reason a look was
+skipped or failed, and who gave it — agent-distro, or kolu itself when
+agent-distro gave none. When every machine is ready with nothing to report, the
+lines fold into one, **all hosts**, with how many there are. Below them sit
+**Check now** and the **History** ([Kept up to date](#kept-up-to-date)).
 
 The setting is one for all of kolu — not per host, not per terminal.
 
@@ -174,8 +178,8 @@ every machine with agents on looks for a newer build of the set you chose, and
 downloads it if there is one. Only the chosen set is kept current; switching
 sets downloads the new one as before. A machine that was asleep through one of
 those times looks once within minutes of waking. One whose look fails — it was
-offline, say — tries again twice, five minutes apart, as agent-distro's own
-schedule does.
+offline, say — tries again up to twice, five minutes after the failed look
+ended, as agent-distro's own schedule does.
 
 Nothing is ever compiled. A newer set is downloaded only once agent-distro's
 cache holds all of it; until then the machine skips it and looks again at the
@@ -196,8 +200,10 @@ A look that finds nothing newer, or skips (the newer set is not fully in the
 cache yet, or the machine's Nix cannot use the cache), says nothing; the host's
 line says it was skipped, and its hover and the History give agent-distro's
 reason. A look that fails says nothing either — the agents you have keep
-working — and shows on the host's line (and in the History, when agent-distro
-wrote it down: a run that crashed did not).
+working — and the host keeps its own status line saying so, even when every
+other machine is ready (and it is in the History, when agent-distro wrote it
+down: a run that crashed did not, so its line's hover gives kolu's words for
+it).
 
 A terminal keeps the set it started with until you restart it — or until a Nix
 garbage collection on that machine removes that set, which an update leaves
@@ -208,7 +214,10 @@ In **Settings → Agents**:
 - **Check now** looks for newer agents on every machine at once, whatever the
   time. While any machine is looking it reads "Checking…".
 - **History** lists each machine's last five events — updated, skipped or failed —
-  with the time and agent-distro's own words.
+  one line each, with the time and agent-distro's own words (hover a line for
+  all of them). A machine whose update history kolu could not read gets a line
+  saying so. The list scrolls once it is long, so Settings stays on screen
+  however many machines you have.
 
 ## When a download fails
 
@@ -216,8 +225,8 @@ The host needs Nix with flakes, reachable on padi's PATH, and its Nix must be
 allowed to use agent-distro's cache (`https://cache.nixos.asia/oss`). If it is
 not, the first download is skipped — the host never compiles agents — and the
 host's mark turns to the warning colour. (A later update that cannot download
-is different: the agents the host already has keep working, and it shows only
-in the History — see [Kept up to date](#kept-up-to-date).) Its hover, the toast and the host's line in
+is different: the agents the host already has keep working, and it shows on the
+host's status line and in the History — see [Kept up to date](#kept-up-to-date).) Its hover, the toast and the host's line in
 Settings all say the same thing: the cause, the setup fix when the cause is a
 missing `nix`, and how to retry. Until it is fixed, new terminals on that host
 get no agents. Fix it, then switch Agents off and back on in Settings: that is

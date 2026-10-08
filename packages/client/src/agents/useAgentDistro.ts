@@ -281,9 +281,10 @@ export function agentUpdateHistoryNow(): readonly AgentUpdateHistoryRow[] {
   });
 }
 
-/** Is an update run going on any machine — the Check now button's busy state. */
+/** Is a run of the updater going on any machine, for any profile — the Check
+ *  now button's busy state. */
 export function agentUpdateRunningNow(): boolean {
-  return agentUpdateRunning(byHost.roots().map(({ read }) => read()));
+  return agentUpdateRunning(byHost.roots().map(({ receipt }) => receipt()));
 }
 
 /** "Check now": ask every machine that serves agents to run its update check
