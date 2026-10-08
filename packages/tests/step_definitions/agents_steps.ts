@@ -22,6 +22,7 @@ import {
   AGENTS_SEGMENT_TESTID,
   agentToast,
   agentsChosenLabel,
+  agentsStepHint,
   harnessLine,
   restartedLabel,
 } from "@kolu/agent-distro/status";
@@ -371,16 +372,42 @@ Then(
 Then(
   "the welcome card's first row should ask which agents I want",
   async function (this: KoluWorld) {
-    const first = this.page
-      .locator(
-        '[data-testid="welcome-moments"] [data-testid^="welcome-moment-"]',
-      )
-      .first();
-    await first.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
-    assert.strictEqual(
-      await first.getAttribute("data-testid"),
-      "welcome-moment-choose-agents",
+    // Polled: until preferences and the listing arrive, the first row is Pin it.
+    await this.page.waitForFunction(
+      () =>
+        document
+          .querySelector(
+            '[data-testid="welcome-moments"] [data-testid^="welcome-moment-"]',
+          )
+          ?.getAttribute("data-testid") === "welcome-moment-choose-agents",
+      undefined,
+      { timeout: POLL_TIMEOUT },
     );
+  },
+);
+
+/** The fixture's listing, as the step's words are composed from it. */
+const FIXTURE_LISTING = {
+  kind: "available",
+  profiles: FIXTURE_PROFILES.map(fixtureProfile),
+} as const;
+
+Then(
+  "the first-run step should say what {string} means",
+  async function (this: KoluWorld, value: string) {
+    const hint = agentsStepHint({
+      listing: FIXTURE_LISTING,
+      segment: value === "off" ? AGENTS_OFF : value,
+    });
+    assert.ok(hint?.choice, `no words for ${value}`);
+    await this.page
+      .locator(`${FIRST_RUN} [data-testid="welcome-agents-choice"]`)
+      .filter({ hasText: new RegExp(`^${escapeRegExp(hint.choice)}$`) })
+      .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    await this.page
+      .locator(FIRST_RUN)
+      .getByText(hint.lead, { exact: true })
+      .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
   },
 );
 
@@ -388,10 +415,6 @@ Then(
   "the first-run agents choice should have nothing chosen",
   async function (this: KoluWorld) {
     assert.strictEqual(await pressedSegment(this, FIRST_RUN), undefined);
-    await this.page
-      .locator(FIRST_RUN)
-      .getByText(AGENTS_NOT_CHOSEN, { exact: false })
-      .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
   },
 );
 
@@ -492,11 +515,9 @@ Then(
     await this.page
       .locator('[data-testid="welcome-dialog"] [data-testid="welcome-moments"]')
       .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
-    assert.strictEqual(
-      await this.page
-        .locator(`[data-testid="welcome-dialog"] ${FIRST_RUN}`)
-        .count(),
-      0,
-    );
+    // Polled: the browser's status cell may trail the padi read before this.
+    await this.page
+      .locator(`[data-testid="welcome-dialog"] ${FIRST_RUN}`)
+      .waitFor({ state: "detached", timeout: POLL_TIMEOUT });
   },
 );

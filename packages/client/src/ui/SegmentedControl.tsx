@@ -14,15 +14,18 @@
  *
  *  Keyboard, for every caller: ONE tab stop (a roving tabindex) — the pressed
  *  option, or `restingValue` while none is — and ← → (Home / End) move focus
- *  within the group, wrapping; Enter or Space picks the focused option (it is
- *  a button). Neither Corvu nor `@solid-primitives` ships a roving-focus
- *  primitive, so it lives here, once. */
+ *  within the group, wrapping; Enter or Space picks the focused option, once.
+ *  Neither Corvu nor `@solid-primitives` ships a roving-focus primitive, so it
+ *  lives here, once. Buttons are keyed by `value` (`Key`), so a caller that
+ *  hands in fresh option objects for the same values (a re-emitted listing)
+ *  keeps the very buttons — and the focus — it had. */
 
+import { Key } from "@solid-primitives/keyed";
 import {
   type Component,
   createSignal,
-  For,
   type JSX,
+  onCleanup,
   onMount,
   Show,
 } from "solid-js";
@@ -92,8 +95,13 @@ export default function SegmentedControl<T extends string>(props: {
   /** The option that holds the tab stop while none is pressed (default: the
    *  first). */
   restingValue?: T;
-  /** Focus the tab stop when the control mounts. */
+  /** Focus the tab stop when the control mounts — only if nothing else holds
+   *  the focus (or what holds it is in the same dialog), so a control that
+   *  mounts late never steals it from, say, an open palette. */
   autofocus?: boolean;
+  /** Told the option under the keyboard focus as it moves within the group,
+   *  and `undefined` when focus leaves it. */
+  onFocusChange?: (value: T | undefined) => void;
   /** Prefix for `data-testid` attributes on the group and each option. */
   testIdPrefix: string;
   /** ARIA role for the group container. `"toolbar"` opts into the rich
@@ -111,8 +119,12 @@ export default function SegmentedControl<T extends string>(props: {
    *  by the plain (settings) variant. */
   touch?: boolean;
 }): JSX.Element {
-  const buttons: HTMLButtonElement[] = [];
+  const buttons = new Map<T, HTMLButtonElement>();
   const [focused, setFocused] = createSignal<T | undefined>();
+  const focusOn = (value: T | undefined) => {
+    setFocused(() => value);
+    props.onFocusChange?.(value);
+  };
   const tabStop = () =>
     rovingTabStop({
       options: props.options,
@@ -121,24 +133,51 @@ export default function SegmentedControl<T extends string>(props: {
       restingValue: props.restingValue,
     });
   const tabIndexOf = (value: T) => (tabStop() === value ? 0 : -1);
-  const onKeyDown = (e: KeyboardEvent) => {
-    const from = props.options.findIndex((o) => o.value === focused());
+  const keep = (value: T) => (el: HTMLButtonElement) => {
+    buttons.set(value, el);
+    onCleanup(() => {
+      if (buttons.get(value) === el) buttons.delete(value);
+    });
+  };
+  const onKeyDown = (value: T) => (e: KeyboardEvent) => {
+    if (e.metaKey || e.ctrlKey || e.altKey || e.shiftKey) return;
+    // Enter / Space pick the focused option HERE, with the browser's own
+    // activation prevented, so a pick is exactly one change.
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      props.onChange(value);
+      return;
+    }
+    const from = props.options.findIndex((o) => o.value === value);
     const to = rovingMove(e.key, Math.max(from, 0), props.options.length);
     if (to === undefined) return;
     e.preventDefault();
-    buttons[to]?.focus();
+    const next = props.options[to];
+    if (next !== undefined) buttons.get(next.value)?.focus();
   };
   // Leaving the group hands the tab stop back to the pressed option.
   const onFocusOut = (e: FocusEvent) => {
-    if (!buttons.includes(e.relatedTarget as HTMLButtonElement))
-      setFocused(undefined);
+    const to = e.relatedTarget;
+    if (
+      !(to instanceof HTMLButtonElement) ||
+      ![...buttons.values()].includes(to)
+    )
+      focusOn(undefined);
   };
   onMount(() => {
     if (!props.autofocus) return;
     // After the frame, so a dialog's own initial focus does not win over it.
     requestAnimationFrame(() => {
-      const i = props.options.findIndex((o) => o.value === tabStop());
-      buttons[i]?.focus();
+      const stop = tabStop();
+      const target = stop === undefined ? undefined : buttons.get(stop);
+      if (target === undefined) return;
+      const active = document.activeElement;
+      const dialog = target.closest('[role="dialog"]');
+      const free =
+        active === null ||
+        active === document.body ||
+        dialog?.contains(active) === true;
+      if (free) target.focus();
     });
   });
   return (
@@ -149,32 +188,30 @@ export default function SegmentedControl<T extends string>(props: {
           data-testid={`${props.testIdPrefix}-toggle`}
           class="flex rounded-lg overflow-hidden border border-edge"
         >
-          <For each={props.options}>
-            {(opt, i) => (
+          <Key each={props.options} by="value">
+            {(opt) => (
               <button
                 type="button"
-                ref={(el) => {
-                  buttons[i()] = el;
-                }}
-                data-testid={`${props.testIdPrefix}-${opt.value}`}
-                aria-pressed={props.value === opt.value}
-                tabIndex={tabIndexOf(opt.value)}
-                onFocus={() => setFocused(() => opt.value)}
+                ref={keep(opt().value)}
+                data-testid={`${props.testIdPrefix}-${opt().value}`}
+                aria-pressed={props.value === opt().value}
+                tabIndex={tabIndexOf(opt().value)}
+                onFocus={() => focusOn(opt().value)}
                 onFocusOut={onFocusOut}
-                onKeyDown={onKeyDown}
-                title={opt.hint}
+                onKeyDown={onKeyDown(opt().value)}
+                title={opt().hint}
                 class="px-2 py-0.5 text-xs transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/50"
                 classList={{
-                  "bg-accent text-surface-0": props.value === opt.value,
+                  "bg-accent text-surface-0": props.value === opt().value,
                   "bg-surface-2 text-fg-2 hover:text-fg":
-                    props.value !== opt.value,
+                    props.value !== opt().value,
                 }}
-                onClick={() => props.onChange(opt.value)}
+                onClick={() => props.onChange(opt().value)}
               >
-                {opt.label}
+                {opt().label}
               </button>
             )}
-          </For>
+          </Key>
         </div>
       }
     >
@@ -186,10 +223,10 @@ export default function SegmentedControl<T extends string>(props: {
         data-touch={props.touch || undefined}
         class="flex items-center gap-0.5 data-[touch=true]:gap-1 shrink-0 rounded bg-surface-2/40 p-0.5 data-[touch=true]:p-1"
       >
-        <For each={props.options}>
-          {(opt, i) => (
+        <Key each={props.options} by="value">
+          {(opt) => (
             <>
-              <Show when={opt.dividerBefore}>
+              <Show when={opt().dividerBefore}>
                 <div
                   class="self-stretch w-px bg-edge/60 mx-0.5"
                   aria-hidden="true"
@@ -197,40 +234,38 @@ export default function SegmentedControl<T extends string>(props: {
               </Show>
               <button
                 type="button"
-                ref={(el) => {
-                  buttons[i()] = el;
-                }}
-                data-testid={`${props.testIdPrefix}-${opt.value}`}
-                aria-pressed={props.value === opt.value}
-                tabIndex={tabIndexOf(opt.value)}
-                onFocus={() => setFocused(() => opt.value)}
+                ref={keep(opt().value)}
+                data-testid={`${props.testIdPrefix}-${opt().value}`}
+                aria-pressed={props.value === opt().value}
+                tabIndex={tabIndexOf(opt().value)}
+                onFocus={() => focusOn(opt().value)}
                 onFocusOut={onFocusOut}
-                onKeyDown={onKeyDown}
-                data-active={props.value === opt.value ? "" : undefined}
-                data-mode={opt.value}
-                title={opt.hint}
+                onKeyDown={onKeyDown(opt().value)}
+                data-active={props.value === opt().value ? "" : undefined}
+                data-mode={opt().value}
+                title={opt().hint}
                 data-touch={props.touch || undefined}
                 class="flex items-center gap-1.5 px-2 data-[touch=true]:px-2.5 h-5 data-[touch=true]:h-7 rounded text-[10px] data-[touch=true]:text-[11px] font-mono cursor-pointer transition-colors text-fg-2 hover:text-fg hover:bg-surface-2/60 data-active:bg-surface-0 data-active:text-fg data-active:shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
-                onClick={() => props.onChange(opt.value)}
+                onClick={() => props.onChange(opt().value)}
               >
-                <Show when={opt.icon}>
+                <Show when={opt().icon}>
                   {(icon) => (
                     <Dynamic component={icon()} class="w-3 h-3 opacity-70" />
                   )}
                 </Show>
-                <span>{opt.label}</span>
-                <Show when={opt.badge !== undefined && opt.badge > 0}>
+                <span>{opt().label}</span>
+                <Show when={(opt().badge ?? 0) > 0}>
                   <span
                     class="inline-flex items-center justify-center h-3.5 min-w-3.5 px-1 rounded-full bg-accent/20 text-fg text-[0.6rem] font-semibold tabular-nums"
-                    data-testid={`${props.testIdPrefix}-${opt.value}-count`}
+                    data-testid={`${props.testIdPrefix}-${opt().value}-count`}
                   >
-                    {opt.badge}
+                    {opt().badge}
                   </span>
                 </Show>
               </button>
             </>
           )}
-        </For>
+        </Key>
       </div>
     </Show>
   );

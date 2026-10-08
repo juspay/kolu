@@ -15,6 +15,27 @@ const TONE_CONFIG = {
 
 export type Hint = { text: string; tone?: keyof typeof TONE_CONFIG };
 
+/** THE hint renderer — how a hint looks (its tone's colour and glyph), decided
+ *  once, for a Settings row and anywhere else a setting's hint is shown (the
+ *  welcome card's first-run Agents step). `class` is spacing only. */
+export const SettingHint: Component<{ hint: Hint; class?: string }> = (
+  props,
+) => {
+  const cfg = () => TONE_CONFIG[props.hint.tone ?? "muted"];
+  return (
+    // `whitespace-pre-line`: a hint may carry a second line (the Agent
+    // profile row's harness list); a one-line hint renders as before.
+    <p
+      class={`text-xs leading-relaxed whitespace-pre-line ${cfg().colorClass} ${props.class ?? ""}`}
+    >
+      <Show when={cfg().glyph}>
+        <span aria-hidden="true">{cfg().glyph}</span>
+      </Show>
+      {props.hint.text}
+    </p>
+  );
+};
+
 const SettingRow: Component<{
   label: string;
   /** Optional mark shown before the label (the Agents row's agent-distro logo). */
@@ -42,21 +63,7 @@ const SettingRow: Component<{
       {props.children}
     </div>
     <Show when={props.hint}>
-      {(hint) => {
-        const cfg = () => TONE_CONFIG[hint().tone ?? "muted"];
-        return (
-          // `whitespace-pre-line`: a hint may carry a second line (the Agent
-          // profile row's harness list); a one-line hint renders as before.
-          <p
-            class={`mt-1.5 text-xs leading-relaxed whitespace-pre-line ${cfg().colorClass}`}
-          >
-            <Show when={cfg().glyph}>
-              <span aria-hidden="true">{cfg().glyph}</span>
-            </Show>
-            {hint().text}
-          </p>
-        );
-      }}
+      {(hint) => <SettingHint hint={hint()} class="mt-1.5" />}
     </Show>
     {props.details}
     <Show when={props.doc}>

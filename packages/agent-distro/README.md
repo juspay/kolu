@@ -46,7 +46,9 @@ The **TypeScript half**, as data and pure functions:
   the one fold from it to the setting new terminals get (`agentDistroSettingOf`,
   `agentsChosen`), the one whole-value writer behind the Agents control
   (`agentDistroChoice`) and the first-run step's done-predicate and words
-  (`firstRunAgentsDone`, `agentsChosenLabel`); the Agents hint and segments,
+  (`firstRunAgentsDone`, `agentsChosenLabel`); the Agents hint in its two
+  layouts of one vocabulary — Settings' (`agentsHint`) and the welcome step's
+  one-line-per-choice form (`agentsStepHint`); the segments,
   with which is pressed and where the keyboard rests (`agentsPressedSegment`,
   `agentsRestingSegment`); the per-host status lines
   with their collapse rule; a saved choice kolu does not ship

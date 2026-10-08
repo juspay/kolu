@@ -2,8 +2,10 @@
 /**
  * `SegmentedControl`'s keyboard contract, for every caller: ONE tab stop (a
  * roving tabindex) — the pressed option, or `restingValue` while none is — and
- * ← → / Home / End move focus within the group without picking; a click (what
- * Enter / Space do on a focused button) picks. With no value, nothing is pressed.
+ * ← → / Home / End move focus within the group without picking; Enter or Space
+ * on the focused option picks it once, as does a click. With no value, nothing
+ * is pressed. Re-emitted options for the same values keep their buttons and the
+ * focus, and autofocus never steals focus from something else.
  */
 
 import { createSignal } from "solid-js";
@@ -31,17 +33,26 @@ afterEach(() => {
   host = undefined;
 });
 
-function mount(initial: V | undefined, restingValue?: V) {
+function mount(
+  initial: V | undefined,
+  restingValue?: V,
+  extra: { autofocus?: boolean } = {},
+) {
   const [value, setValue] = createSignal<V | undefined>(initial);
+  const [options, setOptions] =
+    createSignal<readonly { value: V; label: string }[]>(OPTIONS);
   const picks: V[] = [];
+  const focusTrail: (V | undefined)[] = [];
   host = document.createElement("div");
   document.body.append(host);
   dispose = render(
     () => (
       <SegmentedControl
-        options={OPTIONS}
+        options={options()}
         value={value()}
         restingValue={restingValue}
+        autofocus={extra.autofocus}
+        onFocusChange={(v) => focusTrail.push(v)}
         onChange={(v) => {
           picks.push(v);
           setValue(() => v);
@@ -62,9 +73,9 @@ function mount(initial: V | undefined, restingValue?: V) {
     );
   const key = (k: string) =>
     document.activeElement?.dispatchEvent(
-      new KeyboardEvent("keydown", { key: k, bubbles: true }),
+      new KeyboardEvent("keydown", { key: k, bubbles: true, cancelable: true }),
     );
-  return { button, tabStops, pressed, key, picks };
+  return { button, tabStops, pressed, key, picks, setOptions, focusTrail };
 }
 
 describe("SegmentedControl — the roving tab stop", () => {
@@ -112,6 +123,73 @@ describe("SegmentedControl — the roving tab stop", () => {
     expect(c.tabStops()).toEqual(["vanilla"]);
     c.button("vanilla")?.blur();
     expect(c.tabStops()).toEqual(["off"]);
+  });
+});
+
+describe("SegmentedControl — picking from the keyboard", () => {
+  it("Enter picks the focused option, once", () => {
+    const c = mount(undefined, "vanilla");
+    c.button("vanilla")?.focus();
+    c.key("Enter");
+    expect(c.picks).toEqual(["vanilla"]);
+    expect(c.pressed()).toEqual(["vanilla"]);
+  });
+
+  it("Space picks the focused option, once", () => {
+    const c = mount("off");
+    c.button("off")?.focus();
+    c.key("ArrowRight");
+    c.key("ArrowRight");
+    c.key(" ");
+    expect(c.picks).toEqual(["juspay"]);
+  });
+
+  it("tells the host which option the keyboard is on, and when it leaves", () => {
+    const c = mount(undefined, "vanilla");
+    c.button("vanilla")?.focus();
+    c.key("ArrowLeft");
+    c.button("off")?.blur();
+    // (happy-dom may not set `relatedTarget` on the move, so only the order of
+    // the named stops and the final leave are pinned.)
+    expect(c.focusTrail.filter((v) => v !== undefined)).toEqual([
+      "vanilla",
+      "off",
+    ]);
+    expect(c.focusTrail.at(-1)).toBeUndefined();
+  });
+});
+
+describe("SegmentedControl — re-emitted options", () => {
+  it("fresh option objects for the same values keep the buttons, and the focus", () => {
+    const c = mount(undefined, "vanilla");
+    const before = c.button("juspay");
+    before?.focus();
+    c.setOptions(OPTIONS.map((o) => ({ ...o })));
+    expect(c.button("juspay")).toBe(before);
+    expect(document.activeElement).toBe(before);
+    expect(c.tabStops()).toEqual(["juspay"]);
+  });
+});
+
+describe("SegmentedControl — autofocus", () => {
+  const frame = () => new Promise((r) => requestAnimationFrame(() => r(null)));
+
+  it("focuses the tab stop when nothing else holds the focus", async () => {
+    (document.activeElement as HTMLElement | null)?.blur();
+    const c = mount(undefined, "vanilla", { autofocus: true });
+    await frame();
+    expect(document.activeElement).toBe(c.button("vanilla"));
+  });
+
+  it("never steals the focus from something else", async () => {
+    const other = document.createElement("input");
+    document.body.append(other);
+    other.focus();
+    const c = mount(undefined, "vanilla", { autofocus: true });
+    await frame();
+    expect(document.activeElement).toBe(other);
+    expect(c.button("vanilla")).not.toBe(document.activeElement);
+    other.remove();
   });
 });
 

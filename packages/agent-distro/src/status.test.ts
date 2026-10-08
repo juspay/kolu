@@ -5,8 +5,11 @@ import type { AgentDistroListing } from "./listing.ts";
 import { DEFAULT_AGENT_PROFILE } from "./manifest.ts";
 import type { AgentDistroStatus } from "./schema.ts";
 import {
+  AGENTS_LEAD,
   AGENTS_NOT_CHOSEN,
   AGENTS_OFF,
+  AGENTS_OFF_LINE,
+  agentsStepHint,
   agentDistroChoice,
   agentDistroSettingOf,
   agentsChosen,
@@ -294,6 +297,8 @@ describe("the stored Agents value — `null` is never chosen", () => {
       enabled: false,
       profile: DEFAULT_AGENT_PROFILE,
     });
+    // One shared value, so a memo over the fold never re-notifies on null.
+    expect(agentDistroSettingOf(null)).toBe(agentDistroSettingOf(null));
     expect(DEFAULT_AGENT_PROFILE).toBe("vanilla");
     const juspayOff = { enabled: false, profile: "juspay" };
     expect(agentDistroSettingOf(juspayOff)).toBe(juspayOff);
@@ -338,6 +343,44 @@ describe("the stored Agents value — `null` is never chosen", () => {
   });
 });
 
+describe("agentsStepHint — the welcome card's form of the hint", () => {
+  const LEAD = `${AGENTS_LEAD} Claude Code 2.1.291 · Codex 0.160.1`;
+
+  it("the lead names the default profile's agents on one line; the choice line follows the segment", () => {
+    expect(agentsStepHint({ listing: LISTING, segment: "vanilla" })).toEqual({
+      lead: LEAD,
+      choice: "vanilla — stock agents, your own API keys",
+    });
+    expect(agentsStepHint({ listing: LISTING, segment: "juspay" })).toEqual({
+      lead: LEAD,
+      choice: "juspay — Juspay's agents and skills, through Juspay's gateway",
+    });
+    expect(agentsStepHint({ listing: LISTING, segment: AGENTS_OFF })).toEqual({
+      lead: LEAD,
+      choice: `Off — ${AGENTS_OFF_MEANS}`,
+    });
+    expect(agentsStepHint({ listing: LISTING, segment: undefined })).toEqual({
+      lead: LEAD,
+      choice: undefined,
+    });
+  });
+
+  it("shares its vocabulary with the Settings hint", () => {
+    const settings = agentsHint({ listing: LISTING, stored: null })?.text ?? "";
+    expect(settings.startsWith(AGENTS_LEAD)).toBe(true);
+    expect(settings).toContain(AGENTS_OFF_LINE);
+  });
+
+  it("says nothing before the listing, or in a kolu built without agents", () => {
+    expect(
+      agentsStepHint({ listing: undefined, segment: "vanilla" }),
+    ).toBeUndefined();
+    expect(
+      agentsStepHint({ listing: { kind: "unavailable" }, segment: AGENTS_OFF }),
+    ).toBeUndefined();
+  });
+});
+
 describe("firstRunAgentsDone — the first-run step's done-predicate", () => {
   const OFF = { enabled: false, profile: "vanilla" };
   /** One status of every kind — `satisfies` keeps it exhaustive. */
@@ -359,12 +402,16 @@ describe("firstRunAgentsDone — the first-run step's done-predicate", () => {
 
   it("is never done while nothing is chosen, whatever this machine says", () => {
     for (const local of [undefined, ...Object.values(STATUSES)])
-      expect(firstRunAgentsDone({ stored: null, local })).toBe(false);
+      expect(
+        firstRunAgentsDone({ stored: null, listing: LISTING, local }),
+      ).toBe(false);
   });
 
   it("is done as soon as Off is chosen, whatever this machine says", () => {
     for (const local of [undefined, ...Object.values(STATUSES)])
-      expect(firstRunAgentsDone({ stored: OFF, local })).toBe(true);
+      expect(firstRunAgentsDone({ stored: OFF, listing: LISTING, local })).toBe(
+        true,
+      );
   });
 
   it("with a profile chosen, waits until this machine has settled", () => {
@@ -377,11 +424,47 @@ describe("firstRunAgentsDone — the first-run step's done-predicate", () => {
     };
     for (const kind of kinds)
       expect(
-        firstRunAgentsDone({ stored: VANILLA_ON, local: STATUSES[kind] }),
+        firstRunAgentsDone({
+          stored: VANILLA_ON,
+          listing: LISTING,
+          local: STATUSES[kind],
+        }),
       ).toBe(want[kind]);
-    expect(firstRunAgentsDone({ stored: VANILLA_ON, local: undefined })).toBe(
-      false,
-    );
+    expect(
+      firstRunAgentsDone({
+        stored: VANILLA_ON,
+        listing: LISTING,
+        local: undefined,
+      }),
+    ).toBe(false);
+  });
+
+  it("is not known until the listing arrives — without it the step could only offer Off", () => {
+    for (const stored of [null, OFF, VANILLA_ON])
+      expect(
+        firstRunAgentsDone({ stored, listing: undefined, local: undefined }),
+      ).toBeUndefined();
+  });
+
+  it("is done at once in a kolu built without agents — there is nothing to choose", () => {
+    for (const stored of [null, OFF, VANILLA_ON])
+      expect(
+        firstRunAgentsDone({
+          stored,
+          listing: { kind: "unavailable" },
+          local: undefined,
+        }),
+      ).toBe(true);
+  });
+
+  it("is done for a stored profile this kolu does not ship — Settings warns; the row must not pin forever", () => {
+    expect(
+      firstRunAgentsDone({
+        stored: { enabled: true, profile: "gone" },
+        listing: LISTING,
+        local: STATUSES.downloading,
+      }),
+    ).toBe(true);
   });
 
   it("its done line names the choice", () => {

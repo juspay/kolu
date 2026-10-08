@@ -31,10 +31,12 @@ import {
 } from "solid-js";
 import AgentsChooser from "./agents/AgentsChooser";
 import {
+  agentDistroListing,
   agentDistroSetting,
   agentDistroStored,
   hostAgentStatus,
 } from "./agents/useAgentDistro";
+import { SettingHint } from "./settings/SettingRow";
 import { useHostMembers } from "./host/useHostMembers";
 import { ACTIONS, advertisedNewTerminalKey } from "./input/actions";
 import { formatKeybind } from "./input/keyboard";
@@ -49,12 +51,18 @@ import {
   type WelcomeMomentId,
 } from "./welcomeMomentsSelect";
 
-/** The done header's words per moment — `chooseAgents` names the choice, in
- *  `@kolu/agent-distro/status`'s words. */
-const doneLabel = (id: WelcomeMomentId): string | undefined => {
+/** The done header's entry per moment — `chooseAgents` names the choice, in
+ *  `@kolu/agent-distro/status`'s words, behind agent-distro's logo (kolu shows
+ *  the logo wherever it names agent-distro); the others keep their emoji. */
+const doneLabel = (id: WelcomeMomentId): JSX.Element | undefined => {
   switch (id) {
     case "chooseAgents":
-      return `🤖 ${agentsChosenLabel(agentDistroSetting())}`;
+      return (
+        <span class="inline-flex items-center gap-1 align-bottom">
+          <AgentDistroLogo size={12} />
+          {agentsChosenLabel(agentDistroSetting())}
+        </span>
+      );
     case "pin":
       return "📌 Pinned ✓";
     case "reach":
@@ -71,9 +79,12 @@ const doneLabel = (id: WelcomeMomentId): string | undefined => {
 };
 
 const MomentShell: Component<{
-  emoji: string;
+  /** The row's mark: an emoji, or a logo (the agents step's). */
+  icon: JSX.Element;
   title: string;
   body: JSX.Element;
+  /** Optional block under the body (the agents step's control, hint, status). */
+  details?: JSX.Element;
   docSlug: DocSlug;
   trailing?: JSX.Element;
   testId?: string;
@@ -83,10 +94,10 @@ const MomentShell: Component<{
   // Open → next to a two-line description).
   <div class="flex items-start gap-3" data-testid={props.testId}>
     <span
-      class="shrink-0 w-5 text-center text-base leading-5 pt-px"
+      class="shrink-0 w-5 h-5 flex items-center justify-center text-base leading-5 pt-px text-fg"
       aria-hidden="true"
     >
-      {props.emoji}
+      {props.icon}
     </span>
     <div class="min-w-0 flex-1">
       <div class="flex items-center gap-3 min-h-5">
@@ -98,6 +109,7 @@ const MomentShell: Component<{
         </Show>
       </div>
       <div class="text-xs leading-snug text-fg-3 mt-0.5">{props.body}</div>
+      {props.details}
       <div class="mt-0.5 text-xs">
         <DocLink slug={props.docSlug}>Learn more →</DocLink>
       </div>
@@ -113,43 +125,26 @@ const MomentShell: Component<{
 const ChooseAgentsMoment: Component = () => (
   <AgentsChooser autofocus={!agentsChosen(agentDistroStored())}>
     {(parts) => (
-      <div
-        class="flex items-start gap-3"
-        data-testid="welcome-moment-choose-agents"
-      >
-        <span
-          class="shrink-0 w-5 h-5 flex items-center justify-center pt-px text-fg"
-          aria-hidden="true"
-        >
-          <AgentDistroLogo size={16} />
-        </span>
-        <div class="min-w-0 flex-1">
-          <div class="flex flex-wrap items-center justify-between gap-x-3 gap-y-1.5 min-h-5">
-            <div class="min-w-0 text-sm font-medium leading-5 text-fg">
-              {AGENTS_FIRST_RUN_TITLE}
-            </div>
-            <div class="shrink-0 flex items-center">{parts.control}</div>
-          </div>
-          <Show when={parts.hint()}>
-            {(hint) => (
-              <div
-                data-testid="welcome-agents-hint"
-                class="text-xs leading-snug mt-0.5 whitespace-pre-line"
-                classList={{
-                  "text-fg-3": hint().tone !== "warn",
-                  "text-warning": hint().tone === "warn",
-                }}
-              >
-                {hint().text}
-              </div>
-            )}
-          </Show>
-          {parts.status}
-          <div class="mt-0.5 text-xs">
-            <DocLink slug="agents">Learn more →</DocLink>
-          </div>
-        </div>
-      </div>
+      <MomentShell
+        testId="welcome-moment-choose-agents"
+        icon={<AgentDistroLogo size={16} />}
+        title={AGENTS_FIRST_RUN_TITLE}
+        body={parts.stepHint()?.lead}
+        details={
+          <>
+            <div class="mt-1.5 flex">{parts.control}</div>
+            <Show when={parts.stepHint()?.choice}>
+              {(choice) => (
+                <div data-testid="welcome-agents-choice">
+                  <SettingHint hint={{ text: choice() }} class="mt-1" />
+                </div>
+              )}
+            </Show>
+            {parts.status}
+          </>
+        }
+        docSlug="agents"
+      />
     )}
   </AgentsChooser>
 );
@@ -269,6 +264,7 @@ const WelcomeMoments: Component<{
       chooseAgentsDone: preferencesArrived()
         ? firstRunAgentsDone({
             stored: agentDistroStored(),
+            listing: agentDistroListing(),
             local: hostAgentStatus(LOCAL_HOST, "").status,
           })
         : undefined,
@@ -303,7 +299,7 @@ const WelcomeMoments: Component<{
         return (
           <MomentShell
             testId="welcome-moment-reach"
-            emoji="🌐"
+            icon="🌐"
             title="From another device"
             body="Serve it over HTTPS with Tailscale, then pin it as an app on your laptop or phone."
             docSlug="remote-access"
@@ -321,7 +317,7 @@ const WelcomeMoments: Component<{
         return (
           <MomentShell
             testId="welcome-moment-agents"
-            emoji="🤖"
+            icon="🤖"
             title="Run agents"
             body="Open a repo, drop a tile, launch Claude / Codex / OpenCode."
             docSlug="agent-detection"
@@ -342,7 +338,7 @@ const WelcomeMoments: Component<{
         return (
           <MomentShell
             testId="welcome-moment-search"
-            emoji="⌕"
+            icon="⌕"
             title={ACTIONS.commandPalette.label}
             body="One box finds terminals, hosts, and commands — type a branch or machine name, no separate switcher."
             docSlug="switcher"
@@ -366,7 +362,7 @@ const WelcomeMoments: Component<{
         return (
           <MomentShell
             testId="welcome-moment-host"
-            emoji="🖥️"
+            icon="🖥️"
             title="Add another machine"
             body="Point kolu at another machine over ssh — the whole canvas becomes that host."
             docSlug="remote-hosts"
@@ -384,7 +380,7 @@ const WelcomeMoments: Component<{
         return (
           <MomentShell
             testId="welcome-moment-shortcuts"
-            emoji="⌨️"
+            icon="⌨️"
             title="Shortcuts"
             body="Cmd+/ (or Ctrl+/) opens the full keyboard-shortcuts overlay."
             docSlug="keyboard-shortcuts"
@@ -403,16 +399,22 @@ const WelcomeMoments: Component<{
     }
   };
 
-  const doneLine = (): string =>
-    selection()
-      .done.flatMap((id) => doneLabel(id) ?? [])
-      .join(" · ");
+  // The done moments that have a header entry (the never-done ones have none).
+  const doneIds = () =>
+    selection().done.filter((id) => doneLabel(id) !== undefined);
 
   return (
     <div class="space-y-3" data-testid="welcome-moments">
       <Show when={selection().done.length > 0}>
         <div data-testid="welcome-moments-done" class="text-xs text-fg-3">
-          {doneLine()}
+          <For each={doneIds()}>
+            {(id, i) => (
+              <>
+                {i() > 0 ? " · " : ""}
+                {doneLabel(id)}
+              </>
+            )}
+          </For>
         </div>
       </Show>
 

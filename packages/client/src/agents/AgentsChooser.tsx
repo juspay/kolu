@@ -14,7 +14,7 @@
  *  host applies it to its NEXT new terminal. */
 
 import type { Hint } from "../settings/SettingRow";
-import { type JSX, Show } from "solid-js";
+import { createSignal, type JSX, Show } from "solid-js";
 import { toast } from "solid-sonner";
 import SegmentedControl from "../ui/SegmentedControl";
 import { updatePreferences } from "../wire";
@@ -29,6 +29,7 @@ import {
   agentsPressedSegment,
   agentsRestingSegment,
   agentsSegments,
+  agentsStepHint,
   selectedAgentProfile,
 } from "@kolu/agent-distro/status";
 import AgentStatusLines from "./AgentStatusLines";
@@ -61,8 +62,15 @@ function choose(segment: string): void {
 export interface AgentsChooserParts {
   /** The segmented control. */
   readonly control: JSX.Element;
-  /** What the current choice means (`undefined` until the listing arrives). */
+  /** What the current choice means (`undefined` until the listing arrives) —
+   *  the Settings form. */
   readonly hint: () => Hint | undefined;
+  /** The welcome card's form of the same words (`agentsStepHint`): the lead
+   *  with the agents on one line, and one line for the segment under the
+   *  keyboard focus (else the pressed one, else the resting one). */
+  readonly stepHint: () =>
+    | { readonly lead: string; readonly choice: string | undefined }
+    | undefined;
   /** The per-machine status lines — present only while a profile is picked. */
   readonly status: JSX.Element;
 }
@@ -76,6 +84,11 @@ export default function AgentsChooser(props: {
     const l = agentDistroListing();
     return l?.kind === "available" ? l.profiles : [];
   };
+  const [focused, setFocused] = createSignal<string | undefined>();
+  const spoken = () =>
+    focused() ??
+    agentsPressedSegment(agentDistroStored()) ??
+    agentsRestingSegment(profiles());
   return props.children({
     control: (
       <SegmentedControl
@@ -83,6 +96,7 @@ export default function AgentsChooser(props: {
         value={agentsPressedSegment(agentDistroStored())}
         restingValue={agentsRestingSegment(profiles())}
         autofocus={props.autofocus}
+        onFocusChange={(v) => setFocused(v)}
         onChange={choose}
         testIdPrefix={AGENTS_SEGMENT_TESTID}
       />
@@ -92,6 +106,8 @@ export default function AgentsChooser(props: {
         stored: agentDistroStored(),
         listing: agentDistroListing(),
       }),
+    stepHint: () =>
+      agentsStepHint({ listing: agentDistroListing(), segment: spoken() }),
     status: (
       <Show
         when={

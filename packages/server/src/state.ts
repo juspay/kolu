@@ -34,7 +34,6 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { openStateBackupRing } from "kolu-shared/state-backup";
-import { DEFAULT_AGENT_PROFILE } from "@kolu/agent-distro/manifest";
 import Conf from "conf";
 import { Result, Schema } from "effect";
 import { PersistedHostsSchema } from "kolu-common/hostKey";
@@ -78,7 +77,7 @@ export function migratePreferences_1_30_0(
 }
 
 /** 1.37.0 — the Agents setting joined preferences. Seeds what 1.37 shipped as
- *  the default `agentDistro` — OFF, on the default profile — onto a record that
+ *  the default `agentDistro` — OFF, on `vanilla` — onto a record that
  *  has none, so an existing install keeps exactly the PATH it had until the user
  *  turns Agents on; a record that already carries one (a re-run, or a value
  *  written by a newer build) is returned untouched, so a user's choice is never
@@ -91,7 +90,7 @@ export function migratePreferences_1_37_0(
   if ("agentDistro" in current) return current;
   return {
     ...current,
-    agentDistro: { enabled: false, profile: DEFAULT_AGENT_PROFILE },
+    agentDistro: { enabled: false, profile: "vanilla" },
   };
 }
 

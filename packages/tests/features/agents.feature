@@ -114,6 +114,7 @@ Feature: Agents come with kolu
     Then the welcome card's first row should ask which agents I want
     And the first-run agents choice should have nothing chosen
     And keyboard focus should be on the first-run "vanilla" segment
+    And the first-run step should say what "vanilla" means
     When I press Enter
     Then a toast should say new terminals get the "vanilla" agents
     And padi should give new terminals the "vanilla" agents
@@ -130,6 +131,12 @@ Feature: Agents come with kolu
     When I open the app
     Then keyboard focus should be on the first-run "vanilla" segment
     When I press ArrowLeft
+    Then keyboard focus should be on the first-run "off" segment
+    And the first-run step should say what "off" means
+    When I press ArrowLeft
+    Then keyboard focus should be on the first-run "juspay" segment
+    And the first-run step should say what "juspay" means
+    When I press ArrowRight
     Then keyboard focus should be on the first-run "off" segment
     When I press Enter
     Then a toast should say agents are off

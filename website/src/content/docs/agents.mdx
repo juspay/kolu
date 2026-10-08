@@ -1,6 +1,6 @@
 ---
 title: AI coding agents
-description: "Kolu can bring AI coding agents into every new terminal — kept up to date, nothing to install — on this machine and on every host you add. Kolu asks which you want the first time you open it; Settings → Agents changes it later."
+description: "Kolu can bring AI coding agents into every new terminal — kept up to date, nothing to install — on this machine and on every host you add. Kolu asks which you want in the welcome card whenever no terminals are open, and in the Tutorial; Settings → Agents sets it at any time."
 order: 49
 section: "Agents & Attention"
 koluHero:
@@ -14,8 +14,8 @@ import Aside from "../../components/docs/Aside.astro";
 
 Kolu can bring the AI coding agents along — **Claude Code, Codex, OpenCode, Pi
 and Oh My Pi** — kept up to date, with nothing for you to install. Kolu asks
-which you want the first time you open it ([First run](#first-run)); say yes,
-open a new terminal and type `claude`: it runs, and so do the others. Each one starts with kolu's own plugin loaded, so it can drive your
+which set you want ([First run](#first-run)); pick one, open a new terminal and
+type `claude`: it runs, and so do the others. Each one starts with kolu's own plugin loaded, so it can drive your
 other kolu terminals out of the box. Agents you installed yourself keep working:
 kolu's come first, yours stay as the fallback.
 
@@ -30,20 +30,28 @@ agents that kolu pins and ships; agent-distro calls each set a **profile**.
 
 ## First run
 
-The first time you open kolu, the welcome card at zero terminals leads with one
-question: **Choose your coding agents**. It is the same choice as the Agents row
-in Settings — **Off**, or one of the sets — with the same words under it.
+Until you choose, kolu asks in three places:
 
-The choice already has the keyboard: press **Enter** to take **vanilla**, the
-stock agents; **←** and **→** reach **Off** and **juspay** first. Once you pick a
-set, the row shows this machine's download (on the machine running kolu it is
-already there) and then folds into the welcome's done line — "Agents: vanilla ✓",
-or "Agents off ✓".
+- the **welcome card**, whenever no terminals are open — the question leads it:
+  **Choose your coding agents**;
+- the palette's **Tutorial** command, which shows the same welcome at any time;
+- **Settings → Agents**, at any time, which shows that nothing is chosen yet.
+
+It is one choice — **Off**, or one of the sets — in the same words everywhere. If
+you upgraded and your session brings your terminals back, you will not see the
+welcome card: your terminals have no agents until you choose in Settings or the
+Tutorial.
+
+In the welcome card the choice already has the keyboard: press **Enter** to take
+**vanilla**, the stock agents; **←** and **→** move to **Off** and **juspay**, and
+the line under the choice says what each one means as you move. Once you pick,
+the question folds away into the welcome's done line — "Agents: vanilla ✓", or
+"Agents off ✓". On the machine running kolu that is at once, because the agents
+ship inside kolu; it stays a moment longer only while a machine is still
+downloading them.
 
 Nothing forces the question. **⌘⏎** still opens a terminal from anywhere; it just
-gets no agents, and the question stays in the welcome card (and in the palette's
-**Tutorial**) until you answer it. Settings → Agents is the same choice later,
-and shows that nothing is chosen yet until you do.
+gets no agents, and the question stays until you answer it.
 
 ## Pick a set
 

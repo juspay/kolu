@@ -58,8 +58,8 @@ Read the full [Philosophy](https://kolu.dev/philosophy).
 - **[Canvas, tiles, and dock](https://kolu.dev/canvas)** — arrange real
   terminals freely, then find any one instantly.
 - **[AI coding agents](https://kolu.dev/agents)** — kolu can bring AI coding
-  agents into every new terminal, kept up to date, with nothing to install: it
-  asks the first time you open it, and Settings → Agents changes it later.
+  agents into every new terminal, kept up to date, with nothing to install: the
+  welcome card asks until you choose, and Settings → Agents sets it any time.
 - **[Agent attention](https://kolu.dev/agent-detection)** — see which agents are
   working, finished, or waiting for you.
 - **[Durable sessions](https://kolu.dev/sessions)** — keep shells and agents
