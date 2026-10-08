@@ -101,9 +101,15 @@ const byHost = createRoot(() => {
       const sub = entry.cells.agentDistroStatus.use();
       const receiptSub = entry.cells.agentDistroReceipt.use();
       // "3h ago" for a time this host stamped: through its clock fence (a
-      // remote padi's stamps are ITS clock), against the shared 60 s tick.
-      const now = getNowTicker();
-      const ago = (at: number) => agoPhrase(entry.clock.toLocal(at), now());
+      // remote padi's stamps are ITS clock). The shared 60 s tick only re-runs
+      // the phrase; the phrase reads the real now — the tick's value can be up
+      // to a minute old, older than an event that just happened, which would
+      // read as clock skew ("—").
+      const tick = getNowTicker();
+      const ago = (at: number) => {
+        tick();
+        return agoPhrase(entry.clock.toLocal(at), Date.now());
+      };
       // An update landed: toast once the receipt for that very bundle is in,
       // quoting the updater's own words. padi publishes the receipt before the
       // status, but they are two cells — so the edge waits for its receipt.
