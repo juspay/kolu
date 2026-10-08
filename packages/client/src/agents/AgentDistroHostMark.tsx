@@ -117,7 +117,7 @@ const AgentDistroHostMark: Component<{
   measuring?: boolean;
 }> = (props) => {
   const mark = createMemo(() => hostAgentMark(props.host));
-  /** Who the words are about: this machine, or the remote host by name. */
+  /** Who the words are about, named as the host tab names it. */
   const where = () => agentsWhere(props.host);
   const box = () => (
     <button

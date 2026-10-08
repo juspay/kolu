@@ -218,6 +218,7 @@ Feature: Agents come with kolu
     And a toast should say what the update changed on this machine
     And this machine's Agents line should say the last run updated
     And the Agents History should list the updated event
+    And the Agents line and History name this machine by its hostname
     When I press Escape
     Then the focused tile's agents chip should be stale with a Restart button
     When I create a terminal

@@ -13,6 +13,7 @@
  */
 
 import assert from "node:assert";
+import os from "node:os";
 import { After, Given, Then, When } from "@cucumber/cucumber";
 import { agentBundleShortHash } from "@kolu/agent-distro/bundle";
 import type {
@@ -29,7 +30,6 @@ import {
   agentsStepHint,
   harnessLine,
   restartedLabel,
-  THIS_MACHINE,
 } from "@kolu/agent-distro/status";
 import {
   FIXTURE_DEFAULT_PROFILE,
@@ -685,6 +685,10 @@ Then(
 
 // ── Kept up to date: updates, Check now, History ──────────────────────────────
 
+/** The local machine's name on every agents surface — its hostname, as the host
+ *  tab shows it (the e2e server runs on this host). */
+const LOCAL_NAME = os.hostname();
+
 /** This machine's line under the Agents row (the first). */
 const LOCAL_LINE = `${IN_SETTINGS} [data-testid="agents-status-lines"] [data-testid="agents-status-text"]`;
 
@@ -832,7 +836,7 @@ async function updatedWords(): Promise<string> {
 Then(
   "a toast should say what the update changed on this machine",
   async function (this: KoluWorld) {
-    const words = agentToast.updated(THIS_MACHINE, await updatedWords());
+    const words = agentToast.updated(LOCAL_NAME, await updatedWords());
     const toast = this.page
       .locator("[data-sonner-toaster] [data-sonner-toast]")
       .filter({
@@ -851,7 +855,7 @@ Then(
   "no toast should say an update landed on this machine",
   async function (this: KoluWorld) {
     // The run has settled (the line says so) before this is asked.
-    const title = agentToast.updated(THIS_MACHINE, "").title;
+    const title = agentToast.updated(LOCAL_NAME, "").title;
     assert.strictEqual(
       await this.page
         .locator("[data-sonner-toaster] [data-title]")
@@ -915,6 +919,27 @@ Then(
       .locator(
         `${FOCUSED_TILE} [data-testid="tile-agent-chip"][data-hash="${hash}"]:not([data-stale])`,
       )
+      .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+  },
+);
+
+Then(
+  "the Agents line and History name this machine by its hostname",
+  async function (this: KoluWorld) {
+    await this.page
+      .locator(`${IN_SETTINGS} [data-testid="agents-status-host"]`)
+      .first()
+      .filter({ hasText: new RegExp(`^${escapeRegExp(LOCAL_NAME)}$`) })
+      .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    const history = this.page.locator(
+      `${IN_SETTINGS} [data-testid="agents-history"]`,
+    );
+    if ((await history.getAttribute("open")) === null)
+      await history.locator("summary").click();
+    await history
+      .locator('[data-testid="agents-history-host"]')
+      .first()
+      .filter({ hasText: new RegExp(`^${escapeRegExp(LOCAL_NAME)}$`) })
       .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
   },
 );

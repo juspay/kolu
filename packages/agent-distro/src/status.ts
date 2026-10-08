@@ -309,8 +309,8 @@ export function agentFailureLines(
 
 /** A mark's words, as a headline and the lines under it — the ONE wording its
  *  hover, the download toasts and the Settings line share. `where` names the
- *  machine — "this machine" for the local tab, the host's own label on a
- *  remote one. A download's bytes are not in it: each surface shows
+ *  machine as the host tab does — the local machine by its hostname, a remote
+ *  by its own label; the client's one label function supplies it. A download's bytes are not in it: each surface shows
  *  `mark.bytes` beside its own bar. `undefined` for `none`. */
 export function agentMarkWords(
   mark: AgentMark,
@@ -323,7 +323,7 @@ export function agentMarkWords(
       return { title: `Coding agents: checking ${where}…`, detail: [] };
     case "ready":
       return {
-        title: `Coding agents ready on ${where}: ${mark.profile} (${mark.hash}) — new terminals ${hereOrThere(where)} start with them`,
+        title: `Coding agents ready on ${where}: ${mark.profile} (${mark.hash}) — new terminals on ${where} start with them`,
         detail:
           mark.update === undefined
             ? []
@@ -589,16 +589,6 @@ export function agentMarkUpdate(
     default:
       return mark satisfies never;
   }
-}
-
-/** How every surface names the machine kolu runs on — its status line, its tab
- *  mark's words, its toasts. */
-export const THIS_MACHINE = "this machine";
-
-/** The adverb that goes with a machine's name in a sentence: "here" for this
- *  machine, "there" for a host the sentence has named. */
-function hereOrThere(where: string): "here" | "there" {
-  return where === THIS_MACHINE ? "here" : "there";
 }
 
 /** One status line under the Agents row: the host, a bar, and a short text. */
@@ -1022,17 +1012,19 @@ export function agentRestartAction(
 
 /** The stale pill's tooltip: what this terminal has, what a new one gets, and
  *  — when it can restart into it — what a restart does
- *  ({@link agentRestartAction}'s `outcome`). */
+ *  ({@link agentRestartAction}'s `outcome`). `where` names the terminal's host,
+ *  as the host tab does. */
 export function agentStaleLabel(
   stale: Extract<AgentStaleness, { kind: "stale" }>,
+  where: string,
 ): string {
   const had = `This terminal has the ${stale.had.profile} coding agents (${stale.had.hash}).`;
   const { now } = stale;
   switch (now.kind) {
     case "waiting":
       return now.on === "downloading"
-        ? `${had} New terminals get ${now.profile}, which is still downloading to this machine; Restart appears once it is ready.`
-        : `${had} ${now.profile} could not be downloaded to this machine, so new terminals get no coding agents; Restart appears once it is ready.`;
+        ? `${had} New terminals get ${now.profile}, which is still downloading to ${where}; Restart appears once it is ready.`
+        : `${had} ${now.profile} could not be downloaded to ${where}, so new terminals get no coding agents; Restart appears once it is ready.`;
     case "off":
       return `${had} Coding agents are now off. Restart to switch; ${agentRestartAction(stale).outcome}.`;
     case "profile":
@@ -1070,7 +1062,7 @@ export const agentToast = {
   updated: (host: string, words: string) =>
     ({
       title: `Coding agents updated on ${host}`,
-      description: `${words} — new terminals ${hereOrThere(host)} start with them; open ones offer Restart.`,
+      description: `${words} — new terminals on ${host} start with them; open ones offer Restart.`,
     }) as const,
 } as const;
 

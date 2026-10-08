@@ -39,8 +39,9 @@ import {
   on,
 } from "solid-js";
 import { toast } from "solid-sonner";
-import { hostLabel } from "../host/hostChipTone";
+import { hostDisplayName } from "../host/hostChipTone";
 import { runAction } from "../runAction";
+import { useServerIdentity } from "../useServerIdentity";
 import { getNowTicker } from "../terminal/staleness";
 import { app, hostKeys, padiMap, preferences } from "../wire";
 import AgentDistroLogo from "@kolu/agent-distro/solid";
@@ -58,16 +59,21 @@ import {
   agentUpdateHistoryRows,
   agentUpdateRunning,
   type HostAgentStatus,
-  THIS_MACHINE,
   unknownProfileMessage,
   unknownProfileOf,
 } from "@kolu/agent-distro/status";
 import { watchDownload } from "./firstDownload";
 
-/** How every agents surface names `host`: this machine, or the remote host by
- *  its label. */
+/** The server's identity (its hostname names the local machine), shared. */
+const serverIdentity = useServerIdentity();
+
+/** How every agents surface names `host` — the status lines, the History, the
+ *  toasts, the tab mark's hover, a tile pill's hover — exactly as the host tab
+ *  does (`hostDisplayName`): the local machine by its hostname, a remote by its
+ *  target. ONE writer for "what is this host called", so a fleet's lines never
+ *  mix a real name with an ambiguous "this machine". */
 export function agentsWhere(host: HostKey): string {
-  return host.kind === "local" ? THIS_MACHINE : hostLabel(host);
+  return hostDisplayName(host, serverIdentity.hostname());
 }
 
 // App-lifetime, owned subscriptions — the `useForwards` reason: a bare module
@@ -241,7 +247,7 @@ export function localAgentReceipt(): AgentDistroReceipt | undefined {
   return hostEntry(LOCAL_HOST)?.receipt();
 }
 
-/** Every pool member's facts, this machine first, labelled as Settings names
+/** Every pool member's facts, the local machine first, labelled as Settings names
  *  them. */
 function everyHostAgentStatus(): readonly HostAgentStatus[] {
   return [
@@ -258,7 +264,7 @@ export function hostAgentMark(host: HostKey): AgentMark {
   return agentMarkOf(hostAgentStatusOf(host), hostAgentChecking(host));
 }
 
-/** The status lines under Settings' Agents row: this machine, then the remote
+/** The status lines under Settings' Agents row: the local machine, then the remote
  *  pool members (the fold decides which of them show). */
 export function agentStatusLinesNow(): readonly AgentStatusLine[] {
   const [local, ...remotes] = everyHostAgentStatus();

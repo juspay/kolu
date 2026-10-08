@@ -67,6 +67,7 @@ function mount(opts: {
         profile="vanilla"
         bundle={BUNDLE}
         buttonClass="tile-button"
+        where="naiveintent"
         onClick={opts.onClick ?? (() => {})}
         staleness={opts.staleness}
         restart={

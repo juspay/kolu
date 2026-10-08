@@ -36,7 +36,10 @@ const AgentUpdateHistory: Component<{
             <>
               {/* The host in the status line's host weight, the time muted,
                   the words between: each row has an anchor. */}
-              <span class="truncate font-sans font-medium text-fg-2">
+              <span
+                data-testid="agents-history-host"
+                class="truncate font-sans font-medium text-fg-2"
+              >
                 {row.host}
               </span>
               <span class="font-mono text-[0.7rem] text-fg-3/50">

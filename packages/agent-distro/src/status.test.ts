@@ -11,7 +11,6 @@ import {
   AGENTS_UPDATE_CHECKING,
   agentMarkFill,
   agentMarkUpdate,
-  THIS_MACHINE,
   AGENTS_UPDATE_DOWNLOADING,
   agentUpdateCheckable,
   agentUpdateHistoryRows,
@@ -116,10 +115,10 @@ describe("downloadBytes", () => {
 describe("agentMarkLabel", () => {
   it("words each treatment; none has no words", () => {
     expect(
-      agentMarkLabel({ kind: "none", why: "off" }, "this machine"),
+      agentMarkLabel({ kind: "none", why: "off" }, "naiveintent"),
     ).toBeUndefined();
-    expect(agentMarkLabel({ kind: "checking" }, "this machine")).toBe(
-      "Coding agents: checking this machine…",
+    expect(agentMarkLabel({ kind: "checking" }, "naiveintent")).toBe(
+      "Coding agents: checking naiveintent…",
     );
     expect(
       agentMarkLabel(
@@ -127,7 +126,7 @@ describe("agentMarkLabel", () => {
         "box",
       ),
     ).toBe(
-      "Coding agents ready on box: vanilla (8rcmf6rd) — new terminals there start with them",
+      "Coding agents ready on box: vanilla (8rcmf6rd) — new terminals on box start with them",
     );
     expect(
       agentMarkLabel(
@@ -136,9 +135,9 @@ describe("agentMarkLabel", () => {
           fraction: 0.55,
           bytes: "1.1 GiB of 2.0 GiB",
         },
-        "this machine",
+        "naiveintent",
       ),
-    ).toBe("Downloading the coding agents to this machine… 1.1 GiB of 2.0 GiB");
+    ).toBe("Downloading the coding agents to naiveintent… 1.1 GiB of 2.0 GiB");
     expect(
       agentMarkLabel(
         { kind: "failed", reason: "updater", message: "nix missing" },
@@ -573,12 +572,12 @@ describe("agentStatusLines", () => {
   it("this machine alone, ready: one line, no host count", () => {
     expect(
       agentStatusLines({
-        local: host("this machine", ready),
+        local: host("naiveintent", ready),
         remotes: [],
       }),
     ).toEqual([
       {
-        host: "this machine",
+        host: "naiveintent",
         bar: "ok",
         fill: 1,
         text: "ready · vanilla nd11nx5f",
@@ -589,12 +588,12 @@ describe("agentStatusLines", () => {
   it("every host ready: collapses into the first line, with the count", () => {
     expect(
       agentStatusLines({
-        local: host("this machine", ready),
+        local: host("naiveintent", ready),
         remotes: [host("box", ready), host("zest", ready)],
       }),
     ).toEqual([
       {
-        host: "this machine",
+        host: "naiveintent",
         bar: "ok",
         fill: 1,
         text: "ready · vanilla nd11nx5f · on 3 hosts",
@@ -611,12 +610,12 @@ describe("agentStatusLines", () => {
     } as const;
     expect(
       agentStatusLines({
-        local: host("this machine", ready),
+        local: host("naiveintent", ready),
         remotes: [host("box", fetched)],
       }),
     ).toEqual([
       {
-        host: "this machine",
+        host: "naiveintent",
         bar: "ok",
         fill: 1,
         text: "ready · vanilla · on 2 hosts",
@@ -627,7 +626,7 @@ describe("agentStatusLines", () => {
   it("this machine first, then each remote that is not ready — in its state's colour", () => {
     expect(
       agentStatusLines({
-        local: host("this machine", ready),
+        local: host("naiveintent", ready),
         remotes: [
           host("box", {
             kind: "downloading",
@@ -646,7 +645,7 @@ describe("agentStatusLines", () => {
       }),
     ).toEqual([
       {
-        host: "this machine",
+        host: "naiveintent",
         bar: "ok",
         fill: 1,
         text: "ready · vanilla nd11nx5f",
@@ -665,12 +664,12 @@ describe("agentStatusLines", () => {
   it("does not collapse when this machine is not ready, even if every remote is", () => {
     expect(
       agentStatusLines({
-        local: host("this machine", { kind: "downloading", profile: "v" }),
+        local: host("naiveintent", { kind: "downloading", profile: "v" }),
         remotes: [host("box", ready)],
       }),
     ).toEqual([
       {
-        host: "this machine",
+        host: "naiveintent",
         bar: "busy",
         fill: DOWNLOAD_MIN_FILL,
         text: "downloading…",
@@ -851,40 +850,54 @@ describe("agentStaleLabel", () => {
   const had = { profile: "vanilla", hash: "nd11nx5f" };
   it("agents stay on: the conversation resumes on the new agents", () => {
     expect(
-      agentStaleLabel({
-        kind: "stale",
-        had,
-        now: { kind: "profile", profile: "juspay", hash: "ivzki9f3" },
-      }),
+      agentStaleLabel(
+        {
+          kind: "stale",
+          had,
+          now: { kind: "profile", profile: "juspay", hash: "ivzki9f3" },
+        },
+        "naiveintent",
+      ),
     ).toBe(
       "This terminal has the vanilla coding agents (nd11nx5f). New terminals get juspay (ivzki9f3). Restart to switch; the agent's conversation resumes on the new agents, other programs end.",
     );
   });
   it("agents now off: a plain shell", () => {
-    expect(agentStaleLabel({ kind: "stale", had, now: { kind: "off" } })).toBe(
+    expect(
+      agentStaleLabel(
+        { kind: "stale", had, now: { kind: "off" } },
+        "naiveintent",
+      ),
+    ).toBe(
       "This terminal has the vanilla coding agents (nd11nx5f). Coding agents are now off. Restart to switch; it comes back as a plain shell, and running programs end.",
     );
   });
   it("the new profile still downloading: says so, no Restart yet", () => {
     expect(
-      agentStaleLabel({
-        kind: "stale",
-        had,
-        now: { kind: "waiting", profile: "juspay", on: "downloading" },
-      }),
+      agentStaleLabel(
+        {
+          kind: "stale",
+          had,
+          now: { kind: "waiting", profile: "juspay", on: "downloading" },
+        },
+        "naiveintent",
+      ),
     ).toBe(
-      "This terminal has the vanilla coding agents (nd11nx5f). New terminals get juspay, which is still downloading to this machine; Restart appears once it is ready.",
+      "This terminal has the vanilla coding agents (nd11nx5f). New terminals get juspay, which is still downloading to naiveintent; Restart appears once it is ready.",
     );
   });
   it("the download failed: new terminals get none, no Restart yet", () => {
     expect(
-      agentStaleLabel({
-        kind: "stale",
-        had,
-        now: { kind: "waiting", profile: "vanilla", on: "failed" },
-      }),
+      agentStaleLabel(
+        {
+          kind: "stale",
+          had,
+          now: { kind: "waiting", profile: "vanilla", on: "failed" },
+        },
+        "naiveintent",
+      ),
     ).toBe(
-      "This terminal has the vanilla coding agents (nd11nx5f). vanilla could not be downloaded to this machine, so new terminals get no coding agents; Restart appears once it is ready.",
+      "This terminal has the vanilla coding agents (nd11nx5f). vanilla could not be downloaded to naiveintent, so new terminals get no coding agents; Restart appears once it is ready.",
     );
   });
   it("the restart's consequence is agentRestartAction's own words", () => {
@@ -893,7 +906,7 @@ describe("agentStaleLabel", () => {
       { kind: "profile", profile: "juspay", hash: "ivzki9f3" } as const,
     ]) {
       const stale = { kind: "stale", had, now } as const;
-      expect(agentStaleLabel(stale)).toContain(
+      expect(agentStaleLabel(stale, "naiveintent")).toContain(
         `Restart to switch; ${agentRestartAction(stale).outcome}.`,
       );
     }
@@ -1087,7 +1100,7 @@ describe("K3 — updates while a bundle serves", () => {
     status: AgentDistroStatus,
     r: AgentDistroReceipt | undefined = undefined,
   ) => ({
-    label: "this machine",
+    label: "naiveintent",
     status,
     checking: false,
     receipt: r,
@@ -1168,7 +1181,7 @@ describe("K3 — updates while a bundle serves", () => {
   it("the line shows a run in flight, and its bytes once it downloads", () => {
     expect(agentStatusLines({ local: host(checking), remotes: [] })).toEqual([
       {
-        host: "this machine",
+        host: "naiveintent",
         bar: "ok",
         fill: 1,
         text: "ready · vanilla nd11nx5f",
@@ -1180,7 +1193,7 @@ describe("K3 — updates while a bundle serves", () => {
       [
         {
           // The host IS ready: the bar stays full and green while it updates.
-          host: "this machine",
+          host: "naiveintent",
           bar: "ok",
           fill: 1,
           text: "ready · vanilla nd11nx5f",
@@ -1196,7 +1209,7 @@ describe("K3 — updates while a bundle serves", () => {
       local: host(ready),
       remotes: [{ ...host(checking), label: "box" }],
     });
-    expect(lines.map((l) => l.host)).toEqual(["this machine", "box"]);
+    expect(lines.map((l) => l.host)).toEqual(["naiveintent", "box"]);
   });
 
   it("History: each machine's events, the updater's words, warn for a failure", () => {
@@ -1205,7 +1218,7 @@ describe("K3 — updates while a bundle serves", () => {
       hosts: [
         {
           ago: AGO,
-          label: "this machine",
+          label: "naiveintent",
           receipt: receipt({
             events: [
               {
@@ -1236,7 +1249,7 @@ describe("K3 — updates while a bundle serves", () => {
     });
     expect(rows).toEqual([
       {
-        host: "this machine",
+        host: "naiveintent",
         when: `@${Date.parse("2026-10-08T02:00:05Z")}`,
         kind: "updated",
         text: "updated: Claude Code 2.1.286 → 2.1.291",
@@ -1253,16 +1266,13 @@ describe("K3 — updates while a bundle serves", () => {
   });
 
   it("the update toast quotes the updater and names the machine", () => {
+    // The machine by its name — the host tab's — never "this machine".
     expect(
-      agentToast.updated(THIS_MACHINE, "Claude Code 2.1.286 → 2.1.291")
-        .description,
-    ).toBe(
-      "Claude Code 2.1.286 → 2.1.291 — new terminals here start with them; open ones offer Restart.",
-    );
-    expect(agentToast.updated("box", "Claude Code 2.1.286 → 2.1.291")).toEqual({
-      title: "Coding agents updated on box",
+      agentToast.updated("naiveintent", "Claude Code 2.1.286 → 2.1.291"),
+    ).toEqual({
+      title: "Coding agents updated on naiveintent",
       description:
-        "Claude Code 2.1.286 → 2.1.291 — new terminals there start with them; open ones offer Restart.",
+        "Claude Code 2.1.286 → 2.1.291 — new terminals on naiveintent start with them; open ones offer Restart.",
     });
   });
 

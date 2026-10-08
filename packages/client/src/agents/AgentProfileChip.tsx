@@ -51,6 +51,8 @@ const AgentProfileChip: Component<{
   onClick: (e: MouseEvent) => void;
   /** This terminal's agents against what a new one gets (default current). */
   staleness?: AgentStaleness;
+  /** The terminal's host, named as the host tab names it (`agentsWhere`). */
+  where: string;
   /** Present when the pill is stale AND restartable: the pill IS the restart. */
   restart?: ChipRestart;
 }> = (props) => {
@@ -71,7 +73,7 @@ const AgentProfileChip: Component<{
     const s = stale();
     return s === undefined
       ? agentChipLabel(props.profile, props.bundle)
-      : agentStaleLabel(s);
+      : agentStaleLabel(s, props.where);
   };
   const action = () => {
     const a = props.restart?.action;
