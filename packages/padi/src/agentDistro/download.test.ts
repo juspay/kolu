@@ -62,9 +62,9 @@ const land = () => {
 // What the real updater writes beside \`current\`: the stamp of a successful
 // run, and one history line per event.
 const stamp = () =>
-  writeFileSync(cfg.state + "/last-success", Math.floor(Date.now() / 1000) + "\n");
+  writeFileSync(cfg.state + "/last-success", Math.floor(Date.now() / 1000) + "\\n");
 const record = (event) =>
-  appendFileSync(cfg.history, new Date().toISOString().slice(0, 19) + "Z " + cfg.profile + " " + event + "\n");
+  appendFileSync(cfg.history, new Date().toISOString().slice(0, 19) + "Z " + cfg.profile + " " + event + "\\n");
 switch (process.env.STUB_MODE) {
   case "ok":
     out({ progress: { done: 1100000000, total: 2000000000 } });
