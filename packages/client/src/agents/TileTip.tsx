@@ -111,17 +111,11 @@ const TileTip: Component<{
             data-testid="tile-tip"
             data-tip-id={tip().id}
             role="status"
-            class="flex h-7 min-w-0 items-center gap-1.5 rounded-lg border border-accent/50 bg-accent/10 pl-2 pr-0.5 text-xs cursor-default"
+            class="flex h-7 min-w-0 items-center gap-1 rounded-lg border border-accent/50 bg-accent/10 pl-2 pr-0.5 text-xs cursor-default"
             style={{ color: "var(--color-fg-2, currentColor)" }}
             onPointerDown={stop}
             onDblClick={stop}
           >
-            <span
-              aria-hidden="true"
-              class="shrink-0 text-[10px] font-semibold tracking-wider text-accent"
-            >
-              TIP
-            </span>
             <span class="min-w-0 truncate">
               <For each={tip().parts}>
                 {(part) =>

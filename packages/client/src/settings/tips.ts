@@ -85,9 +85,8 @@ export const TILE_TIPS = {
     parts: (harness: string): readonly TileTipPart[] => [
       "Launch ",
       { code: harness },
-      ", or ",
+      " or ",
       { code: "agent-distro" },
-      " to pick",
     ],
   },
   /** An agent at its first prompt. Once per agent kind. Claude Code runs a

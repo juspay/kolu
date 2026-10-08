@@ -99,7 +99,7 @@ describe("terminalTip — the rungs", () => {
   it("rung 2: a shell in a repo with agents is told the first harness", () => {
     expect(show(facts())).toEqual({
       id: "tip-launch-agent",
-      text: "Launch claude, or agent-distro to pick",
+      text: "Launch claude or agent-distro",
     });
   });
 
