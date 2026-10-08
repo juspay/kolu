@@ -1,12 +1,14 @@
 /**
- * The agent-distro profiles Settings offers — read ONCE at boot from the picker
- * this kolu's build baked (named by the floor's manifest, `@kolu/agent-distro`'s
- * Nix half), through agent-distro's own machine listing (`--list --json`). kolu never imports agent-distro's code or re-describes its
+ * The agent-distro profiles Settings offers — read ONCE at boot from the floor
+ * this kolu's build baked (its manifest, `@kolu/agent-distro`'s Nix half): each
+ * profile bundle carries its own picker, `bin/agent-distro`, and its machine
+ * listing (`--list --json`) lists that profile. kolu joins them in the
+ * manifest's order. It never imports agent-distro's code or re-describes its
  * profiles: the names, descriptions and versions are whatever the pinned build
  * prints.
  *
  * Unbaked (a from-source `just dev` / test kolu) is `unavailable` — explicit
- * absence, the same stance as the agent-tools bake. A baked picker that fails or
+ * absence, the same stance as the agent-tools bake. A picker that fails or
  * prints something else is a broken build, and throws at boot.
  */
 
@@ -15,7 +17,8 @@ import { readFileSync } from "node:fs";
 import {
   type AgentDistroListing,
   LIST_JSON_ARGS,
-  parseAgentDistroList,
+  PICKER_COMMAND,
+  parseProfileListing,
 } from "@kolu/agent-distro/listing";
 import {
   manifestFile,
@@ -24,9 +27,9 @@ import {
 import { plainProfileDescription } from "@kolu/agent-distro/status";
 import { AGENT_DISTRO_BUNDLE_ENV } from "@kolu/padi/agentDistroBake";
 
-/** Read the listing off the baked picker the floor's manifest names, and
- *  check it leads with the manifest's default profile (`env` / `run` /
- *  `readText` injectable for tests). */
+/** Read each floor profile's listing off its own picker, in the manifest's
+ *  order, and check the joined listing leads with the manifest's default
+ *  profile (`env` / `run` / `readText` injectable for tests). */
 export function readAgentDistroListing(
   env: Record<string, string | undefined> = process.env,
   run: (bin: string, args: string[]) => string = (bin, args) =>
@@ -37,7 +40,15 @@ export function readAgentDistroListing(
   if (bundle === undefined || bundle === "") return { kind: "unavailable" };
   const manifest = parseAgentDistroManifest(readText(manifestFile(bundle)));
   return assertDefaultAgentProfile(
-    parseAgentDistroList(run(manifest.picker, [...LIST_JSON_ARGS])),
+    {
+      kind: "available",
+      profiles: manifest.profiles.map((p) =>
+        parseProfileListing(
+          p.name,
+          run(`${p.bin}/${PICKER_COMMAND}`, [...LIST_JSON_ARGS]),
+        ),
+      ),
+    },
     manifest.default,
   );
 }
@@ -55,9 +66,9 @@ export function assertPlainProfiles(
 
 /** The default profile is typed once (`@kolu/agent-distro`'s `defaults.json`,
  *  read by the Nix half into the manifest and by `DEFAULT_PREFERENCES`), but the
- *  picker's LISTING ORDER is agent-distro's — so a build whose picker does not
- *  lead with that default would hand a fresh install a profile the listing does
- *  not lead with (or does not have). It fails at boot. */
+ *  LISTING ORDER is the manifest's — so a build whose listing does not lead
+ *  with that default would hand a fresh install a profile the listing does not
+ *  lead with (or does not have). It fails at boot. */
 export function assertDefaultAgentProfile(
   listing: AgentDistroListing,
   defaultProfile: string,
@@ -67,7 +78,7 @@ export function assertDefaultAgentProfile(
     listing.profiles[0]?.name !== defaultProfile
   )
     throw new Error(
-      `agent-distro listing leads with '${listing.profiles[0]?.name}', but kolu's default Agents profile is '${defaultProfile}' — the floor's picker and packages/agent-distro/defaults.json disagree`,
+      `agent-distro listing leads with '${listing.profiles[0]?.name}', but kolu's default Agents profile is '${defaultProfile}' — the floor's manifest and packages/agent-distro/defaults.json disagree`,
     );
   return listing;
 }

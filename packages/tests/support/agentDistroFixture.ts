@@ -5,9 +5,9 @@
  * on-disk bundle described the way `@kolu/agent-distro`'s Nix half describes the
  * real one — by its manifest, `share/kolu/agent-distro.json`, which names:
  *
- *     the picker                     prints a `--list --json` listing
- *     each profile's bin/claude      prints "agent-distro fixture: <name> claude"
- *     each profile's bin/agent-distro
+ *     each profile's bin/claude        prints "agent-distro fixture: <name> claude"
+ *     each profile's bin/agent-distro  its picker: `--list --json` lists that
+ *                                      profile, as upstream's bundle does
  *
  * The real floor is gigabytes of compiled harnesses; what the e2e lane proves is
  * kolu's half — Settings lists the profiles, the next terminal (not the current
@@ -43,7 +43,7 @@ export const FIXTURE_HARNESS = {
   version: "0.0.0",
 } as const;
 
-/** A fixture profile, as the picker lists it. */
+/** A fixture profile, as its picker lists it. */
 export function fixtureProfile(name: string): {
   name: string;
   description: string;
@@ -145,7 +145,8 @@ if (mode === "skip") {
   const from = claudeVersion(old);
   const to = "0.0." + n;
   mkdirSync(join(fresh, "bin"), { recursive: true });
-  writeFileSync(join(fresh, "bin", "claude"), readFileSync(join(floor, "bin", "claude")), { mode: 0o755 });
+  for (const command of ["claude", "agent-distro"])
+    writeFileSync(join(fresh, "bin", command), readFileSync(join(floor, "bin", command)), { mode: 0o755 });
   mkdirSync(join(fresh, "share", "agent-distro"), { recursive: true });
   writeFileSync(join(fresh, "share", "agent-distro", "versions"), "claude\\tClaude Code\\t" + to + "\\n");
   out({ progress: { done: 4194304, total: 4194304 } });
@@ -210,17 +211,14 @@ function buildFixture(): Record<string, string> {
   fs.mkdirSync(path.join(root, "updates"), { recursive: true });
   const updaterScript = path.join(root, "updater.mjs");
   fs.writeFileSync(updaterScript, fixtureUpdaterScript(root));
-  const listing = JSON.stringify({
-    profiles: FIXTURE_PROFILES.map(fixtureProfile),
-  });
-  const picker = `printf '%s\\n' '${listing}'`;
-  fs.mkdirSync(path.join(root, "bin"), { recursive: true });
-  script(path.join(root, "bin", "agent-distro"), picker);
   const profiles = FIXTURE_PROFILES.map((name) => {
     const bin = path.join(root, "profiles", name, "bin");
     fs.mkdirSync(bin, { recursive: true });
     script(path.join(bin, "claude"), `echo "${fixtureClaudeSays(name)}"`);
-    script(path.join(bin, "agent-distro"), picker);
+    // The profile's own picker, as upstream's bundle carries it; kolu-server
+    // lists each profile off it.
+    const listing = JSON.stringify({ profiles: [fixtureProfile(name)] });
+    script(path.join(bin, "agent-distro"), `printf '%s\\n' '${listing}'`);
     // The floor's versions, as a real bundle lists them.
     const share = path.join(root, "profiles", name, "share", "agent-distro");
     fs.mkdirSync(share, { recursive: true });
@@ -254,7 +252,6 @@ function buildFixture(): Record<string, string> {
     path.join(root, "share", "kolu", "agent-distro.json"),
     JSON.stringify({
       default: FIXTURE_DEFAULT_PROFILE,
-      picker: path.join(root, "bin", "agent-distro"),
       profiles: FIXTURE_PROFILES.map((name) => {
         const dir = path.join(root, "profiles", name);
         return { name, dir, bin: path.join(dir, "bin"), hash: name };

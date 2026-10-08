@@ -121,8 +121,11 @@ started with `nohup` keeps running.
 With agents on, a new terminal's PATH reads, from the front:
 
 1. kolu's own tools (`kolu`, `kaval-tui`, `padi-tui`),
-2. the chosen set's agents,
+2. the chosen set's agents, and `agent-distro` itself,
 3. your own PATH — including anything your shell's dotfiles add.
+
+Type `agent-distro` to see the set, its agents, versions and whether each is
+signed in, and to start one from the list.
 
 So the bundled `claude` wins over one you installed yourself. That is on purpose.
 kolu re-applies this order after your `.bashrc` / `.zshrc` run, so neither a
@@ -186,7 +189,8 @@ cache holds all of it; until then the machine skips it and looks again at the
 next time.
 
 While a newer set downloads, the one you have keeps working: new terminals get
-it until the new one has fully arrived. The host's mark keeps its plain colour
+it until the new one has fully arrived. `agent-distro` itself is part of the
+set, so it updates along with the agents. The host's mark keeps its plain colour
 and the ring fills around it; its line in Settings says "updating" with the
 progress. Then:
 

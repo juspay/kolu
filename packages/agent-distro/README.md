@@ -7,9 +7,12 @@ process that touches agent-distro reads them from the same place.
 **What belongs here: the upstream contract — both halves, build and runtime.**
 
 The **Nix half**, `default.nix` (imported by the root `default.nix`): builds the
-local floor of every profile with agent-distro's own Nix library, writes its
-**manifest** (`share/kolu/agent-distro.json`: the default profile, the picker,
-each profile's dir, `bin` and store hash), the per-profile updater configs and
+local floor of every profile with agent-distro's own Nix library — each
+profile's bundle as upstream builds it, its `bin/` holding the harness commands
+and that profile's own picker, `agent-distro` (kolu bakes no picker of its
+own) — writes its **manifest** (`share/kolu/agent-distro.json`: the default
+profile, and each profile's dir, `bin` and store hash), the per-profile updater
+configs and
 the plugin dir; `bakeArgs { floor }` bakes them onto a wrapper and
 `proof { floor }` is the build-time check every wrapper runs on what it baked.
 The default profile is typed once, in `defaults.json`, which both halves read.
@@ -17,8 +20,9 @@ The default profile is typed once, in `defaults.json`, which both halves read.
 The **TypeScript half**, as data and pure functions:
 
 - `./listing` — what `agent-distro --list --json` prints (profiles, harnesses,
-  `profiles[0]` the default) and its parser; kolu's `available | unavailable`
-  listing value.
+  `profiles[0]` the default), its parser, and `parseProfileListing` for one
+  profile bundle's own picker (which lists exactly that profile); kolu's
+  `available | unavailable` listing value.
 - `./progress` — the updater's `--progress` stdout protocol
   (`{progress:{done,total}}` lines, then one `{result:…}`), its parser and
   types, and `updaterLastWord` (the cause from its stderr, without its
@@ -35,8 +39,9 @@ The **TypeScript half**, as data and pure functions:
 - `./versions` — a bundle's `share/agent-distro/versions`
   (`name\ttitle\tversion` per harness) and its parser.
 - `./manifest` — the floor manifest's schema, where it sits and its parser,
-  and `DEFAULT_AGENT_PROFILE` (from `defaults.json`). Readers find the picker
-  and each profile's directory through it, never through a layout of their own.
+  and `DEFAULT_AGENT_PROFILE` (from `defaults.json`). Readers find each
+  profile's directory and `bin` (with its picker) through it, never through a
+  layout of their own.
 - `./schema` — the value schemas that cross the padi wire for agent-distro,
   defined once: `AgentDistroSetting` (what kolu-server pushes; kolu-common's
   preference field is this schema), `AgentDistroStatus` (what padi reports —
@@ -79,8 +84,8 @@ The **TypeScript half**, as data and pure functions:
 - `./solid` — agent-distro's logo (`doc/logo.svg`, vendored byte-identical from
   the npins pin) and the one `AgentDistroLogo` component that draws it.
 
-**What does not: anything that runs in a process.** Spawning the picker
-(kolu-server's `agentDistroListing.ts`), resolving and downloading bundles on a
+**What does not: anything that runs in a process.** Spawning each profile's
+picker (kolu-server's `agentDistroListing.ts`), resolving and downloading bundles on a
 host (padi's `src/agentDistro/`), pushing the setting (kolu-server's
 `padiCellPusher.ts`) and the Settings and tile components (the client) stay
 where they run and import from here. This package imports nothing from padi, the

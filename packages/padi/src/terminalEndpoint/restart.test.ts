@@ -159,7 +159,6 @@ function bake(): AgentDistroBake {
   // store profile dir is reached), so the resolved path is what gets pinned.
   const manifest = {
     default: "vanilla",
-    picker: join(floor, "picker"),
     profiles: ["vanilla", "juspay"].map((name) => ({
       name,
       dir: join(floor, "profiles", name),
