@@ -1148,7 +1148,7 @@ retirements:
     defectSurface: [code-tab, mode-composition]
     destinationLayer: L5
     replacements: []
-    survivorRevisionIds: [revision-4696c2de97aae4dd643f]
+    survivorRevisionIds: [revision-ab87259db479a3784204]
     sameCodePathEvidence:
       file: packages/tests/features/code-tab.feature
       symbol: "Scenario Outline: Folder collapse during active filter persists the filter [<mode>]"
@@ -2199,7 +2199,7 @@ retirements:
     defectSurface: [agents, settings]
     destinationLayer: L5
     replacements: []
-    survivorRevisionIds: [revision-3cea4adcee8da6504f6b]
+    survivorRevisionIds: [revision-c4a5b418be020e12c418]
     sameCodePathEvidence:
       file: packages/tests/features/agents.feature
       symbol: "Scenario: Switching Agents says what happened, and the hint shows this machine's status"
@@ -2212,7 +2212,7 @@ retirements:
     defectSurface: [agents, terminal-lifecycle]
     destinationLayer: L5
     replacements: []
-    survivorRevisionIds: [revision-ca1d63be66a95ca81f03]
+    survivorRevisionIds: [revision-e7badd0d0a5d5fc1b0ac]
     sameCodePathEvidence:
       file: packages/tests/features/agents.feature
       symbol: "Scenario: A terminal whose agents went stale restarts in place with the new ones"
@@ -2225,7 +2225,7 @@ retirements:
     defectSurface: [agents, terminal-lifecycle, attach]
     destinationLayer: L5
     replacements: []
-    survivorRevisionIds: [revision-ca1d63be66a95ca81f03]
+    survivorRevisionIds: [revision-e7badd0d0a5d5fc1b0ac]
     sameCodePathEvidence:
       file: packages/tests/features/agents.feature
       symbol: "Scenario: A terminal whose agents went stale restarts in place with the new ones"
@@ -2238,7 +2238,7 @@ retirements:
     defectSurface: [agents, settings]
     destinationLayer: L5
     replacements: []
-    survivorRevisionIds: [revision-3cea4adcee8da6504f6b]
+    survivorRevisionIds: [revision-c4a5b418be020e12c418]
     sameCodePathEvidence:
       file: packages/tests/features/agents.feature
       symbol: "Scenario: Switching Agents says what happened, and the hint shows this machine's status"
@@ -2251,7 +2251,7 @@ retirements:
     defectSurface: [agents, terminal-lifecycle]
     destinationLayer: L5
     replacements: []
-    survivorRevisionIds: [revision-ca1d63be66a95ca81f03]
+    survivorRevisionIds: [revision-e7badd0d0a5d5fc1b0ac]
     sameCodePathEvidence:
       file: packages/tests/features/agents.feature
       symbol: "Scenario: A terminal whose agents went stale restarts in place with the new ones"
@@ -2264,7 +2264,7 @@ retirements:
     defectSurface: [agents, settings]
     destinationLayer: L5
     replacements: []
-    survivorRevisionIds: [revision-3cea4adcee8da6504f6b]
+    survivorRevisionIds: [revision-c4a5b418be020e12c418]
     sameCodePathEvidence:
       file: packages/tests/features/agents.feature
       symbol: "Scenario: Switching Agents says what happened, and the hint shows this machine's status"
@@ -2277,7 +2277,7 @@ retirements:
     defectSurface: [agents, host-strip]
     destinationLayer: L5
     replacements: []
-    survivorRevisionIds: [revision-9ec558eb63289587db7b]
+    survivorRevisionIds: [revision-e42b01104502bd06077d]
     sameCodePathEvidence:
       file: packages/tests/features/agents.feature
       symbol: "Scenario: This machine's tab carries the agents mark while Agents are on, and it opens Settings"
@@ -2290,8 +2290,112 @@ retirements:
     defectSurface: [agents, terminal-lifecycle]
     destinationLayer: L5
     replacements: []
-    survivorRevisionIds: [revision-ca1d63be66a95ca81f03]
+    survivorRevisionIds: [revision-e7badd0d0a5d5fc1b0ac]
     sameCodePathEvidence:
       file: packages/tests/features/agents.feature
       symbol: "Scenario: A terminal whose agents went stale restarts in place with the new ones"
       test: The restart toast is asserted with restartedLabel (the function the toast is worded by) instead of a typed copy of its text. Every other step is unchanged.
+  - id: revise-agents-settings-offers-own-terminal
+    revisionId: revision-b2118231d9fd53637217
+    action: revised
+    status: landed
+    promise: Settings offers the Agents section with the build's profiles
+    defectSurface: [agents]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-d7cff02fe5e667c0b767]
+    sameCodePathEvidence:
+      file: packages/tests/features/agents.feature
+      symbol: "Scenario: Settings offers the Agents section with the build's profiles"
+      test: The feature's Background ("Given the terminal is ready") moved into this scenario as its first step, because the new first-run scenarios start with no terminal open. Every step and assertion is unchanged.
+  - id: revise-agents-switch-profile-own-terminal
+    revisionId: revision-2d58aed10ebcaf98ebbb
+    action: revised
+    status: landed
+    promise: Switching profile reaches the next terminal, and off removes both
+    defectSurface: [agents]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-ced7c033264badc35f7f]
+    sameCodePathEvidence:
+      file: packages/tests/features/agents.feature
+      symbol: "Scenario: Switching profile reaches the next terminal, and off removes both"
+      test: The feature's Background ("Given the terminal is ready") moved into this scenario as its first step, because the new first-run scenarios start with no terminal open. Every step and assertion is unchanged.
+  - id: revise-agents-turn-on-own-terminal
+    revisionId: revision-fee7dbe7fc02e4f5291a
+    action: revised
+    status: landed
+    promise: Turning Agents on changes the next terminal, not the current one
+    defectSurface: [agents]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-31f81c468cd1ca2cc499]
+    sameCodePathEvidence:
+      file: packages/tests/features/agents.feature
+      symbol: "Scenario: Turning Agents on changes the next terminal, not the current one"
+      test: The feature's Background ("Given the terminal is ready") moved into this scenario as its first step, because the new first-run scenarios start with no terminal open. Every step and assertion is unchanged.
+  - id: revise-agents-pill-opens-settings-own-terminal
+    revisionId: revision-db116d32c70985a30005
+    action: revised
+    status: landed
+    promise: Clicking a tile's agents pill opens Settings at the Agents rows
+    defectSurface: [agents]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-e8479d012dcbcb2a68c1]
+    sameCodePathEvidence:
+      file: packages/tests/features/agents.feature
+      symbol: "Scenario: Clicking a tile's agents pill opens Settings at the Agents rows"
+      test: The feature's Background ("Given the terminal is ready") moved into this scenario as its first step, because the new first-run scenarios start with no terminal open. Every step and assertion is unchanged.
+  - id: revise-agents-stale-restart-own-terminal
+    revisionId: revision-ca1d63be66a95ca81f03
+    action: revised
+    status: landed
+    promise: A terminal whose agents went stale restarts in place with the new ones
+    defectSurface: [agents, terminal-lifecycle]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-e7badd0d0a5d5fc1b0ac]
+    sameCodePathEvidence:
+      file: packages/tests/features/agents.feature
+      symbol: "Scenario: A terminal whose agents went stale restarts in place with the new ones"
+      test: The feature's Background ("Given the terminal is ready") moved into this scenario as its first step, because the new first-run scenarios start with no terminal open. Every step and assertion is unchanged.
+  - id: revise-agents-switch-status-own-terminal
+    revisionId: revision-3cea4adcee8da6504f6b
+    action: revised
+    status: landed
+    promise: Switching Agents says what happened, and the hint shows this machine's status
+    defectSurface: [agents, settings]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-c4a5b418be020e12c418]
+    sameCodePathEvidence:
+      file: packages/tests/features/agents.feature
+      symbol: "Scenario: Switching Agents says what happened, and the hint shows this machine's status"
+      test: The feature's Background ("Given the terminal is ready") moved into this scenario as its first step, because the new first-run scenarios start with no terminal open. Every step and assertion is unchanged.
+  - id: revise-agents-host-mark-own-terminal
+    revisionId: revision-9ec558eb63289587db7b
+    action: revised
+    status: landed
+    promise: This machine's tab carries the agents mark while Agents are on, and it opens Settings
+    defectSurface: [agents, host-strip]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-e42b01104502bd06077d]
+    sameCodePathEvidence:
+      file: packages/tests/features/agents.feature
+      symbol: "Scenario: This machine's tab carries the agents mark while Agents are on, and it opens Settings"
+      test: The feature's Background ("Given the terminal is ready") moved into this scenario as its first step, because the new first-run scenarios start with no terminal open. Every step and assertion is unchanged.
+  - id: revise-codetab-collapse-status-tick
+    revisionId: revision-4696c2de97aae4dd643f
+    action: revised
+    status: landed
+    promise: Folder collapse preserves an active filter in every Code-tab mode
+    defectSurface: [code-tab, mode-composition]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-ab87259db479a3784204]
+    sameCodePathEvidence:
+      file: packages/tests/features/code-tab.feature
+      symbol: "Scenario Outline: Folder collapse during active filter persists the filter [<mode>]"
+      test: After the collapse, a new step stages a file the filter does not match and waits for the mode's change count to move, then checks again that the matches stay hidden — the git-status update that used to re-open the folder. Every earlier step is unchanged.
