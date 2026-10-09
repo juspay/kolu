@@ -50,10 +50,8 @@ import { useThemeManager } from "../useThemeManager";
 
 /** Tile chrome buttons share this affordance. Theme pill is wider — it shows
  *  the theme name. Other buttons are square. */
-/** A title-bar button, before it says whether it may shrink. */
-const TILE_BUTTON_BASE =
-  "flex items-center justify-center h-7 rounded-lg transition-colors cursor-pointer pointer-events-auto hover:bg-black/20 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50";
-const TILE_BUTTON_CLASS = `${TILE_BUTTON_BASE} shrink-0`;
+const TILE_BUTTON_CLASS =
+  "flex items-center justify-center h-7 rounded-lg transition-colors cursor-pointer shrink-0 pointer-events-auto hover:bg-black/20 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50";
 
 const TileTitleActions: Component<{
   id: TerminalId;
@@ -165,12 +163,9 @@ const TileTitleActions: Component<{
     <>
       <Show when={activeArm(meta())?.agent}>
         {(agent) => (
-          // The one shrinkable action: on a narrow tile the agent's words give
-          // way (truncate, then drop under a container width) before the
-          // title is clipped or the icons are.
           <button
             type="button"
-            class={`${TILE_BUTTON_BASE} min-w-0 px-2`}
+            class={`${TILE_BUTTON_CLASS} px-2`}
             onPointerDown={(e) => e.stopPropagation()}
             onClick={(e) =>
               onTile(e, () => {

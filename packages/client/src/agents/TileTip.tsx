@@ -25,7 +25,7 @@ import {
 } from "solid-js";
 import type { TitleTipSlot } from "../canvas/CanvasTile";
 import { showsAmbientTips } from "../capabilities";
-import { type TipId, tileTipText } from "../settings/tips";
+import type { TipId } from "../settings/tips";
 import { useTips } from "../settings/useTips";
 import { useTerminalStore } from "../terminal/useTerminalStore";
 import Tip from "../ui/Tip";
@@ -33,15 +33,13 @@ import { PLUGIN_SKILLS } from "./pluginSkills";
 import { type TerminalTip, terminalTip } from "./terminalTip";
 import { agentDistroListing } from "./useAgentDistro";
 
-/** Same answer: same kind, same tip, same words. */
+/** Same answer: same kind, same tip, same words (the sentence and the pill are
+ *  built from the same facts, so the sentence stands for both). */
 function sameTip(a: TerminalTip, b: TerminalTip): boolean {
   switch (a.kind) {
     case "tip":
       return (
-        b.kind === "tip" &&
-        a.id === b.id &&
-        a.copy.sentence === b.copy.sentence &&
-        tileTipText(a.copy.parts) === tileTipText(b.copy.parts)
+        b.kind === "tip" && a.id === b.id && a.copy.sentence === b.copy.sentence
       );
     case "hidden":
       return b.kind === "hidden" && a.id === b.id;
