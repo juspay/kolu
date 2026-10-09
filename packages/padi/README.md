@@ -437,14 +437,14 @@ that profile current on its host. Three cells, one procedure (`padiSurface`
   (`{ enabled, profile }`), PUSHED by the binding kolu-server on every connect
   edge and every preferences write, exactly like `newTerminalPolicy` (the push
   mechanism is `packages/server/src/padi/padiCellPusher.ts`, shared by both).
-  Its write gate refuses to turn on a profile this padi's build does not know —
-  the user's choice is never mapped to another profile. A profile REFERENCE
-  (a flake reference or a path, `isProfileReference`: it contains `/` or `:`)
-  is accepted as it is — padi never resolves it — and rides the `vanilla`
-  bundle (`bundleProfileOf`), which the build must know. Everything padi keeps
-  per bundle (the run, the updates, the receipt files) is keyed by that bundle
-  profile; everything it publishes (status, receipt, the record's `agents`)
-  names the reference as the user chose it. Not on the MCP face.
+  Any profile is accepted as it is — padi never resolves it: one named like a
+  bundle this build ships rides that bundle, anything else (a flake reference,
+  a path, a name agent-distro may or may not know) rides `vanilla`
+  (`bundleProfileOf`), and the write gate refuses only a build without the
+  bundle it rides. Everything padi keeps per bundle (the run, the updates, the
+  receipt files) is keyed by that bundle profile; everything it publishes
+  (status, receipt, the record's `agents`) names the profile as the user chose
+  it. Not on the MCP face.
 - **`agentDistroStatus` (read-only)** — whether the selected profile's agents
   are on THIS host: `ready` (with the bundle new terminals get — and `update:
   { progress? }` while an update runs and that bundle keeps serving), `downloading`
@@ -463,6 +463,16 @@ that profile current on its host. Three cells, one procedure (`padiSurface`
   ends, and when the setting changes; readable with agents off. A background
   update that skips or fails shows here and in the log, never as an `error`
   status.
+- **`agentDistroResolved` (read-only)** — whether the setting's profile
+  resolves on THIS host. Once a bundle serves, padi asks it ONCE per setting —
+  its `bin/agent-distro --list --json` from `$HOME`, with the profile as
+  `AI_PROFILE` and padi's own environment otherwise (`inEffect.ts`,
+  `resolveProfileOnHost`) — and publishes `pending`, then `resolved`
+  (agent-distro's name and description) or `failed` (its stderr, on one line,
+  `listJsonFailureLine`); `none` while agents are off or no bundle serves yet.
+  An answer for a setting since replaced is dropped; switching agents off and
+  on asks again. The setting stands either way. Settings reads the local
+  host's, under its profile field. Not on the MCP face.
 - **`agentDistro.checkNow` (procedure)** — run one update of the selected
   profile now, whatever the schedule says; answers once it has started.
   Refuses with the declared `AgentDistroCheckRefused` (`running` while a run of
@@ -515,8 +525,8 @@ that profile current on its host. Three cells, one procedure (`padiSurface`
   (its one `agents` struct — the tile pill) and its `bin/` joins the
   terminal's toolchain AFTER kolu's own tools, riding the same
   `KOLU_TERMINAL_TOOLS_PATH` stamp the rcfile re-asserts; `AGENT_DISTRO_PLUGINS`
-  names this kolu's `agent-plugin`; a reference is exported as `AI_PROFILE`
-  beside it (a built-in sets nothing). A running terminal never changes bundle,
+  names this kolu's `agent-plugin`; the setting's profile is exported as
+  `AI_PROFILE` beside it. A running terminal never changes bundle,
   except through `lifecycle.restart`: a fresh PTY on the same id (same cwd,
   layout, parent, theme), flipped through sleep and wake, so it re-resolves the
   layer — what that means for the user (the conversation, a plain shell) is

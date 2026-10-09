@@ -1,6 +1,6 @@
 ---
 title: AI coding agents
-description: "Kolu can bring AI coding agents into every new terminal — kept up to date, nothing to install — on the machine running kolu and on every host you add. Until agents are on, kolu asks which you want in the welcome card whenever no terminals are open, and in the Tutorial; Settings → Agents sets it at any time."
+description: "Kolu can bring AI coding agents into every new terminal — kept up to date, nothing to install — on the machine running kolu and on every host you add. Until agents are on, kolu asks in the welcome card whenever no terminals are open, and in the Tutorial; Settings → Agents switches them on or off and picks the profile at any time."
 order: 49
 section: "Agents & Attention"
 koluHero:
@@ -14,21 +14,23 @@ import Aside from "../../components/docs/Aside.astro";
 
 Kolu can bring the AI coding agents along — **Claude Code, Codex, OpenCode, Pi
 and Oh My Pi** — kept up to date, with nothing for you to install. Kolu asks
-which set you want ([First run](#first-run)); pick one, open a new terminal and
-type `claude`: it runs, and so do the others. Each one starts with kolu's own plugin loaded, so it can drive your
-other kolu terminals out of the box. Agents you installed yourself keep working:
-kolu's come first, yours stay as the fallback.
+whether you want them ([First run](#first-run)); switch them on, open a new
+terminal and type `claude`: it runs, and so do the others. Each one starts with
+kolu's own plugin loaded, so it can drive your other kolu terminals out of the
+box. Agents you installed yourself keep working: kolu's come first, yours stay
+as the fallback.
 
-You choose a set kolu ships — today that is **vanilla**, the stock agents — or,
-in Settings, a profile of your own ([A profile of your own](#a-profile-of-your-own)):
-Juspay's set, for one, is the reference `github:juspay/skills`. Settings says
-what each choice is, in a sentence, the moment you look at it
-([Pick a set](#pick-a-set)).
+Switched on, new terminals get **Juspay's profile**, `github:juspay/skills`.
+In Settings you can name another: **vanilla**, the stock agents kolu ships, or
+a profile of your own ([A profile of your own](#a-profile-of-your-own)).
+Settings says, under the field, what the profile you named is — or why it
+does not resolve ([Pick a set](#pick-a-set)).
 
 Until you choose, nothing changes: kolu adds no agents to your terminals until
-you pick a set, on a fresh install and on one that predates this. The agents come from
-[agent-distro](https://github.com/juspay/agent-distro), a distribution of coding
-agents that kolu pins and ships; agent-distro calls each set a **profile**.
+you switch them on, on a fresh install and on one that predates this. The agents
+come from [agent-distro](https://github.com/juspay/agent-distro), a distribution
+of coding agents that kolu pins and ships; agent-distro calls each set a
+**profile**.
 
 ## First run
 
@@ -39,41 +41,52 @@ Until agents are on, kolu asks in three places:
 - the palette's **Tutorial** command, which shows the same welcome at any time;
 - **Settings → Agents**, at any time, which says when nothing is chosen yet.
 
-It is the same choice everywhere — **Off**, or one of the sets. Until agents are
-on, the welcome card keeps the choice at the top; pick **Off** and it stays
-there, with no agents added. If you upgraded and your session brings your terminals back, you will not see the
-welcome card: your terminals have no agents until you choose in Settings or the
-Tutorial.
+The welcome card and the Tutorial ask with one switch. Until you choose, it
+already has the keyboard: press **Enter** and agents are on, with Juspay's
+profile. The question then folds away into the welcome's done line —
+"Agents: github:juspay/skills ✓". On the machine running kolu that is at once,
+because the agents ship inside kolu; it stays only while that machine is still
+downloading them, or if that download failed. Another profile is a Settings
+matter.
 
-Until you pick anything, the choice already has the keyboard: press **Enter** to take
-**vanilla**, the stock agents; the arrow keys move to **Off**, and the line
-under the choice says what each one means as you move. Once you pick a
-set, the question folds away into the welcome's done line — "Agents: vanilla ✓".
-On the machine running kolu that is at once, because the agents ship inside
-kolu; it stays only while that machine is still downloading them, or if that
-download failed.
-
-Pick **Off** and the question stays, with **Off** pressed. It no longer takes
-the keyboard when the welcome card appears, so an **Enter** out of habit
-changes nothing. When you tab into it, the keyboard lands on **vanilla**, so
-**Enter** there turns agents on.
+Until agents are on, the welcome card keeps the question at the top: switch
+them off again in Settings and it comes back, with the switch off. It no longer
+takes the keyboard when the welcome card appears, so an **Enter** out of habit
+changes nothing. If you upgraded and your session brings your terminals back,
+you will not see the welcome card: your terminals have no agents until you
+switch them on in Settings or the Tutorial.
 
 Nothing forces the question. **⌘⏎** still opens a terminal from anywhere; it just
 gets no agents, and the question stays until agents are on.
 
 ## Pick a set
 
-To change it later, open **Settings** (the gear in the top bar). One row, **Agents**, sets it:
-**Off**, or one of the sets the pinned agent-distro ships. Picking a set turns
-agents on with it; **Off** turns them off. Either way kolu tells you what changed
-for new terminals.
+To change it later, open **Settings** (the gear in the top bar). One row,
+**Agents**, sets it: a switch, on or off, and while it is on, a **Profile**
+field. Either way kolu tells you what changed for new terminals.
 
-The hint under the row says where things stand: with Off, what kolu can bring
-and what Off means (and, before your first choice, that nothing is chosen yet); with a set chosen, what that set is and which agents (with
-their versions) it puts on your terminals. Hover a choice for agent-distro's own
-description of it.
+While agents are off, the hint under the row says what kolu can bring, what
+switching them on does and what off means (and, before your first choice, that
+nothing is chosen yet).
 
-With a set on, under the hint is one status line per machine, each named the way
+The field starts with Juspay's profile, `github:juspay/skills`. Its suggestions
+are that, every set kolu ships (today **vanilla**, the stock agents) and the
+profiles you named before, most recent first. Type one, or anything else
+agent-distro reads as a profile ([A profile of your own](#a-profile-of-your-own)),
+and press **Enter** or leave the field: that is the setting, at once.
+
+Under the field, the machine running kolu says whether the profile resolves.
+It asks agent-distro once, the same way a terminal's agents would, and shows
+agent-distro's name and description for it ("juspay · Juspay skills + Kolu").
+If it does not resolve, the line is agent-distro's own words, in red, such as
+"cannot fetch github:nobody/nothing: … HTTP error 404". The setting stands even
+then: new terminals still get that profile, and their agents fail to start until
+it resolves — except in a repository with its own `agent-distro.nix`. Fix the
+field, or switch agents off and on to ask again. Below that are the agents
+(with their versions) the profile's terminals get, and that a repository's own
+`agent-distro.nix` overrides it.
+
+With agents on, under the field is one status line per machine, each named the way
 its host tab names it (the machine running kolu by its hostname) — the machine
 running kolu first, then every other host that is not ready yet, is updating,
 whose last look for newer agents failed, or whose update history kolu could not
@@ -91,24 +104,23 @@ The setting is one for all of kolu — not per host, not per terminal.
 
 ## A profile of your own
 
-Besides the sets kolu ships, **Custom** takes a profile of your own: an
+Besides the sets kolu ships, the field takes a profile of your own: an
 `agent-distro.nix` in any git repository, named by a flake reference
 (`github:you/your-profile`) or by a path to its directory
-(`~/src/my-profile`). Pick **Custom**, type the reference and press **Enter**
-(or **Use**). Anything without a `/` or a `:` is refused right there, since it
-would read as the name of a built-in set. So is a relative path (`./x`,
-`../x`): every terminal gets the reference whatever folder it opens in, so a
-path must be absolute or start with `~/`.
+(`~/src/my-profile`). Use an absolute path or one starting with `~/`: every
+terminal gets the profile whatever folder it opens in, so a relative path would
+mean a different folder in each. kolu writes whatever you type; whether it
+resolves is agent-distro's to say, under the field.
 
-kolu does not read the reference itself. New terminals get the stock
-(**vanilla**) agents with the reference as `AI_PROFILE`, and agent-distro
+kolu does not read the profile itself. New terminals get the stock
+(**vanilla**) agents with the profile as `AI_PROFILE`, and agent-distro
 resolves it when you launch an agent. It is a **fallback**: agent-distro picks
 the profile in this order —
 
 1. one you name on the command line (`agent-distro <reference>`),
 2. the `agent-distro.nix` of the repository you are in (looked up from the
    folder you are in to the repository's root),
-3. `AI_PROFILE` — the setting's reference,
+3. `AI_PROFILE` — the setting's profile,
 4. the built-in set.
 
 So inside a repository that carries its own `agent-distro.nix`, that one wins,
@@ -135,7 +147,7 @@ started.
 The profile on the pill is the one **in effect** in that terminal: right after
 the terminal starts, kolu asks agent-distro once, in the terminal's folder and
 with its environment, and shows its answer — a repository's own profile, the
-setting's reference, or the built-in set. Hover the pill to see where it came
+setting's profile, or the built-in set. Hover the pill to see where it came
 from. Until agent-distro answers (or if it cannot), the pill shows the
 setting's choice. It is asked once per terminal: `cd` into another repository
 and the pill keeps naming the profile from where the terminal started, though
@@ -148,7 +160,7 @@ first prompt — and the buttons type it for you ([A tip under the title bar](/t
 ## Restarting a terminal onto the current agents
 
 When a terminal's agents are no longer what a new terminal there would get — you
-picked another set or another reference, turned agents off, or a newer build of
+named another profile, turned agents off, or a newer build of
 the same set arrived —
 its pill dims and becomes a **Restart** button. Hover it to see what the terminal
 has and what new terminals get. While that machine is still downloading the set,
@@ -300,11 +312,12 @@ the retry, and it downloads again. Nothing retries on its own.
 
 ## Turning it off
 
-Settings → **Agents** → **Off**. From the next new terminal on, on every host,
+Settings → **Agents**, switch it off. From the next new terminal on, on every host,
 kolu adds no agents and no plugin variable; your own tools are what run.
 Terminals already open keep what they have, and keep their pill, until you close
 them (or restart them, which brings them back as a plain shell). While agents
-are off, the welcome card keeps the choice at the top of every empty canvas.
+are off, the welcome card keeps the question at the top of every empty canvas.
+The profile stays in the field for when you switch them back on.
 
 ## What doesn't change
 
