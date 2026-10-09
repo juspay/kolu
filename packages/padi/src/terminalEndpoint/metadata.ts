@@ -268,3 +268,19 @@ export function publishTerminalState(terminalId: string): void {
   publishComposedTerminal(terminalId);
   notifyDirty();
 }
+
+type TerminalAgents = NonNullable<TerminalProcess["meta"]["agents"]>;
+
+/** Write the profile in effect agent-distro answered for a spawn onto the
+ *  entry's `agents`, and publish — only while `agents` is still the value the
+ *  probe was asked for (a restart in between gave the entry other agents). */
+export function writeProfileInEffect(
+  entry: TerminalProcess,
+  terminalId: string,
+  asked: TerminalAgents,
+  effective: NonNullable<TerminalAgents["effective"]>,
+): void {
+  if (entry.meta.agents !== asked) return;
+  entry.meta.agents = { ...asked, effective };
+  publishTerminalState(terminalId);
+}

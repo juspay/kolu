@@ -118,6 +118,7 @@ import {
   installSnapshot,
   publishTerminalState,
   updateMemory,
+  writeProfileInEffect,
 } from "./metadata.ts";
 import {
   type OpenedAttach,
@@ -1080,11 +1081,8 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
       env: spawned.env,
       terminal: id,
     }).then((effective) => {
-      if (effective === undefined) return;
-      if (getActiveTerminal(id) !== entry || entry.meta.agents !== agents)
-        return;
-      entry.meta.agents = { ...agents, effective };
-      publishTerminalState(id);
+      if (effective === undefined || getActiveTerminal(id) !== entry) return;
+      writeProfileInEffect(entry, id, agents, effective);
     });
   }
 
