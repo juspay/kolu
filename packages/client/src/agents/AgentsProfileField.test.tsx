@@ -1,7 +1,8 @@
 // @vitest-environment happy-dom
 /**
  * The Agents profile field: its text is the stored profile until edited,
- * Enter and blur hand the text to the caller, and the line under it wears the
+ * Enter and a picked suggestion hand the text to the caller, blur and Escape
+ * put the stored profile back, and the line under it wears the
  * resolved line's three states — pending, resolved, failed (red, with what it
  * means for new terminals).
  */
@@ -48,6 +49,14 @@ function mount(resolved: AgentsResolvedLine | undefined) {
   return { host, input, submitted, setLine, setProfile, resolvedEl };
 }
 
+/** Typing, as the browser reports it: an `insertText` input event. */
+function type(input: HTMLInputElement, text: string): void {
+  input.value = text;
+  input.dispatchEvent(
+    new InputEvent("input", { bubbles: true, inputType: "insertText" }),
+  );
+}
+
 describe("AgentsProfileField", () => {
   it("shows the stored profile, and follows a write from elsewhere", () => {
     const f = mount(undefined);
@@ -56,18 +65,38 @@ describe("AgentsProfileField", () => {
     expect(f.input.value).toBe("vanilla");
   });
 
-  it("Enter and blur hand the text to the caller, as typed", () => {
+  it("Enter hands the text to the caller, as typed", () => {
     const f = mount(undefined);
-    f.input.value = "github:nobody/nothing";
-    f.input.dispatchEvent(new Event("input", { bubbles: true }));
+    type(f.input, "github:nobody/nothing");
     f.input.dispatchEvent(
       new KeyboardEvent("keydown", { key: "Enter", bubbles: true }),
     );
+    expect(f.submitted).toEqual(["github:nobody/nothing"]);
+  });
+
+  it("blur and Escape put the stored profile back, writing nothing", () => {
+    const f = mount(undefined);
+    type(f.input, "github:half-typ");
     f.input.dispatchEvent(new FocusEvent("blur"));
-    expect(f.submitted).toEqual([
-      "github:nobody/nothing",
-      "github:nobody/nothing",
-    ]);
+    expect(f.input.value).toBe("github:juspay/skills");
+    type(f.input, "github:other");
+    f.input.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
+    );
+    expect(f.input.value).toBe("github:juspay/skills");
+    expect(f.submitted).toEqual([]);
+  });
+
+  it("a suggestion picked from the list writes at once", () => {
+    const f = mount(undefined);
+    f.input.value = "vanilla";
+    f.input.dispatchEvent(
+      new InputEvent("input", {
+        bubbles: true,
+        inputType: "insertReplacementText",
+      }),
+    );
+    expect(f.submitted).toEqual(["vanilla"]);
   });
 
   it("the resolved line's three states", () => {

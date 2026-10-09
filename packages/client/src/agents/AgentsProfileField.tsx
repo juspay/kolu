@@ -4,8 +4,10 @@
  *  profile on this machine (`agentsResolvedLine`: pending, resolved, or its own
  *  words, red, when it does not), then the agents with their versions and that
  *  a repository's own `agent-distro.nix` overrides it (`agentsProfileNotes`).
- *  Enter or blur hands the text to the caller, which writes it whole; the
- *  field never refuses what it is given. */
+ *  Enter, or picking a suggestion, hands the text to the caller, which writes
+ *  it whole; the field never refuses what it is given. Leaving the field
+ *  (blur) or Escape puts the stored profile back, so a half-typed profile is
+ *  never written. */
 
 import type {
   AgentsResolvedLine,
@@ -54,11 +56,23 @@ const AgentsProfileField: Component<{
           classList={{ "border-danger/60": props.resolved?.kind === "failed" }}
           placeholder="github:owner/repo or ~/my-profile"
           value={draft()}
-          onInput={(e) => setDraft(e.currentTarget.value)}
+          onInput={(e) => {
+            setDraft(e.currentTarget.value);
+            // A suggestion picked from the list replaces the text whole
+            // (Chromium and WebKit: `insertReplacementText`; Firefox: a plain
+            // Event) — a choice, so it writes, as Enter does. Typing never
+            // lands here as either.
+            if (
+              !(e instanceof InputEvent) ||
+              e.inputType === "insertReplacementText"
+            )
+              props.onSubmit(e.currentTarget.value);
+          }}
           onKeyDown={(e) => {
             if (e.key === "Enter") props.onSubmit(draft());
+            if (e.key === "Escape") setDraft(props.profile);
           }}
-          onBlur={() => props.onSubmit(draft())}
+          onBlur={() => setDraft(props.profile)}
         />
         <datalist id="agents-profile-suggestions">
           <For each={props.suggestions}>
