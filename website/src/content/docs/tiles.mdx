@@ -108,9 +108,14 @@ to read. It also steps aside while the terminal's find bar is open. The first tw
 also need the shell itself in front, so running `ls`, `ssh` or `vim` clears them
 until the prompt is back, and they need room on the prompt line: a long prompt
 that leaves fewer than 20 columns after the cursor, or a view scrolled back so
-the prompt is out of sight, shows none. A fresh terminal shows nothing until kolu
-has checked whether it is in a repository, so a terminal opened inside one never
-flashes the first tip. A tip longer than the room it has is cut short with "…".
+the prompt is out of sight, shows none. A tip is drawn only over empty cells, so
+it never covers text: on the prompt line it stops short of anything to the right
+of the cursor (a right-side prompt, or what you typed if you moved the cursor
+back into it), and in the top-right corner it stops short of whatever that row
+already shows — with fewer than 20 empty cells, there is no tip. A tip longer
+than the room it has is cut short with "…". A fresh terminal shows nothing until
+kolu has checked whether it is in a repository, so a terminal opened inside one
+never flashes the first tip.
 
 ## On touch devices
 

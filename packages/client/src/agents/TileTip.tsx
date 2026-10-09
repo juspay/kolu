@@ -46,13 +46,13 @@ function sameTip(a: TerminalTip, b: TerminalTip): boolean {
   }
 }
 
-/** Empty cells from one cell right of the cursor to the grid's right edge. */
-function promptCells(grid: PaneGrid | null): number | null {
-  if (grid === null || grid.cursor === null) return null;
-  return Math.max(0, grid.cols - grid.cursor.col - 1);
+/** The corner's empty cells, kept one cell in from the left edge too. */
+function cornerCells(grid: PaneGrid): number {
+  return Math.min(grid.cornerRun, grid.cols - 2);
 }
 
-/** Where the tip paints within the pane, in layout px: a box one row tall. */
+/** Where the tip paints within the pane, in layout px: a box one row tall,
+ *  over empty cells only. */
 function box(
   grid: PaneGrid,
   anchor: TipAnchor,
@@ -66,18 +66,20 @@ function box(
       return {
         left: grid.originX + (cursor.col + 1) * grid.cellW,
         top: grid.originY + cursor.row * grid.cellH,
-        width: (grid.cols - cursor.col - 1) * grid.cellW,
+        width: (grid.promptRun ?? 0) * grid.cellW,
         align: "left",
       };
     }
-    case "top-right":
+    case "top-right": {
       // Inset one cell from the top and right edges.
+      const n = cornerCells(grid);
       return {
-        left: grid.originX + grid.cellW,
+        left: grid.originX + (grid.cols - 1 - n) * grid.cellW,
         top: grid.originY + grid.cellH,
-        width: (grid.cols - 2) * grid.cellW,
+        width: n * grid.cellW,
         align: "right",
       };
+    }
     default:
       throw new Error(`TileTip: unhandled anchor ${anchor satisfies never}`);
   }
@@ -109,7 +111,8 @@ const TileTip: Component<{
           onScreen: props.view.onScreen(),
           cellPx: grid === null ? null : grid.cellH * props.view.scale(),
           findOpen: props.findOpen(),
-          promptCells: promptCells(grid),
+          promptCells: grid === null ? null : grid.promptRun,
+          cornerCells: grid === null ? null : cornerCells(grid),
         },
         git: m.git,
         foreground: m.foreground,

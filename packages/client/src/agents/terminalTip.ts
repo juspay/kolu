@@ -14,7 +14,8 @@
  *
  *  Otherwise `quiet`, with why: the state calls for no tip, or nobody could see
  *  one here (not the active tile, off-screen, text too small to read, the find
- *  bar open, a command in front of the shell, no room on the prompt line).
+ *  bar open, a command in front of the shell, too few empty cells where it
+ *  would go). It paints only over empty cells, so it never covers text.
  *  Pending facts are not faults; broken invariants throw. */
 
 import type { TerminalAgents } from "@kolu/agent-distro/schema";
@@ -32,8 +33,9 @@ import type { PluginSkill } from "./pluginSkills";
  *  terminal's text, and the tip in the same font, is too small to read. */
 export const TIP_MIN_CELL_PX = 10;
 
-/** The fewest empty cells right of the cursor a prompt-line tip shows in. */
-export const TIP_MIN_PROMPT_CELLS = 20;
+/** The fewest empty cells a tip shows in — right of the cursor, or in the
+ *  top-right corner. */
+export const TIP_MIN_CELLS = 20;
 
 /** Where the tip would show. */
 export interface TipPlace {
@@ -46,9 +48,14 @@ export interface TipPlace {
   readonly cellPx: number | null;
   /** The terminal's find bar is open. */
   readonly findOpen: boolean;
-  /** Empty cells on the prompt line from one cell right of the cursor to the
-   *  right edge; `null` while the cursor is out of view or unmeasured. */
+  /** Empty cells on the prompt line from one cell right of the cursor, up to
+   *  the next text or the right edge; `null` while the cursor is out of view
+   *  or unmeasured. */
   readonly promptCells: number | null;
+  /** Empty cells in the top-right corner (the second row, leftward from one
+   *  cell in from the right edge, up to the text on that row); `null` while
+   *  unmeasured. */
+  readonly cornerCells: number | null;
 }
 
 /** What the fold reads off one terminal and the app. */
@@ -123,6 +130,8 @@ function unseeableBecause(
   if (place.findOpen) return "the find bar is open";
   switch (anchor) {
     case "top-right":
+      if (place.cornerCells === null || place.cornerCells < TIP_MIN_CELLS)
+        return "no room in the top-right corner";
       return null;
     case "prompt":
       break;
@@ -136,8 +145,7 @@ function unseeableBecause(
   if (facts.foreground === null) return "foreground not sampled yet";
   if (!facts.foreground.shell) return "a command is running";
   if (place.promptCells === null) return "the prompt line is out of view";
-  if (place.promptCells < TIP_MIN_PROMPT_CELLS)
-    return "no room on the prompt line";
+  if (place.promptCells < TIP_MIN_CELLS) return "no room on the prompt line";
   return null;
 }
 

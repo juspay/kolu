@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   type TerminalTipFacts,
   TIP_MIN_CELL_PX,
-  TIP_MIN_PROMPT_CELLS,
+  TIP_MIN_CELLS,
   terminalTip,
 } from "./terminalTip";
 
@@ -51,6 +51,7 @@ const PLACE: TerminalTipFacts["place"] = {
   cellPx: 17,
   findOpen: false,
   promptCells: 60,
+  cornerCells: 85,
 };
 
 const agent = (
@@ -173,11 +174,11 @@ describe("terminalTip — rungs 1 and 2 need room on the prompt line", () => {
   const at = (place: Partial<TerminalTipFacts["place"]>) =>
     show(facts({ place: { ...PLACE, ...place } }));
 
-  it("too few cells right of the cursor", () => {
-    expect(at({ promptCells: TIP_MIN_PROMPT_CELLS - 1 })).toEqual({
+  it("too few empty cells right of the cursor (a long command, a right-side prompt, the cursor moved back into text)", () => {
+    expect(at({ promptCells: TIP_MIN_CELLS - 1 })).toEqual({
       quiet: "no room on the prompt line",
     });
-    expect(at({ promptCells: TIP_MIN_PROMPT_CELLS })).toMatchObject({
+    expect(at({ promptCells: TIP_MIN_CELLS })).toMatchObject({
       id: "tip-launch-agent",
     });
   });
@@ -186,6 +187,25 @@ describe("terminalTip — rungs 1 and 2 need room on the prompt line", () => {
     expect(at({ promptCells: null })).toEqual({
       quiet: "the prompt line is out of view",
     });
+  });
+
+  it("rung 3 needs room in the top-right corner instead", () => {
+    const at3 = (cornerCells: number | null) =>
+      show(
+        facts({
+          place: { ...PLACE, cornerCells },
+          agent: agent("claude-code", "waiting"),
+        }),
+      );
+    expect(at3(TIP_MIN_CELLS - 1)).toEqual({
+      quiet: "no room in the top-right corner",
+    });
+    expect(at3(null)).toEqual({ quiet: "no room in the top-right corner" });
+    expect(at3(TIP_MIN_CELLS)).toMatchObject({ id: "tip-skill:claude-code" });
+  });
+
+  it("rungs 1–2 do not ask about the corner", () => {
+    expect(at({ cornerCells: 0 })).toMatchObject({ id: "tip-launch-agent" });
   });
 
   it("rung 3 sits top-right, so the prompt line does not matter", () => {

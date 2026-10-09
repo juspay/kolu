@@ -89,7 +89,8 @@ function active(over: Record<string, unknown> = {}) {
 }
 
 /** An 80×24 grid of 9×17px cells, drawn 4px right and 2px down in the pane,
- *  the cursor at column 10 of row 3. */
+ *  the cursor at column 10 of row 3, the rest of its row and the second row
+ *  empty. */
 const GRID = {
   cols: 80,
   rows: 24,
@@ -98,6 +99,8 @@ const GRID = {
   originX: 4,
   originY: 2,
   cursor: { col: 10, row: 3 } as { col: number; row: number } | null,
+  promptRun: 69 as number | null,
+  cornerRun: 79,
 };
 const [grid, setGrid] = createSignal<typeof GRID | null>(GRID);
 const [onScreen, setOnScreen] = createSignal(true);
@@ -230,12 +233,12 @@ describe("TileTip — shown only where it can be seen", () => {
     ["the find bar open", () => setFindOpen(true), () => setFindOpen(false)],
     [
       "no room on the prompt line",
-      () => setGrid({ ...GRID, cursor: { col: 70, row: 3 } }),
+      () => setGrid({ ...GRID, cursor: { col: 70, row: 3 }, promptRun: 9 }),
       () => setGrid(GRID),
     ],
     [
       "the cursor scrolled out of view",
-      () => setGrid({ ...GRID, cursor: null }),
+      () => setGrid({ ...GRID, cursor: null, promptRun: null }),
       () => setGrid(GRID),
     ],
     [
@@ -294,8 +297,14 @@ describe("TileTip — where it paints", () => {
 
   it("follows the cursor", () => {
     mount();
-    setGrid({ ...GRID, cursor: { col: 30, row: 5 } });
+    setGrid({ ...GRID, cursor: { col: 30, row: 5 }, promptRun: 49 });
     expect(box()).toMatchObject({ left: "283px", top: "87px", width: "441px" });
+  });
+
+  it("stops short of a right-side prompt: only the empty cells", () => {
+    mount();
+    setGrid({ ...GRID, promptRun: 40 });
+    expect(box()).toMatchObject({ left: "103px", width: "360px" });
   });
 
   it("rung 3: top-right, inset one cell from the top and right edges", () => {
@@ -310,6 +319,17 @@ describe("TileTip — where it paints", () => {
       height: "17px",
       align: "right",
     });
+  });
+
+  it("rung 3 stays clear of text on its row", () => {
+    state.setMeta(active({ agent: { kind: "claude-code", state: "waiting" } }));
+    mount();
+    // Text up to column 20 on the second row: the run is 78 − 21 − 1 = 56.
+    setGrid({ ...GRID, cornerRun: 56 });
+    // left = 4 + (80 − 1 − 56) × 9, still ending one cell in from the right.
+    expect(box()).toMatchObject({ left: "211px", width: "504px" });
+    setGrid({ ...GRID, cornerRun: 12 });
+    expect(tip()).toBeNull();
   });
 });
 
