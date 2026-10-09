@@ -292,6 +292,10 @@ export const PreferencesSchema = Schema.Struct({
    *  as off (`agentDistroSettingOf` in `@kolu/agent-distro/status` is the one
    *  fold to the effective setting). */
   agentDistro: Schema.NullOr(AgentDistroPrefsSchema),
+  /** The tile tip's size: the full bar under the title bar (`false`), or a
+   *  small tab hanging from its bottom-right edge (`true`). One switch for
+   *  every tile; it says nothing about which tip shows. */
+  tipBarCollapsed: Schema.Boolean,
 });
 
 /** Preference patch — top-level fields are optional; `rightPanel` is deep-partial.
@@ -418,6 +422,7 @@ export const DEFAULT_PREFERENCES: typeof PreferencesSchema.Type = {
   // Nobody has chosen yet: kolu adds nothing to a terminal's PATH, and the
   // welcome card's first-run step asks (Settings → Agents is the same choice).
   agentDistro: null,
+  tipBarCollapsed: false,
 };
 
 // `applyPreferencesPatch` references `Preferences` / `PreferencesPatch`

@@ -6,9 +6,9 @@
  */
 
 import type { TerminalId } from "kolu-common/surface";
-import { type Accessor, createEffect, createSignal } from "solid-js";
+import { type Accessor, createEffect, createSignal, untrack } from "solid-js";
 import { showsAmbientTips } from "../capabilities";
-import { preferences, updatePreferences } from "../wire";
+import { preferences, preferencesArrived, updatePreferences } from "../wire";
 import { AMBIENT_TIPS, type Tip, type TipId } from "./tips";
 
 const isPWA = window.matchMedia("(display-mode: standalone)").matches;
@@ -60,23 +60,50 @@ function seen(): Set<TipId> {
   return new Set(preferences().seenTips);
 }
 
+/** Mark tip `id` seen. Before the saved preferences arrive `seenTips` reads
+ *  the empty default, and a write built from it would overwrite the user's
+ *  whole list — so marking then is a caller bug, and it throws. */
 function markSeen(id: TipId) {
+  if (!preferencesArrived())
+    throw new Error(
+      `markSeen(${id}) before the saved preferences arrived — it would overwrite seenTips`,
+    );
   const s = seen();
   s.add(id);
   updatePreferences({ seenTips: [...s] });
 }
 
-/** Show a contextual tip once. Marks it seen so it never reappears. */
+/** Work waiting for the saved preferences: until they arrive, "seen" cannot be
+ *  answered, so a tip cannot be shown "once". Drained by `initTipTriggers`. */
+const awaitingPreferences: (() => void)[] = [];
+
+/** Run `fn` now if the saved preferences are here, else once they arrive. */
+function whenPreferencesArrive(fn: () => void) {
+  if (preferencesArrived()) fn();
+  else awaitingPreferences.push(fn);
+}
+
+/** Show a contextual tip once. Marks it seen so it never reappears. Raised
+ *  before the saved preferences arrive, it waits for them; if another tip is
+ *  showing by then, it is dropped unmarked, so its next trigger shows it. */
 function showTipOnce(tip: Tip) {
   if (!showsAmbientTips()) return;
+  if (!preferencesArrived()) {
+    whenPreferencesArrive(() => {
+      if (activeTip() === null) showTipOnce(tip);
+    });
+    return;
+  }
   if (seen().has(tip.id)) return;
   markSeen(tip.id);
   present(tip);
 }
 
-/** Internal pure peek — picks a tip without marking it seen. */
+/** Internal pure peek — picks a tip without marking it seen. Before the saved
+ *  preferences arrive it has nothing to pick from (callers wait or peek again). */
 function pickAmbientTip(): Tip | null {
   if (!showsAmbientTips()) return null;
+  if (!preferencesArrived()) return null;
   const unseen = ambientPool.filter((t) => !seen().has(t.id));
   const pool = unseen.length > 0 ? unseen : ambientPool;
   return pool[Math.floor(Math.random() * pool.length)] ?? null;
@@ -101,6 +128,10 @@ function showAmbientTip() {
  *  tip is already showing: a contextual tip (shown once, already marked seen)
  *  must not be replaced a second after it appeared, before anyone read it. */
 function showStartupTip() {
+  if (!preferencesArrived()) {
+    whenPreferencesArrive(showStartupTip);
+    return;
+  }
   if (activeTip() !== null) return;
   if (preferences().startupTips) showAmbientTip();
 }
@@ -110,6 +141,14 @@ function showStartupTip() {
  * Event-driven tips (pill click, theme button) stay at their call sites.
  */
 function initTipTriggers(deps: { terminalIds: Accessor<TerminalId[]> }) {
+  // Tips raised before the saved preferences arrived run once they have.
+  createEffect(() => {
+    if (!preferencesArrived()) return;
+    // Untracked: the tips read preferences, which must not re-run this.
+    untrack(() => {
+      for (const fn of awaitingPreferences.splice(0)) fn();
+    });
+  });
   // Startup tip — once, 1s after first terminal appears
   let startupFired = false;
   createEffect(() => {

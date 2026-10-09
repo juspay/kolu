@@ -550,6 +550,18 @@ export const useTerminalCrud = createSharedRoot(() => {
     });
   }
 
+  /** Type `text` into terminal `id`, then Enter when `enter` — the tile tip's
+   *  chip. The same `sendInput` the Inspector's Compose box writes through. */
+  function handleTypeInto(
+    id: TerminalId,
+    text: string,
+    enter: boolean,
+  ): UiAction {
+    return activePadiRpc.lifecycle
+      .sendInput({ id, data: enter ? `${text}\r` : text })
+      .pipe(toastFailure("Failed to type into the terminal"));
+  }
+
   function handleCloseAll(): UiAction {
     return activePadiRpc.lifecycle.killAll().pipe(
       Effect.tap(() =>
@@ -618,6 +630,7 @@ export const useTerminalCrud = createSharedRoot(() => {
     handleCopyTerminalText,
     handleCopyTerminalId,
     handleRunInActiveTerminal,
+    handleTypeInto,
     handleCloseAll,
     exportScrollbackPdf,
     exportSessionHtml,

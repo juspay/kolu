@@ -21,7 +21,11 @@ import type {
   PaletteValueInput,
 } from "./CommandPalette";
 import { posturedActionLabel, useViewPosture } from "./canvas/useViewPosture";
-import { showsWelcome, supportsSpatialCanvas } from "./capabilities";
+import {
+  showsAmbientTips,
+  showsWelcome,
+  supportsSpatialCanvas,
+} from "./capabilities";
 import { diagnosticDialog } from "./DiagnosticInfo";
 import {
   forwardFromPalette,
@@ -53,7 +57,7 @@ import { useTileStore } from "./tile/useTileStore";
 import { iconForCommand } from "./ui/agentDisplay";
 import { TerminalIcon } from "./ui/Icons";
 import { welcomeDialog } from "./WelcomeDialog";
-import { padiMap } from "./wire";
+import { padiMap, preferences, updatePreferences } from "./wire";
 
 /** Live worktree-name validator — returns the message to show under the input,
  *  or null when the trimmed name passes.
@@ -498,6 +502,22 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
       ? [actionPaletteCommand("toggleRightPanel", deps, { section: "ui" })]
       : []),
     actionPaletteCommand("toggleDock", deps, { section: "ui" }),
+    // The tile tip shows only where ambient tips do (desktop), so the size
+    // switch is offered only there.
+    ...(showsAmbientTips()
+      ? [
+          {
+            kind: "action" as const,
+            name: "Toggle tip bar",
+            description: "Show the tile tip as a bar or as a small tab",
+            section: "ui" as const,
+            onSelect: () =>
+              updatePreferences({
+                tipBarCollapsed: !preferences().tipBarCollapsed,
+              }),
+          },
+        ]
+      : []),
 
     // --- Help (reference + advanced) ---
     actionPaletteCommand("shortcutsHelp", deps, {

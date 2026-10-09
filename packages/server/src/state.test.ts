@@ -12,6 +12,7 @@ import {
   migratePreferences_1_34_0,
   migratePreferences_1_37_0,
   migratePreferences_1_38_0,
+  migratePreferences_1_39_0,
   store,
 } from "./state.ts";
 
@@ -180,19 +181,37 @@ describe("migratePreferences_1_38_0 — never chosen is the absence of a value",
   });
 });
 
+describe("migratePreferences_1_39_0 — the tile tip's size", () => {
+  const { tipBarCollapsed: _drop, ...pre } = DEFAULT_PREFERENCES;
+
+  it("seeds the full bar onto a record that has no size", () => {
+    expect(migratePreferences_1_39_0(pre)).toEqual({
+      ...pre,
+      tipBarCollapsed: false,
+    });
+  });
+
+  it("never resets a stored size", () => {
+    const collapsed = { ...pre, tipBarCollapsed: true };
+    expect(migratePreferences_1_39_0(collapsed)).toEqual(collapsed);
+  });
+});
+
 describe("the CHAINED preference ladder (a pre-1.30 blob walking every rung)", () => {
   /** The rungs that read the `preferences` blob, in ladder order. 1.31.0 /
    *  1.33.0 / 1.35.0 / 1.36.0 never touch it (key strip, `hosts` seed, no-op,
-   *  `viewerMode` seed), so these five (1.37.0 seeds `agentDistro`, 1.38.0 turns
-   *  an Off one into "never chosen") ARE the whole walk a pre-1.30 file
+   *  `viewerMode` seed), so these six (1.37.0 seeds `agentDistro`, 1.38.0 turns
+   *  an Off one into "never chosen", 1.39.0 seeds `tipBarCollapsed`) ARE the whole walk a pre-1.30 file
    *  makes. Testing each rung in isolation cannot catch a cross-rung defect:
    *  1.32.0 spreads today's `DEFAULT_PREFERENCES` into the record, which hands
    *  1.34.0 an `attentionAlerts` the user never chose. */
   const walkLadder = (blob: Record<string, unknown>) =>
-    migratePreferences_1_38_0(
-      migratePreferences_1_37_0(
-        migratePreferences_1_34_0(
-          migratePreferences_1_32_0(migratePreferences_1_30_0(blob)),
+    migratePreferences_1_39_0(
+      migratePreferences_1_38_0(
+        migratePreferences_1_37_0(
+          migratePreferences_1_34_0(
+            migratePreferences_1_32_0(migratePreferences_1_30_0(blob)),
+          ),
         ),
       ),
     );
