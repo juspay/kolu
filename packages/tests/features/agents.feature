@@ -37,7 +37,7 @@ Feature: Agents come with kolu
   Scenario: Switching profile reaches the next terminal, and off removes both
     Given the terminal is ready
     When I click the settings button
-    And I choose the "juspay" Agents profile
+    And I pick "juspay" from the profile suggestions
     Then padi should give new terminals the "juspay" agents
     When I press Escape
     And I create a terminal

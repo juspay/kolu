@@ -2316,7 +2316,7 @@ retirements:
     defectSurface: [agents]
     destinationLayer: L5
     replacements: []
-    survivorRevisionIds: [revision-fc728f5cb3532619bdae]
+    survivorRevisionIds: [revision-46e5d6575d293b097478]
     sameCodePathEvidence:
       file: packages/tests/features/agents.feature
       symbol: "Scenario: Switching profile reaches the next terminal, and off removes both"
@@ -2498,7 +2498,7 @@ retirements:
     defectSurface: [agents, settings]
     destinationLayer: L5
     replacements: []
-    survivorRevisionIds: [revision-fc728f5cb3532619bdae]
+    survivorRevisionIds: [revision-46e5d6575d293b097478]
     sameCodePathEvidence:
       file: packages/tests/features/agents.feature
       symbol: "Scenario: Switching profile reaches the next terminal, and off removes both"
@@ -2594,3 +2594,16 @@ retirements:
       file: packages/tests/features/agents.feature
       symbol: "Scenario: A profile reference reaches the next terminal, and its pill names the profile in effect"
       test: "The reference is typed into the one profile field; the inline refusal of a bare name is gone (any text is written, and agent-distro's answer is said under the field \u2014 its own scenario now), and the field's resolved line is asserted. The toast, padi, the pill naming the profile in effect, AI_PROFILE and the vanilla fixture are unchanged."
+  - id: revise-agents-pick-from-menu-fc728f5c
+    revisionId: revision-fc728f5cb3532619bdae
+    action: revised
+    status: landed
+    promise: "Switching profile reaches the next terminal, and off removes both"
+    defectSurface: [agents, settings]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-46e5d6575d293b097478]
+    sameCodePathEvidence:
+      file: packages/tests/features/agents.feature
+      symbol: "Scenario: Switching profile reaches the next terminal, and off removes both"
+      test: "juspay is now picked from the profile field's Kolu-drawn suggestion menu (the chevron, then its row) instead of typed and entered; the write goes through the same agentDistroChoice, and padi, the chip, the claude fixture and off removing both are asserted unchanged."

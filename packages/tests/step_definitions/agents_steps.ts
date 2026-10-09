@@ -207,6 +207,33 @@ When(
   },
 );
 
+/** Agents on, then the chevron's menu opened and `profile`'s row clicked —
+ *  the Kolu-drawn suggestions, not the browser's. */
+When(
+  "I pick {string} from the profile suggestions",
+  async function (this: KoluWorld, profile: string) {
+    await setSwitch(this, true);
+    const chevron = this.page.locator(
+      `${IN_SETTINGS} [data-testid="agents-profile-chevron"]`,
+    );
+    await chevron.click();
+    await this.page
+      .locator(
+        `${IN_SETTINGS} [data-testid="agents-profile-chevron"][aria-expanded="true"]`,
+      )
+      .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    await this.page
+      .locator(
+        `[data-testid="agents-profile-menu"] [data-testid="agents-profile-option"][data-value="${profile}"]`,
+      )
+      .click();
+    await this.page
+      .locator('[data-testid="agents-profile-menu"]')
+      .waitFor({ state: "detached", timeout: POLL_TIMEOUT });
+    await this.waitForFrame();
+  },
+);
+
 Then(
   "the profile field should hold {string}",
   async function (this: KoluWorld, profile: string) {
