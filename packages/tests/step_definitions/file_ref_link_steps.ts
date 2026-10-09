@@ -203,8 +203,8 @@ async function resolveRefPoint(
   ) => Promise<RefClickPoint> = findRefClickPoint,
 ): Promise<{ x: number; y: number }> {
   // The file-ref → Code-tab open path needs the terminal's git context
-  // (repoRoot) resolved: Terminal.tsx's activateFileRef bails when meta.git
-  // is still null. On the slower aarch64-darwin runner the `cd` into the
+  // (repoRoot) resolved: Terminal.tsx's activateFileRef bails until meta.git
+  // is a resolved repo. On the slower aarch64-darwin runner the `cd` into the
   // repo and the ensuing git resolution lag behind the echoed
   // `path:line` text the click targets, so the click would silently
   // no-op (the ref resolves, but there's no repoRoot to open with). Wait

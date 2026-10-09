@@ -823,10 +823,11 @@ export function buildPadiSurfaceDeps(deps: {
             // default here and no `undefined` arm to read. A sub-terminal must
             // hang off a LIVE parent (F3) — the same
             // live-PTY narrow every per-terminal handler uses. `PadiCreateInput`
-            // omits `lastActivityAt`: a fresh terminal seeds `lastActivityAt: 0`
-            // (via `createAuthoredActive` → `seedMemory`), and the fold stamps recency
-            // later — the client can't supply it. (Only `session.restore` threads a
-            // saved `lastActivityAt` through, via `respawnActive`, not this path.)
+            // omits the memory facts: a fresh terminal seeds `lastActivityAt: null`
+            // and `promptedAt: null` (via `createAuthoredActive` → `seedMemory`), and
+            // the fold stamps them later — the client can't supply them. (Only
+            // `session.restore` threads saved ones through, via `respawnActive`, not
+            // this path.)
             if (input.placement.kind === "child-of")
               requireActiveTerminal(input.placement.parentId);
             const info = createTerminal(input.placement, input.cwd, {
@@ -1212,9 +1213,14 @@ export function buildPadiSurfaceDeps(deps: {
         // the shared `previewFile` (bounded heap), so kolu-server never holds the
         // terminal→repoRoot map and never forces a large video whole through base64.
         repoRootForTerminal: ({ input }) =>
-          handle(() => ({
-            repoRoot: snapshotFor(input.terminalId)?.git?.repoRoot ?? null,
-          })),
+          handle(() => {
+            // A terminal outside a repo, or whose git has not resolved yet, has
+            // no repo root to serve from — the route answers "no repo" for both.
+            const git = snapshotFor(input.terminalId)?.git;
+            return {
+              repoRoot: git?.kind === "repo" ? git.info.repoRoot : null,
+            };
+          }),
       },
 
       transcript: {

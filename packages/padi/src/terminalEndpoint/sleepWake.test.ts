@@ -203,7 +203,11 @@ describe("beginSleep after the fold's authored write — the sleeping decode", (
 
     // The fold's ONE authored writer, exactly as the first agent observation
     // drives it: recency stamped, nothing remembered, target `none`.
-    updateMemory(MEM_ID, { lastActivityAt: 456 }, { kind: "none" });
+    updateMemory(
+      MEM_ID,
+      { lastActivityAt: 456, promptedAt: null },
+      { kind: "none" },
+    );
     expect(getTerminal(MEM_ID)?.meta.lastActivityAt).toBe(456);
 
     upserts.length = 0;
@@ -324,12 +328,13 @@ describe("wake — a failed PTY spawn must NOT drop the sleeping record (F2)", (
     state: "sleeping" as const,
     sleptAt: 222,
     cwd: "/work/repo",
-    git: null,
+    git: { kind: "none" as const },
     // `pr` is a PERSISTED, restore-relevant field now (no longer a live-only field),
     // so a saved sleeping record carries it.
     pr: { kind: "absent" } as const,
     location: LOCAL_LOCATION,
     lastActivityAt: 7,
+    promptedAt: null,
     lastAgentCommand: "claude --model sonnet",
   });
 
@@ -371,10 +376,11 @@ describe("wake/spawn PUSHES the authored active snapshot (issue #1529)", () => {
     state: "sleeping" as const,
     sleptAt: 222,
     cwd: "/work/repo",
-    git: null,
+    git: { kind: "none" as const },
     pr: { kind: "absent" } as const,
     location: LOCAL_LOCATION,
     lastActivityAt: 7,
+    promptedAt: null,
     lastAgentCommand: "claude --model sonnet",
   });
 
@@ -427,10 +433,11 @@ describe("seedSleepingTerminal — boot seed with per-record tolerance", () => {
     state: "sleeping" as const,
     sleptAt: 111,
     cwd: "/work/repo",
-    git: null,
+    git: { kind: "none" as const },
     pr: { kind: "absent" } as const,
     location: LOCAL_LOCATION,
     lastActivityAt: 5,
+    promptedAt: null,
     lastAgentCommand: "claude --model sonnet",
     // The restore target the cold-restored terminal will resume — rides the authored
     // sleeping record (its `exact` arm keeps only the identity, no full-agent

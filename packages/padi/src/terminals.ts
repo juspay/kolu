@@ -136,8 +136,8 @@ export function snapshotSession(): SessionSnapshot {
  *  client-owned chrome before providers run — see #642 (avoids racing post-hoc
  *  `setCanvasLayout` / `setTheme` / `setSubPanel` RPCs against the client's
  *  canvas-cascade effect). Its `CreateTerminalInput` type carries NO server-derived
- *  authored facts — a fresh terminal earns `lastActivityAt` / `lastAgentCommand` /
- *  `restoreTarget` from padi's own observation, and the type makes them unspellable
+ *  authored facts — a fresh terminal earns `lastActivityAt` / `promptedAt` /
+ *  `lastAgentCommand` / `restoreTarget` from padi's own observation, and the type makes them unspellable
  *  here. The one path with prior truth about them, session restore, uses
  *  {@link restoreSpawn} instead.
  *

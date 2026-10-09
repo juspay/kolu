@@ -29,6 +29,7 @@
 
 import { copyFileSync, existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { backfillSavedSession } from "@kolu/padi-client/surface";
 import type { Logger } from "@kolu/surface-daemon";
 import type { PadiStateStores } from "./stateStore.ts";
 
@@ -116,9 +117,13 @@ export function importLegacyConfigOnce(
   for (const key of IMPORTED_KEYS) {
     if (key in raw) {
       // The source was already migrated by kolu-server at its own boot, so the
-      // blob arrives current-schema; seed padi's key verbatim.
-      // biome-ignore lint/suspicious/noExplicitAny: seeding a raw current-schema blob key verbatim into the typed Conf; the old file's shape is validated by kolu-server's ladder, not re-parsed here.
-      conf.set(key, raw[key] as any);
+      // blob arrives in kolu-server's last shape; padi's ladder already ran on
+      // its own (empty) file, so the session takes padi's later steps here, via
+      // the same saved-terminal backfill (`backfillSavedSession`).
+      const value =
+        key === "session" ? backfillSavedSession(raw[key]) : raw[key];
+      // biome-ignore lint/suspicious/noExplicitAny: seeding a raw blob key into the typed Conf; the old file's shape is validated by kolu-server's ladder, not re-parsed here.
+      conf.set(key, value as any);
     }
   }
   conf.set("importedLegacyConfig", true);

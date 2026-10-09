@@ -16,15 +16,21 @@ import {
 
 /** A worktree at `path` on `branch`. The projection reads two fields; the rest
  *  are here because `GitInfo` is the wire shape every caller actually holds. */
-const git = (path: string, repoName: string, branch: string) => ({
-  repoRoot: path,
-  repoName,
-  worktreePath: path,
-  branch,
-  isWorktree: false,
-  mainRepoRoot: path,
-  remoteUrl: null,
-});
+const git = (path: string, repoName: string, branch: string) =>
+  ({
+    kind: "repo",
+    info: {
+      repoRoot: path,
+      repoName,
+      worktreePath: path,
+      branch,
+      isWorktree: false,
+      mainRepoRoot: path,
+      remoteUrl: null,
+    },
+  }) as const;
+
+const NONE = { kind: "none" } as const;
 
 describe("shortenCwd", () => {
   it.each([
@@ -72,8 +78,14 @@ describe("terminalKey", () => {
     ).toEqual({ group: "kolu", label: "main" });
   });
 
+  it("keys by the cwd while git has not resolved yet, as it does outside a repo", () => {
+    expect(
+      terminalKey({ cwd: "/home/me/scratch", git: { kind: "unresolved" } }),
+    ).toEqual({ group: "scratch", label: "~/scratch" });
+  });
+
   it("names the basename and the shortened path outside one", () => {
-    expect(terminalKey({ cwd: "/home/me/scratch", git: null })).toEqual({
+    expect(terminalKey({ cwd: "/home/me/scratch", git: NONE })).toEqual({
       group: "scratch",
       label: "~/scratch",
     });
@@ -95,7 +107,7 @@ describe("terminalCaption", () => {
   });
 
   it("falls back to the directory name outside a repo", () => {
-    expect(terminalCaption({ cwd: "/home/me/scratch", git: null })).toBe(
+    expect(terminalCaption({ cwd: "/home/me/scratch", git: NONE })).toBe(
       "scratch",
     );
   });
@@ -103,13 +115,13 @@ describe("terminalCaption", () => {
   it("does not parenthesise the non-git arm — that would print the same fact twice", () => {
     // `label` outside a repo is the shortened cwd, so "scratch (~/scratch)"
     // says nothing the first word didn't.
-    expect(terminalCaption({ cwd: "/home/me/scratch", git: null })).not.toMatch(
+    expect(terminalCaption({ cwd: "/home/me/scratch", git: NONE })).not.toMatch(
       /\(/,
     );
   });
 
   it("ignores a trailing slash rather than captioning the picture with an empty string", () => {
-    expect(terminalCaption({ cwd: "/home/me/scratch/", git: null })).toBe(
+    expect(terminalCaption({ cwd: "/home/me/scratch/", git: NONE })).toBe(
       "scratch",
     );
   });
@@ -118,7 +130,7 @@ describe("terminalCaption", () => {
     // `~`, `cwdBasename`'s documented no-last-segment fallback — the same thing
     // kolu's dock has always shown for a terminal at the filesystem root. The
     // caption agreeing with the tile beside it is the whole point.
-    expect(terminalCaption({ cwd: "/", git: null })).toBe("~");
+    expect(terminalCaption({ cwd: "/", git: NONE })).toBe("~");
   });
 });
 

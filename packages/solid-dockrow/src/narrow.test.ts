@@ -101,7 +101,7 @@ function shellMeta(): TerminalMetadata {
   return {
     state: "active",
     cwd: "/work/repo",
-    git: null,
+    git: { kind: "none" },
     location: { kind: "local" },
     pr: { kind: "absent" },
     agent: null,

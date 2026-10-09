@@ -65,7 +65,7 @@ function activeWithAgent(agent: AgentInfo | null): PadiTerminal {
   return {
     state: "active",
     agent,
-    git: null,
+    git: { kind: "none" },
     pr: { kind: "pending" },
     foreground: null,
   } as unknown as PadiTerminal;

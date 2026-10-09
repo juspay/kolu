@@ -32,7 +32,7 @@ function meta(cwd: string, gitInfo: GitInfo | null = null): TerminalMetadata {
   return {
     cwd,
     home: "/home/u",
-    git: gitInfo,
+    git: gitInfo === null ? { kind: "none" } : { kind: "repo", info: gitInfo },
     pr: null,
     agent: null,
     foreground: null,

@@ -41,13 +41,13 @@ const accepts = (
  *  authored record (server fields, then client chrome), then the discriminant,
  *  then the id — exactly what the zod `.merge` chain produced. */
 const MINIMAL_ACTIVE =
-  '{"cwd":"/repo","git":null,"pr":{"kind":"absent"},"location":{"kind":"local"},"lastActivityAt":null,"state":"active","id":"t-1"}';
+  '{"cwd":"/repo","git":{"kind":"none"},"pr":{"kind":"absent"},"location":{"kind":"local"},"lastActivityAt":null,"promptedAt":null,"state":"active","id":"t-1"}';
 
 /** The same record with every optional authored + chrome field populated. */
 const FULL_SLEEPING =
-  '{"cwd":"/repo","git":null,"pr":{"kind":"absent"},"location":{"kind":"remote","hostId":"zest"},' +
+  '{"cwd":"/repo","git":{"kind":"none"},"pr":{"kind":"absent"},"location":{"kind":"remote","hostId":"zest"},' +
   '"restoreTarget":{"kind":"exact","command":"claude","agent":{"kind":"claude-code","sessionId":"s-1","resumeRef":"s-1"}},' +
-  '"lastActivityAt":1700000000000,"lastAgentCommand":"claude","themeName":"nord","parentId":"t-0",' +
+  '"lastActivityAt":1700000000000,"promptedAt":1699999999000,"lastAgentCommand":"claude","themeName":"nord","parentId":"t-0",' +
   '"canvasLayout":{"x":0,"y":1,"w":2,"h":3},"subPanel":{"collapsed":false,"panelSize":40},' +
   '"rightPanel":{"collapsed":true,"activeTab":"code","codeMode":"branch"},"intent":"ship it",' +
   '"state":"sleeping","sleptAt":1700000001000,"id":"t-2"}';
@@ -64,6 +64,41 @@ describe("SavedSession — the conf store + the exported kolu-session.json", () 
   it("a FULLY-POPULATED sleeping record round-trips byte-for-byte", () => {
     const stored = `{"terminals":[${FULL_SLEEPING}],"activeTerminalId":null,"savedAt":1700000000000,"resumableIds":["t-2"]}`;
     expect(roundTrip(stored)).toBe(stored);
+  });
+
+  it("promptedAt: a LEGACY terminal that OMITS the key decodes to null AND re-encodes WITH it", () => {
+    const legacy = MINIMAL_ACTIVE.replace('"promptedAt":null,', "");
+    const stored = (t: string) =>
+      `{"terminals":[${t}],"activeTerminalId":"t-1","savedAt":1700000000000}`;
+    expect(
+      decodeSession(JSON.parse(stored(legacy))).terminals[0]?.promptedAt,
+    ).toBeNull();
+    expect(roundTrip(stored(legacy))).toBe(stored(MINIMAL_ACTIVE));
+  });
+
+  it('git: a LEGACY stored `"git":null` backfills to unresolved AND re-encodes in the new shape', () => {
+    // The bytes a previous release wrote: `git` was `GitInfo | null`, and there
+    // was no `promptedAt`. The schema alone refuses `null`; the backfill (which
+    // the 1.1.0 state migration and the import hatch both run) is what turns
+    // it into "never checked" — never "not a repo".
+    const legacy = MINIMAL_ACTIVE.replace(
+      '"git":{"kind":"none"}',
+      '"git":null',
+    ).replace('"promptedAt":null,', "");
+    const migrated = MINIMAL_ACTIVE.replace(
+      '"git":{"kind":"none"}',
+      '"git":{"kind":"unresolved"}',
+    );
+    const stored = (t: string) =>
+      `{"terminals":[${t}],"activeTerminalId":"t-1","savedAt":1700000000000}`;
+    expect(accepts(SavedSessionSchema, JSON.parse(stored(legacy)))).toBe(false);
+    expect(
+      JSON.stringify(
+        encodeSession(
+          decodeSession(backfillSavedSession(JSON.parse(stored(legacy)))),
+        ),
+      ),
+    ).toBe(stored(migrated));
   });
 
   it("activeTerminalId: a LEGACY blob that OMITS the key decodes to null AND re-encodes WITH it", () => {
@@ -188,19 +223,19 @@ describe("PersistedSnapshot — the restore-relevant projection, in bytes", () =
   it("keeps exactly cwd · git · pr, in that order, and drops the live half", () => {
     const decoded = Schema.decodeUnknownSync(PersistedSnapshotSchema)({
       cwd: "/repo",
-      git: null,
+      git: { kind: "none" },
       pr: { kind: "absent" },
       // The live half a full `TerminalSnapshot` carries — dropped structurally,
       // so a future live field can never silently ride to disk.
       agent: { kind: "claude-code" },
-      foreground: { name: "vim", title: null },
+      foreground: { name: "vim", title: null, shell: false },
       ports: { status: "unknown" },
     });
     expect(
       JSON.stringify(
         Schema.encodeUnknownSync(PersistedSnapshotSchema)(decoded),
       ),
-    ).toBe('{"cwd":"/repo","git":null,"pr":{"kind":"absent"}}');
+    ).toBe('{"cwd":"/repo","git":{"kind":"none"},"pr":{"kind":"absent"}}');
   });
 });
 

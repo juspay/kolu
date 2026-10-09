@@ -43,7 +43,9 @@ export async function exportTranscriptHtml(
   const agent = aw.agent;
   if (!agent) throw new TranscriptNoAgent();
   const cwd = aw.cwd;
-  const repoName = aw.git?.repoName ?? null;
+  // The export names a repo only when one is known; `none` and `unresolved`
+  // both export without one.
+  const repoName = aw.git.kind === "repo" ? aw.git.info.repoName : null;
   const prInfo = prValue(aw.pr);
   const pr: TranscriptPr | null = prInfo
     ? { number: prInfo.number, url: prInfo.url }

@@ -106,5 +106,5 @@ export function servingTerminalName(loc: TerminalLocation): string {
   const key = terminalKey(loc);
   // Non-git: `group` is the cwd BASENAME and `label` the shortened path, so
   // `group/label` would read "scratch/~/scratch". The label alone is the name.
-  return loc.git ? `${key.group}/${key.label}` : key.label;
+  return loc.git.kind === "repo" ? `${key.group}/${key.label}` : key.label;
 }

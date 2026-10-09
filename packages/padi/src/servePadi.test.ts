@@ -76,13 +76,14 @@ const activeMeta: AuthoredActiveTerminal = {
   state: "active",
   location: LOCAL_LOCATION,
   lastActivityAt: 42,
+  promptedAt: null,
   themeName: "rose",
   intent: "fix the auth race",
 };
 
 const activeSnapshot: TerminalSnapshot = {
   cwd: "/work/repo",
-  git: null,
+  git: { kind: "none" },
   pr: { kind: "pending" },
   agent: null,
   foreground: null,
@@ -104,7 +105,7 @@ const sleepingMeta: AuthoredSleepingTerminal = Schema.decodeUnknownSync(
 
 const sleepingSnapshot: TerminalSnapshot = {
   cwd: "/work/repo",
-  git: null,
+  git: { kind: "none" },
   pr: { kind: "absent" },
   agent: null,
   foreground: null,
@@ -126,7 +127,7 @@ const parkedMeta: AuthoredParkedTerminal = Schema.decodeUnknownSync(
 
 const parkedSnapshot: TerminalSnapshot = {
   cwd: "/work/parked",
-  git: null,
+  git: { kind: "none" },
   pr: { kind: "absent" },
   agent: null,
   foreground: null,
@@ -575,10 +576,11 @@ describe("padi session cell backing is non-recursive + normalizes (review #2)", 
         id: "s1",
         state: "active",
         cwd: "/x",
-        git: null,
+        git: { kind: "none" },
         pr: { kind: "absent" },
         location: LOCAL_LOCATION,
         lastActivityAt: 0,
+        promptedAt: null,
       },
     ],
     activeTerminalId: "s1",
@@ -696,10 +698,11 @@ describe("padi restore forfeit — create preserves, session.forfeit discards (K
     id,
     state: "active",
     cwd,
-    git: null,
+    git: { kind: "none" },
     pr: { kind: "absent" },
     location: LOCAL_LOCATION,
     lastActivityAt: 1,
+    promptedAt: null,
     restoreTarget: { kind: "none" },
   });
   // The pre-reboot session the restore card offers — two ACTIVE records (one of

@@ -441,8 +441,11 @@ export function useTerminalMetadata(deps: {
     worktreePath: string,
     excludeId: TerminalId,
   ): boolean {
-    const onWorktree = (id: TerminalId) =>
-      getMetadata(id)?.git?.worktreePath === worktreePath;
+    const onWorktree = (id: TerminalId) => {
+      // A terminal whose git is `none` or `unresolved` is on no worktree.
+      const git = getMetadata(id)?.git;
+      return git?.kind === "repo" && git.info.worktreePath === worktreePath;
+    };
     return terminalIds().some((otherId) => {
       if (otherId === excludeId) return false;
       return onWorktree(otherId) || getSplitPaneIds(otherId).some(onWorktree);

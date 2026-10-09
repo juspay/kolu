@@ -89,7 +89,7 @@ const A_ID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const B_ID = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
 
 const base = {
-  git: null,
+  git: { kind: "none" as const },
   pr: { kind: "absent" } as const,
   location: LOCAL_LOCATION,
 };
@@ -101,6 +101,7 @@ function active(id: string, cwd: string): SavedActiveTerminal {
     state: "active",
     cwd,
     lastActivityAt: 5,
+    promptedAt: null,
     restoreTarget: { kind: "none" },
   };
 }
@@ -260,6 +261,7 @@ describe("adoptSurvivingSession — daemon-identity gate (PATH A, by startedAt)"
       sleptAt: 111,
       cwd: "/s",
       lastActivityAt: 3,
+      promptedAt: null,
     };
     setSavedSession({
       terminals: [active(A_ID, "/a"), sleeper],

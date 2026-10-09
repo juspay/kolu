@@ -54,7 +54,7 @@ export const EXACT_TARGET: RestoreTarget = {
 function activeSnapshot(): TerminalSnapshot {
   return {
     cwd: "/work/repo",
-    git: null,
+    git: { kind: "none" },
     pr: {
       kind: "ok",
       value: {
@@ -90,9 +90,10 @@ export function activeEntry(
       location: LOCAL_LOCATION,
       themeName: "rose",
       intent: "fix the auth race",
-      // The two remembered facts + the derived restore target — the fold writes
+      // The remembered facts + the derived restore target — the fold writes
       // these onto the authored record live; here we seed them directly.
       lastActivityAt: 123,
+      promptedAt: null,
       lastAgentCommand: "opencode --model sonnet",
       restoreTarget: opts.restoreTarget,
     },

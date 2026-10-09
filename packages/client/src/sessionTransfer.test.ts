@@ -15,13 +15,14 @@ const valid: SavedSession = {
       id: "t1",
       state: "active",
       cwd: "/home/user",
-      git: null,
+      git: { kind: "none" },
       // `pr` is a persisted (restore-relevant) field after the
       // awareness-derive-store cutover (PR #1621), so a current-schema export
       // carries it verbatim and the parse round-trips with no backfill.
       pr: { kind: "absent" },
       location: LOCAL_LOCATION,
       lastActivityAt: 0,
+      promptedAt: null,
     },
   ],
   activeTerminalId: "t1",
@@ -68,7 +69,8 @@ describe("parseSavedSession", () => {
     // exists for. The backfill repairs all three: `state: "active"` (every
     // pre-discriminant terminal was live), `location: LOCAL_LOCATION`, and
     // `pr: { kind: "absent" }` (the live PR sensor re-resolves on restore).
-    // `lastActivityAt` rides through verbatim — it predates these bumps.
+    // `lastActivityAt` rides through verbatim — it predates these bumps. The
+    // old nullable `git` becomes the three-case fact.
     const legacy = {
       terminals: [
         { id: "t1", cwd: "/home/user", git: null, lastActivityAt: 0 },
@@ -81,9 +83,13 @@ describe("parseSavedSession", () => {
       terminals: [
         {
           ...legacy.terminals[0],
+          // The old `git: null` could mean "no repo" or "not sensed yet"; it
+          // imports as `unresolved` and restore re-samples it.
+          git: { kind: "unresolved" },
           state: "active",
           location: LOCAL_LOCATION,
           pr: { kind: "absent" },
+          promptedAt: null,
         },
       ],
     });
@@ -120,11 +126,12 @@ describe("parseSavedSession", () => {
           id: "t1",
           state: "active",
           cwd: "/home/user",
-          git: null,
+          git: { kind: "unresolved" },
           location: LOCAL_LOCATION,
           lastActivityAt: 5,
           lastAgentCommand: "claude --model sonnet",
           pr: { kind: "absent" },
+          promptedAt: null,
           restoreTarget: {
             kind: "exact",
             command: "claude --model sonnet",
@@ -165,11 +172,12 @@ describe("parseSavedSession", () => {
           id: "t1",
           state: "active",
           cwd: "/home/user",
-          git: null,
+          git: { kind: "unresolved" },
           location: LOCAL_LOCATION,
           lastActivityAt: 5,
           lastAgentCommand: "opencode --model sonnet",
           pr: { kind: "absent" },
+          promptedAt: null,
           restoreTarget: {
             kind: "legacyMostRecent",
             command: "opencode --model sonnet",
@@ -208,11 +216,12 @@ describe("parseSavedSession", () => {
           id: "t1",
           state: "active",
           cwd: "/home/user",
-          git: null,
+          git: { kind: "unresolved" },
           location: LOCAL_LOCATION,
           lastActivityAt: 5,
           lastAgentCommand: "opencode --model sonnet",
           pr: { kind: "absent" },
+          promptedAt: null,
           restoreTarget: {
             kind: "legacyMostRecent",
             command: "opencode --model sonnet",

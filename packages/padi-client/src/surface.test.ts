@@ -43,7 +43,7 @@ const decodeIdentity = Schema.decodeUnknownSync(PadiIdentitySchema);
 /** A minimal PARKED record — the arm that exists only on the wire side. */
 const parkedRecord = (): Record<string, unknown> => ({
   cwd: "/repo",
-  git: null,
+  git: { kind: "none" },
   pr: { kind: "absent" },
   location: { kind: "local" },
   lastActivityAt: null,
@@ -116,7 +116,11 @@ describe("padiSurface contract", () => {
     // 5.9 adds agent-distro updates: the `agentDistro.checkNow` a 5.9 client
     // CALLS and the `agentDistroReceipt` cell it reads, so the minor drains a
     // 5.8 padi that has neither.
-    expect(PADI_SURFACE_VERSION).toBe("5.9");
+    // 5.10 makes the record's `git` a three-case `GitFact` and gives its
+    // `foreground` a required `shell` (neither additive: the two shapes refuse
+    // each other), so the minor keeps a 5.10 decoder from ever meeting a 5.9
+    // padi's `git: null`.
+    expect(PADI_SURFACE_VERSION).toBe("5.10");
     expect(DEFAULT_PADI_VERSION.contractVersion).toBe(PADI_SURFACE_VERSION);
     expect(
       Schema.decodeUnknownSync(PadiVersionSchema)(DEFAULT_PADI_VERSION),
@@ -154,6 +158,9 @@ describe("padiSurface contract", () => {
     expect(isContractVersionCompatible("5.8", "5.7")).toBe(true);
     expect(isContractVersionCompatible("5.8", "5.9")).toBe(false);
     expect(isContractVersionCompatible("5.9", "5.8")).toBe(true);
+    // Two-digit minors compare as numbers, not strings: 5.10 is after 5.9.
+    expect(isContractVersionCompatible("5.9", "5.10")).toBe(false);
+    expect(isContractVersionCompatible("5.10", "5.9")).toBe(true);
     // A major bump is mutually incompatible in both directions.
     expect(isContractVersionCompatible("6.0", "5.0")).toBe(false);
     expect(isContractVersionCompatible("5.0", "6.0")).toBe(false);

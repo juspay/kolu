@@ -70,7 +70,7 @@ const SUB_ID = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
 const SLEPT_SUB_ID = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
 
 const base = {
-  git: null,
+  git: { kind: "none" as const },
   pr: { kind: "absent" } as const,
   location: LOCAL_LOCATION,
 };
@@ -85,6 +85,7 @@ const parentRecord: SavedActiveTerminal = {
   state: "active",
   cwd: "/parent",
   lastActivityAt: 12345,
+  promptedAt: null,
   restoreTarget: { kind: "none" },
 };
 const subRecord: SavedActiveTerminal = {
@@ -94,6 +95,7 @@ const subRecord: SavedActiveTerminal = {
   cwd: "/sub",
   parentId: PARENT_ID,
   lastActivityAt: 200,
+  promptedAt: null,
   // Default fixture: a parented terminal running an agent — the class of
   // record the client used to drop from the resume set.
   lastAgentCommand: "claude --permission-mode auto",
@@ -114,6 +116,7 @@ const sleeperRecord: SavedTerminal = {
   sleptAt: 111,
   cwd: "/sleep",
   lastActivityAt: 7,
+  promptedAt: null,
 };
 const sleptSubRecord: SavedTerminal = {
   ...base,
@@ -123,6 +126,7 @@ const sleptSubRecord: SavedTerminal = {
   cwd: "/slept-sub",
   parentId: PARENT_ID,
   lastActivityAt: 9,
+  promptedAt: null,
 };
 
 function savedSession(): SavedSession {
@@ -252,6 +256,7 @@ describe("restoreSession — parked→active restore (the W1.R6 gate)", () => {
       state: "active",
       cwd: "/order-a",
       lastActivityAt: 1,
+      promptedAt: null,
       restoreTarget: { kind: "none" },
     };
     const midSleeper: SavedTerminal = {
@@ -261,6 +266,7 @@ describe("restoreSession — parked→active restore (the W1.R6 gate)", () => {
       sleptAt: 2,
       cwd: "/order-sleep",
       lastActivityAt: 2,
+      promptedAt: null,
     };
     const activeB: SavedActiveTerminal = {
       ...base,
@@ -268,6 +274,7 @@ describe("restoreSession — parked→active restore (the W1.R6 gate)", () => {
       state: "active",
       cwd: "/order-b",
       lastActivityAt: 3,
+      promptedAt: null,
       restoreTarget: { kind: "none" },
     };
     setSavedSession({
@@ -350,6 +357,7 @@ describe("restoreSession — parked→active restore (the W1.R6 gate)", () => {
     state: "active",
     cwd: "/agent",
     lastActivityAt: 500,
+    promptedAt: 450,
     lastAgentCommand: "claude --model sonnet",
     restoreTarget: W12_EXACT,
   };
@@ -377,6 +385,9 @@ describe("restoreSession — parked→active restore (the W1.R6 gate)", () => {
     expect(restored).toBeDefined();
     expect(restored?.restoreTarget).toEqual(W12_EXACT);
     expect(restored?.lastAgentCommand).toBe("claude --model sonnet");
+    // The resumed agent already had its first live turn — it must not come back
+    // reading as one still at its first prompt.
+    expect(restored?.promptedAt).toBe(450);
 
     await done;
   });
@@ -398,6 +409,7 @@ describe("restoreSession — parked→active restore (the W1.R6 gate)", () => {
     expect(restored).toBeDefined();
     expect(restored?.restoreTarget).toBeUndefined();
     expect(restored?.lastAgentCommand).toBeUndefined();
+    expect(restored?.promptedAt).toBeNull();
 
     await done;
   });
@@ -423,6 +435,7 @@ describe("restoreSession — parked→active restore (the W1.R6 gate)", () => {
       cwd: "/orphan",
       parentId: "ffffffff-ffff-4fff-8fff-ffffffffffff", // not in session
       lastActivityAt: 9,
+      promptedAt: null,
       lastAgentCommand: "claude --model sonnet",
       restoreTarget: orphanExact,
     };
@@ -477,10 +490,15 @@ describe("restoreSession — parked→active restore (the W1.R6 gate)", () => {
     const CHILD_ID = "ffffffff-ffff-4fff-8fff-ffffffffffff";
     const liveParent: ActiveTerminalProcess = {
       info: { id: LIVE_PARENT_ID, pid: 0 },
-      meta: { state: "active", location: LOCAL_LOCATION, lastActivityAt: 0 },
+      meta: {
+        state: "active",
+        location: LOCAL_LOCATION,
+        lastActivityAt: 0,
+        promptedAt: null,
+      },
       snapshot: {
         cwd: "/live-parent",
-        git: null,
+        git: { kind: "none" as const },
         pr: { kind: "absent" },
         agent: null,
         foreground: null,
@@ -496,6 +514,7 @@ describe("restoreSession — parked→active restore (the W1.R6 gate)", () => {
       cwd: "/retry-child",
       parentId: LIVE_PARENT_ID,
       lastActivityAt: 42,
+      promptedAt: null,
       restoreTarget: { kind: "none" },
     };
     // The child is the re-parked failed respawn from the first (partial) attempt.
@@ -510,6 +529,7 @@ describe("restoreSession — parked→active restore (the W1.R6 gate)", () => {
           state: "active",
           cwd: "/live-parent",
           lastActivityAt: 0,
+          promptedAt: null,
           restoreTarget: { kind: "none" },
         },
         childRecord,
@@ -570,6 +590,7 @@ describe("settleRestoreRespawns — independent per-spawn settlement (F2 / F3 / 
     state: "active",
     cwd,
     lastActivityAt: 1,
+    promptedAt: null,
     restoreTarget: { kind: "none" },
     ...(parentId ? { parentId } : {}),
   });
@@ -584,11 +605,12 @@ describe("settleRestoreRespawns — independent per-spawn settlement (F2 / F3 / 
       state: "active",
       location: LOCAL_LOCATION,
       lastActivityAt: 1,
+      promptedAt: null,
       ...(parentId ? { parentId } : {}),
     },
     snapshot: {
       cwd,
-      git: null,
+      git: { kind: "none" as const },
       pr: { kind: "absent" },
       agent: null,
       foreground: null,
@@ -762,10 +784,15 @@ describe("persistSettledRestoreSnapshot — post-settle persistence (F5)", () =>
   const LIVE_ID = "77777777-7777-4777-8777-777777777777";
   const liveEntry = (id: string, cwd: string): ActiveTerminalProcess => ({
     info: { id, pid: 1 },
-    meta: { state: "active", location: LOCAL_LOCATION, lastActivityAt: 1 },
+    meta: {
+      state: "active",
+      location: LOCAL_LOCATION,
+      lastActivityAt: 1,
+      promptedAt: null,
+    },
     snapshot: {
       cwd,
-      git: null,
+      git: { kind: "none" as const },
       pr: { kind: "absent" },
       agent: null,
       foreground: null,
@@ -789,6 +816,7 @@ describe("persistSettledRestoreSnapshot — post-settle persistence (F5)", () =>
           state: "active",
           cwd: "/f5-live",
           lastActivityAt: 1,
+          promptedAt: null,
           restoreTarget: { kind: "none" },
           // stale on disk — the pre-await snapshot predates the theme change
         },
@@ -819,6 +847,7 @@ describe("persistSettledRestoreSnapshot — post-settle persistence (F5)", () =>
       state: "active",
       cwd: "/f5-parked",
       lastActivityAt: 1,
+      promptedAt: null,
       restoreTarget: { kind: "none" },
     };
     setSavedSession({
@@ -849,6 +878,7 @@ describe("persistSettledRestoreSnapshot — post-settle persistence (F5)", () =>
       state: "active",
       cwd: "/f5-mixed-parked",
       lastActivityAt: 1,
+      promptedAt: null,
       restoreTarget: { kind: "none" },
     };
     // B is live; the pre-await optimistic snapshot named BOTH A (still live then) and B.
@@ -862,6 +892,7 @@ describe("persistSettledRestoreSnapshot — post-settle persistence (F5)", () =>
           state: "active",
           cwd: "/f5-mixed-live",
           lastActivityAt: 1,
+          promptedAt: null,
           restoreTarget: { kind: "none" },
           // stale on disk — predates B's theme change below
         },

@@ -205,9 +205,11 @@ const App: Component = () => {
       return;
     }
     const splitCount = store.getDisplayInfo(id)?.subCount ?? 0;
-    const worktreePath = meta.git?.isWorktree
-      ? meta.git.worktreePath
-      : undefined;
+    // Only a resolved worktree offers removal; `none`/`unresolved` offer none.
+    const worktreePath =
+      meta.git.kind === "repo" && meta.git.info.isWorktree
+        ? meta.git.info.worktreePath
+        : undefined;
     const worktreeRemoval = worktreePath
       ? store.isWorktreeShared(worktreePath, id)
         ? ({ eligible: false, reason: "sharedWithOtherTerminals" } as const)

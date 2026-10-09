@@ -20,13 +20,14 @@ function meta(intent?: string): TerminalMetadata {
   return {
     state: "active",
     cwd: "/tmp",
-    git: null,
+    git: { kind: "none" },
     location: LOCAL_LOCATION,
     pr: { kind: "absent" },
     agent: null,
     foreground: null,
     ports: { status: "unknown" },
     lastActivityAt: 0,
+    promptedAt: null,
     intent,
   };
 }

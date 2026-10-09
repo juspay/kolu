@@ -153,17 +153,29 @@ describe("servingTerminalName", () => {
     // only way they agree is by being the same projection.
     expect(
       servingTerminalName({
-        git: { repoName: "kolu", branch: "master" } as GitInfo,
+        git: {
+          kind: "repo",
+          info: { repoName: "kolu", branch: "master" } as GitInfo,
+        },
         cwd: "/home/srid/code/kolu",
       }),
     ).toBe("kolu/master");
   });
 
+  it("names a terminal whose git has not resolved by its path, too", () => {
+    expect(
+      servingTerminalName({
+        git: { kind: "unresolved" },
+        cwd: "/home/srid/scratch",
+      }),
+    ).toBe("~/scratch");
+  });
+
   it("falls back to the shortened path when there is no git", () => {
     // Not "Terminal 3": a positional label is not a name, and the row's whole
     // job is to answer "go WHERE?".
-    expect(servingTerminalName({ git: null, cwd: "/home/srid/scratch" })).toBe(
-      "~/scratch",
-    );
+    expect(
+      servingTerminalName({ git: { kind: "none" }, cwd: "/home/srid/scratch" }),
+    ).toBe("~/scratch");
   });
 });

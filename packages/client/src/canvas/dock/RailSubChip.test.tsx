@@ -65,13 +65,14 @@ function shellMeta(): TerminalMetadata {
   return {
     state: "active",
     cwd: "/tmp/work",
-    git: null,
+    git: { kind: "none" },
     location: LOCAL_LOCATION,
     pr: { kind: "absent" },
     agent: null,
     foreground: null,
     ports: { status: "unknown" },
     lastActivityAt: 1,
+    promptedAt: null,
     parentId: PARENT,
   };
 }

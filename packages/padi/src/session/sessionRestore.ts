@@ -135,6 +135,10 @@ function respawnActive(
       ...(t.lastActivityAt === null
         ? {}
         : { lastActivityAt: t.lastActivityAt }),
+      // The resumed agent's first live turn rides with it, so it does not read as
+      // an agent still at its first prompt. Only when resuming, for the reason
+      // `restoreTarget` above is: a bare shell has no agent to have been prompted.
+      ...(resume && t.promptedAt !== null ? { promptedAt: t.promptedAt } : {}),
     },
   );
   // Auto-launch the resume form of the previously captured agent command, if the

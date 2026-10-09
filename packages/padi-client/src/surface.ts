@@ -525,8 +525,26 @@ export * from "./transcriptSchema.ts";
  *  procedure, `agentDistro.checkNow`, which runs an update at once and refuses
  *  with the declared `AgentDistroCheckRefused` while a run is going or nothing
  *  serves. A 5.9 client CALLS `checkNow` and subscribes to the receipt, so the
- *  minor drains a 5.8 padi that has neither. */
-export const PADI_SURFACE_VERSION = "5.9";
+ *  minor drains a 5.8 padi that has neither.
+ *
+ *  5.10 (minor) — the terminal record's `git` becomes a three-case `GitFact`
+ *  (`unresolved | none | repo`, `@kolu/terminal-vocab`'s `GitFactSchema`) in
+ *  place of `GitInfo | null`, so a reader can tell "not a repo" from "git not
+ *  checked yet"; the record's `foreground` gains a REQUIRED `shell` (padi's own
+ *  `isShellIdle` answer: is the program in front the terminal's shell); and the
+ *  authored record gains `promptedAt` (when the current agent first went live —
+ *  `null` until then; a key-level backfill, so an older record decodes). The
+ *  `git` and `shell` changes are NOT additive — a 5.10 decoder refuses a 5.9
+ *  padi's `git: null` (and its `shell`-less foreground), and a 5.9 decoder
+ *  refuses a 5.10 padi's `{ kind }`. The minor protects only part of that. A
+ *  5.10 binder drains a 5.9 padi before consuming its surface, and a 5.9
+ *  binder drains a 5.10 padi too. But an older GATE-ONLY face (`kolu ls`, the
+ *  MCP face, `padi-tui --host`) only checks "majors equal and running minor ≥
+ *  required" (`isContractVersionCompatible`), so it passes the gate against a
+ *  5.10 padi and then meets a decode refusal on the record: loud, but not the
+ *  clean `DaemonContractSkewError`, and not the graceful direction 5.7
+ *  describes. Kept a minor anyway, as 5.3 and 5.7 were. */
+export const PADI_SURFACE_VERSION = "5.10";
 
 /** The `version` cell payload — padi's self-declared surface contract version. */
 export const PadiVersionSchema = Schema.Struct({

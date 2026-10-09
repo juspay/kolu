@@ -41,3 +41,5 @@ The server's `meta/git.ts` is a thin adapter around `subscribeGitInfo`:
 3. On terminal cwd change (via the `cwd:` channel), calls `watcher.setCwd(next)` — the integration swaps the watched directory
 
 `NOT_A_REPO` (expected, debug) is distinguished from `GIT_FAILED` (unexpected, error) inside `subscribeGitInfo` — the callback receives `GitInfo | null` either way, but only real failures are logged at error level.
+
+The callback fires for the **first** answer unconditionally — `null` (not a repo) included — and then only on change. A caller can therefore tell "resolved: not a repo" from "not resolved yet": padi's git sensor turns the first answer into the terminal record's `git` fact (`none` or `repo`), moving it off its `unresolved` seed.

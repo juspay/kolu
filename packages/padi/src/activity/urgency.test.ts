@@ -45,14 +45,19 @@ function makeAgent(state: AgentInfo["state"]): AgentInfo {
 function activeTerminal(agent: AgentInfo | null): PadiTerminal {
   const snapshot: TerminalSnapshot = {
     cwd: "/tmp",
-    git: null,
+    git: { kind: "none" },
     pr: { kind: "pending" },
     agent,
     foreground: null,
     ports: { status: "unknown" },
   };
   return composeTerminalMetadata(
-    { state: "active", location: LOCAL_LOCATION, lastActivityAt: 0 },
+    {
+      state: "active",
+      location: LOCAL_LOCATION,
+      lastActivityAt: 0,
+      promptedAt: null,
+    },
     snapshot,
   );
 }
@@ -73,7 +78,7 @@ function terminalsMap(
 function sleepingTerminal(agent: AgentInfo | null): PadiTerminal {
   const snapshot: TerminalSnapshot = {
     cwd: "/tmp",
-    git: null,
+    git: { kind: "none" },
     pr: { kind: "pending" },
     agent,
     foreground: null,
@@ -84,6 +89,7 @@ function sleepingTerminal(agent: AgentInfo | null): PadiTerminal {
       state: "sleeping",
       location: LOCAL_LOCATION,
       lastActivityAt: 0,
+      promptedAt: null,
       sleptAt: 0,
     },
     snapshot,

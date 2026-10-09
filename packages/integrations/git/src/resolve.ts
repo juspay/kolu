@@ -177,8 +177,10 @@ export function gitInfoEqual(a: GitInfo | null, b: GitInfo | null): boolean {
  * makes `git init` in the current shell cwd reach the client without an
  * OSC 7 re-emit (the shell doesn't re-emit because cwd didn't change).
  *
- * `onChange` fires once per actual change — never for a dedup miss. Initial
- * resolve is best-effort: if the cwd isn't a git repo at start, the cwd
+ * `onChange` fires for the FIRST answer unconditionally — `null` (not a repo)
+ * included, so a caller can tell "resolved, not a repo" from "not resolved yet"
+ * — then once per actual change, never for a dedup miss. Initial resolve is
+ * best-effort: if the cwd isn't a git repo at start, the cwd
  * watcher sits waiting for `.git` to appear; the HEAD watcher takes over
  * once it does.
  *
@@ -197,6 +199,9 @@ export function subscribeGitInfo(
 ): { setCwd(next: string): void; stop(): void } {
   let currentCwd = initialCwd;
   let currentInfo: GitInfo | null = null;
+  // False until the first answer is published: that one goes out even when it
+  // is `null`, because "not a repo" is an answer the caller has not heard yet.
+  let answered = false;
   // Head mode watches `.git/HEAD` (in-repo); cwd mode watches the parent
   // for `.git` appearing (out-of-repo). The two are mutually exclusive.
   let watcher: WatcherSlot | null = null;
@@ -248,15 +253,22 @@ export function subscribeGitInfo(
     // state. Acting on a stale cwd here would re-swap watchers and emit a
     // GitInfo for a directory we're no longer in.
     if (cwdAtStart !== currentCwd) return;
-    const next: GitInfo | null = result.ok ? result.value : null;
+    // A failure other than "not a repo" (git missing, dubious ownership, a
+    // timeout) is NOT an answer: publishing `null` would tell the caller "not
+    // a repo" when the sensor never found out. Log it, keep watching for
+    // `.git`, and publish nothing — the caller stays on what it last heard.
     if (!result.ok && result.error.code !== "NOT_A_REPO") {
       log?.error(
         { code: result.error.code, cwd: currentCwd },
         "git resolution failed",
       );
+      ensureMode("cwd");
+      return;
     }
+    const next: GitInfo | null = result.ok ? result.value : null;
     ensureMode(next !== null ? "head" : "cwd");
-    if (gitInfoEqual(next, currentInfo)) return;
+    if (answered && gitInfoEqual(next, currentInfo)) return;
+    answered = true;
     currentInfo = next;
     onChange(next);
   }

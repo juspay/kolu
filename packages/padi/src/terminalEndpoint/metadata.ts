@@ -17,7 +17,7 @@
  * The write seams:
  *   - `commitSnapshot(id, observation)` — replace `entry.snapshot` and publish the
  *     composed record.
- *   - `updateMemory(id, memory)` — write the two remembered `AgentMemory` facts
+ *   - `updateMemory(id, memory)` — write the remembered `AgentMemory` facts
  *     onto `entry.meta` (the narrowed writer — it CANNOT touch any other field) and
  *     publish the composed record.
  *   - `updateClientMetadata` — client-persisted authored fields, mutator typed
@@ -176,8 +176,8 @@ export function commitSnapshot(
   }
 }
 
-/** Write the fold's three restore-relevant AUTHORED facts — the two remembered
- *  `AgentMemory` fields (`lastActivityAt`, `lastAgentCommand`) and the fold-derived
+/** Write the fold's restore-relevant AUTHORED facts — the remembered
+ *  `AgentMemory` fields (`lastActivityAt`, `promptedAt`, `lastAgentCommand`) and the fold-derived
  *  `restoreTarget` — onto `entry.meta`, then publish the composed record. The ONE
  *  writer of these (the fold's), so no other code path can spell them — the typed
  *  mirror of `updateClientMetadata`. Does NOT arm the autosave (no {@link notifyDirty}):
@@ -204,6 +204,7 @@ export function updateMemory(
   // be swallowed after the producer baseline advanced. The registry stays in sync;
   // a lost publish self-heals on the next authored-fact change.
   entry.meta.lastActivityAt = memory.lastActivityAt;
+  entry.meta.promptedAt = memory.promptedAt;
   // `lastAgentCommand` is an OPTIONAL KEY (`Schema.optionalKey`) on the authored
   // record: ABSENT means "this terminal never ran a known agent". A plain
   // assignment of an absent memory field would write the key PRESENT with the

@@ -287,7 +287,17 @@ const CodeTab: Component<{
     },
   });
 
-  const repoPath = () => props.meta?.git?.repoRoot ?? null;
+  // Where the shown terminal stands with git: still being sensed, outside any
+  // repo, or in one. With no terminal shown there is no repo either. The
+  // empty-state copy and `syncRepo` below both tell "not checked yet" apart
+  // from "not a repo".
+  const gitKind = () => props.meta?.git.kind ?? "none";
+  // The repo root to browse, or `null` when there is nothing to browse yet or
+  // at all — every consumer of a root needs a root, whichever case it is.
+  const repoPath = () => {
+    const git = props.meta?.git;
+    return git?.kind === "repo" ? git.info.repoRoot : null;
+  };
 
   // History records repo-relative `{ mode, path }` locations with no repo
   // identity of their own, so a stack captured in repo A must not be replayed
@@ -307,11 +317,15 @@ const CodeTab: Component<{
   // terminal next becomes focused, while a freshly-switched-to terminal in a
   // different repo keeps its own history. The first call per terminal just
   // records the baseline, so a session-restored stack survives initial mount.
+  // While git is still unresolved there is no repo to record: recording "no
+  // repo" then would make the first real answer look like a repo change and
+  // drop the restored stack.
   createEffect(
     on(
-      () => [props.terminalId, repoPath()] as const,
-      ([tid, repo]) => {
-        if (tid !== null) rightPanel.syncRepo(tid, repo);
+      () => [props.terminalId, gitKind(), repoPath()] as const,
+      ([tid, kind, repo]) => {
+        if (tid === null || kind === "unresolved") return;
+        rightPanel.syncRepo(tid, repo);
       },
     ),
   );
@@ -460,13 +474,12 @@ const CodeTab: Component<{
       repoSlotKey,
       (key, previous) => {
         // Only a change BETWEEN two repos invalidates the slot's state. A `null`
-        // key means "no repo to scope to yet" — the shown pane's git is still
-        // being sensed, or the terminal sits outside a repo — and resetting on it
-        // would drop the filter and the open folders whenever focus lands on a
-        // just-created split whose git has not resolved yet, for a repo that has
-        // not changed at all. (`git` is `null` for BOTH "sensing" and "no repo";
-        // until that schema distinguishes them, this is the honest reading of a
-        // null key.)
+        // key means "no repo to scope to" — the shown pane's git is still
+        // unresolved, or the terminal sits outside a repo. Either way there is
+        // nothing to reset: an unresolved split may be in the very same repo,
+        // and a terminal outside a repo has no slot state to keep. Resetting on
+        // it would drop the filter and the open folders whenever focus lands on
+        // a just-created split whose git has not answered yet.
         if (key === null || previous === null) return;
         setSearchQuery("");
         // Retire any standing folder reveal too — it was scoped to the previous
@@ -1138,13 +1151,20 @@ const CodeTab: Component<{
     <Show
       when={repoPath()}
       fallback={
-        <div
-          class="flex flex-col items-center justify-center h-full text-fg-3/40 gap-2 text-[11px]"
-          data-testid="diff-no-repo"
+        // Unresolved stays blank: saying "Not in a git repository" before git
+        // has answered would be a guess.
+        <Show
+          when={gitKind() === "none"}
+          fallback={<div class="h-full" data-testid="diff-git-unresolved" />}
         >
-          <GitBranchIcon class="w-8 h-8 opacity-40" />
-          Not in a git repository
-        </div>
+          <div
+            class="flex flex-col items-center justify-center h-full text-fg-3/40 gap-2 text-[11px]"
+            data-testid="diff-no-repo"
+          >
+            <GitBranchIcon class="w-8 h-8 opacity-40" />
+            Not in a git repository
+          </div>
+        </Show>
       }
     >
       <div

@@ -49,7 +49,11 @@ const DormantTileBody: Component<{
   // unavailable snapshot — a dormant tile can't act on those, so only a resolved PR
   // is shown).
   const cwd = () => arm()?.cwd ?? null;
-  const branch = () => arm()?.git?.branch ?? null;
+  const branch = () => {
+    // A branch only when the frozen record knew its repo.
+    const git = arm()?.git;
+    return git?.kind === "repo" ? git.info.branch : null;
+  };
   const snapshotPr = () => {
     const pr = arm()?.pr;
     return pr ? prValue(pr) : null;

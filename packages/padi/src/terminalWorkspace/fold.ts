@@ -2,10 +2,10 @@
  * The fold — a reduce over the producer's observation stream. `fold(cur, o, ctx)
  * → cur'` is a reducer; kolu's stored `TerminalState` is a left-fold (scan) over
  * the stream. For the six OBSERVED fields it is plain last-write-wins; the only
- * judgments are the two REMEMBERED fields — stamp `lastActivityAt` from a LIVE
+ * judgments are the REMEMBERED fields — stamp `lastActivityAt` from a LIVE
  * agent observation (kolu's clock — an identity change always, a same-identity
- * output tick throttled) and keep `lastAgentCommand` from the latest
- * recognized `commandRun`. A producer can write none of that: `TerminalSnapshot` has no
+ * output tick throttled), stamp `promptedAt` at the current agent's first live
+ * state, and keep `lastAgentCommand` from the latest recognized `commandRun`. A producer can write none of that: `TerminalSnapshot` has no
  * memory field to carry, so however buggy / restarted / hostile a producer's
  * stream, it cannot overwrite a remembered fact — the fence is the EMIT TYPE.
  *
@@ -15,7 +15,9 @@
  * truth for "apply an observation to the snapshot state."
  */
 
+import { agentLive } from "@kolu/terminal-vocab/agentProjection";
 import type {
+  AgentInfo,
   RestoreTarget,
   TerminalEvent,
   TerminalSnapshot,
@@ -231,10 +233,12 @@ export function restoreTargetEqual(
 export type FoldCtx = { live: boolean; at: number; runStartedAt: number };
 
 /** Fold one framed observation into a NEW `TerminalState` — nothing is mutated.
- *  Six snapshot fields: last-write-wins (via {@link foldSnapshot}). Two memory
+ *  Six snapshot fields: last-write-wins (via {@link foldSnapshot}). Three memory
  *  fields: `lastActivityAt` stamped from a LIVE agent observation — an IDENTITY
  *  change (kolu's clock) or, on a stable identity, an OUTPUT tick throttled to
- *  {@link RECENCY_THROTTLE_MS}; `lastAgentCommand` kept from the latest `commandRun`
+ *  {@link RECENCY_THROTTLE_MS}; `promptedAt` stamped once per agent identity, at
+ *  its first live state ({@link nextPromptedAt}); `lastAgentCommand` kept from the
+ *  latest `commandRun`
  *  (the producer emits it ONLY for a recognized, normalized agent command, so a
  *  non-agent `ls` never reaches here — a replay is deduped to a no-op). */
 export function fold(
@@ -254,25 +258,34 @@ export function fold(
     return snapshot === cur.snapshot ? cur : { ...cur, snapshot };
   }
   // An authoritative agent `{ value }` (incl. a shell-idle null = session ended).
+  // A NEW agent identity: NEW activity (`ctx.live`) whose identity differs from
+  // what the fold last held — a session starts / finishes / a new one appears. A
+  // re-observation of the survivor kolu already knew is `!ctx.live`.
+  // The `agentIdentityChanged(cur.snapshot.agent, …)` conjunct is NOT belt-and-
+  // suspenders with `ctx.live`: it is the fold's OWN identity fence. `ctx.live` is
+  // the caller's frame-phase judgment (against a baseline the fold doesn't hold);
+  // this fold acts only on a change it can see against its OWN persisted
+  // `snapshot.agent`, so it never trusts the caller's `ctx.live` blindly. Requiring
+  // BOTH is this file's producer-fence thesis applied to itself — a self-contained
+  // contract for any present-or-future caller, not a redundant AND to simplify away.
+  const newIdentity =
+    ctx.live && agentIdentityChanged(cur.snapshot.agent, o.agent.value);
+  // FIRST LIVE TURN first (it rides every arm below), then RECENCY.
+  const next: TerminalState = {
+    ...cur,
+    snapshot,
+    memory: {
+      ...cur.memory,
+      promptedAt: nextPromptedAt(cur, o.agent.value, newIdentity, ctx.at),
+    },
+  };
   // RECENCY, two arms that COMPOSE, kolu's clock stamps both — one stamp shape:
-  const next: TerminalState = { ...cur, snapshot };
   const stamped = (): TerminalState => ({
     ...next,
     memory: { ...next.memory, lastActivityAt: ctx.at },
   });
-  //  - IDENTITY-change arm (#1626, unthrottled): NEW activity (`ctx.live`) whose
-  //    identity differs from what the fold last held — a session starts / finishes /
-  //    a new one appears. A re-observation of the survivor kolu already knew is
-  //    `!ctx.live`, so it never takes this arm.
-  //    The `agentIdentityChanged(cur.snapshot.agent, …)` conjunct is NOT belt-and-
-  //    suspenders with `ctx.live`: it is the fold's OWN identity fence. `ctx.live` is
-  //    the caller's frame-phase judgment (against a baseline the fold doesn't hold);
-  //    this fold bumps only on a change it can see against its OWN persisted
-  //    `snapshot.agent`, so it never trusts the caller's `ctx.live` blindly. Requiring
-  //    BOTH is this file's producer-fence thesis applied to itself — a self-contained
-  //    contract for any present-or-future caller, not a redundant AND to simplify away.
-  if (ctx.live && agentIdentityChanged(cur.snapshot.agent, o.agent.value))
-    return stamped();
+  //  - IDENTITY-change arm (#1626, unthrottled): a new agent identity.
+  if (newIdentity) return stamped();
   //  - THROTTLED-output arm (the freeze fix): a same-identity DETAIL tick is the
   //    agent producing OUTPUT. Stamp it too, but only once per RECENCY_THROTTLE_MS so
   //    the ~1s firehose doesn't recreate the per-tick write noise #1626 removed. The
@@ -284,4 +297,26 @@ export function fold(
   const prior = cur.memory.lastActivityAt ?? 0;
   const since = Math.max(prior, ctx.runStartedAt);
   return ctx.at - since >= RECENCY_THROTTLE_MS ? stamped() : next;
+}
+
+/** `promptedAt` after one authoritative agent observation — "has the CURRENT
+ *  agent had a live turn yet?" (see `AgentMemorySchema`). Three cases:
+ *   - no agent → `null` (nothing to have been prompted);
+ *   - a NEW agent identity (`newIdentity`, the fence the recency arm uses too)
+ *     → starts over: stamped only if it is already live, so a fresh agent
+ *     detected at its first prompt (`waiting`) stays `null`;
+ *   - the same agent → keeps its stamp, or takes one on its first live state.
+ *  The identity fence matters on ADOPT: the seeded snapshot has no agent, so the
+ *  survivor's re-observation is an identity change the baseline says is NOT live
+ *  — it must keep the saved stamp, not reset it. */
+function nextPromptedAt(
+  cur: TerminalState,
+  agent: AgentInfo | null,
+  newIdentity: boolean,
+  at: number,
+): number | null {
+  if (agent === null) return null;
+  const firstLive = agentLive(agent.state) ? at : null;
+  if (newIdentity) return firstLive;
+  return cur.memory.promptedAt ?? firstLive;
 }

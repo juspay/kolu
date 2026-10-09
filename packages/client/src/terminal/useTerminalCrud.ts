@@ -231,7 +231,8 @@ export const useTerminalCrud = createSharedRoot(() => {
       // loop aborts cleanly rather than half-creating.
       if (refuseIfWarming())
         return yield* new TerminalCreateRefused({ reason: "warming" });
-      if (store.activeMeta()?.git) showTipOnce(CONTEXTUAL_TIPS.worktree);
+      if (store.activeMeta()?.git.kind === "repo")
+        showTipOnce(CONTEXTUAL_TIPS.worktree);
 
       // Inherit the active tile's size for the new terminal. Set BEFORE
       // the create RPC — the server push during the call triggers the

@@ -132,7 +132,9 @@ vi.mock("../terminal/useTerminalStore", () => ({
   useTerminalStore: () => ({
     focused: () => ({
       id: bag.termId(),
-      meta: bag.repoRoot() ? { git: { repoRoot: bag.repoRoot() } } : null,
+      meta: bag.repoRoot()
+        ? { git: { kind: "repo", info: { repoRoot: bag.repoRoot() } } }
+        : null,
     }),
   }),
 }));

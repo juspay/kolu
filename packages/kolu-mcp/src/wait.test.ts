@@ -348,7 +348,7 @@ describe("waitAgentStateTool — the modifiers reach padi", () => {
     const record = {
       state: "active",
       agent: { kind: "claude-code", state: "waiting" },
-      git: null,
+      git: { kind: "none" },
       pr: { kind: "pending" },
       foreground: null,
     };

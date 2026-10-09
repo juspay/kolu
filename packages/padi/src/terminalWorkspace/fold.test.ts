@@ -19,15 +19,19 @@ import {
   type TerminalState,
 } from "@kolu/terminal-vocab/schema";
 
-const gitInfo = (branch: string) => ({
-  repoRoot: "/r",
-  repoName: "r",
-  worktreePath: "/r",
-  branch,
-  isWorktree: false,
-  mainRepoRoot: "/r",
-  remoteUrl: null,
-});
+const gitInfo = (branch: string) =>
+  ({
+    kind: "repo",
+    info: {
+      repoRoot: "/r",
+      repoName: "r",
+      worktreePath: "/r",
+      branch,
+      isWorktree: false,
+      mainRepoRoot: "/r",
+      remoteUrl: null,
+    },
+  }) as const;
 
 function claude(sessionId: string, state: AgentInfo["state"]): AgentInfo {
   return {
@@ -76,9 +80,9 @@ describe("foldSnapshot — last-write-wins over the six snapshot fields", () => 
     expect(o.pr).toEqual({ kind: "absent" });
     o = foldSnapshot(o, {
       kind: "foreground",
-      foreground: { name: "vim", title: null },
+      foreground: { name: "vim", title: null, shell: false },
     });
-    expect(o.foreground).toEqual({ name: "vim", title: null });
+    expect(o.foreground).toEqual({ name: "vim", title: null, shell: false });
   });
 
   it("KEEPS the prior agent on `unknown` (same reference — no clobber)", () => {
@@ -142,7 +146,7 @@ describe("fold — recency bumps only on a LIVE agent-identity change", () => {
   it("does NOT bump on a same-identity state tick (firehose) — keeps prior recency", () => {
     const cur: TerminalState = {
       snapshot: { ...seedSnapshot("/a"), agent: claude("A", "thinking") },
-      memory: { lastActivityAt: 500 },
+      memory: { lastActivityAt: 500, promptedAt: null },
     };
     const next = fold(cur, agentObs(claude("A", "waiting")), delta(9999));
     expect(next.snapshot.agent?.state).toBe("waiting");
@@ -152,7 +156,7 @@ describe("fold — recency bumps only on a LIVE agent-identity change", () => {
   it("bumps when a finished agent is followed by a genuinely-new one (the old-caveat bug)", () => {
     let cur: TerminalState = {
       snapshot: { ...seedSnapshot("/a"), agent: claude("A", "waiting") },
-      memory: { lastActivityAt: 500 },
+      memory: { lastActivityAt: 500, promptedAt: null },
     };
     cur = fold(cur, agentObs(null), delta(600)); // A finishes
     expect(cur.memory.lastActivityAt).toBe(600);
@@ -163,7 +167,7 @@ describe("fold — recency bumps only on a LIVE agent-identity change", () => {
   it("KEEPS kolu's value (and recency) on an `unknown` agent — mid-resolution never clobbers", () => {
     const cur: TerminalState = {
       snapshot: { ...seedSnapshot("/a"), agent: claude("A", "thinking") },
-      memory: { lastActivityAt: 500 },
+      memory: { lastActivityAt: 500, promptedAt: null },
     };
     const next = fold(cur, { kind: "agent", agent: "unknown" }, delta(9999));
     expect(next).toBe(cur); // no-op
@@ -173,7 +177,7 @@ describe("fold — recency bumps only on a LIVE agent-identity change", () => {
 describe("fold — a stable session's OUTPUT advances recency, THROTTLED (the freeze fix)", () => {
   const busy = (at: number): TerminalState => ({
     snapshot: { ...seedSnapshot("/a"), agent: claude("A", "thinking") },
-    memory: { lastActivityAt: at },
+    memory: { lastActivityAt: at, promptedAt: null },
   });
 
   it("bumps on a same-identity output tick once the throttle window has elapsed", () => {
@@ -213,7 +217,7 @@ describe("fold — a stable session's OUTPUT advances recency, THROTTLED (the fr
     // the (here week-past) saved recency.
     const adoptedIdle: TerminalState = {
       snapshot: { ...seedSnapshot("/a"), agent: null },
-      memory: { lastActivityAt: 500 },
+      memory: { lastActivityAt: 500, promptedAt: null },
     };
     const now = 500 + 10 * RECENCY_THROTTLE_MS;
     const next = fold(adoptedIdle, agentObs(claude("A", "waiting")), {
@@ -267,7 +271,7 @@ describe("recency baseline — adopt survives its multi-emit settle, then output
   // re-derives) and carries the SAVED recency on its memory.
   const adopted = (savedAt: number): TerminalState => ({
     snapshot: { ...seedSnapshot("/a"), agent: null },
-    memory: { lastActivityAt: savedAt },
+    memory: { lastActivityAt: savedAt, promptedAt: null },
   });
 
   it("fresh spawn: baseline is null, so the first agent is live and bumps (#1626)", () => {
@@ -322,6 +326,74 @@ describe("recency baseline — adopt survives its multi-emit settle, then output
   });
 });
 
+describe("promptedAt — the current agent's first live turn", () => {
+  it("is NOT stamped when a fresh agent is detected at its first prompt (`waiting`)", () => {
+    const out = driveRecency(undefined, seed(), 999, [
+      { agent: claude("A", "waiting"), at: 1000 },
+      { agent: claude("A", "waiting"), at: 2000 },
+    ]);
+    // Recency stamps on detection; the first-prompt fact must not.
+    expect(out.memory.lastActivityAt).toBe(1000);
+    expect(out.memory.promptedAt).toBeNull();
+  });
+
+  it("is stamped on the first live state (`thinking`)", () => {
+    const out = driveRecency(undefined, seed(), 999, [
+      { agent: claude("A", "waiting"), at: 1000 },
+      { agent: claude("A", "thinking"), at: 3000 },
+    ]);
+    expect(out.memory.promptedAt).toBe(3000);
+  });
+
+  it("counts `awaiting_user` as live too", () => {
+    const out = driveRecency(undefined, seed(), 999, [
+      { agent: claude("A", "awaiting_user"), at: 1500 },
+    ]);
+    expect(out.memory.promptedAt).toBe(1500);
+  });
+
+  it("is NOT re-stamped on later turns of the same agent", () => {
+    const out = driveRecency(undefined, seed(), 999, [
+      { agent: claude("A", "thinking"), at: 1000 },
+      { agent: claude("A", "waiting"), at: 2000 },
+      { agent: claude("A", "tool_use"), at: 3000 },
+      { agent: claude("A", "waiting"), at: 4000 },
+    ]);
+    expect(out.memory.promptedAt).toBe(1000);
+  });
+
+  it("resets on an agent IDENTITY change — a new session has its own first prompt", () => {
+    const out = driveRecency(undefined, seed(), 999, [
+      { agent: claude("A", "thinking"), at: 1000 },
+      { agent: claude("B", "waiting"), at: 2000 },
+    ]);
+    expect(out.memory.promptedAt).toBeNull();
+  });
+
+  it("is null once the agent exits", () => {
+    const out = driveRecency(undefined, seed(), 999, [
+      { agent: claude("A", "thinking"), at: 1000 },
+      { agent: null, at: 2000 },
+    ]);
+    expect(out.memory.promptedAt).toBeNull();
+  });
+
+  it("survives an adopt: the survivor's re-observation keeps the saved stamp", () => {
+    // The adopted snapshot carries no agent, so the survivor's first observation
+    // IS an identity change against it — but the baseline says not live, so the
+    // saved stamp must stand rather than reset.
+    const adoptedPrompted: TerminalState = {
+      snapshot: { ...seedSnapshot("/a"), agent: null },
+      memory: { lastActivityAt: 1000, promptedAt: 900 },
+    };
+    const out = driveRecency(EXACT_TARGET, adoptedPrompted, 999_999, [
+      { agent: claude("A", "waiting"), at: 999_999 },
+      { agent: claude("A", "waiting"), at: 999_999 + 50 },
+    ]);
+    expect(out.memory.promptedAt).toBe(900);
+  });
+});
+
 describe("fold — lastAgentCommand from commandRun (dedup; a non-agent ls never reaches here)", () => {
   it("remembers a new agent command", () => {
     const next = fold(
@@ -335,7 +407,11 @@ describe("fold — lastAgentCommand from commandRun (dedup; a non-agent ls never
   it("dedups a repeated / replayed command to a no-op", () => {
     const cur: TerminalState = {
       snapshot: seedSnapshot("/a"),
-      memory: { lastActivityAt: 0, lastAgentCommand: "claude --model sonnet" },
+      memory: {
+        lastActivityAt: 0,
+        promptedAt: null,
+        lastAgentCommand: "claude --model sonnet",
+      },
     };
     const next = fold(
       cur,
@@ -350,7 +426,11 @@ describe("restoreTargetOf — the fold owns the discriminated resume target", ()
   it("a LIVE agent + a remembered command → an `exact` target (resume by id)", () => {
     const cur: TerminalState = {
       snapshot: { ...seedSnapshot("/a"), agent: claude("A", "thinking") },
-      memory: { lastActivityAt: 1, lastAgentCommand: "claude --model sonnet" },
+      memory: {
+        lastActivityAt: 1,
+        promptedAt: null,
+        lastAgentCommand: "claude --model sonnet",
+      },
     };
     expect(restoreTargetOf(cur)).toEqual({
       kind: "exact",
@@ -362,7 +442,11 @@ describe("restoreTargetOf — the fold owns the discriminated resume target", ()
   it("a quit-to-shell (agent null) with a sticky command → `none` (bare shell, never most-recent)", () => {
     const cur: TerminalState = {
       snapshot: { ...seedSnapshot("/a"), agent: null },
-      memory: { lastActivityAt: 1, lastAgentCommand: "claude --model sonnet" },
+      memory: {
+        lastActivityAt: 1,
+        promptedAt: null,
+        lastAgentCommand: "claude --model sonnet",
+      },
     };
     expect(restoreTargetOf(cur)).toEqual({ kind: "none" });
   });
@@ -380,6 +464,7 @@ describe("restoreTargetOf — the fold owns the discriminated resume target", ()
       snapshot: { ...seedSnapshot("/a"), agent: claude("A", "thinking") },
       memory: {
         lastActivityAt: 1,
+        promptedAt: null,
         lastAgentCommand: "opencode --model sonnet",
       },
     };
@@ -389,7 +474,11 @@ describe("restoreTargetOf — the fold owns the discriminated resume target", ()
   it("never produces `legacyMostRecent` — that arm is migration-only", () => {
     const cur: TerminalState = {
       snapshot: { ...seedSnapshot("/a"), agent: claude("A", "thinking") },
-      memory: { lastActivityAt: 1, lastAgentCommand: "claude" },
+      memory: {
+        lastActivityAt: 1,
+        promptedAt: null,
+        lastAgentCommand: "claude",
+      },
     };
     expect(restoreTargetOf(cur).kind).not.toBe("legacyMostRecent");
   });
@@ -399,7 +488,11 @@ describe("W12 — the two absences persist the resume target differently (twin p
   // A live claude with a remembered launch line → an `exact` resume target on disk.
   const liveExact: TerminalState = {
     snapshot: { ...seedSnapshot("/a"), agent: claude("A", "thinking") },
-    memory: { lastActivityAt: 1, lastAgentCommand: "claude --model sonnet" },
+    memory: {
+      lastActivityAt: 1,
+      promptedAt: null,
+      lastAgentCommand: "claude --model sonnet",
+    },
   };
   const exact: RestoreTarget = {
     kind: "exact",
@@ -451,7 +544,7 @@ describe("foldSnapshot — reference stability the autosave fence rides (#6 pin)
     const base = { ...seedSnapshot("/a"), git, pr };
     const afterForeground = foldSnapshot(base, {
       kind: "foreground",
-      foreground: { name: "vim", title: null },
+      foreground: { name: "vim", title: null, shell: false },
     });
     expect(afterForeground.git).toBe(git); // SAME reference — fence stays equal
     expect(afterForeground.pr).toBe(pr);
@@ -465,6 +558,9 @@ describe("foldSnapshot — reference stability the autosave fence rides (#6 pin)
     const base = { ...seedSnapshot("/a"), git };
     const next = foldSnapshot(base, { kind: "git", git: gitInfo("feature") });
     expect(next.git).not.toBe(git);
-    expect(next.git?.branch).toBe("feature");
+    expect(next.git).toMatchObject({
+      kind: "repo",
+      info: { branch: "feature" },
+    });
   });
 });

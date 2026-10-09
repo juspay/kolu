@@ -33,7 +33,7 @@ describe("openInCodeTab", () => {
     h.getMetadata.mockReturnValue({
       id: "terminal-b",
       parentId: null,
-      git: { repoRoot: "/repo" },
+      git: { kind: "repo", info: { repoRoot: "/repo" } },
     });
   });
 
@@ -64,8 +64,16 @@ describe("openInCodeTab", () => {
     // wrong.
     h.getMetadata.mockImplementation((id: string) =>
       id === "split-b"
-        ? { id, parentId: "terminal-a", git: { repoRoot: "/split-repo" } }
-        : { id, parentId: null, git: { repoRoot: "/tile-repo" } },
+        ? {
+            id,
+            parentId: "terminal-a",
+            git: { kind: "repo", info: { repoRoot: "/split-repo" } },
+          }
+        : {
+            id,
+            parentId: null,
+            git: { kind: "repo", info: { repoRoot: "/tile-repo" } },
+          },
     );
 
     openInCodeTab({
@@ -85,7 +93,7 @@ describe("openInCodeTab", () => {
     h.getMetadata.mockReturnValue({
       id: "terminal-b",
       parentId: null,
-      git: null,
+      git: { kind: "none" },
     });
     expect(() =>
       openInCodeTab({

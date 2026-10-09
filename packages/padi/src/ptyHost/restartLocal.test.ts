@@ -83,12 +83,17 @@ const B_ID = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
 const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 function activeMeta(): AuthoredActiveTerminal {
-  return { state: "active", location: LOCAL_LOCATION, lastActivityAt: 1 };
+  return {
+    state: "active",
+    location: LOCAL_LOCATION,
+    lastActivityAt: 1,
+    promptedAt: null,
+  };
 }
 function activeSnapshot(cwd: string): TerminalSnapshot {
   return {
     cwd,
-    git: null,
+    git: { kind: "none" },
     pr: { kind: "absent" },
     agent: null,
     foreground: null,
@@ -112,8 +117,9 @@ function savedActiveRec(id: string, cwd: string): SavedActiveTerminal {
     state: "active",
     cwd,
     lastActivityAt: 5,
+    promptedAt: null,
     restoreTarget: { kind: "none" },
-    git: null,
+    git: { kind: "none" },
     pr: { kind: "absent" },
     location: LOCAL_LOCATION,
   };

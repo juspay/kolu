@@ -53,13 +53,14 @@ const activeMeta: AuthoredActiveTerminal = {
   state: "active",
   location: LOCAL_LOCATION,
   lastActivityAt: 42,
+  promptedAt: null,
   themeName: "rose",
   intent: "compose-cost fixture",
 };
 
 const activeSnapshot: TerminalSnapshot = {
   cwd: "/work/repo",
-  git: null,
+  git: { kind: "none" },
   pr: { kind: "pending" },
   agent: null,
   foreground: null,

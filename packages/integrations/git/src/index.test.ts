@@ -1208,8 +1208,9 @@ describe.skipIf(SKIP_DARWIN_FSWATCH)("subscribeGitInfo watcher churn", () => {
 
     sub.setCwd(repoDir);
 
-    // First update is the GitInfo for repoDir. The initial null→null
-    // resolve is deduped via gitInfoEqual and never reaches onChange.
+    // First update is the GitInfo for repoDir. The initial resolve of the
+    // non-git dir lands after the cwd flipped, so it is discarded and never
+    // reaches onChange.
     await waitFor(() => updates.length >= 1);
     expect(updates[0]?.repoRoot).toBe(fs.realpathSync(repoDir));
 
@@ -1229,6 +1230,63 @@ describe.skipIf(SKIP_DARWIN_FSWATCH)("subscribeGitInfo watcher churn", () => {
   // Code browser and path pill — but the shell doesn't re-emit OSC 7 when
   // cwd hasn't changed, so the provider can't rely on `setCwd` to learn
   // about the new `.git`.
+  // The first answer goes out even when it is "not a repo": the caller has
+  // not heard anything yet, and "not a repo" is different from "not checked".
+  // After it, an unchanged answer is still deduped.
+  it("publishes the first answer outside a repo, then only changes", async () => {
+    const dir = path.join(tmpDir, "first-answer-not-a-repo");
+    fs.mkdirSync(dir, { recursive: true });
+
+    const updates: (GitInfo | null)[] = [];
+    const sub = subscribeGitInfo(dir, (info) => {
+      updates.push(info);
+    });
+
+    await waitFor(() => updates.length >= 1);
+    expect(updates).toEqual([null]);
+
+    // Another non-repo cwd: the re-resolve answers `null` again — deduped.
+    const other = path.join(tmpDir, "first-answer-other");
+    fs.mkdirSync(other, { recursive: true });
+    sub.setCwd(other);
+    await settleWatchers();
+    await new Promise((r) => setTimeout(r, 300));
+    expect(updates).toEqual([null]);
+
+    await settleWatchers();
+    sub.stop();
+  });
+
+  // A failure that is not "not a repo" (here: the cwd is gone, so git cannot
+  // even start) is not an answer. Publishing `null` would claim "not a repo";
+  // nothing is published, so the caller stays unresolved.
+  it("publishes nothing when git fails for a reason other than not-a-repo", async () => {
+    const gone = path.join(tmpDir, "first-answer-gone");
+    const errors: string[] = [];
+    const log = {
+      info() {},
+      debug() {},
+      warn() {},
+      error(_obj: unknown, msg: string) {
+        errors.push(msg);
+      },
+    };
+    const updates: (GitInfo | null)[] = [];
+    const sub = subscribeGitInfo(
+      gone,
+      (info) => {
+        updates.push(info);
+      },
+      log,
+    );
+
+    await waitFor(() => errors.includes("git resolution failed"));
+    await settleWatchers();
+    expect(updates).toEqual([]);
+
+    sub.stop();
+  });
+
   it("detects `git init` in the current cwd without an OSC 7 setCwd", async () => {
     const dir = path.join(tmpDir, "git-init-osc7-less");
     fs.mkdirSync(dir, { recursive: true });
@@ -1260,8 +1318,13 @@ describe.skipIf(SKIP_DARWIN_FSWATCH)("subscribeGitInfo watcher churn", () => {
     await git.add(".");
     await git.commit("initial");
 
-    await waitFor(() => updates.length >= 1, 3000);
-    expect(updates[0]?.repoRoot).toBe(fs.realpathSync(dir));
+    // The first answer (`null`, not a repo) was published before `git init`;
+    // the repo is the next one.
+    await waitFor(() => updates.some((u) => u !== null), 3000);
+    expect(updates[0]).toBeNull();
+    expect(updates.find((u) => u !== null)?.repoRoot).toBe(
+      fs.realpathSync(dir),
+    );
 
     await settleWatchers();
     sub.stop();
@@ -1299,8 +1362,12 @@ describe.skipIf(SKIP_DARWIN_FSWATCH)("subscribeGitInfo watcher churn", () => {
     // by now; both paths converge on the same end state.
     sub.setCwd(dir);
 
-    await waitFor(() => updates.length >= 1);
-    expect(updates[0]?.repoRoot).toBe(fs.realpathSync(dir));
+    // A `null` first answer may or may not have landed before `git init`;
+    // either way the repo answer follows.
+    await waitFor(() => updates.some((u) => u !== null));
+    expect(updates.find((u) => u !== null)?.repoRoot).toBe(
+      fs.realpathSync(dir),
+    );
 
     await settleWatchers();
     sub.stop();

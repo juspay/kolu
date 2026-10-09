@@ -21,7 +21,7 @@ function activeWithAgent(agent: AgentInfo | null): PadiTerminal {
   return {
     state: "active",
     agent,
-    git: null,
+    git: { kind: "none" },
     pr: { kind: "pending" },
     foreground: null,
   } as unknown as PadiTerminal;
@@ -58,6 +58,27 @@ describe("formatStatus — the human table", () => {
     expect(table).toContain("active");
     expect(table).toContain("claude");
     expect(table).toContain("working"); // agentStatusLabel(thinking) → the bucket
+  });
+
+  it("renders git's three cases, sanitizing a repo's names", () => {
+    const withGit = (git: unknown): PadiTerminal =>
+      ({ ...activeWithAgent(null), git }) as unknown as PadiTerminal;
+    const row = (git: unknown) =>
+      formatStatus([["11111111-1111-1111-1111-111111111111", withGit(git)]])
+        .split("\n")[1]
+        ?.split(/\s+/)[2];
+    expect(row({ kind: "unresolved" })).toBe("?");
+    expect(row({ kind: "none" })).toBe("—");
+    const table = formatStatus([
+      [
+        "11111111-1111-1111-1111-111111111111",
+        withGit({
+          kind: "repo",
+          info: { repoName: "ko\x1b[31mlu", branch: "main" },
+        }),
+      ],
+    ]);
+    expect(table).not.toContain("\x1b");
   });
 });
 

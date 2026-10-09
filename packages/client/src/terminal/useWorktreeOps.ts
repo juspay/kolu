@@ -99,7 +99,12 @@ export function useWorktreeOps(deps: {
       const id = targetId ?? store.activeId();
       if (!id) return;
       const meta = store.getMetadata(id);
-      const worktreePath = meta?.git?.isWorktree ? meta.git.worktreePath : null;
+      // Only a resolved worktree is removed; `none`/`unresolved` remove nothing.
+      const git = meta?.git;
+      const worktreePath =
+        git?.kind === "repo" && git.info.isWorktree
+          ? git.info.worktreePath
+          : null;
       if (sleepingArm(meta)) {
         // No splits on a sleeping record (sleep closes them) and no PTY to kill —
         // discard the dormant record, then fall through to remove the worktree.
