@@ -179,6 +179,7 @@ describe("padiSurface contract", () => {
       "agentDistro",
       "agentDistroStatus",
       "agentDistroReceipt",
+      "agentDistroResolved",
       "hostListeners",
       "hostInventory",
       "processMemory",
