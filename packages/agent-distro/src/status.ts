@@ -488,6 +488,10 @@ export function profileReferenceProblem(text: string): string | undefined {
   if (/\s/.test(reference)) return "A reference has no spaces.";
   if (!isProfileReference(reference))
     return "Not a reference: it needs a / or a : (github:owner/repo, ~/my-profile).";
+  // `AI_PROFILE` reaches every terminal whatever its folder, so a relative
+  // path would resolve against each terminal's own folder.
+  if (reference.startsWith("./") || reference.startsWith("../"))
+    return "A path must be absolute or start with ~/.";
   return undefined;
 }
 

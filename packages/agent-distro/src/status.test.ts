@@ -1060,6 +1060,12 @@ describe("profile references — the Custom field's check and the pill's name", 
     expect(profileReferenceProblem("   ")).toBeDefined();
     expect(profileReferenceProblem("juspay")).toBeDefined();
     expect(profileReferenceProblem("github:me/a b")).toBeDefined();
+    expect(profileReferenceProblem("./my-profile")).toBe(
+      "A path must be absolute or start with ~/.",
+    );
+    expect(profileReferenceProblem(" ../my-profile")).toBe(
+      "A path must be absolute or start with ~/.",
+    );
     expect(profileReferenceProblem("github:me/profile")).toBeUndefined();
     expect(profileReferenceProblem("~/my-profile")).toBeUndefined();
     expect(profileReferenceProblem(" /home/me/p ")).toBeUndefined();
