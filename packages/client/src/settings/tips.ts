@@ -75,10 +75,11 @@ export interface TileTipCopy {
 
 /** The tile title bar's tips (`agents/TileTip.tsx`) — one per terminal, chosen
  *  by `agents/terminalTip.ts` from what that terminal is doing. Their text is
- *  built from the terminal's facts, so each entry is an id plus a builder. Seen
- *  ids ride the same `seenTips` preference as every other tip. */
+ *  built from the terminal's facts, so each entry is an id plus a builder. They
+ *  are readouts of the terminal's state, not shown-once tips: nothing is stored
+ *  under their ids. */
 export const TILE_TIPS = {
-  /** A shell outside any git repo. Once per user. */
+  /** A shell outside any git repo. */
   cdRepo: {
     id: "tip-cd-repo",
     copy: (): TileTipCopy => ({
@@ -86,7 +87,7 @@ export const TILE_TIPS = {
       sentence: "Start in a project: cd into a git repo",
     }),
   },
-  /** A shell in a repo, with agents on its PATH. Once per user. */
+  /** A shell in a repo, with agents on its PATH. */
   launchAgent: {
     id: "tip-launch-agent",
     copy: (harness: string): TileTipCopy => ({
@@ -94,7 +95,7 @@ export const TILE_TIPS = {
       sentence: `Launch an agent: ${harness}, or agent-distro to pick one`,
     }),
   },
-  /** An agent at its first prompt. Once per agent kind. */
+  /** An agent at its first prompt. */
   skill: {
     id: (kind: AgentKind): TipId => `tip-skill:${kind}`,
     copy: (

@@ -46,7 +46,6 @@ const SHELL: TerminalTipFacts["foreground"] = {
   shell: true,
 };
 const PLACE: TerminalTipFacts["place"] = {
-  seenTipsLoaded: true,
   active: true,
   onScreen: true,
   slotPx: 400,
@@ -69,21 +68,12 @@ const facts = (over: Partial<TerminalTipFacts> = {}): TerminalTipFacts => ({
   ...over,
 });
 
-const NONE = new Set<string>();
-
-/** The tip's id and pill text, `hidden: <why>` (with the tip it holds back),
- *  or `quiet: <why>`. */
-function show(
-  f: TerminalTipFacts,
-  seen: ReadonlySet<string> = NONE,
-  showing: string | null = null,
-) {
-  const t = terminalTip(f, seen, showing);
+/** The tip's id and pill text, or `quiet: <why>`. */
+function show(f: TerminalTipFacts) {
+  const t = terminalTip(f);
   switch (t.kind) {
     case "tip":
       return { id: t.id, text: tileTipText(t.copy.parts) };
-    case "hidden":
-      return { hidden: t.why, id: t.id };
     case "quiet":
       return { quiet: t.why };
   }
@@ -127,7 +117,7 @@ describe("terminalTip — the rungs", () => {
 
 describe("terminalTip — the hover sentence", () => {
   const sentence = (f: TerminalTipFacts) => {
-    const t = terminalTip(f, NONE, null);
+    const t = terminalTip(f);
     if (t.kind !== "tip") throw new Error(`no tip: ${t.why}`);
     return t.copy.sentence;
   };
@@ -147,54 +137,40 @@ describe("terminalTip — the hover sentence", () => {
   });
 });
 
-describe("terminalTip — hidden: the tip is there, but nobody could see it", () => {
+describe("terminalTip — quiet while nobody could see it", () => {
   const at = (place: Partial<TerminalTipFacts["place"]>) =>
     show(facts({ place: { ...PLACE, ...place } }));
 
-  it("until the saved seen-list has arrived (it cannot say seen yet)", () => {
-    expect(at({ seenTipsLoaded: false })).toEqual({
-      hidden: "preferences pending",
-      id: "tip-launch-agent",
-    });
-  });
-
   it("on every tile but the active one", () => {
-    expect(at({ active: false })).toEqual({
-      hidden: "not the active tile",
-      id: "tip-launch-agent",
-    });
+    expect(at({ active: false })).toEqual({ quiet: "not the active tile" });
   });
 
   it("on a tile off-screen", () => {
-    expect(at({ onScreen: false })).toEqual({
-      hidden: "off-screen",
-      id: "tip-launch-agent",
-    });
+    expect(at({ onScreen: false })).toEqual({ quiet: "off-screen" });
   });
 
   it("in a slot too narrow to read, and before it is measured", () => {
     expect(at({ slotPx: TIP_MIN_SLOT_PX - 1 })).toEqual({
-      hidden: "too narrow",
-      id: "tip-launch-agent",
+      quiet: "too narrow",
     });
     expect(at({ slotPx: TIP_MIN_SLOT_PX })).toMatchObject({
       id: "tip-launch-agent",
       text: expect.any(String),
     });
     expect(at({ slotPx: null })).toEqual({
-      hidden: "tip slot not measured yet",
-      id: "tip-launch-agent",
+      quiet: "tip slot not measured yet",
     });
   });
 
-  it("is asked before seen: a seen tip out of sight is hidden, not quiet", () => {
-    // So a tile showing a tip keeps it while out of sight.
+  it("the state is asked first: no tip to show is quiet for that reason", () => {
     expect(
       show(
-        facts({ place: { ...PLACE, active: false } }),
-        new Set(["tip-launch-agent"]),
+        facts({
+          place: { ...PLACE, active: false },
+          git: { kind: "unresolved" },
+        }),
       ),
-    ).toEqual({ hidden: "not the active tile", id: "tip-launch-agent" });
+    ).toEqual({ quiet: "git not resolved yet" });
   });
 });
 
@@ -208,19 +184,18 @@ describe("terminalTip — the shell must be in front for rungs 1 and 2", () => {
             foreground: { name, title: null, shell: false },
           }),
         ),
-      ).toEqual({ hidden: "a command is running", id: "tip-cd-repo" });
+      ).toEqual({ quiet: "a command is running" });
   });
 
   it("a running command in a repo hides rung 2", () => {
     expect(
       show(facts({ foreground: { name: "make", title: null, shell: false } })),
-    ).toEqual({ hidden: "a command is running", id: "tip-launch-agent" });
+    ).toEqual({ quiet: "a command is running" });
   });
 
   it("before the foreground is first sampled", () => {
     expect(show(facts({ foreground: null }))).toEqual({
-      hidden: "foreground not sampled yet",
-      id: "tip-launch-agent",
+      quiet: "foreground not sampled yet",
     });
   });
 
@@ -250,17 +225,13 @@ describe("terminalTip — broken invariants throw", () => {
       kind: "available",
       profiles: [{ name: "vanilla", description: "d", harnesses: [] as never }],
     };
-    expect(() => terminalTip(facts({ listing: empty }), NONE, null)).toThrow(
-      /no harness/,
-    );
+    expect(() => terminalTip(facts({ listing: empty }))).toThrow(/no harness/);
   });
 
   it("no plugin skill at an agent's first prompt", () => {
     expect(() =>
       terminalTip(
         facts({ agent: agent("claude-code", "waiting"), skills: [] }),
-        NONE,
-        null,
       ),
     ).toThrow(/no plugin skill/);
   });
@@ -310,45 +281,5 @@ describe("terminalTip — quiet", () => {
     expect(
       show(facts({ agent: agent("claude-code", "waiting"), promptedAt: 1000 })),
     ).toEqual({ quiet: "the first prompt went out" });
-  });
-});
-
-describe("terminalTip — once", () => {
-  it("each rung is quiet once seen", () => {
-    expect(show(facts({ git: NO_REPO }), new Set(["tip-cd-repo"]))).toEqual({
-      quiet: "tip-cd-repo already seen",
-    });
-    expect(show(facts(), new Set(["tip-launch-agent"]))).toEqual({
-      quiet: "tip-launch-agent already seen",
-    });
-    expect(
-      show(
-        facts({ agent: agent("claude-code", "waiting") }),
-        new Set(["tip-skill:claude-code"]),
-      ),
-    ).toEqual({ quiet: "tip-skill:claude-code already seen" });
-  });
-
-  it("dismissing rung 1 does not skip rung 2", () => {
-    expect(show(facts(), new Set(["tip-cd-repo"]))).toMatchObject({
-      id: "tip-launch-agent",
-    });
-  });
-
-  it("the tip a tile is showing is exempt from its own seen mark", () => {
-    expect(
-      show(facts(), new Set(["tip-launch-agent"]), "tip-launch-agent"),
-    ).toMatchObject({ id: "tip-launch-agent" });
-    // ...but only that one: showing rung 1 does not exempt rung 2.
-    expect(show(facts(), new Set(["tip-launch-agent"]), "tip-cd-repo")).toEqual(
-      { quiet: "tip-launch-agent already seen" },
-    );
-  });
-
-  it("rung 3 is once per agent kind: Claude Code seen, Codex still shows", () => {
-    const seen = new Set(["tip-skill:claude-code"]);
-    expect(
-      show(facts({ agent: agent("codex", "waiting") }), seen),
-    ).toMatchObject({ id: "tip-skill:codex" });
   });
 });

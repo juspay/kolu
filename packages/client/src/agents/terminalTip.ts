@@ -1,22 +1,17 @@
 /** The tile title bar's tip — which ONE thing to suggest for a terminal, given
  *  what that terminal is doing. Pure: no Solid, no I/O; `TileTip.tsx` feeds it.
  *
- *  Three rungs, each shown once (`seen` is the user's `seenTips`):
+ *  A tip is a readout of the terminal's state: it shows whenever its condition
+ *  holds and goes when it no longer does. Nothing is remembered. Three rungs:
  *    1. the shell in front, outside any git repo → "cd into a git repo";
  *    2. the shell in front, in a repo, this terminal has agents → "launch
  *       <first harness>";
- *    3. an agent at its first prompt, this terminal has agents → a plugin skill,
- *       once per agent kind.
+ *    3. an agent at its first prompt, this terminal has agents → a plugin skill.
  *
- *  Two kinds of "no tip", kept apart because they end a shown tip differently:
- *    - `quiet`: the terminal's STATE has no tip (git, the agent, its first
- *      prompt moved on). A shown tip whose state is gone has left for good.
- *    - `hidden`: the terminal HAS a tip, but nobody could see it right now —
- *      not the active tile, off-screen, a slot too narrow to read, the saved
- *      seen-list not arrived, a command in front of the shell. A shown tip
- *      survives this (the slot is just empty meanwhile), and a tip that never
- *      showed is not marked seen.
- *  Pending facts are not faults; broken invariants throw. */
+ *  Otherwise `quiet`, with why: the state calls for no tip, or nobody could see
+ *  one here (not the active tile, off-screen, a slot too narrow to read, a
+ *  command in front of the shell). Pending facts are not faults; broken
+ *  invariants throw. */
 
 import type { TerminalAgents } from "@kolu/agent-distro/schema";
 import { agentBucket } from "@kolu/terminal-vocab/agentProjection";
@@ -30,14 +25,11 @@ import { TILE_TIPS, type TileTipCopy, type TipId } from "../settings/tips";
 import type { PluginSkill } from "./pluginSkills";
 
 /** The narrowest tip slot (on-screen px) a tip shows in — below it the pill
- *  would be a few letters and a ×. The tip is then hidden, not marked seen. */
+ *  would be a few letters. */
 export const TIP_MIN_SLOT_PX = 140;
 
-/** Where the tip would show, and whether the user's seen list is known. */
+/** Where the tip would show. */
 export interface TipPlace {
-  /** The saved `seenTips` have arrived. Before that, "seen" cannot be answered
-   *  (the list reads empty) and marking one would overwrite the real list. */
-  readonly seenTipsLoaded: boolean;
   /** This terminal's tile is the active one. */
   readonly active: boolean;
   /** The tile is within the canvas viewport. */
@@ -66,18 +58,17 @@ export interface TerminalTipFacts {
   readonly skills: readonly PluginSkill[];
 }
 
+/** `id` names the rung (for `data-tip-id` and tests); nothing is stored
+ *  under it. */
 export type TerminalTip =
   | { readonly kind: "tip"; readonly id: TipId; readonly copy: TileTipCopy }
-  /** This terminal's tip is `id` (`null`: not known), but it cannot be seen
-   *  here right now. */
-  | { readonly kind: "hidden"; readonly id: TipId | null; readonly why: string }
   | Quiet;
 
-type Quiet = { readonly kind: "quiet"; readonly why: string };
+export type Quiet = { readonly kind: "quiet"; readonly why: string };
 
-const quiet = (why: string): Quiet => ({ kind: "quiet", why });
+export const quiet = (why: string): Quiet => ({ kind: "quiet", why });
 
-/** The tip the terminal's state calls for, before asking where it would show.
+/** The tip the terminal's state calls for, before asking whether it can be seen.
  *  `shellInFront`: the tip talks about the shell (rungs 1–2), so it needs the
  *  shell to be what is in front. */
 type Candidate =
@@ -89,30 +80,21 @@ type Candidate =
     }
   | Quiet;
 
-/** Pick this terminal's tip. `seen` answers "has the user seen this tip?" (a
- *  `Set` of seen ids, or the reactive `hasSeen`). `showing` is the id the tile
- *  displays right now: it is marked seen the moment it shows, so it is exempt
- *  from the seen test — otherwise it would vanish the tick after it appeared. */
-export function terminalTip(
-  facts: TerminalTipFacts,
-  seen: Pick<ReadonlySet<TipId>, "has">,
-  showing: TipId | null,
-): TerminalTip {
+/** Pick this terminal's tip: the one its state calls for, if it can be seen. */
+export function terminalTip(facts: TerminalTipFacts): TerminalTip {
   const c = candidate(facts);
   if (c.kind === "quiet") return c;
-  const why = hiddenBecause(facts, c.shellInFront);
-  if (why !== null) return { kind: "hidden", id: c.id, why };
-  if (seen.has(c.id) && showing !== c.id) return quiet(`${c.id} already seen`);
+  const why = unseeableBecause(facts, c.shellInFront);
+  if (why !== null) return quiet(why);
   return { kind: "tip", id: c.id, copy: c.copy };
 }
 
 /** Why nobody could see a tip on this tile right now, or `null` if they could. */
-function hiddenBecause(
+function unseeableBecause(
   facts: TerminalTipFacts,
   shellInFront: boolean,
 ): string | null {
   const place = facts.place;
-  if (!place.seenTipsLoaded) return "preferences pending";
   if (!place.active) return "not the active tile";
   if (!place.onScreen) return "off-screen";
   if (place.slotPx === null) return "tip slot not measured yet";

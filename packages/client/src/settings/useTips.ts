@@ -60,11 +60,6 @@ function seen(): Set<TipId> {
   return new Set(preferences().seenTips);
 }
 
-/** Has the user seen tip `id`? Reactive: it reads `preferences().seenTips`. */
-function hasSeen(id: TipId): boolean {
-  return preferences().seenTips.includes(id);
-}
-
 /** Mark tip `id` seen. Before the saved preferences arrive `seenTips` reads
  *  the empty default, and a write built from it would overwrite the user's
  *  whole list — so marking then is a caller bug, and it throws. */
@@ -74,7 +69,6 @@ function markSeen(id: TipId) {
       `markSeen(${id}) before the saved preferences arrived — it would overwrite seenTips`,
     );
   const s = seen();
-  if (s.has(id)) return;
   s.add(id);
   updatePreferences({ seenTips: [...s] });
 }
@@ -171,11 +165,6 @@ function initTipTriggers(deps: { terminalIds: Accessor<TerminalId[]> }) {
 export function useTips() {
   return {
     showTipOnce,
-    hasSeen,
-    markSeen,
-    /** The saved `seenTips` have arrived — `hasSeen` answers truly, and
-     *  `markSeen` may write. */
-    seenTipsLoaded: preferencesArrived,
     peekAmbientTipText,
     initTipTriggers,
     startupTips: () => preferences().startupTips,
