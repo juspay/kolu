@@ -19,18 +19,39 @@
 
 import { Schema } from "effect";
 import { AgentUpdateEventSchema, AgentUpdateRunSchema } from "./history.ts";
+import { ProfileInEffectSchema } from "./inEffect.ts";
+import { DEFAULT_AGENT_PROFILE } from "./manifest.ts";
 import { AgentVersionSchema } from "./versions.ts";
 
-/** The Agents setting: on/off and the profile name. `profile` is checked against
- *  the profiles this padi's build knows (its baked updater listing) when the
- *  setting is written ON — an unknown name fails the write, it is never mapped
- *  to a different profile. */
+/** The Agents setting: on/off and the profile — the name of a bundle kolu
+ *  ships, or anything else agent-distro reads as a profile (a flake reference
+ *  such as `github:owner/repo`, a path to a directory holding an
+ *  `agent-distro.nix`). kolu never resolves it: a terminal gets the bundle
+ *  {@link bundleProfileOf} names, with the profile as its `AI_PROFILE`, and
+ *  agent-distro's launcher resolves it. It is the FALLBACK profile — upstream
+ *  prefers a repository's own `agent-distro.nix` over it — so what a terminal
+ *  actually runs is asked of agent-distro after the spawn
+ *  ({@link TerminalAgentsSchema}'s `effective`), and whether it resolves at all
+ *  is asked once per setting ({@link AgentDistroResolvedSchema}). */
 export const AgentDistroSettingSchema = Schema.Struct({
   enabled: Schema.Boolean,
   profile: Schema.String,
 });
 
 export type AgentDistroSetting = typeof AgentDistroSettingSchema.Type;
+
+/** The bundle a terminal gets for `profile`: its own when `bundles` (the
+ *  bundles this build ships, by name) has one, else the default bundle
+ *  (`DEFAULT_AGENT_PROFILE`), whose launchers resolve `AI_PROFILE`
+ *  themselves. Everything padi keeps per bundle (its
+ *  download, its updates, its receipt files) is keyed by this; everything it
+ *  PUBLISHES names `profile` as the user chose it. */
+export function bundleProfileOf(
+  profile: string,
+  bundles: { has(name: string): boolean },
+): string {
+  return bundles.has(profile) ? profile : DEFAULT_AGENT_PROFILE;
+}
 
 /** What padi holds between its boot and the binder's first push: OFF. A
  *  terminal opened in that window gets no agents (and no chip), which is the
@@ -158,6 +179,50 @@ export function agentDistroStatusEqual(
   }
 }
 
+/** Whether the setting's profile resolves on this host — the read-only
+ *  `agentDistroResolved` cell. Once per setting, padi asks the bundle's
+ *  `agent-distro --list --json` with the profile as `AI_PROFILE`, from `$HOME`
+ *  rather than any terminal's folder (`@kolu/agent-distro/inEffect`):
+ *
+ *   - `none` — nothing to ask: agents off, an unbaked padi, or no bundle on
+ *     the host yet;
+ *   - `pending` — asked, no answer yet (resolving a reference may fetch it);
+ *   - `resolved` — the profile agent-distro answered, by its own name and
+ *     description;
+ *   - `failed` — agent-distro could not resolve it: `message` is its own
+ *     words, on one line. The setting stands either way — the launcher meets
+ *     the same failure in each new terminal, and a repository's own
+ *     `agent-distro.nix` still wins there. */
+export const AgentDistroResolvedSchema = Schema.Union([
+  Schema.Struct({ kind: Schema.Literal("none") }),
+  Schema.Struct({ kind: Schema.Literal("pending"), profile: Schema.String }),
+  Schema.Struct({
+    kind: Schema.Literal("resolved"),
+    profile: Schema.String,
+    name: Schema.String,
+    description: Schema.String,
+  }),
+  Schema.Struct({
+    kind: Schema.Literal("failed"),
+    profile: Schema.String,
+    message: Schema.String,
+  }),
+]);
+
+export type AgentDistroResolved = typeof AgentDistroResolvedSchema.Type;
+
+export const DEFAULT_AGENT_DISTRO_RESOLVED: AgentDistroResolved = {
+  kind: "none",
+};
+
+/** Structural equality — the resolved cell's dedup point. */
+export function agentDistroResolvedEqual(
+  a: AgentDistroResolved,
+  b: AgentDistroResolved,
+): boolean {
+  return JSON.stringify(a) === JSON.stringify(b);
+}
+
 /** What a host keeps of agent-distro's updates for the selected profile — the
  *  read-only `agentDistroReceipt` cell, published from the updater's own files:
  *
@@ -214,16 +279,23 @@ export function agentDistroReceiptEqual(
 }
 
 /** The agents a terminal was spawned with — ONE optional field on its record,
- *  `agents`: present (both halves) when padi put agent-distro's agents on the
- *  terminal's PATH at spawn, absent when it put none. A running terminal never
- *  changes it (it pins the bundle it started with); a respawn re-stamps it
- *  whole. */
+ *  `agents`: present when padi put agent-distro's agents on the terminal's
+ *  PATH at spawn, absent when it put none. Its profile and bundle never change
+ *  while the terminal runs (it pins the bundle it started with); a respawn
+ *  re-stamps it whole. `effective` is written once, after the spawn. */
 export const TerminalAgentsSchema = Schema.Struct({
-  /** The profile whose agents went on the PATH. */
+  /** The setting's profile at spawn, exported to the terminal as
+   *  `AI_PROFILE`. */
   profile: Schema.String.check(Schema.isMinLength(1)),
   /** The exact bundle store path whose `bin/` went on the PATH — the tile
    *  pill's short hash. */
   bundle: Schema.String.check(Schema.isMinLength(1)),
+  /** The profile in effect in this terminal, as agent-distro answered
+   *  `--list --json` in its cwd and environment once it started (a repository's
+   *  own `agent-distro.nix` wins over the setting). Absent until that answer,
+   *  and for good when it failed or the bundle predates the field — the pill
+   *  then names `profile`. */
+  effective: Schema.optionalKey(ProfileInEffectSchema),
 });
 
 export type TerminalAgents = typeof TerminalAgentsSchema.Type;

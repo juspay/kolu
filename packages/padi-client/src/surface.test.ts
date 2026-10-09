@@ -120,7 +120,9 @@ describe("padiSurface contract", () => {
     // `foreground` a required `shell` (neither additive: the two shapes refuse
     // each other), so the minor keeps a 5.10 decoder from ever meeting a 5.9
     // padi's `git: null`.
-    expect(PADI_SURFACE_VERSION).toBe("5.10");
+    // 5.11 lets the binder push a profile reference, which a 5.10 padi's
+    // write gate refuses; the minor drains a 5.10 padi first.
+    expect(PADI_SURFACE_VERSION).toBe("5.11");
     expect(DEFAULT_PADI_VERSION.contractVersion).toBe(PADI_SURFACE_VERSION);
     expect(
       Schema.decodeUnknownSync(PadiVersionSchema)(DEFAULT_PADI_VERSION),
@@ -177,6 +179,7 @@ describe("padiSurface contract", () => {
       "agentDistro",
       "agentDistroStatus",
       "agentDistroReceipt",
+      "agentDistroResolved",
       "hostListeners",
       "hostInventory",
       "processMemory",

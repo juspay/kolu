@@ -14,7 +14,6 @@ import { AGENT_DISTRO_BUNDLE_ENV } from "@kolu/padi/agentDistroBake";
 import { describe, expect, it } from "vitest";
 import {
   assertDefaultAgentProfile,
-  assertPlainProfiles,
   readAgentDistroListing,
 } from "./agentDistroListing.ts";
 
@@ -90,16 +89,6 @@ describe("readAgentDistroListing", () => {
     ).toThrow(/leads with 'juspay'.*'vanilla'/);
   });
 
-  it("fails the boot on a profile kolu has no plain words for — the boot read carries every check", () => {
-    const mystery = { ...JUSPAY, name: "mystery", description: "m" };
-    expect(() =>
-      readAgentDistroListing(
-        { [AGENT_DISTRO_BUNDLE_ENV]: BUNDLE },
-        readFrom(floorFiles("vanilla", [VANILLA, mystery])),
-      ),
-    ).toThrow(/PROFILE_PLAIN/);
-  });
-
   it("fails the boot when a bundle does not describe itself", () => {
     const files = floorFiles("vanilla");
     delete files[profileFile("/s/juspay")];
@@ -124,23 +113,5 @@ describe("assertDefaultAgentProfile", () => {
     expect(() => assertDefaultAgentProfile(LISTING, "juspay")).toThrow(
       /leads with 'vanilla'.*'juspay'/,
     );
-  });
-});
-
-describe("assertPlainProfiles", () => {
-  it("passes when kolu can describe every profile in plain words, and when unbaked", () => {
-    expect(assertPlainProfiles(LISTING)).toBe(LISTING);
-    expect(assertPlainProfiles({ kind: "unavailable" })).toEqual({
-      kind: "unavailable",
-    });
-  });
-
-  it("fails the boot on a profile kolu has no words for", () => {
-    expect(() =>
-      assertPlainProfiles({
-        kind: "available",
-        profiles: [{ name: "mystery", description: "m", harnesses: [] }],
-      }),
-    ).toThrow(/PROFILE_PLAIN/);
   });
 });

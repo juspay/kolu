@@ -26,9 +26,13 @@ import { DEFAULT_MIRROR_SCROLLBACK, type PtyHostSystemInfo } from "kaval";
 // value; the literal below is the app-side number it compares against.
 const CLIENT_VISIBLE_SCROLLBACK = 50_000;
 import { AGENT_TOOLS_BAKE_ENV, TERMINAL_TOOLS_PATH_ENV } from "kolu-pty";
-import { AGENT_DISTRO_PLUGINS_ENV } from "../agentDistro/bake.ts";
+import {
+  AGENT_DISTRO_PLUGINS_ENV,
+  AI_PROFILE_ENV,
+} from "../agentDistro/bake.ts";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
+  agentSpawnEnv,
   composeSpawnInput,
   setSpawnServerVersion,
   type TerminalEnvSpec,
@@ -335,7 +339,7 @@ describe("composeSpawnInput agent-distro layer", () => {
       info(),
       spec({
         toolsPath: [TOOLS],
-        agents: { binDir: AGENTS, plugins: PLUGINS },
+        agents: { binDir: AGENTS, plugins: PLUGINS, profile: "vanilla" },
       }),
     );
     expect(input.env.PATH).toBe(`${TOOLS}:${AGENTS}:/usr/bin:/bin`);
@@ -347,7 +351,7 @@ describe("composeSpawnInput agent-distro layer", () => {
       info(),
       spec({
         toolsPath: [TOOLS],
-        agents: { binDir: AGENTS, plugins: PLUGINS },
+        agents: { binDir: AGENTS, plugins: PLUGINS, profile: "vanilla" },
       }),
     );
     expect(input.env[TERMINAL_TOOLS_PATH_ENV]).toBe(`${TOOLS}:${AGENTS}`);
@@ -357,7 +361,9 @@ describe("composeSpawnInput agent-distro layer", () => {
     const input = composeSpawnInput(
       { id: "T-agents-only" },
       info(),
-      spec({ agents: { binDir: AGENTS, plugins: PLUGINS } }),
+      spec({
+        agents: { binDir: AGENTS, plugins: PLUGINS, profile: "vanilla" },
+      }),
     );
     expect(input.env.PATH).toBe(`${AGENTS}:/usr/bin:/bin`);
     expect(input.env[TERMINAL_TOOLS_PATH_ENV]).toBe(AGENTS);
@@ -367,9 +373,26 @@ describe("composeSpawnInput agent-distro layer", () => {
     const input = composeSpawnInput(
       { id: "T-agents-plugins" },
       info(),
-      spec({ agents: { binDir: AGENTS, plugins: PLUGINS } }),
+      spec({
+        agents: { binDir: AGENTS, plugins: PLUGINS, profile: "vanilla" },
+      }),
     );
     expect(input.env[AGENT_DISTRO_PLUGINS_ENV]).toBe(PLUGINS);
+  });
+
+  it("exports the setting's profile as AI_PROFILE, whichever bundle it rides", () => {
+    for (const [profile, bundle] of [
+      ["github:me/profile", "/s/vanilla"],
+      ["juspay", "/s/juspay"],
+    ] as const) {
+      const input = composeSpawnInput(
+        { id: `T-agents-${bundle}` },
+        info(),
+        spec({ agents: agentSpawnEnv({ profile, bundle, plugins: PLUGINS }) }),
+      );
+      expect(input.env[AI_PROFILE_ENV]).toBe(profile);
+      expect(input.env[AGENT_DISTRO_PLUGINS_ENV]).toBe(PLUGINS);
+    }
   });
 
   it("off means off: no agent dir, no plugins var, and an inherited one is not carried", () => {

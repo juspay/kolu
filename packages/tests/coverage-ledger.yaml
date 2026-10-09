@@ -2199,7 +2199,7 @@ retirements:
     defectSurface: [agents, settings]
     destinationLayer: L5
     replacements: []
-    survivorRevisionIds: [revision-01c5d50fad30161d8a79]
+    survivorRevisionIds: [revision-a1a9051e629ee958a7fc]
     sameCodePathEvidence:
       file: packages/tests/features/agents.feature
       symbol: "Scenario: Switching Agents says what happened, and the hint shows this machine's status"
@@ -2212,7 +2212,7 @@ retirements:
     defectSurface: [agents, terminal-lifecycle]
     destinationLayer: L5
     replacements: []
-    survivorRevisionIds: [revision-e7badd0d0a5d5fc1b0ac]
+    survivorRevisionIds: [revision-e656ba3c5b2ed237bd87]
     sameCodePathEvidence:
       file: packages/tests/features/agents.feature
       symbol: "Scenario: A terminal whose agents went stale restarts in place with the new ones"
@@ -2225,7 +2225,7 @@ retirements:
     defectSurface: [agents, terminal-lifecycle, attach]
     destinationLayer: L5
     replacements: []
-    survivorRevisionIds: [revision-e7badd0d0a5d5fc1b0ac]
+    survivorRevisionIds: [revision-e656ba3c5b2ed237bd87]
     sameCodePathEvidence:
       file: packages/tests/features/agents.feature
       symbol: "Scenario: A terminal whose agents went stale restarts in place with the new ones"
@@ -2238,7 +2238,7 @@ retirements:
     defectSurface: [agents, settings]
     destinationLayer: L5
     replacements: []
-    survivorRevisionIds: [revision-01c5d50fad30161d8a79]
+    survivorRevisionIds: [revision-a1a9051e629ee958a7fc]
     sameCodePathEvidence:
       file: packages/tests/features/agents.feature
       symbol: "Scenario: Switching Agents says what happened, and the hint shows this machine's status"
@@ -2251,7 +2251,7 @@ retirements:
     defectSurface: [agents, terminal-lifecycle]
     destinationLayer: L5
     replacements: []
-    survivorRevisionIds: [revision-e7badd0d0a5d5fc1b0ac]
+    survivorRevisionIds: [revision-e656ba3c5b2ed237bd87]
     sameCodePathEvidence:
       file: packages/tests/features/agents.feature
       symbol: "Scenario: A terminal whose agents went stale restarts in place with the new ones"
@@ -2264,7 +2264,7 @@ retirements:
     defectSurface: [agents, settings]
     destinationLayer: L5
     replacements: []
-    survivorRevisionIds: [revision-01c5d50fad30161d8a79]
+    survivorRevisionIds: [revision-a1a9051e629ee958a7fc]
     sameCodePathEvidence:
       file: packages/tests/features/agents.feature
       symbol: "Scenario: Switching Agents says what happened, and the hint shows this machine's status"
@@ -2290,7 +2290,7 @@ retirements:
     defectSurface: [agents, terminal-lifecycle]
     destinationLayer: L5
     replacements: []
-    survivorRevisionIds: [revision-e7badd0d0a5d5fc1b0ac]
+    survivorRevisionIds: [revision-e656ba3c5b2ed237bd87]
     sameCodePathEvidence:
       file: packages/tests/features/agents.feature
       symbol: "Scenario: A terminal whose agents went stale restarts in place with the new ones"
@@ -2303,7 +2303,7 @@ retirements:
     defectSurface: [agents]
     destinationLayer: L5
     replacements: []
-    survivorRevisionIds: [revision-d7cff02fe5e667c0b767]
+    survivorRevisionIds: [revision-b13266524a761739e1a7]
     sameCodePathEvidence:
       file: packages/tests/features/agents.feature
       symbol: "Scenario: Settings offers the Agents section with the build's profiles"
@@ -2316,7 +2316,7 @@ retirements:
     defectSurface: [agents]
     destinationLayer: L5
     replacements: []
-    survivorRevisionIds: [revision-ced7c033264badc35f7f]
+    survivorRevisionIds: [revision-46e5d6575d293b097478]
     sameCodePathEvidence:
       file: packages/tests/features/agents.feature
       symbol: "Scenario: Switching profile reaches the next terminal, and off removes both"
@@ -2329,7 +2329,7 @@ retirements:
     defectSurface: [agents]
     destinationLayer: L5
     replacements: []
-    survivorRevisionIds: [revision-f7f15d67caa3628ca084]
+    survivorRevisionIds: [revision-0f7922b26c652cfae4d0]
     sameCodePathEvidence:
       file: packages/tests/features/agents.feature
       symbol: "Scenario: Turning Agents on changes the next terminal, not the current one"
@@ -2342,7 +2342,7 @@ retirements:
     defectSurface: [agents]
     destinationLayer: L5
     replacements: []
-    survivorRevisionIds: [revision-f7f15d67caa3628ca084]
+    survivorRevisionIds: [revision-0f7922b26c652cfae4d0]
     sameCodePathEvidence:
       file: packages/tests/features/agents.feature
       symbol: "Scenario: Turning Agents on changes the next terminal, not the current one"
@@ -2355,7 +2355,7 @@ retirements:
     defectSurface: [agents]
     destinationLayer: L5
     replacements: []
-    survivorRevisionIds: [revision-e8479d012dcbcb2a68c1]
+    survivorRevisionIds: [revision-11ca5361097f7287289d]
     sameCodePathEvidence:
       file: packages/tests/features/agents.feature
       symbol: "Scenario: Clicking a tile's agents pill opens Settings at the Agents rows"
@@ -2368,7 +2368,7 @@ retirements:
     defectSurface: [agents, terminal-lifecycle]
     destinationLayer: L5
     replacements: []
-    survivorRevisionIds: [revision-e7badd0d0a5d5fc1b0ac]
+    survivorRevisionIds: [revision-e656ba3c5b2ed237bd87]
     sameCodePathEvidence:
       file: packages/tests/features/agents.feature
       symbol: "Scenario: A terminal whose agents went stale restarts in place with the new ones"
@@ -2381,7 +2381,7 @@ retirements:
     defectSurface: [agents, settings]
     destinationLayer: L5
     replacements: []
-    survivorRevisionIds: [revision-01c5d50fad30161d8a79]
+    survivorRevisionIds: [revision-a1a9051e629ee958a7fc]
     sameCodePathEvidence:
       file: packages/tests/features/agents.feature
       symbol: "Scenario: Switching Agents says what happened, and the hint shows this machine's status"
@@ -2420,7 +2420,7 @@ retirements:
     defectSurface: [agents, welcome]
     destinationLayer: L5
     replacements: []
-    survivorRevisionIds: [revision-adf8ee8e93d7dd1fb8cb]
+    survivorRevisionIds: [revision-63c4b689a970e6415766]
     sameCodePathEvidence:
       file: packages/tests/features/agents.feature
       symbol: "Scenario: The first run can pick Off from the keyboard"
@@ -2433,7 +2433,7 @@ retirements:
     defectSurface: [agents, settings]
     destinationLayer: L5
     replacements: []
-    survivorRevisionIds: [revision-01c5d50fad30161d8a79]
+    survivorRevisionIds: [revision-a1a9051e629ee958a7fc]
     sameCodePathEvidence:
       file: packages/tests/features/agents.feature
       symbol: "Scenario: Switching Agents says what happened, and the hint shows this machine's status"
@@ -2446,8 +2446,164 @@ retirements:
     defectSurface: [agents, welcome]
     destinationLayer: L5
     replacements: []
-    survivorRevisionIds: [revision-adf8ee8e93d7dd1fb8cb]
+    survivorRevisionIds: [revision-63c4b689a970e6415766]
     sameCodePathEvidence:
       file: packages/tests/features/agents.feature
       symbol: "Scenario: The first run can pick Off from the keyboard"
       test: Across the reload with Off chosen, the hint now says what Off (the chosen segment) means; tabbing into the first-run choice then puts keyboard focus on "vanilla", and only then does the hint say what vanilla means. The resting-keyboard, no-focus-taken and no-agents-terminal assertions are unchanged.
+  - id: revise-agents-switch-field-01c5d50f
+    revisionId: revision-01c5d50fad30161d8a79
+    action: renamed
+    status: landed
+    promise: "Switching Agents says what happened, and the hint shows this machine's status"
+    defectSurface: [agents, settings]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-a1a9051e629ee958a7fc]
+    sameCodePathEvidence:
+      file: packages/tests/features/agents.feature
+      symbol: "Scenario: Switching Agents says what happened, and the rows show this machine's status"
+      test: "The control is now a switch: turning Agents on (Juspay's profile, the default) toasts that profile and this machine's line reads ready; turning them off toasts off, the hint explains Off and the profile field goes. The tab-into-a-segment steps went with the segments; the switch is one ordinary button."
+  - id: revise-agents-switch-field-e7badd0d
+    revisionId: revision-e7badd0d0a5d5fc1b0ac
+    action: revised
+    status: landed
+    promise: "A terminal whose agents went stale restarts in place with the new ones"
+    defectSurface: [agents, terminal-lifecycle]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-e656ba3c5b2ed237bd87]
+    sameCodePathEvidence:
+      file: packages/tests/features/agents.feature
+      symbol: "Scenario: A terminal whose agents went stale restarts in place with the new ones"
+      test: "Agents are turned on by choosing \"vanilla\" in the profile field rather than by the switch (whose default is now Juspay's reference), so the first terminal still carries the vanilla bundle; the switch to juspay, the stale pill, the restart and every assertion after it are unchanged."
+  - id: revise-agents-switch-field-d7cff02f
+    revisionId: revision-d7cff02fe5e667c0b767
+    action: renamed
+    status: landed
+    promise: "Settings offers the Agents section with the build's profiles"
+    defectSurface: [agents, settings]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-b13266524a761739e1a7]
+    sameCodePathEvidence:
+      file: packages/tests/features/agents.feature
+      symbol: "Scenario: Settings offers the Agents switch, off until chosen"
+      test: "Settings no longer lists one segment per bundle: it offers one switch, off until chosen. The scenario asserts the switch is off, the hint explains Off, and that nothing is chosen yet."
+  - id: revise-agents-switch-field-ced7c033
+    revisionId: revision-ced7c033264badc35f7f
+    action: revised
+    status: landed
+    promise: "Switching profile reaches the next terminal, and off removes both"
+    defectSurface: [agents, settings]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-46e5d6575d293b097478]
+    sameCodePathEvidence:
+      file: packages/tests/features/agents.feature
+      symbol: "Scenario: Switching profile reaches the next terminal, and off removes both"
+      test: "Choosing \"juspay\" is now typing it into the profile field (which turns Agents on first) instead of a separate on step and a segment click; every assertion \u2014 padi, the chip, the claude fixture, off removing both \u2014 is unchanged."
+  - id: revise-agents-switch-field-f7f15d67
+    revisionId: revision-f7f15d67caa3628ca084
+    action: renamed
+    status: landed
+    promise: "Turning Agents on changes the next terminal, not the current one"
+    defectSurface: [agents, settings]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-0f7922b26c652cfae4d0]
+    sameCodePathEvidence:
+      file: packages/tests/features/agents.feature
+      symbol: "Scenario: Turning Agents on starts on Juspay's profile, for the next terminal, not the current one"
+      test: "Turning Agents on with nothing chosen now starts on Juspay's reference, github:juspay/skills, on the vanilla bundle: padi gives that profile, the field holds it and says it resolves, the current terminal stays bare, and the next one names the profile in effect, exports AI_PROFILE and runs the vanilla fixture and picker."
+  - id: revise-agents-switch-field-e8479d01
+    revisionId: revision-e8479d012dcbcb2a68c1
+    action: revised
+    status: landed
+    promise: "Clicking a tile's agents pill opens Settings at the Agents rows"
+    defectSurface: [agents, settings]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-11ca5361097f7287289d]
+    sameCodePathEvidence:
+      file: packages/tests/features/agents.feature
+      symbol: "Scenario: Clicking a tile's agents pill opens Settings at the Agents rows"
+      test: "Agents are turned on by choosing \"vanilla\" in the field, and Settings, once open, is checked by the switch being on and the field holding vanilla instead of the segment list. The pill click is unchanged."
+  - id: revise-agents-switch-field-adf8ee8e
+    revisionId: revision-adf8ee8e93d7dd1fb8cb
+    action: renamed
+    status: landed
+    promise: "The first run can pick Off from the keyboard"
+    defectSurface: [agents, welcome]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-63c4b689a970e6415766]
+    sameCodePathEvidence:
+      file: packages/tests/features/agents.feature
+      symbol: "Scenario: Switching agents off brings the question back, without taking the keyboard"
+      test: "The first-run step is one switch, so there is no Off segment to arrow to: agents are switched on and off in Settings, and the scenario keeps what Off proved \u2014 the welcome card asks again with the switch off, after a reload it has not taken the keyboard, the done line names no agents, and a new terminal gets none."
+  - id: revise-agents-switch-field-e4974925
+    revisionId: revision-e4974925eb45b0a85480
+    action: renamed
+    status: landed
+    promise: "The first run asks which agents first, and Enter picks the default"
+    defectSurface: [agents, welcome]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-250d29b5ef8297c0e121]
+    sameCodePathEvidence:
+      file: packages/tests/features/agents.feature
+      symbol: "Scenario: The first run asks with one switch, and Enter turns on Juspay's profile"
+      test: "The step's focused control is the switch, and Enter turns agents on with Juspay's profile (the new default) rather than the vanilla segment; the toast, padi, the step leaving, the done line, the next terminal's pill and Settings' field and status line are asserted for it."
+  - id: revise-agents-switch-field-730e2246
+    revisionId: revision-730e22460589c764cac3
+    action: revised
+    status: landed
+    promise: "Once chosen, the first-run step never shows again and Settings shows the choice"
+    defectSurface: [agents, welcome]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-c2cf1ef5e26e78cce99a]
+    sameCodePathEvidence:
+      file: packages/tests/features/agents.feature
+      symbol: "Scenario: Once chosen, the first-run step never shows again and Settings shows the choice"
+      test: "The choice is made with the first-run switch (Juspay's profile) rather than the juspay segment, and Settings shows it in the profile field; the never-shown-since watch across the reload is unchanged."
+  - id: revise-agents-switch-field-8a77317d
+    revisionId: revision-8a77317d6f46807cedbe
+    action: revised
+    status: landed
+    promise: "Ignoring the step opens a terminal without agents, and the Tutorial still asks"
+    defectSurface: [agents, welcome]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-1a07caae49c868bffc5c]
+    sameCodePathEvidence:
+      file: packages/tests/features/agents.feature
+      symbol: "Scenario: Ignoring the step opens a terminal without agents, and the Tutorial still asks"
+      test: "Focus is on the first-run switch instead of the vanilla segment, and the Tutorial's answer is the switch (Juspay's profile); the bare terminal, Settings' nothing-chosen line and the Tutorial asking then not asking are unchanged."
+  - id: revise-agents-switch-field-82ea6de6
+    revisionId: revision-82ea6de62289edc75867
+    action: revised
+    status: landed
+    promise: "A profile reference reaches the next terminal, and its pill names the profile in effect"
+    defectSurface: [agents, settings]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-a4b5cdb030f5e1d6ca71]
+    sameCodePathEvidence:
+      file: packages/tests/features/agents.feature
+      symbol: "Scenario: A profile reference reaches the next terminal, and its pill names the profile in effect"
+      test: "The reference is typed into the one profile field; the inline refusal of a bare name is gone (any text is written, and agent-distro's answer is said under the field \u2014 its own scenario now), and the field's resolved line is asserted. The toast, padi, the pill naming the profile in effect, AI_PROFILE and the vanilla fixture are unchanged."
+  - id: revise-agents-pick-from-menu-fc728f5c
+    revisionId: revision-fc728f5cb3532619bdae
+    action: revised
+    status: landed
+    promise: "Switching profile reaches the next terminal, and off removes both"
+    defectSurface: [agents, settings]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-46e5d6575d293b097478]
+    sameCodePathEvidence:
+      file: packages/tests/features/agents.feature
+      symbol: "Scenario: Switching profile reaches the next terminal, and off removes both"
+      test: "juspay is now picked from the profile field's Kolu-drawn suggestion menu (the chevron, then its row) instead of typed and entered; the write goes through the same agentDistroChoice, and padi, the chip, the claude fixture and off removing both are asserted unchanged."

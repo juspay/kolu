@@ -40,7 +40,7 @@ describe("Preferences — the conf store's `preferences` field", () => {
         '"newTerminalCollapsed":false,"shuffleBehavior":"auto","scrollLock":true,' +
         '"attentionAlerts":true,"colorScheme":"dark","terminalRenderer":"auto",' +
         '"rightPanel":{"size":0.25,"codeTabTreeSize":0.35},' +
-        '"agentDistro":null,"tipBarCollapsed":false}',
+        '"agentDistro":null,"agentProfilesRecent":[],"tipBarCollapsed":false}',
     );
   });
 
@@ -50,7 +50,7 @@ describe("Preferences — the conf store's `preferences` field", () => {
       '"newTerminalCollapsed":true,"shuffleBehavior":"colourful","scrollLock":false,' +
       '"attentionAlerts":false,"colorScheme":"system","terminalRenderer":"webgl",' +
       '"rightPanel":{"size":0.4,"codeTabTreeSize":0.5},' +
-      '"agentDistro":{"enabled":false,"profile":"juspay"},"tipBarCollapsed":true}';
+      '"agentDistro":{"enabled":false,"profile":"github:juspay/skills"},"agentProfilesRecent":["github:me/p"],"tipBarCollapsed":true}';
     const decoded = Schema.decodeUnknownSync(PreferencesSchema)(
       JSON.parse(stored),
     );

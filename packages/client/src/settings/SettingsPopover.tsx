@@ -8,6 +8,7 @@ import type {
   ShuffleBehavior,
 } from "kolu-common/surface";
 import { type Component, Show } from "solid-js";
+import { AGENTS_PROFILE_MENU_TESTID } from "../agents/AgentsProfileField";
 import AgentsSettingsSection from "../agents/AgentsSettingsSection";
 import { Portal } from "solid-js/web";
 import SegmentedControl, {
@@ -109,6 +110,12 @@ const SettingsPopover: Component<{
     open: () => props.open,
     onDismiss: () => props.onOpenChange(false),
     anchor: "bottom-end",
+    // The Agents profile menu is portalled out of this panel but opened
+    // from it: a click there is not outside.
+    isInside: (node) =>
+      (node instanceof Element ? node : node.parentElement)?.closest(
+        `[data-testid="${AGENTS_PROFILE_MENU_TESTID}"]`,
+      ) != null,
   });
 
   const chrome = surface({ portalled: true });

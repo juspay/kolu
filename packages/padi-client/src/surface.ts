@@ -109,13 +109,16 @@ import {
 } from "./chromeVocab.ts";
 import {
   AgentDistroReceiptSchema,
+  AgentDistroResolvedSchema,
   AgentDistroSettingSchema,
   AgentDistroStatusSchema,
   agentDistroReceiptEqual,
+  agentDistroResolvedEqual,
   agentDistroSettingEqual,
   agentDistroStatusEqual,
   DEFAULT_AGENT_DISTRO_SETTING,
   DEFAULT_AGENT_DISTRO_STATUS,
+  DEFAULT_AGENT_DISTRO_RESOLVED,
   EMPTY_AGENT_DISTRO_RECEIPT,
   TerminalAgentsSchema,
 } from "@kolu/agent-distro/schema";
@@ -543,8 +546,22 @@ export * from "./transcriptSchema.ts";
  *  required" (`isContractVersionCompatible`), so it passes the gate against a
  *  5.10 padi and then meets a decode refusal on the record: loud, but not the
  *  clean `DaemonContractSkewError`, and not the graceful direction 5.7
- *  describes. Kept a minor anyway, as 5.3 and 5.7 were. */
-export const PADI_SURFACE_VERSION = "5.10";
+ *  describes. Kept a minor anyway, as 5.3 and 5.7 were.
+ *
+ *  5.11 (additive · minor) — agent-distro profile references. The
+ *  `agentDistro` setting's `profile` (already a string) may now be a
+ *  REFERENCE (a flake reference or a path, `isProfileReference`): padi gives
+ *  such a terminal the vanilla bundle with the reference as `AI_PROFILE`, and
+ *  publishes its status and receipt under the reference. The record's `agents`
+ *  gains an OPTIONAL `effective` (the profile in effect, as the bundle's
+ *  `agent-distro --list --json` answered after the spawn), and a NEW read-only
+ *  cell, `agentDistroResolved`, says whether the setting's profile resolves on
+ *  the host at all (the same listing, asked once per setting). The minor
+ *  carries the 5.8 obligation: a 5.11 binder may PUSH a reference, which a 5.10
+ *  padi's write gate refuses as an unknown profile, and a 5.11 client
+ *  subscribes to the new cell, so the minor drains a 5.10 padi first. An older
+ *  decoder strips `effective`, the graceful direction. */
+export const PADI_SURFACE_VERSION = "5.11";
 
 /** The `version` cell payload — padi's self-declared surface contract version. */
 export const PadiVersionSchema = Schema.Struct({
@@ -1982,8 +1999,8 @@ export const padiSurface = defineSurfaceWithPolicy<ClientErrorPolicy>()({
      *  global preference, verbatim), READ by padi's spawn path: a terminal
      *  spawned while it is on gets the profile's agents on its PATH. Memory-only
      *  for the reason `newTerminalPolicy` is (the binder re-pushes on every
-     *  bind). The write REFUSES a profile this padi's build does not know
-     *  (`checkAgentDistroSetting`) rather than mapping it to another. NOT exposed
+     *  bind). It takes any profile: one this padi's build has no bundle for
+     *  rides the default bundle, and agent-distro resolves it. NOT exposed
      *  through the MCP face: an agent inherits the user's choice, it does not
      *  make it. */
     agentDistro: {
@@ -2022,6 +2039,19 @@ export const padiSurface = defineSurfaceWithPolicy<ClientErrorPolicy>()({
       equals: agentDistroReceiptEqual,
       verbs: ["get"],
       client: { onError: { kind: "hostToast", label: "Agents updates" } },
+    },
+    /** Whether the setting's profile resolves on THIS host — asked once per
+     *  setting of the bundle's own `agent-distro --list --json`, from `$HOME`
+     *  with the profile as `AI_PROFILE`: `pending`, `resolved` (agent-distro's
+     *  name and description for it) or `failed` (its own words), or `none`
+     *  while there is nothing to ask. Read-only; padi's agent-distro module is
+     *  the sole writer. Settings shows it under the profile field. */
+    agentDistroResolved: {
+      schema: AgentDistroResolvedSchema,
+      default: DEFAULT_AGENT_DISTRO_RESOLVED,
+      equals: agentDistroResolvedEqual,
+      verbs: ["get"],
+      client: { onError: { kind: "hostToast", label: "Agents profile" } },
     },
     /** Every TCP listener on THIS padi's host — what the terminal-scoped `ports`
      *  on each record cannot see: a server that detached from the terminal that
@@ -2514,6 +2544,7 @@ export const PADI_FORWARDING_POLICY = {
   agentDistro: "value",
   agentDistroStatus: "value",
   agentDistroReceipt: "value",
+  agentDistroResolved: "value",
   hostListeners: "value",
   hostInventory: "value",
   processMemory: "value",

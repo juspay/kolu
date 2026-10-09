@@ -27,6 +27,11 @@ The **TypeScript half**, as data and pure functions:
   `floorListing`, every floor profile in the manifest's order (the default
   first); kolu's `available | unavailable` listing value. kolu never runs a
   picker for information: the picker is a command for people.
+- `./inEffect` — the profile in effect for a launch, upstream's `profile`
+  field of `agent-distro --list --json`, read as `{ name, description,
+  origin }` (upstream's `source` is left to upstream), and its parser `parseProfileInEffect` — `undefined` for a
+  bundle older than profile references, a throw for output out of format.
+  padi asks it once per terminal; kolu never re-derives it.
 - `./profileFile` — a bundle's `share/agent-distro/profile.json` (`{ name,
   description }`, upstream's `ProfileFile`) and its parser.
 - `./progress` — the updater's `--progress` stdout protocol
@@ -47,7 +52,8 @@ The **TypeScript half**, as data and pure functions:
   (`name\ttitle\tversion` per harness) and its parser — what Settings lists
   for a profile and what a host's receipt names, so the two say the same.
 - `./manifest` — the floor manifest's schema, where it sits and its parser,
-  and `DEFAULT_AGENT_PROFILE` (from `defaults.json`). Readers find each
+  and `DEFAULT_AGENT_PROFILE` (from `defaults.json`: the bundle listed first,
+  which kolu's default Agents profile — a reference — rides). Readers find each
   profile's directory through it, never through a layout of their own.
 - `./schema` — the value schemas that cross the padi wire for agent-distro,
   defined once: `AgentDistroSetting` (what kolu-server pushes; kolu-common's
@@ -55,6 +61,12 @@ The **TypeScript half**, as data and pure functions:
   and what a new terminal there gets — with its progress, and a failure's typed
   reason, `AgentDistroFailureReason`), their defaults and equality, and
   `TerminalAgents` (the one `agents` field a terminal record is stamped with),
+  with its optional `effective` (the profile in effect, `./inEffect`),
+  `bundleProfileOf` (the bundle a profile rides: its own when the build ships
+  one by that name, else the default bundle, `DEFAULT_AGENT_PROFILE`; every terminal
+  gets the setting's profile as `AI_PROFILE`), `AgentDistroResolved` (whether
+  the setting's profile resolves on a host: `none` · `pending` · `resolved`
+  with agent-distro's name and description · `failed` with its own words),
   and `AgentDistroReceipt` (what a host keeps of its updates: the serving
   bundle's versions, the last run, the last five events, `running` — every
   profile with a run in flight there — and `error` when the updater's files
@@ -74,16 +86,21 @@ The **TypeScript half**, as data and pure functions:
   `agent-distro` agree); the moments a download is worth a toast
   (`downloadEdge`); the stored preference — `null` until someone chooses — and
   the one fold from it to the setting new terminals get (`agentDistroSettingOf`,
-  `agentsChosen`), the one whole-value writer behind the Agents control
-  (`agentDistroChoice`) and the first-run step's done-predicate and words
-  (`firstRunAgentsDone`, its title `AGENTS_FIRST_RUN_TITLE`, its done line
-  `agentsChosenLabel`); the Agents hint in its two
-  layouts of one vocabulary — Settings' (`agentsHint`) and the welcome step's
-  one-line-per-choice form (`agentsStepHint`); the segments,
-  with which is pressed and where the keyboard rests (`agentsPressedSegment`,
-  `agentsRestingSegment`); the per-host status lines
-  with their collapse rule; a saved choice kolu does not ship
-  (`unknownProfileOf`); whether a terminal's agents went stale and what its
+  `agentsChosen`; nothing chosen is off on `JUSPAY_PROFILE`,
+  `github:juspay/skills`), the one whole-value writer behind the Agents switch
+  and profile field (`agentDistroChoice`) and the first-run step's
+  done-predicate and words (`firstRunAgentsDone`, its title
+  `AGENTS_FIRST_RUN_TITLE`, its done line `agentsChosenLabel`); the off hint
+  (`agentsHint`) and the welcome step's line (`agentsStepHint`); the profile
+  field's suggestions and memory (`profileSuggestions`, `rememberProfile`, at
+  most `RECENT_PROFILES_CAP`), the line under it — pending, resolved or
+  agent-distro's own words (`agentsResolvedLine`, with
+  `AGENTS_UNRESOLVED_MEANS`) — and the notes after it (`agentsProfileNotes`:
+  the agents with versions, `AGENTS_REPO_OVERRIDES`); the tile
+  pill's profile and hover (`agentChipProfile`, `agentChipLabel`: the profile
+  in effect and where agent-distro resolved it from, else the setting's); the
+  per-host status lines (state, short hash, last look — no profile name) with
+  their collapse rule; whether a terminal's agents went stale and what its
   restart does (`agentStalenessOf`, `agentRestartReady`, `agentRestartAction`,
   `agentStaleLabel`, `restartedLabel`); keeping it current — the line's last
   run ("updated 3h ago"), the History rows (`agentUpdateHistoryRows`), Check
@@ -93,9 +110,11 @@ The **TypeScript half**, as data and pure functions:
   the folds must handle.
 - `./testing` — test support only: `bundleFiles` (a profile bundle's
   `profile.json` and `versions`, written as upstream writes them, at the paths
-  `./profileFile` and `./versions` name) and `readFrom` (a `readText` over
-  them). Every test that fakes a bundle — this package's, kolu-server's boot
-  read, the e2e fixture — goes through it.
+  `./profileFile` and `./versions` name), `readFrom` (a `readText` over
+  them) and `standInListJson` (a stand-in picker's `--list --json`, which
+  fails as upstream does for a profile containing `nobody`). Every test that
+  fakes a bundle — this package's, padi's, kolu-server's boot read, the e2e
+  fixture — goes through it.
 - `./solid` — agent-distro's logo (`doc/logo.svg`, vendored byte-identical from
   the npins pin) and the one `AgentDistroLogo` component that draws it.
 

@@ -2,9 +2,17 @@ import { GIB, MIB } from "@kolu/byte-units";
 import { describe, expect, it } from "vitest";
 import { agentBundleShortHash } from "./bundle.ts";
 import { type AgentDistroListing, profileOfBundle } from "./listing.ts";
-import { DEFAULT_AGENT_PROFILE } from "./manifest.ts";
 import type { AgentDistroReceipt, AgentDistroStatus } from "./schema.ts";
 import {
+  AGENTS_REPO_OVERRIDES,
+  agentChipProfile,
+  agentsProfileNotes,
+  agentsResolvedLine,
+  JUSPAY_PROFILE,
+  profileSuggestions,
+  RECENT_PROFILES_CAP,
+  rememberProfile,
+  selectedAgentProfile,
   AGENTS_CHECK_NOW,
   AGENTS_ALL_HOSTS,
   AGENTS_HISTORY,
@@ -21,14 +29,11 @@ import {
   agentUpdateHistoryRows,
   agentUpdateRunning,
   AGENTS_NOT_CHOSEN,
-  AGENTS_OFF,
   agentsStepHint,
   agentDistroChoice,
   agentDistroSettingOf,
   agentsChosen,
   agentsChosenLabel,
-  agentsPressedSegment,
-  agentsRestingSegment,
   firstRunAgentsDone,
   AGENTS_RETRY,
   agentFailureLines,
@@ -46,14 +51,11 @@ import {
   agentToast,
   AGENTS_OFF_MEANS,
   agentsHint,
-  agentsSegments,
   downloadBytes,
   downloadEdge,
   downloadEdgeFacts,
   harnessLine,
   restartedLabel,
-  unknownProfileMessage,
-  unknownProfileOf,
   versionsLine,
 } from "./status.ts";
 import { bundleFiles, readFrom } from "./testing.ts";
@@ -215,8 +217,8 @@ describe("harnessLine", () => {
       kind: "available",
       profiles: [profileOfBundle("vanilla", "/s/v", read)],
     };
-    const hint = (localReceipt: AgentDistroReceipt | undefined) =>
-      agentsHint({ stored: VANILLA_ON, listing, localReceipt })?.text;
+    const notes = (localReceipt: AgentDistroReceipt | undefined) =>
+      agentsProfileNotes({ setting: VANILLA_ON, listing, localReceipt });
     // …and what it shows once the receipt is in (padi's read of the same file).
     const receipt: AgentDistroReceipt = {
       profile: "vanilla",
@@ -225,10 +227,11 @@ describe("harnessLine", () => {
       events: [],
       running: [],
     };
-    expect(hint(receipt)).toBe(hint(undefined));
-    expect(hint(undefined)).toBe(
-      "Stock agents, your own API keys.\nClaude Code 2.1.292 · OpenCode 1.18.35",
-    );
+    expect(notes(receipt)).toEqual(notes(undefined));
+    expect(notes(undefined)).toEqual([
+      "Claude Code 2.1.292 · OpenCode 1.18.35",
+      AGENTS_REPO_OVERRIDES,
+    ]);
   });
 });
 
@@ -255,6 +258,7 @@ const LISTING: AgentDistroListing = {
   ],
 };
 const VANILLA_ON = { enabled: true, profile: "vanilla" };
+const JUSPAY_ON = { enabled: true, profile: JUSPAY_PROFILE };
 /** The opening both Agents hints share, as the reader sees it — typed once here
  *  so a reworded lead fails every test that pins it. */
 const BARE_LEAD =
@@ -262,42 +266,10 @@ const BARE_LEAD =
 const BUNDLE =
   "/nix/store/nd11nx5f1dkf02cr9dhxqq4axg23vzgc-agent-distro-vanilla";
 
-describe("the one Agents control", () => {
-  it("is Off, then one segment per profile", () => {
-    if (LISTING.kind !== "available") throw new Error("fixture");
-    expect(agentsSegments(LISTING.profiles).map((s) => s.label)).toEqual([
-      "Off",
-      "vanilla",
-      "juspay",
-    ]);
-  });
+describe("agentsHint — the row's words while agents are off", () => {
+  const base = { listing: LISTING };
 
-  it("hovers say, in plain words, what each choice is — upstream's text after", () => {
-    if (LISTING.kind !== "available") throw new Error("fixture");
-    expect(agentsSegments(LISTING.profiles).map((s) => s.hint)).toEqual([
-      AGENTS_OFF_MEANS,
-      "Stock agents, your own API keys.\nagent-distro describes it as: Upstream harnesses with your own provider",
-      "Juspay's agents and skills, through Juspay's gateway.\nagent-distro describes it as: Juspay skills + Kolu",
-    ]);
-  });
-
-  it("refuses a profile kolu has no plain words for", () => {
-    expect(() =>
-      agentsSegments([{ name: "mystery", description: "m", harnesses: [] }]),
-    ).toThrow(/PROFILE_PLAIN/);
-  });
-
-  it("refuses a profile named like the Off segment", () => {
-    expect(() =>
-      agentsSegments([{ name: AGENTS_OFF, description: "", harnesses: [] }]),
-    ).toThrow();
-  });
-});
-
-describe("agentsHint", () => {
-  const base = { listing: LISTING, localReceipt: undefined };
-
-  it("off: what kolu can bring, which agents (the default profile's, from the listing), the choices, the consequence", () => {
+  it("off: what kolu can bring, which agents (the default bundle's, from the listing), what on and off do", () => {
     expect(
       agentsHint({ ...base, stored: { enabled: false, profile: "vanilla" } }),
     ).toEqual({
@@ -305,32 +277,23 @@ describe("agentsHint", () => {
       text: [
         BARE_LEAD,
         "Claude Code 2.1.291 · Codex 0.160.1",
-        "Pick vanilla (stock agents, your own API keys) or juspay (Juspay's agents and skills, through Juspay's gateway). New terminals then start with those agents; what you installed yourself stays as a fallback.",
+        "Turn it on and new terminals start with those agents; what you installed yourself stays as a fallback.",
         `Off — ${AGENTS_OFF_MEANS}`,
       ].join("\n"),
     });
   });
 
-  it("on: what the profile is in plain words, then its agents with versions", () => {
-    expect(agentsHint({ ...base, stored: VANILLA_ON })).toEqual({
-      tone: "muted",
-      text: [
-        "Stock agents, your own API keys.",
-        "Claude Code 2.1.291 · Codex 0.160.1",
-      ].join("\n"),
-    });
+  it("on: nothing — the profile field and its lines speak", () => {
+    expect(agentsHint({ ...base, stored: JUSPAY_ON })).toBeUndefined();
   });
 
-  it("keeps the unknown-choice warning, never resetting the choice", () => {
+  it("says nothing until the listing arrives, and says why in a kolu built without agents", () => {
     expect(
-      agentsHint({ ...base, stored: { enabled: true, profile: "gone" } }),
-    ).toEqual({ tone: "warn", text: unknownProfileMessage("gone") });
-  });
-
-  it("says nothing until the listing arrives", () => {
-    expect(
-      agentsHint({ ...base, listing: undefined, stored: VANILLA_ON }),
+      agentsHint({ listing: undefined, stored: VANILLA_ON }),
     ).toBeUndefined();
+    expect(
+      agentsHint({ listing: { kind: "unavailable" }, stored: null })?.text,
+    ).toMatch(/built without coding agents/);
   });
 
   it("nothing chosen: the off explanation, then that nothing is chosen yet", () => {
@@ -345,17 +308,159 @@ describe("agentsHint", () => {
   });
 });
 
+describe("agentsProfileNotes — the lines under the profile field", () => {
+  it("a reference: the agents of the bundle it rides, then that a repository overrides it", () => {
+    expect(
+      agentsProfileNotes({
+        setting: JUSPAY_ON,
+        listing: LISTING,
+        localReceipt: undefined,
+      }),
+    ).toEqual(["Claude Code 2.1.291 · Codex 0.160.1", AGENTS_REPO_OVERRIDES]);
+  });
+
+  it("this machine's receipt names its own versions once it is in", () => {
+    expect(
+      agentsProfileNotes({
+        setting: JUSPAY_ON,
+        listing: LISTING,
+        localReceipt: {
+          profile: JUSPAY_PROFILE,
+          versions: [
+            { name: "claude", title: "Claude Code", version: "3.0.0" },
+          ],
+          events: [],
+          running: [],
+        },
+      }),
+    ).toEqual(["Claude Code 3.0.0", AGENTS_REPO_OVERRIDES]);
+  });
+
+  it("a bundle with no agents listed names none, never an empty line", () => {
+    expect(
+      agentsProfileNotes({
+        setting: { enabled: true, profile: "juspay" },
+        listing: LISTING,
+        localReceipt: undefined,
+      }),
+    ).toEqual([AGENTS_REPO_OVERRIDES]);
+  });
+});
+
+describe("agentsResolvedLine — does the profile resolve on this machine", () => {
+  const ref = "github:nobody/nothing";
+  const on = { enabled: true, profile: ref };
+
+  it("pending until this machine's padi answers for THIS profile", () => {
+    const pending = { kind: "pending", text: `resolving ${ref}…` };
+    expect(agentsResolvedLine(on, undefined)).toEqual(pending);
+    expect(agentsResolvedLine(on, { kind: "none" })).toEqual(pending);
+    expect(agentsResolvedLine(on, { kind: "pending", profile: ref })).toEqual(
+      pending,
+    );
+    // An answer about the previous profile is one padi has not caught up from.
+    expect(
+      agentsResolvedLine(on, {
+        kind: "resolved",
+        profile: JUSPAY_PROFILE,
+        name: "juspay",
+        description: "d",
+      }),
+    ).toEqual(pending);
+    expect(
+      agentsResolvedLine(on, {
+        kind: "failed",
+        profile: JUSPAY_PROFILE,
+        message: "m",
+      }),
+    ).toEqual(pending);
+  });
+
+  it("resolved: agent-distro's name and description", () => {
+    expect(
+      agentsResolvedLine(JUSPAY_ON, {
+        kind: "resolved",
+        profile: JUSPAY_PROFILE,
+        name: "juspay",
+        description: "Juspay skills + Kolu",
+      }),
+    ).toEqual({ kind: "resolved", text: "juspay · Juspay skills + Kolu" });
+    expect(
+      agentsResolvedLine(JUSPAY_ON, {
+        kind: "resolved",
+        profile: JUSPAY_PROFILE,
+        name: "juspay",
+        description: "",
+      }),
+    ).toEqual({ kind: "resolved", text: "juspay" });
+  });
+
+  it("failed: agent-distro's own words, then what it means for new terminals", () => {
+    expect(
+      agentsResolvedLine(on, {
+        kind: "failed",
+        profile: ref,
+        message: `cannot fetch ${ref}: HTTP error 404`,
+      }),
+    ).toEqual({
+      kind: "failed",
+      text: `cannot fetch ${ref}: HTTP error 404`,
+    });
+  });
+
+  it("says nothing while agents are off", () => {
+    expect(
+      agentsResolvedLine({ enabled: false, profile: ref }, undefined),
+    ).toBeUndefined();
+  });
+});
+
+describe("the profile field's suggestions and memory", () => {
+  it("suggests Juspay's profile first, then every shipped bundle, then what was set before", () => {
+    expect(
+      profileSuggestions({
+        listing: LISTING,
+        recent: ["github:ekala-project/ekala-ai-skills", JUSPAY_PROFILE],
+      }),
+    ).toEqual([
+      { value: JUSPAY_PROFILE, note: "Juspay's profile — the default" },
+      { value: "vanilla", note: "Upstream harnesses with your own provider" },
+      { value: "juspay", note: "Juspay skills + Kolu" },
+      { value: "github:ekala-project/ekala-ai-skills", note: "used before" },
+    ]);
+    expect(profileSuggestions({ listing: undefined, recent: [] })).toEqual([
+      { value: JUSPAY_PROFILE, note: "Juspay's profile — the default" },
+    ]);
+  });
+
+  it("remembers a profile most recent first, once, at most eight — never a shipped bundle", () => {
+    expect(rememberProfile(["a/1", "b/2"], "b/2", LISTING)).toEqual([
+      "b/2",
+      "a/1",
+    ]);
+    expect(rememberProfile(["a/1"], "vanilla", LISTING)).toEqual(["a/1"]);
+    const full = Array.from(
+      { length: RECENT_PROFILES_CAP },
+      (_, i) => `r/${i}`,
+    );
+    const next = rememberProfile(full, "new/1", LISTING);
+    expect(next).toHaveLength(RECENT_PROFILES_CAP);
+    expect(next[0]).toBe("new/1");
+    expect(next).not.toContain(`r/${RECENT_PROFILES_CAP - 1}`);
+  });
+});
+
 describe("the stored Agents value — `null` is never chosen", () => {
-  it("agentDistroSettingOf: null is off on the default profile; a value is itself", () => {
+  it("agentDistroSettingOf: null is off on Juspay's profile; a value is itself", () => {
     expect(agentDistroSettingOf(null)).toEqual({
       enabled: false,
-      profile: DEFAULT_AGENT_PROFILE,
+      profile: JUSPAY_PROFILE,
     });
+    expect(JUSPAY_PROFILE).toBe("github:juspay/skills");
     // One shared value, so a memo over the fold never re-notifies on null.
     expect(agentDistroSettingOf(null)).toBe(agentDistroSettingOf(null));
-    expect(DEFAULT_AGENT_PROFILE).toBe("vanilla");
-    const juspayOff = { enabled: false, profile: "juspay" };
-    expect(agentDistroSettingOf(juspayOff)).toBe(juspayOff);
+    const vanillaOff = { enabled: false, profile: "vanilla" };
+    expect(agentDistroSettingOf(vanillaOff)).toBe(vanillaOff);
     expect(agentDistroSettingOf(VANILLA_ON)).toBe(VANILLA_ON);
   });
 
@@ -365,117 +470,55 @@ describe("the stored Agents value — `null` is never chosen", () => {
     expect(agentsChosen(VANILLA_ON)).toBe(true);
   });
 
-  it("agentsPressedSegment: none while nothing is chosen, the choice after (Off whatever profile is remembered)", () => {
-    expect(agentsPressedSegment(null)).toBeUndefined();
-    expect(agentsPressedSegment({ enabled: false, profile: "juspay" })).toBe(
-      AGENTS_OFF,
-    );
-    expect(agentsPressedSegment(VANILLA_ON)).toBe("vanilla");
-  });
-
-  it("agentsRestingSegment: the default (the listing's first) profile, Off when there is none", () => {
-    expect(agentsRestingSegment(LISTING)).toBe("vanilla");
-    expect(agentsRestingSegment({ kind: "available", profiles: [] })).toBe(
-      AGENTS_OFF,
-    );
-    expect(agentsRestingSegment({ kind: "unavailable" })).toBe(AGENTS_OFF);
-    expect(agentsRestingSegment(undefined)).toBe(AGENTS_OFF);
-  });
-
-  it("agentDistroChoice writes the whole value; Off keeps the stored profile", () => {
-    expect(agentDistroChoice("juspay", null)).toEqual({
-      enabled: true,
-      profile: "juspay",
-    });
-    expect(agentDistroChoice(AGENTS_OFF, null)).toEqual({
+  it("the switch writes the whole value and keeps the stored profile — Juspay's while nothing is chosen", () => {
+    expect(agentDistroChoice({ on: true }, null)).toEqual(JUSPAY_ON);
+    expect(agentDistroChoice({ on: false }, null)).toEqual({
       enabled: false,
-      profile: DEFAULT_AGENT_PROFILE,
+      profile: JUSPAY_PROFILE,
+    });
+    expect(agentDistroChoice({ on: false }, VANILLA_ON)).toEqual({
+      enabled: false,
+      profile: "vanilla",
     });
     expect(
-      agentDistroChoice(AGENTS_OFF, { enabled: true, profile: "juspay" }),
-    ).toEqual({ enabled: false, profile: "juspay" });
-    expect(
-      agentDistroChoice("vanilla", { enabled: false, profile: "juspay" }),
+      agentDistroChoice({ on: true }, { enabled: false, profile: "vanilla" }),
     ).toEqual(VANILLA_ON);
+  });
+
+  it("the field writes its text, trimmed, with agents on — whatever it is; an empty field writes nothing", () => {
+    expect(
+      agentDistroChoice({ profile: "  github:nobody/nothing " }, VANILLA_ON),
+    ).toEqual({ enabled: true, profile: "github:nobody/nothing" });
+    expect(agentDistroChoice({ profile: "vanilla" }, null)).toEqual(VANILLA_ON);
+    expect(agentDistroChoice({ profile: "   " }, VANILLA_ON)).toBeUndefined();
   });
 });
 
-describe("agentsStepHint — the welcome card's form of the hint", () => {
-  const LEAD = `${BARE_LEAD} Claude Code 2.1.291 · Codex 0.160.1`;
-  /** The listing with juspay carrying agents of its own, so the lead can
-   *  follow the profile in view. */
-  const STEP_LISTING: AgentDistroListing = {
-    kind: "available",
-    profiles: [
-      ...(LISTING.kind === "available" ? LISTING.profiles.slice(0, 1) : []),
-      {
-        name: "juspay",
-        description: "Juspay skills + Kolu",
-        harnesses: [
-          {
-            name: "claude",
-            title: "Claude Code",
-            version: "9.9.9",
-          },
-        ],
-      },
-    ],
-  };
-
-  it("the lead names the agents of the profile in view on one line; the choice line follows the segment", () => {
-    expect(
-      agentsStepHint({ listing: STEP_LISTING, segment: "vanilla" }),
-    ).toEqual({
-      lead: LEAD,
-      choice: "vanilla — stock agents, your own API keys",
-    });
-    expect(
-      agentsStepHint({ listing: STEP_LISTING, segment: "juspay" }),
-    ).toEqual({
-      lead: `${BARE_LEAD} Claude Code 9.9.9`,
-      choice: "juspay — Juspay's agents and skills, through Juspay's gateway",
-    });
-  });
-
-  it("on Off, or with nothing in view, the lead names the default profile's agents", () => {
-    expect(
-      agentsStepHint({ listing: STEP_LISTING, segment: AGENTS_OFF }),
-    ).toEqual({
-      lead: LEAD,
-      choice: `Off — ${AGENTS_OFF_MEANS}`,
-    });
-    expect(
-      agentsStepHint({ listing: STEP_LISTING, segment: undefined }),
-    ).toEqual({
-      lead: LEAD,
-      choice: undefined,
-    });
-  });
-
-  it("a profile with no agents listed leaves the lead bare, never a dangling space", () => {
-    expect(agentsStepHint({ listing: LISTING, segment: "juspay" })?.lead).toBe(
-      BARE_LEAD,
+describe("agentsStepHint — the welcome card's line", () => {
+  it("the lead with the default bundle's agents on one line", () => {
+    expect(agentsStepHint(LISTING)).toBe(
+      `${BARE_LEAD} Claude Code 2.1.291 · Codex 0.160.1`,
     );
   });
 
-  it("shares its vocabulary with the Settings hint", () => {
-    const settings =
-      agentsHint({ listing: LISTING, stored: null, localReceipt: undefined })
-        ?.text ?? "";
-    // juspay lists no agents in LISTING, so its step lead is the bare opening.
-    const bare = agentsStepHint({ listing: LISTING, segment: "juspay" });
-    const off = agentsStepHint({ listing: LISTING, segment: AGENTS_OFF });
-    expect(settings.startsWith(bare?.lead ?? "-")).toBe(true);
-    expect(settings).toContain(off?.choice ?? "-");
+  it("a bundle with no agents listed leaves the lead bare, never a dangling space", () => {
+    expect(
+      agentsStepHint({
+        kind: "available",
+        profiles: [{ name: "vanilla", description: "", harnesses: [] }],
+      }),
+    ).toBe(BARE_LEAD);
+  });
+
+  it("shares its lead with the Settings hint", () => {
+    const settings = agentsHint({ listing: LISTING, stored: null })?.text ?? "";
+    expect(settings.startsWith(BARE_LEAD)).toBe(true);
+    expect(agentsStepHint(LISTING)?.startsWith(BARE_LEAD)).toBe(true);
   });
 
   it("says nothing before the listing, or in a kolu built without agents", () => {
-    expect(
-      agentsStepHint({ listing: undefined, segment: "vanilla" }),
-    ).toBeUndefined();
-    expect(
-      agentsStepHint({ listing: { kind: "unavailable" }, segment: AGENTS_OFF }),
-    ).toBeUndefined();
+    expect(agentsStepHint(undefined)).toBeUndefined();
+    expect(agentsStepHint({ kind: "unavailable" })).toBeUndefined();
   });
 });
 
@@ -576,34 +619,53 @@ describe("firstRunAgentsDone — the first-run step's done-predicate", () => {
       ).toBe(true);
   });
 
-  it("is done for a stored profile this kolu does not ship — Settings warns; the row must not pin forever", () => {
-    expect(
-      firstRunAgentsDone({
-        stored: { enabled: true, profile: "gone" },
-        listing: LISTING,
-        local: STATUSES.downloading,
-      }),
-    ).toBe(true);
-  });
+  /** This machine's answer for `profile`: it resolved. */
+  const resolvedFor = (profile: string) =>
+    ({ kind: "resolved", profile, name: "n", description: "" }) as const;
 
-  it("its done line names the chosen profile, and there is none while agents are off", () => {
-    expect(agentsChosenLabel(VANILLA_ON, LISTING)).toBe("Agents: vanilla ✓");
+  it("its done line names the chosen profile with a check once it resolves, and there is none while agents are off", () => {
+    expect(agentsChosenLabel(VANILLA_ON, LISTING, resolvedFor("vanilla"))).toBe(
+      "Agents: vanilla ✓",
+    );
     expect(
-      agentsChosenLabel({ enabled: true, profile: "juspay" }, LISTING),
-    ).toBe("Agents: juspay ✓");
-    expect(agentsChosenLabel(OFF, LISTING)).toBeUndefined();
-  });
-
-  it("has no done line for a stored profile this kolu does not ship — Settings warns about it", () => {
+      agentsChosenLabel(JUSPAY_ON, LISTING, resolvedFor(JUSPAY_PROFILE)),
+    ).toBe("Agents: github:juspay/skills ✓");
     expect(
-      agentsChosenLabel({ enabled: true, profile: "gone" }, LISTING),
+      agentsChosenLabel(OFF, LISTING, resolvedFor("vanilla")),
     ).toBeUndefined();
   });
 
-  it("has no done line in a kolu built without agents — nobody chose anything", () => {
-    expect(agentsChosenLabel(OFF, { kind: "unavailable" })).toBeUndefined();
+  it("no check for a profile that failed to resolve — agent-distro's words instead", () => {
+    const ref = "github:nobody/nothing";
     expect(
-      agentsChosenLabel(VANILLA_ON, { kind: "unavailable" }),
+      agentsChosenLabel({ enabled: true, profile: ref }, LISTING, {
+        kind: "failed",
+        profile: ref,
+        message: `cannot fetch ${ref}: HTTP error 404`,
+      }),
+    ).toBe(`Agents: ${ref} — cannot fetch ${ref}: HTTP error 404`);
+  });
+
+  it("nothing yet while the answer is pending — or is about another profile", () => {
+    for (const resolved of [
+      undefined,
+      { kind: "none" } as const,
+      { kind: "pending", profile: JUSPAY_PROFILE } as const,
+      resolvedFor("vanilla"),
+    ])
+      expect(agentsChosenLabel(JUSPAY_ON, LISTING, resolved)).toBeUndefined();
+  });
+
+  it("has no done line in a kolu built without agents — nobody chose anything", () => {
+    expect(
+      agentsChosenLabel(OFF, { kind: "unavailable" }, undefined),
+    ).toBeUndefined();
+    expect(
+      agentsChosenLabel(
+        VANILLA_ON,
+        { kind: "unavailable" },
+        resolvedFor("vanilla"),
+      ),
     ).toBeUndefined();
   });
 });
@@ -630,7 +692,7 @@ describe("agentStatusLines", () => {
         host: "naiveintent",
         bar: "ok",
         fill: 1,
-        text: "ready · vanilla nd11nx5f",
+        text: "ready · nd11nx5f",
       },
     ]);
   });
@@ -647,7 +709,7 @@ describe("agentStatusLines", () => {
         host: AGENTS_ALL_HOSTS,
         bar: "ok",
         fill: 1,
-        text: "ready · vanilla nd11nx5f · on 3 hosts",
+        text: "ready · nd11nx5f · on 3 hosts",
       },
     ]);
   });
@@ -669,7 +731,7 @@ describe("agentStatusLines", () => {
         host: AGENTS_ALL_HOSTS,
         bar: "ok",
         fill: 1,
-        text: "ready · vanilla · on 2 hosts",
+        text: "ready · on 2 hosts",
       },
     ]);
   });
@@ -699,7 +761,7 @@ describe("agentStatusLines", () => {
         host: "naiveintent",
         bar: "ok",
         fill: 1,
-        text: "ready · vanilla nd11nx5f",
+        text: "ready · nd11nx5f",
       },
       { host: "box", bar: "busy", fill: 0.55, text: "1.1 GiB of 2.0 GiB" },
       {
@@ -741,6 +803,27 @@ describe("agentStalenessOf — is a terminal's agents what a new one gets", () =
   const on = (profile: string) => ({ enabled: true, profile });
   const ready = (profile: string, bundle: string) =>
     ({ kind: "ready", profile, bundle }) as const;
+
+  it("a reference switch on the same bundle is stale: its AI_PROFILE changed", () => {
+    expect(
+      agentStalenessOf({
+        terminal: { agents: { profile: "github:a/p", bundle: OLD } },
+        status: ready("github:b/p", OLD),
+        setting: on("github:b/p"),
+      }),
+    ).toEqual({
+      kind: "stale",
+      had: { profile: "github:a/p", hash: "nd11nx5f" },
+      now: { kind: "profile", profile: "github:b/p", hash: "nd11nx5f" },
+    });
+    expect(
+      agentStalenessOf({
+        terminal: { agents: { profile: "github:a/p", bundle: OLD } },
+        status: ready("github:a/p", OLD),
+        setting: on("github:a/p"),
+      }),
+    ).toEqual({ kind: "current" });
+  });
 
   it("a terminal without agents is never stale", () => {
     expect(
@@ -964,20 +1047,38 @@ describe("agentStaleLabel", () => {
   });
 });
 
-describe("unknownProfileOf — the one test for a saved choice kolu does not offer", () => {
-  it("names the stored profile only when the listing lacks it, on or off", () => {
-    expect(unknownProfileOf({ enabled: true, profile: "gone" }, LISTING)).toBe(
-      "gone",
-    );
-    expect(unknownProfileOf({ enabled: false, profile: "gone" }, LISTING)).toBe(
-      "gone",
+describe("selectedAgentProfile — the bundle the setting rides", () => {
+  it("a shipped bundle's name is its own; anything else rides vanilla", () => {
+    for (const profile of [JUSPAY_PROFILE, "~/p", "ekala"])
+      expect(
+        selectedAgentProfile({ enabled: true, profile }, LISTING)?.name,
+      ).toBe("vanilla");
+    expect(
+      selectedAgentProfile({ enabled: true, profile: "juspay" }, LISTING)?.name,
+    ).toBe("juspay");
+    expect(
+      selectedAgentProfile({ enabled: false, profile: "juspay" }, LISTING),
+    ).toBeUndefined();
+  });
+});
+
+describe("the tile pill's name", () => {
+  it("the pill names the profile in effect, else the setting's", () => {
+    const bundle = READY_BUNDLE;
+    expect(agentChipProfile({ profile: "github:me/p", bundle })).toBe(
+      "github:me/p",
     );
     expect(
-      unknownProfileOf({ enabled: true, profile: "vanilla" }, LISTING),
-    ).toBeUndefined();
-    expect(
-      unknownProfileOf({ enabled: true, profile: "gone" }, undefined),
-    ).toBeUndefined();
+      agentChipProfile({
+        profile: "github:me/p",
+        bundle,
+        effective: {
+          name: "mine",
+          description: "",
+          origin: "github:me/p",
+        },
+      }),
+    ).toBe("mine");
   });
 });
 
@@ -1013,12 +1114,27 @@ describe("agentRestartAction — what the stale pill's restart does, decided onc
 describe("the words outside the folds", () => {
   it("the pill's hover, the restart toast (from what padi did), the toasts", () => {
     expect(
-      agentChipLabel(
-        "vanilla",
-        "/nix/store/nd11nx5f1dkf02cr9dhxqq4axg23vzgc-agent-distro-vanilla",
-      ),
+      agentChipLabel({
+        profile: "vanilla",
+        bundle:
+          "/nix/store/nd11nx5f1dkf02cr9dhxqq4axg23vzgc-agent-distro-vanilla",
+      }),
     ).toBe(
       "This terminal started with the vanilla coding agents (nd11nx5f). Click to choose what new terminals get.",
+    );
+    expect(
+      agentChipLabel({
+        profile: "github:me/profile",
+        bundle:
+          "/nix/store/nd11nx5f1dkf02cr9dhxqq4axg23vzgc-agent-distro-vanilla",
+        effective: {
+          name: "ekala",
+          description: "Ekala's agents",
+          origin: "/home/me/ekala/agent-distro.nix",
+        },
+      }),
+    ).toBe(
+      "This terminal started with the ekala profile (nd11nx5f), from /home/me/ekala/agent-distro.nix. Click to choose what new terminals get.",
     );
     expect(restartedLabel({ agentProfile: undefined, resumed: false })).toBe(
       "Restarted as a plain shell",
@@ -1029,7 +1145,9 @@ describe("the words outside the folds", () => {
     expect(restartedLabel({ agentProfile: "juspay", resumed: true })).toBe(
       "Restarted with the juspay agents; the conversation resumed",
     );
-    expect(agentToast.on("juspay")).toBe("New terminals get the juspay agents");
+    expect(agentToast.on(JUSPAY_PROFILE)).toBe(
+      "New terminals get the github:juspay/skills profile",
+    );
   });
 });
 
@@ -1321,7 +1439,7 @@ describe("K3 — updates while a bundle serves", () => {
         host: "naiveintent",
         bar: "ok",
         fill: 1,
-        text: "ready · vanilla nd11nx5f",
+        text: "ready · nd11nx5f",
         note: {
           text: AGENTS_UPDATE_CHECKING,
           title: AGENTS_UPDATE_CHECKING,
@@ -1337,7 +1455,7 @@ describe("K3 — updates while a bundle serves", () => {
           host: "naiveintent",
           bar: "ok",
           fill: 1,
-          text: "ready · vanilla nd11nx5f",
+          text: "ready · nd11nx5f",
           note: {
             text: "updating · 512 MiB of 2.0 GiB",
             title: "updating · 512 MiB of 2.0 GiB",
@@ -1518,36 +1636,28 @@ describe("K3 — updates while a bundle serves", () => {
     ).toBeUndefined();
   });
 
-  it("the hint names this machine's versions once it has them", () => {
-    const hint = agentsHint({
-      listing: LISTING,
-      stored: VANILLA_ON,
-      localReceipt: receipt({
-        versions: [
-          { name: "claude", title: "Claude Code", version: "2.1.299" },
-        ],
-      }),
-    });
-    expect(hint?.text).toBe(
-      "Stock agents, your own API keys.\nClaude Code 2.1.299",
-    );
+  it("the profile notes name this machine's versions once it has them", () => {
+    const notes = (localReceipt: AgentDistroReceipt) =>
+      agentsProfileNotes({
+        listing: LISTING,
+        setting: VANILLA_ON,
+        localReceipt,
+      });
+    expect(
+      notes(
+        receipt({
+          versions: [
+            { name: "claude", title: "Claude Code", version: "2.1.299" },
+          ],
+        }),
+      ),
+    ).toEqual(["Claude Code 2.1.299", AGENTS_REPO_OVERRIDES]);
     // A bundle with no versions file names none — never the floor's.
-    expect(
-      agentsHint({
-        listing: LISTING,
-        stored: VANILLA_ON,
-        localReceipt: receipt({}),
-      })?.text,
-    ).toBe("Stock agents, your own API keys.");
+    expect(notes(receipt({}))).toEqual([AGENTS_REPO_OVERRIDES]);
     // Another profile's receipt (not caught up yet): the set kolu ships.
-    expect(
-      agentsHint({
-        listing: LISTING,
-        stored: VANILLA_ON,
-        localReceipt: { ...receipt({}), profile: "juspay" },
-      })?.text,
-    ).toBe(
-      "Stock agents, your own API keys.\nClaude Code 2.1.291 · Codex 0.160.1",
-    );
+    expect(notes({ ...receipt({}), profile: "juspay" })).toEqual([
+      "Claude Code 2.1.291 · Codex 0.160.1",
+      AGENTS_REPO_OVERRIDES,
+    ]);
   });
 });

@@ -123,6 +123,27 @@ export function migratePreferences_1_39_0(
   return { ...current, tipBarCollapsed: false };
 }
 
+/** 1.40.0 — the Agents profile field remembers what was set
+ *  (`agentProfilesRecent`, seeded empty onto a record that has none), and
+ *  agent-distro no longer ships a `juspay` bundle: Juspay's profile is the
+ *  reference `github:juspay/skills`, so a stored `juspay` becomes it, on or
+ *  off. Exported for `state.test.ts`. */
+export function migratePreferences_1_40_0(
+  current: Record<string, unknown>,
+): Record<string, unknown> {
+  const stored = current.agentDistro as
+    | { enabled: boolean; profile: string }
+    | null
+    | undefined;
+  return {
+    ...current,
+    ...(stored?.profile === "juspay"
+      ? { agentDistro: { ...stored, profile: "github:juspay/skills" } }
+      : {}),
+    agentProfilesRecent: current.agentProfilesRecent ?? [],
+  };
+}
+
 /** 1.32.0 — the new-terminal collapsed DEFAULT moved off `rightPanel.collapsed`
  *  (a write-dead seed jammed next to live geometry) to a top-level
  *  `newTerminalCollapsed` preference beside `newTerminalTheme`. CARRY the old
@@ -267,7 +288,7 @@ function readPersistedRecord(
  * Must be valid semver. `conf` runs all migration handlers
  * whose keys are > the last-seen version and ≤ this value.
  */
-const SCHEMA_VERSION = "1.39.0";
+const SCHEMA_VERSION = "1.40.0";
 
 // Callers must pass an explicit directory via KOLU_STATE_DIR. A bare launch
 // with no env would silently clobber whatever happens to live at conf's
@@ -805,6 +826,17 @@ const CONF_MIGRATIONS = {
     store.set(
       "preferences",
       migratePreferences_1_39_0(
+        store.get("preferences") as Record<string, unknown>,
+      ) as unknown as Preferences,
+    );
+  },
+  // `agentProfilesRecent` — the Agents field's remembered profiles — joins
+  // preferences, and a stored `juspay` (a bundle agent-distro no longer ships)
+  // becomes Juspay's reference, `github:juspay/skills`.
+  "1.40.0": (store: Conf<PersistedState>) => {
+    store.set(
+      "preferences",
+      migratePreferences_1_40_0(
         store.get("preferences") as Record<string, unknown>,
       ) as unknown as Preferences,
     );

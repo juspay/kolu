@@ -9,12 +9,14 @@
  *   - each host's RECEIPT (padi's `agentDistroReceipt` cell): the versions it
  *     serves, its last update run and its recent update history.
  *
- * Three app-lifetime reactions ride here too, colocated with the facts they
+ *   - whether the setting's profile RESOLVES on this machine (the local padi's
+ *     `agentDistroResolved` cell), for the line under Settings' profile field.
+ *
+ * Two app-lifetime reactions ride here too, colocated with the facts they
  * react to: toasts at a host's download moments (its mark's words,
- * `agentMarkWords`), a toast when an update lands on a host (the updater's own
- * words, from its receipt), and an error toast when the stored profile is not
- * one this kolu ships (the setting is never silently changed — the user picks a
- * real one in Settings). "Check now" is here too: one call per host.
+ * `agentMarkWords`), and a toast when an update lands on a host (the
+ * updater's own words, from its receipt). "Check now" is here too: one call
+ * per host.
  */
 
 import {
@@ -25,6 +27,7 @@ import {
 } from "kolu-common/hostKey";
 import type {
   AgentDistroReceipt,
+  AgentDistroResolved,
   AgentDistroStatus,
 } from "@kolu/agent-distro/schema";
 import { agoPhrase } from "@kolu/terminal-vocab/duration";
@@ -36,7 +39,6 @@ import {
   createRoot,
   createSignal,
   mapArray,
-  on,
 } from "solid-js";
 import { toast } from "solid-sonner";
 import { hostDisplayName } from "../host/hostChipTone";
@@ -61,8 +63,6 @@ import {
   agentToast,
   agentUpdateHistoryRows,
   type HostAgentStatus,
-  unknownProfileMessage,
-  unknownProfileOf,
 } from "@kolu/agent-distro/status";
 import { watchDownload } from "./firstDownload";
 
@@ -85,6 +85,18 @@ const listingSub = createRoot(() => app.cells.agentDistroListing.use());
 /** The profile listing, or `undefined` until its first frame. */
 export function agentDistroListing(): AgentDistroListing | undefined {
   return listingSub.value();
+}
+
+// This machine's answer only: the field it explains is this machine's
+// setting, and a remote host's agents are its status line's to describe.
+const resolvedSub = createRoot(() =>
+  padiMap.entry(LOCAL_HOST).cells.agentDistroResolved.use(),
+);
+
+/** Whether the setting's profile resolves on this machine — `undefined` until
+ *  its first frame. */
+export function localAgentResolved(): AgentDistroResolved | undefined {
+  return resolvedSub.value();
 }
 
 /** The STORED Agents preference — `null` while nobody has chosen. Read only
@@ -334,17 +346,3 @@ export function checkAgentsNow(): void {
     );
   }
 }
-
-/** The stored profile, when the listing does not offer it (`unknownProfileOf`). */
-export function unknownAgentProfile(): string | undefined {
-  return unknownProfileOf(agentDistroSetting(), agentDistroListing());
-}
-
-createRoot(() =>
-  createEffect(
-    on(unknownAgentProfile, (profile) => {
-      if (profile === undefined) return;
-      toast.error(unknownProfileMessage(profile));
-    }),
-  ),
-);

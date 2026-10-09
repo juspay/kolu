@@ -7,6 +7,7 @@
   "sideEffects": false,
   "exports": {
     "./listing": "./src/listing.ts",
+    "./inEffect": "./src/inEffect.ts",
     "./progress": "./src/progress.ts",
     "./bundle": "./src/bundle.ts",
     "./manifest": "./src/manifest.ts",

@@ -27,8 +27,8 @@ import {
   agentDistroSetting,
   agentDistroStored,
   hostAgentStatusOf,
+  localAgentResolved,
 } from "./agents/useAgentDistro";
-import { type HintVoice, SettingHint } from "./settings/SettingRow";
 import { useHostMembers } from "./host/useHostMembers";
 import { ACTIONS, advertisedNewTerminalKey } from "./input/actions";
 import { formatKeybind } from "./input/keyboard";
@@ -51,7 +51,11 @@ import {
 const doneText = (id: WelcomeMomentId): string | undefined => {
   switch (id) {
     case "chooseAgents":
-      return agentsChosenLabel(agentDistroSetting(), agentDistroListing());
+      return agentsChosenLabel(
+        agentDistroSetting(),
+        agentDistroListing(),
+        localAgentResolved(),
+      );
     case "pin":
       return "📌 Pinned ✓";
     case "reach":
@@ -80,13 +84,11 @@ const DoneEntry: Component<{ id: WelcomeMomentId; text: string }> = (props) =>
     props.text
   );
 
-/** A welcome row's body voice — its line height and grey, typed ONCE: the
- *  shell's body reads it, and so does a hint laid out inside a row (the agents
- *  step's choice line, through `SettingHint`), so the row is one shade. */
-const MOMENT_VOICE: HintVoice = {
+/** A welcome row's body voice — its line height and grey. */
+const MOMENT_VOICE = {
   leading: "leading-snug",
   muted: "text-fg-3",
-};
+} as const;
 
 const MomentShell: Component<{
   /** The row's mark: an emoji, or a logo (the agents step's). */
@@ -132,35 +134,25 @@ const MomentShell: Component<{
   </div>
 );
 
-/** The agents choice: the same `AgentsChooser` as Settings → Agents (control,
- *  hint, status lines), laid out as a welcome row with agent-distro's logo. It
- *  stays at the top while agents are off — nothing chosen, or Off picked — with
- *  the keyboard resting on the default profile, so Enter turns agents on. Only
- *  while NOTHING is chosen does the control take focus on mount: someone who
- *  picked Off sees the row at every empty canvas, but an Enter out of habit
- *  must not switch agents on. ⌘⏎ still creates a terminal from anywhere. */
+/** The agents choice: the same `AgentsChooser` as Settings → Agents, laid out
+ *  as a welcome row with agent-distro's logo — its switch only (turning it on
+ *  with nothing chosen starts on Juspay's profile; the profile field lives in
+ *  Settings), and the status lines. It stays at the top while agents are off —
+ *  nothing chosen, or switched off. Only while NOTHING is chosen does the
+ *  switch take focus on mount, so Enter turns agents on: someone who switched
+ *  them off sees the row at every empty canvas, but an Enter out of habit must
+ *  not switch them back on. ⌘⏎ still creates a terminal from anywhere. */
 const ChooseAgentsMoment: Component = () => (
-  <AgentsChooser asking autofocus={!agentsChosen(agentDistroStored())}>
+  <AgentsChooser autofocus={!agentsChosen(agentDistroStored())}>
     {(parts) => (
       <MomentShell
         testId="welcome-moment-choose-agents"
         icon={<AgentDistroLogo size={16} />}
         title={AGENTS_FIRST_RUN_TITLE}
-        body={parts.stepHint()?.lead}
+        body={parts.stepHint()}
         details={
           <>
             <div class="mt-1.5 flex">{parts.control}</div>
-            <Show when={parts.stepHint()?.choice}>
-              {(choice) => (
-                <div data-testid="welcome-agents-choice">
-                  <SettingHint
-                    hint={{ text: choice() }}
-                    voice={MOMENT_VOICE}
-                    class="mt-1"
-                  />
-                </div>
-              )}
-            </Show>
             {parts.status}
           </>
         }

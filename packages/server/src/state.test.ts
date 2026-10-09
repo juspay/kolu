@@ -13,6 +13,7 @@ import {
   migratePreferences_1_37_0,
   migratePreferences_1_38_0,
   migratePreferences_1_39_0,
+  migratePreferences_1_40_0,
   store,
 } from "./state.ts";
 
@@ -197,20 +198,54 @@ describe("migratePreferences_1_39_0 — the tile tip's size", () => {
   });
 });
 
+describe("migratePreferences_1_40_0 — remembered profiles, and juspay becomes a reference", () => {
+  const { agentProfilesRecent: _drop, ...pre } = DEFAULT_PREFERENCES;
+
+  it("seeds an empty list onto a record that has none, and keeps a stored one", () => {
+    expect(migratePreferences_1_40_0(pre)).toEqual({
+      ...pre,
+      agentProfilesRecent: [],
+    });
+    const kept = { ...pre, agentProfilesRecent: ["github:me/p"] };
+    expect(migratePreferences_1_40_0(kept)).toEqual(kept);
+  });
+
+  it("a stored juspay, on or off, becomes github:juspay/skills; any other is kept", () => {
+    for (const enabled of [true, false])
+      expect(
+        migratePreferences_1_40_0({
+          ...pre,
+          agentDistro: { enabled, profile: "juspay" },
+        }).agentDistro,
+      ).toEqual({ enabled, profile: "github:juspay/skills" });
+    const vanilla = {
+      ...pre,
+      agentDistro: { enabled: true, profile: "vanilla" },
+    };
+    expect(migratePreferences_1_40_0(vanilla).agentDistro).toEqual(
+      vanilla.agentDistro,
+    );
+    expect(migratePreferences_1_40_0(pre).agentDistro).toBeNull();
+  });
+});
+
 describe("the CHAINED preference ladder (a pre-1.30 blob walking every rung)", () => {
   /** The rungs that read the `preferences` blob, in ladder order. 1.31.0 /
    *  1.33.0 / 1.35.0 / 1.36.0 never touch it (key strip, `hosts` seed, no-op,
-   *  `viewerMode` seed), so these six (1.37.0 seeds `agentDistro`, 1.38.0 turns
-   *  an Off one into "never chosen", 1.39.0 seeds `tipBarCollapsed`) ARE the whole walk a pre-1.30 file
+   *  `viewerMode` seed), so these seven (1.37.0 seeds `agentDistro`, 1.38.0 turns
+   *  an Off one into "never chosen", 1.39.0 seeds `tipBarCollapsed`, 1.40.0
+   *  seeds `agentProfilesRecent`) ARE the whole walk a pre-1.30 file
    *  makes. Testing each rung in isolation cannot catch a cross-rung defect:
    *  1.32.0 spreads today's `DEFAULT_PREFERENCES` into the record, which hands
    *  1.34.0 an `attentionAlerts` the user never chose. */
   const walkLadder = (blob: Record<string, unknown>) =>
-    migratePreferences_1_39_0(
-      migratePreferences_1_38_0(
-        migratePreferences_1_37_0(
-          migratePreferences_1_34_0(
-            migratePreferences_1_32_0(migratePreferences_1_30_0(blob)),
+    migratePreferences_1_40_0(
+      migratePreferences_1_39_0(
+        migratePreferences_1_38_0(
+          migratePreferences_1_37_0(
+            migratePreferences_1_34_0(
+              migratePreferences_1_32_0(migratePreferences_1_30_0(blob)),
+            ),
           ),
         ),
       ),

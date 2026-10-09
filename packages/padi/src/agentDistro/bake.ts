@@ -46,6 +46,11 @@ export const AGENT_PLUGIN_DIR_ENV = "KOLU_AGENT_PLUGIN_DIR";
  *  directories loaded into every harness for that launch. */
 export const AGENT_DISTRO_PLUGINS_ENV = "AGENT_DISTRO_PLUGINS";
 
+/** The variable agent-distro's launchers fall back to for the profile (after a
+ *  positional argument and the repository's own `agent-distro.nix`): the
+ *  Agents setting's profile, on every terminal that gets agents. */
+export const AI_PROFILE_ENV = "AI_PROFILE";
+
 /** Every bake name, for the binder that forwards them onto a padi it spawns. */
 export const AGENT_DISTRO_BAKE_ENVS = [
   AGENT_DISTRO_UPDATER_ENV,

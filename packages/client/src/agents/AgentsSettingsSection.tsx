@@ -1,9 +1,10 @@
 /** Settings → Agents: the one agent-distro entry in Settings — a single ordinary
  *  row, like every other setting.
  *
- *  The choice itself — the control, its writer and toasts, the hint, the
- *  per-machine status lines, Check now and the History — is `AgentsChooser`, the same one the welcome
- *  card's first-run step renders. This row adds only what belongs to Settings:
+ *  The choice itself — the switch, the profile field and its lines, the writer
+ *  and its toasts, the hint, the per-machine status lines, Check now and the
+ *  History — is `AgentsChooser`, whose switch the welcome card's first-run
+ *  step renders too. This row adds only what belongs to Settings:
  *  the label with agent-distro's logo, the docs link and "Provided by
  *  agent-distro ↗". */
 
@@ -21,6 +22,7 @@ const AgentsSettingsSection: Component = () => (
         hint={parts.hint()}
         details={
           <>
+            {parts.profile}
             {parts.status}
             {parts.updates}
           </>

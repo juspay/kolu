@@ -242,9 +242,10 @@ export const RightPanelPrefsSchema = Schema.Struct({
  *  on their PATH, and which profile's. Global, not per host or per terminal:
  *  kolu-server pushes it to every bound padi (its memory-only `agentDistro`
  *  cell), and padi applies it at each NEW terminal's spawn — a running terminal
- *  keeps the bundle it started with. `profile` names one of the profiles the
- *  pinned agent-distro ships (kolu-server's `agentDistroListing` cell); an
- *  unknown one is an error the UI shows, never silently reset. */
+ *  keeps the bundle it started with. `profile` is a bundle the pinned
+ *  agent-distro ships (kolu-server's `agentDistroListing` cell) or a reference
+ *  agent-distro resolves; one that does not resolve is said under Settings'
+ *  profile field, never silently reset. */
 export const AgentDistroPrefsSchema = AgentDistroSettingSchema;
 
 // kolu's listing cell value — composed from each bundle's own `profile.json`
@@ -292,6 +293,10 @@ export const PreferencesSchema = Schema.Struct({
    *  as off (`agentDistroSettingOf` in `@kolu/agent-distro/status` is the one
    *  fold to the effective setting). */
   agentDistro: Schema.NullOr(AgentDistroPrefsSchema),
+  /** The profiles the user set in the Agents field before, most recent first,
+   *  at most eight (`rememberProfile` in `@kolu/agent-distro/status`) — the
+   *  field's suggestions after the built-ins. */
+  agentProfilesRecent: Schema.Array(Schema.String),
   /** The tile tip's size: the full bar under the title bar (`false`), or a
    *  small tab hanging from its bottom-right edge (`true`). One switch for
    *  every tile; it says nothing about which tip shows. */
@@ -422,6 +427,7 @@ export const DEFAULT_PREFERENCES: typeof PreferencesSchema.Type = {
   // Nobody has chosen yet: kolu adds nothing to a terminal's PATH, and the
   // welcome card's first-run step asks (Settings → Agents is the same choice).
   agentDistro: null,
+  agentProfilesRecent: [],
   tipBarCollapsed: false,
 };
 

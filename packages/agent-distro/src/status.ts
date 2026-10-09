@@ -11,7 +11,6 @@
 
 import { formatBytes } from "@kolu/byte-units";
 import { agentBundleShortHash } from "./bundle.ts";
-import { DEFAULT_AGENT_PROFILE } from "./manifest.ts";
 import type {
   AgentUpdateAuthor,
   AgentUpdateEvent,
@@ -20,19 +19,26 @@ import type {
 import type {
   AgentDistroFailureReason,
   AgentDistroReceipt,
+  AgentDistroResolved,
   AgentDistroSetting,
   AgentDistroStatus,
   TerminalAgents,
 } from "./schema.ts";
 import type { AgentDistroListing, AgentDistroProfile } from "./listing.ts";
+import { DEFAULT_AGENT_PROFILE } from "./manifest.ts";
 import type { AgentVersion } from "./versions.ts";
 
-/** What "never chosen" means for new terminals: off, on the default profile, so
- *  turning agents on later starts there. ONE shared value, so a reader of the
+/** Juspay's profile, as a reference — kolu's default profile, and the one
+ *  agent-distro reference kolu suggests by name. It rides the vanilla bundle
+ *  (the listing's first) like any reference. */
+export const JUSPAY_PROFILE = "github:juspay/skills";
+
+/** What "never chosen" means for new terminals: off, on {@link JUSPAY_PROFILE},
+ *  so turning agents on later starts there. ONE shared value, so a reader of the
  *  fold sees no change on an unrelated preference write while nothing is chosen. */
 const NEVER_CHOSEN_SETTING: AgentDistroSetting = Object.freeze({
   enabled: false,
-  profile: DEFAULT_AGENT_PROFILE,
+  profile: JUSPAY_PROFILE,
 });
 
 /** Has anyone chosen yet? THE one test for "never chosen" — the absence of a
@@ -56,16 +62,29 @@ export function agentDistroSettingOf(
   return agentsChosen(stored) ? stored : NEVER_CHOSEN_SETTING;
 }
 
-/** The whole value a pick on the Agents control writes — the ONE writer both
- *  the Settings row and the first-run step go through. Off keeps the profile
- *  already stored, so turning agents back on returns to it. */
+/** A change to the Agents control: the switch, or the profile field. */
+export type AgentsChange =
+  | { readonly on: boolean }
+  | { readonly profile: string };
+
+/** The whole value a change on the Agents control writes — the ONE writer the
+ *  Settings row and the first-run step go through. The switch keeps the
+ *  profile already stored ({@link JUSPAY_PROFILE} while nothing is chosen), so turning
+ *  agents back on returns to it. The field writes its text, trimmed, with
+ *  agents on; `undefined` for an empty field, which writes nothing. Whatever
+ *  the text, it is written: whether agent-distro resolves it is the resolved
+ *  line's to say ({@link agentsResolvedLine}), never a refusal here. */
 export function agentDistroChoice(
-  segment: string,
+  change: AgentsChange,
   stored: AgentDistroSetting | null,
-): AgentDistroSetting {
-  return segment === AGENTS_OFF
-    ? { enabled: false, profile: agentDistroSettingOf(stored).profile }
-    : { enabled: true, profile: segment };
+): AgentDistroSetting | undefined {
+  if ("on" in change)
+    return {
+      enabled: change.on,
+      profile: agentDistroSettingOf(stored).profile,
+    };
+  const profile = change.profile.trim();
+  return profile === "" ? undefined : { enabled: true, profile };
 }
 
 /** Is the first-run "choose your agents" step done? `undefined` is "not known
@@ -80,8 +99,6 @@ export function agentDistroChoice(
  *     the top, and picking Off leaves it there with no agents added. (Whether
  *     anyone chose still matters elsewhere — {@link agentsChosen} decides the
  *     step's autofocus and Settings' "nothing chosen yet" line.);
- *   - a stored profile this kolu does not ship (Settings warns about it; its
- *     status would never reach `ready`): done;
  *   - a profile chosen: done once this machine has settled with it — the agents
  *     are there (`ready`) or its padi has none to fetch (`unavailable`). While
  *     this machine is still downloading, or the download failed, the step
@@ -108,7 +125,6 @@ export function firstRunAgentsDone(input: {
   if (listing === undefined) return undefined;
   if (listing.kind === "unavailable") return true;
   if (!agentsChosen(stored) || !stored.enabled) return false;
-  if (unknownProfileOf(stored, listing) !== undefined) return true;
   if (local === undefined) return undefined;
   switch (local.kind) {
     case "unavailable":
@@ -129,24 +145,37 @@ export function firstRunAgentsDone(input: {
 /** The first-run step's title — what the welcome card asks. */
 export const AGENTS_FIRST_RUN_TITLE = "Choose your coding agents";
 
-/** The welcome card's done line for the first-run step: the chosen profile
- *  ("Agents: vanilla ✓"). `undefined` while agents are off — the step is not
- *  done then ({@link firstRunAgentsDone}) — in a kolu built without agents,
- *  where nobody chose anything and the step is done only because there is
- *  nothing to choose, and for a stored profile the listing does not ship (no
- *  check mark on a choice Settings warns about, {@link unknownProfileOf}). */
+/** The welcome card's done line for the first-run step, by whether the
+ *  profile resolves on this machine ({@link agentsResolvedLine}): the chosen
+ *  profile with a check once it does ("Agents: vanilla ✓"), agent-distro's
+ *  words instead of the check when it does not, and nothing yet while it is
+ *  pending. `undefined` too while agents are off — the step is not done then
+ *  ({@link firstRunAgentsDone}) — and in a kolu built without agents, where
+ *  nobody chose anything and the step is done only because there is nothing
+ *  to choose. */
 export function agentsChosenLabel(
   setting: AgentDistroSetting,
   listing: AgentDistroListing | undefined,
+  resolved: AgentDistroResolved | undefined,
 ): string | undefined {
-  if (listing?.kind === "unavailable" || !setting.enabled) return undefined;
-  if (unknownProfileOf(setting, listing) !== undefined) return undefined;
-  return `Agents: ${setting.profile} ✓`;
+  if (listing?.kind === "unavailable") return undefined;
+  const line = agentsResolvedLine(setting, resolved);
+  if (line === undefined) return undefined;
+  switch (line.kind) {
+    case "pending":
+      return undefined;
+    case "resolved":
+      return `Agents: ${setting.profile} ✓`;
+    case "failed":
+      return `Agents: ${setting.profile} — ${line.text}`;
+    default:
+      return line.kind satisfies never;
+  }
 }
 
 /** What the Settings hint adds while nothing is chosen. */
 export const AGENTS_NOT_CHOSEN =
-  "Nothing chosen yet, so new terminals get no coding agents until you pick.";
+  "Nothing chosen yet, so new terminals get no coding agents until you turn them on.";
 
 /** "1.1 GiB of 2.0 GiB" for a download's progress (`@kolu/byte-units`' binary
  *  units — the units Nix reports the bundle in), or `undefined` when there are no
@@ -425,107 +454,123 @@ export function versionsLine(
     .join(" · ");
 }
 
-/** What each profile kolu ships IS, in plain words, written to sit mid-sentence
- *  (lower-case start unless it opens with a name). Upstream's own descriptions
- *  assume you already know agent-distro ("Upstream harnesses with your own
- *  provider"), so Settings leads with these and keeps upstream's text in the
- *  hover. A profile with no entry is refused at kolu-server boot
- *  (`assertPlainProfiles`): a pin bump that adds one must add its sentence. */
-export const PROFILE_PLAIN: Readonly<Record<string, string>> = {
-  vanilla: "stock agents, your own API keys",
-  juspay: "Juspay's agents and skills, through Juspay's gateway",
-};
-
-/** `profile`'s plain description (see {@link PROFILE_PLAIN}); throws for a
- *  profile kolu has no words for. */
-export function plainProfileDescription(profile: AgentDistroProfile): string {
-  const plain = PROFILE_PLAIN[profile.name];
-  if (plain === undefined)
-    throw new Error(
-      `kolu has no plain description for agent-distro profile '${profile.name}' — add it to PROFILE_PLAIN in @kolu/agent-distro/status`,
-    );
-  return plain;
-}
-
 function capitalize(text: string): string {
   return `${text.charAt(0).toUpperCase()}${text.slice(1)}`;
 }
 
-/** "a", "a or b", "a, b or c". */
-function orList(items: readonly string[]): string {
-  return items.length <= 1
-    ? (items[0] ?? "")
-    : `${items.slice(0, -1).join(", ")} or ${items[items.length - 1]}`;
-}
-
-/** What Off means, in the one wording every surface uses (the Off segment's
- *  hover, the row's hint, the toast). */
+/** What Off means, in the one wording every surface uses (the row's hint, the
+ *  toast). */
 export const AGENTS_OFF_MEANS =
   "New terminals use only the agents you installed yourself.";
 
-/** The Settings "Agents" segment that means off. Not a profile name: agent-distro
- *  reserves `default` and the harness names, and `agentsSegments` refuses a
- *  listing that ships a profile called this. */
-export const AGENTS_OFF = "off";
+/** How many profiles the field remembers the user set before. */
+export const RECENT_PROFILES_CAP = 8;
 
-/** The Agents control's test-id prefix: each segment is
- *  `${AGENTS_SEGMENT_TESTID}-${value}` (the client's `SegmentedControl`
- *  convention), so the e2e suite clicks the very segment Settings renders. */
-export const AGENTS_SEGMENT_TESTID = "agents-profile";
-
-/** The segments of the one Agents control: Off, then one per profile. */
-export function agentsSegments(
-  profiles: readonly AgentDistroProfile[],
-): readonly { value: string; label: string; hint?: string }[] {
-  if (profiles.some((p) => p.name === AGENTS_OFF))
-    throw new Error(
-      `agent-distro ships a profile named '${AGENTS_OFF}', which Settings uses for Off`,
-    );
-  return [
-    {
-      value: AGENTS_OFF,
-      label: "Off",
-      hint: AGENTS_OFF_MEANS,
-    },
-    ...profiles.map((p) => ({
-      value: p.name,
-      label: p.name,
-      hint: `${capitalize(plainProfileDescription(p))}.\nagent-distro describes it as: ${p.description}`,
-    })),
-  ];
-}
-
-/** Which segment the Agents control shows for a setting. */
-function agentsSegmentOf(setting: AgentDistroSetting): string {
-  return setting.enabled ? setting.profile : AGENTS_OFF;
-}
-
-/** The segment the Agents control shows PRESSED for the stored value — none
- *  while nothing is chosen, because nothing is. */
-export function agentsPressedSegment(
-  stored: AgentDistroSetting | null,
-): string | undefined {
-  return agentsChosen(stored) ? agentsSegmentOf(stored) : undefined;
-}
-
-/** kolu's default profile, as the listing carries it — THE one reading of
- *  "the default is the listing's first": kolu-server refuses a listing that
- *  does not lead with kolu's default profile. `undefined` when the listing has
- *  not arrived, the build ships no agents, or it lists no profiles. */
-function defaultProfileOf(
+/** The profiles the field remembers after `profile` was set: it first, then
+ *  the others in their order, at most {@link RECENT_PROFILES_CAP}. A shipped
+ *  bundle's name is not remembered — the suggestions always offer it. */
+export function rememberProfile(
+  recent: readonly string[],
+  profile: string,
   listing: AgentDistroListing | undefined,
+): readonly string[] {
+  if (shippedProfile(listing, profile) !== undefined) return recent;
+  return [profile, ...recent.filter((p) => p !== profile)].slice(
+    0,
+    RECENT_PROFILES_CAP,
+  );
+}
+
+/** The profile this kolu ships under `name`, if it does. */
+function shippedProfile(
+  listing: AgentDistroListing | undefined,
+  name: string,
 ): AgentDistroProfile | undefined {
-  return listing?.kind === "available" ? listing.profiles[0] : undefined;
+  return listing?.kind === "available"
+    ? listing.profiles.find((p) => p.name === name)
+    : undefined;
 }
 
-/** Where the welcome card's Agents control — the row that asks — rests the
- *  keyboard while agents are off (nothing chosen, or Off pressed): the default
- *  profile ({@link defaultProfileOf}), so
- *  Enter turns agents on with it. Off when there is none. */
-export function agentsRestingSegment(
-  listing: AgentDistroListing | undefined,
-): string {
-  return defaultProfileOf(listing)?.name ?? AGENTS_OFF;
+/** One suggestion under the profile field: the value it writes, and a note
+ *  beside it. */
+export interface ProfileSuggestion {
+  readonly value: string;
+  readonly note: string;
+}
+
+/** The profile field's suggestions, each once, in this order:
+ *  {@link JUSPAY_PROFILE} (the default), every bundle the listing ships (with
+ *  upstream's description), then what the user set before, most recent
+ *  first. */
+export function profileSuggestions(input: {
+  readonly listing: AgentDistroListing | undefined;
+  readonly recent: readonly string[];
+}): readonly ProfileSuggestion[] {
+  const shipped =
+    input.listing?.kind === "available"
+      ? input.listing.profiles.map((p) => ({
+          value: p.name,
+          note: p.description,
+        }))
+      : [];
+  const all = [
+    { value: JUSPAY_PROFILE, note: "Juspay's profile — the default" },
+    ...shipped,
+    ...input.recent.map((value) => ({ value, note: "used before" })),
+  ];
+  return all.filter((s, i) => all.findIndex((t) => t.value === s.value) === i);
+}
+
+/** The line under the profile field: whether agent-distro resolves the
+ *  setting's profile on this machine — `undefined` while agents are off.
+ *  Until this machine's padi has answered for THIS profile (no frame yet, an
+ *  answer about the previous one, or nothing to ask while its bundle is still
+ *  on the way) it is `pending`. */
+export interface AgentsResolvedLine {
+  readonly kind: "pending" | "resolved" | "failed";
+  /** `failed`: agent-distro's own words — {@link AGENTS_UNRESOLVED_MEANS}
+   *  follows them. */
+  readonly text: string;
+}
+
+/** What a profile that does not resolve means for new terminals, under
+ *  agent-distro's words. */
+export const AGENTS_UNRESOLVED_MEANS =
+  "New terminals still get it, and their agents will not start until it resolves — except in a repository with its own agent-distro.nix.";
+
+/** THE fold from the setting and this machine's resolved cell to the line
+ *  under the profile field. Fenced over the cell's kind. */
+export function agentsResolvedLine(
+  setting: AgentDistroSetting,
+  resolved: AgentDistroResolved | undefined,
+): AgentsResolvedLine | undefined {
+  if (!setting.enabled) return undefined;
+  const pending = {
+    kind: "pending",
+    text: `resolving ${setting.profile}…`,
+  } as const;
+  // An answer about another profile is one padi has not caught up from.
+  if (
+    resolved === undefined ||
+    resolved.kind === "none" ||
+    resolved.kind === "pending" ||
+    resolved.profile !== setting.profile
+  )
+    return pending;
+  switch (resolved.kind) {
+    case "resolved":
+      return {
+        kind: "resolved",
+        text:
+          resolved.description === ""
+            ? resolved.name
+            : `${resolved.name} · ${resolved.description}`,
+      };
+    case "failed":
+      return { kind: "failed", text: resolved.message };
+    default:
+      return resolved satisfies never;
+  }
 }
 
 /** One host's agent-distro facts, for its line in Settings. */
@@ -684,7 +729,7 @@ function statusLine(host: HostAgentStatus): AgentStatusLine {
   ): AgentStatusLine => ({ host: host.label, bar, fill, text });
   switch (mark.kind) {
     case "ready": {
-      const ready = `ready · ${mark.profile} ${mark.hash}`;
+      const ready = `ready · ${mark.hash}`;
       // The host IS ready while an update runs: the bar stays full and
       // green; the note (and the tab's ring) carry the run.
       const update = agentMarkUpdate(mark);
@@ -765,7 +810,7 @@ export const AGENTS_ALL_HOSTS = "all hosts";
  *  unreadable, or its last run failed. A ready line carries a note: its update
  *  running, or its last run ("updated 3h ago", "checked 2h ago, up to date").
  *  When EVERY host is settled they collapse into one line, labelled
- *  {@link AGENTS_ALL_HOSTS} ("ready · vanilla 8rcmf6rd · on 3 hosts" — the hash
+ *  {@link AGENTS_ALL_HOSTS} ("ready · 8rcmf6rd · on 3 hosts" — the hash
  *  only when every machine holds that same build), so the row stays short in
  *  the common case; the History lists each machine's runs. */
 export function agentStatusLines(input: {
@@ -806,8 +851,8 @@ export function agentStatusLines(input: {
       first?.kind !== "ready"
         ? local.text
         : shared
-          ? `ready · ${first.profile} ${first.hash}`
-          : `ready · ${first.profile}`;
+          ? `ready · ${first.hash}`
+          : "ready";
     // Folded: one line for many machines, so no one machine's name or note.
     const { note: _note, lastRun: _lastRun, ...folded } = local;
     return [
@@ -821,137 +866,105 @@ export function agentStatusLines(input: {
   return [local, ...notReady];
 }
 
-/** The stored profile, when the listing does not offer it — the ONE test for a
- *  saved choice kolu no longer (or never) ships. The choice is never reset:
- *  Settings warns and a toast says so ({@link unknownProfileMessage}). */
-export function unknownProfileOf(
-  setting: AgentDistroSetting,
-  listing: AgentDistroListing | undefined,
-): string | undefined {
-  if (listing?.kind !== "available") return undefined;
-  return listing.profiles.some((p) => p.name === setting.profile)
-    ? undefined
-    : setting.profile;
-}
-
-/** The one wording of {@link unknownProfileOf}'s answer. */
-export function unknownProfileMessage(profile: string): string {
-  return `Your saved coding-agents choice "${profile}" is not one this kolu offers — pick one in Settings → Agents.`;
-}
-
-/** The profile the setting selects, when agents are on and the listing ships
- *  it — the one case where the Agents row shows its status lines. */
+/** The bundle the setting selects, when agents are on and the listing ships
+ *  it — the one case where the Agents row shows its status lines. A profile
+ *  that is not a bundle of its own selects the default one, as padi's
+ *  `bundleProfileOf` (`./schema`) does. */
 export function selectedAgentProfile(
   setting: AgentDistroSetting,
   listing: AgentDistroListing | undefined,
 ): AgentDistroProfile | undefined {
-  if (!setting.enabled || listing?.kind !== "available") return undefined;
-  return listing.profiles.find((p) => p.name === setting.profile);
+  if (!setting.enabled) return undefined;
+  return (
+    shippedProfile(listing, setting.profile) ??
+    shippedProfile(listing, DEFAULT_AGENT_PROFILE)
+  );
 }
 
 /** The opening of both Agents hints: what kolu can bring. */
 const AGENTS_LEAD =
   "Kolu can bring AI coding agents along — kept up to date, nothing to install:";
 
-/** What Off means, as a choice's line in both hints. */
-const AGENTS_OFF_LINE = `Off — ${AGENTS_OFF_MEANS}`;
-
-/** The welcome card's form of the Agents hint — the same vocabulary as
- *  {@link agentsHint}, laid out for a welcome row: the lead with the agents of
- *  the profile in view on ONE line, then ONE line for `segment` — the control's
- *  keyboard tab stop, which it reports — so ← → read each choice out and the
- *  two lines never disagree. On Off the lead names the default profile's
- *  agents, what kolu would bring. `undefined` until the listing arrives, and
- *  for a kolu built without agents (the step does not ask there). */
-export function agentsStepHint(input: {
-  readonly listing: AgentDistroListing | undefined;
-  readonly segment: string | undefined;
-}): { readonly lead: string; readonly choice: string | undefined } | undefined {
-  const { listing, segment } = input;
+/** The welcome card's line for the Agents step: the lead, with the default
+ *  profile's agents. `undefined` until the listing arrives, and for a kolu
+ *  built without agents (the step does not ask there). */
+export function agentsStepHint(
+  listing: AgentDistroListing | undefined,
+): string | undefined {
   if (listing?.kind !== "available") return undefined;
-  const profile = listing.profiles.find((p) => p.name === segment);
-  const inView = profile ?? defaultProfileOf(listing);
-  const agents = inView === undefined ? "" : harnessLine(inView);
-  const lead = agents === "" ? AGENTS_LEAD : `${AGENTS_LEAD} ${agents}`;
-  if (segment === AGENTS_OFF) return { lead, choice: AGENTS_OFF_LINE };
-  return {
-    lead,
-    choice:
-      profile === undefined
-        ? undefined
-        : `${profile.name} — ${plainProfileDescription(profile)}`,
-  };
+  const lead = shippedProfile(listing, DEFAULT_AGENT_PROFILE);
+  const agents = lead === undefined ? "" : harnessLine(lead);
+  return agents === "" ? AGENTS_LEAD : `${AGENTS_LEAD} ${agents}`;
 }
 
-/** The Agents row's hint, written for someone who has never heard of
- *  agent-distro, a profile or the PATH — what they get, then what to do:
- *
- *   - off: that kolu can bring AI coding agents along, which ones (the default
- *     profile's, from the listing, with versions), what each choice means, what
- *     happens to new terminals, and what Off means;
- *   - nothing chosen yet: the same, then that nothing is chosen
- *     ({@link AGENTS_NOT_CHOSEN});
- *   - an unknown stored choice: the warning (never reset);
- *   - on: what the chosen profile is, in plain words, then its agents with
- *     versions — this machine's own, from its receipt, once it has one (an
- *     update moves them past the listing's). Where each machine stands is the status lines' job
- *     ({@link agentStatusLines}).
- *
- *  It takes the STORED value — `null` while nothing is chosen — because that
- *  difference is one of the things it says. */
+/** What turning agents on does, as the off hint says it. */
+const AGENTS_ON_MEANS =
+  "Turn it on and new terminals start with those agents; what you installed yourself stays as a fallback.";
+
+/** The Agents row's hint while agents are off, written for someone who has
+ *  never heard of agent-distro, a profile or the PATH: that kolu can bring AI
+ *  coding agents along, which ones (the default profile's, from the listing,
+ *  with versions), what turning it on does and what off means — and, while
+ *  nothing is chosen, that ({@link AGENTS_NOT_CHOSEN}). Once agents are on the
+ *  row says nothing here: the profile field and the lines under it do
+ *  ({@link agentsProfileNotes}). It takes the STORED value — `null` while
+ *  nothing is chosen — because that difference is one of the things it says. */
 export function agentsHint(input: {
   readonly stored: AgentDistroSetting | null;
   readonly listing: AgentDistroListing | undefined;
-  /** This machine's receipt: once agents are on, its versions name what this
-   *  machine has now — the listing's are the set kolu was built with, which an
-   *  update leaves behind. */
-  readonly localReceipt: AgentDistroReceipt | undefined;
-}): { readonly text: string; readonly tone: "muted" | "warn" } | undefined {
+}): { readonly text: string; readonly tone: "muted" } | undefined {
   const { listing } = input;
-  const setting = agentDistroSettingOf(input.stored);
   if (listing === undefined) return undefined;
   if (listing.kind === "unavailable")
     return {
       text: "This kolu was built without coding agents, so there is nothing to choose here.",
       tone: "muted",
     };
-  if (!setting.enabled) {
-    // The default profile's agents: the one a first choice most likely is.
-    const lead = defaultProfileOf(listing);
-    const choices = listing.profiles.map(
-      (p) => `${p.name} (${plainProfileDescription(p)})`,
-    );
-    return {
-      text: [
-        AGENTS_LEAD,
-        ...(lead === undefined ? [] : [harnessLine(lead)]),
-        `Pick ${orList(choices)}. New terminals then start with those agents; what you installed yourself stays as a fallback.`,
-        AGENTS_OFF_LINE,
-        ...(agentsChosen(input.stored) ? [] : [AGENTS_NOT_CHOSEN]),
-      ].join("\n"),
-      tone: "muted",
-    };
-  }
-  const unknown = unknownProfileOf(setting, listing);
-  if (unknown !== undefined)
-    return { text: unknownProfileMessage(unknown), tone: "warn" };
-  const profile = selectedAgentProfile(setting, listing);
-  if (profile === undefined) return undefined;
-  // This machine's own versions once its receipt is in — never the floor's
-  // passed off as this machine's: a bundle with no versions file names none.
-  // Before the receipt's first frame, the set kolu ships.
-  const receipt = receiptFor(input.localReceipt, profile.name);
-  const agents =
-    receipt === undefined
-      ? harnessLine(profile)
-      : versionsLine(receipt.versions);
+  if (agentDistroSettingOf(input.stored).enabled) return undefined;
+  const lead = shippedProfile(listing, DEFAULT_AGENT_PROFILE);
   return {
     text: [
-      `${capitalize(plainProfileDescription(profile))}.`,
-      ...(agents === "" ? [] : [agents]),
+      AGENTS_LEAD,
+      ...(lead === undefined ? [] : [harnessLine(lead)]),
+      AGENTS_ON_MEANS,
+      `Off — ${AGENTS_OFF_MEANS}`,
+      ...(agentsChosen(input.stored) ? [] : [AGENTS_NOT_CHOSEN]),
     ].join("\n"),
     tone: "muted",
   };
+}
+
+/** What the profile field's own notes add under the resolved line. */
+export const AGENTS_REPO_OVERRIDES =
+  "A repository with its own agent-distro.nix overrides this.";
+
+/** The notes under the profile field, after the resolved line: the agents of
+ *  the selected bundle with their versions — this machine's own, from its
+ *  receipt, once it has one (an update moves them past the listing's) — then
+ *  {@link AGENTS_REPO_OVERRIDES}. Shown only while agents are on — the
+ *  field's own condition. */
+export function agentsProfileNotes(input: {
+  readonly setting: AgentDistroSetting;
+  readonly listing: AgentDistroListing | undefined;
+  /** This machine's receipt: its versions name what this machine has now —
+   *  the listing's are the set kolu was built with, which an update leaves
+   *  behind. */
+  readonly localReceipt: AgentDistroReceipt | undefined;
+}): readonly string[] {
+  const { setting } = input;
+  const profile = selectedAgentProfile(setting, input.listing);
+  // This machine's own versions once its receipt is in — never the floor's
+  // passed off as this machine's: a bundle with no versions file names none.
+  // Before the receipt's first frame, the set kolu ships. Padi names the
+  // receipt for the setting's profile.
+  const receipt = receiptFor(input.localReceipt, setting.profile);
+  const agents =
+    receipt !== undefined
+      ? versionsLine(receipt.versions)
+      : profile === undefined
+        ? ""
+        : harnessLine(profile);
+  return [...(agents === "" ? [] : [agents]), AGENTS_REPO_OVERRIDES];
 }
 
 /** Whether a terminal's agents are still what a NEW terminal on its host would
@@ -1021,7 +1034,10 @@ export function agentStalenessOf(input: {
     return sameProfile ? { kind: "current" } : waiting("downloading");
   switch (status.kind) {
     case "ready":
-      return status.bundle === agents.bundle
+      // Same bundle, same profile: a reference switch keeps the bundle but
+      // changes the terminal's `AI_PROFILE`.
+      return status.bundle === agents.bundle &&
+        status.profile === agents.profile
         ? { kind: "current" }
         : stale({
             kind: "profile",
@@ -1101,9 +1117,26 @@ export function agentStaleLabel(
   }
 }
 
-/** A current pill's hover: what this terminal got, and what a click does. */
-export function agentChipLabel(profile: string, bundle: string): string {
-  return `This terminal started with the ${profile} coding agents (${agentBundleShortHash(bundle)}). Click to choose what new terminals get.`;
+/** The profile a tile's pill names: the one in effect, as agent-distro
+ *  answered for this terminal, else the setting's profile it was spawned
+ *  with (no answer yet, or none to be had). */
+export function agentChipProfile(agents: TerminalAgents): string {
+  return agents.effective?.name ?? agents.profile;
+}
+
+/** A current pill's hover: what this terminal started with — the profile in
+ *  effect and where agent-distro resolved it from, when it said (asked once,
+ *  at the spawn; a later `cd` is not followed) — and what a click does. */
+export function agentChipLabel(
+  agents: Pick<TerminalAgents, "profile" | "bundle" | "effective">,
+): string {
+  const hash = agentBundleShortHash(agents.bundle);
+  const { effective } = agents;
+  const started =
+    effective === undefined
+      ? `This terminal started with the ${agents.profile} coding agents (${hash}).`
+      : `This terminal started with the ${effective.name} profile (${hash}), from ${effective.origin}.`;
+  return `${started} Click to choose what new terminals get.`;
 }
 
 /** The toast after a restart, from what padi reports it did. */
@@ -1120,8 +1153,8 @@ export function restartedLabel(restarted: {
 /** The Agents setting's own toasts, worded once. A host's download toasts are
  *  its mark's words ({@link agentMarkWords}), raised at {@link downloadEdge}. */
 export const agentToast = {
-  /** A switch to a profile. */
-  on: (profile: string) => `New terminals get the ${profile} agents`,
+  /** Agents on, or a new profile. */
+  on: (profile: string) => `New terminals get the ${profile} profile`,
   /** A switch to Off (title; {@link AGENTS_OFF_MEANS} is its description). */
   off: "Coding agents off",
   /** An update landed on `host` (the {@link downloadEdge} `updated` moment):

@@ -1,6 +1,8 @@
-/** The tile header's agent-distro pill: the agent-distro mark, the profile the
- *  terminal was spawned with, and the short hash of the exact bundle it pinned
- *  (dimmer). ONE button in the theme pill's treatment — the caller passes the
+/** The tile header's agent-distro pill: the agent-distro mark, the profile in
+ *  effect in the terminal — as agent-distro answered for it after the spawn
+ *  (`agents.effective`: a repository's own `agent-distro.nix` wins over the
+ *  setting), else the setting's profile it was spawned with — and the short
+ *  hash of the exact bundle it pinned (dimmer). ONE button in the theme pill's treatment — the caller passes the
  *  tile chrome's shared class — and no pill at all when agent-distro was off at
  *  spawn (the caller renders this only for a record that carries both fields).
  *
@@ -18,6 +20,7 @@
  *  so it raises the one-shot `agents` tip. */
 
 import { type Component, onMount, Show } from "solid-js";
+import type { TerminalAgents } from "@kolu/agent-distro/schema";
 import { CONTEXTUAL_TIPS } from "../settings/tips";
 import { useTips } from "../settings/useTips";
 import Tip from "../ui/Tip";
@@ -25,6 +28,7 @@ import AgentDistroLogo from "@kolu/agent-distro/solid";
 import { agentBundleShortHash } from "@kolu/agent-distro/bundle";
 import {
   agentChipLabel,
+  agentChipProfile,
   type agentRestartAction,
   type AgentStaleness,
   agentStaleLabel,
@@ -43,8 +47,8 @@ export interface ChipRestart {
 }
 
 const AgentProfileChip: Component<{
-  profile: string;
-  bundle: string;
+  /** The terminal record's `agents`. */
+  agents: TerminalAgents;
   /** The tile chrome's shared button class (`TILE_BUTTON_CLASS`). */
   buttonClass: string;
   /** A click on a pill that is not restarting (opens Settings). */
@@ -72,7 +76,7 @@ const AgentProfileChip: Component<{
   const label = () => {
     const s = stale();
     return s === undefined
-      ? agentChipLabel(props.profile, props.bundle)
+      ? agentChipLabel(props.agents)
       : agentStaleLabel(s, props.where);
   };
   const action = () => {
@@ -84,8 +88,8 @@ const AgentProfileChip: Component<{
       <button
         type="button"
         data-testid="tile-agent-chip"
-        data-profile={props.profile}
-        data-hash={agentBundleShortHash(props.bundle)}
+        data-profile={agentChipProfile(props.agents)}
+        data-hash={agentBundleShortHash(props.agents.bundle)}
         data-stale={stale() ? "" : undefined}
         data-restart={props.restart ? "" : undefined}
         data-armed={guard.armed() ? "" : undefined}
@@ -109,14 +113,14 @@ const AgentProfileChip: Component<{
           lastClick = e;
           guard.press();
         }}
-        aria-label={`${props.restart ? `${action()} — ` : ""}${label()} Bundle: ${props.bundle}`}
+        aria-label={`${props.restart ? `${action()} — ` : ""}${label()} Bundle: ${props.agents.bundle}`}
       >
         <AgentDistroLogo size={14} />
         <span classList={{ "opacity-75": stale() !== undefined }}>
-          {props.profile}
+          {agentChipProfile(props.agents)}
         </span>
         <span class="opacity-60 tabular-nums">
-          {agentBundleShortHash(props.bundle)}
+          {agentBundleShortHash(props.agents.bundle)}
         </span>
         <Show when={props.restart}>
           <span aria-hidden="true" class="h-3.5 w-px bg-current opacity-25" />

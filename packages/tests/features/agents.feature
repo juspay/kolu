@@ -1,29 +1,35 @@
 Feature: Agents come with kolu
-  Until agents are on, the welcome card asks which coding agents new terminals
-  get; picking Off keeps the question there. Settings → Agents is the same
-  choice at any time. The choice puts
-  agent-distro's coding agents on the PATH of NEW terminals, for the chosen
-  profile. A running terminal keeps what it started with, and every tile says
-  which profile it got. The suite starts every scenario never chosen, as a
-  fresh install does.
+  Until agents are on, the welcome card asks for them with one switch; turning
+  it on with nothing chosen starts on Juspay's profile, github:juspay/skills.
+  Settings → Agents is the same switch, and while it is on, a profile field:
+  any bundle kolu ships or a reference agent-distro resolves, with whether it
+  resolves on this machine said under it. The choice puts agent-distro's coding
+  agents on the PATH of NEW terminals. A running terminal keeps what it started
+  with, and every tile says which profile it got. The suite starts every
+  scenario never chosen, as a fresh install does.
 
-  Scenario: Settings offers the Agents section with the build's profiles
+  Scenario: Settings offers the Agents switch, off until chosen
     Given the terminal is ready
     When I click the settings button
     Then the settings popover should be visible
-    And the Agents section should offer the "vanilla" and "juspay" profiles
+    And the Agents switch in Settings should be off
+    And the Agents hint should explain Off
+    And the Agents control in Settings should have nothing chosen
     And there should be no page errors
 
-  Scenario: Turning Agents on changes the next terminal, not the current one
+  Scenario: Turning Agents on starts on Juspay's profile, for the next terminal, not the current one
     Given the terminal is ready
     When I click the settings button
     And I turn Agents on
-    Then padi should give new terminals the "vanilla" agents
+    Then padi should give new terminals the "github:juspay/skills" agents
+    And the profile field should hold "github:juspay/skills"
+    And the profile field should say it resolves to the reference's profile
     When I press Escape
     Then the focused tile should show no agents chip
     And the terminal should have no fixture agents on its PATH
     When I create a terminal
-    Then the focused tile should show the "vanilla" agents chip
+    Then the focused tile's agents chip should name the profile in effect from the reference
+    And the terminal's AI_PROFILE should be "github:juspay/skills"
     And the terminal's claude should be the "vanilla" fixture
     And the terminal's agent-distro should name the "vanilla" profile
     And there should be no page errors
@@ -31,8 +37,7 @@ Feature: Agents come with kolu
   Scenario: Switching profile reaches the next terminal, and off removes both
     Given the terminal is ready
     When I click the settings button
-    And I turn Agents on
-    And I choose the "juspay" Agents profile
+    And I pick "juspay" from the profile suggestions
     Then padi should give new terminals the "juspay" agents
     When I press Escape
     And I create a terminal
@@ -47,31 +52,55 @@ Feature: Agents come with kolu
     And the terminal should have no fixture agents on its PATH
     And there should be no page errors
 
+  Scenario: A profile reference reaches the next terminal, and its pill names the profile in effect
+    Given the terminal is ready
+    When I click the settings button
+    And I choose the "github:me/my-profile" Agents profile
+    Then a toast should say new terminals get the "github:me/my-profile" profile
+    And padi should give new terminals the "github:me/my-profile" agents
+    And the profile field should say it resolves to the reference's profile
+    When I press Escape
+    And I create a terminal
+    Then the focused tile's agents chip should name the profile in effect from the reference
+    And the terminal's AI_PROFILE should be "github:me/my-profile"
+    And the terminal's claude should be the "vanilla" fixture
+    And there should be no page errors
+
+  Scenario: A profile that does not resolve is said under the field, in agent-distro's words, and still written
+    Given the terminal is ready
+    When I click the settings button
+    And I choose the "github:nobody/nothing" Agents profile
+    Then the profile field should say "github:nobody/nothing" does not resolve
+    And padi should give new terminals the "github:nobody/nothing" agents
+    When I choose the "vanilla" Agents profile
+    Then the profile field should say it resolves to "vanilla"
+    And there should be no page errors
+
   Scenario: Clicking a tile's agents pill opens Settings at the Agents rows
     Given the terminal is ready
     When I click the settings button
-    And I turn Agents on
+    And I choose the "vanilla" Agents profile
     Then padi should give new terminals the "vanilla" agents
     When I press Escape
     And I create a terminal
     Then the focused tile should show the "vanilla" agents chip
     When I click the focused tile's agents chip
     Then the settings popover should be visible
-    And the Agents section should offer the "vanilla" and "juspay" profiles
+    And the Agents switch in Settings should be on
+    And the profile field should hold "vanilla"
     And there should be no page errors
 
-  Scenario: Switching Agents says what happened, and the hint shows this machine's status
+  Scenario: Switching Agents says what happened, and the rows show this machine's status
     Given the terminal is ready
     When I click the settings button
     Then the Agents hint should explain Off
-    When I choose the "juspay" Agents profile
-    Then a toast should say new terminals get the "juspay" agents
+    When I turn Agents on
+    Then a toast should say new terminals get the "github:juspay/skills" profile
     And this machine's Agents status should be ready
     When I turn Agents off
     Then a toast should say agents are off
     And the Agents hint should explain Off
-    When I tab into the Agents control in Settings
-    Then keyboard focus should be on the Settings "off" Agents segment
+    And the profile field should not show
     And there should be no page errors
 
   Scenario: This machine's tab carries the agents mark while Agents are on, and it opens Settings
@@ -91,7 +120,7 @@ Feature: Agents come with kolu
   Scenario: A terminal whose agents went stale restarts in place with the new ones
     Given the terminal is ready
     When I click the settings button
-    And I turn Agents on
+    And I choose the "vanilla" Agents profile
     Then padi should give new terminals the "vanilla" agents
     When I press Escape
     And I create a terminal
@@ -113,50 +142,41 @@ Feature: Agents come with kolu
     Then the active terminal should show "v=unset pid=changed cwd=same"
     And there should be no page errors
 
-  Scenario: The first run asks which agents first, and Enter picks the default
+  Scenario: The first run asks with one switch, and Enter turns on Juspay's profile
     When I open the app
     Then the welcome card's first row should ask which agents I want
-    And the first-run agents choice should have nothing chosen
-    And keyboard focus should be on the first-run "vanilla" segment
-    And the first-run step should say what "vanilla" means
+    And the first-run agents switch should be off
+    And keyboard focus should be on the first-run agents switch
+    And the first-run step should say what kolu can bring
     When I press Enter
-    Then a toast should say new terminals get the "vanilla" agents
-    And padi should give new terminals the "vanilla" agents
+    Then a toast should say new terminals get the "github:juspay/skills" profile
+    And padi should give new terminals the "github:juspay/skills" agents
     And the welcome card should not ask about agents
-    And the welcome card's done line should say agents are "vanilla"
+    And the welcome card's done line should say agents are "github:juspay/skills"
     When I create a terminal
-    Then the focused tile should show the "vanilla" agents chip
+    Then the focused tile's agents chip should name the profile in effect from the reference
     When I click the settings button
-    Then the Agents control in Settings should show "vanilla" chosen
+    Then the Agents switch in Settings should be on
+    And the profile field should hold "github:juspay/skills"
     And this machine's Agents status should be ready
     And there should be no page errors
 
-  Scenario: The first run can pick Off from the keyboard
+  Scenario: Switching agents off brings the question back, without taking the keyboard
     When I open the app
-    Then keyboard focus should be on the first-run "vanilla" segment
-    When I press ArrowLeft
-    Then keyboard focus should be on the first-run "off" segment
-    And the first-run step should say what "off" means
-    When I press ArrowLeft
-    Then keyboard focus should be on the first-run "juspay" segment
-    And the first-run step should say what "juspay" means
-    When I press ArrowRight
-    Then keyboard focus should be on the first-run "off" segment
-    When I press Enter
+    And I click the settings button
+    And I turn Agents on
+    Then padi should give new terminals the "github:juspay/skills" agents
+    When I turn Agents off
     Then a toast should say agents are off
-    And the first-run agents choice should show "off" chosen
-    And the welcome card's first row should ask which agents I want
+    When I press Escape
+    Then the welcome card's first row should ask which agents I want
+    And the first-run agents switch should be off
     And the welcome card's done line should not mention agents
     When I reload the page
     Then the welcome card's first row should ask which agents I want
-    And the first-run agents choice should show "off" chosen
-    And the first-run step should rest the keyboard on "vanilla"
+    And the first-run agents switch should be off
     And the first-run step should not have taken keyboard focus
-    And the first-run step should say what "off" means
     And the welcome card's done line should not mention agents
-    When I tab into the first-run agents choice
-    Then keyboard focus should be on the first-run "vanilla" segment
-    And the first-run step should say what "vanilla" means
     When I create a terminal
     Then the focused tile should show no agents chip
     And the terminal should have no fixture agents on its PATH
@@ -164,21 +184,21 @@ Feature: Agents come with kolu
 
   Scenario: Once chosen, the first-run step never shows again and Settings shows the choice
     When I open the app
-    And I choose the "juspay" first-run agents
-    Then padi should give new terminals the "juspay" agents
+    And I turn on the first-run agents switch
+    Then padi should give new terminals the "github:juspay/skills" agents
     And the welcome card should not ask about agents
     When I start watching for the first-run step
     And I reload the page
-    Then the welcome card's done line should say agents are "juspay"
+    Then the welcome card's done line should say agents are "github:juspay/skills"
     And the welcome card should not ask about agents
     And the first-run step should never have shown since
     When I click the settings button
-    Then the Agents control in Settings should show "juspay" chosen
+    Then the profile field should hold "github:juspay/skills"
     And there should be no page errors
 
   Scenario: Ignoring the step opens a terminal without agents, and the Tutorial still asks
     When I open the app
-    Then keyboard focus should be on the first-run "vanilla" segment
+    Then keyboard focus should be on the first-run agents switch
     When I create a terminal
     Then the focused tile should show no agents chip
     When I click the settings button
@@ -188,15 +208,15 @@ Feature: Agents come with kolu
     And I type "Tutorial" in the palette
     And I select "Tutorial" in the palette
     Then the Tutorial should ask which agents I want
-    When I choose the "vanilla" first-run agents
-    Then padi should give new terminals the "vanilla" agents
+    When I turn on the first-run agents switch
+    Then padi should give new terminals the "github:juspay/skills" agents
     And the Tutorial should not ask about agents
     When I press Escape
     And I open the command palette
     And I type "Tutorial" in the palette
     And I select "Tutorial" in the palette
     Then the Tutorial should not ask about agents
-    And the welcome card's done line should say agents are "vanilla"
+    And the welcome card's done line should say agents are "github:juspay/skills"
     And there should be no page errors
 
   # ── Kept up to date ─────────────────────────────────────────────────────────

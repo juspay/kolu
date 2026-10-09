@@ -7,7 +7,11 @@
  * profile's bundle, laid out as upstream's:
  *
  *     bin/claude                        prints "agent-distro fixture: <name> claude"
- *     bin/agent-distro                  the profile's picker: prints "agent-distro picker fixture: <name>"
+ *     bin/agent-distro                  the profile's picker: prints "agent-distro picker fixture: <name>";
+ *                                       with `--list --json`, the profile in effect (upstream's `profile`
+ *                                       field): a bundle's name as that built-in, a profile containing
+ *                                       "nobody" as upstream's failure to fetch it, anything else as
+ *                                       {@link FIXTURE_REFERENCE_PROFILE}
  *     share/agent-distro/profile.json   its name and description (kolu-server reads it)
  *     share/agent-distro/versions       its harnesses (kolu-server and padi read it)
  *
@@ -27,7 +31,11 @@
  */
 
 import fs from "node:fs";
-import { bundleFiles } from "@kolu/agent-distro/testing";
+import {
+  bundleFiles,
+  STAND_IN_REFERENCE_PROFILE,
+  standInListJson,
+} from "@kolu/agent-distro/testing";
 import os from "node:os";
 import path from "node:path";
 
@@ -70,6 +78,11 @@ export function fixtureClaudeSays(profile: string): string {
 export function fixturePickerSays(profile: string): string {
   return `agent-distro picker fixture: ${profile}`;
 }
+
+/** The profile the fixture's `agent-distro --list --json` reports in effect
+ *  for an `AI_PROFILE` that is not one of its bundles
+ *  (`@kolu/agent-distro/testing`'s stand-in, shared with padi's unit tests). */
+export const FIXTURE_REFERENCE_PROFILE = STAND_IN_REFERENCE_PROFILE;
 
 /** Every fixture path carries this, so a step can tell a fixture agent on the
  *  PATH from anything else. */
@@ -228,7 +241,10 @@ function buildFixture(): Record<string, string> {
     script(path.join(bin, "claude"), `echo "${fixtureClaudeSays(name)}"`);
     // The profile's own picker, as upstream's bundle carries it: a command for
     // people, which kolu never runs.
-    script(path.join(bin, "agent-distro"), `echo "${fixturePickerSays(name)}"`);
+    script(
+      path.join(bin, "agent-distro"),
+      `${standInListJson(name, FIXTURE_PROFILES)}\necho "${fixturePickerSays(name)}"`,
+    );
     // The two files the bundle describes itself with, as a real one writes them.
     for (const [file, text] of Object.entries(
       bundleFiles(dir, fixtureProfile(name)),
