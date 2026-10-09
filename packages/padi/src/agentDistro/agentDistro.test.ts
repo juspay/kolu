@@ -204,7 +204,7 @@ describe("checkAgentDistroSetting — the write gate", () => {
     __setAgentDistroBakeForTest(bake({ floor: true }));
     expect(() =>
       checkAgentDistroSetting({ enabled: true, profile: "nope" }),
-    ).toThrow(/unknown agent-distro profile 'nope'/);
+    ).toThrow(/unknown agent-distro bundle 'nope'/);
   });
 
   it("takes any profile when off, and anything on an unbaked padi", () => {
@@ -239,7 +239,7 @@ describe("a profile reference — the setting's fallback, on the vanilla bundle"
       ),
     });
     expect(() => checkAgentDistroSetting(REFERENCE)).toThrow(
-      /needs the 'vanilla' bundle/,
+      /unknown agent-distro bundle 'vanilla' for profile 'github:me\/profile'/,
     );
   });
 
@@ -259,7 +259,7 @@ describe("a profile reference — the setting's fallback, on the vanilla bundle"
     __setAgentDistroBakeForTest(bake({ floor: false }));
     expect(assessAgentDistro(REFERENCE)).toEqual({
       kind: "needsDownload",
-      profile: "vanilla",
+      profile: "github:me/profile",
     });
   });
 });
@@ -292,7 +292,6 @@ describe("withAgentLayer — the record stamp the chip reads", () => {
             effective: {
               name: "mine",
               description: "",
-              source: "variable" as const,
               origin: "github:me/p",
             },
           },

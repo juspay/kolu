@@ -51,8 +51,6 @@ import {
   bundleProfileOf,
   DEFAULT_AGENT_DISTRO_SETTING,
   EMPTY_AGENT_DISTRO_RECEIPT,
-  isProfileReference,
-  REFERENCE_BUNDLE_PROFILE,
 } from "@kolu/agent-distro/schema";
 import type { AgentUpdateRun } from "@kolu/agent-distro/history";
 import {
@@ -90,23 +88,16 @@ export const agentDistroSettingStore: CellStore<AgentDistroSetting> =
  *  this build does not know. The user's choice is never mapped to another
  *  profile — the push fails loudly and kolu-server logs it. A profile
  *  REFERENCE is accepted as it is (agent-distro resolves it, in each terminal);
- *  its bundle is {@link REFERENCE_BUNDLE_PROFILE}'s, which the build must
- *  know. An unbaked padi takes any value (it gives nothing either way, and says
+ *  what the build must know is its bundle ({@link bundleProfileOf}). An unbaked padi takes any value (it gives nothing either way, and says
  *  so in its status). */
 export function checkAgentDistroSetting(next: AgentDistroSetting): void {
   if (!next.enabled) return;
   const bake = agentDistroBake();
   if (bake === null) return;
-  if (isProfileReference(next.profile)) {
-    if (!bake.profiles.has(REFERENCE_BUNDLE_PROFILE))
-      throw new Error(
-        `agent-distro profile reference '${next.profile}' needs the '${REFERENCE_BUNDLE_PROFILE}' bundle, which this host does not know; it knows ${[...bake.profiles.keys()].join(", ")}`,
-      );
-    return;
-  }
-  if (!bake.profiles.has(next.profile)) {
+  const bundle = bundleProfileOf(next.profile);
+  if (!bake.profiles.has(bundle)) {
     throw new Error(
-      `unknown agent-distro profile '${next.profile}'; this host knows ${[...bake.profiles.keys()].join(", ")}`,
+      `unknown agent-distro bundle '${bundle}' for profile '${next.profile}'; this host knows ${[...bake.profiles.keys()].join(", ")}`,
     );
   }
 }
@@ -218,7 +209,7 @@ export function assessAgentDistro(setting: AgentDistroSetting):
       kind: "ready",
       layer: { profile: setting.profile, bundle: kept, plugins: bake.plugins },
     };
-  return { kind: "needsDownload", profile: bundleProfile };
+  return { kind: "needsDownload", profile: setting.profile };
 }
 
 /** What a terminal spawned NOW gets on this host — the same answer the host's
@@ -235,7 +226,7 @@ function settle(setting: AgentDistroSetting): void {
   let assessed = assessAgentDistro(setting);
   if (assessed.kind === "needsDownload") {
     const bake = agentDistroBake();
-    const profile = bake?.profiles.get(assessed.profile);
+    const profile = bake?.profiles.get(bundleProfileOf(assessed.profile));
     // `assessAgentDistro` only answers `needsDownload` for a baked, known
     // profile (`layerOnHost` throws on an unknown one).
     if (bake === null || profile === undefined)

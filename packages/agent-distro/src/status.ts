@@ -24,9 +24,12 @@ import type {
   AgentDistroStatus,
   TerminalAgents,
 } from "./schema.ts";
-import type { ProfileSource } from "./inEffect.ts";
 import type { AgentDistroListing, AgentDistroProfile } from "./listing.ts";
-import { isProfileReference, REFERENCE_BUNDLE_PROFILE } from "./schema.ts";
+import {
+  bundleProfileOf,
+  isProfileReference,
+  REFERENCE_BUNDLE_PROFILE,
+} from "./schema.ts";
 import type { AgentVersion } from "./versions.ts";
 
 /** What "never chosen" means for new terminals: off, on the default profile, so
@@ -864,14 +867,14 @@ export function agentStatusLines(input: {
 /** The stored profile, when the listing does not offer it — the ONE test for a
  *  saved choice kolu no longer (or never) ships. The choice is never reset:
  *  Settings warns and a toast says so ({@link unknownProfileMessage}). A
- *  profile reference is never unknown: agent-distro resolves it, not kolu. */
+ *  reference is known when its bundle is ({@link bundleProfileOf}). */
 export function unknownProfileOf(
   setting: AgentDistroSetting,
   listing: AgentDistroListing | undefined,
 ): string | undefined {
   if (listing?.kind !== "available") return undefined;
-  if (isProfileReference(setting.profile)) return undefined;
-  return listing.profiles.some((p) => p.name === setting.profile)
+  const name = bundleProfileOf(setting.profile);
+  return listing.profiles.some((p) => p.name === name)
     ? undefined
     : setting.profile;
 }
@@ -889,9 +892,7 @@ export function selectedAgentProfile(
   listing: AgentDistroListing | undefined,
 ): AgentDistroProfile | undefined {
   if (!setting.enabled || listing?.kind !== "available") return undefined;
-  const name = isProfileReference(setting.profile)
-    ? REFERENCE_BUNDLE_PROFILE
-    : setting.profile;
+  const name = bundleProfileOf(setting.profile);
   return listing.profiles.find((p) => p.name === name);
 }
 
@@ -1151,14 +1152,6 @@ export function agentStaleLabel(
   }
 }
 
-/** Where the profile in effect came from, as a hover says it. */
-const SOURCE_WORDS: Record<ProfileSource, (origin: string) => string> = {
-  positional: (origin) => `chosen on the command line (${origin})`,
-  repository: (origin) => `this repository's own ${origin}`,
-  variable: (origin) => `the Agents setting's reference, ${origin}`,
-  builtin: (origin) => `the built-in ${origin} profile`,
-};
-
 /** The profile a tile's pill names: the one in effect, as agent-distro
  *  answered for this terminal, else the setting's profile it was spawned
  *  with (no answer yet, or none to be had). */
@@ -1166,8 +1159,9 @@ export function agentChipProfile(agents: TerminalAgents): string {
   return agents.effective?.name ?? agents.profile;
 }
 
-/** A current pill's hover: what this terminal got — the profile in effect and
- *  where it came from, when agent-distro said — and what a click does. */
+/** A current pill's hover: what this terminal started with — the profile in
+ *  effect and where agent-distro resolved it from, when it said (asked once,
+ *  at the spawn; a later `cd` is not followed) — and what a click does. */
 export function agentChipLabel(
   agents: Pick<TerminalAgents, "profile" | "bundle" | "effective">,
 ): string {
@@ -1176,7 +1170,7 @@ export function agentChipLabel(
   const started =
     effective === undefined
       ? `This terminal started with the ${agents.profile} coding agents (${hash}).`
-      : `This terminal runs the ${effective.name} profile (${hash}), from ${SOURCE_WORDS[effective.source](effective.origin)}.`;
+      : `This terminal started with the ${effective.name} profile (${hash}), from ${effective.origin}.`;
   return `${started} Click to choose what new terminals get.`;
 }
 
