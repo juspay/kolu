@@ -144,11 +144,24 @@ describe("terminalTip — the rungs", () => {
     });
   });
 
-  it("rung 3, any other agent: the chip inserts the skill's name, no Enter", () => {
-    expect(show(facts({ agent: agent("codex", "waiting") }))).toMatchObject({
-      id: "tip-skill:codex",
-      chips: [{ label: "kolu", action: { kind: "insert", text: "kolu " } }],
-    });
+  it("rung 3, every other agent: the chip, labelled with the skill's name, inserts the start of a request in words, no Enter", () => {
+    for (const kind of [
+      "codex",
+      "opencode",
+      "grok",
+      "pi",
+      "omp",
+      "xyne",
+    ] as const)
+      expect(show(facts({ agent: agent(kind, "waiting") }))).toMatchObject({
+        id: `tip-skill:${kind}`,
+        chips: [
+          {
+            label: "kolu",
+            action: { kind: "insert", text: "Use the kolu skill to " },
+          },
+        ],
+      });
   });
 
   it("the whole sentence reads lead, chips, rest", () => {

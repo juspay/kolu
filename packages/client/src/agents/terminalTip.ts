@@ -24,7 +24,12 @@ import type {
   GitFact,
 } from "@kolu/terminal-vocab/schema";
 import type { AgentDistroListing } from "kolu-common/surface";
-import { TILE_TIPS, type TileTipCopy, type TipId } from "../settings/tips";
+import {
+  skillInvocation,
+  TILE_TIPS,
+  type TileTipCopy,
+  type TipId,
+} from "../settings/tips";
 import type { PluginSkill } from "./pluginSkills";
 
 /** What a tip's chip does when clicked. */
@@ -136,7 +141,10 @@ function candidate(facts: TerminalTipFacts): TerminalTip {
       // message and sends it.
       chips: copy.chips.map((label) => ({
         label,
-        action: { kind: "insert", text: `${label} ` },
+        action: {
+          kind: "insert",
+          text: skillInvocation(agent.kind, skill.name).text,
+        },
       })),
       source: { kind: "kolu-plugin" },
       atShell: false,

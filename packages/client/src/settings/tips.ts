@@ -110,26 +110,31 @@ export const TILE_TIPS = {
       skill: { readonly name: string; readonly blurb: string },
     ): TileTipCopy => ({
       lead: "Try a skill",
-      chips: [skillInvocation(kind, skill.name)],
+      chips: [skillInvocation(kind, skill.name).label],
       rest: `— ${skill.blurb}`,
     }),
   },
 } as const;
 
-/** What a harness is given to run one of kolu's plugin skills: a slash
- *  command (Claude Code), or the skill's name to ask for in words. Exhaustive
- *  over the agent kinds, so a new harness has to decide. */
-export function skillInvocation(kind: AgentKind, name: string): string {
+/** How a harness runs one of kolu's plugin skills: the chip's `label`, and
+ *  the `text` the chip inserts into the agent's input (the user finishes it).
+ *  Claude Code takes a slash command; the others are asked in words, as the
+ *  start of a sentence. Exhaustive over the agent kinds, so a new harness has
+ *  to decide. */
+export function skillInvocation(
+  kind: AgentKind,
+  name: string,
+): { readonly label: string; readonly text: string } {
   switch (kind) {
     case "claude-code":
-      return `/${name}`;
+      return { label: `/${name}`, text: `/${name} ` };
     case "codex":
     case "opencode":
     case "grok":
     case "pi":
     case "omp":
     case "xyne":
-      return name;
+      return { label: name, text: `Use the ${name} skill to ` };
     default:
       throw new Error(
         `skillInvocation: unhandled agent ${kind satisfies never}`,

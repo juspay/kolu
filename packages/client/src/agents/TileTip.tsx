@@ -66,7 +66,7 @@ function chipLabel(action: TipAction): string {
     case "launch":
       return `Launch ${action.harness}`;
     case "insert":
-      return `Type ${action.text.trim()} into the input`;
+      return `Type “${action.text.trim()}” into the input`;
     default:
       throw new Error(`TileTip: unhandled action ${action satisfies never}`);
   }

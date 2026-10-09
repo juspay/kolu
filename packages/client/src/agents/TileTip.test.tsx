@@ -229,11 +229,28 @@ describe("TileTip — the chip types for you", () => {
     );
   });
 
-  it("rung 3 inserts the skill into the agent's input, no Enter", () => {
+  it("rung 3 in Claude Code inserts the slash command into the agent's input, no Enter", () => {
     state.setMeta(live({ agent: CLAUDE_WAITING }));
     mount();
+    expect(chip()?.textContent).toBe("/kolu");
+    expect(chip()?.getAttribute("aria-label")).toBe(
+      "Type “/kolu” into the input",
+    );
     chip()?.click();
     expect(state.typed).toEqual([{ id: "t-1", text: "/kolu ", enter: false }]);
+  });
+
+  it("rung 3 in any other agent inserts the start of a request in words, no Enter", () => {
+    state.setMeta(live({ agent: { kind: "codex", state: "waiting" } }));
+    mount();
+    expect(chip()?.textContent).toBe("kolu");
+    expect(chip()?.getAttribute("aria-label")).toBe(
+      "Type “Use the kolu skill to” into the input",
+    );
+    chip()?.click();
+    expect(state.typed).toEqual([
+      { id: "t-1", text: "Use the kolu skill to ", enter: false },
+    ]);
   });
 
   it("the rest of the bar is not a click target", () => {
