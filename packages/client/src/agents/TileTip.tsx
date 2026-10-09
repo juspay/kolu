@@ -78,8 +78,10 @@ function chipLabel(action: TipAction): string {
 /** A chip's box. The measuring copies share it, so they measure true. */
 const CHIP =
   "shrink-0 rounded-[6px] px-[10px] py-[6px] font-mono text-[13px] font-semibold whitespace-nowrap";
-/** The chip is the button, so it is the brightest thing on the tip. */
-const CHIP_BUTTON = `${CHIP} cursor-pointer bg-accent text-surface-0 hover:brightness-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-fg focus-visible:ring-offset-1 focus-visible:ring-offset-surface-0`;
+/** The chip is the button, so it is the brightest thing on the tip: solid
+ *  accent. In light mode the plain accent holds no label at 4.5:1 (white on
+ *  it is 4.3:1), so there it is deepened a little toward the type. */
+const CHIP_BUTTON = `${CHIP} cursor-pointer bg-accent [:root:not(.dark)_&]:bg-[color-mix(in_oklch,var(--color-accent)_85%,var(--color-fg))] text-surface-0 hover:brightness-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-fg focus-visible:ring-offset-1 focus-visible:ring-offset-surface-0`;
 /** The space between two chips, px. */
 const CHIP_GAP = 6;
 
@@ -93,6 +95,11 @@ const POP =
  *  it. */
 const TINT =
   "bg-[color-mix(in_oklch,var(--color-accent)_22%,var(--color-surface-0))] text-fg border-l-4 border-accent";
+
+/** The lead in the accent. In light mode the accent on the tint is 3.3:1, so
+ *  there it is mixed toward the type to clear 4.5:1. */
+const LEAD =
+  "text-accent [:root:not(.dark)_&]:text-[color-mix(in_oklch,var(--color-accent)_70%,var(--color-fg))]";
 
 const TileTip: Component<{ id: TerminalId }> = (props) => {
   const store = useTerminalStore();
@@ -189,9 +196,7 @@ const TileTip: Component<{ id: TerminalId }> = (props) => {
                 transform: barOpen() ? "none" : "translateY(-60%) scaleY(.7)",
               }}
             >
-              <span class="shrink-0 font-bold text-accent">
-                {t().copy.lead}
-              </span>
+              <span class={`shrink-0 font-bold ${LEAD}`}>{t().copy.lead}</span>
               <ChipRow
                 chips={t().chips}
                 fill={t().copy.rest === ""}
@@ -210,7 +215,7 @@ const TileTip: Component<{ id: TerminalId }> = (props) => {
                 type="button"
                 data-testid="tile-tip-collapse"
                 aria-label="Fold the tip to a tab"
-                class="flex size-6 shrink-0 cursor-pointer items-center justify-center rounded-[6px] text-fg-3 hover:bg-[color-mix(in_srgb,currentColor_16%,transparent)] hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                class="flex size-6 shrink-0 cursor-pointer items-center justify-center rounded-[6px] text-fg-2 hover:bg-[color-mix(in_srgb,currentColor_16%,transparent)] hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
                 onClick={(e) => {
                   e.stopPropagation();
                   setTipBarCollapsed(true);
@@ -251,8 +256,8 @@ const TileTip: Component<{ id: TerminalId }> = (props) => {
                   setTipBarCollapsed(false);
                 }}
               >
-                <span class="text-accent">{t().copy.lead}</span>
-                <ChevronDownIcon class="size-3.5 text-fg-3" />
+                <span class={LEAD}>{t().copy.lead}</span>
+                <ChevronDownIcon class="size-3.5 text-fg-2" />
               </button>
             </Tooltip>
           )}
@@ -390,9 +395,12 @@ const TipSourceMark: Component<{ source: Tip["source"] }> = (props) => {
   return (
     <span
       data-testid="tile-tip-source"
-      class="flex shrink-0 items-center gap-1.5 text-[12px] text-fg-3"
+      class="flex shrink-0 items-center gap-1.5 text-[12px] text-fg-2"
     >
-      <AgentDistroLogo size={14} />
+      {/* The logo marks agent-distro only, never the kolu plugin. */}
+      <Show when={props.source.kind === "agent-distro"}>
+        <AgentDistroLogo size={14} />
+      </Show>
       {label()}
     </span>
   );

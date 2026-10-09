@@ -204,6 +204,11 @@ describe("TileTip — the bar for each rung", () => {
         .querySelector('[data-testid="tile-tip-source"]')
         ?.textContent?.trim(),
     ).toBe("agent-distro · vanilla");
+    expect(
+      document.querySelector(
+        '[data-testid="tile-tip-source"] [data-testid="agent-distro-logo"]',
+      ),
+    ).not.toBeNull();
   });
 
   it("try a skill: the skill chip and its sentence, and the kolu plugin as the source", () => {
@@ -219,9 +224,13 @@ describe("TileTip — the bar for each rung", () => {
         .querySelector('[data-testid="tile-tip-source"]')
         ?.textContent?.trim(),
     ).toBe("kolu plugin");
+    // The agent-distro logo marks agent-distro only.
+    expect(
+      document.querySelector('[data-testid="agent-distro-logo"]'),
+    ).toBeNull();
   });
 
-  it("tone Tint: the surface washed with the accent, an accent lead and left edge, a solid accent chip, a muted source", () => {
+  it("tone Tint: the surface washed with the accent, an accent lead and left edge, a solid accent chip, a muted source; light mode deepens the lead and the chip to 4.5:1", () => {
     mount();
     const cls = bar()?.className ?? "";
     expect(cls).toContain(
@@ -230,15 +239,20 @@ describe("TileTip — the bar for each rung", () => {
     expect(cls).toContain("text-fg");
     expect(cls).toContain("border-l-4");
     expect(cls).toContain("border-accent");
-    expect(bar()?.querySelector(".font-bold")?.className).toContain(
-      "text-accent",
+    const lead = bar()?.querySelector(".font-bold")?.className ?? "";
+    expect(lead).toContain("text-accent");
+    expect(lead).toContain(
+      "[:root:not(.dark)_&]:text-[color-mix(in_oklch,var(--color-accent)_70%,var(--color-fg))]",
     );
     expect(chip()?.className).toContain("bg-accent");
+    expect(chip()?.className).toContain(
+      "[:root:not(.dark)_&]:bg-[color-mix(in_oklch,var(--color-accent)_85%,var(--color-fg))]",
+    );
     expect(chip()?.className).toContain("text-surface-0");
     expect(
       document.querySelector('[data-testid="tile-tip-source"]')?.className,
-    ).toContain("text-fg-3");
-    expect(collapse()?.className).toContain("text-fg-3");
+    ).toContain("text-fg-2");
+    expect(collapse()?.className).toContain("text-fg-2");
   });
 });
 
