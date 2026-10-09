@@ -18,9 +18,8 @@ import { bundleOnHost } from "./onHost.ts";
 /** What a new terminal gets: the profile, the exact bundle (whose `bin/` goes on
  *  PATH), and the plugin dir (`AGENT_DISTRO_PLUGINS`). */
 export interface AgentLayer {
-  /** The setting's profile: a built-in name, or a reference — then `bundle`
-   *  is its bundle profile's (`bundleProfileOf`) and the spawn exports the
-   *  reference as `AI_PROFILE`. */
+  /** The setting's profile, which the spawn exports as `AI_PROFILE`; `bundle`
+   *  is the bundle it rides (`bundleProfileOf`). */
   readonly profile: string;
   readonly bundle: string;
   readonly plugins: string;
@@ -36,7 +35,9 @@ export function layerOnHost(
   if (!setting.enabled) return undefined;
   const bake = agentDistroBake();
   if (bake === null) return undefined;
-  const profile = bake.profiles.get(bundleProfileOf(setting.profile));
+  const profile = bake.profiles.get(
+    bundleProfileOf(setting.profile, bake.profiles),
+  );
   // `checkAgentDistroSetting` refuses an unknown profile at the write, and the
   // bake is fixed for the process, so this is unreachable short of a bug.
   if (profile === undefined)

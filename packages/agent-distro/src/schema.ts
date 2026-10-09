@@ -22,16 +22,16 @@ import { AgentUpdateEventSchema, AgentUpdateRunSchema } from "./history.ts";
 import { ProfileInEffectSchema } from "./inEffect.ts";
 import { AgentVersionSchema } from "./versions.ts";
 
-/** The Agents setting: on/off and the profile — a built-in NAME or a profile
- *  REFERENCE ({@link isProfileReference}). A name is checked against the
- *  profiles this padi's build knows (its baked updater listing) when the
- *  setting is written ON — an unknown name fails the write, it is never mapped
- *  to a different profile. A reference is not resolved by kolu at all: a
- *  terminal gets {@link REFERENCE_BUNDLE_PROFILE}'s bundle with the reference
- *  as its `AI_PROFILE`, and agent-distro's launcher resolves it. It is the
- *  FALLBACK profile — upstream prefers a repository's own `agent-distro.nix`
- *  over it — so what a terminal actually runs is asked of agent-distro after
- *  the spawn ({@link TerminalAgentsSchema}'s `effective`). */
+/** The Agents setting: on/off and the profile — the name of a bundle kolu
+ *  ships, or anything else agent-distro reads as a profile (a flake reference
+ *  such as `github:owner/repo`, a path to a directory holding an
+ *  `agent-distro.nix`). kolu never resolves it: a terminal gets the bundle
+ *  {@link bundleProfileOf} names, with the profile as its `AI_PROFILE`, and
+ *  agent-distro's launcher resolves it. It is the FALLBACK profile — upstream
+ *  prefers a repository's own `agent-distro.nix` over it — so what a terminal
+ *  actually runs is asked of agent-distro after the spawn
+ *  ({@link TerminalAgentsSchema}'s `effective`), and whether it resolves at all
+ *  is asked once per setting ({@link AgentDistroResolvedSchema}). */
 export const AgentDistroSettingSchema = Schema.Struct({
   enabled: Schema.Boolean,
   profile: Schema.String,
@@ -39,25 +39,20 @@ export const AgentDistroSettingSchema = Schema.Struct({
 
 export type AgentDistroSetting = typeof AgentDistroSettingSchema.Type;
 
-/** Is `profile` a profile REFERENCE — a flake reference (`github:owner/repo`)
- *  or a path to a directory holding an `agent-distro.nix` — rather than a
- *  built-in name? THE one test: a reference contains `/` or `:`, which
- *  upstream's built-in names never do (agent-distro's listing rule: names are
- *  free of whitespace and `/`). */
-export function isProfileReference(profile: string): boolean {
-  return profile.includes("/") || profile.includes(":");
-}
-
-/** The built-in profile whose bundle serves a reference: its launchers resolve
- *  `AI_PROFILE` themselves. */
+/** The bundle whose launchers serve every profile that is not a bundle of its
+ *  own: they resolve `AI_PROFILE` themselves. */
 export const REFERENCE_BUNDLE_PROFILE = "vanilla";
 
-/** The built-in profile whose BUNDLE a terminal gets for `profile`: itself for
- *  a name, {@link REFERENCE_BUNDLE_PROFILE} for a reference. Everything padi
- *  keeps per bundle (its download, its updates, its receipt files) is keyed by
- *  this; everything it PUBLISHES names `profile` as the user chose it. */
-export function bundleProfileOf(profile: string): string {
-  return isProfileReference(profile) ? REFERENCE_BUNDLE_PROFILE : profile;
+/** The bundle a terminal gets for `profile`: its own when `bundles` (the
+ *  bundles this build ships, by name) has one, else
+ *  {@link REFERENCE_BUNDLE_PROFILE}'s. Everything padi keeps per bundle (its
+ *  download, its updates, its receipt files) is keyed by this; everything it
+ *  PUBLISHES names `profile` as the user chose it. */
+export function bundleProfileOf(
+  profile: string,
+  bundles: { has(name: string): boolean },
+): string {
+  return bundles.has(profile) ? profile : REFERENCE_BUNDLE_PROFILE;
 }
 
 /** What padi holds between its boot and the binder's first push: OFF. A
@@ -186,6 +181,50 @@ export function agentDistroStatusEqual(
   }
 }
 
+/** Whether the setting's profile resolves on this host — the read-only
+ *  `agentDistroResolved` cell. Once per setting, padi asks the bundle's
+ *  `agent-distro --list --json` with the profile as `AI_PROFILE`, from `$HOME`
+ *  rather than any terminal's folder (`@kolu/agent-distro/inEffect`):
+ *
+ *   - `none` — nothing to ask: agents off, an unbaked padi, or no bundle on
+ *     the host yet;
+ *   - `pending` — asked, no answer yet (resolving a reference may fetch it);
+ *   - `resolved` — the profile agent-distro answered, by its own name and
+ *     description;
+ *   - `failed` — agent-distro could not resolve it: `message` is its own
+ *     words, on one line. The setting stands either way — the launcher meets
+ *     the same failure in each new terminal, and a repository's own
+ *     `agent-distro.nix` still wins there. */
+export const AgentDistroResolvedSchema = Schema.Union([
+  Schema.Struct({ kind: Schema.Literal("none") }),
+  Schema.Struct({ kind: Schema.Literal("pending"), profile: Schema.String }),
+  Schema.Struct({
+    kind: Schema.Literal("resolved"),
+    profile: Schema.String,
+    name: Schema.String,
+    description: Schema.String,
+  }),
+  Schema.Struct({
+    kind: Schema.Literal("failed"),
+    profile: Schema.String,
+    message: Schema.String,
+  }),
+]);
+
+export type AgentDistroResolved = typeof AgentDistroResolvedSchema.Type;
+
+export const DEFAULT_AGENT_DISTRO_RESOLVED: AgentDistroResolved = {
+  kind: "none",
+};
+
+/** Structural equality — the resolved cell's dedup point. */
+export function agentDistroResolvedEqual(
+  a: AgentDistroResolved,
+  b: AgentDistroResolved,
+): boolean {
+  return JSON.stringify(a) === JSON.stringify(b);
+}
+
 /** What a host keeps of agent-distro's updates for the selected profile — the
  *  read-only `agentDistroReceipt` cell, published from the updater's own files:
  *
@@ -247,8 +286,8 @@ export function agentDistroReceiptEqual(
  *  while the terminal runs (it pins the bundle it started with); a respawn
  *  re-stamps it whole. `effective` is written once, after the spawn. */
 export const TerminalAgentsSchema = Schema.Struct({
-  /** The setting's profile at spawn — a built-in name, or a reference
-   *  ({@link isProfileReference}), exported to the terminal as `AI_PROFILE`. */
+  /** The setting's profile at spawn, exported to the terminal as
+   *  `AI_PROFILE`. */
   profile: Schema.String.check(Schema.isMinLength(1)),
   /** The exact bundle store path whose `bin/` went on the PATH — the tile
    *  pill's short hash. */

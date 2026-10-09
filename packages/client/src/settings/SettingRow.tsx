@@ -8,46 +8,26 @@
 import { type Component, type JSX, Show } from "solid-js";
 import DocLink, { type DocSlug } from "../ui/DocLink";
 
-/** Where a hint is spoken: its line height, and the grey of a muted hint.
- *  Each place that lays a hint out owns its voice — a Settings row's is
- *  {@link SETTING_VOICE}; a welcome row hands in its own body voice, so the
- *  hint reads as one with the row's text. */
-export interface HintVoice {
-  readonly leading: string;
-  readonly muted: string;
-}
-
-/** A Settings row's voice: the hint recedes under its control. */
-const SETTING_VOICE: HintVoice = {
-  leading: "leading-relaxed",
-  muted: "text-fg-3/70",
-};
-
-/** Per tone: its colour in a given voice, and its glyph. A muted hint takes the
- *  voice's grey; a warning keeps its own colour wherever it is spoken. */
+/** Per tone: its colour and its glyph. */
 const TONE_CONFIG = {
-  muted: { colorClass: (voice: HintVoice) => voice.muted, glyph: "" },
-  warn: { colorClass: (_voice: HintVoice) => "text-warning", glyph: "⚠ " },
+  muted: { colorClass: "text-fg-3/70", glyph: "" },
+  warn: { colorClass: "text-warning", glyph: "⚠ " },
 } as const;
 
 export type Hint = { text: string; tone?: keyof typeof TONE_CONFIG };
 
-/** THE hint renderer — how a hint looks (its tone's colour and glyph, in the
- *  voice of where it sits), decided once, for a Settings row and anywhere else
- *  a setting's hint is shown (the welcome card's first-run Agents step).
- *  `class` is spacing only. */
-export const SettingHint: Component<{
+/** THE hint renderer — how a row's hint looks (its tone's colour and glyph),
+ *  decided once. `class` is spacing only. */
+const SettingHint: Component<{
   hint: Hint;
-  voice?: HintVoice;
   class?: string;
 }> = (props) => {
   const cfg = () => TONE_CONFIG[props.hint.tone ?? "muted"];
-  const voice = () => props.voice ?? SETTING_VOICE;
   return (
-    // `whitespace-pre-line`: a hint may carry a second line (the Agent
-    // profile row's harness list); a one-line hint renders as before.
+    // `whitespace-pre-line`: a hint may carry several lines (the Agents
+    // row's, while agents are off); a one-line hint renders as before.
     <p
-      class={`text-xs whitespace-pre-line ${voice().leading} ${cfg().colorClass(voice())} ${props.class ?? ""}`}
+      class={`text-xs whitespace-pre-line leading-relaxed ${cfg().colorClass} ${props.class ?? ""}`}
     >
       <Show when={cfg().glyph}>
         <span aria-hidden="true">{cfg().glyph}</span>

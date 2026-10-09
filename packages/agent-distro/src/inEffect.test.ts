@@ -1,13 +1,9 @@
-/** The profile in effect, read off `agent-distro --list --json`, and the one
- *  test for a profile reference. */
+/** The profile in effect, read off `agent-distro --list --json`, its failure
+ *  in one line, and the bundle a profile rides. */
 
 import { describe, expect, it } from "vitest";
-import { parseProfileInEffect } from "./inEffect.ts";
-import {
-  bundleProfileOf,
-  isProfileReference,
-  REFERENCE_BUNDLE_PROFILE,
-} from "./schema.ts";
+import { listJsonFailureLine, parseProfileInEffect } from "./inEffect.ts";
+import { bundleProfileOf, REFERENCE_BUNDLE_PROFILE } from "./schema.ts";
 
 /** Upstream's listing, as its `src/listing.ts` documents it, cut to one
  *  harness. */
@@ -64,19 +60,55 @@ describe("parseProfileInEffect", () => {
   });
 });
 
-describe("isProfileReference", () => {
-  it("a reference has a / or a :; a built-in name has neither", () => {
-    expect(isProfileReference("github:me/profile")).toBe(true);
-    expect(isProfileReference("git+https://example.com/p")).toBe(true);
-    expect(isProfileReference("/home/me/profile")).toBe(true);
-    expect(isProfileReference("~/profile")).toBe(true);
-    expect(isProfileReference("vanilla")).toBe(false);
-    expect(isProfileReference("juspay")).toBe(false);
+describe("bundleProfileOf", () => {
+  const bundles = new Set(["vanilla", "juspay"]);
+  it("a shipped bundle's name rides its own bundle; anything else the vanilla one", () => {
+    expect(bundleProfileOf("juspay", bundles)).toBe("juspay");
+    expect(bundleProfileOf("github:me/profile", bundles)).toBe(
+      REFERENCE_BUNDLE_PROFILE,
+    );
+    expect(bundleProfileOf("~/profile", bundles)).toBe(
+      REFERENCE_BUNDLE_PROFILE,
+    );
+    // A bare name kolu does not ship is agent-distro's to refuse, in a terminal.
+    expect(bundleProfileOf("ekala", bundles)).toBe(REFERENCE_BUNDLE_PROFILE);
+    expect(REFERENCE_BUNDLE_PROFILE).toBe("vanilla");
+  });
+});
+
+describe("listJsonFailureLine", () => {
+  it("agent-distro's words on one line, without its prefix or the variable's label", () => {
+    expect(
+      listJsonFailureLine(
+        [
+          "agent-distro: AI_PROFILE=github:nobody/nothing: cannot fetch github:nobody/nothing:",
+          "error:",
+          "       … while fetching the input 'github:nobody/nothing'",
+          "",
+          "       error: unable to download 'https://api.github.com/repos/nobody/nothing/commits/HEAD': HTTP error 404",
+          "",
+        ].join("\n"),
+        "github:nobody/nothing",
+      ),
+    ).toBe(
+      "cannot fetch github:nobody/nothing: … while fetching the input 'github:nobody/nothing' unable to download 'https://api.github.com/repos/nobody/nothing/commits/HEAD': HTTP error 404",
+    );
   });
 
-  it("a reference rides the vanilla bundle; a name its own", () => {
-    expect(bundleProfileOf("github:me/profile")).toBe(REFERENCE_BUNDLE_PROFILE);
-    expect(REFERENCE_BUNDLE_PROFILE).toBe("vanilla");
-    expect(bundleProfileOf("juspay")).toBe("juspay");
+  it("a bare name upstream does not know", () => {
+    expect(
+      listJsonFailureLine(
+        "agent-distro: AI_PROFILE=ekala: not a built-in profile (vanilla) or a reference: a path starting with /, ./ or ../, or a flake reference such as github:owner/repo\n",
+        "ekala",
+      ),
+    ).toBe(
+      "not a built-in profile (vanilla) or a reference: a path starting with /, ./ or ../, or a flake reference such as github:owner/repo",
+    );
+  });
+
+  it("an empty stderr says so", () => {
+    expect(listJsonFailureLine("\n", "x")).toBe(
+      "agent-distro failed and said nothing",
+    );
   });
 });

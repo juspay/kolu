@@ -21,12 +21,11 @@ import {
   manifestFile,
   parseAgentDistroManifest,
 } from "@kolu/agent-distro/manifest";
-import { plainProfileDescription } from "@kolu/agent-distro/status";
 import { AGENT_DISTRO_BUNDLE_ENV } from "@kolu/padi/agentDistroBake";
 
 /** THE boot read: the listing off the floor's bundles, in its manifest's
  *  order, with every boot check applied — it leads with the manifest's default
- *  profile, and kolu has plain words for each profile. kolu-server's boot and
+ *  profile. kolu-server's boot and
  *  the Nix floor proof both call exactly this, so a new check lands in both
  *  (`env` / `readText` injectable for tests). */
 export function readAgentDistroListing(
@@ -36,24 +35,10 @@ export function readAgentDistroListing(
   const bundle = env[AGENT_DISTRO_BUNDLE_ENV];
   if (bundle === undefined || bundle === "") return { kind: "unavailable" };
   const manifest = parseAgentDistroManifest(readText(manifestFile(bundle)));
-  return assertPlainProfiles(
-    assertDefaultAgentProfile(
-      floorListing(manifest, readText),
-      manifest.default,
-    ),
+  return assertDefaultAgentProfile(
+    floorListing(manifest, readText),
+    manifest.default,
   );
-}
-
-/** Refuse a listing with a profile kolu has no plain words for. Settings
- *  describes each profile to people who have never heard of agent-distro
- *  (`PROFILE_PLAIN`); a pin bump that adds a profile must say what it is, so
- *  kolu stops at boot rather than showing upstream jargon or nothing. */
-export function assertPlainProfiles(
-  listing: AgentDistroListing,
-): AgentDistroListing {
-  if (listing.kind === "available")
-    for (const profile of listing.profiles) plainProfileDescription(profile);
-  return listing;
 }
 
 /** The default profile is typed once (`@kolu/agent-distro`'s `defaults.json`,

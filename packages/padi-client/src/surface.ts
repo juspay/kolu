@@ -109,13 +109,16 @@ import {
 } from "./chromeVocab.ts";
 import {
   AgentDistroReceiptSchema,
+  AgentDistroResolvedSchema,
   AgentDistroSettingSchema,
   AgentDistroStatusSchema,
   agentDistroReceiptEqual,
+  agentDistroResolvedEqual,
   agentDistroSettingEqual,
   agentDistroStatusEqual,
   DEFAULT_AGENT_DISTRO_SETTING,
   DEFAULT_AGENT_DISTRO_STATUS,
+  DEFAULT_AGENT_DISTRO_RESOLVED,
   EMPTY_AGENT_DISTRO_RECEIPT,
   TerminalAgentsSchema,
 } from "@kolu/agent-distro/schema";
@@ -551,10 +554,13 @@ export * from "./transcriptSchema.ts";
  *  such a terminal the vanilla bundle with the reference as `AI_PROFILE`, and
  *  publishes its status and receipt under the reference. The record's `agents`
  *  gains an OPTIONAL `effective` (the profile in effect, as the bundle's
- *  `agent-distro --list --json` answered after the spawn). The minor carries
- *  the 5.8 obligation: a 5.11 binder may PUSH a reference, which a 5.10 padi's
- *  write gate refuses as an unknown profile, so the minor drains a 5.10 padi
- *  first. An older decoder strips `effective`, the graceful direction. */
+ *  `agent-distro --list --json` answered after the spawn), and a NEW read-only
+ *  cell, `agentDistroResolved`, says whether the setting's profile resolves on
+ *  the host at all (the same listing, asked once per setting). The minor
+ *  carries the 5.8 obligation: a 5.11 binder may PUSH a reference, which a 5.10
+ *  padi's write gate refuses as an unknown profile, and a 5.11 client
+ *  subscribes to the new cell, so the minor drains a 5.10 padi first. An older
+ *  decoder strips `effective`, the graceful direction. */
 export const PADI_SURFACE_VERSION = "5.11";
 
 /** The `version` cell payload — padi's self-declared surface contract version. */
@@ -2034,6 +2040,19 @@ export const padiSurface = defineSurfaceWithPolicy<ClientErrorPolicy>()({
       verbs: ["get"],
       client: { onError: { kind: "hostToast", label: "Agents updates" } },
     },
+    /** Whether the setting's profile resolves on THIS host — asked once per
+     *  setting of the bundle's own `agent-distro --list --json`, from `$HOME`
+     *  with the profile as `AI_PROFILE`: `pending`, `resolved` (agent-distro's
+     *  name and description for it) or `failed` (its own words), or `none`
+     *  while there is nothing to ask. Read-only; padi's agent-distro module is
+     *  the sole writer. Settings shows it under the profile field. */
+    agentDistroResolved: {
+      schema: AgentDistroResolvedSchema,
+      default: DEFAULT_AGENT_DISTRO_RESOLVED,
+      equals: agentDistroResolvedEqual,
+      verbs: ["get"],
+      client: { onError: { kind: "hostToast", label: "Agents profile" } },
+    },
     /** Every TCP listener on THIS padi's host — what the terminal-scoped `ports`
      *  on each record cannot see: a server that detached from the terminal that
      *  started it. Read-only on the client; padi's port sampler is the sole writer,
@@ -2525,6 +2544,7 @@ export const PADI_FORWARDING_POLICY = {
   agentDistro: "value",
   agentDistroStatus: "value",
   agentDistroReceipt: "value",
+  agentDistroResolved: "value",
   hostListeners: "value",
   hostInventory: "value",
   processMemory: "value",

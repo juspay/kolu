@@ -18,7 +18,8 @@
 import { Schema } from "effect";
 import defaults from "../defaults.json" with { type: "json" };
 
-/** The profile kolu selects by default and lists first (`defaults.json`). */
+/** The bundle kolu lists first (`defaults.json`) — the one kolu's default
+ *  Agents profile, a reference, rides. */
 export const DEFAULT_AGENT_PROFILE: string = defaults.defaultProfile;
 
 export const AgentDistroManifestSchema = Schema.Struct({

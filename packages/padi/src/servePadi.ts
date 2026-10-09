@@ -33,6 +33,7 @@ import {
 } from "@kolu/padi-client/surface";
 import {
   DEFAULT_AGENT_DISTRO_STATUS,
+  DEFAULT_AGENT_DISTRO_RESOLVED,
   EMPTY_AGENT_DISTRO_RECEIPT,
 } from "@kolu/agent-distro/schema";
 import { watchScopeOf } from "@kolu/padi-client/watchScope";
@@ -466,6 +467,11 @@ export function buildPadiSurfaceDeps(deps: {
       // changes.
       agentDistroReceipt: {
         store: inMemoryStore(EMPTY_AGENT_DISTRO_RECEIPT),
+      },
+      // Read-only: written only by the agent-distro module, once per setting,
+      // from the bundle's own `agent-distro --list --json`.
+      agentDistroResolved: {
+        store: inMemoryStore(DEFAULT_AGENT_DISTRO_RESOLVED),
       },
       // Every TCP listener on THIS padi's host — written by the port sampler (the
       // same pass that feeds each terminal's `ports`), read by the printed-URL

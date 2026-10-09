@@ -339,7 +339,7 @@ describe("composeSpawnInput agent-distro layer", () => {
       info(),
       spec({
         toolsPath: [TOOLS],
-        agents: { binDir: AGENTS, plugins: PLUGINS },
+        agents: { binDir: AGENTS, plugins: PLUGINS, profile: "vanilla" },
       }),
     );
     expect(input.env.PATH).toBe(`${TOOLS}:${AGENTS}:/usr/bin:/bin`);
@@ -351,7 +351,7 @@ describe("composeSpawnInput agent-distro layer", () => {
       info(),
       spec({
         toolsPath: [TOOLS],
-        agents: { binDir: AGENTS, plugins: PLUGINS },
+        agents: { binDir: AGENTS, plugins: PLUGINS, profile: "vanilla" },
       }),
     );
     expect(input.env[TERMINAL_TOOLS_PATH_ENV]).toBe(`${TOOLS}:${AGENTS}`);
@@ -361,7 +361,9 @@ describe("composeSpawnInput agent-distro layer", () => {
     const input = composeSpawnInput(
       { id: "T-agents-only" },
       info(),
-      spec({ agents: { binDir: AGENTS, plugins: PLUGINS } }),
+      spec({
+        agents: { binDir: AGENTS, plugins: PLUGINS, profile: "vanilla" },
+      }),
     );
     expect(input.env.PATH).toBe(`${AGENTS}:/usr/bin:/bin`);
     expect(input.env[TERMINAL_TOOLS_PATH_ENV]).toBe(AGENTS);
@@ -371,37 +373,26 @@ describe("composeSpawnInput agent-distro layer", () => {
     const input = composeSpawnInput(
       { id: "T-agents-plugins" },
       info(),
-      spec({ agents: { binDir: AGENTS, plugins: PLUGINS } }),
+      spec({
+        agents: { binDir: AGENTS, plugins: PLUGINS, profile: "vanilla" },
+      }),
     );
     expect(input.env[AGENT_DISTRO_PLUGINS_ENV]).toBe(PLUGINS);
   });
 
-  it("exports AI_PROFILE only for a profile reference — the layer's own mapping decides", () => {
-    const reference = composeSpawnInput(
-      { id: "T-agents-reference" },
-      info(),
-      spec({
-        agents: agentSpawnEnv({
-          profile: "github:me/profile",
-          bundle: "/s/vanilla",
-          plugins: PLUGINS,
-        }),
-      }),
-    );
-    expect(reference.env[AI_PROFILE_ENV]).toBe("github:me/profile");
-    expect(reference.env[AGENT_DISTRO_PLUGINS_ENV]).toBe(PLUGINS);
-    const builtin = composeSpawnInput(
-      { id: "T-agents-builtin" },
-      info(),
-      spec({
-        agents: agentSpawnEnv({
-          profile: "juspay",
-          bundle: "/s/juspay",
-          plugins: PLUGINS,
-        }),
-      }),
-    );
-    expect(builtin.env[AI_PROFILE_ENV]).toBeUndefined();
+  it("exports the setting's profile as AI_PROFILE, whichever bundle it rides", () => {
+    for (const [profile, bundle] of [
+      ["github:me/profile", "/s/vanilla"],
+      ["juspay", "/s/juspay"],
+    ] as const) {
+      const input = composeSpawnInput(
+        { id: `T-agents-${bundle}` },
+        info(),
+        spec({ agents: agentSpawnEnv({ profile, bundle, plugins: PLUGINS }) }),
+      );
+      expect(input.env[AI_PROFILE_ENV]).toBe(profile);
+      expect(input.env[AGENT_DISTRO_PLUGINS_ENV]).toBe(PLUGINS);
+    }
   });
 
   it("off means off: no agent dir, no plugins var, and an inherited one is not carried", () => {

@@ -200,11 +200,19 @@ describe("layerOnHost — the bundle on disk", () => {
 });
 
 describe("checkAgentDistroSetting — the write gate", () => {
-  it("refuses to turn on a profile this build does not know", () => {
+  it("takes a name this build ships no bundle for: it rides vanilla, and agent-distro answers for it", () => {
     __setAgentDistroBakeForTest(bake({ floor: true }));
     expect(() =>
       checkAgentDistroSetting({ enabled: true, profile: "nope" }),
-    ).toThrow(/unknown agent-distro bundle 'nope'/);
+    ).not.toThrow();
+    expect(assessAgentDistro({ enabled: true, profile: "nope" })).toEqual({
+      kind: "ready",
+      layer: {
+        profile: "nope",
+        bundle: join(root, "agent-distro-vanilla"),
+        plugins: "/p/plugin",
+      },
+    });
   });
 
   it("takes any profile when off, and anything on an unbaked padi", () => {

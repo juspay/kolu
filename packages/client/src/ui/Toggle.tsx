@@ -1,4 +1,5 @@
-/** Minimal toggle switch — used in SettingsPopover for boolean settings. */
+/** Minimal toggle switch — used in SettingsPopover for boolean settings, and
+ *  as the Agents switch (Settings and the welcome card's first-run step). */
 
 import type { Component } from "solid-js";
 
@@ -6,9 +7,19 @@ const Toggle: Component<{
   enabled: boolean;
   onChange: (on: boolean) => void;
   testId: string;
+  /** Its accessible name, where no visible label is tied to it. */
+  label?: string;
+  /** Focus it on mount (the first-run step, while nothing is chosen). */
+  autofocus?: boolean;
 }> = (props) => (
   <button
+    ref={(el) => {
+      if (props.autofocus) queueMicrotask(() => el.focus());
+    }}
     type="button"
+    role="switch"
+    aria-checked={props.enabled}
+    aria-label={props.label}
     data-testid={props.testId}
     data-enabled={props.enabled ? "" : undefined}
     class="relative w-8 h-4 rounded-full transition-colors cursor-pointer"
