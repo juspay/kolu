@@ -247,8 +247,10 @@ not, the first download is skipped — the host never compiles agents — and th
 host's mark turns to the warning colour. (A later update that cannot download
 is different: the agents the host already has keep working, and it shows on the
 host's status line and in the History — see [Kept up to date](#kept-up-to-date).) Its hover, the toast and the host's line in
-Settings all say the same thing: the cause, the setup fix when the cause is a
-missing `nix`, and how to retry. Until it is fixed, new terminals on that host
+Settings all say the same thing: the cause — with Nix's own line after it when
+agent-distro caught one, such as `cannot resolve flake: unable to download '…':
+HTTP error 401` — the setup fix when the cause is a missing `nix`, and how to
+retry. Until it is fixed, new terminals on that host
 get no agents. Fix it, then switch Agents off and back on in Settings: that is
 the retry, and it downloads again. Nothing retries on its own.
 

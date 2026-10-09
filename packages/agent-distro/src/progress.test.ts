@@ -44,6 +44,39 @@ describe("parseUpdaterLine", () => {
     ).toEqual({ result: { result: "failed", reason: "nix build exit 1" } });
   });
 
+  it("reads a failure's optional `detail` — nix's own line", () => {
+    expect(
+      parseUpdaterLine(
+        `{"result":"failed","reason":"cannot resolve flake","detail":"unable to download 'https://api.github.com/repos/o/r/commits/HEAD': HTTP error 401"}`,
+      ),
+    ).toEqual({
+      result: {
+        result: "failed",
+        reason: "cannot resolve flake",
+        detail:
+          "unable to download 'https://api.github.com/repos/o/r/commits/HEAD': HTTP error 401",
+      },
+    });
+    expect(
+      parseUpdaterLine(
+        '{"result":"skipped","reason":"cache not usable","detail":"x"}',
+      ),
+    ).toEqual({
+      result: { result: "skipped", reason: "cache not usable", detail: "x" },
+    });
+  });
+
+  it("a `detail` that is not a string is ignored, not malformed", () => {
+    for (const detail of ["1", "null", '{"a":1}', '["x"]'])
+      expect(
+        parseUpdaterLine(
+          `{"result":"failed","reason":"cannot resolve flake","detail":${detail}}`,
+        ),
+      ).toEqual({
+        result: { result: "failed", reason: "cannot resolve flake" },
+      });
+  });
+
   it("a blank line is nothing", () => {
     expect(parseUpdaterLine("")).toBeNull();
     expect(parseUpdaterLine("   ")).toBeNull();

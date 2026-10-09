@@ -66,7 +66,8 @@ const failed = (message: string): UpdaterOutcome => ({
 /** Run agent-distro's updater once (`--progress`) and settle with its outcome.
  *  Progress lines feed `onProgress`; the outcome is the updater's own `result`
  *  line — `skipped` / `failed` carry its reason verbatim ("cache … not usable;
- *  add it to nix.settings …"). A run that ends without a result line (a crash,
+ *  add it to nix.settings …"), with nix's own line after it when the updater
+ *  gave a `detail`. A run that ends without a result line (a crash,
  *  a kill) is a failure naming its exit and its last stderr line. Never
  *  rejects: a spawn error is an outcome too. */
 export function runUpdater(opts: {
@@ -136,7 +137,11 @@ export function runUpdater(opts: {
           resolve({
             ok: false,
             result: result.result,
-            message: result.reason,
+            // nix's own line, when the updater caught one, follows its reason.
+            message:
+              result.detail === undefined
+                ? result.reason
+                : `${result.reason}: ${result.detail}`,
             by: "updater",
           });
           return;

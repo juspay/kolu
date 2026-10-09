@@ -6,8 +6,9 @@
  * documents it as `command ++ [ "--progress" ]`) the updater's stdout is one JSON
  * object per line: `{"progress":{"done":<bytes>,"total":<bytes>}}` while nix
  * fetches, then exactly one `{"result":…}` — `updated` / `unchanged` with the
- * bundle it landed, or `skipped` / `failed` with the reason in its own words.
- * Every human line goes to stderr.
+ * bundle it landed, or `skipped` / `failed` with the reason in its own words —
+ * and, optionally, a `detail`: the one line of nix's own stderr that says why
+ * (`unable to download '…': HTTP error 401`). Every human line goes to stderr.
  */
 
 /** Extra argv after the config path: the machine-readable mode. */
@@ -21,7 +22,12 @@ export interface UpdaterProgress {
 /** The updater's final word on a run. */
 export type UpdaterResult =
   | { readonly result: "updated" | "unchanged"; readonly bundle: string }
-  | { readonly result: "skipped" | "failed"; readonly reason: string };
+  | {
+      readonly result: "skipped" | "failed";
+      readonly reason: string;
+      /** nix's own line about the cause, when the updater caught one. */
+      readonly detail?: string;
+    };
 
 /** One stdout line, read. Under `--progress` stdout is JSON-only by contract,
  *  so a non-blank line that is neither documented object is `malformed` — the
@@ -64,8 +70,18 @@ export function parseUpdaterLine(line: string): UpdaterLine | null {
         : malformed;
     case "skipped":
     case "failed":
+      // `detail` is optional and additive: a string is kept, anything else
+      // is ignored rather than failing a run the reason already explains.
       return typeof record.reason === "string"
-        ? { result: { result: record.result, reason: record.reason } }
+        ? {
+            result: {
+              result: record.result,
+              reason: record.reason,
+              ...(typeof record.detail === "string"
+                ? { detail: record.detail }
+                : {}),
+            },
+          }
         : malformed;
     default:
       return malformed;
