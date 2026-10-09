@@ -152,11 +152,6 @@ function skillInvocation(kind: AgentKind): "slash" | "words" {
   }
 }
 
-/** A tile tip's pill text as one plain string (to compare two tips' words). */
-export function tileTipText(parts: readonly TileTipPart[]): string {
-  return parts.map((p) => (typeof p === "string" ? p : p.code)).join("");
-}
-
 export const AMBIENT_TIPS: readonly Tip[] = [
   {
     id: "amb-sub",

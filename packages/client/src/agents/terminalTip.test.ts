@@ -1,6 +1,6 @@
 import type { AgentInfo } from "@kolu/terminal-vocab/schema";
 import { describe, expect, it } from "vitest";
-import { tileTipText } from "../settings/tips";
+import type { TileTipPart } from "../settings/tips";
 import {
   type TerminalTipFacts,
   TIP_MIN_SLOT_PX,
@@ -67,6 +67,11 @@ const facts = (over: Partial<TerminalTipFacts> = {}): TerminalTipFacts => ({
   skills: [KOLU],
   ...over,
 });
+
+/** A tip's pill text as one plain string. */
+function tileTipText(parts: readonly TileTipPart[]): string {
+  return parts.map((p) => (typeof p === "string" ? p : p.code)).join("");
+}
 
 /** The tip's id and pill text, or `quiet: <why>`. */
 function show(f: TerminalTipFacts) {
