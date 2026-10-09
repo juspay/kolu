@@ -53,14 +53,18 @@ const AgentIndicator: Component<{ agent: AgentInfo }> = (props) => {
   const runningFor = useDuration();
   return (
     <span
-      class={`inline-flex items-center gap-1 text-xs ${color()}`}
+      class={`inline-flex min-w-0 items-center gap-1 text-xs ${color()}`}
       data-testid="agent-indicator"
       data-agent-kind={props.agent.kind}
       data-agent-state={props.agent.state}
       title={`${name()}: ${label()}`}
     >
-      {/* Static label — no spin/pulse; activity motion is the StatePip. */}
-      <span class="hidden sm:inline">{label()}</span>
+      {/* Static label — no spin/pulse; activity motion is the StatePip. The
+       *  one part that gives on a narrow tile: it truncates, and drops out
+       *  under a narrow title bar (the canvas bar is a size container). */}
+      <span class="hidden min-w-0 truncate sm:inline @max-xl:hidden">
+        {label()}
+      </span>
       {/* Wrap the value in an object so `<Show>`'s truthy check fires
        *  even when `contextTokens` is `0` — a legitimate value for a
        *  synthetic assistant entry with a zeroed usage block. Show's

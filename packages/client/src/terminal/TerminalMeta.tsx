@@ -13,6 +13,8 @@
  *  `TerminalMetaCompact`. */
 
 import { activeArm, type TerminalMetadata } from "@kolu/padi-client/surface";
+import { ChecksIndicator, PrStateIcon } from "@kolu/solid-dockrow";
+import { prTooltip } from "@kolu/solid-dockrow/rowValues";
 import { StatePip } from "@kolu/solid-statepip";
 import {
   SLEEPING_RECEDE_CLASS,
@@ -28,9 +30,7 @@ import { WorktreeIcon } from "../ui/Icons";
 import RepoMonogram from "../ui/RepoMonogram";
 import Tip from "../ui/Tip";
 import { encActiveHost } from "../wire";
-import { ChecksIndicator, PrStateIcon } from "@kolu/solid-dockrow";
 import { PrUnavailableButton } from "./PrUnavailablePopover";
-import { prTooltip } from "@kolu/solid-dockrow/rowValues";
 import { useStatePip } from "./statePipBind";
 import { pairDisplayRow, type TerminalDisplayInfo } from "./terminalDisplay";
 
@@ -81,9 +81,11 @@ const TerminalMeta: Component<{
         return (
           <>
             {/* Name row — T1: identity StatePip leads (app-icon position),
-             *  then repo name / suffix / worktree / fg / progress. */}
+             *  then repo name / suffix / worktree / fg / progress. Clipped:
+             *  its `shrink-0` parts can outgrow a narrow tile's title column,
+             *  and must not paint under the actions beside it. */}
             <div
-              class="col-start-1 row-start-1 flex items-center gap-1.5 min-h-7 text-sm font-medium min-w-0"
+              class="col-start-1 row-start-1 flex items-center gap-1.5 min-h-7 text-sm font-medium min-w-0 overflow-hidden"
               classList={{ [SLEEPING_RECEDE_CLASS]: pip().sleeping }}
               data-sleeping={pip().sleeping ? "" : undefined}
             >
@@ -109,10 +111,10 @@ const TerminalMeta: Component<{
                *  Replaces what used to be the cwd slot; cwd is now a
                *  tooltip on the repo name. `flex-1` takes whatever slack
                *  the row has — but the canvas title column is sized to its
-               *  content (`minmax(0,max-content)`, shared evenly with the
-               *  title-bar tip), so there is none: the workflow badge and
-               *  progress bar sit right after the title, not at the bar's
-               *  right edge. When the row must shrink, this is what gives. */}
+               *  content (`minmax(0,max-content)`, the tip slot taking what
+               *  is left), so there is none: the workflow badge and progress
+               *  bar sit right after the title, not at the bar's right edge.
+               *  When the row must shrink, this is what gives. */}
               <Show when={activeArm(v().meta)?.foreground}>
                 {(fg) => (
                   <span

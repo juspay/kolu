@@ -1,9 +1,9 @@
-import { describe, expect, it } from "vitest";
 import type { AgentInfo } from "@kolu/terminal-vocab/schema";
+import { describe, expect, it } from "vitest";
 import { tileTipText } from "../settings/tips";
 import {
-  TIP_MIN_TITLE_BAR_PX,
   type TerminalTipFacts,
+  TIP_MIN_SLOT_PX,
   terminalTip,
 } from "./terminalTip";
 
@@ -48,7 +48,8 @@ const SHELL: TerminalTipFacts["foreground"] = {
 const PLACE: TerminalTipFacts["place"] = {
   seenTipsLoaded: true,
   active: true,
-  titleBarPx: 800,
+  onScreen: true,
+  slotPx: 400,
 };
 
 const agent = (
@@ -70,16 +71,22 @@ const facts = (over: Partial<TerminalTipFacts> = {}): TerminalTipFacts => ({
 
 const NONE = new Set<string>();
 
-/** The tip's id and plain text, or `quiet: <why>`. */
+/** The tip's id and pill text, `hidden: <why>` (with the tip it holds back),
+ *  or `quiet: <why>`. */
 function show(
   f: TerminalTipFacts,
   seen: ReadonlySet<string> = NONE,
   showing: string | null = null,
 ) {
   const t = terminalTip(f, seen, showing);
-  return t.kind === "tip"
-    ? { id: t.id, text: tileTipText(t.parts) }
-    : { quiet: t.why };
+  switch (t.kind) {
+    case "tip":
+      return { id: t.id, text: tileTipText(t.copy.parts) };
+    case "hidden":
+      return { hidden: t.why, id: t.id };
+    case "quiet":
+      return { quiet: t.why };
+  }
 }
 
 describe("terminalTip — the rungs", () => {
@@ -118,36 +125,81 @@ describe("terminalTip — the rungs", () => {
   });
 });
 
-describe("terminalTip — where it would show", () => {
-  it("is quiet until the saved seen-list has arrived (it cannot say seen yet)", () => {
-    expect(show(facts({ place: { ...PLACE, seenTipsLoaded: false } }))).toEqual(
-      { quiet: "preferences pending" },
+describe("terminalTip — the hover sentence", () => {
+  const sentence = (f: TerminalTipFacts) => {
+    const t = terminalTip(f, NONE, null);
+    if (t.kind !== "tip") throw new Error(`no tip: ${t.why}`);
+    return t.copy.sentence;
+  };
+  it("each rung's hover says the whole thing", () => {
+    expect(sentence(facts({ git: NO_REPO }))).toBe(
+      "Start in a project: cd into a git repo",
+    );
+    expect(sentence(facts())).toBe(
+      "Launch an agent: claude, or agent-distro to pick one",
+    );
+    expect(sentence(facts({ agent: agent("claude-code", "waiting") }))).toBe(
+      "Try a skill: type /kolu at the prompt — drive one AI agent from another through kolu's terminals",
+    );
+    expect(sentence(facts({ agent: agent("codex", "waiting") }))).toBe(
+      "Try a skill: ask the agent to use the kolu skill — drive one AI agent from another through kolu's terminals",
     );
   });
+});
 
-  it("is quiet on every tile but the active one", () => {
-    expect(show(facts({ place: { ...PLACE, active: false } }))).toEqual({
-      quiet: "not the active tile",
+describe("terminalTip — hidden: the tip is there, but nobody could see it", () => {
+  const at = (place: Partial<TerminalTipFacts["place"]>) =>
+    show(facts({ place: { ...PLACE, ...place } }));
+
+  it("until the saved seen-list has arrived (it cannot say seen yet)", () => {
+    expect(at({ seenTipsLoaded: false })).toEqual({
+      hidden: "preferences pending",
+      id: "tip-launch-agent",
     });
   });
 
-  it("is quiet on a title bar too narrow for it, and before it is measured", () => {
+  it("on every tile but the active one", () => {
+    expect(at({ active: false })).toEqual({
+      hidden: "not the active tile",
+      id: "tip-launch-agent",
+    });
+  });
+
+  it("on a tile off-screen", () => {
+    expect(at({ onScreen: false })).toEqual({
+      hidden: "off-screen",
+      id: "tip-launch-agent",
+    });
+  });
+
+  it("in a slot too narrow to read, and before it is measured", () => {
+    expect(at({ slotPx: TIP_MIN_SLOT_PX - 1 })).toEqual({
+      hidden: "too narrow",
+      id: "tip-launch-agent",
+    });
+    expect(at({ slotPx: TIP_MIN_SLOT_PX })).toMatchObject({
+      id: "tip-launch-agent",
+      text: expect.any(String),
+    });
+    expect(at({ slotPx: null })).toEqual({
+      hidden: "tip slot not measured yet",
+      id: "tip-launch-agent",
+    });
+  });
+
+  it("is asked before seen: a seen tip out of sight is hidden, not quiet", () => {
+    // So a tile showing a tip keeps it while out of sight.
     expect(
       show(
-        facts({ place: { ...PLACE, titleBarPx: TIP_MIN_TITLE_BAR_PX - 1 } }),
+        facts({ place: { ...PLACE, active: false } }),
+        new Set(["tip-launch-agent"]),
       ),
-    ).toEqual({ quiet: "too narrow" });
-    expect(
-      show(facts({ place: { ...PLACE, titleBarPx: TIP_MIN_TITLE_BAR_PX } })),
-    ).toMatchObject({ id: "tip-launch-agent" });
-    expect(show(facts({ place: { ...PLACE, titleBarPx: null } }))).toEqual({
-      quiet: "title bar not measured yet",
-    });
+    ).toEqual({ hidden: "not the active tile", id: "tip-launch-agent" });
   });
 });
 
 describe("terminalTip — the shell must be in front for rungs 1 and 2", () => {
-  it("ssh or vim outside a repo is not told to cd", () => {
+  it("ssh or vim outside a repo hides rung 1", () => {
     for (const name of ["ssh", "vim"])
       expect(
         show(
@@ -156,19 +208,31 @@ describe("terminalTip — the shell must be in front for rungs 1 and 2", () => {
             foreground: { name, title: null, shell: false },
           }),
         ),
-      ).toEqual({ quiet: "a command is running" });
+      ).toEqual({ hidden: "a command is running", id: "tip-cd-repo" });
   });
 
-  it("a running command in a repo is not told to launch an agent", () => {
+  it("a running command in a repo hides rung 2", () => {
     expect(
       show(facts({ foreground: { name: "make", title: null, shell: false } })),
-    ).toEqual({ quiet: "a command is running" });
+    ).toEqual({ hidden: "a command is running", id: "tip-launch-agent" });
   });
 
-  it("is quiet before the foreground is first sampled", () => {
+  it("before the foreground is first sampled", () => {
     expect(show(facts({ foreground: null }))).toEqual({
-      quiet: "foreground not sampled yet",
+      hidden: "foreground not sampled yet",
+      id: "tip-launch-agent",
     });
+  });
+
+  it("rung 3 does not ask about the shell", () => {
+    expect(
+      show(
+        facts({
+          agent: agent("claude-code", "waiting"),
+          foreground: { name: "claude", title: null, shell: false },
+        }),
+      ),
+    ).toMatchObject({ id: "tip-skill:claude-code", text: expect.any(String) });
   });
 });
 

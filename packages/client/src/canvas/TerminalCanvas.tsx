@@ -22,7 +22,6 @@ import {
 } from "@thisbeyond/solid-dnd";
 import type { TerminalId } from "kolu-common/surface";
 import {
-  type Accessor,
   type Component,
   createEffect,
   createMemo,
@@ -41,7 +40,10 @@ import { useTerminalStore } from "../terminal/useTerminalStore";
 import type { TileId } from "../tile/tileContent";
 import { useTileStore } from "../tile/useTileStore";
 import CanvasMinimap from "./CanvasMinimap";
-import CanvasTile, { type CanvasTileMode } from "./CanvasTile";
+import CanvasTile, {
+  type CanvasTileMode,
+  type TitleTipSlot,
+} from "./CanvasTile";
 import Dock from "./dock/Dock";
 import { applyResize, type ResizeDirection } from "./resizeGeometry";
 import type { TileLayout } from "./TileLayout";
@@ -100,11 +102,8 @@ const TerminalCanvas: Component<{
    *  button — e.g. the screenshot button, theme pill, agent indicator. */
   renderTileTitleActions?: (id: TileId) => JSX.Element;
   /** Optional one-line tip injected between the title and the actions, handed
-   *  the title bar's measured width (see `CanvasTile`'s `renderTitleTip`). */
-  renderTileTitleTip?: (
-    id: TileId,
-    titleBarPx: Accessor<number | null>,
-  ) => JSX.Element;
+   *  where it would sit (see `CanvasTile`'s `renderTitleTip`). */
+  renderTileTitleTip?: (id: TileId, slot: TitleTipSlot) => JSX.Element;
   /** `active` is passed as an accessor so the subtree doesn't remount on
    *  every focus change — reads happen inside the returned JSX's props
    *  (fine-grained reactivity), not around the render-prop effect. */
@@ -447,7 +446,7 @@ const TerminalCanvas: Component<{
             }
             renderTitleTip={
               props.renderTileTitleTip
-                ? (titleBarPx) => props.renderTileTitleTip?.(tileId, titleBarPx)
+                ? (slot) => props.renderTileTitleTip?.(tileId, slot)
                 : undefined
             }
             renderBody={() => props.renderTileBody(tileId, active)}

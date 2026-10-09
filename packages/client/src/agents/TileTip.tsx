@@ -5,16 +5,16 @@
  *  tip this tile is showing.
  *
  *  A tip is marked seen in the effect that first renders it, so it never shows
- *  again, and it stays until its fact changes or × is pressed. Every fact that
- *  decides "would anyone see it" is the fold's — the active tile, a title bar
- *  wide enough, the saved seen-list loaded — so a tip the user cannot see is
- *  quiet, and a quiet tip is never marked. Only a live terminal has one, and only
- *  where the ambient tips show at all (`showsAmbientTips`). */
+ *  again. It stays until its STATE moves on (the fold says `quiet`, or names a
+ *  different tip) or × is pressed. While nobody could see it — another tile
+ *  active, off-screen, too narrow, a command in front — the fold says `hidden`:
+ *  the slot is empty, the tip is kept, and it comes back when it can be seen.
+ *  A tip that was never shown is never marked. Only a live terminal has one,
+ *  and only where the ambient tips show at all (`showsAmbientTips`). */
 
 import { activeArm } from "@kolu/padi-client/surface";
 import type { TerminalId } from "kolu-common/surface";
 import {
-  type Accessor,
   type Component,
   createEffect,
   createMemo,
@@ -23,6 +23,7 @@ import {
   on,
   Show,
 } from "solid-js";
+import type { TitleTipSlot } from "../canvas/CanvasTile";
 import { showsAmbientTips } from "../capabilities";
 import { type TipId, tileTipText } from "../settings/tips";
 import { useTips } from "../settings/useTips";
@@ -32,18 +33,29 @@ import { PLUGIN_SKILLS } from "./pluginSkills";
 import { type TerminalTip, terminalTip } from "./terminalTip";
 import { agentDistroListing } from "./useAgentDistro";
 
-const QUIET: TerminalTip = { kind: "quiet", why: "tips are not shown here" };
-
 /** Same answer: same kind, same tip, same words. */
 function sameTip(a: TerminalTip, b: TerminalTip): boolean {
-  if (a.kind !== "tip" || b.kind !== "tip") return a.kind === b.kind;
-  return a.id === b.id && tileTipText(a.parts) === tileTipText(b.parts);
+  switch (a.kind) {
+    case "tip":
+      return (
+        b.kind === "tip" &&
+        a.id === b.id &&
+        a.copy.sentence === b.copy.sentence &&
+        tileTipText(a.copy.parts) === tileTipText(b.copy.parts)
+      );
+    case "hidden":
+      return b.kind === "hidden" && a.id === b.id;
+    case "quiet":
+      return b.kind === "quiet";
+    default:
+      throw new Error(`sameTip: unhandled kind ${a satisfies never}`);
+  }
 }
 
 const TileTip: Component<{
   id: TerminalId;
-  /** The title bar's measured width (`null` until measured). */
-  titleBarPx: Accessor<number | null>;
+  /** Where the tip would sit (see `CanvasTile`'s `renderTitleTip`). */
+  slot: TitleTipSlot;
 }> = (props) => {
   const store = useTerminalStore();
   const { hasSeen, markSeen, seenTipsLoaded } = useTips();
@@ -51,15 +63,20 @@ const TileTip: Component<{
 
   const answer = createMemo(
     (): TerminalTip => {
-      if (!showsAmbientTips()) return QUIET;
+      // Neither says anything about the terminal's state, so a shown tip is
+      // kept through them (`id: null` — which tip is not known here).
+      if (!showsAmbientTips())
+        return { kind: "hidden", id: null, why: "tips are not shown here" };
       const m = activeArm(store.getMetadata(props.id));
-      if (m === undefined) return { kind: "quiet", why: "not a live terminal" };
+      if (m === undefined)
+        return { kind: "hidden", id: null, why: "not a live terminal" };
       return terminalTip(
         {
           place: {
             seenTipsLoaded: seenTipsLoaded(),
             active: store.activeId() === props.id,
-            titleBarPx: props.titleBarPx(),
+            onScreen: props.slot.onScreen(),
+            slotPx: props.slot.px(),
           },
           git: m.git,
           foreground: m.foreground,
@@ -73,21 +90,31 @@ const TileTip: Component<{
         showing(),
       );
     },
-    QUIET,
+    { kind: "quiet", why: "not computed yet" },
     { equals: sameTip },
   );
 
   createEffect(
     on(answer, (a) => {
-      if (a.kind !== "tip") {
-        setShowing(null);
-        return;
+      switch (a.kind) {
+        case "tip":
+          if (a.id === showing()) return;
+          // A different tip (or none yet): the old one's fact changed, so it
+          // leaves; the new one renders now and is marked seen as it does.
+          setShowing(a.id);
+          markSeen(a.id);
+          return;
+        case "hidden":
+          // Out of sight: the shown tip is kept — unless the state now calls
+          // for a different tip, which means the shown one's fact moved on.
+          if (a.id !== null && a.id !== showing()) setShowing(null);
+          return;
+        case "quiet":
+          setShowing(null);
+          return;
+        default:
+          throw new Error(`TileTip: unhandled answer ${a satisfies never}`);
       }
-      if (a.id === showing()) return;
-      // A different tip (or none yet): the old one's fact changed, so it leaves;
-      // the new one renders now and is marked seen as it does.
-      setShowing(a.id);
-      markSeen(a.id);
     }),
   );
 
@@ -103,21 +130,19 @@ const TileTip: Component<{
   return (
     <Show when={shown()}>
       {(tip) => (
-        <Tip
-          label={tileTipText(tip().parts)}
-          class="ml-2 flex min-w-0 max-w-[45cqw]"
-        >
+        <Tip label={tip().copy.sentence} class="ml-2 flex min-w-0">
           <div
             data-testid="tile-tip"
             data-tip-id={tip().id}
             role="status"
+            aria-label={tip().copy.sentence}
             class="flex h-7 min-w-0 items-center gap-1 rounded-lg border border-accent/50 bg-accent/10 pl-2 pr-0.5 text-xs cursor-default"
             style={{ color: "var(--color-fg-2, currentColor)" }}
             onPointerDown={stop}
             onDblClick={stop}
           >
             <span class="min-w-0 truncate">
-              <For each={tip().parts}>
+              <For each={tip().copy.parts}>
                 {(part) =>
                   typeof part === "string" ? (
                     part

@@ -7,10 +7,16 @@
  *       <first harness>";
  *    3. an agent at its first prompt, this terminal has agents → a plugin skill,
  *       once per agent kind.
- *  Only the ACTIVE tile, with a title bar wide enough to show it, and only once
- *  the saved `seenTips` have arrived: a tip shown anywhere else would be marked
- *  seen without being seen. Everything else is `quiet`, with the reason —
- *  pending facts are not faults. */
+ *
+ *  Two kinds of "no tip", kept apart because they end a shown tip differently:
+ *    - `quiet`: the terminal's STATE has no tip (git, the agent, its first
+ *      prompt moved on). A shown tip whose state is gone has left for good.
+ *    - `hidden`: the terminal HAS a tip, but nobody could see it right now —
+ *      not the active tile, off-screen, a slot too narrow to read, the saved
+ *      seen-list not arrived, a command in front of the shell. A shown tip
+ *      survives this (the slot is just empty meanwhile), and a tip that never
+ *      showed is not marked seen.
+ *  Pending facts are not faults; broken invariants throw. */
 
 import type { TerminalAgents } from "@kolu/agent-distro/schema";
 import { agentBucket } from "@kolu/terminal-vocab/agentProjection";
@@ -20,12 +26,12 @@ import type {
   GitFact,
 } from "@kolu/terminal-vocab/schema";
 import type { AgentDistroListing } from "kolu-common/surface";
-import { TILE_TIPS, type TileTipPart, type TipId } from "../settings/tips";
+import { TILE_TIPS, type TileTipCopy, type TipId } from "../settings/tips";
 import type { PluginSkill } from "./pluginSkills";
 
-/** The narrowest title bar a tip shows in. Below it the tip is quiet — the
- *  title keeps the room — and, being quiet, is never marked seen. */
-export const TIP_MIN_TITLE_BAR_PX = 640;
+/** The narrowest tip slot (on-screen px) a tip shows in — below it the pill
+ *  would be a few letters and a ×. The tip is then hidden, not marked seen. */
+export const TIP_MIN_SLOT_PX = 140;
 
 /** Where the tip would show, and whether the user's seen list is known. */
 export interface TipPlace {
@@ -34,8 +40,11 @@ export interface TipPlace {
   readonly seenTipsLoaded: boolean;
   /** This terminal's tile is the active one. */
   readonly active: boolean;
-  /** The title bar's measured width; `null` until it is measured. */
-  readonly titleBarPx: number | null;
+  /** The tile is within the canvas viewport. */
+  readonly onScreen: boolean;
+  /** The room the title and actions leave for the tip, in on-screen px (layout
+   *  width × canvas zoom); `null` until it is measured. */
+  readonly slotPx: number | null;
 }
 
 /** What the fold reads off one terminal and the app. */
@@ -58,35 +67,66 @@ export interface TerminalTipFacts {
 }
 
 export type TerminalTip =
+  | { readonly kind: "tip"; readonly id: TipId; readonly copy: TileTipCopy }
+  /** This terminal's tip is `id` (`null`: not known), but it cannot be seen
+   *  here right now. */
+  | { readonly kind: "hidden"; readonly id: TipId | null; readonly why: string }
+  | Quiet;
+
+type Quiet = { readonly kind: "quiet"; readonly why: string };
+
+const quiet = (why: string): Quiet => ({ kind: "quiet", why });
+
+/** The tip the terminal's state calls for, before asking where it would show.
+ *  `shellInFront`: the tip talks about the shell (rungs 1–2), so it needs the
+ *  shell to be what is in front. */
+type Candidate =
   | {
       readonly kind: "tip";
       readonly id: TipId;
-      readonly parts: readonly TileTipPart[];
+      readonly copy: TileTipCopy;
+      readonly shellInFront: boolean;
     }
-  | { readonly kind: "quiet"; readonly why: string };
-
-const quiet = (why: string): TerminalTip => ({ kind: "quiet", why });
+  | Quiet;
 
 /** Pick this terminal's tip. `seen` answers "has the user seen this tip?" (a
  *  `Set` of seen ids, or the reactive `hasSeen`). `showing` is the id the tile
- *  displays right now:
- *  it is marked seen the moment it shows, so it is exempt from the seen test —
- *  otherwise it would vanish the tick after it appeared. */
+ *  displays right now: it is marked seen the moment it shows, so it is exempt
+ *  from the seen test — otherwise it would vanish the tick after it appeared. */
 export function terminalTip(
   facts: TerminalTipFacts,
   seen: Pick<ReadonlySet<TipId>, "has">,
   showing: TipId | null,
 ): TerminalTip {
-  const already = (id: TipId) => seen.has(id) && showing !== id;
-  const tip = (id: TipId, parts: readonly TileTipPart[]): TerminalTip =>
-    already(id) ? quiet(`${id} already seen`) : { kind: "tip", id, parts };
+  const c = candidate(facts);
+  if (c.kind === "quiet") return c;
+  const why = hiddenBecause(facts, c.shellInFront);
+  if (why !== null) return { kind: "hidden", id: c.id, why };
+  if (seen.has(c.id) && showing !== c.id) return quiet(`${c.id} already seen`);
+  return { kind: "tip", id: c.id, copy: c.copy };
+}
 
+/** Why nobody could see a tip on this tile right now, or `null` if they could. */
+function hiddenBecause(
+  facts: TerminalTipFacts,
+  shellInFront: boolean,
+): string | null {
   const place = facts.place;
-  if (!place.seenTipsLoaded) return quiet("preferences pending");
-  if (!place.active) return quiet("not the active tile");
-  if (place.titleBarPx === null) return quiet("title bar not measured yet");
-  if (place.titleBarPx < TIP_MIN_TITLE_BAR_PX) return quiet("too narrow");
+  if (!place.seenTipsLoaded) return "preferences pending";
+  if (!place.active) return "not the active tile";
+  if (!place.onScreen) return "off-screen";
+  if (place.slotPx === null) return "tip slot not measured yet";
+  if (place.slotPx < TIP_MIN_SLOT_PX) return "too narrow";
+  // Rungs 1 and 2 talk about the shell, so the shell must be what is in front:
+  // `ssh host` or `vim` outside a repo is not a moment to suggest `cd`.
+  if (shellInFront) {
+    if (facts.foreground === null) return "foreground not sampled yet";
+    if (!facts.foreground.shell) return "a command is running";
+  }
+  return null;
+}
 
+function candidate(facts: TerminalTipFacts): Candidate {
   const agent = facts.agent;
   if (agent !== null) {
     if (facts.promptedAt !== null) return quiet("the first prompt went out");
@@ -112,22 +152,24 @@ export function terminalTip(
       throw new Error(
         "terminalTip: no plugin skill — PLUGIN_SKILLS guarantees one",
       );
-    return tip(
-      TILE_TIPS.skill.id(agent.kind),
-      TILE_TIPS.skill.parts(agent.kind, skill),
-    );
+    return {
+      kind: "tip",
+      id: TILE_TIPS.skill.id(agent.kind),
+      copy: TILE_TIPS.skill.copy(agent.kind, skill),
+      shellInFront: false,
+    };
   }
-
-  // Rungs 1 and 2 talk about the shell, so the shell must be what is in front:
-  // `ssh host` or `vim` outside a repo is not a moment to suggest `cd`.
-  if (facts.foreground === null) return quiet("foreground not sampled yet");
-  if (!facts.foreground.shell) return quiet("a command is running");
 
   switch (facts.git.kind) {
     case "unresolved":
       return quiet("git not resolved yet");
     case "none":
-      return tip(TILE_TIPS.cdRepo.id, TILE_TIPS.cdRepo.parts());
+      return {
+        kind: "tip",
+        id: TILE_TIPS.cdRepo.id,
+        copy: TILE_TIPS.cdRepo.copy(),
+        shellInFront: true,
+      };
     case "repo":
       break;
     default:
@@ -149,5 +191,10 @@ export function terminalTip(
     throw new Error(
       `terminalTip: profile ${profileName} has no harness — the listing schema requires one`,
     );
-  return tip(TILE_TIPS.launchAgent.id, TILE_TIPS.launchAgent.parts(first.name));
+  return {
+    kind: "tip",
+    id: TILE_TIPS.launchAgent.id,
+    copy: TILE_TIPS.launchAgent.copy(first.name),
+    shellInFront: true,
+  };
 }

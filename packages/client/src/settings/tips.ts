@@ -4,6 +4,7 @@
  * Optional `doc` links a tip to a product-docs page via DocLink.
  */
 
+import type { AgentKind } from "@kolu/terminal-vocab/schema";
 import { posturedActionLabel } from "../canvas/useViewPosture";
 import { ACTIONS } from "../input/actions";
 import { formatKeybind } from "../input/keyboard";
@@ -65,6 +66,13 @@ export const CONTEXTUAL_TIPS = {
  *  name the user types), which the title-bar pill sets in monospace. */
 export type TileTipPart = string | { readonly code: string };
 
+/** A tile tip's words: the short `parts` the pill shows, and the full
+ *  `sentence` its hover shows (the pill is cut to fit a title bar). */
+export interface TileTipCopy {
+  readonly parts: readonly TileTipPart[];
+  readonly sentence: string;
+}
+
 /** The tile title bar's tips (`agents/TileTip.tsx`) — one per terminal, chosen
  *  by `agents/terminalTip.ts` from what that terminal is doing. Their text is
  *  built from the terminal's facts, so each entry is an id plus a builder. Seen
@@ -73,41 +81,77 @@ export const TILE_TIPS = {
   /** A shell outside any git repo. Once per user. */
   cdRepo: {
     id: "tip-cd-repo",
-    parts: (): readonly TileTipPart[] => [
-      "Start in a project: ",
-      { code: "cd" },
-      " into a git repo",
-    ],
+    copy: (): TileTipCopy => ({
+      parts: ["Start in a project: ", { code: "cd" }, " into a git repo"],
+      sentence: "Start in a project: cd into a git repo",
+    }),
   },
   /** A shell in a repo, with agents on its PATH. Once per user. */
   launchAgent: {
     id: "tip-launch-agent",
-    parts: (harness: string): readonly TileTipPart[] => [
-      "Launch ",
-      { code: harness },
-      " or ",
-      { code: "agent-distro" },
-    ],
+    copy: (harness: string): TileTipCopy => ({
+      parts: ["Launch ", { code: harness }, " or ", { code: "agent-distro" }],
+      sentence: `Launch an agent: ${harness}, or agent-distro to pick one`,
+    }),
   },
-  /** An agent at its first prompt. Once per agent kind. Claude Code runs a
-   *  plugin skill as a slash command; every other harness is asked in words. */
+  /** An agent at its first prompt. Once per agent kind. */
   skill: {
-    id: (kind: string): TipId => `tip-skill:${kind}`,
-    parts: (
-      kind: string,
+    id: (kind: AgentKind): TipId => `tip-skill:${kind}`,
+    copy: (
+      kind: AgentKind,
       skill: { readonly name: string; readonly blurb: string },
-    ): readonly TileTipPart[] =>
-      kind === "claude-code"
-        ? ["Try a skill: ", { code: `/${skill.name}` }, ` — ${skill.blurb}`]
-        : [
-            "Try a skill: ask it to use the ",
-            { code: skill.name },
-            ` skill — ${skill.blurb}`,
-          ],
+    ): TileTipCopy => {
+      const how = skillInvocation(kind);
+      switch (how) {
+        case "slash":
+          return {
+            parts: [
+              "Try a skill: ",
+              { code: `/${skill.name}` },
+              ` — ${skill.blurb}`,
+            ],
+            sentence: `Try a skill: type /${skill.name} at the prompt — ${skill.blurb}`,
+          };
+        case "words":
+          return {
+            parts: [
+              "Try a skill: ask it to use the ",
+              { code: skill.name },
+              ` skill — ${skill.blurb}`,
+            ],
+            sentence: `Try a skill: ask the agent to use the ${skill.name} skill — ${skill.blurb}`,
+          };
+        default:
+          throw new Error(
+            `TILE_TIPS.skill: unhandled invocation ${how satisfies never}`,
+          );
+      }
+    },
   },
 } as const;
 
-/** A tile tip's text as one plain string (for `aria-label` and the hover). */
+/** How a harness runs one of kolu's plugin skills: as a slash command, or by
+ *  being asked in words. Exhaustive over the agent kinds, so a new harness has
+ *  to decide. */
+function skillInvocation(kind: AgentKind): "slash" | "words" {
+  switch (kind) {
+    case "claude-code":
+      return "slash";
+    case "codex":
+    case "opencode":
+    case "grok":
+    case "pi":
+    case "omp":
+    case "xyne":
+      return "words";
+    default:
+      throw new Error(
+        `skillInvocation: unhandled agent ${kind satisfies never}`,
+      );
+  }
+}
+
+/** A tile tip's pill text as one plain string (to compare two tips' words). */
 export function tileTipText(parts: readonly TileTipPart[]): string {
   return parts.map((p) => (typeof p === "string" ? p : p.code)).join("");
 }

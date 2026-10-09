@@ -10,7 +10,14 @@
  *  tile `id` and its `host` (the agents-staleness check reads that host's
  *  status). Extracted from App.tsx per kolu#626. */
 
+import {
+  agentRestartAction,
+  agentRestartReady,
+  agentStalenessOf,
+} from "@kolu/agent-distro/status";
 import { activeArm, sleepingArm } from "@kolu/padi-client/surface";
+import { agentLive } from "@kolu/terminal-vocab/agentProjection";
+import type { HostKey } from "kolu-common/hostKey";
 import type { TerminalId } from "kolu-common/surface";
 import { type Component, createMemo, Show } from "solid-js";
 import AgentProfileChip, { type ChipRestart } from "../agents/AgentProfileChip";
@@ -19,12 +26,6 @@ import {
   agentsWhere,
   hostAgentStatusOf,
 } from "../agents/useAgentDistro";
-import {
-  agentRestartAction,
-  agentRestartReady,
-  agentStalenessOf,
-} from "@kolu/agent-distro/status";
-import { agentLive } from "@kolu/terminal-vocab/agentProjection";
 import { ACTIONS } from "../input/actions";
 import { useRightPanel } from "../right-panel/useRightPanel";
 import { runAction, runActionPromise, type UiAction } from "../runAction";
@@ -46,12 +47,13 @@ import {
 import Tip from "../ui/Tip";
 import { useCommandPalette } from "../useCommandPalette";
 import { useThemeManager } from "../useThemeManager";
-import type { HostKey } from "kolu-common/hostKey";
 
 /** Tile chrome buttons share this affordance. Theme pill is wider — it shows
  *  the theme name. Other buttons are square. */
-const TILE_BUTTON_CLASS =
-  "flex items-center justify-center h-7 rounded-lg transition-colors cursor-pointer shrink-0 pointer-events-auto hover:bg-black/20 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50";
+/** A title-bar button, before it says whether it may shrink. */
+const TILE_BUTTON_BASE =
+  "flex items-center justify-center h-7 rounded-lg transition-colors cursor-pointer pointer-events-auto hover:bg-black/20 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50";
+const TILE_BUTTON_CLASS = `${TILE_BUTTON_BASE} shrink-0`;
 
 const TileTitleActions: Component<{
   id: TerminalId;
@@ -163,9 +165,12 @@ const TileTitleActions: Component<{
     <>
       <Show when={activeArm(meta())?.agent}>
         {(agent) => (
+          // The one shrinkable action: on a narrow tile the agent's words give
+          // way (truncate, then drop under a container width) before the
+          // title is clipped or the icons are.
           <button
             type="button"
-            class={`${TILE_BUTTON_CLASS} px-2`}
+            class={`${TILE_BUTTON_BASE} min-w-0 px-2`}
             onPointerDown={(e) => e.stopPropagation()}
             onClick={(e) =>
               onTile(e, () => {

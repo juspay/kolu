@@ -95,21 +95,23 @@ most one line:
 
 Each tip shows **once**: the first two once for you, the third once for each
 kind of agent — so your first Codex gets its own tip even after Claude Code had
-one. A tip leaves as soon as what it was about changes — you `cd` into a
+one. A tip leaves for good only when what it was about changes — you `cd` into a
 repository, start an agent, send that first message, or quit the agent — or
 when you press **×**, which counts as having seen it. Dismissing the first tip
 does not skip the second.
 
-The first two tips need the shell itself in front: with `ssh`, `vim` or any
-other program running, there is no tip until you are back at the prompt. A
-fresh terminal shows nothing until kolu has checked whether it is in a
-repository, so a terminal opened inside one never flashes the first tip.
+A tip shows only where you can see it: on the **active** tile, on the desktop
+layout, on a running terminal (a sleeping tile has none), on a tile in view, and
+where the title and buttons leave it room to be read. The first two also need
+the shell itself in front. A fresh terminal shows nothing until kolu has checked
+whether it is in a repository, so a terminal opened inside one never flashes the
+first tip.
 
-A tip shows only where you would see it: on the **active** tile, on the desktop
-layout, on a running terminal (a sleeping tile has none), and on a tile wide
-enough for it. A narrow tile keeps its title instead — and the tip is not used
-up: it appears once the tile is wide enough, or once you switch to that tile.
-Hover a tip to read all of it when it is cut short.
+While a tip cannot be seen, its place is just empty, and it is not used up: you
+click another tile, pan or zoom the tile out of view or too small, the title
+fills the bar, or you run `ls`, `ssh` or `vim` over the first two. It comes back
+when it can be seen again — unless, meanwhile, what it was about changed. Hover
+a tip to read the whole sentence; the tip itself is cut short to fit.
 
 ## On touch devices
 

@@ -30,6 +30,7 @@ import {
 } from "solid-js";
 import { Toaster } from "solid-sonner";
 import AboutDialog from "./AboutDialog";
+import TileTip from "./agents/TileTip";
 import { useAttention } from "./attention/useAttention";
 import ChromeBar from "./ChromeBar";
 import CloseConfirm, { type CloseConfirmTarget } from "./CloseConfirm";
@@ -77,7 +78,6 @@ import { useColorScheme } from "./settings/useColorScheme";
 import { useTips } from "./settings/useTips";
 import TerminalContent from "./terminal/TerminalContent";
 import TerminalMeta from "./terminal/TerminalMeta";
-import TileTip from "./agents/TileTip";
 import { useTerminals } from "./terminal/useTerminals";
 import { useTileStore } from "./tile/useTileStore";
 import { realSizes } from "./ui/corvuResizable";
@@ -654,8 +654,8 @@ const App: Component = () => {
                           renderTileTitleActions={(id) => (
                             <TileTitleActions id={id} host={activeHost()} />
                           )}
-                          renderTileTitleTip={(id, titleBarPx) => (
-                            <TileTip id={id} titleBarPx={titleBarPx} />
+                          renderTileTitleTip={(id, slot) => (
+                            <TileTip id={id} slot={slot} />
                           )}
                           renderTileBody={outlet}
                         />
