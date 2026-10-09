@@ -19,7 +19,7 @@
  *  host applies it to its NEXT new terminal. */
 
 import type { Hint } from "../settings/SettingRow";
-import { createSignal, type JSX, Show } from "solid-js";
+import { createMemo, createSignal, type JSX, Show } from "solid-js";
 import { isProfileReference } from "@kolu/agent-distro/schema";
 import { toast } from "solid-sonner";
 import SegmentedControl from "../ui/SegmentedControl";
@@ -111,8 +111,10 @@ export default function AgentsChooser(props: {
   // Custom picked but no reference written yet: the field shows, nothing is
   // stored. A stored reference presses Custom on its own.
   const [customOpen, setCustomOpen] = createSignal(false);
-  const pressed = () =>
-    customOpen() ? AGENTS_CUSTOM : agentsPressedSegment(agentDistroStored());
+  // Read by the control and by the field's <Show>: one memo for both.
+  const pressed = createMemo(() =>
+    customOpen() ? AGENTS_CUSTOM : agentsPressedSegment(agentDistroStored()),
+  );
   const storedReference = () => {
     const stored = agentDistroStored();
     return stored !== null && isProfileReference(stored.profile)
