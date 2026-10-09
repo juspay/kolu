@@ -8,13 +8,21 @@
  *  pane is transformed with it); `scale` turns a layout length into on-screen px
  *  (the canvas zoom, or 1 when maximized). */
 
-import type { IBufferCell, IBufferLine, Terminal as XTerm } from "@xterm/xterm";
+import { createResizeObserver } from "@solid-primitives/resize-observer";
+import type {
+  IBuffer,
+  IBufferCell,
+  IBufferLine,
+  Terminal as XTerm,
+} from "@xterm/xterm";
 import {
   type Accessor,
   createEffect,
+  createMemo,
   createSignal,
   on,
   onCleanup,
+  untrack,
 } from "solid-js";
 import { useCanvasViewport } from "../canvas/viewport/useCanvasViewport";
 
@@ -67,6 +75,47 @@ function blankRun(
   return n;
 }
 
+/** What the scan reads from the active buffer. */
+export type ScanBuffer = Pick<
+  IBuffer,
+  "viewportY" | "baseY" | "cursorX" | "cursorY" | "getLine" | "getNullCell"
+>;
+
+/** The cells the tip may paint over, read from the visible screen: the cursor
+ *  (`null` while scrolled back), the empty run right of it, and the empty run
+ *  leftward from one cell in on the second row. */
+export function scanGrid(
+  buf: ScanBuffer,
+  cols: number,
+): Pick<PaneGrid, "cursor" | "promptRun" | "cornerRun"> {
+  const cell = buf.getNullCell();
+  // The cursor is in view only while the viewport sits at the bottom of the
+  // buffer; scrolled back, its row is off the visible grid.
+  const cursor =
+    buf.viewportY === buf.baseY ? { col: buf.cursorX, row: buf.cursorY } : null;
+  let promptRun: number | null = null;
+  if (cursor !== null) {
+    const line = buf.getLine(buf.viewportY + cursor.row);
+    // The cursor sitting on text (moved back into what was typed) leaves no
+    // room: the cells after it are that text.
+    promptRun =
+      line !== undefined && !blankAt(line, cursor.col, cell)
+        ? 0
+        : blankRun(line, cursor.col + 1, 1, cols, cell);
+  }
+  return {
+    cursor,
+    promptRun,
+    cornerRun: blankRun(
+      buf.getLine(buf.viewportY + 1),
+      cols - 2,
+      -1,
+      cols,
+      cell,
+    ),
+  };
+}
+
 export interface PaneView {
   /** `null` until the grid has a measured size. */
   readonly grid: Accessor<PaneGrid | null>;
@@ -92,49 +141,35 @@ function sameGrid(a: PaneGrid | null, b: PaneGrid | null): boolean {
   );
 }
 
-/** Track `term` drawn inside `pane`. Call from the terminal's `onReady` (it
- *  registers listeners and cleanups on the caller's owner). */
-export function trackPaneView(pane: HTMLElement, term: XTerm): PaneView {
+/** Track `term` drawn inside `pane`, while `enabled` holds: only then is
+ *  anything observed or measured, and the listeners go when it turns false
+ *  (the grid reads `null` and the pane off-screen meanwhile). Call from the
+ *  terminal's `onReady` (it registers on the caller's owner). */
+export function trackPaneView(
+  pane: HTMLElement,
+  term: XTerm,
+  enabled: Accessor<boolean>,
+): PaneView {
   const [grid, setGrid] = createSignal<PaneGrid | null>(null, {
     equals: sameGrid,
   });
   const [onScreen, setOnScreen] = createSignal(false);
   const [scale, setScale] = createSignal(1);
+  const zoom = useCanvasViewport().zoom;
+  // xterm builds its screen element in `open`, before `onReady`.
+  const screen = term.element?.querySelector<HTMLElement>(".xterm-screen");
+  if (!screen) throw new Error("trackPaneView: the terminal has no screen");
 
   const measure = () => {
     const paneRect = pane.getBoundingClientRect();
     const s = pane.offsetWidth > 0 ? paneRect.width / pane.offsetWidth : 1;
     setScale(s);
-    const screen = term.element?.querySelector<HTMLElement>(".xterm-screen");
-    if (
-      !screen ||
-      screen.offsetWidth === 0 ||
-      screen.offsetHeight === 0 ||
-      s === 0
-    ) {
+    if (screen.offsetWidth === 0 || screen.offsetHeight === 0 || s === 0) {
       setGrid(null);
       return;
     }
     const screenRect = screen.getBoundingClientRect();
-    const buf = term.buffer.active;
     const cols = term.cols;
-    const cell = buf.getNullCell();
-    // The cursor is in view only while the viewport sits at the bottom of the
-    // buffer; scrolled back, its row is off the visible grid.
-    const cursor =
-      buf.viewportY === buf.baseY
-        ? { col: buf.cursorX, row: buf.cursorY }
-        : null;
-    let promptRun: number | null = null;
-    if (cursor !== null) {
-      const line = buf.getLine(buf.viewportY + cursor.row);
-      // The cursor sitting on text (moved back into what was typed) leaves no
-      // room: the cells after it are that text.
-      promptRun =
-        line !== undefined && !blankAt(line, cursor.col, cell)
-          ? 0
-          : blankRun(line, cursor.col + 1, 1, cols, cell);
-    }
     setGrid({
       cols,
       rows: term.rows,
@@ -142,50 +177,54 @@ export function trackPaneView(pane: HTMLElement, term: XTerm): PaneView {
       cellH: screen.offsetHeight / term.rows,
       originX: (screenRect.left - paneRect.left) / s,
       originY: (screenRect.top - paneRect.top) / s,
-      cursor,
-      promptRun,
-      cornerRun: blankRun(
-        buf.getLine(buf.viewportY + 1),
-        cols - 2,
-        -1,
-        cols,
-        cell,
-      ),
+      ...scanGrid(term.buffer.active, cols),
     });
   };
 
-  // At most one measure per frame: a flood of output changes the screen far
-  // more often than anything can paint.
-  let frame = 0;
-  const soon = () => {
-    cancelAnimationFrame(frame);
-    frame = requestAnimationFrame(measure);
+  const watch = () => {
+    // At most one measure per frame: a flood of output changes the screen far
+    // more often than anything can paint.
+    let frame = 0;
+    const soon = () => {
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(measure);
+    };
+    const disposables = [
+      term.onWriteParsed(soon),
+      term.onCursorMove(soon),
+      term.onResize(soon),
+      term.onScroll(soon),
+    ];
+    // The screen's box changes with the font as well as the grid: a font-size
+    // change or a late font load that keeps cols × rows fires none of the
+    // terminal's own events, but it resizes the screen.
+    createResizeObserver([pane, screen], soon);
+    const intersect = new IntersectionObserver((entries) => {
+      const last = entries[entries.length - 1];
+      if (last) setOnScreen(last.isIntersecting);
+      soon();
+    });
+    intersect.observe(pane);
+    // A canvas zoom changes the scale without resizing or moving the pane in
+    // layout, so neither observer fires: re-measure once the new transform is
+    // painted.
+    createEffect(on(zoom, soon, { defer: true }));
+    measure();
+    onCleanup(() => {
+      for (const d of disposables) d.dispose();
+      intersect.disconnect();
+      cancelAnimationFrame(frame);
+    });
   };
-  const disposables = [
-    term.onWriteParsed(soon),
-    term.onCursorMove(soon),
-    term.onResize(soon),
-    term.onScroll(soon),
-  ];
-  const resize = new ResizeObserver(soon);
-  resize.observe(pane);
-  const intersect = new IntersectionObserver((entries) => {
-    const last = entries[entries.length - 1];
-    if (last) setOnScreen(last.isIntersecting);
-    soon();
-  });
-  intersect.observe(pane);
-  // A canvas zoom changes the scale without resizing or moving the pane in
-  // layout, so neither observer fires: re-measure once the new transform is
-  // painted.
-  createEffect(on(useCanvasViewport().zoom, soon, { defer: true }));
-  measure();
 
-  onCleanup(() => {
-    for (const d of disposables) d.dispose();
-    resize.disconnect();
-    intersect.disconnect();
-    cancelAnimationFrame(frame);
+  const watching = createMemo(enabled);
+  createEffect(() => {
+    if (watching()) {
+      untrack(watch);
+      return;
+    }
+    setGrid(null);
+    setOnScreen(false);
   });
   return { grid, onScreen, scale };
 }

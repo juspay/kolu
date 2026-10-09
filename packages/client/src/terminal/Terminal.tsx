@@ -58,6 +58,7 @@ import { DEFAULT_SCROLLBACK } from "kolu-common/config";
 import type { TerminalId } from "kolu-common/surface";
 import { FONT_FAMILY } from "terminal-themes";
 import TileTip from "../agents/TileTip";
+import { showsAmbientTips } from "../capabilities";
 import {
   ACTIONS,
   matchesAnyShortcut,
@@ -317,7 +318,16 @@ const Terminal: Component<{
     onCleanup(registerTerminalElement(props.terminalId, h.container));
     setHandle(h);
     const term = h.terminal;
-    setPaneView(trackPaneView(paneEl, term));
+    // Measured only where the tip can show: the active tile, on a layout with
+    // ambient tips.
+    setPaneView(
+      trackPaneView(
+        paneEl,
+        term,
+        () =>
+          showsAmbientTips() && terminalStore.activeId() === props.terminalId,
+      ),
+    );
 
     // Kolu-owned bridge consumed by e2e step definitions — `support/buffer.ts`,
     // `step_definitions/file_ref_link_steps.ts`, and friends read
