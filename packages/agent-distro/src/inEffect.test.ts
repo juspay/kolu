@@ -36,8 +36,10 @@ describe("parseProfileInEffect", () => {
       origin: "/home/me/ekala/agent-distro.nix",
       source: "repository",
     };
+    // `source` is upstream's to grow; kolu reads only what the pill shows.
+    const { source: _, ...read } = profile;
     expect(parseProfileInEffect(JSON.stringify({ ...MENU, profile }))).toEqual(
-      profile,
+      read,
     );
   });
 
@@ -52,9 +54,8 @@ describe("parseProfileInEffect", () => {
         JSON.stringify({
           ...MENU,
           profile: {
-            name: "x",
+            name: "",
             description: "",
-            source: "elsewhere",
             origin: "x",
           },
         }),

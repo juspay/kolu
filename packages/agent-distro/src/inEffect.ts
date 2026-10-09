@@ -14,21 +14,10 @@
 
 import { Schema } from "effect";
 
-/** Where the profile in effect came from, in upstream's words. */
-export const ProfileSourceSchema = Schema.Union([
-  Schema.Literal("positional"),
-  Schema.Literal("repository"),
-  Schema.Literal("variable"),
-  Schema.Literal("builtin"),
-]);
-
-export type ProfileSource = typeof ProfileSourceSchema.Type;
-
 export const ProfileInEffectSchema = Schema.Struct({
   name: Schema.String.check(Schema.isMinLength(1)),
   description: Schema.String,
-  source: ProfileSourceSchema,
-  /** The reference, the path to the `agent-distro.nix` found, or the
+  /** Where upstream resolved it from: the reference, the path to the `agent-distro.nix` found, or the
    *  built-in name. */
   origin: Schema.String.check(Schema.isMinLength(1)),
 });

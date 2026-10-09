@@ -89,7 +89,6 @@ const AgentProfileChip: Component<{
         type="button"
         data-testid="tile-agent-chip"
         data-profile={agentChipProfile(props.agents)}
-        data-source={props.agents.effective?.source}
         data-hash={agentBundleShortHash(props.agents.bundle)}
         data-stale={stale() ? "" : undefined}
         data-restart={props.restart ? "" : undefined}

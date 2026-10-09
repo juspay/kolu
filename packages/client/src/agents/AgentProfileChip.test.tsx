@@ -130,7 +130,6 @@ describe("AgentProfileChip — current", () => {
     const reference = { profile: "github:me/profile", bundle: BUNDLE };
     const before = mount({ agents: reference }).chip;
     expect(before.getAttribute("data-profile")).toBe("github:me/profile");
-    expect(before.hasAttribute("data-source")).toBe(false);
     dispose?.();
     document.body.innerHTML = "";
     const effective = {
@@ -138,7 +137,6 @@ describe("AgentProfileChip — current", () => {
       effective: {
         name: "ekala",
         description: "Ekala's agents",
-        source: "repository" as const,
         origin: "/home/me/ekala/agent-distro.nix",
       },
     };
@@ -147,9 +145,8 @@ describe("AgentProfileChip — current", () => {
       (s) => s.textContent,
     );
     expect(spans.slice(1)).toEqual(["ekala", "nd11nx5f"]);
-    expect(chip.getAttribute("data-source")).toBe("repository");
     expect(chip.getAttribute("aria-label")).toContain(
-      "this repository's own /home/me/ekala/agent-distro.nix",
+      "from /home/me/ekala/agent-distro.nix",
     );
   });
 

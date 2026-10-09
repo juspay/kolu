@@ -530,7 +530,7 @@ that profile current on its host. Three cells, one procedure (`padiSurface`
   padi runs its bundle's `bin/agent-distro --list --json` ONCE, in the
   terminal's resolved cwd and with its spawn env (`inEffect.ts`), and writes
   upstream's `profile` field onto the record as `agents.effective`
-  (`{ name, description, source, origin }`; the parse is
+  (`{ name, description, origin }`; the parse is
   `@kolu/agent-distro/inEffect`). Upstream resolves it — a positional
   argument, the repository's `agent-distro.nix`, `AI_PROFILE`, the built-in —
   and padi never re-derives it. It never blocks or fails the spawn: a failure,

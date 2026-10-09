@@ -1090,7 +1090,6 @@ describe("profile references — the Custom field's check and the pill's name", 
         effective: {
           name: "mine",
           description: "",
-          source: "variable",
           origin: "github:me/p",
         },
       }),
@@ -1146,12 +1145,11 @@ describe("the words outside the folds", () => {
         effective: {
           name: "ekala",
           description: "Ekala's agents",
-          source: "repository",
           origin: "/home/me/ekala/agent-distro.nix",
         },
       }),
     ).toBe(
-      "This terminal runs the ekala profile (nd11nx5f), from this repository's own /home/me/ekala/agent-distro.nix. Click to choose what new terminals get.",
+      "This terminal started with the ekala profile (nd11nx5f), from /home/me/ekala/agent-distro.nix. Click to choose what new terminals get.",
     );
     expect(restartedLabel({ agentProfile: undefined, resumed: false })).toBe(
       "Restarted as a plain shell",

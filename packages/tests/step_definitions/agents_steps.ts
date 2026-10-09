@@ -275,7 +275,7 @@ Then(
   async function (this: KoluWorld) {
     await this.page
       .locator(
-        `${FOCUSED_TILE} [data-testid="tile-agent-chip"][data-profile="${FIXTURE_REFERENCE_PROFILE.name}"][data-source="variable"]`,
+        `${FOCUSED_TILE} [data-testid="tile-agent-chip"][data-profile="${FIXTURE_REFERENCE_PROFILE.name}"]`,
       )
       .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
   },

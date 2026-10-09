@@ -28,9 +28,8 @@ The **TypeScript half**, as data and pure functions:
   first); kolu's `available | unavailable` listing value. kolu never runs a
   picker for information: the picker is a command for people.
 - `./inEffect` — the profile in effect for a launch, upstream's `profile`
-  field of `agent-distro --list --json` (`{ name, description, source,
-  origin }`, `source` one of `positional` · `repository` · `variable` ·
-  `builtin`), and its parser `parseProfileInEffect` — `undefined` for a
+  field of `agent-distro --list --json`, read as `{ name, description,
+  origin }` (upstream's `source` is left to upstream), and its parser `parseProfileInEffect` — `undefined` for a
   bundle older than profile references, a throw for output out of format.
   padi asks it once per terminal; kolu never re-derives it.
 - `./profileFile` — a bundle's `share/agent-distro/profile.json` (`{ name,
@@ -93,7 +92,7 @@ The **TypeScript half**, as data and pure functions:
   `agentsRestingSegment`), Custom (`AGENTS_CUSTOM`, Settings only) and the
   check its reference field makes (`profileReferenceProblem`); the tile
   pill's profile and hover (`agentChipProfile`, `agentChipLabel`: the profile
-  in effect and where it came from, else the setting's); the per-host status lines
+  in effect and where agent-distro resolved it from, else the setting's); the per-host status lines
   with their collapse rule; a saved choice kolu does not ship
   (`unknownProfileOf`); whether a terminal's agents went stale and what its
   restart does (`agentStalenessOf`, `agentRestartReady`, `agentRestartAction`,
