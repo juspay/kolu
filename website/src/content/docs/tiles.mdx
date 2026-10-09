@@ -96,19 +96,32 @@ end, where the suggestion comes from.
 Only the buttons do anything; the rest of the bar is not clickable, and
 clicking it does not select or move the tile.
 
+### Folding the tip to a tab
+
+If you would rather keep the terminal's full height, click the small arrow at
+the right end of the bar. The bar folds into a **tab** hanging from the bottom
+right of the title bar, over the top of the terminal, showing only the first
+words ("Launch an agent", "Try a skill"). Hover it to read the whole tip; click
+it to open the bar again. You can also run **Toggle tip bar** from the command
+palette.
+
+The choice is one setting for every tile, and kolu remembers it. It only
+changes the tip's size: the tab comes and goes exactly when the bar would.
+
 The tip follows what the terminal is doing: the bar slides open while it
 applies, and folds away when it no longer does — you start an agent, send it
 that first message, or leave it. Nothing is used up: back at the shell in a
 repository, the first tip is there again. While the bar is open the terminal
 below is one bar shorter, so it has a couple fewer rows; they come back when the
-bar folds away.
+bar folds away, or when you fold it to its tab.
 
 A tip shows only on the **active** tile, on the desktop layout, on a running
 terminal (a sleeping tile has none). The skill tip appears as soon as the agent
 you launched is running — kolu knows it by its command name, before the agent
 has answered anything. The launch tip needs the shell itself in front, so
 running `ls`, `ssh` or `vim` clears it until the prompt is back. With reduced
-motion turned on in your system, the bar appears and goes without sliding.
+motion turned on in your system, the bar and the tab appear and go without
+sliding.
 
 ## On touch devices
 

@@ -111,6 +111,18 @@ export function migratePreferences_1_38_0(
   return { ...current, agentDistro: null };
 }
 
+/** 1.39.0 — the tile tip's size joined preferences. Seeds `tipBarCollapsed:
+ *  false` (the full bar, as the tip first shipped) onto a record that has
+ *  none; a record that already carries one is returned untouched. Spelled
+ *  here rather than read off `DEFAULT_PREFERENCES`: a rung says what ITS
+ *  version did. Exported for `state.test.ts`. */
+export function migratePreferences_1_39_0(
+  current: Record<string, unknown>,
+): Record<string, unknown> {
+  if ("tipBarCollapsed" in current) return current;
+  return { ...current, tipBarCollapsed: false };
+}
+
 /** 1.32.0 — the new-terminal collapsed DEFAULT moved off `rightPanel.collapsed`
  *  (a write-dead seed jammed next to live geometry) to a top-level
  *  `newTerminalCollapsed` preference beside `newTerminalTheme`. CARRY the old
@@ -255,7 +267,7 @@ function readPersistedRecord(
  * Must be valid semver. `conf` runs all migration handlers
  * whose keys are > the last-seen version and ≤ this value.
  */
-const SCHEMA_VERSION = "1.38.0";
+const SCHEMA_VERSION = "1.39.0";
 
 // Callers must pass an explicit directory via KOLU_STATE_DIR. A bare launch
 // with no env would silently clobber whatever happens to live at conf's
@@ -783,6 +795,16 @@ const CONF_MIGRATIONS = {
     store.set(
       "preferences",
       migratePreferences_1_38_0(
+        store.get("preferences") as Record<string, unknown>,
+      ) as unknown as Preferences,
+    );
+  },
+  // `tipBarCollapsed` — the tile tip's size (bar or tab) — is now a
+  // preferences field. Seed the full bar onto an existing record.
+  "1.39.0": (store: Conf<PersistedState>) => {
+    store.set(
+      "preferences",
+      migratePreferences_1_39_0(
         store.get("preferences") as Record<string, unknown>,
       ) as unknown as Preferences,
     );

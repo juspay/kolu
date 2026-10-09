@@ -1235,6 +1235,7 @@ Before(
       // would shadow the mock agent bins the agent-detection scenarios run, and
       // the welcome card asks first. `agents.feature` chooses them itself.
       agentDistro: null,
+      tipBarCollapsed: false,
     });
     // Reset padi's terminals + cells as one retryable transaction. It waits for
     // padi to be live, which is what bounds the tight policy poll that follows.

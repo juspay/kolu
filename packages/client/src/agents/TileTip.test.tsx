@@ -12,6 +12,11 @@
  *    tile active, a command in front, an agent at work), with a 220ms height
  *    transition that reduced motion turns off;
  *  - a press on the bar neither selects nor drags the tile;
+ *  - two sizes, one preference: the bar's chevron folds it to a tab hanging
+ *    from the title bar, the tab opens the bar again, and both follow the
+ *    state;
+ *  - tone "Tint": accent-washed surface, accent lead and left edge, a solid
+ *    accent chip, a muted source;
  *  - ambient tips off, or a sleeping terminal: no tip;
  *  - the in-body overlay is gone: the terminal does not mount it.
  */
@@ -32,6 +37,23 @@ const state = vi.hoisted(() => ({
   activeId: undefined as unknown as () => string | null,
   setActiveId: undefined as unknown as (v: string | null) => void,
   typed: [] as { id: string; text: string; enter: boolean }[],
+  collapsed: undefined as unknown as () => boolean,
+  setCollapsed: undefined as unknown as (v: boolean) => void,
+}));
+
+vi.mock("./tipBarSize", () => ({
+  tipBarCollapsed: () => state.collapsed(),
+  setTipBarCollapsed: (v: boolean) => state.setCollapsed(v),
+}));
+// The tooltip renders its trigger and keeps its words where a test can read
+// them.
+vi.mock("../ui/Tip", () => ({
+  default: (p: { label: string; children: unknown }) => {
+    const el = document.createElement("div");
+    el.dataset.tooltip = p.label;
+    el.append(p.children as Node);
+    return el;
+  },
 }));
 
 vi.mock("../capabilities", () => ({
@@ -87,7 +109,10 @@ vi.mock("./useAgentDistro", () => ({
   const [tipsOn, setTipsOn] = createSignal(true);
   const [meta, setMeta] = createSignal<unknown>(undefined);
   const [activeId, setActiveId] = createSignal<string | null>("t-1");
+  const [collapsed, setCollapsed] = createSignal(false);
   Object.assign(state, {
+    collapsed,
+    setCollapsed,
     tipsOn,
     setTipsOn,
     meta,
@@ -133,8 +158,17 @@ function mount() {
   document.body.append(host);
   dispose = render(() => <TileTip id={"t-1" as never} />, host);
 }
+const slot = () =>
+  document.querySelector<HTMLElement>('[data-testid="tile-tip-slot"]');
 const bar = () =>
   document.querySelector<HTMLElement>('[data-testid="tile-tip"]');
+const tab = () =>
+  document.querySelector<HTMLButtonElement>('[data-testid="tile-tip-tab"]');
+const collapse = () =>
+  document.querySelector<HTMLButtonElement>(
+    '[data-testid="tile-tip-collapse"]',
+  );
+const tabOpen = () => tab()?.hasAttribute("data-open") ?? false;
 const chip = () =>
   document.querySelector<HTMLButtonElement>('[data-testid="tile-tip-chip"]');
 const chips = () =>
@@ -148,6 +182,7 @@ const isOpen = () => bar()?.hasAttribute("data-open") ?? false;
 beforeEach(() => {
   state.setTipsOn(true);
   state.setActiveId("t-1");
+  state.setCollapsed(false);
   state.setMeta(live());
   state.typed.length = 0;
 });
@@ -160,7 +195,7 @@ afterEach(() => {
 describe("TileTip — the bar for each rung", () => {
   it("launch an agent: one chip per harness in the listing's order, no sentence after, agent-distro with the profile as the source", () => {
     mount();
-    expect(bar()?.getAttribute("data-tip-id")).toBe("tip-launch-agent");
+    expect(slot()?.getAttribute("data-tip-id")).toBe("tip-launch-agent");
     expect(chips().map((c) => c.textContent)).toEqual(HARNESSES);
     expect(document.querySelector('[data-testid="tile-tip-rest"]')).toBeNull();
     expect(document.querySelector('[data-testid="tile-tip-more"]')).toBeNull();
@@ -174,7 +209,7 @@ describe("TileTip — the bar for each rung", () => {
   it("try a skill: the skill chip and its sentence, and the kolu plugin as the source", () => {
     state.setMeta(live(CLAUDE_STARTED));
     mount();
-    expect(bar()?.getAttribute("data-tip-id")).toBe("tip-skill:claude");
+    expect(slot()?.getAttribute("data-tip-id")).toBe("tip-skill:claude");
     expect(chip()?.textContent).toBe("/kolu");
     expect(
       document.querySelector('[data-testid="tile-tip-rest"]')?.textContent,
@@ -186,10 +221,24 @@ describe("TileTip — the bar for each rung", () => {
     ).toBe("kolu plugin");
   });
 
-  it("is the app accent with the app background as its type", () => {
+  it("tone Tint: the surface washed with the accent, an accent lead and left edge, a solid accent chip, a muted source", () => {
     mount();
-    expect(bar()?.className).toContain("bg-accent");
-    expect(bar()?.className).toContain("text-surface-0");
+    const cls = bar()?.className ?? "";
+    expect(cls).toContain(
+      "bg-[color-mix(in_oklch,var(--color-accent)_22%,var(--color-surface-0))]",
+    );
+    expect(cls).toContain("text-fg");
+    expect(cls).toContain("border-l-4");
+    expect(cls).toContain("border-accent");
+    expect(bar()?.querySelector(".font-bold")?.className).toContain(
+      "text-accent",
+    );
+    expect(chip()?.className).toContain("bg-accent");
+    expect(chip()?.className).toContain("text-surface-0");
+    expect(
+      document.querySelector('[data-testid="tile-tip-source"]')?.className,
+    ).toContain("text-fg-3");
+    expect(collapse()?.className).toContain("text-fg-3");
   });
 });
 
@@ -220,7 +269,7 @@ describe("TileTip — the chip types for you", () => {
       state.typed.length = 0;
       state.setMeta(live({ foreground: running(harness) }));
       mount();
-      expect(bar()?.getAttribute("data-tip-id")).toBe(`tip-skill:${harness}`);
+      expect(slot()?.getAttribute("data-tip-id")).toBe(`tip-skill:${harness}`);
       chip()?.click();
       expect(state.typed).toEqual([
         { id: "t-1", text: "/kolu ", enter: false },
@@ -231,7 +280,12 @@ describe("TileTip — the chip types for you", () => {
   it("the rest of the bar is not a click target", () => {
     state.setMeta(live(CLAUDE_STARTED));
     mount();
-    expect(bar()?.querySelectorAll("button")).toHaveLength(1);
+    // The chip, and the chevron that folds the bar.
+    expect(
+      Array.from(bar()?.querySelectorAll("button") ?? []).map((b) =>
+        b.getAttribute("data-testid"),
+      ),
+    ).toEqual(["tile-tip-chip", "tile-tip-collapse"]);
     document
       .querySelector<HTMLElement>('[data-testid="tile-tip-rest"]')
       ?.click();
@@ -317,18 +371,18 @@ describe("TileTip — pops in and out", () => {
     state.setActiveId("t-2");
     expect(chip()?.textContent).toBe("claude");
     expect(bar()?.hasAttribute("inert")).toBe(true);
-    expect(bar()?.getAttribute("aria-label")).toBeNull();
+    expect(slot()?.getAttribute("aria-label")).toBeNull();
   });
 
   it("follows the state: launching a harness turns the launch tip into the skill tip, and back at the shell", () => {
     mount();
-    expect(bar()?.getAttribute("data-tip-id")).toBe("tip-launch-agent");
+    expect(slot()?.getAttribute("data-tip-id")).toBe("tip-launch-agent");
     state.setMeta(live(CLAUDE_STARTED));
-    expect(bar()?.getAttribute("data-tip-id")).toBe("tip-skill:claude");
+    expect(slot()?.getAttribute("data-tip-id")).toBe("tip-skill:claude");
     state.setMeta(live(CLAUDE_WAITING));
-    expect(bar()?.getAttribute("data-tip-id")).toBe("tip-skill:claude");
+    expect(slot()?.getAttribute("data-tip-id")).toBe("tip-skill:claude");
     state.setMeta(live());
-    expect(bar()?.getAttribute("data-tip-id")).toBe("tip-launch-agent");
+    expect(slot()?.getAttribute("data-tip-id")).toBe("tip-launch-agent");
   });
 
   it("folds outside a repo (there is no cd tip)", () => {
@@ -374,7 +428,91 @@ describe("TileTip — pops in and out", () => {
     expect(isOpen()).toBe(false);
     expect(chip()).toBeNull();
     state.setMeta(live());
-    expect(bar()?.getAttribute("data-tip-id")).toBe("tip-launch-agent");
+    expect(slot()?.getAttribute("data-tip-id")).toBe("tip-launch-agent");
+  });
+});
+
+describe("TileTip — two sizes: the bar and the tab", () => {
+  it("the bar's chevron folds it to the tab: the terminal gets its rows back, the tab shows the lead", () => {
+    mount();
+    expect(isOpen()).toBe(true);
+    expect(tabOpen()).toBe(false);
+    expect(tab()?.closest("[inert]")).not.toBeNull();
+    collapse()?.click();
+    expect(state.collapsed()).toBe(true);
+    expect(isOpen()).toBe(false);
+    expect(bar()?.style.height).toBe("0px");
+    expect(tabOpen()).toBe(true);
+    expect(tab()?.closest("[inert]")).toBeNull();
+    expect(tab()?.textContent).toBe("Launch an agent");
+    expect(tab()?.getAttribute("aria-label")).toBe(
+      "Open the tip: Launch an agent",
+    );
+    expect(slot()?.getAttribute("data-size")).toBe("tab");
+    // Folding typed nothing.
+    expect(state.typed).toEqual([]);
+  });
+
+  it("the tab carries the whole sentence as its tooltip, and opens the bar", () => {
+    state.setCollapsed(true);
+    state.setMeta(live(CLAUDE_STARTED));
+    mount();
+    expect(tab()?.textContent).toBe("Try a skill");
+    expect(tab()?.closest("[data-tooltip]")?.getAttribute("data-tooltip")).toBe(
+      "Try a skill: /kolu — drive one AI agent from another through kolu's terminals",
+    );
+    tab()?.click();
+    expect(state.collapsed()).toBe(false);
+    expect(isOpen()).toBe(true);
+    expect(tabOpen()).toBe(false);
+    expect(state.typed).toEqual([]);
+  });
+
+  it("the tab slides down from under the title bar with the same 220ms motion", () => {
+    state.setCollapsed(true);
+    mount();
+    expect(tab()?.style.transform).toBe("none");
+    const cls = tab()?.className ?? "";
+    expect(cls).toContain("duration-[220ms]");
+    expect(cls).toContain("motion-reduce:transition-none");
+    state.setActiveId("t-2");
+    expect(tabOpen()).toBe(false);
+    expect(tab()?.style.transform).toBe("translateY(-100%)");
+  });
+
+  it("the tab follows the state too: no tip, no tab", () => {
+    state.setCollapsed(true);
+    mount();
+    expect(slot()?.getAttribute("data-tip-id")).toBe("tip-launch-agent");
+    state.setMeta(live(CLAUDE_STARTED));
+    expect(slot()?.getAttribute("data-tip-id")).toBe("tip-skill:claude");
+    expect(tab()?.textContent).toBe("Try a skill");
+    state.setMeta(live({ ...CLAUDE_WAITING, promptedAt: 1000 }));
+    expect(tabOpen()).toBe(false);
+    expect(isOpen()).toBe(false);
+    expect(slot()?.hasAttribute("data-tip-id")).toBe(false);
+  });
+
+  it("the tab takes the same tone", () => {
+    state.setCollapsed(true);
+    mount();
+    const cls = tab()?.className ?? "";
+    expect(cls).toContain(
+      "bg-[color-mix(in_oklch,var(--color-accent)_22%,var(--color-surface-0))]",
+    );
+    expect(cls).toContain("border-accent");
+    expect(tab()?.querySelector("span")?.className).toContain("text-accent");
+  });
+
+  it("a press on the tab neither selects nor drags the tile", () => {
+    state.setCollapsed(true);
+    mount();
+    const seen: string[] = [];
+    for (const type of ["mousedown", "pointerdown"])
+      host.addEventListener(type, () => seen.push(type));
+    tab()?.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
+    tab()?.dispatchEvent(new Event("pointerdown", { bubbles: true }));
+    expect(seen).toEqual([]);
   });
 });
 
@@ -383,6 +521,8 @@ describe("TileTip — where there is none", () => {
     state.setTipsOn(false);
     mount();
     expect(isOpen()).toBe(false);
+    state.setCollapsed(true);
+    expect(tabOpen()).toBe(false);
   });
 
   it("on a sleeping terminal", () => {

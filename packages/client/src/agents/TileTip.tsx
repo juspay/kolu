@@ -9,9 +9,13 @@
  *  chip types its harness and presses Enter; the skill chip inserts the skill
  *  into the agent's input with no Enter. Chips never wrap or get cut: those
  *  that do not fit go behind a `+N` chip, whose menu launches the rest.
- *  Nothing is remembered: the bar opens while its state holds and folds away
- *  otherwise, and the terminal below gives up the bar's height meanwhile.
- *  Only where the ambient tips show at all (`showsAmbientTips`). */
+ *  The tip has two sizes, one switch for every tile (`tipBarSize`): the full
+ *  bar, which the terminal below gives up its height to, or a small tab with
+ *  just the lead, hanging from the title bar's bottom-right edge over the
+ *  terminal. The bar's chevron folds it to the tab; the tab opens the bar.
+ *  Which tip shows is never remembered: the bar or tab appears while its
+ *  state holds and goes otherwise. Only where the ambient tips show at all
+ *  (`showsAmbientTips`). */
 
 import AgentDistroLogo from "@kolu/agent-distro/solid";
 import { activeArm } from "@kolu/padi-client/surface";
@@ -31,7 +35,9 @@ import { runAction } from "../runAction";
 import { tileTipSentence } from "../settings/tips";
 import { useTerminalCrud } from "../terminal/useTerminalCrud";
 import { useTerminalStore } from "../terminal/useTerminalStore";
+import { ChevronDownIcon, ChevronUpIcon } from "../ui/Icons";
 import { OptionMenu } from "../ui/OptionMenu";
+import Tooltip from "../ui/Tip";
 import { chipsThatFit } from "./chipFit";
 import { PLUGIN_SKILLS } from "./pluginSkills";
 import {
@@ -42,6 +48,7 @@ import {
   type TipChip,
   terminalTip,
 } from "./terminalTip";
+import { setTipBarCollapsed, tipBarCollapsed } from "./tipBarSize";
 import { agentDistroListing } from "./useAgentDistro";
 
 /** One string per distinct tip, so an unchanged answer does not repaint. */
@@ -71,7 +78,8 @@ function chipLabel(action: TipAction): string {
 /** A chip's box. The measuring copies share it, so they measure true. */
 const CHIP =
   "shrink-0 rounded-[6px] px-[10px] py-[6px] font-mono text-[13px] font-semibold whitespace-nowrap";
-const CHIP_BUTTON = `${CHIP} cursor-pointer bg-[color-mix(in_srgb,currentColor_16%,transparent)] hover:bg-[color-mix(in_srgb,currentColor_24%,transparent)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-current`;
+/** The chip is the button, so it is the brightest thing on the tip. */
+const CHIP_BUTTON = `${CHIP} cursor-pointer bg-accent text-surface-0 hover:brightness-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-fg focus-visible:ring-offset-1 focus-visible:ring-offset-surface-0`;
 /** The space between two chips, px. */
 const CHIP_GAP = 6;
 
@@ -79,6 +87,12 @@ const CHIP_GAP = 6;
  *  motion. */
 const POP =
   "duration-[220ms] ease-[cubic-bezier(.2,.8,.2,1)] motion-reduce:transition-none";
+
+/** Tone "Tint": the chrome's dark surface washed with the accent, the app's
+ *  type on it, and a 4px accent edge on the left. The bar and the tab share
+ *  it. */
+const TINT =
+  "bg-[color-mix(in_oklch,var(--color-accent)_22%,var(--color-surface-0))] text-fg border-l-4 border-accent";
 
 const TileTip: Component<{ id: TerminalId }> = (props) => {
   const store = useTerminalStore();
@@ -104,9 +118,12 @@ const TileTip: Component<{ id: TerminalId }> = (props) => {
     { equals: (a, b) => tipKey(a) === tipKey(b) },
   );
 
+  /** A tip to show, at either size. */
   const open = () => answer().kind === "tip";
-  // The last tip shown, kept while the bar folds away so it leaves with its
-  // words rather than going blank first.
+  const barOpen = () => open() && !tipBarCollapsed();
+  const tabOpen = () => open() && tipBarCollapsed();
+  // The last tip shown, kept while the bar or tab folds away so it leaves with
+  // its words rather than going blank first.
   const shown = createMemo<Tip | undefined>((prev) => {
     const a = answer();
     return a.kind === "tip" ? a : prev;
@@ -138,15 +155,15 @@ const TileTip: Component<{ id: TerminalId }> = (props) => {
 
   return (
     <div
-      data-testid="tile-tip"
-      data-open={open() ? "" : undefined}
+      data-testid="tile-tip-slot"
       data-tip-id={open() ? shown()?.id : undefined}
+      data-size={tipBarCollapsed() ? "tab" : "bar"}
       role="status"
       aria-label={sentence()}
-      inert={!open()}
-      class={`shrink-0 overflow-hidden select-none bg-accent text-surface-0 transition-[height] ${POP}`}
-      style={{ height: open() ? "36px" : "0px" }}
-      // The bar is chrome: a press on it neither selects nor drags the tile,
+      // Above the terminal (the tab hangs over its top edge), below the find
+      // bar (`z-10` in the body).
+      class="relative z-[5] shrink-0 select-none"
+      // The tip is chrome: a press on it neither selects nor drags the tile,
       // and does not take focus from the terminal (the chip types into it).
       // Native listeners, so the press stops here — Solid's delegated
       // handlers run at the document, after the tile's own listeners.
@@ -156,30 +173,91 @@ const TileTip: Component<{ id: TerminalId }> = (props) => {
         e.stopPropagation();
       }}
     >
-      <Show when={shown()}>
-        {(t) => (
-          <div
-            class={`flex h-9 items-center gap-[10px] px-[14px] text-[14px] leading-none origin-top transition-[transform,opacity] ${POP}`}
-            style={{
-              opacity: open() ? 1 : 0,
-              transform: open() ? "none" : "translateY(-60%) scaleY(.7)",
-            }}
-          >
-            <span class="shrink-0 font-bold">{t().copy.lead}</span>
-            <ChipRow
-              chips={t().chips}
-              fill={t().copy.rest === ""}
-              onAct={act}
-            />
-            <Show when={t().copy.rest !== ""}>
-              <span data-testid="tile-tip-rest" class="min-w-0 flex-1 truncate">
-                {t().copy.rest}
+      <div
+        data-testid="tile-tip"
+        data-open={barOpen() ? "" : undefined}
+        inert={!barOpen()}
+        class={`overflow-hidden ${TINT} transition-[height] ${POP}`}
+        style={{ height: barOpen() ? "36px" : "0px" }}
+      >
+        <Show when={shown()}>
+          {(t) => (
+            <div
+              class={`flex h-9 items-center gap-[10px] pl-[10px] pr-[6px] text-[14px] leading-none origin-top transition-[transform,opacity] ${POP}`}
+              style={{
+                opacity: barOpen() ? 1 : 0,
+                transform: barOpen() ? "none" : "translateY(-60%) scaleY(.7)",
+              }}
+            >
+              <span class="shrink-0 font-bold text-accent">
+                {t().copy.lead}
               </span>
-            </Show>
-            <TipSourceMark source={t().source} />
-          </div>
-        )}
-      </Show>
+              <ChipRow
+                chips={t().chips}
+                fill={t().copy.rest === ""}
+                onAct={act}
+              />
+              <Show when={t().copy.rest !== ""}>
+                <span
+                  data-testid="tile-tip-rest"
+                  class="min-w-0 flex-1 truncate"
+                >
+                  {t().copy.rest}
+                </span>
+              </Show>
+              <TipSourceMark source={t().source} />
+              <button
+                type="button"
+                data-testid="tile-tip-collapse"
+                aria-label="Fold the tip to a tab"
+                class="flex size-6 shrink-0 cursor-pointer items-center justify-center rounded-[6px] text-fg-3 hover:bg-[color-mix(in_srgb,currentColor_16%,transparent)] hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setTipBarCollapsed(true);
+                }}
+              >
+                <ChevronUpIcon class="size-4" />
+              </button>
+            </div>
+          )}
+        </Show>
+      </div>
+      {/* The tab hangs from the title bar's bottom edge, over the terminal:
+       *  it slides down from under the title bar, inside a 22px clip. */}
+      <div
+        class="pointer-events-none absolute right-[14px] top-full h-[22px] overflow-hidden"
+        inert={!tabOpen()}
+      >
+        <Show when={shown()}>
+          {(t) => (
+            <Tooltip
+              // The clip around it takes no pointer; the trigger must, or the
+              // tooltip never hears the hover.
+              class="pointer-events-auto"
+              label={tileTipSentence(t().copy)}
+            >
+              <button
+                type="button"
+                data-testid="tile-tip-tab"
+                data-open={tabOpen() ? "" : undefined}
+                aria-label={`Open the tip: ${t().copy.lead}`}
+                class={`flex h-[22px] cursor-pointer items-center gap-1 rounded-b-[6px] pl-2 pr-1.5 text-[12px] font-bold leading-none ${TINT} transition-[transform,opacity] ${POP} focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent`}
+                style={{
+                  opacity: tabOpen() ? 1 : 0,
+                  transform: tabOpen() ? "none" : "translateY(-100%)",
+                }}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setTipBarCollapsed(false);
+                }}
+              >
+                <span class="text-accent">{t().copy.lead}</span>
+                <ChevronDownIcon class="size-3.5 text-fg-3" />
+              </button>
+            </Tooltip>
+          )}
+        </Show>
+      </div>
     </div>
   );
 };
@@ -312,7 +390,7 @@ const TipSourceMark: Component<{ source: Tip["source"] }> = (props) => {
   return (
     <span
       data-testid="tile-tip-source"
-      class="flex shrink-0 items-center gap-1.5 text-[12px] opacity-80"
+      class="flex shrink-0 items-center gap-1.5 text-[12px] text-fg-3"
     >
       <AgentDistroLogo size={14} />
       {label()}
