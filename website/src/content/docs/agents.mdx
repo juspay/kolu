@@ -94,7 +94,9 @@ Besides the sets kolu ships, **Custom** takes a profile of your own: an
 (`github:you/your-profile`) or by a path to its directory
 (`~/src/my-profile`). Pick **Custom**, type the reference and press **Enter**
 (or **Use**). Anything without a `/` or a `:` is refused right there, since it
-would read as the name of a built-in set.
+would read as the name of a built-in set. So is a relative path (`./x`,
+`../x`): every terminal gets the reference whatever folder it opens in, so a
+path must be absolute or start with `~/`.
 
 kolu does not read the reference itself. New terminals get the stock
 (**vanilla**) agents with the reference as `AI_PROFILE`, and agent-distro
@@ -110,6 +112,11 @@ the profile in this order —
 So inside a repository that carries its own `agent-distro.nix`, that one wins,
 whatever the setting says. Each tile's pill tells you which one is in effect
 there ([below](#new-terminals-only-and-each-one-says-which)).
+
+Opening a terminal in a repository runs that repository's `agent-distro.nix`
+through agent-distro, before you type anything, to tell the pill which profile
+is in effect. A repository's profile brings its own plugins and MCP servers, so
+only open terminals in repositories you trust, as with a `.envrc`.
 
 ## New terminals only, and each one says which
 
