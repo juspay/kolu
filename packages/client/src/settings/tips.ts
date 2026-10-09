@@ -62,66 +62,36 @@ export const CONTEXTUAL_TIPS = {
   },
 } as const satisfies Record<string, Tip>;
 
-/** One run of a tile tip's text — plain words, or a `code` run (a command or
- *  name the user types), which the title-bar pill sets in monospace. */
-export type TileTipPart = string | { readonly code: string };
-
-/** A tile tip's words: the short `parts` the pill shows, and the full
- *  `sentence` its hover shows (the pill is cut to fit a title bar). */
-export interface TileTipCopy {
-  readonly parts: readonly TileTipPart[];
-  readonly sentence: string;
-}
-
-/** The tile title bar's tips (`agents/TileTip.tsx`) — one per terminal, chosen
- *  by `agents/terminalTip.ts` from what that terminal is doing. Their text is
- *  built from the terminal's facts, so each entry is an id plus a builder. They
- *  are readouts of the terminal's state, not shown-once tips: nothing is stored
- *  under their ids. */
+/** The tips painted inside a tile's terminal body (`agents/TileTip.tsx`) —
+ *  one per terminal, chosen by `agents/terminalTip.ts` from what that terminal
+ *  is doing. Their text is built from the terminal's facts, so each entry is an
+ *  id plus a builder. They are readouts of the terminal's state, not shown-once
+ *  tips: nothing is stored under their ids. */
 export const TILE_TIPS = {
   /** A shell outside any git repo. */
   cdRepo: {
     id: "tip-cd-repo",
-    copy: (): TileTipCopy => ({
-      parts: ["Start in a project: ", { code: "cd" }, " into a git repo"],
-      sentence: "Start in a project: cd into a git repo",
-    }),
+    text: (): string => "Start in a project: cd into a git repo",
   },
   /** A shell in a repo, with agents on its PATH. */
   launchAgent: {
     id: "tip-launch-agent",
-    copy: (harness: string): TileTipCopy => ({
-      parts: ["Launch ", { code: harness }, " or ", { code: "agent-distro" }],
-      sentence: `Launch an agent: ${harness}, or agent-distro to pick one`,
-    }),
+    text: (harness: string): string =>
+      `Launch an agent: ${harness}, or agent-distro to pick one`,
   },
   /** An agent at its first prompt. */
   skill: {
     id: (kind: AgentKind): TipId => `tip-skill:${kind}`,
-    copy: (
+    text: (
       kind: AgentKind,
       skill: { readonly name: string; readonly blurb: string },
-    ): TileTipCopy => {
+    ): string => {
       const how = skillInvocation(kind);
       switch (how) {
         case "slash":
-          return {
-            parts: [
-              "Try a skill: ",
-              { code: `/${skill.name}` },
-              ` — ${skill.blurb}`,
-            ],
-            sentence: `Try a skill: type /${skill.name} at the prompt — ${skill.blurb}`,
-          };
+          return `Try a skill: type /${skill.name} at the prompt — ${skill.blurb}`;
         case "words":
-          return {
-            parts: [
-              "Try a skill: ask it to use the ",
-              { code: skill.name },
-              ` skill — ${skill.blurb}`,
-            ],
-            sentence: `Try a skill: ask the agent to use the ${skill.name} skill — ${skill.blurb}`,
-          };
+          return `Try a skill: ask the agent to use the ${skill.name} skill — ${skill.blurb}`;
         default:
           throw new Error(
             `TILE_TIPS.skill: unhandled invocation ${how satisfies never}`,

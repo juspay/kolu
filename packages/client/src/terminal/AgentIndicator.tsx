@@ -59,10 +59,8 @@ const AgentIndicator: Component<{ agent: AgentInfo }> = (props) => {
       data-agent-state={props.agent.state}
       title={`${name()}: ${label()}`}
     >
-      {/* Static label — no spin/pulse; activity motion is the StatePip.
-       *  It drops out under a narrow title bar (the canvas bar is a size
-       *  container), giving its room to the title. */}
-      <span class="hidden sm:inline @max-xl:hidden">{label()}</span>
+      {/* Static label — no spin/pulse; activity motion is the StatePip. */}
+      <span class="hidden sm:inline">{label()}</span>
       {/* Wrap the value in an object so `<Show>`'s truthy check fires
        *  even when `contextTokens` is `0` — a legitimate value for a
        *  synthetic assistant entry with a zeroed usage block. Show's

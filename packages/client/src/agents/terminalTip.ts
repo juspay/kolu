@@ -1,5 +1,6 @@
-/** The tile title bar's tip — which ONE thing to suggest for a terminal, given
- *  what that terminal is doing. Pure: no Solid, no I/O; `TileTip.tsx` feeds it.
+/** The tip inside a tile's terminal body — which ONE thing to suggest for a
+ *  terminal, given what that terminal is doing, and where in the body it goes.
+ *  Pure: no Solid, no I/O; `TileTip.tsx` feeds it.
  *
  *  A tip is a readout of the terminal's state: it shows whenever its condition
  *  holds and goes when it no longer does. Nothing is remembered. Three rungs:
@@ -7,11 +8,14 @@
  *    2. the shell in front, in a repo, this terminal has agents → "launch
  *       <first harness>";
  *    3. an agent at its first prompt, this terminal has agents → a plugin skill.
+ *  Rungs 1–2 sit on the prompt line, after the cursor (where a shell's own
+ *  autosuggestion would); rung 3 sits top-right, since the agent owns the
+ *  bottom of the screen.
  *
  *  Otherwise `quiet`, with why: the state calls for no tip, or nobody could see
- *  one here (not the active tile, off-screen, a slot too narrow to read, a
- *  command in front of the shell). Pending facts are not faults; broken
- *  invariants throw. */
+ *  one here (not the active tile, off-screen, text too small to read, the find
+ *  bar open, a command in front of the shell, no room on the prompt line).
+ *  Pending facts are not faults; broken invariants throw. */
 
 import type { TerminalAgents } from "@kolu/agent-distro/schema";
 import { agentBucket } from "@kolu/terminal-vocab/agentProjection";
@@ -21,22 +25,30 @@ import type {
   GitFact,
 } from "@kolu/terminal-vocab/schema";
 import type { AgentDistroListing } from "kolu-common/surface";
-import { TILE_TIPS, type TileTipCopy, type TipId } from "../settings/tips";
+import { TILE_TIPS, type TipId } from "../settings/tips";
 import type { PluginSkill } from "./pluginSkills";
 
-/** The narrowest tip slot (on-screen px) a tip shows in — below it the pill
- *  would be a few letters. */
-export const TIP_MIN_SLOT_PX = 140;
+/** The smallest on-screen cell height (px) a tip shows at — below it the
+ *  terminal's text, and the tip in the same font, is too small to read. */
+export const TIP_MIN_CELL_PX = 10;
+
+/** The fewest empty cells right of the cursor a prompt-line tip shows in. */
+export const TIP_MIN_PROMPT_CELLS = 20;
 
 /** Where the tip would show. */
 export interface TipPlace {
   /** This terminal's tile is the active one. */
   readonly active: boolean;
-  /** The tile is within the canvas viewport. */
+  /** The terminal pane is on screen. */
   readonly onScreen: boolean;
-  /** The room the title and actions leave for the tip, in on-screen px (layout
-   *  width × canvas zoom); `null` until it is measured. */
-  readonly slotPx: number | null;
+  /** One cell's height on screen (layout height × the scale it is drawn at);
+   *  `null` until the grid is measured. */
+  readonly cellPx: number | null;
+  /** The terminal's find bar is open. */
+  readonly findOpen: boolean;
+  /** Empty cells on the prompt line from one cell right of the cursor to the
+   *  right edge; `null` while the cursor is out of view or unmeasured. */
+  readonly promptCells: number | null;
 }
 
 /** What the fold reads off one terminal and the app. */
@@ -58,25 +70,34 @@ export interface TerminalTipFacts {
   readonly skills: readonly PluginSkill[];
 }
 
+/** Where in the body a tip paints: on the prompt line after the cursor, or
+ *  the top-right corner. */
+export type TipAnchor = "prompt" | "top-right";
+
 /** `id` names the rung (for `data-tip-id` and tests); nothing is stored
  *  under it. */
 export type TerminalTip =
-  | { readonly kind: "tip"; readonly id: TipId; readonly copy: TileTipCopy }
+  | {
+      readonly kind: "tip";
+      readonly id: TipId;
+      readonly text: string;
+      readonly anchor: TipAnchor;
+    }
   | Quiet;
 
 export type Quiet = { readonly kind: "quiet"; readonly why: string };
 
 export const quiet = (why: string): Quiet => ({ kind: "quiet", why });
 
-/** The tip the terminal's state calls for, before asking whether it can be seen.
- *  `shellInFront`: the tip talks about the shell (rungs 1–2), so it needs the
- *  shell to be what is in front. */
+/** The tip the terminal's state calls for, before asking whether it can be
+ *  seen. A `prompt` tip talks about the shell (rungs 1–2), so it also needs the
+ *  shell in front and room on its prompt line. */
 type Candidate =
   | {
       readonly kind: "tip";
       readonly id: TipId;
-      readonly copy: TileTipCopy;
-      readonly shellInFront: boolean;
+      readonly text: string;
+      readonly anchor: TipAnchor;
     }
   | Quiet;
 
@@ -84,27 +105,39 @@ type Candidate =
 export function terminalTip(facts: TerminalTipFacts): TerminalTip {
   const c = candidate(facts);
   if (c.kind === "quiet") return c;
-  const why = unseeableBecause(facts, c.shellInFront);
+  const why = unseeableBecause(facts, c.anchor);
   if (why !== null) return quiet(why);
-  return { kind: "tip", id: c.id, copy: c.copy };
+  return c;
 }
 
 /** Why nobody could see a tip on this tile right now, or `null` if they could. */
 function unseeableBecause(
   facts: TerminalTipFacts,
-  shellInFront: boolean,
+  anchor: TipAnchor,
 ): string | null {
   const place = facts.place;
   if (!place.active) return "not the active tile";
   if (!place.onScreen) return "off-screen";
-  if (place.slotPx === null) return "tip slot not measured yet";
-  if (place.slotPx < TIP_MIN_SLOT_PX) return "too narrow";
+  if (place.cellPx === null) return "terminal not measured yet";
+  if (place.cellPx < TIP_MIN_CELL_PX) return "text too small to read";
+  if (place.findOpen) return "the find bar is open";
+  switch (anchor) {
+    case "top-right":
+      return null;
+    case "prompt":
+      break;
+    default:
+      throw new Error(
+        `terminalTip: unhandled anchor ${anchor satisfies never}`,
+      );
+  }
   // Rungs 1 and 2 talk about the shell, so the shell must be what is in front:
   // `ssh host` or `vim` outside a repo is not a moment to suggest `cd`.
-  if (shellInFront) {
-    if (facts.foreground === null) return "foreground not sampled yet";
-    if (!facts.foreground.shell) return "a command is running";
-  }
+  if (facts.foreground === null) return "foreground not sampled yet";
+  if (!facts.foreground.shell) return "a command is running";
+  if (place.promptCells === null) return "the prompt line is out of view";
+  if (place.promptCells < TIP_MIN_PROMPT_CELLS)
+    return "no room on the prompt line";
   return null;
 }
 
@@ -137,8 +170,8 @@ function candidate(facts: TerminalTipFacts): Candidate {
     return {
       kind: "tip",
       id: TILE_TIPS.skill.id(agent.kind),
-      copy: TILE_TIPS.skill.copy(agent.kind, skill),
-      shellInFront: false,
+      text: TILE_TIPS.skill.text(agent.kind, skill),
+      anchor: "top-right",
     };
   }
 
@@ -149,8 +182,8 @@ function candidate(facts: TerminalTipFacts): Candidate {
       return {
         kind: "tip",
         id: TILE_TIPS.cdRepo.id,
-        copy: TILE_TIPS.cdRepo.copy(),
-        shellInFront: true,
+        text: TILE_TIPS.cdRepo.text(),
+        anchor: "prompt",
       };
     case "repo":
       break;
@@ -176,7 +209,7 @@ function candidate(facts: TerminalTipFacts): Candidate {
   return {
     kind: "tip",
     id: TILE_TIPS.launchAgent.id,
-    copy: TILE_TIPS.launchAgent.copy(first.name),
-    shellInFront: true,
+    text: TILE_TIPS.launchAgent.text(first.name),
+    anchor: "prompt",
   };
 }

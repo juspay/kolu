@@ -10,14 +10,7 @@
  *  tile `id` and its `host` (the agents-staleness check reads that host's
  *  status). Extracted from App.tsx per kolu#626. */
 
-import {
-  agentRestartAction,
-  agentRestartReady,
-  agentStalenessOf,
-} from "@kolu/agent-distro/status";
 import { activeArm, sleepingArm } from "@kolu/padi-client/surface";
-import { agentLive } from "@kolu/terminal-vocab/agentProjection";
-import type { HostKey } from "kolu-common/hostKey";
 import type { TerminalId } from "kolu-common/surface";
 import { type Component, createMemo, Show } from "solid-js";
 import AgentProfileChip, { type ChipRestart } from "../agents/AgentProfileChip";
@@ -26,6 +19,12 @@ import {
   agentsWhere,
   hostAgentStatusOf,
 } from "../agents/useAgentDistro";
+import {
+  agentRestartAction,
+  agentRestartReady,
+  agentStalenessOf,
+} from "@kolu/agent-distro/status";
+import { agentLive } from "@kolu/terminal-vocab/agentProjection";
 import { ACTIONS } from "../input/actions";
 import { useRightPanel } from "../right-panel/useRightPanel";
 import { runAction, runActionPromise, type UiAction } from "../runAction";
@@ -47,6 +46,7 @@ import {
 import Tip from "../ui/Tip";
 import { useCommandPalette } from "../useCommandPalette";
 import { useThemeManager } from "../useThemeManager";
+import type { HostKey } from "kolu-common/hostKey";
 
 /** Tile chrome buttons share this affordance. Theme pill is wider — it shows
  *  the theme name. Other buttons are square. */

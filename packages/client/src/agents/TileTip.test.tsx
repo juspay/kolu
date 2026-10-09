@@ -1,16 +1,22 @@
 // @vitest-environment happy-dom
 /**
- * The title-bar tip, mounted against mocked app state. It renders the fold's
- * answer and nothing else:
+ * The tip inside the terminal body, mounted against mocked app state and a
+ * scripted pane view. It renders the fold's answer and nothing else:
+ *  - rungs 1–2 paint on the prompt line, one cell right of the cursor; rung 3
+ *    paints top-right, inset one cell;
  *  - a tip shows whenever its state holds and the tile can be seen, and goes
- *    the moment either stops — another tile active, off-screen, a slot too
- *    narrow, a command in front;
+ *    the moment either stops — another tile active, off-screen, zoomed out too
+ *    far to read, the find bar open, no room on the prompt line, a command in
+ *    front;
  *  - it comes back every time it is earned again (nothing is remembered);
  *  - git not yet resolved is not "not a repo": no rung-1 flash before rung 2;
  *  - ambient tips off, or a sleeping terminal: no tip;
  *  - there is no dismiss button.
  */
 
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { createSignal } from "solid-js";
 import { render } from "solid-js/web";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -82,8 +88,21 @@ function active(over: Record<string, unknown> = {}) {
   };
 }
 
-const [width, setWidth] = createSignal<number | null>(400);
+/** An 80×24 grid of 9×17px cells, drawn 4px right and 2px down in the pane,
+ *  the cursor at column 10 of row 3. */
+const GRID = {
+  cols: 80,
+  rows: 24,
+  cellW: 9,
+  cellH: 17,
+  originX: 4,
+  originY: 2,
+  cursor: { col: 10, row: 3 } as { col: number; row: number } | null,
+};
+const [grid, setGrid] = createSignal<typeof GRID | null>(GRID);
 const [onScreen, setOnScreen] = createSignal(true);
+const [scale, setScale] = createSignal(1);
+const [findOpen, setFindOpen] = createSignal(false);
 
 let dispose: (() => void) | undefined;
 function mount() {
@@ -91,7 +110,16 @@ function mount() {
   const root = document.createElement("div");
   document.body.append(root);
   dispose = render(
-    () => <TileTip id={"t-1" as never} slot={{ px: width, onScreen }} />,
+    () => (
+      <TileTip
+        id={"t-1" as never}
+        view={{ grid, onScreen, scale }}
+        findOpen={findOpen}
+        fontFamily="monospace"
+        fontSize={() => 14}
+        color={() => "#969896"}
+      />
+    ),
     root,
   );
 }
@@ -101,8 +129,10 @@ beforeEach(() => {
   state.setTipsOn(true);
   state.setActiveId("t-1");
   state.setMeta(active());
-  setWidth(400);
+  setGrid(GRID);
   setOnScreen(true);
+  setScale(1);
+  setFindOpen(false);
 });
 afterEach(() => {
   dispose?.();
@@ -121,7 +151,7 @@ describe("TileTip", () => {
     expect(tip()?.textContent).toContain("into a git repo");
   });
 
-  it("has no dismiss button", () => {
+  it("has no dismiss button and no hover", () => {
     mount();
     expect(tip()).not.toBeNull();
     expect(tip()?.querySelector("button")).toBeNull();
@@ -163,12 +193,15 @@ describe("TileTip", () => {
     expect(tipId()).toBe("tip-launch-agent");
   });
 
-  it("the hover and the label carry the full sentence", () => {
+  it("reads the whole sentence, as ghost text that takes no input", () => {
     mount();
-    expect(tip()?.textContent).toContain("Launch claude or agent-distro");
-    expect(tip()?.getAttribute("aria-label")).toBe(
+    expect(tip()?.textContent).toBe(
       "Launch an agent: claude, or agent-distro to pick one",
     );
+    const style = (tip() as HTMLElement).style;
+    expect(tip()?.classList.contains("pointer-events-none")).toBe(true);
+    expect(style.color).toBe("#969896");
+    expect(style.fontFamily).toBe("monospace");
   });
 
   it("with the ambient tips off: nothing renders", () => {
@@ -191,9 +224,20 @@ describe("TileTip — shown only where it can be seen", () => {
       () => state.setActiveId("t-2"),
       () => state.setActiveId("t-1"),
     ],
-    ["the slot too narrow", () => setWidth(100), () => setWidth(400)],
-    ["the slot not measured yet", () => setWidth(null), () => setWidth(400)],
+    ["zoomed out too far to read", () => setScale(0.4), () => setScale(1)],
+    ["the grid not measured yet", () => setGrid(null), () => setGrid(GRID)],
     ["off-screen", () => setOnScreen(false), () => setOnScreen(true)],
+    ["the find bar open", () => setFindOpen(true), () => setFindOpen(false)],
+    [
+      "no room on the prompt line",
+      () => setGrid({ ...GRID, cursor: { col: 70, row: 3 } }),
+      () => setGrid(GRID),
+    ],
+    [
+      "the cursor scrolled out of view",
+      () => setGrid({ ...GRID, cursor: null }),
+      () => setGrid(GRID),
+    ],
     [
       "a command in front of the shell",
       () =>
@@ -220,4 +264,71 @@ describe("TileTip — shown only where it can be seen", () => {
       expect(tipId()).toBe("tip-launch-agent");
     });
   }
+});
+
+describe("TileTip — where it paints", () => {
+  const box = () => {
+    const st = (tip() as HTMLElement).style;
+    return {
+      left: st.left,
+      top: st.top,
+      width: st.width,
+      height: st.height,
+      align: st.textAlign,
+    };
+  };
+
+  it("rungs 1–2: on the prompt line, one cell right of the cursor, to the right edge", () => {
+    mount();
+    expect(tipId()).toBe("tip-launch-agent");
+    expect(tip()?.getAttribute("data-tip-anchor")).toBe("prompt");
+    // left = 4 + (10 + 1) × 9, top = 2 + 3 × 17, width = (80 − 11) × 9.
+    expect(box()).toEqual({
+      left: "103px",
+      top: "53px",
+      width: "621px",
+      height: "17px",
+      align: "left",
+    });
+  });
+
+  it("follows the cursor", () => {
+    mount();
+    setGrid({ ...GRID, cursor: { col: 30, row: 5 } });
+    expect(box()).toMatchObject({ left: "283px", top: "87px", width: "441px" });
+  });
+
+  it("rung 3: top-right, inset one cell from the top and right edges", () => {
+    state.setMeta(active({ agent: { kind: "claude-code", state: "waiting" } }));
+    mount();
+    expect(tip()?.getAttribute("data-tip-anchor")).toBe("top-right");
+    // left = 4 + 9, top = 2 + 17, width = (80 − 2) × 9: right edge one cell in.
+    expect(box()).toEqual({
+      left: "13px",
+      top: "19px",
+      width: "702px",
+      height: "17px",
+      align: "right",
+    });
+  });
+});
+
+describe("TileTip — nothing in the title bar", () => {
+  const SRC = join(dirname(fileURLToPath(import.meta.url)), "..");
+  const read = (rel: string) => readFileSync(join(SRC, rel), "utf8");
+
+  it("the title bar's files do not know the tip", () => {
+    for (const f of [
+      "canvas/CanvasTile.tsx",
+      "canvas/TerminalCanvas.tsx",
+      "canvas/TileTitleActions.tsx",
+      "terminal/TerminalMeta.tsx",
+      "App.tsx",
+    ])
+      expect(read(f), f).not.toMatch(/TileTip|tile-tip/);
+  });
+
+  it("the terminal body mounts it", () => {
+    expect(read("terminal/Terminal.tsx")).toMatch(/<TileTip\b/);
+  });
 });

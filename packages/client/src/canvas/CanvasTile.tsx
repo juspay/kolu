@@ -12,10 +12,8 @@
  *    disabled. The maximize signal lives in `TerminalCanvas`, exposed here
  *    so chrome reflects state and double-click toggles it. */
 
-import { createResizeObserver } from "@solid-primitives/resize-observer";
 import { createDraggable } from "@thisbeyond/solid-dnd";
 import {
-  type Accessor,
   type Component,
   createEffect,
   createMemo,
@@ -56,13 +54,6 @@ export type { TileTheme };
  *  makes the impossible state `maximized && covered` unrepresentable. */
 export type CanvasTileMode = "tiled" | "maximized" | "covered";
 
-/** Where a title-bar tip would sit: the room the title and actions leave it,
- *  in on-screen px (`null` until measured), and whether the tile is in view. */
-export interface TitleTipSlot {
-  readonly px: Accessor<number | null>;
-  readonly onScreen: Accessor<boolean>;
-}
-
 const CanvasTile: Component<{
   id: string;
   active: boolean;
@@ -89,12 +80,6 @@ const CanvasTile: Component<{
    *  (e.g. terminal screenshot, theme pill). Structural actions (close) are
    *  hardcoded. */
   renderTitleActions?: () => JSX.Element;
-  /** Optional one-line tip between the title and the actions (the terminal's
-   *  next-move tip). Handed where it would sit (`TitleTipSlot`): whether the
-   *  slot is roomy enough, and the tile on screen, is the TIP's decision, made
-   *  where it decides everything else about showing — the tile never hides the
-   *  slot behind its back. */
-  renderTitleTip?: (slot: TitleTipSlot) => JSX.Element;
   renderBody: () => JSX.Element;
   getLayout: (id: string) => TileLayout | undefined;
   startResize: (
@@ -137,16 +122,6 @@ const CanvasTile: Component<{
   // sleep, reduced-motion, animationend/cancel) spends the cue for this
   // shell instance (not re-armed without remount).
   const [landing, setLanding] = createSignal(false);
-  // The tip slot's LAYOUT width (a transform does not change it, and a
-  // ResizeObserver does not fire on one), scaled below by the zoom it is drawn
-  // at. `null` until first observed.
-  const [tipSlotEl, setTipSlotEl] = createSignal<HTMLElement>();
-  const [tipSlotLayoutPx, setTipSlotLayoutPx] = createSignal<number | null>(
-    null,
-  );
-  createResizeObserver(tipSlotEl, (_rect, el) => {
-    if (el instanceof HTMLElement) setTipSlotLayoutPx(el.offsetWidth);
-  });
   const spendLanding = () => setLanding(false);
   onMount(() => {
     if (prefersReducedMotion() || props.sleeping || props.mode !== "tiled")
@@ -196,31 +171,6 @@ const CanvasTile: Component<{
       sy < height + m
     );
   });
-  // Where the title-bar tip would sit, as the tip reads it: the slot's width on
-  // screen and whether anyone could see the tile. Only a tiled tile is drawn
-  // at the canvas zoom; a maximized one is pinned to the viewport at 1:1, and
-  // a covered one is hidden behind it.
-  const tipSlot: TitleTipSlot = {
-    px: () => {
-      const w = tipSlotLayoutPx();
-      if (w === null) return null;
-      return props.mode === "tiled" ? w * props.zoom() : w;
-    },
-    onScreen: () => {
-      switch (props.mode) {
-        case "tiled":
-          return onScreen();
-        case "maximized":
-          return true;
-        case "covered":
-          return false;
-        default:
-          throw new Error(
-            `CanvasTile: unhandled mode ${props.mode satisfies never}`,
-          );
-      }
-    },
-  };
   // One decision — "is the aura showing" — so the `data-aura` host attribute
   // and the `.tile-aura` child can't drift. Only TILED tiles animate: a
   // maximized tile mutes its own aura, a covered tile (behind a maximized
@@ -445,31 +395,18 @@ const CanvasTile: Component<{
          *  drag activators only attach when tiled — a maximized tile shouldn't
          *  start a drag on grab. Double-click toggles maximize.
          *
-         *  Layout is a 3-column grid: the identity block, the tip slot, the
-         *  action cluster — `minmax(0,max-content) minmax(0,1fr) auto`. Grid
-         *  sizing grows the title and actions to their natural widths FIRST;
-         *  only then does the `1fr` tip slot take what is left. So a showing
-         *  tip never squeezes the title — the tip gets the leftover room, and
-         *  goes quiet when that is too little to read (the slot is measured,
-         *  and its width does not depend on the tip inside it). The pill sits
-         *  at the slot's right end, beside the actions. `items-start` hugs the
-         *  tip and actions to the top edge. `renderTitle()` is spread across
-         *  the grid via `display:contents`, so `TerminalMeta`'s name row lands
-         *  in column 1 of row 1 while its branch/PR row spans EVERY column of
-         *  row 2 — flowing full-width *under* the top-aligned cluster instead
-         *  of being boxed into the narrow left column. Without the span, the
-         *  branch/PR row truncated early with dead space beneath a wide action
-         *  cluster (agent status + theme + icons). (A spanning item only sizes
-         *  the flexible slot, whose minimum is 0, so that row never widens the
-         *  title column.)
-         *
-         *  The bar is also a size container, so the actions can drop their
-         *  words on a narrow tile. Column spacing is not a grid gap: the
-         *  actions cell and the tip itself carry their own left space, so an
-         *  empty slot costs no width. */}
+         *  Layout is a 2-column grid: `minmax(0,1fr)` for the identity block,
+         *  `auto` for the action cluster. `items-start` hugs the actions to the
+         *  top edge. `renderTitle()` is spread across the grid via
+         *  `display:contents`, so `TerminalMeta`'s name row lands in column 1
+         *  of row 1 (beside the actions) while its branch/PR row spans BOTH
+         *  columns of row 2 — flowing full-width *under* the top-aligned
+         *  actions instead of being boxed into the narrow left column. Without
+         *  the span, the branch/PR row truncated early with dead space beneath
+         *  a wide action cluster (agent status + theme + icons). */}
         <div
           data-testid="canvas-tile-titlebar"
-          class="@container grid [grid-template-columns:minmax(0,max-content)_minmax(0,1fr)_auto] items-start px-3 py-1.5 shrink-0 select-none border-l-4"
+          class="grid [grid-template-columns:minmax(0,1fr)_auto] items-start gap-x-2 px-3 py-1.5 shrink-0 select-none border-l-4"
           classList={{
             "cursor-grab active:cursor-grabbing": !isMaximized(),
           }}
@@ -498,14 +435,7 @@ const CanvasTile: Component<{
           {...(props.mode === "tiled" ? draggable.dragActivators : {})}
         >
           <div class="contents">{props.renderTitle()}</div>
-          <div
-            ref={setTipSlotEl}
-            data-testid="canvas-tile-tip-slot"
-            class="col-start-2 row-start-1 flex items-center justify-end min-w-0"
-          >
-            {props.renderTitleTip?.(tipSlot)}
-          </div>
-          <div class="col-start-3 row-start-1 flex items-center gap-1 shrink-0 pl-2">
+          <div class="col-start-2 row-start-1 flex items-center gap-1 shrink-0">
             {props.renderTitleActions?.()}
             <button
               type="button"

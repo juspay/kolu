@@ -1,30 +1,43 @@
-/** The tip in a tile's title bar: what to do next in THIS terminal — `cd` into
- *  a repo, launch an agent, try a skill at the agent's first prompt. The choice
- *  is `terminalTip`'s; this component feeds it the terminal's facts and where
- *  the tip would show, and renders its answer. Nothing is remembered: the tip
- *  is there while its state holds and it can be seen, and gone otherwise. Only
- *  a live terminal has one, and only where the ambient tips show at all
- *  (`showsAmbientTips`). */
+/** The tip inside a tile's terminal body: what to do next in THIS terminal —
+ *  `cd` into a repo, launch an agent, try a skill at the agent's first prompt.
+ *  The choice and its anchor are `terminalTip`'s; this component feeds it the
+ *  terminal's facts and how the pane is drawn, and paints its answer as ghost
+ *  text in the terminal's own font: on the prompt line after the cursor, or
+ *  top-right. Nothing is remembered: the tip is there while its state holds and
+ *  it can be seen, and gone otherwise. Only a live terminal has one, and only
+ *  where the ambient tips show at all (`showsAmbientTips`).
+ *
+ *  It never takes input (`pointer-events: none`) and never changes the grid:
+ *  it is painted over the pane, below the find bar. */
 
 import { activeArm } from "@kolu/padi-client/surface";
 import type { TerminalId } from "kolu-common/surface";
-import { type Component, createMemo, For, Show } from "solid-js";
-import type { TitleTipSlot } from "../canvas/CanvasTile";
+import { type Accessor, type Component, createMemo, Show } from "solid-js";
 import { showsAmbientTips } from "../capabilities";
+import type { PaneGrid, PaneView } from "../terminal/paneView";
 import { useTerminalStore } from "../terminal/useTerminalStore";
-import Tip from "../ui/Tip";
 import { PLUGIN_SKILLS } from "./pluginSkills";
-import { quiet, type TerminalTip, terminalTip } from "./terminalTip";
+import {
+  quiet,
+  type TerminalTip,
+  type TipAnchor,
+  terminalTip,
+} from "./terminalTip";
 import { agentDistroListing } from "./useAgentDistro";
 
-/** Same answer: same tip, same words (the sentence and the pill are built from
- *  the same facts, so the sentence stands for both). Any two quiets are the
- *  same: nothing renders. */
+/** Below the find bar (`z-10`) and the scroll-to-bottom button. */
+const Z_TILE_TIP = 5;
+
+/** Same answer: same tip, same words, same place. Any two quiets are the same:
+ *  nothing renders. */
 function sameTip(a: TerminalTip, b: TerminalTip): boolean {
   switch (a.kind) {
     case "tip":
       return (
-        b.kind === "tip" && a.id === b.id && a.copy.sentence === b.copy.sentence
+        b.kind === "tip" &&
+        a.id === b.id &&
+        a.text === b.text &&
+        a.anchor === b.anchor
       );
     case "quiet":
       return b.kind === "quiet";
@@ -33,10 +46,54 @@ function sameTip(a: TerminalTip, b: TerminalTip): boolean {
   }
 }
 
+/** Empty cells from one cell right of the cursor to the grid's right edge. */
+function promptCells(grid: PaneGrid | null): number | null {
+  if (grid === null || grid.cursor === null) return null;
+  return Math.max(0, grid.cols - grid.cursor.col - 1);
+}
+
+/** Where the tip paints within the pane, in layout px: a box one row tall. */
+function box(
+  grid: PaneGrid,
+  anchor: TipAnchor,
+): { left: number; top: number; width: number; align: "left" | "right" } {
+  switch (anchor) {
+    case "prompt": {
+      // The fold only answers `prompt` with the cursor in view.
+      const cursor = grid.cursor;
+      if (cursor === null)
+        throw new Error("TileTip: a prompt tip with no cursor in view");
+      return {
+        left: grid.originX + (cursor.col + 1) * grid.cellW,
+        top: grid.originY + cursor.row * grid.cellH,
+        width: (grid.cols - cursor.col - 1) * grid.cellW,
+        align: "left",
+      };
+    }
+    case "top-right":
+      // Inset one cell from the top and right edges.
+      return {
+        left: grid.originX + grid.cellW,
+        top: grid.originY + grid.cellH,
+        width: (grid.cols - 2) * grid.cellW,
+        align: "right",
+      };
+    default:
+      throw new Error(`TileTip: unhandled anchor ${anchor satisfies never}`);
+  }
+}
+
 const TileTip: Component<{
   id: TerminalId;
-  /** Where the tip would sit (see `CanvasTile`'s `renderTitleTip`). */
-  slot: TitleTipSlot;
+  /** How the pane is drawn (the terminal builds it; see `trackPaneView`). */
+  view: PaneView;
+  /** The terminal's find bar is open. */
+  findOpen: Accessor<boolean>;
+  /** The terminal's font, so the tip reads as part of the screen. */
+  fontFamily: string;
+  fontSize: Accessor<number>;
+  /** The theme's muted foreground (its `brightBlack`). */
+  color: Accessor<string>;
 }> = (props) => {
   const store = useTerminalStore();
 
@@ -45,11 +102,14 @@ const TileTip: Component<{
       if (!showsAmbientTips()) return quiet("tips are not shown here");
       const m = activeArm(store.getMetadata(props.id));
       if (m === undefined) return quiet("not a live terminal");
+      const grid = props.view.grid();
       return terminalTip({
         place: {
           active: store.activeId() === props.id,
-          onScreen: props.slot.onScreen(),
-          slotPx: props.slot.px(),
+          onScreen: props.view.onScreen(),
+          cellPx: grid === null ? null : grid.cellH * props.view.scale(),
+          findOpen: props.findOpen(),
+          promptCells: promptCells(grid),
         },
         git: m.git,
         foreground: m.foreground,
@@ -66,46 +126,38 @@ const TileTip: Component<{
 
   const shown = () => {
     const a = answer();
-    return a.kind === "tip" ? a : undefined;
+    const grid = props.view.grid();
+    return a.kind === "tip" && grid !== null ? { tip: a, grid } : undefined;
   };
-
-  // The title bar drags (pointerdown) and maximizes (double-click); the tip is
-  // neither a drag handle nor a maximize target.
-  const stop = (e: Event) => e.stopPropagation();
 
   return (
     <Show when={shown()}>
-      {(tip) => (
-        <Tip label={tip().copy.sentence} class="ml-2 flex min-w-0">
+      {(s) => {
+        const b = () => box(s().grid, s().tip.anchor);
+        return (
           <div
             data-testid="tile-tip"
-            data-tip-id={tip().id}
+            data-tip-id={s().tip.id}
+            data-tip-anchor={s().tip.anchor}
             role="status"
-            aria-label={tip().copy.sentence}
-            class="flex h-7 min-w-0 items-center rounded-lg border border-accent/50 bg-accent/10 px-2 text-xs cursor-default"
-            style={{ color: "var(--color-fg-2, currentColor)" }}
-            onPointerDown={stop}
-            onDblClick={stop}
+            class="absolute pointer-events-none select-none overflow-hidden text-ellipsis whitespace-pre"
+            style={{
+              "z-index": Z_TILE_TIP,
+              left: `${b().left}px`,
+              top: `${b().top}px`,
+              width: `${b().width}px`,
+              height: `${s().grid.cellH}px`,
+              "line-height": `${s().grid.cellH}px`,
+              "text-align": b().align,
+              "font-family": props.fontFamily,
+              "font-size": `${props.fontSize()}px`,
+              color: props.color(),
+            }}
           >
-            <span class="min-w-0 truncate">
-              <For each={tip().copy.parts}>
-                {(part) =>
-                  typeof part === "string" ? (
-                    part
-                  ) : (
-                    <code
-                      class="font-mono"
-                      style={{ color: "var(--color-fg, currentColor)" }}
-                    >
-                      {part.code}
-                    </code>
-                  )
-                }
-              </For>
-            </span>
+            {s().tip.text}
           </div>
-        </Tip>
-      )}
+        );
+      }}
     </Show>
   );
 };

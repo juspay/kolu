@@ -13,8 +13,6 @@
  *  `TerminalMetaCompact`. */
 
 import { activeArm, type TerminalMetadata } from "@kolu/padi-client/surface";
-import { ChecksIndicator, PrStateIcon } from "@kolu/solid-dockrow";
-import { prTooltip } from "@kolu/solid-dockrow/rowValues";
 import { StatePip } from "@kolu/solid-statepip";
 import {
   SLEEPING_RECEDE_CLASS,
@@ -30,7 +28,9 @@ import { WorktreeIcon } from "../ui/Icons";
 import RepoMonogram from "../ui/RepoMonogram";
 import Tip from "../ui/Tip";
 import { encActiveHost } from "../wire";
+import { ChecksIndicator, PrStateIcon } from "@kolu/solid-dockrow";
 import { PrUnavailableButton } from "./PrUnavailablePopover";
+import { prTooltip } from "@kolu/solid-dockrow/rowValues";
 import { useStatePip } from "./statePipBind";
 import { pairDisplayRow, type TerminalDisplayInfo } from "./terminalDisplay";
 
@@ -81,11 +81,9 @@ const TerminalMeta: Component<{
         return (
           <>
             {/* Name row — T1: identity StatePip leads (app-icon position),
-             *  then repo name / suffix / worktree / fg / progress. Clipped:
-             *  its `shrink-0` parts can outgrow a narrow tile's title column,
-             *  and must not paint under the actions beside it. */}
+             *  then repo name / suffix / worktree / fg / progress. */}
             <div
-              class="col-start-1 row-start-1 flex items-center gap-1.5 min-h-7 text-sm font-medium min-w-0 overflow-hidden"
+              class="col-start-1 row-start-1 flex items-center gap-1.5 min-h-7 text-sm font-medium min-w-0"
               classList={{ [SLEEPING_RECEDE_CLASS]: pip().sleeping }}
               data-sleeping={pip().sleeping ? "" : undefined}
             >
@@ -109,12 +107,8 @@ const TerminalMeta: Component<{
               </Show>
               {/* Foreground process title — OSC 2 string when present.
                *  Replaces what used to be the cwd slot; cwd is now a
-               *  tooltip on the repo name. `flex-1` takes whatever slack
-               *  the row has — but the canvas title column is sized to its
-               *  content (`minmax(0,max-content)`, the tip slot taking what
-               *  is left), so there is none: the workflow badge and progress
-               *  bar sit right after the title, not at the bar's right edge.
-               *  When the row must shrink, this is what gives. */}
+               *  tooltip on the repo name. `flex-1` so it fills until
+               *  the progress bar (when shown) eats its right edge. */}
               <Show when={activeArm(v().meta)?.foreground}>
                 {(fg) => (
                   <span
@@ -145,7 +139,7 @@ const TerminalMeta: Component<{
              *  (T1: brand mark appears once, on line 1). Sleeps with the name
              *  row so a dormant tile recedes on both chrome lines. */}
             <div
-              class="col-start-1 col-span-full row-start-2 flex items-center gap-1.5 min-w-0 text-xs"
+              class="col-start-1 col-span-2 row-start-2 flex items-center gap-1.5 min-w-0 text-xs"
               classList={{ [SLEEPING_RECEDE_CLASS]: pip().sleeping }}
             >
               <Tip label={v().meta.intent ? "Edit intent" : "Set intent"}>

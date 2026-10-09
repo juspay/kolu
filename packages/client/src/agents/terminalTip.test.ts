@@ -1,9 +1,9 @@
 import type { AgentInfo } from "@kolu/terminal-vocab/schema";
 import { describe, expect, it } from "vitest";
-import type { TileTipPart } from "../settings/tips";
 import {
   type TerminalTipFacts,
-  TIP_MIN_SLOT_PX,
+  TIP_MIN_CELL_PX,
+  TIP_MIN_PROMPT_CELLS,
   terminalTip,
 } from "./terminalTip";
 
@@ -48,7 +48,9 @@ const SHELL: TerminalTipFacts["foreground"] = {
 const PLACE: TerminalTipFacts["place"] = {
   active: true,
   onScreen: true,
-  slotPx: 400,
+  cellPx: 17,
+  findOpen: false,
+  promptCells: 60,
 };
 
 const agent = (
@@ -68,17 +70,12 @@ const facts = (over: Partial<TerminalTipFacts> = {}): TerminalTipFacts => ({
   ...over,
 });
 
-/** A tip's pill text as one plain string. */
-function tileTipText(parts: readonly TileTipPart[]): string {
-  return parts.map((p) => (typeof p === "string" ? p : p.code)).join("");
-}
-
-/** The tip's id and pill text, or `quiet: <why>`. */
+/** The tip's id, text and anchor, or `quiet: <why>`. */
 function show(f: TerminalTipFacts) {
   const t = terminalTip(f);
   switch (t.kind) {
     case "tip":
-      return { id: t.id, text: tileTipText(t.copy.parts) };
+      return { id: t.id, text: t.text, anchor: t.anchor };
     case "quiet":
       return { quiet: t.why };
   }
@@ -89,6 +86,7 @@ describe("terminalTip — the rungs", () => {
     expect(show(facts({ git: NO_REPO }))).toEqual({
       id: "tip-cd-repo",
       text: "Start in a project: cd into a git repo",
+      anchor: "prompt",
     });
   });
 
@@ -101,44 +99,25 @@ describe("terminalTip — the rungs", () => {
   it("rung 2: a shell in a repo with agents is told the first harness", () => {
     expect(show(facts())).toEqual({
       id: "tip-launch-agent",
-      text: "Launch claude or agent-distro",
+      text: "Launch an agent: claude, or agent-distro to pick one",
+      anchor: "prompt",
     });
   });
 
-  it("rung 3, Claude Code: the skill as a slash command", () => {
+  it("rung 3, Claude Code: the skill as a slash command, top-right", () => {
     expect(show(facts({ agent: agent("claude-code", "waiting") }))).toEqual({
       id: "tip-skill:claude-code",
-      text: "Try a skill: /kolu — drive one AI agent from another through kolu's terminals",
+      text: "Try a skill: type /kolu at the prompt — drive one AI agent from another through kolu's terminals",
+      anchor: "top-right",
     });
   });
 
   it("rung 3, any other agent: the skill asked for in words", () => {
     expect(show(facts({ agent: agent("codex", "waiting") }))).toEqual({
       id: "tip-skill:codex",
-      text: "Try a skill: ask it to use the kolu skill — drive one AI agent from another through kolu's terminals",
+      text: "Try a skill: ask the agent to use the kolu skill — drive one AI agent from another through kolu's terminals",
+      anchor: "top-right",
     });
-  });
-});
-
-describe("terminalTip — the hover sentence", () => {
-  const sentence = (f: TerminalTipFacts) => {
-    const t = terminalTip(f);
-    if (t.kind !== "tip") throw new Error(`no tip: ${t.why}`);
-    return t.copy.sentence;
-  };
-  it("each rung's hover says the whole thing", () => {
-    expect(sentence(facts({ git: NO_REPO }))).toBe(
-      "Start in a project: cd into a git repo",
-    );
-    expect(sentence(facts())).toBe(
-      "Launch an agent: claude, or agent-distro to pick one",
-    );
-    expect(sentence(facts({ agent: agent("claude-code", "waiting") }))).toBe(
-      "Try a skill: type /kolu at the prompt — drive one AI agent from another through kolu's terminals",
-    );
-    expect(sentence(facts({ agent: agent("codex", "waiting") }))).toBe(
-      "Try a skill: ask the agent to use the kolu skill — drive one AI agent from another through kolu's terminals",
-    );
   });
 });
 
@@ -154,17 +133,28 @@ describe("terminalTip — quiet while nobody could see it", () => {
     expect(at({ onScreen: false })).toEqual({ quiet: "off-screen" });
   });
 
-  it("in a slot too narrow to read, and before it is measured", () => {
-    expect(at({ slotPx: TIP_MIN_SLOT_PX - 1 })).toEqual({
-      quiet: "too narrow",
+  it("when the text is too small to read (zoomed out), and before the grid is measured", () => {
+    expect(at({ cellPx: TIP_MIN_CELL_PX - 0.5 })).toEqual({
+      quiet: "text too small to read",
     });
-    expect(at({ slotPx: TIP_MIN_SLOT_PX })).toMatchObject({
+    expect(at({ cellPx: TIP_MIN_CELL_PX })).toMatchObject({
       id: "tip-launch-agent",
-      text: expect.any(String),
     });
-    expect(at({ slotPx: null })).toEqual({
-      quiet: "tip slot not measured yet",
+    expect(at({ cellPx: null })).toEqual({
+      quiet: "terminal not measured yet",
     });
+  });
+
+  it("while the find bar is open, for every rung", () => {
+    expect(at({ findOpen: true })).toEqual({ quiet: "the find bar is open" });
+    expect(
+      show(
+        facts({
+          place: { ...PLACE, findOpen: true },
+          agent: agent("claude-code", "waiting"),
+        }),
+      ),
+    ).toEqual({ quiet: "the find bar is open" });
   });
 
   it("the state is asked first: no tip to show is quiet for that reason", () => {
@@ -176,6 +166,37 @@ describe("terminalTip — quiet while nobody could see it", () => {
         }),
       ),
     ).toEqual({ quiet: "git not resolved yet" });
+  });
+});
+
+describe("terminalTip — rungs 1 and 2 need room on the prompt line", () => {
+  const at = (place: Partial<TerminalTipFacts["place"]>) =>
+    show(facts({ place: { ...PLACE, ...place } }));
+
+  it("too few cells right of the cursor", () => {
+    expect(at({ promptCells: TIP_MIN_PROMPT_CELLS - 1 })).toEqual({
+      quiet: "no room on the prompt line",
+    });
+    expect(at({ promptCells: TIP_MIN_PROMPT_CELLS })).toMatchObject({
+      id: "tip-launch-agent",
+    });
+  });
+
+  it("the cursor out of view (scrolled back)", () => {
+    expect(at({ promptCells: null })).toEqual({
+      quiet: "the prompt line is out of view",
+    });
+  });
+
+  it("rung 3 sits top-right, so the prompt line does not matter", () => {
+    expect(
+      show(
+        facts({
+          place: { ...PLACE, promptCells: null },
+          agent: agent("claude-code", "waiting"),
+        }),
+      ),
+    ).toMatchObject({ id: "tip-skill:claude-code", anchor: "top-right" });
   });
 });
 
@@ -212,7 +233,7 @@ describe("terminalTip — the shell must be in front for rungs 1 and 2", () => {
           foreground: { name: "claude", title: null, shell: false },
         }),
       ),
-    ).toMatchObject({ id: "tip-skill:claude-code", text: expect.any(String) });
+    ).toMatchObject({ id: "tip-skill:claude-code", anchor: "top-right" });
   });
 });
 
