@@ -569,9 +569,16 @@ Then(
 Then(
   "the welcome card's done line should say agents are {string}",
   async function (this: KoluWorld, value: string) {
+    // The fixture resolves every profile these scenarios choose.
     const label = agentsChosenLabel(
       { enabled: true, profile: value },
       FIXTURE_LISTING,
+      {
+        kind: "resolved",
+        profile: value,
+        name: value,
+        description: "",
+      },
     );
     assert.ok(label, "a chosen profile has a done line");
     await this.page

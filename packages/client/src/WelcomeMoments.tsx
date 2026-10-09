@@ -27,6 +27,7 @@ import {
   agentDistroSetting,
   agentDistroStored,
   hostAgentStatusOf,
+  localAgentResolved,
 } from "./agents/useAgentDistro";
 import { useHostMembers } from "./host/useHostMembers";
 import { ACTIONS, advertisedNewTerminalKey } from "./input/actions";
@@ -50,7 +51,11 @@ import {
 const doneText = (id: WelcomeMomentId): string | undefined => {
   switch (id) {
     case "chooseAgents":
-      return agentsChosenLabel(agentDistroSetting(), agentDistroListing());
+      return agentsChosenLabel(
+        agentDistroSetting(),
+        agentDistroListing(),
+        localAgentResolved(),
+      );
     case "pin":
       return "📌 Pinned ✓";
     case "reach":

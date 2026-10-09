@@ -628,21 +628,53 @@ describe("firstRunAgentsDone — the first-run step's done-predicate", () => {
       ).toBe(true);
   });
 
-  it("its done line names the chosen profile, and there is none while agents are off", () => {
-    expect(agentsChosenLabel(VANILLA_ON, LISTING)).toBe("Agents: vanilla ✓");
-    expect(
-      agentsChosenLabel({ enabled: true, profile: "juspay" }, LISTING),
-    ).toBe("Agents: juspay ✓");
-    expect(agentsChosenLabel(JUSPAY_ON, LISTING)).toBe(
-      "Agents: github:juspay/skills ✓",
+  /** This machine's answer for `profile`: it resolved. */
+  const resolvedFor = (profile: string) =>
+    ({ kind: "resolved", profile, name: "n", description: "" }) as const;
+
+  it("its done line names the chosen profile with a check once it resolves, and there is none while agents are off", () => {
+    expect(agentsChosenLabel(VANILLA_ON, LISTING, resolvedFor("vanilla"))).toBe(
+      "Agents: vanilla ✓",
     );
-    expect(agentsChosenLabel(OFF, LISTING)).toBeUndefined();
+    expect(
+      agentsChosenLabel(JUSPAY_ON, LISTING, resolvedFor(JUSPAY_PROFILE)),
+    ).toBe("Agents: github:juspay/skills ✓");
+    expect(
+      agentsChosenLabel(OFF, LISTING, resolvedFor("vanilla")),
+    ).toBeUndefined();
+  });
+
+  it("no check for a profile that failed to resolve — agent-distro's words instead", () => {
+    const ref = "github:nobody/nothing";
+    expect(
+      agentsChosenLabel({ enabled: true, profile: ref }, LISTING, {
+        kind: "failed",
+        profile: ref,
+        message: `cannot fetch ${ref}: HTTP error 404`,
+      }),
+    ).toBe(`Agents: ${ref} — cannot fetch ${ref}: HTTP error 404`);
+  });
+
+  it("nothing yet while the answer is pending — or is about another profile", () => {
+    for (const resolved of [
+      undefined,
+      { kind: "none" } as const,
+      { kind: "pending", profile: JUSPAY_PROFILE } as const,
+      resolvedFor("vanilla"),
+    ])
+      expect(agentsChosenLabel(JUSPAY_ON, LISTING, resolved)).toBeUndefined();
   });
 
   it("has no done line in a kolu built without agents — nobody chose anything", () => {
-    expect(agentsChosenLabel(OFF, { kind: "unavailable" })).toBeUndefined();
     expect(
-      agentsChosenLabel(VANILLA_ON, { kind: "unavailable" }),
+      agentsChosenLabel(OFF, { kind: "unavailable" }, undefined),
+    ).toBeUndefined();
+    expect(
+      agentsChosenLabel(
+        VANILLA_ON,
+        { kind: "unavailable" },
+        resolvedFor("vanilla"),
+      ),
     ).toBeUndefined();
   });
 });

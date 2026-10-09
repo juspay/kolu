@@ -145,17 +145,32 @@ export function firstRunAgentsDone(input: {
 /** The first-run step's title — what the welcome card asks. */
 export const AGENTS_FIRST_RUN_TITLE = "Choose your coding agents";
 
-/** The welcome card's done line for the first-run step: the chosen profile
- *  ("Agents: vanilla ✓"). `undefined` while agents are off — the step is not
- *  done then ({@link firstRunAgentsDone}) — and in a kolu built without agents,
- *  where nobody chose anything and the step is done only because there is
- *  nothing to choose. */
+/** The welcome card's done line for the first-run step, by whether the
+ *  profile resolves on this machine ({@link agentsResolvedLine}): the chosen
+ *  profile with a check once it does ("Agents: vanilla ✓"), agent-distro's
+ *  words instead of the check when it does not, and nothing yet while it is
+ *  pending. `undefined` too while agents are off — the step is not done then
+ *  ({@link firstRunAgentsDone}) — and in a kolu built without agents, where
+ *  nobody chose anything and the step is done only because there is nothing
+ *  to choose. */
 export function agentsChosenLabel(
   setting: AgentDistroSetting,
   listing: AgentDistroListing | undefined,
+  resolved: AgentDistroResolved | undefined,
 ): string | undefined {
-  if (listing?.kind === "unavailable" || !setting.enabled) return undefined;
-  return `Agents: ${setting.profile} ✓`;
+  if (listing?.kind === "unavailable") return undefined;
+  const line = agentsResolvedLine(setting, resolved);
+  if (line === undefined) return undefined;
+  switch (line.kind) {
+    case "pending":
+      return undefined;
+    case "resolved":
+      return `Agents: ${setting.profile} ✓`;
+    case "failed":
+      return `Agents: ${setting.profile} — ${line.text}`;
+    default:
+      return line satisfies never;
+  }
 }
 
 /** What the Settings hint adds while nothing is chosen. */
