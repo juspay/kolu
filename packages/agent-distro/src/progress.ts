@@ -29,18 +29,6 @@ export type UpdaterResult =
       readonly detail?: string;
     };
 
-/** A run that landed nothing, in words: the updater's reason, then nix's own
- *  line when it gave one — the ONE place the two are joined, so the status,
- *  the receipt and the toast all say the same thing. */
-export function updaterResultWords(result: {
-  readonly reason: string;
-  readonly detail?: string;
-}): string {
-  return result.detail === undefined
-    ? result.reason
-    : `${result.reason}: ${result.detail}`;
-}
-
 /** One stdout line, read. Under `--progress` stdout is JSON-only by contract,
  *  so a non-blank line that is neither documented object is `malformed` — the
  *  run's error, never something to skip — and only a blank line reads `null`. */

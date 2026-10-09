@@ -6,7 +6,6 @@ import {
   parseUpdaterLine,
   UPDATER_PROGRESS_ARGS,
   updaterLastWord,
-  updaterResultWords,
 } from "./progress.ts";
 
 describe("parseUpdaterLine", () => {
@@ -97,22 +96,6 @@ describe("parseUpdaterLine", () => {
       "{not json",
     ])
       expect(parseUpdaterLine(line)).toEqual({ malformed: line });
-  });
-});
-
-describe("updaterResultWords — the reason, then nix's line when there is one", () => {
-  it("is the reason alone without a detail", () => {
-    expect(updaterResultWords({ reason: "nix build exit 1" })).toBe(
-      "nix build exit 1",
-    );
-  });
-  it("joins the detail after the reason", () => {
-    expect(
-      updaterResultWords({
-        reason: "cannot resolve flake",
-        detail: "unable to download 'x': HTTP error 401",
-      }),
-    ).toBe("cannot resolve flake: unable to download 'x': HTTP error 401");
   });
 });
 

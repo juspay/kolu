@@ -16,7 +16,6 @@ import {
   type UpdaterProgress,
   type UpdaterResult,
   updaterLastWord,
-  updaterResultWords,
 } from "@kolu/agent-distro/progress";
 
 /** Write a host-concrete updater config into its own temp dir. A write that
@@ -138,7 +137,11 @@ export function runUpdater(opts: {
           resolve({
             ok: false,
             result: result.result,
-            message: updaterResultWords(result),
+            // nix's own line, when the updater caught one, follows its reason.
+            message:
+              result.detail === undefined
+                ? result.reason
+                : `${result.reason}: ${result.detail}`,
             by: "updater",
           });
           return;

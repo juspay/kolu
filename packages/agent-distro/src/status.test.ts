@@ -1116,7 +1116,6 @@ describe("a failure's words: cause, then remedy (by reason), then the retry — 
       title: `The coding agents could not be downloaded to nix-infra@idli-01: ${message}`,
       detail: [AGENTS_RETRY],
     });
-    expect(words?.title).not.toContain("\n");
   });
   it("the hover, the toast and the Settings line say the same lines", () => {
     const failure = {

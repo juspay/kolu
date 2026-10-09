@@ -32,10 +32,8 @@ The **TypeScript half**, as data and pure functions:
 - `./progress` — the updater's `--progress` stdout protocol
   (`{progress:{done,total}}` lines, then one `{result:…}`; a `skipped` /
   `failed` result has a `reason` and an optional `detail`, nix's own line
-  about the cause), its parser and types, `updaterResultWords` (the reason,
-  then `: <detail>` when there is one — the ONE wording padi's status, receipt
-  and toast carry), and `updaterLastWord` (the cause from its stderr, without its
-  `agent-distro:` prefix).
+  about the cause), its parser and types, and `updaterLastWord` (the cause
+  from its stderr, without its `agent-distro:` prefix).
 - `./schedule` — upstream's update schedule as the updater config carries it
   (`periodSeconds`, `offsetSeconds`: 02/08/14/20 UTC), the due rule (a
   line-for-line mirror of upstream's `updateDue`, golden-tested against its
