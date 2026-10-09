@@ -1,7 +1,10 @@
 import type { AgentInfo } from "@kolu/terminal-vocab/schema";
 import { describe, expect, it } from "vitest";
-import { tileTipSentence } from "../settings/tips";
-import { type TerminalTipFacts, terminalTip } from "./terminalTip";
+import {
+  type TerminalTipFacts,
+  terminalTip,
+  tileTipSentence,
+} from "./terminalTip";
 
 const KOLU = {
   name: "kolu",
@@ -66,7 +69,7 @@ const facts = (over: Partial<TerminalTipFacts> = {}): TerminalTipFacts => ({
   promptedAt: null,
   agents: AGENTS,
   listing: LISTING,
-  skills: [KOLU],
+  skill: KOLU,
   ...over,
 });
 
@@ -77,8 +80,8 @@ function show(f: TerminalTipFacts) {
     case "tip":
       return {
         id: t.id,
-        lead: t.copy.lead,
-        rest: t.copy.rest,
+        lead: t.lead,
+        rest: t.rest,
         chips: t.chips,
         source: t.source,
       };
@@ -131,7 +134,7 @@ describe("terminalTip — launch an agent (the shell in front, in a repo)", () =
   it("the whole sentence reads lead, then the chips", () => {
     const t = terminalTip(facts());
     if (t.kind !== "tip") throw new Error("expected a tip");
-    expect(tileTipSentence(t.copy)).toBe(
+    expect(tileTipSentence(t)).toBe(
       "Launch an agent: claude, codex, opencode, pi, omp, opencode2",
     );
   });
@@ -335,11 +338,5 @@ describe("terminalTip — broken invariants throw", () => {
       profiles: [{ name: "vanilla", description: "d", harnesses: [] as never }],
     };
     expect(() => terminalTip(facts({ listing: empty }))).toThrow(/no harness/);
-  });
-
-  it("no plugin skill with a harness in front", () => {
-    expect(() =>
-      terminalTip(facts({ foreground: running("claude"), skills: [] })),
-    ).toThrow(/no plugin skill/);
   });
 });

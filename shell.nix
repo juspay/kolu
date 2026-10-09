@@ -16,9 +16,10 @@ pkgs.mkShell {
   env = koluEnv // {
     KOLU_COMMIT_HASH = "dev";
     PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD = "1";
-    # agent-distro's source at kolu's pin, for the unit lane only: the client's
-    # `skillInvocation.test.ts` walks every built-in profile's harnesses off it,
-    # so a pin bump that brings a new harness fails CI rather than a tile.
+    # agent-distro's source at kolu's pin, for the unit lane only: the
+    # client's `agents/skillInvocation.test.ts` walks every built-in profile's
+    # harnesses off it, so a pin bump that brings a new harness fails CI
+    # rather than a tile.
     KOLU_AGENT_DISTRO_SRC = "${sources.agent-distro}";
   };
 

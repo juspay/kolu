@@ -23,12 +23,6 @@ import type {
   GitFact,
 } from "@kolu/terminal-vocab/schema";
 import type { AgentDistroListing } from "kolu-common/surface";
-import {
-  skillInvocation,
-  TILE_TIPS,
-  type TileTipCopy,
-  type TipId,
-} from "../settings/tips";
 import type { PluginSkill } from "./pluginSkills";
 
 /** What a tip's chip does when clicked. */
@@ -65,26 +59,58 @@ export interface TerminalTipFacts {
   readonly agents: TerminalAgents | undefined;
   /** The profile listing; `undefined` until its first frame. */
   readonly listing: AgentDistroListing | undefined;
-  /** The skills kolu's plugin declares. */
-  readonly skills: readonly PluginSkill[];
+  /** The plugin skill the skill tip offers. */
+  readonly skill: PluginSkill;
 }
 
 /** `id` names the rung (for `data-tip-id` and tests); nothing is stored
  *  under it. */
 export type TerminalTip = Tip | Quiet;
 
+/** A tip's words, as the bar shows them: a bold lead, the chips, and the
+ *  rest of the sentence (empty when the chips say it all). */
 export interface Tip {
   readonly kind: "tip";
-  readonly id: TipId;
-  readonly copy: TileTipCopy;
-  /** One per `copy.chips`, in the same order. */
+  readonly id: string;
+  readonly lead: string;
   readonly chips: readonly TipChip[];
+  readonly rest: string;
   readonly source: TipSource;
 }
 
 export type Quiet = { readonly kind: "quiet"; readonly why: string };
 
 export const quiet = (why: string): Quiet => ({ kind: "quiet", why });
+
+/** The whole sentence, for screen readers and the tab's tooltip. */
+export function tileTipSentence(tip: Tip): string {
+  const said = `${tip.lead}: ${tip.chips.map((c) => c.label).join(", ")}`;
+  return tip.rest === "" ? said : `${said} ${tip.rest}`;
+}
+
+/** How a harness runs one of kolu's plugin skills, by its command name (as
+ *  the agent-distro listing names it): the words on the chip, which it
+ *  inserts into the agent's input (the user finishes it). Every harness
+ *  agent-distro ships takes a slash command — confirmed for claude, omp and
+ *  pi; assumed for codex, opencode and opencode2. Exhaustive over the names
+ *  the listing produces: a new harness name throws until it is decided here
+ *  (`skillInvocation.test.ts` walks the pinned agent-distro's harnesses). */
+export function skillInvocation(harness: string, name: string): string {
+  switch (harness) {
+    case "claude":
+    case "omp":
+    case "pi":
+    // Not yet confirmed live:
+    case "codex":
+    case "opencode":
+    case "opencode2":
+      return `/${name}`;
+    default:
+      throw new Error(
+        `skillInvocation: no invocation decided for harness ${harness}`,
+      );
+  }
+}
 
 /** Pick this terminal's tip: the one its state calls for, on the active tile. */
 export function terminalTip(facts: TerminalTipFacts): TerminalTip {
@@ -131,16 +157,17 @@ function candidate(facts: TerminalTipFacts): TerminalTip {
         `terminalTip: unhandled git fact ${facts.git satisfies never}`,
       );
   }
-  const copy = TILE_TIPS.launchAgent.copy(harnesses);
   return {
     kind: "tip",
-    id: TILE_TIPS.launchAgent.id,
-    copy,
-    // Launching is the suggestion, so each chip runs its harness.
-    chips: copy.chips.map((harness) => ({
+    id: "tip-launch-agent",
+    lead: "Launch an agent",
+    // Every harness of the profile, in the listing's order — none is guessed
+    // at. Launching is the suggestion, so each chip runs its harness.
+    chips: harnesses.map((harness) => ({
       label: harness,
       action: { kind: "launch", harness },
     })),
+    rest: "",
     source: { kind: "agent-distro", profile: profileName },
   };
 }
@@ -168,24 +195,15 @@ function skillTip(facts: TerminalTipFacts, harness: string): TerminalTip {
         );
     }
   }
-  // `PLUGIN_SKILLS` throws at load when the plugin declares none.
-  const skill = facts.skills[0];
-  if (skill === undefined)
-    throw new Error(
-      "terminalTip: no plugin skill — PLUGIN_SKILLS guarantees one",
-    );
-  const copy = TILE_TIPS.skill.copy(harness, skill);
-  const { text } = skillInvocation(harness, skill.name);
+  const label = skillInvocation(harness, facts.skill.name);
   return {
     kind: "tip",
-    id: TILE_TIPS.skill.id(harness),
-    copy,
+    id: `tip-skill:${harness}`,
+    lead: "Try a skill",
     // Into the agent's input, cursor left after it: the user finishes the
     // message and sends it.
-    chips: copy.chips.map((label) => ({
-      label,
-      action: { kind: "insert", text },
-    })),
+    chips: [{ label, action: { kind: "insert", text: `${label} ` } }],
+    rest: `— ${facts.skill.blurb}`,
     source: { kind: "kolu-plugin" },
   };
 }

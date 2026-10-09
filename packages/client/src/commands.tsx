@@ -21,7 +21,6 @@ import type {
   PaletteValueInput,
 } from "./CommandPalette";
 import { posturedActionLabel, useViewPosture } from "./canvas/useViewPosture";
-import { toggleTipBar } from "./agents/tipBarSize";
 import {
   showsAmbientTips,
   showsWelcome,
@@ -58,7 +57,7 @@ import { useTileStore } from "./tile/useTileStore";
 import { iconForCommand } from "./ui/agentDisplay";
 import { TerminalIcon } from "./ui/Icons";
 import { welcomeDialog } from "./WelcomeDialog";
-import { padiMap } from "./wire";
+import { padiMap, preferences, updatePreferences } from "./wire";
 
 /** Live worktree-name validator — returns the message to show under the input,
  *  or null when the trimmed name passes.
@@ -512,7 +511,10 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
             name: "Toggle tip bar",
             description: "Show the tile tip as a bar or as a small tab",
             section: "ui" as const,
-            onSelect: () => toggleTipBar(),
+            onSelect: () =>
+              updatePreferences({
+                tipBarCollapsed: !preferences().tipBarCollapsed,
+              }),
           },
         ]
       : []),

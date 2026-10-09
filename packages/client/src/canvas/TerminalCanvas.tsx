@@ -440,11 +440,7 @@ const TerminalCanvas: Component<{
                 ? () => props.renderTileTitleActions?.(tileId)
                 : undefined
             }
-            renderBar={
-              props.renderTileBar
-                ? () => props.renderTileBar?.(tileId)
-                : undefined
-            }
+            renderBar={() => props.renderTileBar?.(tileId)}
             renderBody={() => props.renderTileBody(tileId, active)}
             getLayout={layoutOf}
             startResize={startResize}

@@ -9,7 +9,7 @@
  *  chip types its harness and presses Enter; the skill chip inserts the skill
  *  into the agent's input with no Enter. Chips never wrap or get cut: those
  *  that do not fit go behind a `+N` chip, whose menu launches the rest.
- *  The tip has two sizes, one switch for every tile (`tipBarSize`): the full
+ *  The tip has two sizes, one preference for every tile (`tipBarCollapsed`): the full
  *  bar, which the terminal below gives up its height to, or a small tab with
  *  just the lead, hanging from the title bar's bottom-right edge over the
  *  terminal. The bar's chevron folds it to the tab; the tab opens the bar.
@@ -32,7 +32,6 @@ import {
 } from "solid-js";
 import { showsAmbientTips } from "../capabilities";
 import { runAction } from "../runAction";
-import { tileTipSentence } from "../settings/tips";
 import { useTerminalCrud } from "../terminal/useTerminalCrud";
 import { useTerminalStore } from "../terminal/useTerminalStore";
 import { ChevronDownIcon, ChevronUpIcon } from "../ui/Icons";
@@ -47,15 +46,16 @@ import {
   type TipAction,
   type TipChip,
   terminalTip,
+  tileTipSentence,
 } from "./terminalTip";
-import { setTipBarCollapsed, tipBarCollapsed } from "./tipBarSize";
 import { agentDistroListing } from "./useAgentDistro";
+import { preferences, updatePreferences } from "../wire";
 
 /** One string per distinct tip, so an unchanged answer does not repaint. */
 function tipKey(t: TerminalTip): string {
   switch (t.kind) {
     case "tip":
-      return JSON.stringify([t.id, t.copy, t.chips, t.source]);
+      return JSON.stringify(t);
     case "quiet":
       return "quiet";
     default:
@@ -118,7 +118,7 @@ const TileTip: Component<{ id: TerminalId }> = (props) => {
         promptedAt: m.promptedAt,
         agents: m.agents,
         listing: agentDistroListing(),
-        skills: PLUGIN_SKILLS,
+        skill: PLUGIN_SKILLS[0],
       });
     },
     quiet("not computed yet"),
@@ -127,8 +127,12 @@ const TileTip: Component<{ id: TerminalId }> = (props) => {
 
   /** A tip to show, at either size. */
   const open = () => answer().kind === "tip";
-  const barOpen = () => open() && !tipBarCollapsed();
-  const tabOpen = () => open() && tipBarCollapsed();
+  /** The size, one preference for every tile: the bar, or folded to a tab. */
+  const collapsed = () => preferences().tipBarCollapsed;
+  const setCollapsed = (tipBarCollapsed: boolean) =>
+    updatePreferences({ tipBarCollapsed });
+  const barOpen = () => open() && !collapsed();
+  const tabOpen = () => open() && collapsed();
   // The last tip shown, kept while the bar or tab folds away so it leaves with
   // its words rather than going blank first.
   const shown = createMemo<Tip | undefined>((prev) => {
@@ -138,7 +142,7 @@ const TileTip: Component<{ id: TerminalId }> = (props) => {
 
   const sentence = () => {
     const t = shown();
-    return open() && t !== undefined ? tileTipSentence(t.copy) : undefined;
+    return open() && t !== undefined ? tileTipSentence(t) : undefined;
   };
 
   const act = (action: TipAction) => {
@@ -164,7 +168,7 @@ const TileTip: Component<{ id: TerminalId }> = (props) => {
     <div
       data-testid="tile-tip-slot"
       data-tip-id={open() ? shown()?.id : undefined}
-      data-size={tipBarCollapsed() ? "tab" : "bar"}
+      data-size={collapsed() ? "tab" : "bar"}
       role="status"
       aria-label={sentence()}
       // Above the terminal (the tab hangs over its top edge), below the find
@@ -196,18 +200,14 @@ const TileTip: Component<{ id: TerminalId }> = (props) => {
                 transform: barOpen() ? "none" : "translateY(-60%) scaleY(.7)",
               }}
             >
-              <span class={`shrink-0 font-bold ${LEAD}`}>{t().copy.lead}</span>
-              <ChipRow
-                chips={t().chips}
-                fill={t().copy.rest === ""}
-                onAct={act}
-              />
-              <Show when={t().copy.rest !== ""}>
+              <span class={`shrink-0 font-bold ${LEAD}`}>{t().lead}</span>
+              <ChipRow chips={t().chips} fill={t().rest === ""} onAct={act} />
+              <Show when={t().rest !== ""}>
                 <span
                   data-testid="tile-tip-rest"
                   class="min-w-0 flex-1 truncate"
                 >
-                  {t().copy.rest}
+                  {t().rest}
                 </span>
               </Show>
               <TipSourceMark source={t().source} />
@@ -218,7 +218,7 @@ const TileTip: Component<{ id: TerminalId }> = (props) => {
                 class="flex size-6 shrink-0 cursor-pointer items-center justify-center rounded-[6px] text-fg-2 hover:bg-[color-mix(in_srgb,currentColor_16%,transparent)] hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
                 onClick={(e) => {
                   e.stopPropagation();
-                  setTipBarCollapsed(true);
+                  setCollapsed(true);
                 }}
               >
                 <ChevronUpIcon class="size-4" />
@@ -239,13 +239,13 @@ const TileTip: Component<{ id: TerminalId }> = (props) => {
               // The clip around it takes no pointer; the trigger must, or the
               // tooltip never hears the hover.
               class="pointer-events-auto"
-              label={tileTipSentence(t().copy)}
+              label={tileTipSentence(t())}
             >
               <button
                 type="button"
                 data-testid="tile-tip-tab"
                 data-open={tabOpen() ? "" : undefined}
-                aria-label={`Open the tip: ${t().copy.lead}`}
+                aria-label={`Open the tip: ${t().lead}`}
                 class={`flex h-[22px] cursor-pointer items-center gap-1 rounded-b-[6px] pl-2 pr-1.5 text-[12px] font-bold leading-none ${TINT} transition-[transform,opacity] ${POP} focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent`}
                 style={{
                   opacity: tabOpen() ? 1 : 0,
@@ -253,10 +253,10 @@ const TileTip: Component<{ id: TerminalId }> = (props) => {
                 }}
                 onClick={(e) => {
                   e.stopPropagation();
-                  setTipBarCollapsed(false);
+                  setCollapsed(false);
                 }}
               >
-                <span class={LEAD}>{t().copy.lead}</span>
+                <span class={LEAD}>{t().lead}</span>
                 <ChevronDownIcon class="size-3.5 text-fg-2" />
               </button>
             </Tooltip>
@@ -292,14 +292,12 @@ const ChipRow: Component<{
     if (plus === undefined)
       throw new Error("TileTip: the measuring row has no +N chip");
     setCount(
-      props.chips.length <= 1
-        ? props.chips.length
-        : chipsThatFit(
-            boxes.map((b) => b.offsetWidth),
-            plus.offsetWidth,
-            CHIP_GAP,
-            row.clientWidth,
-          ),
+      chipsThatFit(
+        boxes.map((b) => b.offsetWidth),
+        plus.offsetWidth,
+        CHIP_GAP,
+        row.clientWidth,
+      ),
     );
   };
   // The row's width moves with the tile; the measured chips' with the font.

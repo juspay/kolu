@@ -23,6 +23,11 @@ describe("chipsThatFit", () => {
     expect(chipsThatFit(five, 40, 6, 100)).toBe(0);
   });
 
+  it("a lone chip always shows: a +N hiding one chip saves nothing", () => {
+    expect(chipsThatFit([300], 40, 6, 100)).toBe(1);
+    expect(chipsThatFit([], 40, 6, 100)).toBe(0);
+  });
+
   it("uses each chip's own width", () => {
     expect(chipsThatFit([120, 40, 40], 30, 6, 200)).toBe(1);
   });

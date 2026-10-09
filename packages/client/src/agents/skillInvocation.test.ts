@@ -14,7 +14,7 @@
 import { readdirSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { skillInvocation } from "./tips";
+import { skillInvocation } from "./terminalTip";
 
 const src = process.env.KOLU_AGENT_DISTRO_SRC;
 if (!src)

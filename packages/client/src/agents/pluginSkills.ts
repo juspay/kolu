@@ -46,11 +46,11 @@ const SOURCES = import.meta.glob<string>(
 /** Every skill the plugin declares, sorted by name. Never empty: kolu ships the
  *  `kolu` skill, so finding none means the build lost the plugin directory —
  *  fail loudly here rather than leave the tip silently without a skill. */
-export const PLUGIN_SKILLS: readonly PluginSkill[] = (() => {
-  const skills = Object.entries(SOURCES)
+export const PLUGIN_SKILLS: readonly [PluginSkill, ...PluginSkill[]] = (() => {
+  const [first, ...rest] = Object.entries(SOURCES)
     .map(([path, source]) => parseSkill(path, source))
     .sort((a, b) => a.name.localeCompare(b.name));
-  if (skills.length === 0)
+  if (first === undefined)
     throw new Error("agent-plugin/skills: no SKILL.md found in this build");
-  return skills;
+  return [first, ...rest];
 })();

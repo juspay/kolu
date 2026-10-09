@@ -41,9 +41,11 @@ const state = vi.hoisted(() => ({
   setCollapsed: undefined as unknown as (v: boolean) => void,
 }));
 
-vi.mock("./tipBarSize", () => ({
-  tipBarCollapsed: () => state.collapsed(),
-  setTipBarCollapsed: (v: boolean) => state.setCollapsed(v),
+// The size is one preference: read and written through the wire.
+vi.mock("../wire", () => ({
+  preferences: () => ({ tipBarCollapsed: state.collapsed() }),
+  updatePreferences: (p: { tipBarCollapsed: boolean }) =>
+    state.setCollapsed(p.tipBarCollapsed),
 }));
 // The tooltip renders its trigger and keeps its words where a test can read
 // them.
