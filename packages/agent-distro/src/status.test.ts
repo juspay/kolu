@@ -1105,6 +1105,19 @@ describe("a failure's words: cause, then remedy (by reason), then the retry — 
       AGENTS_RETRY,
     ]);
   });
+  it("a failure with nix's own line: the toast's title is the cause and nix's line, on one line", () => {
+    const message =
+      "cannot resolve flake: unable to download 'https://api.github.com/repos/o/r/commits/HEAD': HTTP error 401";
+    const words = agentMarkWords(
+      { kind: "failed", reason: "updater", message },
+      "nix-infra@idli-01",
+    );
+    expect(words).toEqual({
+      title: `The coding agents could not be downloaded to nix-infra@idli-01: ${message}`,
+      detail: [AGENTS_RETRY],
+    });
+    expect(words?.title).not.toContain("\n");
+  });
   it("the hover, the toast and the Settings line say the same lines", () => {
     const failure = {
       reason: "nixMissing",

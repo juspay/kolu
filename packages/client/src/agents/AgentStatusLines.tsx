@@ -4,7 +4,9 @@
  *  short mono text. The
  *  bar wears the state's colour: accent while downloading, ok when ready,
  *  warning when failed, empty before the host answers — and full and green on
- *  a ready host even while it updates. A ready line's note — an update
+ *  a ready host even while it updates. A failed line's text wraps in full —
+ *  its cause may carry nix's own (long) line, and a cut-off cause is no
+ *  cause. A ready line's note — an update
  *  running, or the last one — sits under its text, quieter; its hover (a skip's
  *  or a failure's reason, and who wrote it) is the fold's. Which lines show,
  *  and their collapse into one "all hosts" line when every host is settled, is
@@ -52,7 +54,7 @@ const AgentStatusLines: Component<{ lines: readonly AgentStatusLine[] }> = (
               data-update={line.update}
               data-last-run={line.lastRun}
               title={line.text}
-              class={`truncate font-mono text-[0.7rem] ${line.bar === "warn" ? "text-warning" : "text-fg-3/70"}`}
+              class={`font-mono text-[0.7rem] ${line.bar === "warn" ? "whitespace-pre-line wrap-anywhere text-warning" : "truncate text-fg-3/70"}`}
             >
               {line.text}
             </span>

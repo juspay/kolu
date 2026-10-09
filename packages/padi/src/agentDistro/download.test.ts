@@ -97,6 +97,9 @@ switch (process.env.STUB_MODE) {
   case "fail":
     out({ result: "failed", reason: "nix build exit 1" });
     process.exit(1);
+  case "faildetail":
+    out({ result: "failed", reason: "cannot resolve flake", detail: "unable to download 'https://api.github.com/repos/o/r/commits/HEAD': HTTP error 401" });
+    process.exit(1);
   case "garbage":
     // A progress line in a shape the contract does not have, then a result
     // that names a bundle without landing one.
@@ -374,6 +377,19 @@ describe("a host's first download", () => {
     expect(last()).toMatchObject({ message: "nix build exit 1" });
     await new Promise((r) => setTimeout(r, 200));
     expect(invocations()).toHaveLength(1);
+  });
+
+  it("a failure with nix's own line says it after the reason", async () => {
+    process.env.STUB_MODE = "faildetail";
+    write(ON);
+    await until((s) => s?.kind === "error");
+    expect(last()).toEqual({
+      kind: "error",
+      profile: "vanilla",
+      reason: "updater",
+      message:
+        "cannot resolve flake: unable to download 'https://api.github.com/repos/o/r/commits/HEAD': HTTP error 401",
+    });
   });
 
   it("turning it off and on again is the retry", async () => {
