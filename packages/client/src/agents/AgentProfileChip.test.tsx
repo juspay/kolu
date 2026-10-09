@@ -19,6 +19,7 @@ import {
   agentRestartAction,
   type AgentStaleness,
 } from "@kolu/agent-distro/status";
+import type { TerminalAgents } from "@kolu/agent-distro/schema";
 import type { ChipRestart } from "./AgentProfileChip";
 import { RESTART_ARM_MS } from "./restartGuard";
 
@@ -53,6 +54,7 @@ afterEach(() => {
 });
 
 function mount(opts: {
+  agents?: TerminalAgents;
   onClick?: (e: MouseEvent) => void;
   staleness?: AgentStaleness;
   restart?: ChipRestart;
@@ -64,8 +66,7 @@ function mount(opts: {
   dispose = render(
     () => (
       <AgentProfileChip
-        profile="vanilla"
-        bundle={BUNDLE}
+        agents={opts.agents ?? { profile: "vanilla", bundle: BUNDLE }}
         buttonClass="tile-button"
         where="naiveintent"
         onClick={opts.onClick ?? (() => {})}
@@ -116,11 +117,39 @@ describe("AgentProfileChip — current", () => {
 
   it("says what the terminal got and what a click does; the store path is in the accessible name only", () => {
     const { chip } = mount({});
-    expect(agentChipLabel("vanilla", BUNDLE)).toBe(
+    const agents = { profile: "vanilla", bundle: BUNDLE };
+    expect(agentChipLabel(agents)).toBe(
       "This terminal started with the vanilla coding agents (nd11nx5f). Click to choose what new terminals get.",
     );
     expect(chip.getAttribute("aria-label")).toBe(
-      `${agentChipLabel("vanilla", BUNDLE)} Bundle: ${BUNDLE}`,
+      `${agentChipLabel(agents)} Bundle: ${BUNDLE}`,
+    );
+  });
+
+  it("names the profile in effect once agent-distro said, else the setting's — the tooltip says where it came from", () => {
+    const reference = { profile: "github:me/profile", bundle: BUNDLE };
+    const before = mount({ agents: reference }).chip;
+    expect(before.getAttribute("data-profile")).toBe("github:me/profile");
+    expect(before.hasAttribute("data-source")).toBe(false);
+    dispose?.();
+    document.body.innerHTML = "";
+    const effective = {
+      ...reference,
+      effective: {
+        name: "ekala",
+        description: "Ekala's agents",
+        source: "repository" as const,
+        origin: "/home/me/ekala/agent-distro.nix",
+      },
+    };
+    const { chip } = mount({ agents: effective });
+    const spans = [...chip.querySelectorAll(":scope > span")].map(
+      (s) => s.textContent,
+    );
+    expect(spans.slice(1)).toEqual(["ekala", "nd11nx5f"]);
+    expect(chip.getAttribute("data-source")).toBe("repository");
+    expect(chip.getAttribute("aria-label")).toContain(
+      "this repository's own /home/me/ekala/agent-distro.nix",
     );
   });
 

@@ -21,6 +21,7 @@ import type {
   AgentDistroStatus,
 } from "@kolu/agent-distro/schema";
 import {
+  AGENTS_CUSTOM,
   AGENTS_NOT_CHOSEN,
   AGENTS_OFF,
   AGENTS_OFF_MEANS,
@@ -30,12 +31,14 @@ import {
   agentsStepHint,
   agentUpdateRunning,
   harnessLine,
+  profileReferenceProblem,
   restartedLabel,
 } from "@kolu/agent-distro/status";
 import {
   FIXTURE_DEFAULT_PROFILE,
   FIXTURE_MARK,
   FIXTURE_PROFILES,
+  FIXTURE_REFERENCE_PROFILE,
   FIXTURE_SKIP_REASON,
   fixtureClaudeSays,
   fixtureNextRun,
@@ -227,6 +230,64 @@ When(
   async function (this: KoluWorld, profile: string) {
     await this.page.click(segment(profile));
     await this.waitForFrame();
+  },
+);
+
+/** The Custom segment's field, in Settings. */
+const REFERENCE_INPUT = `${IN_SETTINGS} [data-testid="agents-reference-input"]`;
+
+When(
+  "I enter the profile reference {string}",
+  async function (this: KoluWorld, reference: string) {
+    await this.page.click(segment(AGENTS_CUSTOM));
+    const input = this.page.locator(REFERENCE_INPUT);
+    await input.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    await input.fill(reference);
+    await input.press("Enter");
+    await this.waitForFrame();
+  },
+);
+
+Then(
+  "the reference field should refuse {string} inline",
+  async function (this: KoluWorld, reference: string) {
+    const why = profileReferenceProblem(reference);
+    assert.ok(why, `"${reference}" is a reference; nothing to refuse`);
+    await this.page
+      .locator(`${IN_SETTINGS} [data-testid="agents-reference-problem"]`)
+      .filter({ hasText: why })
+      .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+  },
+);
+
+Then(
+  "a toast should say new terminals get the profile {string}",
+  async function (this: KoluWorld, reference: string) {
+    await toastSays(this, agentToast.on(reference));
+  },
+);
+
+/** The pill names what agent-distro answered for THIS terminal: the fixture
+ *  reports {@link FIXTURE_REFERENCE_PROFILE} for any `AI_PROFILE`, from the
+ *  variable. */
+Then(
+  "the focused tile's agents chip should name the profile in effect from the reference",
+  async function (this: KoluWorld) {
+    await this.page
+      .locator(
+        `${FOCUSED_TILE} [data-testid="tile-agent-chip"][data-profile="${FIXTURE_REFERENCE_PROFILE.name}"][data-source="variable"]`,
+      )
+      .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+  },
+);
+
+/** The marker carries the VALUE; the typed command carries only `$AI_PROFILE`,
+ *  so the shell's echo cannot satisfy it. */
+Then(
+  "the terminal's AI_PROFILE should be {string}",
+  async function (this: KoluWorld, reference: string) {
+    await this.terminalRunAndWait('echo "ai-profile=[$AI_PROFILE]"');
+    await waitForBufferContains(this.page, `ai-profile=[${reference}]`);
   },
 );
 

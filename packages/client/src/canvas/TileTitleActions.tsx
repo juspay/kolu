@@ -186,8 +186,7 @@ const TileTitleActions: Component<{
       <Show when={meta()?.agents}>
         {(agents) => (
           <AgentProfileChip
-            profile={agents().profile}
-            bundle={agents().bundle}
+            agents={agents()}
             buttonClass={TILE_BUTTON_CLASS}
             staleness={staleness()}
             where={agentsWhere(props.host)}

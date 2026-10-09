@@ -1,5 +1,6 @@
-/** The ONE Agents choice — the segmented control over `agentsSegments` ("Off"
- *  plus one segment per profile the pinned agent-distro ships), the one writer
+/** The ONE Agents choice — the segmented control over `agentsSegments` ("Off",
+ *  one segment per profile the pinned agent-distro ships, and "Custom", which
+ *  reveals a field for a profile reference of the user's own), the one writer
  *  behind it with its toasts, the hint that says what the choice means in its
  *  two layouts (`agentsHint` for Settings, `agentsStepHint` for the welcome
  *  card's step), and, once a profile is picked, one status line per machine
@@ -19,11 +20,13 @@
 
 import type { Hint } from "../settings/SettingRow";
 import { createSignal, type JSX, Show } from "solid-js";
+import { isProfileReference } from "@kolu/agent-distro/schema";
 import { toast } from "solid-sonner";
 import SegmentedControl from "../ui/SegmentedControl";
 import { updatePreferences } from "../wire";
 import AgentDistroLogo from "@kolu/agent-distro/solid";
 import {
+  AGENTS_CUSTOM,
   AGENTS_OFF,
   AGENTS_OFF_MEANS,
   AGENTS_SEGMENT_TESTID,
@@ -39,6 +42,7 @@ import {
 import AgentStatusLines from "./AgentStatusLines";
 import AgentUpdateHistory from "./AgentUpdateHistory";
 import AgentsCheckNowButton from "./AgentsCheckNowButton";
+import ProfileReferenceField from "./ProfileReferenceField";
 import {
   agentDistroListing,
   agentDistroSetting,
@@ -49,7 +53,8 @@ import {
 } from "./useAgentDistro";
 
 /** Write the choice — whole, through the one builder — and say what it did
- *  (colocated per the toast rule). */
+ *  (colocated per the toast rule). `segment` is Off, a built-in profile, or a
+ *  reference from the Custom field. */
 function choose(segment: string): void {
   updatePreferences({
     agentDistro: agentDistroChoice(segment, agentDistroStored()),
@@ -103,24 +108,55 @@ export default function AgentsChooser(props: {
   // The segment in view is the control's own answer, as it reports it — not
   // re-derived here, so the line under it can never name another segment.
   const [inView, setInView] = createSignal<string | undefined>();
+  // Custom picked but no reference written yet: the field shows, nothing is
+  // stored. A stored reference presses Custom on its own.
+  const [customOpen, setCustomOpen] = createSignal(false);
+  const pressed = () =>
+    customOpen() ? AGENTS_CUSTOM : agentsPressedSegment(agentDistroStored());
+  const storedReference = () => {
+    const stored = agentDistroStored();
+    return stored !== null && isProfileReference(stored.profile)
+      ? stored.profile
+      : "";
+  };
   return props.children({
     control: (
-      <SegmentedControl
-        options={agentsSegments(profiles())}
-        value={agentsPressedSegment(agentDistroStored())}
-        // In the asking row, while agents are off (nothing chosen, or Off
-        // pressed) the keyboard rests on the default profile, so Enter turns
-        // agents on; otherwise the pressed segment holds the stop.
-        restingValue={
-          props.asking && !agentDistroSetting().enabled
-            ? agentsRestingSegment(agentDistroListing())
-            : undefined
-        }
-        autofocus={props.autofocus}
-        onInViewChange={(v) => setInView(v)}
-        onChange={choose}
-        testIdPrefix={AGENTS_SEGMENT_TESTID}
-      />
+      <div class="flex flex-col items-end">
+        <SegmentedControl
+          options={agentsSegments(profiles(), { custom: !props.asking })}
+          value={pressed()}
+          // In the asking row, while agents are off (nothing chosen, or Off
+          // pressed) the keyboard rests on the default profile, so Enter turns
+          // agents on; otherwise the pressed segment holds the stop.
+          restingValue={
+            props.asking && !agentDistroSetting().enabled
+              ? agentsRestingSegment(agentDistroListing())
+              : undefined
+          }
+          autofocus={props.autofocus}
+          onInViewChange={(v) => setInView(v)}
+          onChange={(segment) => {
+            // Custom writes nothing itself: its field does.
+            if (segment === AGENTS_CUSTOM) {
+              setCustomOpen(true);
+              return;
+            }
+            setCustomOpen(false);
+            choose(segment);
+          }}
+          testIdPrefix={AGENTS_SEGMENT_TESTID}
+        />
+        <Show when={pressed() === AGENTS_CUSTOM}>
+          <ProfileReferenceField
+            initial={storedReference()}
+            autofocus={customOpen()}
+            onSubmit={(reference) => {
+              setCustomOpen(false);
+              choose(reference);
+            }}
+          />
+        </Show>
+      </div>
     ),
     hint: () =>
       agentsHint({

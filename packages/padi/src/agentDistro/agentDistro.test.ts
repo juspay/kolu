@@ -219,6 +219,51 @@ describe("checkAgentDistroSetting — the write gate", () => {
   });
 });
 
+describe("a profile reference — the setting's fallback, on the vanilla bundle", () => {
+  const REFERENCE = { enabled: true, profile: "github:me/profile" } as const;
+
+  it("is accepted at the write gate, as it is: agent-distro resolves it", () => {
+    __setAgentDistroBakeForTest(bake({ floor: true }));
+    expect(() => checkAgentDistroSetting(REFERENCE)).not.toThrow();
+    expect(() =>
+      checkAgentDistroSetting({ enabled: true, profile: "/home/me/p" }),
+    ).not.toThrow();
+  });
+
+  it("is refused on a build without the vanilla bundle it rides", () => {
+    const withoutVanilla = bake({ floor: true });
+    __setAgentDistroBakeForTest({
+      ...withoutVanilla,
+      profiles: new Map(
+        [...withoutVanilla.profiles].filter(([name]) => name !== "vanilla"),
+      ),
+    });
+    expect(() => checkAgentDistroSetting(REFERENCE)).toThrow(
+      /needs the 'vanilla' bundle/,
+    );
+  });
+
+  it("gets the vanilla bundle, and the layer keeps the reference as the profile", () => {
+    __setAgentDistroBakeForTest(bake({ floor: true }));
+    expect(assessAgentDistro(REFERENCE)).toEqual({
+      kind: "ready",
+      layer: {
+        profile: "github:me/profile",
+        bundle: join(root, "agent-distro-vanilla"),
+        plugins: "/p/plugin",
+      },
+    });
+  });
+
+  it("downloads the vanilla bundle on a host without one", () => {
+    __setAgentDistroBakeForTest(bake({ floor: false }));
+    expect(assessAgentDistro(REFERENCE)).toEqual({
+      kind: "needsDownload",
+      profile: "vanilla",
+    });
+  });
+});
+
 describe("withAgentLayer — the record stamp the chip reads", () => {
   it("stamps the agents struct whole, and strips a previous spawn's for no layer", () => {
     const stamped = withAgentLayer(
@@ -235,5 +280,25 @@ describe("withAgentLayer — the record stamp the chip reads", () => {
         undefined,
       ),
     ).toEqual({ other: 1 });
+  });
+
+  it("drops a previous spawn's profile in effect: the new one is asked again", () => {
+    expect(
+      withAgentLayer(
+        {
+          agents: {
+            profile: "github:me/p",
+            bundle: "/old",
+            effective: {
+              name: "mine",
+              description: "",
+              source: "variable" as const,
+              origin: "github:me/p",
+            },
+          },
+        },
+        { profile: "github:me/p", bundle: "/new", plugins: "/p" },
+      ),
+    ).toEqual({ agents: { profile: "github:me/p", bundle: "/new" } });
   });
 });

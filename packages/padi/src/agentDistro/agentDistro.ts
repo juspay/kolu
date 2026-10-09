@@ -48,8 +48,11 @@
 import {
   type AgentDistroSetting,
   type AgentDistroStatus,
+  bundleProfileOf,
   DEFAULT_AGENT_DISTRO_SETTING,
   EMPTY_AGENT_DISTRO_RECEIPT,
+  isProfileReference,
+  REFERENCE_BUNDLE_PROFILE,
 } from "@kolu/agent-distro/schema";
 import type { AgentUpdateRun } from "@kolu/agent-distro/history";
 import {
@@ -85,12 +88,22 @@ export const agentDistroSettingStore: CellStore<AgentDistroSetting> =
 
 /** The `agentDistro` cell's write gate (`onMutate`): refuse to turn on a profile
  *  this build does not know. The user's choice is never mapped to another
- *  profile — the push fails loudly and kolu-server logs it. An unbaked padi
- *  takes any value (it gives nothing either way, and says so in its status). */
+ *  profile — the push fails loudly and kolu-server logs it. A profile
+ *  REFERENCE is accepted as it is (agent-distro resolves it, in each terminal);
+ *  its bundle is {@link REFERENCE_BUNDLE_PROFILE}'s, which the build must
+ *  know. An unbaked padi takes any value (it gives nothing either way, and says
+ *  so in its status). */
 export function checkAgentDistroSetting(next: AgentDistroSetting): void {
   if (!next.enabled) return;
   const bake = agentDistroBake();
   if (bake === null) return;
+  if (isProfileReference(next.profile)) {
+    if (!bake.profiles.has(REFERENCE_BUNDLE_PROFILE))
+      throw new Error(
+        `agent-distro profile reference '${next.profile}' needs the '${REFERENCE_BUNDLE_PROFILE}' bundle, which this host does not know; it knows ${[...bake.profiles.keys()].join(", ")}`,
+      );
+    return;
+  }
   if (!bake.profiles.has(next.profile)) {
     throw new Error(
       `unknown agent-distro profile '${next.profile}'; this host knows ${[...bake.profiles.keys()].join(", ")}`,
@@ -109,7 +122,7 @@ function publishStatus(status: AgentDistroStatus): void {
  *  ends, so `running` is never stale. */
 function publishReceipt(setting: AgentDistroSetting): void {
   const bake = agentDistroBake();
-  const profile = bake?.profiles.get(setting.profile);
+  const profile = bake?.profiles.get(bundleProfileOf(setting.profile));
   if (bake === null || profile === undefined) {
     padiSurfaceCtx.cells.agentDistroReceipt.set({
       ...EMPTY_AGENT_DISTRO_RECEIPT,
@@ -124,14 +137,17 @@ function publishReceipt(setting: AgentDistroSetting): void {
   const run = downloadOf(profile.name);
   const serving =
     run?.kind === "running" ? run.serving : bundleOnHost(bake, profile);
-  padiSurfaceCtx.cells.agentDistroReceipt.set(
-    readReceipt(
+  // Named for the setting's profile — a reference's receipt is its bundle's —
+  // so a reader pairs it with the setting it is about.
+  padiSurfaceCtx.cells.agentDistroReceipt.set({
+    ...readReceipt(
       profile,
       serving,
       unlandedRunOf(profile.name),
       runningProfiles(),
     ),
-  );
+    profile: setting.profile,
+  });
 }
 
 /** Where `setting` stands on this host, as of now, without side effects — the
@@ -160,8 +176,10 @@ export function assessAgentDistro(setting: AgentDistroSetting):
   // A run's own state comes FIRST: the updater flips `current` before it
   // reports, so while it runs, or after it failed (say, it landed a bundle
   // other than the one it reported), an existing `current` is not a bundle any
-  // terminal gets. An update keeps serving the bundle it started from.
-  const download = downloadOf(setting.profile);
+  // terminal gets. An update keeps serving the bundle it started from. A run
+  // is the BUNDLE's: a reference shares its bundle's.
+  const bundleProfile = bundleProfileOf(setting.profile);
+  const download = downloadOf(bundleProfile);
   if (download?.kind === "running" && download.serving !== undefined)
     return {
       kind: "ready",
@@ -191,16 +209,16 @@ export function assessAgentDistro(setting: AgentDistroSetting):
   const layer = layerOnHost(setting);
   // A bundle a run disowned is never ready, even once its failure is
   // forgotten: the retry downloads again.
-  if (layer !== undefined && layer.bundle !== disownedBundleOf(layer.profile))
+  if (layer !== undefined && layer.bundle !== disownedBundleOf(bundleProfile))
     return { kind: "ready", layer };
   // An update that did not land cleanly keeps the bundle that served.
-  const kept = keptBundleOf(setting.profile);
+  const kept = keptBundleOf(bundleProfile);
   if (kept !== undefined)
     return {
       kind: "ready",
       layer: { profile: setting.profile, bundle: kept, plugins: bake.plugins },
     };
-  return { kind: "needsDownload", profile: setting.profile };
+  return { kind: "needsDownload", profile: bundleProfile };
 }
 
 /** What a terminal spawned NOW gets on this host — the same answer the host's
@@ -217,11 +235,13 @@ function settle(setting: AgentDistroSetting): void {
   let assessed = assessAgentDistro(setting);
   if (assessed.kind === "needsDownload") {
     const bake = agentDistroBake();
-    const profile = bake?.profiles.get(setting.profile);
+    const profile = bake?.profiles.get(assessed.profile);
     // `assessAgentDistro` only answers `needsDownload` for a baked, known
     // profile (`layerOnHost` throws on an unknown one).
     if (bake === null || profile === undefined)
-      throw new Error(`agent-distro: no bake for profile '${setting.profile}'`);
+      throw new Error(
+        `agent-distro: no bake for profile '${assessed.profile}'`,
+      );
     startRun(bake, profile, undefined, RUN_CALLBACKS);
     publishReceiptLoud(setting);
     assessed = assessAgentDistro(setting);
@@ -247,7 +267,7 @@ function settle(setting: AgentDistroSetting): void {
  *  BEFORE the store write, so it reads `next`, never the store. Turning a
  *  profile on forgets its last failure — that is the retry. */
 export function onAgentDistroSettingWrite(next: AgentDistroSetting): void {
-  if (next.enabled) forgetFailure(next.profile);
+  if (next.enabled) forgetFailure(bundleProfileOf(next.profile));
   settle(next);
   publishReceiptLoud(next);
   // A new setting starts its own count of scheduled attempts.
@@ -321,7 +341,7 @@ export function checkForAgentUpdate(opts: {
   const setting = agentDistroSettingStore.get();
   if (!setting.enabled) return "notReady";
   const bake = agentDistroBake();
-  const profile = bake?.profiles.get(setting.profile);
+  const profile = bake?.profiles.get(bundleProfileOf(setting.profile));
   if (bake === null || profile === undefined) return "notReady";
   const assessed = assessAgentDistro(setting);
   if (downloadOf(profile.name)?.kind === "running") return "running";
@@ -365,7 +385,9 @@ function scheduledRunEnded(): void {
   if (scheduledInFlight === false || attempts === undefined) return;
   const { before } = scheduledInFlight;
   scheduledInFlight = false;
-  const last = unlandedRunOf(agentDistroSettingStore.get().profile);
+  const last = unlandedRunOf(
+    bundleProfileOf(agentDistroSettingStore.get().profile),
+  );
   attempts = attemptEnded(
     attempts,
     Math.floor(Date.now() / 1000),
@@ -380,7 +402,9 @@ function scheduledRunEnded(): void {
 export function onAgentUpdateTick(boundaryPassed: boolean): void {
   const nowMs = Date.now();
   const setting = agentDistroSettingStore.get();
-  const profile = agentDistroBake()?.profiles.get(setting.profile);
+  const profile = agentDistroBake()?.profiles.get(
+    bundleProfileOf(setting.profile),
+  );
   if (!setting.enabled || profile === undefined) return;
   const { schedule } = profile;
   const now = Math.floor(nowMs / 1000);
@@ -404,7 +428,7 @@ export function onAgentUpdateTick(boundaryPassed: boolean): void {
     force: false,
     onStart: () => {
       attempts = attemptStarted(attempts, now, schedule);
-      scheduledInFlight = { before: unlandedRunOf(setting.profile) };
+      scheduledInFlight = { before: unlandedRunOf(profile.name) };
       log.info(
         { attempt: attempts.count },
         "agent-distro update due; running it",
@@ -430,7 +454,8 @@ export function startAgentDistroUpdates(): () => void {
     schedule: () => {
       const setting = agentDistroSettingStore.get();
       if (!setting.enabled) return undefined;
-      return agentDistroBake()?.profiles.get(setting.profile)?.schedule;
+      return agentDistroBake()?.profiles.get(bundleProfileOf(setting.profile))
+        ?.schedule;
     },
     onTick: (boundaryPassed) => onAgentUpdateTick(boundaryPassed),
   });

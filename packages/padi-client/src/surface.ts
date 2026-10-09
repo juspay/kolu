@@ -543,8 +543,19 @@ export * from "./transcriptSchema.ts";
  *  required" (`isContractVersionCompatible`), so it passes the gate against a
  *  5.10 padi and then meets a decode refusal on the record: loud, but not the
  *  clean `DaemonContractSkewError`, and not the graceful direction 5.7
- *  describes. Kept a minor anyway, as 5.3 and 5.7 were. */
-export const PADI_SURFACE_VERSION = "5.10";
+ *  describes. Kept a minor anyway, as 5.3 and 5.7 were.
+ *
+ *  5.11 (additive · minor) — agent-distro profile references. The
+ *  `agentDistro` setting's `profile` (already a string) may now be a
+ *  REFERENCE (a flake reference or a path, `isProfileReference`): padi gives
+ *  such a terminal the vanilla bundle with the reference as `AI_PROFILE`, and
+ *  publishes its status and receipt under the reference. The record's `agents`
+ *  gains an OPTIONAL `effective` (the profile in effect, as the bundle's
+ *  `agent-distro --list --json` answered after the spawn). The minor carries
+ *  the 5.8 obligation: a 5.11 binder may PUSH a reference, which a 5.10 padi's
+ *  write gate refuses as an unknown profile, so the minor drains a 5.10 padi
+ *  first. An older decoder strips `effective`, the graceful direction. */
+export const PADI_SURFACE_VERSION = "5.11";
 
 /** The `version` cell payload — padi's self-declared surface contract version. */
 export const PadiVersionSchema = Schema.Struct({

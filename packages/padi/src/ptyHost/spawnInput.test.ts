@@ -26,9 +26,13 @@ import { DEFAULT_MIRROR_SCROLLBACK, type PtyHostSystemInfo } from "kaval";
 // value; the literal below is the app-side number it compares against.
 const CLIENT_VISIBLE_SCROLLBACK = 50_000;
 import { AGENT_TOOLS_BAKE_ENV, TERMINAL_TOOLS_PATH_ENV } from "kolu-pty";
-import { AGENT_DISTRO_PLUGINS_ENV } from "../agentDistro/bake.ts";
+import {
+  AGENT_DISTRO_PLUGINS_ENV,
+  AI_PROFILE_ENV,
+} from "../agentDistro/bake.ts";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
+  agentSpawnEnv,
   composeSpawnInput,
   setSpawnServerVersion,
   type TerminalEnvSpec,
@@ -370,6 +374,34 @@ describe("composeSpawnInput agent-distro layer", () => {
       spec({ agents: { binDir: AGENTS, plugins: PLUGINS } }),
     );
     expect(input.env[AGENT_DISTRO_PLUGINS_ENV]).toBe(PLUGINS);
+  });
+
+  it("exports AI_PROFILE only for a profile reference — the layer's own mapping decides", () => {
+    const reference = composeSpawnInput(
+      { id: "T-agents-reference" },
+      info(),
+      spec({
+        agents: agentSpawnEnv({
+          profile: "github:me/profile",
+          bundle: "/s/vanilla",
+          plugins: PLUGINS,
+        }),
+      }),
+    );
+    expect(reference.env[AI_PROFILE_ENV]).toBe("github:me/profile");
+    expect(reference.env[AGENT_DISTRO_PLUGINS_ENV]).toBe(PLUGINS);
+    const builtin = composeSpawnInput(
+      { id: "T-agents-builtin" },
+      info(),
+      spec({
+        agents: agentSpawnEnv({
+          profile: "juspay",
+          bundle: "/s/juspay",
+          plugins: PLUGINS,
+        }),
+      }),
+    );
+    expect(builtin.env[AI_PROFILE_ENV]).toBeUndefined();
   });
 
   it("off means off: no agent dir, no plugins var, and an inherited one is not carried", () => {

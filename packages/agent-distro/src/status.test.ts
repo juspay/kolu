@@ -3,8 +3,17 @@ import { describe, expect, it } from "vitest";
 import { agentBundleShortHash } from "./bundle.ts";
 import { type AgentDistroListing, profileOfBundle } from "./listing.ts";
 import { DEFAULT_AGENT_PROFILE } from "./manifest.ts";
-import type { AgentDistroReceipt, AgentDistroStatus } from "./schema.ts";
 import {
+  type AgentDistroReceipt,
+  type AgentDistroStatus,
+  REFERENCE_BUNDLE_PROFILE,
+} from "./schema.ts";
+import {
+  AGENTS_CUSTOM,
+  AGENTS_CUSTOM_MEANS,
+  agentChipProfile,
+  profileReferenceProblem,
+  selectedAgentProfile,
   AGENTS_CHECK_NOW,
   AGENTS_ALL_HOSTS,
   AGENTS_HISTORY,
@@ -269,6 +278,7 @@ describe("the one Agents control", () => {
       "Off",
       "vanilla",
       "juspay",
+      "Custom",
     ]);
   });
 
@@ -278,7 +288,41 @@ describe("the one Agents control", () => {
       AGENTS_OFF_MEANS,
       "Stock agents, your own API keys.\nagent-distro describes it as: Upstream harnesses with your own provider",
       "Juspay's agents and skills, through Juspay's gateway.\nagent-distro describes it as: Juspay skills + Kolu",
+      AGENTS_CUSTOM_MEANS,
     ]);
+  });
+
+  it("offers Custom only beside the bundle a reference rides", () => {
+    if (LISTING.kind !== "available") throw new Error("fixture");
+    const withoutVanilla = LISTING.profiles.filter(
+      (p) => p.name !== REFERENCE_BUNDLE_PROFILE,
+    );
+    expect(agentsSegments(withoutVanilla).map((s) => s.value)).toEqual([
+      AGENTS_OFF,
+      "juspay",
+    ]);
+  });
+
+  it("the first-run step leaves Custom out", () => {
+    if (LISTING.kind !== "available") throw new Error("fixture");
+    expect(
+      agentsSegments(LISTING.profiles, { custom: false }).map((s) => s.value),
+    ).toEqual([AGENTS_OFF, "vanilla", "juspay"]);
+  });
+
+  it("refuses a profile named like the Custom segment", () => {
+    expect(() =>
+      agentsSegments([{ name: AGENTS_CUSTOM, description: "", harnesses: [] }]),
+    ).toThrow();
+  });
+
+  it("presses Custom for a stored reference", () => {
+    expect(
+      agentsPressedSegment({ enabled: true, profile: "github:me/profile" }),
+    ).toBe(AGENTS_CUSTOM);
+    expect(
+      agentsPressedSegment({ enabled: false, profile: "github:me/profile" }),
+    ).toBe(AGENTS_OFF);
   });
 
   it("refuses a profile kolu has no plain words for", () => {
@@ -742,6 +786,27 @@ describe("agentStalenessOf — is a terminal's agents what a new one gets", () =
   const ready = (profile: string, bundle: string) =>
     ({ kind: "ready", profile, bundle }) as const;
 
+  it("a reference switch on the same bundle is stale: its AI_PROFILE changed", () => {
+    expect(
+      agentStalenessOf({
+        terminal: { agents: { profile: "github:a/p", bundle: OLD } },
+        status: ready("github:b/p", OLD),
+        setting: on("github:b/p"),
+      }),
+    ).toEqual({
+      kind: "stale",
+      had: { profile: "github:a/p", hash: "nd11nx5f" },
+      now: { kind: "profile", profile: "github:b/p", hash: "nd11nx5f" },
+    });
+    expect(
+      agentStalenessOf({
+        terminal: { agents: { profile: "github:a/p", bundle: OLD } },
+        status: ready("github:a/p", OLD),
+        setting: on("github:a/p"),
+      }),
+    ).toEqual({ kind: "current" });
+  });
+
   it("a terminal without agents is never stale", () => {
     expect(
       agentStalenessOf({
@@ -979,6 +1044,52 @@ describe("unknownProfileOf — the one test for a saved choice kolu does not off
       unknownProfileOf({ enabled: true, profile: "gone" }, undefined),
     ).toBeUndefined();
   });
+
+  it("a reference is never unknown: agent-distro resolves it, on its vanilla bundle", () => {
+    const reference = { enabled: true, profile: "github:me/profile" };
+    expect(unknownProfileOf(reference, LISTING)).toBeUndefined();
+    expect(selectedAgentProfile(reference, LISTING)?.name).toBe(
+      REFERENCE_BUNDLE_PROFILE,
+    );
+  });
+});
+
+describe("profile references — the Custom field's check and the pill's name", () => {
+  it("refuses empty, spaced and non-reference input inline", () => {
+    expect(profileReferenceProblem("")).toBeDefined();
+    expect(profileReferenceProblem("   ")).toBeDefined();
+    expect(profileReferenceProblem("juspay")).toBeDefined();
+    expect(profileReferenceProblem("github:me/a b")).toBeDefined();
+    expect(profileReferenceProblem("github:me/profile")).toBeUndefined();
+    expect(profileReferenceProblem("~/my-profile")).toBeUndefined();
+    expect(profileReferenceProblem(" /home/me/p ")).toBeUndefined();
+  });
+
+  it("a pick through the one writer stores the reference, on", () => {
+    expect(agentDistroChoice("github:me/profile", null)).toEqual({
+      enabled: true,
+      profile: "github:me/profile",
+    });
+  });
+
+  it("the pill names the profile in effect, else the setting's", () => {
+    const bundle = READY_BUNDLE;
+    expect(agentChipProfile({ profile: "github:me/p", bundle })).toBe(
+      "github:me/p",
+    );
+    expect(
+      agentChipProfile({
+        profile: "github:me/p",
+        bundle,
+        effective: {
+          name: "mine",
+          description: "",
+          source: "variable",
+          origin: "github:me/p",
+        },
+      }),
+    ).toBe("mine");
+  });
 });
 
 describe("agentRestartAction — what the stale pill's restart does, decided once", () => {
@@ -1013,12 +1124,28 @@ describe("agentRestartAction — what the stale pill's restart does, decided onc
 describe("the words outside the folds", () => {
   it("the pill's hover, the restart toast (from what padi did), the toasts", () => {
     expect(
-      agentChipLabel(
-        "vanilla",
-        "/nix/store/nd11nx5f1dkf02cr9dhxqq4axg23vzgc-agent-distro-vanilla",
-      ),
+      agentChipLabel({
+        profile: "vanilla",
+        bundle:
+          "/nix/store/nd11nx5f1dkf02cr9dhxqq4axg23vzgc-agent-distro-vanilla",
+      }),
     ).toBe(
       "This terminal started with the vanilla coding agents (nd11nx5f). Click to choose what new terminals get.",
+    );
+    expect(
+      agentChipLabel({
+        profile: "github:me/profile",
+        bundle:
+          "/nix/store/nd11nx5f1dkf02cr9dhxqq4axg23vzgc-agent-distro-vanilla",
+        effective: {
+          name: "ekala",
+          description: "Ekala's agents",
+          source: "repository",
+          origin: "/home/me/ekala/agent-distro.nix",
+        },
+      }),
+    ).toBe(
+      "This terminal runs the ekala profile (nd11nx5f), from this repository's own /home/me/ekala/agent-distro.nix. Click to choose what new terminals get.",
     );
     expect(restartedLabel({ agentProfile: undefined, resumed: false })).toBe(
       "Restarted as a plain shell",

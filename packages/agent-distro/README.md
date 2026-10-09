@@ -27,6 +27,12 @@ The **TypeScript half**, as data and pure functions:
   `floorListing`, every floor profile in the manifest's order (the default
   first); kolu's `available | unavailable` listing value. kolu never runs a
   picker for information: the picker is a command for people.
+- `./inEffect` — the profile in effect for a launch, upstream's `profile`
+  field of `agent-distro --list --json` (`{ name, description, source,
+  origin }`, `source` one of `positional` · `repository` · `variable` ·
+  `builtin`), and its parser `parseProfileInEffect` — `undefined` for a
+  bundle older than profile references, a throw for output out of format.
+  padi asks it once per terminal; kolu never re-derives it.
 - `./profileFile` — a bundle's `share/agent-distro/profile.json` (`{ name,
   description }`, upstream's `ProfileFile`) and its parser.
 - `./progress` — the updater's `--progress` stdout protocol
@@ -54,6 +60,10 @@ The **TypeScript half**, as data and pure functions:
   and what a new terminal there gets — with its progress, and a failure's typed
   reason, `AgentDistroFailureReason`), their defaults and equality, and
   `TerminalAgents` (the one `agents` field a terminal record is stamped with),
+  with its optional `effective` (the profile in effect, `./inEffect`), the
+  profile REFERENCE helpers (`isProfileReference` — the one test, a `/` or a
+  `:` — `REFERENCE_BUNDLE_PROFILE` and `bundleProfileOf`: a reference rides
+  the `vanilla` bundle with the reference as `AI_PROFILE`),
   and `AgentDistroReceipt` (what a host keeps of its updates: the serving
   bundle's versions, the last run, the last five events, `running` — every
   profile with a run in flight there — and `error` when the updater's files
@@ -80,7 +90,10 @@ The **TypeScript half**, as data and pure functions:
   layouts of one vocabulary — Settings' (`agentsHint`) and the welcome step's
   one-line-per-choice form (`agentsStepHint`); the segments,
   with which is pressed and where the keyboard rests (`agentsPressedSegment`,
-  `agentsRestingSegment`); the per-host status lines
+  `agentsRestingSegment`), Custom (`AGENTS_CUSTOM`, Settings only) and the
+  check its reference field makes (`profileReferenceProblem`); the tile
+  pill's profile and hover (`agentChipProfile`, `agentChipLabel`: the profile
+  in effect and where it came from, else the setting's); the per-host status lines
   with their collapse rule; a saved choice kolu does not ship
   (`unknownProfileOf`); whether a terminal's agents went stale and what its
   restart does (`agentStalenessOf`, `agentRestartReady`, `agentRestartAction`,

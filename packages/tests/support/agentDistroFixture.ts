@@ -7,7 +7,10 @@
  * profile's bundle, laid out as upstream's:
  *
  *     bin/claude                        prints "agent-distro fixture: <name> claude"
- *     bin/agent-distro                  the profile's picker: prints "agent-distro picker fixture: <name>"
+ *     bin/agent-distro                  the profile's picker: prints "agent-distro picker fixture: <name>";
+ *                                       with `--list --json`, the profile in effect (upstream's `profile`
+ *                                       field): `AI_PROFILE`'s reference as {@link FIXTURE_REFERENCE_PROFILE},
+ *                                       else the bundle's own built-in
  *     share/agent-distro/profile.json   its name and description (kolu-server reads it)
  *     share/agent-distro/versions       its harnesses (kolu-server and padi read it)
  *
@@ -69,6 +72,30 @@ export function fixtureClaudeSays(profile: string): string {
  *  line, nor it of this, so neither run can satisfy the other's wait. */
 export function fixturePickerSays(profile: string): string {
   return `agent-distro picker fixture: ${profile}`;
+}
+
+/** The profile the fixture's `agent-distro --list --json` reports in effect
+ *  for ANY `AI_PROFILE` reference — upstream would evaluate the reference; the
+ *  fixture only proves kolu exported it and records the answer. */
+export const FIXTURE_REFERENCE_PROFILE = {
+  name: "fixture-mine",
+  description: "Fixture profile from a reference",
+} as const;
+
+/** The fixture picker's `--list --json` for `profile`'s bundle: upstream's
+ *  shape, with an empty menu (kolu reads only `profile`). */
+function fixtureListJson(profile: string): string {
+  const ref = FIXTURE_REFERENCE_PROFILE;
+  return [
+    'if [ "$1" = "--list" ] && [ "$2" = "--json" ]; then',
+    '  if [ -n "$AI_PROFILE" ]; then',
+    `    printf '{"profiles":[],"profile":{"description":"${ref.description}","name":"${ref.name}","origin":"%s","source":"variable"}}\n' "$AI_PROFILE"`,
+    "  else",
+    `    printf '{"profiles":[],"profile":{"description":"Fixture profile ${profile}","name":"${profile}","origin":"${profile}","source":"builtin"}}\n'`,
+    "  fi",
+    "  exit 0",
+    "fi",
+  ].join("\n");
 }
 
 /** Every fixture path carries this, so a step can tell a fixture agent on the
@@ -228,7 +255,10 @@ function buildFixture(): Record<string, string> {
     script(path.join(bin, "claude"), `echo "${fixtureClaudeSays(name)}"`);
     // The profile's own picker, as upstream's bundle carries it: a command for
     // people, which kolu never runs.
-    script(path.join(bin, "agent-distro"), `echo "${fixturePickerSays(name)}"`);
+    script(
+      path.join(bin, "agent-distro"),
+      `${fixtureListJson(name)}\necho "${fixturePickerSays(name)}"`,
+    );
     // The two files the bundle describes itself with, as a real one writes them.
     for (const [file, text] of Object.entries(
       bundleFiles(dir, fixtureProfile(name)),

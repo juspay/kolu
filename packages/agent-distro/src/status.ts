@@ -24,7 +24,9 @@ import type {
   AgentDistroStatus,
   TerminalAgents,
 } from "./schema.ts";
+import type { ProfileSource } from "./inEffect.ts";
 import type { AgentDistroListing, AgentDistroProfile } from "./listing.ts";
+import { isProfileReference, REFERENCE_BUNDLE_PROFILE } from "./schema.ts";
 import type { AgentVersion } from "./versions.ts";
 
 /** What "never chosen" means for new terminals: off, on the default profile, so
@@ -468,19 +470,46 @@ export const AGENTS_OFF_MEANS =
  *  listing that ships a profile called this. */
 export const AGENTS_OFF = "off";
 
+/** The Settings "Agents" segment for a profile REFERENCE of the user's own: it
+ *  reveals a field for the reference, and the field — not the segment —
+ *  writes. Not a profile name, as {@link AGENTS_OFF} is not. */
+export const AGENTS_CUSTOM = "custom";
+
+/** What the Custom segment means, as its hover and the field's hint say it. */
+export const AGENTS_CUSTOM_MEANS =
+  "A profile of your own: a flake reference (github:owner/repo) or the path to a directory with an agent-distro.nix. A repository's own agent-distro.nix still wins inside that repository.";
+
+/** Why `text` cannot be written as a profile reference, or `undefined` when it
+ *  can — the Custom field's ONE check, so it refuses inline what padi would
+ *  read as a built-in name. */
+export function profileReferenceProblem(text: string): string | undefined {
+  const reference = text.trim();
+  if (reference === "") return "Enter a flake reference or a path.";
+  if (/\s/.test(reference)) return "A reference has no spaces.";
+  if (!isProfileReference(reference))
+    return "Not a reference: it needs a / or a : (github:owner/repo, ~/my-profile).";
+  return undefined;
+}
+
 /** The Agents control's test-id prefix: each segment is
  *  `${AGENTS_SEGMENT_TESTID}-${value}` (the client's `SegmentedControl`
  *  convention), so the e2e suite clicks the very segment Settings renders. */
 export const AGENTS_SEGMENT_TESTID = "agents-profile";
 
-/** The segments of the one Agents control: Off, then one per profile. */
+/** The segments of the one Agents control: Off, then one per profile, then —
+ *  with `custom`, and when the listing ships {@link REFERENCE_BUNDLE_PROFILE}
+ *  — Custom (a reference of the user's own, {@link AGENTS_CUSTOM}). The
+ *  welcome card's first-run step leaves Custom out: it asks only while agents
+ *  are off, and a first choice is a built-in. */
 export function agentsSegments(
   profiles: readonly AgentDistroProfile[],
+  opts: { readonly custom: boolean } = { custom: true },
 ): readonly { value: string; label: string; hint?: string }[] {
-  if (profiles.some((p) => p.name === AGENTS_OFF))
-    throw new Error(
-      `agent-distro ships a profile named '${AGENTS_OFF}', which Settings uses for Off`,
-    );
+  for (const reserved of [AGENTS_OFF, AGENTS_CUSTOM])
+    if (profiles.some((p) => p.name === reserved))
+      throw new Error(
+        `agent-distro ships a profile named '${reserved}', which Settings uses for its own segment`,
+      );
   return [
     {
       value: AGENTS_OFF,
@@ -492,12 +521,19 @@ export function agentsSegments(
       label: p.name,
       hint: `${capitalize(plainProfileDescription(p))}.\nagent-distro describes it as: ${p.description}`,
     })),
+    // A reference rides the reference bundle: no Custom without it.
+    ...(!opts.custom ||
+    !profiles.some((p) => p.name === REFERENCE_BUNDLE_PROFILE)
+      ? []
+      : [{ value: AGENTS_CUSTOM, label: "Custom", hint: AGENTS_CUSTOM_MEANS }]),
   ];
 }
 
-/** Which segment the Agents control shows for a setting. */
+/** Which segment the Agents control shows for a setting: a reference is
+ *  Custom's. */
 function agentsSegmentOf(setting: AgentDistroSetting): string {
-  return setting.enabled ? setting.profile : AGENTS_OFF;
+  if (!setting.enabled) return AGENTS_OFF;
+  return isProfileReference(setting.profile) ? AGENTS_CUSTOM : setting.profile;
 }
 
 /** The segment the Agents control shows PRESSED for the stored value — none
@@ -823,12 +859,14 @@ export function agentStatusLines(input: {
 
 /** The stored profile, when the listing does not offer it — the ONE test for a
  *  saved choice kolu no longer (or never) ships. The choice is never reset:
- *  Settings warns and a toast says so ({@link unknownProfileMessage}). */
+ *  Settings warns and a toast says so ({@link unknownProfileMessage}). A
+ *  profile reference is never unknown: agent-distro resolves it, not kolu. */
 export function unknownProfileOf(
   setting: AgentDistroSetting,
   listing: AgentDistroListing | undefined,
 ): string | undefined {
   if (listing?.kind !== "available") return undefined;
+  if (isProfileReference(setting.profile)) return undefined;
   return listing.profiles.some((p) => p.name === setting.profile)
     ? undefined
     : setting.profile;
@@ -839,14 +877,18 @@ export function unknownProfileMessage(profile: string): string {
   return `Your saved coding-agents choice "${profile}" is not one this kolu offers — pick one in Settings → Agents.`;
 }
 
-/** The profile the setting selects, when agents are on and the listing ships
- *  it — the one case where the Agents row shows its status lines. */
+/** The profile whose BUNDLE the setting selects, when agents are on and the
+ *  listing ships it — the one case where the Agents row shows its status
+ *  lines. A reference selects {@link REFERENCE_BUNDLE_PROFILE}'s bundle. */
 export function selectedAgentProfile(
   setting: AgentDistroSetting,
   listing: AgentDistroListing | undefined,
 ): AgentDistroProfile | undefined {
   if (!setting.enabled || listing?.kind !== "available") return undefined;
-  return listing.profiles.find((p) => p.name === setting.profile);
+  const name = isProfileReference(setting.profile)
+    ? REFERENCE_BUNDLE_PROFILE
+    : setting.profile;
+  return listing.profiles.find((p) => p.name === name);
 }
 
 /** The opening of both Agents hints: what kolu can bring. */
@@ -940,16 +982,17 @@ export function agentsHint(input: {
   // This machine's own versions once its receipt is in — never the floor's
   // passed off as this machine's: a bundle with no versions file names none.
   // Before the receipt's first frame, the set kolu ships.
-  const receipt = receiptFor(input.localReceipt, profile.name);
+  // Padi names the receipt for the setting's profile, a reference's too.
+  const receipt = receiptFor(input.localReceipt, setting.profile);
   const agents =
     receipt === undefined
       ? harnessLine(profile)
       : versionsLine(receipt.versions);
+  const lead = isProfileReference(setting.profile)
+    ? `Your own profile, ${setting.profile}, on the ${profile.name} agents. Inside a repository with its own agent-distro.nix, that one wins; each terminal's pill names the profile in effect.`
+    : `${capitalize(plainProfileDescription(profile))}.`;
   return {
-    text: [
-      `${capitalize(plainProfileDescription(profile))}.`,
-      ...(agents === "" ? [] : [agents]),
-    ].join("\n"),
+    text: [lead, ...(agents === "" ? [] : [agents])].join("\n"),
     tone: "muted",
   };
 }
@@ -1021,7 +1064,10 @@ export function agentStalenessOf(input: {
     return sameProfile ? { kind: "current" } : waiting("downloading");
   switch (status.kind) {
     case "ready":
-      return status.bundle === agents.bundle
+      // Same bundle, same profile: a reference switch keeps the bundle but
+      // changes the terminal's `AI_PROFILE`.
+      return status.bundle === agents.bundle &&
+        status.profile === agents.profile
         ? { kind: "current" }
         : stale({
             kind: "profile",
@@ -1101,9 +1147,33 @@ export function agentStaleLabel(
   }
 }
 
-/** A current pill's hover: what this terminal got, and what a click does. */
-export function agentChipLabel(profile: string, bundle: string): string {
-  return `This terminal started with the ${profile} coding agents (${agentBundleShortHash(bundle)}). Click to choose what new terminals get.`;
+/** Where the profile in effect came from, as a hover says it. */
+const SOURCE_WORDS: Record<ProfileSource, (origin: string) => string> = {
+  positional: (origin) => `chosen on the command line (${origin})`,
+  repository: (origin) => `this repository's own ${origin}`,
+  variable: (origin) => `the Agents setting's reference, ${origin}`,
+  builtin: (origin) => `the built-in ${origin} profile`,
+};
+
+/** The profile a tile's pill names: the one in effect, as agent-distro
+ *  answered for this terminal, else the setting's profile it was spawned
+ *  with (no answer yet, or none to be had). */
+export function agentChipProfile(agents: TerminalAgents): string {
+  return agents.effective?.name ?? agents.profile;
+}
+
+/** A current pill's hover: what this terminal got — the profile in effect and
+ *  where it came from, when agent-distro said — and what a click does. */
+export function agentChipLabel(
+  agents: Pick<TerminalAgents, "profile" | "bundle" | "effective">,
+): string {
+  const hash = agentBundleShortHash(agents.bundle);
+  const { effective } = agents;
+  const started =
+    effective === undefined
+      ? `This terminal started with the ${agents.profile} coding agents (${hash}).`
+      : `This terminal runs the ${effective.name} profile (${hash}), from ${SOURCE_WORDS[effective.source](effective.origin)}.`;
+  return `${started} Click to choose what new terminals get.`;
 }
 
 /** The toast after a restart, from what padi reports it did. */
@@ -1120,8 +1190,11 @@ export function restartedLabel(restarted: {
 /** The Agents setting's own toasts, worded once. A host's download toasts are
  *  its mark's words ({@link agentMarkWords}), raised at {@link downloadEdge}. */
 export const agentToast = {
-  /** A switch to a profile. */
-  on: (profile: string) => `New terminals get the ${profile} agents`,
+  /** A switch to a profile — a built-in name, or a reference. */
+  on: (profile: string) =>
+    isProfileReference(profile)
+      ? `New terminals get your profile ${profile}`
+      : `New terminals get the ${profile} agents`,
   /** A switch to Off (title; {@link AGENTS_OFF_MEANS} is its description). */
   off: "Coding agents off",
   /** An update landed on `host` (the {@link downloadEdge} `updated` moment):

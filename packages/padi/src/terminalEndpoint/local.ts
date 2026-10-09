@@ -75,6 +75,7 @@ import {
   agentDistroSettingStore,
   newTerminalLayer,
 } from "../agentDistro/agentDistro.ts";
+import { probeProfileInEffect } from "../agentDistro/inEffect.ts";
 import { agentLayerOfRecord, withAgentLayer } from "../agentDistro/layer.ts";
 import { buildTerminalSpawnInput, ptyHostClient } from "../ptyHost/index.ts";
 import { notifyDirty } from "../publisher.ts";
@@ -1027,15 +1028,23 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
     opts: PtySpawnOpts,
     proxy: PtyHostTerminalProxy,
     expected: ActiveTerminalProcess,
-  ): Promise<{ pid: number; cwd: string } | null> {
-    const res = await runEndpointEdge(
+  ): Promise<{
+    pid: number;
+    cwd: string;
+    env: Readonly<Record<string, string>>;
+  } | null> {
+    const { res, env } = await runEndpointEdge(
       Effect.flatMap(
         buildTerminalSpawnInput({
           id,
           cwd: opts.cwd,
           agents: agentLayerOfRecord(expected.meta),
         }),
-        (input) => ptyHostClient.surface.terminal.spawn(input),
+        (input) =>
+          Effect.map(ptyHostClient.surface.terminal.spawn(input), (res) => ({
+            res,
+            env: input.env,
+          })),
       ),
     );
     if (getActiveTerminal(id) !== expected) {
@@ -1049,7 +1058,34 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
       }
       return null;
     }
-    return { pid: res.pid, cwd: res.cwd };
+    return { pid: res.pid, cwd: res.cwd, env };
+  }
+
+  /** Ask agent-distro which profile is in effect in a terminal that got
+   *  agents — once, in its resolved cwd and its spawn env — and write the
+   *  answer onto its record's `agents.effective`. In the background: never
+   *  delays or fails the spawn. Dropped when the entry is no longer the one
+   *  this spawn made (killed, slept, re-spawned) by the time it answers; no
+   *  answer leaves `effective` absent. */
+  private recordProfileInEffect(
+    id: TerminalId,
+    entry: ActiveTerminalProcess,
+    spawned: { cwd: string; env: Readonly<Record<string, string>> },
+  ): void {
+    const agents = entry.meta.agents;
+    if (agents === undefined) return;
+    void probeProfileInEffect({
+      bundle: agents.bundle,
+      cwd: spawned.cwd,
+      env: spawned.env,
+      terminal: id,
+    }).then((effective) => {
+      if (effective === undefined) return;
+      if (getActiveTerminal(id) !== entry || entry.meta.agents !== agents)
+        return;
+      entry.meta.agents = { ...agents, effective };
+      publishTerminalState(id);
+    });
   }
 
   /** Async tail of `spawnPty`/`wake`: confirm the PTY spawned, then start the
@@ -1066,7 +1102,7 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
     // Phase 1 — the spawn RPC. A failure here means no PTY was created
     // (`host.spawn` either returns a live child or throws), so there's nothing
     // to kill: just unwind the sync shadow.
-    let res: { pid: number; cwd: string } | null;
+    let res: Awaited<ReturnType<typeof this.spawnViaClient>>;
     try {
       res = await this.spawnViaClient(id, opts, proxy, entry);
     } catch (err) {
@@ -1113,6 +1149,7 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
     // (the same type-ahead a fast typist relies on), so there's no readiness
     // race — only set on wake (`resumeAgentCommand` output), never an ordinary spawn.
     if (opts.resumeCommand) proxy.write(`${opts.resumeCommand}\r`);
+    this.recordProfileInEffect(id, entry, res);
     tlog.info({ pid: res.pid, total: listTerminals().length }, "created");
     return true;
   }

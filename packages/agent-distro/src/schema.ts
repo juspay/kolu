@@ -19,18 +19,46 @@
 
 import { Schema } from "effect";
 import { AgentUpdateEventSchema, AgentUpdateRunSchema } from "./history.ts";
+import { ProfileInEffectSchema } from "./inEffect.ts";
 import { AgentVersionSchema } from "./versions.ts";
 
-/** The Agents setting: on/off and the profile name. `profile` is checked against
- *  the profiles this padi's build knows (its baked updater listing) when the
+/** The Agents setting: on/off and the profile — a built-in NAME or a profile
+ *  REFERENCE ({@link isProfileReference}). A name is checked against the
+ *  profiles this padi's build knows (its baked updater listing) when the
  *  setting is written ON — an unknown name fails the write, it is never mapped
- *  to a different profile. */
+ *  to a different profile. A reference is not resolved by kolu at all: a
+ *  terminal gets {@link REFERENCE_BUNDLE_PROFILE}'s bundle with the reference
+ *  as its `AI_PROFILE`, and agent-distro's launcher resolves it. It is the
+ *  FALLBACK profile — upstream prefers a repository's own `agent-distro.nix`
+ *  over it — so what a terminal actually runs is asked of agent-distro after
+ *  the spawn ({@link TerminalAgentsSchema}'s `effective`). */
 export const AgentDistroSettingSchema = Schema.Struct({
   enabled: Schema.Boolean,
   profile: Schema.String,
 });
 
 export type AgentDistroSetting = typeof AgentDistroSettingSchema.Type;
+
+/** Is `profile` a profile REFERENCE — a flake reference (`github:owner/repo`)
+ *  or a path to a directory holding an `agent-distro.nix` — rather than a
+ *  built-in name? THE one test: a reference contains `/` or `:`, which
+ *  upstream's built-in names never do (agent-distro's listing rule: names are
+ *  free of whitespace and `/`). */
+export function isProfileReference(profile: string): boolean {
+  return profile.includes("/") || profile.includes(":");
+}
+
+/** The built-in profile whose bundle serves a reference: its launchers resolve
+ *  `AI_PROFILE` themselves. */
+export const REFERENCE_BUNDLE_PROFILE = "vanilla";
+
+/** The built-in profile whose BUNDLE a terminal gets for `profile`: itself for
+ *  a name, {@link REFERENCE_BUNDLE_PROFILE} for a reference. Everything padi
+ *  keeps per bundle (its download, its updates, its receipt files) is keyed by
+ *  this; everything it PUBLISHES names `profile` as the user chose it. */
+export function bundleProfileOf(profile: string): string {
+  return isProfileReference(profile) ? REFERENCE_BUNDLE_PROFILE : profile;
+}
 
 /** What padi holds between its boot and the binder's first push: OFF. A
  *  terminal opened in that window gets no agents (and no chip), which is the
@@ -214,16 +242,23 @@ export function agentDistroReceiptEqual(
 }
 
 /** The agents a terminal was spawned with — ONE optional field on its record,
- *  `agents`: present (both halves) when padi put agent-distro's agents on the
- *  terminal's PATH at spawn, absent when it put none. A running terminal never
- *  changes it (it pins the bundle it started with); a respawn re-stamps it
- *  whole. */
+ *  `agents`: present when padi put agent-distro's agents on the terminal's
+ *  PATH at spawn, absent when it put none. Its profile and bundle never change
+ *  while the terminal runs (it pins the bundle it started with); a respawn
+ *  re-stamps it whole. `effective` is written once, after the spawn. */
 export const TerminalAgentsSchema = Schema.Struct({
-  /** The profile whose agents went on the PATH. */
+  /** The setting's profile at spawn — a built-in name, or a reference
+   *  ({@link isProfileReference}), exported to the terminal as `AI_PROFILE`. */
   profile: Schema.String.check(Schema.isMinLength(1)),
   /** The exact bundle store path whose `bin/` went on the PATH — the tile
    *  pill's short hash. */
   bundle: Schema.String.check(Schema.isMinLength(1)),
+  /** The profile in effect in this terminal, as agent-distro answered
+   *  `--list --json` in its cwd and environment once it started (a repository's
+   *  own `agent-distro.nix` wins over the setting). Absent until that answer,
+   *  and for good when it failed or the bundle predates the field — the pill
+   *  then names `profile`. */
+  effective: Schema.optionalKey(ProfileInEffectSchema),
 });
 
 export type TerminalAgents = typeof TerminalAgentsSchema.Type;

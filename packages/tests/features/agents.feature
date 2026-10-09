@@ -47,6 +47,22 @@ Feature: Agents come with kolu
     And the terminal should have no fixture agents on its PATH
     And there should be no page errors
 
+  Scenario: A profile reference reaches the next terminal, and its pill names the profile in effect
+    Given the terminal is ready
+    When I click the settings button
+    And I turn Agents on
+    And I enter the profile reference "juspay"
+    Then the reference field should refuse "juspay" inline
+    When I enter the profile reference "github:me/my-profile"
+    Then a toast should say new terminals get the profile "github:me/my-profile"
+    And padi should give new terminals the "github:me/my-profile" agents
+    When I press Escape
+    And I create a terminal
+    Then the focused tile's agents chip should name the profile in effect from the reference
+    And the terminal's AI_PROFILE should be "github:me/my-profile"
+    And the terminal's claude should be the "vanilla" fixture
+    And there should be no page errors
+
   Scenario: Clicking a tile's agents pill opens Settings at the Agents rows
     Given the terminal is ready
     When I click the settings button

@@ -132,6 +132,13 @@ keeps them current itself, four times a day, and whenever a newer kolu reaches
 it; its tab shows each update downloading while the agents it has keep working
 ([Kept up to date](/agents#kept-up-to-date)). It never compiles agents.
 
+A [profile of your own](/agents#a-profile-of-your-own) reaches every host the
+same way the setting does — as words, never as files. A flake reference
+(`github:you/your-profile`) is fetched by each host for itself; a **path**
+(`~/src/my-profile`) names a folder on the host a terminal runs on, so it works
+only on a host that holds that folder. Elsewhere the agents come up without it,
+and the terminal's pill names the profile agent-distro actually used there.
+
 Each host is a **tab**: **local** is a Home icon plus the machine hostname
 kolu is running on; remotes show the ssh target. Every tab carries a
 **connection pip** so link health is always visible:

@@ -87,6 +87,30 @@ lines fold into one, **all hosts**, with how many there are. Below them sit
 
 The setting is one for all of kolu — not per host, not per terminal.
 
+## A profile of your own
+
+Besides the sets kolu ships, **Custom** takes a profile of your own: an
+`agent-distro.nix` in any git repository, named by a flake reference
+(`github:you/your-profile`) or by a path to its directory
+(`~/src/my-profile`). Pick **Custom**, type the reference and press **Enter**
+(or **Use**). Anything without a `/` or a `:` is refused right there, since it
+would read as the name of a built-in set.
+
+kolu does not read the reference itself. New terminals get the stock
+(**vanilla**) agents with the reference as `AI_PROFILE`, and agent-distro
+resolves it when you launch an agent. It is a **fallback**: agent-distro picks
+the profile in this order —
+
+1. one you name on the command line (`agent-distro <reference>`),
+2. the `agent-distro.nix` of the repository you are in (looked up from the
+   folder you are in to the repository's root),
+3. `AI_PROFILE` — the setting's reference,
+4. the built-in set.
+
+So inside a repository that carries its own `agent-distro.nix`, that one wins,
+whatever the setting says. Each tile's pill tells you which one is in effect
+there ([below](#new-terminals-only-and-each-one-says-which)).
+
 ## New terminals only, and each one says which
 
 A change applies to the **next new terminal**. A terminal that is already open
@@ -94,9 +118,19 @@ keeps exactly the agents it started with: kolu puts the exact build of that set
 on its PATH, so a later switch (or a newer build arriving) never changes a
 running agent under you — until you **Restart** it (below).
 
-Every tile shows which it got: a small pill in the tile's title bar with the set
-and a short hash of the build. Two tiles with different pills started with
-different agents; **no pill** means agents were off when that terminal started.
+Every tile shows which it got: a small pill in the tile's title bar with the
+profile and a short hash of the build. Two tiles with different pills started
+with different agents; **no pill** means agents were off when that terminal
+started.
+
+The profile on the pill is the one **in effect** in that terminal: right after
+the terminal starts, kolu asks agent-distro once, in the terminal's folder and
+with its environment, and shows its answer — a repository's own profile, the
+setting's reference, or the built-in set. Hover the pill to see where it came
+from. Until agent-distro answers (or if it cannot), the pill shows the
+setting's choice. It is asked once per terminal: `cd` into another repository
+and the pill keeps naming the profile from where the terminal started, though
+an agent you launch there follows agent-distro's own order.
 
 In a terminal with agents, a bar under the tile's title bar points at the next
 step — a button for each agent of its set to launch, then a skill to try at its
@@ -105,7 +139,8 @@ first prompt — and the buttons type it for you ([A tip under the title bar](/t
 ## Restarting a terminal onto the current agents
 
 When a terminal's agents are no longer what a new terminal there would get — you
-picked another set, turned agents off, or a newer build of the same set arrived —
+picked another set or another reference, turned agents off, or a newer build of
+the same set arrived —
 its pill dims and becomes a **Restart** button. Hover it to see what the terminal
 has and what new terminals get. While that machine is still downloading the set,
 or its download failed, new terminals there get no agents — so the pill says so
@@ -148,7 +183,9 @@ set: to switch sets, use [Settings](#pick-a-set).
 ## On other machines
 
 Agents work the same on every host you [add](/remote-hosts), but nothing is
-copied over ssh. The first time a host is used with agents on, that host
+copied over ssh — a [profile of your own](#a-profile-of-your-own) included: a
+flake reference is fetched by each host, and a **path** names a folder on that
+host, so it works only where that folder exists. The first time a host is used with agents on, that host
 **downloads them itself**, from agent-distro's binary cache into its own Nix
 store, and kolu tells you when they have landed. Terminals opened on that host
 before then have no agents (and no pill).

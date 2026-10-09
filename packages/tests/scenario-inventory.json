@@ -8452,6 +8452,18 @@
       "exampleRows": [],
       "executions": 1,
       "firstSeenSha": "fbd089422c4745458761157c537d2df106155da9"
+    },
+    {
+      "revisionId": "revision-82ea6de62289edc75867",
+      "scenarioKey": "scenario-05a090a4a53e42d0ef1d",
+      "feature": "features/agents.feature",
+      "scenario": "A profile reference reaches the next terminal, and its pill names the profile in effect",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "6303377b7baadadc017f9a373d709f8e83c6c0faefa357a82c7be7ba67be81f7",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "7d821782d868acb0e20aa447211f4a879cb8a333"
     }
   ]
 }

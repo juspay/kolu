@@ -430,14 +430,21 @@ padi puts the coding agents of the user's chosen
 [agent-distro](https://github.com/juspay/agent-distro) profile on the PATH of
 every NEW terminal it spawns ([Agents](https://kolu.dev/agents)), and keeps
 that profile current on its host. Three cells, one procedure (`padiSurface`
-5.9) and one spawn layer carry it; the module is `src/agentDistro/`.
+5.9, profile references 5.11) and one spawn layer carry it; the module is
+`src/agentDistro/`.
 
 - **`agentDistro` (memory-only, `get`/`set`)** — the Agents setting
   (`{ enabled, profile }`), PUSHED by the binding kolu-server on every connect
   edge and every preferences write, exactly like `newTerminalPolicy` (the push
   mechanism is `packages/server/src/padi/padiCellPusher.ts`, shared by both).
   Its write gate refuses to turn on a profile this padi's build does not know —
-  the user's choice is never mapped to another profile. Not on the MCP face.
+  the user's choice is never mapped to another profile. A profile REFERENCE
+  (a flake reference or a path, `isProfileReference`: it contains `/` or `:`)
+  is accepted as it is — padi never resolves it — and rides the `vanilla`
+  bundle (`bundleProfileOf`), which the build must know. Everything padi keeps
+  per bundle (the run, the updates, the receipt files) is keyed by that bundle
+  profile; everything it publishes (status, receipt, the record's `agents`)
+  names the reference as the user chose it. Not on the MCP face.
 - **`agentDistroStatus` (read-only)** — whether the selected profile's agents
   are on THIS host: `ready` (with the bundle new terminals get — and `update:
   { progress? }` while an update runs and that bundle keeps serving), `downloading`
@@ -508,7 +515,8 @@ that profile current on its host. Three cells, one procedure (`padiSurface`
   (its one `agents` struct — the tile pill) and its `bin/` joins the
   terminal's toolchain AFTER kolu's own tools, riding the same
   `KOLU_TERMINAL_TOOLS_PATH` stamp the rcfile re-asserts; `AGENT_DISTRO_PLUGINS`
-  names this kolu's `agent-plugin`. A running terminal never changes bundle,
+  names this kolu's `agent-plugin`; a reference is exported as `AI_PROFILE`
+  beside it (a built-in sets nothing). A running terminal never changes bundle,
   except through `lifecycle.restart`: a fresh PTY on the same id (same cwd,
   layout, parent, theme), flipped through sleep and wake, so it re-resolves the
   layer — what that means for the user (the conversation, a plain shell) is
@@ -518,6 +526,19 @@ that profile current on its host. Three cells, one procedure (`padiSurface`
   the record back on it and fails. An attach that lands in the restart's
   dormant middle waits for the new PTY rather than answering `TerminalNotFound`
   (which a client's attach loop reads as "gone" and stops on).
+- **The profile in effect** — once a terminal with agents is spawned and wired,
+  padi runs its bundle's `bin/agent-distro --list --json` ONCE, in the
+  terminal's resolved cwd and with its spawn env (`inEffect.ts`), and writes
+  upstream's `profile` field onto the record as `agents.effective`
+  (`{ name, description, source, origin }`; the parse is
+  `@kolu/agent-distro/inEffect`). Upstream resolves it — a positional
+  argument, the repository's `agent-distro.nix`, `AI_PROFILE`, the built-in —
+  and padi never re-derives it. It never blocks or fails the spawn: a failure,
+  a timeout, or a bundle that predates the field is logged and leaves
+  `effective` absent, and an answer for an entry that was since killed, slept
+  or re-spawned is dropped. A respawn re-stamps `agents` whole, so it is asked
+  again. A path reference is a path on THIS host: a remote host resolves it
+  against its own disk.
 - **First use on a remote host** — `padi-agent` carries no floor. When the
   setting turns a profile on and the host has no `current` for it, padi runs
   agent-distro's updater once (`lib.mkUpdater`'s command and config, the config's
@@ -529,7 +550,8 @@ that profile current on its host. Three cells, one procedure (`padiSurface`
 - **Where it lives** — `src/agentDistro/`, one module per thing that changes
   on its own clock: `bake.ts` (what the build baked), `onHost.ts` (looking up
   agent-distro's state on this host, and the host's `nix`), `layer.ts` (what a
-  terminal spawned now gets, and its record stamp), `updater.ts` (running the
+  terminal spawned now gets, and its record stamp), `inEffect.ts` (asking
+  agent-distro for the profile in effect), `updater.ts` (running the
   updater process), `download.ts` (the run state machine: a first download or
   an update · failed with a typed reason), `receipt.ts` (what the updater's
   files say), `scheduler.ts` (when to ask whether an update is due), and

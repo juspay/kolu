@@ -52,7 +52,11 @@ import {
 } from "osfacts-client";
 import type { AgentLayer } from "../agentDistro/layer.ts";
 import { agentBinDir } from "@kolu/agent-distro/bundle";
-import { AGENT_DISTRO_PLUGINS_ENV } from "../agentDistro/bake.ts";
+import { isProfileReference } from "@kolu/agent-distro/schema";
+import {
+  AGENT_DISTRO_PLUGINS_ENV,
+  AI_PROFILE_ENV,
+} from "../agentDistro/bake.ts";
 import type { KavalObservation } from "../kavalObservation.ts";
 import { log } from "../log.ts";
 import {
@@ -552,8 +556,15 @@ export interface TerminalEnvSpec {
    *  Agents setting off at spawn, an unbaked daemon, or a host whose bundle has
    *  not arrived). `binDir` joins the PATH AFTER `toolsPath`, so kolu's own
    *  `kolu` / `kaval-tui` / `padi-tui` keep a name collision; `plugins` becomes
-   *  `AGENT_DISTRO_PLUGINS`. Both are exact store paths: the terminal pins them. */
-  agents?: { readonly binDir: string; readonly plugins: string };
+   *  `AGENT_DISTRO_PLUGINS`. Both are exact store paths: the terminal pins them.
+   *  `profileReference` — present only when the setting names a profile
+   *  reference — becomes `AI_PROFILE`; a built-in profile sets nothing, its
+   *  bundle's launchers already default to it. */
+  agents?: {
+    readonly binDir: string;
+    readonly plugins: string;
+    readonly profileReference?: string;
+  };
   /** The kolu-server version this daemon reports — stamped as
    *  `TERM_PROGRAM_VERSION`. A daemon fact like the rest, so the composer reads
    *  it off the spec rather than off a module global. */
@@ -566,7 +577,13 @@ export interface TerminalEnvSpec {
 export function agentSpawnEnv(
   layer: AgentLayer,
 ): NonNullable<TerminalEnvSpec["agents"]> {
-  return { binDir: agentBinDir(layer.bundle), plugins: layer.plugins };
+  return {
+    binDir: agentBinDir(layer.bundle),
+    plugins: layer.plugins,
+    ...(isProfileReference(layer.profile)
+      ? { profileReference: layer.profile }
+      : {}),
+  };
 }
 
 /**
@@ -600,8 +617,10 @@ export function agentSpawnEnv(
  *      the same PATH prepend and the same `KOLU_TERMINAL_TOOLS_PATH` stamp the
  *      wrapper rcfile re-asserts after the user's dotfiles), and
  *      `AGENT_DISTRO_PLUGINS` names this kolu's plugin dir so every harness
- *      loads kolu's plugin, in any profile. Absent → neither is touched: a
- *      `claude` the user installed is what runs.
+ *      loads kolu's plugin, in any profile. A profile REFERENCE is exported as
+ *      `AI_PROFILE` beside it (the launcher's fallback profile; a built-in sets
+ *      nothing). Absent → none is touched: a `claude` the user installed is
+ *      what runs.
  *
  * **Local-host only, today.** The host this process talks to IS this machine, so
  * `cleanEnv()`'s `env.SHELL`/`env.HOME` (describing *this* machine) win, and
@@ -655,8 +674,11 @@ export function composeSpawnInput(
     env.PATH = prependPathEntries(env.PATH, toolsPath);
     env[TERMINAL_TOOLS_PATH_ENV] = toolsPath.join(":");
   }
-  if (spec.agents !== undefined)
+  if (spec.agents !== undefined) {
     env[AGENT_DISTRO_PLUGINS_ENV] = spec.agents.plugins;
+    if (spec.agents.profileReference !== undefined)
+      env[AI_PROFILE_ENV] = spec.agents.profileReference;
+  }
   // The $KAVAL_SOCKET twin for padi: a `padi-tui` INSIDE this terminal reaches the
   // padi that OWNS it (the daemon that spawned it) with no --socket/--state-root —
   // so the /kolu agent-drives-agent loop runs `padi-tui wait` flagless. Stamped
