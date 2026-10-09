@@ -25,7 +25,7 @@ import type {
   TerminalAgents,
 } from "./schema.ts";
 import type { AgentDistroListing, AgentDistroProfile } from "./listing.ts";
-import { bundleProfileOf } from "./schema.ts";
+import { DEFAULT_AGENT_PROFILE } from "./manifest.ts";
 import type { AgentVersion } from "./versions.ts";
 
 /** Juspay's profile, as a reference — kolu's default profile, and the one
@@ -169,7 +169,7 @@ export function agentsChosenLabel(
     case "failed":
       return `Agents: ${setting.profile} — ${line.text}`;
     default:
-      return line satisfies never;
+      return line.kind satisfies never;
   }
 }
 
@@ -526,18 +526,15 @@ export function profileSuggestions(input: {
  *  Until this machine's padi has answered for THIS profile (no frame yet, an
  *  answer about the previous one, or nothing to ask while its bundle is still
  *  on the way) it is `pending`. */
-export type AgentsResolvedLine =
-  | { readonly kind: "pending"; readonly text: string }
-  | { readonly kind: "resolved"; readonly text: string }
-  | {
-      readonly kind: "failed";
-      /** agent-distro's own words. */
-      readonly text: string;
-      /** What that means for new terminals. */
-      readonly detail: string;
-    };
+export interface AgentsResolvedLine {
+  readonly kind: "pending" | "resolved" | "failed";
+  /** `failed`: agent-distro's own words — {@link AGENTS_UNRESOLVED_MEANS}
+   *  follows them. */
+  readonly text: string;
+}
 
-/** What a profile that does not resolve means for new terminals. */
+/** What a profile that does not resolve means for new terminals, under
+ *  agent-distro's words. */
 export const AGENTS_UNRESOLVED_MEANS =
   "New terminals still get it, and their agents will not start until it resolves — except in a repository with its own agent-distro.nix.";
 
@@ -552,43 +549,28 @@ export function agentsResolvedLine(
     kind: "pending",
     text: `resolving ${setting.profile}…`,
   } as const;
-  if (resolved === undefined) return pending;
+  // An answer about another profile is one padi has not caught up from.
+  if (
+    resolved === undefined ||
+    resolved.kind === "none" ||
+    resolved.kind === "pending" ||
+    resolved.profile !== setting.profile
+  )
+    return pending;
   switch (resolved.kind) {
-    case "none":
-    case "pending":
-      return pending;
     case "resolved":
-      return resolved.profile !== setting.profile
-        ? pending
-        : {
-            kind: "resolved",
-            text:
-              resolved.description === ""
-                ? resolved.name
-                : `${resolved.name} · ${resolved.description}`,
-          };
+      return {
+        kind: "resolved",
+        text:
+          resolved.description === ""
+            ? resolved.name
+            : `${resolved.name} · ${resolved.description}`,
+      };
     case "failed":
-      return resolved.profile !== setting.profile
-        ? pending
-        : {
-            kind: "failed",
-            text: resolved.message,
-            detail: AGENTS_UNRESOLVED_MEANS,
-          };
+      return { kind: "failed", text: resolved.message };
     default:
       return resolved satisfies never;
   }
-}
-
-/** kolu's default BUNDLE, as the listing carries it — the one
- *  {@link JUSPAY_PROFILE} rides, and THE one reading of "the default is the
- *  listing's first": kolu-server refuses a listing that does not lead with the
- *  bundle `defaults.json` names. `undefined` when the listing has not arrived,
- *  the build ships no agents, or it lists no profiles. */
-function defaultBundleOf(
-  listing: AgentDistroListing | undefined,
-): AgentDistroProfile | undefined {
-  return listing?.kind === "available" ? listing.profiles[0] : undefined;
 }
 
 /** One host's agent-distro facts, for its line in Settings. */
@@ -886,18 +868,17 @@ export function agentStatusLines(input: {
 
 /** The bundle the setting selects, when agents are on and the listing ships
  *  it — the one case where the Agents row shows its status lines. A profile
- *  that is not a bundle of its own selects the vanilla one
- *  ({@link bundleProfileOf}). */
+ *  that is not a bundle of its own selects the default one, as padi's
+ *  `bundleProfileOf` (`./schema`) does. */
 export function selectedAgentProfile(
   setting: AgentDistroSetting,
   listing: AgentDistroListing | undefined,
 ): AgentDistroProfile | undefined {
-  if (!setting.enabled || listing?.kind !== "available") return undefined;
-  const name = bundleProfileOf(
-    setting.profile,
-    new Set(listing.profiles.map((p) => p.name)),
+  if (!setting.enabled) return undefined;
+  return (
+    shippedProfile(listing, setting.profile) ??
+    shippedProfile(listing, DEFAULT_AGENT_PROFILE)
   );
-  return listing.profiles.find((p) => p.name === name);
 }
 
 /** The opening of both Agents hints: what kolu can bring. */
@@ -911,7 +892,7 @@ export function agentsStepHint(
   listing: AgentDistroListing | undefined,
 ): string | undefined {
   if (listing?.kind !== "available") return undefined;
-  const lead = defaultBundleOf(listing);
+  const lead = shippedProfile(listing, DEFAULT_AGENT_PROFILE);
   const agents = lead === undefined ? "" : harnessLine(lead);
   return agents === "" ? AGENTS_LEAD : `${AGENTS_LEAD} ${agents}`;
 }
@@ -940,7 +921,7 @@ export function agentsHint(input: {
       tone: "muted",
     };
   if (agentDistroSettingOf(input.stored).enabled) return undefined;
-  const lead = defaultBundleOf(listing);
+  const lead = shippedProfile(listing, DEFAULT_AGENT_PROFILE);
   return {
     text: [
       AGENTS_LEAD,
@@ -960,7 +941,8 @@ export const AGENTS_REPO_OVERRIDES =
 /** The notes under the profile field, after the resolved line: the agents of
  *  the selected bundle with their versions — this machine's own, from its
  *  receipt, once it has one (an update moves them past the listing's) — then
- *  {@link AGENTS_REPO_OVERRIDES}. `undefined` while agents are off. */
+ *  {@link AGENTS_REPO_OVERRIDES}. Shown only while agents are on — the
+ *  field's own condition. */
 export function agentsProfileNotes(input: {
   readonly setting: AgentDistroSetting;
   readonly listing: AgentDistroListing | undefined;
@@ -968,9 +950,8 @@ export function agentsProfileNotes(input: {
    *  the listing's are the set kolu was built with, which an update leaves
    *  behind. */
   readonly localReceipt: AgentDistroReceipt | undefined;
-}): readonly string[] | undefined {
+}): readonly string[] {
   const { setting } = input;
-  if (!setting.enabled) return undefined;
   const profile = selectedAgentProfile(setting, input.listing);
   // This machine's own versions once its receipt is in — never the floor's
   // passed off as this machine's: a bundle with no versions file names none.

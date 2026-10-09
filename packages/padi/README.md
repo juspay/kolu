@@ -439,9 +439,8 @@ that profile current on its host. Three cells, one procedure (`padiSurface`
   mechanism is `packages/server/src/padi/padiCellPusher.ts`, shared by both).
   Any profile is accepted as it is — padi never resolves it: one named like a
   bundle this build ships rides that bundle, anything else (a flake reference,
-  a path, a name agent-distro may or may not know) rides `vanilla`
-  (`bundleProfileOf`), and the write gate refuses only a build without the
-  bundle it rides. Everything padi keeps per bundle (the run, the updates, the
+  a path, a name agent-distro may or may not know) rides the default bundle,
+  `vanilla` (`bundleProfileOf`). Everything padi keeps per bundle (the run, the updates, the
   receipt files) is keyed by that bundle profile; everything it publishes
   (status, receipt, the record's `agents`) names the profile as the user chose
   it. Not on the MCP face.
@@ -468,8 +467,8 @@ that profile current on its host. Three cells, one procedure (`padiSurface`
   its `bin/agent-distro --list --json` from `$HOME`, with the profile as
   `AI_PROFILE` and padi's own environment otherwise (`inEffect.ts`,
   `resolveProfileOnHost`) — and publishes `pending`, then `resolved`
-  (agent-distro's name and description) or `failed` (its stderr, on one line,
-  `listJsonFailureLine`); `none` while agents are off or no bundle serves yet.
+  (agent-distro's name and description) or `failed` (its stderr, as it wrote it, on one
+  line); `none` while agents are off or no bundle serves yet.
   An answer for a setting since replaced is dropped; switching agents off and
   on asks again. The setting stands either way. Settings reads the local
   host's, under its profile field. Not on the MCP face.
@@ -565,7 +564,7 @@ that profile current on its host. Three cells, one procedure (`padiSurface`
   updater process), `download.ts` (the run state machine: a first download or
   an update · failed with a typed reason), `receipt.ts` (what the updater's
   files say), `scheduler.ts` (when to ask whether an update is due), and
-  `agentDistro.ts` (kolu's policy: the write gate, the status, the receipt,
+  `agentDistro.ts` (kolu's policy: the status, the receipt,
   when to download and when to update). kolu's contract with upstream agent-distro — the
   `--progress` line format, the bundle/state layout, the listing — is
   [`@kolu/agent-distro`](../agent-distro), which padi imports.

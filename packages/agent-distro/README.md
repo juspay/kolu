@@ -62,7 +62,7 @@ The **TypeScript half**, as data and pure functions:
   `TerminalAgents` (the one `agents` field a terminal record is stamped with),
   with its optional `effective` (the profile in effect, `./inEffect`),
   `bundleProfileOf` (the bundle a profile rides: its own when the build ships
-  one by that name, else `REFERENCE_BUNDLE_PROFILE`, `vanilla`; every terminal
+  one by that name, else the default bundle, `DEFAULT_AGENT_PROFILE`; every terminal
   gets the setting's profile as `AI_PROFILE`), `AgentDistroResolved` (whether
   the setting's profile resolves on a host: `none` · `pending` · `resolved`
   with agent-distro's name and description · `failed` with its own words),

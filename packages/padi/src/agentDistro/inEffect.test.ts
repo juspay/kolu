@@ -54,7 +54,7 @@ describe("resolveProfileOnHost", () => {
       kind: "failed",
       profile: "github:nobody/nothing",
       message:
-        "cannot fetch github:nobody/nothing: unable to download: HTTP error 404",
+        "agent-distro: AI_PROFILE=github:nobody/nothing: cannot fetch github:nobody/nothing: error: unable to download: HTTP error 404",
     });
   });
 

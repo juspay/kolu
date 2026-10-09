@@ -5,7 +5,6 @@ import { type AgentDistroListing, profileOfBundle } from "./listing.ts";
 import type { AgentDistroReceipt, AgentDistroStatus } from "./schema.ts";
 import {
   AGENTS_REPO_OVERRIDES,
-  AGENTS_UNRESOLVED_MEANS,
   agentChipProfile,
   agentsProfileNotes,
   agentsResolvedLine,
@@ -337,7 +336,7 @@ describe("agentsProfileNotes — the lines under the profile field", () => {
     ).toEqual(["Claude Code 3.0.0", AGENTS_REPO_OVERRIDES]);
   });
 
-  it("a bundle with no agents listed names none, never an empty line; off says nothing", () => {
+  it("a bundle with no agents listed names none, never an empty line", () => {
     expect(
       agentsProfileNotes({
         setting: { enabled: true, profile: "juspay" },
@@ -345,13 +344,6 @@ describe("agentsProfileNotes — the lines under the profile field", () => {
         localReceipt: undefined,
       }),
     ).toEqual([AGENTS_REPO_OVERRIDES]);
-    expect(
-      agentsProfileNotes({
-        setting: { enabled: false, profile: "vanilla" },
-        listing: LISTING,
-        localReceipt: undefined,
-      }),
-    ).toBeUndefined();
   });
 });
 
@@ -413,7 +405,6 @@ describe("agentsResolvedLine — does the profile resolve on this machine", () =
     ).toEqual({
       kind: "failed",
       text: `cannot fetch ${ref}: HTTP error 404`,
-      detail: AGENTS_UNRESOLVED_MEANS,
     });
   });
 

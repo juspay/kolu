@@ -20,6 +20,7 @@
 import { Schema } from "effect";
 import { AgentUpdateEventSchema, AgentUpdateRunSchema } from "./history.ts";
 import { ProfileInEffectSchema } from "./inEffect.ts";
+import { DEFAULT_AGENT_PROFILE } from "./manifest.ts";
 import { AgentVersionSchema } from "./versions.ts";
 
 /** The Agents setting: on/off and the profile — the name of a bundle kolu
@@ -39,20 +40,17 @@ export const AgentDistroSettingSchema = Schema.Struct({
 
 export type AgentDistroSetting = typeof AgentDistroSettingSchema.Type;
 
-/** The bundle whose launchers serve every profile that is not a bundle of its
- *  own: they resolve `AI_PROFILE` themselves. */
-export const REFERENCE_BUNDLE_PROFILE = "vanilla";
-
 /** The bundle a terminal gets for `profile`: its own when `bundles` (the
- *  bundles this build ships, by name) has one, else
- *  {@link REFERENCE_BUNDLE_PROFILE}'s. Everything padi keeps per bundle (its
+ *  bundles this build ships, by name) has one, else the default bundle
+ *  (`DEFAULT_AGENT_PROFILE`), whose launchers resolve `AI_PROFILE`
+ *  themselves. Everything padi keeps per bundle (its
  *  download, its updates, its receipt files) is keyed by this; everything it
  *  PUBLISHES names `profile` as the user chose it. */
 export function bundleProfileOf(
   profile: string,
   bundles: { has(name: string): boolean },
 ): string {
-  return bundles.has(profile) ? profile : REFERENCE_BUNDLE_PROFILE;
+  return bundles.has(profile) ? profile : DEFAULT_AGENT_PROFILE;
 }
 
 /** What padi holds between its boot and the binder's first push: OFF. A

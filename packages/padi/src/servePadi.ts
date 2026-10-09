@@ -65,7 +65,6 @@ import { EMPTY_URGENCY } from "./activity/urgency.ts";
 import { createEdgeMemory } from "./attention/edgeMemory.ts";
 import {
   agentDistroSettingStore,
-  checkAgentDistroSetting,
   checkForAgentUpdate,
   onAgentDistroSettingWrite,
 } from "./agentDistro/agentDistro.ts";
@@ -447,14 +446,12 @@ export function buildPadiSurfaceDeps(deps: {
       // what makes `lifecycle.create` resolve against the wire-written authority.
       newTerminalPolicy: { store: newTerminalPolicyStore },
       // The Agents setting the binding kolu-server pushes. The SAME module store
-      // the spawn path resolves against (`newTerminalLayer`). `onMutate` refuses
-      // a profile this build does not know (the write fails loud at the binder);
-      // `onWrite` publishes the host status and starts a remote host's one
+      // the spawn path resolves against (`newTerminalLayer`). It takes any
+      // profile (agent-distro resolves it, in each terminal); `onWrite` publishes the host status and starts a remote host's one
       // download. Both run only for a CHANGED value — the spec's `equals` drops a
       // reconnect's identical re-push.
       agentDistro: {
         store: agentDistroSettingStore,
-        onMutate: checkAgentDistroSetting,
         onWrite: onAgentDistroSettingWrite,
       },
       // Read-only: written only by the agent-distro module. `off` until the

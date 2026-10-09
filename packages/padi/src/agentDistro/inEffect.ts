@@ -20,7 +20,6 @@ import { join } from "node:path";
 import { agentBinDir } from "@kolu/agent-distro/bundle";
 import {
   LIST_JSON_ARGS,
-  listJsonFailureLine,
   type ProfileInEffect,
   parseProfileInEffect,
 } from "@kolu/agent-distro/inEffect";
@@ -136,10 +135,12 @@ export async function resolveProfileOnHost(args: {
         { err: answer.err, profile },
         "agent-distro could not resolve the Agents profile",
       );
+      // agent-distro's words as it wrote them, on one line.
       return failed(
-        answer.stderr.trim() === ""
-          ? answer.err.message
-          : listJsonFailureLine(answer.stderr, profile),
+        answer.stderr
+          .trim()
+          .split(/\s*\n\s*/)
+          .join(" ") || answer.err.message,
       );
     case "unreadable":
       return failed(

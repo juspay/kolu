@@ -259,14 +259,13 @@ Then(
 );
 
 /** The fixture fails as upstream does for a reference it cannot fetch; the
- *  line quotes it (agent-distro's prefix and the variable's label dropped),
- *  then says what that means for new terminals. */
+ *  line quotes it as written, then says what that means for new terminals. */
 Then(
   "the profile field should say {string} does not resolve",
   async function (this: KoluWorld, profile: string) {
     const line = this.page.locator(`${RESOLVED_LINE}[data-kind="failed"]`);
     await line
-      .filter({ hasText: `cannot fetch ${profile}: unable to download` })
+      .filter({ hasText: `cannot fetch ${profile}:` })
       .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
     await line
       .getByText(AGENTS_UNRESOLVED_MEANS, { exact: true })

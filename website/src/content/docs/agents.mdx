@@ -81,7 +81,8 @@ Under the field, the machine running kolu says whether the profile resolves.
 It asks agent-distro once, the same way a terminal's agents would, and shows
 agent-distro's name and description for it ("juspay · Juspay skills + Kolu").
 If it does not resolve, the line is agent-distro's own words, in red, such as
-"cannot fetch github:nobody/nothing: … HTTP error 404". The setting stands even
+"agent-distro: AI_PROFILE=github:nobody/nothing: cannot fetch
+github:nobody/nothing: … HTTP error 404". The setting stands even
 then: new terminals still get that profile, and their agents fail to start until
 it resolves — except in a repository with its own `agent-distro.nix`. Fix the
 field, or switch agents off and on to ask again. Below that are the agents

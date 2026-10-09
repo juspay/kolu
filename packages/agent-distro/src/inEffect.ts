@@ -44,20 +44,3 @@ export function parseProfileInEffect(
 
 /** The arguments that make a bundle's `bin/agent-distro` print its listing. */
 export const LIST_JSON_ARGS: readonly string[] = ["--list", "--json"];
-
-/** agent-distro's own words for a `--list --json` that failed, on one line —
- *  its stderr (`agent-distro: AI_PROFILE=<profile>: cannot fetch <profile>:`
- *  and nix's message under it) with the program's prefix and the label it
- *  gives the variable dropped, since the line sits under the very field that
- *  holds the profile, and nix's `error:` markers folded away. Nothing to say
- *  is said as such, never as an empty line. */
-export function listJsonFailureLine(stderr: string, profile: string): string {
-  const line = stderr
-    .split("\n")
-    .map((l) => l.trim().replace(/^error:\s*/, ""))
-    .filter((l) => l !== "")
-    .join(" ")
-    .replace(/^agent-distro:\s*/, "")
-    .replace(`AI_PROFILE=${profile}: `, "");
-  return line === "" ? "agent-distro failed and said nothing" : line;
-}

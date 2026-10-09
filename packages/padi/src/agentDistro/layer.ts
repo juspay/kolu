@@ -38,8 +38,9 @@ export function layerOnHost(
   const profile = bake.profiles.get(
     bundleProfileOf(setting.profile, bake.profiles),
   );
-  // `checkAgentDistroSetting` refuses an unknown profile at the write, and the
-  // bake is fixed for the process, so this is unreachable short of a bug.
+  // Anything without a bundle of its own rides the default one, which the
+  // build bakes (`default.nix` asserts it), so this is unreachable short of a
+  // broken bake — and then it fails loudly here.
   if (profile === undefined)
     throw new Error(
       `agent-distro profile '${setting.profile}' is not in this padi's listing`,

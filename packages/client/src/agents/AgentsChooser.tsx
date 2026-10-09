@@ -137,13 +137,11 @@ export default function AgentsChooser(props: {
             agentDistroSetting(),
             localAgentResolved(),
           )}
-          notes={
-            agentsProfileNotes({
-              setting: agentDistroSetting(),
-              listing: agentDistroListing(),
-              localReceipt: localAgentReceipt(),
-            }) ?? []
-          }
+          notes={agentsProfileNotes({
+            setting: agentDistroSetting(),
+            listing: agentDistroListing(),
+            localReceipt: localAgentReceipt(),
+          })}
           onSubmit={(text) => choose({ profile: text })}
         />
       </Show>

@@ -1999,8 +1999,8 @@ export const padiSurface = defineSurfaceWithPolicy<ClientErrorPolicy>()({
      *  global preference, verbatim), READ by padi's spawn path: a terminal
      *  spawned while it is on gets the profile's agents on its PATH. Memory-only
      *  for the reason `newTerminalPolicy` is (the binder re-pushes on every
-     *  bind). The write REFUSES a profile this padi's build does not know
-     *  (`checkAgentDistroSetting`) rather than mapping it to another. NOT exposed
+     *  bind). It takes any profile: one this padi's build has no bundle for
+     *  rides the default bundle, and agent-distro resolves it. NOT exposed
      *  through the MCP face: an agent inherits the user's choice, it does not
      *  make it. */
     agentDistro: {

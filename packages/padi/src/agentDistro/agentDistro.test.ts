@@ -1,6 +1,5 @@
 /**
- * Which bundle a new terminal gets — the spawn-time resolution that pins it —
- * and the write gate on the pushed setting.
+ * Which bundle a new terminal gets — the spawn-time resolution that pins it.
  */
 
 import {
@@ -15,7 +14,7 @@ import { join } from "node:path";
 import type { PtyHostSystemInfo } from "kaval";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { agentSpawnEnv, composeSpawnInput } from "../ptyHost/index.ts";
-import { assessAgentDistro, checkAgentDistroSetting } from "./agentDistro.ts";
+import { assessAgentDistro } from "./agentDistro.ts";
 import { __setAgentDistroBakeForTest, type AgentDistroBake } from "./bake.ts";
 import { type AgentLayer, layerOnHost, withAgentLayer } from "./layer.ts";
 import { commandOnPath } from "./onHost.ts";
@@ -199,57 +198,8 @@ describe("layerOnHost — the bundle on disk", () => {
   });
 });
 
-describe("checkAgentDistroSetting — the write gate", () => {
-  it("takes a name this build ships no bundle for: it rides vanilla, and agent-distro answers for it", () => {
-    __setAgentDistroBakeForTest(bake({ floor: true }));
-    expect(() =>
-      checkAgentDistroSetting({ enabled: true, profile: "nope" }),
-    ).not.toThrow();
-    expect(assessAgentDistro({ enabled: true, profile: "nope" })).toEqual({
-      kind: "ready",
-      layer: {
-        profile: "nope",
-        bundle: join(root, "agent-distro-vanilla"),
-        plugins: "/p/plugin",
-      },
-    });
-  });
-
-  it("takes any profile when off, and anything on an unbaked padi", () => {
-    __setAgentDistroBakeForTest(bake({ floor: true }));
-    expect(() =>
-      checkAgentDistroSetting({ enabled: false, profile: "nope" }),
-    ).not.toThrow();
-    __setAgentDistroBakeForTest(null);
-    expect(() =>
-      checkAgentDistroSetting({ enabled: true, profile: "nope" }),
-    ).not.toThrow();
-  });
-});
-
 describe("a profile reference — the setting's fallback, on the vanilla bundle", () => {
   const REFERENCE = { enabled: true, profile: "github:me/profile" } as const;
-
-  it("is accepted at the write gate, as it is: agent-distro resolves it", () => {
-    __setAgentDistroBakeForTest(bake({ floor: true }));
-    expect(() => checkAgentDistroSetting(REFERENCE)).not.toThrow();
-    expect(() =>
-      checkAgentDistroSetting({ enabled: true, profile: "/home/me/p" }),
-    ).not.toThrow();
-  });
-
-  it("is refused on a build without the vanilla bundle it rides", () => {
-    const withoutVanilla = bake({ floor: true });
-    __setAgentDistroBakeForTest({
-      ...withoutVanilla,
-      profiles: new Map(
-        [...withoutVanilla.profiles].filter(([name]) => name !== "vanilla"),
-      ),
-    });
-    expect(() => checkAgentDistroSetting(REFERENCE)).toThrow(
-      /unknown agent-distro bundle 'vanilla' for profile 'github:me\/profile'/,
-    );
-  });
 
   it("gets the vanilla bundle, and the layer keeps the reference as the profile", () => {
     __setAgentDistroBakeForTest(bake({ floor: true }));

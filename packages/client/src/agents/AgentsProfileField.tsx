@@ -9,9 +9,10 @@
  *  (blur) or Escape puts the stored profile back, so a half-typed profile is
  *  never written. */
 
-import type {
-  AgentsResolvedLine,
-  ProfileSuggestion,
+import {
+  AGENTS_UNRESOLVED_MEANS,
+  type AgentsResolvedLine,
+  type ProfileSuggestion,
 } from "@kolu/agent-distro/status";
 import {
   type Component,
@@ -95,13 +96,8 @@ const AgentsProfileField: Component<{
               >
                 {line().text}
               </p>
-              <Show
-                when={(() => {
-                  const l = line();
-                  return l.kind === "failed" ? l.detail : undefined;
-                })()}
-              >
-                {(detail) => <p class="text-fg-3/70">{detail()}</p>}
+              <Show when={line().kind === "failed"}>
+                <p class="text-fg-3/70">{AGENTS_UNRESOLVED_MEANS}</p>
               </Show>
             </div>
           )}

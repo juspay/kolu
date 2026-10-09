@@ -109,7 +109,6 @@ describe("AgentsProfileField", () => {
     f.setLine({
       kind: "failed",
       text: "cannot fetch x: HTTP error 404",
-      detail: AGENTS_UNRESOLVED_MEANS,
     });
     expect(f.resolvedEl()?.dataset.kind).toBe("failed");
     expect(f.resolvedEl()?.textContent).toBe(
