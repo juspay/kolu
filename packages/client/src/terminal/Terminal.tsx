@@ -57,8 +57,6 @@ import { Effect, type Fiber } from "effect";
 import { DEFAULT_SCROLLBACK } from "kolu-common/config";
 import type { TerminalId } from "kolu-common/surface";
 import { FONT_FAMILY } from "terminal-themes";
-import TileTip from "../agents/TileTip";
-import { showsAmbientTips } from "../capabilities";
 import {
   ACTIONS,
   matchesAnyShortcut,
@@ -95,7 +93,6 @@ import { trackPrintedPorts } from "./printedPorts";
 import { PrintedUrlCardMount } from "./PrintedUrlCard";
 import { deliverScratchPaste } from "./pasteDelivery";
 import { createForeignGridWatcher } from "./foreignGrid";
-import { type PaneView, trackPaneView } from "./paneView";
 import { createGridPublisher } from "./publishGrid";
 import {
   consumeReattachingStream,
@@ -194,10 +191,6 @@ const Terminal: Component<{
   let disposeDiagnostics: (() => void) | null = null;
   let webglTrackerId: number | null = null;
   const [handle, setHandle] = createSignal<XtermHandle | null>(null);
-  /** How this pane is drawn, for the tip painted over it — built in onReady,
-   *  where the xterm exists. */
-  const [paneView, setPaneView] = createSignal<PaneView | null>(null);
-  let paneEl!: HTMLDivElement;
   const terminalStore = useTerminalStore();
 
   // Gate zoom on `focused`, not `visible`: in canvas mode every tile is
@@ -318,16 +311,6 @@ const Terminal: Component<{
     onCleanup(registerTerminalElement(props.terminalId, h.container));
     setHandle(h);
     const term = h.terminal;
-    // Measured only where the tip can show: the active tile, on a layout with
-    // ambient tips.
-    setPaneView(
-      trackPaneView(
-        paneEl,
-        term,
-        () =>
-          showsAmbientTips() && terminalStore.activeId() === props.terminalId,
-      ),
-    );
 
     // Kolu-owned bridge consumed by e2e step definitions — `support/buffer.ts`,
     // `step_definitions/file_ref_link_steps.ts`, and friends read
@@ -365,7 +348,6 @@ const Terminal: Component<{
       backfill?.dispose();
       backfill = null;
       (h.container as HTMLElement & { __xterm?: XTerm }).__xterm = undefined;
-      setPaneView(null);
       setHandle(null);
     });
 
@@ -1220,7 +1202,6 @@ const Terminal: Component<{
     // find-in-page. The global dispatcher reads this marker via the
     // `findInTerminal` action's `focusScopeMarker` (input/actions.ts).
     <div
-      ref={paneEl}
       class="w-full h-full relative"
       style={{
         position: props.visible ? "relative" : "absolute",
@@ -1336,24 +1317,6 @@ const Terminal: Component<{
         data-font-size={fontSize()}
         data-renderer={(handle()?.webgl.hasWebgl() ?? false) ? "webgl" : "dom"}
       />
-      {/* The next-move tip, painted over the screen as ghost text. */}
-      <Show when={paneView()}>
-        {(view) => (
-          <TileTip
-            id={props.terminalId}
-            view={view()}
-            findOpen={() => props.searchOpen}
-            fontFamily={FONT_FAMILY}
-            fontSize={fontSize}
-            color={() => {
-              const c = props.theme.brightBlack;
-              if (c === undefined)
-                throw new Error("Terminal: the theme has no brightBlack");
-              return c;
-            }}
-          />
-        )}
-      </Show>
       {/* Join card for a printed loopback URL — only while this terminal owns the
        *  open card. Portal-rendered; lives here so App stays a thin shell. */}
       <PrintedUrlCardMount terminalId={props.terminalId} />

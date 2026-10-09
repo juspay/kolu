@@ -1,11 +1,7 @@
 import type { AgentInfo } from "@kolu/terminal-vocab/schema";
 import { describe, expect, it } from "vitest";
-import {
-  type TerminalTipFacts,
-  TIP_MIN_CELL_PX,
-  TIP_MIN_CELLS,
-  terminalTip,
-} from "./terminalTip";
+import { tileTipSentence } from "../settings/tips";
+import { type TerminalTipFacts, terminalTip } from "./terminalTip";
 
 const KOLU = {
   name: "kolu",
@@ -45,14 +41,6 @@ const SHELL: TerminalTipFacts["foreground"] = {
   title: null,
   shell: true,
 };
-const PLACE: TerminalTipFacts["place"] = {
-  active: true,
-  onScreen: true,
-  cellPx: 17,
-  findOpen: false,
-  promptCells: 60,
-  cornerCells: 85,
-};
 
 const agent = (
   kind: AgentInfo["kind"],
@@ -60,7 +48,7 @@ const agent = (
 ): TerminalTipFacts["agent"] => ({ kind, state });
 
 const facts = (over: Partial<TerminalTipFacts> = {}): TerminalTipFacts => ({
-  place: PLACE,
+  active: true,
   git: REPO,
   foreground: SHELL,
   agent: null,
@@ -71,23 +59,33 @@ const facts = (over: Partial<TerminalTipFacts> = {}): TerminalTipFacts => ({
   ...over,
 });
 
-/** The tip's id, text and anchor, or `quiet: <why>`. */
+/** The tip's id, words, action and source, or `quiet: <why>`. */
 function show(f: TerminalTipFacts) {
   const t = terminalTip(f);
   switch (t.kind) {
     case "tip":
-      return { id: t.id, text: t.text, anchor: t.anchor };
+      return {
+        id: t.id,
+        lead: t.copy.lead,
+        chip: t.copy.chip,
+        rest: t.copy.rest,
+        action: t.action,
+        source: t.source,
+      };
     case "quiet":
       return { quiet: t.why };
   }
 }
 
 describe("terminalTip — the rungs", () => {
-  it("rung 1: a shell outside a repo is told to cd into one", () => {
+  it("rung 1: a shell outside a repo is told to cd into one; the chip picks a recent repo", () => {
     expect(show(facts({ git: NO_REPO }))).toEqual({
       id: "tip-cd-repo",
-      text: "Start in a project: cd into a git repo",
-      anchor: "prompt",
+      lead: "Start in a project",
+      chip: "cd",
+      rest: "into a git repo",
+      action: { kind: "pick-repo" },
+      source: { kind: "none" },
     });
   });
 
@@ -97,126 +95,59 @@ describe("terminalTip — the rungs", () => {
     });
   });
 
-  it("rung 2: a shell in a repo with agents is told the first harness", () => {
+  it("rung 2: a shell in a repo with agents is told the first harness; the chip types it and presses Enter", () => {
     expect(show(facts())).toEqual({
       id: "tip-launch-agent",
-      text: "Launch an agent: claude, or agent-distro to pick one",
-      anchor: "prompt",
+      lead: "Launch an agent",
+      chip: "claude",
+      rest: "or agent-distro to pick one",
+      action: { kind: "type", text: "claude", enter: true },
+      source: { kind: "agent-distro", profile: "vanilla" },
     });
   });
 
-  it("rung 3, Claude Code: the skill as a slash command, top-right", () => {
+  it("rung 3, Claude Code: the chip inserts the slash command, no Enter", () => {
     expect(show(facts({ agent: agent("claude-code", "waiting") }))).toEqual({
       id: "tip-skill:claude-code",
-      text: "Try a skill: type /kolu at the prompt — drive one AI agent from another through kolu's terminals",
-      anchor: "top-right",
+      lead: "Try a skill",
+      chip: "/kolu",
+      rest: "— drive one AI agent from another through kolu's terminals",
+      action: { kind: "type", text: "/kolu ", enter: false },
+      source: { kind: "kolu-plugin" },
     });
   });
 
-  it("rung 3, any other agent: the skill asked for in words", () => {
-    expect(show(facts({ agent: agent("codex", "waiting") }))).toEqual({
+  it("rung 3, any other agent: the chip inserts the skill's name, no Enter", () => {
+    expect(show(facts({ agent: agent("codex", "waiting") }))).toMatchObject({
       id: "tip-skill:codex",
-      text: "Try a skill: ask the agent to use the kolu skill — drive one AI agent from another through kolu's terminals",
-      anchor: "top-right",
+      chip: "kolu",
+      action: { kind: "type", text: "kolu ", enter: false },
     });
+  });
+
+  it("the whole sentence reads lead, chip, rest", () => {
+    const t = terminalTip(facts());
+    if (t.kind !== "tip") throw new Error("expected a tip");
+    expect(tileTipSentence(t.copy)).toBe(
+      "Launch an agent: claude or agent-distro to pick one",
+    );
   });
 });
 
-describe("terminalTip — quiet while nobody could see it", () => {
-  const at = (place: Partial<TerminalTipFacts["place"]>) =>
-    show(facts({ place: { ...PLACE, ...place } }));
-
+describe("terminalTip — the active tile only", () => {
   it("on every tile but the active one", () => {
-    expect(at({ active: false })).toEqual({ quiet: "not the active tile" });
-  });
-
-  it("on a tile off-screen", () => {
-    expect(at({ onScreen: false })).toEqual({ quiet: "off-screen" });
-  });
-
-  it("when the text is too small to read (zoomed out), and before the grid is measured", () => {
-    expect(at({ cellPx: TIP_MIN_CELL_PX - 0.5 })).toEqual({
-      quiet: "text too small to read",
+    expect(show(facts({ active: false }))).toEqual({
+      quiet: "not the active tile",
     });
-    expect(at({ cellPx: TIP_MIN_CELL_PX })).toMatchObject({
-      id: "tip-launch-agent",
-    });
-    expect(at({ cellPx: null })).toEqual({
-      quiet: "terminal not measured yet",
-    });
-  });
-
-  it("while the find bar is open, for every rung", () => {
-    expect(at({ findOpen: true })).toEqual({ quiet: "the find bar is open" });
     expect(
-      show(
-        facts({
-          place: { ...PLACE, findOpen: true },
-          agent: agent("claude-code", "waiting"),
-        }),
-      ),
-    ).toEqual({ quiet: "the find bar is open" });
+      show(facts({ active: false, agent: agent("claude-code", "waiting") })),
+    ).toEqual({ quiet: "not the active tile" });
   });
 
   it("the state is asked first: no tip to show is quiet for that reason", () => {
-    expect(
-      show(
-        facts({
-          place: { ...PLACE, active: false },
-          git: { kind: "unresolved" },
-        }),
-      ),
-    ).toEqual({ quiet: "git not resolved yet" });
-  });
-});
-
-describe("terminalTip — rungs 1 and 2 need room on the prompt line", () => {
-  const at = (place: Partial<TerminalTipFacts["place"]>) =>
-    show(facts({ place: { ...PLACE, ...place } }));
-
-  it("too few empty cells right of the cursor (a long command, a right-side prompt, the cursor moved back into text)", () => {
-    expect(at({ promptCells: TIP_MIN_CELLS - 1 })).toEqual({
-      quiet: "no room on the prompt line",
-    });
-    expect(at({ promptCells: TIP_MIN_CELLS })).toMatchObject({
-      id: "tip-launch-agent",
-    });
-  });
-
-  it("the cursor out of view (scrolled back)", () => {
-    expect(at({ promptCells: null })).toEqual({
-      quiet: "the prompt line is out of view",
-    });
-  });
-
-  it("rung 3 needs room in the top-right corner instead", () => {
-    const at3 = (cornerCells: number | null) =>
-      show(
-        facts({
-          place: { ...PLACE, cornerCells },
-          agent: agent("claude-code", "waiting"),
-        }),
-      );
-    expect(at3(TIP_MIN_CELLS - 1)).toEqual({
-      quiet: "no room in the top-right corner",
-    });
-    expect(at3(null)).toEqual({ quiet: "no room in the top-right corner" });
-    expect(at3(TIP_MIN_CELLS)).toMatchObject({ id: "tip-skill:claude-code" });
-  });
-
-  it("rungs 1–2 do not ask about the corner", () => {
-    expect(at({ cornerCells: 0 })).toMatchObject({ id: "tip-launch-agent" });
-  });
-
-  it("rung 3 sits top-right, so the prompt line does not matter", () => {
-    expect(
-      show(
-        facts({
-          place: { ...PLACE, promptCells: null },
-          agent: agent("claude-code", "waiting"),
-        }),
-      ),
-    ).toMatchObject({ id: "tip-skill:claude-code", anchor: "top-right" });
+    expect(show(facts({ active: false, git: { kind: "unresolved" } }))).toEqual(
+      { quiet: "git not resolved yet" },
+    );
   });
 });
 
@@ -253,7 +184,7 @@ describe("terminalTip — the shell must be in front for rungs 1 and 2", () => {
           foreground: { name: "claude", title: null, shell: false },
         }),
       ),
-    ).toMatchObject({ id: "tip-skill:claude-code", anchor: "top-right" });
+    ).toMatchObject({ id: "tip-skill:claude-code" });
   });
 });
 

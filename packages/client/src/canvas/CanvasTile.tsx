@@ -80,6 +80,9 @@ const CanvasTile: Component<{
    *  (e.g. terminal screenshot, theme pill). Structural actions (close) are
    *  hardcoded. */
   renderTitleActions?: () => JSX.Element;
+  /** Optional bar between the title bar and the body, full width (the tile
+   *  tip). It takes its own height; the body shrinks to make room. */
+  renderBar?: () => JSX.Element;
   renderBody: () => JSX.Element;
   getLayout: (id: string) => TileLayout | undefined;
   startResize: (
@@ -473,6 +476,8 @@ const CanvasTile: Component<{
             </button>
           </div>
         </div>
+
+        {props.renderBar?.()}
 
         {/* Tile body — injected by caller */}
         {props.renderBody()}

@@ -43,6 +43,7 @@ import {
 } from "./palette/fleetActions";
 import { useFleetTerminalIndex } from "./palette/fleetTerminals";
 import { HOSTS_GROUP_NAME } from "./palette/hostsGroup";
+import { CD_REPO_GROUP } from "./palette/cdRepoGroup";
 import { NEW_TERMINAL_GROUP } from "./palette/newTerminalGroup";
 import { TERMINALS_GROUP_NAME } from "./palette/terminalsGroup";
 import { runAction } from "./runAction";
@@ -120,6 +121,8 @@ export interface CommandDeps extends ActionContext {
   handleCopyTerminalText: () => void;
   handleCopyTerminalId: () => void;
   handleRunInActiveTerminal: (command: string) => void;
+  /** `cd` the active tile's terminal into a repo and press Enter. */
+  handleCdInActiveTerminal: (repoRoot: string) => void;
   handleExportScrollbackAsPdf: () => void;
   handleExportSessionAsHtml: () => void;
   // Theme
@@ -259,6 +262,30 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
               ]
             : []),
         ];
+      },
+    },
+
+    // --- cd into a recent repo — opened by the tile tip's `cd` chip only ---
+    {
+      kind: "group",
+      name: CD_REPO_GROUP,
+      description: "Type the cd into the active terminal",
+      section: "terminals",
+      rootHidden: true,
+      row: { kind: "command" },
+      children: (): PaletteItem[] => {
+        const repos = recentRepos();
+        if (repos.length === 0)
+          return [{ kind: "hint", text: "Repos you cd into will appear here" }];
+        return repos.map(
+          (r): PaletteItem => ({
+            kind: "action",
+            id: r.repoRoot,
+            name: r.repoName,
+            description: r.repoRoot,
+            onSelect: () => deps.handleCdInActiveTerminal(r.repoRoot),
+          }),
+        );
       },
     },
 

@@ -84,4 +84,36 @@ describe("CanvasTile shell selection", () => {
     titlebar?.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
     expect(onSelect).toHaveBeenCalledOnce();
   });
+
+  it("puts the bar between the title bar and the body, in the clip shell", () => {
+    dispose = render(
+      () => (
+        <CanvasTile
+          id="tile"
+          active
+          mode="tiled"
+          theme={{ bg: "black", fg: "white" }}
+          repoColor="white"
+          onSelect={vi.fn()}
+          onClose={vi.fn()}
+          onToggleMaximize={vi.fn()}
+          renderTitle={() => <span>Tile</span>}
+          renderBar={() => <div data-testid="bar" />}
+          renderBody={() => <div data-testid="body" />}
+          getLayout={() => ({ x: 0, y: 0, w: 100, h: 100 })}
+          startResize={vi.fn()}
+          panX={() => 0}
+          panY={() => 0}
+          zoom={() => 1}
+          viewportSize={() => ({ width: 500, height: 500 })}
+        />
+      ),
+      host,
+    );
+    const titlebar = host.querySelector("[data-testid=canvas-tile-titlebar]");
+    const bar = host.querySelector("[data-testid=bar]");
+    const body = host.querySelector("[data-testid=body]");
+    expect(titlebar?.nextElementSibling).toBe(bar);
+    expect(bar?.nextElementSibling).toBe(body);
+  });
 });

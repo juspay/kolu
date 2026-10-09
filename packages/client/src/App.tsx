@@ -39,6 +39,7 @@ import Dock from "./canvas/dock/Dock";
 import { useDockFocus } from "./canvas/dock/useDockFocus";
 import { useDockOrder } from "./canvas/dock/useDockOrder";
 import TerminalCanvas from "./canvas/TerminalCanvas";
+import TileTip from "./agents/TileTip";
 import TileTitleActions from "./canvas/TileTitleActions";
 import { useCanvasArrange } from "./canvas/useCanvasArrange";
 import { createCommands } from "./commands";
@@ -239,6 +240,8 @@ const App: Component = () => {
       runAction("copy terminal ID", crud.handleCopyTerminalId()),
     handleRunInActiveTerminal: (cmd) =>
       runAction("prefill command", crud.handleRunInActiveTerminal(cmd)),
+    handleCdInActiveTerminal: (repoRoot) =>
+      runAction("cd into a repo", crud.handleCdInActiveTerminal(repoRoot)),
     handleExportScrollbackAsPdf: crud.exportScrollbackPdf,
     handleExportSessionAsHtml: () => exportSessionDialog.openDialog(),
     committedThemeName,
@@ -653,6 +656,7 @@ const App: Component = () => {
                           renderTileTitleActions={(id) => (
                             <TileTitleActions id={id} host={activeHost()} />
                           )}
+                          renderTileBar={(id) => <TileTip id={id} />}
                           renderTileBody={outlet}
                         />
                       </Resizable.Panel>

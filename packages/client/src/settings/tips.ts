@@ -62,59 +62,72 @@ export const CONTEXTUAL_TIPS = {
   },
 } as const satisfies Record<string, Tip>;
 
-/** The tips painted inside a tile's terminal body (`agents/TileTip.tsx`) —
- *  one per terminal, chosen by `agents/terminalTip.ts` from what that terminal
- *  is doing. Their text is built from the terminal's facts, so each entry is an
+/** A tile tip's words, as the bar shows them: a bold lead, the chip (the
+ *  words it types into the terminal when clicked), and the rest of the
+ *  sentence. */
+export interface TileTipCopy {
+  readonly lead: string;
+  readonly chip: string;
+  readonly rest: string;
+}
+
+/** The whole sentence, for screen readers and tests. */
+export function tileTipSentence(copy: TileTipCopy): string {
+  return `${copy.lead}: ${copy.chip} ${copy.rest}`;
+}
+
+/** The tips in the bar under a tile's title bar (`agents/TileTip.tsx`) — one
+ *  per terminal, chosen by `agents/terminalTip.ts` from what that terminal is
+ *  doing. Their words are built from the terminal's facts, so each entry is an
  *  id plus a builder. They are readouts of the terminal's state, not shown-once
  *  tips: nothing is stored under their ids. */
 export const TILE_TIPS = {
   /** A shell outside any git repo. */
   cdRepo: {
     id: "tip-cd-repo",
-    text: (): string => "Start in a project: cd into a git repo",
+    copy: (): TileTipCopy => ({
+      lead: "Start in a project",
+      chip: "cd",
+      rest: "into a git repo",
+    }),
   },
   /** A shell in a repo, with agents on its PATH. */
   launchAgent: {
     id: "tip-launch-agent",
-    text: (harness: string): string =>
-      `Launch an agent: ${harness}, or agent-distro to pick one`,
+    copy: (harness: string): TileTipCopy => ({
+      lead: "Launch an agent",
+      chip: harness,
+      rest: "or agent-distro to pick one",
+    }),
   },
   /** An agent at its first prompt. */
   skill: {
     id: (kind: AgentKind): TipId => `tip-skill:${kind}`,
-    text: (
+    copy: (
       kind: AgentKind,
       skill: { readonly name: string; readonly blurb: string },
-    ): string => {
-      const how = skillInvocation(kind);
-      switch (how) {
-        case "slash":
-          return `Try a skill: type /${skill.name} at the prompt — ${skill.blurb}`;
-        case "words":
-          return `Try a skill: ask the agent to use the ${skill.name} skill — ${skill.blurb}`;
-        default:
-          throw new Error(
-            `TILE_TIPS.skill: unhandled invocation ${how satisfies never}`,
-          );
-      }
-    },
+    ): TileTipCopy => ({
+      lead: "Try a skill",
+      chip: skillInvocation(kind, skill.name),
+      rest: `— ${skill.blurb}`,
+    }),
   },
 } as const;
 
-/** How a harness runs one of kolu's plugin skills: as a slash command, or by
- *  being asked in words. Exhaustive over the agent kinds, so a new harness has
- *  to decide. */
-function skillInvocation(kind: AgentKind): "slash" | "words" {
+/** What a harness is given to run one of kolu's plugin skills: a slash
+ *  command (Claude Code), or the skill's name to ask for in words. Exhaustive
+ *  over the agent kinds, so a new harness has to decide. */
+export function skillInvocation(kind: AgentKind, name: string): string {
   switch (kind) {
     case "claude-code":
-      return "slash";
+      return `/${name}`;
     case "codex":
     case "opencode":
     case "grok":
     case "pi":
     case "omp":
     case "xyne":
-      return "words";
+      return name;
     default:
       throw new Error(
         `skillInvocation: unhandled agent ${kind satisfies never}`,

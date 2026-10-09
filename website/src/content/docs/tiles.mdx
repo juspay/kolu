@@ -81,41 +81,36 @@ drawn for the wrong width, it stays empty until you reveal it and then paints
 once, correctly. You should never have to nudge the divider to fix a split's
 rendering.
 
-## A tip inside the terminal
+## A tip under the title bar
 
-Sometimes a terminal shows one line of dim text suggesting what to do next **in
-that terminal**. It is drawn in the terminal's own font, in the colour its theme
-uses for faint text, over a part of the screen that is empty at that moment. It
-is not typed into the terminal: you cannot select it, it never moves your output,
-and clicks go straight through it.
+Sometimes a tile shows a coloured bar between its title bar and the terminal,
+suggesting what to do next **in that terminal**. It reads as a short sentence
+with one word or command picked out as a button, and, at the right end, where
+the suggestion comes from.
 
-| When | Where | The tip |
+| When | The tip | The button |
 | --- | --- | --- |
-| You are at a shell outside any git repository | On the prompt line, just after the cursor | Start in a project: cd into a git repo |
-| You are at a shell inside a repository, and the terminal has [coding agents](/agents) | On the prompt line, just after the cursor | Launch an agent: the first agent it has (for example `claude`), or `agent-distro` to pick one |
-| An agent has just started in a terminal with [coding agents](/agents), and is waiting for your first message | The top-right corner, since the agent's own input box is at the bottom | Try a skill: one of kolu's own, with a line on what it does — in Claude Code as a slash command (`/kolu`), in other agents as a request to use it |
+| You are at a shell outside any git repository | Start in a project: **cd** into a git repo | Opens your recent repositories; picking one types the `cd` for you and runs it |
+| You are at a shell inside a repository, and the terminal has [coding agents](/agents) | Launch an agent: **the first agent it has** (for example `claude`), or `agent-distro` to pick one | Types the agent's name and presses Enter, starting it |
+| An agent has just started in a terminal with [coding agents](/agents), and is waiting for your first message | Try a skill: **one of kolu's own**, with a line on what it does | Puts it into the agent's input — `/kolu ` in Claude Code, `kolu ` in other agents — and leaves the cursor after it, so you finish the message and send it yourself |
 
-The tip follows what the terminal is doing: it shows while it applies, and
-leaves when it no longer does — you `cd` into a repository, start an agent, or
-send that first message. Nothing is used up: go back to a shell outside a
-repository and the first tip is there again. As you type at the prompt, the tip
-moves along with the cursor.
+Only the button does anything; the rest of the bar is not clickable, and
+clicking it does not select or move the tile.
 
-A tip shows only where you can read it: on the **active** tile, on the desktop
-layout, on a running terminal (a sleeping tile has none), on a tile in view, and
-not while the canvas is zoomed out so far that the terminal's text is too small
-to read. It also steps aside while the terminal's find bar is open. The first two
-also need the shell itself in front, so running `ls`, `ssh` or `vim` clears them
-until the prompt is back, and they need room on the prompt line: a long prompt
-that leaves fewer than 20 columns after the cursor, or a view scrolled back so
-the prompt is out of sight, shows none. A tip is drawn only over empty cells, so
-it never covers text: on the prompt line it stops short of anything to the right
-of the cursor (a right-side prompt, or what you typed if you moved the cursor
-back into it), and in the top-right corner it stops short of whatever that row
-already shows — with fewer than 20 empty cells, there is no tip. A tip longer
-than the room it has is cut short with "…". A fresh terminal shows nothing until
-kolu has checked whether it is in a repository, so a terminal opened inside one
-never flashes the first tip.
+The tip follows what the terminal is doing: the bar slides open while it
+applies, and folds away when it no longer does — you `cd` into a repository,
+start an agent, or send that first message. Nothing is used up: go back to a
+shell outside a repository and the first tip is there again. While the bar is
+open the terminal below is one bar shorter, so it has a couple fewer rows; they
+come back when the bar folds away.
+
+A tip shows only on the **active** tile, on the desktop layout, on a running
+terminal (a sleeping tile has none). The first two also need the shell itself in
+front, so running `ls`, `ssh` or `vim` clears them until the prompt is back. A
+fresh terminal shows nothing until kolu has checked whether it is in a
+repository, so a terminal opened inside one never flashes the first tip. With
+reduced motion turned on in your system, the bar appears and goes without
+sliding.
 
 ## On touch devices
 
