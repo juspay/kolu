@@ -2,11 +2,11 @@
 /**
  * The tile tip's bar, mounted against mocked app state. It renders the fold's
  * answer and nothing else:
- *  - each rung: its lead, chips, rest and source;
- *  - the chips are the only click targets, and type for you: rung 1 opens the
- *    recent repos, each of rung 2's launches its own harness (name + Enter),
- *    rung 3 inserts the skill with no Enter;
- *  - rung 2's chips that do not fit go behind a `+N` chip whose menu launches
+ *  - each tip: its lead, chips, rest and source;
+ *  - the chips are the only click targets, and type for you: each launch chip
+ *    launches its own harness (name + Enter), the skill chip inserts `/kolu `
+ *    with no Enter — whichever harness is in front;
+ *  - the launch chips that do not fit go behind a `+N` chip whose menu launches
  *    the picked one;
  *  - the bar opens while its state holds and folds away otherwise (another
  *    tile active, a command in front, an agent at work), with a 220ms height
@@ -32,7 +32,6 @@ const state = vi.hoisted(() => ({
   activeId: undefined as unknown as () => string | null,
   setActiveId: undefined as unknown as (v: string | null) => void,
   typed: [] as { id: string; text: string; enter: boolean }[],
-  opened: [] as string[],
 }));
 
 vi.mock("../capabilities", () => ({
@@ -59,11 +58,6 @@ vi.mock("../runAction", () => ({
     _label: string,
     a: { id: string; text: string; enter: boolean },
   ) => state.typed.push(a),
-}));
-vi.mock("../useCommandPalette", () => ({
-  useCommandPalette: () => ({
-    openGroup: (g: string) => state.opened.push(g),
-  }),
 }));
 const HARNESSES = vi.hoisted(() => [
   "claude",
@@ -104,13 +98,18 @@ vi.mock("./useAgentDistro", () => ({
 }
 
 const { default: TileTip } = await import("./TileTip");
-const { CD_REPO_GROUP } = await import("../palette/cdRepoGroup");
 
 const AGENTS = { profile: "vanilla", bundle: "/nix/store/abc-vanilla" };
 const REPO = { kind: "repo", info: { repoName: "kolu" } };
 const NO_REPO = { kind: "none" };
 const SHELL = { name: "zsh", title: null, shell: true };
-const CLAUDE_WAITING = { kind: "claude-code", state: "waiting" };
+/** `name` in front of the shell. */
+const running = (name: string) => ({ name, title: null, shell: false });
+const CLAUDE_STARTED = { foreground: running("claude") };
+const CLAUDE_WAITING = {
+  foreground: running("claude"),
+  agent: { kind: "claude-code", state: "waiting" },
+};
 
 /** A live terminal's record at the shell in a repo, only the fields the tip
  *  reads. */
@@ -151,7 +150,6 @@ beforeEach(() => {
   state.setActiveId("t-1");
   state.setMeta(live());
   state.typed.length = 0;
-  state.opened.length = 0;
 });
 afterEach(() => {
   dispose?.();
@@ -160,24 +158,7 @@ afterEach(() => {
 });
 
 describe("TileTip — the bar for each rung", () => {
-  it("rung 1: lead, the cd chip, the rest, no source", () => {
-    state.setMeta(live({ git: NO_REPO }));
-    mount();
-    expect(isOpen()).toBe(true);
-    expect(bar()?.getAttribute("data-tip-id")).toBe("tip-cd-repo");
-    expect(chips().map((c) => c.textContent)).toEqual(["cd"]);
-    expect(
-      document.querySelector('[data-testid="tile-tip-rest"]')?.textContent,
-    ).toBe("into a git repo");
-    expect(bar()?.getAttribute("aria-label")).toBe(
-      "Start in a project: cd into a git repo",
-    );
-    expect(
-      document.querySelector('[data-testid="tile-tip-source"]'),
-    ).toBeNull();
-  });
-
-  it("rung 2: one chip per harness in the listing's order, no sentence after, agent-distro with the profile as the source", () => {
+  it("launch an agent: one chip per harness in the listing's order, no sentence after, agent-distro with the profile as the source", () => {
     mount();
     expect(bar()?.getAttribute("data-tip-id")).toBe("tip-launch-agent");
     expect(chips().map((c) => c.textContent)).toEqual(HARNESSES);
@@ -190,11 +171,14 @@ describe("TileTip — the bar for each rung", () => {
     ).toBe("agent-distro · vanilla");
   });
 
-  it("rung 3: the skill chip, and the kolu plugin as the source", () => {
-    state.setMeta(live({ agent: CLAUDE_WAITING }));
+  it("try a skill: the skill chip and its sentence, and the kolu plugin as the source", () => {
+    state.setMeta(live(CLAUDE_STARTED));
     mount();
-    expect(bar()?.getAttribute("data-tip-id")).toBe("tip-skill:claude-code");
+    expect(bar()?.getAttribute("data-tip-id")).toBe("tip-skill:claude");
     expect(chip()?.textContent).toBe("/kolu");
+    expect(
+      document.querySelector('[data-testid="tile-tip-rest"]')?.textContent,
+    ).toBe("— drive one AI agent from another through kolu's terminals");
     expect(
       document
         .querySelector('[data-testid="tile-tip-source"]')
@@ -210,15 +194,7 @@ describe("TileTip — the bar for each rung", () => {
 });
 
 describe("TileTip — the chip types for you", () => {
-  it("rung 1 opens the recent repos", () => {
-    state.setMeta(live({ git: NO_REPO }));
-    mount();
-    chip()?.click();
-    expect(state.opened).toEqual([CD_REPO_GROUP]);
-    expect(state.typed).toEqual([]);
-  });
-
-  it("each of rung 2's chips launches its own harness in this terminal (name + Enter)", () => {
+  it("each launch chip launches its own harness in this terminal (name + Enter)", () => {
     mount();
     expect(chips().map((c) => c.getAttribute("aria-label"))).toEqual(
       HARNESSES.map((h) => `Launch ${h}`),
@@ -229,10 +205,9 @@ describe("TileTip — the chip types for you", () => {
     );
   });
 
-  it("rung 3 in Claude Code inserts the slash command into the agent's input, no Enter", () => {
-    state.setMeta(live({ agent: CLAUDE_WAITING }));
+  it("the skill chip inserts /kolu into the agent's input, no Enter — as soon as the harness starts, before the agent is detected", () => {
+    state.setMeta(live(CLAUDE_STARTED));
     mount();
-    expect(chip()?.textContent).toBe("/kolu");
     expect(chip()?.getAttribute("aria-label")).toBe(
       "Type “/kolu” into the input",
     );
@@ -240,21 +215,21 @@ describe("TileTip — the chip types for you", () => {
     expect(state.typed).toEqual([{ id: "t-1", text: "/kolu ", enter: false }]);
   });
 
-  it("rung 3 in any other agent inserts the start of a request in words, no Enter", () => {
-    state.setMeta(live({ agent: { kind: "codex", state: "waiting" } }));
-    mount();
-    expect(chip()?.textContent).toBe("kolu");
-    expect(chip()?.getAttribute("aria-label")).toBe(
-      "Type “Use the kolu skill to” into the input",
-    );
-    chip()?.click();
-    expect(state.typed).toEqual([
-      { id: "t-1", text: "Use the kolu skill to ", enter: false },
-    ]);
+  it("the same slash command in omp, pi, codex and opencode", () => {
+    for (const harness of ["omp", "pi", "codex", "opencode"]) {
+      state.typed.length = 0;
+      state.setMeta(live({ foreground: running(harness) }));
+      mount();
+      expect(bar()?.getAttribute("data-tip-id")).toBe(`tip-skill:${harness}`);
+      chip()?.click();
+      expect(state.typed).toEqual([
+        { id: "t-1", text: "/kolu ", enter: false },
+      ]);
+    }
   });
 
   it("the rest of the bar is not a click target", () => {
-    state.setMeta(live({ git: NO_REPO }));
+    state.setMeta(live(CLAUDE_STARTED));
     mount();
     expect(bar()?.querySelectorAll("button")).toHaveLength(1);
     document
@@ -262,7 +237,6 @@ describe("TileTip — the chip types for you", () => {
       ?.click();
     bar()?.click();
     expect(state.typed).toEqual([]);
-    expect(state.opened).toEqual([]);
   });
 
   it("a press on the bar neither selects nor drags the tile", () => {
@@ -346,21 +320,41 @@ describe("TileTip — pops in and out", () => {
     expect(bar()?.getAttribute("aria-label")).toBeNull();
   });
 
-  it("follows the state: cd into a repo turns rung 1 into rung 2, and back", () => {
-    state.setMeta(live({ git: NO_REPO }));
+  it("follows the state: launching a harness turns the launch tip into the skill tip, and back at the shell", () => {
     mount();
-    expect(bar()?.getAttribute("data-tip-id")).toBe("tip-cd-repo");
+    expect(bar()?.getAttribute("data-tip-id")).toBe("tip-launch-agent");
+    state.setMeta(live(CLAUDE_STARTED));
+    expect(bar()?.getAttribute("data-tip-id")).toBe("tip-skill:claude");
+    state.setMeta(live(CLAUDE_WAITING));
+    expect(bar()?.getAttribute("data-tip-id")).toBe("tip-skill:claude");
     state.setMeta(live());
     expect(bar()?.getAttribute("data-tip-id")).toBe("tip-launch-agent");
+  });
+
+  it("folds outside a repo (there is no cd tip)", () => {
     state.setMeta(live({ git: NO_REPO }));
-    expect(bar()?.getAttribute("data-tip-id")).toBe("tip-cd-repo");
+    mount();
+    expect(isOpen()).toBe(false);
+  });
+
+  it("folds on the first live turn", () => {
+    state.setMeta(live(CLAUDE_WAITING));
+    mount();
+    expect(isOpen()).toBe(true);
+    state.setMeta(live({ ...CLAUDE_WAITING, promptedAt: 1000 }));
+    expect(isOpen()).toBe(false);
   });
 
   it("folds while an agent works, and opens again when it is earned again", () => {
     state.setMeta(live({ agent: CLAUDE_WAITING }));
     mount();
     expect(isOpen()).toBe(true);
-    state.setMeta(live({ agent: { kind: "claude-code", state: "thinking" } }));
+    state.setMeta(
+      live({
+        foreground: running("claude"),
+        agent: { kind: "claude-code", state: "thinking" },
+      }),
+    );
     expect(isOpen()).toBe(false);
     state.setMeta(live({ agent: CLAUDE_WAITING }));
     expect(isOpen()).toBe(true);
@@ -374,7 +368,7 @@ describe("TileTip — pops in and out", () => {
     expect(isOpen()).toBe(false);
   });
 
-  it("git not resolved yet stays folded — then the repo's rung, never rung 1", () => {
+  it("git not resolved yet stays folded — then the launch tip", () => {
     state.setMeta(live({ git: { kind: "unresolved" } }));
     mount();
     expect(isOpen()).toBe(false);

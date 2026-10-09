@@ -1,16 +1,16 @@
 /** The tile tip: a bar of kolu's own chrome between a tile's title bar and its
- *  terminal, suggesting the next move in THIS terminal — `cd` into a repo,
- *  launch an agent, try a skill at the agent's first prompt. The choice is
+ *  terminal, suggesting the next move in THIS terminal — launch an agent, then
+ *  try a skill once it has started. The choice is
  *  `terminalTip`'s; this component feeds it the terminal's facts and paints the
  *  answer: a bold lead, the chips, the rest of the sentence, and where the
  *  suggestion comes from.
  *
- *  The chips are the only click targets, and they type for you: rung 1's opens
- *  the recent repos (picking one types the `cd`), each of rung 2's types its
- *  harness and presses Enter, rung 3's inserts the skill into the agent's input
- *  with no Enter. Chips never wrap or get cut: those that do not fit go behind a
- *  `+N` chip, whose menu launches the rest. Nothing is remembered: the bar opens while its state holds and folds
- *  away otherwise, and the terminal below gives up the bar's height meanwhile.
+ *  The chips are the only click targets, and they type for you: each launch
+ *  chip types its harness and presses Enter; the skill chip inserts the skill
+ *  into the agent's input with no Enter. Chips never wrap or get cut: those
+ *  that do not fit go behind a `+N` chip, whose menu launches the rest.
+ *  Nothing is remembered: the bar opens while its state holds and folds away
+ *  otherwise, and the terminal below gives up the bar's height meanwhile.
  *  Only where the ambient tips show at all (`showsAmbientTips`). */
 
 import AgentDistroLogo from "@kolu/agent-distro/solid";
@@ -27,13 +27,11 @@ import {
   Show,
 } from "solid-js";
 import { showsAmbientTips } from "../capabilities";
-import { CD_REPO_GROUP } from "../palette/cdRepoGroup";
 import { runAction } from "../runAction";
 import { tileTipSentence } from "../settings/tips";
 import { useTerminalCrud } from "../terminal/useTerminalCrud";
 import { useTerminalStore } from "../terminal/useTerminalStore";
 import { OptionMenu } from "../ui/OptionMenu";
-import { useCommandPalette } from "../useCommandPalette";
 import { chipsThatFit } from "./chipFit";
 import { PLUGIN_SKILLS } from "./pluginSkills";
 import {
@@ -61,8 +59,6 @@ function tipKey(t: TerminalTip): string {
 /** What the chip says it does, for its `aria-label`. */
 function chipLabel(action: TipAction): string {
   switch (action.kind) {
-    case "pick-repo":
-      return "Pick a recent repo to cd into";
     case "launch":
       return `Launch ${action.harness}`;
     case "insert":
@@ -87,7 +83,6 @@ const POP =
 const TileTip: Component<{ id: TerminalId }> = (props) => {
   const store = useTerminalStore();
   const crud = useTerminalCrud();
-  const palette = useCommandPalette();
 
   const answer = createMemo(
     (): TerminalTip => {
@@ -124,9 +119,6 @@ const TileTip: Component<{ id: TerminalId }> = (props) => {
 
   const act = (action: TipAction) => {
     switch (action.kind) {
-      case "pick-repo":
-        palette.openGroup(CD_REPO_GROUP);
-        return;
       case "launch":
         runAction(
           "launch an agent",
@@ -306,11 +298,9 @@ const ChipRow: Component<{
 
 /** Where the suggestion comes from, at the bar's right end. */
 const TipSourceMark: Component<{ source: Tip["source"] }> = (props) => {
-  const label = (): string | null => {
+  const label = (): string => {
     const s = props.source;
     switch (s.kind) {
-      case "none":
-        return null;
       case "agent-distro":
         return `agent-distro · ${s.profile}`;
       case "kolu-plugin":
@@ -320,17 +310,13 @@ const TipSourceMark: Component<{ source: Tip["source"] }> = (props) => {
     }
   };
   return (
-    <Show when={label()}>
-      {(text) => (
-        <span
-          data-testid="tile-tip-source"
-          class="flex shrink-0 items-center gap-1.5 text-[12px] opacity-80"
-        >
-          <AgentDistroLogo size={14} />
-          {text()}
-        </span>
-      )}
-    </Show>
+    <span
+      data-testid="tile-tip-source"
+      class="flex shrink-0 items-center gap-1.5 text-[12px] opacity-80"
+    >
+      <AgentDistroLogo size={14} />
+      {label()}
+    </span>
   );
 };
 

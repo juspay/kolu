@@ -240,8 +240,6 @@ const App: Component = () => {
       runAction("copy terminal ID", crud.handleCopyTerminalId()),
     handleRunInActiveTerminal: (cmd) =>
       runAction("prefill command", crud.handleRunInActiveTerminal(cmd)),
-    handleCdInActiveTerminal: (repoRoot) =>
-      runAction("cd into a repo", crud.handleCdInActiveTerminal(repoRoot)),
     handleExportScrollbackAsPdf: crud.exportScrollbackPdf,
     handleExportSessionAsHtml: () => exportSessionDialog.openDialog(),
     committedThemeName,

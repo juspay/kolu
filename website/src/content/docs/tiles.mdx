@@ -83,34 +83,32 @@ rendering.
 
 ## A tip under the title bar
 
-Sometimes a tile shows a coloured bar between its title bar and the terminal,
-suggesting what to do next **in that terminal**. It reads as a short sentence
-with a word or command picked out as a button (or, for launching an agent, one
-button per agent), and, at the right end, where the suggestion comes from.
+In a terminal with [coding agents](/agents), a tile sometimes shows a coloured
+bar between its title bar and the terminal, suggesting what to do next **in that
+terminal**. It reads as a short sentence with buttons in it, and, at the right
+end, where the suggestion comes from.
 
-| When | The tip | The button |
+| When | The tip | The buttons |
 | --- | --- | --- |
-| You are at a shell outside any git repository | Start in a project: **cd** into a git repo | Opens your recent repositories; picking one types the `cd` for you and runs it |
-| You are at a shell inside a repository, and the terminal has [coding agents](/agents) | Launch an agent: **one button for each agent in the terminal's set**, in the set's order (for example `claude` `codex` `opencode` `pi` `omp`) | Click the one you want: it types that agent's name and presses Enter, starting it. If they do not all fit, the last button is **+N**, which opens a menu of the rest |
-| An agent has just started in a terminal with [coding agents](/agents), and is waiting for your first message | Try a skill: **one of kolu's own**, with a line on what it does | Puts it into the agent's input — `/kolu ` in Claude Code, `Use the kolu skill to ` in other agents — and leaves the cursor after it, so you finish the message and send it yourself |
+| You are at a shell inside a repository | Launch an agent: **one button for each agent in the terminal's set**, in the set's order (for example `claude` `codex` `opencode` `pi` `omp`) | Click the one you want: it types that agent's name and presses Enter, starting it. If they do not all fit, the last button is **+N**, which opens a menu of the rest |
+| You launch one of your agents and it waits for your first message | Try a skill: **one of kolu's own**, with a line on what it does | Puts `/kolu ` into the agent's input and leaves the cursor after it, so you finish the message and send it yourself |
 
 Only the buttons do anything; the rest of the bar is not clickable, and
 clicking it does not select or move the tile.
 
 The tip follows what the terminal is doing: the bar slides open while it
-applies, and folds away when it no longer does — you `cd` into a repository,
-start an agent, or send that first message. Nothing is used up: go back to a
-shell outside a repository and the first tip is there again. While the bar is
-open the terminal below is one bar shorter, so it has a couple fewer rows; they
-come back when the bar folds away.
+applies, and folds away when it no longer does — you start an agent, send it
+that first message, or leave it. Nothing is used up: back at the shell in a
+repository, the first tip is there again. While the bar is open the terminal
+below is one bar shorter, so it has a couple fewer rows; they come back when the
+bar folds away.
 
 A tip shows only on the **active** tile, on the desktop layout, on a running
-terminal (a sleeping tile has none). The first two also need the shell itself in
-front, so running `ls`, `ssh` or `vim` clears them until the prompt is back. A
-fresh terminal shows nothing until kolu has checked whether it is in a
-repository, so a terminal opened inside one never flashes the first tip. With
-reduced motion turned on in your system, the bar appears and goes without
-sliding.
+terminal (a sleeping tile has none). The skill tip appears as soon as the agent
+you launched is running — kolu knows it by its command name, before the agent
+has answered anything. The launch tip needs the shell itself in front, so
+running `ls`, `ssh` or `vim` clears it until the prompt is back. With reduced
+motion turned on in your system, the bar appears and goes without sliding.
 
 ## On touch devices
 

@@ -12,7 +12,6 @@
 
 import { TOPLEVEL_PLACEMENT } from "@kolu/padi-client/surface";
 import type { TranscriptHtmlMode } from "@kolu/padi-client/surface";
-import { shellQuoteArg } from "@kolu/shell-quote";
 import { toError } from "@kolu/surface/run-stream";
 import { Data, Effect } from "effect";
 import type { TerminalId } from "kolu-common/surface";
@@ -563,16 +562,6 @@ export const useTerminalCrud = createSharedRoot(() => {
       .pipe(toastFailure("Failed to type into the terminal"));
   }
 
-  /** `cd` the active tile's terminal into `repoRoot` and press Enter — picking
-   *  a repo from the tile tip's recent-repos list. No-op with no active tile. */
-  function handleCdInActiveTerminal(repoRoot: string): UiAction {
-    return Effect.suspend(() => {
-      const id = store.activeId();
-      if (id === null) return Effect.void;
-      return handleTypeInto(id, `cd ${shellQuoteArg(repoRoot)}`, true);
-    });
-  }
-
   function handleCloseAll(): UiAction {
     return activePadiRpc.lifecycle.killAll().pipe(
       Effect.tap(() =>
@@ -642,7 +631,6 @@ export const useTerminalCrud = createSharedRoot(() => {
     handleCopyTerminalId,
     handleRunInActiveTerminal,
     handleTypeInto,
-    handleCdInActiveTerminal,
     handleCloseAll,
     exportScrollbackPdf,
     exportSessionHtml,

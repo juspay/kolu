@@ -3,18 +3,17 @@
  *  Pure: no Solid, no I/O; `TileTip.tsx` feeds it.
  *
  *  A tip is a readout of the terminal's state: it shows whenever its condition
- *  holds and goes when it no longer does. Nothing is remembered. Three rungs:
- *    1. the shell in front, outside any git repo → "cd into a git repo" (the
- *       chip opens the recent repos; picking one types the `cd`);
- *    2. the shell in front, in a repo, this terminal has agents → "launch an
- *       agent", one chip per harness of its profile (a chip types its name and
- *       presses Enter);
- *    3. an agent at its first prompt, this terminal has agents → a plugin skill
- *       (the chip inserts its invocation into the agent's input, no Enter).
+ *  holds and goes when it no longer does. Nothing is remembered. Both rungs
+ *  need agents on this terminal, and read the profile's harnesses off the
+ *  listing:
+ *    - the shell in front, in a repo → "launch an agent", one chip per harness
+ *      of its profile (a chip types its name and presses Enter);
+ *    - one of those harnesses in front (by its command name — known the moment
+ *      it starts, before kolu has detected the agent) and no live turn yet → a
+ *      plugin skill (the chip inserts its invocation, no Enter).
  *
- *  Otherwise `quiet`, with why: the state calls for no tip, the tile is not the
- *  active one, or (rungs 1–2) a command is in front of the shell. Pending facts
- *  are not faults; broken invariants throw. */
+ *  Otherwise `quiet`, with why: the state calls for no tip, or the tile is not
+ *  the active one. Pending facts are not faults; broken invariants throw. */
 
 import type { TerminalAgents } from "@kolu/agent-distro/schema";
 import { agentBucket } from "@kolu/terminal-vocab/agentProjection";
@@ -34,8 +33,6 @@ import type { PluginSkill } from "./pluginSkills";
 
 /** What a tip's chip does when clicked. */
 export type TipAction =
-  /** Open the palette's recent repos; picking one types `cd <repo>` + Enter. */
-  | { readonly kind: "pick-repo" }
   /** Type the harness's name and press Enter. */
   | { readonly kind: "launch"; readonly harness: string }
   /** Type `text` into the agent's input, no Enter. */
@@ -49,7 +46,6 @@ export interface TipChip {
 
 /** Where the suggestion comes from, shown at the bar's right end. */
 export type TipSource =
-  | { readonly kind: "none" }
   | { readonly kind: "agent-distro"; readonly profile: string }
   | { readonly kind: "kolu-plugin" };
 
@@ -61,7 +57,7 @@ export interface TerminalTipFacts {
   readonly git: GitFact;
   /** What is in front of the shell, or `null` before the first sample. */
   readonly foreground: Foreground | null;
-  /** The live agent, or `null` at the shell. */
+  /** The detected agent, or `null` (none yet, or at the shell). */
   readonly agent: Pick<AgentInfo, "kind" | "state"> | null;
   /** When the current agent first went live (`AgentMemory.promptedAt`). */
   readonly promptedAt: number | null;
@@ -84,97 +80,21 @@ export interface Tip {
   /** One per `copy.chips`, in the same order. */
   readonly chips: readonly TipChip[];
   readonly source: TipSource;
-  /** It talks about the shell (rungs 1–2), so it needs the shell in front. */
-  readonly atShell: boolean;
 }
 
 export type Quiet = { readonly kind: "quiet"; readonly why: string };
 
 export const quiet = (why: string): Quiet => ({ kind: "quiet", why });
 
-/** Pick this terminal's tip: the one its state calls for, if it applies now. */
+/** Pick this terminal's tip: the one its state calls for, on the active tile. */
 export function terminalTip(facts: TerminalTipFacts): TerminalTip {
   const c = candidate(facts);
   if (c.kind === "quiet") return c;
   if (!facts.active) return quiet("not the active tile");
-  if (c.atShell) {
-    // Rungs 1 and 2 talk about the shell, so the shell must be what is in
-    // front: `ssh host` or `vim` outside a repo is not a moment to suggest `cd`.
-    if (facts.foreground === null) return quiet("foreground not sampled yet");
-    if (!facts.foreground.shell) return quiet("a command is running");
-  }
   return c;
 }
 
 function candidate(facts: TerminalTipFacts): TerminalTip {
-  const agent = facts.agent;
-  if (agent !== null) {
-    if (facts.promptedAt !== null) return quiet("the first prompt went out");
-    const bucket = agentBucket(agent.state);
-    switch (bucket) {
-      case "working":
-        return quiet(`${agent.kind} is working`);
-      case "awaiting":
-        return quiet(`${agent.kind} is asking you something`);
-      case "other":
-        return quiet(`${agent.kind} is in an unknown state`);
-      case "waiting":
-        break;
-      default:
-        throw new Error(
-          `terminalTip: unhandled agent bucket ${bucket satisfies never}`,
-        );
-    }
-    if (facts.agents === undefined) return quiet("no agents on this terminal");
-    // `PLUGIN_SKILLS` throws at load when the plugin declares none.
-    const skill = facts.skills[0];
-    if (skill === undefined)
-      throw new Error(
-        "terminalTip: no plugin skill — PLUGIN_SKILLS guarantees one",
-      );
-    const copy = TILE_TIPS.skill.copy(agent.kind, skill);
-    return {
-      kind: "tip",
-      id: TILE_TIPS.skill.id(agent.kind),
-      copy,
-      // Into the agent's input, cursor left after it: the user finishes the
-      // message and sends it.
-      chips: copy.chips.map((label) => ({
-        label,
-        action: {
-          kind: "insert",
-          text: skillInvocation(agent.kind, skill.name).text,
-        },
-      })),
-      source: { kind: "kolu-plugin" },
-      atShell: false,
-    };
-  }
-
-  switch (facts.git.kind) {
-    case "unresolved":
-      return quiet("git not resolved yet");
-    case "none": {
-      const copy = TILE_TIPS.cdRepo.copy();
-      return {
-        kind: "tip",
-        id: TILE_TIPS.cdRepo.id,
-        copy,
-        chips: copy.chips.map((label) => ({
-          label,
-          action: { kind: "pick-repo" },
-        })),
-        source: { kind: "none" },
-        atShell: true,
-      };
-    }
-    case "repo":
-      break;
-    default:
-      throw new Error(
-        `terminalTip: unhandled git fact ${facts.git satisfies never}`,
-      );
-  }
   if (facts.agents === undefined) return quiet("no agents on this terminal");
   const listing = facts.listing;
   if (listing === undefined) return quiet("the agents listing is pending");
@@ -188,7 +108,30 @@ function candidate(facts: TerminalTipFacts): TerminalTip {
     throw new Error(
       `terminalTip: profile ${profileName} has no harness — the listing schema requires one`,
     );
-  const copy = TILE_TIPS.launchAgent.copy(profile.harnesses.map((h) => h.name));
+  const harnesses = profile.harnesses.map((h) => h.name);
+
+  const fg = facts.foreground;
+  if (fg === null) return quiet("foreground not sampled yet");
+  if (!fg.shell) {
+    // A harness of this profile in front, by name: it is known as the process
+    // starts, while the agent itself is detected only once it has a session.
+    if (!harnesses.includes(fg.name)) return quiet(`${fg.name} is running`);
+    return skillTip(facts, fg.name);
+  }
+
+  switch (facts.git.kind) {
+    case "unresolved":
+      return quiet("git not resolved yet");
+    case "none":
+      return quiet("not in a git repo");
+    case "repo":
+      break;
+    default:
+      throw new Error(
+        `terminalTip: unhandled git fact ${facts.git satisfies never}`,
+      );
+  }
+  const copy = TILE_TIPS.launchAgent.copy(harnesses);
   return {
     kind: "tip",
     id: TILE_TIPS.launchAgent.id,
@@ -199,6 +142,50 @@ function candidate(facts: TerminalTipFacts): TerminalTip {
       action: { kind: "launch", harness },
     })),
     source: { kind: "agent-distro", profile: profileName },
-    atShell: true,
+  };
+}
+
+/** The skill tip for `harness` in front: until its first live turn. */
+function skillTip(facts: TerminalTipFacts, harness: string): TerminalTip {
+  const agent = facts.agent;
+  // Not detected yet is the usual case right after launch; once detected, it
+  // must still be waiting for the first message.
+  if (agent !== null) {
+    if (facts.promptedAt !== null) return quiet("the first prompt went out");
+    const bucket = agentBucket(agent.state);
+    switch (bucket) {
+      case "working":
+        return quiet(`${harness} is working`);
+      case "awaiting":
+        return quiet(`${harness} is asking you something`);
+      case "other":
+        return quiet(`${harness} is in an unknown state`);
+      case "waiting":
+        break;
+      default:
+        throw new Error(
+          `terminalTip: unhandled agent bucket ${bucket satisfies never}`,
+        );
+    }
+  }
+  // `PLUGIN_SKILLS` throws at load when the plugin declares none.
+  const skill = facts.skills[0];
+  if (skill === undefined)
+    throw new Error(
+      "terminalTip: no plugin skill — PLUGIN_SKILLS guarantees one",
+    );
+  const copy = TILE_TIPS.skill.copy(harness, skill);
+  const { text } = skillInvocation(harness, skill.name);
+  return {
+    kind: "tip",
+    id: TILE_TIPS.skill.id(harness),
+    copy,
+    // Into the agent's input, cursor left after it: the user finishes the
+    // message and sends it.
+    chips: copy.chips.map((label) => ({
+      label,
+      action: { kind: "insert", text },
+    })),
+    source: { kind: "kolu-plugin" },
   };
 }

@@ -4,7 +4,6 @@
  * Optional `doc` links a tip to a product-docs page via DocLink.
  */
 
-import type { AgentKind } from "@kolu/terminal-vocab/schema";
 import { posturedActionLabel } from "../canvas/useViewPosture";
 import { ACTIONS } from "../input/actions";
 import { formatKeybind } from "../input/keyboard";
@@ -83,15 +82,6 @@ export function tileTipSentence(copy: TileTipCopy): string {
  *  id plus a builder. They are readouts of the terminal's state, not shown-once
  *  tips: nothing is stored under their ids. */
 export const TILE_TIPS = {
-  /** A shell outside any git repo. */
-  cdRepo: {
-    id: "tip-cd-repo",
-    copy: (): TileTipCopy => ({
-      lead: "Start in a project",
-      chips: ["cd"],
-      rest: "into a git repo",
-    }),
-  },
   /** A shell in a repo, with agents on its PATH: every harness of the
    *  terminal's profile, in the listing's order — none is guessed at. */
   launchAgent: {
@@ -102,42 +92,42 @@ export const TILE_TIPS = {
       rest: "",
     }),
   },
-  /** An agent at its first prompt. */
+  /** One of the profile's harnesses just launched, before its first turn. */
   skill: {
-    id: (kind: AgentKind): TipId => `tip-skill:${kind}`,
+    id: (harness: string): TipId => `tip-skill:${harness}`,
     copy: (
-      kind: AgentKind,
+      harness: string,
       skill: { readonly name: string; readonly blurb: string },
     ): TileTipCopy => ({
       lead: "Try a skill",
-      chips: [skillInvocation(kind, skill.name).label],
+      chips: [skillInvocation(harness, skill.name).label],
       rest: `— ${skill.blurb}`,
     }),
   },
 } as const;
 
-/** How a harness runs one of kolu's plugin skills: the chip's `label`, and
- *  the `text` the chip inserts into the agent's input (the user finishes it).
- *  Claude Code takes a slash command; the others are asked in words, as the
- *  start of a sentence. Exhaustive over the agent kinds, so a new harness has
- *  to decide. */
+/** How a harness runs one of kolu's plugin skills, by its command name (as
+ *  the agent-distro listing names it): the chip's `label`, and the `text` the
+ *  chip inserts into the agent's input (the user finishes it). Every harness
+ *  agent-distro ships takes a slash command — confirmed for claude, omp and
+ *  pi; assumed for codex, opencode and opencode2. Exhaustive over the names
+ *  the listing produces: a new harness name throws until it is decided here. */
 export function skillInvocation(
-  kind: AgentKind,
+  harness: string,
   name: string,
 ): { readonly label: string; readonly text: string } {
-  switch (kind) {
-    case "claude-code":
-      return { label: `/${name}`, text: `/${name} ` };
+  switch (harness) {
+    case "claude":
+    case "omp":
+    case "pi":
+    // Not yet confirmed live:
     case "codex":
     case "opencode":
-    case "grok":
-    case "pi":
-    case "omp":
-    case "xyne":
-      return { label: name, text: `Use the ${name} skill to ` };
+    case "opencode2":
+      return { label: `/${name}`, text: `/${name} ` };
     default:
       throw new Error(
-        `skillInvocation: unhandled agent ${kind satisfies never}`,
+        `skillInvocation: no invocation decided for harness ${harness}`,
       );
   }
 }
