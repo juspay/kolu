@@ -56,10 +56,10 @@ let
     };
   };
 
-  # The profile kolu selects by default and lists first. agent-distro's own
-  # registry default is a distribution's choice (`juspay`); kolu is for everyone,
-  # so it defaults to plain upstream. Read from ./defaults.json, the one place
-  # it is written; kolu-common's `DEFAULT_PREFERENCES` reads the same file.
+  # The profile kolu selects by default and lists first: plain upstream, since
+  # kolu is for everyone (agent-distro's own registry default agrees today, but
+  # kolu does not lean on that). Read from ./defaults.json, the one place it is
+  # written; kolu-common's `DEFAULT_PREFERENCES` reads the same file.
   inherit (lib.importJSON ./defaults.json) defaultProfile;
   profileNames =
     assert lib.assertMsg (distro.profiles ? ${defaultProfile})

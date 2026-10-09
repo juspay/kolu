@@ -33,7 +33,7 @@ const HARNESSES = dirs(join(src, "harnesses"));
 
 describe("skillInvocation — every built-in profile's harnesses", () => {
   it("the pin ships the profiles and harnesses this walk expects to find", () => {
-    expect(PROFILES).toEqual(expect.arrayContaining(["vanilla", "juspay"]));
+    expect(PROFILES).toContain("vanilla");
     expect(HARNESSES.length).toBeGreaterThan(0);
   });
 
