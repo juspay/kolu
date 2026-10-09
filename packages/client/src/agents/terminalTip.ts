@@ -1,13 +1,14 @@
 /** The tip in the bar under a tile's title bar — which ONE thing to suggest
- *  for a terminal, given what that terminal is doing, and what its chip types.
+ *  for a terminal, given what that terminal is doing, and what its chips type.
  *  Pure: no Solid, no I/O; `TileTip.tsx` feeds it.
  *
  *  A tip is a readout of the terminal's state: it shows whenever its condition
  *  holds and goes when it no longer does. Nothing is remembered. Three rungs:
  *    1. the shell in front, outside any git repo → "cd into a git repo" (the
  *       chip opens the recent repos; picking one types the `cd`);
- *    2. the shell in front, in a repo, this terminal has agents → "launch
- *       <first harness>" (the chip types it and presses Enter);
+ *    2. the shell in front, in a repo, this terminal has agents → "launch an
+ *       agent", one chip per harness of its profile (a chip types its name and
+ *       presses Enter);
  *    3. an agent at its first prompt, this terminal has agents → a plugin skill
  *       (the chip inserts its invocation into the agent's input, no Enter).
  *
@@ -30,8 +31,16 @@ import type { PluginSkill } from "./pluginSkills";
 export type TipAction =
   /** Open the palette's recent repos; picking one types `cd <repo>` + Enter. */
   | { readonly kind: "pick-repo" }
-  /** Type `text` into the terminal, then Enter when `enter`. */
-  | { readonly kind: "type"; readonly text: string; readonly enter: boolean };
+  /** Type the harness's name and press Enter. */
+  | { readonly kind: "launch"; readonly harness: string }
+  /** Type `text` into the agent's input, no Enter. */
+  | { readonly kind: "insert"; readonly text: string };
+
+/** One click target: the words on it, and what clicking does. */
+export interface TipChip {
+  readonly label: string;
+  readonly action: TipAction;
+}
 
 /** Where the suggestion comes from, shown at the bar's right end. */
 export type TipSource =
@@ -67,7 +76,8 @@ export interface Tip {
   readonly kind: "tip";
   readonly id: TipId;
   readonly copy: TileTipCopy;
-  readonly action: TipAction;
+  /** One per `copy.chips`, in the same order. */
+  readonly chips: readonly TipChip[];
   readonly source: TipSource;
   /** It talks about the shell (rungs 1–2), so it needs the shell in front. */
   readonly atShell: boolean;
@@ -124,7 +134,10 @@ function candidate(facts: TerminalTipFacts): TerminalTip {
       copy,
       // Into the agent's input, cursor left after it: the user finishes the
       // message and sends it.
-      action: { kind: "type", text: `${copy.chip} `, enter: false },
+      chips: copy.chips.map((label) => ({
+        label,
+        action: { kind: "insert", text: `${label} ` },
+      })),
       source: { kind: "kolu-plugin" },
       atShell: false,
     };
@@ -133,15 +146,20 @@ function candidate(facts: TerminalTipFacts): TerminalTip {
   switch (facts.git.kind) {
     case "unresolved":
       return quiet("git not resolved yet");
-    case "none":
+    case "none": {
+      const copy = TILE_TIPS.cdRepo.copy();
       return {
         kind: "tip",
         id: TILE_TIPS.cdRepo.id,
-        copy: TILE_TIPS.cdRepo.copy(),
-        action: { kind: "pick-repo" },
+        copy,
+        chips: copy.chips.map((label) => ({
+          label,
+          action: { kind: "pick-repo" },
+        })),
         source: { kind: "none" },
         atShell: true,
       };
+    }
     case "repo":
       break;
     default:
@@ -158,17 +176,20 @@ function candidate(facts: TerminalTipFacts): TerminalTip {
   const profile = listing.profiles.find((p) => p.name === profileName);
   if (profile === undefined)
     return quiet(`profile ${profileName} is not in the listing`);
-  const first = profile.harnesses[0];
-  if (first === undefined)
+  if (profile.harnesses.length === 0)
     throw new Error(
       `terminalTip: profile ${profileName} has no harness — the listing schema requires one`,
     );
+  const copy = TILE_TIPS.launchAgent.copy(profile.harnesses.map((h) => h.name));
   return {
     kind: "tip",
     id: TILE_TIPS.launchAgent.id,
-    copy: TILE_TIPS.launchAgent.copy(first.name),
-    // Launching is the suggestion, so the chip runs it.
-    action: { kind: "type", text: first.name, enter: true },
+    copy,
+    // Launching is the suggestion, so each chip runs its harness.
+    chips: copy.chips.map((harness) => ({
+      label: harness,
+      action: { kind: "launch", harness },
+    })),
     source: { kind: "agent-distro", profile: profileName },
     atShell: true,
   };

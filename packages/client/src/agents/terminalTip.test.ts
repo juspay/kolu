@@ -17,6 +17,9 @@ const LISTING: TerminalTipFacts["listing"] = {
       harnesses: [
         { name: "claude", title: "Claude Code", version: "2.1.292" },
         { name: "codex", title: "Codex", version: "0.112.0" },
+        { name: "opencode", title: "opencode", version: "1.0.0" },
+        { name: "pi", title: "Pi", version: "0.9.0" },
+        { name: "omp", title: "Oh My Pi", version: "0.3.0" },
       ],
     },
   ],
@@ -59,7 +62,7 @@ const facts = (over: Partial<TerminalTipFacts> = {}): TerminalTipFacts => ({
   ...over,
 });
 
-/** The tip's id, words, action and source, or `quiet: <why>`. */
+/** The tip's id, words, chips and source, or `quiet: <why>`. */
 function show(f: TerminalTipFacts) {
   const t = terminalTip(f);
   switch (t.kind) {
@@ -67,9 +70,8 @@ function show(f: TerminalTipFacts) {
       return {
         id: t.id,
         lead: t.copy.lead,
-        chip: t.copy.chip,
         rest: t.copy.rest,
-        action: t.action,
+        chips: t.chips,
         source: t.source,
       };
     case "quiet":
@@ -82,9 +84,8 @@ describe("terminalTip — the rungs", () => {
     expect(show(facts({ git: NO_REPO }))).toEqual({
       id: "tip-cd-repo",
       lead: "Start in a project",
-      chip: "cd",
       rest: "into a git repo",
-      action: { kind: "pick-repo" },
+      chips: [{ label: "cd", action: { kind: "pick-repo" } }],
       source: { kind: "none" },
     });
   });
@@ -95,14 +96,41 @@ describe("terminalTip — the rungs", () => {
     });
   });
 
-  it("rung 2: a shell in a repo with agents is told the first harness; the chip types it and presses Enter", () => {
+  it("rung 2: one chip per harness of the profile, in the listing's order, each launching its own", () => {
     expect(show(facts())).toEqual({
       id: "tip-launch-agent",
       lead: "Launch an agent",
-      chip: "claude",
-      rest: "or agent-distro to pick one",
-      action: { kind: "type", text: "claude", enter: true },
+      rest: "",
+      chips: ["claude", "codex", "opencode", "pi", "omp"].map((harness) => ({
+        label: harness,
+        action: { kind: "launch", harness },
+      })),
       source: { kind: "agent-distro", profile: "vanilla" },
+    });
+  });
+
+  it("rung 2 offers only the terminal's own profile", () => {
+    const listing: TerminalTipFacts["listing"] = {
+      kind: "available",
+      profiles: [
+        ...(LISTING.kind === "available" ? LISTING.profiles : []),
+        {
+          name: "juspay",
+          description: "Juspay's set",
+          harnesses: [{ name: "omp", title: "Oh My Pi", version: "0.3.0" }],
+        },
+      ],
+    };
+    expect(
+      show(
+        facts({
+          listing,
+          agents: { profile: "juspay", bundle: "/nix/store/x" },
+        }),
+      ),
+    ).toMatchObject({
+      chips: [{ label: "omp", action: { kind: "launch", harness: "omp" } }],
+      source: { kind: "agent-distro", profile: "juspay" },
     });
   });
 
@@ -110,9 +138,8 @@ describe("terminalTip — the rungs", () => {
     expect(show(facts({ agent: agent("claude-code", "waiting") }))).toEqual({
       id: "tip-skill:claude-code",
       lead: "Try a skill",
-      chip: "/kolu",
       rest: "— drive one AI agent from another through kolu's terminals",
-      action: { kind: "type", text: "/kolu ", enter: false },
+      chips: [{ label: "/kolu", action: { kind: "insert", text: "/kolu " } }],
       source: { kind: "kolu-plugin" },
     });
   });
@@ -120,16 +147,20 @@ describe("terminalTip — the rungs", () => {
   it("rung 3, any other agent: the chip inserts the skill's name, no Enter", () => {
     expect(show(facts({ agent: agent("codex", "waiting") }))).toMatchObject({
       id: "tip-skill:codex",
-      chip: "kolu",
-      action: { kind: "type", text: "kolu ", enter: false },
+      chips: [{ label: "kolu", action: { kind: "insert", text: "kolu " } }],
     });
   });
 
-  it("the whole sentence reads lead, chip, rest", () => {
+  it("the whole sentence reads lead, chips, rest", () => {
     const t = terminalTip(facts());
     if (t.kind !== "tip") throw new Error("expected a tip");
     expect(tileTipSentence(t.copy)).toBe(
-      "Launch an agent: claude or agent-distro to pick one",
+      "Launch an agent: claude, codex, opencode, pi, omp",
+    );
+    const t1 = terminalTip(facts({ git: NO_REPO }));
+    if (t1.kind !== "tip") throw new Error("expected a tip");
+    expect(tileTipSentence(t1.copy)).toBe(
+      "Start in a project: cd into a git repo",
     );
   });
 });

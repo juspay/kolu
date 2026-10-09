@@ -62,18 +62,19 @@ export const CONTEXTUAL_TIPS = {
   },
 } as const satisfies Record<string, Tip>;
 
-/** A tile tip's words, as the bar shows them: a bold lead, the chip (the
- *  words it types into the terminal when clicked), and the rest of the
- *  sentence. */
+/** A tile tip's words, as the bar shows them: a bold lead, the chips (each
+ *  the words it types into the terminal when clicked), and the rest of the
+ *  sentence (empty when the chips say it all). */
 export interface TileTipCopy {
   readonly lead: string;
-  readonly chip: string;
+  readonly chips: readonly string[];
   readonly rest: string;
 }
 
 /** The whole sentence, for screen readers and tests. */
 export function tileTipSentence(copy: TileTipCopy): string {
-  return `${copy.lead}: ${copy.chip} ${copy.rest}`;
+  const said = `${copy.lead}: ${copy.chips.join(", ")}`;
+  return copy.rest === "" ? said : `${said} ${copy.rest}`;
 }
 
 /** The tips in the bar under a tile's title bar (`agents/TileTip.tsx`) — one
@@ -87,17 +88,18 @@ export const TILE_TIPS = {
     id: "tip-cd-repo",
     copy: (): TileTipCopy => ({
       lead: "Start in a project",
-      chip: "cd",
+      chips: ["cd"],
       rest: "into a git repo",
     }),
   },
-  /** A shell in a repo, with agents on its PATH. */
+  /** A shell in a repo, with agents on its PATH: every harness of the
+   *  terminal's profile, in the listing's order — none is guessed at. */
   launchAgent: {
     id: "tip-launch-agent",
-    copy: (harness: string): TileTipCopy => ({
+    copy: (harnesses: readonly string[]): TileTipCopy => ({
       lead: "Launch an agent",
-      chip: harness,
-      rest: "or agent-distro to pick one",
+      chips: harnesses,
+      rest: "",
     }),
   },
   /** An agent at its first prompt. */
@@ -108,7 +110,7 @@ export const TILE_TIPS = {
       skill: { readonly name: string; readonly blurb: string },
     ): TileTipCopy => ({
       lead: "Try a skill",
-      chip: skillInvocation(kind, skill.name),
+      chips: [skillInvocation(kind, skill.name)],
       rest: `— ${skill.blurb}`,
     }),
   },

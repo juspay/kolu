@@ -2,10 +2,12 @@
 /**
  * The tile tip's bar, mounted against mocked app state. It renders the fold's
  * answer and nothing else:
- *  - each rung: its lead, chip, rest and source;
- *  - the chip is the one click target, and types for you: rung 1 opens the
- *    recent repos, rung 2 types the harness and presses Enter, rung 3 inserts
- *    the skill with no Enter;
+ *  - each rung: its lead, chips, rest and source;
+ *  - the chips are the only click targets, and type for you: rung 1 opens the
+ *    recent repos, each of rung 2's launches its own harness (name + Enter),
+ *    rung 3 inserts the skill with no Enter;
+ *  - rung 2's chips that do not fit go behind a `+N` chip whose menu launches
+ *    the picked one;
  *  - the bar opens while its state holds and folds away otherwise (another
  *    tile active, a command in front, an agent at work), with a 220ms height
  *    transition that reduced motion turns off;
@@ -63,6 +65,13 @@ vi.mock("../useCommandPalette", () => ({
     openGroup: (g: string) => state.opened.push(g),
   }),
 }));
+const HARNESSES = vi.hoisted(() => [
+  "claude",
+  "codex",
+  "opencode",
+  "pi",
+  "omp",
+]);
 vi.mock("./useAgentDistro", () => ({
   agentDistroListing: () => ({
     kind: "available",
@@ -70,7 +79,11 @@ vi.mock("./useAgentDistro", () => ({
       {
         name: "vanilla",
         description: "Upstream harnesses",
-        harnesses: [{ name: "claude", title: "Claude Code", version: "1" }],
+        harnesses: HARNESSES.map((name) => ({
+          name,
+          title: name,
+          version: "1",
+        })),
       },
     ],
   }),
@@ -125,6 +138,12 @@ const bar = () =>
   document.querySelector<HTMLElement>('[data-testid="tile-tip"]');
 const chip = () =>
   document.querySelector<HTMLButtonElement>('[data-testid="tile-tip-chip"]');
+const chips = () =>
+  Array.from(
+    document.querySelectorAll<HTMLButtonElement>(
+      '[data-testid="tile-tip-chip"]',
+    ),
+  );
 const isOpen = () => bar()?.hasAttribute("data-open") ?? false;
 
 beforeEach(() => {
@@ -146,7 +165,10 @@ describe("TileTip — the bar for each rung", () => {
     mount();
     expect(isOpen()).toBe(true);
     expect(bar()?.getAttribute("data-tip-id")).toBe("tip-cd-repo");
-    expect(bar()?.textContent).toBe("Start in a projectcdinto a git repo");
+    expect(chips().map((c) => c.textContent)).toEqual(["cd"]);
+    expect(
+      document.querySelector('[data-testid="tile-tip-rest"]')?.textContent,
+    ).toBe("into a git repo");
     expect(bar()?.getAttribute("aria-label")).toBe(
       "Start in a project: cd into a git repo",
     );
@@ -155,13 +177,12 @@ describe("TileTip — the bar for each rung", () => {
     ).toBeNull();
   });
 
-  it("rung 2: the harness chip, and agent-distro with the profile as the source", () => {
+  it("rung 2: one chip per harness in the listing's order, no sentence after, agent-distro with the profile as the source", () => {
     mount();
     expect(bar()?.getAttribute("data-tip-id")).toBe("tip-launch-agent");
-    expect(chip()?.textContent).toBe("claude");
-    expect(
-      document.querySelector('[data-testid="tile-tip-rest"]')?.textContent,
-    ).toBe("or agent-distro to pick one");
+    expect(chips().map((c) => c.textContent)).toEqual(HARNESSES);
+    expect(document.querySelector('[data-testid="tile-tip-rest"]')).toBeNull();
+    expect(document.querySelector('[data-testid="tile-tip-more"]')).toBeNull();
     expect(
       document
         .querySelector('[data-testid="tile-tip-source"]')
@@ -197,13 +218,15 @@ describe("TileTip — the chip types for you", () => {
     expect(state.typed).toEqual([]);
   });
 
-  it("rung 2 types the harness into this terminal and presses Enter", () => {
+  it("each of rung 2's chips launches its own harness in this terminal (name + Enter)", () => {
     mount();
-    expect(chip()?.getAttribute("aria-label")).toBe(
-      "Type claude and press Enter",
+    expect(chips().map((c) => c.getAttribute("aria-label"))).toEqual(
+      HARNESSES.map((h) => `Launch ${h}`),
     );
-    chip()?.click();
-    expect(state.typed).toEqual([{ id: "t-1", text: "claude", enter: true }]);
+    for (const c of chips()) c.click();
+    expect(state.typed).toEqual(
+      HARNESSES.map((text) => ({ id: "t-1", text, enter: true })),
+    );
   });
 
   it("rung 3 inserts the skill into the agent's input, no Enter", () => {
@@ -214,6 +237,7 @@ describe("TileTip — the chip types for you", () => {
   });
 
   it("the rest of the bar is not a click target", () => {
+    state.setMeta(live({ git: NO_REPO }));
     mount();
     expect(bar()?.querySelectorAll("button")).toHaveLength(1);
     document
@@ -232,6 +256,54 @@ describe("TileTip — the chip types for you", () => {
     bar()?.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
     bar()?.dispatchEvent(new Event("pointerdown", { bubbles: true }));
     expect(seen).toEqual([]);
+  });
+});
+
+describe("TileTip — rung 2's chips that do not fit go behind +N", () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  /** Every chip 60px wide, in a 200px row: two fit beside the `+N`. */
+  function narrow() {
+    vi.spyOn(HTMLElement.prototype, "offsetWidth", "get").mockReturnValue(60);
+    vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockReturnValue(200);
+  }
+
+  it("keeps the whole chips that fit, then +N for the rest", () => {
+    narrow();
+    mount();
+    expect(chips().map((c) => c.textContent)).toEqual(["claude", "codex"]);
+    const more = document.querySelector('[data-testid="tile-tip-more"]');
+    expect(more?.textContent).toBe("+3");
+    expect(more?.getAttribute("aria-label")).toBe("3 more");
+  });
+
+  it("the +N menu lists the rest, and picking one launches it", () => {
+    narrow();
+    mount();
+    document
+      .querySelector<HTMLButtonElement>('[data-testid="tile-tip-more"]')
+      ?.click();
+    const menu = document.querySelector('[data-testid="tile-tip-more-menu"]');
+    expect(
+      Array.from(menu?.querySelectorAll("button") ?? []).map(
+        (b) => b.textContent,
+      ),
+    ).toEqual(["opencode", "pi", "omp"]);
+    document
+      .querySelector<HTMLButtonElement>(
+        '[data-testid="tile-tip-more-option-pi"]',
+      )
+      ?.click();
+    expect(state.typed).toEqual([{ id: "t-1", text: "pi", enter: true }]);
+    expect(
+      document.querySelector('[data-testid="tile-tip-more-menu"]'),
+    ).toBeNull();
+  });
+
+  it("with room for all, there is no +N", () => {
+    mount();
+    expect(chips()).toHaveLength(HARNESSES.length);
+    expect(document.querySelector('[data-testid="tile-tip-more"]')).toBeNull();
   });
 });
 

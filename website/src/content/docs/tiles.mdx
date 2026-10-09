@@ -85,16 +85,16 @@ rendering.
 
 Sometimes a tile shows a coloured bar between its title bar and the terminal,
 suggesting what to do next **in that terminal**. It reads as a short sentence
-with one word or command picked out as a button, and, at the right end, where
-the suggestion comes from.
+with a word or command picked out as a button (or, for launching an agent, one
+button per agent), and, at the right end, where the suggestion comes from.
 
 | When | The tip | The button |
 | --- | --- | --- |
 | You are at a shell outside any git repository | Start in a project: **cd** into a git repo | Opens your recent repositories; picking one types the `cd` for you and runs it |
-| You are at a shell inside a repository, and the terminal has [coding agents](/agents) | Launch an agent: **the first agent it has** (for example `claude`), or `agent-distro` to pick one | Types the agent's name and presses Enter, starting it |
+| You are at a shell inside a repository, and the terminal has [coding agents](/agents) | Launch an agent: **one button for each agent in the terminal's set**, in the set's order (for example `claude` `codex` `opencode` `pi` `omp`) | Click the one you want: it types that agent's name and presses Enter, starting it. If they do not all fit, the last button is **+N**, which opens a menu of the rest |
 | An agent has just started in a terminal with [coding agents](/agents), and is waiting for your first message | Try a skill: **one of kolu's own**, with a line on what it does | Puts it into the agent's input — `/kolu ` in Claude Code, `kolu ` in other agents — and leaves the cursor after it, so you finish the message and send it yourself |
 
-Only the button does anything; the rest of the bar is not clickable, and
+Only the buttons do anything; the rest of the bar is not clickable, and
 clicking it does not select or move the tile.
 
 The tip follows what the terminal is doing: the bar slides open while it
