@@ -1,8 +1,6 @@
 /** The attention TRIPLET — active · needs-you · unread — the ONE summary
  *  component every altitude renders: the host tab, the host switcher row, the
- *  mobile host chip, and the dock's per-repo section header. (The host tab
- *  omits `active`: it carries that fact as a throb on its connection dot, so
- *  the tab keeps one width as agents start and stop.) One component so
+ *  mobile host chip, and the dock's per-repo section header. One component so
  *  the same fact cannot render four different ways again (the fucknotif
  *  defect: `HostAwaitingPill` + `HostUnseenPill` + a decoy row-count capsule
  *  + a half-alpha pip all spoke different dialects).
@@ -10,10 +8,7 @@
  *  Vocabulary (colour law from `@kolu/theme`, shapes from this package):
  *    · active — bare rust count + small spinner: how many terminals have
  *      something happening in them. Informational: no capsule, never
- *      clickable. OPTIONAL: a surface that already shows the activity fact
- *      somewhere else (the host tab's throbbing dot) omits it — a segment that
- *      comes and goes is width that comes and goes, and on a row of tabs that
- *      shifts every tab after it.
+ *      clickable. Optional (see the `active` prop).
  *    · needs-you — VIOLET CAPSULE. Actionable: when `onAsking` is supplied it
  *      renders as a real `<button>` that navigates to the next blocked
  *      terminal. Clicking never dismisses — only the agent leaving
@@ -129,8 +124,10 @@ export const AttentionTriplet: Component<{
    *  still settling after a turn, and plain shells that are printing. The one
    *  activity predicate (`attentionActive`), so this number always equals the
    *  number of moving marks in the scope it summarises. Omitted by a surface
-   *  that carries this fact elsewhere (the host tab's dot throb) — omitted,
-   *  never passed as a fabricated 0. */
+   *  that carries this fact elsewhere — the host tab throbs its connection dot
+   *  instead, because a segment that comes and goes is width that comes and
+   *  goes, and on a row of tabs that shifts every tab after it. Omitted, never
+   *  passed as a fabricated 0. */
   active?: number;
   /** Agents blocked on your input (`awaiting_user`). */
   asking: number;
