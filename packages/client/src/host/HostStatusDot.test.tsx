@@ -22,11 +22,13 @@
  */
 
 import { readFileSync } from "node:fs";
-import { createRequire } from "node:module";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { render } from "solid-js/web";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   forwardRingLabel,
+  HOST_DOT_THROB_CLASS,
   HostStatusDot,
   hostActiveLabel,
 } from "./HostStatusDot";
@@ -134,12 +136,12 @@ describe("HostStatusDot", () => {
     // come and go as agents started and stopped — the tab's width changed with
     // it and the whole strip shifted. The fact moved onto the dot as MOTION.
     const still = mount({ statusDot: READY, forwardCount: 0, active: 0 }).pip;
-    expect(still?.className).not.toMatch(/statepip-anim-throb/);
+    expect(still?.className).not.toMatch(/host-dot-throb/);
     expect(still?.hasAttribute("data-throb")).toBe(false);
     dispose?.();
     host?.remove();
     const busy = mount({ statusDot: READY, forwardCount: 0, active: 2 }).pip;
-    expect(busy?.className).toMatch(/statepip-anim-throb/);
+    expect(busy?.className).toMatch(/host-dot-throb/);
     expect(busy?.className).toMatch(/motion-reduce:animate-none/);
     expect(busy?.hasAttribute("data-throb")).toBe(true);
   });
@@ -156,10 +158,16 @@ describe("HostStatusDot", () => {
     const strip = (c: string | undefined) =>
       (c ?? "")
         .split(/\s+/)
-        .filter((t) => t !== "statepip-anim-throb" && !t.startsWith("motion-"))
+        .filter((t) => t !== "host-dot-throb" && !t.startsWith("motion-"))
         .join(" ");
     expect(strip(busy)).toBe(strip(base));
     expect(busy).toContain(DOWN);
+  });
+
+  it("the throb class is motion-only and freezes under reduced motion", () => {
+    expect(HOST_DOT_THROB_CLASS).toContain("motion-reduce:animate-none");
+    // Never a colour token: the dot it rides paints the connection fact.
+    expect(HOST_DOT_THROB_CLASS).not.toMatch(/(^|\s)(text|bg|ring|border)-/);
   });
 
   it("the throb rides the pip alone and peaks inside the forward ring", () => {
@@ -172,20 +180,18 @@ describe("HostStatusDot", () => {
       forwardCount: 2,
       active: 3,
     });
-    expect(pip?.className).toMatch(/statepip-anim-throb/);
-    expect(ring?.className).not.toMatch(/statepip-anim/);
+    expect(pip?.className).toMatch(/host-dot-throb/);
+    expect(ring?.className).not.toMatch(/host-dot-throb/);
     // Tailwind `h-N` is N × 4px; `ring-1` draws OUTSIDE the box, so the ring's
     // inner edge is the box itself.
     const px = (el: Element | null) =>
       Number(/(?:^|\s)h-([\d.]+)(?:\s|$)/.exec(el?.className ?? "")?.[1]) * 4;
     expect(ring?.className).toMatch(/(^|\s)ring-1(\s|$)/);
     const css = readFileSync(
-      createRequire(import.meta.url).resolve(
-        "@kolu/solid-statepip/statepip.css",
-      ),
+      join(dirname(fileURLToPath(import.meta.url)), "../index.css"),
       "utf8",
     );
-    const keyframes = /@keyframes statepip-throb\s*\{([\s\S]*?)\n\}/.exec(
+    const keyframes = /@keyframes host-dot-throb\s*\{([\s\S]*?)\n\}/.exec(
       css,
     )?.[1];
     const scales = [...(keyframes ?? "").matchAll(/scale\(([\d.]+)\)/g)].map(

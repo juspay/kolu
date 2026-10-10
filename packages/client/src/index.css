@@ -979,6 +979,35 @@ body {
   }
 }
 
+/* ── Host tab dot throb ─────────────────────────────────────── */
+/* A gentle breath on the host tab's connection DOT while any terminal on that
+   host is active — scale + opacity, never colour, so the dot keeps painting the
+   connection fact and the throb is a second channel over it (`HostStatusDot`).
+   The peak stays at 1.15×: the 10px dot sits inside a 12px forward ring, and a
+   bigger beat would cover that ring — one fact painting over another's pixels.
+   Rides the glow cadence so the strip has one tempo for "alive". */
+.host-dot-throb {
+  animation: host-dot-throb var(--motion-glow-duration, 2.2s) ease-in-out
+    infinite;
+  transform-origin: center;
+}
+@keyframes host-dot-throb {
+  0%,
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  50% {
+    transform: scale(1.15);
+    opacity: 0.6;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .host-dot-throb {
+    animation: none;
+  }
+}
+
 /* ── Image preview checkerboard background ──────────────────── */
 /* Canonical four-gradient checkerboard; transparent PNGs read against the dark
    panel. Opacity 8% matches the canvas grid's visual weight. */

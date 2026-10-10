@@ -23,7 +23,6 @@
  *  means health, teal means doors.
  */
 
-import { PIP_THROB_CLASS } from "@kolu/solid-statepip/pipVariant";
 import { type Component, Show } from "solid-js";
 import { FORWARD_RING } from "../forwards/forwardTone";
 
@@ -41,6 +40,11 @@ export function hostActiveLabel(count: number): string {
   return `${count} terminal${count === 1 ? "" : "s"} active`;
 }
 
+/** Motion only — the class carries no colour token, so it can never say
+ *  "connected" or "down", only "something is happening here". Keyframe and
+ *  its ring-fitting peak live in `index.css` (`host-dot-throb`). */
+export const HOST_DOT_THROB_CLASS = "host-dot-throb motion-reduce:animate-none";
+
 export const HostStatusDot: Component<{
   /** The pip's colour class, straight from the connection-health fact. */
   statusDot: string;
@@ -57,12 +61,10 @@ export const HostStatusDot: Component<{
      *  around a bigger dot is easier to see than around a smaller one, without
      *  any of the weight that made the thick ring jarring. */}
     <span
-      // Motion as a SECOND channel over the same pixels: the throb class
-      // carries no colour token (pinned in `pipVariant.test.ts`), so it can
-      // never say "connected" or "down" — only "something is happening here".
+      // Motion as a SECOND channel over the same pixels (`HOST_DOT_THROB_CLASS`).
       // One `class` string, not `class` + `classList`: the colour is dynamic,
       // and Solid's `class` write would clobber a `classList` toggle.
-      class={`inline-block h-2.5 w-2.5 rounded-full shrink-0 ${props.statusDot}${props.active > 0 ? ` ${PIP_THROB_CLASS}` : ""}`}
+      class={`inline-block h-2.5 w-2.5 rounded-full shrink-0 ${props.statusDot}${props.active > 0 ? ` ${HOST_DOT_THROB_CLASS}` : ""}`}
       data-testid="host-status-pip"
       data-throb={props.active > 0 ? "" : undefined}
       aria-hidden="true"

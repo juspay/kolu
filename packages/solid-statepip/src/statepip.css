@@ -21,22 +21,6 @@
     opacity: 1;
   }
 }
-/* A gentle breath on a status DOT — scale + opacity, never colour, so the dot
- * keeps painting its own fact (connection health) and the throb is a second,
- * orthogonal channel riding over it. The peak stays at 1.15×: kolu's host dot
- * (10px) sits inside a 12px forward ring, and anything past 1.2× would cover
- * that ring at every beat — one fact painting over another's pixels. */
-@keyframes statepip-throb {
-  0%,
-  100% {
-    transform: scale(1);
-    opacity: 1;
-  }
-  50% {
-    transform: scale(1.15);
-    opacity: 0.6;
-  }
-}
 @keyframes statepip-pulse {
   0%,
   100% {
@@ -59,15 +43,6 @@
     infinite;
 }
 
-/* something is happening under this dot (the host tab's connection pip while
- * any of that host's terminals is active) → throb. Rides the glow cadence: the
- * same ease-in-out breath, so the strip has one tempo for "alive". */
-.statepip-anim-throb {
-  animation: statepip-throb var(--motion-glow-duration, 2.2s) ease-in-out
-    infinite;
-  transform-origin: center;
-}
-
 /* Unread amber corner badge (Dock `unread`); not a ring, not the host pill. */
 .statepip-alert-badge {
   position: absolute;
@@ -85,7 +60,6 @@
 @media (prefers-reduced-motion: reduce) {
   .statepip-anim-spin,
   .statepip-anim-glow,
-  .statepip-anim-throb,
   .statepip-alert-badge {
     animation: none;
   }
