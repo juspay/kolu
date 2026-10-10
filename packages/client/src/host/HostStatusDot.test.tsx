@@ -21,6 +21,8 @@
  * unrenderable.
  */
 
+import { readFileSync } from "node:fs";
+import { createRequire } from "node:module";
 import { render } from "solid-js/web";
 import { afterEach, describe, expect, it } from "vitest";
 import {
@@ -158,6 +160,40 @@ describe("HostStatusDot", () => {
         .join(" ");
     expect(strip(busy)).toBe(strip(base));
     expect(busy).toContain(DOWN);
+  });
+
+  it("the throb rides the pip alone and peaks inside the forward ring", () => {
+    // The ring is the pip's SIBLING, so the colour/size test above can't see
+    // it: a throb that swelled the pip past the ring's inner edge would erase
+    // the ring at every beat on a host that holds forwards. Read the real peak
+    // from the keyframe and the real sizes from the rendered Tailwind tokens.
+    const { pip, ring } = mount({
+      statusDot: READY,
+      forwardCount: 2,
+      active: 3,
+    });
+    expect(pip?.className).toMatch(/statepip-anim-throb/);
+    expect(ring?.className).not.toMatch(/statepip-anim/);
+    // Tailwind `h-N` is N × 4px; `ring-1` draws OUTSIDE the box, so the ring's
+    // inner edge is the box itself.
+    const px = (el: Element | null) =>
+      Number(/(?:^|\s)h-([\d.]+)(?:\s|$)/.exec(el?.className ?? "")?.[1]) * 4;
+    expect(ring?.className).toMatch(/(^|\s)ring-1(\s|$)/);
+    const css = readFileSync(
+      createRequire(import.meta.url).resolve(
+        "@kolu/solid-statepip/statepip.css",
+      ),
+      "utf8",
+    );
+    const keyframes = /@keyframes statepip-throb\s*\{([\s\S]*?)\n\}/.exec(
+      css,
+    )?.[1];
+    const scales = [...(keyframes ?? "").matchAll(/scale\(([\d.]+)\)/g)].map(
+      (m) => Number(m[1]),
+    );
+    expect(scales.length).toBeGreaterThan(0);
+    const peak = px(pip) * Math.max(...scales);
+    expect(peak).toBeLessThan(px(ring));
   });
 
   it("says 'terminal' rather than 'terminals' for one", () => {

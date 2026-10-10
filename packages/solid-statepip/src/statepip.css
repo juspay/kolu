@@ -23,7 +23,9 @@
 }
 /* A gentle breath on a status DOT — scale + opacity, never colour, so the dot
  * keeps painting its own fact (connection health) and the throb is a second,
- * orthogonal channel riding over it. */
+ * orthogonal channel riding over it. The peak stays at 1.15×: kolu's host dot
+ * (10px) sits inside a 12px forward ring, and anything past 1.2× would cover
+ * that ring at every beat — one fact painting over another's pixels. */
 @keyframes statepip-throb {
   0%,
   100% {
@@ -31,7 +33,7 @@
     opacity: 1;
   }
   50% {
-    transform: scale(1.3);
+    transform: scale(1.15);
     opacity: 0.6;
   }
 }
