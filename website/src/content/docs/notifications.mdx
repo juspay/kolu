@@ -26,13 +26,13 @@ flips to **awaiting you** finds you even when you're looking elsewhere.
 
 Three signals, three colours, and the same rendering wherever they appear — dock
 row, repo section header, host tab, phone host row (one exception, below the
-table: a host tab shows **active** on its dot):
+table: a host tab shows **active** as a running stripe):
 
 | Signal | Looks like | Goes away when |
 | --- | --- | --- |
 | **Needs you** — an agent is blocked on your input | violet count pill · violet row wash · a chip counting **how long it has waited** | you answer it — nothing else clears it |
 | **Unread** — an agent finished and you haven't looked | amber count pill · amber row wash · amber badge on the pip | you open that terminal |
-| **Active** — something is happening in a terminal | a plain rust count with a spinner · on a host tab, the connection dot **throbs** | everything goes quiet |
+| **Active** — something is happening in a terminal | a plain rust count with a spinner · on a host tab, a rust **stripe runs along its bottom edge** | everything goes quiet |
 
 The two you can **act on** wear a pill; the activity count deliberately does not.
 So a number in a pill always means *there is something to do here*. Where kolu
@@ -45,10 +45,11 @@ the tab is already the button that does that.)
 
 A **host tab** carries no active count of its own. A number that appeared and
 vanished as agents started and stopped made the tab grow and shrink, shoving every
-tab after it sideways. Instead the tab's connection dot gently **throbs** while
-anything on that machine is active — its colour still means only "connected" —
-and the count itself is the **working** row in the popover the dot opens (screen
-readers get it in the dot's label).
+tab after it sideways. Instead a thin rust **stripe runs along the tab's bottom
+edge** while anything on that machine is active, and the tab keeps its size. The
+count itself is the **working** row in the popover the connection dot opens
+(screen readers get it in the dot's label). With reduced motion on, the stripe
+stops moving but stays on the tab.
 
 **"Active" means what the marks mean.** The rust count is the same question a
 moving mark answers, asked about a whole machine or a whole repo — so it counts
