@@ -21,17 +21,9 @@
  * unrenderable.
  */
 
-import { readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
 import { render } from "solid-js/web";
 import { afterEach, describe, expect, it } from "vitest";
-import {
-  forwardRingLabel,
-  HOST_DOT_THROB_CLASS,
-  HostStatusDot,
-  hostActiveLabel,
-} from "./HostStatusDot";
+import { forwardRingLabel, HostStatusDot } from "./HostStatusDot";
 
 let dispose: (() => void) | undefined;
 let host: HTMLElement | undefined;
@@ -43,14 +35,10 @@ afterEach(() => {
   host = undefined;
 });
 
-function mount(props: {
-  statusDot: string;
-  forwardCount: number;
-  active?: number;
-}) {
+function mount(props: { statusDot: string; forwardCount: number }) {
   host = document.createElement("div");
   document.body.append(host);
-  dispose = render(() => <HostStatusDot active={0} {...props} />, host);
+  dispose = render(() => <HostStatusDot {...props} />, host);
   return {
     pip: host.querySelector('[data-testid="host-status-pip"]'),
     ring: host.querySelector('[data-testid="host-forward-ring"]'),
@@ -129,82 +117,6 @@ describe("HostStatusDot", () => {
     expect(ring?.className).toMatch(/(^|\s)ring-1(\s|$)/);
     expect(ring?.className).not.toMatch(/ring-2|ring-4|border-2/);
     expect(ring?.className).not.toMatch(/ring-offset-[1-9]/);
-  });
-
-  it("throbs while the host has active terminals, and is still otherwise", () => {
-    // The host tab's working spinner + count used to sit beside the name and
-    // come and go as agents started and stopped — the tab's width changed with
-    // it and the whole strip shifted. The fact moved onto the dot as MOTION.
-    const still = mount({ statusDot: READY, forwardCount: 0, active: 0 }).pip;
-    expect(still?.className).not.toMatch(/host-dot-throb/);
-    expect(still?.hasAttribute("data-throb")).toBe(false);
-    dispose?.();
-    host?.remove();
-    const busy = mount({ statusDot: READY, forwardCount: 0, active: 2 }).pip;
-    expect(busy?.className).toMatch(/host-dot-throb/);
-    expect(busy?.className).toMatch(/motion-reduce:animate-none/);
-    expect(busy?.hasAttribute("data-throb")).toBe(true);
-  });
-
-  it("the throb never touches the pip's COLOUR or SIZE", () => {
-    // Motion only: the colour is the connection fact, the box is the tab's
-    // geometry. Strip the throb tokens and what is left must be identical.
-    const base = mount({ statusDot: DOWN, forwardCount: 0, active: 0 }).pip
-      ?.className;
-    dispose?.();
-    host?.remove();
-    const busy = mount({ statusDot: DOWN, forwardCount: 0, active: 5 }).pip
-      ?.className;
-    const strip = (c: string | undefined) =>
-      (c ?? "")
-        .split(/\s+/)
-        .filter((t) => t !== "host-dot-throb" && !t.startsWith("motion-"))
-        .join(" ");
-    expect(strip(busy)).toBe(strip(base));
-    expect(busy).toContain(DOWN);
-  });
-
-  it("the throb class is motion-only and freezes under reduced motion", () => {
-    expect(HOST_DOT_THROB_CLASS).toContain("motion-reduce:animate-none");
-    // Never a colour token: the dot it rides paints the connection fact.
-    expect(HOST_DOT_THROB_CLASS).not.toMatch(/(^|\s)(text|bg|ring|border)-/);
-  });
-
-  it("the throb rides the pip alone and peaks inside the forward ring", () => {
-    // The ring is the pip's SIBLING, so the colour/size test above can't see
-    // it: a throb that swelled the pip past the ring's inner edge would erase
-    // the ring at every beat on a host that holds forwards. Read the real peak
-    // from the keyframe and the real sizes from the rendered Tailwind tokens.
-    const { pip, ring } = mount({
-      statusDot: READY,
-      forwardCount: 2,
-      active: 3,
-    });
-    expect(pip?.className).toMatch(/host-dot-throb/);
-    expect(ring?.className).not.toMatch(/host-dot-throb/);
-    // Tailwind `h-N` is N × 4px; `ring-1` draws OUTSIDE the box, so the ring's
-    // inner edge is the box itself.
-    const px = (el: Element | null) =>
-      Number(/(?:^|\s)h-([\d.]+)(?:\s|$)/.exec(el?.className ?? "")?.[1]) * 4;
-    expect(ring?.className).toMatch(/(^|\s)ring-1(\s|$)/);
-    const css = readFileSync(
-      join(dirname(fileURLToPath(import.meta.url)), "../index.css"),
-      "utf8",
-    );
-    const keyframes = /@keyframes host-dot-throb\s*\{([\s\S]*?)\n\}/.exec(
-      css,
-    )?.[1];
-    const scales = [...(keyframes ?? "").matchAll(/scale\(([\d.]+)\)/g)].map(
-      (m) => Number(m[1]),
-    );
-    expect(scales.length).toBeGreaterThan(0);
-    const peak = px(pip) * Math.max(...scales);
-    expect(peak).toBeLessThan(px(ring));
-  });
-
-  it("says 'terminal' rather than 'terminals' for one", () => {
-    expect(hostActiveLabel(1)).toBe("1 terminal active");
-    expect(hostActiveLabel(3)).toBe("3 terminals active");
   });
 
   it("marks in the FORWARD colour, never the connection colour", () => {

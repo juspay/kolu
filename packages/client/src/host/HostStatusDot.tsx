@@ -1,5 +1,5 @@
 /** The host tab's connection dot, with a thin ring around it when kolu holds
- *  forwards to that host, and a THROB while any terminal on that host is active.
+ *  forwards to that host.
  *
  *  Two facts, one glyph, and deliberately not one paint: the DOT's colour is the
  *  connection-health fact and nothing else (`.claude/rules/solidjs.md` — never
@@ -31,29 +31,11 @@ export function forwardRingLabel(count: number): string {
   return `${count} forwarded port${count === 1 ? "" : "s"} — click to manage`;
 }
 
-/** The words the throb answers to. The tab used to draw this count as a
- *  spinner + number beside the name; that segment came and went as agents
- *  started and stopped, so the tab's width did too and every tab after it
- *  shifted. The fact now rides the dot as motion, and its words ride the
- *  buttons' labels (and the host popover's `working` row). */
-export function hostActiveLabel(count: number): string {
-  return `${count} terminal${count === 1 ? "" : "s"} active`;
-}
-
-/** Motion only — the class carries no colour token, so it can never say
- *  "connected" or "down", only "something is happening here". Keyframe and
- *  its ring-fitting peak live in `index.css` (`host-dot-throb`). */
-export const HOST_DOT_THROB_CLASS = "host-dot-throb motion-reduce:animate-none";
-
 export const HostStatusDot: Component<{
   /** The pip's colour class, straight from the connection-health fact. */
   statusDot: string;
   /** How many forwards kolu holds to this host. Zero draws no ring. */
   forwardCount: number;
-  /** How many of this host's terminals are active (`hostMarks(key).active()`).
-   *  Above zero the pip THROBS — scale and opacity only, so its colour stays
-   *  the connection fact. */
-  active: number;
 }> = (props) => (
   <span class="relative inline-flex h-4 w-4 shrink-0 items-center justify-center">
     {/* The pip runs a size larger than it used to (2.5 over 2). It grew for the
@@ -61,12 +43,8 @@ export const HostStatusDot: Component<{
      *  around a bigger dot is easier to see than around a smaller one, without
      *  any of the weight that made the thick ring jarring. */}
     <span
-      // Motion as a SECOND channel over the same pixels (`HOST_DOT_THROB_CLASS`).
-      // One `class` string, not `class` + `classList`: the colour is dynamic,
-      // and Solid's `class` write would clobber a `classList` toggle.
-      class={`inline-block h-2.5 w-2.5 rounded-full shrink-0 ${props.statusDot}${props.active > 0 ? ` ${HOST_DOT_THROB_CLASS}` : ""}`}
+      class={`inline-block h-2.5 w-2.5 rounded-full shrink-0 ${props.statusDot}`}
       data-testid="host-status-pip"
-      data-throb={props.active > 0 ? "" : undefined}
       aria-hidden="true"
     />
     <Show when={props.forwardCount > 0}>

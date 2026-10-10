@@ -124,7 +124,7 @@ export const AttentionTriplet: Component<{
    *  still settling after a turn, and plain shells that are printing. The one
    *  activity predicate (`attentionActive`), so this number always equals the
    *  number of moving marks in the scope it summarises. Omitted by a surface
-   *  that carries this fact elsewhere — the host tab throbs its connection dot
+   *  that carries this fact elsewhere — the host tab runs a stripe along its bottom edge
    *  instead, because a segment that comes and goes is width that comes and
    *  goes, and on a row of tabs that shifts every tab after it. Omitted, never
    *  passed as a fabricated 0. */

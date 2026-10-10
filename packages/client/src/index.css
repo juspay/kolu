@@ -979,31 +979,32 @@ body {
   }
 }
 
-/* ── Host tab dot throb ─────────────────────────────────────── */
-/* A gentle breath on the host tab's connection DOT while any terminal on that
-   host is active — scale + opacity, never colour, so the dot keeps painting the
-   connection fact and the throb is a second channel over it (`HostStatusDot`).
-   The peak stays at 1.15×: the 10px dot sits inside a 12px forward ring, and a
-   bigger beat would cover that ring — one fact painting over another's pixels.
-   Rides the glow cadence so the strip has one tempo for "alive". */
-.host-dot-throb {
-  animation: host-dot-throb var(--motion-glow-duration, 2.2s) ease-in-out
-    infinite;
-  transform-origin: center;
+/* ── Host tab working stripe ────────────────────────────────── */
+/* A rust segment sweeping along the host tab's bottom edge while any terminal
+   on that host is active (`HostTabWorkingStripe`; geometry is in its classes:
+   absolute, 2px, inset 10px, so the tab's box never changes). Only the ACTIVE
+   colour paints here — never `--host-hue`, never a connection colour. The
+   segment is 30% of the track, so it travels from -100% to +334% of its own
+   width: fully off the left edge to fully off the right. */
+.host-tab-stripe {
+  background: color-mix(in oklch, var(--color-busy) 20%, transparent);
 }
-@keyframes host-dot-throb {
-  0%,
-  100% {
-    transform: scale(1);
-    opacity: 1;
+.host-tab-stripe-segment {
+  background: var(--color-busy);
+  animation: host-tab-stripe-sweep 1.4s ease-in-out infinite;
+}
+@keyframes host-tab-stripe-sweep {
+  from {
+    transform: translateX(-100%);
   }
-  50% {
-    transform: scale(1.15);
-    opacity: 0.6;
+  to {
+    transform: translateX(334%);
   }
 }
 @media (prefers-reduced-motion: reduce) {
-  .host-dot-throb {
+  /* The sweep stops; the track and a STATIC segment stay, so the fact is
+     never carried by motion alone. */
+  .host-tab-stripe-segment {
     animation: none;
   }
 }

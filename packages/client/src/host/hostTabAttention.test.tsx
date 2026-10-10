@@ -5,8 +5,8 @@
  * `AttentionTriplet` (`@kolu/solid-statepip`) used to always draw its `active`
  * segment — a rust spinner plus a bare count — so on the host tab that segment
  * appeared and vanished with every agent turn, the tab's width changed, and
- * every tab after it shifted. The host tab now OMITS `active` (it throbs its
- * connection dot instead, see `HostStatusDot.test.tsx`), and this file pins the
+ * every tab after it shifted. The host tab now OMITS `active` (it runs a stripe
+ * along its bottom edge instead, see `hostTabWorkingStripe.test.tsx`), and this file pins the
  * component half of that contract: omitted means no segment and no width, while
  * the surfaces that still pass it keep their spinner. Lives in the client
  * because this is the package with the Solid DOM harness.
@@ -55,7 +55,7 @@ describe("AttentionTriplet — `active` is optional", () => {
 
   it("surfaces that still pass `active` keep their spinner + count", () => {
     // The dock section header, host switcher row and mobile host chip carry no
-    // dot that could throb, so they keep the segment.
+    // edge for a running stripe, so they keep the segment.
     const el = mountInto(() => (
       <AttentionTriplet
         active={3}

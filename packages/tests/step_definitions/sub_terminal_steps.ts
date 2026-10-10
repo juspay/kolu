@@ -643,10 +643,10 @@ Then(
   "the dock section active count should agree with the active host tab",
   async function (this: KoluWorld) {
     // The host tab carries no spinner + count of its own (its coming and going
-    // shifted the strip): it THROBS its connection dot and names the count in
-    // the dot button's label. Agreement = the section says 1, the tab's dot
-    // throbs, and the tab's words say 1. Scoped under `host-chip-row` — the
-    // hidden measuring twin also matches `host-chip`.
+    // shifted the strip): it runs a STRIPE along its bottom edge and names the
+    // count in the dot button's label. Agreement = the section says 1, the tab
+    // runs its stripe, and the tab's words say 1. Scoped under `host-chip-row`
+    // — the hidden measuring twin also matches `host-chip`.
     await this.page.waitForFunction(
       () => {
         const splitAgent = document.querySelector(
@@ -658,8 +658,8 @@ Then(
         const tab = document.querySelector(
           '[data-testid="host-chip-row"] [data-testid="host-chip"][data-active]',
         );
-        const pip = tab?.querySelector(
-          '[data-testid="host-status-pip"][data-throb]',
+        const stripe = tab?.querySelector(
+          '[data-testid="host-tab-working-stripe"]',
         );
         const label =
           tab
@@ -668,7 +668,7 @@ Then(
         return (
           splitAgent !== null &&
           section?.textContent?.trim() === "1" &&
-          pip != null &&
+          stripe != null &&
           label.includes("1 terminal active") &&
           tab?.querySelector('[data-testid="attention-active"]') === null
         );
@@ -683,7 +683,7 @@ Then(
   "the active host's diagnostics should count {int} working terminal(s)",
   async function (this: KoluWorld, expected: number) {
     // The count the host tab no longer draws lives in the host popover, read
-    // from the same `hostMarks` fold the tab's throb reads.
+    // from the same `hostMarks` fold the tab's stripe reads.
     await openActiveHostDiagnostics(this.page);
     await this.page.waitForFunction(
       (want) => {

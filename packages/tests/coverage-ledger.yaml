@@ -2619,4 +2619,4 @@ retirements:
     sameCodePathEvidence:
       file: packages/tests/features/sub-terminal.feature
       symbol: "Scenario: Dock section attention count agrees with the host tab for a split agent"
-      test: The revised scenario reads the host tab's activity from its throbbing status dot and labelled count instead of the removed spinner segment.
+      test: The revised scenario reads the host tab's activity from its running bottom-edge stripe and labelled count instead of the removed spinner segment.

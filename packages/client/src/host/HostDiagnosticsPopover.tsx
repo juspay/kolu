@@ -358,9 +358,9 @@ export const HostDiagnosticsPopover: Component<{
           <PopoverRow label="terminals" danger={Boolean(terminalKeys.error())}>
             {terminalCount()}
           </PopoverRow>
-          {/* The count the host tab no longer draws: the tab throbs its dot
+          {/* The count the host tab no longer draws: the tab runs a stripe along its bottom edge
            *  instead (a segment there changed the tab's width as agents came
-           *  and went). Same `hostMarks` fold the tab's throb reads. */}
+           *  and went). Same `hostMarks` fold the tab's stripe reads. */}
           <PopoverRow label="working" testid="host-diagnostics-working">
             {marks.active()}
           </PopoverRow>

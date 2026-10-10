@@ -77,11 +77,8 @@ import { focusOnMount } from "./focusOnMount";
 import { HostDiagnosticsPopover } from "./HostDiagnosticsPopover";
 import { HostIdentityLabel } from "./HostIdentityLabel";
 import AgentDistroHostMark from "../agents/AgentDistroHostMark";
-import {
-  forwardRingLabel,
-  HostStatusDot,
-  hostActiveLabel,
-} from "./HostStatusDot";
+import { forwardRingLabel, HostStatusDot } from "./HostStatusDot";
+import { HostTabWorkingStripe, hostActiveLabel } from "./HostTabWorkingStripe";
 import { activeKavalPresence } from "../kaval/useDaemonStatus";
 import {
   chipStatusDot,
@@ -149,6 +146,9 @@ const HostChipShell: Component<{
    *  off). The measuring twin renders it too, so a chip's width estimate counts
    *  it and the strip keeps to one row. */
   agents?: JSX.Element;
+  /** Pinned to the tab's bottom edge with no layout of its own — the
+   *  measuring twin leaves it out, since it adds no width to measure. */
+  stripe?: JSX.Element;
 }> = (props) => (
   <div
     {...props.tab}
@@ -173,6 +173,7 @@ const HostChipShell: Component<{
     </button>
     {props.agents}
     {props.attention}
+    {props.stripe}
   </div>
 );
 
@@ -192,9 +193,9 @@ const HostChip: Component<{
   const marks = hostMarks(encKey);
   // How many doors kolu holds open to this host — the ring on the dot below.
   const forwardCount = () => forwardsForHost(props.host).length;
-  // The activity fact rides the dot as a throb and the buttons' labels as
-  // words — never a segment beside the name, whose coming and going changed
-  // the tab's width and shifted the whole strip.
+  // The activity fact rides the tab's bottom edge as a running stripe and the
+  // buttons' labels as words — never a segment beside the name, whose coming
+  // and going changed the tab's width and shifted the whole strip.
   const activeSuffix = () =>
     marks.active() > 0 ? `, ${hostActiveLabel(marks.active())}` : "";
   // The active-host signal + this chip's own host are compared by their CANONICAL
@@ -272,11 +273,10 @@ const HostChip: Component<{
           <HostStatusDot
             statusDot={statusDot()}
             forwardCount={forwardCount()}
-            active={marks.active()}
           />
         }
         attention={
-          // No `active`: the tab carries that fact on its dot (the throb), so
+          // No `active`: the tab carries that fact as its running stripe, so
           // its width is the same whether zero or ten terminals are working.
           <AttentionTriplet
             asking={marks.asking()}
@@ -289,6 +289,7 @@ const HostChip: Component<{
           />
         }
         agents={<AgentDistroHostMark host={props.host} />}
+        stripe={<HostTabWorkingStripe active={marks.active()} />}
       />
       <Show when={diagOpen()}>
         <HostDiagnosticsPopover
@@ -820,7 +821,7 @@ const HostSelectorStrip: Component = () => {
                     host={host}
                     attention={
                       // In step with the live tab: no `active` segment
-                      // there, so none here — the throb on the dot costs no
+                      // there, so none here — the running stripe costs no
                       // width, and the estimate must not count one.
                       <AttentionTriplet
                         asking={hostMarks(key).asking()}
