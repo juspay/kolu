@@ -8620,6 +8620,18 @@
       "exampleRows": [],
       "executions": 1,
       "firstSeenSha": "770621f86e432e1884505fc95c5151ee1840ae05"
+    },
+    {
+      "revisionId": "revision-4dcc87004171f2c019ff",
+      "scenarioKey": "scenario-53e38198b5a70131d428",
+      "feature": "features/sub-terminal.feature",
+      "scenario": "Dock section attention count agrees with the host tab for a split agent",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "9387b784568c421e28802c518114fd5863ce534338fe46b73eed8a212a9e40ce",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "0b40a2cc28dda92429899dfe777e515ac36f74d7"
     }
   ]
 }
