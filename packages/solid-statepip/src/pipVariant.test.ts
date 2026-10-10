@@ -13,6 +13,7 @@ import {
   NEEDS_YOU_PILL_CLASS,
   PIP_BODY,
   PIP_MOTION_CLASS,
+  PIP_THROB_CLASS,
   PIP_TITLES,
   type PipVariant,
   TITLE_PIP_BOX,
@@ -111,6 +112,13 @@ describe("PIP_MOTION_CLASS — activity channel tokens", () => {
     expect(PIP_MOTION_CLASS.glow).toContain("statepip-awaiting-core");
     expect(PIP_MOTION_CLASS.glow).toContain("motion-reduce:animate-none");
     expect(PIP_MOTION_CLASS.none).toBeNull();
+  });
+
+  it("the dot throb is motion-only and freezes under reduced motion", () => {
+    expect(PIP_THROB_CLASS).toContain("statepip-anim-throb");
+    expect(PIP_THROB_CLASS).toContain("motion-reduce:animate-none");
+    // Never a colour token: the dot it rides paints its own fact.
+    expect(PIP_THROB_CLASS).not.toMatch(/(^|\s)(text|bg|ring|border)-/);
   });
 });
 

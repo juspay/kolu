@@ -23,7 +23,11 @@
 
 import { render } from "solid-js/web";
 import { afterEach, describe, expect, it } from "vitest";
-import { forwardRingLabel, HostStatusDot } from "./HostStatusDot";
+import {
+  forwardRingLabel,
+  HostStatusDot,
+  hostActiveLabel,
+} from "./HostStatusDot";
 
 let dispose: (() => void) | undefined;
 let host: HTMLElement | undefined;
@@ -35,10 +39,14 @@ afterEach(() => {
   host = undefined;
 });
 
-function mount(props: { statusDot: string; forwardCount: number }) {
+function mount(props: {
+  statusDot: string;
+  forwardCount: number;
+  active?: number;
+}) {
   host = document.createElement("div");
   document.body.append(host);
-  dispose = render(() => <HostStatusDot {...props} />, host);
+  dispose = render(() => <HostStatusDot active={0} {...props} />, host);
   return {
     pip: host.querySelector('[data-testid="host-status-pip"]'),
     ring: host.querySelector('[data-testid="host-forward-ring"]'),
@@ -117,6 +125,44 @@ describe("HostStatusDot", () => {
     expect(ring?.className).toMatch(/(^|\s)ring-1(\s|$)/);
     expect(ring?.className).not.toMatch(/ring-2|ring-4|border-2/);
     expect(ring?.className).not.toMatch(/ring-offset-[1-9]/);
+  });
+
+  it("throbs while the host has active terminals, and is still otherwise", () => {
+    // The host tab's working spinner + count used to sit beside the name and
+    // come and go as agents started and stopped — the tab's width changed with
+    // it and the whole strip shifted. The fact moved onto the dot as MOTION.
+    const still = mount({ statusDot: READY, forwardCount: 0, active: 0 }).pip;
+    expect(still?.className).not.toMatch(/statepip-anim-throb/);
+    expect(still?.hasAttribute("data-throb")).toBe(false);
+    dispose?.();
+    host?.remove();
+    const busy = mount({ statusDot: READY, forwardCount: 0, active: 2 }).pip;
+    expect(busy?.className).toMatch(/statepip-anim-throb/);
+    expect(busy?.className).toMatch(/motion-reduce:animate-none/);
+    expect(busy?.hasAttribute("data-throb")).toBe(true);
+  });
+
+  it("the throb never touches the pip's COLOUR or SIZE", () => {
+    // Motion only: the colour is the connection fact, the box is the tab's
+    // geometry. Strip the throb tokens and what is left must be identical.
+    const base = mount({ statusDot: DOWN, forwardCount: 0, active: 0 }).pip
+      ?.className;
+    dispose?.();
+    host?.remove();
+    const busy = mount({ statusDot: DOWN, forwardCount: 0, active: 5 }).pip
+      ?.className;
+    const strip = (c: string | undefined) =>
+      (c ?? "")
+        .split(/\s+/)
+        .filter((t) => t !== "statepip-anim-throb" && !t.startsWith("motion-"))
+        .join(" ");
+    expect(strip(busy)).toBe(strip(base));
+    expect(busy).toContain(DOWN);
+  });
+
+  it("says 'terminal' rather than 'terminals' for one", () => {
+    expect(hostActiveLabel(1)).toBe("1 terminal active");
+    expect(hostActiveLabel(3)).toBe("3 terminals active");
   });
 
   it("marks in the FORWARD colour, never the connection colour", () => {

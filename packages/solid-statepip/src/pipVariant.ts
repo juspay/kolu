@@ -161,6 +161,14 @@ export const PIP_MOTION_CLASS: Record<PipMotionKind, string | null> = {
   none: null,
 };
 
+/** The THROB on a status dot — motion only (scale + opacity), never colour, so
+ *  the dot it rides keeps painting its own fact. The host tab's connection pip
+ *  wears it while any terminal on that host is active: the activity fact moved
+ *  ONTO the dot so the tab's width never changes as agents start and stop.
+ *  Not a `PipMotionKind` — those are a glyph's channels, folded from agent
+ *  state; this is a dot's, keyed by a count. */
+export const PIP_THROB_CLASS = "statepip-anim-throb motion-reduce:animate-none";
+
 /** Post-turn linger violet — pip `linger` paint and AgentIndicator `waiting`. */
 export const AWAITING_LINGER_CLASS = "text-alert/55";
 

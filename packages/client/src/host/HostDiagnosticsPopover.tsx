@@ -1,8 +1,8 @@
 /** Per-host diagnostics popover — the detail that used to crowd every chip.
  *
  *  Opened by clicking the host tab's connection status pip. Shows connection
- *  state (with the real error + reconnect when unreachable), terminal +
- *  awaiting counts, the padi·kaval dual-daemon pair, and remove-with-confirm
+ *  state (with the real error + reconnect when unreachable), terminal,
+ *  working + awaiting counts, the padi·kaval dual-daemon pair, and remove-with-confirm
  *  for guest hosts.
  *
  *  #1962 will supply provisioning copy progress; until then we show only the
@@ -73,9 +73,13 @@ const popoverChrome = surface({
 const PopoverRow: Component<{
   label: string;
   danger?: boolean;
+  testid?: string;
   children: string | number;
 }> = (props) => (
-  <div class="flex items-center justify-between gap-4 py-0.5 text-[11px]">
+  <div
+    class="flex items-center justify-between gap-4 py-0.5 text-[11px]"
+    data-testid={props.testid}
+  >
     <span
       classList={{
         "text-danger": props.danger,
@@ -353,6 +357,12 @@ export const HostDiagnosticsPopover: Component<{
 
           <PopoverRow label="terminals" danger={Boolean(terminalKeys.error())}>
             {terminalCount()}
+          </PopoverRow>
+          {/* The count the host tab no longer draws: the tab throbs its dot
+           *  instead (a segment there changed the tab's width as agents came
+           *  and went). Same `hostMarks` fold the tab's throb reads. */}
+          <PopoverRow label="working" testid="host-diagnostics-working">
+            {marks.active()}
           </PopoverRow>
           <PopoverRow label="awaiting you">{marks.asking()}</PopoverRow>
 

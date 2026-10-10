@@ -10,7 +10,9 @@ the *attention summary* both surfaces roll up into.
   - `glyph` → brand mark or shell `#`
   - `variant` → state paint (`text-busy` working · **full** `text-alert` violet
     `awaiting` (blocked on you) · **dimmed** violet `linger` (post-turn lull) · …)
-  - `motion` → spin / glow / none (activity channel; CSS in `./statepip.css`)
+  - `motion` → spin / glow / none (activity channel; CSS in `./statepip.css`).
+    A status DOT's motion is separate: `PIP_THROB_CLASS` (scale + opacity, no
+    colour, on the glow cadence) for a dot whose colour is another fact.
   - `bytesLive` → a11y "live output" when PTY bytes are flowing
   - `alert` → amber unread corner badge
 
@@ -22,7 +24,10 @@ the *attention summary* both surfaces roll up into.
   switcher row, mobile host chip, dock repo-section header), so one fact cannot
   grow four dialects. Its rule: the two **actionable** counts wear a capsule and
   become real `<button>`s when a jump handler is passed; **active** is a bare
-  count + spinner and never clickable. A capsule falls back to a plain span
+  count + spinner and never clickable. `active` is optional: a surface that
+  carries the activity fact elsewhere omits it — the host tab does, throbbing
+  its connection dot (`PIP_THROB_CLASS`) instead, so the tab's width never
+  changes as agents start and stop. A capsule falls back to a plain span
   wherever its surface has nowhere to send you — a caller inside an
   already-interactive parent omits the handlers (valid HTML, same vocabulary),
   and a host tab passes no `onUnseen` because switching to the machine is what

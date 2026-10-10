@@ -77,7 +77,11 @@ import { focusOnMount } from "./focusOnMount";
 import { HostDiagnosticsPopover } from "./HostDiagnosticsPopover";
 import { HostIdentityLabel } from "./HostIdentityLabel";
 import AgentDistroHostMark from "../agents/AgentDistroHostMark";
-import { forwardRingLabel, HostStatusDot } from "./HostStatusDot";
+import {
+  forwardRingLabel,
+  HostStatusDot,
+  hostActiveLabel,
+} from "./HostStatusDot";
 import { activeKavalPresence } from "../kaval/useDaemonStatus";
 import {
   chipStatusDot,
@@ -188,6 +192,11 @@ const HostChip: Component<{
   const marks = hostMarks(encKey);
   // How many doors kolu holds open to this host — the ring on the dot below.
   const forwardCount = () => forwardsForHost(props.host).length;
+  // The activity fact rides the dot as a throb and the buttons' labels as
+  // words — never a segment beside the name, whose coming and going changed
+  // the tab's width and shifted the whole strip.
+  const activeSuffix = () =>
+    marks.active() > 0 ? `, ${hostActiveLabel(marks.active())}` : "";
   // The active-host signal + this chip's own host are compared by their CANONICAL
   // string (`sameHost`) — a `HostKey` is an object with no reference identity across
   // independent decodes, so `===` would silently never match a logically-equal remote.
@@ -238,8 +247,8 @@ const HostChip: Component<{
           "data-testid": "host-diagnostics-open",
           "aria-haspopup": "dialog",
           "aria-expanded": diagOpen(),
-          "aria-label": `Details for ${name()} — ${glance().title}${forwardCount() > 0 ? `, ${forwardRingLabel(forwardCount())}` : ""}`,
-          title: `${glance().title} — click for details`,
+          "aria-label": `Details for ${name()} — ${glance().title}${activeSuffix()}${forwardCount() > 0 ? `, ${forwardRingLabel(forwardCount())}` : ""}`,
+          title: `${glance().title}${activeSuffix()} — click for details`,
           onClick: (e) => {
             e.stopPropagation();
             props.diagnostics.toggle(encKey);
@@ -257,17 +266,19 @@ const HostChip: Component<{
           onClick: () => {
             if (!isActive()) setActiveHost(props.host);
           },
-          title: `${name()} — ${glance().title}`,
+          title: `${name()} — ${glance().title}${activeSuffix()}`,
         }}
         status={
           <HostStatusDot
             statusDot={statusDot()}
             forwardCount={forwardCount()}
+            active={marks.active()}
           />
         }
         attention={
+          // No `active`: the tab carries that fact on its dot (the throb), so
+          // its width is the same whether zero or ten terminals are working.
           <AttentionTriplet
-            active={marks.active()}
             asking={marks.asking()}
             unseen={marks.unseenFinished()}
             viewing={isActive()}
@@ -808,8 +819,10 @@ const HostSelectorStrip: Component = () => {
                   <HostChipShell
                     host={host}
                     attention={
+                      // In step with the live tab: no `active` segment
+                      // there, so none here — the throb on the dot costs no
+                      // width, and the estimate must not count one.
                       <AttentionTriplet
-                        active={hostMarks(key).active()}
                         asking={hostMarks(key).asking()}
                         unseen={hostMarks(key).unseenFinished()}
                         viewing={useActiveHostSelector()(key)}
