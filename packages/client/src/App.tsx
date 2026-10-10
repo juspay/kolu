@@ -80,7 +80,7 @@ import TerminalContent from "./terminal/TerminalContent";
 import TerminalMeta from "./terminal/TerminalMeta";
 import { useTerminals } from "./terminal/useTerminals";
 import { useTileStore } from "./tile/useTileStore";
-import { realSizes } from "./ui/corvuResizable";
+import { controlledSizes, realSizes } from "./ui/corvuResizable";
 import { refocusTerminal } from "./ui/ModalDialog";
 import { Z_HANDLE_OUTER } from "./ui/stackLayers";
 import { useActionContext } from "./useActionContext";
@@ -134,6 +134,11 @@ const App: Component = () => {
   } = useThemeManager();
 
   const rightPanel = useRightPanel();
+  const rightPanelSizes = controlledSizes(() =>
+    rightPanel.collapsed()
+      ? [1, 0]
+      : [1 - rightPanel.panelSize(), rightPanel.panelSize()],
+  );
   const { colorScheme } = useColorScheme();
   const { appTitle, themeColor } = useServerIdentity();
   const commandPalette = useCommandPalette();
@@ -614,11 +619,7 @@ const App: Component = () => {
                 */}
                     <Resizable
                       orientation="horizontal"
-                      sizes={
-                        rightPanel.collapsed()
-                          ? [1, 0]
-                          : [1 - rightPanel.panelSize(), rightPanel.panelSize()]
-                      }
+                      sizes={rightPanelSizes()}
                       onSizesChange={(sizes) => {
                         // `MIN_PANEL_SIZE = 0.05` inside `setPanelSize` drops
                         // the collapsed `sizes[1] = 0` case so `preferences.size`
