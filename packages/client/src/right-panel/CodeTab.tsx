@@ -54,7 +54,7 @@ import { useCommentScrollRequest } from "../comments/scrollRequest";
 import { triggerDownload } from "../download";
 import { runActionPromise } from "../runAction";
 import { useColorScheme } from "../settings/useColorScheme";
-import { realSizes } from "../ui/corvuResizable";
+import { controlledSizes, realSizes } from "../ui/corvuResizable";
 import { filterChipAccent } from "../ui/filterChip";
 import { mergeGitStatusEntries } from "../ui/gitStatusEntries";
 import {
@@ -207,6 +207,10 @@ const CodeTab: Component<{
   const shown = usePanelShown();
   leaseCodeQueries(shown);
   const rightPanel = useRightPanel();
+  const treeSizes = controlledSizes(() => [
+    rightPanel.codeTabTreeSize(),
+    1 - rightPanel.codeTabTreeSize(),
+  ]);
 
   // Coarse-pointer modality (`isTouch`, the input axis — not the `layoutMode`
   // size/fork axis): roomier rows are a tap-target affordance, so a
@@ -1236,10 +1240,7 @@ const CodeTab: Component<{
          *  the user's layout. */}
         <Resizable
           orientation="vertical"
-          sizes={[
-            rightPanel.codeTabTreeSize(),
-            1 - rightPanel.codeTabTreeSize(),
-          ]}
+          sizes={treeSizes()}
           onSizesChange={(sizes) => {
             const s = realSizes(sizes);
             if (s) rightPanel.setCodeTabTreeSize(s[0]);

@@ -206,7 +206,8 @@ Feature: Sub-terminals
   Scenario: Dock section attention count agrees with the host tab for a split agent
     When I create a sub-terminal via command palette
     And a Claude Code session is mocked with state "thinking"
-    Then the dock section active count should equal the active host tab
+    Then the dock section active count should agree with the active host tab
+    And the active host's diagnostics should count 1 working terminal
     And there should be no page errors
 
   Scenario: A split's dock row names the model its agent is running on

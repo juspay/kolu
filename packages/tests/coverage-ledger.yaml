@@ -2607,3 +2607,16 @@ retirements:
       file: packages/tests/features/agents.feature
       symbol: "Scenario: Switching profile reaches the next terminal, and off removes both"
       test: "juspay is now picked from the profile field's Kolu-drawn suggestion menu (the chevron, then its row) instead of typed and entered; the write goes through the same agentDistroChoice, and padi, the chip, the claude fixture and off removing both are asserted unchanged."
+  - id: revise-05f776274fa03f97dfb3
+    revisionId: revision-05f776274fa03f97dfb3
+    action: revised
+    status: landed
+    promise: A split agent's working count agrees between the dock section header and its host tab
+    defectSurface: [dock, notifications, user-journey]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-4dcc87004171f2c019ff]
+    sameCodePathEvidence:
+      file: packages/tests/features/sub-terminal.feature
+      symbol: "Scenario: Dock section attention count agrees with the host tab for a split agent"
+      test: The revised scenario reads the host tab's activity from its running bottom-edge stripe and labelled count instead of the removed spinner segment.

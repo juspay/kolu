@@ -8,7 +8,7 @@
  *  Vocabulary (colour law from `@kolu/theme`, shapes from this package):
  *    · active — bare rust count + small spinner: how many terminals have
  *      something happening in them. Informational: no capsule, never
- *      clickable.
+ *      clickable. Optional (see the `active` prop).
  *    · needs-you — VIOLET CAPSULE. Actionable: when `onAsking` is supplied it
  *      renders as a real `<button>` that navigates to the next blocked
  *      terminal. Clicking never dismisses — only the agent leaving
@@ -123,8 +123,12 @@ export const AttentionTriplet: Component<{
   /** Terminals with something happening in them — agents in flight, agents
    *  still settling after a turn, and plain shells that are printing. The one
    *  activity predicate (`attentionActive`), so this number always equals the
-   *  number of moving marks in the scope it summarises. */
-  active: number;
+   *  number of moving marks in the scope it summarises. Omitted by a surface
+   *  that carries this fact elsewhere — the host tab runs a stripe along its bottom edge
+   *  instead, because a segment that comes and goes is width that comes and
+   *  goes, and on a row of tabs that shifts every tab after it. Omitted, never
+   *  passed as a fabricated 0. */
+  active?: number;
   /** Agents blocked on your input (`awaiting_user`). */
   asking: number;
   /** Finished terminals you have not opened. */
@@ -150,22 +154,23 @@ export const AttentionTriplet: Component<{
 }> = (props) => {
   const scope = () => (props.scopeLabel ? ` on ${props.scopeLabel}` : "");
   const unseen = () => (props.viewing ? 0 : props.unseen);
+  const active = () => props.active ?? 0;
   return (
-    <Show when={props.active > 0 || props.asking > 0 || unseen() > 0}>
+    <Show when={active() > 0 || props.asking > 0 || unseen() > 0}>
       <span
         class={`inline-flex shrink-0 items-center gap-1${props.class ? ` ${props.class}` : ""}`}
         data-testid="attention-triplet"
       >
-        <Show when={props.active > 0}>
+        <Show when={active() > 0}>
           <span
             role="img"
             class={ACTIVE_COUNT_CLASS}
-            title={`${props.active} active${scope()}`}
-            aria-label={`${props.active} terminals active${scope()}`}
+            title={`${active()} active${scope()}`}
+            aria-label={`${active()} terminals active${scope()}`}
             data-testid="attention-active"
           >
             <WorkingArc />
-            {props.active}
+            {active()}
           </span>
         </Show>
         <CountCapsule

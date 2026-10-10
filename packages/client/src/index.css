@@ -979,6 +979,36 @@ body {
   }
 }
 
+/* ── Host tab working stripe ────────────────────────────────── */
+/* A rust segment sweeping along the host tab's bottom edge while any terminal
+   on that host is active (`HostTabWorkingStripe`; geometry is in its classes:
+   absolute, 2px, inset 10px, so the tab's box never changes). Only the ACTIVE
+   colour paints here — never `--host-hue`, never a connection colour. The
+   segment is 30% of the track, so it travels from -100% to +334% of its own
+   width: fully off the left edge to fully off the right. */
+.host-tab-stripe {
+  background: color-mix(in oklch, var(--color-busy) 20%, transparent);
+}
+.host-tab-stripe-segment {
+  background: var(--color-busy);
+  animation: host-tab-stripe-sweep 1.4s ease-in-out infinite;
+}
+@keyframes host-tab-stripe-sweep {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(334%);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  /* The sweep stops; the track and a STATIC segment stay, so the fact is
+     never carried by motion alone. */
+  .host-tab-stripe-segment {
+    animation: none;
+  }
+}
+
 /* ── Image preview checkerboard background ──────────────────── */
 /* Canonical four-gradient checkerboard; transparent PNGs read against the dark
    panel. Opacity 8% matches the canvas grid's visual weight. */

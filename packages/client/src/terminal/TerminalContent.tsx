@@ -11,7 +11,7 @@ import { Effect } from "effect";
 import type { TerminalId } from "kolu-common/surface";
 import { type Component, For, type JSX, Show } from "solid-js";
 import { runAction } from "../runAction";
-import { realSizes } from "../ui/corvuResizable";
+import { controlledSizes, realSizes } from "../ui/corvuResizable";
 import { Z_HANDLE_INNER } from "../ui/stackLayers";
 import DormantTileBody from "./DormantTileBody";
 import SubPanelTabBar from "./SubPanelTabBar";
@@ -98,6 +98,12 @@ const TerminalContent: Component<{
   const shouldFocusSub = (subId: TerminalId) =>
     props.focused && isExpanded() && store.focusedTerminalId() === subId;
 
+  const sizes = controlledSizes(() =>
+    isExpanded()
+      ? [1 - panelState().panelSize, panelState().panelSize]
+      : [1, 0],
+  );
+
   function handleSizesChange(sizes: number[]) {
     // Persist the bottom panel size when user drags the handle.
     // `> 0.02` ignores the tiny `[1, 0]` values Corvu fires during
@@ -163,11 +169,7 @@ const TerminalContent: Component<{
     >
       <Resizable
         orientation="vertical"
-        sizes={
-          isExpanded()
-            ? [1 - panelState().panelSize, panelState().panelSize]
-            : [1, 0]
-        }
+        sizes={sizes()}
         onSizesChange={handleSizesChange}
         class="flex-1 min-h-0"
       >

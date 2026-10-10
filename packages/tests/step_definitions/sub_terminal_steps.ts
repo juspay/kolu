@@ -1,6 +1,7 @@
 import * as assert from "node:assert";
 import { Then, When } from "@cucumber/cucumber";
 import { waitForBufferContains } from "../support/buffer.ts";
+import { openActiveHostDiagnostics } from "../support/hostChip.ts";
 import { padiCall } from "../support/rpcWire.ts";
 import {
   ACTIVE_CANVAS_TILE_SELECTOR,
@@ -639,8 +640,13 @@ Then(
 );
 
 Then(
-  "the dock section active count should equal the active host tab",
+  "the dock section active count should agree with the active host tab",
   async function (this: KoluWorld) {
+    // The host tab carries no spinner + count of its own (its coming and going
+    // shifted the strip): it runs a STRIPE along its bottom edge and names the
+    // count in the dot button's label. Agreement = the section says 1, the tab
+    // runs its stripe, and the tab's words say 1. Scoped under `host-chip-row`
+    // — the hidden measuring twin also matches `host-chip`.
     await this.page.waitForFunction(
       () => {
         const splitAgent = document.querySelector(
@@ -649,16 +655,44 @@ Then(
         const section = document.querySelector(
           '[data-testid="dock-section-header"] [data-testid="attention-active"]',
         );
-        const host = document.querySelector(
-          '[data-testid="host-chip"][data-active] [data-testid="attention-active"]',
+        const tab = document.querySelector(
+          '[data-testid="host-chip-row"] [data-testid="host-chip"][data-active]',
         );
+        const stripe = tab?.querySelector(
+          '[data-testid="host-tab-working-stripe"]',
+        );
+        const label =
+          tab
+            ?.querySelector('[data-testid="host-diagnostics-open"]')
+            ?.getAttribute("aria-label") ?? "";
         return (
           splitAgent !== null &&
           section?.textContent?.trim() === "1" &&
-          host?.textContent?.trim() === "1"
+          stripe != null &&
+          label.includes("1 terminal active") &&
+          tab?.querySelector('[data-testid="attention-active"]') === null
         );
       },
       null,
+      { timeout: POLL_TIMEOUT },
+    );
+  },
+);
+
+Then(
+  "the active host's diagnostics should count {int} working terminal(s)",
+  async function (this: KoluWorld, expected: number) {
+    // The count the host tab no longer draws lives in the host popover, read
+    // from the same `hostMarks` fold the tab's stripe reads.
+    await openActiveHostDiagnostics(this.page);
+    await this.page.waitForFunction(
+      (want) => {
+        const row = document.querySelector(
+          '[data-testid="host-diagnostics-popover"] [data-testid="host-diagnostics-working"]',
+        );
+        return row?.lastElementChild?.textContent?.trim() === String(want);
+      },
+      expected,
       { timeout: POLL_TIMEOUT },
     );
   },

@@ -1,8 +1,11 @@
 /** One terminal body per workspace tile. Layout shells provide destinations;
  *  changing desktop/touch shells moves the existing body without reattaching.
- *  This owner still ends when the workspace closes or a host's ids leave. */
+ *  A body exists only while its id has a mounted pane: an id whose pane has
+ *  not appeared yet (the canvas gates tiles behind async per-host facts) gets
+ *  no body until it does, and the body ends when the pane goes, the workspace
+ *  closes, or a host's ids leave. */
 import type { TerminalId } from "kolu-common/surface";
-import { type JSX, For, createEffect, onCleanup, untrack } from "solid-js";
+import { type JSX, For, Show, onCleanup, untrack } from "solid-js";
 import { createStore } from "solid-js/store";
 import { Portal } from "solid-js/web";
 
@@ -29,33 +32,20 @@ export function WorkspaceTerminals(props: {
     <>
       {untrack(() => props.children(outlet))}
       <For each={props.ids}>
-        {(id) => {
-          // A detached staging node bridges the shell's synchronous ref turnover.
-          const staging = document.createElement("div");
-          let disposed = false;
-          onCleanup(() => {
-            disposed = true;
-          });
-          createEffect(() => {
-            const destination = destinations[id];
-            queueMicrotask(() => {
-              if (!disposed && !destination && !destinations[id])
-                throw new Error(
-                  `Terminal ${id} has no mounted layout destination`,
-                );
-            });
-          });
-          return (
+        {(id) => (
+          // Non-keyed: a shell swap replaces the destination element within one
+          // update, so the condition stays truthy and the same body moves.
+          <Show when={destinations[id]}>
             <Portal
-              mount={destinations[id] ?? staging}
+              mount={destinations[id]}
               ref={(el) => {
                 el.className = "flex flex-col h-full w-full min-h-0";
               }}
             >
               {props.renderBody(id)}
             </Portal>
-          );
-        }}
+          </Show>
+        )}
       </For>
     </>
   );

@@ -22,7 +22,10 @@ the *attention summary* both surfaces roll up into.
   switcher row, mobile host chip, dock repo-section header), so one fact cannot
   grow four dialects. Its rule: the two **actionable** counts wear a capsule and
   become real `<button>`s when a jump handler is passed; **active** is a bare
-  count + spinner and never clickable. A capsule falls back to a plain span
+  count + spinner and never clickable. `active` is optional: a surface that
+  carries the activity fact elsewhere omits it — the host tab does, running a
+  stripe along its bottom edge instead, so the tab's width never changes as agents start
+  and stop. A capsule falls back to a plain span
   wherever its surface has nowhere to send you — a caller inside an
   already-interactive parent omits the handlers (valid HTML, same vocabulary),
   and a host tab passes no `onUnseen` because switching to the machine is what
