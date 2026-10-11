@@ -1,0 +1,24 @@
+{
+  "name": "kolu-ci",
+  "main": "worker.ts",
+  "compatibility_date": "2026-09-01",
+  "rules": [{ "type": "Text", "globs": ["**/*.sh"], "fallthrough": false }],
+  "observability": { "enabled": true },
+  // Streaming and line-prefixing long logs is CPU in the Worker/DO.
+  "limits": { "cpu_ms": 300000 },
+  "containers": [
+    {
+      "class_name": "Runner",
+      // Public Docker Hub image, pulled by Cloudflare: no local docker needed.
+      "image": "docker.io/nixos/nix:2.35.2-amd64",
+      // 4 vCPU / 12 GiB / 20 GB, the largest Cloudflare offers.
+      "instance_type": "standard-4",
+      // `main` plus up to 8 e2e shards and headroom.
+      "max_instances": 10
+    }
+  ],
+  "durable_objects": {
+    "bindings": [{ "name": "RUNNER", "class_name": "Runner" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Runner"] }]
+}

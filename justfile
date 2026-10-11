@@ -37,6 +37,7 @@ mod ai 'agents/ai.just'
 mod ci 'ci/mod.just'
 mod website 'website/mod.just'
 mod atlas 'docs/atlas/mod.just'
+mod cloudflare 'ci/cloudflare/mod.just'
 
 # List available recipes
 default:

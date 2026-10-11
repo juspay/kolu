@@ -43,6 +43,13 @@ const tags =
 // only; the two coexist.
 const retry = parseInt(process.env.CUCUMBER_RETRY || "0", 10);
 
+// `CUCUMBER_SHARD=<index>/<total>` (1-based) runs one slice of the suite, so
+// a fan-out runner (ci/cloudflare) gives each container one shard. Cucumber
+// owns the assignment: its native sharder deals pickles round-robin, so an
+// outline's expanded examples count and moving a feature cannot leave a
+// hand-maintained partition lopsided. Same knob as juspay/olai.
+const shard = process.env.CUCUMBER_SHARD || "";
+
 export const ui = {
   ...(!cliHasFeatureArgs && { paths: ["features/**/*.feature"] }),
   import: ["step_definitions/**/*.ts", "support/**/*.ts"],
@@ -60,6 +67,7 @@ export const ui = {
   formatOptions: { snippetInterface: "async-await" },
   ...(parallel > 1 && { parallel }),
   ...(retry > 0 && { retry }),
+  ...(shard !== "" && { shard }),
 };
 
 export default {};
