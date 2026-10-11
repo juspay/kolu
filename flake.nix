@@ -93,7 +93,20 @@
           # Usage: nix develop .#e2e
           e2e = default.overrideAttrs (prev: {
             name = "kolu-shell-e2e";
-            nativeBuildInputs = (prev.nativeBuildInputs or [ ]) ++ [ pkgs.gitMinimal ];
+            # Host tools the suite assumes. A dev box or the odu pool has them;
+            # a bare Nix container (nixos/nix) does not, and their absence
+            # fails scenarios rather than the run:
+            # - procps: `ps` backs the harness reaper (daemon-test-gate
+            #   ciReap: scroll-FIFO `cat` readers; without it they linger
+            #   and Cucumber never exits) and claude-code/omp agent detection.
+            # - hostname: the OSC 7 prompt hook calls `$(hostname)`.
+            # - ncurses: `clear`, used by terminal fixtures.
+            nativeBuildInputs = (prev.nativeBuildInputs or [ ]) ++ [
+              pkgs.gitMinimal
+              pkgs.procps
+              pkgs.hostname
+              pkgs.ncurses
+            ];
             env = (prev.env or { }) // {
               PLAYWRIGHT_BROWSERS_PATH = pkgs.playwright-driver.browsers;
               # Chromium aborts (SIGTRAP, "SkFontMgr_FontConfigInterface: Not
