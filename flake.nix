@@ -96,6 +96,13 @@
             nativeBuildInputs = (prev.nativeBuildInputs or [ ]) ++ [ pkgs.gitMinimal ];
             env = (prev.env or { }) // {
               PLAYWRIGHT_BROWSERS_PATH = pkgs.playwright-driver.browsers;
+              # Chromium aborts (SIGTRAP, "SkFontMgr_FontConfigInterface: Not
+              # implemented") when fontconfig finds no config, as on a host
+              # without /etc/fonts (a bare nixos/nix container). Bake one in so
+              # the browser never depends on the host's font setup.
+              FONTCONFIG_FILE = pkgs.makeFontsConf {
+                fontDirectories = [ pkgs.dejavu_fonts ];
+              };
             };
           });
         });

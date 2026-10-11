@@ -2,6 +2,8 @@
   "name": "kolu-ci",
   "main": "worker.ts",
   "compatibility_date": "2026-09-01",
+  // Lets a Runner cancel a job when its client disconnects.
+  "compatibility_flags": ["enable_request_signal"],
   "rules": [{ "type": "Text", "globs": ["**/*.sh"], "fallthrough": false }],
   "observability": { "enabled": true },
   // Streaming and line-prefixing long logs is CPU in the Worker/DO.

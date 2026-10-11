@@ -27,7 +27,8 @@ Sharding uses Cucumber's native `shard` option, which `packages/tests/cucumber.j
 - **GitHub API rate limit.** `github:` flake refs resolve through api.github.com, which returns 403 from Cloudflare's shared egress IPs. Use `git+https://github.com/...` for anything that resolves a branch; locked inputs download archive tarballs and are fine.
 - **`/dev/shm` is missing,** because Cloudflare mounts a fresh `/dev`. Python multiprocessing then fails with a `SemLock` error, for example in the home-manager manual build. `boot.sh` recreates the directory with mode 1777.
 - **`/dev/kvm` is root-only,** and nix builds run as `nixbld` users, so QEMU falls back to TCG. `boot.sh` runs `chmod 666 /dev/kvm`.
-- **The nix sandbox doesn't work here** (the build failed with the same `SemLock` error inside the sandbox), so builds run with `sandbox = false`. The container is single-use, which limits the damage.
+- **The nix sandbox works** once `/dev/shm` exists: the emanote VM test passed with `sandbox = true`, since user and mount namespaces are available and the container has full capabilities. The lane still sets `sandbox = false` because the container is single-use and runs nothing but CI.
+- **Disk is tight.** The kolu VM test alone leaves 8.2G of the 18G in use. Running the kolu and emanote VM tests on one instance reached 17G (94%). Keep one kind of job per instance, or restart between jobs.
 
 ## Usage
 

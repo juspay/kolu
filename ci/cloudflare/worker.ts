@@ -24,6 +24,10 @@ const IDLE_MS = 2 * 60 * 60 * 1000;
 // Cloudflare drops a proxied response that sends nothing for ~100s; nix
 // evaluation and some e2e scenarios are silent for longer than that.
 const HEARTBEAT_MS = 25_000;
+// A container that is not running this long after start() was never placed.
+const READY_MS = 10 * 60 * 1000;
+// How long to keep reading output after the job process has exited.
+const DRAIN_MS = 5_000;
 
 // exec() passes only PATH from the image, so spell out what nix needs. The
 // NIX_CONFIG applies to every nix call, including those inside just recipes.
@@ -32,6 +36,9 @@ const BASE_ENV: Record<string, string> = {
   HOME: "/root",
   USER: "root",
   CI: "true",
+  // `just test` serializes suites through a /tmp lock for shared CI hosts.
+  // An instance runs one job at a time, so the lock only gets in the way.
+  KOLU_E2E_LOCK: "0",
   NIX_SSL_CERT_FILE: CERTS,
   SSL_CERT_FILE: CERTS,
   GIT_SSL_CAINFO: CERTS,
@@ -54,16 +61,28 @@ const q = (s: string) => `'${s.replaceAll("'", `'\\''`)}'`;
 // never `github:` refs: api.github.com rate-limits Cloudflare's shared egress
 // IPs (HTTP 403). The checkout is reused across jobs on the same instance.
 const checkout = (rev: string) => `
+# One job owns the instance: reap anything an earlier job left running
+# (a hung cucumber, test daemons), keeping PID 1 and this shell.
+for d in /proc/[0-9]*; do
+  pid=\${d#/proc/}
+  case "$pid" in 1|$$|$PPID) ;; *) kill -9 "$pid" 2>/dev/null || true ;; esac
+done
 if [ -d /work/.git ]; then git -C /work fetch -q origin; else git clone -q ${REPO} /work; fi
 git -C /work checkout -q --detach ${q(rev)}
 cd /work
 echo "### rev $(git rev-parse HEAD)"`;
 
 const scripts = {
-  probe: () => `
+  probe: () =>
+    `
 for c in 'uname -a' nproc 'grep -E "^Mem(Total|Available)" /proc/meminfo' 'df -h /' \\
   'ls -ld /dev/kvm /dev/shm' "grep -c -E 'vmx|svm' /proc/cpuinfo" 'nix --version'; do
   echo "\\$ $c"; bash -c "$c" 2>&1 || true
+done
+# Processes still alive (procps is not in the image).
+echo "\\$ processes"
+for d in /proc/[0-9]*; do
+  echo "\${d#/proc/} $(tr '\\0' ' ' < "$d/cmdline" 2>/dev/null | cut -c1-160)"
 done`,
   // ?installable=<flake installable> (default: the home-manager VM test)
   // &override=<input>=<flakeref> (repeatable) &rebuild=1 (re-run a cached test)
@@ -127,13 +146,35 @@ export class Runner extends DurableObject<Env> {
     await container.setInactivityTimeout(IDLE_MS);
     this.busy = true;
     const t0 = Date.now();
-    const proc = await execWhenReady(container, [
-      BASH,
-      "-c",
-      `set -euo pipefail\n${script}`,
-    ]);
+    let proc: ExecProcess;
+    try {
+      proc = await withDeadline(
+        execWhenReady(container, [BASH, "-c", `set -euo pipefail\n${script}`]),
+        READY_MS,
+        `container not ready within ${READY_MS / 60_000} min (not scheduled?)`,
+      );
+    } catch (e) {
+      this.busy = false;
+      return text(`### ERROR ${e}\n### EXIT 255 WALL ${secs(t0)}s\n`);
+    }
     const stdout = proc.stdout;
     if (!stdout) throw new Error("exec returned no stdout");
+    // Daemons the job leaves behind (kolu test servers, padi, …) inherit the
+    // pipe and keep it open after the job exits. The job is over when its
+    // process exits: then drain briefly and stop reading.
+    const reader = stdout.getReader();
+    // A client that goes away cancels its job (needs the
+    // `enable_request_signal` compatibility flag). Kill only while running.
+    let exited = false;
+    const cancel = () => {
+      if (!exited) proc.kill(9);
+    };
+    request.signal.addEventListener("abort", cancel, { once: true });
+    void proc.exitCode.then(() => {
+      exited = true;
+      request.signal.removeEventListener("abort", cancel);
+      setTimeout(() => void reader.cancel().catch(() => {}), DRAIN_MS);
+    });
 
     const { readable, writable } = new TransformStream<
       Uint8Array,
@@ -150,9 +191,11 @@ export class Runner extends DurableObject<Env> {
     }, 5_000);
     const pump = async () => {
       try {
-        for await (const chunk of stdout) {
+        for (;;) {
+          const { done, value } = await reader.read();
+          if (done) break;
           last = Date.now();
-          await w.write(chunk);
+          await w.write(value);
         }
         const code = await proc.exitCode;
         const df = await container.exec(
@@ -163,16 +206,10 @@ export class Runner extends DurableObject<Env> {
         await w.write(
           enc.encode(`### disk ${usage.trim().replaceAll("\n", " | ")}\n`),
         );
-        await w.write(
-          enc.encode(
-            `### EXIT ${code} WALL ${((Date.now() - t0) / 1000).toFixed(1)}s\n`,
-          ),
-        );
+        await w.write(enc.encode(`### EXIT ${code} WALL ${secs(t0)}s\n`));
       } catch (e) {
         await w.write(
-          enc.encode(
-            `### ERROR ${e}\n### EXIT 255 WALL ${((Date.now() - t0) / 1000).toFixed(1)}s\n`,
-          ),
+          enc.encode(`### ERROR ${e}\n### EXIT 255 WALL ${secs(t0)}s\n`),
         );
       } finally {
         clearInterval(beat);
@@ -187,17 +224,29 @@ export class Runner extends DurableObject<Env> {
   }
 }
 
-// exec() can reject while a freshly started container is still booting.
+// exec() can reject while a freshly started container is still booting, and
+// can also just wait for it; READY_MS bounds both.
 async function execWhenReady(container: Container, cmd: string[]) {
-  for (let attempt = 1; ; attempt++) {
+  const deadline = Date.now() + READY_MS;
+  for (;;) {
     try {
       return await container.exec(cmd, { env: BASE_ENV, stderr: "combined" });
     } catch (e) {
-      if (attempt >= 60) throw e;
+      if (Date.now() > deadline) throw e;
       await new Promise((r) => setTimeout(r, 2_000));
     }
   }
 }
+
+function withDeadline<T>(p: Promise<T>, ms: number, why: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const deadline = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(why)), ms);
+  });
+  return Promise.race([p, deadline]).finally(() => clearTimeout(timer));
+}
+
+const secs = (t0: number) => ((Date.now() - t0) / 1000).toFixed(1);
 
 const text = (body: string, status = 200) =>
   new Response(body, {
