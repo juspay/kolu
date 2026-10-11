@@ -154,6 +154,25 @@ fi
 
 (( ${#outputs[@]} > 0 )) || die "nothing to build for ${system} (${flake})"
 
+# Run as an odu shard (`[metadata("odu:shard=N")]` on the calling recipe):
+# build every ODU_SHARD_TOTAL-th output starting at ODU_SHARD_INDEX, so N
+# machines split the work. Discovery stays whole above, so --require still
+# fails loud on an empty kind. A shard left with nothing (more shards than
+# outputs) has nothing to prove and succeeds.
+if [[ -n ${ODU_SHARD_TOTAL:-} ]]; then
+  shard_outputs=()
+  i=0
+  for out in "${outputs[@]}"; do
+    if (( i % ODU_SHARD_TOTAL == ODU_SHARD_INDEX )); then
+      shard_outputs+=("$out")
+    fi
+    ((i += 1))
+  done
+  echo "flake-build: shard $((ODU_SHARD_INDEX + 1))/${ODU_SHARD_TOTAL}: ${#shard_outputs[@]} of ${#outputs[@]} outputs" >&2
+  (( ${#shard_outputs[@]} > 0 )) || exit 0
+  outputs=("${shard_outputs[@]}")
+fi
+
 nix build -L --no-link --print-out-paths \
   ${nix_args[@]:+"${nix_args[@]}"} \
   "${outputs[@]}"
