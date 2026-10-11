@@ -268,9 +268,10 @@ upgrade-window: install nix
     # remote URL, fetch THAT tag into the local object store, then nix-build.
     latest_version_tag() {
       local url="$1"
+      # Plain bash for the field split: this runs before `nix develop`, and a
+      # bare Nix lane host (nixos/nix: a Cloudflare container) has no awk/sed.
       git ls-remote --tags --refs "$url" 2>/dev/null \
-        | awk '{print $2}' \
-        | sed 's|refs/tags/||' \
+        | while read -r _ name; do echo "${name#refs/tags/}"; done \
         | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' \
         | sort -V \
         | tail -1 \

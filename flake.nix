@@ -93,18 +93,11 @@
           # Usage: nix develop .#e2e
           e2e = default.overrideAttrs (prev: {
             name = "kolu-shell-e2e";
-            # Host tools the suite assumes. A dev box or the odu pool has them;
-            # a bare Nix container (nixos/nix) does not, and their absence
-            # fails scenarios rather than the run:
-            # - procps: `ps` backs the harness reaper (daemon-test-gate
-            #   ciReap: scroll-FIFO `cat` readers; without it they linger
-            #   and Cucumber never exits) and claude-code/omp agent detection.
-            # - hostname: the OSC 7 prompt hook calls `$(hostname)`.
-            # - ncurses: `clear`, used by terminal fixtures.
+            # `clear` (ncurses) is used by terminal fixtures and is missing
+            # from a bare Nix container; procps and hostname come from the
+            # default shell (shell.nix).
             nativeBuildInputs = (prev.nativeBuildInputs or [ ]) ++ [
               pkgs.gitMinimal
-              pkgs.procps
-              pkgs.hostname
               pkgs.ncurses
             ];
             env = (prev.env or { }) // {
