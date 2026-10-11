@@ -24,6 +24,7 @@ const IDLE_MS = 2 * 60 * 60 * 1000;
 // Cloudflare drops a proxied response that sends nothing for ~100s; nix
 // evaluation and some e2e scenarios are silent for longer than that.
 const HEARTBEAT_MS = 25_000;
+const TICK_MS = 60_000;
 // A container that is not running this long after start() was never placed.
 const READY_MS = 10 * 60 * 1000;
 // How long to keep reading output after the job process has exited.
@@ -100,6 +101,12 @@ done`,
     if (p.get("rebuild") === "1") args.push("--rebuild");
     return `echo "### nix build ${args.join(" ")}"\nnix build ${args.map(q).join(" ")}`;
   },
+  // ?cmd=<bash>: an ad-hoc command in /work (diagnostics; runs beside a job).
+  sh: (p: URLSearchParams) => {
+    const cmd = p.get("cmd");
+    if (!cmd) throw new Error("missing ?cmd=");
+    return `cd /work 2>/dev/null || cd /\n${cmd}`;
+  },
   // ?rev=<commit or origin/branch> &recipe=<just recipe> &arg=<arg> (repeatable)
   // &env=KEY=VALUE (repeatable). Runs `just` inside the repo's default devShell.
   just: (p: URLSearchParams) => {
@@ -134,27 +141,38 @@ export class Runner extends DurableObject<Env> {
       "/probe": scripts.probe,
       "/nix-build": scripts.nixBuild,
       "/just": scripts.just,
+      "/sh": scripts.sh,
     }[url.pathname];
     if (!make) return text("not found\n", 404);
-    if (this.busy)
+    // /probe and /sh are diagnostics: they run beside a job, not instead of one.
+    const exclusive = url.pathname !== "/probe" && url.pathname !== "/sh";
+    if (exclusive && this.busy)
       return text("### busy: a job is already running on this instance\n", 409);
     const script = make(url.searchParams);
 
     if (!container.running) {
       container.start({ entrypoint: [BASH, "-c", boot], enableInternet: true });
     }
-    await container.setInactivityTimeout(IDLE_MS);
-    this.busy = true;
+    if (exclusive) this.busy = true;
     const t0 = Date.now();
     let proc: ExecProcess;
     try {
       proc = await withDeadline(
-        execWhenReady(container, [BASH, "-c", `set -euo pipefail\n${script}`]),
+        (async () => {
+          const p = await execWhenReady(container, [
+            BASH,
+            "-c",
+            `set -euo pipefail\n${script}`,
+          ]);
+          await container.setInactivityTimeout(IDLE_MS);
+          return p;
+        })(),
         READY_MS,
         `container not ready within ${READY_MS / 60_000} min (not scheduled?)`,
       );
     } catch (e) {
-      this.busy = false;
+      console.error(`${this.ctx.id.name ?? "runner"}: start failed: ${e}`);
+      if (exclusive) this.busy = false;
       return text(`### ERROR ${e}\n### EXIT 255 WALL ${secs(t0)}s\n`);
     }
     const stdout = proc.stdout;
@@ -183,10 +201,21 @@ export class Runner extends DurableObject<Env> {
     const w = writable.getWriter();
     const enc = new TextEncoder();
     let last = Date.now();
+    let lastTick = t0;
     const beat = setInterval(() => {
-      if (Date.now() - last >= HEARTBEAT_MS) {
-        last = Date.now();
-        void w.write(enc.encode(`### heartbeat ${new Date().toISOString()}\n`));
+      const now = Date.now();
+      // A timeline for the log: one tick a minute, whatever the job prints.
+      if (now - lastTick >= TICK_MS) {
+        lastTick = now;
+        last = now;
+        void w.write(
+          enc.encode(`### tick ${new Date(now).toISOString()} +${secs(t0)}s\n`),
+        );
+      } else if (now - last >= HEARTBEAT_MS) {
+        last = now;
+        void w.write(
+          enc.encode(`### heartbeat ${new Date(now).toISOString()}\n`),
+        );
       }
     }, 5_000);
     const pump = async () => {
@@ -213,7 +242,7 @@ export class Runner extends DurableObject<Env> {
         );
       } finally {
         clearInterval(beat);
-        this.busy = false;
+        if (exclusive) this.busy = false;
         await w.close();
       }
     };
