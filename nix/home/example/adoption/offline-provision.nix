@@ -153,6 +153,8 @@ pkgs.testers.nixosTest {
       # the binder HAD the closure to ship.
       nix.settings.require-sigs = false;
       virtualisation = {
+        # KVM or fail, like every node built from survivalVmNode (../require-kvm.nix).
+        qemu.forceAccel = nixLib.mkForce true;
         # The copied closure lands in this node's writable overlay, a tmpfs sized
         # from RAM — so the memory budget IS the store budget here.
         memorySize = 8192;
