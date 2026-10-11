@@ -171,6 +171,11 @@ if [[ -n ${ODU_SHARD_TOTAL:-} ]]; then
   echo "flake-build: shard $((ODU_SHARD_INDEX + 1))/${ODU_SHARD_TOTAL}: ${#shard_outputs[@]} of ${#outputs[@]} outputs" >&2
   (( ${#shard_outputs[@]} > 0 )) || exit 0
   outputs=("${shard_outputs[@]}")
+  # A shard runs on a small lane (a 4 vCPU / 12 GiB Cloudflare container) that
+  # it may share with another recipe's shard. Booting its NixOS VM tests one at
+  # a time keeps a guest from starving: three at once beside an e2e shard timed
+  # out kolu-service's 120 s wait, while the same test passes alone.
+  nix_args+=(--max-jobs 1)
 fi
 
 nix build -L --no-link --print-out-paths \

@@ -10,6 +10,7 @@ import { EventEmitter } from "node:events";
 import {
   chmodSync,
   existsSync,
+  mkdirSync,
   mkdtempSync,
   readFileSync,
   writeFileSync,
@@ -22,6 +23,7 @@ import {
   describeDaemon,
 } from "@kolu/daemon-test-gate";
 import { afterEach, expect, it } from "vitest";
+import { setSocketProbeDepsForTests } from "./pidGate.testlib.ts";
 import {
   acquirePidGate,
   claimPidGate,
@@ -34,11 +36,10 @@ import {
   type ProcessIdentity,
   type ReadProcessIdentity,
   readGateIdentity,
-  socketServeState,
   START_TIME_TOLERANCE_US,
+  socketServeState,
   startTimesMatch,
 } from "./pidGate.ts";
-import { setSocketProbeDepsForTests } from "./pidGate.testlib.ts";
 
 const SELF: ProcessIdentity = { pid: process.pid, startUnixUs: 1_000_000 };
 const identities = new Map<number, ProcessIdentity>([[process.pid, SELF]]);
@@ -151,31 +152,49 @@ describeDaemon("acquirePidGate", () => {
     expect(liveHolder(path)).toBe(process.pid);
   });
 
-  it("unreadable gate (mode 000) throws — never unlinks (A1-1 three-way law)", () => {
-    // Auditor executed probe: mode-000 → unreadable → old code acquired over a
-    // live holder. Unreadable is not free and not stale — throw, leave file.
-    const path = gateIn();
-    const holderPid = liveChild();
-    const holder = identities.get(holderPid)!;
-    writeFileSync(path, `${holder.pid}\t${holder.startUnixUs}\n`);
-    chmodSync(path, 0o000);
-    try {
-      expect(() => acquirePidGate(path, SELF, readIdentity)).toThrow(
-        /unreadable/,
-      );
-      // Gate file still present (never unlinked).
-      chmodSync(path, 0o600);
-      expect(existsSync(path)).toBe(true);
-      expect(readFileSync(path, "utf8").trim()).toBe(
-        `${holder.pid}\t${holder.startUnixUs}`,
-      );
-    } finally {
+  // Mode bits do not bind root (CAP_DAC_OVERRIDE reads a mode-000 file), so as
+  // root this case cannot produce an unreadable gate; the directory case below
+  // proves the same law for every uid.
+  it.skipIf(process.getuid?.() === 0)(
+    "unreadable gate (mode 000) throws — never unlinks (A1-1 three-way law)",
+    () => {
+      // Auditor executed probe: mode-000 → unreadable → old code acquired over a
+      // live holder. Unreadable is not free and not stale — throw, leave file.
+      const path = gateIn();
+      const holderPid = liveChild();
+      const holder = identities.get(holderPid)!;
+      writeFileSync(path, `${holder.pid}\t${holder.startUnixUs}\n`);
+      chmodSync(path, 0o000);
       try {
+        expect(() => acquirePidGate(path, SELF, readIdentity)).toThrow(
+          /unreadable/,
+        );
+        // Gate file still present (never unlinked).
         chmodSync(path, 0o600);
-      } catch {
-        // best-effort restore for tmp cleanup
+        expect(existsSync(path)).toBe(true);
+        expect(readFileSync(path, "utf8").trim()).toBe(
+          `${holder.pid}\t${holder.startUnixUs}`,
+        );
+      } finally {
+        try {
+          chmodSync(path, 0o600);
+        } catch {
+          // best-effort restore for tmp cleanup
+        }
       }
-    }
+    },
+  );
+
+  it("unreadable gate (a directory, EISDIR) throws — never removed, for any uid", () => {
+    // The uid-independent twin of the mode-000 case: a read that fails with
+    // anything but ENOENT is not an observation, so the gate is neither free
+    // nor stale, and whatever sits at the path stays.
+    const path = gateIn();
+    mkdirSync(path);
+    expect(() => acquirePidGate(path, SELF, readIdentity)).toThrow(
+      /unreadable/,
+    );
+    expect(existsSync(path)).toBe(true);
   });
 
   it("refuses (dir-not-private) when the gate dir is group/other-accessible", () => {
