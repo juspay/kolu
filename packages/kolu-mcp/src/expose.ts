@@ -123,7 +123,12 @@ export const KOLU_MCP_DENIED: readonly { member: string; reason: string }[] = [
   {
     member: "agentDistro.checkNow",
     reason:
-      "an agent inherits the user's coding agents; when they update is the host's schedule or the user's Check now, not a tool call",
+      "an agent inherits the user's coding agents; when they update is the host's schedule, the user's \"Check for newer coding agents\" in the palette, or the per-machine check in that machine's host details — not a tool call",
+  },
+  {
+    member: "agentDistro.retryDownload",
+    reason:
+      "the retry of a download that FAILED on one machine — the user's own verb, in that machine's host details, beside the cause it is about. An agent that re-triggered it would be retrying a host-setup problem it can neither see nor fix",
   },
   { member: "lifecycle.resize", reason: "layout policy the canvas owns" },
   {
