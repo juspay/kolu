@@ -922,10 +922,17 @@ When(
   async function (this: KoluWorld) {
     const receipt = await padiValue<AgentDistroReceipt>(
       "agentDistroReceipt/get",
-      (r) => r.lastRun !== undefined,
-      "a receipt with a last run",
+      (r) => r.lastRun !== undefined && r.running.length === 0,
+      "a settled receipt with a last run",
     );
     rememberedRunAt = receipt.lastRun?.at;
+    // The updater stamps its success in whole SECONDS (upstream's
+    // `last-success` file), so two runs inside one second are the same stamp
+    // and "a newer run" would be unprovable. Wait out that resolution before
+    // the next check is asked for — the one place this suite needs the clock
+    // to move, so it waits for it rather than retrying a comparison that
+    // cannot distinguish.
+    await this.page.waitForTimeout(1100);
   },
 );
 
