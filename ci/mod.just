@@ -15,17 +15,17 @@
 # appear on the other lane.
 
 # A leaf may also be SHARDED across the platform's venue pool with
-# `[metadata("odu:shard=N")]`. N is a CEILING, not a reservation: odu takes the
-# free slots the pool happens to have (one of them is the run's own primary
-# box), tells every slice the total it actually got in `ODU_SHARD_TOTAL`, and
-# numbers the slices from ZERO in `ODU_SHARD_INDEX`. Each borrowed box runs its
-# own copy of the leaf's dependency closure — `install` and `nix` burst copies,
-# reported as their own nodes under `ci::e2e[k-of-N]::…` — so a sharded leaf
-# must be slow enough to pay for that. Every slice folds into ONE GitHub
-# context, `ci::e2e@<platform>`, whose duration is the slowest slice, so the
-# required-status list (ci/protect) never grows a shard name. `ci::e2e` is the
-# only sharded leaf today; darwin's single-host pool has no free slot to borrow,
-# so it always resolves to TOTAL=1 and runs exactly as before.
+# `[metadata("odu:shard=N")]`. N is a CEILING, not a reservation: odu takes
+# whatever slots are free (one of them is the run's own primary box), tells
+# every slice the total it actually got in `ODU_SHARD_TOTAL`, and numbers the
+# slices from ZERO in `ODU_SHARD_INDEX`. The leaf divides its own work from that
+# pair, so the work stays whole whatever total comes back. Each borrowed box
+# also runs its own copy of the leaf's dependency closure, which is what the
+# `<recipe>[k-of-N]` and `<recipe>[k-of-N]::<dep>` nodes are — a leaf earns a
+# shard only by being slower than that burst. Every slice folds into the ONE
+# `<recipe>@<platform>` GitHub context, whose duration is the slowest slice, so
+# ci/protect never grows a shard name. Our darwin pool is a single host, so
+# nothing is ever free to borrow there and every darwin lane resolves to TOTAL=1.
 
 # Submodule recipes default to running from the submodule's directory (`ci/`),
 # but commands like `nix build … --override-input flake .` and `nix develop -c`
@@ -214,15 +214,14 @@ agent-bake: nix
 # `nix` as well as the shared pnpm install so that build is an already-realized
 # lookup, not a concurrent Nix build.
 #
-# The ONE sharded leaf (see the shard note at the top of this file): the browser
-# suite is the longest pole on the Linux lane, so odu may borrow up to four free
-# pool slots and run a quarter of the scenarios on each. Four is a ceiling, not
-# a reservation — a busy pool yields fewer slices and the suite is still covered
-# whole, because `ODU_SHARD_TOTAL` is what odu actually obtained. The split
-# itself belongs to Cucumber's native sharder (`CUCUMBER_SHARD`, one-based),
-# which is why the only translation here is odu's zero-based index plus one.
-# With neither variable set this recipe is byte-for-byte today's command, so
-# local `just ci::e2e` stays an ordinary unsharded run.
+# The only sharded leaf (the shard contract is at the top of this file): the
+# browser suite is the longest pole on the Linux lane and dwarfs the burst
+# `install`+`nix` copies a borrowed box pays, so it is worth up to four slots.
+# Cucumber owns the actual split (`CUCUMBER_SHARD`, packages/tests/cucumber.js);
+# this recipe only translates odu's zero-based index into Cucumber's one-based
+# one, and refuses a pair that does not parse. With neither variable set — a
+# local `just ci::e2e`, and every darwin lane — this is the command it has
+# always been.
 [metadata("odu:shard=4")]
 e2e: install nix
     #!/usr/bin/env bash
