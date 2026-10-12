@@ -48,7 +48,6 @@ import { getNowTicker } from "../terminal/staleness";
 import { app, hostKeys, padiMap, preferences } from "../wire";
 import AgentDistroLogo from "@kolu/agent-distro/solid";
 import {
-  type AgentCheckHost,
   type AgentFleetGroup,
   type AgentHostDetail,
   type AgentMark,
@@ -303,17 +302,6 @@ export function hostAgentDetail(host: HostKey): AgentHostDetail | undefined {
   });
 }
 
-/** Every pool member as the update check sees it: connected, and its status. */
-function checkHostsNow(): readonly (AgentCheckHost & {
-  readonly host: HostKey;
-})[] {
-  return byHost.roots().map(({ host, read }) => ({
-    host,
-    connected: padiMap.entry(host).state().kind === "connected",
-    status: read(),
-  }));
-}
-
 /** Can `host` be asked to check for newer agents right now — connected, ready,
  *  with no run going there (`agentHostCheckable`)? What its row in that
  *  machine's host details is enabled by. */
@@ -348,14 +336,14 @@ export function checkAgentsOn(host: HostKey): void {
   );
 }
 
-/** The palette's "Check for newer coding agents": ask every machine that
- *  serves agents to run its update check at once — one call per host, skipping
- *  the ones that cannot answer (`agentHostCheckable`). */
+/** The palette's "Check for newer coding agents": ask every machine kolu can
+ *  reach to run its update check at once — one call per host. WHETHER a
+ *  machine may check is padi's own verdict (a run already going, nothing to
+ *  serve): `checkAgentsOn` takes its refusal as an ordinary answer, so the
+ *  rule lives on one side of the daemon boundary, where it revs. */
 export function checkAgentsNow(): void {
-  for (const h of checkHostsNow()) {
-    if (!agentHostCheckable(h)) continue;
-    checkAgentsOn(h.host);
-  }
+  for (const { host } of byHost.roots())
+    if (padiMap.entry(host).state().kind === "connected") checkAgentsOn(host);
 }
 
 /** Retry ONE machine's failed download (`agentDistro.retryDownload`): that
