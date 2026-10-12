@@ -32,6 +32,7 @@ import { Toaster } from "solid-sonner";
 import AboutDialog from "./AboutDialog";
 import { useAttention } from "./attention/useAttention";
 import ChromeBar from "./ChromeBar";
+import HostDiagnosticsHost from "./host/HostDiagnosticsHost";
 import CloseConfirm, { type CloseConfirmTarget } from "./CloseConfirm";
 import CommandPalette from "./CommandPalette";
 import CompactTileView from "./CompactTileView";
@@ -386,6 +387,11 @@ const App: Component = () => {
         transparentOverlay={isPreviewingTheme()}
       />
       <ShortcutsHelp />
+      {/* The ONE host-details panel: every opener (a host tab's pip, its
+          agents mark, a machine's name in Settings) drives one key, and the
+          panel lives above them all because the chip row they hang off is
+          not mounted at every width. */}
+      <HostDiagnosticsHost />
       <DiagnosticInfo activeId={store.activeId()} />
       <StateBackupsDialog />
       <AboutDialog />

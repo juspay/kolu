@@ -3,8 +3,15 @@
  *  a coloured dot, its words and the machines it names. A machine's NAME is a
  *  button that opens that machine's host details, where its profile, its last
  *  run, its events and its own actions live; Settings keeps no per-machine
- *  facts of its own. */
+ *  facts of its own.
+ *
+ *  The groups are KEYED on their own `key` (`<Key>`, not `<For>`): the fold
+ *  mints fresh objects on every read, and on a single-machine fleet it reads
+ *  the 60 s "3h ago" ticker — so a plain `<For>` rebuilt every row each
+ *  minute, dropping hover and focus on the machine buttons. Keyed, only the
+ *  trailing note's words move. */
 
+import { Key } from "@solid-primitives/keyed";
 import { type Component, For, Show } from "solid-js";
 import type { AgentFleetGroup } from "@kolu/agent-distro/status";
 import { encodeHostKey, type HostKey } from "kolu-common/hostKey";
@@ -32,7 +39,7 @@ const AgentsFleetLine: Component<{
       data-testid="agents-fleet"
       class="mt-2.5 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-xs text-fg-2"
     >
-      <For each={props.groups}>
+      <Key each={props.groups} by="key">
         {(group, i) => (
           <>
             <Show when={i() > 0}>
@@ -42,21 +49,21 @@ const AgentsFleetLine: Component<{
             </Show>
             <span
               data-testid="agents-fleet-group"
-              data-tone={group.tone}
+              data-tone={group().tone}
               class="flex items-center gap-1.5"
             >
               {/* The dot marks the STATE machines are in; a trailing note
                   ("updated 3h ago") names no machine and wears none. */}
-              <Show when={group.hosts.length > 0}>
+              <Show when={group().hosts.length > 0}>
                 <span
                   aria-hidden="true"
-                  class={`h-2 w-2 shrink-0 rounded-full ${DOT[group.tone]}`}
+                  class={`h-2 w-2 shrink-0 rounded-full ${DOT[group().tone]}`}
                 />
               </Show>
-              <Show when={group.lead !== ""}>
-                <span>{group.lead}</span>
+              <Show when={group().lead !== ""}>
+                <span>{group().lead}</span>
               </Show>
-              <For each={group.hosts}>
+              <For each={group().hosts}>
                 {(host, at) => (
                   <>
                     <Show when={at() > 0}>
@@ -68,8 +75,11 @@ const AgentsFleetLine: Component<{
                       data-host={host.label}
                       title={`Agents on ${host.label} — open its host details`}
                       class="cursor-pointer text-accent underline-offset-2 hover:underline"
-                      onClick={() =>
-                        openHostDiagnostics(encodeHostKey(host.host))
+                      onClick={(e) =>
+                        openHostDiagnostics(
+                          encodeHostKey(host.host),
+                          e.currentTarget,
+                        )
                       }
                     >
                       {host.label}
@@ -77,18 +87,18 @@ const AgentsFleetLine: Component<{
                   </>
                 )}
               </For>
-              <Show when={group.trail !== ""}>
+              <Show when={group().trail !== ""}>
                 <span
                   data-testid="agents-fleet-text"
                   class="font-mono text-[0.7rem] text-fg-3/80"
                 >
-                  {group.trail}
+                  {group().trail}
                 </span>
               </Show>
             </span>
           </>
         )}
-      </For>
+      </Key>
     </div>
   </Show>
 );

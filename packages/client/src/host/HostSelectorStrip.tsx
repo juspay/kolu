@@ -73,12 +73,9 @@ import { useServerIdentity } from "../useServerIdentity";
 import { activeHost, padiMap, setActiveHost } from "../wire";
 import { addHost } from "./addHost";
 import { focusOnMount } from "./focusOnMount";
-import { HostDiagnosticsPopover } from "./HostDiagnosticsPopover";
 import {
-  closeHostDiagnostics,
-  isHostDiagnosticsOpen,
-  openHostKey,
   toggleHostDiagnostics,
+  useHostDiagnosticsSelector,
 } from "./useHostDiagnosticsOpen";
 import { HostIdentityLabel } from "./HostIdentityLabel";
 import AgentDistroHostMark from "../agents/AgentDistroHostMark";
@@ -207,9 +204,10 @@ const HostChip: Component<{
   const statusDot = () => chipStatusDot(props.host, state(), kaval());
   const { hostname } = useServerIdentity();
   const name = () => hostDisplayName(props.host, hostname());
-  // Shared open key — only ONE diagnostics panel mounts at a time, and the
+  // Shared open key — only ONE diagnostics panel is open at a time, and the
   // agents mark and Settings' Agents line open it too.
-  const diagOpen = () => isHostDiagnosticsOpen(encKey);
+  const isOpen = useHostDiagnosticsSelector();
+  const diagOpen = () => isOpen(encKey);
 
   let chipEl: HTMLDivElement | undefined;
 
@@ -248,7 +246,7 @@ const HostChip: Component<{
           title: `${glance().title}${activeSuffix()} — click for details`,
           onClick: (e) => {
             e.stopPropagation();
-            toggleHostDiagnostics(encKey);
+            if (chipEl !== undefined) toggleHostDiagnostics(encKey, chipEl);
           },
         }}
         select={{
@@ -287,14 +285,9 @@ const HostChip: Component<{
         agents={<AgentDistroHostMark host={props.host} />}
         stripe={<HostTabWorkingStripe active={marks.active()} />}
       />
-      <Show when={diagOpen()}>
-        <HostDiagnosticsPopover
-          host={props.host}
-          triggerRef={() => chipEl}
-          open={diagOpen}
-          onDismiss={closeHostDiagnostics}
-        />
-      </Show>
+      {/* The panel itself mounts once at the shell
+          (`host/HostDiagnosticsHost`): Settings opens it too, at widths
+          where this chip row is not mounted at all. */}
     </div>
   );
 };
@@ -665,19 +658,11 @@ const HostSelectorStrip: Component = () => {
   // `onError` (shared with the mobile row).
   const renderableHosts = useHostMembers();
 
-  // WHICH host's details are open is a module singleton now
-  // (`useHostDiagnosticsOpen`): the tab's agents mark and Settings' Agents
-  // line open a machine's details too. The popover still mounts HERE, anchored
-  // to its chip, and the key is cleared when its host leaves membership so a
-  // re-add never reopens stale.
-  createEffect(() => {
-    const open = openHostKey();
-    if (open === null) return;
-    const stillMember = renderableHosts().some(
-      (h) => encodeHostKey(h) === open,
-    );
-    if (!stillMember) closeHostDiagnostics();
-  });
+  // WHICH host's details are open is a module singleton
+  // (`useHostDiagnosticsOpen`), and the panel mounts once at the shell
+  // (`HostDiagnosticsHost`), which also closes a key whose host left the
+  // pool — this strip is not mounted at every width, so neither the panel
+  // nor that invariant can live here.
 
   // ── Overflow fit (narrow-window stage 3) ──────────────────────────────
   // Real DOM measurement: a HIDDEN row (absolutely positioned, `invisible`,

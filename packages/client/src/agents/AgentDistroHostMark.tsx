@@ -128,9 +128,9 @@ const AgentDistroHostMark: Component<{
       tabIndex={props.measuring ? -1 : undefined}
       onClick={(e) => {
         // The mark sits inside the tab: opening the details must not switch
-        // host. The popover mounts in the strip, anchored to this chip.
+        // host. The panel mounts at the shell and hangs off this mark.
         e.stopPropagation();
-        openHostDiagnostics(encodeHostKey(props.host));
+        openHostDiagnostics(encodeHostKey(props.host), e.currentTarget);
       }}
       class="pointer-events-auto relative -ml-1 mr-2.5 grid h-[18px] w-[18px] shrink-0 cursor-pointer place-items-center rounded transition-colors hover:bg-fg/10"
       classList={{
