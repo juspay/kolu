@@ -163,8 +163,12 @@ export function mergeBrowseInventory(
  *  blank. Keep the file row and drop every path beneath it: git's own pathspec
  *  `-- skills/odu` already matches the file AND everything that used to live
  *  under it, so the one row's diff still carries every hunk — nothing becomes
- *  unreachable. The reverse change (a file replaced by a directory) has the
- *  same shape and folds the same way.
+ *  unreachable.
+ *
+ *  The reverse change (a file replaced by a directory) has the same shape and
+ *  folds the same way: the kept row is the DELETED file, so it paints `D`
+ *  while its diff is mostly the added children. Accepted — the row stands
+ *  for git's pathspec, whose first entry is the file that was there.
  *
  *  Returns `paths` itself when nothing collides — the overwhelmingly common
  *  case pays one set build and no copy. */

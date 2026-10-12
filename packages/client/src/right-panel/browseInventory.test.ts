@@ -387,6 +387,19 @@ describe("foldTypeChanges", () => {
       expected: ["a/b", "z.ts"],
     },
     {
+      // The reverse change: the FILE `a/b` was deleted and a directory of
+      // that name added. The kept row is the deleted file; the added
+      // children fold under it.
+      name: "file replaced by a directory keeps the deleted file's row",
+      input: ["a/b", "a/b/new1.ts", "a/b/new2.ts"],
+      expected: ["a/b"],
+    },
+    {
+      name: "file replaced by a directory, children listed first",
+      input: ["a/b/new1.ts", "a/b", "z.ts"],
+      expected: ["a/b", "z.ts"],
+    },
+    {
       name: "nested collision keeps only the outermost file",
       input: ["a", "a/b", "a/b/c", "a/x"],
       expected: ["a"],

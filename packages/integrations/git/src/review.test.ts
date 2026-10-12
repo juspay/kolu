@@ -301,22 +301,53 @@ describe("getDiff — a directory replaced by a file", () => {
     fs.rmSync(repo, { recursive: true, force: true });
   });
 
-  // The Code tab folds a type change to ONE row — the new file — and drops the
-  // old directory's children from the tree. That is only honest if the row's
-  // diff is a real git pathspec: `-- skills/odu` must match the new file AND
-  // every file that used to live under the directory, so no hunk is lost.
-  it.each([
-    "branch",
-    "local",
-  ] as const)("%s mode: the file's diff carries the directory's former children", async (mode) => {
+  // The Code tab folds a type change to ONE row — the path itself — and drops
+  // the paths beneath it from the tree. That is only honest if the row's diff
+  // is a real git pathspec: `-- skills/odu` must match the file at that path
+  // AND every file under it, in both directions of the change, so no hunk is
+  // lost.
+  const writeDir = () => {
+    fs.mkdirSync(path.join(repo, "skills", "odu"), { recursive: true });
+    fs.writeFileSync(path.join(repo, "skills", "odu", "SKILL.md"), "# odu\n");
+    fs.writeFileSync(path.join(repo, "skills", "odu", "serve"), "serve\n");
+  };
+  const writeLink = () => {
+    fs.mkdirSync(path.join(repo, "skills"), { recursive: true });
+    fs.symlinkSync("../plugin/odu", path.join(repo, "skills", "odu"));
+  };
+  const directions = [
+    {
+      name: "directory replaced by a symlink",
+      before: writeDir,
+      after: writeLink,
+      linkSign: "+",
+      childSign: "-",
+    },
+    {
+      name: "symlink replaced by a directory",
+      before: writeLink,
+      after: writeDir,
+      linkSign: "-",
+      childSign: "+",
+    },
+  ];
+  it.each(
+    directions.flatMap((d) =>
+      (["branch", "local"] as const).map((mode) => ({ ...d, mode })),
+    ),
+  )("$mode mode, $name: the path's diff carries every file under it", async ({
+    mode,
+    before,
+    after,
+    linkSign,
+    childSign,
+  }) => {
     const git = simpleGit(repo);
     await git.init();
     await git.addConfig("user.email", "test@example.com");
     await git.addConfig("user.name", "Test");
     await git.checkoutLocalBranch("main");
-    fs.mkdirSync(path.join(repo, "skills", "odu"), { recursive: true });
-    fs.writeFileSync(path.join(repo, "skills", "odu", "SKILL.md"), "# odu\n");
-    fs.writeFileSync(path.join(repo, "skills", "odu", "serve"), "serve\n");
+    before();
     await git.add(".");
     await git.commit("base");
     await git.raw(["update-ref", "refs/remotes/origin/main", "HEAD"]);
@@ -327,9 +358,9 @@ describe("getDiff — a directory replaced by a file", () => {
     ]);
 
     fs.rmSync(path.join(repo, "skills", "odu"), { recursive: true });
-    fs.symlinkSync("../plugin/odu", path.join(repo, "skills", "odu"));
+    after();
     await git.add(["-A", "."]);
-    if (mode === "branch") await git.commit("dir -> symlink");
+    if (mode === "branch") await git.commit("type change");
 
     const status = await getStatus(repo, mode);
     expect(status.ok).toBe(true);
@@ -345,9 +376,9 @@ describe("getDiff — a directory replaced by a file", () => {
     if (!result.ok) return;
     const raw = result.value.hunks.join("");
     expect(raw).toContain("diff --git a/skills/odu b/skills/odu");
-    expect(raw).toContain("+../plugin/odu");
+    expect(raw).toContain(`${linkSign}../plugin/odu`);
     expect(raw).toContain("diff --git a/skills/odu/SKILL.md");
-    expect(raw).toContain("-# odu");
+    expect(raw).toContain(`${childSign}# odu`);
     expect(raw).toContain("diff --git a/skills/odu/serve");
   });
 });
