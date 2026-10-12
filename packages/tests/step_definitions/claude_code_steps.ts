@@ -14,6 +14,7 @@ import * as assert from "node:assert";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { After, Then, When } from "@cucumber/cucumber";
+import { agentDiagnostics } from "../support/agentDiagnostics.ts";
 import { ACTIVE_TERMINAL, readBufferText } from "../support/buffer.ts";
 import { nudgeDir, nudgeFiles } from "../support/nudge.ts";
 import { pollFor } from "../support/poll.ts";
@@ -610,6 +611,7 @@ Then(
         new Error(
           `Expected agent indicator state "${expectedState}", got "${last}" after ${elapsed}ms`,
         ),
+      diagnose: () => agentDiagnostics(this),
       timeoutMs: POLL_TIMEOUT,
     });
   },
