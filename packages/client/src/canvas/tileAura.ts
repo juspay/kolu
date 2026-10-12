@@ -5,8 +5,8 @@
  *  `unread` dominates the bucket — a tile that fired an alert in the
  *  background still reads "alert" while the mark is up, because the unread
  *  obligation outlives a mid-episode bucket change (asking→finished). It ends
- *  when the mark does: you focus the tile, or the agent goes back to work
- *  (`attentionCore` clears unread on the episode-end edge), or the terminal goes.
+ *  when the mark does: you focus the tile, or the episode `ended` upstream
+ *  (`attentionCore` clears unread on that edge).
  *
  *  Reuses the dock's upstream classifiers (`paintBucket`, the unread flag,
  *  `useStaleCheck`) but maps to the canvas's own vocabulary: a ranked, aging

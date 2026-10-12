@@ -55,8 +55,11 @@ export interface AttentionTransition {
    *  the "needs input" vs "finished" copy. A de-escalation asking→finished is NOT
    *  a candidate. */
   candidates: Array<{ id: TerminalId; asking: boolean }>;
-  /** Terminals that left BOTH sets (their agent went back to work) — the episode
-   *  boundary the caller uses to clear its fire-once latch. */
+  /** Terminals that left BOTH sets — THE episode boundary. Three ways an id lands
+   *  here, and they are one fact to every consumer: the agent went back to work;
+   *  the agent quit back to the shell (the terminal is still open, its last output
+   *  still on screen, but there is no agent left to classify); the terminal went
+   *  away. A de-escalation or escalation WITHIN the two sets is not an end. */
   ended: TerminalId[];
 }
 

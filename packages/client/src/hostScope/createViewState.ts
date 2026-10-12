@@ -58,8 +58,8 @@ import { padiRpcOf } from "../wire";
 // moved the badge to the cross-host urgency sum in `useAttention`, so unread
 // is the only attention mark this per-host state carries now.) It is raised by
 // the attention engine's `deliver` and dropped on either edge that ends the
-// episode: you focus the terminal (`writeFocus`), or its agent goes back to work
-// / the terminal goes away (`clearUnread`, called host-addressed by the engine).
+// episode: you focus the terminal (`writeFocus`), or the episode `ended` upstream
+// (`clearUnread`, called host-addressed by the engine).
 type TerminalAttention = "unread";
 
 export interface HostViewState {
