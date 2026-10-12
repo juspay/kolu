@@ -262,6 +262,9 @@ daemon: install unit
 # KOLU_UPGRADE_WINDOW_REQUIRE=1 makes a missing/non-tag/identical previous a
 # hard fail (so CI never silently skips or same-versions). Depends on `nix`
 # so the current flake is already warm; the previous-ref build is additional.
+# Own lane on hosts with a spare slot (odu:shard=1): its closure stays off
+# the primary. A single host runs it in place, as before.
+[metadata("odu:shard=1")]
 upgrade-window: install nix
     #!/usr/bin/env bash
     set -euo pipefail
