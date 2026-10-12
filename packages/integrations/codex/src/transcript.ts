@@ -21,8 +21,8 @@ import {
   type Transcript,
   type TranscriptEvent,
 } from "kolu-transcript-core";
-import { codexVocab } from "./schemas.ts";
 import { openDb } from "./core.ts";
+import { codexVocab } from "./schemas.ts";
 
 interface RolloutLine {
   timestamp?: string;

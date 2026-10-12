@@ -90,6 +90,7 @@ describe("findSessionsByDirectory", () => {
 
   it("returns null when the dir exists but cannot be read", () => {
     if (process.platform === "win32") return;
+    if (process.getuid?.() === 0) return; // root bypasses unix perm checks; see the ENOTDIR twin below
     const badCwd = "/locked/project";
     const dir = sessionDirFor(badCwd);
     fs.mkdirSync(dir, { recursive: true });
@@ -99,6 +100,16 @@ describe("findSessionsByDirectory", () => {
     } finally {
       fs.chmodSync(dir, 0o700);
     }
+  });
+
+  it("returns null when the session dir path cannot be listed (ENOTDIR, any uid)", () => {
+    // The uid-independent twin of the chmod case: anything but ENOENT is a
+    // read fault, not "no sessions".
+    const badCwd = "/not-a-dir/project";
+    const dir = sessionDirFor(badCwd);
+    fs.mkdirSync(path.dirname(dir), { recursive: true });
+    fs.writeFileSync(dir, "");
+    expect(findSessionsByDirectory(badCwd)).toBeNull();
   });
 
   it("a REDIRECTED store is FLAT + header-cwd-filtered (pi's own layout)", () => {

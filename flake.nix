@@ -93,9 +93,22 @@
           # Usage: nix develop .#e2e
           e2e = default.overrideAttrs (prev: {
             name = "kolu-shell-e2e";
-            nativeBuildInputs = (prev.nativeBuildInputs or [ ]) ++ [ pkgs.gitMinimal ];
+            # `clear` (ncurses) is used by terminal fixtures and is missing
+            # from a bare Nix container; procps and hostname come from the
+            # default shell (shell.nix).
+            nativeBuildInputs = (prev.nativeBuildInputs or [ ]) ++ [
+              pkgs.gitMinimal
+              pkgs.ncurses
+            ];
             env = (prev.env or { }) // {
               PLAYWRIGHT_BROWSERS_PATH = pkgs.playwright-driver.browsers;
+              # Chromium aborts (SIGTRAP, "SkFontMgr_FontConfigInterface: Not
+              # implemented") when fontconfig finds no config, as on a host
+              # without /etc/fonts (a bare nixos/nix container). Bake one in so
+              # the browser never depends on the host's font setup.
+              FONTCONFIG_FILE = pkgs.makeFontsConf {
+                fontDirectories = [ pkgs.dejavu_fonts ];
+              };
             };
           });
         });

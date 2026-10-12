@@ -22,6 +22,7 @@ import {
   updateOmpFixture,
   writeOmpFixture,
 } from "../support/agent-mock-omp.ts";
+import { agentDiagnostics } from "../support/agentDiagnostics.ts";
 import { waitForBufferContains } from "../support/buffer.ts";
 import { pollFor } from "../support/poll.ts";
 import { type KoluWorld, POLL_TIMEOUT } from "../support/world.ts";
@@ -50,6 +51,13 @@ function cleanup() {
     }
   }
 }
+
+/** Where the fake omp writes its breadcrumbs (`<KOLU_OMP_DIR>/terminal-sessions`),
+ *  for the indicator diagnostics. */
+const breadcrumbDir = (): string | undefined => {
+  const ompDir = getOmpDir();
+  return ompDir ? path.join(ompDir, "terminal-sessions") : undefined;
+};
 
 After({ tags: "@omp-mock" }, () => {
   cleanup();
@@ -185,6 +193,8 @@ Then(
         new Error(
           `Expected Oh My Pi indicator state "${expectedState}" (kind=omp), got state="${last?.state ?? null}" kind="${last?.kind ?? null}" after ${ms}ms`,
         ),
+      diagnose: () =>
+        agentDiagnostics(this, { breadcrumbDir: breadcrumbDir() }),
       timeoutMs: POLL_TIMEOUT,
     });
   },
@@ -204,6 +214,8 @@ Then(
         new Error(
           `Expected live Oh My Pi state "${expectedState}" without nudge (kind=omp), got state="${last?.state ?? null}" kind="${last?.kind ?? null}" after ${ms}ms`,
         ),
+      diagnose: () =>
+        agentDiagnostics(this, { breadcrumbDir: breadcrumbDir() }),
       timeoutMs: POLL_TIMEOUT,
     });
   },

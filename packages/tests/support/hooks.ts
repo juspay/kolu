@@ -16,19 +16,19 @@ import * as http from "node:http";
 import * as os from "node:os";
 import * as path from "node:path";
 import { After, AfterAll, Before, BeforeAll, Status } from "@cucumber/cucumber";
+import type { AgentDistroSetting } from "@kolu/agent-distro/schema";
 import { padiKavalSocketPath } from "@kolu/padi/stateRoot";
 import { padiGatePath, padiSocketPath } from "@kolu/padi-client/rendezvous";
 import type { NewTerminalPolicy } from "@kolu/padi-client/surface";
-import type { AgentDistroSetting } from "@kolu/agent-distro/schema";
 import getPort from "get-port";
 import { composeSpawnEnv, NIX_ENV_WHITELIST, pickEnv } from "kolu-pty";
 import type { Browser, BrowserContext, Page } from "playwright";
 import { chromium } from "playwright";
+import * as engine from "../screencast/engine.ts";
+import { getRecording } from "../screencast/recordings/index.ts";
 import { agentDistroFixtureEnv } from "./agentDistroFixture.ts";
 import { AGENT_DIR_VARS, FAKE_BIN_NAMES } from "./agentHarnessLists.ts";
 import { waitForPadiCell } from "./padiCellWait.ts";
-import * as engine from "../screencast/engine.ts";
-import { getRecording } from "../screencast/recordings/index.ts";
 import {
   disposeRpcWire,
   isPadiWarmingUp,
@@ -1148,7 +1148,50 @@ BeforeAll(async () => {
   });
 });
 
+/** Set when any scenario on this worker fails; gates the detector-log dump below. */
+let workerHadFailure = false;
+
+/** The agent detectors' own log lines (claude-code / omp / screen-scrape), the
+ *  last {@link DETECTOR_LOG_DUMP_LINES} per source. Printed only when this worker
+ *  saw a failure, and before the test dir (which holds padi.log) is removed:
+ *  on a CI lane the host is gone by the time anyone reads the log, so whatever
+ *  the detector said has to be in the log itself. Quiet on success. */
+const DETECTOR_LOG_DUMP_LINES = 200;
+const DETECTOR_LOG_LINE = /screen-scrape|omp:|tty id|claude-code:/;
+function dumpDetectorLogs(): void {
+  const sources: string[] = [
+    path.join(serverLogDir, `server-w${workerId}.log`),
+  ];
+  try {
+    for (const f of fs.readdirSync(padiStateDir)) {
+      if (/^padi(\.stderr)?\.log(\.\d+)?$/.test(f)) {
+        sources.push(path.join(padiStateDir, f));
+      }
+    }
+  } catch {
+    // no padi state dir — nothing to add
+  }
+  for (const file of sources) {
+    let lines: string[];
+    try {
+      lines = fs
+        .readFileSync(file, "utf8")
+        .split("\n")
+        .filter((l) => DETECTOR_LOG_LINE.test(l));
+    } catch {
+      continue;
+    }
+    if (lines.length === 0) continue;
+    const tail = lines.slice(-DETECTOR_LOG_DUMP_LINES);
+    console.error(
+      `[worker:${workerId}] detector log lines from ${path.basename(file)} (last ${tail.length} of ${lines.length}):\n` +
+        tail.map((l) => `  ${l.slice(0, 400)}`).join("\n"),
+    );
+  }
+}
+
 AfterAll(async () => {
+  if (workerHadFailure) dumpDetectorLogs();
   if (browser) await browser.close();
   // KOLU_X11CAP: tear down the virtual display once the browser is gone.
   if (xvfbProc) {
@@ -1373,6 +1416,7 @@ After({ timeout: 600_000 }, async function (this: KoluWorld, scenario) {
   // never ran — `rm` of the dir alone leaves `cat` blocked on the unlinked
   // inode (juspay/kolu#2178).
   await retireWorldScrollFifo(this);
+  if (scenario.result?.status === Status.FAILED) workerHadFailure = true;
   // Screenshot on failure
   if (scenario.result?.status === Status.FAILED && this.page) {
     const dir = path.resolve(

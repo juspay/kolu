@@ -158,6 +158,7 @@ odu-nix: nix
 # warmed kolu's store paths. Darwin checks the activation package and launchd
 # configuration. Linux checks the NixOS configuration and runs the service,
 # adoption, and upgrade VM tests.
+[metadata("odu:shard=3")]
 home-manager: nix
     if [ "$(uname)" = Darwin ]; then \
       bash ci/flake-build --kinds checks ./nix/home/example -- --override-input kolu .; \
@@ -200,6 +201,7 @@ agent-bake: nix
 # `just test` builds `.#koluBin` itself (justfile `test` recipe). Depend on
 # `nix` as well as the shared pnpm install so that build is an already-realized
 # lookup, not a concurrent Nix build.
+[metadata("odu:shard=3")]
 e2e: install nix
     # CUCUMBER_RETRY is the residual safety net for darwin-runner-load flakes
     # that survive the structural fixes in #955. Darwin runs at 2, linux at 1:
@@ -213,6 +215,9 @@ e2e: install nix
     # `test: install` dep re-runs `pnpm install` concurrently with the unit lane
     # and the two races corrupt the shared node_modules/.bin (vitest exit 126).
     # See the funnel rule at the top of this file and the `test` recipe comment.
+    # Under odu sharding each shard runs one Cucumber slice (cucumber.js reads
+    # CUCUMBER_SHARD); unsharded, it stays empty and the whole suite runs.
+    CUCUMBER_SHARD="${ODU_SHARD_TOTAL:+$((ODU_SHARD_INDEX + 1))/$ODU_SHARD_TOTAL}" \
     CUCUMBER_RETRY=$([ "$(uname)" = Darwin ] && echo 2 || echo 1) {{ nix_shell }} just --no-deps test
 
 # Wave 0's non-browser guard: parse the real Gherkin suite, compare its
@@ -257,6 +262,9 @@ daemon: install unit
 # KOLU_UPGRADE_WINDOW_REQUIRE=1 makes a missing/non-tag/identical previous a
 # hard fail (so CI never silently skips or same-versions). Depends on `nix`
 # so the current flake is already warm; the previous-ref build is additional.
+# Own lane on hosts with a spare slot (odu:shard=1): its closure stays off
+# the primary. A single host runs it in place, as before.
+[metadata("odu:shard=1")]
 upgrade-window: install nix
     #!/usr/bin/env bash
     set -euo pipefail
@@ -268,9 +276,10 @@ upgrade-window: install nix
     # remote URL, fetch THAT tag into the local object store, then nix-build.
     latest_version_tag() {
       local url="$1"
+      # Plain bash for the field split: this runs before `nix develop`, and a
+      # bare Nix lane host (nixos/nix: a Cloudflare container) has no awk/sed.
       git ls-remote --tags --refs "$url" 2>/dev/null \
-        | awk '{print $2}' \
-        | sed 's|refs/tags/||' \
+        | while read -r _ name; do echo "${name#refs/tags/}"; done \
         | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' \
         | sort -V \
         | tail -1 \

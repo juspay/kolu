@@ -43,7 +43,7 @@ import { subscribeCodexDb } from "./wal-watcher.ts";
  *  coalesces bursts into one handler run while staying imperceptible.
  *  Matches WAL_DEBOUNCE_MS in kolu-opencode and TRANSCRIPT_DEBOUNCE_MS
  *  in kolu-claude-code. */
-const WAL_DEBOUNCE_MS = 150;
+export const WAL_DEBOUNCE_MS = 150;
 
 /** Tail window for reading the rollout JSONL. Matches kolu-claude-code's
  *  TAIL_BYTES — sized to comfortably contain the last few turns

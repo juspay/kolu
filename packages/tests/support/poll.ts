@@ -31,6 +31,11 @@ export async function pollFor<T>(opts: {
   isDone: (v: T) => boolean;
   onTimeout: (last: T | undefined, elapsedMs: number) => Error;
   onTick?: () => void | Promise<void>;
+  /** Gather what the system under test looked like at the deadline and append
+   *  it to the timeout error, so a failure carries its evidence (see
+   *  `agentDiagnostics.ts`). Never replaces the error: a throwing diagnose is
+   *  reported inside the message. */
+  diagnose?: () => Promise<string>;
   timeoutMs: number;
   intervalMs?: number;
 }): Promise<T> {
@@ -43,5 +48,13 @@ export async function pollFor<T>(opts: {
     if (opts.isDone(last)) return last;
     await new Promise((r) => setTimeout(r, intervalMs));
   }
-  throw opts.onTimeout(last, Date.now() - start);
+  const err = opts.onTimeout(last, Date.now() - start);
+  if (opts.diagnose) {
+    try {
+      err.message += await opts.diagnose();
+    } catch (diagErr) {
+      err.message += `\n(diagnostics failed: ${String(diagErr)})`;
+    }
+  }
+  throw err;
 }

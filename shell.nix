@@ -58,5 +58,14 @@ pkgs.mkShell {
     python3
     node-gyp
     pkg-config
+  ] ++ pkgs.lib.optionals pkgs.stdenv.isLinux [
+    # Host tools kolu shells out to on Linux, which a bare Nix container
+    # (nixos/nix, a Cloudflare lane) does not have. macOS keeps its own
+    # /bin/ps (BSD flags; kolu's darwin paths spell those) and hostname.
+    # - procps: `ps` backs agent detection (claude-code, omp) and the CI
+    #   reaper (daemon-test-gate ciReap, also unit-tested in `ci::unit`).
+    # - hostname: the OSC 7 prompt hook calls `$(hostname)`.
+    procps
+    hostname
   ];
 }

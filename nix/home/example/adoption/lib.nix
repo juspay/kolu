@@ -158,6 +158,7 @@ let
     imports = [
       home-manager.nixosModules.home-manager
       nixosModule
+      ../require-kvm.nix
     ];
     services.getty.autologinUser = "alice";
     users.users.alice.linger = true;

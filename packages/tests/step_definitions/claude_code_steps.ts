@@ -14,6 +14,8 @@ import * as assert from "node:assert";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { After, Then, When } from "@cucumber/cucumber";
+import { agentDiagnostics } from "../support/agentDiagnostics.ts";
+import { printfEscapedAscii } from "../support/asciiTyping.ts";
 import { ACTIVE_TERMINAL, readBufferText } from "../support/buffer.ts";
 import { nudgeDir, nudgeFiles } from "../support/nudge.ts";
 import { pollFor } from "../support/poll.ts";
@@ -481,7 +483,8 @@ async function paintLinesToTerminal(
   page: KoluWorld["page"],
   lines: string[],
 ): Promise<void> {
-  const printf = `printf '%s\\n' ${lines.map((l) => `'${l}'`).join(" ")}`;
+  // `%b` + octal escapes: the typed command stays ASCII (see asciiTyping.ts).
+  const printf = `printf '%b\\n' ${lines.map((l) => `'${printfEscapedAscii(l)}'`).join(" ")}`;
   await page.keyboard.type(printf);
   await page.keyboard.press("Enter");
 }
@@ -610,6 +613,7 @@ Then(
         new Error(
           `Expected agent indicator state "${expectedState}", got "${last}" after ${elapsed}ms`,
         ),
+      diagnose: () => agentDiagnostics(this),
       timeoutMs: POLL_TIMEOUT,
     });
   },

@@ -61,6 +61,48 @@ just ci::pool-status
 just ci::pool-ensure
 ```
 
+### Linux on odu's Cloudflare lane
+
+odu can also run the Linux lane in Cloudflare Containers (4 vCPU / 12 GiB /
+20 GB microVMs with `/dev/kvm`). See odu's docs, "Run lanes on Cloudflare
+Containers", for `odu cloudflare setup`. Declare eight slots:
+
+```json
+{ "x86_64-linux": { "host": "cloudflare", "slots": 8 } }
+```
+
+The primary container runs every unsharded node. `e2e` and `home-manager`
+(`odu:shard=3`) and `upgrade-window` (`odu:shard=1`) each take their own
+containers, which keeps the primary's store and build directories inside 18 GB.
+A pool without spare slots runs everything in place, as before.
+
+A lane container runs as root and holds nothing but Nix, so kolu supplies what
+its recipes need:
+
+- **Default shell (Linux):** `procps` and `hostname`.
+- **e2e shell:** `ncurses` (`clear`) and a baked `FONTCONFIG_FILE`; Chromium
+  aborts without a fontconfig config.
+- **Recipe bodies** that run before `nix develop` use only bash, git and
+  coreutils.
+- **e2e steps type ASCII only.** Without a UTF-8 locale or an inputrc,
+  readline scrambles typed non-ASCII, so a painted glyph travels as a
+  `printf %b` octal escape (`packages/tests/support/asciiTyping.ts`).
+- **Root:** tests that rely on file modes skip as root, and a uid-independent
+  twin covers the same rule.
+- **NixOS VM tests** set `virtualisation.qemu.forceAccel`: they run under KVM
+  or fail, and never fall back to TCG.
+- **Sharding:** a sharded `ci/flake-build` boots its VMs one at a time.
+- **Cache:** `nix-cache.yml` warms every subflake a CI node builds, including
+  the two examples, so a cold container substitutes instead of building.
+
+When an agent-indicator scenario fails, its error carries the detector's
+inputs: the process tree, tty paths, breadcrumbs, the screen tail kaval holds,
+and padi's log lines. A failing worker also prints its detector log lines.
+
+Each container starts with an empty Nix store, so a full Linux run is slower
+than on a warm pool host (about 20 min with every node green, measured in
+juspay/kolu#2282).
+
 ## Pipeline nodes
 
 The [`default` recipe](./mod.just) is the executable inventory of required

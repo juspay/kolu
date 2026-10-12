@@ -20,7 +20,7 @@ import { type AgentAdapter, matchesAgent } from "anyagent";
 import { CODEX_DIR } from "./config.ts";
 import { type CodexSession, findSessionsByDirectory } from "./core.ts";
 import type { CodexInfo } from "./schemas.ts";
-import { createCodexWatcher } from "./session-watcher.ts";
+import { createCodexWatcher, WAL_DEBOUNCE_MS } from "./session-watcher.ts";
 import { subscribeCodexDb } from "./wal-watcher.ts";
 
 export const codexAdapter: AgentAdapter<CodexSession, CodexInfo> = {
@@ -48,7 +48,25 @@ export const codexAdapter: AgentAdapter<CodexSession, CodexInfo> = {
       return matchesAgent(state, "codex") || fs.existsSync(CODEX_DIR);
     },
     install(onChange, onError, log) {
-      subscribeCodexDb(onChange, onError, log);
+      // At most one fan-out per WAL_DEBOUNCE_MS. The fan-out runs every
+      // terminal's reconcile, which opens this DB, and an open can itself
+      // raise a WAL edge (`fs.watch` reports IN_ATTRIB as a "change", so it
+      // cannot be told apart from a write). Undebounced, that loop pinned
+      // padi's main thread and starved its keep-alive. The first edge arms
+      // the timer and later edges ride it, so a steady stream still gets
+      // through, bounded.
+      let pending: ReturnType<typeof setTimeout> | null = null;
+      subscribeCodexDb(
+        () => {
+          if (pending) return;
+          pending = setTimeout(() => {
+            pending = null;
+            onChange();
+          }, WAL_DEBOUNCE_MS);
+        },
+        onError,
+        log,
+      );
     },
   },
 };

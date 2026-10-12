@@ -178,12 +178,16 @@ jobs:
           #
           # ./osfacts is absent because the tool left the tree (OSF5) — kolu
           # pins it, `.#osfacts` builds the pinned source, and `warm .` covers
-          # that like any other package. The two example subflakes are absent for a
-          # different and weaker reason — they are genuinely uncovered, but they
-          # only build docsites that nobody substitutes locally. If that stops
-          # being true, add them here; do not assume they are warm.
+          # that like any other package. The two example subflakes used to be
+          # absent because nothing substituted their docsites; a CI lane on a small
+          # container does (odu's Cloudflare lane, 18 GB disk): built cold there,
+          # both rebuild the pnpm workspace tree at once and filled the disk
+          # (ENOSPC in surface-examples-nix and solid-browser-example-nix,
+          # juspay/kolu#2282). Same --kinds as their ci::*-nix nodes.
           warm --kinds packages,checks ./website
           warm --kinds packages ./ci
+          warm --kinds packages ./packages/surface/example
+          warm --kinds packages ./packages/solid-browser/example
 
       # The push above is an INSTRUCTION; this is the VERDICT. It re-asks the
       # cache — over the network, as a client — whether the remote-agent

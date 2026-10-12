@@ -93,6 +93,7 @@
             imports = [
               home-manager.nixosModules.home-manager
               nixosModule
+              ./require-kvm.nix
             ];
 
             # Auto-login alice so her user session starts

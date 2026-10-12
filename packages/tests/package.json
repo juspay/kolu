@@ -17,6 +17,7 @@
     "get-port": "^7.2.0",
     "kaval-tui": "workspace:*",
     "kolu-agents": "workspace:*",
+    "kolu-omp": "workspace:*",
     "kolu-common": "workspace:*",
     "kolu-pty": "workspace:*",
     "playwright": "1.59.0",
