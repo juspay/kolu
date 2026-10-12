@@ -256,8 +256,8 @@ e2e: install nix
 # Wave 0's non-browser guard: parse the real Gherkin suite, compare its
 # immutable inventory with every committed inventory reachable from HEAD, and
 # require a landed coverage-ledger row for every scenario revision that
-# disappeared. Runs on both platforms so the platform-specific default counts
-# stay executable facts.
+# disappeared. Attributed for both platforms so the platform-specific default
+# counts stay executable facts on whichever lane a run names.
 e2e-governance: install
     {{ nix_shell }} just --no-deps test-e2e-governance
 
@@ -415,11 +415,14 @@ attach:
     nix run ./ci#odu -- attach
 
 # The final green-gate: the COMPLETE required-status-check set, which is two
-# lists — odu's canonical `<recipe>@<platform>` contexts for BOTH CI platforms
-# (x86_64-linux + aarch64-darwin, pinned by the script so the required list is
-# never a single-platform subset), PLUS the GitHub Actions contexts that
-# `.github/workflows/nix-cache.yml` posts for the Attic cache warm. This is the
-# source of truth for "is CI done"; verify each is green with `gh pr checks`.
+# lists — odu's canonical `<recipe>@<platform>` contexts for the gated CI
+# platform (`x86_64-linux`, pinned by the script so the required list can never
+# drift with a machine-local host file; pass `--platform aarch64-darwin` to add
+# a darwin lane deliberately), PLUS the GitHub Actions contexts that
+# `.github/workflows/nix-cache.yml` posts for the Attic cache warm — those stay
+# two-platform, and the macOS one stays required, because a cold darwin cache is
+# what #2101 was about. This is the source of truth for "is CI done"; verify
+# each is green with `gh pr checks`.
 # Extra args pass straight through to odu, so `just ci::protect --dry-run`
 # prints the whole set without touching the branch.
 #

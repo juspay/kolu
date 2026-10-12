@@ -1,6 +1,6 @@
 ---
 name: ci
-description: Run this repo's CI end-to-end — the kolu-specific procedure on top of the odu runner: the odu MCP front door, banned opt-out flags, mandatory two-platform coverage, venue-pool leasing, fail-fast surfacing, e2e timing evidence, and the green-gate. Triggers on "run CI", "drive CI", "re-run the pipeline", "close the red check", "warm the pool". Runner mechanics live in the `/odu` skill.
+description: Run this repo's CI end-to-end — the kolu-specific procedure on top of the odu runner: the odu MCP front door, banned opt-out flags, linux-only platform pinning, venue-pool leasing, fail-fast surfacing, e2e timing evidence, and the green-gate. Triggers on "run CI", "drive CI", "re-run the pipeline", "close the red check", "warm the pool". Runner mechanics live in the `/odu` skill.
 ---
 
 # CI
@@ -25,14 +25,26 @@ unpushed commit can't run.
 conflicts; a real conflict is yours to resolve now. Never merge while a
 gauntlet round is mid-commit — it races the index.
 
-**Every run covers both platforms.** Pin them explicitly —
-`platforms=["x86_64-linux", "aarch64-darwin"]` — never trust a machine-local
-default: a platform you don't name **silently drops**; a named platform with no
-pool entry is **refused loudly** (juspay/odu#46). Before reporting green,
-confirm the settled run actually carried both — a single-platform green is a
-false green.
+**Every run is `x86_64-linux` ONLY.** Pin it explicitly —
+`platforms=["x86_64-linux"]` — never trust a machine-local default: a platform
+you don't name **silently drops**, and an unpinned run picks up whatever
+`hosts.json` happens to list (today that includes a darwin box). A linux green
+IS the green this repo gates on; master's required-status set is linux-only.
 
-**Darwin hosts: read `hosts.json`, never this skill.** The darwin fleet is
+**Never run `aarch64-darwin` unless the user asks for it in THIS
+conversation.** Not "to be safe", not because a change looks platform-shaped,
+not because an older note called two-platform coverage mandatory. Darwin's Nix
+closure still gets built by `.github/workflows/nix-cache.yml` on every push —
+that lane is GitHub's to drive, not yours.
+
+<details>
+<summary>Asked for a darwin lane explicitly? Then, and only then:</summary>
+
+Add `"aarch64-darwin"` to `platforms` and `--platform aarch64-darwin` to
+`just ci::protect`. A named platform with no pool entry is **refused loudly**
+(juspay/odu#46).
+
+**Read `hosts.json`, never this skill, for the box.** The darwin fleet is
 volatile (this file hard-named the live box three times and was stale each
 time) — `~/.config/odu/hosts.json` (`nix run ./ci#odu -- hosts`) is the only
 source of truth; copy entries verbatim when pinning (user@ and tailnet suffixes
@@ -44,6 +56,8 @@ whole darwin lane — report it for removal rather than waiting it out.
 **A companion repo's darwin lane uses `--host aarch64-darwin=<box>`, never
 inline `$ODU_HOSTS`** — odu reads `$ODU_HOSTS` as a *file path*, so inline JSON
 is silently ignored and burns a run on a dead host.
+
+</details>
 
 **Linux lane: odu leases natively** from the warm Incus pool
 (`kolu-ci-1..8` in `hosts.json`) — picks a free box, holds it for the run,
@@ -71,7 +85,7 @@ means infrastructure death — `node_rerun` it rather than hunting a test bug.
 run). Capture the stage's stderr:
 `pu create "$host" 2> >(tee /tmp/pu-$host.err >&2)`.
 
-**After a green two-platform settle, post e2e metrics to the PR.** Source of
+**After a green settle, post e2e metrics to the PR.** Source of
 truth: the run ledger `.ci/<sha7>/runs/<seq>.json` for each `ci::e2e@<platform>`
 node's recipe-wall `durationMs` and host (never Cucumber's internal timer), and
 the LAST `^e2e: workers=` line in that node's own log (an unsharded lane's is
@@ -97,15 +111,16 @@ whose duration is the slowest slice. So:
   (`[odu] N shards started…`), so each shard's `^e2e: workers=` and
   `e2e: shard=<k>/<N>` lines come from its OWN
   `.ci/<sha7>/<platform>/ci::e2e[k-of-N].log`;
-- darwin's single-host pool yields `1/4` and exactly one row — unchanged;
+- a darwin lane (only ever present when explicitly requested) has a
+  single-host pool: `1/4` and exactly one row;
 - `node_rerun` targets ONE shard node (`ci::e2e[2-of-3]@x86_64-linux`), not the
   logical context: re-running the fold would re-run every slice.
 
 **The green-gate: every required status check green on the PR's current
-`HEAD`.** Source the required list from `just ci::protect --dry-run` **with
-both explicit `--platform` flags** — without them odu derives platforms from
-the machine-local `hosts.json` and can emit a single-platform subset, a false
-green. Verify with `gh pr checks` (a green from a retry counts).
+`HEAD`.** Source the required list from `just ci::protect --dry-run` — the
+script pins `x86_64-linux` itself, so no `--platform` flag is needed (pass
+`--platform aarch64-darwin` only on a run you were explicitly asked to take to
+darwin). Verify with `gh pr checks` (a green from a retry counts).
 
 **Code-scanning alerts block merge too, and `gh pr checks` doesn't show them.**
 Query **by PR number, never by branch ref** — code scanning here is GitHub's
