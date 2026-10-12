@@ -67,6 +67,7 @@ import {
   agentDistroSettingStore,
   checkForAgentUpdate,
   onAgentDistroSettingWrite,
+  retryAgentDownload,
 } from "./agentDistro/agentDistro.ts";
 import { agentDistroBake } from "./agentDistro/bake.ts";
 import { createEventSeq } from "./attention/eventSeq.ts";
@@ -1232,6 +1233,9 @@ export function buildPadiSurfaceDeps(deps: {
 
       // "Check now": ONE update of the selected profile, at once, whatever the
       // schedule says. Answers once it has started; the status cells show it.
+      // "Retry download": the failed-download retry for THIS host — forget the
+      // failure and settle again (the setting write's own two steps, which a
+      // re-push of an unchanged setting cannot reach).
       agentDistro: {
         checkNow: () =>
           handle(() => {
@@ -1239,6 +1243,7 @@ export function buildPadiSurfaceDeps(deps: {
             if (outcome === "running" || outcome === "notReady")
               throw new AgentDistroCheckRefused({ reason: outcome });
           }),
+        retryDownload: () => handle(() => retryAgentDownload()),
       },
       session: {
         restore: ({ input }) => handle(() => restoreSession(input)),

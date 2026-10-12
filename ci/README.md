@@ -1,9 +1,9 @@
 # kolu CI
 
-kolu's CI is a two-platform pipeline driven by
-[odu](https://github.com/juspay/odu). The executable source of truth is
+kolu's CI is a pipeline driven by [odu](https://github.com/juspay/odu),
+gating on `x86_64-linux`. The executable source of truth is
 [`mod.just`](mod.just): its `default` recipe defines the DAG, and odu expands
-each reachable recipe into Linux and macOS nodes.
+each reachable recipe into a node per platform the run names.
 
 ## Run it
 
@@ -42,10 +42,12 @@ just ci::attach
 
 ## Platforms and hosts
 
-Every reachable recipe runs on:
-
-- `x86_64-linux`
-- `aarch64-darwin`
+Every reachable recipe is attributed for both `x86_64-linux` and
+`aarch64-darwin`, but a run only covers the platforms it names. This repo gates
+on **`x86_64-linux`** — that is what `ci/protect` pins and what agents run.
+Add `aarch64-darwin` explicitly (`platforms=`, or `--platform aarch64-darwin`
+for `just ci::protect`) when you actually want the darwin lane. Darwin's Nix
+closure is still built on every push by `.github/workflows/nix-cache.yml`.
 
 Lane hosts come from `$ODU_HOSTS`, then `~/.config/odu/hosts.json`, with
 `~/.config/justci/hosts.json` accepted as the legacy location. A localhost lane
@@ -152,7 +154,7 @@ The `install` node is the single pnpm installation for a lane. Downstream pnpm
 consumers must depend on it and invoke pnpm directly; concurrent installs can
 corrupt the shared `node_modules`.
 
-After changing the DAG, inspect the required status contexts for both platforms:
+After changing the DAG, inspect the required status contexts:
 
 ```sh
 just ci::protect --dry-run

@@ -1,21 +1,27 @@
-/** The ONE Agents choice — a switch (on or off) and, while it is on, a
- *  profile field (`AgentsProfileField`: Juspay's profile by default, any
- *  bundle kolu ships, or a reference of the user's own, with whether
- *  agent-distro resolves it on this machine), the one writer behind both with
- *  its toasts, the hint while agents are off (`agentsHint`, Settings; the
- *  welcome card's `agentsStepHint`), one status line per machine
- *  (`agentStatusLines`) and Settings' updates footer — Check now and the
- *  History. Settings → Agents and the welcome card's first-run step both
- *  render it, so neither keeps a copy of the control, the writer or a
- *  sentence; each lays the parts out in its own row (`children` receives
- *  them). The welcome card shows only the switch: turning it on with nothing
- *  chosen starts on Juspay's profile.
+/** The ONE Agents choice — the switch (Settings), the profile PICKER (named
+ *  cards: the bundles this build ships, Juspay, Custom… with its reference
+ *  field), the agents it brings as chips, the fleet line, and the one writer
+ *  behind all of them with its toasts. Settings → Agents and the welcome
+ *  card's first-run step both render it, so neither keeps a copy of the
+ *  control, the writer or a sentence; each lays the parts out in its own row
+ *  (`children` receives them).
+ *
+ *  The welcome step picks a profile BEFORE agents are on — its cards write
+ *  nothing until "Turn on" does (`turnOn`), so "Not now" leaves nothing
+ *  chosen. Settings' cards write at once: agents are already on there.
  *
  *  It writes only the preference; kolu-server pushes it to every host, and each
  *  host applies it to its NEXT new terminal. */
 
 import type { Hint } from "../settings/SettingRow";
-import { type JSX, Show } from "solid-js";
+import {
+  createEffect,
+  createMemo,
+  createSignal,
+  type JSX,
+  on,
+  Show,
+} from "solid-js";
 import { agentDistroSettingEqual } from "@kolu/agent-distro/schema";
 import { toast } from "solid-sonner";
 import Toggle from "../ui/Toggle";
@@ -23,34 +29,35 @@ import { preferences, updatePreferences } from "../wire";
 import AgentDistroLogo from "@kolu/agent-distro/solid";
 import {
   AGENTS_OFF_MEANS,
+  type AgentProfileCard,
   type AgentsChange,
+  agentChips,
   agentDistroChoice,
+  agentProfileCards,
+  agentSelectedCard,
   agentToast,
   agentsHint,
-  agentsProfileNotes,
   agentsResolvedLine,
   agentsStepHint,
   profileSuggestions,
   rememberProfile,
-  selectedAgentProfile,
 } from "@kolu/agent-distro/status";
-import AgentStatusLines from "./AgentStatusLines";
-import AgentUpdateHistory from "./AgentUpdateHistory";
-import AgentsCheckNowButton from "./AgentsCheckNowButton";
-import AgentsProfileField from "./AgentsProfileField";
+import AgentChips from "./AgentChips";
+import AgentsFleetLine from "./AgentsFleetLine";
+import AgentsProfilePicker from "./AgentsProfilePicker";
 import {
   agentDistroListing,
   agentDistroSetting,
   agentDistroStored,
-  agentStatusLinesNow,
-  agentUpdateHistoryNow,
+  agentFleetNow,
   localAgentReceipt,
   localAgentResolved,
 } from "./useAgentDistro";
 
 /** Write the change — whole, through the one builder — and say what it did
- *  (colocated per the toast rule). A field left as it was writes nothing. A
- *  profile the field writes is remembered for its suggestions. */
+ *  (colocated per the toast rule). A choice that changes nothing writes
+ *  nothing. A profile written as a reference is remembered for Custom…'s
+ *  suggestions. */
 function choose(change: AgentsChange): void {
   const stored = agentDistroStored();
   const next = agentDistroChoice(change, stored);
@@ -89,26 +96,87 @@ export interface AgentsChooserParts {
   /** What off means (`undefined` until the listing arrives, and while agents
    *  are on) — the Settings form. */
   readonly hint: () => Hint | undefined;
-  /** The welcome card's line: the lead with the default bundle's agents. */
+  /** The welcome card's line: the default bundle's agents by name. */
   readonly stepHint: () => string | undefined;
-  /** The profile field and its lines — present only while agents are on.
-   *  Settings shows it; the welcome card does not. */
-  readonly profile: JSX.Element;
-  /** The per-machine status lines — present only while a bundle is selected. */
-  readonly status: JSX.Element;
-  /** Keeping them current — Check now and the History; present only while a
-   *  bundle is selected. Settings shows it; the welcome card does not. */
-  readonly updates: JSX.Element;
+  /** Are agents on? What a row shows only then (Settings' note that a
+   *  repository's own `agent-distro.nix` wins) asks it. */
+  readonly on: () => boolean;
+  /** The profile cards — present only while agents are on, or in a deferred
+   *  picker (the welcome step, where the choice comes first). Settings writes a
+   *  pick at once; the welcome step holds it until "Turn on". */
+  readonly picker: JSX.Element;
+  /** The agents the setting brings, one chip each. */
+  readonly chips: JSX.Element;
+  /** The ONE fleet line — present only while agents are on. */
+  readonly fleet: JSX.Element;
+  /** Turn agents on with the card picked RIGHT NOW — the welcome step's Enter
+   *  action and its button. A no-op until the listing has a card to turn on;
+   *  {@link AgentsChooserParts.canTurnOn} is what decides whether the button
+   *  shows. */
+  readonly turnOn: () => void;
+  /** Is there a card to turn on yet? False until the listing arrives. */
+  readonly canTurnOn: () => boolean;
 }
 
 export default function AgentsChooser(props: {
-  /** Focus the switch on mount (the first-run step, while nothing is chosen). */
+  /** Focus the picked card on mount (the first-run step, while nothing is
+   *  chosen). */
   autofocus?: boolean;
+  /** Show the reference under a card's name (Settings) — the welcome step
+   *  keeps its cards to names. */
+  references?: boolean;
+  /** Pick without writing until {@link AgentsChooserParts.turnOn} (the welcome
+   *  step, where agents are still off). */
+  deferred?: boolean;
   children: (parts: AgentsChooserParts) => JSX.Element;
 }): JSX.Element {
-  const picked = () =>
-    selectedAgentProfile(agentDistroSetting(), agentDistroListing()) !==
-    undefined;
+  /** The cards this picker offers: every one in Settings; in a deferred
+   *  picker (the welcome step) the named profiles only — a reference of your
+   *  own stays a Settings matter. */
+  const cards = () => {
+    const all = agentProfileCards(agentDistroListing());
+    return props.deferred === true
+      ? all.filter((c) => c.profile !== undefined)
+      : all;
+  };
+  /** The card picked but NOT written: Custom… anywhere (it writes only once
+   *  its field does), and every card in a deferred picker (the welcome step,
+   *  which writes when "Turn on" is pressed). It is dropped the moment the
+   *  STORED AGENTS SETTING moves — a write from this picker, from another
+   *  tab, or the switch going off — so the picker never keeps showing Custom…
+   *  for a setting that names a card.
+   *
+   *  The source is an EQUALITY-checked memo, not `agentDistroStored` itself:
+   *  that reads `preferences()`, the one cell behind every preference, so a
+   *  `seenTips` or `colorScheme` write anywhere in the app would otherwise
+   *  close Custom…'s field mid-typing. */
+  const [pending, setPending] = createSignal<AgentProfileCard | undefined>();
+  const storedAgents = createMemo(agentDistroStored, undefined, {
+    equals: (a, b) =>
+      a === null || b === null ? a === b : agentDistroSettingEqual(a, b),
+  });
+  createEffect(on(storedAgents, () => setPending(undefined), { defer: true }));
+  const cardFor = (profile: string | undefined) =>
+    cards().find((c) => c.profile === profile);
+  const selected = () =>
+    pending() ?? agentSelectedCard(agentDistroSetting(), cards());
+  /** A card was picked. A deferred picker only remembers it (the welcome
+   *  step writes on "Turn on"); so does Custom…, which writes when its field
+   *  does. */
+  const pick = (profile: string | undefined) => {
+    if (profile === undefined || props.deferred === true) {
+      setPending(cardFor(profile));
+      return;
+    }
+    setPending(undefined);
+    choose({ profile });
+  };
+  /** Custom…'s field wrote: the stored profile decides the card again (the
+   *  text may well name one). */
+  const submit = (text: string) => {
+    setPending(undefined);
+    choose({ profile: text });
+  };
   return props.children({
     control: (
       <Toggle
@@ -116,7 +184,6 @@ export default function AgentsChooser(props: {
         onChange={(on) => choose({ on })}
         testId="agents-switch"
         label="Coding agents in new terminals"
-        autofocus={props.autofocus}
       />
     ),
     hint: () =>
@@ -125,43 +192,54 @@ export default function AgentsChooser(props: {
         listing: agentDistroListing(),
       }),
     stepHint: () => agentsStepHint(agentDistroListing()),
-    profile: (
-      <Show when={agentDistroSetting().enabled}>
-        <AgentsProfileField
+    on: () => agentDistroSetting().enabled,
+    picker: (
+      <Show
+        when={
+          cards().length > 0 &&
+          (props.deferred === true || agentDistroSetting().enabled)
+        }
+      >
+        <AgentsProfilePicker
+          cards={cards()}
+          selected={selected()}
+          onPick={pick}
           profile={agentDistroSetting().profile}
           suggestions={profileSuggestions({
-            listing: agentDistroListing(),
             recent: preferences().agentProfilesRecent,
           })}
           resolved={agentsResolvedLine(
             agentDistroSetting(),
             localAgentResolved(),
           )}
-          notes={agentsProfileNotes({
-            setting: agentDistroSetting(),
-            listing: agentDistroListing(),
-            localReceipt: localAgentReceipt(),
-          })}
-          onSubmit={(text) => choose({ profile: text })}
+          onSubmit={submit}
+          autofocus={props.autofocus}
+          references={props.references}
         />
       </Show>
     ),
-    status: (
-      <Show when={picked()}>
-        <AgentStatusLines lines={agentStatusLinesNow()} />
+    chips: (
+      <AgentChips
+        chips={agentChips({
+          setting: agentDistroSetting(),
+          listing: agentDistroListing(),
+          localReceipt: localAgentReceipt(),
+        })}
+      />
+    ),
+    fleet: (
+      <Show when={agentDistroSetting().enabled}>
+        <AgentsFleetLine groups={agentFleetNow()} />
       </Show>
     ),
-    updates: (
-      <Show when={picked()}>
-        {/* Check now sits at the History summary's right; the History itself
-            takes the full width, so its rows have room for the words. */}
-        <div class="relative mt-1.5">
-          <AgentUpdateHistory rows={agentUpdateHistoryNow()} />
-          <div class="absolute right-0 top-0">
-            <AgentsCheckNowButton />
-          </div>
-        </div>
-      </Show>
-    ),
+    // Read at PRESS time, never at mount: the card is picked after this
+    // object is built, and a value captured here would freeze the first
+    // answer (and, before the listing arrives, freeze "nothing to turn on").
+    turnOn: () => {
+      const profile = selected()?.profile;
+      if (profile === undefined) return;
+      choose({ profile });
+    },
+    canTurnOn: () => selected()?.profile !== undefined,
   });
 }

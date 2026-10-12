@@ -28,6 +28,11 @@ export interface WelcomeMomentFlags {
    *  through {@link latchKnown}, so a pick does not unmount the row while this
    *  machine catches up with it. */
   chooseAgentsDone: boolean | undefined;
+  /** "Not now" was pressed in this session: the row goes, the preference
+   *  stays UNchosen, and the card asks again on the next load. A dismissed
+   *  moment is neither a row nor a header entry — nothing was chosen, so there
+   *  is nothing to report. */
+  chooseAgentsDismissed: boolean;
   pinDone: boolean;
   reachDone: boolean;
   hostsDone: boolean;
@@ -67,14 +72,20 @@ function isDone(id: WelcomeMomentId, flags: WelcomeMomentFlags): boolean {
   }
 }
 
-/** Select which moments collapse into the header and which three rows paint. */
+/** Select which moments collapse into the header and which three rows paint.
+ *  The agents choice is the one moment that can be ABSENT from both: while its
+ *  answer is not known yet, and while "Not now" holds for this session. */
 export function selectWelcomeMoments(
   flags: WelcomeMomentFlags,
 ): WelcomeMomentSelection {
   const done: WelcomeMomentId[] = [];
   const undone: WelcomeMomentId[] = [];
   for (const id of ORDER) {
-    if (id === "chooseAgents" && flags.chooseAgentsDone === undefined) continue;
+    if (
+      id === "chooseAgents" &&
+      (flags.chooseAgentsDone === undefined || flags.chooseAgentsDismissed)
+    )
+      continue;
     if (isDone(id, flags)) done.push(id);
     else undone.push(id);
   }

@@ -40,13 +40,16 @@ import os from "node:os";
 import path from "node:path";
 
 const PLACEHOLDER = "@KOLU_XDG_STATE_HOME@";
-export const FIXTURE_PROFILES = ["vanilla", "juspay"] as const;
+/** The bundles the fixture ships — what upstream ships at kolu's pin: ONE,
+ *  `vanilla`. Juspay's set is the REFERENCE `github:juspay/skills`, which
+ *  rides this bundle like any other reference. */
+export const FIXTURE_PROFILES = ["vanilla"] as const;
 /** The profile the fixture's listing leads with — the one "turn Agents on"
  *  picks. */
 export const FIXTURE_DEFAULT_PROFILE = FIXTURE_PROFILES[0];
 
-/** The fixture's ONE harness, as its listing names it — steps read the line
- *  Settings shows off this (`harnessLine`), never a hand-typed copy. */
+/** The fixture's ONE harness, as its listing names it — steps read the chips
+ *  kolu draws off this (`agentChips`), never a hand-typed copy. */
 export const FIXTURE_HARNESS = {
   name: "claude",
   title: "Claude Code",

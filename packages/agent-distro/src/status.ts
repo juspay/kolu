@@ -26,19 +26,25 @@ import type {
 } from "./schema.ts";
 import type { AgentDistroListing, AgentDistroProfile } from "./listing.ts";
 import { DEFAULT_AGENT_PROFILE } from "./manifest.ts";
-import type { AgentVersion } from "./versions.ts";
 
-/** Juspay's profile, as a reference — kolu's default profile, and the one
- *  agent-distro reference kolu suggests by name. It rides the vanilla bundle
- *  (the listing's first) like any reference. */
+/** Juspay's profile, as a reference — the one agent-distro reference kolu
+ *  names by itself. It rides the vanilla bundle (the listing's first) like any
+ *  reference. */
 export const JUSPAY_PROFILE = "github:juspay/skills";
 
-/** What "never chosen" means for new terminals: off, on {@link JUSPAY_PROFILE},
- *  so turning agents on later starts there. ONE shared value, so a reader of the
+/** What Juspay's card says it brings. HERE and not in the listing: Juspay is a
+ *  reference kolu names, not a bundle this build ships, so no `profile.json`
+ *  describes it. */
+export const JUSPAY_DESCRIPTION =
+  "Juspay skills + Kolu, via Juspay's LiteLLM gateway";
+
+/** What "never chosen" means for new terminals: off, on the bundle kolu lists
+ *  first ({@link DEFAULT_AGENT_PROFILE}, `defaults.json`'s `vanilla`), so
+ *  turning agents on later starts there. ONE shared value, so a reader of the
  *  fold sees no change on an unrelated preference write while nothing is chosen. */
 const NEVER_CHOSEN_SETTING: AgentDistroSetting = Object.freeze({
   enabled: false,
-  profile: JUSPAY_PROFILE,
+  profile: DEFAULT_AGENT_PROFILE,
 });
 
 /** Has anyone chosen yet? THE one test for "never chosen" — the absence of a
@@ -62,18 +68,19 @@ export function agentDistroSettingOf(
   return agentsChosen(stored) ? stored : NEVER_CHOSEN_SETTING;
 }
 
-/** A change to the Agents control: the switch, or the profile field. */
+/** A change to the Agents control: the switch, or a picked profile. */
 export type AgentsChange =
   | { readonly on: boolean }
   | { readonly profile: string };
 
 /** The whole value a change on the Agents control writes — the ONE writer the
  *  Settings row and the first-run step go through. The switch keeps the
- *  profile already stored ({@link JUSPAY_PROFILE} while nothing is chosen), so turning
- *  agents back on returns to it. The field writes its text, trimmed, with
- *  agents on; `undefined` for an empty field, which writes nothing. Whatever
- *  the text, it is written: whether agent-distro resolves it is the resolved
- *  line's to say ({@link agentsResolvedLine}), never a refusal here. */
+ *  profile already stored ({@link DEFAULT_AGENT_PROFILE} while nothing is
+ *  chosen), so turning agents back on returns to it. A picked card, or the
+ *  Custom field, writes its profile, trimmed, with agents on; `undefined` for
+ *  an empty field, which writes nothing. Whatever the text, it is written:
+ *  whether agent-distro resolves it is the resolved line's to say
+ *  ({@link agentsResolvedLine}), never a refusal here. */
 export function agentDistroChoice(
   change: AgentsChange,
   stored: AgentDistroSetting | null,
@@ -145,14 +152,29 @@ export function firstRunAgentsDone(input: {
 /** The first-run step's title — what the welcome card asks. */
 export const AGENTS_FIRST_RUN_TITLE = "Choose your coding agents";
 
+/** How a profile is NAMED — the one display name every surface shows: a
+ *  bundle this build ships by its own name capitalized ("vanilla" →
+ *  "Vanilla"), {@link JUSPAY_PROFILE} as "Juspay", and anything else (a flake
+ *  reference, a path) as itself. The reference is still what is stored, and
+ *  the picker still shows it under the name. */
+export function agentProfileTitle(
+  profile: string,
+  listing: AgentDistroListing | undefined,
+): string {
+  if (profile === JUSPAY_PROFILE) return "Juspay";
+  return shippedProfile(listing, profile) === undefined
+    ? profile
+    : capitalize(profile);
+}
+
 /** The welcome card's done line for the first-run step, by whether the
  *  profile resolves on this machine ({@link agentsResolvedLine}): the chosen
- *  profile with a check once it does ("Agents: vanilla ✓"), agent-distro's
- *  words instead of the check when it does not, and nothing yet while it is
- *  pending. `undefined` too while agents are off — the step is not done then
- *  ({@link firstRunAgentsDone}) — and in a kolu built without agents, where
- *  nobody chose anything and the step is done only because there is nothing
- *  to choose. */
+ *  profile BY NAME with a check once it does ("Agents: Vanilla ✓"),
+ *  agent-distro's words instead of the check when it does not, and nothing yet
+ *  while it is pending. `undefined` too while agents are off — the step is not
+ *  done then ({@link firstRunAgentsDone}) — and in a kolu built without
+ *  agents, where nobody chose anything and the step is done only because there
+ *  is nothing to choose. */
 export function agentsChosenLabel(
   setting: AgentDistroSetting,
   listing: AgentDistroListing | undefined,
@@ -161,21 +183,18 @@ export function agentsChosenLabel(
   if (listing?.kind === "unavailable") return undefined;
   const line = agentsResolvedLine(setting, resolved);
   if (line === undefined) return undefined;
+  const name = agentProfileTitle(setting.profile, listing);
   switch (line.kind) {
     case "pending":
       return undefined;
     case "resolved":
-      return `Agents: ${setting.profile} ✓`;
+      return `Agents: ${name} ✓`;
     case "failed":
-      return `Agents: ${setting.profile} — ${line.text}`;
+      return `Agents: ${name} — ${line.text}`;
     default:
       return line.kind satisfies never;
   }
 }
-
-/** What the Settings hint adds while nothing is chosen. */
-export const AGENTS_NOT_CHOSEN =
-  "Nothing chosen yet, so new terminals get no coding agents until you turn them on.";
 
 /** "1.1 GiB of 2.0 GiB" for a download's progress (`@kolu/byte-units`' binary
  *  units — the units Nix reports the bundle in), or `undefined` when there are no
@@ -302,10 +321,11 @@ export function agentMarkOf(
 }
 
 /** The one-line retry under a failed download — worded HERE only (padi's
- *  messages state the cause, never the retry). A failure is remembered per
- *  profile until the setting turns that profile on again — the only retry. */
+ *  messages state the cause, never the retry). It points at the one button
+ *  that retries: `retry download` in that machine's host details
+ *  ({@link AGENTS_HOST_RETRY}). */
 export const AGENTS_RETRY =
-  "Fix that, then switch Agents off and back on in Settings to try again.";
+  "Fix that, then open that machine's host details and retry the download.";
 
 /** The host-setup remedy for a failure, by its typed reason — `undefined` when
  *  the cause (the updater's own words) already says what to do. */
@@ -428,30 +448,14 @@ export function agentMarkLabel(
   return [`${words.title}${bytes}`, ...words.detail].join("\n");
 }
 
-/** The agents a profile brings, named the way people know them, with their
- *  versions: "Claude Code 2.1.291 · Codex 0.160.1 · Oh My Pi 18.6.3 · …" —
- *  each harness's title and version from the listing, in its order. Never
- *  hand-written: it is whatever the pinned agent-distro ships. */
-export function harnessLine(profile: AgentDistroProfile): string {
-  return versionsLine(profile.harnesses);
-}
-
 /** A version as agent-distro's picker shows it: without the package's `+`
  *  revision suffix (`1.18.35+53d1eab` → `1.18.35`) — upstream's
- *  `displayVersion` (`lib/picker.nix`), mirrored here once so every line kolu
- *  draws says what `agent-distro` in the same terminal says. */
+ *  `displayVersion` (`lib/picker.nix`), mirrored here once so every version
+ *  kolu draws says what `agent-distro` in the same terminal says. Every chip's
+ *  version goes through it ({@link agentChips}), whether it comes from the
+ *  listing or from a host's receipt. */
 function displayVersion(version: string): string {
   return version.split("+")[0] ?? version;
-}
-
-/** The same line for any list of agents with versions — a host's receipt
- *  (`AgentDistroReceipt.versions`), what that machine actually has now. */
-export function versionsLine(
-  agents: readonly Pick<AgentVersion, "title" | "version">[],
-): string {
-  return agents
-    .map((h) => `${h.title} ${displayVersion(h.version)}`)
-    .join(" · ");
 }
 
 function capitalize(text: string): string {
@@ -491,34 +495,103 @@ function shippedProfile(
     : undefined;
 }
 
-/** One suggestion under the profile field: the value it writes, and a note
+/** One card in the Agents picker: a profile kolu offers by name, or the
+ *  Custom… card that reveals the reference field. */
+export interface AgentProfileCard {
+  /** The profile the card writes when picked — `undefined` for Custom…, which
+   *  writes whatever its field holds. */
+  readonly profile: string | undefined;
+  /** The name the card is read by ({@link agentProfileTitle}). */
+  readonly title: string;
+  /** One line of what it brings — a shipped bundle's own `profile.json`
+   *  description, {@link JUSPAY_DESCRIPTION}, or Custom…'s own words. */
+  readonly description: string;
+  /** What is actually stored, shown under the name when the name is not it —
+   *  only a reference kolu names itself has one. */
+  readonly reference?: string;
+  /** The card a never-chosen kolu starts on, marked `Default`. */
+  readonly isDefault: boolean;
+}
+
+/** The Custom… card's own words — the one place in the UI a flake reference
+ *  belongs. */
+export const AGENTS_CUSTOM = {
+  title: "Custom…",
+  description: "A flake reference or a path to your own agent-distro.nix",
+} as const;
+
+/** The picker's cards, in this order: the bundle kolu lists first
+ *  ({@link DEFAULT_AGENT_PROFILE}, marked Default), every other bundle this
+ *  build ships, {@link JUSPAY_PROFILE} as a named reference, then Custom….
+ *  Empty until the listing arrives, and for a kolu built without agents
+ *  (nothing to pick). */
+export function agentProfileCards(
+  listing: AgentDistroListing | undefined,
+): readonly AgentProfileCard[] {
+  if (listing?.kind !== "available") return [];
+  // The listing is already default-first (the Nix half writes it so), but the
+  // order the picker shows is this fold's own promise, not a borrowed one.
+  const byDefaultFirst = [
+    ...listing.profiles.filter((p) => p.name === DEFAULT_AGENT_PROFILE),
+    ...listing.profiles.filter((p) => p.name !== DEFAULT_AGENT_PROFILE),
+  ];
+  const shipped = byDefaultFirst.map(
+    (p): AgentProfileCard => ({
+      profile: p.name,
+      title: agentProfileTitle(p.name, listing),
+      description: p.description,
+      isDefault: p.name === DEFAULT_AGENT_PROFILE,
+    }),
+  );
+  const juspay: AgentProfileCard = {
+    profile: JUSPAY_PROFILE,
+    title: agentProfileTitle(JUSPAY_PROFILE, listing),
+    description: JUSPAY_DESCRIPTION,
+    reference: JUSPAY_PROFILE,
+    isDefault: false,
+  };
+  return [
+    ...shipped,
+    juspay,
+    {
+      profile: undefined,
+      title: AGENTS_CUSTOM.title,
+      description: AGENTS_CUSTOM.description,
+      isDefault: false,
+    },
+  ];
+}
+
+/** Which of these cards the setting selects: the one whose profile it is,
+ *  else Custom… (a reference of the user's own), else the default one — the
+ *  last clause answers a list that HAS no Custom… card, which the welcome
+ *  step's picker is. `undefined` until the listing arrives (no cards at
+ *  all). */
+export function agentSelectedCard(
+  setting: AgentDistroSetting,
+  cards: readonly AgentProfileCard[],
+): AgentProfileCard | undefined {
+  return (
+    cards.find((c) => c.profile === setting.profile) ??
+    cards.find((c) => c.profile === undefined) ??
+    cards.find((c) => c.isDefault)
+  );
+}
+
+/** One suggestion under the Custom… field: the reference it writes, and a note
  *  beside it. */
 export interface ProfileSuggestion {
   readonly value: string;
   readonly note: string;
 }
 
-/** The profile field's suggestions, each once, in this order:
- *  {@link JUSPAY_PROFILE} (the default), every bundle the listing ships (with
- *  upstream's description), then what the user set before, most recent
- *  first. */
+/** The Custom… field's suggestions: what the user set before, most recent
+ *  first. The shipped bundles and Juspay are CARDS
+ *  ({@link agentProfileCards}), so the menu never repeats them. */
 export function profileSuggestions(input: {
-  readonly listing: AgentDistroListing | undefined;
   readonly recent: readonly string[];
 }): readonly ProfileSuggestion[] {
-  const shipped =
-    input.listing?.kind === "available"
-      ? input.listing.profiles.map((p) => ({
-          value: p.name,
-          note: p.description,
-        }))
-      : [];
-  const all = [
-    { value: JUSPAY_PROFILE, note: "Juspay's profile — the default" },
-    ...shipped,
-    ...input.recent.map((value) => ({ value, note: "used before" })),
-  ];
-  return all.filter((s, i) => all.findIndex((t) => t.value === s.value) === i);
+  return input.recent.map((value) => ({ value, note: "used before" }));
 }
 
 /** The line under the profile field: whether agent-distro resolves the
@@ -687,228 +760,307 @@ export function agentMarkUpdate(
   }
 }
 
-/** One status line under the Agents row: the host, a bar, and a short text. */
-export interface AgentStatusLine {
-  readonly host: string;
-  /** An update running there: still checking, or downloading a newer set. */
-  readonly update?: "checking" | "downloading";
-  /** How the last update run there ended, when the line says it. */
-  readonly lastRun?: AgentUpdateRun["outcome"];
-  /** The bar's colour: accent while downloading, ok when ready, warning when
-   *  failed, and an empty bar when there is nothing to fill. */
-  readonly bar: "busy" | "ok" | "warn" | "empty";
-  /** The bar's fill, 0 to 1. */
-  readonly fill: number;
-  readonly text: string;
-  /** A second, quieter line under `text`: a ready host's update running
-   *  ("updating · 1.1 GiB of 2.0 GiB") or its last run ("updated 3h ago"). */
-  readonly note?: AgentStatusNote;
-}
-
-/** A status line's note: its text, its hover (the text, and a skip's or a
- *  failure's reason quoted with who wrote it), and its tone. */
+/** A status note: its text, its hover (the text, and a skip's or a failure's
+ *  reason quoted with who wrote it), and its tone. */
 export interface AgentStatusNote {
   readonly text: string;
   readonly title: string;
   readonly tone: "muted" | "warn";
 }
 
-/** A status line's words for a host with no mark, by the fold's reason. */
+/** The words for a host with no mark, by the fold's reason. */
 const NONE_LINE: Record<Extract<AgentMark, { kind: "none" }>["why"], string> = {
   off: "agents off",
   unavailable: "no coding agents in this build",
   unheard: "not connected",
 };
 
-function statusLine(host: HostAgentStatus): AgentStatusLine {
-  const mark = agentMarkOf(host.status, host.checking);
-  const line = (
-    bar: AgentStatusLine["bar"],
-    fill: number,
-    text: string,
-  ): AgentStatusLine => ({ host: host.label, bar, fill, text });
+/** One group of the Settings fleet line: the machines in one agent state,
+ *  named, with the words that state reads as. Rendered as `lead` · the hosts
+ *  (each a link to its host details) · `trail`: "Ready on naiveintent and 2
+ *  more", "buildbox downloading", "devbox failed". */
+export interface AgentFleetGroup<H> {
+  /** The group's identity — the agent state it is about ("ready", "failed",
+   *  …). The whole fold is re-minted on every read, so a surface keys its
+   *  groups on this and the machines inside them on their own host key: a
+   *  re-read re-words a group without rebuilding the machine names beside it
+   *  (they are buttons, and a rebuilt button drops hover and focus). */
+  readonly key: string;
+  /** The dot's colour: ok when ready, accent while a download runs, warning
+   *  when one failed, muted when there are no agents there. */
+  readonly tone: "ok" | "busy" | "warn" | "muted";
+  /** The words before the names — empty when the names lead. */
+  readonly lead: string;
+  /** The machines this group names, at most {@link FLEET_NAMED_CAP}; the rest
+   *  are counted in `trail`. Never empty — a group IS its machines. */
+  readonly hosts: readonly H[];
+  /** The words after the names: the state, or "and 2 more". */
+  readonly trail: string;
+}
+
+/** How many machines a fleet group names before it starts counting them. */
+const FLEET_NAMED_CAP = 2;
+
+/** What one agent state reads as on the fleet line. */
+interface AgentFleetState {
+  /** Which group a host joins — one per state, so two failed hosts share a
+   *  group and two `none` hosts with different reasons do not. */
+  readonly key: string;
+  readonly tone: AgentFleetGroup<never>["tone"];
+  readonly lead: string;
+  readonly trail: string;
+}
+
+/** Which group a host's mark puts it in — the ONE fold from a mark to the
+ *  fleet line's vocabulary. Fenced over the mark kind. */
+function fleetState(mark: AgentMark): AgentFleetState {
   switch (mark.kind) {
-    case "ready": {
-      const ready = `ready · ${mark.hash}`;
-      // The host IS ready while an update runs: the bar stays full and
-      // green; the note (and the tab's ring) carry the run.
-      const update = agentMarkUpdate(mark);
-      switch (update) {
-        case "checking":
-          return {
-            ...line("ok", 1, ready),
-            note: {
-              text: AGENTS_UPDATE_CHECKING,
-              title: AGENTS_UPDATE_CHECKING,
-              tone: "muted",
-            },
-            update,
-          };
-        case "downloading": {
-          const bytes = agentMarkFill(mark)?.bytes;
-          const text = `updating${bytes === undefined ? "…" : ` · ${bytes}`}`;
-          return {
-            ...line("ok", 1, ready),
-            note: { text, title: text, tone: "muted" },
-            update,
-          };
-        }
-        case undefined:
-          break;
-        default:
-          return update satisfies never;
-      }
-      const receipt = receiptFor(host.receipt, mark.profile);
-      if (receipt?.error !== undefined)
-        return {
-          ...line("ok", 1, ready),
-          note: {
-            text: AGENTS_RECEIPT_UNREADABLE,
-            title: unreadableTitle(receipt.error),
-            tone: "warn",
-          },
-        };
-      const run = receipt?.lastRun;
-      return run === undefined
-        ? line("ok", 1, ready)
-        : {
-            ...line("ok", 1, ready),
-            note: lastRunNote(run, host.ago),
-            lastRun: run.outcome,
-          };
-    }
+    case "ready":
+      return { key: "ready", tone: "ok", lead: "Ready on", trail: "" };
     case "downloading":
-      return line("busy", mark.fraction, mark.bytes ?? "downloading…");
-    case "failed":
-      // The whole failure text: the line shows its start, its hover all of it.
-      return line("warn", 1, agentFailureLines(mark, host.label).join("\n"));
+      return {
+        key: "downloading",
+        tone: "busy",
+        lead: "",
+        trail: "downloading",
+      };
     case "checking":
-      return line("empty", 0, "checking…");
+      return { key: "checking", tone: "muted", lead: "", trail: "checking…" };
+    case "failed":
+      return { key: "failed", tone: "warn", lead: "", trail: "failed" };
     case "none":
-      return line("empty", 0, NONE_LINE[mark.why]);
+      return {
+        key: `none:${mark.why}`,
+        tone: "muted",
+        lead: "",
+        trail: NONE_LINE[mark.why],
+      };
     default:
       return mark satisfies never;
   }
 }
 
-/** Is the host ready with nothing to say on its own line: no update running,
- *  its update history readable, and its last run not a failure? A host that
- *  is not keeps its own line, note and all. */
-function settledReady(host: HostAgentStatus): boolean {
-  const mark = agentMarkOf(host.status, host.checking);
-  if (mark.kind !== "ready" || agentMarkUpdate(mark) !== undefined)
-    return false;
-  const receipt = receiptFor(host.receipt, mark.profile);
-  return receipt?.error === undefined && receipt?.lastRun?.outcome !== "failed";
-}
-
-/** The label of the one line every host folds into. */
-export const AGENTS_ALL_HOSTS = "all hosts";
-
-/** The status lines under the Agents row: the machine running kolu first, then
- *  every remote host that is not settled — not ready, updating, its history
- *  unreadable, or its last run failed. A ready line carries a note: its update
- *  running, or its last run ("updated 3h ago", "checked 2h ago, up to date").
- *  When EVERY host is settled they collapse into one line, labelled
- *  {@link AGENTS_ALL_HOSTS} ("ready · 8rcmf6rd · on 3 hosts" — the hash
- *  only when every machine holds that same build), so the row stays short in
- *  the common case; the History lists each machine's runs. */
-export function agentStatusLines(input: {
-  readonly local: HostAgentStatus;
-  readonly remotes: readonly HostAgentStatus[];
-}): readonly AgentStatusLine[] {
-  const local = statusLine(input.local);
-  const remoteLines = input.remotes.map((host) => ({
-    host,
-    line: statusLine(host),
-  }));
-  const notReady = remoteLines
-    .filter(({ host }) => !settledReady(host))
-    .map(({ line }) => line);
-  const remotes = remoteLines.map(({ line }) => line);
-  if (
-    settledReady(input.local) &&
-    notReady.length === 0 &&
-    remotes.length > 0
-  ) {
-    // Every machine is ready. They name ONE build only when they all hold the
-    // same one — this machine's built-in bundle and a remote's download are
-    // different store paths of the same profile, and the folded line must not
-    // claim the remote has this machine's hash.
-    const marks = [input.local, ...input.remotes].map((h) =>
-      agentMarkOf(h.status, h.checking),
-    );
-    const first = marks[0];
-    const shared =
-      first?.kind === "ready" &&
-      marks.every(
-        (m) =>
-          m.kind === "ready" &&
-          m.profile === first.profile &&
-          m.hash === first.hash,
-      );
-    const what =
-      first?.kind !== "ready"
-        ? local.text
-        : shared
-          ? `ready · ${first.hash}`
-          : "ready";
-    // Folded: one line for many machines, so no one machine's name or note.
-    const { note: _note, lastRun: _lastRun, ...folded } = local;
-    return [
-      {
-        ...folded,
-        host: AGENTS_ALL_HOSTS,
-        text: `${what} · on ${remotes.length + 1} hosts`,
-      },
-    ];
+/** THE fleet line under Settings' Agents row: one group per agent state, in
+ *  the order the machines are handed in, each naming up to
+ *  {@link FLEET_NAMED_CAP} machines and counting the rest. Every host is
+ *  carried through by value, so a name can open that machine's details —
+ *  which is where everything true of ONE machine lives
+ *  ({@link agentHostDetail}); this line holds no per-machine fact of its
+ *  own. */
+export function agentFleetSummary<H extends HostAgentStatus>(
+  hosts: readonly H[],
+): readonly AgentFleetGroup<H>[] {
+  const groups: { state: AgentFleetState; hosts: H[] }[] = [];
+  for (const host of hosts) {
+    const state = fleetState(agentMarkOf(host.status, host.checking));
+    const group = groups.find((g) => g.state.key === state.key);
+    if (group === undefined) groups.push({ state, hosts: [host] });
+    else group.hosts.push(host);
   }
-  return [local, ...notReady];
+  return groups.map(({ state, hosts: members }): AgentFleetGroup<H> => {
+    const named = members.slice(0, FLEET_NAMED_CAP);
+    const more = members.length - named.length;
+    return {
+      key: state.key,
+      tone: state.tone,
+      lead: state.lead,
+      hosts: named,
+      trail: [more === 0 ? "" : `and ${more} more`, state.trail]
+        .filter((w) => w !== "")
+        .join(" "),
+    };
+  });
 }
 
-/** The bundle the setting selects, when agents are on and the listing ships
- *  it — the one case where the Agents row shows its status lines. A profile
- *  that is not a bundle of its own selects the default one, as padi's
- *  `bundleProfileOf` (`./schema`) does. */
-export function selectedAgentProfile(
-  setting: AgentDistroSetting,
-  listing: AgentDistroListing | undefined,
-): AgentDistroProfile | undefined {
-  if (!setting.enabled) return undefined;
-  return (
-    shippedProfile(listing, setting.profile) ??
-    shippedProfile(listing, DEFAULT_AGENT_PROFILE)
-  );
+/** A host's last update run as a note, from the receipt its caller resolved —
+ *  `undefined` when it has run nothing yet. A receipt that would not read says
+ *  so instead, in the warning tone. */
+function lastRunNoteOf(
+  receipt: AgentDistroReceipt | undefined,
+  ago: AgoPhrase,
+): AgentStatusNote | undefined {
+  if (receipt?.error !== undefined)
+    return {
+      text: AGENTS_RECEIPT_UNREADABLE,
+      title: unreadableTitle(receipt.error),
+      tone: "warn",
+    };
+  const run = receipt?.lastRun;
+  return run === undefined ? undefined : lastRunNote(run, ago);
 }
 
-/** The opening of both Agents hints: what kolu can bring. */
-const AGENTS_LEAD =
-  "Kolu can bring AI coding agents along — kept up to date, nothing to install:";
+/** One update event as a host's details lists it: when, what happened, and the
+ *  updater's own words. `title`, the hover, names who wrote them. */
+export interface AgentEventRow {
+  readonly when: string;
+  readonly kind: AgentUpdateEvent["kind"] | "unreadable";
+  readonly text: string;
+  readonly title: string;
+  readonly tone: "muted" | "warn";
+}
 
-/** The welcome card's line for the Agents step: the lead, with the default
- *  profile's agents. `undefined` until the listing arrives, and for a kolu
- *  built without agents (the step does not ask there). */
+/** How a history event's kind reads in a row. */
+const EVENT_LABEL: Record<AgentUpdateEvent["kind"], string> = {
+  updated: "updated",
+  skipped: "skipped",
+  failed: "failed",
+};
+
+function eventRow(event: AgentUpdateEvent, ago: AgoPhrase): AgentEventRow {
+  return {
+    when: ago(Date.parse(event.at)),
+    kind: event.kind,
+    text: event.words,
+    title: quoted(EVENT_LABEL[event.kind], "updater", event.words),
+    tone: event.kind === "failed" ? "warn" : "muted",
+  };
+}
+
+/** What a machine's host details say about its agents: the profile new
+ *  terminals there get and the build serving it, the state in one line, a
+ *  failure's own words, that machine's last update events, and which action it
+ *  offers. The per-machine facts live HERE, beside the machine — Settings keeps
+ *  only the fleet line ({@link agentFleetSummary}). */
+export interface AgentHostDetail {
+  /** The profile, as the picker names it. */
+  readonly profile: string;
+  /** The build serving it — only a ready host has one. */
+  readonly hash?: string;
+  readonly state: AgentStatusNote;
+  /** A failed download's words: the cause, and the remedy when its reason has
+   *  one. The retry is the button here, never a sentence. */
+  readonly cause: readonly string[];
+  /** What a failure means for new terminals on THAT machine. */
+  readonly means?: string;
+  /** That machine's last update events, newest first — empty when it has run
+   *  nothing, or is not ready. */
+  readonly events: readonly AgentEventRow[];
+  /** The one action the section offers: run an update check now
+   *  ({@link AGENTS_HOST_CHECK}), retry the download that failed
+   *  ({@link AGENTS_HOST_RETRY}), or nothing to do from here. */
+  readonly action: "check" | "retry" | undefined;
+}
+
+/** THE fold from one machine's agent facts to its host-details section.
+ *  `undefined` when there are no agents to describe there — a padi built
+ *  without them, or a machine we cannot hear from (whose own `state` row says
+ *  so). `profile` is the SETTING's, named by {@link agentProfileTitle}: a host
+ *  that has not caught up still says which profile it is meant to have. Fenced
+ *  over the mark kind. */
+export function agentHostDetail(input: {
+  readonly host: HostAgentStatus;
+  readonly setting: AgentDistroSetting;
+  readonly listing: AgentDistroListing | undefined;
+}): AgentHostDetail | undefined {
+  const { host, setting } = input;
+  const mark = agentMarkOf(host.status, host.checking);
+  if (mark.kind === "none" && mark.why !== "off") return undefined;
+  const plain = (text: string): AgentStatusNote => ({
+    text,
+    title: text,
+    tone: "muted",
+  });
+  const base = {
+    profile: agentProfileTitle(setting.profile, input.listing),
+    cause: [],
+    events: [],
+  } as const;
+  switch (mark.kind) {
+    case "none":
+      return { ...base, state: plain(NONE_LINE.off), action: undefined };
+    case "checking":
+      return { ...base, state: plain("checking…"), action: undefined };
+    case "downloading":
+      return {
+        ...base,
+        state: plain(
+          mark.bytes === undefined
+            ? "downloading…"
+            : `downloading · ${mark.bytes}`,
+        ),
+        action: undefined,
+      };
+    case "failed": {
+      const remedy = agentFailureRemedy(mark.reason);
+      return {
+        ...base,
+        state: { text: "download failed", title: mark.message, tone: "warn" },
+        cause: [mark.message, ...(remedy === undefined ? [] : [remedy])],
+        means: `New terminals on ${host.label} get no coding agents until this is fixed.`,
+        action: "retry",
+      };
+    }
+    case "ready": {
+      const update = agentMarkUpdate(mark);
+      const bytes = agentMarkFill(mark)?.bytes;
+      const receipt = receiptFor(host.receipt, mark.profile);
+      const run = lastRunNoteOf(receipt, host.ago);
+      const state: AgentStatusNote =
+        update === "checking"
+          ? plain(`ready · ${AGENTS_UPDATE_CHECKING}`)
+          : update === "downloading"
+            ? plain(
+                `ready · updating${bytes === undefined ? "…" : ` · ${bytes}`}`,
+              )
+            : run === undefined
+              ? plain("ready")
+              : { ...run, text: `ready · ${run.text}` };
+      return {
+        ...base,
+        hash: mark.hash,
+        state,
+        events:
+          receipt?.error !== undefined
+            ? [
+                {
+                  when: "",
+                  kind: "unreadable",
+                  text: AGENTS_RECEIPT_UNREADABLE,
+                  title: unreadableTitle(receipt.error),
+                  tone: "warn",
+                },
+              ]
+            : (receipt?.events ?? []).map((e) => eventRow(e, host.ago)),
+        action: update === undefined ? "check" : undefined,
+      };
+    }
+    default:
+      return mark satisfies never;
+  }
+}
+
+/** The agents a profile brings, named only — "Claude Code, Codex, OpenCode, Pi
+ *  and Oh My Pi", in the listing's order. The welcome step's line reads this;
+ *  the chips beside it are the same set, one per agent. */
+function harnessNames(profile: AgentDistroProfile): string {
+  const names = profile.harnesses.map((h) => h.title);
+  const last = names.at(-1);
+  if (last === undefined) return "";
+  return names.length === 1
+    ? last
+    : `${names.slice(0, -1).join(", ")} and ${last}`;
+}
+
+/** What the welcome card's Agents step says it brings: the default bundle's
+ *  agents by name, then what kolu does with them. `undefined` until the
+ *  listing arrives, and for a kolu built without agents (the step does not ask
+ *  there). */
 export function agentsStepHint(
   listing: AgentDistroListing | undefined,
 ): string | undefined {
   if (listing?.kind !== "available") return undefined;
   const lead = shippedProfile(listing, DEFAULT_AGENT_PROFILE);
-  const agents = lead === undefined ? "" : harnessLine(lead);
-  return agents === "" ? AGENTS_LEAD : `${AGENTS_LEAD} ${agents}`;
+  const names = lead === undefined ? "" : harnessNames(lead);
+  const what = names === "" ? "Coding agents" : names;
+  return `${what} in every new terminal. Kept up to date, nothing to install.`;
 }
 
-/** What turning agents on does, as the off hint says it. */
-const AGENTS_ON_MEANS =
-  "Turn it on and new terminals start with those agents; what you installed yourself stays as a fallback.";
-
-/** The Agents row's hint while agents are off, written for someone who has
- *  never heard of agent-distro, a profile or the PATH: that kolu can bring AI
- *  coding agents along, which ones (the default profile's, from the listing,
- *  with versions), what turning it on does and what off means — and, while
- *  nothing is chosen, that ({@link AGENTS_NOT_CHOSEN}). Once agents are on the
- *  row says nothing here: the profile field and the lines under it do
- *  ({@link agentsProfileNotes}). It takes the STORED value — `null` while
- *  nothing is chosen — because that difference is one of the things it says. */
+/** The Agents row's hint while agents are off: ONE sentence — what off means,
+ *  and that turning it on starts new terminals with the agents the chips under
+ *  it name. Once agents are on the row says nothing here: the picker and its
+ *  chips do. It takes the STORED value — `null` while nothing is chosen — and
+ *  says the same thing either way: the welcome card carries the "nothing
+ *  chosen yet" state, so the row does not repeat it. */
 export function agentsHint(input: {
   readonly stored: AgentDistroSetting | null;
   readonly listing: AgentDistroListing | undefined;
@@ -921,50 +1073,57 @@ export function agentsHint(input: {
       tone: "muted",
     };
   if (agentDistroSettingOf(input.stored).enabled) return undefined;
-  const lead = shippedProfile(listing, DEFAULT_AGENT_PROFILE);
   return {
-    text: [
-      AGENTS_LEAD,
-      ...(lead === undefined ? [] : [harnessLine(lead)]),
-      AGENTS_ON_MEANS,
-      `Off — ${AGENTS_OFF_MEANS}`,
-      ...(agentsChosen(input.stored) ? [] : [AGENTS_NOT_CHOSEN]),
-    ].join("\n"),
+    text: `Off. ${AGENTS_OFF_MEANS} Turn on and they start with these, kept up to date:`,
     tone: "muted",
   };
 }
 
-/** What the profile field's own notes add under the resolved line. */
+/** What the picker's own fine print adds under the chips. */
 export const AGENTS_REPO_OVERRIDES =
   "A repository with its own agent-distro.nix overrides this.";
 
-/** The notes under the profile field, after the resolved line: the agents of
- *  the selected bundle with their versions — this machine's own, from its
- *  receipt, once it has one (an update moves them past the listing's) — then
- *  {@link AGENTS_REPO_OVERRIDES}. Shown only while agents are on — the
- *  field's own condition. */
-export function agentsProfileNotes(input: {
+/** One agent chip: the agent as people know it, and the version this machine
+ *  has — `undefined` while agents are off, where the set is what kolu would
+ *  bring rather than what any machine holds. */
+export interface AgentChip {
+  readonly title: string;
+  readonly version?: string;
+}
+
+/** The chips under the Agents row — the agents the SETTING's bundle brings,
+ *  each once. The bundle is the one the setting names, or the default when it
+ *  names a reference, exactly as padi's `bundleProfileOf` (`./schema`)
+ *  resolves it — the switch being off changes only the words, never which
+ *  bundle:
+ *
+ *   - agents OFF: its agents by name, no versions (nothing is installed, so
+ *     no version is this machine's);
+ *   - agents ON: its agents with their versions — this machine's own, from
+ *     its receipt, once it has one (an update moves them past the listing's).
+ *
+ *  Empty until the listing arrives, and for a kolu built without agents. */
+export function agentChips(input: {
   readonly setting: AgentDistroSetting;
   readonly listing: AgentDistroListing | undefined;
   /** This machine's receipt: its versions name what this machine has now —
    *  the listing's are the set kolu was built with, which an update leaves
    *  behind. */
   readonly localReceipt: AgentDistroReceipt | undefined;
-}): readonly string[] {
-  const { setting } = input;
-  const profile = selectedAgentProfile(setting, input.listing);
-  // This machine's own versions once its receipt is in — never the floor's
-  // passed off as this machine's: a bundle with no versions file names none.
-  // Before the receipt's first frame, the set kolu ships. Padi names the
-  // receipt for the setting's profile.
+}): readonly AgentChip[] {
+  const { setting, listing } = input;
+  const bundle =
+    shippedProfile(listing, setting.profile) ??
+    shippedProfile(listing, DEFAULT_AGENT_PROFILE);
+  if (bundle === undefined) return [];
+  if (!setting.enabled) return bundle.harnesses.map(({ title }) => ({ title }));
+  // Padi names the receipt for the setting's profile; a receipt for another is
+  // one this machine has not caught up from.
   const receipt = receiptFor(input.localReceipt, setting.profile);
-  const agents =
-    receipt !== undefined
-      ? versionsLine(receipt.versions)
-      : profile === undefined
-        ? ""
-        : harnessLine(profile);
-  return [...(agents === "" ? [] : [agents]), AGENTS_REPO_OVERRIDES];
+  return (receipt?.versions ?? bundle.harnesses).map((h) => ({
+    title: h.title,
+    version: displayVersion(h.version),
+  }));
 }
 
 /** Whether a terminal's agents are still what a NEW terminal on its host would
@@ -1166,14 +1325,31 @@ export const agentToast = {
     }) as const,
 } as const;
 
-/** The Settings button that runs the update check on every machine now. */
+/** The palette command that runs the update check on EVERY machine now. */
 export const AGENTS_CHECK_NOW = {
-  label: "Check now",
-  /** While no connected machine can be asked and one is running an update
-   *  ({@link agentCheckNowLabel}). */
-  busyLabel: "Checking…",
+  label: "Check for newer coding agents",
+  note: "every machine",
   hint: "Look for newer coding agents on every machine now. Nothing is compiled: a newer set is downloaded only once agent-distro's cache holds all of it, and terminals already open keep theirs.",
 } as const;
+
+/** The host-details row that runs the update check on THAT machine. */
+export const AGENTS_HOST_CHECK = {
+  label: "check for newer agents",
+  hint: "Look for newer coding agents on this machine now. Terminals already open keep theirs.",
+} as const;
+
+/** The host-details row that retries a download that failed on THAT machine:
+ *  the chosen setting is pushed to it again, which forgets the failure and
+ *  starts the download over. */
+export const AGENTS_HOST_RETRY = {
+  label: "retry download",
+  hint: "Download the coding agents to this machine again.",
+} as const;
+
+/** A per-host retry that could not reach the machine. */
+export function agentRetryFailed(host: string, message: string): string {
+  return `Could not retry the coding agents download on ${host}: ${message}`;
+}
 
 /** A Check now that could not reach a host (a transport drop, a host gone). */
 export function agentCheckFailed(host: string, message: string): string {
@@ -1202,27 +1378,6 @@ export function agentHostCheckable(host: AgentCheckHost): boolean {
   return host.connected && agentUpdateCheckable(host.status);
 }
 
-/** Is Check now busy — no connected host it could ask now? A first download
- *  elsewhere, or a run of a profile no longer selected, does not make it
- *  busy: only a fleet with nothing to ask does. */
-export function agentCheckNowBusy(hosts: readonly AgentCheckHost[]): boolean {
-  return !hosts.some(agentHostCheckable);
-}
-
-/** Check now's words: "Checking…" only while it is busy AND a connected host
- *  is running an update — a fleet busy with first downloads, or not ready at
- *  all, is not checking, so the button keeps its own label (disabled). */
-export function agentCheckNowLabel(hosts: readonly AgentCheckHost[]): string {
-  const checking =
-    agentCheckNowBusy(hosts) &&
-    hosts.some((h) => {
-      if (!h.connected) return false;
-      const mark = agentMarkOf(h.status, false);
-      return agentMarkUpdate(mark) !== undefined;
-    });
-  return checking ? AGENTS_CHECK_NOW.busyLabel : AGENTS_CHECK_NOW.label;
-}
-
 /** Is a run of the updater in flight on any of these hosts, for any profile —
  *  a first download or an update? Read off each host's receipt (its
  *  `running`), which covers every profile, not only the selected one — what
@@ -1231,75 +1386,6 @@ export function agentUpdateRunning(
   receipts: readonly (AgentDistroReceipt | undefined)[],
 ): boolean {
   return receipts.some((r) => r !== undefined && r.running.length > 0);
-}
-
-/** The History disclosure under the status lines. */
-export const AGENTS_HISTORY = {
-  /** The disclosure's summary — with how many rows it holds, so a closed one
-   *  says there is something inside. */
-  title: (count: number) => (count === 0 ? "History" : `History (${count})`),
-  empty: "No updates yet.",
-} as const;
-
-/** How a history event's kind reads in a row. */
-const EVENT_LABEL: Record<AgentUpdateEvent["kind"], string> = {
-  updated: "updated",
-  skipped: "skipped",
-  failed: "failed",
-};
-
-/** One row of the History: which machine, when, and what happened — an
- *  event in the updater's own words, or (`unreadable`) a host whose history
- *  would not read. One line: `text` may be cut short; `title`, the hover, is
- *  all of it, naming who wrote the words. `warn` for a failure. */
-export interface AgentUpdateHistoryRow {
-  readonly host: string;
-  readonly when: string;
-  readonly kind: AgentUpdateEvent["kind"] | "unreadable";
-  readonly text: string;
-  readonly title: string;
-  readonly tone: "muted" | "warn";
-}
-
-function historyRow(
-  host: string,
-  event: AgentUpdateEvent,
-  ago: AgoPhrase,
-): AgentUpdateHistoryRow {
-  const label = EVENT_LABEL[event.kind];
-  return {
-    host,
-    when: ago(Date.parse(event.at)),
-    kind: event.kind,
-    text: `${label}: ${event.words}`,
-    title: quoted(label, "updater", event.words),
-    tone: event.kind === "failed" ? "warn" : "muted",
-  };
-}
-
-/** The History's rows: each machine's last events (its receipt's, for the
- *  selected profile), the machine running kolu first, newest first within
- *  each. A host whose history would not read gets one row saying so — never
- *  an empty History that reads as "no updates yet". */
-export function agentUpdateHistoryRows(input: {
-  readonly hosts: readonly Pick<HostAgentStatus, "label" | "receipt" | "ago">[];
-  readonly profile: string;
-}): readonly AgentUpdateHistoryRow[] {
-  return input.hosts.flatMap((h): readonly AgentUpdateHistoryRow[] => {
-    const receipt = receiptFor(h.receipt, input.profile);
-    if (receipt?.error !== undefined)
-      return [
-        {
-          host: h.label,
-          when: "",
-          kind: "unreadable",
-          text: AGENTS_RECEIPT_UNREADABLE,
-          title: unreadableTitle(receipt.error),
-          tone: "warn",
-        },
-      ];
-    return (receipt?.events ?? []).map((e) => historyRow(h.label, e, h.ago));
-  });
 }
 
 /** The facts of a status that its moments are read from — plain strings, so a

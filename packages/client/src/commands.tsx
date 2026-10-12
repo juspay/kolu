@@ -8,9 +8,12 @@ import {
 import type { HostKey } from "kolu-common/hostKey";
 import { isValidWorktreeName, WORKTREE_NAME_MESSAGE } from "kolu-git/schemas";
 import { randomName } from "memorable-names";
-import type { Accessor } from "solid-js";
+import type { Accessor, Component } from "solid-js";
 import { createMemo } from "solid-js";
 import { availableThemes } from "terminal-themes";
+import AgentDistroLogo from "@kolu/agent-distro/solid";
+import { AGENTS_CHECK_NOW } from "@kolu/agent-distro/status";
+import { agentDistroListing, checkAgentsNow } from "./agents/useAgentDistro";
 import { aboutDialog } from "./AboutDialog";
 import type {
   PaletteAction,
@@ -58,6 +61,13 @@ import { iconForCommand } from "./ui/agentDisplay";
 import { TerminalIcon } from "./ui/Icons";
 import { welcomeDialog } from "./WelcomeDialog";
 import { padiMap, preferences, updatePreferences } from "./wire";
+
+/** agent-distro's mark as a palette-row icon — the row's icon slot hands a
+ *  `class`, the logo takes a pixel `size`, so the fleet-check row wears the
+ *  same mark as every other agents surface at the slot's 12px. */
+const AgentsIcon: Component<{ class?: string }> = () => (
+  <AgentDistroLogo size={12} />
+);
 
 /** Live worktree-name validator — returns the message to show under the input,
  *  or null when the trimmed name passes.
@@ -519,6 +529,22 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
         ]
       : []),
 
+    // The fleet-wide update check — a palette command, not a Settings button:
+    // it asks EVERY machine, which is what palette actions do, and Settings
+    // keeps only the preference. No chord: it is a rare, deliberate act.
+    // Hidden where there is nothing to check (a kolu built without agents).
+    ...(agentDistroListing()?.kind === "available"
+      ? [
+          {
+            kind: "action" as const,
+            name: AGENTS_CHECK_NOW.label,
+            description: AGENTS_CHECK_NOW.note,
+            section: "commands" as const,
+            icon: AgentsIcon,
+            onSelect: checkAgentsNow,
+          },
+        ]
+      : []),
     // --- Help (reference + advanced) ---
     actionPaletteCommand("shortcutsHelp", deps, {
       name: "Keyboard shortcuts",

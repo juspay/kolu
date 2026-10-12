@@ -48,20 +48,18 @@ import { getNowTicker } from "../terminal/staleness";
 import { app, hostKeys, padiMap, preferences } from "../wire";
 import AgentDistroLogo from "@kolu/agent-distro/solid";
 import {
-  type AgentCheckHost,
+  type AgentFleetGroup,
+  type AgentHostDetail,
   type AgentMark,
-  type AgentStatusLine,
-  type AgentUpdateHistoryRow,
   agentCheckFailed,
-  agentCheckNowBusy,
-  agentCheckNowLabel,
   agentDistroSettingOf,
+  agentFleetSummary,
   agentHostCheckable,
+  agentHostDetail,
   agentMarkOf,
   agentMarkWords,
-  agentStatusLines,
+  agentRetryFailed,
   agentToast,
-  agentUpdateHistoryRows,
   type HostAgentStatus,
 } from "@kolu/agent-distro/status";
 import { watchDownload } from "./firstDownload";
@@ -261,15 +259,23 @@ export function localAgentReceipt(): AgentDistroReceipt | undefined {
   return hostEntry(LOCAL_HOST)?.receipt();
 }
 
-/** Every pool member's facts, the local machine first, labelled as Settings names
- *  them. */
-function everyHostAgentStatus(): readonly HostAgentStatus[] {
+/** Every pool member's facts, the local machine first, each carrying the host
+ *  it is about so a surface can open that machine's details. */
+function everyHostAgentStatus(): readonly (HostAgentStatus & {
+  readonly host: HostKey;
+})[] {
   return [
-    hostAgentStatus(LOCAL_HOST, agentsWhere(LOCAL_HOST)),
+    {
+      host: LOCAL_HOST,
+      ...hostAgentStatus(LOCAL_HOST, agentsWhere(LOCAL_HOST)),
+    },
     ...byHost
       .roots()
       .filter(({ host }) => host.kind !== "local")
-      .map(({ host }) => hostAgentStatus(host, agentsWhere(host))),
+      .map(({ host }) => ({
+        host,
+        ...hostAgentStatus(host, agentsWhere(host)),
+      })),
   ];
 }
 
@@ -278,71 +284,89 @@ export function hostAgentMark(host: HostKey): AgentMark {
   return agentMarkOf(hostAgentStatusOf(host), hostAgentChecking(host));
 }
 
-/** The status lines under Settings' Agents row: the local machine, then the remote
- *  pool members (the fold decides which of them show). */
-export function agentStatusLinesNow(): readonly AgentStatusLine[] {
-  const [local, ...remotes] = everyHostAgentStatus();
-  if (local === undefined) throw new Error("no local host status");
-  return agentStatusLines({ local, remotes });
+/** Settings' ONE fleet line: the local machine first, then every remote pool
+ *  member, grouped by state (`agentFleetSummary`). */
+export function agentFleetNow(): readonly AgentFleetGroup<
+  HostAgentStatus & { readonly host: HostKey }
+>[] {
+  return agentFleetSummary(everyHostAgentStatus());
 }
 
-/** The History rows under the status lines: each machine's recent update
- *  events for the selected profile. */
-export function agentUpdateHistoryNow(): readonly AgentUpdateHistoryRow[] {
-  return agentUpdateHistoryRows({
-    hosts: everyHostAgentStatus(),
-    profile: agentDistroSetting().profile,
+/** What `host`'s details say about its agents (`agentHostDetail`) —
+ *  `undefined` when there are no agents to describe there. */
+export function hostAgentDetail(host: HostKey): AgentHostDetail | undefined {
+  return agentHostDetail({
+    host: hostAgentStatus(host, agentsWhere(host)),
+    setting: agentDistroSetting(),
+    listing: agentDistroListing(),
   });
 }
 
-/** Every pool member as Check now sees it: connected, and its status. */
-function checkHostsNow(): readonly (AgentCheckHost & {
-  readonly host: HostKey;
-})[] {
-  return byHost.roots().map(({ host, read }) => ({
-    host,
+/** Can `host` be asked to check for newer agents right now — connected, ready,
+ *  with no run going there (`agentHostCheckable`)? What its row in that
+ *  machine's host details is enabled by. */
+export function agentHostCheckableNow(host: HostKey): boolean {
+  return agentHostCheckable({
     connected: padiMap.entry(host).state().kind === "connected",
-    status: read(),
-  }));
+    status: hostAgentStatusOf(host),
+  });
 }
 
-/** Check now's busy state — no connected host it could ask now
- *  (`agentCheckNowBusy`). */
-export function agentCheckNowBusyNow(): boolean {
-  return agentCheckNowBusy(checkHostsNow());
-}
-
-/** Check now's words (`agentCheckNowLabel`). */
-export function agentCheckNowLabelNow(): string {
-  return agentCheckNowLabel(checkHostsNow());
-}
-
-/** "Check now": ask every machine that serves agents to run its update check
- *  at once — one call per host. A host that refuses because a run is already
- *  going there is an ordinary answer; any other failure is that host's toast. */
-export function checkAgentsNow(): void {
-  for (const h of checkHostsNow()) {
-    // The same per-host test as the button's busy state.
-    if (!agentHostCheckable(h)) continue;
-    const { host } = h;
-    runAction(
-      "check for newer agents",
-      padiMap
-        .entry(host)
-        .procedures.agentDistro.checkNow()
-        .pipe(
-          Effect.catchTag("AgentDistroCheckRefused", () => Effect.void),
-          Effect.catch((err) =>
-            Effect.sync(() => {
-              toast.error(
-                agentCheckFailed(
-                  agentsWhere(host),
-                  err instanceof Error ? err.message : String(err),
-                ),
-              );
-            }),
-          ),
+/** Ask ONE machine to run its update check now. A refusal because a run is
+ *  already going there is an ordinary answer; any other failure is a toast. */
+export function checkAgentsOn(host: HostKey): void {
+  runAction(
+    "check for newer agents",
+    padiMap
+      .entry(host)
+      .procedures.agentDistro.checkNow()
+      .pipe(
+        Effect.catchTag("AgentDistroCheckRefused", () => Effect.void),
+        Effect.catch((err) =>
+          Effect.sync(() => {
+            toast.error(
+              agentCheckFailed(
+                agentsWhere(host),
+                err instanceof Error ? err.message : String(err),
+              ),
+            );
+          }),
         ),
-    );
-  }
+      ),
+  );
+}
+
+/** The palette's "Check for newer coding agents": ask every machine kolu can
+ *  reach to run its update check at once — one call per host. WHETHER a
+ *  machine may check is padi's own verdict (a run already going, nothing to
+ *  serve): `checkAgentsOn` takes its refusal as an ordinary answer, so the
+ *  rule lives on one side of the daemon boundary, where it revs. */
+export function checkAgentsNow(): void {
+  for (const { host } of byHost.roots())
+    if (padiMap.entry(host).state().kind === "connected") checkAgentsOn(host);
+}
+
+/** Retry ONE machine's failed download (`agentDistro.retryDownload`): that
+ *  host forgets the failure and settles its setting again, which starts the
+ *  download over. The status cell then says what happened — a download, or the
+ *  same failure again — so there is nothing to report on success. */
+export function retryAgentsOn(host: HostKey): void {
+  runAction(
+    "retry the agents download",
+    padiMap
+      .entry(host)
+      .procedures.agentDistro.retryDownload()
+      .pipe(
+        Effect.catch((err) =>
+          Effect.sync(() => {
+            toast.error(
+              agentRetryFailed(
+                agentsWhere(host),
+                err instanceof Error ? err.message : String(err),
+              ),
+            );
+          }),
+        ),
+      ),
+  );
 }

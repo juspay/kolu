@@ -7,6 +7,7 @@ describe("selectWelcomeMoments", () => {
     expect(
       selectWelcomeMoments({
         chooseAgentsDone: false,
+        chooseAgentsDismissed: false,
         pinDone: false,
         reachDone: false,
         hostsDone: false,
@@ -21,6 +22,7 @@ describe("selectWelcomeMoments", () => {
     expect(
       selectWelcomeMoments({
         chooseAgentsDone: false,
+        chooseAgentsDismissed: false,
         pinDone: true,
         reachDone: true,
         hostsDone: true,
@@ -35,6 +37,7 @@ describe("selectWelcomeMoments", () => {
     expect(
       selectWelcomeMoments({
         chooseAgentsDone: undefined,
+        chooseAgentsDismissed: false,
         pinDone: true,
         reachDone: false,
         hostsDone: false,
@@ -45,10 +48,26 @@ describe("selectWelcomeMoments", () => {
     });
   });
 
+  it("Not now: the row goes and the header says nothing — nothing was chosen", () => {
+    expect(
+      selectWelcomeMoments({
+        chooseAgentsDone: false,
+        chooseAgentsDismissed: true,
+        pinDone: false,
+        reachDone: false,
+        hostsDone: false,
+      }),
+    ).toEqual({
+      done: [],
+      rows: ["pin", "reach", "agents"],
+    });
+  });
+
   it("agents chosen, nothing else done: the choice in the header, then the first three", () => {
     expect(
       selectWelcomeMoments({
         chooseAgentsDone: true,
+        chooseAgentsDismissed: false,
         pinDone: false,
         reachDone: false,
         hostsDone: false,
@@ -63,6 +82,7 @@ describe("selectWelcomeMoments", () => {
     expect(
       selectWelcomeMoments({
         chooseAgentsDone: true,
+        chooseAgentsDismissed: false,
         pinDone: true,
         reachDone: true,
         hostsDone: false,
@@ -77,6 +97,7 @@ describe("selectWelcomeMoments", () => {
     expect(
       selectWelcomeMoments({
         chooseAgentsDone: true,
+        chooseAgentsDismissed: false,
         pinDone: true,
         reachDone: true,
         hostsDone: true,
@@ -91,6 +112,7 @@ describe("selectWelcomeMoments", () => {
     expect(
       selectWelcomeMoments({
         chooseAgentsDone: true,
+        chooseAgentsDismissed: false,
         pinDone: true,
         reachDone: false,
         hostsDone: false,
@@ -105,6 +127,7 @@ describe("selectWelcomeMoments", () => {
     expect(
       selectWelcomeMoments({
         chooseAgentsDone: true,
+        chooseAgentsDismissed: false,
         pinDone: false,
         reachDone: false,
         hostsDone: true,

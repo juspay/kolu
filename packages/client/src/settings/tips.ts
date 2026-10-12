@@ -72,6 +72,11 @@ export const AMBIENT_TIPS: readonly Tip[] = [
     doc: "remote-hosts",
   },
   {
+    id: "amb-agents-host-mark",
+    text: "Click the agent-distro mark on a host tab for that machine's agents: the profile and build its new terminals get, when it last updated, and — if its download failed — the cause and a retry",
+    doc: "agents",
+  },
+  {
     id: "amb-attention-jump",
     text: "A violet count means agents are blocked on you — click it to jump straight to one, and again to walk the rest. Rust counts what is working; amber counts what finished while you were away",
     doc: "notifications",

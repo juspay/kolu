@@ -1,5 +1,5 @@
 /** Minimal toggle switch — used in SettingsPopover for boolean settings, and
- *  as the Agents switch (Settings and the welcome card's first-run step). */
+ *  as the Agents switch in Settings → Agents. */
 
 import type { Component } from "solid-js";
 
@@ -9,13 +9,8 @@ const Toggle: Component<{
   testId: string;
   /** Its accessible name, where no visible label is tied to it. */
   label?: string;
-  /** Focus it on mount (the first-run step, while nothing is chosen). */
-  autofocus?: boolean;
 }> = (props) => (
   <button
-    ref={(el) => {
-      if (props.autofocus) queueMicrotask(() => el.focus());
-    }}
     type="button"
     role="switch"
     aria-checked={props.enabled}

@@ -56,7 +56,6 @@ import {
   createEffect,
   createMemo,
   createSignal,
-  createSelector,
   For,
   onCleanup,
   Show,
@@ -74,7 +73,11 @@ import { useServerIdentity } from "../useServerIdentity";
 import { activeHost, padiMap, setActiveHost } from "../wire";
 import { addHost } from "./addHost";
 import { focusOnMount } from "./focusOnMount";
-import { HostDiagnosticsPopover } from "./HostDiagnosticsPopover";
+import {
+  releaseHostDiagnosticsAnchor,
+  toggleHostDiagnostics,
+  useHostDiagnosticsSelector,
+} from "./useHostDiagnosticsOpen";
 import { HostIdentityLabel } from "./HostIdentityLabel";
 import AgentDistroHostMark from "../agents/AgentDistroHostMark";
 import { forwardRingLabel, HostStatusDot } from "./HostStatusDot";
@@ -116,15 +119,6 @@ const ADD_BUTTON_RESERVE: number = 38;
  *  key), never a `HostKey` object. */
 const labelForKey: (key: string) => string = (key) =>
   hostLabel(decodeHostKey(key));
-
-/** Accessors the strip owns for the one-open-diagnostics key — passed into
- *  each chip so open state dies with the strip (no module-lifetime leak). */
-type DiagnosticsCtl = {
-  isOpen: (encKey: string) => boolean;
-  open: (encKey: string) => void;
-  close: () => void;
-  toggle: (encKey: string) => void;
-};
 
 /** Data-free geometry shared by the live chip and its measuring twin. */
 const HostChipShell: Component<{
@@ -179,7 +173,6 @@ const HostChipShell: Component<{
 
 const HostChip: Component<{
   host: HostKey;
-  diagnostics: DiagnosticsCtl;
 }> = (props) => {
   // The PURE lens per chip (the host is fixed for this chip's lifetime — the `<For>`
   // gives each chip its own reactive owner, disposed when the host leaves the pool).
@@ -212,8 +205,10 @@ const HostChip: Component<{
   const statusDot = () => chipStatusDot(props.host, state(), kaval());
   const { hostname } = useServerIdentity();
   const name = () => hostDisplayName(props.host, hostname());
-  // Strip-owned open key — only ONE diagnostics panel mounts at a time.
-  const diagOpen = () => props.diagnostics.isOpen(encKey);
+  // Shared open key — only ONE diagnostics panel is open at a time, and the
+  // agents mark and Settings' Agents line open it too.
+  const isOpen = useHostDiagnosticsSelector();
+  const diagOpen = () => isOpen(encKey);
 
   let chipEl: HTMLDivElement | undefined;
 
@@ -221,7 +216,13 @@ const HostChip: Component<{
   // border/bg/text COLOR. Identity switches; status pip opens diagnostics.
   return (
     <div
-      ref={chipEl}
+      ref={(el) => {
+        chipEl = el;
+        // This chip owns the element it hands the panel: when it unmounts
+        // (overflow fit, the `md` row going away) the panel must not stay
+        // floating against a detached node.
+        onCleanup(() => releaseHostDiagnosticsAnchor(el));
+      }}
       class="group -mb-px flex items-center shrink-0 text-xs"
       data-testid="host-chip"
       data-host={encKey}
@@ -252,7 +253,12 @@ const HostChip: Component<{
           title: `${glance().title}${activeSuffix()} — click for details`,
           onClick: (e) => {
             e.stopPropagation();
-            props.diagnostics.toggle(encKey);
+            // The pip is INSIDE the chip, so the ref is set by the time it
+            // can be clicked — fail loudly if that ever stops holding rather
+            // than eating the click.
+            if (chipEl === undefined)
+              throw new Error("host chip has no element to hang details off");
+            toggleHostDiagnostics(encKey, chipEl);
           },
         }}
         select={{
@@ -291,14 +297,9 @@ const HostChip: Component<{
         agents={<AgentDistroHostMark host={props.host} />}
         stripe={<HostTabWorkingStripe active={marks.active()} />}
       />
-      <Show when={diagOpen()}>
-        <HostDiagnosticsPopover
-          host={props.host}
-          triggerRef={() => chipEl}
-          open={diagOpen}
-          onDismiss={props.diagnostics.close}
-        />
-      </Show>
+      {/* The panel itself mounts once at the shell
+          (`host/HostDiagnosticsHost`): Settings opens it too, at widths
+          where this chip row is not mounted at all. */}
     </div>
   );
 };
@@ -669,24 +670,11 @@ const HostSelectorStrip: Component = () => {
   // `onError` (shared with the mobile row).
   const renderableHosts = useHostMembers();
 
-  // One open diagnostics host — strip-owned (dies with the strip; cleared when
-  // the keyed host leaves membership so a re-add never reopens stale).
-  const [diagKey, setDiagKey] = createSignal<string | null>(null);
-  const selectedDiagnostic = createSelector(diagKey);
-  const diagnostics: DiagnosticsCtl = {
-    isOpen: selectedDiagnostic,
-    open: (encKey) => setDiagKey(encKey),
-    close: () => setDiagKey(null),
-    toggle: (encKey) => setDiagKey((cur) => (cur === encKey ? null : encKey)),
-  };
-  createEffect(() => {
-    const open = diagKey();
-    if (open === null) return;
-    const stillMember = renderableHosts().some(
-      (h) => encodeHostKey(h) === open,
-    );
-    if (!stillMember) setDiagKey(null);
-  });
+  // WHICH host's details are open is a module singleton
+  // (`useHostDiagnosticsOpen`), and the panel mounts once at the shell
+  // (`HostDiagnosticsHost`), which also closes a key whose host left the
+  // pool — this strip is not mounted at every width, so neither the panel
+  // nor that invariant can live here.
 
   // ── Overflow fit (narrow-window stage 3) ──────────────────────────────
   // Real DOM measurement: a HIDDEN row (absolutely positioned, `invisible`,
@@ -781,9 +769,7 @@ const HostSelectorStrip: Component = () => {
           data-testid="host-chip-row"
         >
           <For each={hostFit().visible}>
-            {(key) => (
-              <HostChip host={decodeHostKey(key)} diagnostics={diagnostics} />
-            )}
+            {(key) => <HostChip host={decodeHostKey(key)} />}
           </For>
           <Show when={hostFit().overflowed.length > 0}>
             <HostOverflowMenu hosts={hostFit().overflowed} />

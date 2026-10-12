@@ -139,8 +139,10 @@ same way the setting does — as words, never as files. A flake reference
 only on a host that holds that folder. Elsewhere it does not resolve, and the
 agents in that host's new terminals fail to start until it does — inside a
 repository with its own `agent-distro.nix` they still run, and the terminal's
-pill names the profile agent-distro actually used there. The line under
-Settings' profile field speaks for the machine running kolu only.
+pill names the profile agent-distro actually used there. The line under the
+reference field in Settings (the picker's **Custom…** card) speaks for the
+machine running kolu only; what every other machine made of the profile is in
+its own host details.
 
 Each host is a **tab**: **local** is a Home icon plus the machine hostname
 kolu is running on; remotes show the ssh target. Every tab carries a
@@ -161,9 +163,11 @@ green: that combination is the one that used to read as healthy while nothing
 would run.
 
 Click the **connection pip** for the **diagnostics popover** — connection
-state, terminal and awaiting counts, padi·kaval detail, remove-with-confirm.
-The **label** (Home or hostname) only switches hosts; diagnostics is never
-hover-opened.
+state, terminal and awaiting counts, that machine's **agents** (the profile and
+build its new terminals get, its last update, and its check-or-retry button —
+the same popover the tab's agent-distro mark opens), padi·kaval detail,
+remove-with-confirm. The **label** (Home or hostname) only switches hosts;
+diagnostics is never hover-opened.
 
 <Aside type="note" title="What a cold connect shows you">
   A first-time provisioning **narrates itself** on the canvas:
