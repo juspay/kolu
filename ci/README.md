@@ -42,10 +42,12 @@ just ci::attach
 
 ## Platforms and hosts
 
-Every reachable recipe runs on:
-
-- `x86_64-linux`
-- `aarch64-darwin`
+Every reachable recipe is attributed for both `x86_64-linux` and
+`aarch64-darwin`, but a run only covers the platforms it names. This repo gates
+on **`x86_64-linux`** — that is what `ci/protect` pins and what agents run.
+Add `aarch64-darwin` explicitly (`platforms=`, or `--platform aarch64-darwin`
+for `just ci::protect`) when you actually want the darwin lane. Darwin's Nix
+closure is still built on every push by `.github/workflows/nix-cache.yml`.
 
 Lane hosts come from `$ODU_HOSTS`, then `~/.config/odu/hosts.json`, with
 `~/.config/justci/hosts.json` accepted as the legacy location. A localhost lane
