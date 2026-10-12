@@ -76,6 +76,41 @@ index 2222222..0000000
     ]);
   });
 
+  it("keys the selected path by name, not position", () => {
+    // A user `diff.orderFile` can put a former child ahead of the path itself.
+    const raw = `diff --git a/a/b/c b/a/b/c
+new file mode 100644
+index 0000000..1111111
+--- /dev/null
++++ b/a/b/c
+@@ -0,0 +1 @@
++c
+diff --git a/a/b b/a/b
+deleted file mode 100644
+index 2222222..0000000
+--- a/a/b
++++ /dev/null
+@@ -1 +0,0 @@
+-b
+`;
+    const errors: Error[] = [];
+    const items = diffItems("a/b", raw, (e) => errors.push(e));
+    expect(errors).toEqual([]);
+    expect(items.map((i) => [i.id, i.fileDiff.name])).toEqual([
+      ["a/b/c", "a/b/c"],
+      ["a/b", "a/b"],
+    ]);
+  });
+
+  it("reports a multi-file patch with no file named for the selected path", () => {
+    const errors: Error[] = [];
+    const twoFiles = `${newFileDiff("one")}${newFileDiff("two").replaceAll("note.txt", "other.txt")}`;
+    expect(diffItems("missing.txt", twoFiles, (e) => errors.push(e))).toEqual(
+      [],
+    );
+    expect(errors).toHaveLength(1);
+  });
+
   it("reports a non-empty diff that parses to no file", () => {
     const errors: Error[] = [];
     expect(diffItems("x", "not a diff\n", (e) => errors.push(e))).toEqual([]);

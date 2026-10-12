@@ -62,11 +62,24 @@ export const diffItems = (
     onError(new Error(`No file entry parsed from diff for ${id}`));
     return [];
   }
-  // The first file keeps the caller's `id` — it is the selected path itself,
-  // and line selection is keyed by it. Any further file is a former child of a
-  // type-changed path and is keyed by its own name, unique within one patch.
+  // The selected path's own file keeps the caller's `id`; every other file is
+  // a former child of a type-changed path, keyed by its own name (unique
+  // within one patch). A one-file patch IS the selected path, whatever git
+  // spelled its header (a name with a quote or backslash stays C-quoted even
+  // under `core.quotePath=false`). In a multi-file patch the selected path is
+  // found by name, not position — `diff.orderFile` can reorder git's output —
+  // and a patch with no file of that name is reported, not guessed at.
+  const own = files.length === 1 ? 0 : files.findIndex((f) => f.name === id);
+  if (own === -1) {
+    onError(
+      new Error(
+        `Diff for ${id} has ${files.length} files and none is named ${id}`,
+      ),
+    );
+    return [];
+  }
   return files.map((fileDiff, i) => {
-    const itemId = i === 0 ? id : fileDiff.name;
+    const itemId = i === own ? id : fileDiff.name;
     return {
       id: itemId,
       type: "diff",
