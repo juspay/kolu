@@ -20,6 +20,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import type { AgentLifecycleState } from "./agent-lifecycle.ts";
+import { printfEscapedAscii } from "./asciiTyping.ts";
 
 const SESSION_ID = "01a0a0e3-1843-701b-bfde-c9c816e3e92f";
 const TITLE_SLOT_BYTES = 256;
@@ -292,7 +293,8 @@ export function ompMockPayload(opts: {
     "│ up/down navigate  enter select  esc cancel     │",
     "╰───────────────────────────────────────────────╯",
   ]
-    .map((line) => `"${line}"`)
+    // Octal-escaped for `%b`, so the typed payload stays ASCII (asciiTyping.ts).
+    .map((line) => `"${printfEscapedAscii(line)}"`)
     .join(" ");
   const writeCrumb = String.raw`printf "%s\n%s\nfresh\n" "$PWD" "${opts.transcriptPath}" > "${opts.breadcrumbDir}/$t"`;
   // omp's `getTerminalId()`: the tty path with `/dev/` stripped and `/` → `-`.
@@ -307,7 +309,7 @@ export function ompMockPayload(opts: {
     slashesToDashes,
     writeCrumb,
     String.raw`printf "\033]0;omp\007"`,
-    `while IFS= read -r ompcmd; do case "$ompcmd" in approval) printf "%s\\n" ${approval} ;; clear) for i in {1..40}; do printf "omp-clear %s\\n" "$i"; done ;; esac; done`,
+    `while IFS= read -r ompcmd; do case "$ompcmd" in approval) printf "%b\\n" ${approval} ;; clear) for i in {1..40}; do printf "omp-clear %s\\n" "$i"; done ;; esac; done`,
     ":",
   ].join(" ; ");
 }
