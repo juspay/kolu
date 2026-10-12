@@ -433,7 +433,9 @@ kolu-spawned PTY, or in one that predates this var and hasn't been respawned yet
 (a fresh terminal — or sleep/wake — stamps it).
 
 **`kolu ls` is the roster** — one row per terminal (`ID · STATE · REPO·BRANCH ·
-PR · AGENT · FOREGROUND`), `--json` for the full records. `kolu watch [id]`
+PR · AGENT · FOREGROUND`; REPO·BRANCH is `—` outside a repo and `?` while git
+is not checked yet), `--json` for the full records (a repo sits at
+`.git.info`, with `.git.kind` one of `repo`, `none`, `unresolved`). `kolu watch [id]`
 streams changes and live output activity until you interrupt it.
 
 **`kolu watch` is also the supervision loop.** `--states waiting,awaiting`
