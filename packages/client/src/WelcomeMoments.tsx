@@ -174,30 +174,26 @@ const ChooseAgentsMoment: Component<{ onNotNow: () => void }> = (props) => (
         body={parts.stepHint()}
         details={
           // The key belongs to the STEP, not to one control in it: whichever
-          // card has the focus, Enter takes the picked one.
+          // card has the focus, Enter takes the card picked right then.
           <div
             on:keydown={(e) => {
-              if (e.key !== "Enter") return;
-              const turnOn = parts.turnOn;
-              if (turnOn === undefined) return;
+              if (e.key !== "Enter" || !parts.canTurnOn()) return;
               e.preventDefault();
-              turnOn();
+              parts.turnOn();
             }}
           >
             {parts.picker}
             <div class="mt-2.5 flex items-center gap-3.5">
-              <Show when={parts.turnOn}>
-                {(turnOn) => (
-                  <button
-                    type="button"
-                    data-testid="welcome-agents-turn-on"
-                    class="inline-flex cursor-pointer items-center gap-2 rounded-lg bg-accent px-3 py-1.5 text-xs font-semibold text-surface-1 transition-all hover:brightness-110"
-                    onClick={() => turnOn()()}
-                  >
-                    Turn on
-                    <Kbd>⏎</Kbd>
-                  </button>
-                )}
+              <Show when={parts.canTurnOn()}>
+                <button
+                  type="button"
+                  data-testid="welcome-agents-turn-on"
+                  class="inline-flex cursor-pointer items-center gap-2 rounded-lg bg-accent px-3 py-1.5 text-xs font-semibold text-surface-1 transition-all hover:brightness-110"
+                  onClick={() => parts.turnOn()}
+                >
+                  Turn on
+                  <Kbd>⏎</Kbd>
+                </button>
               </Show>
               <button
                 type="button"

@@ -14,7 +14,7 @@
  *  host applies it to its NEXT new terminal. */
 
 import type { Hint } from "../settings/SettingRow";
-import { createSignal, type JSX, Show } from "solid-js";
+import { createEffect, createSignal, type JSX, on, Show } from "solid-js";
 import { agentDistroSettingEqual } from "@kolu/agent-distro/schema";
 import { toast } from "solid-sonner";
 import Toggle from "../ui/Toggle";
@@ -102,9 +102,13 @@ export interface AgentsChooserParts {
   readonly chips: JSX.Element;
   /** The ONE fleet line — present only while agents are on. */
   readonly fleet: JSX.Element;
-  /** Turn agents on with the picked card — the welcome step's Enter action.
-   *  `undefined` until the listing has a card to turn on. */
-  readonly turnOn: (() => void) | undefined;
+  /** Turn agents on with the card picked RIGHT NOW — the welcome step's Enter
+   *  action and its button. A no-op until the listing has a card to turn on;
+   *  {@link AgentsChooserParts.canTurnOn} is what decides whether the button
+   *  shows. */
+  readonly turnOn: () => void;
+  /** Is there a card to turn on yet? False until the listing arrives. */
+  readonly canTurnOn: () => boolean;
 }
 
 export default function AgentsChooser(props: {
@@ -122,17 +126,31 @@ export default function AgentsChooser(props: {
   const cards = () => agentProfileCards(agentDistroListing());
   /** The card picked but NOT written: Custom… anywhere (it writes only once
    *  its field does), and every card in a deferred picker (the welcome step,
-   *  which writes when "Turn on" is pressed). A written pick clears it, so the
-   *  stored value is what the picker shows — a write from another tab moves it
-   *  too. */
+   *  which writes when "Turn on" is pressed). It is dropped the moment the
+   *  STORED setting moves — a write from this picker, from another tab, or
+   *  the switch going off — so the picker never keeps showing Custom… for a
+   *  setting that names a card. */
   const [pending, setPending] = createSignal<AgentProfileCard | undefined>();
+  createEffect(
+    on(
+      () => agentDistroStored(),
+      () => setPending(undefined),
+      { defer: true },
+    ),
+  );
   const cardFor = (profile: string | undefined) =>
     cards().find((c) => c.profile === profile);
-  const selected = () =>
-    pending() ??
-    (props.deferred === true
+  const selected = () => {
+    const picked =
+      pending() ??
+      agentSelectedCard(agentDistroSetting(), agentDistroListing());
+    // The welcome step offers no Custom… card, so a stored reference (agents
+    // switched off after one was picked) falls back to the default one: the
+    // step must always have a card to turn on.
+    return props.deferred === true && picked?.profile === undefined
       ? cards().find((c) => c.isDefault)
-      : agentSelectedCard(agentDistroSetting(), agentDistroListing()));
+      : picked;
+  };
   const pick = (profile: string | undefined) => {
     if (profile === undefined || props.deferred === true) {
       setPending(cardFor(profile));
@@ -208,9 +226,14 @@ export default function AgentsChooser(props: {
         <AgentsFleetLine groups={agentFleetNow()} />
       </Show>
     ),
-    turnOn: (() => {
+    // Read at PRESS time, never at mount: the card is picked after this
+    // object is built, and a value captured here would freeze the first
+    // answer (and, before the listing arrives, freeze "nothing to turn on").
+    turnOn: () => {
       const profile = selected()?.profile;
-      return profile === undefined ? undefined : () => choose({ profile });
-    })(),
+      if (profile === undefined) return;
+      choose({ profile });
+    },
+    canTurnOn: () => selected()?.profile !== undefined,
   });
 }
