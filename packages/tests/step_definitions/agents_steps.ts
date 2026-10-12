@@ -23,13 +23,14 @@ import { agentBundleShortHash } from "@kolu/agent-distro/bundle";
 import type {
   AgentDistroReceipt,
   AgentDistroResolved,
+  AgentDistroSetting,
   AgentDistroStatus,
 } from "@kolu/agent-distro/schema";
 import {
   AGENTS_CHECK_NOW,
   AGENTS_OFF_MEANS,
   AGENTS_UNRESOLVED_MEANS,
-  agentProfileTitle,
+  agentProfileCards,
   agentToast,
   agentsChosenLabel,
   agentsResolvedLine,
@@ -202,12 +203,36 @@ Then(
   },
 );
 
+/** A run in flight is VISIBLE on the tab: the mark keeps its ready colour and
+ *  carries the phase (`checking` before bytes move, `downloading` once they
+ *  do) — either is the fact this pins. */
+Then(
+  "the host tab's agents mark should show an update running",
+  async function (this: KoluWorld) {
+    await this.page
+      .locator(`${HOST_AGENTS_MARK}[data-state="ready"][data-update]`)
+      .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+  },
+);
+
 Then(
   "the host tab should show no agents mark",
   async function (this: KoluWorld) {
     await this.page
       .locator(HOST_AGENTS_MARK)
       .waitFor({ state: "detached", timeout: POLL_TIMEOUT });
+  },
+);
+
+/** Below `md` the host tabs are mounted but hidden — the mark is in the DOM
+ *  and on no screen, which is exactly the width where the fleet line's name
+ *  is the only way to that machine's details. */
+Then(
+  "the host tab's agents mark should not be on screen",
+  async function (this: KoluWorld) {
+    await this.page
+      .locator(HOST_AGENTS_MARK)
+      .waitFor({ state: "hidden", timeout: POLL_TIMEOUT });
   },
 );
 
@@ -337,6 +362,20 @@ Then(
   },
 );
 
+/** The machine's name on Settings' fleet line opens that machine's details —
+ *  at EVERY width, including ones where the host tabs are not mounted. */
+When(
+  "I click this machine's name on the Agents fleet line",
+  async function (this: KoluWorld) {
+    await this.page.click(
+      `${IN_SETTINGS} [data-testid="agents-fleet-host"][data-host="${LOCAL_NAME}"]`,
+    );
+    await this.page
+      .locator(HOST_DETAILS)
+      .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+  },
+);
+
 Then(
   "this machine's host details should show its agents section",
   async function (this: KoluWorld) {
@@ -377,13 +416,16 @@ Then(
   },
 );
 
+/** The section itself says which machine it is about — its own `data-host`,
+ *  not the popover's header (which names the host whether or not the agents
+ *  section rendered at all). */
 Then(
   "the agents section names this machine by its hostname",
   async function (this: KoluWorld) {
     await this.page
-      .locator(HOST_DETAILS)
-      .filter({ hasText: LOCAL_NAME })
-      .first()
+      .locator(
+        `${HOST_DETAILS} [data-testid="host-agents"][data-host="${LOCAL_NAME}"]`,
+      )
       .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
   },
 );
@@ -399,6 +441,35 @@ Then(
         `${FOCUSED_TILE} [data-testid="tile-agent-chip"][data-profile="${FIXTURE_REFERENCE_PROFILE.name}"]`,
       )
       .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+  },
+);
+
+/** The state line while a run is in flight — "ready · checking for newer
+ *  agents…" before bytes move, "ready · updating…" once they do. */
+Then(
+  "this machine's agents section should say it is looking for newer agents",
+  async function (this: KoluWorld) {
+    await this.page
+      .locator(AGENTS_STATE)
+      .filter({ hasText: /^ready · (checking for newer agents…|updating)/ })
+      .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+  },
+);
+
+/** What kolu-server pushed to padi — the stored preference through its one
+ *  fold, which is what a pick writes. */
+Then(
+  "the stored Agents profile should be {string}",
+  async function (this: KoluWorld, profile: string) {
+    await waitForPadiCell({
+      memberVerb: "agentDistro/get",
+      accept: (v) => {
+        const setting = v as AgentDistroSetting;
+        return setting.enabled && setting.profile === profile;
+      },
+      what: `the stored Agents profile ${profile}`,
+      timeoutMs: POLL_TIMEOUT,
+    });
   },
 );
 
@@ -641,6 +712,17 @@ When("I press Not now on the first-run step", async function (this: KoluWorld) {
   await this.waitForFrame();
 });
 
+/** Pick a card in the welcome step — nothing is written until "Turn on". */
+When(
+  "I pick the {string} first-run card",
+  async function (this: KoluWorld, profile: string) {
+    const target = this.page.locator(card(profile, FIRST_RUN));
+    await target.waitFor({ state: "attached", timeout: POLL_TIMEOUT });
+    await target.dispatchEvent("click");
+    await this.waitForFrame();
+  },
+);
+
 Then(
   "keyboard focus should be on the picked first-run card",
   async function (this: KoluWorld) {
@@ -692,14 +774,15 @@ Then(
 );
 
 /** The done line names the profile the way the picker does — "Agents: Vanilla
- *  ✓", never a flake reference. */
+ *  ✓", never a flake reference. The name is a CARD's, so a reference kolu
+ *  names (Juspay) reads as its name too. */
 Then(
   "the welcome card's done line should say agents are {string}",
   async function (this: KoluWorld, name: string) {
-    const profile = FIXTURE_PROFILES.find(
-      (p) => agentProfileTitle(p, FIXTURE_LISTING) === name,
-    );
-    assert.ok(profile, `no fixture profile is named ${name}`);
+    const profile = agentProfileCards(FIXTURE_LISTING).find(
+      (c) => c.title === name,
+    )?.profile;
+    assert.ok(profile, `no profile card is named ${name}`);
     // The fixture resolves every profile these scenarios choose.
     const label = agentsChosenLabel(
       { enabled: true, profile },

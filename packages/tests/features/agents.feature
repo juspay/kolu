@@ -36,15 +36,17 @@ Feature: Agents come with kolu
     And the terminal's agent-distro should name the "vanilla" profile
     And there should be no page errors
 
-  Scenario: Picking another profile card reaches the next terminal, and off removes both
+  Scenario: Picking the Juspay card reaches the next terminal, and off removes both
     Given the terminal is ready
     When I click the settings button
-    And I pick the "juspay" profile card
-    Then padi should give new terminals the "juspay" agents
+    And I pick the "github:juspay/skills" profile card
+    Then the stored Agents profile should be "github:juspay/skills"
+    And padi should give new terminals the "github:juspay/skills" agents
     When I press Escape
     And I create a terminal
-    Then the focused tile should show the "juspay" agents chip
-    And the terminal's claude should be the "juspay" fixture
+    Then the focused tile's agents chip should name the profile in effect from the reference
+    And the terminal's AI_PROFILE should be "github:juspay/skills"
+    And the terminal's claude should be the "vanilla" fixture
     When I click the settings button
     And I turn Agents off
     Then padi should give new terminals no agents
@@ -123,6 +125,18 @@ Feature: Agents come with kolu
     Then the host tab should show no agents mark
     And there should be no page errors
 
+  Scenario: A machine's name on the Agents fleet line opens its details, at a width with no host tabs
+    Given the terminal is ready
+    When I resize the viewport to 700x1200
+    And I click the settings button
+    And I pick the "vanilla" profile card
+    Then the Agents fleet line should say this machine is ready
+    And the host tab's agents mark should not be on screen
+    When I click this machine's name on the Agents fleet line
+    Then this machine's host details should show its agents section
+    And the agents section names this machine by its hostname
+    And there should be no page errors
+
   Scenario: A terminal whose agents went stale restarts in place with the new ones
     Given the terminal is ready
     When I click the settings button
@@ -134,16 +148,16 @@ Feature: Agents come with kolu
     When I run 'cd "$(mktemp -d)" && cd "$(pwd -P)" && pwd -P > here && echo $$ > pid && export X=1'
     And I remember the focused tile
     And I click the settings button
-    And I pick the "juspay" profile card
-    Then padi should give new terminals the "juspay" agents
+    And I pick the "github:juspay/skills" profile card
+    Then padi should give new terminals the "github:juspay/skills" agents
     When I press Escape
     Then the focused tile's agents chip should be stale with a Restart button
     When I click Restart on the focused tile
-    Then a toast should say the terminal restarted with the "juspay" agents
+    Then a toast should say the terminal restarted with the "github:juspay/skills" agents
     And the focused tile should paint a fresh screen without "export X=1"
     And the focused tile should be the one I remembered
-    And the focused tile should show the "juspay" agents chip
-    And the terminal's claude should be the "juspay" fixture
+    And the focused tile's agents chip should name the profile in effect from the reference
+    And the terminal's AI_PROFILE should be "github:juspay/skills"
     When I run 'echo "v=${X:-unset} pid=$([ "$(cat pid)" != "$$" ] && echo changed) cwd=$([ "$(cat here)" = "$(pwd -P)" ] && echo same)"'
     Then the active terminal should show "v=unset pid=changed cwd=same"
     And there should be no page errors
@@ -151,7 +165,7 @@ Feature: Agents come with kolu
   Scenario: The first run offers the profiles by name, and Enter turns on Vanilla
     When I open the app
     Then the welcome card's first row should ask which agents I want
-    And the first-run step should offer the "vanilla" and "juspay" profile cards
+    And the first-run step should offer the "vanilla" and "github:juspay/skills" profile cards
     And the "vanilla" first-run card should be picked
     And keyboard focus should be on the picked first-run card
     And the first-run step should say what kolu can bring
@@ -166,6 +180,21 @@ Feature: Agents come with kolu
     Then the Agents switch in Settings should be on
     And the "vanilla" profile card should be picked
     And the Agents fleet line should say this machine is ready
+    And there should be no page errors
+
+  Scenario: The first run turns on the card you picked, not the default one
+    When I open the app
+    Then the welcome card's first row should ask which agents I want
+    When I pick the "github:juspay/skills" first-run card
+    Then the "github:juspay/skills" first-run card should be picked
+    When I press Enter
+    Then a toast should say new terminals get the "github:juspay/skills" profile
+    And the stored Agents profile should be "github:juspay/skills"
+    And padi should give new terminals the "github:juspay/skills" agents
+    And the welcome card should not ask about agents
+    And the welcome card's done line should say agents are "Juspay"
+    When I click the settings button
+    Then the "github:juspay/skills" profile card should be picked
     And there should be no page errors
 
   Scenario: Not now leaves nothing chosen, and the next load asks again
@@ -251,7 +280,8 @@ Feature: Agents come with kolu
     And this machine has finished looking for newer agents
     Given the next "vanilla" agents update finds a newer set
     When I check for newer coding agents from the palette
-    Then a toast should say what the update changed on this machine
+    Then the host tab's agents mark should show an update running
+    And a toast should say what the update changed on this machine
     When I open this machine's host details
     Then this machine's agents section should say the last run updated
     And this machine's agents section should list the updated event
@@ -273,7 +303,8 @@ Feature: Agents come with kolu
     Then this machine's agents section should say the last run unchanged
     When I remember this machine's last update run
     And I check for newer agents from this machine's host details
-    Then this machine's last update run should be newer than the one I remembered
+    Then this machine's agents section should say it is looking for newer agents
+    And this machine's last update run should be newer than the one I remembered
     And this machine's agents section should say the last run unchanged
     And no toast should say an update landed on this machine
     And there should be no page errors

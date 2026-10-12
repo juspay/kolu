@@ -20,6 +20,7 @@ import type { HostKey } from "kolu-common/hostKey";
 import { type Component, For, Show } from "solid-js";
 import {
   agentHostCheckableNow,
+  agentsWhere,
   checkAgentsOn,
   hostAgentDetail,
   retryAgentsOn,
@@ -60,7 +61,13 @@ const Section: Component<{ host: HostKey; detail: AgentHostDetail }> = (
 ) => (
   <>
     <div class="my-2 border-t border-edge/60" />
-    <div class="flex items-center gap-1.5 py-0.5 pb-1 text-[10px] uppercase tracking-wide text-fg-3">
+    {/* The section says WHICH machine it is about — the same name every
+        other agents surface uses for it (`agentsWhere`). */}
+    <div
+      data-testid="host-agents"
+      data-host={agentsWhere(props.host)}
+      class="flex items-center gap-1.5 py-0.5 pb-1 text-[10px] uppercase tracking-wide text-fg-3"
+    >
       <AgentDistroLogo size={12} />
       agents
     </div>

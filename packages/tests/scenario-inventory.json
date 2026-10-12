@@ -8848,6 +8848,90 @@
       "exampleRows": [],
       "executions": 1,
       "firstSeenSha": "665a65648d8667de7699ba625d1b1ffa82a0c1db"
+    },
+    {
+      "revisionId": "revision-b627c8f4eeebf09a4787",
+      "scenarioKey": "scenario-3657ca4acfdd7a31b839",
+      "feature": "features/agents.feature",
+      "scenario": "A machine's name on the Agents fleet line opens its details, at a width with no host tabs",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "d6736c7bf99dd97a5e1be9e4a5915573518cec03833d7d6cca6c1b0fc6ad7f1b",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "acb1ebbb6f0a316cf4c9ed79c408e60c15f06aa6"
+    },
+    {
+      "revisionId": "revision-f89316f38df2484d92da",
+      "scenarioKey": "scenario-0d5fda68bc6775e95b98",
+      "feature": "features/agents.feature",
+      "scenario": "A per-host check with nothing newer: no toast, the section says it checked and is up to date",
+      "kind": "scenario",
+      "tags": ["@agent-updates"],
+      "bodyHash": "15be085e4e2e2e880caf1bd06aef7cc85a4ac7e09ac89cb5b43f5bfa8d01b493",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "acb1ebbb6f0a316cf4c9ed79c408e60c15f06aa6"
+    },
+    {
+      "revisionId": "revision-14a4cb4f57e4e228d4b9",
+      "scenarioKey": "scenario-a118447e6b2e9c279271",
+      "feature": "features/agents.feature",
+      "scenario": "A terminal whose agents went stale restarts in place with the new ones",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "53891e62b98cf95a43b2e86b86fed56815b22ebeec19fe1db59bc8f2bf0e7698",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "acb1ebbb6f0a316cf4c9ed79c408e60c15f06aa6"
+    },
+    {
+      "revisionId": "revision-dcc1cd1a920447d4f182",
+      "scenarioKey": "scenario-366b756b645ddea2591d",
+      "feature": "features/agents.feature",
+      "scenario": "Picking the Juspay card reaches the next terminal, and off removes both",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "229e53d1968766e428a2ab6682c5695275e267c51f2bc8b4c115d02c7a039d77",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "acb1ebbb6f0a316cf4c9ed79c408e60c15f06aa6"
+    },
+    {
+      "revisionId": "revision-3f09c1a0a6e3758157dc",
+      "scenarioKey": "scenario-8b45111be2d616d84894",
+      "feature": "features/agents.feature",
+      "scenario": "The first run offers the profiles by name, and Enter turns on Vanilla",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "7d387f4df950533408b2132e7568a27f4274df436f499fa30c1743042eede7fe",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "acb1ebbb6f0a316cf4c9ed79c408e60c15f06aa6"
+    },
+    {
+      "revisionId": "revision-e8a5ec70f799e828679d",
+      "scenarioKey": "scenario-2d2a9933c908c6930e17",
+      "feature": "features/agents.feature",
+      "scenario": "The first run turns on the card you picked, not the default one",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "bef07167a6776d58eab572a59dd76fc16fd2a6d4895c34743f0a205ca624480c",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "acb1ebbb6f0a316cf4c9ed79c408e60c15f06aa6"
+    },
+    {
+      "revisionId": "revision-fdc19279629072130a9a",
+      "scenarioKey": "scenario-cdb9fc256e0b8620b1cc",
+      "feature": "features/agents.feature",
+      "scenario": "The palette's check lands a newer set: the toast says what changed, the open tile offers Restart, a new terminal gets it",
+      "kind": "scenario",
+      "tags": ["@agent-updates"],
+      "bodyHash": "3c975f5092f4f6e2eec380657662766c77def39aa1fbcb3e9b1df092fb3e363d",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "acb1ebbb6f0a316cf4c9ed79c408e60c15f06aa6"
     }
   ]
 }
