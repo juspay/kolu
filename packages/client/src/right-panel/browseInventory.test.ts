@@ -1,5 +1,6 @@
+import { FileTree as PierreFileTree } from "@pierre/trees";
 import { describe, expect, it } from "vitest";
-import { mergeBrowseInventory } from "./browseInventory.ts";
+import { diffInventory, mergeBrowseInventory } from "./browseInventory.ts";
 
 const settled = {
   trackedPending: false,
@@ -334,5 +335,37 @@ describe("mergeBrowseInventory", () => {
       lazyDirs: [],
       pending: false,
     });
+  });
+});
+
+// Repro for the Code-tab blank tree on a directory→file type change:
+//   File tree render failed: Path collides with an existing file while
+//   creating directory "odu"
+//
+// A branch that replaced the directory `.claude/skills/odu/` with a symlink
+// FILE at `.claude/skills/odu` lists both the new file AND the old directory's
+// children in one diff. Pierre cannot hold a file and a directory under one
+// name, so handing it that flat list throws and the whole tree goes blank.
+describe("diffInventory — directory→file type change (blank-tree repro)", () => {
+  const typeChanged = [
+    ".claude/skills/odu",
+    ".claude/skills/odu/serve",
+    ".claude/skills/odu/SKILL.md",
+    "agent-plugin/skills/odu/SKILL.md",
+  ];
+
+  it("builds a real Pierre tree from the diff inventory without throwing", () => {
+    const { paths } = diffInventory(typeChanged, false);
+    let tree: PierreFileTree | undefined;
+    expect(() => {
+      tree = new PierreFileTree({
+        paths,
+        search: false,
+        flattenEmptyDirectories: true,
+        initialExpansion: "open",
+      });
+    }).not.toThrow();
+    expect(tree?.getItem(".claude/skills/odu")).not.toBeNull();
+    tree?.cleanUp();
   });
 });
