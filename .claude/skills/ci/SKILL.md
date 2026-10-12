@@ -74,13 +74,32 @@ run). Capture the stage's stderr:
 **After a green two-platform settle, post e2e metrics to the PR.** Source of
 truth: the run ledger `.ci/<sha7>/runs/<seq>.json` for each `ci::e2e@<platform>`
 node's recipe-wall `durationMs` and host (never Cucumber's internal timer), and
-the LAST `^e2e: workers=` line in `.ci/<sha7>/<platform>/ci::e2e.log` for
-resolved parallelism. Maintain **one** comment keyed by the
+the LAST `^e2e: workers=` line in that node's own log (an unsharded lane's is
+`.ci/<sha7>/<platform>/ci::e2e.log`) for resolved parallelism. Maintain
+**one** comment keyed by the
 `<!-- kolu-ci-e2e-metrics -->` marker (edit if present, create if absent) with
 the run identity `<sha7>#<seq>` and a table of
-`platform · host · workers · cores · cap · e2e duration`. Fail loud rather than
-comment if any ingredient is missing. Post only after the full run settles
-green, before reporting the gate.
+`platform · host · workers · cores · cap · shards · e2e duration`. Fail loud
+rather than comment if any ingredient is missing. Post only after the full run
+settles green, before reporting the gate.
+
+**`ci::e2e` is sharded, so the ledger carries shard nodes and the comment has
+rows for them.** `[metadata("odu:shard=4")]` lets odu borrow up to four free
+pool slots on Linux; the slices are ledger nodes `ci::e2e[k-of-N]@<platform>`
+(their burst dependency copies are `ci::e2e[k-of-N]::ci::install` and
+`…::ci::nix`), and they fold into the ONE logical `ci::e2e@<platform>` node
+whose duration is the slowest slice. So:
+
+- the `shards` column is **obtained/ceiling** (`3/4`) — read the obtained count
+  from the shard nodes present in the ledger, never assume four;
+- add **one row per shard** (`host · workers · cores · duration`) under the
+  logical row. A sharded `ci::e2e.log` holds only odu's fold bracket
+  (`[odu] N shards started…`), so each shard's `^e2e: workers=` and
+  `e2e: shard=<k>/<N>` lines come from its OWN
+  `.ci/<sha7>/<platform>/ci::e2e[k-of-N].log`;
+- darwin's single-host pool yields `1/4` and exactly one row — unchanged;
+- `node_rerun` targets ONE shard node (`ci::e2e[2-of-3]@x86_64-linux`), not the
+  logical context: re-running the fold would re-run every slice.
 
 **The green-gate: every required status check green on the PR's current
 `HEAD`.** Source the required list from `just ci::protect --dry-run` **with

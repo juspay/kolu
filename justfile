@@ -587,14 +587,15 @@ test: install
             sleep 15
         done
     fi
-    # The odu venue pool leases each CI host exclusively, so external load is
-    # not an input to capacity. Size deterministically from hardware: roughly
-    # one browser+server+padi+kaval world per three online cores, rounding up
-    # so a dedicated 10-core venue uses four workers instead of leaving the
-    # remainder idle. Clamp by the measured platform cap above and a minimum of
-    # one. In particular, never sample the one-minute load average here: it
-    # trails the Nix build that runs before Cucumber and made an idle 10-core
-    # venue start just one worker.
+    # Each shard of a sharded `ci::e2e` is its own box with its own lease, so
+    # this stays a per-host decision: the odu venue pool leases each CI host
+    # exclusively, so external load is not an input to capacity. Size
+    # deterministically from hardware: roughly one browser+server+padi+kaval
+    # world per three online cores, rounding up so a dedicated 10-core venue
+    # uses four workers instead of leaving the remainder idle. Clamp by the
+    # measured platform cap above and a minimum of one. In particular, never
+    # sample the one-minute load average here: it trails the Nix build that runs
+    # before Cucumber and made an idle 10-core venue start just one worker.
     par=$(( (cores + 2) / 3 ))
     if (( par < 1 )); then par=1; fi
     if (( par > cap )); then par=$cap; fi

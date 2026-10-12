@@ -95,6 +95,33 @@ The `daemon` node is separate from `unit` because it forks real padi and kaval
 processes. Keeping it explicit prevents the default-off daemon suites from
 silently disappearing from CI.
 
+## Sharding the browser lane
+
+`e2e` is the one sharded node. It carries `[metadata("odu:shard=4")]`, so on a
+Linux run odu may borrow up to four free slots from the venue pool and give
+each one up to a quarter of the Cucumber scenarios — fewer slots means bigger
+slices, never uncovered ones. Four is a **ceiling, not a
+reservation**: odu takes whatever the pool has free, puts the actual count in
+`ODU_SHARD_TOTAL`, and numbers the slices from zero in `ODU_SHARD_INDEX`. The
+recipe turns that pair into Cucumber's one-based `CUCUMBER_SHARD=<k>/<N>` and
+Cucumber's own sharder splits the scenario list, so the suite stays covered
+whole however many slices there are — and a malformed pair fails the node
+rather than quietly running everything or nothing.
+
+Three consequences worth knowing:
+
+- **Each borrowed box runs its own copy of `e2e`'s dependency closure** —
+  `install` and `nix` — as extra nodes named under the shard
+  (`ci::e2e[2-of-4]::…`). A node is only worth sharding when it is slower than
+  that burst cost.
+- **The GitHub contexts do not change.** Every slice folds into the single
+  `ci::e2e@<platform>` status, whose duration is the slowest slice, so
+  `just ci::protect` never grows a shard name.
+- **Darwin is unaffected.** Its pool is one host, so there is no free slot to
+  borrow and the lane resolves to `ODU_SHARD_TOTAL=1` — the whole suite, as
+  before. The same is true of a local `just ci::e2e`, which sets neither
+  variable.
+
 ## Critical path
 
 The large `nix` build is the shared prerequisite for every later node that

@@ -43,6 +43,15 @@ const tags =
 // only; the two coexist.
 const retry = parseInt(process.env.CUCUMBER_RETRY || "0", 10);
 
+// Odu hands each borrowed CI slot one slice of the same scenario list, and
+// Cucumber owns the split: its native sharder (`--shard <index>/<total>`,
+// one-based) distributes pickles itself, so an expanded Scenario Outline
+// counts as its examples and adding a scenario cannot quietly leave one slot
+// with the expensive half. `ci::e2e` derives this from odu's zero-based
+// `ODU_SHARD_INDEX`; `just test` / `just test-quick` leave it unset and run
+// every scenario.
+const shard = process.env.CUCUMBER_SHARD || "";
+
 export const ui = {
   ...(!cliHasFeatureArgs && { paths: ["features/**/*.feature"] }),
   import: ["step_definitions/**/*.ts", "support/**/*.ts"],
@@ -60,6 +69,7 @@ export const ui = {
   formatOptions: { snippetInterface: "async-await" },
   ...(parallel > 1 && { parallel }),
   ...(retry > 0 && { retry }),
+  ...(shard !== "" && { shard }),
 };
 
 export default {};

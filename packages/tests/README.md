@@ -73,6 +73,17 @@ Set `HEADLESS=false` to see the browser:
 cd packages/tests && REUSE_SERVER=1 HEADLESS=false nix develop ../..#default -c npx tsx node_modules/.bin/cucumber-js --profile ui
 ```
 
+## Environment
+
+| variable | meaning |
+|---|---|
+| `CUCUMBER_TAGS` | Replaces the default tag filter (`not @skip and not @recording`, plus `not @skip-darwin` on macOS). `CUCUMBER_TAGS='@skip'` runs only the skipped scenarios. |
+| `CUCUMBER_PARALLEL` | Worker count; unset means one worker. `just test` sizes it from the host's cores (one world per three cores, capped at 8 — 6 on darwin), `just test-quick` defaults to 4. |
+| `CUCUMBER_RETRY` | Scenario retry budget. Default 0, so a local run shows a real failure the first time; `ci::e2e` sets 1 on Linux and 2 on darwin. |
+| `CUCUMBER_SHARD` | Cucumber's native one-based `<index>/<total>` scenario shard. `ci::e2e` derives it from odu's zero-based `ODU_SHARD_INDEX` and the `ODU_SHARD_TOTAL` it actually obtained, so each borrowed CI box runs one slice. `just test` and `just test-quick` leave it unset and run every scenario. |
+| `HEADLESS` | `false` opens a visible browser. |
+| `KOLU_SERVER` | The server under test: a binary path each worker spawns on a random port, or an `http://` URL of a server you are already running. `just test` points it at the nix-built binary, `just test-quick` at `scripts/kolu-source-wrapper.sh`. |
+
 ## How it works
 
 - **Cucumber.js** is the test runner. It parses `.feature` files and matches steps to TypeScript functions.
