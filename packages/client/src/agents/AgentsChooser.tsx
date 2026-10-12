@@ -130,7 +130,15 @@ export default function AgentsChooser(props: {
   deferred?: boolean;
   children: (parts: AgentsChooserParts) => JSX.Element;
 }): JSX.Element {
-  const cards = () => agentProfileCards(agentDistroListing());
+  /** The cards this picker offers: every one in Settings; in a deferred
+   *  picker (the welcome step) the named profiles only — a reference of your
+   *  own stays a Settings matter. */
+  const cards = () => {
+    const all = agentProfileCards(agentDistroListing());
+    return props.deferred === true
+      ? all.filter((c) => c.profile !== undefined)
+      : all;
+  };
   /** The card picked but NOT written: Custom… anywhere (it writes only once
    *  its field does), and every card in a deferred picker (the welcome step,
    *  which writes when "Turn on" is pressed). It is dropped the moment the
@@ -150,17 +158,11 @@ export default function AgentsChooser(props: {
   createEffect(on(storedAgents, () => setPending(undefined), { defer: true }));
   const cardFor = (profile: string | undefined) =>
     cards().find((c) => c.profile === profile);
-  const selected = () => {
-    const picked =
-      pending() ??
-      agentSelectedCard(agentDistroSetting(), agentDistroListing());
-    // The welcome step offers no Custom… card, so a stored reference (agents
-    // switched off after one was picked) falls back to the default one: the
-    // step must always have a card to turn on.
-    return props.deferred === true && picked?.profile === undefined
-      ? cards().find((c) => c.isDefault)
-      : picked;
-  };
+  const selected = () =>
+    pending() ?? agentSelectedCard(agentDistroSetting(), cards());
+  /** A card was picked. A deferred picker only remembers it (the welcome
+   *  step writes on "Turn on"); so does Custom…, which writes when its field
+   *  does. */
   const pick = (profile: string | undefined) => {
     if (profile === undefined || props.deferred === true) {
       setPending(cardFor(profile));
@@ -199,13 +201,7 @@ export default function AgentsChooser(props: {
         }
       >
         <AgentsProfilePicker
-          cards={
-            // The welcome step offers the profiles kolu names; a reference of
-            // your own stays a Settings matter.
-            props.deferred === true
-              ? cards().filter((c) => c.profile !== undefined)
-              : cards()
-          }
+          cards={cards()}
           selected={selected()}
           onPick={pick}
           profile={agentDistroSetting().profile}

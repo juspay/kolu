@@ -18,7 +18,6 @@ import {
   profileSuggestions,
   RECENT_PROFILES_CAP,
   rememberProfile,
-  selectedAgentProfile,
   AGENTS_CHECK_NOW,
   agentHostCheckable,
   agentMarkFillWords,
@@ -244,18 +243,26 @@ describe("the picker's cards", () => {
     expect(agentProfileCards({ kind: "unavailable" })).toEqual([]);
   });
 
-  it("a reference of the user's own selects Custom…", () => {
-    expect(agentSelectedCard(VANILLA_ON, VANILLA_ONLY)?.profile).toBe(
-      "vanilla",
-    );
-    expect(agentSelectedCard(JUSPAY_ON, VANILLA_ONLY)?.profile).toBe(
+  it("a reference of the user's own selects Custom… — or the default card in a list without one", () => {
+    const settings = agentProfileCards(VANILLA_ONLY);
+    expect(agentSelectedCard(VANILLA_ON, settings)?.profile).toBe("vanilla");
+    expect(agentSelectedCard(JUSPAY_ON, settings)?.profile).toBe(
       JUSPAY_PROFILE,
     );
     expect(
-      agentSelectedCard({ enabled: true, profile: "github:me/mine" }, LISTING)
-        ?.title,
+      agentSelectedCard(
+        { enabled: true, profile: "github:me/mine" },
+        agentProfileCards(LISTING),
+      )?.title,
     ).toBe(AGENTS_CUSTOM.title);
-    expect(agentSelectedCard(VANILLA_ON, undefined)).toBeUndefined();
+    // The welcome step's picker offers no Custom… card, so a reference there
+    // selects the default one — there is always something to turn on.
+    const welcome = settings.filter((c) => c.profile !== undefined);
+    expect(
+      agentSelectedCard({ enabled: true, profile: "github:me/mine" }, welcome)
+        ?.profile,
+    ).toBe("vanilla");
+    expect(agentSelectedCard(VANILLA_ON, [])).toBeUndefined();
   });
 });
 
@@ -292,10 +299,27 @@ describe("agentsHint — the row's words while agents are off", () => {
 });
 
 describe("agentChips — the agents the Agents row names", () => {
-  it("off: the default bundle's agents by name, with no version — nothing is installed", () => {
+  it("off: the SETTING's bundle, by name with no version — nothing is installed", () => {
     expect(
       agentChips({
         setting: { enabled: false, profile: "vanilla" },
+        listing: LISTING,
+        localReceipt: undefined,
+      }),
+    ).toEqual([{ title: "Claude Code" }, { title: "Codex" }]);
+    // The switch words the chips; it never changes WHICH bundle they are —
+    // turning on would start `ekala`'s agents, so off names those.
+    expect(
+      agentChips({
+        setting: { enabled: false, profile: "ekala" },
+        listing: LISTING,
+        localReceipt: undefined,
+      }),
+    ).toEqual([]);
+    // A reference rides the default bundle, on or off alike.
+    expect(
+      agentChips({
+        setting: { enabled: false, profile: JUSPAY_PROFILE },
         listing: LISTING,
         localReceipt: undefined,
       }),
@@ -750,30 +774,7 @@ describe("agentFleetSummary — the ONE fleet line in Settings", () => {
       trail: g.trail,
     }));
 
-  it("one ready machine: Ready on it, and its last run beside", () => {
-    expect(
-      said(
-        agentFleetSummary([
-          {
-            ...host("naiveintent", ready),
-            receipt: {
-              profile: "vanilla",
-              bundle: BUNDLE,
-              versions: [],
-              events: [],
-              running: [],
-              lastRun: { at: 7, outcome: "updated", by: "updater", words: "w" },
-            },
-          },
-        ]),
-      ),
-    ).toEqual([
-      { tone: "ok", lead: "Ready on", hosts: ["naiveintent"], trail: "" },
-      { tone: "muted", lead: "", hosts: [], trail: "updated @7" },
-    ]);
-  });
-
-  it("one ready machine that has run nothing: the line is just Ready on it", () => {
+  it("one ready machine: Ready on it — and nothing of its own beside", () => {
     expect(said(agentFleetSummary([host("naiveintent", ready)]))).toEqual([
       { tone: "ok", lead: "Ready on", hosts: ["naiveintent"], trail: "" },
     ]);
@@ -1221,21 +1222,6 @@ describe("agentStaleLabel", () => {
         `Restart to switch; ${agentRestartAction(stale).outcome}.`,
       );
     }
-  });
-});
-
-describe("selectedAgentProfile — the bundle the setting rides", () => {
-  it("a shipped bundle's name is its own; anything else rides vanilla", () => {
-    for (const profile of [JUSPAY_PROFILE, "~/p", "github:me/mine"])
-      expect(
-        selectedAgentProfile({ enabled: true, profile }, LISTING)?.name,
-      ).toBe("vanilla");
-    expect(
-      selectedAgentProfile({ enabled: true, profile: "ekala" }, LISTING)?.name,
-    ).toBe("ekala");
-    expect(
-      selectedAgentProfile({ enabled: false, profile: "ekala" }, LISTING),
-    ).toBeUndefined();
   });
 });
 

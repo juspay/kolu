@@ -323,7 +323,7 @@ const AgentsProfilePicker: Component<{
             <label class="flex w-full cursor-pointer items-start gap-2.5 px-2.5 py-2 text-left">
               <input
                 ref={(el) => {
-                  if (props.autofocus && card.isDefault)
+                  if (props.autofocus && isSelected(card))
                     queueMicrotask(() => el.focus());
                 }}
                 type="radio"
