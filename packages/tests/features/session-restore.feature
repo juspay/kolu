@@ -79,7 +79,7 @@ Feature: Session restore
     And I select terminal 2 in the workspace switcher
     And I save the active canvas tile id
     Then the active canvas tile should be centered in the viewport
-    When I wait for the session auto-save
+    And the saved session should record the active terminal
     Given session.get's first yield is delayed by 500 ms to force the active-id race
     When I reload the page and wait for ready
     Then the saved active canvas tile should still be active

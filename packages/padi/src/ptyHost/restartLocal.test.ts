@@ -57,6 +57,7 @@ import {
 } from "../session/autosaveGate.ts";
 import {
   getSavedSession,
+  saveActiveTerminalId,
   saveSession,
   setSavedSession,
   setSavedSessionFromSnapshot,
@@ -305,6 +306,7 @@ beforeAll(() => {
     isRestorePending: hasParkedTerminals,
     persist: saveSession,
     persistFinal: setSavedSessionFromSnapshot,
+    persistActiveId: saveActiveTerminalId,
   });
 });
 

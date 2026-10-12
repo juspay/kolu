@@ -28,6 +28,7 @@
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
+import { stampedCache } from "kolu-io";
 import type { Logger } from "kolu-shared";
 
 /** `<timestamp>_<uuid>.jsonl`. omp forked pi's session-file naming, so the
@@ -119,6 +120,24 @@ export type BreadcrumbRead =
   | { kind: "absent" }
   | { kind: "unusable" };
 
+/** What a crumb FILE says, before the transcript's own existence is consulted.
+ *  Split out because this half — and only this half — is a pure function of the
+ *  crumb's bytes, which is what makes `(mtimeMs, size)` a sound cache key for
+ *  it. The `fresh` flag and the parsed session name come from the same read. */
+type CrumbContent =
+  | { kind: "named"; target: string; fresh: boolean; session: OmpSession }
+  | { kind: "absent" }
+  | { kind: "unusable" };
+
+/** One crumb per tty per omp agent dir; 512 is far above any live fleet. */
+const CRUMB_CACHE_MAX = 512;
+
+/** The crumb bytes, parsed once per write. padi's reconcile loop re-read and
+ *  re-parsed this file (including a `Date.parse` of the transcript's filename
+ *  timestamp) several times a second per terminal, for a file omp rewrites only
+ *  when the session changes (juspay/kolu#2286). */
+const crumbs = stampedCache<CrumbContent>(CRUMB_CACHE_MAX);
+
 /** Read a terminal breadcrumb into the session it names.
  *
  *  `absent` covers both "omp has never run on this tty" (no file) and "omp's
@@ -126,8 +145,42 @@ export type BreadcrumbRead =
  *  `fresh`" — the two cases where omp itself has no session for the terminal.
  *  Everything else that yields no session (a read failure, a crumb whose
  *  target cannot be parsed into an id) is `unusable`: a fault, logged, never
- *  silently read as "no session". */
+ *  silently read as "no session".
+ *
+ *  The TRANSCRIPT's existence is stat'd on EVERY call, never cached: it is a
+ *  fact about a different file, and a crumb whose target was deleted must stop
+ *  reading as `found` even though the crumb itself never moved. Only the crumb
+ *  parse rides the stamp. */
 export function readBreadcrumb(file: string, log?: Logger): BreadcrumbRead {
+  const content = crumbs.read(file, (stat) =>
+    readCrumbContent(file, stat, log),
+  );
+  if (content.kind !== "named") return { kind: content.kind };
+  let exists: boolean;
+  try {
+    exists =
+      fs.statSync(content.target, { throwIfNoEntry: false })?.isFile() === true;
+  } catch (err) {
+    log?.error(
+      { err, file, target: content.target },
+      "omp: breadcrumb target unreadable",
+    );
+    return { kind: "unusable" };
+  }
+  // omp's own honour rule (`readTerminalBreadcrumbEntry`): a materialized
+  // target resumes; a missing one only when this crumb is a never-written lazy
+  // session boundary.
+  if (!exists && !content.fresh) return { kind: "absent" };
+  return { kind: "found", session: content.session };
+}
+
+function readCrumbContent(
+  file: string,
+  stat: fs.Stats | undefined,
+  log?: Logger,
+): CrumbContent {
+  // No stat ⇒ omp has never run on this tty. Answered without a read.
+  if (stat === undefined) return { kind: "absent" };
   let raw: string;
   try {
     raw = fs.readFileSync(file, "utf8");
@@ -146,24 +199,15 @@ export function readBreadcrumb(file: string, log?: Logger): BreadcrumbRead {
     log?.error({ file }, "omp: breadcrumb has no session path");
     return { kind: "unusable" };
   }
-  let exists: boolean;
-  try {
-    exists = fs.statSync(target, { throwIfNoEntry: false })?.isFile() === true;
-  } catch (err) {
-    log?.error({ err, file, target }, "omp: breadcrumb target unreadable");
-    return { kind: "unusable" };
-  }
-  // omp's own honour rule (`readTerminalBreadcrumbEntry`): a materialized
-  // target resumes; a missing one only when this crumb is a never-written lazy
-  // session boundary.
-  if (!exists && lines[2] !== "fresh") return { kind: "absent" };
   const parsed = parseSessionFileName(path.basename(target));
   if (!parsed) {
     log?.error({ file, target }, "omp: breadcrumb session path unparseable");
     return { kind: "unusable" };
   }
   return {
-    kind: "found",
+    kind: "named",
+    target,
+    fresh: lines[2] === "fresh",
     session: {
       id: parsed.id,
       transcriptPath: target,

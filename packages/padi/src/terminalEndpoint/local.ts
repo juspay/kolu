@@ -405,8 +405,8 @@ export function onForegroundTapError(
  *
  * Two shapes cross here and they are the same crossing. A TAP hands a `signal`,
  * which becomes fiber interruption at exactly this seam (D10/#18) — the
- * surrounding domain (`TerminalLifecycle.abort`, the port-nudge controller, the
- * reconciler) stays AbortController-shaped because it is not Effect code, and
+ * surrounding domain (`TerminalLifecycle.abort`, the inventory reconciler) stays
+ * AbortController-shaped because it is not Effect code, and
  * interruption is what actually closes the kaval subscription. The SPAWN TAIL
  * hands none: `spawnPty` is synchronous by contract (the sync-shadow invariant —
  * the tile must render before the PTY exists), so the tail it fires cannot be
@@ -471,12 +471,11 @@ export function bridgeStream<T>(
 }
 
 /** Delay before re-subscribing to a kaval stream after it ends — one cadence for
- *  every consumer of {@link resubscribeStream} (the finish fold, the live dots, the
- *  port scan's output nudge), so recycle recovery feels consistent and the number
- *  cannot drift between them. Lives beside the loop it parameterizes rather than in
- *  one of the three consumers: the third consumer is in this file, and importing it
- *  back from `finishQuiet.ts` (which imports the loop from here) would make a cycle
- *  out of what is really just a knob on the loop. */
+ *  every consumer of {@link resubscribeStream} (the finish fold, the live dots),
+ *  so recycle recovery feels consistent and the number cannot drift between them.
+ *  Lives beside the loop it parameterizes rather than in one of its consumers:
+ *  importing it back from `finishQuiet.ts` (which imports the loop from here)
+ *  would make a cycle out of what is really just a knob on the loop. */
 export const ACTIVITY_RESUBSCRIBE_DELAY_MS = 2_000;
 
 /** Subscribe to a `ptyHostClient` stream and RE-SUBSCRIBE across daemon recycles
@@ -697,15 +696,8 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
    *  sampler would re-read the whole `/proc` once per tile. */
   private portSampler: PortSampler | undefined;
 
-  /** Lifetime of the port sampler's kaval nudge subscription — a field, so it
-   *  scopes to THIS endpoint rather than the process. Never aborted today: the
-   *  sampler lives as long as the endpoint does, like the finish-quiet feed that
-   *  reads the same stream. */
-  private readonly portNudgeAbort = new AbortController();
-
-  /** Arm the port sampler + its output nudge, once. Lazy rather than built with
-   *  the endpoint so a padi with no terminals runs no clock and opens no kaval
-   *  subscription at all. */
+  /** Arm the port sampler, once. Lazy rather than built with the endpoint so a
+   *  padi with no terminals runs no clock at all. */
   private ensurePortSampler(): PortSampler {
     if (this.portSampler !== undefined) return this.portSampler;
     const sampler = createPortSampler({
@@ -731,27 +723,6 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
       log,
     });
     this.portSampler = sampler;
-    // The output nudge. kaval's host-global `activity` edge is the SAME
-    // resize-excluded meaningful-output fact the finish fold and the live dots
-    // read — one subscription for the whole host, not a per-terminal byte tap —
-    // so a dev server's "ready" banner pulls its scan forward instead of waiting
-    // out the baseline. The stream is a hint about WHEN to look and nothing more:
-    // its payload is never read, only its arrival.
-    void resubscribeStream({
-      signal: this.portNudgeAbort.signal,
-      delayMs: ACTIVITY_RESUBSCRIBE_DELAY_MS,
-      getStream: () => ptyHostClient.surface.activity.get({}),
-      onEvent: () => sampler.nudge(),
-      onDrop: (err) => {
-        // A dropped feed costs promptness, not correctness — the 5 s baseline
-        // still catches every bind. Debug, like the other consumers of this same
-        // stream, because a kaval recycle drops it as a matter of course.
-        log.debug(
-          { err },
-          "port-scan output nudge feed dropped; will resubscribe",
-        );
-      },
-    });
     return sampler;
   }
 
@@ -1258,12 +1229,10 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
       // thing that knows one happened.
       grid: inMemoryChannel<TerminalGrid>(),
     };
-    // Arm the host-wide port sampler (once per process) up front, so the nudge is
-    // in hand for the command-mark bridge below. Its first pass can only run after
-    // this synchronous function returns — by then the lifecycle registration at the
-    // tail has published this terminal's root pid and channel.
-    const portSampler = this.ensurePortSampler();
-
+    // Arm the host-wide port sampler (once per process). Its first pass can only
+    // run after this synchronous function returns — by then the lifecycle
+    // registration at the tail has published this terminal's root pid and channel.
+    this.ensurePortSampler();
     // Seed the fold accumulator from the entry's durable state (the caller —
     // spawnPty/wake/adopt — registered it before we get here). A fact the producer
     // can't re-observe (the memory facts, the resume target) survives because
@@ -1346,13 +1315,8 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
       ptyHostClient.surface.commandRun.get({ id }),
       signal,
       (msg) => {
-        // An OSC 633 command mark is the other "look sooner" signal (the note's
-        // pair with output bursts): the command that just started is the one most
-        // likely to bind a port, and waiting out the baseline is exactly the delay
-        // the nudge exists to remove. A REPLAYED mark nudges too — it means this
-        // sensor layer just started (a restart / adopt), so the host's ports are
-        // unknown to us and worth reading now rather than in five seconds.
-        portSampler.nudge();
+        // The OSC 633 command mark: a command that just started is the one most
+        // likely to bind a port. The 5 s baseline is what reports it.
         signals.commandRun.publish({
           command: msg.command,
           replayed: msg.replayed,
@@ -1423,10 +1387,6 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
       ports: signals.ports,
       grid: signals.grid,
     });
-    // Brand new to the scan — read now rather than up to a baseline later. An
-    // ADOPTED survivor is the case that needs it: its server has been serving for
-    // however long padi was down, and its first output burst may be minutes away.
-    portSampler.nudge();
   }
 
   /** Stop a terminal's sensor set + tap bridges (idempotent). Aborting the

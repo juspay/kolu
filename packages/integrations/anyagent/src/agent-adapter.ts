@@ -23,6 +23,7 @@
  */
 
 import type { Logger } from "@kolu/log";
+import type { ProcessSnapshot } from "kolu-io/types";
 import type { TaskProgress } from "./schemas.ts";
 
 /** Snapshot of a terminal's observable state, passed to `resolveSessions`.
@@ -48,6 +49,19 @@ export interface AgentTerminalState {
    *  is actively running — clears to null once the shell is idle at the
    *  prompt again, so stale hints don't outlive the process they name. */
   lastAgentCommandName: string | null;
+  /** The FOREGROUND process's argv + environment — where a launched agent's
+   *  flags and config redirects actually live (`omp --profile`, pi's
+   *  `PI_CODING_AGENT_DIR`). Null when there is no foreground pid, or the
+   *  platform/process cannot be read.
+   *
+   *  A FUNCTION, and read through it rather than by calling
+   *  `readProcessSnapshot` yourself, because the host reads it AT MOST ONCE per
+   *  reconcile tick and shares that one read with every adapter. Each adapter
+   *  calling the IO itself meant `/proc/<pid>/cmdline` + the whole of
+   *  `/proc/<pid>/environ` re-read and re-split per adapter per terminal, every
+   *  ~4 s — 16% of padi's busy time on a 16-terminal host (juspay/kolu#2286).
+   *  Idempotent within one snapshot, like `readForegroundBasename`. */
+  readProcessSnapshot: () => ProcessSnapshot | null;
 }
 
 /** Handle returned by `createWatcher`. Callers invoke `destroy()` when the

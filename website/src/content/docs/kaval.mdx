@@ -338,6 +338,11 @@ kaval-tui attach <id> --escape %
   state-root — `$XDG_RUNTIME_DIR/kaval-<digest>/pty-host.sock` — so two kolus on
   one box never collide. kaval-tui's auto-discovery walks all of them; pass
   `--socket` only to disambiguate when several daemons are up.
+- Auto-discovery reads **one** of those two directories: the one your own
+  environment puts you in. So a shell with `$XDG_RUNTIME_DIR` set does not list a
+  daemon some other process bound under `/tmp`, and vice versa — name it with
+  `--socket`. (It used to read both every time, which meant scanning the whole of
+  `/tmp` on every call.)
 - Detach is **client-side**: kaval-tui can come and go while the daemon holds the
   terminal. Restarting the daemon itself still ends its terminals — that
   persistence is later work.

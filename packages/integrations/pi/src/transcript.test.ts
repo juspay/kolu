@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { describeDaemon } from "@kolu/daemon-test-gate";
 import { silentLogger } from "@kolu/log/loggerStubs.testutil";
+import { readProcessSnapshot } from "kolu-io";
 import { afterAll, describe, expect, it } from "vitest";
 
 const log = silentLogger;
@@ -289,6 +290,7 @@ describe("loadPiTranscript", () => {
             cwd,
             readForegroundBasename: () => "pi",
             lastAgentCommandName: "pi",
+            readProcessSnapshot: () => readProcessSnapshot(child.pid!, log),
           },
           log,
         );

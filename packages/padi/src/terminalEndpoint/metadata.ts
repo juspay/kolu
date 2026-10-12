@@ -58,6 +58,7 @@ import { Schema } from "effect";
 import { log } from "../log.ts";
 import { padiSurfaceCtx } from "../padiSurfaceCtx.ts";
 import { notifyDirty } from "../publisher.ts";
+import { syncRepoWatchLease } from "../repoWatchLease.ts";
 import { getTerminal, type TerminalProcess } from "../terminal-registry.ts";
 
 // zod's `.parse` in Effect terms, bound once at module scope — these run on the
@@ -120,6 +121,11 @@ function publishComposedTerminal(terminalId: string): void {
  *  the same composed record, so the tile has its metadata either way. */
 export function installSnapshot(terminalId: string): void {
   publishComposedTerminal(terminalId);
+  // A cold-restore / adopt entry can arrive with its git fact ALREADY resolved on
+  // the persisted snapshot, so the lease must be taken here and not left to the
+  // first sensor commit — otherwise the repo's watcher waits on a cwd/git change
+  // that may never come (#2286).
+  syncRepoWatchLease(terminalId);
 }
 
 /** Fan a terminal's REMOVAL out onto the `terminals` collection. The entry was
@@ -131,6 +137,10 @@ export function installSnapshot(terminalId: string): void {
  *  (and `killTerminal` / `killAllTerminals`) on exit / kill / discard. */
 export function dropSnapshot(terminalId: string): void {
   padiSurfaceCtx.collections.terminals.remove(terminalId);
+  // The entry is already out of the registry, so reconciling resolves to "holds
+  // nothing" and releases padi's repo-change reference. Every removal path
+  // converges here, which is why the lease has no removal seam of its own.
+  syncRepoWatchLease(terminalId);
 }
 
 /** Commit a folded `TerminalSnapshot` — REPLACE `entry.snapshot` wholesale (the fold
@@ -166,6 +176,13 @@ export function commitSnapshot(
   // `observation` above, so the registry stays in sync regardless; a lost publish
   // self-heals on the next observation). This is what makes `emit` infallible.
   entry.snapshot = observation;
+  // The committed snapshot carries the resolved repo root, so this IS the seam at
+  // which a terminal enters or leaves a repo (a `cd` across repos, or the git
+  // sensor's first resolve). Reconcile padi's repo-change hold against it before
+  // the fallible publish — the lease is registry state, and a throwing subscriber
+  // must not be able to leave the host holding a watcher for a repo no terminal is
+  // in (#2286).
+  syncRepoWatchLease(terminalId);
   try {
     publishComposedTerminal(terminalId);
   } catch (err) {
@@ -266,6 +283,11 @@ export function updateClientMetadata(
  *  already registered the replacement entry), so it needs no entry argument. */
 export function publishTerminalState(terminalId: string): void {
   publishComposedTerminal(terminalId);
+  // Sleep RELEASES this terminal's repo-change hold and wake re-takes it: the
+  // active↔sleeping flip replaces the entry, and a sleeping record has no PTY and
+  // no sensors, so the repo it remembers is not a repo the host is working in
+  // (#2286).
+  syncRepoWatchLease(terminalId);
   notifyDirty();
 }
 

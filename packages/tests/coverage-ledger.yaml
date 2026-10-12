@@ -905,7 +905,7 @@ retirements:
           test: useSessionRestore — multi-terminal restore seeds the server-active tile > activates the server-active terminal (B), not the first-listed (A)
           note: Human review confirmed this collected test exercises the declared defect surface; CI verifies collection, not behavioral equivalence.
     survivorRevisionIds:
-      - revision-29bca12779e9c7206802
+      - revision-9dba172f5cf981625793
     sameCodePathEvidence:
       file: packages/tests/features/session-restore.feature
       symbol: "Scenario: Active terminal stays active AND centered across refresh"
@@ -2620,3 +2620,16 @@ retirements:
       file: packages/tests/features/sub-terminal.feature
       symbol: "Scenario: Dock section attention count agrees with the host tab for a split agent"
       test: The revised scenario reads the host tab's activity from its running bottom-edge stripe and labelled count instead of the removed spinner segment.
+  - id: revise-29bca12779e9c7206802
+    revisionId: revision-29bca12779e9c7206802
+    action: revised
+    status: landed
+    promise: Active terminal stays active AND centered across refresh
+    defectSurface: [session-restore, user-journey, test-timing-race]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-9dba172f5cf981625793]
+    sameCodePathEvidence:
+      file: packages/tests/features/session-restore.feature
+      symbol: "Scenario: Active terminal stays active AND centered across refresh"
+      test: "Same restore+centering payoff, same session.get delay forcing the active-id race; only the arrangement changed — the fixed 800 ms auto-save sleep is replaced by a wait on padi's persisted session actually recording the selected terminal, because since #2286 a focus change no longer pulses terminals:dirty and rides its own 5 s active-id debounce that no fixed sleep should encode."

@@ -48,6 +48,7 @@ import { agentInfoEqual, agentNameFromCommand } from "anyagent";
 import type { ForgeAdapter, PrResult } from "anyforge";
 import { parseRemoteHost, subscribePr } from "anyforge";
 import { AGENT_PLUGINS, parseAgentCommand } from "kolu-agents";
+import { type ProcessSnapshot, readProcessSnapshot } from "kolu-io";
 import { subscribeGitInfo } from "kolu-git";
 import type { GitInfo } from "kolu-git/schemas";
 import { githubForgeAdapter } from "kolu-github";
@@ -85,6 +86,24 @@ interface AgentEngineState {
    *  disagree about which sessions predate it. Re-seeded empty each start, like
    *  every other field here. */
   episode: AgentEpisode;
+  /** The foreground process's argv + env, read AT MOST ONCE per foreground
+   *  SAMPLE and shared by every one of this terminal's detectors.
+   *
+   *  Keyed on the sample's object identity rather than a tick counter because
+   *  that identity IS the tick: one `ForegroundSample` is published to all
+   *  seven adapters' channels, so the first reconcile to ask pays the `/proc`
+   *  read and the other six read the answer. Everything in a snapshot (argv,
+   *  environ) is fixed at exec, so holding it for the life of a sample is not
+   *  a staleness window — the sample is what names the pid in the first place.
+   *
+   *  Before this, each adapter called `readProcessSnapshot` itself: two full
+   *  `/proc/<pid>` reads (the whole environ, split into a fresh object) per
+   *  adapter per terminal per reconcile, which the #2286 profile measured at
+   *  16% of padi's busy time. */
+  procSnapshot: {
+    sample: ForegroundSample;
+    value: ProcessSnapshot | null;
+  } | null;
 }
 
 /** The terminal's current agent run, as the ownership arbiter needs to see it. */
@@ -112,6 +131,7 @@ export function freshAgentEngineState(): AgentEngineState {
     mirror: null,
     currentAgent: null,
     episode: { since: null, pid: undefined, watchedShellIdle: false },
+    procSnapshot: null,
   };
 }
 
@@ -562,8 +582,9 @@ function snapshotSignals(
   foreground: ForegroundSample,
   pid: number,
   cwd: string,
-  currentAgent: string | null,
+  agentState: AgentEngineState,
   commandRooted: boolean,
+  log: Logger,
 ): { state: AgentTerminalState; shellIdle: boolean } {
   const foregroundPid = foreground.foregroundPid;
   const shellIdle = isShellIdle(foregroundPid, pid, commandRooted);
@@ -575,7 +596,17 @@ function snapshotSignals(
       foregroundPid,
       cwd,
       readForegroundBasename: () => (proc ? path.basename(proc) : null),
-      lastAgentCommandName: shellIdle ? null : currentAgent,
+      lastAgentCommandName: shellIdle ? null : agentState.currentAgent,
+      // One read per SAMPLE, shared across every adapter — see
+      // `AgentEngineState.procSnapshot`.
+      readProcessSnapshot: () => {
+        if (foregroundPid === undefined) return null;
+        const held = agentState.procSnapshot;
+        if (held !== null && held.sample === foreground) return held.value;
+        const value = readProcessSnapshot(foregroundPid, log);
+        agentState.procSnapshot = { sample: foreground, value };
+        return value;
+      },
     },
     shellIdle,
   };
@@ -784,8 +815,9 @@ export function startAgentSensor<Session, Info extends AgentInfoShape>(
       currentForeground,
       pid,
       currentCwd,
-      agentState.currentAgent,
+      agentState,
       commandRooted,
+      plog,
     );
     if (!registeredForExternal && adapter.externalChanges?.isPresent(state)) {
       const activation = getActivation(adapter.kind);

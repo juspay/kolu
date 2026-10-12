@@ -352,13 +352,55 @@ Then(
 
 // --- Refresh preserves the active terminal ---
 
-/** The server debounces session auto-save by 500ms after the last change
- *  (see `initSessionAutoSave`). Tests that refresh after selecting a
- *  terminal must wait for the save to land; otherwise the server's
- *  `state.session.activeTerminalId` is stale and hydrate picks wrong. */
+/** The server leading-edge-throttles session-TRACE auto-save by 500 ms after the
+ *  last change (the AutosaveGate). Tests that refresh after a change to a
+ *  terminal's own state (canvas layout, right-panel mode, …) must wait for that
+ *  save to land, or the server's persisted session is stale and hydrate picks the
+ *  pre-change value.
+ *
+ *  NOT for focus: since #2286 selecting a terminal pulses nothing and rides its
+ *  own ≥5 s active-id debounce, which no fixed sleep should encode — use "the
+ *  saved session should record the active terminal", which waits for the write
+ *  itself. */
 When("I wait for the session auto-save", async function (this: KoluWorld) {
   await new Promise((r) => setTimeout(r, 800));
 });
+
+/** Wait until padi's PERSISTED session names the tile the scenario stashed with
+ *  "I save the active canvas tile id".
+ *
+ *  The focus marker reaches disk on the AutosaveGate's own ≥5 s trailing debounce
+ *  (#2286: a focus change must not re-serialise every terminal's record), so the
+ *  800 ms sleep the auto-save step offers is no longer the thing that happens
+ *  here. Polling the blob is both honest and faster in the common case: it returns
+ *  the instant the write lands rather than after a sleep long enough to cover the
+ *  whole window, and a regression that stops persisting focus fails HERE — with
+ *  the marker the file actually holds — instead of as a confusing post-reload
+ *  assertion about which tile is active. */
+Then(
+  "the saved session should record the active terminal",
+  async function (this: KoluWorld) {
+    const expected = this.savedActiveTerminalId;
+    assert.ok(expected, "No saved active canvas tile id in this scenario");
+    const sessionFile = path.join(padiStateDir, "config.json");
+    const readActiveId = (): string | null => {
+      if (!fs.existsSync(sessionFile)) return null;
+      const persisted = JSON.parse(fs.readFileSync(sessionFile, "utf8")) as {
+        session?: { activeTerminalId?: string | null } | null;
+      };
+      return persisted.session?.activeTerminalId ?? null;
+    };
+    await pollFor({
+      observe: async () => readActiveId(),
+      isDone: (id) => id === expected,
+      onTimeout: (last, ms) =>
+        new Error(
+          `Saved session never recorded active terminal ${expected} within ${ms}ms — saw ${last ?? "none"}`,
+        ),
+      timeoutMs: POLL_TIMEOUT,
+    });
+  },
+);
 
 /** Wait until padi's PERSISTED session actually offers N resumable agents.
  *

@@ -25,6 +25,9 @@ function makeState(over: Partial<AgentTerminalState>): AgentTerminalState {
     cwd: "/repo",
     readForegroundBasename: () => null,
     lastAgentCommandName: null,
+    // opencode matches on basename + cwd and never reads the process snapshot;
+    // the contract still requires the field.
+    readProcessSnapshot: () => null,
     ...over,
   };
 }

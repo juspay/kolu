@@ -22,9 +22,8 @@
  *
  * The price is measured, not assumed: on a linux box with ~900 processes a
  * host-wide `--procs --ports --argv` pass took ~35 ms against ~9 ms for the
- * subtree ask. The sampler's nudge floor is derived from the pass duration
- * (`nudgeFloorMs`), so the wider read pays for itself in its own cadence rather
- * than becoming a hot loop.
+ * subtree ask. At the sampler's one pass per 5 s that is well under 1% of a core,
+ * which is why the wider read needs no cadence policy of its own.
  */
 
 import { Effect } from "effect";

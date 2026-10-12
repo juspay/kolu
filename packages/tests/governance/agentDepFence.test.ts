@@ -147,9 +147,17 @@ test("agent packages are depended on only by the registry and the tests", () => 
 });
 
 test("anyagent depends on no kolu-<agent> package", () => {
+  // Against the DERIVED agent set, not a `kolu-` name prefix. The prefix was a
+  // second, cruder notion of "is this an agent package" sitting two functions
+  // below the real one, and it misclassified exactly what `agentPackageNames`'
+  // own doc promises it would not: a non-agent integration leaf. `kolu-io` (the
+  // process-snapshot / stamped-read IO the kernel's `AgentTerminalState` names a
+  // type from) is such a leaf, and the kernel naming a shared data shape is the
+  // opposite of the per-agent knowledge this fence exists to keep out.
+  const agents = agentPackageNames();
   const anyagent = allManifests().find((m) => m.name === "anyagent");
   assert.ok(anyagent, "anyagent manifest must exist");
-  const leaked = anyagent.dependencies.filter((d) => d.startsWith("kolu-"));
+  const leaked = anyagent.dependencies.filter((d) => isAgentDep(d, agents));
   assert.deepEqual(
     leaked,
     [],

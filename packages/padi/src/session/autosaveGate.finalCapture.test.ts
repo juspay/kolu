@@ -42,18 +42,20 @@ const oneTerminal: SessionSnapshot = {
 type Wiring = {
   persisted: SessionSnapshot[];
   persistedFinal: SessionSnapshot[];
+  activeIds: string[];
 };
 
 function wire(opts: {
   snapshot: () => SessionSnapshot;
   isRestorePending: () => boolean;
 }): Wiring {
-  const w: Wiring = { persisted: [], persistedFinal: [] };
+  const w: Wiring = { persisted: [], persistedFinal: [], activeIds: [] };
   initAutosaveGate({
     snapshot: opts.snapshot,
     isRestorePending: opts.isRestorePending,
     persist: (s) => w.persisted.push(s),
     persistFinal: (s) => w.persistedFinal.push(s),
+    persistActiveId: (id) => w.activeIds.push(id),
   });
   return w;
 }

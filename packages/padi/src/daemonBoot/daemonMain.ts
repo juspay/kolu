@@ -20,6 +20,7 @@
 
 import { dirname } from "node:path";
 import {
+  PADI_GATE_FILE,
   padiRuntimeHome,
   resolvePadiStateRoot,
 } from "@kolu/padi-client/rendezvous";
@@ -47,11 +48,12 @@ import {
   type Logger,
   lifetimeInfo,
   type ProcessIdentity,
+  reapStaleDaemonHomes,
   resolveDaemonHome,
 } from "@kolu/surface-daemon";
 import { Context, Effect, Layer } from "effect";
 import type { Rpc, RpcGroup } from "effect/rpc";
-import { KAVAL_NS_PREFIX, PTY_HOST_SOCK_FILE } from "kaval";
+import { KAVAL_GATE_FILE, KAVAL_NS_PREFIX, PTY_HOST_SOCK_FILE } from "kaval";
 import { configureNixShellEnv } from "kolu-pty";
 import { processIdentityFromEnv } from "osfacts-client";
 import { writeAgentToolsBakeRecord } from "../agentToolsBake.ts";
@@ -88,6 +90,7 @@ import {
 } from "../session/confStores.ts";
 import { importLegacyConfigOnce } from "../session/importLegacy.ts";
 import {
+  saveActiveTerminalId,
   saveSession,
   setSavedSessionFromSnapshot,
 } from "../session/session.ts";
@@ -318,6 +321,10 @@ function configureDaemonIdentity(
     // one the control-core drain uses — so a stop observed mid-teardown cannot
     // null a non-empty saved blob (the W1 zest-loss class).
     persistFinal: setSavedSessionFromSnapshot,
+    // The FOCUS edge (#2286): patches `activeTerminalId` on the blob already on
+    // disk, never the terminal trace, so a tab switch costs one field — not a
+    // re-serialisation of every terminal.
+    persistActiveId: saveActiveTerminalId,
   });
   return { configured: true };
 }
@@ -742,6 +749,37 @@ function padiDaemonProgram(
     // resolves the discovered kaval from the state-root, so no boot-time sampler start
     // is needed. The serving padi still reports ITSELF by construction — see
     // `withSelfPadi` — reading padi's serve socket from the module global.)
+
+    // Sweep the dead daemon homes nobody else collects, ONCE per boot. Logind
+    // wipes `$XDG_RUNTIME_DIR` at logout; nothing wipes `/tmp`, so every padi or
+    // kaval that ever crashed (or ran under a harness with XDG unset) leaves its
+    // home there forever — 5.4 K of them on the host that reported
+    // juspay/kolu#2286, inside a `/tmp` of 209 K entries that discovery then had
+    // to read. Only a home whose own gate file proves its owner is gone is
+    // removed; a live holder, a gateless home (a daemon mid-boot looks exactly
+    // like that) and an unreadable gate are all left alone. Run AFTER this padi
+    // claimed its own gate and wrote its manifests, so our own home and the kaval
+    // we just adopted or spawned are provably live and never candidates.
+    for (const { app, gateFile } of [
+      { app: "padi", gateFile: PADI_GATE_FILE },
+      { app: KAVAL_NS_PREFIX, gateFile: KAVAL_GATE_FILE },
+    ]) {
+      const sweep = reapStaleDaemonHomes({ app, gateFile });
+      if (sweep.removed.length > 0) {
+        log.info(
+          { app, removed: sweep.removed.length },
+          "boot sweep: removed dead daemon runtime homes",
+        );
+      }
+      for (const skip of sweep.skipped) {
+        if (skip.why === "gate-unreadable" || skip.why === "remove-failed") {
+          log.warn(
+            { app, dir: skip.dir, why: skip.why, err: skip.err },
+            "boot sweep: left a daemon runtime home in place",
+          );
+        }
+      }
+    }
 
     const exit = yield* Effect.promise(() =>
       daemonMain({

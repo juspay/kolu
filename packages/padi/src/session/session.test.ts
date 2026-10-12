@@ -50,6 +50,7 @@ import { snapshotSession } from "../terminals.ts";
 import { cancelPendingAutosave, initAutosaveGate } from "./autosaveGate.ts";
 import {
   getSavedSession,
+  saveActiveTerminalId,
   saveSession,
   setSavedSession,
   setSavedSessionFromSnapshot,
@@ -192,6 +193,7 @@ beforeAll(async () => {
     isRestorePending: hasParkedTerminals,
     persist: saveSession,
     persistFinal: setSavedSessionFromSnapshot,
+    persistActiveId: saveActiveTerminalId,
   });
   await tick(10);
 });
@@ -288,6 +290,36 @@ describe("session autosave — the PATH-B session-clobber guard", () => {
     expect([...terminalEntries()].map(([id, e]) => [id, e.meta.state])).toEqual(
       registryBefore,
     );
+  });
+});
+
+describe("saveActiveTerminalId — the focus write touches ONE field (#2286)", () => {
+  it("patches `activeTerminalId` and leaves the trace and its `savedAt` byte-identical", () => {
+    setSavedSession(savedBlob());
+    const before = getSavedSession();
+
+    saveActiveTerminalId("22222222-2222-4222-8222-222222222222");
+
+    const after = getSavedSession();
+    expect(after?.activeTerminalId).toBe(
+      "22222222-2222-4222-8222-222222222222",
+    );
+    // The whole point of the split: the terminal trace is NOT re-serialised, so
+    // the blob's shape is unchanged (hence no state-store migration) and only the
+    // field the user actually changed differs.
+    expect(after?.terminals).toEqual(before?.terminals);
+    // `savedAt` dates the TRACE — the restore card ages it and a cross-epoch
+    // takeover compares it — and moving focus is not evidence the saved terminals
+    // got any fresher.
+    expect(after?.savedAt).toBe(before?.savedAt);
+  });
+
+  it("is a NO-OP when nothing is saved — a marker with no trace is not a session", () => {
+    setSavedSession(null);
+    saveActiveTerminalId("22222222-2222-4222-8222-222222222222");
+    // Synthesising a terminal-less blob here would hand the next boot a restore
+    // offer with nothing to restore.
+    expect(getSavedSession()).toBeNull();
   });
 });
 

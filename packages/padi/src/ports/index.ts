@@ -5,7 +5,7 @@
  * answers two questions from one pass: "which TCP listeners does each terminal's
  * subtree hold?" (each terminal's `ports` channel) and "which listeners are on
  * this host at all?" (padi's `hostListeners` cell). `scan.ts` is the OS ask and
- * its folds; `sampler.ts` is the 5 s / nudge poll that publishes both.
+ * its folds; `sampler.ts` is the 5 s poll that publishes both.
  */
 
 export {
@@ -22,7 +22,6 @@ export {
 } from "./scan.ts";
 export {
   createPortSampler,
-  nudgeFloorMs,
   PORT_SCAN_INTERVAL_MS,
   type PortSampler,
   type PortScanTarget,

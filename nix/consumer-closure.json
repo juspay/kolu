@@ -77,6 +77,7 @@
         "kolu-agents",
         "kolu-git",
         "kolu-github",
+        "kolu-io",
         "kolu-pty",
         "kolu-shared",
         "kolu-transcript-core",
@@ -504,6 +505,7 @@
       "workspace": [
         "@kolu/log",
         "@kolu/shell-quote",
+        "kolu-io",
         "nonempty"
       ],
       "external": {

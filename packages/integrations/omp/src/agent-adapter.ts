@@ -40,7 +40,6 @@ import {
   type AgentTerminalState,
   matchesAgent,
 } from "anyagent";
-import { readProcessSnapshot } from "kolu-io";
 import type { Logger } from "kolu-shared";
 import { type AgentDirResolution, resolveAgentDir } from "./agent-dir.ts";
 import { type OmpSession, readBreadcrumb, ttyIdForPid } from "./breadcrumb.ts";
@@ -142,10 +141,11 @@ function noteBreadcrumbDir(dir: string): void {
  *  state with an env var gets no detection for that run. */
 function agentDirFor(
   state: AgentTerminalState,
-  pid: number,
   log?: Logger,
 ): AgentDirResolution | "no-session" | null {
-  const proc = readProcessSnapshot(pid, log);
+  // The host's ONE read for this reconcile tick, shared with every other
+  // adapter (juspay/kolu#2286) — never a per-adapter `readProcessSnapshot`.
+  const proc = state.readProcessSnapshot();
   if (proc === null) return null;
   if (proc.argv.includes("--no-session")) return "no-session";
   const resolved = resolveAgentDir({
@@ -180,7 +180,7 @@ export const ompAdapter: AgentAdapter<OmpSession, OmpInfo> = {
     if (!matchesAgent(state, "omp")) return [];
     const pid = state.foregroundPid;
     if (pid === undefined) return null;
-    const dir = agentDirFor(state, pid, log);
+    const dir = agentDirFor(state, log);
     if (dir === null) return null;
     // A persistence-off run is bound to no session — certainly not to whatever
     // this tty's crumb still says (it belongs to an earlier run).

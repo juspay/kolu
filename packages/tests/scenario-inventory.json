@@ -8644,6 +8644,18 @@
       "exampleRows": [],
       "executions": 1,
       "firstSeenSha": "aa6aa5b96fdc03f0e8dad00ef25202c67d9f5710"
+    },
+    {
+      "revisionId": "revision-9dba172f5cf981625793",
+      "scenarioKey": "scenario-9e1ddcbe5d759f61a7fc",
+      "feature": "features/session-restore.feature",
+      "scenario": "Active terminal stays active AND centered across refresh",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "abd5811aad6d8fc44a89263be1b14d6049b06c705298f18267de2e0c9d27a96a",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "1f4016a3ef17261030da953a41420f7f2a87336b"
     }
   ]
 }

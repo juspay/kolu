@@ -35,7 +35,6 @@ import {
   type AgentTerminalState,
   matchesAgent,
 } from "anyagent";
-import { readProcessSnapshot } from "kolu-io";
 import type { Logger } from "kolu-shared";
 import { AGENT_DIR } from "./config.ts";
 import {
@@ -99,7 +98,9 @@ function sessionStoreFor(
 ): SessionStore {
   const pid = state.foregroundPid;
   if (pid !== undefined) {
-    const proc = readProcessSnapshot(pid, log);
+    // The host's ONE read for this reconcile tick, shared with every other
+    // adapter (juspay/kolu#2286) — never a per-adapter `readProcessSnapshot`.
+    const proc = state.readProcessSnapshot();
     if (proc) {
       const resolved = resolveSessionDir({
         argv: proc.argv,

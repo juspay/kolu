@@ -27,6 +27,7 @@ import path from "node:path";
 import { getSessionInfo } from "@anthropic-ai/claude-agent-sdk";
 import { classifyByAwaiting } from "anyagent";
 import { Effect, Result, Schema, SchemaGetter } from "effect";
+import { stampedCache } from "kolu-io";
 import { type Logger, readTailLines } from "kolu-shared";
 import { parseIsoTimestamp } from "kolu-transcript-core";
 import { match } from "ts-pattern";
@@ -101,6 +102,19 @@ export interface SessionFile {
   startedAt?: number;
 }
 
+/** The session files held across reconciles. Bounded well above any plausible
+ *  live fleet (one entry is a four-field record), so the LRU edge is a safety
+ *  net rather than a working limit. */
+const SESSION_FILE_CACHE_MAX = 512;
+
+/** `(mtimeMs, size)` unchanged ⇒ the parse from last time. A claude session
+ *  file is rewritten when claude starts, resumes or exits; in between it is a
+ *  constant that padi's reconcile loop was re-reading and re-`JSON.parse`ing
+ *  several times a second per terminal (juspay/kolu#2286). */
+const sessionFiles = stampedCache<SessionFile | null | "unreadable">(
+  SESSION_FILE_CACHE_MAX,
+);
+
 /**
  * Read a Claude session file by pid. Returns null if the file doesn't
  * exist (the common case — most pids are not claude-code sessions) or
@@ -110,41 +124,49 @@ export function readSessionFile(
   pid: number,
   log?: { debug: (obj: Record<string, unknown>, msg: string) => void },
 ): SessionFile | null | "unreadable" {
-  let raw: string;
-  try {
-    raw = fs.readFileSync(path.join(SESSIONS_DIR, `${pid}.json`), "utf8");
-  } catch (err) {
-    // ENOENT is the answer "this pid is not a claude session". Anything else is
-    // ignorance, and the ownership arbiter must not release a session on it.
-    if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
-      log?.debug({ err, pid }, "claude session file unreadable");
-      return "unreadable";
-    }
-    return null;
-  }
-  try {
-    const parsed = JSON.parse(raw) as Partial<SessionFile>;
-    if (
-      typeof parsed.pid !== "number" ||
-      typeof parsed.sessionId !== "string" ||
-      typeof parsed.cwd !== "string"
-    ) {
-      log?.debug({ pid, parsed }, "claude session file shape unexpected");
+  const file = path.join(SESSIONS_DIR, `${pid}.json`);
+  return sessionFiles.read(file, (stat) => {
+    // No stat ⇒ no file ⇒ "this pid is not a claude session", answered without
+    // a read at all. This is the commonest outcome by far (most pids are not
+    // claude), so it must stay the cheapest one.
+    if (stat === undefined) return null;
+    let raw: string;
+    try {
+      raw = fs.readFileSync(file, "utf8");
+    } catch (err) {
+      // The file was there a syscall ago; ENOENT now is the exit race and still
+      // means "no session". Anything else is ignorance, and the ownership
+      // arbiter must not release a session on it.
+      if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
+        log?.debug({ err, pid }, "claude session file unreadable");
+        return "unreadable";
+      }
       return null;
     }
-    return {
-      pid: parsed.pid,
-      sessionId: parsed.sessionId,
-      cwd: parsed.cwd,
-      startedAt:
-        typeof parsed.startedAt === "number" ? parsed.startedAt : undefined,
-    };
-  } catch (err) {
-    // A file that is there but will not parse is a read we could not complete,
-    // not evidence that the terminal runs no agent.
-    log?.debug({ err, pid }, "claude session file parse failed");
-    return "unreadable";
-  }
+    try {
+      const parsed = JSON.parse(raw) as Partial<SessionFile>;
+      if (
+        typeof parsed.pid !== "number" ||
+        typeof parsed.sessionId !== "string" ||
+        typeof parsed.cwd !== "string"
+      ) {
+        log?.debug({ pid, parsed }, "claude session file shape unexpected");
+        return null;
+      }
+      return {
+        pid: parsed.pid,
+        sessionId: parsed.sessionId,
+        cwd: parsed.cwd,
+        startedAt:
+          typeof parsed.startedAt === "number" ? parsed.startedAt : undefined,
+      };
+    } catch (err) {
+      // A file that is there but will not parse is a read we could not
+      // complete, not evidence that the terminal runs no agent.
+      log?.debug({ err, pid }, "claude session file parse failed");
+      return "unreadable";
+    }
+  });
 }
 
 // --- Project path encoding ---
