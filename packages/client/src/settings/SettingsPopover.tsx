@@ -8,7 +8,7 @@ import type {
   ShuffleBehavior,
 } from "kolu-common/surface";
 import { type Component, Show } from "solid-js";
-import { AGENTS_PROFILE_MENU_TESTID } from "../agents/AgentsProfileField";
+import { AGENTS_PROFILE_MENU_TESTID } from "../agents/AgentsProfilePicker";
 import AgentsSettingsSection from "../agents/AgentsSettingsSection";
 import { Portal } from "solid-js/web";
 import SegmentedControl, {

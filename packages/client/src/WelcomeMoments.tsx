@@ -20,7 +20,14 @@ import {
 import { installInstructions, type PwaInstall } from "@kolu/solid-pwa-install";
 import { LOCAL_HOST } from "kolu-common/hostKey";
 import { useSurfaceApp } from "@kolu/surface-app/solid";
-import { type Component, createMemo, For, type JSX, Show } from "solid-js";
+import {
+  type Component,
+  createMemo,
+  createSignal,
+  For,
+  type JSX,
+  Show,
+} from "solid-js";
 import AgentsChooser from "./agents/AgentsChooser";
 import {
   agentDistroListing,
@@ -43,6 +50,13 @@ import {
   selectWelcomeMoments,
   type WelcomeMomentId,
 } from "./welcomeMomentsSelect";
+
+/** "Not now" on the agents step, for THIS session: the row goes and the
+ *  preference stays unchosen, so the next load asks again. A module signal, so
+ *  the dismissal holds across the two places the card renders (the empty
+ *  canvas and the Tutorial dialog) and dies with the page — "ask again later"
+ *  is exactly its lifetime. */
+const [agentsStepDismissed, setAgentsStepDismissed] = createSignal(false);
 
 /** The done header's words per moment — `undefined` for a moment with no
  *  entry. THE decision of which done moments the header shows; `chooseAgents`
@@ -135,15 +149,21 @@ const MomentShell: Component<{
 );
 
 /** The agents choice: the same `AgentsChooser` as Settings → Agents, laid out
- *  as a welcome row with agent-distro's logo — its switch only (turning it on
- *  with nothing chosen starts on Juspay's profile; the profile field lives in
- *  Settings), and the status lines. It stays at the top while agents are off —
- *  nothing chosen, or switched off. Only while NOTHING is chosen does the
- *  switch take focus on mount, so Enter turns agents on: someone who switched
- *  them off sees the row at every empty canvas, but an Enter out of habit must
- *  not switch them back on. ⌘⏎ still creates a terminal from anywhere. */
-const ChooseAgentsMoment: Component = () => (
-  <AgentsChooser autofocus={!agentsChosen(agentDistroStored())}>
+ *  as a welcome row with agent-distro's logo — the profiles kolu ships as
+ *  named cards (the default one preselected), "Turn on" to take the picked
+ *  one, and "Not now" to go on with plain terminals. A reference of your own
+ *  stays a Settings matter.
+ *
+ *  Nothing is written until "Turn on": a card is a choice, not a switch, and
+ *  "Not now" must leave the preference UNchosen — it hides the row for this
+ *  session and the card asks again next time. The row stays at the top while
+ *  agents are off (nothing chosen, or switched off). Only while NOTHING is
+ *  chosen does the picked card take focus on mount, so Enter turns agents on:
+ *  someone who switched them off sees the row at every empty canvas, but an
+ *  Enter out of habit must not switch them back on. ⌘⏎ still creates a
+ *  terminal from anywhere. */
+const ChooseAgentsMoment: Component<{ onNotNow: () => void }> = (props) => (
+  <AgentsChooser deferred autofocus={!agentsChosen(agentDistroStored())}>
     {(parts) => (
       <MomentShell
         testId="welcome-moment-choose-agents"
@@ -152,8 +172,30 @@ const ChooseAgentsMoment: Component = () => (
         body={parts.stepHint()}
         details={
           <>
-            <div class="mt-1.5 flex">{parts.control}</div>
-            {parts.status}
+            {parts.picker}
+            <div class="mt-2.5 flex items-center gap-3.5">
+              <Show when={parts.turnOn}>
+                {(turnOn) => (
+                  <button
+                    type="button"
+                    data-testid="welcome-agents-turn-on"
+                    class="inline-flex cursor-pointer items-center gap-2 rounded-lg bg-accent px-3 py-1.5 text-xs font-semibold text-surface-1 transition-all hover:brightness-110"
+                    onClick={() => turnOn()()}
+                  >
+                    Turn on
+                    <Kbd>⏎</Kbd>
+                  </button>
+                )}
+              </Show>
+              <button
+                type="button"
+                data-testid="welcome-agents-not-now"
+                class="cursor-pointer text-xs text-fg-3 hover:text-fg-2 hover:underline"
+                onClick={() => props.onNotNow()}
+              >
+                Not now — plain terminals, ask again later
+              </button>
+            </div>
           </>
         }
         docSlug="agents"
@@ -274,6 +316,7 @@ const WelcomeMoments: Component<{
   const selection = createMemo(() =>
     selectWelcomeMoments({
       chooseAgentsDone: chooseAgentsDone(),
+      chooseAgentsDismissed: agentsStepDismissed(),
       pinDone: pinState() === "installed",
       reachDone: location.protocol === "https:",
       hostsDone: hosts().length > 1,
@@ -288,7 +331,9 @@ const WelcomeMoments: Component<{
   const renderRow = (id: WelcomeMomentId): JSX.Element => {
     switch (id) {
       case "chooseAgents":
-        return <ChooseAgentsMoment />;
+        return (
+          <ChooseAgentsMoment onNotNow={() => setAgentsStepDismissed(true)} />
+        );
       case "pin":
         return (
           <Show when={pinRowState()}>
