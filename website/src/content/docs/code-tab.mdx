@@ -40,16 +40,25 @@ A segmented control switches between three views: **All files** (the whole repo)
 **Local** (uncommitted), and **Branch** (vs the base). The Local and Branch
 segments carry a **change-count badge**, so you can see you have, say, 3
 uncommitted files and 12 changes versus your branch base without switching into
-either. Each view keeps its own file tree mounted, preserving expanded folders
+either.
+
+When a directory was replaced by a file of the same name (say, a folder swapped
+for a symlink), or the other way round, that path shows as **one row**. Its diff
+covers the file at that path and every file under it. The badge still counts
+git's changed files, so it can read higher than the rows in the tree. A file
+renamed out of the replaced directory shows inside that row's diff as a plain
+deletion, because a diff of one path cannot pair the rename. A line reference
+copied from that diff names the file the line is in. Comments attach only to the
+path's own file: select text in a file under it and the comment pill says so.
+
+Each view keeps its own file tree mounted, preserving expanded folders
 and scroll position when you switch away and back. Typing in the filter box
 narrows the tree to the files that match and opens their folders; a folder you
 close while filtering stays closed as git changes come in, until the set of
 matching files changes — a new match opens its folder again, while editing the
 filter to one that matches the same files does not. During loading or an error,
 the previous tree stays visible but dimmed and cannot be clicked. Saving the open file updates its contents in place, preserving the
-viewer and its scroll position. When a directory was replaced by a file of the same
-name (say, a folder swapped for a symlink), that path shows as **one row**, and its
-diff covers the new file and every file that used to live in the directory.
+viewer and its scroll position.
 
 **All files** shows what git tracks plus anything untracked, and leaves out what
 your `.gitignore` hides — so the tree is your project, not your `node_modules`.
