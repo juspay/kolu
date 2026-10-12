@@ -245,11 +245,11 @@ handful of habits that paid for nothing; each is now a rule rather than a tuning
   Clicking between tiles used to rewrite every terminal's record — 253 KB/s of disk
   on a 16-terminal workspace. Shutdown still reads the LIVE marker, so nothing is
   lost at the edge that matters.
-- **A repo's change watcher belongs to padi, not to a browser's focus.**
-  `repoWatchLease.ts` holds one silent reference per ACTIVE terminal whose resolved
-  repo root is that repo, on top of kolu-git's client-subscription refcount, and
-  kolu-git retires 30 s after the last reference drops. A Code-tab re-key is now an
-  attach, where it used to tear down and rebuild four inotify watchers.
+- **A repo's change watcher outlives a browser's focus switch.** kolu-git retires
+  a repo-change entry 30 s after its last subscriber leaves rather than on the
+  drop, and a subscription taken inside that window reuses the live upstreams —
+  so the Code tab's focus-driven re-key is an attach where it used to tear down
+  and rebuild four inotify watchers, 120 of each per 5 minutes.
 
 ## The export map
 

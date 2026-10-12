@@ -26,7 +26,6 @@ import {
   type GitResult,
   getDiff,
   getStatus,
-  holdRepoChange,
   listAll,
   listDirectory,
   listIgnored,
@@ -76,17 +75,6 @@ export interface TerminalEndpointFs {
     signal?: AbortSignal,
   ): Promise<string>;
   subscribeRepoChange(repoPath: string, onChange: () => void): () => void;
-  /** Keep `repoPath`'s repo-change watcher INSTALLED without listening to it,
-   *  and return an idempotent release (juspay/kolu#2286). Lives on the same seam
-   *  as `subscribeRepoChange` because it is the same volatility — "watch this
-   *  repo on the endpoint's host" — and splitting the hold off into a direct
-   *  kolu-git import would leave two ways to reach one watcher registry.
-   *
-   *  The caller is padi's terminal registry, which holds one per terminal whose
-   *  cwd resolves into the repo: that makes the watcher's lifetime a fact about
-   *  the HOST's working set instead of a fact about which pane a browser tab has
-   *  focused, and turns the Code tab's focus-driven re-key into an attach. */
-  holdRepoChange(repoPath: string): () => void;
   subscribeFileChange(
     repoPath: string,
     filePath: string,
@@ -196,9 +184,6 @@ export function createTerminalWorkspaceEndpoint(
     },
     subscribeRepoChange(repoPath, onChange) {
       return subscribeRepoChange(repoPath, onChange, log);
-    },
-    holdRepoChange(repoPath) {
-      return holdRepoChange(repoPath, log);
     },
     subscribeFileChange(repoPath, filePath, onChange) {
       return subscribeFileChange(repoPath, filePath, onChange, log);

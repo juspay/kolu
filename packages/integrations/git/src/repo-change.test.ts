@@ -16,9 +16,8 @@
  * layer has no such seam: `subscribeRepoChange` is a free function over
  * module-scope registries, reached from padi through two pass-throughs that
  * carry a repo path and a callback and nothing else. Threading a timer dep down
- * that chain — and through `holdRepoChange`, whose callers are a terminal
- * registry seam — would add an injection parameter to five signatures to make
- * one `setTimeout` testable, which is the knob this repo's philosophy rejects.
+ * that chain would add an injection parameter to make one `setTimeout`
+ * testable, which is the knob this repo's philosophy rejects.
  * Fake timers reach it with none of that.
  */
 
@@ -51,7 +50,6 @@ import type { Logger } from "kolu-shared";
 import {
   _sharedFileChangeCount,
   _sharedRepoChangeCount,
-  holdRepoChange,
   subscribeFileChange,
   subscribeRepoChange,
   WATCHER_RETIRE_GRACE_MS,
@@ -95,17 +93,18 @@ afterEach(() => {
 });
 
 describe("repo-change watcher lifetime", () => {
-  it("a client re-key on a repo padi holds costs zero installs and zero retires", () => {
-    const release = holdRepoChange(repo, log);
+  it("a client re-key costs zero installs and zero retires", () => {
+    const stop = subscribeRepoChange(repo, () => {}, log);
     expect(upstream.state.installs).toBe(4);
     expect(installs()).toBe(1);
+    stop();
 
     // The Code tab's focus-driven re-key: unsubscribe the repo and immediately
     // re-subscribe it, twenty times over. Before #2286 each lap tore down four
     // inotify watchers and built four more.
     for (let i = 0; i < 20; i += 1) {
-      const stop = subscribeRepoChange(repo, () => {}, log);
-      stop();
+      const again = subscribeRepoChange(repo, () => {}, log);
+      again();
     }
 
     expect(upstream.state.installs).toBe(4);
@@ -113,26 +112,10 @@ describe("repo-change watcher lifetime", () => {
     expect(installs()).toBe(1);
     expect(retires()).toBe(0);
     expect(_sharedRepoChangeCount()).toBe(1);
-
-    release();
-  });
-
-  it("a client re-key with NO padi hold still costs nothing — the grace window covers the gap", () => {
-    const stop = subscribeRepoChange(repo, () => {}, log);
-    stop();
-    // Same tick, as the client's re-key does it.
-    const stop2 = subscribeRepoChange(repo, () => {}, log);
-
-    expect(upstream.state.installs).toBe(4);
-    expect(upstream.state.uninstalls).toBe(0);
-    expect(retires()).toBe(0);
-
-    stop2();
   });
 
   it("the last reference retires only after the grace window", () => {
-    const release = holdRepoChange(repo, log);
-    release();
+    subscribeRepoChange(repo, () => {}, log)();
 
     vi.advanceTimersByTime(WATCHER_RETIRE_GRACE_MS - 1);
     expect(retires()).toBe(0);
@@ -146,8 +129,7 @@ describe("repo-change watcher lifetime", () => {
   });
 
   it("a reference acquired inside the grace window cancels the retirement", () => {
-    const release = holdRepoChange(repo, log);
-    release();
+    subscribeRepoChange(repo, () => {}, log)();
     vi.advanceTimersByTime(WATCHER_RETIRE_GRACE_MS / 2);
 
     const stop = subscribeRepoChange(repo, () => {}, log);
@@ -163,45 +145,6 @@ describe("repo-change watcher lifetime", () => {
     expect(retires()).toBe(1);
     expect(upstream.state.uninstalls).toBe(4);
   });
-
-  it("a live watcher still fans out to listeners while a padi hold is the only other reference", () => {
-    const release = holdRepoChange(repo, log);
-    const seen: number[] = [];
-    const stop = subscribeRepoChange(repo, () => seen.push(1), log);
-
-    // Fire one upstream axis; the composed debounce coalesces then fans out.
-    upstream.state.ticks[0]?.();
-    vi.advanceTimersByTime(1_000);
-    expect(seen).toHaveLength(1);
-
-    // The hold receives nothing of its own — dropping the listener leaves the
-    // watcher installed and silent.
-    stop();
-    upstream.state.ticks[0]?.();
-    vi.advanceTimersByTime(1_000);
-    expect(seen).toHaveLength(1);
-    expect(retires()).toBe(0);
-
-    release();
-  });
-
-  it("repeated releases of one hold count once", () => {
-    const release = holdRepoChange(repo, log);
-    const stop = subscribeRepoChange(repo, () => {}, log);
-    release();
-    release();
-    release();
-    // The listener is still a reference; a double-released hold must not have
-    // driven the count negative or armed a retirement under it.
-    vi.advanceTimersByTime(WATCHER_RETIRE_GRACE_MS * 2);
-    expect(retires()).toBe(0);
-    expect(_sharedRepoChangeCount()).toBe(1);
-
-    stop();
-    vi.advanceTimersByTime(WATCHER_RETIRE_GRACE_MS);
-    expect(retires()).toBe(1);
-  });
-
   it("file-change entries share the same grace window", () => {
     const stop = subscribeFileChange(repo, "a.txt", () => {}, log);
     stop();

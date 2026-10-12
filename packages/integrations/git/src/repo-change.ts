@@ -11,17 +11,14 @@
  * signal — they re-run their own query (`git status`, `git diff`,
  * `readFile`) and dedup with their own equality predicate.
  *
- * LIFETIME (#2286). A composed entry lives as long as it has ANY reference, and
- * references come in two kinds: a listening one (`subscribe*`) and a silent one
- * (`holdRepoChange`), which keeps the upstreams installed and is delivered
- * nothing. The silent kind exists because the subscriber set is driven by a
- * BROWSER: the Code tab re-keys its repo subscription onto the focused pane, so
- * a refcount that only ever counted listeners made a focus switch across two
- * repos a four-watcher teardown-and-rebuild — and dropped whatever arrived in
- * the gap. padi holds one silent reference per terminal living in the repo, so
- * the watchers track the HOST's working set, and the last reference leaving
- * starts a {@link WATCHER_RETIRE_GRACE_MS} timer instead of tearing down on the
- * spot, so even an unheld repo survives a re-key.
+ * LIFETIME (#2286). The subscriber set is driven by a BROWSER: the Code tab
+ * re-keys its repo subscription onto the focused pane, so a refcount that tore
+ * down on the last unsubscribe made a focus switch across two repos a
+ * four-watcher teardown-and-rebuild — 120 of each per 5 minutes at the measured
+ * 2.5 s cadence, with whatever arrived in the gap simply lost. The last
+ * subscriber leaving now starts a {@link WATCHER_RETIRE_GRACE_MS} timer
+ * instead, and a subscription taken inside that window reuses the live
+ * upstreams.
  *
  * Why two primitives, not one with a config knob: `onFileContentChange`
  * (BrowseFileView) only cares about HEAD checkouts and saves to the one
@@ -57,14 +54,7 @@ import { watchWorkingTree } from "./working-tree-watcher.ts";
 export const WATCHER_RETIRE_GRACE_MS = 30_000;
 
 interface SharedComposed {
-  /** A LISTENING reference — `onChange` fires on every debounced tick. */
   subscribe(onChange: () => void): () => void;
-  /** A NON-LISTENING reference: keeps the upstream watchers installed and is
-   *  delivered nothing. padi takes one per terminal whose cwd resolves into the
-   *  repo, so the watcher's lifetime follows the TERMINALS on the host rather
-   *  than whichever pane a browser tab happens to have focused (#2286). The
-   *  returned release is idempotent, like `subscribe`'s unsubscribe. */
-  hold(): () => void;
 }
 
 const repoChangeWatchers = new Map<string, SharedComposed>();
@@ -74,8 +64,7 @@ const fileChangeWatchers = new Map<string, SharedComposed>();
  *  Each upstream callback fires `tick()`, which trailing-edge-debounces
  *  fan-out across the listener set.
  *
- *  Lifetime is REFERENCE-counted over two kinds of reference — listeners
- *  (`subscribe`) and silent holds (`hold`) — and the teardown runs
+ *  Lifetime is REFERENCE-counted over the listener set, and the teardown runs
  *  {@link WATCHER_RETIRE_GRACE_MS} AFTER the last one drops rather than on the
  *  drop itself. A reference taken inside that window cancels the pending
  *  retirement and reuses the live upstreams, which is what makes a client's
@@ -91,7 +80,6 @@ function compose(
   log?: Logger,
 ): SharedComposed {
   const listeners = new Set<() => void>();
-  let holds = 0;
   let timer: NodeJS.Timeout | undefined;
   let retireTimer: NodeJS.Timeout | undefined;
   let retired = false;
@@ -116,8 +104,6 @@ function compose(
   const upstreamUnsubs = upstreamInstalls.map((install) => install(tick));
   log?.info(logFields, `${logLabel} watcher installed`);
 
-  const refs = (): number => listeners.size + holds;
-
   /** A reference arrived — cancel any pending retirement, because the upstreams
    *  it was about to tear down are the ones this reference is about to use. */
   function acquired(): void {
@@ -127,7 +113,7 @@ function compose(
 
   /** A reference left — arm the grace timer once the LAST one is gone. */
   function released(): void {
-    if (retired || retireTimer || refs() > 0) return;
+    if (retired || retireTimer || listeners.size > 0) return;
     retireTimer = setTimeout(retire, WATCHER_RETIRE_GRACE_MS);
     // A pending retirement is pure cleanup: it must never be the thing holding a
     // daemon that is otherwise ready to exit open for the rest of the window.
@@ -136,7 +122,7 @@ function compose(
 
   function retire(): void {
     retireTimer = undefined;
-    if (retired || refs() > 0) return;
+    if (retired || listeners.size > 0) return;
     retired = true;
     clearTimeout(timer);
     for (const u of upstreamUnsubs) u();
@@ -153,25 +139,14 @@ function compose(
         released();
       };
     },
-    hold() {
-      acquired();
-      holds += 1;
-      let held = true;
-      return () => {
-        if (!held) return;
-        held = false;
-        holds -= 1;
-        released();
-      };
-    },
   };
 }
 
 /** The composed repo-change entry for `repoRoot`, created on the first
- *  reference. Shared by BOTH reference kinds — a listening `subscribeRepoChange`
- *  and a silent `holdRepoChange` — so a client subscription landing on a repo
- *  padi already holds attaches to the LIVE watcher: no install, no retire, and
- *  no window in which events go missing (#2286). */
+ *  subscription and kept alive through {@link WATCHER_RETIRE_GRACE_MS} after the
+ *  last one leaves — so the Code tab's focus-driven re-key lands on the LIVE
+ *  watcher: no install, no retire, and no window in which events go missing
+ *  (#2286). */
 function repoChangeEntry(repoRoot: string, log?: Logger): SharedComposed {
   let entry = repoChangeWatchers.get(repoRoot);
   if (!entry) {
@@ -209,24 +184,6 @@ export function subscribeRepoChange(
   log?: Logger,
 ): () => void {
   return repoChangeEntry(repoRoot, log).subscribe(onChange);
-}
-
-/**
- * Hold the repo-change watcher for `repoRoot` OPEN without listening to it —
- * the reference whose lifetime is the HOST's, not a browser tab's (#2286).
- *
- * padi takes one per terminal whose cwd resolves into the repo, so the four
- * inotify watchers stay installed for exactly the repos the machine is actually
- * working in, independent of which pane the Code tab has focused. A client
- * subscription then rides the same entry (`subscribeRepoChange` above), which is
- * what turns its focus-driven re-key from a four-watcher teardown-and-rebuild
- * into a `Set` mutation.
- *
- * Returns an idempotent release. Releasing the LAST reference does not tear the
- * watchers down on the spot — see {@link WATCHER_RETIRE_GRACE_MS}.
- */
-export function holdRepoChange(repoRoot: string, log?: Logger): () => void {
-  return repoChangeEntry(repoRoot, log).hold();
 }
 
 /**

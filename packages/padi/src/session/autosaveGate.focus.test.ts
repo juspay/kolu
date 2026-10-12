@@ -53,6 +53,8 @@ const savedRecord = {
 } as unknown as SessionSnapshot["terminals"][number];
 
 const activeIdWrites: string[] = [];
+/** The marker the modelled blob currently holds — see `persistActiveId` below. */
+let diskActiveId: string | undefined;
 const traceWrites: SessionSnapshot[] = [];
 const finalWrites: SessionSnapshot[] = [];
 let restorePending = false;
@@ -71,12 +73,17 @@ beforeAll(() => {
     isRestorePending: () => restorePending,
     persist: (s) => traceWrites.push(s),
     persistFinal: (s) => finalWrites.push(s),
-    // Through the REAL hook the padi `session` cell installs on every write
-    // (`servePadi.ts`'s `onWrite: () => cancelPendingAutosave()`). A stub that
-    // only recorded the id proved nothing about the two things that actually
-    // bit: a marker patch must not disarm an armed trace save, and must not
-    // erase the gate's belief about what it wrote.
+    // Models `saveActiveTerminalId` rather than recording the call: the real
+    // writer compares the marker ON THE RECORD and returns before `writeSession`
+    // when it is unchanged, so `activeIdWrites` is what reached DISK — which is
+    // the property #2286 is about, and the only one worth asserting here. The
+    // write then runs the REAL hook the padi `session` cell installs
+    // (`servePadi.ts`'s `onWrite: () => cancelPendingAutosave()`); a stub that
+    // skipped it proved nothing about a marker patch not disarming an armed
+    // trace save.
     persistActiveId: (id) => {
+      if (id === diskActiveId) return;
+      diskActiveId = id;
       activeIdWrites.push(id);
       cancelPendingAutosave();
     },
@@ -90,6 +97,7 @@ beforeAll(() => {
 beforeEach(() => {
   vi.useFakeTimers();
   activeIdWrites.length = 0;
+  diskActiveId = undefined;
   traceWrites.length = 0;
   finalWrites.length = 0;
   restorePending = false;
@@ -190,10 +198,10 @@ describe("the active-id trailing debounce", () => {
     setActiveTerminalId(B_ID);
     setActiveTerminalId(A_ID); // changed its mind inside the window
     vi.advanceTimersByTime(5_000);
-    // The pending value is what the equality guard compares against, so the
-    // bounce-back collapses into the ALREADY-written value and writes again only
-    // because the guard's belief is the pending B. One write, not two.
-    expect(activeIdWrites).toEqual([A_ID, A_ID]);
+    // One timer fires, carrying the LAST id — which is the one already on the
+    // record, so the writer elides it. The user never left A; the disk never
+    // learns that B was briefly focused.
+    expect(activeIdWrites).toEqual([A_ID]);
   });
 
   it("REFUSES to stamp the marker while a restore is pending, and re-arms afterwards", () => {
@@ -246,11 +254,11 @@ describe("the active-id trailing debounce", () => {
     expect(traceWrites).toHaveLength(1);
   });
 
-  it("the marker write leaves the equality guard intact", async () => {
-    // B2's half of the same hook: `cancelPendingAutosave` also clears the gate's
-    // belief about what it wrote, so an unfenced patch made every later
-    // re-assertion of the already-written id arm a fresh 5 s timer and a fresh
-    // `getSavedSession()` read — the exact chatter the guard exists to stop.
+  it("re-asserting the written id reaches disk once, however often it is reported", async () => {
+    // The client re-reports focus on reconnect, on every switcher re-render and
+    // after each restore convergence. What must not grow is DISK traffic, which
+    // is #2286's whole subject — the dedup lives in `saveActiveTerminalId`,
+    // against the record, and this models it.
     setActiveTerminalId(A_ID);
     await vi.advanceTimersByTimeAsync(5_000);
     expect(activeIdWrites).toEqual([A_ID]);

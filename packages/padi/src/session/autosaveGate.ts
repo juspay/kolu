@@ -121,21 +121,19 @@ const ACTIVE_ID_DEBOUNCE_MS = 5_000;
  *  writers) can disarm it. */
 let saveTimer: ReturnType<typeof setTimeout> | undefined;
 
-/** The active-id debounce's timer, the value it will write, and the value it last
- *  wrote — three fields of ONE state: `undefined` everywhere ⇒ nothing in flight
- *  and nothing this module knows about the marker on disk.
+/** The active-id debounce's timer and the value it will write — two fields of
+ *  ONE state: `undefined` in both ⇒ nothing in flight.
  *
- *  `lastWrittenActiveId` is the equality guard the pre-#2286 setter had none of:
- *  the client re-reports the SAME id on reconnect, on every workspace-switcher
- *  re-render and after each restore convergence, and each of those used to arm a
- *  full persist. It is cleared by {@link cancelPendingAutosave} because every
- *  caller of that function is about to REPLACE the blob (a `session.restore`, a
- *  restart capture, a `test__set`): what is on disk afterwards is no longer this
- *  module's belief, so the next report must be free to re-arm even if it names
- *  the same terminal. */
+ *  Deliberately NOT a third field remembering what was last put on disk. That
+ *  belief is a mirror of the blob, and the blob already answers it one layer
+ *  down: `saveActiveTerminalId` returns early on
+ *  `saved.activeTerminalId === id`, read from the record rather than from a
+ *  guess about it. Keeping a copy here meant inventing an invalidation rule for
+ *  it (every blob replacement had to clear it), and the pending guard already
+ *  bounds a chatty client to ONE armed timer per window — so the residue the
+ *  mirror removed was a no-op call that writes nothing. */
 let activeIdTimer: ReturnType<typeof setTimeout> | undefined;
 let pendingActiveId: string | undefined;
-let lastWrittenActiveId: string | undefined;
 
 /** True ONLY while this module is inside its own `persistActiveId` call.
  *
@@ -149,10 +147,7 @@ let lastWrittenActiveId: string | undefined;
  *  Without this exemption the patch disarmed the hook's real subjects. A layout
  *  change at t+4.8 s arms the 500 ms trace save; the focus write lands at t+5 s;
  *  `onWrite` cancels the trace save; the layout change never reaches disk and a
- *  kill before the next restore-relevant edit loses it. It also erased
- *  {@link lastWrittenActiveId} on every successful write, so the equality guard
- *  below was dead in production — every client re-assertion of an already-written
- *  id armed a fresh 5 s timer. One flag closes both. */
+ *  kill before the next restore-relevant edit loses it. */
 let patchingActiveId = false;
 
 /** The set of ACTIVE freeze leases → their reason (for logging). The gate is
@@ -193,7 +188,6 @@ export function cancelPendingAutosave(): void {
   clearTimeout(activeIdTimer);
   activeIdTimer = undefined;
   pendingActiveId = undefined;
-  lastWrittenActiveId = undefined;
 }
 
 /** Enter **frozen(reason)** for a restart's critical section — set at `capture`
@@ -330,22 +324,21 @@ export function captureFinalSession(why: string): SaveDecision {
  * stops, and the one moment the value MUST be durable — shutdown — reads the live
  * marker directly rather than waiting for this timer.
  *
- * Reporting the SAME id again is a full no-op, arming nothing: the client re-reports
- * on reconnect and after every restore convergence, and before #2286 there was no
- * equality guard at all.
+ * Re-reporting the id a pending timer is ALREADY going to write arms nothing: the
+ * client re-reports on reconnect and after every restore convergence, and before
+ * #2286 each of those armed a full session persist. Re-reporting a value already
+ * ON DISK costs one timer and one no-op call — `saveActiveTerminalId` compares the
+ * record and returns without writing — which is the dedup living where the truth is.
  *
  * Silently inert until the gate is wired — unlike {@link captureFinalSession}, which
  * throws, because a focus report during boot (before `initAutosaveGate`) is ordinary
  * and the value it would persist is seeded from the blob being restored anyway.
  */
 export function reportActiveTerminalId(id: string): void {
-  // What the gate already believes about this id: the value the armed timer will
-  // write if one is pending, else the value it last PUT on disk. Reporting that
-  // same value again is inert — critically, it does not re-arm, so a client that
-  // re-asserts focus on a cadence of its own cannot hold the debounce open.
-  const believed =
-    activeIdTimer === undefined ? lastWrittenActiveId : pendingActiveId;
-  if (id === believed) return;
+  // Already the value a pending timer will write ⇒ nothing to do. This is what
+  // stops a client re-asserting focus on a cadence of its own from holding the
+  // debounce open forever.
+  if (id === pendingActiveId) return;
   pendingActiveId = id;
   clearTimeout(activeIdTimer);
   activeIdTimer = setTimeout(() => {
@@ -357,9 +350,7 @@ export function reportActiveTerminalId(id: string): void {
     // The SAME decision the trace edge takes — a freeze (restart capture, restore
     // spawn window) or a pending restore means the blob on disk is deliberately
     // not the live set, and stamping the live marker onto it would name a terminal
-    // that set does not contain. The id is NOT recorded as written on those
-    // branches, so a later report of it re-arms rather than being swallowed by the
-    // equality guard.
+    // that set does not contain.
     const decision = decideSave(deps);
     if (decision.kind !== "persist") {
       log.info(
@@ -371,10 +362,6 @@ export function reportActiveTerminalId(id: string): void {
     patchingActiveId = true;
     try {
       deps.persistActiveId(next);
-      // Recorded only once the write actually landed, so a throwing writer leaves
-      // the guard free to re-arm for the same id rather than believing a marker
-      // that never reached disk.
-      lastWrittenActiveId = next;
     } finally {
       patchingActiveId = false;
     }

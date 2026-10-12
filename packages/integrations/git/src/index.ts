@@ -36,14 +36,8 @@ export { watchGitHead } from "./head-watcher.ts";
 export { watchGitIndex } from "./index-watcher.ts";
 // Reflog watcher (refcounted shared singleton, axis 2)
 export { watchGitReflog } from "./reflog-watcher.ts";
-// Composed primitives for the live Code-view streaming endpoints, plus the
-// host-side watcher HOLD padi takes per terminal (#2286 — see repo-change.ts's
-// LIFETIME note for why a browser-driven listener refcount is not enough).
-export {
-  holdRepoChange,
-  subscribeFileChange,
-  subscribeRepoChange,
-} from "./repo-change.ts";
+// Composed primitives for the live Code-view streaming endpoints.
+export { subscribeFileChange, subscribeRepoChange } from "./repo-change.ts";
 // Repository resolution
 export {
   gitInfoEqual,
