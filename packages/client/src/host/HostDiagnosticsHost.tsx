@@ -7,6 +7,11 @@
  *  Settings is reachable at every width — so the panel lives above all of
  *  them and hangs off whichever element was acted on.
  *
+ *  Keyed on the HOST: a different machine is a different panel. Where it
+ *  floats is a separate signal read through `triggerRef`, so opening the same
+ *  machine from another opener moves the panel instead of tearing it down
+ *  (which would re-subscribe and forget a pending "remove host" confirmation).
+ *
  *  It also owns the one invariant the chip used to: a key whose host has left
  *  the pool closes, so a re-add never reopens a stale panel. */
 
@@ -16,28 +21,24 @@ import { HostDiagnosticsPopover } from "./HostDiagnosticsPopover";
 import { useHostMembers } from "./useHostMembers";
 import {
   closeHostDiagnostics,
-  openHostDiagnosticsState,
+  hostDiagnosticsAnchor,
+  openHostDiagnosticsKey,
 } from "./useHostDiagnosticsOpen";
 
 const HostDiagnosticsHost: Component = () => {
   const members = useHostMembers();
   createEffect(() => {
-    const current = openHostDiagnosticsState();
-    if (current === null) return;
-    const stillMember = members().some(
-      (host) => encodeHostKey(host) === current.key,
-    );
+    const key = openHostDiagnosticsKey();
+    if (key === null) return;
+    const stillMember = members().some((host) => encodeHostKey(host) === key);
     if (!stillMember) closeHostDiagnostics();
   });
-  // `keyed`: a different host (or a different element to hang off) IS a
-  // different panel. Re-opening what is already open off the same element
-  // keeps the same value (`openHostDiagnostics`), so it does not remount.
   return (
-    <Show when={openHostDiagnosticsState()} keyed>
-      {(current) => (
+    <Show when={openHostDiagnosticsKey()} keyed>
+      {(key) => (
         <HostDiagnosticsPopover
-          host={decodeHostKey(current.key)}
-          triggerRef={() => current.anchor}
+          host={decodeHostKey(key)}
+          triggerRef={hostDiagnosticsAnchor}
           open={() => true}
           onDismiss={closeHostDiagnostics}
         />

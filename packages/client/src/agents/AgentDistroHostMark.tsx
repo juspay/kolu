@@ -15,8 +15,18 @@
  *  retry — without switching the tab. */
 
 import { encodeHostKey, type HostKey } from "kolu-common/hostKey";
-import { type Component, createMemo, Match, Show, Switch } from "solid-js";
-import { openHostDiagnostics } from "../host/useHostDiagnosticsOpen";
+import {
+  type Component,
+  createMemo,
+  Match,
+  onCleanup,
+  Show,
+  Switch,
+} from "solid-js";
+import {
+  openHostDiagnostics,
+  releaseHostDiagnosticsAnchor,
+} from "../host/useHostDiagnosticsOpen";
 import Tip from "../ui/Tip";
 import AgentDistroLogo from "@kolu/agent-distro/solid";
 import {
@@ -120,6 +130,7 @@ const AgentDistroHostMark: Component<{
   const where = () => agentsWhere(props.host);
   const box = () => (
     <button
+      ref={(el) => onCleanup(() => releaseHostDiagnosticsAnchor(el))}
       type="button"
       data-testid={props.measuring ? undefined : "host-agents-mark"}
       data-state={mark().kind}

@@ -1,20 +1,24 @@
 // @vitest-environment happy-dom
 /**
- * Which host's details are open, and what the panel hangs off.
+ * Which host's details are open, and what the panel hangs off — two separate
+ * facts.
  *
- * The shell renders the panel `keyed` on this value, so VALUE IDENTITY is the
- * remount rule: re-opening the host that is already open off the same element
- * (clicking its mark, or its name in Settings, twice) must keep the very same
- * value — a fresh literal would tear the panel down and build it again, losing
- * its subscriptions and any pending "remove host" confirmation. A different
- * host, or the same host off a different element, IS a different panel.
+ * The shell keys the panel on the HOST, so re-opening the same machine from a
+ * different opener (its tab mark, then its name in Settings) must only MOVE
+ * the panel: a new identity would tear it down and build it again, losing its
+ * subscriptions and any pending "remove host" confirmation. And the element
+ * belongs to its opener: when that unmounts — an overflowed chip, Settings
+ * closing, a regrouped fleet line — the panel closes rather than floating
+ * against a node that is no longer on screen.
  */
 
 import { beforeEach, describe, expect, it } from "vitest";
 import {
   closeHostDiagnostics,
+  hostDiagnosticsAnchor,
   openHostDiagnostics,
-  openHostDiagnosticsState,
+  openHostDiagnosticsKey,
+  releaseHostDiagnosticsAnchor,
   toggleHostDiagnostics,
 } from "./useHostDiagnosticsOpen";
 
@@ -26,31 +30,32 @@ beforeEach(() => {
 });
 
 describe("the open host-details panel", () => {
-  it("keeps the same value when the same opener opens it again", () => {
+  it("keeps its host while another opener moves where it floats", () => {
     openHostDiagnostics("local", mark);
-    const first = openHostDiagnosticsState();
-    openHostDiagnostics("local", mark);
-    expect(openHostDiagnosticsState()).toBe(first);
-  });
-
-  it("is a new value for another host, or the same host off another element", () => {
-    openHostDiagnostics("local", mark);
-    const first = openHostDiagnosticsState();
+    expect(openHostDiagnosticsKey()).toBe("local");
 
     openHostDiagnostics("local", fleetName);
-    expect(openHostDiagnosticsState()).not.toBe(first);
-    expect(openHostDiagnosticsState()?.anchor).toBe(fleetName);
+    expect(openHostDiagnosticsKey()).toBe("local");
+    expect(hostDiagnosticsAnchor()).toBe(fleetName);
+  });
 
-    openHostDiagnostics("remote:zest", fleetName);
-    expect(openHostDiagnosticsState()?.key).toBe("remote:zest");
+  it("closes when the element it hangs off goes away", () => {
+    openHostDiagnostics("local", fleetName);
+    // Another opener's element leaving is not this panel's business.
+    releaseHostDiagnosticsAnchor(mark);
+    expect(openHostDiagnosticsKey()).toBe("local");
+
+    releaseHostDiagnosticsAnchor(fleetName);
+    expect(openHostDiagnosticsKey()).toBeNull();
+    expect(hostDiagnosticsAnchor()).toBeUndefined();
   });
 
   it("closes on the pip's second click, and moves on another host's", () => {
     toggleHostDiagnostics("local", mark);
-    expect(openHostDiagnosticsState()?.key).toBe("local");
+    expect(openHostDiagnosticsKey()).toBe("local");
     toggleHostDiagnostics("local", mark);
-    expect(openHostDiagnosticsState()).toBeNull();
+    expect(openHostDiagnosticsKey()).toBeNull();
     toggleHostDiagnostics("remote:zest", mark);
-    expect(openHostDiagnosticsState()?.key).toBe("remote:zest");
+    expect(openHostDiagnosticsKey()).toBe("remote:zest");
   });
 });

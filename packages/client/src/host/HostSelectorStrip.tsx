@@ -74,6 +74,7 @@ import { activeHost, padiMap, setActiveHost } from "../wire";
 import { addHost } from "./addHost";
 import { focusOnMount } from "./focusOnMount";
 import {
+  releaseHostDiagnosticsAnchor,
   toggleHostDiagnostics,
   useHostDiagnosticsSelector,
 } from "./useHostDiagnosticsOpen";
@@ -215,7 +216,13 @@ const HostChip: Component<{
   // border/bg/text COLOR. Identity switches; status pip opens diagnostics.
   return (
     <div
-      ref={chipEl}
+      ref={(el) => {
+        chipEl = el;
+        // This chip owns the element it hands the panel: when it unmounts
+        // (overflow fit, the `md` row going away) the panel must not stay
+        // floating against a detached node.
+        onCleanup(() => releaseHostDiagnosticsAnchor(el));
+      }}
       class="group -mb-px flex items-center shrink-0 text-xs"
       data-testid="host-chip"
       data-host={encKey}

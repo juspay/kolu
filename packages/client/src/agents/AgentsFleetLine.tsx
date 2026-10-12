@@ -6,16 +6,19 @@
  *  facts of its own.
  *
  *  Everything here is KEYED (`<Key>`, never `<For>`): the fold mints fresh
- *  group AND host objects on every read, and on a single-machine fleet it
- *  reads the 60 s "3h ago" ticker — so a plain `<For>` rebuilt every row and
- *  every machine button each minute, dropping hover and focus. Keyed on the
- *  group's `key` and on each machine's host key, only the words move. */
+ *  group AND host objects on every read, so a plain `<For>` rebuilt every row
+ *  and every machine button whenever ANY machine's state moved, dropping
+ *  hover and focus. Keyed on the group's `key` and on each machine's host
+ *  key, only the words move. */
 
 import { Key } from "@solid-primitives/keyed";
-import { type Component, Show } from "solid-js";
+import { type Component, onCleanup, Show } from "solid-js";
 import type { AgentFleetGroup } from "@kolu/agent-distro/status";
 import { encodeHostKey, type HostKey } from "kolu-common/hostKey";
-import { openHostDiagnostics } from "../host/useHostDiagnosticsOpen";
+import {
+  openHostDiagnostics,
+  releaseHostDiagnosticsAnchor,
+} from "../host/useHostDiagnosticsOpen";
 
 /** One group's dot colour, by its tone. */
 const DOT: Record<AgentFleetGroup<never>["tone"], string> = {
@@ -52,14 +55,10 @@ const AgentsFleetLine: Component<{
               data-tone={group().tone}
               class="flex items-center gap-1.5"
             >
-              {/* The dot marks the STATE machines are in; a trailing note
-                  ("updated 3h ago") names no machine and wears none. */}
-              <Show when={group().hosts.length > 0}>
-                <span
-                  aria-hidden="true"
-                  class={`h-2 w-2 shrink-0 rounded-full ${DOT[group().tone]}`}
-                />
-              </Show>
+              <span
+                aria-hidden="true"
+                class={`h-2 w-2 shrink-0 rounded-full ${DOT[group().tone]}`}
+              />
               <Show when={group().lead !== ""}>
                 <span>{group().lead}</span>
               </Show>
@@ -70,6 +69,9 @@ const AgentsFleetLine: Component<{
                       <span>and</span>
                     </Show>
                     <button
+                      ref={(el) =>
+                        onCleanup(() => releaseHostDiagnosticsAnchor(el))
+                      }
                       type="button"
                       data-testid="agents-fleet-host"
                       data-host={host().label}
