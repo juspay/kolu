@@ -28,8 +28,8 @@ export type LineSelection = {
   range: Accessor<SelectedLineRange | null>;
   /** Bind to Pierre's `onLineSelected` — the renderer fires this on every
    *  selection commit (single-line click or drag end). `path` names the file
-   *  the range is in when the view shows more than one; omitted, the anchor
-   *  stays where it is. */
+   *  the range is in when the view shows more than one; omitted, the range
+   *  is in the view's own file. */
   handleSelect: (range: SelectedLineRange | null, path?: string) => void;
   /** Bind to `<CodeContextMenu getItems>`. Returns "Copy path" plus, when
    *  a line is selected, "Copy <path>:<line>" with the rendered ref —
@@ -86,7 +86,7 @@ export function useLineSelection(
     path,
     range,
     handleSelect: (r, p) => {
-      if (p !== undefined) setAnchor(p === scope() ? null : p);
+      setAnchor(p ?? null);
       setRange(r);
     },
     buildItems: () => {

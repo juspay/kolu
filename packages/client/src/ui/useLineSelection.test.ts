@@ -19,16 +19,17 @@ describe("useLineSelection", () => {
         "skills/odu/SKILL.md",
         "skills/odu/SKILL.md:3-4",
       ]);
-      // A range with no item named (a right-click through the frame that
-      // resolved no item) keeps the anchor where it is.
-      sel.handleSelect({ start: 7, end: 7 });
-      expect(copyTexts(sel.buildItems())).toEqual([
-        "skills/odu/SKILL.md",
-        "skills/odu/SKILL.md:7",
-      ]);
       // Selecting back on the path's own item returns the anchor to it.
       sel.handleSelect({ start: 1, end: 1 }, "skills/odu");
       expect(sel.path()).toBe("skills/odu");
+      // A range with no file named is in the view's own file — the anchor
+      // follows each selection, never an earlier one.
+      sel.handleSelect({ start: 3, end: 3 }, "skills/odu/SKILL.md");
+      sel.handleSelect({ start: 7, end: 7 });
+      expect(copyTexts(sel.buildItems())).toEqual([
+        "skills/odu",
+        "skills/odu:7",
+      ]);
       dispose();
     });
   });
