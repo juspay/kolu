@@ -26,7 +26,9 @@
  *    • an escalation FINISHED→ASKING re-arms a fire (a real gate over an idle
  *      finish still chimes — #1177), while flap/settle jitter is collapsed by the
  *      per-terminal `latched` set, which clears only when the terminal LEAVES the
- *      attention class (its agent goes back to work);
+ *      attention class (`ended`) — the SAME edge that drops the dock unread mark
+ *      that episode raised, so an episode that is over stops looking like
+ *      something you left unread;
  *    • the app badge sums ASKING across live hosts; the host-tab finished mark
  *      (rendered by the chips off the same cell) shows finished work on a host you
  *      aren't looking at.
@@ -86,6 +88,11 @@ export interface AttentionDeps {
   activate: (id: TerminalId) => void;
   /** Mark an active-host background tile unread (the dock corner badge). */
   markUnread: (id: TerminalId) => void;
+  /** Drop a terminal's unread mark on ANY host — its episode ended (`ended`, whose
+   *  definition in `attentionTransitions` names every way that happens).
+   *  Host-addressed, unlike `markUnread`: a mark raised on host A must come off
+   *  while the user is viewing host B. */
+  clearUnread: (host: HostKey, id: TerminalId) => void;
   /** Rich subject (repo/branch label + description) for an active-host terminal. */
   activeSubject: (id: TerminalId) => TerminalSubject;
   /** The active host's terminal ids (for the e2e simulate hook only). */
@@ -180,6 +187,7 @@ export function useAttention(deps: AttentionDeps): {
       deliver(decodeHostKey(encHost), id, asking),
     writeMark: (encHost, unseenFinished) =>
       writeHostMarks(encHost, { unseenFinished }),
+    clearUnread: (encHost, id) => deps.clearUnread(decodeHostKey(encHost), id),
     // The engine stores only unseenFinished; host facts remain source accessors.
   });
 

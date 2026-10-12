@@ -56,7 +56,10 @@ import { padiRpcOf } from "../wire";
 // A terminal that has drawn attention while unwatched, surfaced as a dock unread
 // mark. (The former `"badge-only"` state drove the active-host OS badge; W5
 // moved the badge to the cross-host urgency sum in `useAttention`, so unread
-// is the only attention mark this per-host state carries now.)
+// is the only attention mark this per-host state carries now.) It is raised by
+// the attention engine's `deliver` and dropped on either edge that ends the
+// episode: you focus the terminal (`writeFocus`), or the episode `ended` upstream
+// (`clearUnread`, called host-addressed by the engine).
 type TerminalAttention = "unread";
 
 export interface HostViewState {
@@ -76,6 +79,10 @@ export interface HostViewState {
   /** Drop one terminal from the durable visit trail (kill path). */
   forgetFromMru: (id: TerminalId) => void;
   markUnread: (id: TerminalId) => void;
+  /** Drop one terminal's unread mark without focusing it — the attention engine's
+   *  episode-end edge. Host-addressed by construction (this IS one host's state),
+   *  so a background host's agent resuming still clears its own mark. */
+  clearUnread: (id: TerminalId) => void;
   isUnread: (id: TerminalId) => boolean;
   // ── Per-host VIEW POSTURE (W7 TIER A) ────────────────────────────────
   /** Fullscreen-one-tile posture for THIS host. Persisted per host
@@ -127,13 +134,9 @@ export function createViewState(
 
   function writeFocus(next: TerminalFocus | null): void {
     setFocus(next);
-    const focusedId = next?.id ?? null;
-    if (focusedId !== null && attention[focusedId] === "unread")
-      setAttention(
-        produce((a) => {
-          delete a[focusedId];
-        }),
-      );
+    // Focusing a terminal is one of the two ways its unread mark ends; the other
+    // is `clearUnread`. Both go through the SAME delete below.
+    if (next) clearUnread(next.id);
     const tileId = activeTileOf(next, placementOf);
     if (tileId === null) return;
     // THE activation choke point — canvas, dock, palette, Ctrl+Tab all land here.
@@ -176,6 +179,17 @@ export function createViewState(
     setAttention(id, "unread");
   }
 
+  /** THE unread delete — the single place the mark comes off, shared by the focus
+   *  edge (`writeFocus`) and the attention engine's episode-end edge. */
+  function clearUnread(id: TerminalId): void {
+    if (attention[id] !== "unread") return;
+    setAttention(
+      produce((a) => {
+        delete a[id];
+      }),
+    );
+  }
+
   function isUnread(id: TerminalId): boolean {
     return attention[id] === "unread";
   }
@@ -205,6 +219,7 @@ export function createViewState(
     reconcileLiveIds,
     forgetFromMru,
     markUnread,
+    clearUnread,
     isUnread,
     canvasMaximized,
     setCanvasMaximized,

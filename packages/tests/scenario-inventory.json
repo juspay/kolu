@@ -8632,6 +8632,18 @@
       "exampleRows": [],
       "executions": 1,
       "firstSeenSha": "0b40a2cc28dda92429899dfe777e515ac36f74d7"
+    },
+    {
+      "revisionId": "revision-dcb76e46c8685f29ddf4",
+      "scenarioKey": "scenario-fd4a5eb0a29d7e7b66ce",
+      "feature": "features/claude-code.feature",
+      "scenario": "An agent that goes back to work clears its unread ping",
+      "kind": "scenario",
+      "tags": ["@claude-mock"],
+      "bodyHash": "1f15f4900cac5b68bd0369945410031c769d3e85a648add23fc5ac3c75437693",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "aa6aa5b96fdc03f0e8dad00ef25202c67d9f5710"
     }
   ]
 }

@@ -28,6 +28,11 @@ export interface AttentionHooks {
   deliver(encHost: string, id: TerminalId, asking: boolean): void;
   /** Publish a host's unseen-finished count (the quiet host-tab dot). */
   writeMark(encHost: string, unseenFinished: number): void;
+  /** Drop one terminal's dock unread mark — its episode is over (`ended`, whose
+   *  definition in `attentionTransitions` names every way that happens).
+   *  Host-addressed, like every other hook: a mark set on host A must clear while
+   *  the user is looking at host B. */
+  clearUnread(encHost: string, id: TerminalId): void;
 }
 
 export interface AttentionCore {
@@ -91,9 +96,15 @@ export function createAttentionCore(hooks: AttentionHooks): AttentionCore {
     unseenByHost.set(encHost, unseen);
     hooks.writeMark(encHost, unseen.size);
 
-    // Episode end: a terminal back to work clears its latch, so its NEXT
-    // finish/ask is a fresh episode that fires again.
-    for (const id of ended) latched.get(encHost)?.delete(id);
+    // Episode end, two consequences, one edge: the terminal's latch drops (so its
+    // NEXT finish/ask is a fresh episode that fires again) and so does the dock
+    // unread mark that episode raised. `ended` (see `attentionTransitions`) is the
+    // only test for both — an escalation finished→asking is NOT an end, so the
+    // mark survives it.
+    for (const id of ended) {
+      latched.get(encHost)?.delete(id);
+      hooks.clearUnread(encHost, id);
+    }
 
     // BASELINE pre-latch: on the first frame per host, PRE-LATCH ids already
     // ASKING, so a settle-flap around a PRE-EXISTING gate (asking→waiting→asking

@@ -14,15 +14,17 @@ const u = (asking: string[] = [], finished: string[] = []): AttentionFrame => ({
 
 function harness(over: Partial<AttentionHooks> = {}) {
   const delivered: Array<{ id: string; asking: boolean }> = [];
+  const cleared: Array<{ host: string; id: string }> = [];
   const hooks: AttentionHooks = {
     alertsEnabled: () => true,
     isActiveHost: () => true,
     isWatched: () => false, // nothing watched by default (background)
     deliver: (_h, id, asking) => delivered.push({ id, asking }),
     writeMark: () => {},
+    clearUnread: (host, id) => cleared.push({ host, id }),
     ...over,
   };
-  return { core: createAttentionCore(hooks), delivered };
+  return { core: createAttentionCore(hooks), delivered, cleared };
 }
 
 describe("attentionCore — detect→fire (the path e2e/simulate skips)", () => {
@@ -150,5 +152,46 @@ describe("attentionCore — detect→fire (the path e2e/simulate skips)", () => 
     core.observe("h", u([], []));
     core.observe("h", u([], ["B"]));
     expect(writeMark).toHaveBeenLastCalledWith("h", 1);
+  });
+
+  it("a FINISHED terminal that goes back to work clears its unread mark", () => {
+    const { core, cleared } = harness();
+    core.observe("h", u([], []));
+    core.observe("h", u([], ["B"])); // B finishes → mark raised
+    expect(cleared).toEqual([]);
+    core.observe("h", u([], [])); // B back to work → mark cleared
+    expect(cleared).toEqual([{ host: "h", id: "B" }]);
+  });
+
+  it("an ASKING terminal that goes back to work clears its unread mark", () => {
+    const { core, cleared } = harness();
+    core.observe("h", u([], []));
+    core.observe("h", u(["B"], [])); // B asks → mark raised
+    core.observe("h", u([], [])); // B back to work → mark cleared
+    expect(cleared).toEqual([{ host: "h", id: "B" }]);
+  });
+
+  it("an escalation finished→asking does NOT clear the mark (still needs you)", () => {
+    const { core, cleared } = harness();
+    core.observe("h", u([], []));
+    core.observe("h", u([], ["B"])); // B finishes
+    core.observe("h", u(["B"], [])); // B escalates to asking — still in class
+    expect(cleared).toEqual([]);
+  });
+
+  it("the baseline frame never clears (a discovery is not a transition)", () => {
+    const { core, cleared } = harness();
+    core.observe("h", u(["A"], ["B"])); // first frame per host
+    expect(cleared).toEqual([]);
+  });
+
+  it("clears on the host the mark was SET on, not the one in view", () => {
+    // Host-addressed: `isActiveHost` is false for this host throughout, and the
+    // clear still names it — a background host's resume must reach its own mark.
+    const { core, cleared } = harness({ isActiveHost: () => false });
+    core.observe("other", u([], []));
+    core.observe("other", u([], ["B"]));
+    core.observe("other", u([], []));
+    expect(cleared).toEqual([{ host: "other", id: "B" }]);
   });
 });
