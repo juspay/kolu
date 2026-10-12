@@ -5,7 +5,7 @@
  *  inner viewer via the children render fn so the selection range stays in
  *  sync with what the menu offers. */
 
-import type { SelectedLineRange } from "@kolu/solid-pierre";
+import { codeViewItemIdAt, type SelectedLineRange } from "@kolu/solid-pierre";
 import type { Component, JSX } from "solid-js";
 import {
   CodeContextMenu,
@@ -15,9 +15,9 @@ import type { LineRef } from "../ui/lineRef";
 import { type LineSelection, useLineSelection } from "../ui/useLineSelection";
 
 export type CodeMenuFrameProps = {
-  /** File path the line refs are anchored to — drives both the menu copy
-   *  text and the line-selection effect that drops the range on file
-   *  change. */
+  /** The view's file path — the line refs anchor to it unless a selection
+   *  lands in another of the view's files, and a change of it drops the
+   *  range. */
   path: string;
   /** Render the inner Pierre viewer. Pass `selection.handleSelect` to its
    *  `onLineSelected` prop so range updates reach the menu. */
@@ -70,9 +70,14 @@ export const CodeMenuFrame: Component<CodeMenuFrameProps> = (props) => {
           // menu — `buildItems` returns empty when no range is set,
           // so `menuCtrl.open` short-circuits without preventing the
           // browser default.
+          // A viewport can hold several files (a type-changed path's diff
+          // also shows the files that used to live under it), so the item
+          // the click landed in names the file the line belongs to.
           const line = lineFromContextMenu(e);
+          const [target] = e.composedPath();
           selection.handleSelect(
             line === null ? null : { start: line, end: line },
+            target instanceof Node ? codeViewItemIdAt(target) : undefined,
           );
           menuCtrl?.open(e);
         })

@@ -56,8 +56,10 @@ const BrowseDiffView: Component<BrowseDiffViewProps> = (props) => {
       }
     >
       {(selection) => {
+        // Keyed by the selection's own file, so a range on a former child
+        // highlights on that child and the menu names it.
         const codeViewSelection = useCodeViewSelection(
-          () => props.path,
+          selection.path,
           selection.range,
         );
         return (
@@ -67,13 +69,12 @@ const BrowseDiffView: Component<BrowseDiffViewProps> = (props) => {
             diffStyle="unified"
             enableLineSelection
             selectedLines={codeViewSelection()}
-            // The line menu, comments and "Copy path:N" all anchor to
-            // `props.path`, so only a selection on that file's own item is
-            // taken; a type change's former children are read-only context.
-            onSelectedLinesChange={(s) => {
-              if (s && s.id !== props.path) return;
-              selection.handleSelect(s?.range ?? null);
-            }}
+            // Each item's id is its own path (`diffItems`), so the line
+            // menu's "Copy path:N" and "Open" point at the file the user
+            // selected in — the type-changed path itself or a former child.
+            onSelectedLinesChange={(s) =>
+              selection.handleSelect(s?.range ?? null, s?.id)
+            }
             onError={(err) => toast.error(`Diff render failed: ${err.message}`)}
             class="h-full w-full overflow-auto"
             {...koluCodeViewProps()}

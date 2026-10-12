@@ -18,7 +18,7 @@ export type {
   GitStatusEntry,
 } from "@pierre/trees";
 export type { CodeViewProps } from "./CodeView";
-export { CodeView } from "./CodeView";
+export { CodeView, codeViewItemIdAt } from "./CodeView";
 export { diffItems, fileItem } from "./codeViewItem";
 export type { FileTreeProps } from "./FileTree";
 export { FileTree } from "./FileTree";

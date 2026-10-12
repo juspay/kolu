@@ -18,12 +18,19 @@ import { CopyIcon, OpenIcon } from "./Icons";
 import { formatLineRef, type LineRef } from "./lineRef";
 
 export type LineSelection = {
+  /** The file the selection and the menu anchor to. It is the view's own
+   *  path until `handleSelect` names another one — a view that shows several
+   *  files (a type-changed path's diff also shows the files that used to
+   *  live under it) anchors to the file the user actually selected in. */
+  path: Accessor<string>;
   /** Current selection range — bind to Pierre's `selectedLines` prop
    *  so the visual highlight tracks the controller. */
   range: Accessor<SelectedLineRange | null>;
   /** Bind to Pierre's `onLineSelected` — the renderer fires this on every
-   *  selection commit (single-line click or drag end). */
-  handleSelect: (range: SelectedLineRange | null) => void;
+   *  selection commit (single-line click or drag end). `path` names the file
+   *  the range is in when the view shows more than one; omitted, the anchor
+   *  stays where it is. */
+  handleSelect: (range: SelectedLineRange | null, path?: string) => void;
   /** Bind to `<CodeContextMenu getItems>`. Returns "Copy path" plus, when
    *  a line is selected, "Copy <path>:<line>" with the rendered ref —
    *  and, when `options.onOpen` is provided, an "Open <path>:<line>"
@@ -48,12 +55,16 @@ export interface LineSelectionOptions {
 }
 
 export function useLineSelection(
-  path: Accessor<string>,
+  scope: Accessor<string>,
   options: LineSelectionOptions = {},
 ): LineSelection {
   const [range, setRange] = createSignal<SelectedLineRange | null>(
     options.initialRange?.() ?? null,
   );
+  // The file a selection landed in, when it is not `scope` itself. Held
+  // beside `range` and reset with it, so the anchor can't outlive the view.
+  const [anchor, setAnchor] = createSignal<string | null>(null);
+  const path = () => anchor() ?? scope();
 
   // Reseed the controller on either trigger — a new file replaces the
   // selection scope (a stale "Copy path:N" entry must not survive),
@@ -62,15 +73,22 @@ export function useLineSelection(
   // dep tuple suffices.
   createEffect(
     on(
-      () => [path(), options.initialRange?.() ?? null] as const,
-      ([, initial]) => setRange(initial),
+      () => [scope(), options.initialRange?.() ?? null] as const,
+      ([, initial]) => {
+        setAnchor(null);
+        setRange(initial);
+      },
       { defer: true },
     ),
   );
 
   return {
+    path,
     range,
-    handleSelect: (r) => setRange(r),
+    handleSelect: (r, p) => {
+      if (p !== undefined) setAnchor(p === scope() ? null : p);
+      setRange(r);
+    },
     buildItems: () => {
       // The menu is line-anchored: every entry refers to a specific
       // `path:line` ref, so a build without a selected range returns
