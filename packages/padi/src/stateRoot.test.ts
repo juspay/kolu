@@ -577,7 +577,12 @@ describe("discoverPadiDaemons — the regime in force, plus the extra drawers", 
       writeStateRootManifest(dir, stateRoot);
       // THIS process stands in for the gate holder: `daemonIsLive` only asks
       // whether the gate's pid is alive, and nothing forks to answer that.
-      writeFileSync(join(dir, PADI_GATE_FILE), String(process.pid));
+      // `0o600` because this lands under the shared `/tmp` root (the off-XDG
+      // drawer is the whole point of the case) — the same owner-only discipline
+      // `writeStateRootManifest` and the real gate writer apply there.
+      writeFileSync(join(dir, PADI_GATE_FILE), String(process.pid), {
+        mode: 0o600,
+      });
       servers.push(await listenSocket(socket));
 
       const drawer = mkdtempSync(join(tmpdir(), "padi-adopt-xdg-"));
