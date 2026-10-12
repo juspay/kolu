@@ -14,7 +14,14 @@
  *  host applies it to its NEXT new terminal. */
 
 import type { Hint } from "../settings/SettingRow";
-import { createEffect, createSignal, type JSX, on, Show } from "solid-js";
+import {
+  createEffect,
+  createMemo,
+  createSignal,
+  type JSX,
+  on,
+  Show,
+} from "solid-js";
 import { agentDistroSettingEqual } from "@kolu/agent-distro/schema";
 import { toast } from "solid-sonner";
 import Toggle from "../ui/Toggle";
@@ -127,17 +134,20 @@ export default function AgentsChooser(props: {
   /** The card picked but NOT written: Custom… anywhere (it writes only once
    *  its field does), and every card in a deferred picker (the welcome step,
    *  which writes when "Turn on" is pressed). It is dropped the moment the
-   *  STORED setting moves — a write from this picker, from another tab, or
-   *  the switch going off — so the picker never keeps showing Custom… for a
-   *  setting that names a card. */
+   *  STORED AGENTS SETTING moves — a write from this picker, from another
+   *  tab, or the switch going off — so the picker never keeps showing Custom…
+   *  for a setting that names a card.
+   *
+   *  The source is an EQUALITY-checked memo, not `agentDistroStored` itself:
+   *  that reads `preferences()`, the one cell behind every preference, so a
+   *  `seenTips` or `colorScheme` write anywhere in the app would otherwise
+   *  close Custom…'s field mid-typing. */
   const [pending, setPending] = createSignal<AgentProfileCard | undefined>();
-  createEffect(
-    on(
-      () => agentDistroStored(),
-      () => setPending(undefined),
-      { defer: true },
-    ),
-  );
+  const storedAgents = createMemo(agentDistroStored, undefined, {
+    equals: (a, b) =>
+      a === null || b === null ? a === b : agentDistroSettingEqual(a, b),
+  });
+  createEffect(on(storedAgents, () => setPending(undefined), { defer: true }));
   const cardFor = (profile: string | undefined) =>
     cards().find((c) => c.profile === profile);
   const selected = () => {
