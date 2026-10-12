@@ -23,9 +23,6 @@ import { EventEmitter } from "node:events";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { createServer, type Server, type Socket } from "node:net";
 import { dirname } from "node:path";
-import { Effect } from "effect";
-import { OsfactsSpawnError } from "osfacts-client";
-import { afterEach, expect, it } from "vitest";
 import {
   assertDaemonSpawnAllowed,
   describeDaemon,
@@ -36,6 +33,20 @@ import {
   plantYesterdayDaemon,
   type YesterdayDaemonOpts,
 } from "@kolu/surface-daemon/upgrade-window.testlib";
+import { Effect } from "effect";
+import { OsfactsSpawnError } from "osfacts-client";
+import { afterEach, expect, it } from "vitest";
+import {
+  createEndpointForKoluTest as createEndpoint,
+  readSocketHoldersForKoluTests,
+} from "./createEndpoint.kolu.testlib.ts";
+import {
+  fromAsync,
+  testAcquireReadIdentity,
+  testReadProcessIdentity,
+  testSelfIdentity,
+  testStartUnixUs,
+} from "./createEndpoint.testlib.ts";
 import {
   createEndpoint as createEndpointCore,
   destructiveRecycleSteps,
@@ -43,17 +54,6 @@ import {
   isSocketProbeIndeterminateError,
   recycle,
 } from "./index.ts";
-import {
-  testAcquireReadIdentity,
-  testReadProcessIdentity,
-  testSelfIdentity,
-  testStartUnixUs,
-  fromAsync,
-} from "./createEndpoint.testlib.ts";
-import {
-  createEndpointForKoluTest as createEndpoint,
-  readSocketHoldersForKoluTests,
-} from "./createEndpoint.kolu.testlib.ts";
 
 const silentLog = {
   debug() {},
@@ -638,6 +638,7 @@ describeDaemon("recycle vs a foreign gate (upgrade-window)", () => {
   });
 
   it("unreadable gate (mode 000) throws at ensure — never spawns (A1-1)", async () => {
+    if (process.getuid?.() === 0) return; // root bypasses unix perm checks; see the EISDIR twin below
     const d = await plantYesterdayDaemon(
       fixtureOptions({ gate: { kind: "current" }, withSocket: false }),
     );
@@ -698,6 +699,69 @@ describeDaemon("recycle vs a foreign gate (upgrade-window)", () => {
       } catch {
         // restore for fixture dispose
       }
+    }
+  });
+
+  it("unreadable gate (a directory, EISDIR) throws at ensure — never spawns, for any uid", async () => {
+    const d = await plantYesterdayDaemon(
+      fixtureOptions({ gate: { kind: "current" }, withSocket: false }),
+    );
+    fixtures.push(d);
+    if (d.process.kind !== "live") throw new Error("expected live process");
+    const survivorPid = d.process.pid;
+    writeFileSync(
+      d.gatePath,
+      `${survivorPid}\t${testStartUnixUs(survivorPid)}\n`,
+    );
+    // uid-independent twin of the mode-000 case: anything but ENOENT is a
+    // read fault, so a directory at the gate path must refuse the same way.
+    const { mkdirSync, rmSync } = await import("node:fs");
+    rmSync(d.gatePath);
+    mkdirSync(d.gatePath);
+
+    let spawned = false;
+    const statuses: EndpointStatus<Identity>[] = [];
+    const endpoint = createEndpoint<string, Identity>({
+      hostId: "local",
+      home: {
+        dir: dirname(d.socketPath),
+        gatePath: d.gatePath,
+        socketPath: d.socketPath,
+      },
+      policy: {
+        capability: "not-drainable",
+        baked: {
+          contractVersion: "test",
+          build: { kind: "known", id: "test-build" },
+        },
+        onContractSkew: { kind: "recycle" },
+        onBuildMismatch: { kind: "nudge-human" },
+      },
+      probe: () => fromAsync(async () => null),
+      driver: {
+        spawn: fromAsync(async () => {
+          spawned = true;
+          throw new Error("spawn must not run on unreadable gate");
+        }),
+      },
+      connect: () =>
+        fromAsync(async () => {
+          throw new Error("connect must not run on unreadable gate");
+        }),
+      log: silentLog,
+      onStatus: (_h, s) => statuses.push(s),
+      socketPollMs: 5,
+    });
+
+    try {
+      await expect(
+        Effect.runPromise(recycle(endpoint, destructiveRecycleSteps())),
+      ).rejects.toThrow(/unreadable/);
+      expect(spawned).toBe(false);
+      expect(isHolderLive(survivorPid)).toBe(true);
+      expect(statuses.map((s) => s.state)).toEqual(["connecting", "dead"]);
+    } finally {
+      rmSync(d.gatePath, { recursive: true, force: true });
     }
   });
 
