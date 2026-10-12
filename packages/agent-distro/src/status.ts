@@ -778,10 +778,11 @@ const NONE_LINE: Record<Extract<AgentMark, { kind: "none" }>["why"], string> = {
  *  more", "buildbox downloading", "devbox failed". */
 export interface AgentFleetGroup<H> {
   /** The group's identity — the state it is about ("ready", "failed", …),
-   *  or `last-run` for the trailing note. A surface keys its rows on this,
-   *  so the 60 s "3h ago" tick re-words the note without rebuilding the
-   *  machine names beside it (they are buttons, and a rebuilt button drops
-   *  hover and focus). */
+   *  or `last-run` for the trailing note. The whole fold is re-minted on
+   *  every read, so a surface keys its groups on this and the machines
+   *  inside them on their own host key; the 60 s "3h ago" tick then re-words
+   *  the note without rebuilding the machine names beside it (they are
+   *  buttons, and a rebuilt button drops hover and focus). */
   readonly key: string;
   /** The dot's colour: ok when ready, accent while a download runs, warning
    *  when one failed, muted when there are no agents there. */
