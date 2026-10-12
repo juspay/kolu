@@ -1,6 +1,10 @@
 import { FileTree as PierreFileTree } from "@pierre/trees";
 import { describe, expect, it } from "vitest";
-import { diffInventory, mergeBrowseInventory } from "./browseInventory.ts";
+import {
+  diffInventory,
+  foldTypeChanges,
+  mergeBrowseInventory,
+} from "./browseInventory.ts";
 
 const settled = {
   trackedPending: false,
@@ -367,5 +371,53 @@ describe("diffInventory — directory→file type change (blank-tree repro)", ()
     }).not.toThrow();
     expect(tree?.getItem(".claude/skills/odu")).not.toBeNull();
     tree?.cleanUp();
+  });
+});
+
+describe("foldTypeChanges", () => {
+  it.each([
+    {
+      name: "file listed before its old children",
+      input: ["a/b", "a/b/c", "a/b/d", "z.ts"],
+      expected: ["a/b", "z.ts"],
+    },
+    {
+      name: "old children listed before the file",
+      input: ["a/b/c", "a/b/d", "a/b", "z.ts"],
+      expected: ["a/b", "z.ts"],
+    },
+    {
+      name: "nested collision keeps only the outermost file",
+      input: ["a", "a/b", "a/b/c", "a/x"],
+      expected: ["a"],
+    },
+    {
+      name: "a sibling sharing the name prefix is not a child",
+      input: ["a/b", "a/bc", "a/b.ts"],
+      expected: ["a/b", "a/bc", "a/b.ts"],
+    },
+  ])("$name", ({ input, expected }) => {
+    expect(foldTypeChanges(input)).toEqual(expected);
+  });
+
+  it("returns the same array when nothing collides", () => {
+    const input = ["a/b.ts", "a/c/d.ts", "e.ts"];
+    const out = foldTypeChanges(input);
+    expect(out).toBe(input);
+    expect(out).toEqual(["a/b.ts", "a/c/d.ts", "e.ts"]);
+  });
+
+  it("diffInventory folds the type change into one row", () => {
+    expect(
+      diffInventory(
+        [
+          ".claude/skills/odu",
+          ".claude/skills/odu/serve",
+          ".claude/skills/odu/SKILL.md",
+          "agent-plugin/skills/odu/SKILL.md",
+        ],
+        false,
+      ).paths,
+    ).toEqual([".claude/skills/odu", "agent-plugin/skills/odu/SKILL.md"]);
   });
 });

@@ -3,10 +3,14 @@
  *  or item-shape churn lands in this file alone instead of every consumer
  *  that builds items.
  *
- *  - `diffItem` consumes a raw unified-diff string (kolu's server hands one
- *    per file via `getDiff`) and runs Pierre's `parsePatchFiles` to extract
- *    the single `FileDiffMetadata`. Returns `undefined` for empty / malformed
- *    diffs so the caller can render a placeholder instead of a broken item.
+ *  - `diffItems` consumes a raw unified-diff string (kolu's server hands one
+ *    per selected path via `getDiff`) and runs Pierre's `parsePatchFiles`,
+ *    yielding one item per file in the patch. Usually that is one file, but a
+ *    path whose type changed (a directory replaced by a file) is a git
+ *    pathspec matching the new file AND everything that used to live under
+ *    it — every one of those files is part of that path's change. Returns
+ *    `[]` for empty / malformed diffs so the caller can render a placeholder
+ *    instead of a broken item.
  *    Parse throws (Pierre's parser is defensive but the contract is not
  *    formally `never-throws`) are routed through the required `onError`
  *    callback so a malformed header surfaces in the same toast lane as
@@ -38,35 +42,37 @@ export const contentCacheKey = (id: string, content: string): string => {
   return `${id}:${content.length.toString(16)}:${(h >>> 0).toString(16)}`;
 };
 
-export const diffItem = (
+export const diffItems = (
   id: string,
   rawDiff: string,
   onError: (err: Error) => void,
-): CodeViewDiffItem | undefined => {
-  if (!rawDiff) return undefined;
-  let fileDiff: FileDiffMetadata | undefined;
+): CodeViewDiffItem[] => {
+  if (!rawDiff) return [];
+  let files: FileDiffMetadata[];
   try {
-    // Pierre's `parsePatchFiles` returns `ParsedPatch[]`, each with a
-    // `files: FileDiffMetadata[]`. Kolu's server emits one hunk string
-    // per file (`GitDiffOutputSchema.hunks` — single per-file patch),
-    // so the first patch's first file is the only entry we care about.
-    fileDiff = parsePatchFiles(rawDiff)[0]?.files[0];
+    files = parsePatchFiles(rawDiff).flatMap((patch) => patch.files);
   } catch (e) {
     onError(toError(e));
-    return undefined;
+    return [];
   }
   // Non-empty input that parsed to no file entry is a malformed-diff
   // signal, not "no changes to show" — surface it so the user sees a
   // toast rather than a blank pane indistinguishable from "loading".
-  if (!fileDiff) {
+  if (files.length === 0) {
     onError(new Error(`No file entry parsed from diff for ${id}`));
-    return undefined;
+    return [];
   }
-  return {
-    id,
-    type: "diff",
-    fileDiff: { ...fileDiff, cacheKey: contentCacheKey(id, rawDiff) },
-  };
+  // The first file keeps the caller's `id` — it is the selected path itself,
+  // and line selection is keyed by it. Any further file is a former child of a
+  // type-changed path and is keyed by its own name, unique within one patch.
+  return files.map((fileDiff, i) => {
+    const itemId = i === 0 ? id : fileDiff.name;
+    return {
+      id: itemId,
+      type: "diff",
+      fileDiff: { ...fileDiff, cacheKey: contentCacheKey(itemId, rawDiff) },
+    };
+  });
 };
 
 export const fileItem = (

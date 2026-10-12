@@ -47,7 +47,9 @@ close while filtering stays closed as git changes come in, until the set of
 matching files changes — a new match opens its folder again, while editing the
 filter to one that matches the same files does not. During loading or an error,
 the previous tree stays visible but dimmed and cannot be clicked. Saving the open file updates its contents in place, preserving the
-viewer and its scroll position.
+viewer and its scroll position. When a directory was replaced by a file of the same
+name (say, a folder swapped for a symlink), that path shows as **one row**, and its
+diff covers the new file and every file that used to live in the directory.
 
 **All files** shows what git tracks plus anything untracked, and leaves out what
 your `.gitignore` hides — so the tree is your project, not your `node_modules`.

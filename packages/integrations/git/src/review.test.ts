@@ -289,3 +289,65 @@ describe("getStatus branch mode — unicode paths", () => {
     }
   });
 });
+
+describe("getDiff — a directory replaced by a file", () => {
+  let repo: string;
+
+  beforeEach(() => {
+    repo = fs.mkdtempSync(path.join(os.tmpdir(), "kolu-review-typechange-"));
+  });
+
+  afterEach(() => {
+    fs.rmSync(repo, { recursive: true, force: true });
+  });
+
+  // The Code tab folds a type change to ONE row — the new file — and drops the
+  // old directory's children from the tree. That is only honest if the row's
+  // diff is a real git pathspec: `-- skills/odu` must match the new file AND
+  // every file that used to live under the directory, so no hunk is lost.
+  it.each([
+    "branch",
+    "local",
+  ] as const)("%s mode: the file's diff carries the directory's former children", async (mode) => {
+    const git = simpleGit(repo);
+    await git.init();
+    await git.addConfig("user.email", "test@example.com");
+    await git.addConfig("user.name", "Test");
+    await git.checkoutLocalBranch("main");
+    fs.mkdirSync(path.join(repo, "skills", "odu"), { recursive: true });
+    fs.writeFileSync(path.join(repo, "skills", "odu", "SKILL.md"), "# odu\n");
+    fs.writeFileSync(path.join(repo, "skills", "odu", "serve"), "serve\n");
+    await git.add(".");
+    await git.commit("base");
+    await git.raw(["update-ref", "refs/remotes/origin/main", "HEAD"]);
+    await git.raw([
+      "symbolic-ref",
+      "refs/remotes/origin/HEAD",
+      "refs/remotes/origin/main",
+    ]);
+
+    fs.rmSync(path.join(repo, "skills", "odu"), { recursive: true });
+    fs.symlinkSync("../plugin/odu", path.join(repo, "skills", "odu"));
+    await git.add(["-A", "."]);
+    if (mode === "branch") await git.commit("dir -> symlink");
+
+    const status = await getStatus(repo, mode);
+    expect(status.ok).toBe(true);
+    if (!status.ok) return;
+    expect(status.value.files.map((f) => f.path).sort()).toEqual([
+      "skills/odu",
+      "skills/odu/SKILL.md",
+      "skills/odu/serve",
+    ]);
+
+    const result = await getDiff(repo, "skills/odu", mode);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const raw = result.value.hunks.join("");
+    expect(raw).toContain("diff --git a/skills/odu b/skills/odu");
+    expect(raw).toContain("+../plugin/odu");
+    expect(raw).toContain("diff --git a/skills/odu/SKILL.md");
+    expect(raw).toContain("-# odu");
+    expect(raw).toContain("diff --git a/skills/odu/serve");
+  });
+});

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { contentCacheKey, diffItem, fileItem } from "./codeViewItem";
+import { contentCacheKey, diffItems, fileItem } from "./codeViewItem";
 
 const newFileDiff = (body: string): string =>
   `diff --git a/note.txt b/note.txt
@@ -22,13 +22,13 @@ describe("contentCacheKey", () => {
   });
 });
 
-describe("diffItem", () => {
+describe("diffItems", () => {
   it("stamps a content cacheKey so a live hunk swap is a new Pierre target", () => {
     const errors: Error[] = [];
-    const before = diffItem("note.txt", newFileDiff("before"), (e) =>
+    const [before] = diffItems("note.txt", newFileDiff("before"), (e) =>
       errors.push(e),
     );
-    const after = diffItem("note.txt", newFileDiff("after"), (e) =>
+    const [after] = diffItems("note.txt", newFileDiff("after"), (e) =>
       errors.push(e),
     );
     expect(errors).toEqual([]);
@@ -45,6 +45,41 @@ describe("diffItem", () => {
     // these two look like the same highlight target.
     expect(before?.fileDiff.cacheKey).not.toBe("note.txt");
     expect(after?.fileDiff.cacheKey).not.toBe("note.txt");
+  });
+
+  it("yields every file of a type-changed path's pathspec patch", () => {
+    // `git diff <base> -- skills/odu` after the directory `skills/odu/` was
+    // replaced by a symlink: the new link plus the files that used to live
+    // under it. Keeping only the first file would hide the old children.
+    const raw = `diff --git a/skills/odu b/skills/odu
+new file mode 120000
+index 0000000..1111111
+--- /dev/null
++++ b/skills/odu
+@@ -0,0 +1 @@
++../../agent-plugin/skills/odu
+\\ No newline at end of file
+diff --git a/skills/odu/SKILL.md b/skills/odu/SKILL.md
+deleted file mode 100644
+index 2222222..0000000
+--- a/skills/odu/SKILL.md
++++ /dev/null
+@@ -1 +0,0 @@
+-# odu
+`;
+    const errors: Error[] = [];
+    const items = diffItems("skills/odu", raw, (e) => errors.push(e));
+    expect(errors).toEqual([]);
+    expect(items.map((i) => i.id)).toEqual([
+      "skills/odu",
+      "skills/odu/SKILL.md",
+    ]);
+  });
+
+  it("reports a non-empty diff that parses to no file", () => {
+    const errors: Error[] = [];
+    expect(diffItems("x", "not a diff\n", (e) => errors.push(e))).toEqual([]);
+    expect(errors).toHaveLength(1);
   });
 });
 

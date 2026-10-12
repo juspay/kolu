@@ -1,4 +1,8 @@
-import { hasPathUnderPrefix, isDirectoryPath } from "@kolu/solid-pierre/paths";
+import {
+  ancestorDirectoryPaths,
+  hasPathUnderPrefix,
+  isDirectoryPath,
+} from "@kolu/solid-pierre/paths";
 
 /** The browse tree's inventory merge — pure, so the three rules that have each
  *  already caused a bug are pinned by a table test rather than argued in a
@@ -150,13 +154,38 @@ export function mergeBrowseInventory(
   };
 }
 
+/** Fold a directory↔file type change down to its ONE file row.
+ *
+ *  A diff that replaces the directory `skills/odu/` with a file (a symlink, say)
+ *  at `skills/odu` lists the new file AND the old directory's children
+ *  (`skills/odu/SKILL.md`) side by side. Pierre cannot hold a file and a
+ *  directory under one name, so that flat list throws and the whole tree goes
+ *  blank. Keep the file row and drop every path beneath it: git's own pathspec
+ *  `-- skills/odu` already matches the file AND everything that used to live
+ *  under it, so the one row's diff still carries every hunk — nothing becomes
+ *  unreachable. The reverse change (a file replaced by a directory) has the
+ *  same shape and folds the same way.
+ *
+ *  Returns `paths` itself when nothing collides — the overwhelmingly common
+ *  case pays one set build and no copy. */
+export function foldTypeChanges(paths: string[]): string[] {
+  const files = new Set(paths);
+  const kept = paths.filter(
+    (p) =>
+      !ancestorDirectoryPaths(p).some((dir) => files.has(dir.slice(0, -1))),
+  );
+  return kept.length === paths.length ? paths : kept;
+}
+
 /** The ONE constructor for an inventory with no overlay — the diff views list
  *  CHANGED files, where a gitignored path can't appear, so there is no overlay
  *  and no collapsed directory to expand. Here rather than at the call site so a
- *  new `BrowseInventory` field can't be forgotten at a second builder. */
+ *  new `BrowseInventory` field can't be forgotten at a second builder. The
+ *  changed-file list is folded by `foldTypeChanges` so a type change can't
+ *  blank the tree. */
 export function diffInventory(
   paths: string[],
   pending: boolean,
 ): BrowseInventory {
-  return { paths, ignored: [], lazyDirs: [], pending };
+  return { paths: foldTypeChanges(paths), ignored: [], lazyDirs: [], pending };
 }

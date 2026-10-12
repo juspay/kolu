@@ -1,4 +1,4 @@
-/** Pure presenter for a single file's unified diff in the Code tab's local/
+/** Pure presenter for a single path's unified diff in the Code tab's local/
  *  branch modes. Renders Pierre's `CodeView` (single diff item) wrapped in the
  *  kolu line-selection + "Copy path:N" menu (`CodeMenuFrame`).
  *
@@ -11,7 +11,7 @@
 import {
   CodeView,
   type CodeViewItem,
-  diffItem,
+  diffItems,
   useCodeViewSelection,
 } from "@kolu/solid-pierre";
 import type { TerminalId } from "kolu-common/surface";
@@ -34,15 +34,15 @@ export type BrowseDiffViewProps = {
 };
 
 const BrowseDiffView: Component<BrowseDiffViewProps> = (props) => {
-  // Single-file diff → one-element items array. The wrapper virtualizes long
-  // diffs internally (50k-line lockfile, #809 / #514 Phase 8) — no separate
-  // scroll context component required.
-  const items = createMemo<CodeViewItem[]>(() => {
-    const item = diffItem(props.path, props.hunk, (err) =>
+  // Usually one file; a type-changed path (a directory replaced by a file)
+  // also carries the files that used to live under it — see `diffItems`. The
+  // wrapper virtualizes long diffs internally (50k-line lockfile, #809 / #514
+  // Phase 8) — no separate scroll context component required.
+  const items = createMemo<CodeViewItem[]>(() =>
+    diffItems(props.path, props.hunk, (err) =>
       toast.error(`Diff parse failed: ${err.message}`),
-    );
-    return item ? [item] : [];
-  });
+    ),
+  );
 
   return (
     <CodeMenuFrame
@@ -67,9 +67,13 @@ const BrowseDiffView: Component<BrowseDiffViewProps> = (props) => {
             diffStyle="unified"
             enableLineSelection
             selectedLines={codeViewSelection()}
-            onSelectedLinesChange={(s) =>
-              selection.handleSelect(s?.range ?? null)
-            }
+            // The line menu, comments and "Copy path:N" all anchor to
+            // `props.path`, so only a selection on that file's own item is
+            // taken; a type change's former children are read-only context.
+            onSelectedLinesChange={(s) => {
+              if (s && s.id !== props.path) return;
+              selection.handleSelect(s?.range ?? null);
+            }}
             onError={(err) => toast.error(`Diff render failed: ${err.message}`)}
             class="h-full w-full overflow-auto"
             {...koluCodeViewProps()}
