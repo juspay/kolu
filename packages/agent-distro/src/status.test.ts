@@ -174,15 +174,17 @@ const VANILLA_PROFILE = {
     { name: "codex", title: "Codex", version: "0.160.1" },
   ],
 };
+/** A build that ships more than one bundle — kolu's pin ships only
+ *  `vanilla`, but the fold must order and name whatever it is handed. */
 const LISTING: AgentDistroListing = {
   kind: "available",
   profiles: [
     VANILLA_PROFILE,
-    { name: "juspay", description: "Juspay skills + Kolu", harnesses: [] },
+    { name: "ekala", description: "Ekala's skills", harnesses: [] },
   ],
 };
-/** A build that ships the default bundle only — what kolu ships today, where
- *  Juspay is a reference kolu names itself. */
+/** What kolu ships at its pin: ONE bundle, `vanilla`. Juspay's set is the
+ *  reference kolu names itself. */
 const VANILLA_ONLY: AgentDistroListing = {
   kind: "available",
   profiles: [VANILLA_PROFILE],
@@ -202,7 +204,7 @@ describe("the picker's cards", () => {
     expect(agentProfileTitle("vanilla", undefined)).toBe("vanilla");
   });
 
-  it("leads with the default bundle, marks it Default, and ends with Custom…", () => {
+  it("the build's bundle, then Juspay's reference under its name, then Custom…", () => {
     expect(agentProfileCards(VANILLA_ONLY)).toEqual([
       {
         profile: "vanilla",
@@ -226,16 +228,15 @@ describe("the picker's cards", () => {
     ]);
   });
 
-  it("a build that ships Juspay describes itself — kolu does not add a second card by that name", () => {
-    const cards = agentProfileCards(LISTING);
-    expect(cards.filter((c) => c.title === "Juspay")).toEqual([
-      {
-        profile: "juspay",
-        title: "Juspay",
-        description: "Juspay skills + Kolu",
-        isDefault: false,
-      },
-    ]);
+  it("a build that ships several leads with the default, and Juspay's card still follows them", () => {
+    expect(agentProfileCards(LISTING).map((c) => [c.profile, c.title])).toEqual(
+      [
+        ["vanilla", "Vanilla"],
+        ["ekala", "Ekala"],
+        [JUSPAY_PROFILE, "Juspay"],
+        [undefined, AGENTS_CUSTOM.title],
+      ],
+    );
   });
 
   it("has no cards until the listing arrives, or in a kolu built without agents", () => {
@@ -334,7 +335,7 @@ describe("agentChips — the agents the Agents row names", () => {
   it("a bundle with no agents listed names none", () => {
     expect(
       agentChips({
-        setting: { enabled: true, profile: "juspay" },
+        setting: { enabled: true, profile: "ekala" },
         listing: LISTING,
         localReceipt: undefined,
       }),
@@ -1225,15 +1226,15 @@ describe("agentStaleLabel", () => {
 
 describe("selectedAgentProfile — the bundle the setting rides", () => {
   it("a shipped bundle's name is its own; anything else rides vanilla", () => {
-    for (const profile of [JUSPAY_PROFILE, "~/p", "ekala"])
+    for (const profile of [JUSPAY_PROFILE, "~/p", "github:me/mine"])
       expect(
         selectedAgentProfile({ enabled: true, profile }, LISTING)?.name,
       ).toBe("vanilla");
     expect(
-      selectedAgentProfile({ enabled: true, profile: "juspay" }, LISTING)?.name,
-    ).toBe("juspay");
+      selectedAgentProfile({ enabled: true, profile: "ekala" }, LISTING)?.name,
+    ).toBe("ekala");
     expect(
-      selectedAgentProfile({ enabled: false, profile: "juspay" }, LISTING),
+      selectedAgentProfile({ enabled: false, profile: "ekala" }, LISTING),
     ).toBeUndefined();
   });
 });

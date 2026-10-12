@@ -523,11 +523,8 @@ export const AGENTS_CUSTOM = {
 /** The picker's cards, in this order: the bundle kolu lists first
  *  ({@link DEFAULT_AGENT_PROFILE}, marked Default), every other bundle this
  *  build ships, {@link JUSPAY_PROFILE} as a named reference, then Custom….
- *  Juspay's card is kolu's own naming of a reference, so it is offered only
- *  when no bundle this build ships already carries that name — a build that
- *  ships one describes itself, and two cards reading "Juspay" would be a lie
- *  about one of them. Empty until the listing arrives, and for a kolu built
- *  without agents (nothing to pick). */
+ *  Empty until the listing arrives, and for a kolu built without agents
+ *  (nothing to pick). */
 export function agentProfileCards(
   listing: AgentDistroListing | undefined,
 ): readonly AgentProfileCard[] {
@@ -546,23 +543,16 @@ export function agentProfileCards(
       isDefault: p.name === DEFAULT_AGENT_PROFILE,
     }),
   );
-  const juspayTitle = agentProfileTitle(JUSPAY_PROFILE, listing);
-  const juspay: readonly AgentProfileCard[] = shipped.some(
-    (c) => c.title === juspayTitle,
-  )
-    ? []
-    : [
-        {
-          profile: JUSPAY_PROFILE,
-          title: juspayTitle,
-          description: JUSPAY_DESCRIPTION,
-          reference: JUSPAY_PROFILE,
-          isDefault: false,
-        },
-      ];
+  const juspay: AgentProfileCard = {
+    profile: JUSPAY_PROFILE,
+    title: agentProfileTitle(JUSPAY_PROFILE, listing),
+    description: JUSPAY_DESCRIPTION,
+    reference: JUSPAY_PROFILE,
+    isDefault: false,
+  };
   return [
     ...shipped,
-    ...juspay,
+    juspay,
     {
       profile: undefined,
       title: AGENTS_CUSTOM.title,
@@ -787,6 +777,12 @@ const NONE_LINE: Record<Extract<AgentMark, { kind: "none" }>["why"], string> = {
  *  (each a link to its host details) · `trail`: "Ready on naiveintent and 2
  *  more", "buildbox downloading", "devbox failed". */
 export interface AgentFleetGroup<H> {
+  /** The group's identity — the state it is about ("ready", "failed", …),
+   *  or `last-run` for the trailing note. A surface keys its rows on this,
+   *  so the 60 s "3h ago" tick re-words the note without rebuilding the
+   *  machine names beside it (they are buttons, and a rebuilt button drops
+   *  hover and focus). */
+  readonly key: string;
   /** The dot's colour: ok when ready, accent while a download runs, warning
    *  when one failed, muted when there are no agents there. */
   readonly tone: "ok" | "busy" | "warn" | "muted";
@@ -863,6 +859,7 @@ export function agentFleetSummary<H extends HostAgentStatus>(
     const named = members.slice(0, FLEET_NAMED_CAP);
     const more = members.length - named.length;
     return {
+      key: state.key,
       tone: state.tone,
       lead: state.lead,
       hosts: named,
@@ -875,7 +872,16 @@ export function agentFleetSummary<H extends HostAgentStatus>(
   const lastRun = only === undefined ? undefined : readyLastRun(only);
   return lastRun === undefined
     ? lines
-    : [...lines, { tone: "muted", lead: "", hosts: [], trail: lastRun.text }];
+    : [
+        ...lines,
+        {
+          key: "last-run",
+          tone: "muted",
+          lead: "",
+          hosts: [],
+          trail: lastRun.text,
+        },
+      ];
 }
 
 /** A ready host's last update run as a note — `undefined` when it is not
