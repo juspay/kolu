@@ -78,36 +78,42 @@ The **TypeScript half**, as data and pure functions:
   `lib.mkUpdater`'s config concrete for a host's state home.
 - `./status` — how a host's status shows, and every word kolu says about it:
   the one fenced fold from status to the host tab's mark (`agentMarkOf`); its
-  words (`agentMarkWords`, `agentMarkLabel`), which the hover, the download
-  toasts and the Settings line share, with a failure's cause, remedy and retry
-  worded once (`agentFailureLines`); the agents line with versions
-  (`versionsLine`, which cuts each version's `+` suffix by upstream's
-  picker's own display rule, so Settings, the receipt line and
-  `agent-distro` agree); the moments a download is worth a toast
+  words (`agentMarkWords`, `agentMarkLabel`), which the hover and the download
+  toasts share, with a failure's cause, remedy and retry worded once
+  (`agentFailureLines`, `AGENTS_RETRY` — which points at the retry in that
+  machine's host details); the moments a download is worth a toast
   (`downloadEdge`); the stored preference — `null` until someone chooses — and
   the one fold from it to the setting new terminals get (`agentDistroSettingOf`,
-  `agentsChosen`; nothing chosen is off on `JUSPAY_PROFILE`,
-  `github:juspay/skills`), the one whole-value writer behind the Agents switch
-  and profile field (`agentDistroChoice`) and the first-run step's
-  done-predicate and words (`firstRunAgentsDone`, its title
-  `AGENTS_FIRST_RUN_TITLE`, its done line `agentsChosenLabel`); the off hint
-  (`agentsHint`) and the welcome step's line (`agentsStepHint`); the profile
-  field's suggestions and memory (`profileSuggestions`, `rememberProfile`, at
-  most `RECENT_PROFILES_CAP`), the line under it — pending, resolved or
+  `agentsChosen`; nothing chosen is off on `DEFAULT_AGENT_PROFILE`, the bundle
+  kolu lists first), the one whole-value writer behind the Agents switch and its
+  picker (`agentDistroChoice`) and the first-run step's done-predicate and words
+  (`firstRunAgentsDone`, its title `AGENTS_FIRST_RUN_TITLE`, its done line
+  `agentsChosenLabel` — a NAME, never a reference); how a profile is named
+  (`agentProfileTitle`: a shipped bundle capitalized, `JUSPAY_PROFILE` as
+  "Juspay", anything else as itself); the picker's cards and the one it selects
+  (`agentProfileCards`, `agentSelectedCard`, with `AGENTS_CUSTOM`'s own words
+  and `JUSPAY_DESCRIPTION` — kolu's naming of a reference it does not ship);
+  the off hint (`agentsHint`) and the welcome step's line (`agentsStepHint`);
+  Custom…'s suggestions and memory (`profileSuggestions`, `rememberProfile`, at
+  most `RECENT_PROFILES_CAP`), the line under its field — pending, resolved or
   agent-distro's own words (`agentsResolvedLine`, with
-  `AGENTS_UNRESOLVED_MEANS`) — and the notes after it (`agentsProfileNotes`:
-  the agents with versions, `AGENTS_REPO_OVERRIDES`); the tile
-  pill's profile and hover (`agentChipProfile`, `agentChipLabel`: the profile
-  in effect and where agent-distro resolved it from, else the setting's); the
-  per-host status lines (state, short hash, last look — no profile name) with
-  their collapse rule; whether a terminal's agents went stale and what its
-  restart does (`agentStalenessOf`, `agentRestartReady`, `agentRestartAction`,
-  `agentStaleLabel`, `restartedLabel`); keeping it current — the line's last
-  run ("updated 3h ago"), the History rows (`agentUpdateHistoryRows`), Check
-  now (`AGENTS_CHECK_NOW`, `agentUpdateCheckable`, `agentUpdateRunning`) and
-  the `updated` moment of `downloadEdge`; and the setting's own toasts
-  (`agentToast`, with `updated` quoting the updater) — typed against `./schema`, so a field added to the wire is one
-  the folds must handle.
+  `AGENTS_UNRESOLVED_MEANS`) — and what the picker brings, as chips
+  (`agentChips`, with `AGENTS_REPO_OVERRIDES`); the tile pill's profile and
+  hover (`agentChipProfile`, `agentChipLabel`: the profile in effect and where
+  agent-distro resolved it from, else the setting's); Settings' ONE fleet line,
+  one group per agent state, naming machines before it counts them
+  (`agentFleetSummary`); what a machine's host details say about its agents —
+  profile and short hash, state with its last run, a failure's cause and what it
+  means there, that machine's events and its one action (`agentHostDetail`, with
+  `AGENTS_HOST_CHECK`, `AGENTS_HOST_RETRY` and `agentRetryFailed`); whether a
+  terminal's agents went stale and what its restart does (`agentStalenessOf`,
+  `agentRestartReady`, `agentRestartAction`, `agentStaleLabel`,
+  `restartedLabel`); keeping it current — the fleet-wide palette command
+  (`AGENTS_CHECK_NOW`, `agentUpdateCheckable`, `agentHostCheckable`,
+  `agentUpdateRunning`, `agentCheckFailed`) and the `updated` moment of
+  `downloadEdge`; and the setting's own toasts (`agentToast`, with `updated`
+  quoting the updater) — typed against `./schema`, so a field added to the wire
+  is one the folds must handle.
 - `./testing` — test support only: `bundleFiles` (a profile bundle's
   `profile.json` and `versions`, written as upstream writes them, at the paths
   `./profileFile` and `./versions` name), `readFrom` (a `readText` over

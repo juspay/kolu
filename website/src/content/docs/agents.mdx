@@ -20,11 +20,11 @@ kolu's own plugin loaded, so it can drive your other kolu terminals out of the
 box. Agents you installed yourself keep working: kolu's come first, yours stay
 as the fallback.
 
-Switched on, new terminals get **Juspay's profile**, `github:juspay/skills`.
-In Settings you can name another: **vanilla**, the stock agents kolu ships, or
-a profile of your own ([A profile of your own](#a-profile-of-your-own)).
-Settings says, under the field, what the profile you named is — or why it
-does not resolve ([Pick a set](#pick-a-set)).
+Switched on, new terminals get **Vanilla**, the stock set kolu ships — the card
+marked **Default**. **Juspay**'s profile is one click away on its own card
+(`github:juspay/skills`, shown under the name), and **Custom…** takes a profile
+of your own ([A profile of your own](#a-profile-of-your-own)). You pick a set by
+name; a flake reference belongs in one place only, inside Custom….
 
 Until you choose, nothing changes: kolu adds no agents to your terminals until
 you switch them on, on a fresh install and on one that predates this. The agents
@@ -39,24 +39,33 @@ Until agents are on, kolu asks in three places:
 - the **welcome card**, whenever no terminals are open — the question leads it:
   **Choose your coding agents**;
 - the palette's **Tutorial** command, which shows the same welcome at any time;
-- **Settings → Agents**, at any time, which says when nothing is chosen yet.
+- **Settings → Agents**, at any time.
 
-The welcome card and the Tutorial ask with one switch. Until you choose, it
-already has the keyboard: press **Enter** and agents are on, with Juspay's
-profile. The question then folds away into the welcome's done line —
-"Agents: github:juspay/skills ✓" once agent-distro says the profile resolves
-on this machine; if it does not, agent-distro's words stand there instead of
-the check ([Pick a set](#pick-a-set)). On the machine running kolu that is at once,
-because the agents ship inside kolu; it stays only while that machine is still
-downloading them, or if that download failed. Another profile is a Settings
-matter.
+The welcome card and the Tutorial ask with the cards themselves — the sets kolu
+names, **Vanilla** picked for you — and two buttons: **Turn on ⏎**, and **Not
+now — plain terminals, ask again later**. Until you choose, the picked card
+already has the keyboard: press **Enter** and agents are on with Vanilla. Move
+to another card first (←/→/↑/↓, or click) and Turn on takes that one; nothing is
+written until you press it, so a card here is a choice, not a switch. A profile
+of your own stays a Settings matter.
 
-Until agents are on, the welcome card keeps the question at the top: switch
-them off again in Settings and it comes back, with the switch off. It no longer
-takes the keyboard when the welcome card appears, so an **Enter** out of habit
-changes nothing. If you upgraded and your session brings your terminals back,
-you will not see the welcome card: your terminals have no agents until you
-switch them on in Settings or the Tutorial.
+The question then folds away into the welcome's done line — "Agents: Vanilla ✓",
+a name, never a flake reference — once agent-distro says the profile resolves on
+this machine; if it does not, agent-distro's words stand there instead of the
+check ([A profile of your own](#a-profile-of-your-own)). On the machine running
+kolu that is at once, because the agents ship inside kolu; it stays only while
+that machine is still downloading them, or if that download failed.
+
+**Not now** chooses nothing: no preference is written, no agents are added, and
+the question only goes for this session — the next time the welcome card appears
+it asks again.
+
+Until agents are on, the welcome card keeps the question at the top: switch them
+off again in Settings and it comes back. Once you have chosen, it no longer takes
+the keyboard when the welcome card appears, so an **Enter** out of habit changes
+nothing. If you upgraded and your session brings your terminals back, you will
+not see the welcome card: your terminals have no agents until you switch them on
+in Settings or the Tutorial.
 
 Nothing forces the question. **⌘⏎** still opens a terminal from anywhere; it just
 gets no agents, and the question stays until agents are on.
@@ -64,56 +73,66 @@ gets no agents, and the question stays until agents are on.
 ## Pick a set
 
 To change it later, open **Settings** (the gear in the top bar). One row,
-**Agents**, sets it: a switch, on or off, and while it is on, a **Profile**
-field. Either way kolu tells you what changed for new terminals.
+**Agents**, holds all of it: a switch, on or off, and while it is on, the
+**profile cards**. Either way kolu tells you what changed for new terminals.
 
-While agents are off, the hint under the row says what kolu can bring, what
-switching them on does and what off means (and, before your first choice, that
-nothing is chosen yet).
+The cards name the sets; nobody types a reference to pick one:
 
-The field starts with Juspay's profile, `github:juspay/skills`. Its suggestions
-are that, every set kolu ships (today **vanilla**, the stock agents) and the
-profiles you named before, most recent first. Type one, or anything else
-agent-distro reads as a profile ([A profile of your own](#a-profile-of-your-own)),
-and press **Enter** or leave the field: that is the setting, at once.
+- **Vanilla**, marked **Default** — the stock agents kolu ships, and where a
+  kolu nobody has asked yet starts;
+- **Juspay** — `github:juspay/skills`, shown under the name: Juspay skills plus
+  Kolu, through Juspay's LiteLLM gateway;
+- **Custom…** — a flake reference or a path to your own `agent-distro.nix`
+  ([A profile of your own](#a-profile-of-your-own)).
 
-Under the field, the machine running kolu says whether the profile resolves.
-It asks agent-distro once, the same way a terminal's agents would, and shows
-agent-distro's name and description for it ("juspay · Juspay skills + Kolu").
-If it does not resolve, the line is agent-distro's own words, in red, such as
-"agent-distro: AI_PROFILE=github:nobody/nothing: cannot fetch
-github:nobody/nothing: … HTTP error 404". The setting stands even
-then: new terminals still get that profile, and their agents fail to start until
-it resolves — except in a repository with its own `agent-distro.nix`. Fix the
-field, or switch agents off and on to ask again. Below that are the agents
-(with their versions) the profile's terminals get, and that a repository's own
-`agent-distro.nix` overrides it.
+Click a card, or move with ←/→/↑/↓ and press **Enter**: that is the setting, at
+once, for new terminals on every machine.
 
-With agents on, under the field is one status line per machine, each named the way
-its host tab names it (the machine running kolu by its hostname) — the machine
-running kolu first, then every other host that is not ready yet, is updating,
-whose last look for newer agents failed, or whose update history kolu could not
-read — each with a bar that fills while that machine downloads, turns to the
-warning colour if the download failed, and stays empty until the machine has
-answered. Under a ready line, a quieter one says when that machine last looked
-for newer agents ("updated 3h ago", "checked 2h ago, up to date", "last update
-failed 1h ago"), or that it is updating now; hover it for the reason a look was
-skipped or failed, and who gave it — agent-distro, or kolu itself when
-agent-distro gave none. When every machine is ready with nothing to report, the
-lines fold into one, **all hosts**, with how many there are. Below them sit
-**Check now** and the **History** ([Kept up to date](#kept-up-to-date)).
+Under the cards sit the agents that set brings, one **chip** each with the
+version this machine has, and the note that a repository with its own
+`agent-distro.nix` overrides the choice. While agents are off the chips name the
+stock set without versions — nothing is installed yet — and the hint above them
+is one sentence: "Off. New terminals use only the agents you installed yourself.
+Turn on and they start with these, kept up to date:".
+
+Below them is one **fleet line** for every machine at once — "Ready on
+naiveintent and 2 more · buildbox downloading · devbox failed", a coloured dot
+per state. Each machine's name is a link that opens that machine's **host
+details**, where everything true of that machine lives: the build it serves, its
+state and last update, its own events and its own actions
+([On other machines](#on-other-machines)). Settings keeps no per-machine state of
+its own.
+
+The row ends with **Docs →** and **Provided by agent-distro ↗**.
 
 The setting is one for all of kolu — not per host, not per terminal.
 
 ## A profile of your own
 
-Besides the sets kolu ships, the field takes a profile of your own: an
+Besides the sets kolu names, **Custom…** takes a profile of your own: an
 `agent-distro.nix` in any git repository, named by a flake reference
 (`github:you/your-profile`) or by a path to its directory
 (`~/src/my-profile`). Use an absolute path or one starting with `~/`: every
 terminal gets the profile whatever folder it opens in, so a relative path would
-mean a different folder in each. kolu writes whatever you type; whether it
-resolves is agent-distro's to say, under the field.
+mean a different folder in each.
+
+Picking Custom… reveals the field that used to be this control: a text input,
+with a menu of the profiles you set before, most recent first ("used before") —
+the sets kolu ships are cards, so the menu never repeats them. Type one and
+press **Enter**, or pick a row: that is the setting. Escape, or leaving the
+field, puts the stored profile back, so a half-typed reference is never written.
+kolu writes whatever you type; whether it resolves is agent-distro's to say,
+under the field.
+
+Under the field, the machine running kolu says whether the profile resolves. It
+asks agent-distro once, the same way a terminal's agents would, and shows
+agent-distro's name and description for it ("juspay · Juspay skills + Kolu"). If
+it does not resolve, the line is agent-distro's own words, in red, such as
+"agent-distro: AI_PROFILE=github:nobody/nothing: cannot fetch
+github:nobody/nothing: … HTTP error 404". The setting stands even then: new
+terminals still get that profile, and their agents will not start until it
+resolves — except in a repository with its own `agent-distro.nix`. Fix the field
+and it asks again.
 
 kolu does not read the profile itself. New terminals get the stock
 (**vanilla**) agents with the profile as `AI_PROFILE`, and agent-distro
@@ -226,7 +245,14 @@ name, and the mark's look says where that host stands:
 | dimmed, with a spinning arc | checking: the host is connected but has not said yet |
 | no mark at all | agents are off |
 
-Clicking the mark opens Settings, without switching tabs.
+Clicking the mark opens that machine's **host details** — the popover behind its
+tab's connection pip — without switching tabs. Its **agents** section is
+everything true of that machine: the profile new terminals there get and the
+short hash of the build serving it, its state with its last update run ("ready ·
+updated 3h ago"), that machine's recent update events in the updater's own words,
+and one action — **check for newer agents ↻**, or **retry download ↻** when its
+download failed ([When a download fails](#when-a-download-fails)). The machine
+names on Settings' fleet line open the same place.
 
 The machine running kolu itself needs no first download: every set ships inside
 kolu, so switching there is instant and works offline. It still keeps itself
@@ -263,7 +289,8 @@ next time.
 
 While a newer set downloads, the one you have keeps working: new terminals get
 it until the new one has fully arrived. The host's mark keeps its plain colour
-and the ring fills around it; its line in Settings says "updating" with the
+and the ring fills around it; Settings' fleet line keeps that machine among the
+ones still working, and its host details say "ready · updating" with the
 progress. Then:
 
 - a toast says what changed, in agent-distro's own words ("Claude Code 2.1.286
@@ -274,31 +301,32 @@ progress. Then:
   ([above](#restarting-a-terminal-onto-the-current-agents)).
 
 A look that finds nothing newer, or skips (the newer set is not fully in the
-cache yet, or the machine's Nix cannot use the cache), says nothing; the host's
-line says it was skipped, and its hover and the History give agent-distro's
-reason. A skip is not a problem, so once every machine is ready it folds into
-the **all hosts** line like a look that found nothing, and shows only in the
-History. A look that fails says nothing either — the agents you have keep
-working — and the host keeps its own status line saying so, even when every
-other machine is ready (and it is in the History, when agent-distro wrote it
-down: a run that crashed did not, so its line's hover gives kolu's words for
-it).
+cache yet, or the machine's Nix cannot use the cache), says nothing: it shows in
+that machine's host details, as its state's last run ("checked 2h ago, up to
+date", "checked 1h ago, skipped" — hover for agent-distro's own reason) and
+as an event in the list under it. A skip is not a problem, so the fleet line in
+Settings keeps counting that machine as ready. A look that fails says nothing
+either — the agents you have keep working — and it too stands in that machine's
+host details, in the warning colour (and among its events, when agent-distro
+wrote it down: a run that crashed did not, so the line's hover gives kolu's
+words for it).
 
 A terminal keeps the set it started with until you restart it — or until a Nix
 garbage collection on that machine removes that set, which an update leaves
 unprotected. **Restart** gets the current set.
 
-In **Settings → Agents**:
+Two places let you look right now:
 
-- **Check now** looks for newer agents on every machine at once, whatever the
-  time. It is greyed out while there is no machine it could ask — every
-  connected one is already looking, or not ready yet — and reads "Checking…"
-  while one of them is looking.
-- **History** lists each machine's last five events — updated, skipped or failed —
-  one line each, with the time and agent-distro's own words (hover a line for
-  all of them). A machine whose update history kolu could not read gets a line
-  saying so. The list scrolls once it is long, so Settings stays on screen
-  however many machines you have.
+- the palette's **Check for newer coding agents** ("every machine") looks on
+  every machine at once, whatever the time;
+- a machine's host details offer **check for newer agents ↻** for that machine
+  alone, greyed out while it could not answer one — it is not ready, or already
+  looking.
+
+Each machine's **last five events** — updated, skipped or failed — are in its
+host details too, one line each with the time and agent-distro's own words
+(hover a line for all of them). A machine whose update history kolu could not
+read says so there instead.
 
 ## When a download fails
 
@@ -306,14 +334,19 @@ The host needs Nix with flakes, reachable on padi's PATH, and its Nix must be
 allowed to use agent-distro's cache (`https://cache.nixos.asia/oss`). If it is
 not, the first download is skipped — the host never compiles agents — and the
 host's mark turns to the warning colour. (A later update that cannot download
-is different: the agents the host already has keep working, and it shows on the
-host's status line and in the History — see [Kept up to date](#kept-up-to-date).) Its hover, the toast and the host's line in
-Settings all say the same thing: the cause — with Nix's own line after it when
-agent-distro caught one, such as `cannot resolve flake: unable to download '…':
-HTTP error 401` — the setup fix when the cause is a missing `nix`, and how to
-retry. Until it is fixed, new terminals on that host
-get no agents. Fix it, then switch Agents off and back on in Settings: that is
-the retry, and it downloads again. Nothing retries on its own.
+is different: the agents the host already has keep working, and it shows in that
+machine's host details — see [Kept up to date](#kept-up-to-date).) The mark's
+hover and the toast say the same thing: the cause — with Nix's own line after it
+when agent-distro caught one, such as `cannot resolve flake: unable to download
+'…': HTTP error 401` — the setup fix when the cause is a missing `nix`, and
+where to retry: "Fix that, then open that machine's host details and retry the
+download."
+
+Open them — click the mark, or the machine's name on Settings' fleet line — and
+the **agents** section carries the cause in full, that "New terminals on
+&lt;host&gt; get no coding agents until this is fixed", and the one button that
+retries: **retry download ↻**, which forgets the failure and downloads again on
+that machine. Nothing retries on its own.
 
 ## Turning it off
 
@@ -322,7 +355,7 @@ kolu adds no agents and no plugin variable; your own tools are what run.
 Terminals already open keep what they have, and keep their pill, until you close
 them (or restart them, which brings them back as a plain shell). While agents
 are off, the welcome card keeps the question at the top of every empty canvas.
-The profile stays in the field for when you switch them back on.
+Your pick stays on its card for when you switch them back on.
 
 ## What doesn't change
 

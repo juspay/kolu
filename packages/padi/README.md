@@ -429,9 +429,9 @@ framework's transparent re-subscribe re-lead with fresh truth.
 padi puts the coding agents of the user's chosen
 [agent-distro](https://github.com/juspay/agent-distro) profile on the PATH of
 every NEW terminal it spawns ([Agents](https://kolu.dev/agents)), and keeps
-that profile current on its host. Three cells, one procedure (`padiSurface`
-5.9, profile references 5.11) and one spawn layer carry it; the module is
-`src/agentDistro/`.
+that profile current on its host. Three cells, two procedures (`padiSurface`
+5.9, profile references 5.11, the per-host retry 5.12) and one spawn layer
+carry it; the module is `src/agentDistro/`.
 
 - **`agentDistro` (memory-only, `get`/`set`)** — the Agents setting
   (`{ enabled, profile }`), PUSHED by the binding kolu-server on every connect
@@ -471,13 +471,23 @@ that profile current on its host. Three cells, one procedure (`padiSurface`
   line); `none` while agents are off or no bundle serves yet.
   An answer for a setting since replaced is dropped; switching agents off and
   on asks again. The setting stands either way. Settings reads the local
-  host's, under its profile field. Not on the MCP face.
+  host's, under the reference field of the picker's Custom… card. Not on the
+  MCP face.
 - **`agentDistro.checkNow` (procedure)** — run one update of the selected
   profile now, whatever the schedule says; answers once it has started.
   Refuses with the declared `AgentDistroCheckRefused` (`running` while a run of
   that profile is going — one at a time — or `notReady` when nothing serves:
   agents off, unbaked, or a first download that has not landed). The client's
-  Check now calls it on every host. Not on the MCP face.
+  "Check for newer coding agents" palette command calls it on every host, and a
+  machine's host details call it on that one. Not on the MCP face.
+- **`agentDistro.retryDownload` (procedure)** — the failed-download retry for
+  THIS host: forget the last failure of the profile this host is set to and
+  settle it again, the two steps a setting write performs. It is a procedure
+  because the setting cell's `equals` drops a re-push of the same value, so no
+  write could ask ONE host to try again. Nothing to refuse: with agents off, or
+  nothing failed, settling again publishes the state it already had, and it
+  never touches the update schedule. The client calls it from a machine's host
+  details. Not on the MCP face.
 - **Keeping it current** — `scheduler.ts` asks "is an update due" at boot (the
   binder's first push), whenever the setting changes, and once each of
   upstream's schedule boundaries has passed (02/08/14/20 UTC, the
