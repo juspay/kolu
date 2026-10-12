@@ -169,9 +169,11 @@ export function agentProfileTitle(
 
 /** The welcome card's done line for the first-run step, by whether the
  *  profile resolves on this machine ({@link agentsResolvedLine}): the chosen
- *  profile BY NAME with a check once it does ("Agents: Vanilla ✓"),
- *  agent-distro's words instead of the check when it does not, and nothing yet
- *  while it is pending. `undefined` too while agents are off — the step is not
+ *  profile BY NAME at once — the name is known locally the moment the choice
+ *  is written — with a check once it resolves ("Agents: Vanilla ✓"), and
+ *  agent-distro's words instead of the check when it fails. While the answer
+ *  is pending the line is just the name ("Agents: Vanilla"): the ✓ follows
+ *  padi, the name does not. `undefined` while agents are off — the step is not
  *  done then ({@link firstRunAgentsDone}) — and in a kolu built without
  *  agents, where nobody chose anything and the step is done only because there
  *  is nothing to choose. */
@@ -186,7 +188,7 @@ export function agentsChosenLabel(
   const name = agentProfileTitle(setting.profile, listing);
   switch (line.kind) {
     case "pending":
-      return undefined;
+      return `Agents: ${name}`;
     case "resolved":
       return `Agents: ${name} ✓`;
     case "failed":

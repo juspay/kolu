@@ -724,14 +724,20 @@ describe("firstRunAgentsDone — the first-run step's done-predicate", () => {
     ).toBe(`Agents: ${ref} — cannot fetch ${ref}: HTTP error 404`);
   });
 
-  it("nothing yet while the answer is pending — or is about another profile", () => {
+  it("names the profile at once while the answer is pending — the check follows it", () => {
+    expect(agentsChosenLabel(VANILLA_ON, LISTING, undefined)).toBe(
+      "Agents: Vanilla",
+    );
+    // An answer about another profile is one padi has not caught up from.
     for (const resolved of [
       undefined,
       { kind: "none" } as const,
       { kind: "pending", profile: JUSPAY_PROFILE } as const,
       resolvedFor("vanilla"),
     ])
-      expect(agentsChosenLabel(JUSPAY_ON, LISTING, resolved)).toBeUndefined();
+      expect(agentsChosenLabel(JUSPAY_ON, LISTING, resolved)).toBe(
+        "Agents: Juspay",
+      );
   });
 
   it("has no done line in a kolu built without agents — nobody chose anything", () => {
