@@ -29,7 +29,6 @@ import { readStateRootManifest, writeStateRootManifest } from "kaval";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   classifyLivePadis,
-  DIAL_REGIMES,
   discoverPadiDaemons,
   localPadiSocket,
   namePadiStateRootForDiscovery,
@@ -64,7 +63,9 @@ function liveChild(): ChildProcess {
 
 /** Write a `padi.pid` gate file naming `pid`, beside a socket at `socketDir`. */
 function writeGate(socketDir: string, pid: number): void {
-  writeFileSync(join(socketDir, PADI_GATE_FILE), `${pid}\n`);
+  // `0o600`: a gate seeded under the shared `/tmp` root must carry the same
+  // owner-only mode the real writer gives it.
+  writeFileSync(join(socketDir, PADI_GATE_FILE), `${pid}\n`, { mode: 0o600 });
 }
 
 /** Bind a real `net.Server` at `path`, leaving a genuine socket inode behind —
@@ -300,6 +301,36 @@ describe("the primary padi — which one a flag-less client dials among several 
     expect(refusal.message).toContain(primaryRoot);
     expect(refusal.message).toContain(`PADI_SOCKET=${a}`);
     expect(refusal.message).toContain(`PADI_SOCKET=${b}`);
+  });
+
+  it("finds the primary even when it bound under /tmp and this shell has XDG set", async () => {
+    // M1's regression, pinned on the function the CLI actually calls. A padi
+    // spawned by a nix-shell / e2e harness with `$XDG_RUNTIME_DIR` unset binds
+    // at `/tmp/padi-<digest>-$UID`; a flag-less `kolu` / `kolu mcp` / `padi-tui`
+    // from a logind shell has XDG set. Narrowed to the regime in force, that
+    // client refuses with "no padi is running" while the daemon it wants is up.
+    const uid = process.getuid?.();
+    if (uid === undefined) return;
+    const primaryRoot = pinFreshHost();
+    const drawer = process.env.XDG_RUNTIME_DIR;
+
+    // Register it the way that harness does: with no XDG at all, so the socket
+    // lands in the forced `/tmp` drawer rather than this shell's.
+    delete process.env.XDG_RUNTIME_DIR;
+    const tmpSocket = await registerLivePadi(primaryRoot);
+    dirs.push(dirname(tmpSocket));
+    expect(tmpSocket.startsWith("/tmp/")).toBe(true);
+
+    // …and dial from the logind shell.
+    process.env.XDG_RUNTIME_DIR = drawer;
+    expect(resolveRunningPadiSocket()).toMatchObject({
+      kind: "primary",
+      socket: tmpSocket,
+    });
+    expect(localPadiSocket({ kind: "auto" })).toEqual({
+      kind: "ok",
+      socket: tmpSocket,
+    });
   });
 });
 
@@ -593,14 +624,9 @@ describe("discoverPadiDaemons — the regime in force, plus the extra drawers", 
       process.env.XDG_RUNTIME_DIR = drawer;
       expect(residentPadiSocket(stateRoot)).toBe(socket);
 
-      // The CLI half. Pinned as the REGIME LIST the resolution passes, not as
-      // its verdict: the developer's own padis join that scan, so whether it
-      // collapses to `one`, `primary` or `many` is a property of the box, and a
-      // test that asserted the verdict would assert nothing on exactly the
-      // multi-daemon hosts the policy exists for (the #2154 F2 lesson).
-      expect(
-        discoverPadiDaemons(DIAL_REGIMES()).map((d) => d.socket),
-      ).toContain(socket);
+      // The CLI half is pinned on `resolveRunningPadiSocket` itself, in the
+      // primary-padi block above — a hermetic `pinFreshHost()` makes the
+      // verdict assertable, which it is not here.
     },
   );
 });

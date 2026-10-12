@@ -28,6 +28,12 @@
  *    gate. A sweep cannot tell that from a corpse, so it declines to guess.
  *  - **`unreadable`** — EACCES/EIO is not an observation (the law again). Kept.
  *
+ * And the law is applied to EVERY `*.pid` in the home, not just the app's own:
+ * the removal is recursive and the home is co-tenanted (kolu-server's
+ * "never two supervisors" claim lives in padi's home as `supervisor.pid`), so a
+ * SIGKILLed padi beside a live supervisor must keep its directory. See
+ * {@link everyGateDead}.
+ *
  * And before any of that, the home must pass {@link isPrivateOwnedDir}: the same
  * owner-only boundary the serving side enforces, so a name another local user
  * planted under the shared `/tmp` root is never removed by us.
@@ -96,13 +102,23 @@ function homeGrammar(
     resolveDaemonHome({ app, placement: "runtime", instance: "0", runtimeRoot })
       .dir,
   );
+  // The sentinel sits at a KNOWN position — `resolveDaemonHome` builds the
+  // instanced directory as `<app>-<instance>`, so the `0` is the character
+  // right after `<app>-` — and it is spliced out by index rather than found by
+  // `.replace("0", …)`. A search would take the FIRST zero in the string, which
+  // is only the sentinel while neither the app stem nor the regime's `-$UID`
+  // decoration contains one: `kaval-0-1000` survives that by luck, an app named
+  // `relay0` would silently get `^relay[0-9a-f]+-0$` and match names the
+  // builder never mints. A deleting loop does not get to be lucky.
+  const sentinelAt = app.length + 1;
+  const esc = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   return {
     root: dirname(bareDir),
     bareName: basename(bareDir),
-    // The sentinel instance `0` becomes a hex capture; everything else is
-    // escaped so a `/tmp` path cannot inject regex metacharacters.
     instancedRe: new RegExp(
-      `^${instancedName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace("0", "[0-9a-f]+")}$`,
+      `^${esc(instancedName.slice(0, sentinelAt))}[0-9a-f]+${esc(
+        instancedName.slice(sentinelAt + 1),
+      )}$`,
     ),
   };
 }
@@ -126,12 +142,50 @@ export function daemonSweepRegimes(): readonly (
 }
 
 /**
- * Remove every runtime home of `app` under `runtimeRoots` whose gate file names
- * a process that is gone. Never throws.
+ * Is EVERY pid gate in this home dead?
+ *
+ * A runtime home is CO-TENANTED, and the sweep removes it recursively, so the
+ * app's own gate is not the whole question. kolu-server's "never two
+ * supervisors" claim lives in padi's home as `supervisor.pid` beside padi's own
+ * `padi.pid`, and pid-gate exclusion is `link(2)`/EEXIST on the FILE: a padi
+ * that was SIGKILLed leaves a dead `padi.pid` while its supervising kolu-server
+ * is perfectly alive, and removing the home on padi's gate alone would delete a
+ * live claim — after which a second kolu-server claims successfully and the
+ * surviving one is never told (juspay/kolu#2289 review, B4).
+ *
+ * So every `*.pid` in the home votes, and the verdict is a {@link StaleHomeSkip}
+ * reason when it is not unanimous. `absent` cannot occur (the file was just
+ * listed) and `malformed` is the pid gate's own "reap" verdict, so only a LIVE
+ * holder or an UNREADABLE gate blocks removal — the same three-way law the
+ * app's own gate is read under, applied to every tenant.
+ */
+function everyGateDead(dir: string): "all-dead" | "live" | "gate-unreadable" {
+  let names: string[];
+  try {
+    names = readdirSync(dir);
+  } catch {
+    // The home itself cannot be listed, so nothing in it can be judged dead.
+    return "gate-unreadable";
+  }
+  for (const name of names) {
+    if (!name.endsWith(".pid")) continue;
+    const read = readGateIdentity(join(dir, name));
+    if (read.kind === "unreadable") return "gate-unreadable";
+    if (read.kind === "ok" && isHolderLive(read.pid)) return "live";
+  }
+  return "all-dead";
+}
+
+/**
+ * Remove every runtime home of `app` under `runtimeRoots` whose gates ALL name
+ * processes that are gone. Never throws.
  *
  * `gateFile` is the app's gate basename (`padi.pid`, `kaval.pid`) — passed
  * rather than derived, because kaval's bare stem and its home's decoration
- * differ and the gate name is the daemon's own constant.
+ * differ and the gate name is the daemon's own constant. It decides whether a
+ * home is a CANDIDATE (one carrying no gate of ours may be a daemon mid-boot,
+ * and is left alone); {@link everyGateDead} then decides whether the candidate
+ * is REMOVABLE, because the home is co-tenanted and the removal is recursive.
  *
  * `runtimeRoots` is the regime list to sweep, in {@link DaemonHomeRuntimeRoot}'s
  * vocabulary (`undefined` = the live env's drawer, `null` = the forced `/tmp`
@@ -146,12 +200,18 @@ export function reapStaleDaemonHomes(opts: {
 }): StaleHomeSweep {
   const removed: string[] = [];
   const skipped: StaleHomeSkip[] = [];
-  const seenRoots = new Set<string>();
+  const sweptGrammars = new Set<string>();
 
   for (const runtimeRoot of opts.runtimeRoots) {
     const { root, bareName, instancedRe } = homeGrammar(opts.app, runtimeRoot);
-    if (seenRoots.has(root)) continue;
-    seenRoots.add(root);
+    // Keyed by root AND grammar, not root alone. The two arms can resolve to the
+    // SAME directory with DIFFERENT name shapes — `XDG_RUNTIME_DIR=/tmp` gives
+    // `/tmp/<app>-<hex>` for the env arm and `/tmp/<app>-<hex>-$UID` for the
+    // forced one — and de-duping by root dropped the second, so on exactly such a
+    // host the `-$UID` corpses this sweep exists for were never examined.
+    const grammarKey = `${root}\u0000${bareName}\u0000${instancedRe.source}`;
+    if (sweptGrammars.has(grammarKey)) continue;
+    sweptGrammars.add(grammarKey);
 
     let entries: string[];
     try {
@@ -173,17 +233,16 @@ export function reapStaleDaemonHomes(opts: {
         skipped.push({ dir, why: "not-ours" });
         continue;
       }
-      const read = readGateIdentity(join(dir, opts.gateFile));
-      if (read.kind === "absent") {
+      const own = readGateIdentity(join(dir, opts.gateFile));
+      if (own.kind === "absent") {
         skipped.push({ dir, why: "no-gate" });
         continue;
       }
-      if (read.kind === "unreadable") {
-        skipped.push({ dir, why: "gate-unreadable" });
-        continue;
-      }
-      if (read.kind === "ok" && isHolderLive(read.pid)) {
-        skipped.push({ dir, why: "live" });
+      // The home is removed RECURSIVELY, so the question is not "is my daemon
+      // dead" but "is anything in here still held". Every `*.pid` gets a vote.
+      const verdict = everyGateDead(dir);
+      if (verdict !== "all-dead") {
+        skipped.push({ dir, why: verdict });
         continue;
       }
       try {

@@ -66,7 +66,11 @@ export interface AgentTerminalState {
    *  the pid in the first place, and holds the answer across every reconcile in
    *  between (argv and environ are fixed at exec). A FAILED read is never held,
    *  so a transient `/proc` error costs one retry rather than the run.
-   *  Idempotent within one snapshot, like `readForegroundBasename`. */
+   *
+   *  Idempotent ONCE A READ SUCCEEDS — unlike `readForegroundBasename`, which
+   *  memoises unconditionally. Two calls can genuinely differ here: the first
+   *  may answer `null` on a transient failure and the second the real snapshot,
+   *  which is the point of not holding the failure. */
   readProcessSnapshot: () => ProcessSnapshot | null;
 }
 

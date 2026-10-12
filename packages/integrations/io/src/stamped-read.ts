@@ -16,9 +16,10 @@
  *  fields holding a fixed-width uuid, and an omp crumb names a
  *  `<ts>_<uuid>.jsonl` path — so a real change usually lands at the SAME byte
  *  length. What they are not is append-only: both are rewritten whole, so a
- *  change always moves the mtime. On Linux `statfs`-backed `mtimeMs` carries
- *  sub-millisecond precision, so the residual blind spot is two whole rewrites
- *  inside one filesystem timestamp tick, with identical length. The alternative
+ *  change always moves the mtime. `stat.mtimeMs` folds in `st_mtim.tv_nsec`, so
+ *  on a filesystem that records nanoseconds it carries sub-millisecond
+ *  precision, and the residual blind spot is two whole rewrites inside one
+ *  filesystem timestamp tick, at identical length. The alternative
  *  — read and parse everything, every pass — is the cost being removed.
  *
  *  **ABSENCE IS NEVER CACHED.** A missing file has no stamp to invalidate

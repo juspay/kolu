@@ -27,7 +27,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, expect, it } from "vitest";
-import { reapStaleDaemonHomes } from "./staleHomes.ts";
+import { daemonSweepRegimes, reapStaleDaemonHomes } from "./staleHomes.ts";
 
 /** Above Linux's maximum `pid_max` (2^22) and macOS's (99998), so `kill(pid, 0)`
  *  can only ever answer "no such process" — a dead holder with nothing to fork
@@ -141,7 +141,7 @@ it("reports a regime root it cannot list, instead of collecting nothing in silen
   ]);
 });
 
-it("sweeps each resolved root once, however many regimes name it", () => {
+it("sweeps a (root, grammar) pair once, however many regimes name it", () => {
   const root = scratchRoot();
   const corpse = seedHome(root, "padi-deadbeef", String(DEAD_PID));
 
@@ -154,4 +154,124 @@ it("sweeps each resolved root once, however many regimes name it", () => {
   // The de-dup is what keeps a process already running under `/tmp` from
   // walking it twice — and what would otherwise report the same removal twice.
   expect(sweep.removed).toEqual([corpse]);
+});
+
+it("keeps a home whose OWN gate is dead but whose co-tenant gate is live", () => {
+  // juspay/kolu#2289 review B4. padi's home is shared: kolu-server's
+  // "never two supervisors" claim sits beside padi's gate as `supervisor.pid`,
+  // and pid-gate exclusion is `link(2)`/EEXIST on the FILE. A SIGKILLed padi
+  // leaves a dead `padi.pid` while its supervisor is alive, and removing the
+  // home recursively on padi's gate alone deletes a LIVE claim — after which a
+  // second kolu-server claims successfully and the survivor is never told.
+  const root = scratchRoot();
+  const shared = seedHome(root, "padi-deadbeef", String(DEAD_PID));
+  writeFileSync(join(shared, "supervisor.pid"), String(process.pid));
+
+  const sweep = reapStaleDaemonHomes({
+    app: "padi",
+    gateFile: "padi.pid",
+    runtimeRoots: [root],
+  });
+
+  expect(sweep.removed).toEqual([]);
+  expect(existsSync(join(shared, "supervisor.pid"))).toBe(true);
+  expect(sweep.skipped).toContainEqual({ dir: shared, why: "live" });
+});
+
+it("removes the home once EVERY gate in it is dead", () => {
+  const root = scratchRoot();
+  const corpse = seedHome(root, "padi-cafebabe", String(DEAD_PID));
+  writeFileSync(join(corpse, "supervisor.pid"), String(DEAD_PID));
+
+  const sweep = reapStaleDaemonHomes({
+    app: "padi",
+    gateFile: "padi.pid",
+    runtimeRoots: [root],
+  });
+
+  expect(sweep.removed).toEqual([corpse]);
+  expect(existsSync(corpse)).toBe(false);
+});
+
+it("keeps a home whose co-tenant gate cannot be read", () => {
+  const root = scratchRoot();
+  const shared = seedHome(root, "padi-feedbeef", String(DEAD_PID));
+  const tenant = join(shared, "supervisor.pid");
+  writeFileSync(tenant, String(DEAD_PID));
+  chmodSync(tenant, 0o000);
+
+  const sweep = reapStaleDaemonHomes({
+    app: "padi",
+    gateFile: "padi.pid",
+    runtimeRoots: [root],
+  });
+
+  // EACCES is not an observation — the pid gate's own three-way law, applied to
+  // the tenant as much as to the app's own gate.
+  expect(sweep.removed).toEqual([]);
+  expect(sweep.skipped).toContainEqual({ dir: shared, why: "gate-unreadable" });
+  chmodSync(tenant, 0o600);
+});
+
+it("sweeps BOTH grammars when two regimes resolve to one root", () => {
+  // M5. With `$XDG_RUNTIME_DIR` set to `/tmp` the two arms land on the SAME
+  // root with DIFFERENT name shapes — the env arm mints `<app>-<hex>`, the
+  // forced arm `<app>-<hex>-$UID`. De-duping by root alone dropped the second,
+  // so on exactly such a host the `-$UID` corpses this sweep exists for were
+  // never examined.
+  //
+  // `/tmp` is the real one here, by construction: the forced arm is rooted
+  // there and no parameter can move it. What keeps that safe is the APP NAME —
+  // a stem unique to this run, which no daemon on the box mints, so neither
+  // grammar can match anything but the two homes seeded below.
+  const uid = process.getuid?.();
+  if (uid === undefined) return;
+  const app = `sweepgrammar-${process.pid.toString(16)}`;
+  const envShaped = join("/tmp", `${app}-deadbeef`);
+  const tmpShaped = join("/tmp", `${app}-cafebabe-${uid}`);
+  for (const dir of [envShaped, tmpShaped]) {
+    mkdirSync(dir, { recursive: true, mode: 0o700 });
+    scratchDirs.push(dir);
+    writeFileSync(join(dir, `${app}.pid`), String(DEAD_PID), { mode: 0o600 });
+  }
+
+  const saved = process.env.XDG_RUNTIME_DIR;
+  process.env.XDG_RUNTIME_DIR = "/tmp";
+  try {
+    const sweep = reapStaleDaemonHomes({
+      app,
+      gateFile: `${app}.pid`,
+      runtimeRoots: [undefined, null],
+    });
+    expect([...sweep.removed].sort()).toEqual([envShaped, tmpShaped].sort());
+  } finally {
+    if (saved === undefined) delete process.env.XDG_RUNTIME_DIR;
+    else process.env.XDG_RUNTIME_DIR = saved;
+  }
+});
+
+it("daemonSweepRegimes covers the /tmp arm under XDG, and only /tmp without it", () => {
+  // M3. The `/tmp` arm is the whole point of the boot sweep — logind wipes the
+  // XDG drawer at logout, so the regime that ACCUMULATES is the one a sweep
+  // keyed on the env alone would never look at. Pinned here because the sweep
+  // itself takes its roots as a parameter: nothing else fails if this policy
+  // silently loses an arm.
+  const saved = process.env.XDG_RUNTIME_DIR;
+  try {
+    process.env.XDG_RUNTIME_DIR = "/run/user/1000";
+    expect(daemonSweepRegimes()).toEqual([undefined, null]);
+
+    // Off XDG the env arm IS the `/tmp` arm, so one entry covers both and the
+    // de-dup never has to.
+    delete process.env.XDG_RUNTIME_DIR;
+    expect(daemonSweepRegimes()).toEqual([null]);
+
+    // An empty value is "unset" everywhere else in the regime algebra; it must
+    // not read as an XDG drawer named "".
+    process.env.XDG_RUNTIME_DIR = "";
+    expect(daemonSweepRegimes()).toEqual([null]);
+  } finally {
+    if (saved === undefined) delete process.env.XDG_RUNTIME_DIR;
+    else process.env.XDG_RUNTIME_DIR = saved;
+  }
 });

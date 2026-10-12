@@ -76,6 +76,24 @@ describe("readBreadcrumb", () => {
     // claiming a session that can never light up.
     const { file } = crumb("stale", { target: false });
     expect(readBreadcrumb(file)).toEqual({ kind: "absent" });
+    // …and the same crumb whose target ALSO carries an unparseable name. omp
+    // would ignore it for the first reason alone, so the dead-target check has
+    // to run BEFORE the name-parse verdict (juspay/kolu#2289 review): parsing
+    // first turned this into a reconcile-rate `unusable` plus an error log.
+    const junkDir = path.join(tmp, "stale-and-unnameable");
+    fs.mkdirSync(junkDir, { recursive: true });
+    const junkCrumb = path.join(junkDir, "crumb");
+    fs.writeFileSync(
+      junkCrumb,
+      `/work/proj\n${path.join(junkDir, "junk.jsonl")}\n`,
+    );
+    const errors: unknown[] = [];
+    expect(
+      readBreadcrumb(junkCrumb, {
+        error: (...args: unknown[]) => errors.push(args),
+      } as never),
+    ).toEqual({ kind: "absent" });
+    expect(errors).toEqual([]);
   });
 
   it("reports UNUSABLE for a crumb it cannot read", () => {

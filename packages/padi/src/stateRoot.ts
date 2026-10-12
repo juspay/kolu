@@ -267,12 +267,8 @@ export function discoverPadiDaemons(
  *  someone already serves (#1713, and the #1313 isolation property with it), or
  *  a flag-less `kolu` / `kolu mcp` / `padi-tui` refusing with "no padi is
  *  running" while the daemon it wants is up in the other drawer. A directory
- *  walk per dial is not a cost; a directory walk per tick was.
- *
- *  Exported so a test can pin the LIST the dial paths pass, which is immune to
- *  how many padis the developer's own box happens to be running — the verdict
- *  `resolveRunningPadiSocket` collapses to (`one` / `primary` / `many`) is not. */
-export const DIAL_REGIMES = (): readonly (string | undefined)[] => [
+ *  walk per dial is not a cost; a directory walk per tick was. */
+const DIAL_REGIMES = (): readonly (string | undefined)[] => [
   standardXdgRuntimeDir(),
   undefined,
 ];
