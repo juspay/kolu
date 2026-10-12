@@ -112,6 +112,9 @@ const App: Component = () => {
     markUnread: store.markUnread,
     // Host-addressed, NOT `store.*`: the mark must come off the host it was set
     // on, even while the user is looking at a different one.
+    // The `?.` is the documented removal-race floor, not a fallback: `hostScopeOf`
+    // is undefined only for the tick after a host leaves the pool (see the header
+    // of `useViewState.ts`) — a mark on a scope that no longer exists is already gone.
     clearUnread: (host, id) => hostScopeOf(host)?.view.clearUnread(id),
     activeSubject: getSubject,
     terminalIds: store.terminalIds,

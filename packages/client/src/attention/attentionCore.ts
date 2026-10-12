@@ -28,9 +28,11 @@ export interface AttentionHooks {
   deliver(encHost: string, id: TerminalId, asking: boolean): void;
   /** Publish a host's unseen-finished count (the quiet host-tab dot). */
   writeMark(encHost: string, unseenFinished: number): void;
-  /** Drop one terminal's dock unread mark — the episode is over (its agent went
-   *  back to work, or the terminal is gone). Host-addressed, like every other
-   *  hook: a mark set on host A must clear while the user is looking at host B. */
+  /** Drop one terminal's dock unread mark — the episode is over, in any of its
+   *  three forms: the agent went back to work, the agent quit back to the shell
+   *  with the terminal still open, or the terminal was closed. Host-addressed,
+   *  like every other hook: a mark set on host A must clear while the user is
+   *  looking at host B. */
   clearUnread(encHost: string, id: TerminalId): void;
 }
 
@@ -97,11 +99,13 @@ export function createAttentionCore(hooks: AttentionHooks): AttentionCore {
 
     // Episode end: a terminal back to work clears its latch, so its NEXT
     // finish/ask is a fresh episode that fires again — and clears the dock unread
-    // mark that episode raised, because an agent that resumed is no longer
-    // something you have left unread. The one edge, two consequences. (A terminal
-    // that exited or was killed lands in `ended` too; dropping its mark is the
-    // same answer — there is nothing left to go and read.) An escalation
-    // finished→asking is NOT an end, so the mark survives it.
+    // mark that episode raised. The one edge, two consequences. Three ways an id
+    // lands in `ended`, and the mark drops for all of them: the AGENT RESUMED (no
+    // longer something you have left unread); the AGENT QUIT back to the shell with
+    // the terminal still open (its last output is still on screen — the mark goes
+    // anyway, because there is no agent left to classify and we refuse a second
+    // notion of "busy"); the TERMINAL CLOSED (nothing left to go and read). An
+    // escalation finished→asking is NOT an end, so the mark survives it.
     for (const id of ended) {
       latched.get(encHost)?.delete(id);
       hooks.clearUnread(encHost, id);

@@ -88,9 +88,11 @@ export interface AttentionDeps {
   activate: (id: TerminalId) => void;
   /** Mark an active-host background tile unread (the dock corner badge). */
   markUnread: (id: TerminalId) => void;
-  /** Drop a terminal's unread mark on ANY host — the episode ended (its agent went
-   *  back to work, or the terminal is gone). Host-addressed, unlike `markUnread`:
-   *  a mark raised on host A must come off while the user is viewing host B. */
+  /** Drop a terminal's unread mark on ANY host — the episode ended, in any of its
+   *  three forms: the agent went back to work, the agent quit back to the shell
+   *  with the terminal still open, or the terminal was closed. Host-addressed,
+   *  unlike `markUnread`: a mark raised on host A must come off while the user is
+   *  viewing host B. */
   clearUnread: (host: HostKey, id: TerminalId) => void;
   /** Rich subject (repo/branch label + description) for an active-host terminal. */
   activeSubject: (id: TerminalId) => TerminalSubject;
