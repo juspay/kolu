@@ -158,10 +158,12 @@ const MomentShell: Component<{
  *  "Not now" must leave the preference UNchosen — it hides the row for this
  *  session and the card asks again next time. The row stays at the top while
  *  agents are off (nothing chosen, or switched off). Only while NOTHING is
- *  chosen does the picked card take focus on mount, so Enter turns agents on:
- *  someone who switched them off sees the row at every empty canvas, but an
- *  Enter out of habit must not switch them back on. ⌘⏎ still creates a
- *  terminal from anywhere. */
+ *  chosen does the picked card take focus on mount, so **Enter** turns agents
+ *  on with it — the step answers the key itself, because a radio does not
+ *  (Space picks one; Enter submits a form, and there is none here). Someone
+ *  who switched agents off sees the row at every empty canvas, but an Enter
+ *  out of habit must not switch them back on, so nothing is focused then.
+ *  ⌘⏎ still creates a terminal from anywhere. */
 const ChooseAgentsMoment: Component<{ onNotNow: () => void }> = (props) => (
   <AgentsChooser deferred autofocus={!agentsChosen(agentDistroStored())}>
     {(parts) => (
@@ -171,7 +173,17 @@ const ChooseAgentsMoment: Component<{ onNotNow: () => void }> = (props) => (
         title={AGENTS_FIRST_RUN_TITLE}
         body={parts.stepHint()}
         details={
-          <>
+          // The key belongs to the STEP, not to one control in it: whichever
+          // card has the focus, Enter takes the picked one.
+          <div
+            on:keydown={(e) => {
+              if (e.key !== "Enter") return;
+              const turnOn = parts.turnOn;
+              if (turnOn === undefined) return;
+              e.preventDefault();
+              turnOn();
+            }}
+          >
             {parts.picker}
             <div class="mt-2.5 flex items-center gap-3.5">
               <Show when={parts.turnOn}>
@@ -196,7 +208,7 @@ const ChooseAgentsMoment: Component<{ onNotNow: () => void }> = (props) => (
                 Not now — plain terminals, ask again later
               </button>
             </div>
-          </>
+          </div>
         }
         docSlug="agents"
       />

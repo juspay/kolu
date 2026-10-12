@@ -560,8 +560,17 @@ export * from "./transcriptSchema.ts";
  *  carries the 5.8 obligation: a 5.11 binder may PUSH a reference, which a 5.10
  *  padi's write gate refuses as an unknown profile, and a 5.11 client
  *  subscribes to the new cell, so the minor drains a 5.10 padi first. An older
- *  decoder strips `effective`, the graceful direction. */
-export const PADI_SURFACE_VERSION = "5.11";
+ *  decoder strips `effective`, the graceful direction.
+ *
+ *  5.12 (additive · minor) — the per-host agents retry. A NEW procedure,
+ *  `agentDistro.retryDownload`, forgets this host's last download failure for
+ *  the profile it is set to and settles it again — the retry the Agents
+ *  setting performs when it is switched back on, for ONE host. It takes the
+ *  setting already pushed (the cell's `equals` drops a re-push of the same
+ *  value, so re-sending the setting could not do it), and is a no-op while
+ *  agents are off there. A 5.12 client CALLS it from a machine's host details,
+ *  so the minor drains a 5.11 padi that has no such member. */
+export const PADI_SURFACE_VERSION = "5.12";
 
 /** The `version` cell payload — padi's self-declared surface contract version. */
 export const PadiVersionSchema = Schema.Struct({
@@ -2477,9 +2486,18 @@ export const padiSurface = defineSurfaceWithPolicy<ClientErrorPolicy>()({
      *  node, as `session` is (no verb overlap). `checkNow` runs one update of
      *  the selected profile at once, whatever the schedule says, and answers
      *  once it has started (the status cells show it running). Refuses while a
-     *  run is going or nothing serves (`AgentDistroCheckRefused`). */
+     *  run is going or nothing serves (`AgentDistroCheckRefused`).
+     *
+     *  `retryDownload` is the FAILED-download retry for this one host: it
+     *  forgets the last failure of the profile this host is set to and settles
+     *  it again, exactly as a write of the setting does. It exists as a
+     *  procedure because the setting cell's `equals` drops a re-push of the
+     *  same value, so there is no way to ask ONE host to try again by writing
+     *  it. Nothing to refuse: with agents off, or nothing failed, settling
+     *  again changes nothing. */
     agentDistro: {
       checkNow: { error: AgentDistroCheckRefused },
+      retryDownload: {},
     },
     /** Session restore/import/forfeit — executes host-side (padi as one writer). */
     session: {

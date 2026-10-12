@@ -9,12 +9,14 @@
  *   - checking (connected, no status yet): the mark dimmed, a spinning arc;
  *   - none (agents off, or no bake): nothing — the tab is exactly as without.
  *
- *  Hover says it in words (a bar and the bytes while downloading); a click opens
- *  Settings without switching the tab. */
+ *  Hover says it in words (a bar and the bytes while downloading); a click
+ *  opens THAT machine's host details, whose agents section carries its
+ *  profile, the build it serves, its last update run, its own events and its
+ *  retry — without switching the tab. */
 
-import type { HostKey } from "kolu-common/hostKey";
+import { encodeHostKey, type HostKey } from "kolu-common/hostKey";
 import { type Component, createMemo, Match, Show, Switch } from "solid-js";
-import { openSettings } from "../settings/useSettingsOpen";
+import { openHostDiagnostics } from "../host/useHostDiagnosticsOpen";
 import Tip from "../ui/Tip";
 import AgentDistroLogo from "@kolu/agent-distro/solid";
 import {
@@ -125,9 +127,10 @@ const AgentDistroHostMark: Component<{
       aria-label={agentMarkLabel(mark(), where())}
       tabIndex={props.measuring ? -1 : undefined}
       onClick={(e) => {
-        // The mark sits inside the tab: opening Settings must not switch host.
+        // The mark sits inside the tab: opening the details must not switch
+        // host. The popover mounts in the strip, anchored to this chip.
         e.stopPropagation();
-        openSettings();
+        openHostDiagnostics(encodeHostKey(props.host));
       }}
       class="pointer-events-auto relative -ml-1 mr-2.5 grid h-[18px] w-[18px] shrink-0 cursor-pointer place-items-center rounded transition-colors hover:bg-fg/10"
       classList={{

@@ -122,7 +122,10 @@ describe("padiSurface contract", () => {
     // padi's `git: null`.
     // 5.11 lets the binder push a profile reference, which a 5.10 padi's
     // write gate refuses; the minor drains a 5.10 padi first.
-    expect(PADI_SURFACE_VERSION).toBe("5.11");
+    // 5.12 adds the per-host agents retry: the `agentDistro.retryDownload` a
+    // 5.12 client CALLS from a machine's host details, so the minor drains a
+    // 5.11 padi that has no such member.
+    expect(PADI_SURFACE_VERSION).toBe("5.12");
     expect(DEFAULT_PADI_VERSION.contractVersion).toBe(PADI_SURFACE_VERSION);
     expect(
       Schema.decodeUnknownSync(PadiVersionSchema)(DEFAULT_PADI_VERSION),
@@ -526,6 +529,7 @@ describe("padiDaemonContract — the composed tag set (D1 / #16)", () => {
       "surface/padi/agentDistroStatus/get",
       "surface/padi/agentDistroReceipt/get",
       "surface/padi/agentDistro/checkNow",
+      "surface/padi/agentDistro/retryDownload",
       "surface/control/core/hello",
       "surface/control/core/drain",
       "surface/control/core/clockNow",

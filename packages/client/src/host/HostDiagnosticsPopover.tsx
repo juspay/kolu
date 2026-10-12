@@ -58,6 +58,7 @@ import { HostDualDaemonSlot } from "./HostDaemonChips";
 import { hostGlance, hostLabel } from "./hostChipTone";
 import { reconnectHost } from "./reconnectHost";
 import { removeHost } from "./removeHost";
+import HostAgentsSection from "./HostAgentsSection";
 import { useHostKavalChain } from "./useHostKaval";
 
 /** How many trailing lines of a failed episode this popover shows — the last few, not the
@@ -365,6 +366,12 @@ export const HostDiagnosticsPopover: Component<{
             {marks.active()}
           </PopoverRow>
           <PopoverRow label="awaiting you">{marks.asking()}</PopoverRow>
+
+          {/* Agents on THIS machine — the profile it serves, its last run, its
+              own events and its own retry. Between the counts and the daemon
+              pair: it is a fact about the host, like they are, and Settings no
+              longer carries any per-machine agents state. */}
+          <HostAgentsSection host={props.host} />
 
           <div class="my-2 border-t border-edge/60" />
 

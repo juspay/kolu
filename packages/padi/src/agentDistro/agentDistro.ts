@@ -291,6 +291,23 @@ export function onAgentDistroSettingWrite(next: AgentDistroSetting): void {
   queueMicrotask(() => updateTimer?.poke());
 }
 
+/** `agentDistro.retryDownload`: try the download of the profile this host is
+ *  SET to again — forget its last failure and settle it, which starts the
+ *  download the failure stopped. The same two steps a setting write performs,
+ *  reachable for ONE host: the cell's `equals` drops a re-push of the same
+ *  value, so there is no setting to write that would do it.
+ *
+ *  Nothing to refuse. Agents off there, or nothing failed, and settling again
+ *  publishes the state it already had. It does NOT touch the update
+ *  schedule — that is `checkNow`'s job, and a host whose first download failed
+ *  has nothing to update. */
+export function retryAgentDownload(): void {
+  const setting = agentDistroSettingStore.get();
+  if (setting.enabled) forgetFailure(bundleName(setting.profile));
+  settle(setting);
+  publishReceiptLoud(setting);
+}
+
 /** {@link publishReceipt}, never thrown into a caller that cannot act on it:
  *  a file that will not read (a history line upstream changed the shape of,
  *  say) is logged loudly AND published as the receipt's `error`, so the host's

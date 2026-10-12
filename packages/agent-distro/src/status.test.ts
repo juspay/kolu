@@ -5,7 +5,6 @@ import { type AgentDistroListing, profileOfBundle } from "./listing.ts";
 import type { AgentDistroReceipt, AgentDistroStatus } from "./schema.ts";
 import {
   AGENTS_CUSTOM,
-  AGENTS_REPO_OVERRIDES,
   agentChipProfile,
   agentChips,
   agentFleetSummary,
@@ -911,7 +910,8 @@ describe("agentHostDetail — one machine's agents, in its host details", () => 
         tone: "warn",
       },
       cause: ["nix is not on padi's PATH", agentFailureRemedy("nixMissing")],
-      means: "New terminals on devbox get no coding agents until this is fixed.",
+      means:
+        "New terminals on devbox get no coding agents until this is fixed.",
       events: [],
       action: "retry",
     });

@@ -26,7 +26,6 @@ import type {
 } from "./schema.ts";
 import type { AgentDistroListing, AgentDistroProfile } from "./listing.ts";
 import { DEFAULT_AGENT_PROFILE } from "./manifest.ts";
-import type { AgentVersion } from "./versions.ts";
 
 /** Juspay's profile, as a reference — the one agent-distro reference kolu
  *  names by itself. It rides the vanilla bundle (the listing's first) like any
@@ -1005,7 +1004,9 @@ export function agentHostDetail(input: {
         update === "checking"
           ? plain(`ready · ${AGENTS_UPDATE_CHECKING}`)
           : update === "downloading"
-            ? plain(`ready · updating${bytes === undefined ? "…" : ` · ${bytes}`}`)
+            ? plain(
+                `ready · updating${bytes === undefined ? "…" : ` · ${bytes}`}`,
+              )
             : run === undefined
               ? plain("ready")
               : { ...run, text: `ready · ${run.text}` };
@@ -1131,13 +1132,17 @@ export function agentChips(input: {
   const { setting, listing } = input;
   if (!setting.enabled) {
     const lead = shippedProfile(listing, DEFAULT_AGENT_PROFILE);
-    return lead === undefined ? [] : lead.harnesses.map(({ title }) => ({ title }));
+    return lead === undefined
+      ? []
+      : lead.harnesses.map(({ title }) => ({ title }));
   }
   // Padi names the receipt for the setting's profile; a receipt for another is
   // one this machine has not caught up from.
   const receipt = receiptFor(input.localReceipt, setting.profile);
   const agents =
-    receipt?.versions ?? selectedAgentProfile(setting, listing)?.harnesses ?? [];
+    receipt?.versions ??
+    selectedAgentProfile(setting, listing)?.harnesses ??
+    [];
   return agents.map((h) => ({
     title: h.title,
     version: displayVersion(h.version),
