@@ -20,6 +20,7 @@ import {
   type SelectionRect,
 } from "@kolu/artifact-sdk/client";
 import { type Accessor, createEffect, createSignal, onCleanup } from "solid-js";
+import { codeViewItemIdAt } from "@kolu/solid-pierre";
 import { walkShadowRoots } from "../dom/shadowWalk";
 import { usePanelShown } from "../right-panel/panelShown";
 import { useComposer } from "./composerState";
@@ -30,6 +31,12 @@ import { useComposer } from "./composerState";
  *  selection tick during a drag is wasteful. */
 export type SelectionCaptured = {
   rect: SelectionRect;
+  /** Why no comment can be taken here, when the selection sits in ANOTHER
+   *  file of the view than `path` — a type-changed path's diff also shows
+   *  the files under it. A comment is stored and re-highlighted against
+   *  `path`, so one taken here would carry the wrong file and line; the
+   *  pill says so and offers nothing to click instead. */
+  unavailable?: string;
 };
 
 export interface UseTextSelectionOptions {
@@ -168,6 +175,8 @@ export function useTextSelection(opts: UseTextSelectionOptions) {
       setCaptured(null);
       return;
     }
+    const path = opts.path();
+    const itemPath = codeViewItemIdAt(range.commonAncestorContainer);
     // Lazy-build the locator — extractQuote walks the DOM, so don't pay
     // for it on every selection tick if the user is just dragging. We
     // rebuild the real Locator at activation time in `activate()`.
@@ -178,6 +187,11 @@ export function useTextSelection(opts: UseTextSelectionOptions) {
         width: last.width,
         height: last.height,
       },
+      ...(path !== null && itemPath !== undefined && itemPath !== path
+        ? {
+            unavailable: `Comments here attach to ${path} only, not ${itemPath}`,
+          }
+        : {}),
     });
   };
 
@@ -194,6 +208,7 @@ export function useTextSelection(opts: UseTextSelectionOptions) {
   const activate = (): void => {
     const host = opts.host();
     if (!host || !lastRange || composer.isComposing()) return;
+    if (captured()?.unavailable !== undefined) return;
     const path = opts.path();
     if (path === null) return;
     // Anchor against the NARROWEST root that contains the selection:

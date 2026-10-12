@@ -289,3 +289,96 @@ describe("getStatus branch mode — unicode paths", () => {
     }
   });
 });
+
+describe("getDiff — a directory replaced by a file", () => {
+  let repo: string;
+
+  beforeEach(() => {
+    repo = fs.mkdtempSync(path.join(os.tmpdir(), "kolu-review-typechange-"));
+  });
+
+  afterEach(() => {
+    fs.rmSync(repo, { recursive: true, force: true });
+  });
+
+  // The Code tab folds a type change to ONE row — the path itself — and drops
+  // the paths beneath it from the tree. That is only honest if the row's diff
+  // is a real git pathspec: `-- skills/odu` must match the file at that path
+  // AND every file under it, in both directions of the change, so no hunk is
+  // lost.
+  const writeDir = () => {
+    fs.mkdirSync(path.join(repo, "skills", "odu"), { recursive: true });
+    fs.writeFileSync(path.join(repo, "skills", "odu", "SKILL.md"), "# odu\n");
+    fs.writeFileSync(path.join(repo, "skills", "odu", "serve"), "serve\n");
+  };
+  const writeLink = () => {
+    fs.mkdirSync(path.join(repo, "skills"), { recursive: true });
+    fs.symlinkSync("../plugin/odu", path.join(repo, "skills", "odu"));
+  };
+  const directions = [
+    {
+      name: "directory replaced by a symlink",
+      before: writeDir,
+      after: writeLink,
+      linkSign: "+",
+      childSign: "-",
+    },
+    {
+      name: "symlink replaced by a directory",
+      before: writeLink,
+      after: writeDir,
+      linkSign: "-",
+      childSign: "+",
+    },
+  ];
+  it.each(
+    directions.flatMap((d) =>
+      (["branch", "local"] as const).map((mode) => ({ ...d, mode })),
+    ),
+  )("$mode mode, $name: the path's diff carries every file under it", async ({
+    mode,
+    before,
+    after,
+    linkSign,
+    childSign,
+  }) => {
+    const git = simpleGit(repo);
+    await git.init();
+    await git.addConfig("user.email", "test@example.com");
+    await git.addConfig("user.name", "Test");
+    await git.checkoutLocalBranch("main");
+    before();
+    await git.add(".");
+    await git.commit("base");
+    await git.raw(["update-ref", "refs/remotes/origin/main", "HEAD"]);
+    await git.raw([
+      "symbolic-ref",
+      "refs/remotes/origin/HEAD",
+      "refs/remotes/origin/main",
+    ]);
+
+    fs.rmSync(path.join(repo, "skills", "odu"), { recursive: true });
+    after();
+    await git.add(["-A", "."]);
+    if (mode === "branch") await git.commit("type change");
+
+    const status = await getStatus(repo, mode);
+    expect(status.ok).toBe(true);
+    if (!status.ok) return;
+    expect(status.value.files.map((f) => f.path).sort()).toEqual([
+      "skills/odu",
+      "skills/odu/SKILL.md",
+      "skills/odu/serve",
+    ]);
+
+    const result = await getDiff(repo, "skills/odu", mode);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const raw = result.value.hunks.join("");
+    expect(raw).toContain("diff --git a/skills/odu b/skills/odu");
+    expect(raw).toContain(`${linkSign}../plugin/odu`);
+    expect(raw).toContain("diff --git a/skills/odu/SKILL.md");
+    expect(raw).toContain(`${childSign}# odu`);
+    expect(raw).toContain("diff --git a/skills/odu/serve");
+  });
+});

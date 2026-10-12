@@ -88,7 +88,11 @@ export const CommentTextSurface: Component<CommentTextSurfaceProps> = (
       </div>
       <Show when={selection.captured()}>
         {(cap) => (
-          <SelectionPill rect={cap().rect} onActivate={selection.activate} />
+          <SelectionPill
+            rect={cap().rect}
+            unavailable={cap().unavailable}
+            onActivate={selection.activate}
+          />
         )}
       </Show>
     </>

@@ -1,5 +1,10 @@
+import { FileTree as PierreFileTree } from "@pierre/trees";
 import { describe, expect, it } from "vitest";
-import { mergeBrowseInventory } from "./browseInventory.ts";
+import {
+  diffInventory,
+  foldTypeChanges,
+  mergeBrowseInventory,
+} from "./browseInventory.ts";
 
 const settled = {
   trackedPending: false,
@@ -334,5 +339,98 @@ describe("mergeBrowseInventory", () => {
       lazyDirs: [],
       pending: false,
     });
+  });
+});
+
+// Repro for the Code-tab blank tree on a directory→file type change:
+//   File tree render failed: Path collides with an existing file while
+//   creating directory "odu"
+//
+// A branch that replaced the directory `.claude/skills/odu/` with a symlink
+// FILE at `.claude/skills/odu` lists both the new file AND the old directory's
+// children in one diff. Pierre cannot hold a file and a directory under one
+// name, so handing it that flat list throws and the whole tree goes blank.
+describe("diffInventory — directory→file type change (blank-tree repro)", () => {
+  const typeChanged = [
+    ".claude/skills/odu",
+    ".claude/skills/odu/serve",
+    ".claude/skills/odu/SKILL.md",
+    "agent-plugin/skills/odu/SKILL.md",
+  ];
+
+  it("builds a real Pierre tree from the diff inventory without throwing", () => {
+    const { paths } = diffInventory(typeChanged, false);
+    let tree: PierreFileTree | undefined;
+    expect(() => {
+      tree = new PierreFileTree({
+        paths,
+        search: false,
+        flattenEmptyDirectories: true,
+        initialExpansion: "open",
+      });
+    }).not.toThrow();
+    expect(tree?.getItem(".claude/skills/odu")).not.toBeNull();
+    tree?.cleanUp();
+  });
+});
+
+describe("foldTypeChanges", () => {
+  it.each([
+    {
+      name: "file listed before its old children",
+      input: ["a/b", "a/b/c", "a/b/d", "z.ts"],
+      expected: ["a/b", "z.ts"],
+    },
+    {
+      name: "old children listed before the file",
+      input: ["a/b/c", "a/b/d", "a/b", "z.ts"],
+      expected: ["a/b", "z.ts"],
+    },
+    {
+      // The reverse change: the FILE `a/b` was deleted and a directory of
+      // that name added. The kept row is the deleted file; the added
+      // children fold under it.
+      name: "file replaced by a directory keeps the deleted file's row",
+      input: ["a/b", "a/b/new1.ts", "a/b/new2.ts"],
+      expected: ["a/b"],
+    },
+    {
+      name: "file replaced by a directory, children listed first",
+      input: ["a/b/new1.ts", "a/b", "z.ts"],
+      expected: ["a/b", "z.ts"],
+    },
+    {
+      name: "nested collision keeps only the outermost file",
+      input: ["a", "a/b", "a/b/c", "a/x"],
+      expected: ["a"],
+    },
+    {
+      name: "a sibling sharing the name prefix is not a child",
+      input: ["a/b", "a/bc", "a/b.ts"],
+      expected: ["a/b", "a/bc", "a/b.ts"],
+    },
+  ])("$name", ({ input, expected }) => {
+    expect(foldTypeChanges(input)).toEqual(expected);
+  });
+
+  it("returns the same array when nothing collides", () => {
+    const input = ["a/b.ts", "a/c/d.ts", "e.ts"];
+    const out = foldTypeChanges(input);
+    expect(out).toBe(input);
+    expect(out).toEqual(["a/b.ts", "a/c/d.ts", "e.ts"]);
+  });
+
+  it("diffInventory folds the type change into one row", () => {
+    expect(
+      diffInventory(
+        [
+          ".claude/skills/odu",
+          ".claude/skills/odu/serve",
+          ".claude/skills/odu/SKILL.md",
+          "agent-plugin/skills/odu/SKILL.md",
+        ],
+        false,
+      ).paths,
+    ).toEqual([".claude/skills/odu", "agent-plugin/skills/odu/SKILL.md"]);
   });
 });

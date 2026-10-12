@@ -119,6 +119,39 @@ const applyVersions = (
   return { items, next };
 };
 
+/** The id of the rendered item whose root element lies on `ancestors` (a
+ *  node and its ancestors, through shadow roots), or `undefined` when none
+ *  does. */
+export const itemIdOnPath = (
+  rendered: readonly { id: string; element: EventTarget }[],
+  ancestors: readonly EventTarget[],
+): string | undefined =>
+  rendered.find((r) => ancestors.includes(r.element))?.id;
+
+/** Every mounted viewport, by its host `<div>`, so `codeViewItemIdAt` can
+ *  answer from a bare DOM node. Weak, so an unmounted viewport is never held. */
+const mountedViews = new WeakMap<Element, CodeViewClass>();
+
+/** The id of the item a DOM node sits in — the target of a right-click, the
+ *  start of a text selection — or `undefined` outside every viewport. A
+ *  viewport can hold several items, and Pierre itself names the item only
+ *  for its own gutter selection; a host that reacts to any other gesture
+ *  asks here which file the gesture landed in. Walks up through Pierre's
+ *  shadow roots to the viewport and matches its rendered items. */
+export const codeViewItemIdAt = (node: Node): string | undefined => {
+  const ancestors: Node[] = [];
+  for (
+    let cur: Node | null = node;
+    cur;
+    cur = cur.parentNode ?? (cur instanceof ShadowRoot ? cur.host : null)
+  ) {
+    ancestors.push(cur);
+    const instance = cur instanceof Element ? mountedViews.get(cur) : undefined;
+    if (instance) return itemIdOnPath(instance.getRenderedItems(), ancestors);
+  }
+  return undefined;
+};
+
 export const CodeView: Component<CodeViewProps> = (props) => {
   let root!: HTMLDivElement;
   let instance: CodeViewClass | undefined;
@@ -195,6 +228,7 @@ export const CodeView: Component<CodeViewProps> = (props) => {
       // paint at mount time. Subsequent updates go through the queued
       // path normally.
       instance.setup(root);
+      mountedViews.set(root, instance);
       instance.setItems(versionedItems(props.items));
       if (props.selectedLines !== undefined) {
         instance.setSelectedLines(props.selectedLines);
@@ -254,7 +288,10 @@ export const CodeView: Component<CodeViewProps> = (props) => {
     ),
   );
 
-  onCleanup(() => instance?.cleanUp());
+  onCleanup(() => {
+    mountedViews.delete(root);
+    instance?.cleanUp();
+  });
 
   return (
     <div
