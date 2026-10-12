@@ -246,7 +246,12 @@ const HostChip: Component<{
           title: `${glance().title}${activeSuffix()} — click for details`,
           onClick: (e) => {
             e.stopPropagation();
-            if (chipEl !== undefined) toggleHostDiagnostics(encKey, chipEl);
+            // The pip is INSIDE the chip, so the ref is set by the time it
+            // can be clicked — fail loudly if that ever stops holding rather
+            // than eating the click.
+            if (chipEl === undefined)
+              throw new Error("host chip has no element to hang details off");
+            toggleHostDiagnostics(encKey, chipEl);
           },
         }}
         select={{

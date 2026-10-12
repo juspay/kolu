@@ -32,8 +32,9 @@ const [open, setOpen] = createSignal<{
 
 export { open as openHostDiagnosticsState };
 
-/** The open host's key, or `null`. */
-export function openHostKey(): string | null {
+/** The open host's key, or `null` — the selector's source, not a consumer's
+ *  read (a chip asks {@link useHostDiagnosticsSelector}). */
+function openHostKey(): string | null {
   return open()?.key ?? null;
 }
 
@@ -44,9 +45,16 @@ export const useHostDiagnosticsSelector = createSharedRoot(() =>
 );
 
 /** Open `encKey`'s details, hung off `anchor` — the element the user acted on
- *  (a host tab, a machine's name in Settings). */
+ *  (a host tab, a machine's name in Settings). Opening what is ALREADY open
+ *  off the same element keeps the very same value: the shell renders it
+ *  `keyed`, so a fresh literal would tear the panel down and build it again
+ *  (re-subscribing, and forgetting a pending "remove host" confirmation). */
 export function openHostDiagnostics(encKey: string, anchor: HTMLElement): void {
-  setOpen({ key: encKey, anchor });
+  setOpen((current) =>
+    current?.key === encKey && current.anchor === anchor
+      ? current
+      : { key: encKey, anchor },
+  );
 }
 
 export function closeHostDiagnostics(): void {

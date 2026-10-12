@@ -29,6 +29,9 @@ const HostDiagnosticsHost: Component = () => {
     );
     if (!stillMember) closeHostDiagnostics();
   });
+  // `keyed`: a different host (or a different element to hang off) IS a
+  // different panel. Re-opening what is already open off the same element
+  // keeps the same value (`openHostDiagnostics`), so it does not remount.
   return (
     <Show when={openHostDiagnosticsState()} keyed>
       {(current) => (
