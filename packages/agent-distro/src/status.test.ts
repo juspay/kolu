@@ -4,20 +4,23 @@ import { agentBundleShortHash } from "./bundle.ts";
 import { type AgentDistroListing, profileOfBundle } from "./listing.ts";
 import type { AgentDistroReceipt, AgentDistroStatus } from "./schema.ts";
 import {
+  AGENTS_CUSTOM,
   AGENTS_REPO_OVERRIDES,
   agentChipProfile,
-  agentsProfileNotes,
+  agentChips,
+  agentFleetSummary,
+  agentHostDetail,
+  agentProfileCards,
+  agentProfileTitle,
+  agentSelectedCard,
   agentsResolvedLine,
+  JUSPAY_DESCRIPTION,
   JUSPAY_PROFILE,
   profileSuggestions,
   RECENT_PROFILES_CAP,
   rememberProfile,
   selectedAgentProfile,
   AGENTS_CHECK_NOW,
-  AGENTS_ALL_HOSTS,
-  AGENTS_HISTORY,
-  agentCheckNowBusy,
-  agentCheckNowLabel,
   agentHostCheckable,
   agentMarkFillWords,
   AGENTS_RECEIPT_UNREADABLE,
@@ -26,9 +29,7 @@ import {
   agentMarkUpdate,
   AGENTS_UPDATE_DOWNLOADING,
   agentUpdateCheckable,
-  agentUpdateHistoryRows,
   agentUpdateRunning,
-  AGENTS_NOT_CHOSEN,
   agentsStepHint,
   agentDistroChoice,
   agentDistroSettingOf,
@@ -47,16 +48,13 @@ import {
   agentRestartReady,
   agentStaleLabel,
   agentStalenessOf,
-  agentStatusLines,
   agentToast,
   AGENTS_OFF_MEANS,
   agentsHint,
   downloadBytes,
   downloadEdge,
   downloadEdgeFacts,
-  harnessLine,
   restartedLabel,
-  versionsLine,
 } from "./status.ts";
 import { bundleFiles, readFrom } from "./testing.ts";
 import { parseVersions, versionsFile } from "./versions.ts";
@@ -169,121 +167,111 @@ describe("agentBundleShortHash", () => {
   });
 });
 
-describe("harnessLine", () => {
-  it("names each agent the way people know it, with its version, in listing order", () => {
-    expect(
-      harnessLine({
-        name: "vanilla",
-        description: "d",
-        harnesses: [
-          {
-            name: "claude",
-            title: "Claude Code",
-            version: "2.1.291",
-          },
-          { name: "codex", title: "Codex", version: "0.80.1" },
-          { name: "omp", title: "Oh My Pi", version: "18.7.0" },
-        ],
-      }),
-    ).toBe("Claude Code 2.1.291 · Codex 0.80.1 · Oh My Pi 18.7.0");
-  });
-
-  it("cuts a version's `+` revision suffix, as agent-distro's own picker shows it", () => {
-    expect(
-      versionsLine([
-        { title: "OpenCode", version: "1.18.35+53d1eab" },
-        { title: "Claude Code", version: "2.1.292" },
-      ]),
-    ).toBe("OpenCode 1.18.35 · Claude Code 2.1.292");
-    // The raw string is kept where it is parsed; only the line cuts it.
-    expect(
-      parseVersions("opencode\tOpenCode\t1.18.35+53d1eab")[0]?.version,
-    ).toBe("1.18.35+53d1eab");
-  });
-
-  it("Settings' line for a bundle is its receipt's line — both read the same versions file", () => {
-    const read = readFrom(
-      bundleFiles("/s/v", {
-        name: "vanilla",
-        description: "Upstream harnesses with your own provider",
-        harnesses: [
-          { name: "claude", title: "Claude Code", version: "2.1.292" },
-          { name: "opencode", title: "OpenCode", version: "1.18.35+53d1eab" },
-        ],
-      }),
-    );
-    // What Settings lists before this machine's receipt (kolu-server's read)…
-    const listing: AgentDistroListing = {
-      kind: "available",
-      profiles: [profileOfBundle("vanilla", "/s/v", read)],
-    };
-    const notes = (localReceipt: AgentDistroReceipt | undefined) =>
-      agentsProfileNotes({ setting: VANILLA_ON, listing, localReceipt });
-    // …and what it shows once the receipt is in (padi's read of the same file).
-    const receipt: AgentDistroReceipt = {
-      profile: "vanilla",
-      bundle: "/s/v",
-      versions: [...parseVersions(read(versionsFile("/s/v")))],
-      events: [],
-      running: [],
-    };
-    expect(notes(receipt)).toEqual(notes(undefined));
-    expect(notes(undefined)).toEqual([
-      "Claude Code 2.1.292 · OpenCode 1.18.35",
-      AGENTS_REPO_OVERRIDES,
-    ]);
-  });
-});
-
+const VANILLA_PROFILE = {
+  name: "vanilla",
+  description: "Upstream harnesses with your own provider",
+  harnesses: [
+    { name: "claude", title: "Claude Code", version: "2.1.291" },
+    { name: "codex", title: "Codex", version: "0.160.1" },
+  ],
+};
 const LISTING: AgentDistroListing = {
   kind: "available",
   profiles: [
-    {
-      name: "vanilla",
-      description: "Upstream harnesses with your own provider",
-      harnesses: [
-        {
-          name: "claude",
-          title: "Claude Code",
-          version: "2.1.291",
-        },
-        { name: "codex", title: "Codex", version: "0.160.1" },
-      ],
-    },
-    {
-      name: "juspay",
-      description: "Juspay skills + Kolu",
-      harnesses: [],
-    },
+    VANILLA_PROFILE,
+    { name: "juspay", description: "Juspay skills + Kolu", harnesses: [] },
   ],
+};
+/** A build that ships the default bundle only — what kolu ships today, where
+ *  Juspay is a reference kolu names itself. */
+const VANILLA_ONLY: AgentDistroListing = {
+  kind: "available",
+  profiles: [VANILLA_PROFILE],
 };
 const VANILLA_ON = { enabled: true, profile: "vanilla" };
 const JUSPAY_ON = { enabled: true, profile: JUSPAY_PROFILE };
-/** The opening both Agents hints share, as the reader sees it — typed once here
- *  so a reworded lead fails every test that pins it. */
-const BARE_LEAD =
-  "Kolu can bring AI coding agents along — kept up to date, nothing to install:";
 const BUNDLE =
   "/nix/store/nd11nx5f1dkf02cr9dhxqq4axg23vzgc-agent-distro-vanilla";
+
+describe("the picker's cards", () => {
+  it("names a shipped bundle by its own name, Juspay by name, a reference as itself", () => {
+    expect(agentProfileTitle("vanilla", LISTING)).toBe("Vanilla");
+    expect(agentProfileTitle(JUSPAY_PROFILE, LISTING)).toBe("Juspay");
+    expect(agentProfileTitle("github:me/mine", LISTING)).toBe("github:me/mine");
+    // Before the listing arrives nothing is known to be shipped: the stored
+    // value is all there is to show.
+    expect(agentProfileTitle("vanilla", undefined)).toBe("vanilla");
+  });
+
+  it("leads with the default bundle, marks it Default, and ends with Custom…", () => {
+    expect(agentProfileCards(VANILLA_ONLY)).toEqual([
+      {
+        profile: "vanilla",
+        title: "Vanilla",
+        description: "Upstream harnesses with your own provider",
+        isDefault: true,
+      },
+      {
+        profile: JUSPAY_PROFILE,
+        title: "Juspay",
+        description: JUSPAY_DESCRIPTION,
+        reference: JUSPAY_PROFILE,
+        isDefault: false,
+      },
+      {
+        profile: undefined,
+        title: AGENTS_CUSTOM.title,
+        description: AGENTS_CUSTOM.description,
+        isDefault: false,
+      },
+    ]);
+  });
+
+  it("a build that ships Juspay describes itself — kolu does not add a second card by that name", () => {
+    const cards = agentProfileCards(LISTING);
+    expect(cards.filter((c) => c.title === "Juspay")).toEqual([
+      {
+        profile: "juspay",
+        title: "Juspay",
+        description: "Juspay skills + Kolu",
+        isDefault: false,
+      },
+    ]);
+  });
+
+  it("has no cards until the listing arrives, or in a kolu built without agents", () => {
+    expect(agentProfileCards(undefined)).toEqual([]);
+    expect(agentProfileCards({ kind: "unavailable" })).toEqual([]);
+  });
+
+  it("a reference of the user's own selects Custom…", () => {
+    expect(agentSelectedCard(VANILLA_ON, VANILLA_ONLY)?.profile).toBe(
+      "vanilla",
+    );
+    expect(agentSelectedCard(JUSPAY_ON, VANILLA_ONLY)?.profile).toBe(
+      JUSPAY_PROFILE,
+    );
+    expect(
+      agentSelectedCard({ enabled: true, profile: "github:me/mine" }, LISTING)
+        ?.title,
+    ).toBe(AGENTS_CUSTOM.title);
+    expect(agentSelectedCard(VANILLA_ON, undefined)).toBeUndefined();
+  });
+});
 
 describe("agentsHint — the row's words while agents are off", () => {
   const base = { listing: LISTING };
 
-  it("off: what kolu can bring, which agents (the default bundle's, from the listing), what on and off do", () => {
+  it("off: one sentence — what off means, and that turning it on brings the chips under it", () => {
     expect(
       agentsHint({ ...base, stored: { enabled: false, profile: "vanilla" } }),
     ).toEqual({
       tone: "muted",
-      text: [
-        BARE_LEAD,
-        "Claude Code 2.1.291 · Codex 0.160.1",
-        "Turn it on and new terminals start with those agents; what you installed yourself stays as a fallback.",
-        `Off — ${AGENTS_OFF_MEANS}`,
-      ].join("\n"),
+      text: `Off. ${AGENTS_OFF_MEANS} Turn on and they start with these, kept up to date:`,
     });
   });
 
-  it("on: nothing — the profile field and its lines speak", () => {
+  it("on: nothing — the picker and its chips speak", () => {
     expect(agentsHint({ ...base, stored: JUSPAY_ON })).toBeUndefined();
   });
 
@@ -296,32 +284,40 @@ describe("agentsHint — the row's words while agents are off", () => {
     ).toMatch(/built without coding agents/);
   });
 
-  it("nothing chosen: the off explanation, then that nothing is chosen yet", () => {
-    const off = agentsHint({
-      ...base,
-      stored: { enabled: false, profile: "vanilla" },
-    });
-    expect(agentsHint({ ...base, stored: null })).toEqual({
-      tone: "muted",
-      text: `${off?.text}\n${AGENTS_NOT_CHOSEN}`,
-    });
+  it("nothing chosen reads exactly as switched off — the welcome card carries that state", () => {
+    expect(agentsHint({ ...base, stored: null })).toEqual(
+      agentsHint({ ...base, stored: { enabled: false, profile: "vanilla" } }),
+    );
   });
 });
 
-describe("agentsProfileNotes — the lines under the profile field", () => {
-  it("a reference: the agents of the bundle it rides, then that a repository overrides it", () => {
+describe("agentChips — the agents the Agents row names", () => {
+  it("off: the default bundle's agents by name, with no version — nothing is installed", () => {
     expect(
-      agentsProfileNotes({
+      agentChips({
+        setting: { enabled: false, profile: "vanilla" },
+        listing: LISTING,
+        localReceipt: undefined,
+      }),
+    ).toEqual([{ title: "Claude Code" }, { title: "Codex" }]);
+  });
+
+  it("on, a reference: the agents of the bundle it rides, with versions", () => {
+    expect(
+      agentChips({
         setting: JUSPAY_ON,
         listing: LISTING,
         localReceipt: undefined,
       }),
-    ).toEqual(["Claude Code 2.1.291 · Codex 0.160.1", AGENTS_REPO_OVERRIDES]);
+    ).toEqual([
+      { title: "Claude Code", version: "2.1.291" },
+      { title: "Codex", version: "0.160.1" },
+    ]);
   });
 
   it("this machine's receipt names its own versions once it is in", () => {
     expect(
-      agentsProfileNotes({
+      agentChips({
         setting: JUSPAY_ON,
         listing: LISTING,
         localReceipt: {
@@ -333,17 +329,54 @@ describe("agentsProfileNotes — the lines under the profile field", () => {
           running: [],
         },
       }),
-    ).toEqual(["Claude Code 3.0.0", AGENTS_REPO_OVERRIDES]);
+    ).toEqual([{ title: "Claude Code", version: "3.0.0" }]);
   });
 
-  it("a bundle with no agents listed names none, never an empty line", () => {
+  it("a bundle with no agents listed names none", () => {
     expect(
-      agentsProfileNotes({
+      agentChips({
         setting: { enabled: true, profile: "juspay" },
         listing: LISTING,
         localReceipt: undefined,
       }),
-    ).toEqual([AGENTS_REPO_OVERRIDES]);
+    ).toEqual([]);
+  });
+
+  it("cuts each version's `+` revision suffix, as agent-distro's own picker shows it — from the listing and from a receipt alike", () => {
+    const read = readFrom(
+      bundleFiles("/s/v", {
+        name: "vanilla",
+        description: "Upstream harnesses with your own provider",
+        harnesses: [
+          { name: "claude", title: "Claude Code", version: "2.1.292" },
+          { name: "opencode", title: "OpenCode", version: "1.18.35+53d1eab" },
+        ],
+      }),
+    );
+    // What the row shows before this machine's receipt (kolu-server's read)…
+    const listing: AgentDistroListing = {
+      kind: "available",
+      profiles: [profileOfBundle("vanilla", "/s/v", read)],
+    };
+    const chips = (localReceipt: AgentDistroReceipt | undefined) =>
+      agentChips({ setting: VANILLA_ON, listing, localReceipt });
+    // …and once the receipt is in (padi's read of the same file).
+    const receipt: AgentDistroReceipt = {
+      profile: "vanilla",
+      bundle: "/s/v",
+      versions: [...parseVersions(read(versionsFile("/s/v")))],
+      events: [],
+      running: [],
+    };
+    expect(chips(receipt)).toEqual(chips(undefined));
+    expect(chips(undefined)).toEqual([
+      { title: "Claude Code", version: "2.1.292" },
+      { title: "OpenCode", version: "1.18.35" },
+    ]);
+    // The raw string is kept where it is parsed; only the chip cuts it.
+    expect(
+      parseVersions("opencode\tOpenCode\t1.18.35+53d1eab")[0]?.version,
+    ).toBe("1.18.35+53d1eab");
   });
 });
 
@@ -415,22 +448,17 @@ describe("agentsResolvedLine — does the profile resolve on this machine", () =
   });
 });
 
-describe("the profile field's suggestions and memory", () => {
-  it("suggests Juspay's profile first, then every shipped bundle, then what was set before", () => {
+describe("the Custom field's suggestions and memory", () => {
+  it("suggests what was set before, most recent first — never a card's own profile", () => {
     expect(
       profileSuggestions({
-        listing: LISTING,
         recent: ["github:ekala-project/ekala-ai-skills", JUSPAY_PROFILE],
       }),
     ).toEqual([
-      { value: JUSPAY_PROFILE, note: "Juspay's profile — the default" },
-      { value: "vanilla", note: "Upstream harnesses with your own provider" },
-      { value: "juspay", note: "Juspay skills + Kolu" },
       { value: "github:ekala-project/ekala-ai-skills", note: "used before" },
+      { value: JUSPAY_PROFILE, note: "used before" },
     ]);
-    expect(profileSuggestions({ listing: undefined, recent: [] })).toEqual([
-      { value: JUSPAY_PROFILE, note: "Juspay's profile — the default" },
-    ]);
+    expect(profileSuggestions({ recent: [] })).toEqual([]);
   });
 
   it("remembers a profile most recent first, once, at most eight — never a shipped bundle", () => {
@@ -451,10 +479,10 @@ describe("the profile field's suggestions and memory", () => {
 });
 
 describe("the stored Agents value — `null` is never chosen", () => {
-  it("agentDistroSettingOf: null is off on Juspay's profile; a value is itself", () => {
+  it("agentDistroSettingOf: null is off on the default bundle; a value is itself", () => {
     expect(agentDistroSettingOf(null)).toEqual({
       enabled: false,
-      profile: JUSPAY_PROFILE,
+      profile: "vanilla",
     });
     expect(JUSPAY_PROFILE).toBe("github:juspay/skills");
     // One shared value, so a memo over the fold never re-notifies on null.
@@ -470,22 +498,22 @@ describe("the stored Agents value — `null` is never chosen", () => {
     expect(agentsChosen(VANILLA_ON)).toBe(true);
   });
 
-  it("the switch writes the whole value and keeps the stored profile — Juspay's while nothing is chosen", () => {
-    expect(agentDistroChoice({ on: true }, null)).toEqual(JUSPAY_ON);
+  it("the switch writes the whole value and keeps the stored profile — the default bundle while nothing is chosen", () => {
+    expect(agentDistroChoice({ on: true }, null)).toEqual(VANILLA_ON);
     expect(agentDistroChoice({ on: false }, null)).toEqual({
       enabled: false,
-      profile: JUSPAY_PROFILE,
-    });
-    expect(agentDistroChoice({ on: false }, VANILLA_ON)).toEqual({
-      enabled: false,
       profile: "vanilla",
+    });
+    expect(agentDistroChoice({ on: false }, JUSPAY_ON)).toEqual({
+      enabled: false,
+      profile: JUSPAY_PROFILE,
     });
     expect(
       agentDistroChoice({ on: true }, { enabled: false, profile: "vanilla" }),
     ).toEqual(VANILLA_ON);
   });
 
-  it("the field writes its text, trimmed, with agents on — whatever it is; an empty field writes nothing", () => {
+  it("a pick writes its profile, trimmed, with agents on — whatever it is; an empty field writes nothing", () => {
     expect(
       agentDistroChoice({ profile: "  github:nobody/nothing " }, VANILLA_ON),
     ).toEqual({ enabled: true, profile: "github:nobody/nothing" });
@@ -495,25 +523,42 @@ describe("the stored Agents value — `null` is never chosen", () => {
 });
 
 describe("agentsStepHint — the welcome card's line", () => {
-  it("the lead with the default bundle's agents on one line", () => {
+  it("the default bundle's agents by name, then what kolu does with them", () => {
     expect(agentsStepHint(LISTING)).toBe(
-      `${BARE_LEAD} Claude Code 2.1.291 · Codex 0.160.1`,
+      "Claude Code and Codex in every new terminal. Kept up to date, nothing to install.",
     );
   });
 
-  it("a bundle with no agents listed leaves the lead bare, never a dangling space", () => {
+  it("three or more agents read as a list", () => {
+    expect(
+      agentsStepHint({
+        kind: "available",
+        profiles: [
+          {
+            name: "vanilla",
+            description: "",
+            harnesses: [
+              { name: "claude", title: "Claude Code", version: "1" },
+              { name: "codex", title: "Codex", version: "1" },
+              { name: "omp", title: "Oh My Pi", version: "1" },
+            ],
+          },
+        ],
+      }),
+    ).toBe(
+      "Claude Code, Codex and Oh My Pi in every new terminal. Kept up to date, nothing to install.",
+    );
+  });
+
+  it("a bundle with no agents listed says coding agents, never a dangling space", () => {
     expect(
       agentsStepHint({
         kind: "available",
         profiles: [{ name: "vanilla", description: "", harnesses: [] }],
       }),
-    ).toBe(BARE_LEAD);
-  });
-
-  it("shares its lead with the Settings hint", () => {
-    const settings = agentsHint({ listing: LISTING, stored: null })?.text ?? "";
-    expect(settings.startsWith(BARE_LEAD)).toBe(true);
-    expect(agentsStepHint(LISTING)?.startsWith(BARE_LEAD)).toBe(true);
+    ).toBe(
+      "Coding agents in every new terminal. Kept up to date, nothing to install.",
+    );
   });
 
   it("says nothing before the listing, or in a kolu built without agents", () => {
@@ -623,13 +668,22 @@ describe("firstRunAgentsDone — the first-run step's done-predicate", () => {
   const resolvedFor = (profile: string) =>
     ({ kind: "resolved", profile, name: "n", description: "" }) as const;
 
-  it("its done line names the chosen profile with a check once it resolves, and there is none while agents are off", () => {
+  it("its done line names the chosen profile BY NAME with a check once it resolves, and there is none while agents are off", () => {
     expect(agentsChosenLabel(VANILLA_ON, LISTING, resolvedFor("vanilla"))).toBe(
-      "Agents: vanilla ✓",
+      "Agents: Vanilla ✓",
     );
+    // A reference is named, never shown: "Agents: Juspay ✓".
     expect(
-      agentsChosenLabel(JUSPAY_ON, LISTING, resolvedFor(JUSPAY_PROFILE)),
-    ).toBe("Agents: github:juspay/skills ✓");
+      agentsChosenLabel(JUSPAY_ON, VANILLA_ONLY, resolvedFor(JUSPAY_PROFILE)),
+    ).toBe("Agents: Juspay ✓");
+    // One kolu does not name: its own reference is the honest answer.
+    expect(
+      agentsChosenLabel(
+        { enabled: true, profile: "github:me/mine" },
+        LISTING,
+        resolvedFor("github:me/mine"),
+      ),
+    ).toBe("Agents: github:me/mine ✓");
     expect(
       agentsChosenLabel(OFF, LISTING, resolvedFor("vanilla")),
     ).toBeUndefined();
@@ -673,119 +727,241 @@ describe("firstRunAgentsDone — the first-run step's done-predicate", () => {
 /** A fixed "ago" phrase, so a line's words do not hang on the clock. */
 const AGO = (at: number) => `@${at}`;
 
-describe("agentStatusLines", () => {
+describe("agentFleetSummary — the ONE fleet line in Settings", () => {
   const ready = { kind: "ready", profile: "vanilla", bundle: BUNDLE } as const;
   const host = (
     label: string,
     status: AgentDistroStatus | undefined,
     checking = false,
   ) => ({ label, status, checking, receipt: undefined, ago: AGO });
+  /** The groups as the line reads, machines by name. */
+  const said = <H extends { label: string }>(
+    groups: readonly {
+      tone: string;
+      lead: string;
+      hosts: readonly H[];
+      trail: string;
+    }[],
+  ) =>
+    groups.map((g) => ({
+      tone: g.tone,
+      lead: g.lead,
+      hosts: g.hosts.map((h) => h.label),
+      trail: g.trail,
+    }));
 
-  it("this machine alone, ready: one line, no host count", () => {
+  it("one ready machine: Ready on it, and its last run beside", () => {
     expect(
-      agentStatusLines({
-        local: host("naiveintent", ready),
-        remotes: [],
-      }),
+      said(
+        agentFleetSummary([
+          {
+            ...host("naiveintent", ready),
+            receipt: {
+              profile: "vanilla",
+              bundle: BUNDLE,
+              versions: [],
+              events: [],
+              running: [],
+              lastRun: { at: 7, outcome: "updated", by: "updater", words: "w" },
+            },
+          },
+        ]),
+      ),
     ).toEqual([
-      {
-        host: "naiveintent",
-        bar: "ok",
-        fill: 1,
-        text: "ready · nd11nx5f",
-      },
+      { tone: "ok", lead: "Ready on", hosts: ["naiveintent"], trail: "" },
+      { tone: "muted", lead: "", hosts: [], trail: "updated @7" },
     ]);
   });
 
-  it("every host ready: collapses into one 'all hosts' line, with the count", () => {
-    expect(
-      agentStatusLines({
-        local: host("naiveintent", ready),
-        remotes: [host("box", ready), host("zest", ready)],
-      }),
-    ).toEqual([
-      {
-        // Labelled by the fold, never one machine's name.
-        host: AGENTS_ALL_HOSTS,
-        bar: "ok",
-        fill: 1,
-        text: "ready · nd11nx5f · on 3 hosts",
-      },
+  it("one ready machine that has run nothing: the line is just Ready on it", () => {
+    expect(said(agentFleetSummary([host("naiveintent", ready)]))).toEqual([
+      { tone: "ok", lead: "Ready on", hosts: ["naiveintent"], trail: "" },
     ]);
   });
 
-  it("every host ready on DIFFERENT builds: collapses without claiming one hash", () => {
-    const fetched = {
-      kind: "ready",
-      profile: "vanilla",
-      bundle:
-        "/nix/store/pcs6b3vjzzzzzzzzzzzzzzzzzzzzzzzz-agent-distro-vanilla",
-    } as const;
-    expect(
-      agentStatusLines({
-        local: host("naiveintent", ready),
-        remotes: [host("box", fetched)],
+  it("one group per state, each naming two machines and counting the rest", () => {
+    const groups = agentFleetSummary([
+      host("naiveintent", ready),
+      host("box", ready),
+      host("zest", ready),
+      host("buildbox", {
+        kind: "downloading",
+        profile: "vanilla",
+        progress: { done: 1.1 * GIB, total: 2 * GIB },
       }),
-    ).toEqual([
-      {
-        host: AGENTS_ALL_HOSTS,
-        bar: "ok",
-        fill: 1,
-        text: "ready · on 2 hosts",
-      },
+      host("devbox", {
+        kind: "error",
+        profile: "vanilla",
+        reason: "updater",
+        message: "cache not usable",
+      }),
     ]);
+    expect(said(groups)).toEqual([
+      {
+        tone: "ok",
+        lead: "Ready on",
+        hosts: ["naiveintent", "box"],
+        trail: "and 1 more",
+      },
+      { tone: "busy", lead: "", hosts: ["buildbox"], trail: "downloading" },
+      { tone: "warn", lead: "", hosts: ["devbox"], trail: "failed" },
+    ]);
+    // With more than one machine no run is named here: each machine's runs
+    // live in its own host details.
+    expect(groups.some((g) => g.hosts.length === 0)).toBe(false);
   });
 
-  it("this machine first, then each remote that is not ready — in its state's colour", () => {
+  it("a machine with no agents says why, and two reasons never share a group", () => {
     expect(
-      agentStatusLines({
-        local: host("naiveintent", ready),
-        remotes: [
-          host("box", {
-            kind: "downloading",
-            profile: "vanilla",
-            progress: { done: 1.1 * GIB, total: 2 * GIB },
-          }),
-          host("done", ready),
-          host("pu-3", {
-            kind: "error",
-            profile: "vanilla",
-            reason: "updater",
-            message: "cache not usable",
-          }),
+      said(
+        agentFleetSummary([
+          host("naiveintent", { kind: "off" }),
+          host("box", undefined),
+          host("zest", { kind: "unavailable" }),
           host("ci-2", undefined, true),
-        ],
-      }),
+        ]),
+      ).map(({ hosts, trail }) => ({ hosts, trail })),
     ).toEqual([
+      { hosts: ["naiveintent"], trail: "agents off" },
+      { hosts: ["box"], trail: "not connected" },
+      { hosts: ["zest"], trail: "no coding agents in this build" },
+      { hosts: ["ci-2"], trail: "checking…" },
+    ]);
+  });
+});
+
+describe("agentHostDetail — one machine's agents, in its host details", () => {
+  const ready = { kind: "ready", profile: "vanilla", bundle: BUNDLE } as const;
+  const detail = (
+    status: AgentDistroStatus | undefined,
+    receipt?: AgentDistroReceipt,
+    setting = VANILLA_ON,
+  ) =>
+    agentHostDetail({
+      host: { label: "devbox", status, checking: false, receipt, ago: AGO },
+      setting,
+      listing: LISTING,
+    });
+
+  it("ready: the profile by name with its build, the state, and a check to run", () => {
+    expect(detail(ready)).toEqual({
+      profile: "Vanilla",
+      hash: "nd11nx5f",
+      state: { text: "ready", title: "ready", tone: "muted" },
+      cause: [],
+      events: [],
+      action: "check",
+    });
+  });
+
+  it("ready: the last run joins the state line, and the events are that machine's", () => {
+    const d = detail(ready, {
+      profile: "vanilla",
+      bundle: BUNDLE,
+      versions: [],
+      running: [],
+      lastRun: { at: 3, outcome: "updated", by: "updater", words: "C 1 → 2" },
+      events: [
+        {
+          at: "1970-01-01T00:00:00.003Z",
+          profile: "vanilla",
+          kind: "updated",
+          words: "C 1 → 2",
+        },
+      ],
+    });
+    expect(d?.state.text).toBe("ready · updated @3");
+    expect(d?.events).toEqual([
       {
-        host: "naiveintent",
-        bar: "ok",
-        fill: 1,
-        text: "ready · nd11nx5f",
+        when: "@3",
+        kind: "updated",
+        text: "C 1 → 2",
+        title: "updated — agent-distro's updater: C 1 → 2",
+        tone: "muted",
       },
-      { host: "box", bar: "busy", fill: 0.55, text: "1.1 GiB of 2.0 GiB" },
-      {
-        host: "pu-3",
-        bar: "warn",
-        fill: 1,
-        text: `The coding agents could not be downloaded to pu-3: cache not usable\n${AGENTS_RETRY}`,
-      },
-      { host: "ci-2", bar: "empty", fill: 0, text: "checking…" },
     ]);
   });
 
-  it("does not collapse when this machine is not ready, even if every remote is", () => {
+  it("a run in flight says so, and offers no check while it runs", () => {
+    expect(detail({ ...ready, update: {} })?.state.text).toBe(
+      `ready · ${AGENTS_UPDATE_CHECKING}`,
+    );
+    expect(detail({ ...ready, update: {} })?.action).toBeUndefined();
     expect(
-      agentStatusLines({
-        local: host("naiveintent", { kind: "downloading", profile: "v" }),
-        remotes: [host("box", ready)],
+      detail({
+        ...ready,
+        update: { progress: { done: 1.1 * GIB, total: 2 * GIB } },
+      })?.state.text,
+    ).toBe("ready · updating · 1.1 GiB of 2.0 GiB");
+  });
+
+  it("failed: the cause in agent-distro's words, what it means there, and a retry", () => {
+    expect(
+      detail({
+        kind: "error",
+        profile: "vanilla",
+        reason: "nixMissing",
+        message: "nix is not on padi's PATH",
       }),
+    ).toEqual({
+      profile: "Vanilla",
+      state: {
+        text: "download failed",
+        title: "nix is not on padi's PATH",
+        tone: "warn",
+      },
+      cause: ["nix is not on padi's PATH", agentFailureRemedy("nixMissing")],
+      means: "New terminals on devbox get no coding agents until this is fixed.",
+      events: [],
+      action: "retry",
+    });
+  });
+
+  it("downloading and off say what they are, with nothing to do from here", () => {
+    expect(
+      detail({
+        kind: "downloading",
+        profile: "vanilla",
+        progress: { done: 1.1 * GIB, total: 2 * GIB },
+      }),
+    ).toMatchObject({
+      state: { text: "downloading · 1.1 GiB of 2.0 GiB" },
+      action: undefined,
+    });
+    expect(detail({ kind: "off" })).toMatchObject({
+      state: { text: "agents off" },
+      action: undefined,
+    });
+  });
+
+  it("a padi without agents, or a machine we cannot hear from, has no section", () => {
+    expect(detail({ kind: "unavailable" })).toBeUndefined();
+    expect(detail(undefined)).toBeUndefined();
+  });
+
+  it("names the SETTING's profile even before the machine catches up", () => {
+    expect(detail({ kind: "off" }, undefined, JUSPAY_ON)?.profile).toBe(
+      "Juspay",
+    );
+  });
+
+  it("a history that would not read is one event saying so, in padi's words", () => {
+    expect(
+      detail(ready, {
+        profile: "vanilla",
+        bundle: BUNDLE,
+        versions: [],
+        running: [],
+        events: [],
+        error: "the history file is not a history",
+      })?.events,
     ).toEqual([
       {
-        host: "naiveintent",
-        bar: "busy",
-        fill: DOWNLOAD_MIN_FILL,
-        text: "downloading…",
+        when: "",
+        kind: "unreadable",
+        text: AGENTS_RECEIPT_UNREADABLE,
+        title: `${AGENTS_RECEIPT_UNREADABLE} — padi: the history file is not a history`,
+        tone: "warn",
       },
     ]);
   });
@@ -1235,7 +1411,7 @@ describe("a failure's words: cause, then remedy (by reason), then the retry — 
       detail: [AGENTS_RETRY],
     });
   });
-  it("the hover, the toast and the Settings line say the same lines", () => {
+  it("the hover, the toast and the machine's own section say the same words", () => {
     const failure = {
       reason: "nixMissing",
       message: "nix is not on padi's PATH on this host",
@@ -1249,18 +1425,22 @@ describe("a failure's words: cause, then remedy (by reason), then the retry — 
       title: lines[0],
       detail: lines.slice(1),
     });
-    // Settings line.
-    const [line] = agentStatusLines({
-      local: {
+    // The machine's own host-details section: the cause and the remedy, with
+    // the retry its BUTTON rather than a sentence.
+    const detail = agentHostDetail({
+      host: {
         label: "box",
         status: { kind: "error", profile: "vanilla", ...failure },
         checking: false,
         receipt: undefined,
         ago: AGO,
       },
-      remotes: [],
+      setting: VANILLA_ON,
+      listing: LISTING,
     });
-    expect(line?.text).toBe(lines.join("\n"));
+    expect(detail?.cause).toEqual([failure.message, lines[1]]);
+    expect(lines.at(-1)).toBe(AGENTS_RETRY);
+    expect(detail?.action).toBe("retry");
   });
 });
 
@@ -1319,28 +1499,32 @@ describe("K3 — updates while a bundle serves", () => {
     expect(agentMarkLabel(mark, "box")).toContain("512 MiB of 2.0 GiB");
   });
 
-  it("the line's note says the last run, in its own outcome's words", () => {
-    const line = (r: AgentDistroReceipt) =>
-      agentStatusLines({ local: host(ready, r), remotes: [] })[0]?.note;
+  it("a ready machine's state line says its last run, in its own outcome's words", () => {
+    const state = (r: AgentDistroReceipt) =>
+      agentHostDetail({
+        host: host(ready, r),
+        setting: VANILLA_ON,
+        listing: LISTING,
+      })?.state;
     expect(
-      line(
+      state(
         receipt({
           lastRun: { at: 1, outcome: "updated", words: "x", by: "updater" },
         }),
       ),
     ).toEqual({
-      text: "updated @1",
+      text: "ready · updated @1",
       title: "updated @1 — agent-distro's updater: x",
       tone: "muted",
     });
     expect(
-      line(
+      state(
         receipt({
           lastRun: { at: 2, outcome: "unchanged", words: "", by: "updater" },
         }),
       ),
     ).toEqual({
-      text: "checked @2, up to date",
+      text: "ready · checked @2, up to date",
       title: "checked @2, up to date",
       tone: "muted",
     });
@@ -1348,19 +1532,19 @@ describe("K3 — updates while a bundle serves", () => {
     const reason =
       "cache https://cache.example not usable; add it to nix.settings substituters/trusted-public-keys";
     expect(
-      line(
+      state(
         receipt({
           lastRun: { at: 3, outcome: "skipped", words: reason, by: "updater" },
         }),
       ),
     ).toEqual({
-      text: "checked @3, skipped",
+      text: "ready · checked @3, skipped",
       title: `checked @3, skipped — agent-distro's updater: ${reason}`,
       tone: "muted",
     });
     // padi's own words are labelled padi's, never the updater's.
     expect(
-      line(
+      state(
         receipt({
           lastRun: {
             at: 4,
@@ -1371,118 +1555,34 @@ describe("K3 — updates while a bundle serves", () => {
         }),
       ),
     ).toEqual({
-      text: "last update failed @4",
+      text: "ready · last update failed @4",
       title:
         "last update failed @4 — padi: the updater exited 3 without a result: TypeError: boom",
       tone: "warn",
     });
     // Files that would not read say so on the line.
-    expect(line(receipt({ error: "history line is not …" }))).toEqual({
-      text: AGENTS_RECEIPT_UNREADABLE,
+    expect(state(receipt({ error: "history line is not …" }))).toEqual({
+      text: `ready · ${AGENTS_RECEIPT_UNREADABLE}`,
       title: `${AGENTS_RECEIPT_UNREADABLE} — padi: history line is not …`,
       tone: "warn",
     });
     // A receipt for another profile is one padi has not caught up from.
     expect(
-      line({
+      state({
         ...receipt({
           lastRun: { at: 1, outcome: "updated", words: "x", by: "updater" },
         }),
         profile: "juspay",
-      }),
-    ).toBeUndefined();
+      })?.text,
+    ).toBe("ready");
   });
 
-  it("a host whose history will not read, or whose last run failed, keeps its own line among ready hosts", () => {
-    const failedRun = receipt({
-      lastRun: {
-        at: 4,
-        outcome: "failed",
-        words: "nix build exit 1",
-        by: "updater",
-      },
-    });
-    const unreadable = receipt({ error: "history line is not …" });
-    // A remote: its own line, note and all, never folded away.
-    const remote = agentStatusLines({
-      local: host(ready),
-      remotes: [{ ...host(ready, unreadable), label: "box" }],
-    });
-    expect(remote.map((l) => l.host)).toEqual(["naiveintent", "box"]);
-    expect(remote[1]?.note?.text).toBe(AGENTS_RECEIPT_UNREADABLE);
-    // The machine running kolu: its line keeps its note, the remotes their
-    // settled silence.
-    const local = agentStatusLines({
-      local: host(ready, failedRun),
-      remotes: [{ ...host(ready), label: "box" }],
-    });
-    expect(local.map((l) => l.host)).toEqual(["naiveintent"]);
-    expect(local[0]?.note).toMatchObject({
-      text: "last update failed @4",
-      tone: "warn",
-    });
-    // A skip or an up-to-date run is settled: they still fold.
-    const skipped = receipt({
-      lastRun: { at: 3, outcome: "skipped", words: "x", by: "updater" },
-    });
+  it("a machine's events are its own, in the updater's words, warn for a failure", () => {
     expect(
-      agentStatusLines({
-        local: host(ready, skipped),
-        remotes: [{ ...host(ready, skipped), label: "box" }],
-      }).map((l) => l.host),
-    ).toEqual([AGENTS_ALL_HOSTS]);
-  });
-
-  it("the line shows a run in flight, and its bytes once it downloads", () => {
-    expect(agentStatusLines({ local: host(checking), remotes: [] })).toEqual([
-      {
-        host: "naiveintent",
-        bar: "ok",
-        fill: 1,
-        text: "ready · nd11nx5f",
-        note: {
-          text: AGENTS_UPDATE_CHECKING,
-          title: AGENTS_UPDATE_CHECKING,
-          tone: "muted",
-        },
-        update: "checking",
-      },
-    ]);
-    expect(agentStatusLines({ local: host(downloading), remotes: [] })).toEqual(
-      [
-        {
-          // The host IS ready: the bar stays full and green while it updates.
-          host: "naiveintent",
-          bar: "ok",
-          fill: 1,
-          text: "ready · nd11nx5f",
-          note: {
-            text: "updating · 512 MiB of 2.0 GiB",
-            title: "updating · 512 MiB of 2.0 GiB",
-            tone: "muted",
-          },
-          update: "downloading",
-        },
-      ],
-    );
-  });
-
-  it("a host that is updating keeps its own line instead of folding", () => {
-    const lines = agentStatusLines({
-      local: host(ready),
-      remotes: [{ ...host(checking), label: "box" }],
-    });
-    expect(lines.map((l) => l.host)).toEqual(["naiveintent", "box"]);
-  });
-
-  it("History: each machine's events, the updater's words, warn for a failure", () => {
-    const rows = agentUpdateHistoryRows({
-      profile: "vanilla",
-      hosts: [
-        {
-          ago: AGO,
-          label: "naiveintent",
-          receipt: receipt({
+      agentHostDetail({
+        host: host(
+          ready,
+          receipt({
             events: [
               {
                 at: "2026-10-08T02:00:05Z",
@@ -1490,14 +1590,6 @@ describe("K3 — updates while a bundle serves", () => {
                 kind: "updated",
                 words: "Claude Code 2.1.286 → 2.1.291",
               },
-            ],
-          }),
-        },
-        {
-          ago: AGO,
-          label: "box",
-          receipt: receipt({
-            events: [
               {
                 at: "2026-10-08T02:00:09Z",
                 profile: "vanilla",
@@ -1506,57 +1598,27 @@ describe("K3 — updates while a bundle serves", () => {
               },
             ],
           }),
-        },
-        { label: "zest", receipt: undefined, ago: AGO },
-        {
-          ago: AGO,
-          label: "pu-3",
-          receipt: receipt({ error: "history line is not …" }),
-        },
-      ],
-    });
-    expect(rows).toEqual([
+        ),
+        setting: VANILLA_ON,
+        listing: LISTING,
+      })?.events,
+    ).toEqual([
       {
-        host: "naiveintent",
         when: `@${Date.parse("2026-10-08T02:00:05Z")}`,
         kind: "updated",
-        text: "updated: Claude Code 2.1.286 → 2.1.291",
+        text: "Claude Code 2.1.286 → 2.1.291",
         title:
           "updated — agent-distro's updater: Claude Code 2.1.286 → 2.1.291",
         tone: "muted",
       },
       {
-        host: "box",
         when: `@${Date.parse("2026-10-08T02:00:09Z")}`,
         kind: "failed",
-        text: "failed: nix build exit 1",
+        text: "nix build exit 1",
         title: "failed — agent-distro's updater: nix build exit 1",
         tone: "warn",
       },
-      // A history that would not read is a row saying so — never "No
-      // updates yet." for that host.
-      {
-        host: "pu-3",
-        when: "",
-        kind: "unreadable",
-        text: AGENTS_RECEIPT_UNREADABLE,
-        title: `${AGENTS_RECEIPT_UNREADABLE} — padi: history line is not …`,
-        tone: "warn",
-      },
     ]);
-    // Only an unreadable history: the History is not empty.
-    expect(
-      agentUpdateHistoryRows({
-        profile: "vanilla",
-        hosts: [
-          {
-            ago: AGO,
-            label: "naiveintent",
-            receipt: receipt({ error: "boom" }),
-          },
-        ],
-      }),
-    ).toHaveLength(1);
   });
 
   it("the update toast quotes the updater and names the machine", () => {
@@ -1580,37 +1642,16 @@ describe("K3 — updates while a bundle serves", () => {
     expect(
       agentUpdateRunning([receipt({}), receipt({ running: ["juspay"] })]),
     ).toBe(true);
-    expect(AGENTS_CHECK_NOW.label).toBe("Check now");
-    expect(AGENTS_HISTORY.title(0)).toBe("History");
-    expect(AGENTS_HISTORY.title(4)).toBe("History (4)");
-  });
-
-  it("Check now is busy only when no connected host can be asked, and says Checking… only while one runs an update", () => {
-    const firstDownload = {
-      kind: "downloading",
-      profile: "vanilla",
-    } as const satisfies AgentDistroStatus;
-    const at = (connected: boolean, status: AgentDistroStatus | undefined) => ({
-      connected,
-      status,
-    });
-    // A first download on a remote leaves the ready host askable: not busy.
-    const fleet = [at(true, ready), at(true, firstDownload)];
-    expect(agentHostCheckable(at(true, ready))).toBe(true);
-    expect(agentCheckNowBusy(fleet)).toBe(false);
-    expect(agentCheckNowLabel(fleet)).toBe(AGENTS_CHECK_NOW.label);
     // A disconnected host's last-known ready cannot answer.
-    expect(agentHostCheckable(at(false, ready))).toBe(false);
-    expect(agentCheckNowBusy([at(false, ready)])).toBe(true);
-    // Every connected host updating: busy, and checking.
-    const updating = [at(true, checking), at(true, downloading)];
-    expect(agentCheckNowBusy(updating)).toBe(true);
-    expect(agentCheckNowLabel(updating)).toBe(AGENTS_CHECK_NOW.busyLabel);
-    // Busy with first downloads only: disabled, but nothing is checking.
-    expect(agentCheckNowBusy([at(true, firstDownload)])).toBe(true);
-    expect(agentCheckNowLabel([at(true, firstDownload)])).toBe(
-      AGENTS_CHECK_NOW.label,
+    expect(agentHostCheckable({ connected: true, status: ready })).toBe(true);
+    expect(agentHostCheckable({ connected: false, status: ready })).toBe(false);
+    expect(agentHostCheckable({ connected: true, status: checking })).toBe(
+      false,
     );
+    // The fleet-wide check is a palette command now: its words, and the note
+    // that says it asks every machine.
+    expect(AGENTS_CHECK_NOW.label).toBe("Check for newer coding agents");
+    expect(AGENTS_CHECK_NOW.note).toBe("every machine");
   });
 
   it("the words beside a filling mark's bar: a first download's headline, an update's line", () => {
@@ -1636,28 +1677,24 @@ describe("K3 — updates while a bundle serves", () => {
     ).toBeUndefined();
   });
 
-  it("the profile notes name this machine's versions once it has them", () => {
-    const notes = (localReceipt: AgentDistroReceipt) =>
-      agentsProfileNotes({
-        listing: LISTING,
-        setting: VANILLA_ON,
-        localReceipt,
-      });
+  it("the chips name this machine's versions once it has them", () => {
+    const chips = (localReceipt: AgentDistroReceipt) =>
+      agentChips({ listing: LISTING, setting: VANILLA_ON, localReceipt });
     expect(
-      notes(
+      chips(
         receipt({
           versions: [
             { name: "claude", title: "Claude Code", version: "2.1.299" },
           ],
         }),
       ),
-    ).toEqual(["Claude Code 2.1.299", AGENTS_REPO_OVERRIDES]);
+    ).toEqual([{ title: "Claude Code", version: "2.1.299" }]);
     // A bundle with no versions file names none — never the floor's.
-    expect(notes(receipt({}))).toEqual([AGENTS_REPO_OVERRIDES]);
+    expect(chips(receipt({}))).toEqual([]);
     // Another profile's receipt (not caught up yet): the set kolu ships.
-    expect(notes({ ...receipt({}), profile: "juspay" })).toEqual([
-      "Claude Code 2.1.291 · Codex 0.160.1",
-      AGENTS_REPO_OVERRIDES,
+    expect(chips({ ...receipt({}), profile: "juspay" })).toEqual([
+      { title: "Claude Code", version: "2.1.291" },
+      { title: "Codex", version: "0.160.1" },
     ]);
   });
 });
