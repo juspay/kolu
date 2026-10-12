@@ -1,9 +1,9 @@
 # kolu CI
 
-kolu's CI is a two-platform pipeline driven by
-[odu](https://github.com/juspay/odu). The executable source of truth is
+kolu's CI is a pipeline driven by [odu](https://github.com/juspay/odu),
+gating on `x86_64-linux`. The executable source of truth is
 [`mod.just`](mod.just): its `default` recipe defines the DAG, and odu expands
-each reachable recipe into Linux and macOS nodes.
+each reachable recipe into a node per platform the run names.
 
 ## Run it
 
@@ -154,7 +154,7 @@ The `install` node is the single pnpm installation for a lane. Downstream pnpm
 consumers must depend on it and invoke pnpm directly; concurrent installs can
 corrupt the shared `node_modules`.
 
-After changing the DAG, inspect the required status contexts for both platforms:
+After changing the DAG, inspect the required status contexts:
 
 ```sh
 just ci::protect --dry-run

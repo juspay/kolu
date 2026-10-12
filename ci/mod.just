@@ -256,8 +256,8 @@ e2e: install nix
 # Wave 0's non-browser guard: parse the real Gherkin suite, compare its
 # immutable inventory with every committed inventory reachable from HEAD, and
 # require a landed coverage-ledger row for every scenario revision that
-# disappeared. Runs on both platforms so the platform-specific default counts
-# stay executable facts.
+# disappeared. Attributed for both platforms so the platform-specific default
+# counts stay executable facts on whichever lane a run names.
 e2e-governance: install
     {{ nix_shell }} just --no-deps test-e2e-governance
 
