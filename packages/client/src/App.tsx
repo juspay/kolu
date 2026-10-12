@@ -53,6 +53,7 @@ import { ConnectCanvas } from "./host/ConnectCanvas";
 import HostDownCanvas from "./host/HostDownCanvas";
 import { hostHue, hostLabel } from "./host/hostChipTone";
 import { savedSession as serverSavedSession } from "./hostScope/activeWire";
+import { hostScopeOf } from "./hostScope/hostScopes";
 import { createImportSessionAction } from "./importSessionAction";
 import { useShortcuts } from "./input/useShortcuts";
 import IntentEditorDialog from "./intent/IntentEditorDialog";
@@ -109,6 +110,9 @@ const App: Component = () => {
     focusedId: store.focusedTerminalId,
     activate: focus,
     markUnread: store.markUnread,
+    // Host-addressed, NOT `store.*`: the mark must come off the host it was set
+    // on, even while the user is looking at a different one.
+    clearUnread: (host, id) => hostScopeOf(host)?.view.clearUnread(id),
     activeSubject: getSubject,
     terminalIds: store.terminalIds,
     activeAgentState: (id) => activeArm(store.getMetadata(id))?.agent?.state,

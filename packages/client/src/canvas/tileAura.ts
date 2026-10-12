@@ -3,9 +3,10 @@
  *  the rule is independently testable without spinning up a Solid render
  *  harness, exactly the way the dock's `pipVariant` is. Order matters:
  *  `unread` dominates the bucket — a tile that fired an alert in the
- *  background still reads "alert" even if its agent has since moved on,
- *  because the unread obligation outlives the bucket transition until the
- *  user focuses the tile (which clears unread).
+ *  background still reads "alert" while the mark is up, because the unread
+ *  obligation outlives a mid-episode bucket change (asking→finished). It ends
+ *  when the mark does: you focus the tile, or the agent goes back to work
+ *  (`attentionCore` clears unread on the episode-end edge), or the terminal goes.
  *
  *  Reuses the dock's upstream classifiers (`paintBucket`, the unread flag,
  *  `useStaleCheck`) but maps to the canvas's own vocabulary: a ranked, aging

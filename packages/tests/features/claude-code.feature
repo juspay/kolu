@@ -72,6 +72,26 @@ Feature: Claude Code status detection
     Then no workspace switcher branch should be notified
     And there should be no page errors
 
+  Scenario: An agent that goes back to work clears its unread ping
+    # The other way the amber mark ends: not you opening the terminal, but its
+    # agent resuming. The engine's episode-end edge — a terminal leaving BOTH the
+    # asking and finished lists — clears the dock unread mark that episode raised.
+    #
+    # The episode is driven through `awaiting_user` because that class is UNGATED:
+    # a `waiting` agent only joins the finished list after the 5s effective-finish
+    # quiet window, which is longer than this scenario, so it would never have an
+    # episode to end. Both polled indicator checks are the propagation barriers —
+    # the mark is only read once the client has the state it follows.
+    When a Claude Code session is mocked with state "awaiting_user"
+    And I create a terminal
+    Then the tile chrome should show an agent indicator with state "awaiting_user"
+    When I simulate an attention alert
+    Then a workspace switcher branch should be notified
+    When the Claude Code session state changes to "thinking"
+    Then the tile chrome should show an agent indicator with state "thinking"
+    And no workspace switcher branch should be notified
+    And there should be no page errors
+
   Scenario: Tile chrome shows task progress when Claude has tasks
     When a Claude Code session is mocked with state "tool_use"
     And the Claude Code session has 5 tasks with 3 completed

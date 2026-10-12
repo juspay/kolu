@@ -50,7 +50,7 @@ vi.mock("./wire", async () => {
   };
 });
 
-import { activeScope } from "./hostScope/hostScopes";
+import { activeScope, hostScopeOf } from "./hostScope/hostScopes";
 import { addHost, resetHosts } from "./hostScope/mockHostMap.testlib";
 import {
   activityWindow,
@@ -213,6 +213,35 @@ describe("per-host view posture + dock filters (W7 TIER A)", () => {
         expect(vs.mruOrder()).toEqual([]);
         expect(vs.isUnread("term-1" as TerminalId)).toBe(false);
         expect(vs.canvasMaximized()).toBe(false);
+      } finally {
+        dispose();
+      }
+    });
+  });
+
+  it("clearUnread drops the mark without focusing — on a host you are NOT viewing", async () => {
+    // The attention engine's episode-end edge: an agent that goes back to work
+    // clears the dock unread mark it raised, addressed to the host that holds it.
+    await createRoot(async (dispose) => {
+      try {
+        switchTo(HOST_A);
+        await flush();
+        const a = activeScope()?.view;
+        if (!a) throw new Error("no active view for HOST_A");
+        a.markUnread("term-1" as TerminalId);
+        expect(a.isUnread("term-1" as TerminalId)).toBe(true);
+
+        // Switch away — A's owner is retained, so its mark is still up.
+        switchTo(HOST_B);
+        await flush();
+        const retained = hostScopeOf(HOST_A)?.view;
+        if (!retained) throw new Error("HOST_A's owner was not retained");
+        expect(retained.isUnread("term-1" as TerminalId)).toBe(true);
+
+        retained.clearUnread("term-1" as TerminalId);
+        expect(retained.isUnread("term-1" as TerminalId)).toBe(false);
+        // Clearing a mark is not an activation — focus is untouched.
+        expect(retained.focusedTerminalId()).toBeNull();
       } finally {
         dispose();
       }
