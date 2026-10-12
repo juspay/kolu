@@ -4,9 +4,10 @@
  * (its host details).
  *
  * The server runs with a fixture agent-distro bake (`support/agentDistroFixture.ts`):
- * bundles `vanilla` and `juspay`, each with a stub `claude` that names its
- * bundle, and a stub `agent-distro --list --json` that resolves any reference
- * (one containing "nobody" fails, in upstream's words). The suite resets Agents
+ * ONE bundle, `vanilla`, exactly as upstream ships at kolu's pin, with a stub
+ * `claude` that names it, and a stub `agent-distro --list --json` that
+ * resolves any reference — Juspay's `github:juspay/skills` included (one
+ * containing "nobody" fails, in upstream's words). The suite resets Agents
  * to NEVER CHOSEN (`null`, a fresh install) before every scenario; these steps
  * pick a profile and read the result where a user would — the welcome card's
  * cards, Settings' cards and fleet line, a machine's host details, the tile's
