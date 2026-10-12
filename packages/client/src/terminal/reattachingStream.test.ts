@@ -1,6 +1,6 @@
+import { Effect, Exit, Fiber, Stream } from "effect";
 import { RpcClientError } from "effect/rpc/RpcClientError";
 import { SocketReadError } from "effect/socket/Socket";
-import { Effect, Exit, Fiber, Stream } from "effect";
 import { TestClock } from "effect/testing";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
@@ -42,8 +42,21 @@ const flush = () => new Promise((r) => setTimeout(r, 0));
 function start(
   ...args: Parameters<typeof consumeReattachingStream<string>>
 ): Fiber.Fiber<void, never> {
-  return Effect.runFork(consumeReattachingStream(...args).pipe(Effect.orDie));
+  const fiber = Effect.runFork(
+    consumeReattachingStream(...args).pipe(Effect.orDie),
+  );
+  started.push(fiber);
+  return fiber;
 }
+
+/** Every loop a test started. A loop whose last stream ends cleanly on a LIVE
+ *  terminal re-attaches forever on real timers, so a test that does not stop
+ *  its loop leaves it warning `re-attaching` into whatever runs next — measured:
+ *  the "abnormal end" and "backoff" cases each leaked one AttachEndedWhileLive
+ *  warning into a spy installed after them, and K1a, which asserts no warning
+ *  at all, failed on such a leaked warning on a loaded CI lane (its own
+ *  `onReattach` was never called). `afterEach` interrupts whatever is left. */
+const started: Fiber.Fiber<void, never>[] = [];
 
 /** The tile fact the loop reads back on a clean end. `exited` is the PTY-exit
  *  case (a graceful end is real); the default is a LIVE terminal. */
@@ -51,6 +64,7 @@ const tile = (exited = false) => ({ hasExited: () => exited });
 
 describe("consumeReattachingStream", () => {
   afterEach(() => {
+    for (const fiber of started.splice(0)) fiber.interruptUnsafe();
     vi.restoreAllMocks();
     vi.useRealTimers();
     toastSpy.error.mockReset();
