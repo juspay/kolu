@@ -29,6 +29,7 @@ import { readStateRootManifest, writeStateRootManifest } from "kaval";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   classifyLivePadis,
+  DIAL_REGIMES,
   discoverPadiDaemons,
   localPadiSocket,
   namePadiStateRootForDiscovery,
@@ -562,11 +563,13 @@ describe("discoverPadiDaemons — the regime in force, plus the extra drawers", 
   );
 
   // The OTHER half of the same narrowing, and the reason it is a narrowing of
-  // the POLL rather than of discovery as such: `residentPadiSocket` — one call
-  // per binding, whose failure mode is a 30 s hang and a second padi on a served
-  // state root (#1713) — keeps probing every drawer by default.
+  // the POLL rather than of discovery as such: the two DIAL resolutions —
+  // `residentPadiSocket` (once per binding; its failure mode is a 30 s hang and
+  // a second padi on a served state root, #1713) and `resolveRunningPadiSocket`
+  // (once per `kolu` / `kolu mcp` / `padi-tui` invocation; its failure mode is
+  // "no padi is running" against a padi that is) — keep probing every drawer.
   it.runIf(process.getuid)(
-    "the ADOPT path still finds a /tmp resident while $XDG_RUNTIME_DIR is set",
+    "both DIAL paths still find a /tmp resident while $XDG_RUNTIME_DIR is set",
     async () => {
       const stateRoot = "/home/u/.local/state/padi-adopt-regime";
       delete process.env.XDG_RUNTIME_DIR;
@@ -589,6 +592,15 @@ describe("discoverPadiDaemons — the regime in force, plus the extra drawers", 
       dirs.push(drawer);
       process.env.XDG_RUNTIME_DIR = drawer;
       expect(residentPadiSocket(stateRoot)).toBe(socket);
+
+      // The CLI half. Pinned as the REGIME LIST the resolution passes, not as
+      // its verdict: the developer's own padis join that scan, so whether it
+      // collapses to `one`, `primary` or `many` is a property of the box, and a
+      // test that asserted the verdict would assert nothing on exactly the
+      // multi-daemon hosts the policy exists for (the #2154 F2 lesson).
+      expect(
+        discoverPadiDaemons(DIAL_REGIMES()).map((d) => d.socket),
+      ).toContain(socket);
     },
   );
 });

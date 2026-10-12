@@ -39,6 +39,7 @@ import {
 import {
   armRuntimeFaultExit,
   claimPidGate,
+  daemonSweepRegimes,
   type DaemonBuildIdentity,
   type DaemonExit,
   type DaemonLifetimeInfo,
@@ -760,11 +761,12 @@ function padiDaemonProgram(
     // like that) and an unreadable gate are all left alone. Run AFTER this padi
     // claimed its own gate and wrote its manifests, so our own home and the kaval
     // we just adopted or spawned are provably live and never candidates.
+    const runtimeRoots = daemonSweepRegimes();
     for (const { app, gateFile } of [
       { app: "padi", gateFile: PADI_GATE_FILE },
       { app: KAVAL_NS_PREFIX, gateFile: KAVAL_GATE_FILE },
     ]) {
-      const sweep = reapStaleDaemonHomes({ app, gateFile });
+      const sweep = reapStaleDaemonHomes({ app, gateFile, runtimeRoots });
       if (sweep.removed.length > 0) {
         log.info(
           { app, removed: sweep.removed.length },
@@ -772,12 +774,11 @@ function padiDaemonProgram(
         );
       }
       for (const skip of sweep.skipped) {
-        if (skip.why === "gate-unreadable" || skip.why === "remove-failed") {
-          log.warn(
-            { app, dir: skip.dir, why: skip.why, err: skip.err },
-            "boot sweep: left a daemon runtime home in place",
-          );
-        }
+        if (skip.why === "live" || skip.why === "no-gate") continue;
+        log.warn(
+          { app, dir: skip.dir, why: skip.why, err: skip.err },
+          "boot sweep: left a daemon runtime home in place",
+        );
       }
     }
 

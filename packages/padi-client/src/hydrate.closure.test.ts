@@ -171,7 +171,7 @@ const DECLARED_ALLOWED = new Set([
  *  `kolu-io` LEFT that dropped set at juspay/kolu#2286, and by a real change:
  *  `anyagent`'s `AgentTerminalState` now declares the process snapshot an
  *  adapter reads (`readProcessSnapshot(): ProcessSnapshot | null`), because the
- *  HOST takes that `/proc` read once per reconcile tick and shares it rather
+ *  HOST memoises that `/proc` read per foreground SAMPLE and shares it rather
  *  than every adapter paying for its own. The type's one home is `kolu-io`, so
  *  the contract names it — through `kolu-io/types`, a deliberately `node:`-free
  *  leaf module, so a consumer's `tsc` compiles one interface rather than the

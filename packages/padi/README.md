@@ -209,17 +209,19 @@ generations) or `ssh <host> cat ~/.local/state/padi/padi.stderr.log` for a detac
 
 padi is a daemon on a machine somebody else is using, so the standing cost of a
 workspace nobody is touching is a product property. A 90 s CPU profile of a live
-16-terminal padi ([#2286](https://github.com/juspay/kolu/issues/2286)) found four
-habits that paid for nothing; each is now a rule rather than a tuning:
+16-terminal padi ([#2286](https://github.com/juspay/kolu/issues/2286)) found a
+handful of habits that paid for nothing; each is now a rule rather than a tuning:
 
 - **Discovery scans the runtime regime IN FORCE, never both.** `discoverPadiDaemons`
   (and kaval's own) used to union the env-derived drawer with the forced `/tmp`
   fallback on every pass — a `readdirSync("/tmp")` (209 K entries on the reporting
   host) twice per 10 s `hostInventory` tick, for a drawer this host's padis never
   bind in. `runtimeRegimeInForce()` (`@kolu/surface-daemon`) is the one answer, and
-  the poll reads only that drawer. The **adopt** path is the deliberate exception —
-  `residentPadiSocket`'s `ADOPT_REGIMES` still probes every drawer, because it runs
-  once per binding and what it buys is #1713's 30 s hang.
+  the poll reads only that drawer. The **dial** paths are the deliberate exception —
+  `residentPadiSocket` (the binder's adopt read-back) and `resolveRunningPadiSocket`
+  (the flag-less CLI/MCP resolution) both pass `DIAL_REGIMES` and still probe every
+  drawer, because each runs once per binding or per command and what that buys is
+  #1713's 30 s hang, and a `kolu` that can find the padi it wants.
 - **Boot sweeps the corpses.** Nothing wipes `/tmp`, so every padi or kaval that
   ever crashed left its runtime home there forever (5.4 K of them on that host).
   `reapStaleDaemonHomes` runs once in `padiDaemonProgram`, after this padi has

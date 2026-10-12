@@ -55,11 +55,17 @@ export interface AgentTerminalState {
    *  platform/process cannot be read.
    *
    *  A FUNCTION, and read through it rather than by calling
-   *  `readProcessSnapshot` yourself, because the host reads it AT MOST ONCE per
-   *  reconcile tick and shares that one read with every adapter. Each adapter
-   *  calling the IO itself meant `/proc/<pid>/cmdline` + the whole of
-   *  `/proc/<pid>/environ` re-read and re-split per adapter per terminal, every
-   *  ~4 s — 16% of padi's busy time on a 16-terminal host (juspay/kolu#2286).
+   *  `readProcessSnapshot` yourself, because the host MEMOISES the read and
+   *  shares it with every adapter. Each adapter calling the IO itself meant
+   *  `/proc/<pid>/cmdline` + the whole of `/proc/<pid>/environ` re-read and
+   *  re-split per adapter per terminal, every ~4 s — 16% of padi's busy time on
+   *  a 16-terminal host (juspay/kolu#2286).
+   *
+   *  The memo's lifetime is one FOREGROUND SAMPLE, not one reconcile: the host
+   *  re-reads when the foreground process or pid changes, which is what names
+   *  the pid in the first place, and holds the answer across every reconcile in
+   *  between (argv and environ are fixed at exec). A FAILED read is never held,
+   *  so a transient `/proc` error costs one retry rather than the run.
    *  Idempotent within one snapshot, like `readForegroundBasename`. */
   readProcessSnapshot: () => ProcessSnapshot | null;
 }

@@ -9,11 +9,17 @@
  *
  *  The stamp is `(mtimeMs, size)` — the pair every build tool uses for the same
  *  judgement, and a strictly cheaper syscall than the read it replaces. It is
- *  not a content hash and does not pretend to be: a write that lands in the
- *  same millisecond AND keeps the byte length is invisible to it. That is
- *  acceptable here because both consumers' files are replace-in-place records
- *  whose size moves with every real change, and because the alternative — read
- *  and parse everything, every pass — is the cost being removed.
+ *  not a content hash and does not pretend to be.
+ *
+ *  **`mtimeMs` is what actually invalidates these two consumers**, and the size
+ *  is only a free second opinion: a claude session record is a fixed set of
+ *  fields holding a fixed-width uuid, and an omp crumb names a
+ *  `<ts>_<uuid>.jsonl` path — so a real change usually lands at the SAME byte
+ *  length. What they are not is append-only: both are rewritten whole, so a
+ *  change always moves the mtime. On Linux `statfs`-backed `mtimeMs` carries
+ *  sub-millisecond precision, so the residual blind spot is two whole rewrites
+ *  inside one filesystem timestamp tick, with identical length. The alternative
+ *  — read and parse everything, every pass — is the cost being removed.
  *
  *  **ABSENCE IS NEVER CACHED.** A missing file has no stamp to invalidate
  *  against, so "not there" would be sticky forever. The reader is still called

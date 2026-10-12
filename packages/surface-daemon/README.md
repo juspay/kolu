@@ -7,9 +7,11 @@ skeleton (`daemonMain`), a lifetime policy, and a bin half (`daemonProcessMain`)
 that owns the process exit. **Front it** over ssh-stdio so a
 remote session outlives the link (`frontDaemonOverStdio`). **Collect after it**:
 `reapStaleDaemonHomes` removes an app's runtime homes whose gate file proves
-their owner is gone — the regime in force AND `/tmp`, which logind never wipes
-and which therefore accumulates a corpse per crashed daemon forever
-([#2286](https://github.com/juspay/kolu/issues/2286)). Plus the shared
+their owner is gone, under the regimes you pass it — `daemonSweepRegimes()` is
+the daemon's policy (the regime in force AND `/tmp`, which logind never wipes and
+which therefore accumulates a corpse per crashed daemon forever,
+[#2286](https://github.com/juspay/kolu/issues/2286)); the roots are a parameter
+so the sweep never reads the ambient environment. Plus the shared
 daemon-identity recipe (`readBakedIdentity`), the frozen identity/drain fragment
 (`controlCoreFragment`), `runtimeRegimeInForce` (the ONE "XDG or `/tmp`?"
 predicate discovery and the sweep both read), and an app-independent

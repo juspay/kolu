@@ -71,7 +71,15 @@ beforeAll(() => {
     isRestorePending: () => restorePending,
     persist: (s) => traceWrites.push(s),
     persistFinal: (s) => finalWrites.push(s),
-    persistActiveId: (id) => activeIdWrites.push(id),
+    // Through the REAL hook the padi `session` cell installs on every write
+    // (`servePadi.ts`'s `onWrite: () => cancelPendingAutosave()`). A stub that
+    // only recorded the id proved nothing about the two things that actually
+    // bit: a marker patch must not disarm an armed trace save, and must not
+    // erase the gate's belief about what it wrote.
+    persistActiveId: (id) => {
+      activeIdWrites.push(id);
+      cancelPendingAutosave();
+    },
   });
 });
 
@@ -220,6 +228,36 @@ describe("the active-id trailing debounce", () => {
     // caller that is about to replace the blob (restore, restart capture,
     // `test__set`) must be able to drop it.
     expect(activeIdWrites).toEqual([]);
+  });
+
+  it("a trace save armed INSIDE the window survives the marker write", async () => {
+    // The #2286 review's B1. The marker patch goes through the padi `session`
+    // cell, whose `onWrite` cancels pending autosaves — a hook that is right
+    // about every writer that REPLACES the blob and wrong about this one, which
+    // rewrites a single field and leaves the trace alone. Unfenced, a layout
+    // change made moments before the focus write was silently dropped.
+    setActiveTerminalId(A_ID);
+    await vi.advanceTimersByTimeAsync(4_800);
+    notifyDirty(); // a real restore-relevant change: arms the 500 ms trace save
+    await vi.advanceTimersByTimeAsync(200); // t+5 s — the marker write fires here
+    expect(activeIdWrites).toEqual([A_ID]);
+
+    await vi.advanceTimersByTimeAsync(500);
+    expect(traceWrites).toHaveLength(1);
+  });
+
+  it("the marker write leaves the equality guard intact", async () => {
+    // B2's half of the same hook: `cancelPendingAutosave` also clears the gate's
+    // belief about what it wrote, so an unfenced patch made every later
+    // re-assertion of the already-written id arm a fresh 5 s timer and a fresh
+    // `getSavedSession()` read — the exact chatter the guard exists to stop.
+    setActiveTerminalId(A_ID);
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(activeIdWrites).toEqual([A_ID]);
+
+    for (let i = 0; i < 5; i += 1) setActiveTerminalId(A_ID);
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(activeIdWrites).toEqual([A_ID]);
   });
 });
 

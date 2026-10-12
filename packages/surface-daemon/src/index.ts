@@ -126,6 +126,7 @@ export {
 } from "./runtimeFault.ts";
 export type { SharedArtifact } from "./sharedArtifact.ts";
 export {
+  daemonSweepRegimes,
   reapStaleDaemonHomes,
   type StaleHomeSkip,
   type StaleHomeSweep,

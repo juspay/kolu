@@ -25,12 +25,19 @@ import pino from "pino";
 import { afterEach, expect, it, vi } from "vitest";
 
 const reads: number[] = [];
+/** How many of the next reads answer `null` — the shape of a transient `/proc`
+ *  failure, which must never be remembered for the life of a sample. */
+let failNextReads = 0;
 vi.mock("kolu-io", async (importOriginal) => {
   const real = await importOriginal<Record<string, unknown>>();
   return {
     ...real,
-    readProcessSnapshot: (pid: number): ProcessSnapshot => {
+    readProcessSnapshot: (pid: number): ProcessSnapshot | null => {
       reads.push(pid);
+      if (failNextReads > 0) {
+        failNextReads -= 1;
+        return null; // what EVERY failure folds to: exited, hidepid, EACCES…
+      }
       // An omp invocation with no flags: the adapter folds it to the default
       // agent dir and then finds no breadcrumb, which is all this test needs —
       // the assertion is on the READ COUNT, not the resolution.
@@ -114,6 +121,7 @@ function startOmpSensor() {
 
 afterEach(() => {
   reads.length = 0;
+  failNextReads = 0;
 });
 
 it("reads the process snapshot ONCE per foreground sample, across adapters and reconciles", async () => {
@@ -156,5 +164,29 @@ it("re-reads when a NEW foreground sample arrives", async () => {
   await flush();
 
   expect(reads).toEqual([AGENT_PID, AGENT_PID + 1]);
+  h.stop();
+});
+
+it("does NOT cache a FAILED read — a transient /proc error costs one retry, not the run", async () => {
+  const h = startOmpSensor();
+  reads.length = 0;
+  // One failure, then success. A sample lasts as long as the foreground process
+  // and pid hold — usually the whole agent run — so holding the `null` would
+  // blind omp's agent-dir chain and pi's store resolution for all of it.
+  failNextReads = 1;
+
+  h.signals.foreground.publish({
+    process: "/usr/bin/omp",
+    foregroundPid: AGENT_PID,
+  });
+  await flush();
+  expect(reads).toEqual([AGENT_PID, AGENT_PID]);
+
+  // …and once a read succeeds it IS held: the next reconcile off the same
+  // sample asks nothing.
+  h.signals.title.publish("omp — building");
+  await flush();
+  expect(reads).toEqual([AGENT_PID, AGENT_PID]);
+
   h.stop();
 });

@@ -33,7 +33,17 @@
  * planted under the shared `/tmp` root is never removed by us.
  *
  * A directory that refuses to be removed is reported, not thrown: boot must not
- * fail because a corpse was stubborn.
+ * fail because a corpse was stubborn. So is a regime root that cannot be listed
+ * at all.
+ *
+ * ## It reads its roots from a parameter
+ *
+ * {@link reapStaleDaemonHomes} consults nothing ambient — the regimes to sweep
+ * are an argument, and {@link daemonSweepRegimes} is the policy a daemon passes.
+ * That split is not tidiness: a sweep that read the environment itself could
+ * only be tested by letting it loose on the developer's real `/tmp`, which on a
+ * host of the kind #2286 describes both destroys unrelated state and makes every
+ * assertion depend on what the box happened to be carrying.
  */
 
 import { readdirSync, rmSync } from "node:fs";
@@ -46,15 +56,18 @@ import {
 import { isHolderLive, readGateIdentity } from "./pidGate.ts";
 import { isPrivateOwnedDir } from "./privateOwnedDir.ts";
 
-/** Why a candidate home was left in place. */
+/** Why a candidate home was left in place — or, for `root-unreadable`, why a
+ *  whole regime contributed nothing. */
 export interface StaleHomeSkip {
+  /** The home, except for `root-unreadable`, where it is the REGIME ROOT. */
   readonly dir: string;
   readonly why:
     | "not-ours"
     | "live"
     | "no-gate"
     | "gate-unreadable"
-    | "remove-failed";
+    | "remove-failed"
+    | "root-unreadable";
   readonly err?: unknown;
 }
 
@@ -94,28 +107,48 @@ function homeGrammar(
   };
 }
 
+/** The regimes a DAEMON sweeps at boot: the one in force, and the `/tmp`
+ *  fallback — `/tmp` always, because it is the regime nothing wipes and therefore
+ *  the one that accumulates. De-duped by resolved root inside the sweep, so a
+ *  process already running under `/tmp` sweeps it once.
+ *
+ *  Separate from {@link reapStaleDaemonHomes} so the sweep itself reads its roots
+ *  from a PARAMETER and touches nothing else. A sweep that consulted the ambient
+ *  environment could not be tested without deleting from the developer's real
+ *  `/tmp` — on the very host class #2286 describes (5.4 K corpses) that would both
+ *  destroy unrelated state and make the assertions depend on what the box happened
+ *  to be carrying. */
+export function daemonSweepRegimes(): readonly (
+  | DaemonHomeRuntimeRoot
+  | undefined
+)[] {
+  return runtimeRegimeInForce() === "xdg" ? [undefined, null] : [null];
+}
+
 /**
- * Remove every runtime home of `app` whose gate file names a process that is
- * gone. Sweeps the regime in force and the `/tmp` fallback; never throws.
+ * Remove every runtime home of `app` under `runtimeRoots` whose gate file names
+ * a process that is gone. Never throws.
  *
  * `gateFile` is the app's gate basename (`padi.pid`, `kaval.pid`) — passed
  * rather than derived, because kaval's bare stem and its home's decoration
  * differ and the gate name is the daemon's own constant.
+ *
+ * `runtimeRoots` is the regime list to sweep, in {@link DaemonHomeRuntimeRoot}'s
+ * vocabulary (`undefined` = the live env's drawer, `null` = the forced `/tmp`
+ * fallback, a string = that drawer as XDG). A daemon passes
+ * {@link daemonSweepRegimes}; a test passes its own scratch drawer and can
+ * therefore assert an exact `removed` set.
  */
 export function reapStaleDaemonHomes(opts: {
   app: string;
   gateFile: string;
+  runtimeRoots: readonly (DaemonHomeRuntimeRoot | undefined)[];
 }): StaleHomeSweep {
   const removed: string[] = [];
   const skipped: StaleHomeSkip[] = [];
   const seenRoots = new Set<string>();
 
-  // The regime in force AND the `/tmp` fallback, because `/tmp` is the regime
-  // that accumulates. De-duped by resolved root below, so a process already
-  // running under `/tmp` sweeps it once.
-  const regimes: readonly (DaemonHomeRuntimeRoot | undefined)[] =
-    runtimeRegimeInForce() === "xdg" ? [undefined, null] : [null];
-  for (const runtimeRoot of regimes) {
+  for (const runtimeRoot of opts.runtimeRoots) {
     const { root, bareName, instancedRe } = homeGrammar(opts.app, runtimeRoot);
     if (seenRoots.has(root)) continue;
     seenRoots.add(root);
@@ -123,9 +156,13 @@ export function reapStaleDaemonHomes(opts: {
     let entries: string[];
     try {
       entries = readdirSync(root);
-    } catch {
+    } catch (err) {
       // An unreadable root contributes nothing — the same refusal discovery
-      // makes. Not a boot failure.
+      // makes, and not a boot failure. REPORTED rather than swallowed: a root
+      // this process cannot read is the one condition under which a sweep
+      // silently collects nothing, and an operator chasing a pile of corpses
+      // needs to see that said so.
+      skipped.push({ dir: root, why: "root-unreadable", err });
       continue;
     }
 

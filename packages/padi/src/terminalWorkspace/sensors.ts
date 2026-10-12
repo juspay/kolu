@@ -90,11 +90,18 @@ interface AgentEngineState {
    *  SAMPLE and shared by every one of this terminal's detectors.
    *
    *  Keyed on the sample's object identity rather than a tick counter because
-   *  that identity IS the tick: one `ForegroundSample` is published to all
-   *  seven adapters' channels, so the first reconcile to ask pays the `/proc`
-   *  read and the other six read the answer. Everything in a snapshot (argv,
-   *  environ) is fixed at exec, so holding it for the life of a sample is not
-   *  a staleness window — the sample is what names the pid in the first place.
+   *  one `ForegroundSample` is published to all seven adapters' channels: the
+   *  first reconcile to ask pays the `/proc` read and the other six read the
+   *  answer. A sample lasts until the foreground process or pid CHANGES, which
+   *  is usually the whole agent run — and that is sound precisely because argv
+   *  and environ are fixed at exec, so the sample is what names the pid in the
+   *  first place.
+   *
+   *  Only a SUCCESSFUL read is held. A failure folds to `null` for reasons that
+   *  are not facts about the process (a transient EACCES/EMFILE, a `hidepid`
+   *  host), and a null cached for a whole run would blind agent detection for
+   *  that run — so `value` is never null here, and a failed read simply leaves
+   *  the slot as it was.
    *
    *  Before this, each adapter called `readProcessSnapshot` itself: two full
    *  `/proc/<pid>` reads (the whole environ, split into a fresh object) per
@@ -102,7 +109,7 @@ interface AgentEngineState {
    *  16% of padi's busy time. */
   procSnapshot: {
     sample: ForegroundSample;
-    value: ProcessSnapshot | null;
+    value: ProcessSnapshot;
   } | null;
 }
 
@@ -597,14 +604,22 @@ function snapshotSignals(
       cwd,
       readForegroundBasename: () => (proc ? path.basename(proc) : null),
       lastAgentCommandName: shellIdle ? null : agentState.currentAgent,
-      // One read per SAMPLE, shared across every adapter — see
+      // At most one read per SAMPLE, shared across every adapter — see
       // `AgentEngineState.procSnapshot`.
       readProcessSnapshot: () => {
         if (foregroundPid === undefined) return null;
         const held = agentState.procSnapshot;
         if (held !== null && held.sample === foreground) return held.value;
         const value = readProcessSnapshot(foregroundPid, log);
-        agentState.procSnapshot = { sample: foreground, value };
+        // A FAILED read is never cached. `readProcessSnapshot` folds every
+        // failure to `null` — an exited pid, a `hidepid` host, a transient
+        // EACCES/EMFILE — and a sample spans a whole agent run (kaval publishes
+        // one only when the foreground process or pid changes), so caching the
+        // null would blind omp's agent-dir chain and pi's store resolution for
+        // the rest of that run. Re-reading on the next reconcile costs two
+        // `/proc` reads in the one case that is already broken.
+        if (value !== null)
+          agentState.procSnapshot = { sample: foreground, value };
         return value;
       },
     },

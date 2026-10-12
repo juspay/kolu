@@ -252,19 +252,27 @@ export function discoverPadiDaemons(
   return [...byPath.values()];
 }
 
-/** Every drawer the ADOPT path probes on top of the regime in force: the
- *  systemd-standard `/run/user/$UID` guess, and the forced `/tmp` fallback.
+/** Every drawer a DIAL probes on top of the regime in force: the systemd-standard
+ *  `/run/user/$UID` guess, and the forced `/tmp` fallback.
  *
- *  The adopt path keeps the full cross-regime union that juspay/kolu#2286
- *  narrowed everywhere else, and the asymmetry is the measurement. What cost 22%
- *  of padi's busy time was the `hostInventory` POLL walking `/tmp` — 209 K
- *  entries on the reporting host — twice every ten seconds, forever. An adopt
- *  runs ONCE per binding, and what it buys is the difference between dialling a
- *  live resident and a 30 s "daemon socket never came up" hang followed by a
- *  second padi on a state root someone already serves (#1713, and the #1313
- *  isolation property with it). A directory walk per bind is not a cost; a
- *  directory walk per tick was. */
-const ADOPT_REGIMES = (): readonly (string | undefined)[] => [
+ *  The two places that answer "which padi do I talk to" — the binder's adopt
+ *  read-back ({@link residentPadiSocket}) and the CLI/MCP resolution
+ *  ({@link resolveRunningPadiSocket}) — keep the full cross-regime union that
+ *  juspay/kolu#2286 narrowed everywhere else, and the asymmetry IS the
+ *  measurement. What cost 22% of padi's busy time was the `hostInventory` POLL
+ *  walking `/tmp` — 209 K entries on the reporting host — twice every ten
+ *  seconds, forever. A dial happens ONCE per binding or per command invocation,
+ *  and what it buys is the difference between reaching a live daemon and either
+ *  a 30 s "daemon socket never came up" hang plus a second padi on a state root
+ *  someone already serves (#1713, and the #1313 isolation property with it), or
+ *  a flag-less `kolu` / `kolu mcp` / `padi-tui` refusing with "no padi is
+ *  running" while the daemon it wants is up in the other drawer. A directory
+ *  walk per dial is not a cost; a directory walk per tick was.
+ *
+ *  Exported so a test can pin the LIST the dial paths pass, which is immune to
+ *  how many padis the developer's own box happens to be running — the verdict
+ *  `resolveRunningPadiSocket` collapses to (`one` / `primary` / `many`) is not. */
+export const DIAL_REGIMES = (): readonly (string | undefined)[] => [
   standardXdgRuntimeDir(),
   undefined,
 ];
@@ -296,7 +304,7 @@ const ADOPT_REGIMES = (): readonly (string | undefined)[] => [
  */
 export function residentPadiSocket(
   stateRoot: string,
-  extraRegimes: readonly (string | undefined)[] = ADOPT_REGIMES(),
+  extraRegimes: readonly (string | undefined)[] = DIAL_REGIMES(),
 ): string | undefined {
   const resolved = resolve(stateRoot);
   const discovered = discoverPadiDaemons(extraRegimes);
@@ -448,7 +456,17 @@ export function resolveRunningPadiSocket(opts?: {
   // gets an opaque ECONNREFUSED instead of the honest `none` → named-path
   // error. A registration whose gate-pid is unreadable (`null`) is likewise not
   // a proven-live daemon, so it drops out too.
-  return classifyLivePadis(discoverPadiDaemons().filter(daemonIsLive));
+  //
+  // {@link DIAL_REGIMES} for the same reason the adopt path takes it: this is a
+  // once-per-INVOCATION resolution, not the 10 s poll #2286 narrowed, and the
+  // drawer it would otherwise miss is the common one — a flag-less `kolu`,
+  // `kolu mcp` or `padi-tui` run from a logind shell (XDG set) against a padi
+  // some nix-shell / e2e / test harness bound with XDG unset under
+  // `/tmp/padi-<digest>-$UID`. Narrowed, those refuse with "no padi is running"
+  // while the daemon they want is up.
+  return classifyLivePadis(
+    discoverPadiDaemons(DIAL_REGIMES()).filter(daemonIsLive),
+  );
 }
 
 /**

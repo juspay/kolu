@@ -137,6 +137,24 @@ let activeIdTimer: ReturnType<typeof setTimeout> | undefined;
 let pendingActiveId: string | undefined;
 let lastWrittenActiveId: string | undefined;
 
+/** True ONLY while this module is inside its own `persistActiveId` call.
+ *
+ *  The padi `session` cell runs `cancelPendingAutosave()` on every write
+ *  (`servePadi.ts`'s `onWrite`), and that hook is right about every OTHER writer:
+ *  a `session.restore`, a restart capture or an e2e `test__set` REPLACES the blob,
+ *  so anything armed against the old one must not fire onto the new one. The
+ *  marker patch is the one write that does not replace anything — it rewrites a
+ *  single field of the blob already on disk and leaves the trace byte-identical.
+ *
+ *  Without this exemption the patch disarmed the hook's real subjects. A layout
+ *  change at t+4.8 s arms the 500 ms trace save; the focus write lands at t+5 s;
+ *  `onWrite` cancels the trace save; the layout change never reaches disk and a
+ *  kill before the next restore-relevant edit loses it. It also erased
+ *  {@link lastWrittenActiveId} on every successful write, so the equality guard
+ *  below was dead in production — every client re-assertion of an already-written
+ *  id armed a fresh 5 s timer. One flag closes both. */
+let patchingActiveId = false;
+
 /** The set of ACTIVE freeze leases → their reason (for logging). The gate is
  *  **frozen** while this is non-empty. A Map of independent leases — NOT a single
  *  scalar — because TWO async owners can hold the critical section at once (a
@@ -166,6 +184,10 @@ export type AutosaveFreeze = symbol;
  *  shutdown capture carries the live marker in its snapshot, and any later focus
  *  change re-arms. */
 export function cancelPendingAutosave(): void {
+  // The gate's own marker patch is not a blob replacement — see
+  // {@link patchingActiveId}. Re-entering here through the cell's `onWrite` would
+  // disarm the very saves this hook exists to protect.
+  if (patchingActiveId) return;
   clearTimeout(saveTimer);
   saveTimer = undefined;
   clearTimeout(activeIdTimer);
@@ -346,8 +368,16 @@ export function reportActiveTerminalId(id: string): void {
       );
       return;
     }
-    lastWrittenActiveId = next;
-    deps.persistActiveId(next);
+    patchingActiveId = true;
+    try {
+      deps.persistActiveId(next);
+      // Recorded only once the write actually landed, so a throwing writer leaves
+      // the guard free to re-arm for the same id rather than believing a marker
+      // that never reached disk.
+      lastWrittenActiveId = next;
+    } finally {
+      patchingActiveId = false;
+    }
   }, ACTIVE_ID_DEBOUNCE_MS);
   // A focus change must never be the reason the process stays up — the serve link
   // owns the daemon's lifetime, and a shutdown carries the live marker regardless.
