@@ -26,13 +26,13 @@
     "test:unit": "vitest run"
   },
   "dependencies": {
-    "@odu/service-client": "workspace:*",
     "@kolu/agent-distro": "workspace:*",
     "@kolu/byte-units": "workspace:*",
     "@kolu/surface": "workspace:*",
     "@kolu/surface-daemon": "workspace:*",
     "@kolu/surface-daemon-supervisor": "workspace:*",
     "@kolu/terminal-vocab": "workspace:*",
+    "@odu/service-client": "workspace:*",
     "anyagent": "workspace:*",
     "anyforge": "workspace:*",
     "effect": "4.0.0",

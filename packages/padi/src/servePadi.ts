@@ -375,6 +375,9 @@ export function buildPadiSurfaceDeps(deps: {
   const unsubscribeSettle = settleEvents.onFrame((events) =>
     watchRegistry.acceptSettle(events),
   );
+  // The odu CI session: ONE per daemon, dialling on demand. Its socket is a ref'd
+  // handle, so it belongs to the same lifetime as everything else here.
+  const ciStatus = createCiStatusSource({ log });
   disposeStanding = () => {
     unsubscribeSettle();
     watchRegistry.dispose();
@@ -382,6 +385,7 @@ export function buildPadiSurfaceDeps(deps: {
     settleEvents.dispose();
     watchEdges.dispose();
     finish.dispose();
+    void ciStatus.dispose();
   };
 
   // The padi memory / host-inventory poll cells fire on their fixed cadence AND the
@@ -704,7 +708,7 @@ export function buildPadiSurfaceDeps(deps: {
       // grace), and every frame is a full replacement folded from odu's board
       // (see `./ciStatus.ts` for the session, the retry fence, and the one
       // known limit).
-      ciStatus: createCiStatusSource({ log }),
+      ciStatus,
       // The per-subscriber terminal byte stream — snapshot-first frame, then
       // live output, with the shipped overflow re-attach (#1591) riding on
       // through `reattachingDeltas`. Routed by the terminal's OWN location so a

@@ -16,7 +16,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { CiStatusFrame } from "@kolu/padi-client/surface";
 import { LOCAL_LOCATION } from "@kolu/padi-client/surface";
+import type { CollectionDeltasMsg } from "@kolu/surface/define";
 import { defineSurface } from "@kolu/surface/define";
+import type { SurfaceDispatch } from "@kolu/surface/link";
 import {
   implementSurface,
   inMemoryStore,
@@ -27,18 +29,23 @@ import {
   type UnixSocketListener,
 } from "@kolu/surface/unix-socket";
 import {
+  serviceSocketPath,
+  type ServiceSocketDial,
+} from "@odu/service-client/socket";
+import {
   NodesFrameSchema,
   RunRowSchema,
   ServiceCellSchema,
   UNKNOWN_SERVICE,
   type NodesFrame,
   type RunNode,
+  type OduServiceClient,
   type RunRow,
 } from "@odu/service-client/surface";
-import { Schema } from "effect";
+import { Schema, Stream } from "effect";
 import type { Logger } from "pino";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { createCiStatusSource } from "./ciStatus.ts";
+import { createCiStatusSource, type CiStatusSourceDeps } from "./ciStatus.ts";
 import { bridgeStream } from "./terminalEndpoint/local.ts";
 import { stubLog } from "./servePadi.testlib.ts";
 import {
@@ -124,7 +131,7 @@ async function serveStub(protocolVersion = "1.4"): Promise<Stub> {
   const home = mkdtempSync(join(tmpdir(), "padi-odu-"));
   const previousHome = process.env.HOME;
   process.env.HOME = home;
-  const socketPath = join(home, ".local", "state", "odu-web", "odu-web.sock");
+  const socketPath = serviceSocketPath();
 
   const rows = new Map<string, RunRow>();
   const scripts = new Map<string, ReturnType<typeof scriptedNodes>>();
@@ -495,10 +502,12 @@ describe("padi's ciStatus source", () => {
     await sub.stop();
   });
 
-  it("REFUSES a daemon it cannot speak, rather than reporting no odu here", async () => {
+  it("FAILS the subscription when the daemon answers and cannot be read", async () => {
     // The distinction this module exists to keep: a daemon that answers with a
     // contract this build cannot read is a live problem, and reporting it as
-    // absence would hide a broken install behind a blank panel.
+    // absence would hide a broken install behind a blank panel. So the stream
+    // FAILS — the Inspector draws that failure — rather than yielding `none`
+    // forever.
     const stub = await serveStub("9.9");
     seedTerminal(CHECKOUT);
     stub.put(row());
@@ -506,26 +515,193 @@ describe("padi's ciStatus source", () => {
     const log = { ...stubLog, error } as unknown as Logger;
     const ci = createCiStatusSource({ log });
     const frames: CiStatusFrame[] = [];
+    const failures: unknown[] = [];
     const abort = new AbortController();
     const done = bridgeStream(
       ci.source({ terminalId: TERMINAL_ID }),
       abort.signal,
       (f) => frames.push(f),
+      (err) => failures.push(err),
     );
     await vi.waitFor(
       () => {
-        const refusal = error.mock.calls.find((call) =>
-          String(call[1] ?? "").includes("refused this build"),
-        );
-        if (refusal === undefined)
-          throw new Error("the refusal was never logged");
+        if (failures.length === 0) {
+          throw new Error("the subscription never failed");
+        }
       },
-      { timeout: 5_000 },
+      { timeout: 10_000 },
     );
-    // Nothing but the pre-dial `none`: a daemon this build cannot speak never
-    // becomes a status frame, and never becomes "no odu here" either.
+    expect(String(failures[0])).toMatch(/speaks service contract 9\.9/);
+    // …and it says so in the log, with the versions, for a machine nobody is
+    // looking at.
+    expect(
+      error.mock.calls.some((call) =>
+        String(call[1] ?? "").includes("refused this build"),
+      ),
+    ).toBe(true);
+    // No `status` frame was ever painted from a daemon this build cannot read.
     expect(frames.every((frame) => frame.kind === "none")).toBe(true);
     abort.abort();
     await done;
+    await ci.dispose();
+  });
+});
+
+// ── the session's own lifecycle ─────────────────────────────────────────────
+//
+// These cases are about the SESSION rather than the wire: how many times it
+// dials, when it lets a link go, and what a subscriber sees when a link drops.
+// The face is built here instead of over a socket because a link that DROPS on
+// command is not something a real daemon can be asked for.
+
+/** A dialled connection over a face this suite controls: one board snapshot per
+ *  dial, then the runs stream ENDS (which is what a dropped link looks like to
+ *  the session), and a nodes follow that yields nothing. */
+function fakeDial(perDial: (dial: number) => RunRow[]): {
+  dial: () => Promise<ServiceSocketDial>;
+  dials: () => number;
+  disposals: () => number;
+} {
+  let dials = 0;
+  let disposals = 0;
+  return {
+    dial: async () => {
+      dials += 1;
+      const rows = perDial(dials);
+      const face = {
+        surface: {
+          runs: {
+            deltas: () =>
+              Stream.fromIterable<CollectionDeltasMsg<string, RunRow>>([
+                {
+                  kind: "snapshot",
+                  entries: rows.map((r) => [r.runId, r] as [string, RunRow]),
+                },
+              ]),
+          },
+          nodes: { get: () => Stream.empty },
+        },
+      };
+      return {
+        kind: "connected",
+        socketPath: "/tmp/fake-odu.sock",
+        client: face as unknown as OduServiceClient,
+        dispatch: {} as unknown as SurfaceDispatch,
+        dispose: async () => {
+          disposals += 1;
+        },
+      };
+    },
+    dials: () => dials,
+    disposals: () => disposals,
+  };
+}
+
+/** Open one subscription and hand back its frames, plus the first frame as a
+ *  promise — a real signal to await instead of a timer. */
+function openSubscription(ci: CiStatusSourceDeps): {
+  frames: CiStatusFrame[];
+  first: Promise<CiStatusFrame>;
+  stop: () => void;
+} {
+  const frames: CiStatusFrame[] = [];
+  let resolveFirst: (frame: CiStatusFrame) => void = () => {};
+  const first = new Promise<CiStatusFrame>((resolve) => {
+    resolveFirst = resolve;
+  });
+  const abort = new AbortController();
+  void bridgeStream(
+    ci.source({ terminalId: TERMINAL_ID }),
+    abort.signal,
+    (frame) => {
+      frames.push(frame);
+      resolveFirst(frame);
+    },
+    () => {},
+  );
+  return { frames, first, stop: () => abort.abort() };
+}
+
+/** Let every pending microtask run (fake timers do not advance microtasks). */
+const settle = (): Promise<void> => new Promise((r) => setImmediate(r));
+
+describe("padi's ciStatus session", () => {
+  it("dials only for subscribers, and only ONCE for many of them", async () => {
+    const fake = fakeDial(() => [row()]);
+    const ci = createCiStatusSource({ log: stubLog, dial: fake.dial });
+    seedTerminal(CHECKOUT);
+
+    // Nobody is looking: the session does not dial.
+    await settle();
+    expect(fake.dials()).toBe(0);
+
+    const a = openSubscription(ci);
+    const b = openSubscription(ci);
+    await a.first;
+    await b.first;
+    expect(fake.dials()).toBe(1);
+
+    a.stop();
+    b.stop();
+    await ci.dispose();
+  });
+
+  it("lets the link go only after the retire grace, not on the last unsubscribe", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout"] });
+    try {
+      const fake = fakeDial(() => [row()]);
+      const ci = createCiStatusSource({ log: stubLog, dial: fake.dial });
+      seedTerminal(CHECKOUT);
+      const sub = openSubscription(ci);
+      await sub.first;
+      expect(fake.disposals()).toBe(0);
+
+      // The last subscriber leaves: the session RETIRES, it does not die — the
+      // Inspector re-keys its subscription onto the focused pane, so a focus
+      // switch must not rebuild the dial (#2286's lesson).
+      sub.stop();
+      await settle();
+      expect(fake.disposals()).toBe(0);
+
+      await vi.advanceTimersByTimeAsync(30_000);
+      expect(fake.disposals()).toBe(1);
+      await ci.dispose();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("re-dials after a drop and opens the new link's board FRESH", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout"] });
+    try {
+      // The first link's board holds one run; the second link's holds another.
+      // A session that kept the old board would paint both.
+      const fake = fakeDial((dial) =>
+        dial === 1 ? [row({ runId: "run-1" })] : [row({ runId: "run-2" })],
+      );
+      const ci = createCiStatusSource({ log: stubLog, dial: fake.dial });
+      seedTerminal(CHECKOUT);
+      const sub = openSubscription(ci);
+      await sub.first;
+      expect(sub.frames.at(-1)).toMatchObject({
+        kind: "status",
+        latest: { run: { runId: "run-1" } },
+      });
+
+      // The link drops (the runs stream ends). The session re-dials on its own
+      // ladder and the new snapshot REPLACES the board.
+      await vi.advanceTimersByTimeAsync(5_000);
+      await settle();
+      expect(fake.dials()).toBe(2);
+      expect(sub.frames.at(-1)).toMatchObject({
+        kind: "status",
+        latest: { run: { runId: "run-2" } },
+        recent: [{ runId: "run-2" }],
+      });
+      sub.stop();
+      await ci.dispose();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

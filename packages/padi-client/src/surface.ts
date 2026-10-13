@@ -1641,7 +1641,12 @@ export const CI_STATUS_RECENT_RUNS = 5;
  *  The row and node shapes are odu's OWN (`@odu/service-client/surface`),
  *  carried verbatim: kolu paints four fields of a node and reads six of a row,
  *  but a narrowed copy here would be a second declaration of odu's contract —
- *  the thing kolu consumes odu's packages to avoid. */
+ *  the thing kolu consumes odu's packages to avoid.
+ *
+ *  No `arrayKey`, deliberately: a frame is an OBJECT (`latest` + `recent`), and
+ *  the declaration names an identity for a frame that IS an array — a store
+ *  reconcile it could not use would be a claim about a shape this member does
+ *  not have. */
 export const CiStatusInputSchema = Schema.Struct({
   terminalId: TerminalIdSchema,
 });

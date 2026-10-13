@@ -41,9 +41,11 @@
  * the ordinary state of a machine that has never run odu — and this module
  * turns that into `{ kind: "none" }` frames. Everything else (a daemon that
  * answers with a contract this build cannot speak, a socket somebody else
- * owns, a link that cannot speak the wire) is logged at ERROR and never
- * rendered as "no odu here": a face that hid a broken install behind a blank
- * panel would be lying about the machine.
+ * owns, a link that cannot speak the wire) is logged at ERROR **and fails the
+ * subscription**: the frame stays `none`/`status` and the failure rides the
+ * stream's own error channel, so a face draws an explicit failure rather than a
+ * blank. A blank is what "there is no odu here" looks like, and a broken
+ * install that renders as one is a lie about the machine.
  *
  * ## A KNOWN LIMIT, recorded rather than implied
  *
@@ -52,9 +54,8 @@
  * board event, a new run) or the subscription re-keys (a focus change, the
  * panel reopening). A `cd` in a focused terminal with a silent odu board is the
  * one window where the readout is about the checkout the terminal just left —
- * narrow, and self-healing on the next event, which is the trade the brief's
- * "resolve the terminal's checkout" design makes in exchange for padi being the
- * single authority on which checkout a terminal is in.
+ * narrow, and self-healing on the next event. That is the trade padi's being
+ * the single authority on which checkout a terminal is in costs.
  */
 
 import type { StreamingProcedure } from "@kolu/surface/client";
@@ -62,6 +63,7 @@ import type { CollectionDeltasMsg } from "@kolu/surface/define";
 import { contractIsCompatible } from "@kolu/surface-daemon";
 import type { SurfaceReadFace } from "@kolu/surface/project";
 import { pollOnEvent, streamFromAbortableSource } from "@kolu/surface/server";
+import { runsForCheckout } from "@odu/service-client/board";
 import { readServiceCell } from "@odu/service-client/dial";
 import {
   dialServiceSocket,
@@ -144,7 +146,21 @@ interface OduSession {
   epoch(): number;
   /** The live face, or null while nothing is serving. */
   connection(): ServiceSocketConnection | null;
+  /** The last FATAL dial failure — a daemon that answered and could not be used
+   *  — or null when the session is merely absent or connected. A subscriber
+   *  FAILS with it rather than rendering nothing: absence is a state a face
+   *  draws nothing for, and a broken install is not. */
+  failure(): Error | null;
+  /** Let the session go: stop the loop and drop any link it holds. */
+  dispose(): Promise<void>;
 }
+
+/** How long a dial AND its contract handshake may take before the session gives
+ *  up on that attempt. Loopback answers in microseconds and odu's own dial
+ *  bounds its first open at 3 s, so this is the same order of magnitude: a
+ *  bound-but-wedged daemon (a socket that accepts and then says nothing) must
+ *  not hold the loop open forever. */
+const DIAL_DEADLINE_MS = 3_000;
 
 /** Dial the daemon and REFUSE one this build cannot speak.
  *
@@ -155,21 +171,65 @@ interface OduSession {
 async function dialChecked(): Promise<ServiceSocketDial> {
   const dialed = await dialServiceSocket();
   if (dialed.kind === "absent") return dialed;
-  const cell = await Effect.runPromise(readServiceCell(dialed.client));
-  if (
-    !contractIsCompatible(
-      SERVICE_CONTRACT_VERSION,
-      cell.identity.protocolVersion,
-    )
-  ) {
+  try {
+    const cell = await Effect.runPromise(readServiceCell(dialed.client));
+    if (
+      !contractIsCompatible(
+        SERVICE_CONTRACT_VERSION,
+        cell.identity.protocolVersion,
+      )
+    ) {
+      throw new Error(
+        `padi: the odu daemon at ${dialed.socketPath} speaks service contract ` +
+          `${cell.identity.protocolVersion}, this build reads ` +
+          `${SERVICE_CONTRACT_VERSION} — upgrade the daemon or this kolu.`,
+      );
+    }
+    return dialed;
+  } catch (err) {
+    // A link nobody will use still holds the dial, ping and response fibers.
     await dialed.dispose();
-    throw new Error(
-      `padi: the odu daemon at ${dialed.socketPath} speaks service contract ` +
-        `${cell.identity.protocolVersion}, this build reads ` +
-        `${SERVICE_CONTRACT_VERSION} — upgrade the daemon or this kolu.`,
-    );
+    throw err;
   }
-  return dialed;
+}
+
+/** {@link dialChecked}, bounded and interruptible — `null` when the deadline or
+ *  the session's stop won the race. A dial that finishes AFTER either of those
+ *  has nobody to hand its link to, so it disposes it rather than leaking it. */
+function dialWithin(
+  signal: AbortSignal,
+  dial: () => Promise<ServiceSocketDial>,
+): Promise<ServiceSocketDial | null> {
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const done = (): boolean => {
+      if (settled) return false;
+      settled = true;
+      clearTimeout(timer);
+      signal.removeEventListener("abort", onAbort);
+      return true;
+    };
+    const onAbort = (): void => {
+      if (done()) resolve(null);
+    };
+    const timer = setTimeout(() => {
+      if (done()) resolve(null);
+    }, DIAL_DEADLINE_MS);
+    timer.unref?.();
+    signal.addEventListener("abort", onAbort, { once: true });
+    dial().then(
+      (dialed) => {
+        if (!done()) {
+          if (dialed.kind === "connected") void dialed.dispose();
+          return;
+        }
+        resolve(dialed);
+      },
+      (err) => {
+        if (done()) reject(err);
+      },
+    );
+  });
 }
 
 function createOduSession(
@@ -180,9 +240,13 @@ function createOduSession(
   let board: Board = new Map();
   let epoch = 0;
   let connection: ServiceSocketConnection | null = null;
-  let holders = 0;
-  let controller: AbortController | null = null;
+  let failure: Error | null = null;
+  let live: AbortController | null = null;
   let loop: Promise<void> | null = null;
+  /** Which loop is CURRENT. A loop that has been superseded (a retire that a
+   *  new subscriber raced) must not publish: its `finally` would otherwise
+   *  clear the board and the link its successor had just established. */
+  let generation = 0;
   let retire: NodeJS.Timeout | null = null;
 
   const announce = (): void => {
@@ -191,29 +255,44 @@ function createOduSession(
 
   /** The dial-and-follow loop. One iteration is one link's lifetime: dial,
    *  follow the board until the link or the stream dies, then start over. */
-  async function follow(signal: AbortSignal): Promise<void> {
+  async function follow(signal: AbortSignal, gen: number): Promise<void> {
     // Once per session, at debug: a readout that renders nothing must be
     // diagnosable ("is odu even installed here?") without a debugger.
     log.debug(
       { socketPath: serviceSocketPath() },
       "padi: odu ciStatus — dialling odu's service socket",
     );
+    const current = (): boolean => gen === generation && !signal.aborted;
     let delayMs = DIAL_RETRY_MIN_MS;
     while (!signal.aborted) {
       let dialed: ServiceSocketDial | null = null;
       try {
-        dialed = await dial();
+        dialed = await dialWithin(signal, dial);
       } catch (err) {
-        // A daemon that ANSWERED and could not be used. Not absence, and not
-        // transient: loud, and re-checked at the ceiling rather than the floor.
-        log.error(
-          { err },
-          "padi: odu ciStatus — the daemon refused this build",
-        );
+        // A daemon that ANSWERED and could not be used: a contract this build
+        // cannot speak, a socket somebody else owns, a link that cannot speak
+        // the wire. NOT absence — a subscriber fails with it rather than
+        // drawing nothing, and it is re-checked at the ceiling rather than the
+        // floor because the condition is not transient.
+        if (current()) {
+          log.error(
+            { err },
+            "padi: odu ciStatus — the daemon refused this build",
+          );
+          failure = err instanceof Error ? err : new Error(String(err));
+          announce();
+        }
         delayMs = DIAL_RETRY_MAX_MS;
       }
-      if (dialed === null || dialed.kind === "absent") {
-        if (connection !== null) {
+      if (dialed === null) {
+        // The deadline or the stop won. Nothing changed hands; retry.
+        if (signal.aborted) return;
+        await abortableDelay(delayMs, signal);
+        delayMs = Math.min(delayMs * 2, DIAL_RETRY_MAX_MS);
+        continue;
+      }
+      if (dialed.kind === "absent") {
+        if (current() && connection !== null) {
           connection = null;
           board = new Map();
           epoch += 1;
@@ -223,8 +302,14 @@ function createOduSession(
         delayMs = Math.min(delayMs * 2, DIAL_RETRY_MAX_MS);
         continue;
       }
+      if (!current()) {
+        // Stopped while dialling: the link is nobody's now.
+        await dialed.dispose();
+        return;
+      }
       delayMs = DIAL_RETRY_MIN_MS;
       connection = dialed;
+      failure = null;
       // A fresh link starts from a fresh board: the `deltas` stream's first
       // frame is a full snapshot, so this is a reset rather than a gap.
       board = new Map();
@@ -237,36 +322,48 @@ function createOduSession(
           ),
           signal,
           (message) => {
+            if (!current()) return;
             board = applyBoard(board, message);
             announce();
           },
+          // `bridgeStream` routes a stream failure here and keeps its promise,
+          // so this is the ordinary end of a subscription — an `odu web` that
+          // was stopped, not a defect in this process.
           (err) =>
-            log.error(
+            log.warn(
               { err },
-              "padi: odu ciStatus — the runs stream failed; re-dialling",
+              "padi: odu ciStatus — the runs stream ended; re-dialling",
             ),
         );
-      } catch (err) {
-        if (!signal.aborted) {
-          log.warn(
-            { err },
-            "padi: odu ciStatus — the runs stream dropped; re-dialling",
-          );
-        }
       } finally {
-        connection = null;
         await dialed.dispose();
+        if (current()) {
+          // The drop edge is the connect edge's mirror: nobody is serving, so
+          // the board goes with the link. A dead daemon must not keep painting
+          // a live board, and a subscriber that attaches in this window must
+          // not derive its first frame from one.
+          connection = null;
+          board = new Map();
+          epoch += 1;
+          announce();
+        }
       }
       if (signal.aborted) return;
       await abortableDelay(delayMs, signal);
     }
   }
 
-  const stopSession = (): void => {
-    controller?.abort();
-    controller = null;
-    loop = null;
-  };
+  /** Let the session go: stop the loop and wait for it, so an `attach` racing
+   *  this cannot start a second loop over the first one's teardown. */
+  async function stopSession(): Promise<void> {
+    const running = loop;
+    generation += 1;
+    const stopping = live;
+    live = null;
+    stopping?.abort();
+    if (running !== null) await running;
+    if (loop === running) loop = null;
+  }
 
   return {
     attach(onChange) {
@@ -275,21 +372,19 @@ function createOduSession(
         retire = null;
       }
       listeners.add(onChange);
-      holders += 1;
-      if (loop === null) {
-        controller = new AbortController();
-        loop = follow(controller.signal);
+      if (live === null) {
+        live = new AbortController();
+        loop = follow(live.signal, ++generation);
       }
       let detached = false;
       return () => {
         if (detached) return;
         detached = true;
         listeners.delete(onChange);
-        holders -= 1;
-        if (holders > 0) return;
+        if (listeners.size > 0) return;
         retire = setTimeout(() => {
           retire = null;
-          stopSession();
+          void stopSession();
         }, RETIRE_GRACE_MS);
         retire.unref?.();
       };
@@ -297,6 +392,8 @@ function createOduSession(
     board: () => board,
     epoch: () => epoch,
     connection: () => connection,
+    failure: () => failure,
+    dispose: stopSession,
   };
 }
 
@@ -315,25 +412,6 @@ function applyBoard(
   for (const [key, row] of message.upserts) next.set(key, row);
   for (const key of message.removes) next.delete(key);
   return next;
-}
-
-/** One checkout's runs, NEWEST `createdAt` first.
- *
- *  This equality is the whole join between the two systems: odu's `repoRoot` is
- *  the absolute checkout a run was started in, which is the same value padi's
- *  own git fact carries for a terminal (`git rev-parse --show-toplevel`).
- *  `runId` breaks a `createdAt` tie so the order is TOTAL — two runs registered
- *  in the same millisecond must not swap places between two reads of one board,
- *  because the Inspector re-derives on every delta and a list that reshuffles
- *  without anything having changed reads as activity. */
-function runsForCheckout(board: Board, checkoutRoot: string): RunRow[] {
-  const mine: RunRow[] = [];
-  for (const row of board.values()) {
-    if (row.repoRoot === checkoutRoot) mine.push(row);
-  }
-  return mine.sort(
-    (a, b) => b.createdAt - a.createdAt || (a.runId < b.runId ? -1 : 1),
-  );
 }
 
 /** A run's nodes in TRIAGE order — what broke, what is still moving, what is
@@ -366,18 +444,28 @@ function checkoutRootOf(terminalId: string): string | null {
   return git?.kind === "repo" ? git.info.repoRoot : null;
 }
 
-/** The `ciStatus` stream backing shape — the `source` thunk padi wires. */
+/** The `ciStatus` stream backing shape — the `source` thunk padi wires, plus
+ *  the session's teardown for the daemon's own lifetime (`servePadi`'s
+ *  `disposeStanding`: the session owns a ref'd socket handle, and a rebuild —
+ *  a test's, a restart's — must let the prior one go). */
 export interface CiStatusSourceDeps {
   source: (input: CiStatusInput) => Stream.Stream<CiStatusFrame>;
+  dispose: () => Promise<void>;
 }
 
 /** Build the `ciStatus` source. ONE session per padi, created here, shared by
- *  every subscription. */
+ *  every subscription.
+ *
+ *  `dial` is the seam the suite drives: counting dials, dropping a link
+ *  mid-session and staging a refusal are all facts about the SESSION, and the
+ *  real socket cannot stage them. Production uses {@link dialChecked}. */
 export function createCiStatusSource(deps: {
   log: Logger;
+  dial?: () => Promise<ServiceSocketDial>;
 }): CiStatusSourceDeps {
-  const session = createOduSession(deps.log, dialChecked);
+  const session = createOduSession(deps.log, deps.dial ?? dialChecked);
   return {
+    dispose: () => session.dispose(),
     // An async generator so teardown rides its `finally` — it fires whether the
     // subscription ends by the framework's abort OR by the consumer stopping
     // iteration (the stream signal is `AbortSignal | undefined`, so tying
@@ -444,11 +532,21 @@ export function createCiStatusSource(deps: {
                 serial += 1;
                 notify();
               },
-              (err) =>
+              (err) => {
                 deps.log.error(
                   { err, runId: wanted },
                   "padi: odu ciStatus — the nodes stream failed",
-                ),
+                );
+                // Forget what was being followed, or the guard above would
+                // block every reopen and freeze the lanes while the chip went
+                // on reporting the run. The next board event (or epoch) retries.
+                if (nodesAbort === ac) {
+                  nodesAbort = null;
+                  followedRunId = null;
+                  followedEpoch = -1;
+                  lanes = [];
+                }
+              },
             );
           };
 
@@ -459,7 +557,10 @@ export function createCiStatusSource(deps: {
           const frame = (): CiStatusFrame => {
             const checkoutRoot = checkoutRootOf(input.terminalId);
             if (checkoutRoot === null) return { kind: "none" };
-            const runs = runsForCheckout(session.board(), checkoutRoot);
+            const runs = runsForCheckout(
+              session.board().values(),
+              checkoutRoot,
+            );
             const latest = runs[0];
             if (latest === undefined) return { kind: "none" };
             return {
@@ -474,7 +575,7 @@ export function createCiStatusSource(deps: {
             const runs =
               checkoutRoot === null
                 ? []
-                : runsForCheckout(session.board(), checkoutRoot);
+                : runsForCheckout(session.board().values(), checkoutRoot);
             syncNodes(runs[0] ?? null);
             serial += 1;
             notify();
@@ -501,7 +602,7 @@ export function createCiStatusSource(deps: {
                 const runs =
                   checkoutRoot === null
                     ? []
-                    : runsForCheckout(session.board(), checkoutRoot);
+                    : runsForCheckout(session.board().values(), checkoutRoot);
                 syncNodes(runs[0] ?? null);
                 return unsubscribe;
               },
@@ -512,6 +613,11 @@ export function createCiStatusSource(deps: {
                   "padi: odu ciStatus — a frame read failed",
                 ),
             })) {
+              // A daemon that answered and cannot be read is NOT "nothing to
+              // show": the subscription fails with it, and the Inspector draws
+              // that failure rather than a blank.
+              const fatal = session.failure();
+              if (fatal !== null) throw fatal;
               yield item.frame;
             }
           } finally {

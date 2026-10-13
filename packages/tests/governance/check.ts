@@ -242,6 +242,23 @@ const effectPins = collectEffectPins(repoRoot);
 const effectVersion = validateEffectPins(
   effectPins,
   vendoredManifests(repoRoot),
+  // The grafted manifests, from the same artifact the consumer recipe is checked
+  // against — a manifest kolu does not own owes a literal, but must not be told
+  // to edit itself into one.
+  new Set(
+    Object.values(
+      (
+        JSON.parse(
+          readFileSync(
+            path.join(repoRoot, "nix", "consumer-closure.json"),
+            "utf8",
+          ),
+        ) as { members: Record<string, { dir?: string; pin?: unknown }> }
+      ).members,
+    )
+      .filter((member) => member.pin !== undefined && member.dir !== undefined)
+      .map((member) => `${member.dir}/package.json`),
+  ),
 );
 const betaAssumptions = collectBetaAssumptions(repoRoot);
 const effectVersionRefs = collectEffectVersionRefs(repoRoot);

@@ -16,12 +16,8 @@ import type { CiStatusFrame } from "@kolu/padi-client/surface";
 import { terminalKey } from "@kolu/terminal-vocab/terminalKey";
 import { agoPhrase, compactPhrase } from "@kolu/terminal-vocab/duration";
 import { shortSha } from "@odu/run-client/nodeId";
-import {
-  STATUS_META,
-  type RunBoardState,
-  type RunRow,
-  type StatusHue,
-} from "@odu/service-client/surface";
+import { runStatus, type StatusHue } from "@odu/service-client/board";
+import { STATUS_META, type RunRow } from "@odu/service-client/surface";
 import { type CheckStatus, type PrInfo, prValue } from "anyforge/schemas";
 import { prUnavailableSource } from "kolu-common/surface";
 import { type Component, createMemo, For, Show } from "solid-js";
@@ -89,27 +85,30 @@ const checksSummary = (counts: Record<CheckStatus, number>): string =>
     .map((o) => `${counts[o]} ${OUTCOME[o].word}`)
     .join(" · ");
 
-/** odu's board states, folded onto the chip vocabulary above.
+/** odu's hue column, mapped onto kolu's chip vocabulary — the ONLY place the
+ *  two palettes meet. odu assigns meaning to a hue (`BOARD_STATE` / `OUTCOME`,
+ *  read through its own `runStatus`); kolu assigns a tone and a glyph to its own
+ *  tokens, and nothing here re-reads a run's state.
  *
- *  `settled` is the one state whose word depends on the run's own pass flag, so
- *  it maps to `null` rather than to a guess; every other state is a decision,
- *  and a state odu adds is a compile error here rather than a silent default.
- *  `owner_lost`/`expired` read as failed for the reason odu's own board says:
- *  nothing is running the run and it did not pass, so "running" would leave a
- *  dead run spinning in this panel forever. */
-const ODU_STATE: Record<RunBoardState, CheckStatus | null> = {
-  provisioning: "pending",
-  running: "pending",
-  settled: null,
-  owner_lost: "fail",
-  expired: "fail",
+ *  `violet` is odu's "the owner is gone": a failure to a reader, and kolu's
+ *  `Chip` has no violet. */
+const ODU_TONE: Record<StatusHue, "neutral" | "ok" | "warning" | "danger"> = {
+  grey: "neutral",
+  amber: "warning",
+  green: "ok",
+  red: "danger",
+  violet: "danger",
 };
 
-/** odu's verdict for one row — read off the ROW (`state`/`passed`, odu's own
- *  fold), never re-judged from the lanes: the lanes only supply the failure
- *  COUNT, exactly as the CI chip above treats GitHub's checks. */
-const oduVerdict = (run: RunRow): CheckStatus =>
-  ODU_STATE[run.state] ?? (run.passed ? "pass" : "fail");
+/** The glyph a run's hue wears, in the same vocabulary as the CI chip above
+ *  (`✕`/`●`/`✓`), plus odu's own `⚠` for the violet "owner lost". */
+const ODU_GLYPH: Record<StatusHue, string> = {
+  grey: "○",
+  amber: "●",
+  green: "✓",
+  red: "✕",
+  violet: "⚠",
+};
 
 /** `<sha7>#<seq>` — the ref every odu face prints — plus odu's `+dirty` marker
  *  when the run tested a working tree that merely claimed that commit. `shortSha`
@@ -130,15 +129,6 @@ const LANE_HUE: Record<StatusHue, string> = {
   green: "text-ok",
   red: "text-danger",
   violet: "text-alert",
-};
-
-/** The chip tones' TEXT-only twins, for the rows that state a verdict without a
- *  chip (the recent-runs list). Keyed by the same `CheckStatus`, so the two can
- *  never disagree about which word is painted red. */
-const OUTCOME_TEXT: Record<CheckStatus, string> = {
-  fail: "text-danger",
-  pending: "text-warning",
-  pass: "text-ok",
 };
 
 /** The tiny label a disclosure's parts wear — the `Section` header's own type,
@@ -208,6 +198,10 @@ const WorkSection: Component<{
    *  no daemon on this host, or no runs — in which case nothing here renders.
    *  Optional so the section still renders in a test without a wire. */
   oduCi?: CiStatusFrame | null;
+  /** Why the readout FAILED, when it did — a daemon that answered and could not
+   *  be read is not "no odu here", so it gets a row of its own instead of the
+   *  blank that means absence. */
+  oduCiError?: string | null;
 }> = (props) => {
   /** The git facts AND their paint, as ONE value. Paint is a pure function of
    *  the SAME `git` the chips render — `assignColors` hues by key string alone,
@@ -294,26 +288,31 @@ const WorkSection: Component<{
       return null;
     }
     const { run, lanes } = frame.latest;
-    const status = oduVerdict(run);
-    const { word, glyph, tone } = OUTCOME[status];
+    // odu's own reading of a row: the verdict once there is one, and where the
+    // run has got to until then. A run torn down early settles `incomplete` and
+    // must not be painted `failed` — that sends a reader looking for a test
+    // that broke.
+    const status = runStatus(run);
+    const word = status.label;
     let failed = 0;
     for (const lane of lanes) if (STATUS_META[lane.status].isRed) failed += 1;
     return {
-      status,
       lanes,
       recent: frame.recent,
-      tone,
-      /** The rollup reads like the CI chip beside it: the count when there is
-       *  one to state, the verdict's own word otherwise — and always the ref
-       *  the run is known by, so a chip is never about an unnamed commit. */
-      label: `${glyph} ${
-        failed > 0 ? `${failed} ${word}` : `odu ${word}`
+      tone: ODU_TONE[status.hue],
+      /** The rollup reads like the CI chip beside it: a count only where there
+       *  IS one to state (the failed arm — the sibling counts the verdict's own
+       *  bucket, not a neighbouring one), the verdict's own word otherwise, and
+       *  always the ref the run is known by, so a chip is never about an
+       *  unnamed commit. */
+      label: `${ODU_GLYPH[status.hue]} ${
+        word === "failed" ? `${failed} ${word}` : `odu ${word}`
       } ${oduRef(run)}`,
       summary: `${lanes.length} ${lanes.length === 1 ? "lane" : "lanes"}${
         failed > 0 ? ` · ${failed} failed` : ""
       }`,
       /** Exceptions open their own list, the same rule the check list keeps. */
-      open: status === "fail",
+      open: word === "failed",
     };
   });
   /** A ticking clock for the recent-runs ages — one interval for the section,
@@ -424,6 +423,22 @@ const WorkSection: Component<{
           )}
         </Show>
 
+        {/* odu answered and could not be read: say so. Absence draws nothing
+         *  (below); a broken install must not look like one. */}
+        <Show when={props.oduCiError}>
+          {(reason) => (
+            <div
+              data-testid="inspector-odu-error"
+              class="flex items-start gap-1.5 pt-1 text-[11px] leading-snug text-warning"
+            >
+              <span aria-hidden="true">⚠</span>
+              <span class="min-w-0 break-words">
+                odu CI unavailable — {reason()}
+              </span>
+            </div>
+          )}
+        </Show>
+
         {/* odu's breakdown — reference tier, the same shape as the check list
          *  above: a rollup chip in the row, the detail behind one disclosure.
          *  Lanes of the LATEST run (already in triage order from padi), then
@@ -451,10 +466,11 @@ const WorkSection: Component<{
                           {STATUS_META[lane.status].glyph}
                         </span>
                         <span
-                          class="min-w-0 truncate font-mono"
+                          class={`min-w-0 truncate font-mono ${
+                            LANE_HUE[STATUS_META[lane.status].hue]
+                          }`}
                           classList={{
-                            "text-danger font-semibold":
-                              STATUS_META[lane.status].isRed,
+                            "font-semibold": STATUS_META[lane.status].isRed,
                           }}
                         >
                           {lane.id}
@@ -491,8 +507,8 @@ const WorkSection: Component<{
                       <span class="min-w-0 truncate font-mono">
                         {oduRef(run)}
                       </span>
-                      <span class={`shrink-0 ${OUTCOME_TEXT[oduVerdict(run)]}`}>
-                        {OUTCOME[oduVerdict(run)].word}
+                      <span class={`shrink-0 ${LANE_HUE[runStatus(run).hue]}`}>
+                        {runStatus(run).label}
                       </span>
                       {/* The head of this list IS the run the chip above is
                        *  about — said, rather than left to be inferred from an

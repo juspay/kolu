@@ -105,6 +105,9 @@ const DECLARED_ALLOWED = new Set([
   "@kolu/byte-units",
   "@kolu/padi-client",
   "@kolu/surface",
+  // The grafted `@odu/service-client`'s dial reaches it, so a consumer copying
+  // that directory copies this one too (its `packageExtensions` edge).
+  "@kolu/surface-app",
   "@kolu/surface-daemon",
   "@kolu/surface-daemon-supervisor",
   "@kolu/terminal-vocab",

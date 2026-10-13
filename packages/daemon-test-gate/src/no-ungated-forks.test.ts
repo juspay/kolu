@@ -433,7 +433,11 @@ function testFilesUnder(dir: string): string[] {
 
 function allTestFiles(): string[] {
   const files = new Set<string>();
+  // Grafted members are not kolu's to police: their tests are their own repo's
+  // CI's job, and every rule below would be reading another repo's style.
+  const grafted = graftedRoots();
   for (const root of workspacePackageRoots(REPO_ROOT)) {
+    if (grafted.has(root)) continue;
     for (const f of testFilesUnder(root)) files.add(f);
   }
   return [...files];
@@ -514,8 +518,8 @@ const LANE_SCRIPTS = ["test:unit", "test:daemon"] as const;
  *  copies out of an npins pin and never commits. Their suites are their own
  *  repo's CI's job, and kolu's `pnpm -r` filters skip them by name, so "runs in
  *  exactly one lane" is a rule they cannot satisfy and one that does not apply
- *  to them. Derived from the workspace file (an explicit path entry is a graft),
- *  so a fourth graft joins by being declared there. */
+ *  to them. `graftedMembers` reads the pin set from the emitted
+ *  `nix/consumer-closure.json`, the same artifact `consumer.nix` checks. */
 function graftedRoots(): Set<string> {
   return new Set(graftedMembers(REPO_ROOT).values());
 }

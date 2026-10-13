@@ -621,8 +621,9 @@ type PadiRpcFace = SurfaceClient<typeof padiEntrySurface.spec>["procedures"];
  *  → `unenrolledStreamCall`): the terminal re-attach (#1591) and the code tab's
  *  change pulses, whose transient re-subscribes must NOT flicker padi's `health()`
  *  gate, so they take the raw ref rather than the enrolling `.use()`. Every OTHER
- *  (enrolled) per-host stream rides `activeScope().wire` / `entry.streams.<key>.use`;
- *  this accessor is only the carve-out reach. */
+ *  (enrolled) per-host stream rides this same fused lens — `entry.streams.<key>.use`
+ *  through it, like the Inspector's `ciStatus` — so it is the ONE reach for both
+ *  the enrolled members and the carve-outs. */
 export const activePadiStreams = hostScoped.streams;
 
 /** The ACTIVE host's link-health value (`phase` + `log` tail), or `undefined` before its

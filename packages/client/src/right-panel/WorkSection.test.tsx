@@ -390,15 +390,18 @@ describe("WorkSection odu CI readout", () => {
     };
   }
 
+  /** Mount the section with a REACTIVE odu frame — the Inspector is fed changing
+   *  props (nothing remounts it), so the frame is a signal here for the same
+   *  reason `meta` is: a value snapshotted at first render freezes. */
   function mountWithOdu(frame: CiStatusFrame | null) {
-    const meta = createSignal(RESIZE_BUG);
+    const [oduCi, setOduCi] = createSignal<CiStatusFrame | null>(frame);
     host = document.createElement("div");
     document.body.append(host);
     dispose = render(
-      () => <WorkSection meta={meta[0]()} oduCi={frame} />,
+      () => <WorkSection meta={RESIZE_BUG} oduCi={oduCi()} />,
       host,
     );
-    return meta[1];
+    return setOduCi;
   }
 
   it("paints the rollup chip, the lanes and the recent runs", () => {
@@ -459,5 +462,81 @@ describe("WorkSection odu CI readout", () => {
     // count it has, and renders no list.
     expect(el("inspector-odu-lanes")).toBeNull();
     expect(el("inspector-odu")?.textContent).toContain("0 lanes");
+  });
+
+  it("repaints the chip, the lanes and the recent list when a NEW frame arrives", () => {
+    const setFrame = mountWithOdu({
+      kind: "status",
+      latest: {
+        run: oduRow({
+          state: "running",
+          settled: false,
+          passed: false,
+          outcome: null,
+        }),
+        lanes: [oduNode("ci::fmt@x86_64-linux", "running")],
+      },
+      recent: [oduRow({ state: "running", outcome: null })],
+    });
+    expect(text("inspector-odu-chip")).toBe("● odu running 0123456#3+dirty");
+    expect(el("inspector-odu-lanes")?.textContent).toContain(
+      "ci::fmt@x86_64-linux",
+    );
+
+    // The run settles: the same section, one prop change, no remount.
+    setFrame({
+      kind: "status",
+      latest: {
+        run: oduRow({ state: "settled", passed: false, outcome: "failed" }),
+        lanes: [oduNode("ci::fmt@x86_64-linux", "failed")],
+      },
+      recent: [oduRow({ state: "settled", outcome: "failed" })],
+    });
+    expect(text("inspector-odu-chip")).toBe("✕ 1 failed 0123456#3+dirty");
+    expect(el("inspector-odu-lanes")?.textContent).toContain("failed");
+  });
+
+  it("reads a torn-down run as INCOMPLETE, not failed (odu's own precedence)", () => {
+    // `passed: false` with `outcome: "incomplete"` is a cancel or an interrupt.
+    // odu's schema says painting it `failed` sends an operator looking for a
+    // test that broke, so the fold reads the OUTCOME once there is one.
+    mountWithOdu({
+      kind: "status",
+      latest: {
+        run: oduRow({
+          state: "settled",
+          passed: false,
+          outcome: "incomplete",
+          unresolvedFailures: 0,
+        }),
+        lanes: [oduNode("ci::fmt@x86_64-linux", "cancelled")],
+      },
+      recent: [oduRow({ state: "settled", outcome: "incomplete" })],
+    });
+    expect(text("inspector-odu-chip")).toBe("● odu incomplete 0123456#3+dirty");
+    expect(el("inspector-odu-recent")?.textContent).toContain("incomplete");
+    // Not an exception: an interrupted run does not open the list on its own.
+    expect(el("inspector-odu")?.hasAttribute("open")).toBe(false);
+  });
+
+  it("draws an explicit row when the readout FAILED — never a blank", () => {
+    host = document.createElement("div");
+    document.body.append(host);
+    dispose = render(
+      () => (
+        <WorkSection
+          meta={RESIZE_BUG}
+          oduCi={null}
+          oduCiError="the odu daemon at /tmp/x.sock speaks service contract 9.9"
+        />
+      ),
+      host,
+    );
+    expect(text("inspector-odu-error")).toContain("odu CI unavailable");
+    expect(text("inspector-odu-error")).toContain("9.9");
+    // A failure is not "nothing to show": the chip and the disclosure are absent
+    // (there is no frame), and the row is what stands in for them.
+    expect(el("inspector-odu-chip")).toBeNull();
+    expect(el("inspector-odu")).toBeNull();
   });
 });

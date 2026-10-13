@@ -34,6 +34,7 @@ import { readFileSync } from "node:fs";
 import { join, relative, sep } from "node:path";
 import {
   declaredDependencyClosure,
+  workspacePackageExtensions,
   workspacePackageRoots,
 } from "@kolu/daemon-test-gate/runtimeDepEdges";
 import { nixEvalJson, nixpkgsPreamble } from "./nixEval";
@@ -206,16 +207,23 @@ export function emitConsumerClosure(repoRoot: string): ConsumerClosure {
     });
   }
   const names = new Set(parsed.map((m) => m.name));
+  const extensions = workspacePackageExtensions(repoRoot);
 
   const members: Record<string, ClosureMember> = {};
   for (const { name, rel, manifest } of parsed) {
     // The SAME edge rule `declaredDependencyClosure` walks — `dependencies` +
-    // `peerDependencies`, never devDependencies, because a hydrating consumer
-    // installs a copied directory's declared RUNTIME edges. Spelled here rather
-    // than imported only because that helper answers a closure, not an
-    // adjacency; the rule itself must stay the same one, which is why it is
-    // named rather than paraphrased.
-    const declared = { ...manifest.dependencies, ...manifest.peerDependencies };
+    // `peerDependencies` (never devDependencies, because a hydrating consumer
+    // installs a copied directory's declared RUNTIME edges), plus what this
+    // workspace declares for the member in `packageExtensions`: a GRAFTED
+    // member's manifest cannot name the `@kolu/*` packages its source imports,
+    // and the consumer copying that directory still needs them. Spelled here
+    // rather than imported only because that helper answers a closure, not an
+    // adjacency; the rule itself is the shared reader's.
+    const declared = {
+      ...manifest.dependencies,
+      ...manifest.peerDependencies,
+      ...extensions.get(name),
+    };
     const workspace: string[] = [];
     const external: Record<string, string> = {};
     for (const dep of Object.keys(declared).sort()) {

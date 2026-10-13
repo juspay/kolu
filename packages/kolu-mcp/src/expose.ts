@@ -224,4 +224,9 @@ export const KOLU_MCP_DENIED: readonly { member: string; reason: string }[] = [
     reason:
       "input-bearing event — the wait tools consume exits internally; the terminals resource carries departures",
   },
+  {
+    member: "ciStatus",
+    reason:
+      "the Inspector's own readout — an input-bearing stream (a terminal id) whose subject is another daemon's board, not kolu's state; an agent asking about CI reads the checkout's runs through the tool that owns that question (and a resource that requires an input cannot be a static MCP resource). Recorded rather than omitted so a future widening argues against a reason, not an oversight",
+  },
 ] as const;
