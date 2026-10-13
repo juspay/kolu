@@ -308,7 +308,7 @@ export type ProvisionResult =
     };
 
 /** A provisioning step's failure — what a step that cannot succeed returns. */
-type ProvisionFailure = Extract<ProvisionResult, { ok: false }>;
+export type ProvisionFailure = Extract<ProvisionResult, { ok: false }>;
 
 /** Per-agent GC-root path for the realised output, or `null` when one
  *  can't be formed (see the localhost case below). Keyed on the .drv's
@@ -388,7 +388,7 @@ function multiOutputError(host: string, count: number): ProvisionResult {
  *  up NOW, decoupled from the retry counter — a permanently silent provision can't loop
  *  forever. The `cause` stays honest `"network"` (a silent-then-killed step is a transport
  *  fault); `terminal` is the orthogonal give-up axis the session's gate keys off. */
-function expiredResult(
+export function expiredResult(
   host: string,
   cmdLabel: string,
   budget: StepBudget,
@@ -413,7 +413,7 @@ function expiredResult(
  *  RETRYABLE `"network"` — never the bounded `"remote"` default — so a user
  *  abort never burns the give-up budget. `lifetime-expired` (our kill) never
  *  reaches here: each step intercepts its own kill inline via `expiredResult`. */
-function causeFor(res: NixRun): "network" | "remote" {
+export function causeFor(res: NixRun): "network" | "remote" {
   return res.kind === "aborted" || res.transportFailure ? "network" : "remote";
 }
 
@@ -423,7 +423,7 @@ function causeFor(res: NixRun): "network" | "remote" {
  * target-store operation. The preceding warm check/cold build may race a GC,
  * but their unrooted output is never treated as success: this operation either
  * re-establishes the target and its root together or fails the dial. */
-async function pinGcRoot(
+export async function pinGcRoot(
   host: string,
   keepalive: SshKeepalive,
   target: string,
@@ -487,7 +487,7 @@ const SIGNATURE_REFUSAL = /lacks a (?:valid )?signature/;
 /** The ONE shape of "the user's abort landed inside this provisioning step" —
  *  named per step, so an abort during the slow ship can never report the
  *  prefetch it had already finished. */
-function abortedDuring(host: string, step: string): ProvisionFailure {
+export function abortedDuring(host: string, step: string): ProvisionFailure {
   return {
     ok: false,
     reason: `${host}: provisioning aborted during ${step}`,
@@ -686,7 +686,7 @@ async function shipAgentClosure(opts: {
  *  local seat has no policy to state and passes `"localhost"`; the remote seat
  *  passes the dial's, where omitting it would open the warm check's master under
  *  the default one. */
-async function checkValidity(
+export async function checkValidity(
   target: string | SshDestination,
   outPath: string,
   opts: { signal: AbortSignal | undefined },

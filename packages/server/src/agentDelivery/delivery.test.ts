@@ -1,30 +1,29 @@
 /**
- * The delivery policy on fake Nix steps and fake hosts: what each host's padi
- * is told (delivering, then landed / failed with its cause), how a run ends
- * per host, that upstream's flake is locked ONCE per run (and reused within a
- * schedule period for a host's connect, afresh for the user's check and the
- * schedule), that a profile switch is its own delivery, and that the ONLY
- * route a bundle takes is `ops.deliver` — evaluated per distinct system once,
- * never built (no build op exists to call).
+ * The delivery policy on fake steps and fake hosts: what each host's padi is
+ * told (delivering, then landed / failed with its cause), how a run ends per
+ * host, that upstream's index is read ONCE per system per run (and reused
+ * within a schedule period for a host's connect, afresh for the user's check
+ * and the schedule), that a profile switch is its own delivery, and that the
+ * ONLY route a bundle takes is `ops.pull` of the index's content-addressed
+ * path — nothing is evaluated or built (no such op exists to call).
  */
 
 import type { AgentDistroDelivery } from "@kolu/agent-distro/bake";
+import type { CaIndexEntry } from "@kolu/agent-distro/caIndex";
 import type { AgentDistroDeliveryReport } from "@kolu/agent-distro/schema";
 import type { Logger } from "@kolu/log";
-import type { DeliverClosureResult } from "@kolu/surface-remote";
+import type { PullClosureResult } from "@kolu/surface-remote";
 import { describe, expect, it, vi } from "vitest";
 import {
+  BundleUnpublishedError,
   createAgentDelivery,
   type DeliveryHost,
   type DeliveryOps,
 } from "./delivery.ts";
 
 const BAKE: AgentDistroDelivery = {
-  flake: "github:juspay/agent-distro",
-  cache: {
-    url: "https://cache.example.org/agent-distro",
-    publicKey: "agent-distro-1:AAAAKEY=",
-  },
+  index: "https://index.example.org/ca-index",
+  cache: "https://cache.example.org/agent-distro",
   schedule: { periodSeconds: 21600, offsetSeconds: 7200 },
 };
 
@@ -37,60 +36,55 @@ const log = {
 
 const at = (iso: string) => Date.parse(iso);
 
-const outPathFor = (ref: string, system: string, profile: string) =>
-  `/nix/store/${ref}-${system}-${profile}-bundle`;
+/** The index's content-addressed path for the `n`th read of a system's
+ *  profile bundle. */
+const caFor = (n: number, system: string, profile: string) =>
+  `/nix/store/ca${n}-${system}-${profile}`;
 
-/** Fake Nix steps: each records its calls; `deliver` answers from `result`
- *  (per ssh), and can be held open with `hold`. */
+/** Fake steps: each records its calls; `pull` answers from `result` (per
+ *  ssh), and can be held open with `hold`. */
 function fakeOps(
   opts: {
     systems?: Record<string, string>;
     result?: (
       ssh: string,
-      outPath: string,
+      storePath: string,
       profile: string,
-    ) => DeliverClosureResult;
-    lockFails?: boolean;
+    ) => PullClosureResult;
+    published?: (
+      system: string,
+      profile: string,
+    ) => CaIndexEntry | Error | undefined;
   } = {},
 ) {
-  let locks = 0;
-  const outPathCalls: string[] = [];
-  const delivered: {
-    ssh: string;
-    system: string;
-    outPath: string;
-    profile: string;
-  }[] = [];
+  const reads: string[] = [];
+  const pulled: { ssh: string; storePath: string; profile: string }[] = [];
   let gate: Promise<void> | undefined;
   const ops: DeliveryOps = {
-    lock: async () => {
-      locks++;
-      if (opts.lockFails === true)
-        throw new Error("unable to download 'https://api.github.com/…'");
-      return `ref${locks}`;
-    },
     systemOf: async (ssh) => opts.systems?.[ssh] ?? "x86_64-linux",
-    outPath: async (ref, system, profile) => {
-      outPathCalls.push(`${ref}#${system}.${profile}`);
-      return outPathFor(ref, system, profile);
+    published: async (system, profile) => {
+      reads.push(`${system}.${profile}`);
+      const answer = opts.published?.(system, profile);
+      if (answer instanceof Error) throw answer;
+      const ca = caFor(reads.length, system, profile);
+      return answer ?? { rev: "f".repeat(40), ia: `${ca}-ia`, ca };
     },
-    deliver: async ({ ssh, system, outPath, profile }) => {
-      delivered.push({ ssh, system, outPath, profile });
+    pull: async ({ ssh, storePath, profile }) => {
+      pulled.push({ ssh, storePath, profile });
       if (gate !== undefined) await gate;
       return (
-        opts.result?.(ssh, outPath, profile) ?? {
+        opts.result?.(ssh, storePath, profile) ?? {
           ok: true,
-          outPath,
+          outPath: storePath,
         }
       );
     },
   };
   return {
     ops,
-    locks: () => locks,
-    outPathCalls,
-    delivered,
-    /** Hold every `deliver` open until the returned release is called. */
+    reads,
+    pulled,
+    /** Hold every `pull` open until the returned release is called. */
     hold: () => {
       let release!: () => void;
       gate = new Promise<void>((r) => {
@@ -134,133 +128,87 @@ function setup(opts: {
 }
 
 describe("createAgentDelivery", () => {
-  it("a landed delivery reports delivering, then landed with the outPath", async () => {
+  it("a landed delivery reports delivering, then landed with the index's content-addressed path", async () => {
     const nix = fakeOps();
     const local = fakeHost("local", "localhost", "laptop");
     const delivery = setup({ ops: nix.ops, hosts: [local.host] });
     const outcomes = await delivery.run({ trigger: "user" });
-    const out = outPathFor("ref1", "x86_64-linux", "vanilla");
+    const ca = caFor(1, "x86_64-linux", "vanilla");
     expect(outcomes).toEqual(["landed"]);
     expect(local.reports).toEqual([
       { kind: "delivering", profile: "vanilla" },
-      { kind: "landed", profile: "vanilla", bundle: out },
+      { kind: "landed", profile: "vanilla", bundle: ca },
     ]);
-    // The host's system rides to the route: it decides the form the bundle
-    // travels in.
-    expect(nix.delivered).toEqual([
-      {
-        ssh: "localhost",
-        system: "x86_64-linux",
-        outPath: out,
-        profile: "vanilla",
-      },
+    expect(nix.pulled).toEqual([
+      { ssh: "localhost", storePath: ca, profile: "vanilla" },
     ]);
     expect(delivery.running()).toBe(false);
   });
 
-  it("a Mac whose Nix refuses the signed bundle is a failure with Nix's words and the one-line fix", async () => {
-    const nix = fakeOps({
-      systems: { "srid@mac": "aarch64-darwin" },
-      result: () => ({
-        ok: false,
-        kind: "not-delivered",
-        why: "refused",
-        reason: "cannot add path because it lacks a signature by a trusted key",
-      }),
-    });
+  it("a Mac pulls the content-addressed bundle like any other host", async () => {
+    const nix = fakeOps({ systems: { "srid@mac": "aarch64-darwin" } });
     const mac = fakeHost("remote:mac", "srid@mac", "mac");
     const delivery = setup({ ops: nix.ops, hosts: [mac.host] });
+    expect(await delivery.run({ trigger: "user" })).toEqual(["landed"]);
+    expect(nix.reads).toEqual(["aarch64-darwin.vanilla"]);
+    expect(nix.pulled[0]?.storePath).toBe(
+      caFor(1, "aarch64-darwin", "vanilla"),
+    );
+  });
+
+  it("a system upstream has not published is a typed failure, and nothing is pulled", async () => {
+    const nix = fakeOps({
+      systems: { pi: "armv7l-linux" },
+      published: (system, profile) =>
+        new BundleUnpublishedError(system, profile),
+    });
+    const pi = fakeHost("remote:pi", "pi");
+    const delivery = setup({ ops: nix.ops, hosts: [pi.host] });
     expect(await delivery.run({ trigger: "user" })).toEqual(["failed"]);
-    expect(mac.reports.at(-1)).toEqual({
+    expect(pi.reports.at(-1)).toEqual({
       kind: "failed",
       profile: "vanilla",
-      message: `mac's Nix would not take the signed agents: cannot add path because it lacks a signature by a trusted key. On that Mac, add the login kolu connects as to \`nix.settings.trusted-users\`, or agent-distro's cache key (${BAKE.cache.publicKey}) to \`nix.settings.trusted-public-keys\`.`,
+      message:
+        "agent-distro has not published the vanilla agents for armv7l-linux yet",
     });
+    expect(nix.pulled).toEqual([]);
   });
 
-  it("kolu running on a Mac that refuses names THIS Mac and the user kolu runs as", async () => {
+  it("a pull the cache could not serve names the host, the path and the cache, in Nix's words", async () => {
     const nix = fakeOps({
-      systems: { localhost: "aarch64-darwin" },
       result: () => ({
         ok: false,
-        kind: "not-delivered",
-        why: "refused",
-        reason: "lacks a signature by a trusted key",
+        kind: "uncopied",
+        reason: "unable to download 'https://cache.example.org/…'",
       }),
     });
-    const local = fakeHost("local", "localhost", "laptop");
-    const delivery = setup({ ops: nix.ops, hosts: [local.host] });
+    const box = fakeHost("remote:box", "box");
+    const delivery = setup({ ops: nix.ops, hosts: [box.host] });
     expect(await delivery.run({ trigger: "user" })).toEqual(["failed"]);
-    const last = local.reports.at(-1);
+    const last = box.reports.at(-1);
     const message = last?.kind === "failed" ? last.message : "";
-    expect(message).toMatch(/^this Mac's Nix would not take the signed agents/);
-    expect(message).toContain("the user kolu runs as");
-    expect(message).not.toContain("connects as");
-  });
-
-  it("the machine running kolu refusing a Mac's signed agents names that machine, never the cache or the Mac", async () => {
-    const nix = fakeOps({
-      systems: { "srid@mac": "aarch64-darwin" },
-      result: () => ({
-        ok: false,
-        kind: "not-delivered",
-        why: "sender-refused",
-        reason: "lacks a signature by a trusted key",
-      }),
-    });
-    const mac = fakeHost("remote:mac", "srid@mac", "mac");
-    const delivery = setup({ ops: nix.ops, hosts: [mac.host] });
-    expect(await delivery.run({ trigger: "user" })).toEqual(["failed"]);
-    const last = mac.reports.at(-1);
-    const message = last?.kind === "failed" ? last.message : "";
-    expect(message).toMatch(
-      /^the Nix on the machine running kolu would not take mac's signed agents/,
+    expect(message).toBe(
+      `box could not pull the vanilla agents (${caFor(1, "x86_64-linux", "vanilla")}) from agent-distro's cache (${BAKE.cache}): unable to download 'https://cache.example.org/…'`,
     );
-    expect(message).toContain("On the machine running kolu");
-    expect(message).not.toMatch(/did not deliver/);
   });
 
   it("a failure is not remembered: a reconnect delivers again", async () => {
     let fail = true;
     const nix = fakeOps({
-      result: (_ssh, outPath) =>
+      result: (_ssh, storePath) =>
         fail
-          ? {
-              ok: false,
-              kind: "not-delivered",
-              why: "unshipped",
-              reason: "ssh dropped",
-            }
-          : { ok: true, outPath },
+          ? { ok: false, kind: "uncopied", reason: "ssh dropped" }
+          : { ok: true, outPath: storePath },
     });
     const box = fakeHost("remote:box", "box");
     const delivery = setup({ ops: nix.ops, hosts: [box.host] });
     expect(await delivery.run({ trigger: "user" })).toEqual(["failed"]);
     fail = false;
     expect(await delivery.run({ trigger: "connect" })).toEqual(["landed"]);
-    expect(nix.delivered).toHaveLength(2);
+    expect(nix.pulled).toHaveLength(2);
   });
 
-  it("an uncached bundle is a delivery failure, never a build", async () => {
-    const nix = fakeOps({
-      result: () => ({
-        ok: false,
-        kind: "not-delivered",
-        why: "uncached",
-        reason: "path is not valid and no substituter has it",
-      }),
-    });
-    const local = fakeHost("local", "localhost");
-    const delivery = setup({ ops: nix.ops, hosts: [local.host] });
-    expect(await delivery.run({ trigger: "user" })).toEqual(["failed"]);
-    const last = local.reports.at(-1);
-    expect(last).toMatchObject({ kind: "failed" });
-    const message = last?.kind === "failed" ? last.message : "";
-    expect(message).toContain(BAKE.cache.url);
-    expect(message).toContain("no substituter has it");
-  });
-
-  it("a delivery `failed` (root commit / abort) is a delivery failure", async () => {
+  it("a pull `failed` (root commit / abort) is a delivery failure", async () => {
     const nix = fakeOps({
       result: () => ({
         ok: false,
@@ -279,7 +227,7 @@ describe("createAgentDelivery", () => {
     });
   });
 
-  it("locks once for a multi-host run, and evaluates each distinct system once", async () => {
+  it("reads the index once per distinct system in a multi-host run", async () => {
     const nix = fakeOps({
       systems: {
         localhost: "x86_64-linux",
@@ -298,21 +246,22 @@ describe("createAgentDelivery", () => {
       "landed",
       "landed",
     ]);
-    expect(nix.locks()).toBe(1);
-    expect([...nix.outPathCalls].sort()).toEqual([
-      "ref1#aarch64-darwin.vanilla",
-      "ref1#x86_64-linux.vanilla",
+    expect([...nix.reads].sort()).toEqual([
+      "aarch64-darwin.vanilla",
+      "x86_64-linux.vanilla",
     ]);
-    // `deliver` is the only route a bundle takes — once per host, each with
-    // its own system's evaluated path.
-    expect(nix.delivered.map((d) => [d.ssh, d.outPath])).toEqual([
-      ["localhost", outPathFor("ref1", "x86_64-linux", "vanilla")],
-      ["a", outPathFor("ref1", "x86_64-linux", "vanilla")],
-      ["b", outPathFor("ref1", "aarch64-darwin", "vanilla")],
-    ]);
+    // `pull` is the only route a bundle takes — once per host, each with its
+    // own system's path.
+    const linux = nix.pulled.find((p) => p.ssh === "a")?.storePath;
+    expect(nix.pulled.find((p) => p.ssh === "localhost")?.storePath).toBe(
+      linux,
+    );
+    expect(nix.pulled.find((p) => p.ssh === "b")?.storePath).toMatch(
+      /aarch64-darwin/,
+    );
   });
 
-  it("reuses the period's lock unless asked afresh, and re-locks in the next period", async () => {
+  it("reuses the period's index answer for a connect, reads afresh for the user and the schedule, and re-reads in the next period", async () => {
     const nix = fakeOps();
     const local = fakeHost("local", "localhost");
     let now = at("2026-10-08T09:00:00Z");
@@ -322,33 +271,36 @@ describe("createAgentDelivery", () => {
       now: () => now,
     });
     await delivery.run({ trigger: "connect" });
-    expect(nix.locks()).toBe(1);
-    // Same period (08:00–14:00 UTC): a reconnect reuses the lock.
+    expect(nix.reads).toHaveLength(1);
+    // Same period (08:00–14:00 UTC): a reconnect reuses the answer.
     now = at("2026-10-08T13:00:00Z");
     await delivery.run({ trigger: "connect" });
-    expect(nix.locks()).toBe(1);
-    // The user's check locks afresh.
+    expect(nix.reads).toHaveLength(1);
+    // The user's check reads afresh.
     await delivery.run({ trigger: "user" });
-    expect(nix.locks()).toBe(2);
-    // Past the 14:00 boundary, even a reconnect re-locks.
+    expect(nix.reads).toHaveLength(2);
+    // Past the 14:00 boundary, even a reconnect re-reads.
     now = at("2026-10-08T14:01:00Z");
     await delivery.run({ trigger: "connect" });
-    expect(nix.locks()).toBe(3);
-    // The schedule locks afresh too.
+    expect(nix.reads).toHaveLength(3);
+    // The schedule reads afresh too.
     await delivery.run({ trigger: "schedule" });
-    expect(nix.locks()).toBe(4);
-    // Evaluation is shared WITHIN a run only, and follows the run's ref.
-    expect(nix.outPathCalls).toEqual([
-      "ref1#x86_64-linux.vanilla",
-      "ref1#x86_64-linux.vanilla",
-      "ref2#x86_64-linux.vanilla",
-      "ref3#x86_64-linux.vanilla",
-      "ref4#x86_64-linux.vanilla",
+    expect(nix.reads).toHaveLength(4);
+    // Each landing is the path its run's answer named.
+    expect(nix.pulled.map((p) => p.storePath)).toEqual([
+      caFor(1, "x86_64-linux", "vanilla"),
+      caFor(1, "x86_64-linux", "vanilla"),
+      caFor(2, "x86_64-linux", "vanilla"),
+      caFor(3, "x86_64-linux", "vanilla"),
+      caFor(4, "x86_64-linux", "vanilla"),
     ]);
   });
 
-  it("a lock failure fails every host's delivery and never delivers", async () => {
-    const nix = fakeOps({ lockFails: true });
+  it("an index that cannot be read fails every host on that system and never pulls", async () => {
+    const nix = fakeOps({
+      published: () =>
+        new Error("agent-distro's index answered HTTP 503 for https://…"),
+    });
     const hosts = [fakeHost("local", "localhost"), fakeHost("remote:a", "a")];
     const delivery = setup({ ops: nix.ops, hosts: hosts.map((h) => h.host) });
     expect(await delivery.run({ trigger: "user" })).toEqual([
@@ -361,13 +313,25 @@ describe("createAgentDelivery", () => {
         {
           kind: "failed",
           profile: "vanilla",
-          message: "unable to download 'https://api.github.com/…'",
+          message: "agent-distro's index answered HTTP 503 for https://…",
         },
       ]);
     }
-    expect(nix.locks()).toBe(1);
-    expect(nix.outPathCalls).toEqual([]);
-    expect(nix.delivered).toEqual([]);
+    expect(nix.reads).toHaveLength(1);
+    expect(nix.pulled).toEqual([]);
+  });
+
+  it("a failed read is not reused: the next connect reads again", async () => {
+    let down = true;
+    const nix = fakeOps({
+      published: () => (down ? new Error("HTTP 503") : undefined),
+    });
+    const local = fakeHost("local", "localhost");
+    const delivery = setup({ ops: nix.ops, hosts: [local.host] });
+    expect(await delivery.run({ trigger: "connect" })).toEqual(["failed"]);
+    down = false;
+    expect(await delivery.run({ trigger: "connect" })).toEqual(["landed"]);
+    expect(nix.reads).toHaveLength(2);
   });
 
   it("is a no-op while agents are off", async () => {
@@ -379,9 +343,9 @@ describe("createAgentDelivery", () => {
       bundle: () => undefined,
     });
     expect(await delivery.run({ trigger: "user" })).toEqual([]);
-    expect(nix.locks()).toBe(0);
+    expect(nix.reads).toEqual([]);
     expect(local.reports).toEqual([]);
-    expect(nix.delivered).toEqual([]);
+    expect(nix.pulled).toEqual([]);
   });
 
   it("a host already being delivered to is busy, and keeps its delivery", async () => {
@@ -391,11 +355,11 @@ describe("createAgentDelivery", () => {
     const delivery = setup({ ops: nix.ops, hosts: [local.host, box.host] });
     const release = nix.hold();
     const first = delivery.run({ keys: ["local"], trigger: "user" });
-    await vi.waitFor(() => expect(nix.delivered).toHaveLength(1));
+    await vi.waitFor(() => expect(nix.pulled).toHaveLength(1));
     expect(delivery.running()).toBe(true);
     // A second run over both: local is busy, box is delivered to.
     const second = delivery.run({ trigger: "connect" });
-    await vi.waitFor(() => expect(nix.delivered).toHaveLength(2));
+    await vi.waitFor(() => expect(nix.pulled).toHaveLength(2));
     release();
     expect(await first).toEqual(["landed"]);
     expect(await second).toEqual(["busy", "landed"]);
@@ -413,7 +377,7 @@ describe("createAgentDelivery", () => {
       await delivery.run({ keys: ["remote:box"], trigger: "user" }),
     ).toEqual(["landed"]);
     expect(local.reports).toEqual([]);
-    expect(nix.delivered.map((d) => d.ssh)).toEqual(["box"]);
+    expect(nix.pulled.map((d) => d.ssh)).toEqual(["box"]);
   });
 
   it("a host whose padi refuses the start report is failed and not delivered to", async () => {
@@ -430,7 +394,7 @@ describe("createAgentDelivery", () => {
       "failed",
       "landed",
     ]);
-    expect(nix.delivered.map((d) => d.ssh)).toEqual(["localhost"]);
+    expect(nix.pulled.map((d) => d.ssh)).toEqual(["localhost"]);
   });
 
   it("a profile switch mid-delivery is its own delivery, not busy", async () => {
@@ -444,14 +408,14 @@ describe("createAgentDelivery", () => {
     });
     const release = nix.hold();
     const first = delivery.run({ trigger: "connect" });
-    await vi.waitFor(() => expect(nix.delivered).toHaveLength(1));
+    await vi.waitFor(() => expect(nix.pulled).toHaveLength(1));
     profile = "pro";
     const second = delivery.run({ trigger: "connect" });
-    await vi.waitFor(() => expect(nix.delivered).toHaveLength(2));
+    await vi.waitFor(() => expect(nix.pulled).toHaveLength(2));
     release();
     expect(await first).toEqual(["landed"]);
     expect(await second).toEqual(["landed"]);
-    expect(nix.delivered.map((d) => d.profile)).toEqual(["vanilla", "pro"]);
+    expect(nix.pulled.map((d) => d.profile)).toEqual(["vanilla", "pro"]);
     // Each delivery told its own profile's story.
     const story = (p: string) =>
       box.reports.filter((r) => r.profile === p).map((r) => r.kind);
@@ -460,7 +424,7 @@ describe("createAgentDelivery", () => {
     expect(box.reports).toContainEqual({
       kind: "landed",
       profile: "pro",
-      bundle: outPathFor("ref1", "x86_64-linux", "pro"),
+      bundle: caFor(2, "x86_64-linux", "pro"),
     });
     expect(delivery.running()).toBe(false);
   });

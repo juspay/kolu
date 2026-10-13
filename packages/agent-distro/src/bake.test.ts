@@ -37,24 +37,19 @@ describe("parseAgentDistroProfiles", () => {
 
 describe("parseAgentDistroDelivery", () => {
   const delivery = {
-    flake: "github:juspay/agent-distro",
-    cache: {
-      url: "https://cache.example.org",
-      publicKey: "cache.example.org-1:AAAA",
-    },
+    index: "https://index.example.org/ca-index",
+    cache: "https://cache.example.org",
     schedule: { periodSeconds: 21600, offsetSeconds: 7200 },
   };
 
-  it("reads the flake, the cache and the schedule", () => {
+  it("reads the index, the cache and the schedule", () => {
     expect(parseAgentDistroDelivery(JSON.stringify(delivery))).toEqual(
       delivery,
     );
   });
-  it("throws on one with no cache key", () => {
+  it("throws on one with no index", () => {
     expect(() =>
-      parseAgentDistroDelivery(
-        JSON.stringify({ ...delivery, cache: { url: delivery.cache.url } }),
-      ),
+      parseAgentDistroDelivery(JSON.stringify({ ...delivery, index: "" })),
     ).toThrow();
   });
 });

@@ -475,11 +475,14 @@ framework's transparent re-subscribe re-lead with fresh truth.
 padi puts the coding agents of the user's chosen
 [agent-distro](https://github.com/juspay/agent-distro) profile on the PATH of
 every NEW terminal it spawns ([Agents](https://kolu.dev/agents)). It never
-FETCHES them: the binding kolu-server delivers each profile's bundle into this
-host's store (`packages/server/src/agentDelivery/`, over `@kolu/surface-remote`'s
-`deliverClosure`) and tells padi each step, and padi points the profile's
-`current` at what landed. A host needs neither flakes, GitHub egress, nor `nix`
-on padi's PATH for its agents. Three cells, one procedure (`padiSurface` 5.9,
+DECIDES what to fetch: the binding kolu-server reads the host's content-addressed
+build of each profile off agent-distro's published index, has this host pull it
+from agent-distro's cache over ssh (`packages/server/src/agentDelivery/`, over
+`@kolu/surface-remote`'s `pullClosure`: `nix copy --from <cache>` run on the host,
+then a GC root) and tells padi each step, and padi points the profile's `current`
+at what landed. For its agents a host needs only the ssh login, `nix` on that
+login's PATH and outbound HTTPS to the cache — no flakes, no GitHub egress, no
+Nix settings (the path is content-addressed, so no trust is asked). Three cells, one procedure (`padiSurface` 5.9,
 profile references 5.11, binder-side delivery 5.13) and one spawn layer carry
 it; the module is `src/agentDistro/`.
 

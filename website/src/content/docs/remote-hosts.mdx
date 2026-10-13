@@ -126,14 +126,14 @@ padi they talk to.
 
 The **coding agents** do not ride that closure. With [AI coding agents](/agents)
 on, the machine running kolu **delivers them** the first time a host connects:
-it reads the set from agent-distro's binary cache and copies it to the host
-over the same ssh login, the way the daemon itself travels — but never builds
-it. The host downloads nothing itself, so it needs no flakes, no GitHub access
-and no cache settings for its agents. A Linux host gets the set
-content-addressed, which its Nix takes without trusting your login or any key;
-a Mac must trust one of the two ([When a delivery
-fails](/agents#when-a-delivery-fails)). The host's tab shows the delivery until
-it lands. From then on kolu keeps the host current,
+it looks up the host's build of the set in agent-distro's published index and,
+over the same ssh login, has the host download that build straight from
+agent-distro's binary cache — never building it. For its agents a host needs
+only that login, `nix` on the login's PATH and outbound HTTPS to the cache: no
+flakes, no GitHub access, no Nix settings. The set is content-addressed, so its
+Nix — Linux or Mac — takes it without trusting your login or any key ([When a
+delivery fails](/agents#when-a-delivery-fails)). The host's tab shows the
+delivery until it lands. From then on kolu keeps the host current,
 four times a day and whenever it reconnects; its tab shows each update arriving
 while the agents it has keep working ([Kept up to
 date](/agents#kept-up-to-date)). Nothing compiles agents, on either machine.

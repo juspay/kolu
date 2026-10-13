@@ -187,13 +187,14 @@ The coding agents kolu puts on terminals' PATH ([AI coding agents](/agents)) fol
 different rule. On the machine running kolu they ship inside kolu itself — every profile —
 so they come down with kolu from the same cache on the two systems the cache is
 filled for (x86_64 Linux and Apple Silicon). On aarch64 Linux the cache has no
-build of them, so the first `nix run` there compiles them, which takes a while. A remote host
-downloads nothing itself: this machine reads the host's set from agent-distro's
-cache (the same `https://cache.nixos.asia/oss` above) and copies it to the host
-over ssh, never building it — and keeps every machine current the same way,
-four times a day ([Kept up to date](/agents#kept-up-to-date)). It travels
-content-addressed to a Linux host, so neither this machine's Nix nor the
-host's has to trust anything; a Mac needs the trust above (see [When a delivery
+build of them, so the first `nix run` there compiles them, which takes a while. For a
+remote host this machine needs none of that: it reads which build the host needs
+from agent-distro's published index and has the **host** download it over its own
+HTTPS from agent-distro's cache (the same `https://cache.nixos.asia/oss` above),
+never building it — and keeps every machine current the same way, four times a
+day ([Kept up to date](/agents#kept-up-to-date)). The set is content-addressed,
+so no machine's Nix — this one's, a Linux host's or a Mac's — has to trust
+anything, and the block above is not needed for it (see [When a delivery
 fails](/agents#when-a-delivery-fails)). On the machine running kolu, the set
 kolu shipped with keeps working either way.
 

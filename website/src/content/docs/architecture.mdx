@@ -468,18 +468,20 @@ _out_. The map, grouped:
   `terminal-protocol`, `transcript-core` / `transcript-html`, `agent-distro`
   (kolu's contract with upstream [agent-distro](https://github.com/juspay/agent-distro):
   its Nix half builds the agents' local floor, writes the floor's manifest, the
-  profiles listing and kolu-server's delivery bake (upstream's flake, cache and
-  schedule) and bakes and proves them onto each wrapper; its TypeScript half
+  profiles listing and kolu-server's delivery bake (upstream's content-addressed
+  index, cache and schedule) and bakes and proves them onto each wrapper; its TypeScript half
   holds the listing (composed from each bundle's own `profile.json` and versions
   file), the bake readers, upstream's schedule and due rule, its history log
   (read and written) and a bundle's versions file, the manifest reader, the
   setting, delivery-report, status and receipt value schemas padi's cells
   carry, the wording, and the logo — padi, padi-client, the server and the
   client import it; it imports none of them. The agents themselves are
-  **delivered by kolu-server**: it fetches each host's set from agent-distro's
-  cache and ships it over ssh through `surface-remote`'s `deliverClosure` —
-  content-addressed to a Linux host, so no Nix there or here has to trust it —
-  never building it, and that host's padi only points `current` at what landed),
+  **delivered by kolu-server** without Nix of its own: it reads each host's
+  content-addressed build off agent-distro's published index (one HTTPS GET per
+  system) and has the host pull it from the cache over ssh through
+  `surface-remote`'s `pullClosure` — content-addressed, so no Nix anywhere has
+  to trust it — never building it, and that host's padi only points `current`
+  at what landed),
   and a set of
   zero-dependency utilities (`log`, `nonempty`, `shell-quote`, `html-escape`, `byte-units` — the one way kolu writes a byte count, in binary units, …).
 

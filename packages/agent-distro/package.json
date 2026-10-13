@@ -10,6 +10,7 @@
     "./inEffect": "./src/inEffect.ts",
     "./bundle": "./src/bundle.ts",
     "./bake": "./src/bake.ts",
+    "./caIndex": "./src/caIndex.ts",
     "./manifest": "./src/manifest.ts",
     "./profileFile": "./src/profileFile.ts",
     "./schema": "./src/schema.ts",

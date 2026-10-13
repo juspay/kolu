@@ -20,9 +20,6 @@ export {
 export {
   AgentSourceUnbakedError,
   type AgentResolutionContext,
-  type FlakeEvaluationOptions,
-  lockFlake,
-  resolveFlakeOutPath,
   readBakedAgentSource,
   resolveBakedAgentDrv,
   SURFACE_AGENT_FLAKE_REF_ENV,
@@ -93,6 +90,11 @@ export {
   provisionAgent,
   type StepBudget,
 } from "./nixCopy";
+export {
+  type PullClosureOptions,
+  type PullClosureResult,
+  pullClosure,
+} from "./pullClosure";
 export {
   type CaptureResult,
   type ExitResult,

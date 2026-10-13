@@ -32,10 +32,14 @@ result names the path the host now holds. When it does not land, it says why:
 not in the cache (`uncached`), refused by a darwin host's Nix, which trusts
 neither the login nor the cache's key (`refused`), refused by your own Nix
 before the host was asked (`sender-refused`), or a copy that failed otherwise
-(`unshipped`). The path to
-deliver comes from `lockFlake` and `resolveFlakeOutPath` — the same local
-evaluator `resolveAgentDrv` runs on. kolu delivers its coding agents to every
-host this way.
+(`unshipped`).
+
+When the path is already published content-addressed in a cache, the host can
+fetch it itself: `pullClosure` runs `nix copy --from <cache>` **on the host**
+(after a warm check), then roots it — no bytes through your machine, no Nix
+evaluation, and no trust setting on the host, since `--from` reads a store
+directly and a content-addressed path needs no signature. kolu delivers its
+coding agents to every host this way.
 
 By default a dial's ssh gives up on a peer that has not answered a probe for
 ~30s. That is the right answer while someone is watching a host; an unattended

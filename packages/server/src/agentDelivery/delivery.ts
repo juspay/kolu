@@ -1,49 +1,62 @@
 /**
  * Delivering agent-distro's bundles to every host — kolu-server's half of the
- * Agents setting. ONE closure-delivery route (`@kolu/surface-remote`'s
- * `deliverClosure`, the route padi itself rides to a host), driven on
- * agent-distro's clock, not kolu's: upstream's flake is locked once per run,
- * each host's bundle is evaluated for that host's system, read out of
- * agent-distro's binary cache, shipped to the host (content-addressed to a
- * Linux host, so no Nix setting anywhere has to trust it) and rooted there —
- * and NEVER built, on any arm. The host's padi is told each step
- * (`agentDistro.report`) and points `current` at what landed.
+ * Agents setting, driven on agent-distro's clock, not kolu's. The binder runs
+ * no Nix for it and moves no bundle bytes: per run it reads, for each bound
+ * host's system, upstream's content-addressed index
+ * (`@kolu/agent-distro/caIndex`) — which store path that system's bundle is —
+ * and has the HOST pull that path straight from agent-distro's binary cache
+ * and root it (`@kolu/surface-remote`'s `pullClosure`). The path is
+ * content-addressed, so no Nix on the host has to trust anything; nothing is
+ * ever evaluated, rewritten or built, on any arm. The host's padi is told each
+ * step (`agentDistro.report`) and points `current` at what landed.
  *
  * Why a run happens decides one thing ({@link DeliveryTrigger}): a host taking
  * the setting (`connect`: every bind, reconnect and real change) reuses the
- * current schedule period's lock — a reconnect does not re-ask GitHub — while
- * the user's check (`user`) and upstream's schedule (`schedule`) lock afresh.
+ * current schedule period's index answer — a reconnect does not re-ask GitHub
+ * — while the user's check (`user`) and upstream's schedule (`schedule`) read
+ * the index afresh. Within one run each system's answer is read once.
  *
- * The Nix steps are {@link DeliveryOps} (`./nix.ts` in production, which
- * holds none of its own: every step is `@kolu/surface-remote`'s), so the
- * policy here is testable without Nix.
+ * The steps are {@link DeliveryOps} (`./ops.ts` in production), so the policy
+ * here is testable without a network or a host.
  */
 
 import type { AgentDistroDelivery } from "@kolu/agent-distro/bake";
+import type { CaIndexEntry } from "@kolu/agent-distro/caIndex";
 import type { AgentDistroDeliveryReport } from "@kolu/agent-distro/schema";
 import { updateDue } from "@kolu/agent-distro/schedule";
 import type { Logger } from "@kolu/log";
-import { type DeliverClosureResult, isLocalHost } from "@kolu/surface-remote";
+import type { PullClosureResult } from "@kolu/surface-remote";
 
-/** The Nix steps of a delivery. Each throws with Nix's own words. */
+/** The steps of a delivery. Each throws with its own words. */
 export interface DeliveryOps {
-  /** Lock upstream's flake now: the locked ref. */
-  lock(): Promise<string>;
   /** The Nix system of the host `ssh` reaches (`localhost` for this one). */
   systemOf(ssh: string): Promise<string>;
-  /** The output path of `profile`'s bundle for `system` at `ref` — evaluated,
-   *  never built. */
-  outPath(ref: string, system: string, profile: string): Promise<string>;
-  /** The route: get `outPath` into the host's store from the cache and root
-   *  it there, never building. `system` is the host's (it decides the form
-   *  the bundle travels in); the result names the path the host holds. */
-  deliver(args: {
+  /** `profile`'s newest published bundle for `system`, read off upstream's
+   *  index. Throws {@link BundleUnpublishedError} when upstream has published
+   *  none for that system; anything else unexpected throws loud. */
+  published(system: string, profile: string): Promise<CaIndexEntry>;
+  /** The route: have the host pull `storePath` from the cache and root it —
+   *  never building. */
+  pull(args: {
     readonly ssh: string;
-    readonly system: string;
-    readonly outPath: string;
+    readonly storePath: string;
     readonly profile: string;
     readonly onProgress: (line: string) => void;
-  }): Promise<DeliverClosureResult>;
+  }): Promise<PullClosureResult>;
+}
+
+/** Upstream's index has no entry for this system and profile — it has not
+ *  published that bundle (yet). Never a reason to evaluate or build one. */
+export class BundleUnpublishedError extends Error {
+  constructor(
+    readonly system: string,
+    readonly profile: string,
+  ) {
+    super(
+      `agent-distro has not published the ${profile} agents for ${system} yet`,
+    );
+    this.name = "BundleUnpublishedError";
+  }
 }
 
 /** A host a delivery can reach: its pool key, how the route reaches it, how
@@ -72,36 +85,26 @@ export interface AgentDelivery {
     readonly keys?: readonly string[];
     readonly trigger: DeliveryTrigger;
   }): Promise<readonly HostOutcome[]>;
-  /** A delivery (or the lock before one) is in flight. */
+  /** A delivery is in flight. */
   running(): boolean;
 }
 
-/** The words for a delivery that did not land, by how it did not — Nix's own
- *  line inside kolu-server's. A Linux host is sent the content-addressed
- *  bundle, which no Nix refuses; only a Mac's signed bundle can be refused —
- *  by the Mac's Nix, or by this machine's while taking it from the cache —
- *  and each refusal carries the one-line fix for the machine that refused. */
+/** The words for a pull that did not land — Nix's own line inside
+ *  kolu-server's. */
 function notDeliveredMessage(
   bake: AgentDistroDelivery,
   host: DeliveryHost,
   profile: string,
-  system: string,
-  res: Exclude<DeliverClosureResult, { ok: true }>,
+  storePath: string,
+  res: Exclude<PullClosureResult, { ok: true }>,
 ): string {
-  if (res.kind === "failed") return res.reason;
-  switch (res.why) {
-    case "refused":
-      return isLocalHost(host.ssh)
-        ? `this Mac's Nix would not take the signed agents: ${res.reason}. Add the user kolu runs as to \`nix.settings.trusted-users\`, or agent-distro's cache key (${bake.cache.publicKey}) to \`nix.settings.trusted-public-keys\`.`
-        : `${host.label}'s Nix would not take the signed agents: ${res.reason}. On that Mac, add the login kolu connects as to \`nix.settings.trusted-users\`, or agent-distro's cache key (${bake.cache.publicKey}) to \`nix.settings.trusted-public-keys\`.`;
-    case "sender-refused":
-      return `the Nix on the machine running kolu would not take ${host.label}'s signed agents from agent-distro's cache (${bake.cache.url}), so ${host.label} was never asked: ${res.reason}. On the machine running kolu, add the user kolu runs as to \`nix.settings.trusted-users\`, or agent-distro's cache key (${bake.cache.publicKey}) to \`nix.settings.trusted-public-keys\`.`;
-    case "uncached":
-      return `agent-distro's cache (${bake.cache.url}) did not deliver the ${profile} agents for ${system} — kolu never builds them: ${res.reason}`;
-    case "unshipped":
-      return `could not copy the agents to ${host.label}: ${res.reason}`;
+  switch (res.kind) {
+    case "failed":
+      return res.reason;
+    case "uncopied":
+      return `${host.label} could not pull the ${profile} agents (${storePath}) from agent-distro's cache (${bake.cache}): ${res.reason}`;
     default:
-      return res.why satisfies never;
+      return res satisfies never;
   }
 }
 
@@ -119,33 +122,42 @@ export function createAgentDelivery(deps: {
 }): AgentDelivery {
   const { bake, ops, log } = deps;
   const now = deps.now ?? Date.now;
-  let lock: { readonly ref: string; readonly at: number } | undefined;
-  let locking: Promise<string> | undefined;
+  /** The last index answer per `system#profile`, and when it was read: a
+   *  host's connect reuses it within the schedule period. */
+  const known = new Map<
+    string,
+    { readonly entry: CaIndexEntry; readonly at: number }
+  >();
   /** Deliveries in flight, by `host#bundle`: a switch to ANOTHER profile is
    *  its own delivery, never folded into the one still running. */
   const inFlight = new Set<string>();
 
-  /** The locked ref: a fresh lock, or the current period's when allowed. One
-   *  lock at a time — concurrent asks share it. */
-  const lockedRef = (fresh: boolean): Promise<string> => {
-    const t = Math.floor(now() / 1000);
+  /** `profile`'s bundle for `system`: the period's known answer when allowed,
+   *  else a fresh read of the index (remembered on success). */
+  const readIndex = async (
+    system: string,
+    profile: string,
+    fresh: boolean,
+  ): Promise<CaIndexEntry> => {
+    const key = `${system}#${profile}`;
+    const last = known.get(key);
     if (
       !fresh &&
-      lock !== undefined &&
-      !updateDue(t, Math.floor(lock.at / 1000), bake.schedule)
+      last !== undefined &&
+      !updateDue(
+        Math.floor(now() / 1000),
+        Math.floor(last.at / 1000),
+        bake.schedule,
+      )
     )
-      return Promise.resolve(lock.ref);
-    locking ??= ops
-      .lock()
-      .then((ref) => {
-        lock = { ref, at: now() };
-        log.info({ ref }, "agent-distro locked");
-        return ref;
-      })
-      .finally(() => {
-        locking = undefined;
-      });
-    return locking;
+      return last.entry;
+    const entry = await ops.published(system, profile);
+    known.set(key, { entry, at: now() });
+    log.info(
+      { system, agentDistroProfile: profile, rev: entry.rev, ca: entry.ca },
+      "agent-distro index read",
+    );
+    return entry;
   };
 
   const report = async (
@@ -169,20 +181,16 @@ export function createAgentDelivery(deps: {
   const deliverOne = async (
     host: DeliveryHost,
     profile: string,
-    ref: Promise<string>,
-    /** One evaluation per system per run, shared by its hosts. */
-    outPathFor: (ref: string, system: string) => Promise<string>,
+    /** One index read per system per run, shared by its hosts. */
+    bundleFor: (system: string) => Promise<CaIndexEntry>,
   ): Promise<HostOutcome> => {
     const at = { host: host.label, agentDistroProfile: profile };
-    let system = "?";
     try {
-      const locked = await ref;
-      system = await ops.systemOf(host.ssh);
-      const out = await outPathFor(locked, system);
-      const res = await ops.deliver({
+      const system = await ops.systemOf(host.ssh);
+      const { ca } = await bundleFor(system);
+      const res = await ops.pull({
         ssh: host.ssh,
-        system,
-        outPath: out,
+        storePath: ca,
         profile,
         onProgress: (line) =>
           log.debug({ ...at, line }, "agent-distro delivery"),
@@ -195,7 +203,7 @@ export function createAgentDelivery(deps: {
         );
         return "landed";
       }
-      const message = notDeliveredMessage(bake, host, profile, system, res);
+      const message = notDeliveredMessage(bake, host, profile, ca, res);
       log.warn({ ...at, message }, "agent-distro bundle not delivered");
       await report(host, { kind: "failed", profile, message });
       return "failed";
@@ -208,7 +216,7 @@ export function createAgentDelivery(deps: {
   };
 
   return {
-    running: () => inFlight.size > 0 || locking !== undefined,
+    running: () => inFlight.size > 0,
     run: async ({ keys, trigger }) => {
       const profile = deps.bundle();
       if (profile === undefined) return [];
@@ -242,19 +250,19 @@ export function createAgentDelivery(deps: {
           ...ours.filter((h) => !live.includes(h)).map(() => "failed" as const),
         );
         if (live.length === 0) return outcomes;
-        const ref = lockedRef(trigger !== "connect");
-        const evaluations = new Map<string, Promise<string>>();
-        const outPathFor = (locked: string, system: string) => {
-          let out = evaluations.get(system);
-          if (out === undefined) {
-            out = ops.outPath(locked, system, profile);
-            evaluations.set(system, out);
+        const fresh = trigger !== "connect";
+        const reads = new Map<string, Promise<CaIndexEntry>>();
+        const bundleFor = (system: string) => {
+          let entry = reads.get(system);
+          if (entry === undefined) {
+            entry = readIndex(system, profile, fresh);
+            reads.set(system, entry);
           }
-          return out;
+          return entry;
         };
         outcomes.push(
           ...(await Promise.all(
-            live.map((h) => deliverOne(h, profile, ref, outPathFor)),
+            live.map((h) => deliverOne(h, profile, bundleFor)),
           )),
         );
         return outcomes;
