@@ -141,7 +141,7 @@ function projectState(
 
 /** Where provisioning may PREFETCH this agent's binaries from — REQUIRED on
  *  every derivation, since a cache-blind provisioning path is unspellable. A
- *  real deployment DERIVES it (`readBakedBinaryCache(source)` reads what
+ *  real deployment DERIVES it (`readBakedBinaryCache(source).binaryCache` is what
  *  `mkProvenAgentSource` baked from the flake's own `nixConfig`, so the
  *  TypeScript and the Nix cannot disagree); a fleet whose `.drv` comes bare
  *  from the environment states one inline, ONCE, against a reserved-invalid

@@ -6,17 +6,37 @@
  * public API.
  */
 
-export { type HostNix, resolveHostNix, resolveSystem } from "./arch";
+export { type HostNix, resolveHostNix } from "./arch";
 export {
   type AgentBinaryCache,
   agentBinaryCache,
   AgentBinaryCacheUnbakedError,
+  type BakedBinaryCache,
   readBakedBinaryCache,
 } from "./agentBinaryCache";
 export {
   type AgentDerivation,
   directAgentDerivation,
+  type IndexedClosure,
 } from "./agentDerivation";
+export {
+  type ClosureIndex,
+  ClosureIndexError,
+  type ClosureKey,
+  type ClosureLookup,
+  closureIndexUrl,
+  type FetchText,
+  fetchClosureIndex,
+  type PublishedClosure,
+  readPublishedClosure,
+} from "./closureIndex";
+export {
+  CA_LINES,
+  type ClosureRoute,
+  closureRoute,
+  type SignedBecause,
+  signedBecause,
+} from "./closureRoute";
 export {
   AgentSourceUnbakedError,
   type AgentResolutionContext,
@@ -84,13 +104,11 @@ export {
   type ProvisionOptions,
   type ProvisionResult,
   provisionAgent,
-  type StepBudget,
-} from "./nixCopy";
-export {
   type PullClosureOptions,
   type PullClosureResult,
   pullClosure,
-} from "./pullClosure";
+  type StepBudget,
+} from "./nixCopy";
 export {
   type CaptureResult,
   type ExitResult,

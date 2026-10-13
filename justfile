@@ -303,6 +303,7 @@ client:
 # neither. This is the safe reach a workstation can run beside a live kolu.
 test-unit: install
     {{ nix_shell }} pnpm -r {{ pnpm_vendored_filter }} --workspace-concurrency=1 test:unit
+    {{ nix_shell }} python3 .github/actions/publish-closure/test-publish-closure.py
 
 # Regenerate `nix/consumer-closure.json` — the workspace adjacency an out-of-repo
 # consumer walks to turn its SEED list into the package set it hydrates. Derived

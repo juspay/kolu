@@ -12,6 +12,7 @@
 
 import { readFileSync } from "node:fs";
 import { Result as EffectResult, Schema } from "effect";
+import { ClosureIndexSchema, type ClosureIndex } from "./closureIndex";
 import { ResolveDrvError } from "./host";
 import agentEnv from "../agent-env.json" with { type: "json" };
 import { err, ok, type Result } from "neverthrow";
@@ -103,6 +104,19 @@ export function agentBinaryCache(raw: {
   };
 }
 
+/** What a baked source's {@link AGENT_BINARY_CACHE_FILE} declares: the caches
+ * its closures come from, and the content-addressed index they are published
+ * on — `null` when the source states it publishes none (`closureIndex = null`
+ * on `mkProvenAgentSource`): explicit absence, never a guessed index. */
+export interface BakedBinaryCache {
+  readonly binaryCache: AgentBinaryCache;
+  readonly index: ClosureIndex | null;
+}
+
+const BakedIndexSchema = Schema.Struct({
+  index: Schema.NullOr(ClosureIndexSchema),
+});
+
 /** The baked source predates (or violates) the binary-cache contract. Same
  * family as `AgentSourceUnbakedError`: a source-configuration fault of the
  * wrapper, not a transport fact — provisioning refuses to run cache-blind
@@ -130,7 +144,8 @@ export class AgentBinaryCacheUnbakedError extends ResolveDrvError {
   }
 }
 
-/** Read and validate the baked source's {@link AGENT_BINARY_CACHE_FILE}.
+/** Read and validate the baked source's {@link AGENT_BINARY_CACHE_FILE} —
+ * the caches AND the closure index ({@link BakedBinaryCache}).
  * Unreadable or malformed both yield the typed error above: absence means the
  * wrapper was built by a pre-contract `mkProvenAgentSource`, and a shape
  * violation means someone hand-assembled the tree — either way the fix is
@@ -143,7 +158,7 @@ export class AgentBinaryCacheUnbakedError extends ResolveDrvError {
  * single `throw` sits at the caller's existing classification boundary. */
 export function readBakedBinaryCache(
   flakeRef: string,
-): Result<AgentBinaryCache, AgentBinaryCacheUnbakedError> {
+): Result<BakedBinaryCache, AgentBinaryCacheUnbakedError> {
   // Baked refs are bare local paths (a store path, or a consumer's own baked
   // directory); tolerate the equivalent explicit `path:` spelling since both
   // evaluate identically. Any OTHER flake-ref scheme (`github:`, `git+https:`,
@@ -166,11 +181,16 @@ export function readBakedBinaryCache(
   // which one it was ("ENOENT…" vs "Unexpected token…" vs "must name at least
   // one substituter…"). Splitting them only duplicated the wrapper.
   try {
-    return ok(
-      agentBinaryCache(
-        JSON.parse(readFileSync(`${local}/${AGENT_BINARY_CACHE_FILE}`, "utf8")),
-      ),
+    const raw: unknown = JSON.parse(
+      readFileSync(`${local}/${AGENT_BINARY_CACHE_FILE}`, "utf8"),
     );
+    // The `index` key is REQUIRED (null or a declaration): a sidecar without
+    // it was written by a pre-index `mkProvenAgentSource`.
+    const { index } = Schema.decodeUnknownSync(BakedIndexSchema)(raw);
+    return ok({
+      binaryCache: agentBinaryCache(raw as Record<string, unknown>),
+      index,
+    });
   } catch (cause) {
     return err(
       new AgentBinaryCacheUnbakedError(

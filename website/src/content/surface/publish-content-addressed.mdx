@@ -1,0 +1,85 @@
+---
+title: How to publish your daemon content-addressed
+description: "Let any Linux host take your remote daemon with no Nix trust settings: declare a closure index, publish to it from CI, and provisioning pulls your build from there first."
+order: 413
+section: Multi-host · How-to
+---
+
+import Aside from "../../components/docs/Aside.astro";
+
+A remote dial normally needs the host's Nix to trust something — your ssh
+login (`trusted-users`) or your cache's key — before it accepts your daemon's
+closure. A **content-addressed** store path needs neither: its name is the
+hash of its contents, so every Nix daemon accepts it from anyone. This guide
+publishes your daemon that way, so `provisionAgent` has the host pull it
+straight from your cache, with no trust and no bytes through your machine.
+
+You need a binder built with `mkProvenAgentSource`
+([@kolu/surface-daemon](/surface/ref-surface-daemon)), an
+[attic](https://github.com/zhaofengli/attic) cache already named in your agent
+flake's `nixConfig`, and GitHub Actions.
+
+## 1. Declare where your builds are published
+
+Give `mkProvenAgentSource` a `closureIndex` — a branch of a GitHub repository
+that will hold small JSON files naming each build:
+
+```nix
+agentSource = mkProvenAgentSource {
+  # …root, fileset, pkgs, commitHash, agents, flakeNix as before…
+  closureIndex = { repo = "you/your-app"; branch = "ca-index"; };
+};
+```
+
+It lands in the baked `binary-cache.json` beside your caches, with the raw URL
+derived for you. The argument is required: a source that publishes nothing says
+`closureIndex = null`.
+
+## 2. Publish from CI
+
+Add a job that runs the `publish-closure` action on each system you serve. It
+must be the job's only Nix installer — the action installs the Nix it rewrites
+with.
+
+```yaml
+publish-closures:
+  needs: build-and-push          # your job that pushes the normal closures
+  strategy:
+    matrix:
+      os: [ubuntu-latest, macos-latest]
+  runs-on: ${{ matrix.os }}
+  permissions:
+    contents: write              # it pushes the index branch
+  steps:
+    - uses: actions/checkout@v4
+    - uses: juspay/kolu/.github/actions/publish-closure@master
+      with:
+        source: .#agent-flake-source   # your binder's baked source
+        installables: my-daemon        # attribute names under it
+        latest: ${{ github.ref == 'refs/heads/main' }}
+        smoke-args: --help             # proves the rewritten program runs
+        attic-token: ${{ secrets.ATTIC_TOKEN }}
+```
+
+For each attribute it builds the closure, rewrites it content-addressed (not
+on macOS), runs the program out of the rewrite, pushes both forms to your
+cache, imports the rewrite back into a throwaway store to verify it, and only
+then writes `<rev>/<system>/<attr>.json` to the index branch. On a pull request
+it does everything except write the index.
+
+## 3. Dial as usual
+
+Nothing changes at the call site. A dial from a published revision now reads
+its own entry and has the host pull it; the progress log says
+`landed … from the closure index`. A dial from anything else — a dirty
+checkout, a revision CI never published — reads a 404 and takes the usual
+route (rewrite, ship, or build on the host), saying so.
+
+<Aside type="caution" title="Two hosts still need trust">
+  The rewrite is written by Nix 2.34, and Nix 2.35 changed how it hashes the
+  same paths, so only hosts on Nix **2.17 through 2.34** take the
+  content-addressed form. A **macOS** host never does: rewriting a Mach-O breaks
+  its code signature. Both are sent the signed path instead, which needs the
+  host to trust your login or your cache's key, exactly as before
+  ([`closureRoute`](/surface/ref-surface-remote)).
+</Aside>

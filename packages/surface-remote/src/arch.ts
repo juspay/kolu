@@ -1,10 +1,12 @@
 /**
- * Detect a host's nix-system identifier by asking the host's own Nix.
+ * Detect a host's nix-system identifier and Nix version by asking the host's
+ * own Nix.
  *
- * The companion piece to source-based agent resolution. `resolveSystem(host,
- * opts)` is the canonical target-system probe — it returns the
- * nix-system string (`x86_64-linux`, `aarch64-darwin`, …) that
- * `resolveAgentDrv` uses to select one package from the baked source flake.
+ * The companion piece to source-based agent resolution. `resolveHostNix(host,
+ * opts)` is the canonical target probe — it returns the nix-system string
+ * (`x86_64-linux`, `aarch64-darwin`, …) that `resolveAgentDrv` uses to select
+ * one package from the baked source flake, and the Nix version that decides
+ * which form of a published closure the host can verify (`closureRoute`).
  *
  * Why ask Nix rather than parse `uname -ms`: the host's own Nix is the
  * authoritative answer to "what system will this machine build for",
@@ -77,33 +79,6 @@ export interface ResolveSystemOptions {
   keepalive?: SshKeepalive;
 }
 
-/** Ask `host`'s Nix for its `builtins.currentSystem`. Runs locally for
- * `isLocalHost`, over `ssh` otherwise. The fact belongs to this dial: an SSH
- * alias can be retargeted or a machine reimaged while Kolu remains open, so
- * caching it beyond the dial would select packages for a stale host identity. */
-export async function resolveSystem(
-  host: string,
-  opts: ResolveSystemOptions,
-): Promise<string> {
-  const stdout = await evalOnHost(host, opts, [
-    "--expr",
-    "builtins.currentSystem",
-  ]);
-  // nix-instantiate prints the Nix string repr — `"x86_64-linux"\n` —
-  // which is valid JSON for a plain string, so JSON.parse strips the
-  // surrounding quotes.
-  let sys: unknown;
-  try {
-    sys = JSON.parse(stdout.trim());
-  } catch {
-    throw notANixProbe(host, `printed ${JSON.stringify(stdout.trim())}`);
-  }
-  if (typeof sys !== "string" || !NIX_SYSTEM_RE.test(sys)) {
-    throw notANixProbe(host, `returned ${JSON.stringify(sys)}`);
-  }
-  return sys;
-}
-
 /** What a host's Nix says about itself: its system, and its version
  *  (`builtins.nixVersion`, e.g. `2.34.8`) — the version is what decides which
  *  form of a published store path that Nix can verify. */
@@ -112,8 +87,11 @@ export interface HostNix {
   readonly nixVersion: string;
 }
 
-/** {@link resolveSystem}'s probe, asking for the host's Nix version too — ONE
- *  round-trip, the same failure classification. */
+/** Ask `host`'s Nix for its system and version — ONE round-trip, two facts.
+ *  Runs locally for `isLocalHost`, over `ssh` otherwise. The facts belong to
+ *  this dial: an SSH alias can be retargeted or a machine reimaged while the
+ *  consumer stays open, so caching them beyond the dial would select packages
+ *  for a stale host identity. */
 export async function resolveHostNix(
   host: string,
   opts: ResolveSystemOptions,
@@ -154,7 +132,7 @@ function notANixProbe(host: string, what: string): ResolveDrvError {
 
 /** Run `nix-instantiate --eval <args>` on `host` under the quick-step
  *  deadline, and answer its stdout — or throw the classified fault. The ONE
- *  host probe: {@link resolveSystem} and {@link resolveHostNix} both ride it. */
+ *  host probe {@link resolveHostNix} rides. */
 async function evalOnHost(
   host: string,
   opts: ResolveSystemOptions,

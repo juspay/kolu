@@ -157,8 +157,13 @@ remote host — reusing the local arm's seam, not a parallel one:
   `@kolu/surface-remote` probes the host's Nix system and evaluates only that
   source's matching padi `.drv`. Because padi's wrapper bakes `KOLU_KAVAL_BIN`
   (kaval rides INSIDE padi's closure), provisioning that ONE drv ships both —
-  `provisionAgent` evaluates, transfers, realises, and roots it through Nix, and
-  `ssh <host> padi --stdio` runs it. A deploy of the home-manager module carries
+  `provisionAgent` lands and roots it through Nix, and `ssh <host> padi --stdio`
+  runs it. A kolu built from a published master revision is found in kolu's
+  **closure index** (`ca-index` branch, written by `nix-cache.yml`'s
+  `publish-closures` job): the host pulls the content-addressed padi from the
+  cache itself, so a Linux host on Nix 2.17–2.34 needs no `trusted-users` and no
+  cache key. Any other build (a dev checkout, an unpublished rev) takes the
+  sender's own route: rewrite, ship, or build on the host. A deploy of the home-manager module carries
   and GC-roots that closure in the generation itself
   (**`services.kolu.agentPackages`**, required with no default — the set is read
   from `nix/agent-packages.json`, never hand-listed), so the first remote dial
@@ -485,7 +490,7 @@ at what landed. For its agents a host needs only the ssh login, `nix` on that
 login's PATH and outbound HTTPS to the cache — no flakes and no GitHub egress;
 a Linux host on Nix 2.17–2.34 needs no Nix settings (its path is
 content-addressed); a Mac, or a Linux host on Nix 2.35+, must trust the login or
-the cache's key (`packages/server/src/agentDelivery/route.ts`). Three cells, one procedure (`padiSurface` 5.9,
+the cache's key (`closureRoute`, `@kolu/surface-remote`). Three cells, one procedure (`padiSurface` 5.9,
 profile references 5.11, binder-side delivery 5.13) and one spawn layer carry
 it; the module is `src/agentDistro/`.
 

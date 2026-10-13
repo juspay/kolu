@@ -166,12 +166,12 @@ describe("#1908 — a permanently silent provision reaches `failed`, bounded", (
 
   it("carries evaluation-budget exhaustion to the session as terminal", async () => {
     vi.mocked(runCapture).mockImplementation(async (_cmd, args) => {
-      if (args.includes("builtins.currentSystem")) {
+      if (args.some((a) => a.includes("builtins.currentSystem"))) {
         return {
           ok: true,
           kind: "exit",
           code: 0,
-          stdout: '"x86_64-linux"\n',
+          stdout: '{"system":"x86_64-linux","nixVersion":"2.34.8"}\n',
         };
       }
       if (args.includes("eval")) return EXPIRED_PROVISION;

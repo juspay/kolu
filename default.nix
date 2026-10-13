@@ -125,6 +125,11 @@ let
     inherit pkgs commitHash;
     agents = agentPackages.prove;
     flakeNix = ./nix/agent-flake.nix;
+    # Where nix-cache.yml's `publish-closure` step writes each exposed agent's
+    # content-addressed build, keyed by `commitHash` — a dial from a published
+    # revision has the host pull it with no trust (`provisionAgent`'s index
+    # step).
+    closureIndex = { repo = "juspay/kolu"; branch = "ca-index"; };
   };
   agentFlakeSrc = agentSource.flakeSrc;
   agentFlakeRefEnv =

@@ -31,7 +31,7 @@ import {
   sshReportsTransportFailure,
 } from "./host";
 import { DEFAULT_SSH_KEEPALIVE, type SshKeepalive } from "./keepalive";
-import { type ResolveSystemOptions, resolveSystem } from "./arch";
+import { type ResolveSystemOptions, resolveHostNix } from "./arch";
 import { resolveAgentDrv, type AgentResolutionContext } from "./agentDrv";
 import type { AgentDerivation } from "./agentDerivation";
 import { makeProvisionBudgets, provisionAgent } from "./nixCopy";
@@ -112,8 +112,8 @@ const AGENT_READINESS_DEADLINE_MS = 180_000;
  *  `resolveAgentDrv` closure, and {@link ResolveDrvPathContext.resolveSystem} —
  *  so the safe path is also the SHORTEST one and there is nothing left to
  *  hand-assemble wrongly. The context also still EXTENDS
- *  {@link ResolveSystemOptions}, so the older `resolveSystem(host, ctx)` idiom
- *  keeps compiling for a resolver that has its own reason to name the host. */
+ *  {@link ResolveSystemOptions}, so `resolveHostNix(host, ctx)` compiles for a
+ *  resolver that has its own reason to name the host. */
 export interface ResolveDrvPathContext
   extends AgentResolutionContext,
     ResolveSystemOptions {
@@ -123,8 +123,8 @@ export interface ResolveDrvPathContext
    *  option types downstream of this context use. */
   localProgress: (line: string) => void;
   /** Ask THIS host's Nix for its nix-system string, on this dial's signal,
-   *  progress sink and keepalive — `resolveSystem` with every dial-owned
-   *  argument already supplied.
+   *  progress sink and keepalive — `resolveHostNix`'s `system` with every
+   *  dial-owned argument already supplied.
    *
    *  It exists because the arch probe was the last dial-internal ssh a consumer
    *  had to assemble arguments for, and assembling them wrongly is invisible:
@@ -311,18 +311,18 @@ export function sshConnector<S extends SurfaceSpec>(
         signal: ctx.signal,
         localProgress: ctx.localProgress,
         // The same sink under the name `ResolveSystemOptions` uses, so
-        // `resolveSystem(host, ctx)` compiles (see `ResolveDrvPathContext`).
+        // `resolveHostNix(host, ctx)` compiles (see `ResolveDrvPathContext`).
         onProgress: ctx.localProgress,
         keepalive,
         // Bound HERE, beside `resolveAgentDrv`, for the same reason: every
         // dial-owned argument of a dial-internal ssh is supplied by the dial,
         // so no resolver has an opportunity to supply a different one.
         resolveSystem: () =>
-          resolveSystem(opts.host, {
+          resolveHostNix(opts.host, {
             signal: ctx.signal,
             onProgress: ctx.localProgress,
             keepalive,
-          }),
+          }).then((h) => h.system),
         resolveAgentDrv: (flakeRef, packageName) =>
           resolveAgentDrv(opts.host, flakeRef, packageName, {
             signal: ctx.signal,

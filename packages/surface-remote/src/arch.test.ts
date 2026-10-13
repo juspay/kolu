@@ -1,11 +1,11 @@
 /**
- * Coverage for `resolveSystem`'s dial-owned host probe. Every dial asks the
+ * Coverage for `resolveHostNix`'s dial-owned host probe. Every dial asks the
  * target because a hostname can change identity while Kolu remains open, and
  * cancellation must never leak across a recheck.
  * Mocks `./process` so no ssh is ever spawned.
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { resolveHostNix, resolveSystem } from "./arch";
+import { type ResolveSystemOptions, resolveHostNix } from "./arch";
 import { useControlDir } from "./controlDir.testutil";
 import { ResolveDrvError } from "./host";
 import { type CaptureResult, runCapture } from "./process";
@@ -25,14 +25,22 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
-const okSystem = (sys: string) =>
-  ({ ok: true, kind: "exit", code: 0, stdout: `"${sys}"\n` }) as const;
+const okSystem = (system: string) =>
+  ({
+    ok: true,
+    kind: "exit",
+    code: 0,
+    stdout: `${JSON.stringify({ system, nixVersion: "2.34.8" })}\n`,
+  }) as const;
+/** The probe's system half — what most of these cases are about. */
+const resolveSystem = (host: string, o: ResolveSystemOptions) =>
+  resolveHostNix(host, o).then((h) => h.system);
 const opts = () => ({
   signal: new AbortController().signal,
   onProgress: vi.fn(),
 });
 
-describe("resolveSystem host probe", () => {
+describe("resolveHostNix host probe", () => {
   it("re-probes a host on every dial", async () => {
     vi.mocked(runCapture).mockResolvedValue(okSystem("x86_64-linux"));
     const a = await resolveSystem("h-memo", opts());
@@ -97,7 +105,7 @@ describe("resolveSystem host probe", () => {
  *  TERMINAL, cause-typed fault — otherwise it is classified as a transport blip
  *  and redialed forever, leaving the host wedged on "Connecting…" with the real
  *  reason buried in a log tail. */
-describe("resolveSystem ssh-refusal classification", () => {
+describe("resolveHostNix ssh-refusal classification", () => {
   /** Mock one probe that emits `line` on stderr and exits with `code`. */
   const probeEmitting = (line: string, code: number): void => {
     vi.mocked(runCapture).mockImplementationOnce(

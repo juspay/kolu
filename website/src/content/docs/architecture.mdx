@@ -478,8 +478,9 @@ _out_. The map, grouped:
   client import it; it imports none of them. The agents themselves are
   **delivered by kolu-server** without Nix of its own: it reads each host's
   content-addressed build off agent-distro's published index (one HTTPS GET per
-  system) and has the host pull it from the cache over ssh through
-  `surface-remote`'s `pullClosure` — content-addressed to a Linux host on Nix
+  system, through `surface-remote`'s `readPublishedClosure`) and has the host
+  pull it from the cache over ssh through `surface-remote`'s `pullClosure`, in
+  the form its `closureRoute` picks — content-addressed to a Linux host on Nix
   2.17–2.34 (the line that can verify it), so no
   Nix there has to trust it; signed to a Mac, whose code signatures a rewrite
   breaks, and to a newer Nix line — never building it, and that host's padi only points `current`
@@ -494,8 +495,13 @@ coordinator each have an independent subflake. They reuse one canonical
 workspace source and pnpm closure, but none enters `nix run .`'s evaluation
 graph. Remote provisioning uses a separate exact-source flake that exposes only
 the packages named by Kolu's agent manifest. `@kolu/surface-remote`
-probes the target system, evaluates just the closure it needs, and gives one Nix
-process ownership of evaluation, transfer, and remote realisation. That closure
+probes the target's Nix, evaluates just the closure it needs, and lands it in
+route order: a host that already holds it; then **kolu's own closure index** —
+CI (`nix-cache.yml`'s `publish-closures`, the `publish-closure` action)
+publishes every exposed agent content-addressed per master revision, so a dial
+from a published build has the host pull padi from the cache itself, with no
+trust on a Linux host on Nix 2.17–2.34; then the binder's own rewrite and ship;
+last, one Nix process owning evaluation, transfer, and remote realisation. That closure
 is the daemon **plus the client CLIs a terminal on that host must be able to
 run** (`kaval-tui`, `padi-tui`, `kolu`) — so an agent working on a remote machine
 can drive its sibling terminals and reach the [MCP server](/mcp) with nothing

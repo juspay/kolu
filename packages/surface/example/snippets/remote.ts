@@ -61,7 +61,7 @@ const resolveDrv = (_host: string): Promise<AgentDerivation> =>
   readBakedAgentSource()
     .andThen(readBakedBinaryCache)
     .match(
-      (binaryCache) =>
+      ({ binaryCache }) =>
         Promise.resolve(
           directAgentDerivation("/nix/store/…-my-agent.drv", binaryCache),
         ),

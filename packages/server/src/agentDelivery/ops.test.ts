@@ -23,7 +23,7 @@ const answering = (status: number, text: string) =>
   vi.fn(async (_url: string) => ({ status, text }));
 
 describe("readPublishedBundle", () => {
-  it("a 200 is the entry, read from latest/<system>/<profile>.json", async () => {
+  it("a 200 is the entry, read from latest/<system>/<profile>.json through the framework reader", async () => {
     const fetchText = answering(200, JSON.stringify(ENTRY));
     await expect(
       readPublishedBundle(INDEX, "x86_64-linux", "vanilla", fetchText),
@@ -44,51 +44,8 @@ describe("readPublishedBundle", () => {
       "agent-distro has not published the vanilla agents for armv7l-linux yet",
     );
   });
-
-  it("a malformed entry is loud, never a path guessed", async () => {
-    await expect(
-      readPublishedBundle(
-        INDEX,
-        "x86_64-linux",
-        "vanilla",
-        answering(200, JSON.stringify({ rev: ENTRY.rev })),
-      ),
-    ).rejects.toThrow(/is not \{ rev, ia, ca \}/);
-    await expect(
-      readPublishedBundle(
-        INDEX,
-        "x86_64-linux",
-        "vanilla",
-        answering(200, "<html>"),
-      ),
-    ).rejects.toThrow(/is not \{ rev, ia, ca \}/);
-  });
-
-  it("a request that never got an answer names the URL and the real cause, not a bare 'fetch failed'", async () => {
-    const fetchText = vi.fn(async (_url: string) => {
-      throw new TypeError("fetch failed", {
-        cause: new Error("getaddrinfo ENOTFOUND raw.githubusercontent.com"),
-      });
-    });
-    await expect(
-      readPublishedBundle(INDEX, "x86_64-linux", "vanilla", fetchText),
-    ).rejects.toThrow(
-      `agent-distro's index at ${INDEX}/latest/x86_64-linux/vanilla.json could not be read: getaddrinfo ENOTFOUND raw.githubusercontent.com`,
-    );
-  });
-
-  it("any other status is loud, with the status and the URL", async () => {
-    await expect(
-      readPublishedBundle(
-        INDEX,
-        "x86_64-linux",
-        "vanilla",
-        answering(503, "upstream down"),
-      ),
-    ).rejects.toThrow(
-      `agent-distro's index answered HTTP 503 for ${INDEX}/latest/x86_64-linux/vanilla.json: upstream down`,
-    );
-  });
+  // The reader's own faults (no answer, another status, not an entry) are
+  // `@kolu/surface-remote`'s `closureIndex.test.ts`.
 });
 
 describe("realDeliveryOps.pull", () => {
@@ -149,7 +106,7 @@ describe("realDeliveryOps.pull", () => {
     });
     const res = await pull("x86_64-linux", "ci@box", "2.35.2");
     expect(res.ok === false && res.message).toContain(
-      "box is sent the signed agents — its Nix 2.35.2 cannot verify the content-addressed form agent-distro publishes",
+      "box is sent the signed agents — its Nix 2.35.2 cannot verify the content-addressed form the publisher writes",
     );
   });
 

@@ -211,3 +211,43 @@ jobs:
         run: |
           set -euo pipefail
           bash ci/agent-substitutable
+
+  # The agents' content-addressed builds and the index naming them, so a dial
+  # from a published revision has the host pull its daemon with NO trust — no
+  # `trusted-users`, no cache key (`@kolu/surface-remote`'s `provisionAgent`
+  # index step; `.github/actions/publish-closure` is the publisher). After
+  # `build-and-push` so the input-addressed closures are already in the cache
+  # this job substitutes from. Its own job because the action installs the Nix
+  # it rewrites with (2.34.8 — see its `action.yml`), which must be the job's
+  # only Nix. kolu's `ca-index` branch is born by the first master push; a pull
+  # request rewrites, smokes and import-verifies, and writes no index.
+  publish-closures:
+    needs: build-and-push
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    # Pushes the `ca-index` branch of this repository.
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # The same tree `build-and-push` warmed — see its `ref:` note.
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      # What a remote may resolve from the agent source, DERIVED from the one
+      # inventory (`nix/agent-packages.json`'s `expose`), never hand-listed.
+      - id: expose
+        run: echo "attrs=$(jq -r '.expose | join(" ")' nix/agent-packages.json)" >> "$GITHUB_OUTPUT"
+
+      - uses: ./.github/actions/publish-closure
+        with:
+          source: .#agent-flake-source
+          installables: ${{ steps.expose.outputs.attrs }}
+          latest: ${{ github.event_name == 'push' && github.ref == 'refs/heads/master' }}
+          # padi and kaval have no `--version`; `--help` loads the whole
+          # program and exits 0, which is what "it execs" needs.
+          smoke-args: --help
+          attic-token: ${{ secrets.ATTIC_TOKEN }}

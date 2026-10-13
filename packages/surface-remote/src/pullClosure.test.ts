@@ -12,7 +12,7 @@ import {
 } from "./nixCopy";
 import { nixErrorLine } from "./nixLog.testutil";
 import { type CaptureResult, runCapture } from "./process";
-import { pullClosure } from "./pullClosure";
+import { pullClosure } from "./nixCopy";
 
 vi.mock("./process", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./process")>()),

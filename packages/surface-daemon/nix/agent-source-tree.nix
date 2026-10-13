@@ -16,11 +16,12 @@
 , src # the tree to copy in (a store path / pure source)
 , flakeNix # path of the agent flake, copied to $out/flake.nix
 , label # caller name, for the binary-cache eval-time error
+, closureIndex # { repo, branch } the builds are published on, or null (binary-cache.nix)
 , extraFiles ? { } # basename → contents, written on top of the copy
 }:
 let
   binaryCache = import ./binary-cache.nix { inherit lib; } {
-    inherit flakeNix label;
+    inherit flakeNix label closureIndex;
   };
   # The sidecar is just another root file, so it rides the SAME writer as the
   # caller's extras rather than carrying its own copy of the shell line. One

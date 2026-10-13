@@ -104,7 +104,7 @@ function projectState(
  *
  *  A real deployment does NOT hand-write this: `mkProvenAgentSource` bakes the
  *  declaration into the agent source from the flake's own `nixConfig`, and
- *  `readBakedBinaryCache(source)` hands back exactly that — so the TypeScript
+ *  `readBakedBinaryCache(source)`'s `binaryCache` is exactly that — so the TypeScript
  *  and the Nix cannot disagree about where the binaries are. This tutorial
  *  takes a bare `.drv` from the environment rather than a baked source, so it
  *  states one inline: ONCE, and against a RESERVED-INVALID host (RFC 2606) so

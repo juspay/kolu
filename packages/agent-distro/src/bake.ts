@@ -9,7 +9,8 @@
  *     — `./bundle.ts`' `concreteStatePath`), and the history log;
  *   - the DELIVERY (the binder's arm only, `KOLU_AGENT_DISTRO_DELIVERY`):
  *     upstream's content-addressed index kolu-server reads each bundle's path
- *     off (`./caIndex.ts`), the one binary cache every host pulls that path
+ *     off (`@kolu/surface-remote`'s `readPublishedClosure`, its `latest/`
+ *     entries), the one binary cache every host pulls that path
  *     from (`lib.cache`: URL and the key a Mac trusts its signed bundle by),
  *     and upstream's update schedule (`lib.schedule`).
  *
@@ -38,7 +39,8 @@ export function parseAgentDistroProfiles(text: string): AgentDistroProfiles {
 }
 
 const AgentDistroDeliverySchema = Schema.Struct({
-  /** The base URL of upstream's content-addressed index (`./caIndex.ts`). */
+  /** The raw base URL of upstream's content-addressed index (`lib.caIndex`'s
+   *  `rawBase`, read by `@kolu/surface-remote`'s `readPublishedClosure`). */
   index: NonEmpty,
   /** The one binary cache every host pulls a bundle's closure from, and its
    *  signing key — what a Mac must trust to take the signed bundle (a

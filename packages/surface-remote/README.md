@@ -18,16 +18,19 @@ const session = makeSession({
 pumpRemoteSurface({ source: surface, session, makeSink: ({ seq }) => sink });
 ```
 
-When a store path is already published in a cache, the host can fetch it
-itself: `pullClosure` runs `nix copy --from <cache>` **on the host** (after a
-warm check), then roots it — no bytes through your machine and no Nix
-evaluation. A content-addressed path needs no trust setting on the host, since
-`--from` reads a store directly; a signed input-addressed one (`signedBy`, for
-a macOS host, whose Mach-O signatures a rewrite breaks) needs the host to trust
-the login or the key. A content-addressed path is only portable within the Nix
-line that wrote it — 2.35 hashes a self-referencing path differently from 2.34,
-and neither verifies the other's — so `resolveHostNix` answers the host's Nix
-version (with its system, in the one probe) for the caller to choose by.
+A binder that publishes its builds gets them onto a host with **no trust on
+the host at all**. `provisionAgent` tries, in order: the warm check (the host
+already holds it); the **closure index** — `readPublishedClosure` reads
+`<rev>/<system>/<attr>.json` for the binder's own revision off the index its
+baked source declares, `closureRoute` picks the form the host's Nix can take,
+and `pullClosure` has the host run `nix copy --from <cache>` itself and root
+it; then the sender's own steps (rewrite, prefetch, ship, build). An
+unpublished revision just moves on to the next step, narrated. A
+content-addressed path needs no trust setting, but only within the Nix line
+that wrote it — publishers rewrite with Nix 2.34, which hosts on 2.17–2.34
+verify; 2.35+ and macOS (a rewrite breaks Mach-O signatures) get the signed
+path, which needs the host to trust the login or the key. Publishing is
+`.github/actions/publish-closure` ([Publish your daemon content-addressed](https://kolu.dev/surface/publish-content-addressed)).
 
 By default a dial's ssh gives up on a peer that has not answered a probe for
 ~30s. That is the right answer while someone is watching a host; an unattended
