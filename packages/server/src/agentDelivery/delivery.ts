@@ -8,13 +8,18 @@
  * and rooted there — and NEVER built, on any arm. The host's padi is told each
  * step (`agentDistro.report`) and points `current` at what landed.
  *
- * A host whose Nix refuses the shipped paths (it trusts neither the login kolu
- * reaches it as nor the cache's key) gets no agents from kolu, and is told so —
- * typed `refused`, with Nix's own words and the cache it would need to trust.
- * Only that host's settings change it, so a refusal is never retried on a loop:
- * the next scheduled run, a reconnect, or the user's own check asks again.
+ * Why a run happens decides two things ({@link DeliveryTrigger}):
  *
- * The Nix steps are {@link DeliveryOps} (`./nix.ts` in production), so the
+ *   - a host taking the setting (`connect`: every bind, reconnect and real
+ *     change) reuses the current schedule period's lock — a reconnect does not
+ *     re-ask GitHub — and does NOT re-ship to a host whose Nix last REFUSED
+ *     this bundle: it replays that refusal. Only the host's own settings
+ *     change a refusal, so a flapping link must not re-copy against it;
+ *   - the user's check (`user`) and upstream's schedule (`schedule`) lock
+ *     afresh and ask every host again, refusals included.
+ *
+ * The Nix steps are {@link DeliveryOps} (`./nix.ts` in production, which
+ * holds none of its own: every step is `@kolu/surface-remote`'s), so the
  * policy here is testable without Nix.
  */
 
@@ -26,18 +31,13 @@ import type { DeliverClosureResult } from "@kolu/surface-remote";
 
 /** The Nix steps of a delivery. Each throws with Nix's own words. */
 export interface DeliveryOps {
-  /** Lock upstream's flake (`nix flake metadata --refresh`): the locked ref. */
-  lock(signal?: AbortSignal): Promise<string>;
+  /** Lock upstream's flake now: the locked ref. */
+  lock(): Promise<string>;
   /** The Nix system of the host `ssh` reaches (`localhost` for this one). */
-  systemOf(ssh: string, signal?: AbortSignal): Promise<string>;
+  systemOf(ssh: string): Promise<string>;
   /** The output path of `profile`'s bundle for `system` at `ref` — evaluated,
    *  never built. */
-  outPath(
-    ref: string,
-    system: string,
-    profile: string,
-    signal?: AbortSignal,
-  ): Promise<string>;
+  outPath(ref: string, system: string, profile: string): Promise<string>;
   /** The route: get `outPath` into the host's store from the cache and root
    *  it there, never building. */
   deliver(args: {
@@ -45,7 +45,6 @@ export interface DeliveryOps {
     readonly outPath: string;
     readonly profile: string;
     readonly onProgress: (line: string) => void;
-    readonly signal?: AbortSignal;
   }): Promise<DeliverClosureResult>;
 }
 
@@ -59,62 +58,61 @@ export interface DeliveryHost {
   report(report: AgentDistroDeliveryReport): Promise<void>;
 }
 
-/** How one host's delivery ended: `landed`, `refused` (its Nix will not take
- *  the bundle — no retry until asked), or `failed` (anything else, retried on
- *  upstream's schedule), or `busy` (a delivery to it was already running). */
+/** Why a run happens — see the module header. */
+export type DeliveryTrigger = "connect" | "user" | "schedule";
+
+/** How one host's delivery ended: `landed`; `refused` (a Nix — the host's or
+ *  this machine's — will not take the bundle: no retry until asked); `failed`
+ *  (anything else, retried on upstream's schedule); or `busy` (a delivery of
+ *  that bundle to it was already running). */
 export type HostOutcome = "landed" | "refused" | "failed" | "busy";
 
 export interface AgentDelivery {
-  /** Deliver to `keys` (every connected host when omitted). `freshLock`
-   *  re-locks upstream's flake; otherwise a lock from the current schedule
-   *  period is reused (a reconnect does not re-ask GitHub). Resolves with each
-   *  host's outcome once every one has ended; never rejects. A no-op while
-   *  agents are off. */
+  /** Deliver to `keys` (every connected host when omitted), for `trigger`.
+   *  Resolves with each host's outcome once every one has ended; never
+   *  rejects. A no-op while agents are off. */
   run(opts: {
     readonly keys?: readonly string[];
-    readonly freshLock: boolean;
+    readonly trigger: DeliveryTrigger;
   }): Promise<readonly HostOutcome[]>;
   /** A delivery (or the lock before one) is in flight. */
   running(): boolean;
 }
 
-/** The words for a delivery that did not land, by how it did not. */
+type FailedReport = Extract<AgentDistroDeliveryReport, { kind: "failed" }>;
+
+/** The report for a delivery that did not land, by how it did not. The
+ *  message is Nix's own words, with the cache when a refusal names it: what a
+ *  refusal MEANS and its fix are worded once, by reason, in
+ *  `@kolu/agent-distro/status`. */
 function notDeliveredReport(
   bake: AgentDistroDelivery,
   host: DeliveryHost,
   profile: string,
   system: string,
   res: Exclude<DeliverClosureResult, { ok: true }>,
-): Extract<AgentDistroDeliveryReport, { kind: "failed" }> {
-  if (res.kind === "failed")
-    return {
-      kind: "failed",
-      profile,
-      reason: "delivery",
-      message: res.reason,
-    };
+): FailedReport {
+  const failed = (
+    reason: FailedReport["reason"],
+    message: string,
+  ): FailedReport => ({ kind: "failed", profile, reason, message });
+  if (res.kind === "failed") return failed("delivery", res.reason);
+  const cache = `agent-distro's cache: ${bake.cache.url}, key ${bake.cache.publicKey}`;
   switch (res.why) {
     case "refused":
-      return {
-        kind: "failed",
-        profile,
-        reason: "refused",
-        message: `${host.label}'s Nix refused the agents kolu copied there (${res.reason}). agent-distro's cache is ${bake.cache.url}, key ${bake.cache.publicKey}.`,
-      };
+      return failed("refused", `${res.reason} (${cache})`);
+    case "sender-refused":
+      return failed("binderRefused", `${res.reason} (${cache})`);
     case "uncached":
-      return {
-        kind: "failed",
-        profile,
-        reason: "delivery",
-        message: `agent-distro's cache (${bake.cache.url}) did not deliver the ${profile} agents for ${system} — kolu never builds them: ${res.reason}`,
-      };
+      return failed(
+        "delivery",
+        `agent-distro's cache (${bake.cache.url}) did not deliver the ${profile} agents for ${system} — kolu never builds them: ${res.reason}`,
+      );
     case "unshipped":
-      return {
-        kind: "failed",
-        profile,
-        reason: "delivery",
-        message: `could not copy the agents to ${host.label}: ${res.reason}`,
-      };
+      return failed(
+        "delivery",
+        `could not copy the agents to ${host.label}: ${res.reason}`,
+      );
     default:
       return res.why satisfies never;
   }
@@ -136,25 +134,13 @@ export function createAgentDelivery(deps: {
   const now = deps.now ?? Date.now;
   let lock: { readonly ref: string; readonly at: number } | undefined;
   let locking: Promise<string> | undefined;
+  /** Deliveries in flight, by `host#bundle`: a switch to ANOTHER profile is
+   *  its own delivery, never folded into the one still running. */
   const inFlight = new Set<string>();
-  /** Evaluated bundle outPaths by `ref#system.profile` — the PROMISE, so hosts
-   *  of one system delivered to concurrently share one evaluation. */
-  const outPaths = new Map<string, Promise<string>>();
-  const outPathOf = (
-    ref: string,
-    system: string,
-    profile: string,
-  ): Promise<string> => {
-    const key = `${ref}#${system}.${profile}`;
-    let out = outPaths.get(key);
-    if (out === undefined) {
-      out = ops.outPath(ref, system, profile);
-      outPaths.set(key, out);
-      // A failed evaluation is not remembered: the next run asks again.
-      out.catch(() => outPaths.delete(key));
-    }
-    return out;
-  };
+  /** The last refusal of `host#bundle`, replayed to a reconnecting host
+   *  instead of re-shipping against a Nix that refuses every time. Cleared
+   *  when that bundle lands there, or a user's or the schedule's run asks. */
+  const refusals = new Map<string, FailedReport>();
 
   /** The locked ref: a fresh lock, or the current period's when allowed. One
    *  lock at a time — concurrent asks share it. */
@@ -201,13 +187,16 @@ export function createAgentDelivery(deps: {
     host: DeliveryHost,
     profile: string,
     ref: Promise<string>,
+    /** One evaluation per system per run, shared by its hosts. */
+    outPathFor: (ref: string, system: string) => Promise<string>,
   ): Promise<HostOutcome> => {
     const at = { host: host.label, agentDistroProfile: profile };
+    const slot = `${host.key}#${profile}`;
     let system = "?";
     try {
       const locked = await ref;
       system = await ops.systemOf(host.ssh);
-      const out = await outPathOf(locked, system, profile);
+      const out = await outPathFor(locked, system);
       const res = await ops.deliver({
         ssh: host.ssh,
         outPath: out,
@@ -216,6 +205,7 @@ export function createAgentDelivery(deps: {
           log.debug({ ...at, line }, "agent-distro delivery"),
       });
       if (res.ok) {
+        refusals.delete(slot);
         await report(host, { kind: "landed", profile, bundle: res.outPath });
         log.info(
           { ...at, bundle: res.outPath },
@@ -228,8 +218,10 @@ export function createAgentDelivery(deps: {
         { ...at, reason: failed.reason, message: failed.message },
         "agent-distro bundle not delivered",
       );
+      const refused = failed.reason !== "delivery";
+      if (refused) refusals.set(slot, failed);
       await report(host, failed);
-      return failed.reason === "refused" ? "refused" : "failed";
+      return refused ? "refused" : "failed";
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       log.warn({ ...at, err }, "agent-distro delivery failed");
@@ -245,7 +237,7 @@ export function createAgentDelivery(deps: {
 
   return {
     running: () => inFlight.size > 0 || locking !== undefined,
-    run: async ({ keys, freshLock }) => {
+    run: async ({ keys, trigger }) => {
       const profile = deps.bundle();
       if (profile === undefined) return [];
       const targets = deps
@@ -254,9 +246,21 @@ export function createAgentDelivery(deps: {
       const ours: DeliveryHost[] = [];
       const outcomes: HostOutcome[] = [];
       for (const host of targets) {
-        if (inFlight.has(host.key)) outcomes.push("busy");
+        const slot = `${host.key}#${profile}`;
+        const refusal = refusals.get(slot);
+        if (trigger === "connect" && refusal !== undefined) {
+          // A reconnect is not a reason to re-ship to a Nix that refused:
+          // tell the (fresh) padi what it said, and wait to be asked.
+          outcomes.push(
+            await report(host, refusal).then(
+              () => "refused" as const,
+              () => "failed" as const,
+            ),
+          );
+        } else if (inFlight.has(slot)) outcomes.push("busy");
         else {
-          inFlight.add(host.key);
+          refusals.delete(slot);
+          inFlight.add(slot);
           ours.push(host);
         }
       }
@@ -277,13 +281,24 @@ export function createAgentDelivery(deps: {
           ...ours.filter((h) => !live.includes(h)).map(() => "failed" as const),
         );
         if (live.length === 0) return outcomes;
-        const ref = lockedRef(freshLock);
+        const ref = lockedRef(trigger !== "connect");
+        const evaluations = new Map<string, Promise<string>>();
+        const outPathFor = (locked: string, system: string) => {
+          let out = evaluations.get(system);
+          if (out === undefined) {
+            out = ops.outPath(locked, system, profile);
+            evaluations.set(system, out);
+          }
+          return out;
+        };
         outcomes.push(
-          ...(await Promise.all(live.map((h) => deliverOne(h, profile, ref)))),
+          ...(await Promise.all(
+            live.map((h) => deliverOne(h, profile, ref, outPathFor)),
+          )),
         );
         return outcomes;
       } finally {
-        for (const h of ours) inFlight.delete(h.key);
+        for (const h of ours) inFlight.delete(`${h.key}#${profile}`);
       }
     },
   };

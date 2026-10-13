@@ -27,21 +27,19 @@ import {
 import { DocLink } from "../ui/DocLink";
 
 /** The one action a machine's section offers: check for newer agents. */
-const ActionRow: Component<{ host: HostKey; action: "check" }> = (props) => {
-  const words = () => AGENTS_HOST_CHECK;
+const CheckRow: Component<{ host: HostKey }> = (props) => {
   // A check needs a connected machine with no delivery already going there.
   const enabled = () => agentHostCheckableNow(props.host);
   return (
     <button
       type="button"
       data-testid="host-agents-action"
-      data-action={props.action}
       disabled={!enabled()}
-      title={words().hint}
+      title={AGENTS_HOST_CHECK.hint}
       class="mt-0.5 flex w-full cursor-pointer items-center justify-between gap-4 rounded-md px-1.5 py-1 text-left text-[11px] text-fg-3 transition-colors hover:bg-surface-2 hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 disabled:cursor-default disabled:opacity-50 disabled:hover:bg-transparent disabled:hover:text-fg-3"
       onClick={() => checkAgentsOn(props.host)}
     >
-      <span>{words().label}</span>
+      <span>{AGENTS_HOST_CHECK.label}</span>
       <span aria-hidden="true">↻</span>
     </button>
   );
@@ -114,10 +112,10 @@ const Section: Component<{ host: HostKey; detail: AgentHostDetail }> = (
         </p>
       )}
     </For>
-    <Show when={props.detail.cause.length > 0}>
+    <Show when={props.detail.hasFix}>
       <p class="mb-0.5 text-[10.5px] leading-4">
         <DocLink slug="agents" anchor="when-a-delivery-fails">
-          What this means, and the fix on that machine
+          What this means, and the fix
         </DocLink>
       </p>
     </Show>
@@ -156,8 +154,8 @@ const Section: Component<{ host: HostKey; detail: AgentHostDetail }> = (
         </For>
       </div>
     </Show>
-    <Show when={props.detail.action}>
-      {(action) => <ActionRow host={props.host} action={action()} />}
+    <Show when={props.detail.canCheck}>
+      <CheckRow host={props.host} />
     </Show>
   </>
 );

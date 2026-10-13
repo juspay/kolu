@@ -74,7 +74,10 @@ The **TypeScript half**, as data and pure functions:
   `landed` · `failed`), `AgentDistroStatus` (what padi reports — and what a new
   terminal there gets — and a failure's typed reason,
   `AgentDistroFailureReason`: `refused`, the host's Nix would not take the
-  copied paths, or `delivery`, anything else), their defaults and equality, and
+  copied paths; `binderRefused`, the Nix of the machine running kolu would not
+  take the bundle from agent-distro's cache to pass on; or `delivery`, anything
+  else — and a ready host's `delivering`, set while a newer set is on its way
+  and the old one keeps serving; no byte counts), their defaults and equality, and
   `TerminalAgents` (the one `agents` field a terminal record is stamped with),
   with its optional `effective` (the profile in effect, `./inEffect`),
   `bundleProfileOf` (the bundle a profile rides: its own when the build ships
@@ -97,7 +100,8 @@ The **TypeScript half**, as data and pure functions:
   words (`agentMarkWords`, `agentMarkLabel`), which the hover and the host
   details share, with a failed delivery's cause, remedy and when kolu tries
   again worded once (`agentFailureLines`, `agentFailureRemedy`,
-  `AGENTS_REFUSED_MEANS`, `AGENTS_REFUSED_FIX`, `AGENTS_DELIVERY_AGAIN`); the
+  `AGENTS_REFUSED_MEANS`, `AGENTS_REFUSED_FIX`, `AGENTS_BINDER_REFUSED_MEANS`,
+  `AGENTS_BINDER_REFUSED_FIX`, `AGENTS_DELIVERY_AGAIN`); the
   stored preference — `null` until someone chooses — and
   the one fold from it to the setting new terminals get (`agentDistroSettingOf`,
   `agentsChosen`; nothing chosen is off on `DEFAULT_AGENT_PROFILE`, the bundle
@@ -120,14 +124,16 @@ The **TypeScript half**, as data and pure functions:
   one group per agent state, naming machines before it counts them
   (`agentFleetSummary`); what a machine's host details say about its agents —
   profile and short hash, state with its last run, a failure's cause and what it
-  means there, that machine's events and its one action, check for newer
-  agents — also how a failed machine is tried again (`agentHostDetail`, with
-  `AGENTS_HOST_CHECK`); whether a
+  means there, whether that failure has a fix in a machine's Nix settings
+  (`hasFix`, which earns the docs link), that machine's events, and whether
+  its one action — check for newer agents, also how a failed machine is tried
+  again — is offered (`canCheck`: not while a delivery runs there)
+  (`agentHostDetail`, with `AGENTS_HOST_CHECK`); whether a
   terminal's agents went stale and what its restart does (`agentStalenessOf`,
   `agentRestartReady`, `agentRestartAction`, `agentStaleLabel`,
   `restartedLabel`); keeping it current — the fleet-wide palette command
   (`AGENTS_CHECK_NOW`, `agentUpdateCheckable`, `agentHostCheckable`,
-  `agentUpdateRunning`, `agentCheckFailed`) and when an update has landed on a
+  `agentCheckFailed`) and when an update has landed on a
   host (`landedFacts`, `updateLanded`); and the setting's own toasts
   (`agentToast`, with `updated` quoting the history line) — typed against `./schema`, so a field added to the wire
   is one the folds must handle.
@@ -147,8 +153,8 @@ The **TypeScript half**, as data and pure functions:
 host (padi's `src/agentDistro/`), pushing the setting (kolu-server's
 `padiCellPusher.ts`) and the Settings and tile components (the client) stay
 where they run and import from here. This package imports nothing from padi, the
-server or the client, and depends only on `effect`, `@kolu/byte-units` (the
-one byte formatter, for a delivery's bytes) and `solid-js` (for the logo). Because `@kolu/padi-client` depends on it, it is in the closure an
+server or the client, and depends only on `effect` and `solid-js` (for the
+logo). Because `@kolu/padi-client` depends on it, it is in the closure an
 out-of-repo consumer vendors with padi-client, so its versions are literal.
 
 User docs: [kolu.dev/agents](https://kolu.dev/agents).

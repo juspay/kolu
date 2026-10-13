@@ -9,7 +9,6 @@
  * cells carry — so a field added to the wire is a field these folds handle.
  */
 
-import { formatBytes } from "@kolu/byte-units";
 import { agentBundleShortHash } from "./bundle.ts";
 import type {
   AgentUpdateAuthor,
@@ -198,34 +197,6 @@ export function agentsChosenLabel(
   }
 }
 
-/** "1.1 GiB of 2.0 GiB" for a download's progress (`@kolu/byte-units`' binary
- *  units — the units Nix reports the bundle in), or `undefined` when there are no
- *  numbers to say. A total of 0 is a run with nothing left to fetch (the host
- *  already had every path): "0 MB of 0 MB" would be noise, not progress. */
-export function downloadBytes(
-  progress: { readonly done: number; readonly total: number } | undefined,
-): string | undefined {
-  return progress === undefined || progress.total === 0
-    ? undefined
-    : `${formatBytes(progress.done)} of ${formatBytes(progress.total)}`;
-}
-
-/** The least a download's ring and bar ever show, so "downloading, nothing
- *  counted yet" never looks the same as an empty track. */
-export const DOWNLOAD_MIN_FILL = 0.06;
-
-/** How much of a download is done, {@link DOWNLOAD_MIN_FILL} to 1 — the fill of
- *  the tab's ring and of the Settings bar. */
-function downloadFraction(
-  progress: { readonly done: number; readonly total: number } | undefined,
-): number {
-  const done =
-    progress === undefined || progress.total === 0
-      ? 0
-      : progress.done / progress.total;
-  return Math.min(1, Math.max(DOWNLOAD_MIN_FILL, done));
-}
-
 /** How a host shows its agents: the treatment of its tab's agent-distro mark,
  *  and of its line in Settings.
  *
@@ -233,10 +204,11 @@ function downloadFraction(
  *     or a host we cannot hear from) — the tab is as it would be without agents;
  *   - `checking`: the host is connected and agents are on, but its status has not
  *     arrived yet (a dimmed mark with a spinning arc);
- *   - `ready`: the selected profile is on the host for new terminals — with
- *     `update` while kolu delivers a newer set there (the old set keeps
- *     serving; the mark keeps its plain colour);
- *   - `downloading`: kolu is delivering it to a host that has none yet;
+ *   - `ready`: the selected profile is on the host for new terminals —
+ *     `delivering` while kolu delivers a newer set there (the old set keeps
+ *     serving; the mark keeps its plain colour, with a turning arc);
+ *   - `downloading`: kolu is delivering it to a host that has none yet (a
+ *     turning arc — a delivery's copies report no byte counts to fill with);
  *   - `failed`: the delivery failed (the warning colour and a dot). */
 export type AgentMark =
   | {
@@ -250,20 +222,11 @@ export type AgentMark =
       readonly kind: "ready";
       readonly profile: string;
       readonly hash: string;
-      /** A delivery is running there; `download` once its bytes are counted
-       *  (its ring fill and bytes). */
-      readonly update?: {
-        readonly download?: {
-          readonly fraction: number;
-          readonly bytes: string | undefined;
-        };
-      };
+      /** kolu is delivering a newer set there; this one serves until it has
+       *  fully landed. */
+      readonly delivering: boolean;
     }
-  | {
-      readonly kind: "downloading";
-      readonly fraction: number;
-      readonly bytes: string | undefined;
-    }
+  | { readonly kind: "downloading" }
   | {
       readonly kind: "failed";
       readonly reason: AgentDistroFailureReason;
@@ -287,33 +250,15 @@ export function agentMarkOf(
       return { kind: "none", why: "off" };
     case "unavailable":
       return { kind: "none", why: "unavailable" };
-    case "ready": {
-      const ready = {
+    case "ready":
+      return {
         kind: "ready",
         profile: status.profile,
         hash: agentBundleShortHash(status.bundle),
-      } as const;
-      if (status.update === undefined) return ready;
-      const progress = status.update.progress;
-      return {
-        ...ready,
-        update:
-          progress === undefined
-            ? {}
-            : {
-                download: {
-                  fraction: downloadFraction(progress),
-                  bytes: downloadBytes(progress),
-                },
-              },
+        delivering: status.delivering,
       };
-    }
     case "downloading":
-      return {
-        kind: "downloading",
-        fraction: downloadFraction(status.progress),
-        bytes: downloadBytes(status.progress),
-      };
+      return { kind: "downloading" };
     case "error":
       return { kind: "failed", reason: status.reason, message: status.message };
     default:
@@ -331,6 +276,15 @@ export const AGENTS_REFUSED_MEANS =
 export const AGENTS_REFUSED_FIX =
   "On that machine, add the login to `nix.settings.trusted-users`, or add agent-distro's cache and its key to `nix.settings.substituters` and `nix.settings.trusted-public-keys`.";
 
+/** What a delivery the machine RUNNING kolu refused means — its own Nix would
+ *  not take the bundle from agent-distro's cache, so no host was even asked. */
+export const AGENTS_BINDER_REFUSED_MEANS =
+  "The Nix on the machine running kolu trusts neither the user kolu runs as nor agent-distro's cache key, so it would not take the agents from the cache to pass on.";
+
+/** The fix for that, on the machine running kolu. */
+export const AGENTS_BINDER_REFUSED_FIX =
+  "On the machine running kolu, add your user to `nix.settings.trusted-users`, or add agent-distro's cache and its key to `nix.settings.substituters` and `nix.settings.trusted-public-keys`.";
+
 /** When kolu tries a failed delivery again — never in a loop of its own. */
 export const AGENTS_DELIVERY_AGAIN =
   "kolu tries again at the next scheduled update, or when you check that machine from its host details.";
@@ -343,6 +297,8 @@ export function agentFailureRemedy(
   switch (reason) {
     case "refused":
       return [AGENTS_REFUSED_MEANS, AGENTS_REFUSED_FIX];
+    case "binderRefused":
+      return [AGENTS_BINDER_REFUSED_MEANS, AGENTS_BINDER_REFUSED_FIX];
     case "delivery":
       return [];
     default:
@@ -370,8 +326,8 @@ export function agentFailureLines(
 /** A mark's words, as a headline and the lines under it — the ONE wording its
  *  hover and the Settings line share. `where` names the
  *  machine as the host tab does — the local machine by its hostname, a remote
- *  by its own label; the client's one label function supplies it. A download's bytes are not in it: each surface shows
- *  `mark.bytes` beside its own bar. `undefined` for `none`. */
+ *  by its own label; the client's one label function supplies it. `undefined`
+ *  for `none`. */
 export function agentMarkWords(
   mark: AgentMark,
   where: string,
@@ -384,14 +340,7 @@ export function agentMarkWords(
     case "ready":
       return {
         title: `Coding agents ready on ${where}: ${mark.profile} (${mark.hash}) — new terminals on ${where} start with them`,
-        detail:
-          mark.update === undefined
-            ? []
-            : [
-                mark.update.download === undefined
-                  ? capitalize(AGENTS_UPDATE_CHECKING)
-                  : AGENTS_UPDATE_DOWNLOADING,
-              ],
+        detail: mark.delivering ? [AGENTS_UPDATE_DOWNLOADING] : [],
       };
     case "downloading":
       return {
@@ -407,52 +356,19 @@ export function agentMarkWords(
   }
 }
 
-/** What a ready host says while kolu looks for a newer set for it. */
-export const AGENTS_UPDATE_CHECKING = "checking for newer agents…";
-
 /** What a ready host says while a newer set is copied to it. */
 export const AGENTS_UPDATE_DOWNLOADING =
   "Delivering newer agents — new terminals keep these until they have fully arrived.";
 
-/** The words beside a mark's bar while it fills — a first download's headline,
- *  or a ready host's update line — `undefined` when no bar fills. The ONE
- *  choice of text for the tab's hover beside its bar. */
-export function agentMarkFillWords(
-  mark: AgentMark,
-  where: string,
-): string | undefined {
-  if (agentMarkFill(mark) === undefined) return undefined;
-  const words = agentMarkWords(mark, where);
-  switch (mark.kind) {
-    case "ready":
-      return words?.detail.join(" ");
-    case "downloading":
-      return words?.title;
-    case "none":
-    case "checking":
-    case "failed":
-      return undefined;
-    default:
-      return mark satisfies never;
-  }
-}
-
-/** A mark's words as one text — its accessible name, with a download's bytes
- *  after the headline. `undefined` for `none`. */
+/** A mark's words as one text — its accessible name and its hover.
+ *  `undefined` for `none`. */
 export function agentMarkLabel(
   mark: AgentMark,
   where: string,
 ): string | undefined {
   const words = agentMarkWords(mark, where);
   if (words === undefined) return undefined;
-  const shown =
-    mark.kind === "downloading"
-      ? mark.bytes
-      : mark.kind === "ready"
-        ? mark.update?.download?.bytes
-        : undefined;
-  const bytes = shown === undefined ? "" : ` ${shown}`;
-  return [`${words.title}${bytes}`, ...words.detail].join("\n");
+  return [words.title, ...words.detail].join("\n");
 }
 
 /** A version as agent-distro's picker shows it: without the package's `+`
@@ -724,50 +640,6 @@ function unreadableTitle(error: string): string {
   return quoted(AGENTS_RECEIPT_UNREADABLE, "padi", error);
 }
 
-/** How a mark is filling — a first download's bytes, or an update's on a ready
- *  host — `undefined` when nothing is coming down. THE one reading the tab's
- *  ring and the Settings line share. */
-export function agentMarkFill(
-  mark: AgentMark,
-):
-  | { readonly fraction: number; readonly bytes: string | undefined }
-  | undefined {
-  switch (mark.kind) {
-    case "downloading":
-      return { fraction: mark.fraction, bytes: mark.bytes };
-    case "ready":
-      return mark.update?.download;
-    case "none":
-    case "checking":
-    case "failed":
-      return undefined;
-    default:
-      return mark satisfies never;
-  }
-}
-
-/** A ready host's update phase — checking for a newer set, or downloading
- *  one — or `undefined` when none runs (or the host is not ready). */
-export function agentMarkUpdate(
-  mark: AgentMark,
-): "checking" | "downloading" | undefined {
-  switch (mark.kind) {
-    case "ready":
-      return mark.update === undefined
-        ? undefined
-        : mark.update.download === undefined
-          ? "checking"
-          : "downloading";
-    case "none":
-    case "checking":
-    case "downloading":
-    case "failed":
-      return undefined;
-    default:
-      return mark satisfies never;
-  }
-}
-
 /** A status note: its text, its hover (the text, and a skip's or a failure's
  *  reason quoted with who wrote it), and its tone. */
 export interface AgentStatusNote {
@@ -927,6 +799,7 @@ function eventRow(event: AgentUpdateEvent, ago: AgoPhrase): AgentEventRow {
 /** A failed delivery's state, in a word or two, by its reason. */
 const FAILED_STATE: Record<AgentDistroFailureReason, string> = {
   refused: "refused by its Nix",
+  binderRefused: "refused by kolu's own Nix",
   delivery: "delivery failed",
 };
 
@@ -945,16 +818,20 @@ export interface AgentHostDetail {
    *  one (which the section follows with its one doc link). Trying again is
    *  the section's button; `means` says when kolu tries on its own. */
   readonly cause: readonly string[];
+  /** The failure has a fix someone makes in a machine's Nix settings (a
+   *  refusal, here or at the machine running kolu) — the section then links
+   *  to the docs that explain it. */
+  readonly hasFix: boolean;
   /** What a failure means for new terminals on THAT machine. */
   readonly means?: string;
   /** That machine's last update events, newest first — empty when it has run
    *  nothing, or is not ready. */
   readonly events: readonly AgentEventRow[];
-  /** The one action the section offers: deliver to that machine now
-   *  ({@link AGENTS_HOST_CHECK}) — after a failure too, which is how the user
-   *  asks kolu to try again once the machine is fixed — or nothing to do from
-   *  here. */
-  readonly action: "check" | undefined;
+  /** Whether the section offers its one action, delivering to that machine
+   *  now ({@link AGENTS_HOST_CHECK}) — after a failure too, which is how the
+   *  user asks kolu to try again once the machine is fixed. Not while a
+   *  delivery already runs there, nor with nothing to deliver. */
+  readonly canCheck: boolean;
 }
 
 /** THE fold from one machine's agent facts to its host-details section.
@@ -979,23 +856,16 @@ export function agentHostDetail(input: {
   const base = {
     profile: agentProfileTitle(setting.profile, input.listing),
     cause: [],
+    hasFix: false,
     events: [],
   } as const;
   switch (mark.kind) {
     case "none":
-      return { ...base, state: plain(NONE_LINE.off), action: undefined };
+      return { ...base, state: plain(NONE_LINE.off), canCheck: false };
     case "checking":
-      return { ...base, state: plain("checking…"), action: undefined };
+      return { ...base, state: plain("checking…"), canCheck: false };
     case "downloading":
-      return {
-        ...base,
-        state: plain(
-          mark.bytes === undefined
-            ? "delivering…"
-            : `delivering · ${mark.bytes}`,
-        ),
-        action: undefined,
-      };
+      return { ...base, state: plain("delivering…"), canCheck: false };
     case "failed":
       return {
         ...base,
@@ -1005,24 +875,18 @@ export function agentHostDetail(input: {
           tone: "warn",
         },
         cause: [mark.message, ...agentFailureRemedy(mark.reason)],
+        hasFix: agentFailureRemedy(mark.reason).length > 0,
         means: `New terminals on ${host.label} get no coding agents until this is fixed. ${AGENTS_DELIVERY_AGAIN}`,
-        action: "check",
+        canCheck: true,
       };
     case "ready": {
-      const update = agentMarkUpdate(mark);
-      const bytes = agentMarkFill(mark)?.bytes;
       const receipt = receiptFor(host.receipt, mark.profile);
       const run = lastRunNoteOf(receipt, host.ago);
-      const state: AgentStatusNote =
-        update === "checking"
-          ? plain(`ready · ${AGENTS_UPDATE_CHECKING}`)
-          : update === "downloading"
-            ? plain(
-                `ready · updating${bytes === undefined ? "…" : ` · ${bytes}`}`,
-              )
-            : run === undefined
-              ? plain("ready")
-              : { ...run, text: `ready · ${run.text}` };
+      const state: AgentStatusNote = mark.delivering
+        ? plain("ready · delivering newer agents…")
+        : run === undefined
+          ? plain("ready")
+          : { ...run, text: `ready · ${run.text}` };
       return {
         ...base,
         hash: mark.hash,
@@ -1039,7 +903,7 @@ export function agentHostDetail(input: {
                 },
               ]
             : (receipt?.events ?? []).map((e) => eventRow(e, host.ago)),
-        action: update === undefined ? "check" : undefined,
+        canCheck: !mark.delivering,
       };
     }
     default:
@@ -1368,10 +1232,7 @@ export function agentUpdateCheckable(
   status: AgentDistroStatus | undefined,
 ): boolean {
   const mark = agentMarkOf(status, false);
-  return (
-    (mark.kind === "ready" && agentMarkUpdate(mark) === undefined) ||
-    mark.kind === "failed"
-  );
+  return (mark.kind === "ready" && !mark.delivering) || mark.kind === "failed";
 }
 
 /** One host as Check now sees it: whether it is connected, and its status. */
@@ -1386,15 +1247,6 @@ export interface AgentCheckHost {
  *  per-host test the button's call and its busy state share. */
 export function agentHostCheckable(host: AgentCheckHost): boolean {
   return host.connected && agentUpdateCheckable(host.status);
-}
-
-/** Is a delivery in flight to any of these hosts, for any profile — a first
- *  one or an update? Read off each host's receipt (its `running`), which
- *  covers every profile, not only the selected one. */
-export function agentUpdateRunning(
-  receipts: readonly (AgentDistroReceipt | undefined)[],
-): boolean {
-  return receipts.some((r) => r !== undefined && r.running.length > 0);
 }
 
 /** The facts of a ready status an update is read from — plain strings, so a

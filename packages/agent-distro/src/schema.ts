@@ -70,14 +70,6 @@ export function agentDistroSettingEqual(
   return a.enabled === b.enabled && a.profile === b.profile;
 }
 
-/** Bytes fetched so far of the bundle being delivered. Absent until the first
- *  (kolu-server's delivery reports none today: its copies run under Nix's own
- *  log, which counts paths, not a bundle's bytes). */
-export const AgentDistroProgressSchema = Schema.Struct({
-  done: Schema.Number,
-  total: Schema.Number,
-});
-
 /** Why kolu could not deliver a host its agents, typed so the remedy is worded
  *  in ONE place (`./status.ts`), never baked into the message:
  *
@@ -85,11 +77,16 @@ export const AgentDistroProgressSchema = Schema.Struct({
  *     it trusts neither the login kolu reaches it as (`trusted-users`) nor the
  *     key agent-distro's cache signs with. Only the host's own Nix settings
  *     change that, so kolu does not retry on its own;
+ *   - `binderRefused` — the Nix of the machine RUNNING kolu would not take the
+ *     bundle from agent-distro's cache to pass on: it trusts neither the user
+ *     kolu runs as nor the cache's key. Only that machine's settings change
+ *     it (the host was never asked);
  *   - `delivery` — anything else on the way (the flake would not lock or
  *     evaluate, the cache did not have the bundle, the copy or the root
  *     failed): kolu-server's words, with Nix's own line. */
 export const AgentDistroFailureReasonSchema = Schema.Union([
   Schema.Literal("refused"),
+  Schema.Literal("binderRefused"),
   Schema.Literal("delivery"),
 ]);
 
@@ -106,9 +103,9 @@ export type AgentDistroFailureReason =
  *     kolu-server is delivering one (copying it out of agent-distro's binary
  *     cache into the host's store). New terminals get no agents until it lands.
  *   - `ready` — new terminals get `bundle` (the exact store path they pin).
- *     With `update`, kolu-server is delivering a newer set while `bundle`
- *     keeps serving. New terminals keep getting `bundle` until the newer one
- *     has fully landed.
+ *     `delivering` while kolu-server delivers a newer set and `bundle` keeps
+ *     serving; new terminals keep getting `bundle` until the newer one has
+ *     fully landed.
  *   - `error` — the delivery failed and nothing serves: `reason` says which
  *     kind of failure, `message` states its cause (kolu-server's words, with
  *     Nix's own line). Neither carries the remedy — that is worded once, in
@@ -122,17 +119,12 @@ export const AgentDistroStatusSchema = Schema.Union([
   Schema.Struct({
     kind: Schema.Literal("downloading"),
     profile: Schema.String,
-    progress: Schema.optionalKey(AgentDistroProgressSchema),
   }),
   Schema.Struct({
     kind: Schema.Literal("ready"),
     profile: Schema.String,
     bundle: Schema.String,
-    update: Schema.optionalKey(
-      Schema.Struct({
-        progress: Schema.optionalKey(AgentDistroProgressSchema),
-      }),
-    ),
+    delivering: Schema.Boolean,
   }),
   Schema.Struct({
     kind: Schema.Literal("error"),
@@ -146,8 +138,7 @@ export type AgentDistroStatus = typeof AgentDistroStatusSchema.Type;
 
 export const DEFAULT_AGENT_DISTRO_STATUS: AgentDistroStatus = { kind: "off" };
 
-/** Structural equality — the cell's one wire dedup point. A progress tick that
- *  moved no byte count publishes nothing. */
+/** Structural equality — the cell's one wire dedup point. */
 export function agentDistroStatusEqual(
   a: AgentDistroStatus,
   b: AgentDistroStatus,
@@ -157,20 +148,13 @@ export function agentDistroStatusEqual(
     case "unavailable":
       return b.kind === a.kind;
     case "downloading":
-      return (
-        b.kind === "downloading" &&
-        a.profile === b.profile &&
-        a.progress?.done === b.progress?.done &&
-        a.progress?.total === b.progress?.total
-      );
+      return b.kind === "downloading" && a.profile === b.profile;
     case "ready":
       return (
         b.kind === "ready" &&
         a.profile === b.profile &&
         a.bundle === b.bundle &&
-        (a.update === undefined) === (b.update === undefined) &&
-        a.update?.progress?.done === b.update?.progress?.done &&
-        a.update?.progress?.total === b.update?.progress?.total
+        a.delivering === b.delivering
       );
     case "error":
       return (

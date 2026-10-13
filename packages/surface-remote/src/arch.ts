@@ -54,7 +54,10 @@ import { describeNixRun, resolverErrorOf, runNix } from "./nixLog";
 const NIX_SYSTEM_RE = /^[a-z0-9_]+-[a-z0-9_]+$/;
 
 export interface ResolveSystemOptions {
-  signal: AbortSignal;
+  /** The owner's cancellation, when it has one (a dial's abort). A caller
+   *  with no cancellation of its own — kolu-server's agent delivery, which
+   *  runs to completion — omits it. */
+  signal?: AbortSignal;
   onProgress: (line: string) => void;
   /** The owning dial's ssh dead-peer policy, defaulting to
    *  `DEFAULT_SSH_KEEPALIVE`. It MUST match the rest of the dial: this probe is

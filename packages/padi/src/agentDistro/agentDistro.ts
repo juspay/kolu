@@ -121,7 +121,7 @@ export function assessAgentDistro(setting: AgentDistroSetting):
       readonly layer: AgentLayer;
       /** A newer bundle is being delivered; `layer` keeps serving until it
        *  lands. */
-      readonly update?: Extract<AgentDistroStatus, { kind: "ready" }>["update"];
+      readonly delivering: boolean;
     } {
   if (!setting.enabled) return { kind: "off" };
   if (agentDistroBake() === null) return { kind: "unavailable" };
@@ -131,7 +131,7 @@ export function assessAgentDistro(setting: AgentDistroSetting):
     return {
       kind: "ready",
       layer,
-      ...(delivery?.kind === "delivering" ? { update: {} } : {}),
+      delivering: delivery?.kind === "delivering",
     };
   if (delivery?.kind === "failed")
     return {
@@ -140,9 +140,10 @@ export function assessAgentDistro(setting: AgentDistroSetting):
       reason: delivery.failure.reason,
       message: delivery.failure.message,
     };
-  // Nothing serves and nothing failed: kolu-server delivers this host's
-  // bundle as it binds it (and as the setting reaches it), so the host is
-  // waiting on a delivery that is coming or under way.
+  // Nothing serves and nothing failed: a delivery is under way, or about to
+  // be — kolu-server reports `delivering` the moment this host has taken the
+  // setting, and a kolu-server that cannot deliver at all (built without the
+  // delivery) reports that as a failure instead, so this never stands.
   return { kind: "downloading", profile: setting.profile };
 }
 
@@ -167,7 +168,7 @@ function settle(setting: AgentDistroSetting): void {
           kind: "ready",
           profile: assessed.layer.profile,
           bundle: assessed.layer.bundle,
-          ...(assessed.update === undefined ? {} : { update: assessed.update }),
+          delivering: assessed.delivering,
         }
       : assessed,
   );

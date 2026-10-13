@@ -577,9 +577,13 @@ export * from "./transcriptSchema.ts";
  *  GONE, and a NEW procedure, `agentDistro.report`, carries the binder's word
  *  on each delivery (`AgentDistroDeliveryReport`: delivering · landed ·
  *  failed), on which padi points `current` at the landed bundle. The
- *  `agentDistroStatus` `error` arm's `reason` is now `refused | delivery` in
- *  place of `nixMissing | updater`, and a receipt run's `by` is
- *  `delivery | padi` in place of `updater | padi`. Not additive in either
+ *  `agentDistroStatus` `error` arm's `reason` is now
+ *  `refused | binderRefused | delivery` in place of `nixMissing | updater`
+ *  (`binderRefused`: the binder's own Nix would not take the bundle from
+ *  agent-distro's cache), and a receipt run's `by` is `delivery | padi` in
+ *  place of `updater | padi`. The `ready` arm's optional `update: { progress? }`
+ *  is replaced by a REQUIRED `delivering: boolean`, and `downloading` drops its
+ *  `progress` (no delivery counts bytes). Not additive in either
  *  direction — the 5.10 shape: a 5.13 binder CALLS `report`, and the minor
  *  drains a 5.12 padi before it can; a gate-only face older than 5.13 meets a
  *  decode refusal on a failed status, loud. */

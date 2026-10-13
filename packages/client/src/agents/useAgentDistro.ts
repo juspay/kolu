@@ -38,7 +38,6 @@ import {
   createRoot,
   createSignal,
   mapArray,
-  untrack,
 } from "solid-js";
 import { toast } from "solid-sonner";
 import { hostDisplayName } from "../host/hostChipTone";
@@ -59,10 +58,8 @@ import {
   agentMarkOf,
   agentToast,
   type HostAgentStatus,
-  type LandedFacts,
-  landedFacts,
-  updateLanded,
 } from "@kolu/agent-distro/status";
+import { watchLanding } from "./watchLanding";
 
 /** The server's identity (its hostname names the local machine), shared. */
 const serverIdentity = useServerIdentity();
@@ -148,17 +145,7 @@ const byHost = createRoot(() => {
           icon: AgentDistroLogo({ size: 16 }),
         });
       });
-      // Watch the PLAIN facts (`landedFacts`: profile and bundle, copied out
-      // as strings), never the status value: a cell's value is reconciled in
-      // place into one store object, so the value read before and after a
-      // landing is the same proxy and a watcher keyed on it never sees it.
-      let prev: LandedFacts | undefined;
-      createEffect(() => {
-        const now = landedFacts(sub.value());
-        const didLand = updateLanded(prev, now);
-        prev = now;
-        if (didLand && now !== undefined) untrack(() => setLanded(now.bundle));
-      });
+      watchLanding(() => sub.value(), setLanded);
       // "Checking": the host is up and agents are on, but its status cell has
       // not sent its first frame. Derived here from the cell's own pending
       // state; padi has no such status.

@@ -690,7 +690,7 @@ async function stageAgentClosure(opts: {
   signal: AbortSignal | undefined;
 }): Promise<
   | { bail: ProvisionResult }
-  | { bail: null; onTarget: true; copied: boolean }
+  | { bail: null; onTarget: true }
   | { bail: null; onTarget: false; miss: ClosureMiss }
 > {
   const held = await checkValidity("localhost", opts.outPath, {
@@ -718,19 +718,23 @@ async function stageAgentClosure(opts: {
     if (prefetch.kind === "aborted") {
       return { bail: abortedDuring(opts.host, "the cache prefetch") };
     }
-    // A refused import is the TARGET's refusal only on the local arm, where
-    // the sender's store is the target; on a remote arm it is this machine's
-    // own Nix, and the closure simply never reached a ship.
+    // A refused import is the TARGET's refusal on the local arm, where the
+    // sender's store IS the target; on a remote arm it is this machine's own
+    // Nix refusing the cache — a different store, and a different fix.
     if (prefetch.kind === "missed")
       unfetched = {
-        why: prefetch.refused && opts.isLocal ? "refused" : "uncached",
+        why: !prefetch.refused
+          ? "uncached"
+          : opts.isLocal
+            ? "refused"
+            : "sender-refused",
         reason: prefetch.reason,
       };
   }
   // Localhost never ships: the store just checked IS the target store, so a
   // hit there is already a hit on the target.
   if (unfetched === undefined && opts.isLocal)
-    return { bail: null, onTarget: true, copied: held !== "valid" };
+    return { bail: null, onTarget: true };
   if (unfetched !== undefined) {
     if (!opts.isLocal) opts.narrate("no local copy of the agent to ship");
     return { bail: null, onTarget: false, miss: unfetched };
@@ -747,8 +751,7 @@ async function stageAgentClosure(opts: {
   if (ship.kind === "aborted") {
     return { bail: abortedDuring(opts.host, "the closure ship") };
   }
-  if (ship.kind === "delivered")
-    return { bail: null, onTarget: true, copied: true };
+  if (ship.kind === "delivered") return { bail: null, onTarget: true };
   return {
     bail: null,
     onTarget: false,
@@ -759,17 +762,19 @@ async function stageAgentClosure(opts: {
 /** Why a closure did not reach the target store — never a build's business:
  *
  *   - `uncached` — no declared cache delivered it into the sender's store (a
- *     miss, a network failure, a silence kill, or — on a remote arm — the
- *     sender's own Nix refusing the cache's signatures: Nix's words say which);
+ *     miss, a network failure, a silence kill);
  *   - `refused` — the TARGET store refused the paths for want of a signature
  *     it trusts: its Nix trusts neither the login (`trusted-users`) nor the
  *     cache's key (on the local arm the target is the sender's own store,
  *     importing from the cache). Only that store's settings change it;
+ *   - `sender-refused` — delivering to a REMOTE host, the SENDER's own Nix
+ *     refused to import the cache's paths for the same want of trust: only
+ *     the sending machine's settings change it, and the host was never asked;
  *   - `unshipped` — the copy to the target failed for any other reason.
  *
  *  `reason` is what Nix said, verbatim. */
 export interface ClosureMiss {
-  readonly why: "uncached" | "refused" | "unshipped";
+  readonly why: "uncached" | "refused" | "sender-refused" | "unshipped";
   readonly reason: string;
 }
 
@@ -808,18 +813,13 @@ export interface DeliverClosureOptions {
 /** How a delivery ended:
  *
  *   - `ok` — `outPath` is valid in the target store and rooted at `rootPath`;
- *     `arrived` says whether it was already there or was copied now;
  *   - `not-delivered` — the closure is NOT in the target store, and why
  *     ({@link ClosureMiss}); nothing was rooted. A caller that may build
  *     (`provisionAgent`) builds; one that may not, stops and says why;
  *   - `failed` — an abort, or the required root commit failed: the
  *     `ProvisionResult` failure shape, with its retry class. */
 export type DeliverClosureResult =
-  | {
-      readonly ok: true;
-      readonly outPath: string;
-      readonly arrived: "already-there" | "copied";
-    }
+  | { readonly ok: true; readonly outPath: string }
   | ({ readonly ok: false; readonly kind: "not-delivered" } & ClosureMiss)
   | ({ readonly ok: false; readonly kind: "failed" } & Extract<
       ProvisionResult,
@@ -890,7 +890,7 @@ export async function deliverClosure(
       opts.onProgress(
         `${opts.host}: already provisioned at ${outPath} — skipped copy`,
       );
-      return { ok: true, outPath, arrived: "already-there" };
+      return { ok: true, outPath };
     }
   }
 
@@ -927,11 +927,7 @@ export async function deliverClosure(
       ? "localhost: agent already in the local store — no build needed"
       : `${opts.host}: agent copied to the host's store — no build needed`,
   );
-  return {
-    ok: true,
-    outPath,
-    arrived: staged.copied ? "copied" : "already-there",
-  };
+  return { ok: true, outPath };
 }
 
 /** Realise an agent derivation in `$host`'s store and commit its required GC

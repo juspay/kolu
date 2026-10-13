@@ -1,4 +1,3 @@
-import { GIB, MIB } from "@kolu/byte-units";
 import { describe, expect, it } from "vitest";
 import { agentBundleShortHash } from "./bundle.ts";
 import { type AgentDistroListing, profileOfBundle } from "./listing.ts";
@@ -20,14 +19,9 @@ import {
   rememberProfile,
   AGENTS_CHECK_NOW,
   agentHostCheckable,
-  agentMarkFillWords,
   AGENTS_RECEIPT_UNREADABLE,
-  AGENTS_UPDATE_CHECKING,
-  agentMarkFill,
-  agentMarkUpdate,
   AGENTS_UPDATE_DOWNLOADING,
   agentUpdateCheckable,
-  agentUpdateRunning,
   agentsStepHint,
   agentDistroChoice,
   agentDistroSettingOf,
@@ -37,10 +31,11 @@ import {
   AGENTS_DELIVERY_AGAIN,
   AGENTS_REFUSED_FIX,
   AGENTS_REFUSED_MEANS,
+  AGENTS_BINDER_REFUSED_FIX,
+  AGENTS_BINDER_REFUSED_MEANS,
   agentFailureLines,
   agentFailureRemedy,
   agentMarkWords,
-  DOWNLOAD_MIN_FILL,
   agentMarkLabel,
   agentChipLabel,
   agentMarkOf,
@@ -51,7 +46,6 @@ import {
   agentToast,
   AGENTS_OFF_MEANS,
   agentsHint,
-  downloadBytes,
   landedFacts,
   updateLanded,
   restartedLabel,
@@ -73,23 +67,38 @@ describe("agentMarkOf — the one status → treatment fold", () => {
     ],
     [
       "ready",
-      { kind: "ready", profile: "vanilla", bundle: READY_BUNDLE },
-      { kind: "ready", profile: "vanilla", hash: "nd11nx5f" },
-    ],
-    [
-      "downloading with bytes",
       {
-        kind: "downloading",
+        kind: "ready",
         profile: "vanilla",
-        progress: { done: 1.1 * GIB, total: 2 * GIB },
+        bundle: READY_BUNDLE,
+        delivering: false,
       },
-      { kind: "downloading", fraction: 0.55, bytes: "1.1 GiB of 2.0 GiB" },
+      {
+        kind: "ready",
+        profile: "vanilla",
+        hash: "nd11nx5f",
+        delivering: false,
+      },
     ],
     [
-      "downloading, no numbers yet",
+      "ready, delivering a newer set",
+      {
+        kind: "ready",
+        profile: "vanilla",
+        bundle: READY_BUNDLE,
+        delivering: true,
+      },
+      {
+        kind: "ready",
+        profile: "vanilla",
+        hash: "nd11nx5f",
+        delivering: true,
+      },
+    ],
+    [
+      "downloading",
       { kind: "downloading", profile: "vanilla" },
-      // Nothing counted yet still shows a sliver — never an empty track.
-      { kind: "downloading", fraction: DOWNLOAD_MIN_FILL, bytes: undefined },
+      { kind: "downloading" },
     ],
     [
       "error",
@@ -110,16 +119,6 @@ describe("agentMarkOf — the one status → treatment fold", () => {
   });
 });
 
-describe("downloadBytes", () => {
-  it("says no numbers when there are none — including a 0-byte total", () => {
-    expect(downloadBytes(undefined)).toBeUndefined();
-    expect(downloadBytes({ done: 0, total: 0 })).toBeUndefined();
-    expect(downloadBytes({ done: 603 * MIB, total: 2.2 * GIB })).toBe(
-      "603 MiB of 2.2 GiB",
-    );
-  });
-});
-
 describe("agentMarkLabel", () => {
   it("words each treatment; none has no words", () => {
     expect(
@@ -130,7 +129,12 @@ describe("agentMarkLabel", () => {
     );
     expect(
       agentMarkLabel(
-        { kind: "ready", profile: "vanilla", hash: "8rcmf6rd" },
+        {
+          kind: "ready",
+          profile: "vanilla",
+          hash: "8rcmf6rd",
+          delivering: false,
+        },
         "box",
       ),
     ).toBe(
@@ -139,13 +143,19 @@ describe("agentMarkLabel", () => {
     expect(
       agentMarkLabel(
         {
-          kind: "downloading",
-          fraction: 0.55,
-          bytes: "1.1 GiB of 2.0 GiB",
+          kind: "ready",
+          profile: "vanilla",
+          hash: "8rcmf6rd",
+          delivering: true,
         },
-        "naiveintent",
+        "box",
       ),
-    ).toBe("Delivering the coding agents to naiveintent… 1.1 GiB of 2.0 GiB");
+    ).toBe(
+      `Coding agents ready on box: vanilla (8rcmf6rd) — new terminals on box start with them\n${AGENTS_UPDATE_DOWNLOADING}`,
+    );
+    expect(agentMarkLabel({ kind: "downloading" }, "naiveintent")).toBe(
+      "Delivering the coding agents to naiveintent…",
+    );
     expect(
       agentMarkLabel(
         { kind: "failed", reason: "delivery", message: "nix missing" },
@@ -600,7 +610,12 @@ describe("firstRunAgentsDone — the first-run step's done-predicate", () => {
     off: { kind: "off" },
     unavailable: { kind: "unavailable" },
     downloading: { kind: "downloading", profile: "vanilla" },
-    ready: { kind: "ready", profile: "vanilla", bundle: BUNDLE },
+    ready: {
+      kind: "ready",
+      profile: "vanilla",
+      bundle: BUNDLE,
+      delivering: false,
+    },
     error: {
       kind: "error",
       profile: "vanilla",
@@ -760,7 +775,12 @@ describe("firstRunAgentsDone — the first-run step's done-predicate", () => {
 const AGO = (at: number) => `@${at}`;
 
 describe("agentFleetSummary — the ONE fleet line in Settings", () => {
-  const ready = { kind: "ready", profile: "vanilla", bundle: BUNDLE } as const;
+  const ready = {
+    kind: "ready",
+    profile: "vanilla",
+    bundle: BUNDLE,
+    delivering: false,
+  } as const;
   const host = (
     label: string,
     status: AgentDistroStatus | undefined,
@@ -793,11 +813,7 @@ describe("agentFleetSummary — the ONE fleet line in Settings", () => {
       host("naiveintent", ready),
       host("box", ready),
       host("zest", ready),
-      host("buildbox", {
-        kind: "downloading",
-        profile: "vanilla",
-        progress: { done: 1.1 * GIB, total: 2 * GIB },
-      }),
+      host("buildbox", { kind: "downloading", profile: "vanilla" }),
       host("devbox", {
         kind: "error",
         profile: "vanilla",
@@ -840,7 +856,12 @@ describe("agentFleetSummary — the ONE fleet line in Settings", () => {
 });
 
 describe("agentHostDetail — one machine's agents, in its host details", () => {
-  const ready = { kind: "ready", profile: "vanilla", bundle: BUNDLE } as const;
+  const ready = {
+    kind: "ready",
+    profile: "vanilla",
+    bundle: BUNDLE,
+    delivering: false,
+  } as const;
   const detail = (
     status: AgentDistroStatus | undefined,
     receipt?: AgentDistroReceipt,
@@ -858,8 +879,9 @@ describe("agentHostDetail — one machine's agents, in its host details", () => 
       hash: "nd11nx5f",
       state: { text: "ready", title: "ready", tone: "muted" },
       cause: [],
+      hasFix: false,
       events: [],
-      action: "check",
+      canCheck: true,
     });
   });
 
@@ -891,17 +913,10 @@ describe("agentHostDetail — one machine's agents, in its host details", () => 
     ]);
   });
 
-  it("a run in flight says so, and offers no check while it runs", () => {
-    expect(detail({ ...ready, update: {} })?.state.text).toBe(
-      `ready · ${AGENTS_UPDATE_CHECKING}`,
-    );
-    expect(detail({ ...ready, update: {} })?.action).toBeUndefined();
-    expect(
-      detail({
-        ...ready,
-        update: { progress: { done: 1.1 * GIB, total: 2 * GIB } },
-      })?.state.text,
-    ).toBe("ready · updating · 1.1 GiB of 2.0 GiB");
+  it("a delivery in flight says so, and offers no check while it runs", () => {
+    const d = detail({ ...ready, delivering: true });
+    expect(d?.state.text).toBe("ready · delivering newer agents…");
+    expect(d?.canCheck).toBe(false);
   });
 
   it("failed: the cause in kolu-server's words, what it means there, and a check to try again", () => {
@@ -920,9 +935,11 @@ describe("agentHostDetail — one machine's agents, in its host details", () => 
         tone: "warn",
       },
       cause: ["the cache does not hold this bundle"],
+      // Nothing to fix in a machine's Nix settings: no docs link.
+      hasFix: false,
       means: `New terminals on devbox get no coding agents until this is fixed. ${AGENTS_DELIVERY_AGAIN}`,
       events: [],
-      action: "check",
+      canCheck: true,
     });
   });
 
@@ -939,23 +956,35 @@ describe("agentHostDetail — one machine's agents, in its host details", () => 
       AGENTS_REFUSED_MEANS,
       AGENTS_REFUSED_FIX,
     ]);
-    expect(d?.action).toBe("check");
+    expect(d?.hasFix).toBe(true);
+    expect(d?.canCheck).toBe(true);
+  });
+
+  it("binderRefused: names kolu's own Nix, with what it means and the fix there", () => {
+    const d = detail({
+      kind: "error",
+      profile: "vanilla",
+      reason: "binderRefused",
+      message: "cannot add path because it lacks a signature by a trusted key",
+    });
+    expect(d?.state.text).toBe("refused by kolu's own Nix");
+    expect(d?.cause).toEqual([
+      "cannot add path because it lacks a signature by a trusted key",
+      AGENTS_BINDER_REFUSED_MEANS,
+      AGENTS_BINDER_REFUSED_FIX,
+    ]);
+    expect(d?.hasFix).toBe(true);
+    expect(d?.canCheck).toBe(true);
   });
 
   it("delivering and off say what they are, with nothing to do from here", () => {
-    expect(
-      detail({
-        kind: "downloading",
-        profile: "vanilla",
-        progress: { done: 1.1 * GIB, total: 2 * GIB },
-      }),
-    ).toMatchObject({
-      state: { text: "delivering · 1.1 GiB of 2.0 GiB" },
-      action: undefined,
+    expect(detail({ kind: "downloading", profile: "vanilla" })).toMatchObject({
+      state: { text: "delivering…" },
+      canCheck: false,
     });
     expect(detail({ kind: "off" })).toMatchObject({
       state: { text: "agents off" },
-      action: undefined,
+      canCheck: false,
     });
   });
 
@@ -1003,7 +1032,7 @@ describe("agentStalenessOf — is a terminal's agents what a new one gets", () =
   const had = { profile: "vanilla", hash: "nd11nx5f" };
   const on = (profile: string) => ({ enabled: true, profile });
   const ready = (profile: string, bundle: string) =>
-    ({ kind: "ready", profile, bundle }) as const;
+    ({ kind: "ready", profile, bundle, delivering: false }) as const;
 
   it("a reference switch on the same bundle is stale: its AI_PROFILE changed", () => {
     expect(
@@ -1339,7 +1368,7 @@ describe("the words outside the folds", () => {
 
 describe("updateLanded — the moment a delivery is worth the updated toast", () => {
   const ready = (bundle: string, profile = "vanilla") =>
-    landedFacts({ kind: "ready", profile, bundle });
+    landedFacts({ kind: "ready", profile, bundle, delivering: false });
 
   it("a new bundle of the SAME profile on a ready host is an update", () => {
     expect(updateLanded(ready("/a"), ready("/b"))).toBe(true);
@@ -1356,7 +1385,7 @@ describe("updateLanded — the moment a delivery is worth the updated toast", ()
         kind: "ready",
         profile: "vanilla",
         bundle: "/a",
-        update: {},
+        delivering: true,
       }),
     ).toEqual({ profile: "vanilla", bundle: "/a" });
     expect(
@@ -1434,17 +1463,32 @@ describe("a failure's words: cause, then remedy (by reason), then when kolu trie
     });
     expect(detail?.cause).toEqual([failure.message, ...lines.slice(1, -1)]);
     expect(detail?.means?.endsWith(AGENTS_DELIVERY_AGAIN)).toBe(true);
-    expect(detail?.action).toBe("check");
+    expect(detail?.canCheck).toBe(true);
+  });
+  it("binderRefused carries what it means and the fix on the machine running kolu", () => {
+    expect(agentFailureRemedy("binderRefused")).toEqual([
+      AGENTS_BINDER_REFUSED_MEANS,
+      AGENTS_BINDER_REFUSED_FIX,
+    ]);
+    expect(
+      agentFailureLines({ reason: "binderRefused", message: REFUSED }, "box"),
+    ).toEqual([
+      `The coding agents could not be delivered to box: ${REFUSED}`,
+      AGENTS_BINDER_REFUSED_MEANS,
+      AGENTS_BINDER_REFUSED_FIX,
+      AGENTS_DELIVERY_AGAIN,
+    ]);
   });
 });
 
 describe("K3 — updates while a bundle serves", () => {
-  const ready = { kind: "ready", profile: "vanilla", bundle: BUNDLE } as const;
-  const checking = { ...ready, update: {} } as const;
-  const downloading = {
-    ...ready,
-    update: { progress: { done: 512 * MIB, total: 2 * GIB } },
+  const ready = {
+    kind: "ready",
+    profile: "vanilla",
+    bundle: BUNDLE,
+    delivering: false,
   } as const;
+  const delivering = { ...ready, delivering: true } as const;
   const receipt = (over: Partial<AgentDistroReceipt>): AgentDistroReceipt => ({
     profile: "vanilla",
     versions: [],
@@ -1463,34 +1507,20 @@ describe("K3 — updates while a bundle serves", () => {
     ago: AGO,
   });
 
-  it("the mark stays ready while an update runs; a ring only once bytes move", () => {
-    expect(agentMarkOf(checking, false)).toEqual({
+  it("the mark stays ready while a newer set is delivered, and says so", () => {
+    const mark = agentMarkOf(delivering, false);
+    expect(mark).toEqual({
       kind: "ready",
       profile: "vanilla",
       hash: "nd11nx5f",
-      update: {},
-    });
-    const mark = agentMarkOf(downloading, false);
-    expect(mark).toMatchObject({
-      kind: "ready",
-      update: { download: { fraction: 0.25, bytes: "512 MiB of 2.0 GiB" } },
+      delivering: true,
     });
     expect(agentMarkWords(mark, "box")?.detail).toEqual([
       AGENTS_UPDATE_DOWNLOADING,
     ]);
-    expect(agentMarkWords(agentMarkOf(checking, false), "box")?.detail).toEqual(
-      ["Checking for newer agents…"],
+    expect(agentMarkWords(agentMarkOf(ready, false), "box")?.detail).toEqual(
+      [],
     );
-    // One fold for the phase and the fill, the tab's ring and the line alike.
-    expect(agentMarkUpdate(agentMarkOf(checking, false))).toBe("checking");
-    expect(agentMarkUpdate(mark)).toBe("downloading");
-    expect(agentMarkUpdate(agentMarkOf(ready, false))).toBeUndefined();
-    expect(agentMarkFill(mark)).toEqual({
-      fraction: 0.25,
-      bytes: "512 MiB of 2.0 GiB",
-    });
-    expect(agentMarkFill(agentMarkOf(checking, false))).toBeUndefined();
-    expect(agentMarkLabel(mark, "box")).toContain("512 MiB of 2.0 GiB");
   });
 
   it("a ready machine's state line says its last run, in its own outcome's words", () => {
@@ -1638,47 +1668,19 @@ describe("K3 — updates while a bundle serves", () => {
     expect(
       agentUpdateCheckable({ kind: "downloading", profile: "vanilla" }),
     ).toBe(false);
-    expect(agentUpdateCheckable(checking)).toBe(false);
+    expect(agentUpdateCheckable(delivering)).toBe(false);
     expect(agentUpdateCheckable({ kind: "off" })).toBe(false);
     expect(agentUpdateCheckable(undefined)).toBe(false);
-    // Any run on any host, for ANY profile — not only the selected one's.
-    expect(agentUpdateRunning([receipt({}), undefined])).toBe(false);
-    expect(
-      agentUpdateRunning([receipt({}), receipt({ running: ["juspay"] })]),
-    ).toBe(true);
     // A disconnected host's last-known ready cannot answer.
     expect(agentHostCheckable({ connected: true, status: ready })).toBe(true);
     expect(agentHostCheckable({ connected: false, status: ready })).toBe(false);
-    expect(agentHostCheckable({ connected: true, status: checking })).toBe(
+    expect(agentHostCheckable({ connected: true, status: delivering })).toBe(
       false,
     );
     // The fleet-wide check is a palette command now: its words, and the note
     // that says it asks every machine.
     expect(AGENTS_CHECK_NOW.label).toBe("Check for newer coding agents");
     expect(AGENTS_CHECK_NOW.note).toBe("every machine");
-  });
-
-  it("the words beside a filling mark's bar: a first download's headline, an update's line", () => {
-    expect(agentMarkFillWords(agentMarkOf(downloading, false), "box")).toBe(
-      AGENTS_UPDATE_DOWNLOADING,
-    );
-    const first = agentMarkOf(
-      {
-        kind: "downloading",
-        profile: "vanilla",
-        progress: { done: 1, total: 4 },
-      },
-      false,
-    );
-    expect(agentMarkFillWords(first, "box")).toBe(
-      agentMarkWords(first, "box")?.title,
-    );
-    expect(
-      agentMarkFillWords(agentMarkOf(ready, false), "box"),
-    ).toBeUndefined();
-    expect(
-      agentMarkFillWords(agentMarkOf(checking, false), "box"),
-    ).toBeUndefined();
   });
 
   it("the chips name this machine's versions once it has them", () => {

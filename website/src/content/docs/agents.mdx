@@ -246,10 +246,13 @@ name, and the mark's look says where that host stands:
 | The mark | Means |
 | --- | --- |
 | plain, in the tab's text colour | ready for new terminals |
-| a thin ring around it | kolu is delivering the agents to it |
-| plain, with a ring around it | ready, and kolu is delivering a newer set; the current one keeps serving ([Kept up to date](#kept-up-to-date)) |
+| a turning arc around it | kolu is delivering the agents to it |
+| plain, with a turning arc around it | ready, and kolu is delivering a newer set; the current one keeps serving ([Kept up to date](#kept-up-to-date)) |
 | warning colour with a small dot | the delivery failed — hover for why ([below](#when-a-delivery-fails)) |
-| dimmed, with a spinning arc | checking: the host is connected but has not said yet |
+| dimmed, with a turning arc | checking: the host is connected but has not said yet |
+
+The arc only turns — it never fills: a delivery's copies report no byte counts
+to fill it with.
 | no mark at all | agents are off |
 
 Clicking the mark opens that machine's **host details** — the popover behind its
@@ -286,16 +289,18 @@ current; switching sets delivers the new one as before. A machine also gets a
 delivery whenever it connects — kolu starts, a host comes back after sleep or a
 dropped link, a newer kolu reaches it — so a machine that was away at those times
 catches up as soon as it is back. A run that fails — the cache did not answer,
-a host dropped off mid-copy — is tried again up to twice, five minutes after the
-failed run ended, as agent-distro's own schedule does.
+a host dropped off mid-copy, or no machine was connected to take it — is tried
+again up to twice, five minutes after the failed run ended, as agent-distro's
+own schedule does.
 
 Nothing is ever compiled. If agent-distro's cache does not hold the newer set
 yet, the delivery fails instead and is tried again as above.
 
 While a newer set is delivered, the one you have keeps working: new terminals get
 it until the new one has fully arrived. The host's mark keeps its plain colour
-with the ring around it; Settings' fleet line keeps that machine among the ones
-still working, and its host details say "ready · updating". Then:
+with the arc turning around it; Settings' fleet line keeps that machine among
+the ones still working, and its host details say "ready · delivering newer
+agents…". Then:
 
 - a toast says what changed, in agent-distro's own format ("Claude Code
   2.1.286 → 2.1.291"), and on which machine;
@@ -335,8 +340,13 @@ accepts copied software only from someone it trusts: either the login kolu
 connects as is one of its `trusted-users`, or the software is signed with a key
 it trusts. If neither is true, it refuses, and kolu cannot change that from
 outside — so the host gets no agents (it never compiles them either), and its
-mark turns to the warning colour. The same holds for the machine running kolu,
-which takes each set from the cache into its own Nix store first.
+mark turns to the warning colour; its host details say "refused by its Nix".
+
+The machine running kolu can refuse too: it takes each set from the cache into
+its own Nix store before passing it on, so its Nix must trust the user kolu runs
+as or the cache's key. When it does not, every host's delivery fails the same
+way and says "refused by kolu's own Nix" — the fix below then goes on the
+machine running kolu, with your user in place of the login.
 
 The fix is one line on that machine, either half is enough. On NixOS, trust the
 login kolu connects as:
@@ -365,8 +375,10 @@ after it. kolu tries those again on its own (see [Kept up to
 date](#kept-up-to-date)).
 
 A refusal is not retried on a loop, because only that machine's settings change
-it. Once you have fixed them, kolu tries again at the next scheduled time or the
-next time the machine connects — or right away: open that machine's host details
+it — not even when the machine reconnects: kolu remembers the refusal and says
+it again rather than copying the set over once more. Once you have fixed the
+settings, kolu tries again at the next scheduled time — or right away: open
+that machine's host details
 (click the mark, or the machine's name on Settings' fleet line) and press **check
 for newer agents ↻**. Its **agents** section carries the cause in full — Nix's
 own words — that "New terminals on &lt;host&gt; get no coding agents until this is

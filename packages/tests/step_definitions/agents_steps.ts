@@ -384,9 +384,7 @@ Then(
   "the agents section should offer to check for newer agents",
   async function (this: KoluWorld) {
     await this.page
-      .locator(
-        `${HOST_DETAILS} [data-testid="host-agents-action"][data-action="check"]`,
-      )
+      .locator(`${HOST_DETAILS} [data-testid="host-agents-action"]`)
       .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
   },
 );

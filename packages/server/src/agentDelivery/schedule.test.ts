@@ -2,7 +2,8 @@
  * The delivery schedule on a fake clock and a fake delivery, with upstream's
  * real numbers (every six hours from 02:00 UTC; up to three runs a boundary,
  * five minutes after a FAILED one ended): a run when due at start, a failed
- * run retried, a refused-only run NOT retried (only the host's own settings
+ * run retried, a run that reached no host retried (never stamped), a
+ * refused-only run NOT retried (only the host's own settings
  * change a refusal), a succeeded run not repeated before the next boundary,
  * and nothing while agents are off.
  */
@@ -10,7 +11,11 @@
 import type { UpdaterSchedule } from "@kolu/agent-distro/schedule";
 import type { Logger } from "@kolu/log";
 import { describe, expect, it, vi } from "vitest";
-import type { AgentDelivery, HostOutcome } from "./delivery.ts";
+import type {
+  AgentDelivery,
+  DeliveryTrigger,
+  HostOutcome,
+} from "./delivery.ts";
 import { runFailed, startDeliverySchedule } from "./schedule.ts";
 
 /** Upstream's schedule: every six hours from 02:00 UTC. */
@@ -51,16 +56,16 @@ function fakeClock(start: number) {
 }
 
 /** A delivery whose every run ends at once with `outcome()`, recording when
- *  each run started and whether it asked for a fresh lock. */
+ *  each run started and its trigger. */
 function fakeDelivery(
   outcome: () => readonly HostOutcome[],
   now: () => number,
 ) {
-  const runs: { at: number; freshLock: boolean }[] = [];
+  const runs: { at: number; trigger: DeliveryTrigger }[] = [];
   const delivery: AgentDelivery = {
     running: () => false,
-    run: async ({ freshLock }) => {
-      runs.push({ at: now(), freshLock });
+    run: async ({ trigger }) => {
+      runs.push({ at: now(), trigger });
       return outcome();
     },
   };
@@ -95,21 +100,31 @@ function start(opts: {
 }
 
 describe("runFailed", () => {
-  it("only a failed host fails the run — refused, busy and landed do not", () => {
+  it("a failed host fails the run — refused, busy and landed do not", () => {
     expect(runFailed(["landed", "failed"])).toBe(true);
+    expect(runFailed(["refused", "failed"])).toBe(true);
     expect(runFailed(["landed", "refused", "busy"])).toBe(false);
-    expect(runFailed([])).toBe(false);
+    expect(runFailed(["refused"])).toBe(false);
+    expect(runFailed(["landed"])).toBe(false);
+  });
+
+  it("a run that reached no host failed", () => {
+    expect(runFailed([])).toBe(true);
+    expect(runFailed(["busy"])).toBe(true);
+    expect(runFailed(["busy", "busy"])).toBe(true);
   });
 });
 
 describe("startDeliverySchedule", () => {
-  it("runs at start when due, with a fresh lock", async () => {
+  it("runs at start when due, as the schedule's trigger", async () => {
     const { runs, schedule } = start({
       start: "2026-10-08T09:00:00Z",
       outcome: () => ["landed"],
     });
     await settle();
-    expect(runs).toEqual([{ at: at("2026-10-08T09:00:00Z"), freshLock: true }]);
+    expect(runs).toEqual([
+      { at: at("2026-10-08T09:00:00Z"), trigger: "schedule" },
+    ]);
     schedule.stop();
   });
 
@@ -166,7 +181,7 @@ describe("startDeliverySchedule", () => {
   it("a refused-only run is not retried before the next boundary", async () => {
     const { clock, runs, schedule } = start({
       start: "2026-10-08T09:00:00Z",
-      outcome: () => ["refused", "landed"],
+      outcome: () => ["refused"],
     });
     await runUntil(clock, at("2026-10-08T13:59:00Z"));
     expect(runs.map((r) => r.at)).toEqual([at("2026-10-08T09:00:00Z")]);
@@ -174,6 +189,34 @@ describe("startDeliverySchedule", () => {
     expect(runs.map((r) => r.at)).toEqual([
       at("2026-10-08T09:00:00Z"),
       at("2026-10-08T14:00:00Z"),
+    ]);
+    schedule.stop();
+  });
+
+  it("a run that reached no host is not stamped, and is retried five minutes later", async () => {
+    const outcomes: HostOutcome[][] = [[], ["landed"]];
+    const { clock, runs, schedule } = start({
+      start: "2026-10-08T09:00:00Z",
+      outcome: () => outcomes.shift() ?? ["landed"],
+    });
+    await runUntil(clock, at("2026-10-08T13:59:00Z"));
+    expect(runs.map((r) => r.at)).toEqual([
+      at("2026-10-08T09:00:00Z"),
+      at("2026-10-08T09:05:00Z"),
+    ]);
+    schedule.stop();
+  });
+
+  it("an all-busy run is retried within the boundary's three-run budget", async () => {
+    const { clock, runs, schedule } = start({
+      start: "2026-10-08T09:00:00Z",
+      outcome: () => ["busy", "busy"],
+    });
+    await runUntil(clock, at("2026-10-08T13:59:00Z"));
+    expect(runs.map((r) => r.at)).toEqual([
+      at("2026-10-08T09:00:00Z"),
+      at("2026-10-08T09:05:00Z"),
+      at("2026-10-08T09:10:00Z"),
     ]);
     schedule.stop();
   });

@@ -240,6 +240,7 @@ describe("layerOnHost — the bundle on disk", () => {
         bundle: join(root, "agent-distro-vanilla"),
         plugins: "/p/plugin",
       },
+      delivering: false,
     });
     expect(assessAgentDistro({ enabled: false, profile: "x" })).toEqual({
       kind: "off",
@@ -259,6 +260,7 @@ describe("a profile reference — the setting's fallback, on the vanilla bundle"
         bundle: join(root, "agent-distro-vanilla"),
         plugins: "/p/plugin",
       },
+      delivering: false,
     });
   });
 
@@ -276,6 +278,7 @@ describe("a profile reference — the setting's fallback, on the vanilla bundle"
       kind: "ready",
       profile: "github:me/profile",
       bundle,
+      delivering: false,
     });
   });
 });
@@ -306,7 +309,12 @@ describe("delivery reports — what a host does with kolu-server's word", () => 
     expect(history).toHaveLength(1);
     expect(history[0]).toMatch(/ vanilla updated: Claude Code 2\.1\.291$/);
 
-    expect(status()).toEqual({ kind: "ready", profile: "vanilla", bundle });
+    expect(status()).toEqual({
+      kind: "ready",
+      profile: "vanilla",
+      bundle,
+      delivering: false,
+    });
     const layer = newTerminalLayer();
     expect(layer).toEqual({ profile: "vanilla", bundle, plugins: "/p/plugin" });
     if (layer === undefined) throw new Error("no layer after landing");
@@ -372,6 +380,28 @@ describe("delivery reports — what a host does with kolu-server's word", () => 
     });
   });
 
+  it("`failed binderRefused` with nothing serving: status error with that reason", () => {
+    __setAgentDistroBakeForTest(bake({ floor: false }));
+    write(ON);
+    const message =
+      "the binder's nix does not trust agent-distro's cache signing key";
+
+    report({
+      kind: "failed",
+      profile: "vanilla",
+      reason: "binderRefused",
+      message,
+    });
+
+    expect(status()).toEqual({
+      kind: "error",
+      profile: "vanilla",
+      reason: "binderRefused",
+      message,
+    });
+    expect(newTerminalLayer()).toBeUndefined();
+  });
+
   it("a failure while a bundle serves leaves the host ready on it: the failure shows only in the receipt", () => {
     __setAgentDistroBakeForTest(bake({ floor: true }));
     write(ON);
@@ -380,6 +410,7 @@ describe("delivery reports — what a host does with kolu-server's word", () => 
       kind: "ready",
       profile: "vanilla",
       bundle: floorBundle,
+      delivering: false,
     });
 
     report({ kind: "delivering", profile: "vanilla" });
@@ -394,6 +425,7 @@ describe("delivery reports — what a host does with kolu-server's word", () => 
       kind: "ready",
       profile: "vanilla",
       bundle: floorBundle,
+      delivering: false,
     });
     expect(newTerminalLayer()?.bundle).toBe(floorBundle);
     expect(receipt()).toMatchObject({
@@ -408,7 +440,7 @@ describe("delivery reports — what a host does with kolu-server's word", () => 
     });
   });
 
-  it("`delivering` while a bundle serves: ready on it, with an update under way", () => {
+  it("`delivering` while a bundle serves: ready on it, delivering", () => {
     __setAgentDistroBakeForTest(bake({ floor: true }));
     write(ON);
     report({ kind: "delivering", profile: "vanilla" });
@@ -417,7 +449,7 @@ describe("delivery reports — what a host does with kolu-server's word", () => 
       kind: "ready",
       profile: "vanilla",
       bundle: floorBundle,
-      update: {},
+      delivering: true,
     });
     // The serving bundle keeps going to new terminals until the newer lands.
     expect(newTerminalLayer()?.bundle).toBe(floorBundle);

@@ -1368,7 +1368,7 @@ describe("deliverClosure — the route without a build", () => {
   it("a host that already holds the path is rooted and never copied to", async () => {
     mockNix({ checkValidity: okOut("") });
     const res = await deliver("croissant");
-    expect(res).toEqual({ ok: true, outPath: STORE, arrived: "already-there" });
+    expect(res).toEqual({ ok: true, outPath: STORE });
     const calls = vi.mocked(runCapture).mock.calls.map((c) => c[1]);
     expect(calls.some(isCopy)).toBe(false);
     const pin = calls.find((a) => a.includes("--add-root"));
@@ -1378,7 +1378,7 @@ describe("deliverClosure — the route without a build", () => {
   it("copies from the cache, ships, and roots — with no build at any step", async () => {
     mockNix({ copy: okOut(""), ship: okOut("") });
     const res = await deliver("croissant");
-    expect(res).toEqual({ ok: true, outPath: STORE, arrived: "copied" });
+    expect(res).toEqual({ ok: true, outPath: STORE });
     const calls = vi.mocked(runCapture).mock.calls.map((c) => c[1]);
     expect(calls.some(isPrefetch)).toBe(true);
     expect(calls.some(isShip)).toBe(true);
@@ -1411,6 +1411,50 @@ describe("deliverClosure — the route without a build", () => {
     const calls = vi.mocked(runCapture).mock.calls.map((c) => c[1]);
     expect(calls.some(isBuild)).toBe(false);
     expect(calls.some((a) => a.includes("--add-root"))).toBe(false);
+  });
+
+  it("the sender's OWN refusal of the cache is `sender-refused` on a remote arm — never blamed on the host", async () => {
+    vi.mocked(runCapture).mockImplementation(async (_cmd, args, opts) => {
+      if (isPrefetch(args)) {
+        opts.onProgress?.(
+          nixErrorLine(
+            `cannot add path '${STORE}' because it lacks a signature by a trusted key`,
+          ),
+        );
+        return failOut;
+      }
+      if (args.includes("--check-validity")) return failOut;
+      return okOut("");
+    });
+    const res = await deliver("ci@croissant");
+    expect(res).toMatchObject({
+      ok: false,
+      kind: "not-delivered",
+      why: "sender-refused",
+    });
+    const calls = vi.mocked(runCapture).mock.calls.map((c) => c[1]);
+    expect(calls.some(isShip)).toBe(false);
+  });
+
+  it("on the local arm the same refusal is the target's own — `refused`", async () => {
+    vi.mocked(runCapture).mockImplementation(async (_cmd, args, opts) => {
+      if (isPrefetch(args)) {
+        opts.onProgress?.(
+          nixErrorLine(
+            `cannot add path '${STORE}' because it lacks a signature by a trusted key`,
+          ),
+        );
+        return failOut;
+      }
+      if (args.includes("--check-validity")) return failOut;
+      return okOut("");
+    });
+    const res = await deliver("localhost");
+    expect(res).toMatchObject({
+      ok: false,
+      kind: "not-delivered",
+      why: "refused",
+    });
   });
 
   it("a cache that does not hold the path is `uncached`, and nothing is shipped", async () => {

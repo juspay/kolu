@@ -1,47 +1,45 @@
 /** A host tab's agents mark: agent-distro's logo right after the host name, with
  *  the host's agent state as its treatment (the fold is `agentMarkOf`):
  *
- *   - ready: the mark in the tab's own text colour — and while a newer set
- *     downloads there (the old one still serves), the same ring filling with
- *     bytes, never the first-download treatment;
- *   - downloading: a thin ring around it, filled by bytes done over total;
+ *   - ready: the mark in the tab's own text colour — and while kolu delivers a
+ *     newer set there (the old one still serves), a turning arc around it;
+ *   - downloading (kolu delivering a first set): the same turning arc;
  *   - failed: the mark in the warning colour, with a warning dot;
- *   - checking (connected, no status yet): the mark dimmed, a spinning arc;
+ *   - checking (connected, no status yet): the mark dimmed, a turning arc;
  *   - none (agents off, or no bake): nothing — the tab is exactly as without.
  *
- *  Hover says it in words (a bar and the bytes while downloading); a click
- *  opens THAT machine's host details, whose agents section carries its
- *  profile, the build it serves, its last update run, its own events and its
- *  retry — without switching the tab. */
+ *  The arc never fills: a delivery's copies report no byte counts, so it
+ *  says only that one is under way. Hover says it in words; a click opens THAT
+ *  machine's host details, whose agents section carries its profile, the
+ *  build it serves, its last delivery, its own events and its check —
+ *  without switching the tab. */
 
 import { encodeHostKey, type HostKey } from "kolu-common/hostKey";
-import {
-  type Component,
-  createMemo,
-  Match,
-  onCleanup,
-  Show,
-  Switch,
-} from "solid-js";
+import { type Component, createMemo, onCleanup, Show } from "solid-js";
 import {
   openHostDiagnostics,
   releaseHostDiagnosticsAnchor,
 } from "../host/useHostDiagnosticsOpen";
 import Tip from "../ui/Tip";
 import AgentDistroLogo from "@kolu/agent-distro/solid";
-import {
-  type AgentMark,
-  agentMarkFill,
-  agentMarkLabel,
-  agentMarkUpdate,
-  agentMarkFillWords,
-} from "@kolu/agent-distro/status";
+import { type AgentMark, agentMarkLabel } from "@kolu/agent-distro/status";
 import { agentsWhere, hostAgentMark } from "./useAgentDistro";
 
 /** The ring: r=10 in a 24 box, so its length is 2π·10. */
 const RING = 2 * Math.PI * 10;
 
-const Ring: Component<{ mark: AgentMark }> = (props) => (
+/** Something is under way there: kolu delivering (a first set, or a newer one
+ *  while the old serves), or the host's status not heard yet. */
+function busy(mark: AgentMark): boolean {
+  return (
+    mark.kind === "downloading" ||
+    mark.kind === "checking" ||
+    (mark.kind === "ready" && mark.delivering)
+  );
+}
+
+/** A third of a faint ring, turning — still under reduced motion. */
+const Arc: Component = () => (
   <svg
     viewBox="0 0 24 24"
     aria-hidden="true"
@@ -56,67 +54,17 @@ const Ring: Component<{ mark: AgentMark }> = (props) => (
       // The track: the tab's text colour, faint — reads on light and dark chrome.
       style={{ stroke: "color-mix(in oklch, currentColor 14%, transparent)" }}
     />
-    <Switch>
-      <Match when={agentMarkFill(props.mark)}>
-        {(m) => (
-          <circle
-            cx="12"
-            cy="12"
-            r="10"
-            fill="none"
-            stroke-width="2"
-            stroke-linecap="round"
-            class="stroke-accent"
-            stroke-dasharray={`${RING}`}
-            stroke-dashoffset={`${RING * (1 - m().fraction)}`}
-          />
-        )}
-      </Match>
-      <Match when={props.mark.kind === "checking"}>
-        {/* One third of the ring, spinning — still under reduced motion. */}
-        <circle
-          cx="12"
-          cy="12"
-          r="10"
-          fill="none"
-          stroke-width="2"
-          stroke-linecap="round"
-          class="stroke-accent origin-center animate-spin motion-reduce:animate-none"
-          stroke-dasharray={`${RING / 3} ${RING}`}
-        />
-      </Match>
-    </Switch>
+    <circle
+      cx="12"
+      cy="12"
+      r="10"
+      fill="none"
+      stroke-width="2"
+      stroke-linecap="round"
+      class="stroke-accent origin-center animate-spin motion-reduce:animate-none"
+      stroke-dasharray={`${RING / 3} ${RING}`}
+    />
   </svg>
-);
-
-/** The words beside the mark on hover — `agentMarkLabel`, or beside its bar
- *  `agentMarkFillWords` (the folds choose the text) —
- *  and, while downloading, a 90px bar with the bytes after it. */
-const MarkTip: Component<{ mark: AgentMark; where: string }> = (props) => (
-  <Show
-    when={agentMarkFill(props.mark)}
-    fallback={
-      <span class="block max-w-sm whitespace-pre-line">
-        {agentMarkLabel(props.mark, props.where)}
-      </span>
-    }
-  >
-    {(m) => (
-      <span class="flex items-center gap-1.5">
-        <span>{agentMarkFillWords(props.mark, props.where)}</span>
-        {/* The same bar as the Settings status lines: 5px, radius 3, on edge. */}
-        <span class="h-[5px] w-[90px] shrink-0 overflow-hidden rounded-[3px] bg-edge">
-          <span
-            class="block h-full bg-accent"
-            style={{ width: `${m().fraction * 100}%` }}
-          />
-        </span>
-        <Show when={m().bytes}>
-          {(bytes) => <span class="font-mono text-fg-3">{bytes()}</span>}
-        </Show>
-      </span>
-    )}
-  </Show>
 );
 
 const AgentDistroHostMark: Component<{
@@ -134,7 +82,7 @@ const AgentDistroHostMark: Component<{
       type="button"
       data-testid={props.measuring ? undefined : "host-agents-mark"}
       data-state={mark().kind}
-      data-update={agentMarkUpdate(mark())}
+      data-delivering={busy(mark()) ? "" : undefined}
       aria-label={agentMarkLabel(mark(), where())}
       tabIndex={props.measuring ? -1 : undefined}
       onClick={(e) => {
@@ -149,10 +97,8 @@ const AgentDistroHostMark: Component<{
         "opacity-[0.55]": mark().kind === "checking",
       }}
     >
-      <Show
-        when={agentMarkFill(mark()) !== undefined || mark().kind === "checking"}
-      >
-        <Ring mark={mark()} />
+      <Show when={busy(mark())}>
+        <Arc />
       </Show>
       <AgentDistroLogo size={13} />
       <Show when={mark().kind === "failed"}>
@@ -169,7 +115,11 @@ const AgentDistroHostMark: Component<{
     <Show when={mark().kind !== "none"}>
       <Show when={!props.measuring} fallback={box()}>
         <Tip
-          label={<MarkTip mark={mark()} where={where()} />}
+          label={
+            <span class="block max-w-sm whitespace-pre-line">
+              {agentMarkLabel(mark(), where())}
+            </span>
+          }
           class="flex items-center"
         >
           {box()}

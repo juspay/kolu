@@ -20,6 +20,9 @@ export {
 export {
   AgentSourceUnbakedError,
   type AgentResolutionContext,
+  type FlakeEvaluationOptions,
+  lockFlake,
+  resolveFlakeOutPath,
   readBakedAgentSource,
   resolveBakedAgentDrv,
   SURFACE_AGENT_FLAKE_REF_ENV,
@@ -81,6 +84,8 @@ export {
   deliverClosure,
   makeProvisionBudgets,
   makeStepBudget,
+  PROVISION_STEP_MAX_EXPIRIES,
+  PROVISION_STEP_SILENCE_BASE_MS,
   type ProvisionBudgets,
   type ProvisionOptions,
   type ProvisionResult,

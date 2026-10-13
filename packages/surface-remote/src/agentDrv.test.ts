@@ -26,8 +26,10 @@ import {
 import {
   AgentResolutionExhaustedError,
   AgentSourceUnbakedError,
+  lockFlake,
   readBakedAgentSource,
   resolveAgentDrv,
+  resolveFlakeOutPath,
   SURFACE_AGENT_FLAKE_REF_ENV,
 } from "./agentDrv";
 import { ResolveDrvError } from "./host";
@@ -527,5 +529,66 @@ describe("the sidecar read is once per source ref", () => {
     await expect(resolveAgentDrv(...args)).resolves.toMatchObject({
       kind: "flake-installable",
     });
+  });
+});
+
+describe("lockFlake / resolveFlakeOutPath — the same evaluator, for an output path", () => {
+  const evalOpts = () => ({
+    onProgress: () => {},
+    onActivity: () => {},
+    budget: makeProvisionBudgets().evaluation,
+  });
+
+  it("locks once with --refresh and answers the locked url", async () => {
+    h.runCapture.mockResolvedValueOnce(
+      success('{"url":"github:juspay/agent-distro/abc?narHash=x"}'),
+    );
+    await expect(
+      lockFlake("github:juspay/agent-distro", evalOpts()),
+    ).resolves.toBe("github:juspay/agent-distro/abc?narHash=x");
+    const [, args] = h.runCapture.mock.calls[0] ?? [];
+    expect(args).toEqual(
+      expect.arrayContaining([
+        "flake",
+        "metadata",
+        "--refresh",
+        "--json",
+        "--accept-flake-config",
+      ]),
+    );
+  });
+
+  it("evaluates the OUTPUT path for the given system, never building", async () => {
+    h.runCapture.mockResolvedValueOnce(
+      success("/nix/store/b-agent-distro-vanilla\n"),
+    );
+    await expect(
+      resolveFlakeOutPath(
+        "github:x/y/abc",
+        "aarch64-darwin",
+        "vanilla",
+        evalOpts(),
+      ),
+    ).resolves.toBe("/nix/store/b-agent-distro-vanilla");
+    const [, args] = h.runCapture.mock.calls[0] ?? [];
+    expect(args).toContain(
+      "github:x/y/abc#packages.aarch64-darwin.vanilla.outPath",
+    );
+    expect(args).not.toContain("build");
+  });
+
+  it("a failed evaluation throws Nix's own root error", async () => {
+    h.runCapture.mockImplementationOnce(async (_cmd, _args, opts) => {
+      opts.onProgress?.(nixErrorLine("attribute 'vanilla' missing"));
+      return { ok: false, kind: "exit", code: 1, stdout: "" };
+    });
+    await expect(
+      resolveFlakeOutPath(
+        "github:x/y/abc",
+        "x86_64-linux",
+        "vanilla",
+        evalOpts(),
+      ),
+    ).rejects.toThrow(/attribute 'vanilla' missing/);
   });
 });

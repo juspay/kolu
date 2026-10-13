@@ -771,21 +771,22 @@ export async function bootKoluWeb(flags: KoluBootFlags): Promise<void> {
   // (`./agentDelivery/`): on upstream's schedule, on the user's check, and to a
   // host the moment its padi takes the Agents setting (the pusher below). Read
   // once, here: a broken listing or delivery bake crashes the boot; a kolu built
-  // from source has neither, and delivers nothing.
+  // from source has no delivery bake, delivers nothing, and tells every remote
+  // host that takes the setting so.
   const agentDistroListing = readAgentDistroListing();
   const deliveryBake = readAgentDistroDeliveryBake();
-  const agentDelivery =
-    deliveryBake === null || agentDistroListing.kind !== "available"
-      ? undefined
-      : installAgentDelivery({
-          bake: deliveryBake,
-          pool,
-          setting: currentAgentDistroSetting,
-          bundles: new Set(agentDistroListing.profiles.map((p) => p.name)),
-          label: (host) =>
-            host.kind === "local" ? serverHostname : host.target,
-          log,
-        });
+  const agentDelivery = installAgentDelivery({
+    bake: deliveryBake,
+    pool,
+    setting: currentAgentDistroSetting,
+    bundles: new Set(
+      agentDistroListing.kind === "available"
+        ? agentDistroListing.profiles.map((p) => p.name)
+        : [],
+    ),
+    label: (host) => (host.kind === "local" ? serverHostname : host.target),
+    log,
+  });
   // The AGENTS SETTING pusher — the same mechanism, for padi's memory-only
   // `agentDistro` cell: every bound padi (local and every remote host) learns the
   // user's choice on each connect edge and on every preferences write, and applies
@@ -797,7 +798,7 @@ export async function bootKoluWeb(flags: KoluBootFlags): Promise<void> {
     pool,
     getValue: currentAgentDistroSetting,
     equals: agentDistroSettingEqual,
-    onPushed: (host) => agentDelivery?.deliverTo(host),
+    onPushed: (host) => agentDelivery.deliverTo(host),
     log,
   });
 
@@ -856,9 +857,9 @@ export async function bootKoluWeb(flags: KoluBootFlags): Promise<void> {
     onPolicyInputsChanged: () => newTerminalPolicyPusher.republish(),
     onAgentDistroChanged: () => {
       agentDistroPusher.republish();
-      agentDelivery?.onSettingChanged();
+      agentDelivery.onSettingChanged();
     },
-    deliverAgents: (host) => agentDelivery?.deliverNow(host),
+    deliverAgents: (host) => agentDelivery.deliverNow(host),
     // Read once, above: a baked floor that does not describe itself is a broken
     // build and crashes the boot; an unbaked (from-source) kolu reads
     // `unavailable`. A profile kolu cannot describe in plain words crashes the

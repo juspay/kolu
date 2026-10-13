@@ -71,9 +71,6 @@ importers:
 
   packages/agent-distro:
     dependencies:
-      '@kolu/byte-units':
-        specifier: workspace:*
-        version: link:../byte-units
       effect:
         specifier: 4.0.0
         version: 4.0.0
