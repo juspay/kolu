@@ -334,7 +334,7 @@ describe("delivery reports — what a host does with kolu-server's word", () => 
       lastRun: {
         outcome: "updated",
         words: "Claude Code 2.1.291",
-        by: "delivery",
+        by: "log",
       },
     });
   });

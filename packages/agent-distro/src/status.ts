@@ -10,10 +10,11 @@
  */
 
 import { agentBundleShortHash } from "./bundle.ts";
-import type {
-  AgentUpdateAuthor,
-  AgentUpdateEvent,
-  AgentUpdateRun,
+import {
+  type AgentUpdateAuthor,
+  type AgentUpdateEvent,
+  type AgentUpdateRun,
+  historyAuthor,
 } from "./history.ts";
 import type {
   AgentDistroFailureReason,
@@ -586,12 +587,13 @@ function receiptFor(
   return receipt?.profile === profile ? receipt : undefined;
 }
 
-/** Who a reason's words are by, as a hover names them: kolu's delivery (the
- *  history and its reports), or padi's words about a delivery its host could
- *  not take. */
+/** Who a reason's words are by, as a hover names them (`historyAuthor` says
+ *  which writer a history-log line is by). */
 const AUTHOR: Record<AgentUpdateAuthor, string> = {
   delivery: "kolu's delivery",
   padi: "padi",
+  "agent-distro": "agent-distro's updater",
+  log: "the host's update log",
 };
 
 /** A hover that quotes `words` as `by`'s, under the short `text`. */
@@ -783,7 +785,11 @@ function eventRow(event: AgentUpdateEvent, ago: AgoPhrase): AgentEventRow {
     when: ago(Date.parse(event.at)),
     kind: event.kind,
     text: event.words,
-    title: quoted(EVENT_LABEL[event.kind], "delivery", event.words),
+    title: quoted(
+      EVENT_LABEL[event.kind],
+      historyAuthor(event.kind),
+      event.words,
+    ),
     tone: event.kind === "failed" ? "warn" : "muted",
   };
 }

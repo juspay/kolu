@@ -56,8 +56,11 @@ The **TypeScript half**, as data and pure functions:
   appends to when a delivery lands, so a host that also runs agent-distro's
   Home Manager module keeps one log), the `AgentUpdateEvent` and
   `AgentUpdateRun` schemas (a run's words carry their author, `by`:
-  `AgentUpdateAuthor`, `delivery` or `padi`), `SAME_RUN_MS`, and the last run
-  read off the log and the stamp (`lastRunOf`).
+  `AgentUpdateAuthor`: `delivery`, `padi`, or for a log line `historyAuthor`'s
+  answer by its kind — `agent-distro` for `skipped:`/`failed:`, which only
+  upstream's updater writes, `log` for `updated:` and the stamp, which either
+  may), `SAME_RUN_MS`, and the last run read off the log and the stamp
+  (`lastRunOf`).
 - `./versions` — a bundle's `share/agent-distro/versions`
   (`name\ttitle\tversion` per harness) and its parser — what Settings lists
   for a profile and what a host's receipt names, so the two say the same — and

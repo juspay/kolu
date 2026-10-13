@@ -81,11 +81,16 @@ export const AgentUpdateOutcomeSchema = Schema.Literals([
 
 export type AgentUpdateOutcome = typeof AgentUpdateOutcomeSchema.Type;
 
-/** Who wrote a run's words: kolu's delivery (what landed, or why kolu-server
- *  could not deliver it — the history log and its reports), or padi (a
- *  delivery its host could not take: a bundle that is not there, a `current`
- *  that will not move). */
-export const AgentUpdateAuthorSchema = Schema.Literals(["delivery", "padi"]);
+/** Who wrote a run's words: kolu's delivery (why kolu-server could not
+ *  deliver a bundle, from its reports), padi (a delivery its host could not
+ *  take: a bundle that is not there, a `current` that will not move), or the
+ *  host's shared history log ({@link historyAuthor}). */
+export const AgentUpdateAuthorSchema = Schema.Literals([
+  "delivery",
+  "padi",
+  "agent-distro",
+  "log",
+]);
 
 export type AgentUpdateAuthor = typeof AgentUpdateAuthorSchema.Type;
 
@@ -119,14 +124,30 @@ export function lastRunOf(
     stampAt !== undefined &&
     (eventAt === undefined || stampAt > eventAt + SAME_RUN_MS)
   )
-    return { at: stampAt, outcome: "unchanged", words: "", by: "delivery" };
+    return {
+      at: stampAt,
+      outcome: "unchanged",
+      words: "",
+      by: historyAuthor("unchanged"),
+    };
   if (newest === undefined || eventAt === undefined) return undefined;
   return {
     at: eventAt,
     outcome: newest.kind,
     words: newest.words,
-    by: "delivery",
+    by: historyAuthor(newest.kind),
   };
+}
+
+/** Who wrote a history-log line, by what the line says. The log is shared:
+ *  agent-distro's own updater (its Home Manager module) appends every kind,
+ *  padi appends only `updated:` when a delivery lands. So a `skipped:` or
+ *  `failed:` line is agent-distro's; an `updated:` line, like the
+ *  `last-success` stamp, may be either, and is attributed to the log itself. */
+export function historyAuthor(
+  kind: AgentUpdateOutcome,
+): "agent-distro" | "log" {
+  return kind === "skipped" || kind === "failed" ? "agent-distro" : "log";
 }
 
 const pad = (n: number) => String(n).padStart(2, "0");

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { agentBundleShortHash } from "./bundle.ts";
 import { type AgentDistroListing, profileOfBundle } from "./listing.ts";
+import { lastRunOf, recentEvents } from "./history.ts";
 import type { AgentDistroReceipt, AgentDistroStatus } from "./schema.ts";
 import {
   AGENTS_CUSTOM,
@@ -907,7 +908,7 @@ describe("agentHostDetail — one machine's agents, in its host details", () => 
       profile: "vanilla",
       bundle: BUNDLE,
       versions: [],
-      lastRun: { at: 3, outcome: "updated", by: "delivery", words: "C 1 → 2" },
+      lastRun: { at: 3, outcome: "updated", by: "log", words: "C 1 → 2" },
       events: [
         {
           at: "1970-01-01T00:00:00.003Z",
@@ -923,7 +924,7 @@ describe("agentHostDetail — one machine's agents, in its host details", () => 
         when: "@3",
         kind: "updated",
         text: "C 1 → 2",
-        title: "updated — kolu's delivery: C 1 → 2",
+        title: "updated — the host's update log: C 1 → 2",
         tone: "muted",
       },
     ]);
@@ -1530,18 +1531,18 @@ describe("K3 — updates while a bundle serves", () => {
     expect(
       state(
         receipt({
-          lastRun: { at: 1, outcome: "updated", words: "x", by: "delivery" },
+          lastRun: { at: 1, outcome: "updated", words: "x", by: "log" },
         }),
       ),
     ).toEqual({
       text: "ready · updated @1",
-      title: "updated @1 — kolu's delivery: x",
+      title: "updated @1 — the host's update log: x",
       tone: "muted",
     });
     expect(
       state(
         receipt({
-          lastRun: { at: 2, outcome: "unchanged", words: "", by: "delivery" },
+          lastRun: { at: 2, outcome: "unchanged", words: "", by: "log" },
         }),
       ),
     ).toEqual({
@@ -1555,12 +1556,17 @@ describe("K3 — updates while a bundle serves", () => {
     expect(
       state(
         receipt({
-          lastRun: { at: 3, outcome: "skipped", words: reason, by: "delivery" },
+          lastRun: {
+            at: 3,
+            outcome: "skipped",
+            words: reason,
+            by: "agent-distro",
+          },
         }),
       ),
     ).toEqual({
       text: "ready · checked @3, skipped",
-      title: `checked @3, skipped — kolu's delivery: ${reason}`,
+      title: `checked @3, skipped — agent-distro's updater: ${reason}`,
       tone: "muted",
     });
     // padi's own words are labelled padi's, never the delivery's.
@@ -1598,46 +1604,35 @@ describe("K3 — updates while a bundle serves", () => {
     ).toBe("ready");
   });
 
-  it("a machine's events are its own, in the delivery's words, warn for a failure", () => {
-    expect(
-      agentHostDetail({
-        host: host(
-          ready,
-          receipt({
-            events: [
-              {
-                at: "2026-10-08T02:00:05Z",
-                profile: "vanilla",
-                kind: "updated",
-                words: "Claude Code 2.1.286 → 2.1.291",
-              },
-              {
-                at: "2026-10-08T02:00:09Z",
-                profile: "vanilla",
-                kind: "failed",
-                words: "nix build exit 1",
-              },
-            ],
-          }),
-        ),
-        setting: VANILLA_ON,
-        listing: LISTING,
-      })?.events,
-    ).toEqual([
-      {
-        when: `@${Date.parse("2026-10-08T02:00:05Z")}`,
-        kind: "updated",
-        text: "Claude Code 2.1.286 → 2.1.291",
-        title: "updated — kolu's delivery: Claude Code 2.1.286 → 2.1.291",
-        tone: "muted",
-      },
-      {
-        when: `@${Date.parse("2026-10-08T02:00:09Z")}`,
-        kind: "failed",
-        text: "nix build exit 1",
-        title: "failed — kolu's delivery: nix build exit 1",
-        tone: "warn",
-      },
+  it("a mixed history log names each line's writer by what it says, never kolu's delivery", () => {
+    // One shared log: padi's `updated:` line for a delivery that landed, then
+    // agent-distro's own updater (its Home Manager module) failing and
+    // skipping. Only the updater writes `failed:`/`skipped:`; an `updated:`
+    // line may be either's, so it is the log's.
+    const log = [
+      "2026-10-08T02:00:05+00:00 vanilla updated: Claude Code 2.1.286 → 2.1.291",
+      "2026-10-08T02:00:09+00:00 vanilla failed: nix build exit 1",
+      "2026-10-08T08:00:03+00:00 vanilla skipped: cache https://cache.example not usable",
+    ].join("\n");
+    const events = recentEvents(log, "vanilla");
+    const detail = agentHostDetail({
+      host: host(ready, receipt({ events, lastRun: lastRunOf(events, null) })),
+      setting: VANILLA_ON,
+      listing: LISTING,
+    });
+    expect(detail?.state?.title).toBe(
+      `checked @${Date.parse("2026-10-08T08:00:03Z")}, skipped — agent-distro's updater: cache https://cache.example not usable`,
+    );
+    expect(detail?.events.map((e) => [e.title, e.tone])).toEqual([
+      [
+        "skipped — agent-distro's updater: cache https://cache.example not usable",
+        "muted",
+      ],
+      ["failed — agent-distro's updater: nix build exit 1", "warn"],
+      [
+        "updated — the host's update log: Claude Code 2.1.286 → 2.1.291",
+        "muted",
+      ],
     ]);
   });
 

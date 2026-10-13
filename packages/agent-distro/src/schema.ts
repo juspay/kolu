@@ -230,7 +230,8 @@ export function agentDistroResolvedEqual(
  *   - `versions`: the agents in the bundle the host serves now, from the
  *     bundle's versions file (empty when it serves none);
  *   - `lastRun`: the last delivery, when there was one — how it ended, its
- *     words, and who wrote them (`by`: kolu's delivery, or padi);
+ *     words, and who wrote them (`by`: kolu's delivery, padi, or — read off
+ *     the shared history log — agent-distro's updater or the log itself);
  *   - `events`: the last few history events, newest first;
  *   - `error`: why the files would not read, when they would not.
  *
