@@ -64,7 +64,7 @@ appears listing it — the port number and the full command line of the program
 holding it. This is the answer to "where is the thing the agent just ran?",
 without scrolling back through output for a URL that has long since gone by.
 Detection is not a guess at printed text: kolu reads the host's own socket table
-every few seconds (and immediately whenever a terminal produces output), and
+every few seconds, and
 attributes each listener to the terminal whose process subtree holds it. So a
 port appears because something is genuinely listening, and it disappears when
 that stops.
@@ -113,8 +113,8 @@ door. Only when nothing on the whole host listens there does it say **nothing is
 listening yet**, instead of inventing a forward from text. ⌘/Ctrl-click opens the
 raw URL with no card. Non-loopback links keep the usual open behaviour.
 
-The card is **live** — leave it open while a server starts and it upgrades the
-moment the listener is real. Printed text never creates a port fact of its own;
+The card is **live** — leave it open while a server starts and it upgrades as
+soon as the next scan sees the listener. Printed text never creates a port fact of its own;
 it only looks up what observation already established.
 
 [**Port forwarding**](/remote-hosts#port-forwarding) is documented in full under

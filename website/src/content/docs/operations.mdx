@@ -142,17 +142,20 @@ gates:
 systemctl --user stop kolu; kill -TERM $(cut -f1 /run/user/$UID/padi-*/padi.pid /run/user/$UID/kaval-*/kaval.pid 2>/dev/null) 2>/dev/null
 ```
 
-Stale gate directories left by earlier state roots can linger in the runtime
-directory, so the glob may hand you a pid that no longer exists; signalling a
-dead pid is a harmless error, which is what the redirections absorb. Check with
-`ps` rather than trusting the exit status.
+padi sweeps dead gate directories — its own and its kaval's, under the runtime
+directory and under `/tmp` — once at every start, removing only the ones whose
+gate file names a process that is gone. Between two starts, a daemon that died
+can still leave one behind, so the glob may hand you a pid that no longer
+exists; signalling a dead pid is a harmless error, which is what the
+redirections absorb. Check with `ps` rather than trusting the exit status.
 
 <Aside type="caution" title="Do not reach for SIGKILL first">
   SIGTERM is the sanctioned stop because padi's last act on that signal is to
   persist the live session — its continuous autosave is throttled, so the blob
-  on disk otherwise trails the live workspace by up to half a second. SIGKILL
-  skips that final capture and makes the last autosave your recovery point.
-  Keep SIGKILL for a daemon that has already ignored a SIGTERM.
+  on disk otherwise trails the live workspace by up to half a second, and which
+  terminal is *active* by up to five. SIGKILL skips that final capture and makes
+  the last autosave your recovery point. Keep SIGKILL for a daemon that has
+  already ignored a SIGTERM.
 </Aside>
 
 ## Roll back to an older release

@@ -150,10 +150,10 @@ const DECLARED_ALLOWED = new Set([
  *  entries — necessarily a subset of `DECLARED_ALLOWED`, and the assertion below
  *  proves it rather than assuming it.
  *
- *  The four names it drops are the honest cost of hydration being
- *  per-manifest: `kolu-io`, `kolu-shared`, `kolu-pty` and `memorable-names`
+ *  The three names it drops are the honest cost of hydration being
+ *  per-manifest: `kolu-shared`, `kolu-pty` and `memorable-names`
  *  sit in manifests this closure copies, but no import path from a published
- *  entry reaches them. A consumer still copies four directories for code it
+ *  entry reaches them. A consumer still copies three directories for code it
  *  never loads — the same shape as the residual named below, several tiers
  *  down, and why the gap is spelled out rather than folded into one lenient
  *  list.
@@ -166,7 +166,17 @@ const DECLARED_ALLOWED = new Set([
  *  leaf means no published entry reaches `endpoint.ts`, so nothing here compiles
  *  the process-identity client. It stays in `DECLARED_ALLOWED` — a hydrating
  *  consumer still copies the directory — but it no longer has to graft the
- *  second pin to make `tsc` pass. That is the gap this split exists to show. */
+ *  second pin to make `tsc` pass. That is the gap this split exists to show.
+ *
+ *  `kolu-io` LEFT that dropped set at juspay/kolu#2286, and by a real change:
+ *  `anyagent`'s `AgentTerminalState` now declares the process snapshot an
+ *  adapter reads (`readProcessSnapshot(): ProcessSnapshot | null`), because the
+ *  HOST memoises that `/proc` read per foreground SAMPLE and shares it rather
+ *  than every adapter paying for its own. The type's one home is `kolu-io`, so
+ *  the contract names it — through `kolu-io/types`, a deliberately `node:`-free
+ *  leaf module, so a consumer's `tsc` compiles one interface rather than the
+ *  package's fs/spawn graph. It costs a hydrating consumer nothing new: the
+ *  directory was already in `DECLARED_ALLOWED`. */
 const IMPORTED_ALLOWED = new Set([
   "@kolu/agent-distro",
   "@kolu/byte-units",
@@ -185,6 +195,7 @@ const IMPORTED_ALLOWED = new Set([
   "kolu-git",
   "kolu-github",
   "kolu-grok",
+  "kolu-io",
   "kolu-omp",
   "kolu-opencode",
   "kolu-pi",

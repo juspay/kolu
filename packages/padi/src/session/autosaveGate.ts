@@ -37,16 +37,20 @@
  *     truth AND the value can change between arm and fire — mirroring it in the gate
  *     would duplicate that truth and could stale the PATH-B guard.
  *
- * Two EDGES drive it, and both ask the same question: the continuous
- * `terminals:dirty` pulse (leading-edge throttled), and the SHUTDOWN edge —
- * {@link captureFinalSession}, run when padi is signalled or drained, so the
- * durable session does not trail the live one by the throttle window at the one
- * moment that is avoidable. The shutdown edge reuses {@link decideSave} verbatim:
- * a stop does not get to overrule a freeze or a pending restore.
+ * Three EDGES drive it, and all three ask the same question: the continuous
+ * `terminals:dirty` pulse (leading-edge throttled), the continuous FOCUS report —
+ * {@link reportActiveTerminalId}, trailing-debounced an order of magnitude slower
+ * and writing ONLY the `activeTerminalId` field, because a tab switch changes
+ * nothing about any terminal and must not rewrite the trace (#2286) — and the
+ * SHUTDOWN edge — {@link captureFinalSession}, run when padi is signalled or
+ * drained, so the durable session does not trail the live one by the throttle
+ * window at the one moment that is avoidable. Both non-trace edges reuse
+ * {@link decideSave} verbatim: neither a stop nor a focus move gets to overrule a
+ * freeze or a pending restore.
  *
  * The gate is a pure state machine over injected effects (`snapshot`, `persist`,
- * `persistFinal`, `isRestorePending`): it imports no runtime VALUE from the
- * session/registry layers it
+ * `persistFinal`, `persistActiveId`, `isRestorePending`): it imports no runtime
+ * VALUE from the session/registry layers it
  * drives (only the `SessionSnapshot` type, erased at compile), so those layers PUSH
  * their facts and effects into it rather than the gate reaching back out. It consumes
  * the shared `terminals:dirty` pulse (also read by the activity
@@ -81,6 +85,17 @@ interface AutosaveGateDeps {
    * session was already cleared by the autosave that saw it empty.
    */
   persistFinal: (snapshot: SessionSnapshot) => void;
+  /**
+   * Persist ONLY the active-terminal marker onto the session ALREADY on disk —
+   * never the terminal trace. Focus moves at human cadence (a measured 2.5 s on
+   * the 16-terminal padi of #2286) and used to pulse `terminals:dirty`, so every
+   * tab switch rewrote all N terminals: 120 whole-session persists per 5 min,
+   * `write_bytes` 0 → 253 KB/s, because conf's write-temp-then-rename + backup
+   * ring amplifies an 11 KB `config.json` ~57x for a change of ONE field. The
+   * field already rides `SavedSession.activeTerminalId`, so patching it in place
+   * needs no shape change and therefore no state-store migration.
+   */
+  persistActiveId: (id: string) => void;
 }
 
 /** The gate's answer at fire time — computed fresh each fire from the pushed freeze
@@ -91,10 +106,49 @@ export type SaveDecision =
   | { kind: "frozen"; reason: string }
   | { kind: "suppressed-parked" };
 
+/** The active-id trailing debounce window. Deliberately an order of magnitude
+ *  above the 500 ms session-trace throttle: focus is the CHEAPEST fact in the
+ *  blob and the only consumer is the next boot's restore, so the right trade is
+ *  "coalesce an entire burst of tab switching into one write", not "track the
+ *  live value closely". A shutdown does not pay the window — the final capture
+ *  reads the live marker (see {@link captureFinalSession}). Do not lower it
+ *  without re-reading #2286: the whole fix is that focus stops touching disk at
+ *  interaction cadence. */
+const ACTIVE_ID_DEBOUNCE_MS = 5_000;
+
 /** Pending autosave timer. `undefined` ⇒ **idle**; set ⇒ **armed**. Declared at
  *  module top so {@link cancelPendingAutosave} (and thus `session.ts`'s direct
  *  writers) can disarm it. */
 let saveTimer: ReturnType<typeof setTimeout> | undefined;
+
+/** The active-id debounce's timer and the value it will write — two fields of
+ *  ONE state: `undefined` in both ⇒ nothing in flight.
+ *
+ *  Deliberately NOT a third field remembering what was last put on disk. That
+ *  belief is a mirror of the blob, and the blob already answers it one layer
+ *  down: `saveActiveTerminalId` returns early on
+ *  `saved.activeTerminalId === id`, read from the record rather than from a
+ *  guess about it. Keeping a copy here meant inventing an invalidation rule for
+ *  it (every blob replacement had to clear it), and the pending guard already
+ *  bounds a chatty client to ONE armed timer per window — so the residue the
+ *  mirror removed was a no-op call that writes nothing. */
+let activeIdTimer: ReturnType<typeof setTimeout> | undefined;
+let pendingActiveId: string | undefined;
+
+/** True ONLY while this module is inside its own `persistActiveId` call.
+ *
+ *  The padi `session` cell runs `cancelPendingAutosave()` on every write
+ *  (`servePadi.ts`'s `onWrite`), and that hook is right about every OTHER writer:
+ *  a `session.restore`, a restart capture or an e2e `test__set` REPLACES the blob,
+ *  so anything armed against the old one must not fire onto the new one. The
+ *  marker patch is the one write that does not replace anything — it rewrites a
+ *  single field of the blob already on disk and leaves the trace byte-identical.
+ *
+ *  Without this exemption the patch disarmed the hook's real subjects. A layout
+ *  change at t+4.8 s arms the 500 ms trace save; the focus write lands at t+5 s;
+ *  `onWrite` cancels the trace save; the layout change never reaches disk and a
+ *  kill before the next restore-relevant edit loses it. */
+let patchingActiveId = false;
 
 /** The set of ACTIVE freeze leases → their reason (for logging). The gate is
  *  **frozen** while this is non-empty. A Map of independent leases — NOT a single
@@ -110,17 +164,30 @@ const activeFreezes = new Map<symbol, string>();
  *  releases it. Idempotent: releasing an already-released (or unknown) token is a no-op. */
 export type AutosaveFreeze = symbol;
 
-/** Cancel any pending (armed) autosave, returning the gate to **idle** without
- *  firing. Called by the gate's own fire callback (a no-op there — the timer already
- *  cleared itself), by the padi `session` cell's `onWrite` hook, and by the named
- *  session writers (`setSavedSession*`) so a stale `terminals:dirty` armed before a
- *  manual write cannot fire after it and clobber the value with an empty-snapshot
- *  null (the e2e `test__set` race, #320 / cycle 6). */
+/** Cancel any pending (armed) autosave AND any pending active-id write, returning
+ *  the gate to **idle** without firing either. Called by the gate's own fire
+ *  callback (a no-op there — the timer already cleared itself), by the padi
+ *  `session` cell's `onWrite` hook, and by the named session writers
+ *  (`setSavedSession*`) so a stale `terminals:dirty` armed before a manual write
+ *  cannot fire after it and clobber the value with an empty-snapshot null (the e2e
+ *  `test__set` race, #320 / cycle 6).
+ *
+ *  The active-id timer is disarmed by the SAME call and for the same reason: its
+ *  write patches the `activeTerminalId` of whatever blob is on disk at fire time,
+ *  so a timer armed against the PRE-write blob would stamp a marker from the old
+ *  session onto the new one. Dropping the pending write loses nothing durable — a
+ *  shutdown capture carries the live marker in its snapshot, and any later focus
+ *  change re-arms. */
 export function cancelPendingAutosave(): void {
-  if (saveTimer) {
-    clearTimeout(saveTimer);
-    saveTimer = undefined;
-  }
+  // The gate's own marker patch is not a blob replacement — see
+  // {@link patchingActiveId}. Re-entering here through the cell's `onWrite` would
+  // disarm the very saves this hook exists to protect.
+  if (patchingActiveId) return;
+  clearTimeout(saveTimer);
+  saveTimer = undefined;
+  clearTimeout(activeIdTimer);
+  activeIdTimer = undefined;
+  pendingActiveId = undefined;
 }
 
 /** Enter **frozen(reason)** for a restart's critical section — set at `capture`
@@ -201,6 +268,14 @@ let wiredDeps: AutosaveGateDeps | undefined;
  *  - **suppressed-parked** — a restore is still pending, so the parked entries
  *    stand in for the blob; the live set is not the session.
  *
+ * FOCUS IS NOT LOST HERE, even though this call drops a pending active-id write
+ * (via `cancelPendingAutosave`): `deps.snapshot()` reads the LIVE active marker
+ * off the terminal registry, so the final blob carries the focus as of this
+ * instant — fresher than the debounced write it cancels. The ≥5 s window
+ * therefore costs a shutdown nothing. (On the frozen / suppressed-parked
+ * branches nothing is written at all, which is the point of those branches: the
+ * live focus names the half-built set, not the session on disk.)
+ *
  * Returns the decision so the caller can narrate it. Throws if the gate was never
  * wired: that is a boot-order defect, not a state to degrade around.
  */
@@ -228,6 +303,72 @@ export function captureFinalSession(why: string): SaveDecision {
   );
   if (decision.kind === "persist") deps.persistFinal(snap);
   return decision;
+}
+
+/**
+ * The CONTINUOUS FOCUS EDGE — the client reported which terminal is active.
+ *
+ * Separate from `terminals:dirty` on purpose (#2286). Focus is not a session-trace
+ * dirty source: it changes nothing about any terminal, only which ONE of them the
+ * marker names. Routing it through the trace throttle meant a tab switch rewrote
+ * every terminal's record — the measured 253 KB/s of disk writes this split exists
+ * to delete. So it gets its OWN trailing debounce and its OWN effect, which patches
+ * the single `activeTerminalId` field of the blob already on disk.
+ *
+ * TRAILING, not the trace's leading-edge throttle, and the difference is the point:
+ * a leading edge would write on the FIRST switch of a burst and then again 5 s into
+ * it, whereas only the LAST id of a burst is worth a write — nobody restores to a
+ * terminal the user already switched away from. The starvation that makes a trailing
+ * edge wrong for the trace (the transcript watcher re-arming every 150 ms, so a save
+ * never fires) does not apply: focus moves at human cadence, a human eventually
+ * stops, and the one moment the value MUST be durable — shutdown — reads the live
+ * marker directly rather than waiting for this timer.
+ *
+ * Re-reporting the id a pending timer is ALREADY going to write arms nothing: the
+ * client re-reports on reconnect and after every restore convergence, and before
+ * #2286 each of those armed a full session persist. Re-reporting a value already
+ * ON DISK costs one timer and one no-op call — `saveActiveTerminalId` compares the
+ * record and returns without writing — which is the dedup living where the truth is.
+ *
+ * Silently inert until the gate is wired — unlike {@link captureFinalSession}, which
+ * throws, because a focus report during boot (before `initAutosaveGate`) is ordinary
+ * and the value it would persist is seeded from the blob being restored anyway.
+ */
+export function reportActiveTerminalId(id: string): void {
+  // Already the value a pending timer will write ⇒ nothing to do. This is what
+  // stops a client re-asserting focus on a cadence of its own from holding the
+  // debounce open forever.
+  if (id === pendingActiveId) return;
+  pendingActiveId = id;
+  clearTimeout(activeIdTimer);
+  activeIdTimer = setTimeout(() => {
+    activeIdTimer = undefined;
+    const next = pendingActiveId;
+    pendingActiveId = undefined;
+    const deps = wiredDeps;
+    if (next === undefined || deps === undefined) return;
+    // The SAME decision the trace edge takes — a freeze (restart capture, restore
+    // spawn window) or a pending restore means the blob on disk is deliberately
+    // not the live set, and stamping the live marker onto it would name a terminal
+    // that set does not contain.
+    const decision = decideSave(deps);
+    if (decision.kind !== "persist") {
+      log.info(
+        { decision: decision.kind, activeTerminalId: next },
+        `session-trace active-id write: ${decision.kind}`,
+      );
+      return;
+    }
+    patchingActiveId = true;
+    try {
+      deps.persistActiveId(next);
+    } finally {
+      patchingActiveId = false;
+    }
+  }, ACTIVE_ID_DEBOUNCE_MS);
+  // A focus change must never be the reason the process stays up — the serve link
+  // owns the daemon's lifetime, and a shutdown carries the live marker regardless.
+  activeIdTimer.unref?.();
 }
 
 export function initAutosaveGate(gateDeps: AutosaveGateDeps): void {

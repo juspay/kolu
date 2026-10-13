@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { describeDaemon } from "@kolu/daemon-test-gate";
 import { silentLogger } from "@kolu/log/loggerStubs.testutil";
+import { readProcessSnapshot } from "kolu-io";
 import { afterAll, describe, expect, it } from "vitest";
 
 const log = silentLogger;
@@ -323,6 +324,7 @@ describe("loadOmpTranscript", () => {
             cwd: "/work/proj",
             readForegroundBasename: () => "omp",
             lastAgentCommandName: "omp",
+            readProcessSnapshot: () => readProcessSnapshot(child.pid!, log),
           },
           log,
         );
@@ -389,6 +391,7 @@ describe("loadOmpTranscript", () => {
             cwd: "/work/proj",
             readForegroundBasename: () => "omp",
             lastAgentCommandName: "omp",
+            readProcessSnapshot: () => readProcessSnapshot(child.pid!, log),
           },
           log,
         );
@@ -454,6 +457,7 @@ describe("loadOmpTranscript", () => {
             cwd: "/work/proj",
             readForegroundBasename: () => "omp",
             lastAgentCommandName: "omp",
+            readProcessSnapshot: () => readProcessSnapshot(child.pid!, log),
           },
           log,
         );

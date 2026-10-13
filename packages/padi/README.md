@@ -205,6 +205,52 @@ padi domain modules, and any test that doesn't boot the daemon never run it and 
 To debug a remote box: `ssh <host> tail -f ~/.local/state/padi/padi.log.*` (the pino-roll
 generations) or `ssh <host> cat ~/.local/state/padi/padi.stderr.log` for a detached crash.
 
+## Idle cost — what padi stopped doing while you work
+
+padi is a daemon on a machine somebody else is using, so the standing cost of a
+workspace nobody is touching is a product property. A 90 s CPU profile of a live
+16-terminal padi ([#2286](https://github.com/juspay/kolu/issues/2286)) found a
+handful of habits that paid for nothing; each is now a rule rather than a tuning:
+
+- **Discovery scans the runtime regime IN FORCE, never both.** `discoverPadiDaemons`
+  (and kaval's own) used to union the env-derived drawer with the forced `/tmp`
+  fallback on every pass — a `readdirSync("/tmp")` (209 K entries on the reporting
+  host) twice per 10 s `hostInventory` tick, for a drawer this host's padis never
+  bind in. `runtimeRegimeInForce()` (`@kolu/surface-daemon`) is the one answer, and
+  the poll reads only that drawer. The **dial** paths are the deliberate exception —
+  `residentPadiSocket` (the binder's adopt read-back) and `resolveRunningPadiSocket`
+  (the flag-less CLI/MCP resolution) both pass `DIAL_REGIMES` and still probe every
+  drawer, because each runs once per binding or per command and what that buys is
+  #1713's 30 s hang, and a `kolu` that can find the padi it wants.
+- **Boot sweeps the corpses.** Nothing wipes `/tmp`, so every padi or kaval that
+  ever crashed left its runtime home there forever (5.4 K of them on that host).
+  `reapStaleDaemonHomes` runs once in `padiDaemonProgram`, after this padi has
+  claimed its own gate, and removes only a home whose own gate file proves its
+  owner is gone — a live holder, a gateless home (a daemon mid-boot looks
+  identical), a home that is not owner-only and an unreadable gate all survive.
+- **The port sampler has ONE cadence.** `ports/sampler.ts` ticks at
+  `PORT_SCAN_INTERVAL_MS` (5 s). It used to also fire on terminal output behind a
+  1 s floor, which forked an `osfacts` child per second for as long as any TUI was
+  live — the single largest JS frame in the daemon (19.9% of busy time under load,
+  30.7% under light). The floor bounded the cost of a PASS and said nothing about
+  the fork before it.
+- **One `/proc` read per foreground sample, and no re-parse of an unmoved file.**
+  `AgentTerminalState.readProcessSnapshot()` is the host's single read, memoised
+  against the sample's identity in `AgentEngineState` and shared by all seven
+  adapters; claude-code's session file and omp's breadcrumb ride `kolu-io`'s
+  `stampedCache`, keyed on `(mtimeMs, size)`.
+- **Focus is not a dirty source.** `setActiveTerminalId` pulses no
+  `terminals:dirty`; the marker rides the autosave gate's own 5 s trailing debounce
+  onto `saveActiveTerminalId`, which patches one field of the blob already on disk.
+  Clicking between tiles used to rewrite every terminal's record — 253 KB/s of disk
+  on a 16-terminal workspace. Shutdown still reads the LIVE marker, so nothing is
+  lost at the edge that matters.
+- **A repo's change watcher outlives a browser's focus switch.** kolu-git retires
+  a repo-change entry 30 s after its last subscriber leaves rather than on the
+  drop, and a subscription taken inside that window reuses the live upstreams —
+  so the Code tab's focus-driven re-key is an attach where it used to tear down
+  and rebuild four inotify watchers, 120 of each per 5 minutes.
+
 ## The export map
 
 - **The CONTRACT is [`@kolu/padi-client`](../padi-client)** — `padiSurface`

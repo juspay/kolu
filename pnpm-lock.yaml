@@ -495,6 +495,9 @@ importers:
       effect:
         specifier: 4.0.0
         version: 4.0.0
+      kolu-io:
+        specifier: workspace:*
+        version: link:../io
       nonempty:
         specifier: workspace:*
         version: link:../../nonempty
@@ -1169,6 +1172,9 @@ importers:
       kolu-github:
         specifier: workspace:*
         version: link:../integrations/github
+      kolu-io:
+        specifier: workspace:*
+        version: link:../integrations/io
       kolu-pty:
         specifier: workspace:*
         version: link:../integrations/pty

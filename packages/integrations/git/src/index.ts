@@ -36,7 +36,7 @@ export { watchGitHead } from "./head-watcher.ts";
 export { watchGitIndex } from "./index-watcher.ts";
 // Reflog watcher (refcounted shared singleton, axis 2)
 export { watchGitReflog } from "./reflog-watcher.ts";
-// Composed primitives for the live Code-view streaming endpoints
+// Composed primitives for the live Code-view streaming endpoints.
 export { subscribeFileChange, subscribeRepoChange } from "./repo-change.ts";
 // Repository resolution
 export {

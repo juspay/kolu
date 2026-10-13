@@ -153,6 +153,9 @@ an orphan process whose socket and gate have vanished.
 | `DaemonHomePaths` | the face the spine speaks (`dir` · `gatePath` · `socketPath`) |
 | `DaemonHome` · `ResolvedDaemonHome` · `DaemonHomeOptions` · `ResolveDaemonHomeOptions` · `DaemonHomePlacement` · `DaemonHomeRuntimeRoot` | return types and options |
 | `isPrivateOwnedDir(dir)` | owner-only privacy predicate (shared with the pid gate) |
+| `runtimeRegimeInForce()` | `"xdg"` or `"tmp"` — the ONE answer to "which runtime drawer is this process in?". Discovery narrows its scan to it; `pathShapeRoot` renders from it |
+| `daemonSweepRegimes()` | the regimes a daemon sweeps at boot — the one in force plus the `/tmp` fallback, which is the one nothing wipes |
+| `reapStaleDaemonHomes({ app, gateFile, runtimeRoots })` | remove this app's runtime homes under `runtimeRoots` whose gate proves the owner is gone. Keeps a live holder, a gateless home (a daemon mid-boot looks the same) and an unreadable gate; reports a root it cannot list; never throws. Returns `{ removed, skipped }` (`StaleHomeSweep` · `StaleHomeSkip`). Roots are a PARAMETER, never the ambient env — a sweep that read the environment could only be tested against the developer's real `/tmp` |
 | `SharedArtifact` | one shared on-disk file both generations touch (inventory entry shape) |
 
 ## The lifecycle

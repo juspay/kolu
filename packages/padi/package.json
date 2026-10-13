@@ -47,6 +47,7 @@
     "kolu-agents": "workspace:*",
     "kolu-git": "workspace:*",
     "kolu-github": "workspace:*",
+    "kolu-io": "workspace:*",
     "kolu-pty": "workspace:*",
     "kolu-shared": "workspace:*",
     "kolu-transcript-core": "workspace:*",

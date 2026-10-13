@@ -64,6 +64,32 @@ export function saveSession(snapshot: SessionSnapshot): void {
   });
 }
 
+/** Patch ONLY the active-terminal marker of the session already on disk — the
+ *  effect the {@link AutosaveGate}'s focus edge drives (`persistActiveId`).
+ *
+ *  #2286: focus used to ride the ordinary `terminals:dirty` → {@link saveSession}
+ *  path, so every tab switch re-serialised every terminal's record. The field is
+ *  already part of the persisted shape (`SavedSession.activeTerminalId`), so
+ *  narrowing the write to it needs NO schema change and therefore no state-store
+ *  migration — the blob's bytes differ in one field, not in its form.
+ *
+ *  No saved session ⇒ no-op, deliberately: a marker with no trace to mark is not a
+ *  session, and synthesising a terminal-less blob here would hand the next boot a
+ *  restore offer with nothing to restore.
+ *
+ *  `savedAt` is NOT restamped. It dates the TRACE — what the restore card ages and
+ *  what a cross-epoch takeover compares — and the trace is exactly what this write
+ *  does not touch; moving focus is not evidence the saved terminals are fresher. */
+export function saveActiveTerminalId(id: string): void {
+  const saved = getSavedSession();
+  if (saved === null || saved.activeTerminalId === id) return;
+  log.info(
+    { activeTerminalId: id },
+    `session-trace saveActiveTerminalId: active=${id}`,
+  );
+  writeSession({ ...saved, activeTerminalId: id });
+}
+
 /** Get the saved session, or null if none exists. Reads the session through
  *  padi's OWN surface cell (`padiSurfaceCtx.cells.session`) — the framework-owned
  *  handle whose backing (`servePadi.ts`) reads the injected conf store DIRECTLY

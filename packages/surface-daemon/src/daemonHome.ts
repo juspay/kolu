@@ -58,6 +58,24 @@ function assertPathSegment(kind: string, name: string): void {
 export type DaemonHomePlacement = "state" | "runtime";
 
 /**
+ * Which runtime drawer THIS process's environment puts it in — the one place
+ * the question "which regime am I in?" is asked.
+ *
+ * `"xdg"` iff `$XDG_RUNTIME_DIR` is set and non-empty, which is the exact test
+ * {@link getRuntimeSocketPath} applies when no explicit `xdgRuntimeDir` is
+ * passed; otherwise `"tmp"` (the `/tmp/<ns>-$UID` fallback). Exported because
+ * discovery and the stale-home sweep both have to SKIP a regime that is not in
+ * force — `/tmp` on a systemd host carries hundreds of thousands of unrelated
+ * entries, and reading it twice per 10 s inventory tick was 22% of padi's busy
+ * time (juspay/kolu#2286). Deriving the answer anywhere else would be a second
+ * notion of the same fact.
+ */
+export function runtimeRegimeInForce(): "xdg" | "tmp" {
+  const xdg = process.env.XDG_RUNTIME_DIR;
+  return xdg !== undefined && xdg !== "" ? "xdg" : "tmp";
+}
+
+/**
  * Runtime-placement root, for pure multi-regime discovery without mutating
  * `process.env`:
  *   - omitted — read live `$XDG_RUNTIME_DIR` (binder default)
@@ -184,12 +202,9 @@ function resolveDir(
       const pathShapeRoot =
         runtimeRoot === null
           ? `/tmp/${appNamespace}-$UID`
-          : runtimeRoot !== undefined
+          : runtimeRoot !== undefined || runtimeRegimeInForce() === "xdg"
             ? `$XDG_RUNTIME_DIR/${appNamespace}`
-            : process.env.XDG_RUNTIME_DIR !== undefined &&
-                process.env.XDG_RUNTIME_DIR !== ""
-              ? `$XDG_RUNTIME_DIR/${appNamespace}`
-              : `/tmp/${appNamespace}-$UID`;
+            : `/tmp/${appNamespace}-$UID`;
       return { dir, pathShapeRoot };
     }
     default: {

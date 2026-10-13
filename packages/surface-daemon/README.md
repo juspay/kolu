@@ -5,12 +5,20 @@ that owns a unix socket and serves a typed [`@kolu/surface`](../surface) repeats
 **Serve it**: a pid-gated single-instance entry with a `gate → serve → teardown`
 skeleton (`daemonMain`), a lifetime policy, and a bin half (`daemonProcessMain`)
 that owns the process exit. **Front it** over ssh-stdio so a
-remote session outlives the link (`frontDaemonOverStdio`). Plus the shared
+remote session outlives the link (`frontDaemonOverStdio`). **Collect after it**:
+`reapStaleDaemonHomes` removes an app's runtime homes whose gate file proves
+their owner is gone, under the regimes you pass it — `daemonSweepRegimes()` is
+the daemon's policy (the regime in force AND `/tmp`, which logind never wipes and
+which therefore accumulates a corpse per crashed daemon forever,
+[#2286](https://github.com/juspay/kolu/issues/2286)); the roots are a parameter
+so the sweep never reads the ambient environment. Plus the shared
 daemon-identity recipe (`readBakedIdentity`), the frozen identity/drain fragment
-(`controlCoreFragment`), and an app-independent mixed-version test kit at
-`./upgrade-window.testlib`. It depends on the shared `@kolu/surface` framework
-and `ts-pattern` for exhaustive fixture dispatch, but on no app package;
-the client half lives in [`@kolu/surface-daemon-supervisor`](../surface-daemon-supervisor).
+(`controlCoreFragment`), `runtimeRegimeInForce` (the ONE "XDG or `/tmp`?"
+predicate discovery and the sweep both read), and an app-independent
+mixed-version test kit at `./upgrade-window.testlib`. It depends on the shared
+`@kolu/surface` framework and `ts-pattern` for exhaustive fixture dispatch, but
+on no app package; the client half lives in
+[`@kolu/surface-daemon-supervisor`](../surface-daemon-supervisor).
 
 `controlCoreSurface` is the standalone frozen contract;
 `controlCoreProcedureSpec` is the composition seam for a daemon retaining

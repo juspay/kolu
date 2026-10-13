@@ -63,7 +63,9 @@ function liveChild(): ChildProcess {
 
 /** Write a `padi.pid` gate file naming `pid`, beside a socket at `socketDir`. */
 function writeGate(socketDir: string, pid: number): void {
-  writeFileSync(join(socketDir, PADI_GATE_FILE), `${pid}\n`);
+  // `0o600`: a gate seeded under the shared `/tmp` root must carry the same
+  // owner-only mode the real writer gives it.
+  writeFileSync(join(socketDir, PADI_GATE_FILE), `${pid}\n`, { mode: 0o600 });
 }
 
 /** Bind a real `net.Server` at `path`, leaving a genuine socket inode behind —
@@ -300,6 +302,39 @@ describe("the primary padi — which one a flag-less client dials among several 
     expect(refusal.message).toContain(`PADI_SOCKET=${a}`);
     expect(refusal.message).toContain(`PADI_SOCKET=${b}`);
   });
+
+  it("finds the primary even when it bound under /tmp and this shell has XDG set", async () => {
+    // M1's regression, pinned on the function the CLI actually calls. A padi
+    // spawned by a nix-shell / e2e harness with `$XDG_RUNTIME_DIR` unset binds
+    // at `/tmp/padi-<digest>-$UID`; a flag-less `kolu` / `kolu mcp` / `padi-tui`
+    // from a logind shell has XDG set. Narrowed to the regime in force, that
+    // client refuses with "no padi is running" while the daemon it wants is up.
+    const uid = process.getuid?.();
+    if (uid === undefined) return;
+    const primaryRoot = pinFreshHost();
+    const drawer = process.env.XDG_RUNTIME_DIR;
+
+    // Register it the way that harness does: with no XDG at all, so the socket
+    // lands in the forced `/tmp` drawer rather than this shell's.
+    delete process.env.XDG_RUNTIME_DIR;
+    const tmpSocket = await registerLivePadi(primaryRoot);
+    dirs.push(dirname(tmpSocket));
+    expect(tmpSocket.startsWith("/tmp/")).toBe(true);
+
+    // …and dial from the logind shell. The SOCKET is the assertion; the arm it
+    // arrives on is not. `pinFreshHost` isolates the state root, not the box: a
+    // CI machine with this one daemon answers `one`, a developer's box with its
+    // own padis up answers `primary`, and pinning either would make the case
+    // assert nothing on the other kind of host.
+    process.env.XDG_RUNTIME_DIR = drawer;
+    const resolved = resolveRunningPadiSocket();
+    expect(resolved).toMatchObject({ socket: tmpSocket });
+    expect(["one", "primary"]).toContain(resolved.kind);
+    expect(localPadiSocket({ kind: "auto" })).toEqual({
+      kind: "ok",
+      socket: tmpSocket,
+    });
+  });
 });
 
 /**
@@ -476,7 +511,7 @@ describe("the state-root manifest (digest → state-root)", () => {
 // a login session), which reproduced as a 30s "daemon socket never came up" hang.
 // `extraRegimes` lets these tests substitute a fabricated drawer for the real
 // `/run/user/$UID` guess (a unit test cannot write there outside a real session).
-describe("discoverPadiDaemons — unions every drawer a padi could be registered under", () => {
+describe("discoverPadiDaemons — the regime in force, plus the extra drawers", () => {
   const servers: Server[] = [];
   const dirs: string[] = [];
   afterEach(async () => {
@@ -527,6 +562,76 @@ describe("discoverPadiDaemons — unions every drawer a padi could be registered
     const found = discoverPadiDaemons([drawer]);
     expect(found.filter((d) => d.socket === socket)).toHaveLength(1);
   });
+
+  // juspay/kolu#2286: the `/tmp` fallback drawer used to be scanned
+  // UNCONDITIONALLY alongside the env drawer, so every 10 s host-inventory tick
+  // walked a `/tmp` holding 209 K entries on the reporting host for a drawer its
+  // padis never bind in. Pinned under a REAL uid, because the off-XDG grammar is
+  // `/tmp/padi-<digest>-$UID` and the whole point is which root gets walked.
+  it.runIf(process.getuid)(
+    "does NOT walk /tmp while $XDG_RUNTIME_DIR is set, and does once it is not",
+    async () => {
+      // A resident in the /tmp fallback drawer, bound with XDG unset — the exact
+      // shape the old unconditional second scan existed to find.
+      const stateRoot = "/home/u/.local/state/padi-tmp-regime";
+      delete process.env.XDG_RUNTIME_DIR;
+      const socket = padiSocketPath(stateRoot);
+      mkdirSync(dirname(socket), { recursive: true, mode: 0o700 });
+      dirs.push(dirname(socket));
+      writeStateRootManifest(dirname(socket), stateRoot);
+      servers.push(await listenSocket(socket));
+
+      // Off XDG, `/tmp` IS the regime in force — found.
+      expect(discoverPadiDaemons([]).some((d) => d.socket === socket)).toBe(
+        true,
+      );
+
+      // With XDG set, `/tmp` is not the regime and is not walked at all.
+      const drawer = mkdtempSync(join(tmpdir(), "padi-discover-xdg-"));
+      dirs.push(drawer);
+      process.env.XDG_RUNTIME_DIR = drawer;
+      expect(discoverPadiDaemons([]).some((d) => d.socket === socket)).toBe(
+        false,
+      );
+    },
+  );
+
+  // The OTHER half of the same narrowing, and the reason it is a narrowing of
+  // the POLL rather than of discovery as such: the two DIAL resolutions —
+  // `residentPadiSocket` (once per binding; its failure mode is a 30 s hang and
+  // a second padi on a served state root, #1713) and `resolveRunningPadiSocket`
+  // (once per `kolu` / `kolu mcp` / `padi-tui` invocation; its failure mode is
+  // "no padi is running" against a padi that is) — keep probing every drawer.
+  it.runIf(process.getuid)(
+    "both DIAL paths still find a /tmp resident while $XDG_RUNTIME_DIR is set",
+    async () => {
+      const stateRoot = "/home/u/.local/state/padi-adopt-regime";
+      delete process.env.XDG_RUNTIME_DIR;
+      const socket = padiSocketPath(stateRoot);
+      const dir = dirname(socket);
+      mkdirSync(dir, { recursive: true, mode: 0o700 });
+      dirs.push(dir);
+      writeStateRootManifest(dir, stateRoot);
+      // THIS process stands in for the gate holder: `daemonIsLive` only asks
+      // whether the gate's pid is alive, and nothing forks to answer that.
+      // `0o600` because this lands under the shared `/tmp` root (the off-XDG
+      // drawer is the whole point of the case) — the same owner-only discipline
+      // `writeStateRootManifest` and the real gate writer apply there.
+      writeFileSync(join(dir, PADI_GATE_FILE), String(process.pid), {
+        mode: 0o600,
+      });
+      servers.push(await listenSocket(socket));
+
+      const drawer = mkdtempSync(join(tmpdir(), "padi-adopt-xdg-"));
+      dirs.push(drawer);
+      process.env.XDG_RUNTIME_DIR = drawer;
+      expect(residentPadiSocket(stateRoot)).toBe(socket);
+
+      // The CLI half is pinned on `resolveRunningPadiSocket` itself, in the
+      // primary-padi block above — a hermetic `pinFreshHost()` makes the
+      // verdict assertable, which it is not here.
+    },
+  );
 });
 
 describeDaemon(

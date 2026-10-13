@@ -29,7 +29,12 @@ import {
   productionPadiStateRoot,
   resolvePadiStateRoot,
 } from "@kolu/padi-client/rendezvous";
-import { gatePid, isHolderLive, resolveDaemonHome } from "@kolu/surface-daemon";
+import {
+  gatePid,
+  isHolderLive,
+  resolveDaemonHome,
+  runtimeRegimeInForce,
+} from "@kolu/surface-daemon";
 import {
   isPrivateOwnedDir,
   isSocketInode,
@@ -197,21 +202,24 @@ function canonicalPath(path: string): string {
 
 /** Discover every running padi daemon on this host — the read-only enumeration the
  *  Padi info dialog lists so a LEAKED padi (a second padi at a different state-root)
- *  is visible at a glance. Mirrors kaval's `discoverKavalDaemons`, EXTENDED past its
- *  own precedent: kaval's discovery unions this process's own env-derived drawer with
- *  the forced `/tmp` fallback (fixing "an XDG-set caller misses a /tmp resident"), but
- *  never checks the systemd-standard `/run/user/$UID` when its OWN env lacks
- *  `$XDG_RUNTIME_DIR` — so an XDG-unset caller still misses an XDG-drawer resident
- *  (kaval accepted that gap as a diagnostic-only limitation; see its own discovery
- *  test). padi's ADOPT path (`ensurePadiBinding`/`residentPadiSocket`) cannot accept
- *  it — that asymmetry IS the reported bug (#1713 adopt-path sibling): a 30s "daemon
- *  socket never came up" hang against a resident that was live the whole time at
- *  `/run/user/$UID`. So this unions THREE regimes: this process's own env-derived
- *  drawer, the forced `/tmp` fallback, and the systemd-standard `/run/user/$UID`
- *  guess (`extraRegimes`, always checked, even when this process's own XDG is unset)
- *  — de-duped by canonical path. `extraRegimes` defaults to the real guess; a test
- *  substitutes a fabricated drawer, since a unit test cannot write under the real
- *  `/run/user/$UID` (root-owned outside a real login session).
+ *  is visible at a glance, and the drawer `residentPadiSocket` adopts through.
+ *
+ *  Scans the regime IN FORCE plus `extraRegimes`, de-duped by canonical path. The
+ *  regime in force is this process's `$XDG_RUNTIME_DIR` when it has one, else the
+ *  `/tmp` fallback — and that distinction is the whole of juspay/kolu#2286's second
+ *  contributor: this used to scan the forced `/tmp` drawer UNCONDITIONALLY, on top
+ *  of the env drawer, every 10 s (plus kaval's own unconditional `/tmp` scan, so
+ *  TWICE). `/tmp` on the reporting host held 209 K entries and the pair of
+ *  `readdirSync`s was 22% of padi's busy time. An XDG-set host's padis bind under
+ *  XDG, so the `/tmp` pass found nothing on every single tick.
+ *
+ *  `extraRegimes` SURVIVES that narrowing, because it is small and load-bearing:
+ *  its default is the systemd-standard `/run/user/$UID` guess, which is what lets
+ *  an XDG-UNSET caller (a bare `nix run` outside a login session) see a resident a
+ *  DIFFERENT session registered under XDG. Without it the adopt path hangs 30 s on
+ *  "daemon socket never came up" against a padi that was live the whole time
+ *  (#1713). A test substitutes a fabricated drawer, since a unit test cannot write
+ *  under the real `/run/user/$UID`.
  *
  *  Each regime's scan reuses kaval's owner-only privacy check + socket-inode check
  *  (the same boundary the serving side enforces) so a sibling another local user
@@ -222,12 +230,20 @@ export function discoverPadiDaemons(
   extraRegimes: readonly (string | undefined)[] = [standardXdgRuntimeDir()],
 ): PadiDaemon[] {
   const regimes: readonly (string | undefined)[] = [
-    process.env.XDG_RUNTIME_DIR,
-    undefined,
+    // `undefined` IS the forced-/tmp regime for `padiCandidatesUnderRegime`, and
+    // it is exactly what this process's env resolves to when XDG is unset — so
+    // the one entry covers both arms of "the regime in force".
+    runtimeRegimeInForce() === "xdg" ? process.env.XDG_RUNTIME_DIR : undefined,
     ...extraRegimes,
   ];
   const byPath = new Map<string, PadiDaemon>();
+  // A regime whose drawer we already scanned contributes nothing new — and with
+  // XDG set, `extraRegimes`' `/run/user/$UID` default is usually the SAME drawer
+  // as `$XDG_RUNTIME_DIR`, so this drops a whole duplicate `readdirSync` per tick.
+  const scanned = new Set<string>();
   for (const xdgRuntimeDir of regimes) {
+    if (scanned.has(xdgRuntimeDir ?? "")) continue;
+    scanned.add(xdgRuntimeDir ?? "");
     for (const daemon of padiCandidatesUnderRegime(xdgRuntimeDir)) {
       const key = canonicalPath(daemon.socket);
       if (!byPath.has(key)) byPath.set(key, daemon);
@@ -235,6 +251,27 @@ export function discoverPadiDaemons(
   }
   return [...byPath.values()];
 }
+
+/** Every drawer a DIAL probes on top of the regime in force: the systemd-standard
+ *  `/run/user/$UID` guess, and the forced `/tmp` fallback.
+ *
+ *  The two places that answer "which padi do I talk to" — the binder's adopt
+ *  read-back ({@link residentPadiSocket}) and the CLI/MCP resolution
+ *  ({@link resolveRunningPadiSocket}) — keep the full cross-regime union that
+ *  juspay/kolu#2286 narrowed everywhere else, and the asymmetry IS the
+ *  measurement. What cost 22% of padi's busy time was the `hostInventory` POLL
+ *  walking `/tmp` — 209 K entries on the reporting host — twice every ten
+ *  seconds, forever. A dial happens ONCE per binding or per command invocation,
+ *  and what it buys is the difference between reaching a live daemon and either
+ *  a 30 s "daemon socket never came up" hang plus a second padi on a state root
+ *  someone already serves (#1713, and the #1313 isolation property with it), or
+ *  a flag-less `kolu` / `kolu mcp` / `padi-tui` refusing with "no padi is
+ *  running" while the daemon it wants is up in the other drawer. A directory
+ *  walk per dial is not a cost; a directory walk per tick was. */
+const DIAL_REGIMES = (): readonly (string | undefined)[] => [
+  standardXdgRuntimeDir(),
+  undefined,
+];
 
 /**
  * Find a resident padi ALREADY registered for `stateRoot` — the read-back
@@ -263,13 +300,10 @@ export function discoverPadiDaemons(
  */
 export function residentPadiSocket(
   stateRoot: string,
-  extraRegimes?: readonly (string | undefined)[],
+  extraRegimes: readonly (string | undefined)[] = DIAL_REGIMES(),
 ): string | undefined {
   const resolved = resolve(stateRoot);
-  const discovered =
-    extraRegimes === undefined
-      ? discoverPadiDaemons()
-      : discoverPadiDaemons(extraRegimes);
+  const discovered = discoverPadiDaemons(extraRegimes);
   return discovered.find(
     (d) => daemonServesStateRoot(d, resolved) && daemonIsLive(d),
   )?.socket;
@@ -418,7 +452,17 @@ export function resolveRunningPadiSocket(opts?: {
   // gets an opaque ECONNREFUSED instead of the honest `none` → named-path
   // error. A registration whose gate-pid is unreadable (`null`) is likewise not
   // a proven-live daemon, so it drops out too.
-  return classifyLivePadis(discoverPadiDaemons().filter(daemonIsLive));
+  //
+  // {@link DIAL_REGIMES} for the same reason the adopt path takes it: this is a
+  // once-per-INVOCATION resolution, not the 10 s poll #2286 narrowed, and the
+  // drawer it would otherwise miss is the common one — a flag-less `kolu`,
+  // `kolu mcp` or `padi-tui` run from a logind shell (XDG set) against a padi
+  // some nix-shell / e2e / test harness bound with XDG unset under
+  // `/tmp/padi-<digest>-$UID`. Narrowed, those refuse with "no padi is running"
+  // while the daemon they want is up.
+  return classifyLivePadis(
+    discoverPadiDaemons(DIAL_REGIMES()).filter(daemonIsLive),
+  );
 }
 
 /**

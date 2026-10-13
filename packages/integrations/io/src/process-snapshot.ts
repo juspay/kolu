@@ -19,16 +19,9 @@
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import type { Logger } from "@kolu/log";
+import type { ProcessSnapshot } from "./types.ts";
 
-export interface ProcessSnapshot {
-  argv: string[];
-  /** The process's environment, or `null` when this platform cannot report it
-   *  (macOS redacts even a same-user process's env — see below). `null` and
-   *  `{}` are DIFFERENT facts: "unreadable by policy" vs "started with no
-   *  environment", and a consumer that resolves paths from env vars must know
-   *  which one it is holding. */
-  env: Record<string, string> | null;
-}
+export type { ProcessSnapshot };
 
 /** The live process's argv + environment — the one place a launched agent
  *  invocation's flags and env vars genuinely live. */

@@ -472,8 +472,11 @@ export function promoteOrphanedRestoreChildren(
  *  fix. During the spawn window a terminal that already spawned stays fully interactive, and
  *  a padi-LOCAL setter ({@link setTerminalTheme} / {@link setCanvasLayout} /
  *  {@link setSubPanelState} / {@link setRightPanelState} / {@link setTerminalIntent} /
- *  {@link setTerminalParent} / {@link setActiveTerminalId}) mutates committed in-memory state
- *  and fires `terminals:dirty` WITHOUT waiting on kaval. Re-persisting the live snapshot as
+ *  {@link setTerminalParent}) mutates committed in-memory state and fires
+ *  `terminals:dirty` WITHOUT waiting on kaval. (`setActiveTerminalId` is NOT in that
+ *  list since #2286: focus pulses nothing and rides the gate's own ≥5 s active-id
+ *  debounce, which this re-persist picks up for free — it snapshots the live marker.)
+ *  Re-persisting the live snapshot as
  *  each spawn settles captures those — and, crucially, because no process-wide freeze is held
  *  across the spawn `await`, a live sibling's change ALSO persists through the normal
  *  autosave gate while spawns are still in flight, so a wedged kaval (a `ready` that never

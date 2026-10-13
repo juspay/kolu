@@ -30,7 +30,7 @@ import {
 } from "@kolu/padi-client/surface";
 import type { TerminalId } from "@kolu/terminal-vocab/schema";
 import { Schema } from "effect";
-import { notifyDirty } from "./publisher.ts";
+import { reportActiveTerminalId } from "./session/autosaveGate.ts";
 import { type SessionSnapshot, saveSession } from "./session/session.ts";
 import {
   type ActiveTerminalProcess,
@@ -426,19 +426,32 @@ export function getActiveTerminalId(): TerminalId | null {
 }
 
 /** Store which terminal is active (reported by the client).
- *  Only emits session:changed when a terminal is actually selected —
- *  null (no selection, e.g. client reconnect) must not trigger
- *  auto-save because snapshotSession() may return an empty terminal
- *  list at that point, which would clear the saved session. */
+ *
+ *  Does NOT pulse `terminals:dirty` (#2286). Focus is not a session-trace dirty
+ *  source — it changes nothing about any terminal, only which ONE of them the
+ *  marker names — and routing it through the trace throttle made every tab switch
+ *  re-serialise all N terminals: 120 whole-session persists per 5 min at the
+ *  measured 2.5 s focus cadence on a 16-terminal padi, `write_bytes` 0 → 253 KB/s,
+ *  because conf amplifies an 11 KB `config.json` ~57x (write-temp-then-rename plus
+ *  the backup ring) for a change of ONE field. The gate's focus edge persists that
+ *  field on its own ≥5 s trailing debounce instead, so `session.restore` still
+ *  restores focus.
+ *
+ *  A null report is NOT a focus change and is dropped: the client sends it on
+ *  reconnect (no selection yet), and persisting it would erase the marker a refresh
+ *  is about to restore from. */
 export function setActiveTerminalId(id: TerminalId | null): void {
   assignActiveTerminalId(id);
-  if (id !== null) notifyDirty();
+  if (id !== null) reportActiveTerminalId(id);
 }
 
 /** Restore the active-terminal marker from a session being adopted at boot
- *  (B3.3), WITHOUT firing `terminals:dirty` — unlike `setActiveTerminalId`, the
- *  client-reported setter. The boot converges the saved session explicitly right
- *  after, so this must not arm a competing autosave; it only seeds the value
+ *  (B3.3), WITHOUT persisting anything — unlike {@link setActiveTerminalId}, the
+ *  client-reported setter, this arms NEITHER edge of the gate: not the session
+ *  trace (the boot converges the adopted session explicitly right after, so a
+ *  competing autosave must not race it) and not the focus debounce (#2286 — the
+ *  id is being READ OUT of the blob, so writing it back is a disk write whose only
+ *  possible effect is to restate what is already there). It only seeds the value
  *  `snapshotSession()` will read so the adopted session keeps its active tile. */
 export function restoreActiveTerminalId(id: TerminalId | null): void {
   assignActiveTerminalId(id);

@@ -30,3 +30,5 @@ export {
   type ProcessSnapshot,
   readProcessSnapshot,
 } from "./process-snapshot.ts";
+
+export { type StampedCache, stampedCache } from "./stamped-read.ts";

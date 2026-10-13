@@ -262,15 +262,15 @@ describe("discoverPtyHostSockets", () => {
   });
 });
 
-// THE REGRESSION for the reported bug: `kaval-tui` and the Kaval dialog reported
-// DIFFERENT daemon sets on the same box because discovery scanned only the ONE
-// root the CALLER's own env pointed at. It must now union BOTH the XDG root and
-// the fixed `/tmp` fallback, so a daemon in the /tmp drawer is visible to an
-// XDG-set caller (the production dialog) too. Runs under a REAL uid — it seeds a
-// genuine `/tmp/kaval-<hex>-$UID` daemon, the exact shape the fix must see — so it
-// asserts MEMBERSHIP (tolerating any other daemon on the box), never exact set.
+// THE REGRESSION for juspay/kolu#2286's second contributor: discovery used to
+// `readdirSync("/tmp")` on EVERY scan, on top of the env-derived root, so a
+// production host whose `/tmp` holds 209 K entries paid that walk twice per 10 s
+// inventory tick for a drawer its daemons never bind in. Discovery now scans the
+// regime IN FORCE and nothing else. Runs under a REAL uid — it seeds a genuine
+// `/tmp/kaval-<hex>-$UID` daemon, the exact shape the old union found — so the
+// assertions are about THAT seeded daemon, never an exact set.
 describe.runIf(process.getuid)(
-  "discoverKavalCandidates — unions the XDG root AND the /tmp fallback",
+  "discoverKavalCandidates — scans the regime in force, and only that one",
   () => {
     const savedXdg = process.env.XDG_RUNTIME_DIR;
     const dirs: string[] = [];
@@ -282,13 +282,13 @@ describe.runIf(process.getuid)(
         rmSync(d, { recursive: true, force: true });
     });
 
-    it("finds a /tmp daemon EVEN with $XDG_RUNTIME_DIR set, and finds it whether or not XDG is set", async () => {
+    it("ignores a /tmp daemon while $XDG_RUNTIME_DIR is set, and finds it once it is not", async () => {
       const uid = process.getuid?.();
       if (uid === undefined) return; // guarded by describe.runIf; narrows the type
-      // A daemon in the /tmp fallback drawer — the one an XDG-set caller was BLIND
-      // to before the fix. Its namespace is unique to THIS test run (a hex pid
-      // suffix) and ends in `-$UID`, so it matches the off-XDG grammar without ever
-      // colliding with (or touching) a real `/tmp/kaval-*` daemon on the box.
+      // A daemon in the /tmp fallback drawer. Its namespace is unique to THIS test
+      // run (a hex pid suffix) and ends in `-$UID`, so it matches the off-XDG
+      // grammar without ever colliding with (or touching) a real `/tmp/kaval-*`
+      // daemon on the box.
       const tmpNs = `${KAVAL_NS_PREFIX}-de${process.pid.toString(16)}-${uid}`;
       const tmpDir = join("/tmp", tmpNs);
       mkdirSync(tmpDir, { recursive: true, mode: 0o700 });
@@ -306,20 +306,19 @@ describe.runIf(process.getuid)(
       const xdgSock = join(xdgRoot, KAVAL_NS_PREFIX, PTY_HOST_SOCK_FILE);
       seedSocket(xdgSock);
 
-      // With XDG set, BOTH drawers are scanned — the /tmp daemon is no longer
-      // invisible to an XDG-set caller (the exact production bug).
+      // XDG set ⇒ the XDG drawer IS the regime, and `/tmp` is not walked at all.
       process.env.XDG_RUNTIME_DIR = xdgRoot;
       const withXdg = new Set(discoverPtyHostSockets());
-      expect(withXdg.has(tmpSock)).toBe(true);
       expect(withXdg.has(xdgSock)).toBe(true);
+      expect(withXdg.has(tmpSock)).toBe(false);
 
-      // With XDG unset, the /tmp daemon is STILL found: the fallback root is
-      // scanned unconditionally, so the /tmp drawer (the source of the leaked
-      // pile) is visible regardless of the caller's env. That caller-independence
-      // for the /tmp drawer is the regression this pins. (The XDG daemon's root is
-      // $XDG itself, so it is unreachable with XDG unset — by construction.)
+      // XDG unset ⇒ `/tmp` IS the regime in force, so the same daemon is found.
+      // (The XDG daemon's root is $XDG itself, so it is unreachable here — by
+      // construction, not by policy.)
       delete process.env.XDG_RUNTIME_DIR;
-      expect(new Set(discoverPtyHostSockets()).has(tmpSock)).toBe(true);
+      const offXdg = new Set(discoverPtyHostSockets());
+      expect(offXdg.has(tmpSock)).toBe(true);
+      expect(offXdg.has(xdgSock)).toBe(false);
     });
   },
 );

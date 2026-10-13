@@ -75,6 +75,7 @@ export {
   type ResolveDaemonHomeOptions,
   type ResolvedDaemonHome,
   resolveDaemonHome,
+  runtimeRegimeInForce,
 } from "./daemonHome.ts";
 export {
   anchorGone,
@@ -124,4 +125,10 @@ export {
   type RuntimeFaultExitOptions,
 } from "./runtimeFault.ts";
 export type { SharedArtifact } from "./sharedArtifact.ts";
+export {
+  daemonSweepRegimes,
+  reapStaleDaemonHomes,
+  type StaleHomeSkip,
+  type StaleHomeSweep,
+} from "./staleHomes.ts";
 export { daemonProcessMain } from "./tenure.ts";
