@@ -106,8 +106,11 @@ const DECLARED_ALLOWED = new Set([
   "@kolu/padi-client",
   "@kolu/surface",
   // The grafted `@odu/service-client`'s dial reaches it, so a consumer copying
-  // that directory copies this one too (its `packageExtensions` edge).
+  // that directory copies this one too (its `packageExtensions` edge) — and with
+  // it the two that `@kolu/surface-app` itself drags in: the browser/CLI socket
+  // stack and the URL/spelling leaf it hands around.
   "@kolu/surface-app",
+  "@kolu/url-shape",
   "@kolu/surface-daemon",
   "@kolu/surface-daemon-supervisor",
   "@kolu/terminal-vocab",
@@ -268,6 +271,13 @@ const HYDRATE_CLOSURE = declaredDependencyClosure({
  * whole `@xterm/*` suite among them, plus `@resvg/resvg-wasm`, `pino`(+roll,
  * +pretty), `conf`, `marked`, `columnify` and six more `@solid-primitives/*`.
  *
+ * The list grows by ONE member's consequence since the odu graft: the grafted
+ * `@odu/service-client`'s dial reaches `@kolu/surface-app` (declared for it in
+ * `pnpm-workspace.yaml`'s `packageExtensions`, because a grafted manifest cannot
+ * name the `@kolu/*` packages its source imports), and that package's own
+ * closure is `solid-js`, two `@solid-primitives/*` and `ws` — all but `ws`
+ * already here.
+ *
  * What is left, and where the remaining fat comes from — say it plainly rather
  * than let a reader assume this list is irreducible:
  *
@@ -300,6 +310,11 @@ const EXPECTED_EXTERNALS = [
   "solid-js",
   "string-argv",
   "ts-pattern",
+  // `@kolu/surface-app`'s socket dependency, which arrived with the odu graft's
+  // `packageExtensions` edge: a browser or CLI dialling the framework's
+  // websocket route needs it, and nothing in this package's own import graph
+  // did before.
+  "ws",
 ];
 
 describe("@kolu/padi-client hydrates without the daemon", () => {
