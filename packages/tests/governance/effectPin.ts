@@ -95,7 +95,7 @@ export function isEffectFamily(pkg: string): boolean {
  *  graft joins by being pinned rather than by being remembered here. */
 export function isGraftedManifest(
   relPath: string,
-  grafted: ReadonlySet<string> = new Set(["osfacts-client/package.json"]),
+  grafted: ReadonlySet<string>,
 ): boolean {
   return grafted.has(relPath);
 }
@@ -106,7 +106,7 @@ export function isGraftedManifest(
 export function literalReason(
   relPath: string,
   vendored: ReadonlySet<string>,
-  grafted: ReadonlySet<string> = new Set(["osfacts-client/package.json"]),
+  grafted: ReadonlySet<string>,
 ): string | null {
   // GRAFTED FIRST: a grafted member is also in the vendored closure, and the
   // sentence for that case ("replace `catalog:` with a literal") would tell a
@@ -236,7 +236,7 @@ function describe(pin: EffectPin): string {
 export function validateEffectPins(
   pins: readonly EffectPin[],
   vendored: ReadonlySet<string>,
-  grafted?: ReadonlySet<string>,
+  grafted: ReadonlySet<string>,
 ): string {
   const problems: string[] = [];
   const catalog = pins.filter((pin) => pin.where === "catalog");

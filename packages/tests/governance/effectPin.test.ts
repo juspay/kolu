@@ -80,11 +80,21 @@ const VENDORED = new Set([
   "packages/terminal-vocab/package.json",
 ]);
 
-/** `validateEffectPins` keeps its two-arg signature on purpose — every test
- *  below hands it the vendored set as DATA, so none of them touches the tree.
- *  This just spares each call site from repeating the one constant. */
+/** The GRAFTED set as DATA too — what the emitted `nix/consumer-closure.json`
+ *  answers with, stated here so these pins exercise the rule without reading the
+ *  artifact. Both grafts are named on purpose: the predicate answers for the SET
+ *  (a caller that spells one manifest by hand is how the odu trio went
+ *  unpoliced), which is also why neither parameter has a default. */
+const GRAFTED = new Set([
+  "osfacts-client/package.json",
+  "odu/service-client/package.json",
+]);
+
+/** Every test below hands `validateEffectPins` the vendored AND grafted sets as
+ *  DATA, so none of them touches the tree. This spares each call site from
+ *  repeating the two constants. */
 const validate = (pins: readonly EffectPin[]): string =>
-  validateEffectPins(pins, VENDORED);
+  validateEffectPins(pins, VENDORED, GRAFTED);
 
 const agreeing = (...extra: EffectPin[]): EffectPin[] => [
   ...catalog("effect"),
@@ -217,9 +227,9 @@ test("a vendored manifest that switched to `catalog:` fails — it does not reso
 });
 
 test("only the graft ROOT is grafted — a path merely under it is not", () => {
-  assert.ok(isGraftedManifest("osfacts-client/package.json"));
-  assert.ok(!isGraftedManifest("osfacts-client/example/package.json"));
-  assert.ok(!isGraftedManifest("packages/padi/package.json"));
+  assert.ok(isGraftedManifest("osfacts-client/package.json", GRAFTED));
+  assert.ok(!isGraftedManifest("osfacts-client/example/package.json", GRAFTED));
+  assert.ok(!isGraftedManifest("packages/padi/package.json", GRAFTED));
 });
 
 test("each literal-owing manifest gives its OWN reason, and a member gives none", () => {
@@ -230,18 +240,21 @@ test("each literal-owing manifest gives its OWN reason, and a member gives none"
   // and the `@odu/*` trio get the same reason, and neither tells a reader to
   // edit a manifest kolu does not own.
   assert.match(
-    literalReason("packages/surface/package.json", VENDORED) ?? "",
+    literalReason("packages/surface/package.json", VENDORED, GRAFTED) ?? "",
     /drishti\/odu, olai/,
   );
   assert.match(
-    literalReason("osfacts-client/package.json", VENDORED) ?? "",
+    literalReason("osfacts-client/package.json", VENDORED, GRAFTED) ?? "",
     /grafted from an npins pin/,
   );
   assert.match(
-    literalReason("odu/service-client/package.json", VENDORED) ?? "",
+    literalReason("odu/service-client/package.json", VENDORED, GRAFTED) ?? "",
     /grafted from an npins pin/,
   );
-  assert.equal(literalReason("packages/padi/package.json", VENDORED), null);
+  assert.equal(
+    literalReason("packages/padi/package.json", VENDORED, GRAFTED),
+    null,
+  );
 });
 
 test("the grafted osfacts-client manifest is policed, not skipped", () => {
