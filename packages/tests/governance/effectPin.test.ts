@@ -247,10 +247,13 @@ test("the grafted osfacts-client manifest is policed, not skipped", () => {
   );
 });
 
-test("the grafted manifest owes a LITERAL — `catalog:` does not resolve in osfacts' workspace", () => {
+test("the grafted manifest owes a LITERAL — `catalog:` does not resolve in ITS workspace", () => {
+  // The sentence names the GRAFT, not one pin: the set is read from
+  // `nix/consumer-closure.json`, so the odu trio gets the same reason as
+  // `osfacts-client` (and kolu is never told to edit a manifest it does not own).
   assert.throws(
     () => validate(agreeing({ ...grafted, spec: "catalog:" })),
-    /osfacts-client\/package\.json.*grafted from the `osfacts` pin/s,
+    /osfacts-client\/package\.json.*grafted from an npins pin/s,
   );
 });
 
