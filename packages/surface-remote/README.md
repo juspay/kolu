@@ -24,7 +24,10 @@ warm check), then roots it — no bytes through your machine and no Nix
 evaluation. A content-addressed path needs no trust setting on the host, since
 `--from` reads a store directly; a signed input-addressed one (`signedBy`, for
 a macOS host, whose Mach-O signatures a rewrite breaks) needs the host to trust
-the login or the key.
+the login or the key. A content-addressed path is only portable within the Nix
+line that wrote it — 2.35 hashes a self-referencing path differently from 2.34,
+and neither verifies the other's — so `resolveHostNix` answers the host's Nix
+version (with its system, in the one probe) for the caller to choose by.
 
 By default a dial's ssh gives up on a peer that has not answered a probe for
 ~30s. That is the right answer while someone is watching a host; an unattended

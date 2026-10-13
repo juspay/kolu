@@ -483,8 +483,9 @@ from agent-distro's cache over ssh (`packages/server/src/agentDelivery/`, over
 then a GC root) and tells padi each step, and padi points the profile's `current`
 at what landed. For its agents a host needs only the ssh login, `nix` on that
 login's PATH and outbound HTTPS to the cache — no flakes and no GitHub egress;
-a Linux host needs no Nix settings (its path is content-addressed), a Mac must
-trust the login or the cache's key. Three cells, one procedure (`padiSurface` 5.9,
+a Linux host on Nix 2.17–2.34 needs no Nix settings (its path is
+content-addressed); a Mac, or a Linux host on Nix 2.35+, must trust the login or
+the cache's key (`packages/server/src/agentDelivery/route.ts`). Three cells, one procedure (`padiSurface` 5.9,
 profile references 5.11, binder-side delivery 5.13) and one spawn layer carry
 it; the module is `src/agentDistro/`.
 

@@ -479,9 +479,10 @@ _out_. The map, grouped:
   **delivered by kolu-server** without Nix of its own: it reads each host's
   content-addressed build off agent-distro's published index (one HTTPS GET per
   system) and has the host pull it from the cache over ssh through
-  `surface-remote`'s `pullClosure` — content-addressed to a Linux host, so no
+  `surface-remote`'s `pullClosure` — content-addressed to a Linux host on Nix
+  2.17–2.34 (the line that can verify it), so no
   Nix there has to trust it; signed to a Mac, whose code signatures a rewrite
-  breaks — never building it, and that host's padi only points `current`
+  breaks, and to a newer Nix line — never building it, and that host's padi only points `current`
   at what landed),
   and a set of
   zero-dependency utilities (`log`, `nonempty`, `shell-quote`, `html-escape`, `byte-units` — the one way kolu writes a byte count, in binary units, …).

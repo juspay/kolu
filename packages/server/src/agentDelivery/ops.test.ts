@@ -99,11 +99,15 @@ describe("realDeliveryOps.pull", () => {
     cache: { url: CACHE, publicKey: KEY },
     schedule: { periodSeconds: 21600, offsetSeconds: 7200 },
   });
-  const pull = (system = "x86_64-linux", ssh = "ci@box") =>
+  const pull = (
+    system = "x86_64-linux",
+    ssh = "ci@box",
+    nixVersion = "2.34.8",
+  ) =>
     ops.pull({
       ssh,
       label: "box",
-      system,
+      hostNix: { system, nixVersion },
       published: ENTRY,
       profile: "vanilla",
       onProgress: () => {},
@@ -131,6 +135,24 @@ describe("realDeliveryOps.pull", () => {
     expect(pulled()).toMatchObject({ storePath: ENTRY.ia, signedBy: KEY });
   });
 
+  it("a Linux host on Nix 2.35 pulls the signed bundle too, and a refusal names its Nix line as the reason", async () => {
+    vi.mocked(pullClosure).mockResolvedValueOnce({ ok: true });
+    expect(await pull("x86_64-linux", "ci@box", "2.35.2")).toEqual({
+      ok: true,
+      bundle: ENTRY.ia,
+    });
+    expect(pulled()).toMatchObject({ storePath: ENTRY.ia, signedBy: KEY });
+    vi.mocked(pullClosure).mockResolvedValueOnce({
+      ok: false,
+      kind: "uncopied",
+      reason: "lacks a signature by a trusted key",
+    });
+    const res = await pull("x86_64-linux", "ci@box", "2.35.2");
+    expect(res.ok === false && res.message).toContain(
+      "box is sent the signed agents — its Nix 2.35.2 cannot verify the content-addressed form agent-distro publishes",
+    );
+  });
+
   it("a copy the cache could not serve names the host, the path and the cache, in Nix's words", async () => {
     vi.mocked(pullClosure).mockResolvedValueOnce({
       ok: false,
@@ -153,7 +175,7 @@ describe("realDeliveryOps.pull", () => {
     });
     expect(await pull("aarch64-darwin", "ci@mac")).toEqual({
       ok: false,
-      message: `box could not pull the vanilla agents (${ENTRY.ia}) from agent-distro's cache (${CACHE}): ${refusal}. A Mac takes the signed agents only if its Nix trusts them: on box, add the login kolu connects as to \`nix.settings.trusted-users\`, or agent-distro's cache key (${KEY}) to \`nix.settings.trusted-public-keys\`.`,
+      message: `box could not pull the vanilla agents (${ENTRY.ia}) from agent-distro's cache (${CACHE}): ${refusal}. box is sent the signed agents — macOS kills a program whose code signature a content-addressed rewrite broke — and takes them only if its Nix trusts them: on box, add the login kolu connects as to \`nix.settings.trusted-users\`, or agent-distro's cache key (${KEY}) to \`nix.settings.trusted-public-keys\`.`,
     });
     const local = await pull("aarch64-darwin", "localhost");
     expect(local.ok === false && local.message).toContain(

@@ -20,24 +20,26 @@ import type { CaIndexEntry } from "@kolu/agent-distro/caIndex";
 import type { AgentDistroDeliveryReport } from "@kolu/agent-distro/schema";
 import { type UpdaterSchedule, updateDue } from "@kolu/agent-distro/schedule";
 import type { Logger } from "@kolu/log";
+import type { HostNix } from "@kolu/surface-remote";
 
 /** The steps of a delivery. Each throws with its own words. */
 export interface DeliveryOps {
-  /** The Nix system of the host `ssh` reaches (`localhost` for this one). */
-  systemOf(ssh: string): Promise<string>;
+  /** The Nix system and version of the host `ssh` reaches (`localhost` for
+   *  this one) — the system picks the index entry, both pick the route. */
+  hostNixOf(ssh: string): Promise<HostNix>;
   /** `profile`'s newest published bundle for `system`, read off upstream's
    *  index. Throws, in words a user reads, when upstream has published none
    *  for that system or the index cannot be read — never a reason to
    *  evaluate or build one. */
   published(system: string, profile: string): Promise<CaIndexEntry>;
-  /** The route: have the host — of Nix system `system` — pull `published`'s
-   *  bundle in the form it runs, and root it — never building. Answers the
-   *  path that landed, or the cause in words a user reads (`label` names the
-   *  host in them). */
+  /** The route: have the host — whose Nix is `hostNix` — pull `published`'s
+   *  bundle in the form it can take and run (`./route.ts`), and root it —
+   *  never building. Answers the path that landed, or the cause in words a
+   *  user reads (`label` names the host in them). */
   pull(args: {
     readonly ssh: string;
     readonly label: string;
-    readonly system: string;
+    readonly hostNix: HostNix;
     readonly published: CaIndexEntry;
     readonly profile: string;
     readonly onProgress: (line: string) => void;
@@ -120,7 +122,13 @@ export function createAgentDelivery(deps: {
     const entry = await ops.published(system, profile);
     known.set(key, { entry, at: now() });
     log.info(
-      { system, agentDistroProfile: profile, rev: entry.rev, ca: entry.ca },
+      {
+        system,
+        agentDistroProfile: profile,
+        rev: entry.rev,
+        ia: entry.ia,
+        ca: entry.ca,
+      },
       "agent-distro index read",
     );
     return entry;
@@ -152,12 +160,12 @@ export function createAgentDelivery(deps: {
   ): Promise<HostOutcome> => {
     const at = { host: host.label, agentDistroProfile: profile };
     try {
-      const system = await ops.systemOf(host.ssh);
-      const published = await bundleFor(system);
+      const hostNix = await ops.hostNixOf(host.ssh);
+      const published = await bundleFor(hostNix.system);
       const res = await ops.pull({
         ssh: host.ssh,
         label: host.label,
-        system,
+        hostNix,
         published,
         profile,
         onProgress: (line) =>

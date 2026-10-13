@@ -133,7 +133,9 @@ only that login, `nix` on the login's PATH and outbound HTTPS to the cache: no
 flakes and no GitHub access. A Linux host gets the set content-addressed, which
 its Nix takes without trusting your login or any key; a Mac, whose code
 signatures that form would break, gets it signed and must trust one of the two
-([When a delivery fails](/agents#when-a-delivery-fails)). The host's tab shows the
+([When a delivery fails](/agents#when-a-delivery-fails)). The content-addressed
+form needs a host on Nix 2.17 through 2.34; a Linux host on Nix 2.35 or later
+is sent the signed set, like a Mac. The host's tab shows the
 delivery until it lands. From then on kolu keeps the host current,
 four times a day and whenever it reconnects; its tab shows each update arriving
 while the agents it has keep working ([Kept up to

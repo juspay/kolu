@@ -345,7 +345,9 @@ No Linux host's Nix settings matter here. A Linux host gets the agents in
 **content-addressed** form, where each store path is named by the hash of what
 it holds, so Nix takes them from anyone without asking whom it trusts. The
 login kolu connects as needs no place in `trusted-users`, and the host needs
-neither agent-distro's cache nor its key in its `nix.conf`.
+neither agent-distro's cache nor its key in its `nix.conf`. That holds for a
+host on Nix 2.17 through 2.34: Nix 2.35 changed how that form is checked, so
+a Linux host on Nix 2.35 or later is sent the signed agents, like a Mac.
 
 A Mac is the exception. Rewriting the agents into that form would break the
 code signatures macOS checks before it runs a program, so a Mac gets them as

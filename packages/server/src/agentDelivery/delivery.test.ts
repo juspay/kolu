@@ -55,7 +55,10 @@ function fakeOps(
   }[] = [];
   let gate: Promise<void> | undefined;
   const ops: DeliveryOps = {
-    systemOf: async (ssh) => opts.systems?.[ssh] ?? "x86_64-linux",
+    hostNixOf: async (ssh) => ({
+      system: opts.systems?.[ssh] ?? "x86_64-linux",
+      nixVersion: "2.34.8",
+    }),
     published: async (system, profile) => {
       reads.push(`${system}.${profile}`);
       const answer = opts.published?.(system, profile);
@@ -63,12 +66,13 @@ function fakeOps(
       const ca = caFor(reads.length, system, profile);
       return answer ?? { rev: "f".repeat(40), ia: `${ca}-ia`, ca };
     },
-    // Which form a host runs is the ops' call; this fake lands `ca` and
-    // records the system it was told.
-    pull: async ({ ssh, system, published, profile }) => {
-      pulled.push({ ssh, system, storePath: published.ca, profile });
+    // Which form a host runs is the ops' call (`./route.ts`); this fake lands
+    // `ca` and records the system it was told.
+    pull: async ({ ssh, hostNix, published, profile }) => {
+      const storePath = published.ca ?? published.ia;
+      pulled.push({ ssh, system: hostNix.system, storePath, profile });
       if (gate !== undefined) await gate;
-      return opts.result?.() ?? { ok: true, bundle: published.ca };
+      return opts.result?.() ?? { ok: true, bundle: storePath };
     },
   };
   return {

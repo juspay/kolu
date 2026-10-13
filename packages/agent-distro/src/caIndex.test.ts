@@ -43,13 +43,13 @@ describe("parseCaIndexEntry", () => {
       parseCaIndexEntry(JSON.stringify({ ...entry, extra: "upstream's" })),
     ).toEqual(entry);
   });
+  it("reads a darwin entry, which carries no ca", () => {
+    const { ca: _, ...darwin } = entry;
+    expect(parseCaIndexEntry(JSON.stringify(darwin))).toEqual(darwin);
+  });
   it("throws on an entry with no ia", () => {
     const { ia: _, ...noIa } = entry;
     expect(() => parseCaIndexEntry(JSON.stringify(noIa))).toThrow();
-  });
-  it("throws on an entry with no ca", () => {
-    const { ca: _, ...noCa } = entry;
-    expect(() => parseCaIndexEntry(JSON.stringify(noCa))).toThrow();
   });
   it("throws on a ca that is not a store path", () => {
     expect(() =>

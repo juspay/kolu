@@ -3,12 +3,10 @@
  * content-addressed index (`@kolu/agent-distro/caIndex`) per system. Getting
  * it there: `@kolu/surface-remote`'s `pullClosure` — the host pulls the path
  * from agent-distro's cache and roots it (its header says what trust each form
- * needs). A Linux host pulls the content-addressed rewrite, which no Nix
- * refuses; a Mac pulls the signed input-addressed bundle, because rewriting a
- * Mach-O breaks its code signature and macOS kills it on launch (verified: a
- * rewritten bundle's own `bash` fails `codesign --verify`, exit 137) — so a
- * Mac's Nix must trust the login or the cache's key. This machine runs no Nix
- * for either.
+ * needs), in the form `./route.ts` picks from the host's Nix: the
+ * content-addressed rewrite, which needs no trust, or the signed bundle, which
+ * needs the host's Nix to trust the login or the cache's key. This machine
+ * runs no Nix for either.
  */
 
 import type { AgentDistroDelivery } from "@kolu/agent-distro/bake";
@@ -18,9 +16,10 @@ import {
   homeGcRoot,
   isLocalHost,
   pullClosure,
-  resolveSystem,
+  resolveHostNix,
 } from "@kolu/surface-remote";
 import type { DeliveryOps } from "./delivery.ts";
+import { bundleRoute, signedBecause } from "./route.ts";
 
 /** How long one index read may take — a small JSON file off a CDN. */
 const INDEX_TIMEOUT_MS = 30_000;
@@ -83,12 +82,13 @@ export function realDeliveryOps(bake: AgentDistroDelivery): DeliveryOps {
   // ControlMaster keyed by its keepalive, padi's own dial's included.
   const keepalive = DEFAULT_SSH_KEEPALIVE;
   return {
-    systemOf: (ssh) => resolveSystem(ssh, { onProgress: () => {}, keepalive }),
+    hostNixOf: (ssh) =>
+      resolveHostNix(ssh, { onProgress: () => {}, keepalive }),
     published: (system, profile) =>
       readPublishedBundle(bake.index, system, profile),
-    pull: async ({ ssh, label, system, published, profile, onProgress }) => {
-      const mac = system.endsWith("-darwin");
-      const storePath = mac ? published.ia : published.ca;
+    pull: async ({ ssh, label, hostNix, published, profile, onProgress }) => {
+      const route = bundleRoute(hostNix, published);
+      const { storePath } = route;
       // kolu's own root, one link per profile ("latest", like surface-remote's
       // per-agent roots). Home-relative, never `$XDG_STATE_HOME`: over ssh the
       // login's home is the one place this process can name on a host.
@@ -104,23 +104,24 @@ export function realDeliveryOps(bake: AgentDistroDelivery): DeliveryOps {
         host: ssh,
         cacheUrl: bake.cache.url,
         storePath,
-        ...(mac ? { signedBy: bake.cache.publicKey } : {}),
+        ...(route.kind === "signed" ? { signedBy: bake.cache.publicKey } : {}),
         rootPath,
         onProgress,
         keepalive,
       });
       if (res.ok) return { ok: true, bundle: storePath };
       if (res.kind === "failed") return { ok: false, message: res.reason };
-      // Nix's own line inside kolu-server's words — and on a Mac, the one-line
-      // fix for the trust a signed bundle needs.
+      // Nix's own line inside kolu-server's words — and for a signed bundle,
+      // why the host was sent it and the one-line fix for the trust it needs.
       const why = `${label} could not pull the ${profile} agents (${storePath}) from agent-distro's cache (${bake.cache.url}): ${res.reason}`;
-      if (!mac) return { ok: false, message: why };
+      if (route.kind === "content-addressed")
+        return { ok: false, message: why };
       const who = isLocalHost(ssh)
         ? "the user kolu runs as"
         : "the login kolu connects as";
       return {
         ok: false,
-        message: `${why}. A Mac takes the signed agents only if its Nix trusts them: on ${label}, add ${who} to \`nix.settings.trusted-users\`, or agent-distro's cache key (${bake.cache.publicKey}) to \`nix.settings.trusted-public-keys\`.`,
+        message: `${why}. ${label} is sent the signed agents — ${signedBecause(route.because, hostNix)} — and takes them only if its Nix trusts them: on ${label}, add ${who} to \`nix.settings.trusted-users\`, or agent-distro's cache key (${bake.cache.publicKey}) to \`nix.settings.trusted-public-keys\`.`,
       };
     },
   };

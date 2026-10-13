@@ -6,7 +6,7 @@
  * public API.
  */
 
-export { resolveSystem } from "./arch";
+export { type HostNix, resolveHostNix, resolveSystem } from "./arch";
 export {
   type AgentBinaryCache,
   agentBinaryCache,

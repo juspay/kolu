@@ -5,7 +5,7 @@
  * Mocks `./process` so no ssh is ever spawned.
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { resolveSystem } from "./arch";
+import { resolveHostNix, resolveSystem } from "./arch";
 import { useControlDir } from "./controlDir.testutil";
 import { ResolveDrvError } from "./host";
 import { type CaptureResult, runCapture } from "./process";
@@ -320,5 +320,53 @@ describe("resolveSystem ssh-refusal classification", () => {
     await failureOf("petit");
     vi.mocked(runCapture).mockResolvedValueOnce(okSystem("x86_64-linux"));
     await expect(resolveSystem("petit", opts())).resolves.toBe("x86_64-linux");
+  });
+});
+
+describe("resolveHostNix — the same probe, with the host's Nix version", () => {
+  it("answers the system and the Nix version from ONE strict JSON eval", async () => {
+    vi.mocked(runCapture).mockResolvedValue({
+      ok: true,
+      kind: "exit",
+      code: 0,
+      stdout: '{"nixVersion":"2.34.8","system":"x86_64-linux"}\n',
+    });
+    await expect(resolveHostNix("ci@box", opts())).resolves.toEqual({
+      system: "x86_64-linux",
+      nixVersion: "2.34.8",
+    });
+    expect(runCapture).toHaveBeenCalledTimes(1);
+    const [, args] = vi.mocked(runCapture).mock.calls[0] ?? [];
+    expect(args).toEqual(
+      expect.arrayContaining([
+        "nix-instantiate",
+        "--eval",
+        "--strict",
+        "--json",
+        // Shell-quoted: over ssh the remote shell parses the argv.
+        "'{ system = builtins.currentSystem; nixVersion = builtins.nixVersion; }'",
+      ]),
+    );
+  });
+
+  it("output that is not the probe's answer is a bounded fault about the host", async () => {
+    vi.mocked(runCapture).mockResolvedValue({
+      ok: true,
+      kind: "exit",
+      code: 0,
+      stdout: "Welcome to box!\n",
+    });
+    await expect(resolveHostNix("ci@box", opts())).rejects.toBeInstanceOf(
+      ResolveDrvError,
+    );
+    vi.mocked(runCapture).mockResolvedValue({
+      ok: true,
+      kind: "exit",
+      code: 0,
+      stdout: '{"system":"x86_64-linux"}\n',
+    });
+    await expect(resolveHostNix("ci@box", opts())).rejects.toThrow(
+      /the system probe returned/,
+    );
   });
 });
