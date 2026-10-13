@@ -225,13 +225,21 @@ test("only the graft ROOT is grafted — a path merely under it is not", () => {
 test("each literal-owing manifest gives its OWN reason, and a member gives none", () => {
   // The two reasons are mirror images and must not be conflated: one manifest
   // is vendored OUT of this workspace, the other is grafted IN from another.
+  // The graft sentence names the graft rather than one pin, because the set it
+  // is answering for comes from `nix/consumer-closure.json` — `osfacts-client`
+  // and the `@odu/*` trio get the same reason, and neither tells a reader to
+  // edit a manifest kolu does not own.
   assert.match(
     literalReason("packages/surface/package.json", VENDORED) ?? "",
     /drishti\/odu, olai/,
   );
   assert.match(
     literalReason("osfacts-client/package.json", VENDORED) ?? "",
-    /juspay\/osfacts' own workspace/,
+    /grafted from an npins pin/,
+  );
+  assert.match(
+    literalReason("odu/service-client/package.json", VENDORED) ?? "",
+    /grafted from an npins pin/,
   );
   assert.equal(literalReason("packages/padi/package.json", VENDORED), null);
 });
