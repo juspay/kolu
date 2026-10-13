@@ -26,11 +26,23 @@ import type { Accessor } from "solid-js";
 import { activeHost, activePadiStreams, interpretClientError } from "../wire";
 import { usePanelShown } from "./panelShown";
 
-/** The focused terminal's odu CI readout, or `null` when odu has nothing to say
- *  about its checkout (or the panel is not shown). */
+/** The readout, and why it is missing when it is missing.
+ *
+ *  The frame alone would make "odu has nothing to say" and "odu answered and
+ *  could not be read" the same value — one blank — and they are not the same
+ *  fact: the first is a machine with no odu on it, the second is an install to
+ *  go and look at. The error is the second, carried out rather than folded in. */
+export interface OduCiReadout {
+  /** The focused terminal's odu CI readout, or `null` when odu has nothing to
+   *  say about its checkout (or the panel is not shown). */
+  frame: Accessor<CiStatusFrame | null>;
+  /** Why the readout FAILED, or `undefined` while it is healthy. */
+  error: Accessor<Error | undefined>;
+}
+
 export function useOduCiStatus(
   terminalId: Accessor<TerminalId | null>,
-): Accessor<CiStatusFrame | null> {
+): OduCiReadout {
   const shown = usePanelShown();
   const sub = activePadiStreams.ciStatus.use(
     () => {
@@ -52,5 +64,11 @@ export function useOduCiStatus(
         ),
     },
   );
-  return () => sub() ?? null;
+  return {
+    frame: () => sub() ?? null,
+    // The subscription's own failure: padi FAILS the stream for a daemon that
+    // answered and cannot be read (rather than answering `none`), so this is
+    // that fact and not a transport hiccup — the fence retries transports.
+    error: () => sub.error(),
+  };
 }

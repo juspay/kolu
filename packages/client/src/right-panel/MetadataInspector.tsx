@@ -38,6 +38,7 @@ import ComposeSection from "./ComposeSection";
 import KavalAttachSection from "./KavalAttachSection";
 import PortsSection from "./PortsSection";
 import { useOduCiStatus } from "./useOduCiStatus";
+import { useOduLaneLink } from "./useOduLaneLink";
 import WorkSection from "./WorkSection";
 
 const MetadataInspector: Component<{
@@ -59,6 +60,12 @@ const MetadataInspector: Component<{
    *  the wire in the module graph), and because the subscription is
    *  SHOWN-GATED — a hidden Inspector tab is not a subscriber. */
   const oduCi = useOduCiStatus(() => props.terminalId);
+
+  /** The lane-link outlet — how a lane's row reaches odu web's log page.
+   *  Opened here with the readout (same reason: `WorkSection` stays wire-free),
+   *  and it reads the SAME active host the readout is keyed by, so the page a
+   *  lane opens is the daemon the row is describing. */
+  const oduLane = useOduLaneLink();
 
   /** Is the TILE awake? The Attach section's subject is the tile (its picker
    *  spans the main pane and every split), so its liveness gate must read the
@@ -108,8 +115,17 @@ const MetadataInspector: Component<{
           {/* Work — directory + git + PR as one identity cluster, plus the
               checkout's odu CI readout (which is its own wire-bound
               subscription, so it is opened HERE and handed down: `WorkSection`
-              stays renderable in a test without the wire in its module graph). */}
-          <WorkSection meta={meta()} oduCi={oduCi()} />
+              stays renderable in a test without the wire in its module graph).
+              The lane-link outlet is passed the same way and for the same
+              reason — and so is the readout's FAILURE, which is the difference
+              between "no odu here" (nothing renders) and "odu answered and could
+              not be read" (a row that says so). */}
+          <WorkSection
+            meta={meta()}
+            oduCi={oduCi.frame()}
+            oduCiError={oduCi.error()?.message ?? null}
+            oduLane={oduLane}
+          />
 
           {/* Ports — what this TILE is serving, its splits included (a dev server
               usually runs in a split, so a main-pane-only reading shows nothing in
