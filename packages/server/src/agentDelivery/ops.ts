@@ -19,6 +19,9 @@ import {
   fetchClosureIndex,
   homeGcRoot,
   isLocalHost,
+  makeStepBudget,
+  PROVISION_STEP_MAX_EXPIRIES,
+  PROVISION_STEP_SILENCE_BASE_MS,
   type PublishedClosure,
   pullClosure,
   readPublishedClosure,
@@ -85,6 +88,12 @@ export function realDeliveryOps(bake: AgentDistroDelivery): DeliveryOps {
         rootPath,
         onProgress,
         keepalive,
+        // One delivery is one attempt: its root commit gets a fresh budget,
+        // and upstream's schedule (not a redial loop) is what retries it.
+        budget: makeStepBudget(
+          PROVISION_STEP_SILENCE_BASE_MS,
+          PROVISION_STEP_MAX_EXPIRIES,
+        ),
       });
       if (res.ok) return { ok: true, bundle: storePath };
       if (res.kind === "failed") return { ok: false, message: res.reason };

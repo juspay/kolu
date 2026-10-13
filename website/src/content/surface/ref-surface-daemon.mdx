@@ -414,6 +414,6 @@ The baked tree carries `flake.nix`, `commit-hash`, and `binary-cache.json` —
 branch }` (a GitHub branch the `publish-closure` action writes
 `<commitHash>/<system>/<attr>.json` to; `rawBase` is derived) or an explicit
 `null`. It is required — no default — and a malformed one fails the binder's
-eval. `@kolu/surface-remote` reads it as `readBakedBinaryCache(…).index`, and
+eval. `@kolu/surface-remote` reads it as `readBakedDeclaration(…).index` (with `rev`, its `commit-hash`), and
 `provisionAgent` looks the binder's own build up there before staging anything
 ([Publish your daemon content-addressed](/surface/publish-content-addressed)).

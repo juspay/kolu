@@ -124,6 +124,13 @@ export function provArgs(budgets: ProvisionBudgets = makeProvisionBudgets()): {
   budgets: ProvisionBudgets;
   keepalive: SshKeepalive;
   onActivity: () => void;
+  published: null;
 } {
-  return { budgets, keepalive: DEFAULT_SSH_KEEPALIVE, onActivity: () => {} };
+  return {
+    budgets,
+    keepalive: DEFAULT_SSH_KEEPALIVE,
+    onActivity: () => {},
+    // No index step unless a suite is about it (it passes its own).
+    published: null,
+  };
 }

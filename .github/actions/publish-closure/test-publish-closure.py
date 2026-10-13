@@ -134,14 +134,14 @@ class Resolve(unittest.TestCase):
             # The built source is a store path that is not on this disk, so the
             # read fails — which proves WHICH file the key is read from.
             env = stub(root, {"build --no-link --print-out-paths .#agent-flake-source": SOURCE + "\n"})
-            r = run(root, env, "resolve", "--rev", REV, "--source", ".#agent-flake-source", "padi", "kaval")
+            r = run(root, env, "resolve", "--rev", REV, "--repository", "juspay/kolu", "--source", ".#agent-flake-source", "padi", "kaval")
             self.assertNotEqual(r.returncode, 0)
             self.assertIn(f"{SOURCE}/commit-hash", r.stderr)
 
     def test_sidecar_mode_names_the_cache_attic_target_and_branch(self):
         with tempfile.TemporaryDirectory() as d:
             root = Path(d)
-            r = run(root, stub(root, {}), "resolve", "--rev", REV, "--sidecar", json.dumps(DECLARATION),
+            r = run(root, stub(root, {}), "resolve", "--rev", REV, "--repository", "juspay/kolu", "--sidecar", json.dumps(DECLARATION),
                     "--rev-key", KEY, ".#padi", ".#kaval")
             self.assertEqual(r.returncode, 0, r.stderr)
             out = dict(line.split("=", 1) for line in r.stdout.splitlines())
@@ -151,12 +151,22 @@ class Resolve(unittest.TestCase):
             self.assertEqual(out["attic-server"], "https://cache.nixos.asia")
             self.assertEqual(out["attic-cache"], "oss")
             self.assertEqual(out["index-branch"], "ca-index")
+            self.assertNotIn("extra-trusted-public-keys", out)
+
+    def test_a_declaration_for_another_repository_is_refused(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            r = subprocess.run([sys.executable, str(SCRIPT), "resolve", "--rev", REV, "--repository", "someone/fork",
+                                "--sidecar", json.dumps(DECLARATION), "--rev-key", KEY, ".#padi"],
+                               cwd=root, env=stub(root, {}), capture_output=True, text=True)
+            self.assertNotEqual(r.returncode, 0)
+            self.assertIn("publishes to juspay/kolu, but this run is in someone/fork", r.stderr)
 
     def test_a_sidecar_with_no_index_has_nowhere_to_publish(self):
         with tempfile.TemporaryDirectory() as d:
             root = Path(d)
             declaration = dict(DECLARATION, index=None)
-            r = run(root, stub(root, {}), "resolve", "--rev", REV, "--sidecar", json.dumps(declaration),
+            r = run(root, stub(root, {}), "resolve", "--rev", REV, "--repository", "juspay/kolu", "--sidecar", json.dumps(declaration),
                     "--rev-key", KEY, ".#padi")
             self.assertNotEqual(r.returncode, 0)
             self.assertIn("declares no closure index", r.stderr)
@@ -164,7 +174,7 @@ class Resolve(unittest.TestCase):
     def test_a_dirty_key_is_refused(self):
         with tempfile.TemporaryDirectory() as d:
             root = Path(d)
-            r = run(root, stub(root, {}), "resolve", "--rev", REV, "--sidecar", json.dumps(DECLARATION),
+            r = run(root, stub(root, {}), "resolve", "--rev", REV, "--repository", "juspay/kolu", "--sidecar", json.dumps(DECLARATION),
                     "--rev-key", "c891495-dirty", ".#padi")
             self.assertNotEqual(r.returncode, 0)
             self.assertIn("refusing to publish", r.stderr)
@@ -172,7 +182,7 @@ class Resolve(unittest.TestCase):
     def test_source_and_sidecar_together_are_refused(self):
         with tempfile.TemporaryDirectory() as d:
             root = Path(d)
-            r = run(root, stub(root, {}), "resolve", "--rev", REV, "--source", ".#s",
+            r = run(root, stub(root, {}), "resolve", "--rev", REV, "--repository", "juspay/kolu", "--source", ".#s",
                     "--sidecar", json.dumps(DECLARATION), "padi")
             self.assertNotEqual(r.returncode, 0)
             self.assertIn("pass neither", r.stderr)
@@ -184,44 +194,67 @@ class Smoke(unittest.TestCase):
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps(entry))
 
-    def smoke(self, root, env, *installables):
-        return run(root, env, "smoke", "--rev-key", KEY, "--system", "x86_64-linux",
-                   "--directory", str(root / "idx"), "--smoke-args=--help", *installables)
+    def program(self, root: Path, body: str) -> Path:
+        ca = root / "ca"
+        (ca / "bin").mkdir(parents=True)
+        (ca / "bin" / "padi").write_text(body)
+        (ca / "bin" / "padi").chmod(0o755)
+        return ca
 
-    def test_no_main_program_is_a_skip_with_its_reason(self):
-        with tempfile.TemporaryDirectory() as d:
-            root = Path(d)
-            self.write_entry(root, {"rev": REV, "ia": IA, "ca": CA})
-            env = stub(root, {f"eval --raw {SOURCE}#padi.meta.mainProgram": {"exit": 1}})
-            r = self.smoke(root, env, f"{SOURCE}#padi")
-            self.assertEqual(r.returncode, 0, r.stderr)
-            self.assertIn("declares no meta.mainProgram", r.stdout)
-
-    def test_a_program_that_does_not_exec_fails_the_publication(self):
-        with tempfile.TemporaryDirectory() as d:
-            root = Path(d)
-            ca = root / "ca"
-            (ca / "bin").mkdir(parents=True)
-            (ca / "bin" / "padi").write_text("#!/bin/sh\necho broken >&2\nexit 3\n")
-            (ca / "bin" / "padi").chmod(0o755)
-            self.write_entry(root, {"rev": REV, "ia": IA, "ca": str(ca)})
-            env = stub(root, {f"eval --raw {SOURCE}#padi.meta.mainProgram": "padi"})
-            r = self.smoke(root, env, f"{SOURCE}#padi")
-            self.assertNotEqual(r.returncode, 0)
-            self.assertIn("exited 3", r.stderr)
+    def smoke(self, root, spec, *installables):
+        return run(root, stub(root, {}), "smoke", "--rev-key", KEY, "--system", "x86_64-linux",
+                   "--directory", str(root / "idx"), "--smoke", spec, *installables)
 
     def test_a_program_that_runs_passes(self):
         with tempfile.TemporaryDirectory() as d:
             root = Path(d)
-            ca = root / "ca"
-            (ca / "bin").mkdir(parents=True)
-            (ca / "bin" / "padi").write_text('#!/bin/sh\n[ "$1" = --help ]\n')
-            (ca / "bin" / "padi").chmod(0o755)
+            ca = self.program(root, '#!/bin/sh\n[ "$1" = --help ]\n')
             self.write_entry(root, {"rev": REV, "ia": IA, "ca": str(ca)})
-            env = stub(root, {f"eval --raw {SOURCE}#padi.meta.mainProgram": "padi"})
-            r = self.smoke(root, env, f"{SOURCE}#padi")
+            r = self.smoke(root, "padi=bin/padi --help", f"{SOURCE}#padi")
             self.assertEqual(r.returncode, 0, r.stderr)
             self.assertIn("--help ran", r.stdout)
+
+    def test_a_program_that_does_not_exec_fails_the_publication(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            ca = self.program(root, "#!/bin/sh\necho broken >&2\nexit 3\n")
+            self.write_entry(root, {"rev": REV, "ia": IA, "ca": str(ca)})
+            r = self.smoke(root, "padi=bin/padi --help", f"{SOURCE}#padi")
+            self.assertNotEqual(r.returncode, 0)
+            self.assertIn("exited 3", r.stderr)
+
+    def test_an_installable_with_no_smoke_line_fails_never_skips(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            r = self.smoke(root, "padi=bin/padi --help", f"{SOURCE}#padi", f"{SOURCE}#kaval")
+            self.assertNotEqual(r.returncode, 0)
+            self.assertIn("no smoke declared for ['kaval']", r.stderr)
+
+    def test_a_smoke_line_for_an_attr_not_published_here_is_refused(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            r = self.smoke(root, "padi=bin/padi\nkavla=bin/kaval", f"{SOURCE}#padi")
+            self.assertNotEqual(r.returncode, 0)
+            self.assertIn("['kavla']", r.stderr)
+
+    def test_an_absolute_or_climbing_program_is_refused(self):
+        for line in ("padi=/bin/sh -c true", "padi=../x"):
+            with tempfile.TemporaryDirectory() as d:
+                root = Path(d)
+                r = self.smoke(root, line, f"{SOURCE}#padi")
+                self.assertNotEqual(r.returncode, 0)
+                self.assertIn("relative to the closure", r.stderr)
+
+    def test_only_this_invocations_entries_are_run(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            ca = self.program(root, "#!/bin/sh\nexit 0\n")
+            self.write_entry(root, {"rev": REV, "ia": IA, "ca": str(ca)})
+            # An entry from another run in the same tree: not ours to smoke.
+            self.write_entry(root, {"rev": REV, "ia": IA, "ca": "/nonexistent"}, attr="other")
+            r = self.smoke(root, "padi=bin/padi", f"{SOURCE}#padi")
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertNotIn("other", r.stdout)
 
 
 class Verify(unittest.TestCase):

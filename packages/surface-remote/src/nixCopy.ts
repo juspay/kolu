@@ -101,9 +101,10 @@
 
 import { mkdirSync, readdirSync, readlinkSync, rmSync } from "node:fs";
 import type { AgentBinaryCache } from "./agentBinaryCache";
-import type { AgentDerivation, IndexedClosure } from "./agentDerivation";
+import type { AgentDerivation } from "./agentDerivation";
 import {
   ClosureIndexError,
+  type IndexedClosure,
   fetchClosureIndex,
   readPublishedClosure,
 } from "./closureIndex";
@@ -259,6 +260,12 @@ export interface ProvisionOptions {
    *  a flake-backed derivation keeps its installable so one `nix build` process
    *  owns evaluation, transfer, and realisation without a GC race. */
   derivation: AgentDerivation;
+  /** Where THIS build is already published for THIS host — the index step
+   *  runs after the warm check and before any staging (see the module
+   *  header). `null`: no index to read. REQUIRED, so "none" is a stated fact.
+   *  The ssh connector forms it from a baked source (`resolveAgentDrv`); a
+   *  caller that owns its `.drv` states it. */
+  published: IndexedClosure | null;
   onProgress: (line: string) => void;
   /** Every stderr line of a long-running provisioning Nix command, narrated or
    *  not — wire it to the session's `ctx.activity` (why: `runNix`). REQUIRED,
@@ -1031,6 +1038,10 @@ async function stageContentAddressed(opts: {
 
 /** Does `system` (a Nix system, `aarch64-darwin`) name a macOS target — the
  *  one kind that keeps the signed, input-addressed closure? */
+function isDarwinSystem(system: string): boolean {
+  return system.endsWith("-darwin");
+}
+
 /**
  * ## pullClosure — pull a published closure into a host's store straight from a binary cache,
  * and root it there — the host fetches; the caller moves no bytes.
@@ -1089,6 +1100,13 @@ export interface PullClosureOptions {
   /** Aborting group-kills the in-flight child; the result is a retryable
    *  `"network"` failure. */
   signal?: AbortSignal;
+  /** The progress-liveness budget of the required root commit — the CALLER's,
+   *  so a root commit that keeps going silent is charged across retries and
+   *  ends `terminal` once it is spent (#1908), never redialled forever. A
+   *  provisioning dial passes its campaign's `budgets.provisioning`; a one-off
+   *  caller `makeStepBudget(PROVISION_STEP_SILENCE_BASE_MS,
+   *  PROVISION_STEP_MAX_EXPIRIES)`. REQUIRED. Reset on success. */
+  budget: StepBudget;
 }
 
 /** How a pull ended:
@@ -1169,12 +1187,15 @@ export async function pullClosure(
     if (!copy.ok) {
       if (copy.kind === "aborted")
         return failed(abortedDuring(host, "the pull"));
+      // A copy that went silent past the copy bound is a MISS, like every
+      // other speculative copy here: the caller tries its next route rather
+      // than ending a dial on a stalled cache.
       if (copy.kind === "lifetime-expired")
-        return failed({
+        return {
           ok: false,
-          reason: `${host}: 'nix copy --from ${opts.cacheUrl}' ${describeExit(copy)}`,
-          cause: "network",
-        });
+          kind: "uncopied",
+          reason: `'nix copy --from ${opts.cacheUrl}' ${describeExit(copy)}`,
+        };
       // A transport failure (the ssh to the host dropped) is the dial's to
       // retry, not a statement about the cache.
       if (causeFor(copy) === "network")
@@ -1196,14 +1217,12 @@ export async function pullClosure(
     opts.rootPath,
     opts.onProgress,
     onActivity,
-    makeStepBudget(PROVISION_STEP_SILENCE_BASE_MS, PROVISION_STEP_MAX_EXPIRIES),
+    opts.budget,
     signal,
   );
-  return bail === null ? { ok: true } : failed(bail);
-}
-
-function isDarwinSystem(system: string): boolean {
-  return system.endsWith("-darwin");
+  if (bail !== null) return failed(bail);
+  opts.budget.reset();
+  return { ok: true };
 }
 
 export interface DeliverClosureOptions {
@@ -1296,6 +1315,8 @@ async function deliverPublished(opts: {
   narrate: (line: string) => void;
   onProgress: (line: string) => void;
   onActivity: () => void;
+  /** The required root commit's budget — the dial's own. */
+  budget: StepBudget;
   signal: AbortSignal | undefined;
   keepalive: SshKeepalive;
 }): Promise<Exclude<DeliverClosureResult, { kind: "not-delivered" }> | null> {
@@ -1358,6 +1379,7 @@ async function deliverPublished(opts: {
       rootPath: opts.rootPath,
       onProgress: opts.onProgress,
       onActivity: opts.onActivity,
+      budget: opts.budget,
       keepalive: opts.keepalive,
       signal: opts.signal,
     });
@@ -1457,8 +1479,10 @@ export async function deliverClosure(
   opts.onDelivering?.();
   const narrate = (line: string) => opts.onProgress(`${opts.host}: ${line}`);
 
-  // 1b. The index step: a published build is pulled by the host itself.
-  if (opts.published !== null) {
+  // 1b. The index step: a published build is pulled by the host itself —
+  //     remote only, like the warm check (localhost's staging reads its own
+  //     store first).
+  if (!isLocal && opts.published !== null) {
     const landed = await deliverPublished({
       host: opts.host,
       published: opts.published,
@@ -1467,13 +1491,11 @@ export async function deliverClosure(
       narrate,
       onProgress: opts.onProgress,
       onActivity: opts.onActivity,
+      budget: opts.budget,
       signal,
       keepalive,
     });
-    if (landed !== null) {
-      if (landed.ok) opts.budget.reset();
-      return landed;
-    }
+    if (landed !== null) return landed;
   }
 
   // 2/3. Stage the closure onto the target WITHOUT building it there.
@@ -1611,10 +1633,10 @@ export async function provisionAgent(
   }
   const localAgentPath = outsRes.ok ? outputs[0] : undefined;
 
-  const published =
-    opts.derivation.kind === "flake-installable"
-      ? opts.derivation.published
-      : null;
+  // The index step is for a REMOTE host: localhost's own store is what the
+  // sender's staging reads first, so a download from the cache would only
+  // fetch what is already here.
+  const published = isLocal ? null : opts.published;
   if (localAgentPath === undefined) {
     if (!isLocal) {
       // Step 0's local query missed (GC took the evaluated .drv), so there is
@@ -1641,13 +1663,11 @@ export async function provisionAgent(
         narrate: (line) => opts.onProgress(`${opts.host}: ${line}`),
         onProgress: opts.onProgress,
         onActivity: opts.onActivity,
+        budget: budgets.provisioning,
         signal,
         keepalive,
       });
-      if (landed?.ok) {
-        budgets.provisioning.reset();
-        return { ok: true, agentPath: landed.outPath };
-      }
+      if (landed?.ok) return { ok: true, agentPath: landed.outPath };
       if (landed !== null) {
         const { kind: _kind, ...failure } = landed;
         return failure;

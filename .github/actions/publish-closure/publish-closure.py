@@ -27,7 +27,7 @@ Subcommands, one per step of `action.yml`:
                (caches + index), the index key; written as step outputs.
     index    — build each installable, rewrite it (off darwin), write entries.
     ca-paths — the content-addressed paths the entries name, one per line.
-    smoke    — run each rewritten closure's `meta.mainProgram` (Linux only).
+    smoke    — run each rewritten closure's declared program (Linux only).
     verify   — import each published path from the cache into a throwaway
                store with this Nix, and verify it.
 """
@@ -140,6 +140,11 @@ def resolve(args) -> int:
         # A dirty or foreign source would key entries no consumer built.
         die(f"the index key {rev_key!r} is not a prefix of the commit {args.rev} — refusing to publish it")
     declaration = read_declaration(sidecar)
+    if declaration["index"]["repo"] != args.repository:
+        # The declaration is the source of truth for where entries go; this
+        # run can only push the branch of the repository it runs in.
+        die(f"the declaration publishes to {declaration['index']['repo']}, "
+            f"but this run is in {args.repository} — run it in the declared repository")
     cache = declaration["substituters"][0]
     server, name = attic_target(cache)
     outputs = {
@@ -149,7 +154,6 @@ def resolve(args) -> int:
         "attic-server": server,
         "attic-cache": name,
         "index-branch": declaration["index"]["branch"],
-        "extra-trusted-public-keys": " ".join(declaration.get("trustedPublicKeys") or []),
     }
     for key, value in outputs.items():
         print(f"{key}={value}")
@@ -214,22 +218,46 @@ def ca_paths(args) -> int:
     return 0
 
 
+def parse_smoke(spec: str) -> dict:
+    """`<attr>=<relative bin> <args>…`, one per line → {attr: [bin, *args]}."""
+    commands = {}
+    for line in spec.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        attr, sep, command = line.partition("=")
+        words = command.split()
+        if not sep or not ATTR.fullmatch(attr.strip()) or not words:
+            die(f"smoke line {line!r} is not `<attr>=<relative bin> <args>`")
+        program = words[0]
+        if program.startswith("/") or ".." in pathlib.PurePosixPath(program).parts:
+            die(f"smoke {attr}: {program!r} must be a path relative to the closure")
+        if attr.strip() in commands:
+            die(f"smoke {attr}: declared twice")
+        commands[attr.strip()] = words
+    return commands
+
+
 def smoke(args) -> int:
-    """Run each rewritten closure's program: the rewrite replaced every
-    embedded store path, so this is what says the result still execs."""
-    by_attr = {attr_of(i): i for i in args.installables}
+    """Run each rewritten closure's declared program: the rewrite replaced
+    every embedded store path, so this is what says the result still execs.
+    Every installable of THIS invocation needs a smoke line — one with none
+    would pass having proven nothing — and a line naming no installable here
+    is a typo, refused."""
+    commands = parse_smoke(args.smoke)
+    attrs = {attr_of(i) for i in args.installables}
+    if set(commands) - attrs:
+        die(f"smoke names {sorted(set(commands) - attrs)}, which this run does not publish")
+    if attrs - set(commands):
+        die(f"no smoke declared for {sorted(attrs - set(commands))} — every installable needs one")
     for attr, entry in entries(args.directory, args.rev_key, args.system):
+        if attr not in attrs:
+            continue
         ca = entry.get("ca")
         if not ca:
-            print(f"publish-closure: smoke {attr}: skipped — no content-addressed path (a darwin entry)")
-            continue
-        program = subprocess.run(
-            [args.nix, "eval", "--raw", f"{by_attr[attr]}.meta.mainProgram"],
-            capture_output=True, text=True)
-        if program.returncode != 0 or not program.stdout.strip():
-            print(f"publish-closure: smoke {attr}: skipped — the installable declares no meta.mainProgram")
-            continue
-        command = [f"{ca}/bin/{program.stdout.strip()}", *args.smoke_args.split()]
+            die(f"smoke {attr}: the {args.system} entry names no content-addressed path")
+        program, *rest = commands[attr]
+        command = [f"{ca}/{program}", *rest]
         result = subprocess.run(command, capture_output=True, text=True)
         if result.returncode != 0:
             die(f"smoke {attr}: {' '.join(command)} exited {result.returncode}: {result.stderr.strip()[-400:]}")
@@ -267,6 +295,7 @@ def main(argv=None) -> int:
     p.add_argument("--sidecar", default="")
     p.add_argument("--rev-key", default="")
     p.add_argument("--rev", required=True, help="the full commit the closures were built from")
+    p.add_argument("--repository", required=True, help="the repository this run pushes to (owner/name)")
     p.add_argument("installables", nargs="*")
     p.set_defaults(run=resolve)
 
@@ -288,7 +317,7 @@ def main(argv=None) -> int:
 
     p = sub.add_parser("smoke")
     entry_args(p)
-    p.add_argument("--smoke-args", required=True)
+    p.add_argument("--smoke", required=True, help="`<attr>=<relative bin> <args>` lines")
     p.add_argument("installables", nargs="+")
     p.set_defaults(run=smoke)
 

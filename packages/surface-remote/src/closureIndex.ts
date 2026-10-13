@@ -20,10 +20,11 @@
  *
  * The declaration a binder carries ({@link ClosureIndex}) is written by
  * `mkProvenAgentSource` into the baked `binary-cache.json` beside the caches
- * (`readBakedBinaryCache`) — nothing in TypeScript spells an index URL.
+ * (`readBakedDeclaration`) — nothing in TypeScript spells an index URL.
  */
 
 import { Schema } from "effect";
+import type { HostNix } from "./arch";
 
 const NonEmpty = Schema.String.check(Schema.isMinLength(1));
 
@@ -51,6 +52,20 @@ const PublishedClosureSchema = Schema.Struct({
 /** One index entry: the full revision that built it, its signed
  *  input-addressed output, and — off darwin — its content-addressed rewrite. */
 export type PublishedClosure = typeof PublishedClosureSchema.Type;
+
+/** Where `provisionAgent` may find ONE build already published for ONE host
+ *  (`ProvisionOptions.published`): the index, the revision the build is keyed
+ *  by (a `mkProvenAgentSource` source's `commit-hash`), the attribute name,
+ *  and the target's Nix as the dial's probe read it — its system picks the
+ *  entry, its version the form (`closureRoute`). A plain value: the ssh
+ *  connector forms it from a baked source, and a caller that owns its own
+ *  `.drv` states it. */
+export interface IndexedClosure {
+  readonly index: Pick<ClosureIndex, "rawBase">;
+  readonly rev: string;
+  readonly attr: string;
+  readonly host: HostNix;
+}
 
 /** Which entry to read: one revision's own (`{ rev }`, the publisher's key —
  *  a short or full commit), or the newest a main-branch push published. */

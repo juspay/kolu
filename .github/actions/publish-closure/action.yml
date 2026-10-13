@@ -20,8 +20,8 @@
 #     index key, with `installables` as full flake installables.
 #
 # The cache pushed to is the declaration's FIRST substituter (an attic cache,
-# `https://<server>/<cache>`); the index branch is its `closureIndex.branch`,
-# on this repository.
+# `https://<server>/<cache>`); the index is its `closureIndex` — `repo` must be
+# the repository this runs in (refused otherwise), `branch` the one written.
 name: publish-closure
 description: Rewrite closures content-addressed, push them, verify them, and publish their index.
 
@@ -44,8 +44,16 @@ inputs:
   latest:
     description: Also write `latest/<system>/<attr>.json` (a push to the main branch only).
     required: true
-  smoke-args:
-    description: Arguments the rewritten program is run with on Linux, to prove it execs.
+  smoke:
+    description: >-
+      One line per installable, `<attr>=<bin path relative to the closure> <args>`,
+      run out of each rewritten closure on Linux to prove it execs. Required for
+      every installable: one with no line fails the run, never a silent skip.
+    required: true
+  attic-nixpkgs:
+    description: >-
+      A pinned nixpkgs (flake ref or tarball URL) to install attic-client from —
+      the caller's own pin, never an unpinned ref resolved at run time.
     required: true
   attic-token:
     description: Token for the declaration's attic cache. Empty on a fork pull request — then nothing is pushed.
@@ -78,10 +86,11 @@ runs:
         REV_KEY: ${{ inputs.rev }}
         INSTALLABLES: ${{ inputs.installables }}
         REV: ${{ github.event.pull_request.head.sha || github.sha }}
+        REPOSITORY: ${{ github.repository }}
       run: |
         set -euo pipefail
         # shellcheck disable=SC2086 # INSTALLABLES is space-separated on purpose
-        python3 "$SCRIPT" resolve --rev "$REV" --source "$SOURCE" \
+        python3 "$SCRIPT" resolve --rev "$REV" --repository "$REPOSITORY" --source "$SOURCE" \
           --sidecar "$SIDECAR" --rev-key "$REV_KEY" $INSTALLABLES >> "$GITHUB_OUTPUT"
         echo "system=$(nix config show system)" >> "$GITHUB_OUTPUT"
         echo "rev=$REV" >> "$GITHUB_OUTPUT"
@@ -116,12 +125,12 @@ runs:
         REV_KEY: ${{ steps.resolve.outputs.rev-key }}
         SYSTEM: ${{ steps.resolve.outputs.system }}
         INSTALLABLES: ${{ steps.resolve.outputs.installables }}
-        SMOKE_ARGS: ${{ inputs.smoke-args }}
+        SMOKE: ${{ inputs.smoke }}
       run: |
         set -euo pipefail
         # shellcheck disable=SC2086
         python3 "$SCRIPT" smoke --rev-key "$REV_KEY" --system "$SYSTEM" \
-          --directory "$OUT" --smoke-args="$SMOKE_ARGS" $INSTALLABLES
+          --directory "$OUT" --smoke "$SMOKE" $INSTALLABLES
 
     # The index must not name a path the cache does not hold, and the import
     # guard below reads it back from there — so the push is explicit, here,
@@ -138,11 +147,12 @@ runs:
         SERVER: ${{ steps.resolve.outputs.attic-server }}
         CACHE: ${{ steps.resolve.outputs.attic-cache }}
         ATTIC_TOKEN: ${{ inputs.attic-token }}
+        ATTIC_NIXPKGS: ${{ inputs.attic-nixpkgs }}
       run: |
         set -euo pipefail
-        # attic from a PINNED nixpkgs (the tarball kolu's npins builds from),
-        # never an unpinned ref resolved through the GitHub API at run time.
-        nix profile add "https://github.com/nixos/nixpkgs/archive/21a67dc470149f337cecafbe965d8d252a390518.tar.gz#attic-client"
+        # attic from the CALLER's pinned nixpkgs, never an unpinned ref
+        # resolved through the GitHub API at run time.
+        nix profile add "$ATTIC_NIXPKGS#attic-client"
         attic login --set-default publish "$SERVER" "$ATTIC_TOKEN"
         # The signed paths too (`ia`, every system): a darwin host, or a Linux
         # Nix outside the content-addressed line, pulls those.
@@ -185,7 +195,8 @@ runs:
         # plumbing from the index tree alone, so nothing here touches the
         # repository's own work tree or its commits.
         GIT_DIR="$(cd "$(git rev-parse --git-dir)" && pwd)"
-        export GIT_DIR GIT_WORK_TREE="$OUT" GIT_INDEX_FILE="$GIT_DIR/$BRANCH.index"
+        # A scratch index of its own (a branch name may hold slashes).
+        export GIT_DIR GIT_WORK_TREE="$OUT" GIT_INDEX_FILE="$RUNNER_TEMP/publish-closure.git-index"
         cd "$OUT"
         for attempt in $(seq 10); do
           if git fetch --quiet --depth=1 origin "$BRANCH" 2>/dev/null; then

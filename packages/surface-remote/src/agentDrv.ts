@@ -14,14 +14,13 @@ import { resolveHostNix } from "./arch";
 import { ResolveDrvError } from "./host";
 import type { SshKeepalive } from "./keepalive";
 import {
-  AgentBinaryCacheUnbakedError,
-  type BakedBinaryCache,
-  readBakedBinaryCache,
+  type BakedDeclaration,
+  readBakedDeclaration,
 } from "./agentBinaryCache";
+import type { IndexedClosure } from "./closureIndex";
 import { type AgentDerivation, flakeAgentDerivation } from "./agentDerivation";
 import type { StepBudget } from "./nixCopy";
 import { describeNixRunWithDetail, resolverErrorOf, runNix } from "./nixLog";
-import { readFileSync } from "node:fs";
 import agentEnv from "../agent-env.json" with { type: "json" };
 import { err, ok, type Result } from "neverthrow";
 import QuickLRU from "quick-lru";
@@ -75,7 +74,7 @@ export class AgentResolutionExhaustedError extends ResolveDrvError {
  * consumer. In-flight work is not shared because its cancellation and progress
  * belong to one dial. */
 const MAX_CACHED_AGENT_DERIVATIONS = 32;
-const drvCache = new QuickLRU<string, string>({
+const drvCache = new QuickLRU<string, AgentDerivation>({
   maxSize: MAX_CACHED_AGENT_DERIVATIONS,
 });
 
@@ -87,48 +86,24 @@ const drvCache = new QuickLRU<string, string>({
  *  error (a permissions blip, a concurrent rebuild) on a sidecar already proven
  *  good. Only SUCCESSES are remembered, so a genuinely broken source keeps
  *  failing and a repaired one is picked up. */
-const sidecarCache = new Map<string, BakedSource>();
-
-/** What a baked source declares about its own delivery: the sidecar, and —
- *  when that names an index — the revision the publisher keyed this build by
- *  (the source's `commit-hash`, the file `mkProvenAgentSource` writes). */
-interface BakedSource {
-  readonly declaration: BakedBinaryCache;
-  readonly rev: string | null;
-}
-
-/** The revision file `mkProvenAgentSource` writes at the source's root — the
- *  key its builds are published under. */
-const COMMIT_HASH_FILE = "commit-hash";
+const sidecarCache = new Map<string, BakedDeclaration>();
 
 /** The read, once per source ref per process. Throws the typed fault, like the
- *  uncached read it wraps. A source that declares an index but carries no
- *  `commit-hash` names nothing to look up — a hand-assembled tree, and loud. */
-function readBakedSourceOnce(flakeRef: string): BakedSource {
+ *  uncached read it wraps. */
+function readBakedDeclarationOnce(flakeRef: string): BakedDeclaration {
   const remembered = sidecarCache.get(flakeRef);
   if (remembered !== undefined) return remembered;
-  const result = readBakedBinaryCache(flakeRef);
+  const result = readBakedDeclaration(flakeRef);
   if (result.isErr()) throw result.error;
-  let rev: string | null = null;
-  if (result.value.index !== null) {
-    const file = `${flakeRef.replace(/^path:/, "")}/${COMMIT_HASH_FILE}`;
-    try {
-      rev = readFileSync(file, "utf8").trim();
-    } catch (cause) {
-      throw new AgentBinaryCacheUnbakedError(
-        flakeRef,
-        `it declares a closure index but ${COMMIT_HASH_FILE} is unreadable: ${cause instanceof Error ? cause.message : String(cause)}`,
-      );
-    }
-    if (rev === "")
-      throw new AgentBinaryCacheUnbakedError(
-        flakeRef,
-        `it declares a closure index but ${COMMIT_HASH_FILE} is empty`,
-      );
-  }
-  const baked = { declaration: result.value, rev };
-  sidecarCache.set(flakeRef, baked);
-  return baked;
+  sidecarCache.set(flakeRef, result.value);
+  return result.value;
+}
+
+/** What {@link resolveAgentDrv} answers: the derivation, and where that build
+ *  is published for the dialled host (`null`: the source publishes none). */
+export interface ResolvedAgent {
+  readonly derivation: AgentDerivation;
+  readonly published: IndexedClosure | null;
 }
 
 /** Per-dial lifetime hooks required by the local Nix evaluation. */
@@ -170,7 +145,10 @@ export interface AgentResolutionContext {
 
 /**
  * Probe `host`, then resolve only `packages.<host-system>.<packageName>` from
- * `flakeRef` as a flake-backed {@link AgentDerivation}. Host-probe failures remain plain transport errors so the
+ * `flakeRef` as a flake-backed {@link AgentDerivation}, paired with where THIS
+ * build is published for THIS host ({@link IndexedClosure}, `null` when the
+ * source declares no index) — the per-dial `ProvisionOptions.published` the
+ * connector hands `provisionAgent`. Host-probe failures remain plain transport errors so the
  * session retries them. Deterministic local Nix failures are terminal build
  * faults; transient fetch and owned-lifetime failures remain retryable.
  */
@@ -179,7 +157,7 @@ export async function resolveAgentDrv(
   flakeRef: string,
   packageName: string,
   opts: AgentDrvResolutionOptions,
-): Promise<AgentDerivation> {
+): Promise<ResolvedAgent> {
   // The binary-cache declaration is part of the derivation's identity
   // (provisioning prefetches against it), so read it FIRST — before the ssh
   // arch probe and before any Nix evaluation. A pre-contract wrapper then
@@ -189,8 +167,7 @@ export async function resolveAgentDrv(
   // `host-key-unverified` / `nix-unavailable` for a binder that would have
   // failed the same way on a perfectly healthy host. The throw sits at this
   // function's existing classification boundary, like every other one here.
-  const baked = readBakedSourceOnce(flakeRef);
-  const { binaryCache, index } = baked.declaration;
+  const declaration = readBakedDeclarationOnce(flakeRef);
 
   const hostNix = await resolveHostNix(host, {
     signal: opts.signal,
@@ -199,21 +176,21 @@ export async function resolveAgentDrv(
   });
   const { system } = hostNix;
   const installable = `${flakeRef}#packages.${system}.${packageName}`;
-  // The index lookup is per host (its Nix version picks the form), so it is
-  // paired with the derivation here, never cached with it.
-  const derivationOf = (drvPath: string): AgentDerivation =>
-    flakeAgentDerivation(
-      drvPath,
-      installable,
-      binaryCache,
-      index === null || baked.rev === null
-        ? null
-        : { index, rev: baked.rev, attr: packageName, host: hostNix },
-    );
+  // The derivation is per source and system (cached); the lookup is per dial
+  // — this host's Nix version picks the form — so it rides beside it.
+  const published: IndexedClosure | null =
+    declaration.index === null
+      ? null
+      : {
+          index: declaration.index,
+          rev: declaration.rev,
+          attr: packageName,
+          host: hostNix,
+        };
   const cached = drvCache.get(installable);
   if (cached !== undefined) {
     opts.budget.reset();
-    return derivationOf(cached);
+    return { derivation: cached, published };
   }
 
   opts.onEvaluation();
@@ -233,8 +210,9 @@ export async function resolveAgentDrv(
       },
     );
   }
-  drvCache.set(installable, drv);
-  return derivationOf(drv);
+  const derivation = flakeAgentDerivation(drv, installable, declaration.caches);
+  drvCache.set(installable, derivation);
+  return { derivation, published };
 }
 
 /** The lifetime hooks of the LOCAL flake evaluation `resolveAgentDrv` runs. */

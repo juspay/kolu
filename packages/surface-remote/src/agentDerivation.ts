@@ -11,20 +11,6 @@
  */
 
 import type { AgentBinaryCache } from "./agentBinaryCache";
-import type { HostNix } from "./arch";
-import type { ClosureIndex } from "./closureIndex";
-
-/** Where provisioning may find THIS build already published: the baked
- *  source's closure index, the revision it was built from (the agent flake's
- *  `commit-hash`, the publisher's key), the package's attribute name, and the
- *  target's Nix as the dial's one probe read it (its system picks the entry,
- *  its version the form — `closureRoute`). */
-export interface IndexedClosure {
-  readonly index: ClosureIndex;
-  readonly rev: string;
-  readonly attr: string;
-  readonly host: HostNix;
-}
 
 const agentDerivationBrand = Symbol("AgentDerivation");
 
@@ -49,9 +35,6 @@ export type AgentDerivation =
       drvPath: string;
       installable: string;
       binaryCache: AgentBinaryCache;
-      /** The index lookup `provisionAgent` tries before staging the closure
-       *  itself — `null` when the baked source publishes no index. */
-      published: IndexedClosure | null;
       readonly [agentDerivationBrand]: "flake-installable";
     };
 
@@ -60,7 +43,7 @@ export type AgentDerivation =
  * prefetched from. The parameter is deliberately REQUIRED: downstream
  * binders (drishti's baked drv map, odu's runner flake) inherit the
  * cache-aware provisioning path at compile time, not by opting in. Obtain the
- * declaration with `readBakedBinaryCache` where the deployment bakes one;
+ * declaration with `readBakedDeclaration(…).caches` where the deployment bakes one;
  * `agentBinaryCache({…})` states one inline. */
 export function directAgentDerivation(
   drvPath: string,
@@ -81,12 +64,11 @@ export function directAgentDerivation(
 
 /** Package-internal constructor for the flake arm. Deliberately not re-exported
  * from `@kolu/surface-remote`: only `resolveAgentDrv` may pair these values
- * (it reads `binaryCache` and the index from the baked source's sidecar). */
+ * (it reads `binaryCache` from the baked source's sidecar). */
 export function flakeAgentDerivation(
   drvPath: string,
   installable: string,
   binaryCache: AgentBinaryCache,
-  published: IndexedClosure | null,
 ): AgentDerivation {
   if (!drvPath.endsWith(".drv") || installable.trim().length === 0) {
     throw new Error(
@@ -98,7 +80,6 @@ export function flakeAgentDerivation(
     drvPath,
     installable,
     binaryCache,
-    published,
     [agentDerivationBrand]: "flake-installable",
   };
 }

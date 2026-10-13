@@ -34,7 +34,7 @@ export type ClosureRoute =
  *  Nix 2.35 changed how a self-referencing NAR is hashed, so 2.34 and 2.35
  *  refuse each other's rewrite (`ca hash mismatch importing path`, measured
  *  both ways — agent-distro#102); 2.17 is the oldest line that imports one. */
-export const CA_LINES = { from: [2, 17], before: [2, 35] } as const;
+const CA_LINES = { from: [2, 17], before: [2, 35] } as const;
 
 /** `nixVersion`'s `major.minor`. A version that does not start with one is a
  *  fault about the host's Nix, and loud. */

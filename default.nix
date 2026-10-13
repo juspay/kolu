@@ -847,7 +847,7 @@ let
   # `SURFACE_AGENT_FLAKE_REF` inherited from the caller silently override the source
   # of truth and make the wrapper provision the WRONG agent,
   # which is exactly the override-knob the repo's fail-fast rule forbids. openssh
-  # + nix are on PATH for the provision (resolveSystem's ssh arch-probe +
+  # + nix are on PATH for the provision (resolveHostNix's ssh probe +
   # provisionAgent's Nix remote-store build / `nix-store` probe and pin).
   mkAgentTuiWrapper = { name, entry }:
     pkgs.runCommand name

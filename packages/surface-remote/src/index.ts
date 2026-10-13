@@ -11,13 +11,12 @@ export {
   type AgentBinaryCache,
   agentBinaryCache,
   AgentBinaryCacheUnbakedError,
-  type BakedBinaryCache,
-  readBakedBinaryCache,
+  type BakedDeclaration,
+  readBakedDeclaration,
 } from "./agentBinaryCache";
 export {
   type AgentDerivation,
   directAgentDerivation,
-  type IndexedClosure,
 } from "./agentDerivation";
 export {
   type ClosureIndex,
@@ -26,12 +25,12 @@ export {
   type ClosureLookup,
   closureIndexUrl,
   type FetchText,
+  type IndexedClosure,
   fetchClosureIndex,
   type PublishedClosure,
   readPublishedClosure,
 } from "./closureIndex";
 export {
-  CA_LINES,
   type ClosureRoute,
   closureRoute,
   type SignedBecause,

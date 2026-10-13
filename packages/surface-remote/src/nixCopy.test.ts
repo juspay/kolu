@@ -319,7 +319,6 @@ describe("provisionAgent GC-root pinning (cold path)", () => {
         DRV,
         FLAKE_INSTALLABLE,
         TEST_BINARY_CACHE,
-        null,
       ),
       onProgress: () => {},
       ...provArgs(),
@@ -357,7 +356,6 @@ describe("provisionAgent GC-root pinning (cold path)", () => {
         DRV,
         FLAKE_INSTALLABLE,
         TEST_BINARY_CACHE,
-        null,
       ),
       onProgress: () => {},
       ...provArgs(),
@@ -685,7 +683,7 @@ describe("agentGcRootPath", () => {
 
 describe("cache prefetch + ship (steps 2 and 3) — a darwin target, signed and input-addressed", () => {
   const flakeDrv = () =>
-    flakeAgentDerivation(DRV, FLAKE_INSTALLABLE, TEST_BINARY_CACHE, null);
+    flakeAgentDerivation(DRV, FLAKE_INSTALLABLE, TEST_BINARY_CACHE);
 
   it("prefetches the agent closure from the declared cache before the cold build", async () => {
     mockNix({ system: DARWIN, copy: okOut("") });
@@ -747,7 +745,7 @@ describe("cache prefetch + ship (steps 2 and 3) — a darwin target, signed and 
     const onProgress = vi.fn();
     await provisionAgent({
       host: "build-host",
-      derivation: flakeAgentDerivation(DRV, FLAKE_INSTALLABLE, cache, null),
+      derivation: flakeAgentDerivation(DRV, FLAKE_INSTALLABLE, cache),
       onProgress,
       ...provArgs(),
     });
@@ -787,7 +785,7 @@ describe("cache prefetch + ship (steps 2 and 3) — a darwin target, signed and 
     });
     const res = await provisionAgent({
       host: "build-host",
-      derivation: flakeAgentDerivation(DRV, FLAKE_INSTALLABLE, cache, null),
+      derivation: flakeAgentDerivation(DRV, FLAKE_INSTALLABLE, cache),
       onProgress: vi.fn(),
       ...provArgs(),
     });
@@ -1092,14 +1090,13 @@ describe("cache prefetch + ship (steps 2 and 3) — a darwin target, signed and 
         substituters: ["u"],
         trustedPublicKeys: ["k"],
       },
-      null,
     );
   });
 });
 
 describe("the speculative copies' liveness and honesty — a darwin target, signed and input-addressed", () => {
   const flakeDrv = () =>
-    flakeAgentDerivation(DRV, FLAKE_INSTALLABLE, TEST_BINARY_CACHE, null);
+    flakeAgentDerivation(DRV, FLAKE_INSTALLABLE, TEST_BINARY_CACHE);
 
   it("both copies pass -v — without it a healthy transfer reads as silence", () => {
     // Regression: `runCapture` pipes stderr, so a copy without `-v` reports
@@ -1179,7 +1176,7 @@ describe("the speculative copies' liveness and honesty — a darwin target, sign
 
 describe("staging replaces the build when it can (steps 2/3 → 4a) — a darwin target, signed and input-addressed", () => {
   const flakeDrv = () =>
-    flakeAgentDerivation(DRV, FLAKE_INSTALLABLE, TEST_BINARY_CACHE, null);
+    flakeAgentDerivation(DRV, FLAKE_INSTALLABLE, TEST_BINARY_CACHE);
 
   it("a delivered ship SKIPS the cold build — the payoff the cache exists for", async () => {
     mockNix({ system: DARWIN, copy: okOut(""), ship: okOut("") });
@@ -1265,7 +1262,7 @@ const sgr = (code: string): string => `\u001b[${code}m`;
 
 describe("honest failure reporting (the sheetal-codex incident)", () => {
   const flakeDrv = () =>
-    flakeAgentDerivation(DRV, FLAKE_INSTALLABLE, TEST_BINARY_CACHE, null);
+    flakeAgentDerivation(DRV, FLAKE_INSTALLABLE, TEST_BINARY_CACHE);
   const CRATE_DRV =
     "/nix/store/d44gl7h40dgahrrg3w8n3rg9d6bp1kxf-crate-humantime-2.4.0.tar.gz.drv";
   const KOLU_DRV = "/nix/store/rz6j476k358bj3madirm98i34bb7ykl7-kolu-2.2.0.drv";
@@ -1662,7 +1659,6 @@ describe("provisionAgent on a Linux target — the content-addressed route", () 
         DRV,
         FLAKE_INSTALLABLE,
         TEST_BINARY_CACHE,
-        null,
       ),
       onProgress: vi.fn(),
       ...provArgs(),
@@ -1725,17 +1721,21 @@ describe("provisionAgent — the index step, after the warm check and before sta
         : (rest?.(cmd, args, ...more) ?? failOut),
     );
   };
-  const provision = (p = published(), onProgress = vi.fn()) =>
+  const provision = (
+    p: ReturnType<typeof published> | null = published(),
+    onProgress = vi.fn(),
+    host = "ci@croissant",
+  ) =>
     provisionAgent({
-      host: "ci@croissant",
+      host,
       derivation: flakeAgentDerivation(
         DRV,
         FLAKE_INSTALLABLE,
         TEST_BINARY_CACHE,
-        p,
       ),
       onProgress,
       ...provArgs(),
+      published: p,
     });
   const argvs = () => vi.mocked(runCapture).mock.calls;
   const hostPulls = () =>
@@ -1886,7 +1886,81 @@ describe("provisionAgent — the index step, after the warm check and before sta
   it("a source with no index never reads one", async () => {
     index(200, { rev: FULL_REV, ia: IA, ca: PUB_CA });
     mockNix();
-    await provision(null as unknown as ReturnType<typeof published>);
+    await provision(null);
     expect(vi.mocked(fetch)).not.toHaveBeenCalled();
+  });
+
+  it("localhost never reads the index — its own store is what staging reads first", async () => {
+    index(200, { rev: FULL_REV, ia: IA, ca: PUB_CA });
+    mockNix();
+    await provision(published(), vi.fn(), "localhost");
+    expect(vi.mocked(fetch)).not.toHaveBeenCalled();
+  });
+
+  it("a pull that goes silent past the copy bound is a MISS: the sender's steps run next", async () => {
+    index(200, { rev: FULL_REV, ia: IA, ca: PUB_CA });
+    mockHostPull({
+      ok: false,
+      kind: "lifetime-expired",
+      policy: { kind: "progress-liveness", silenceMs: 1 },
+      signal: "SIGTERM",
+      stdout: "",
+    } as CaptureResult);
+    const onProgress = vi.fn();
+    expect(await provision(published(), onProgress)).toEqual({
+      ok: true,
+      agentPath: STORE,
+    });
+    expect(argvs().some(([, a]) => a.includes("--print-out-paths"))).toBe(true);
+    expect(onProgress.mock.calls.flat().join("\n")).toMatch(
+      /could not pull the published/,
+    );
+  });
+
+  it("a caller that owns its own `.drv` states the lookup itself", async () => {
+    index(200, { rev: FULL_REV, ia: IA, ca: PUB_CA });
+    mockHostPull(okOut(""));
+    expect(
+      await provisionAgent({
+        host: "ci@croissant",
+        derivation: directAgentDerivation(DRV, TEST_BINARY_CACHE),
+        onProgress: vi.fn(),
+        ...provArgs(),
+        published: published(),
+      }),
+    ).toEqual({ ok: true, agentPath: PUB_CA });
+  });
+
+  it("the root commit is charged to the dial's provisioning budget", async () => {
+    index(200, { rev: FULL_REV, ia: IA, ca: PUB_CA });
+    const budgets = makeProvisionBudgets();
+    mockHostPull(okOut(""));
+    const rest = vi.mocked(runCapture).getMockImplementation();
+    vi.mocked(runCapture).mockImplementation(async (cmd, args, ...more) =>
+      args.includes("--add-root")
+        ? ({
+            ok: false,
+            kind: "lifetime-expired",
+            policy: { kind: "progress-liveness", silenceMs: 1 },
+            signal: "SIGTERM",
+            stdout: "",
+          } as CaptureResult)
+        : ((await rest?.(cmd, args, ...more)) ?? failOut),
+    );
+    let res: Awaited<ReturnType<typeof provisionAgent>> | undefined;
+    for (let i = 0; i < 4; i++)
+      res = await provisionAgent({
+        host: "ci@croissant",
+        derivation: flakeAgentDerivation(
+          DRV,
+          FLAKE_INSTALLABLE,
+          TEST_BINARY_CACHE,
+        ),
+        onProgress: vi.fn(),
+        ...provArgs(budgets),
+        published: published(),
+      });
+    // Four silent root commits on one campaign budget: the last is terminal.
+    expect(res).toMatchObject({ ok: false, cause: "network", terminal: true });
   });
 });

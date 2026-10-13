@@ -57,10 +57,14 @@ publish-closures:
         source: .#agent-flake-source   # your binder's baked source
         installables: my-daemon        # attribute names under it
         latest: ${{ github.ref == 'refs/heads/main' }}
-        smoke-args: --help             # proves the rewritten program runs
+        smoke: |                       # one line per installable — required
+          my-daemon=bin/my-daemon --version
+        attic-nixpkgs: github:NixOS/nixpkgs/<a pinned rev>
         attic-token: ${{ secrets.ATTIC_TOKEN }}
 ```
 
+It refuses to run in a repository other than your declared `closureIndex.repo`,
+and an installable with no `smoke` line fails the run rather than skipping.
 For each attribute it builds the closure, rewrites it content-addressed (not
 on macOS), runs the program out of the rewrite, pushes both forms to your
 cache, imports the rewrite back into a throwaway store to verify it, and only

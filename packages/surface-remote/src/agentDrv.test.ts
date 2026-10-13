@@ -21,7 +21,7 @@ vi.mock("node:fs", async (importOriginal) => ({
 import {
   AGENT_BINARY_CACHE_FILE,
   AgentBinaryCacheUnbakedError,
-  readBakedBinaryCache,
+  readBakedDeclaration,
 } from "./agentBinaryCache";
 import {
   AgentResolutionExhaustedError,
@@ -106,9 +106,11 @@ describe("resolveAgentDrv", () => {
         resolutionOptions,
       ),
     ).resolves.toMatchObject({
-      kind: "flake-installable",
-      drvPath: "/nix/store/padi.drv",
-      installable: "/nix/store/source-a#packages.aarch64-darwin.padi",
+      derivation: {
+        kind: "flake-installable",
+        drvPath: "/nix/store/padi.drv",
+        installable: "/nix/store/source-a#packages.aarch64-darwin.padi",
+      },
     });
 
     expect(h.runCapture).toHaveBeenCalledWith(
@@ -218,7 +220,7 @@ describe("resolveAgentDrv", () => {
     const first = resolveAgentDrv(...args);
     await expect(first).rejects.not.toBeInstanceOf(ResolveDrvError);
     await expect(resolveAgentDrv(...args)).resolves.toMatchObject({
-      drvPath: "/nix/store/recovered-fetch-padi.drv",
+      derivation: { drvPath: "/nix/store/recovered-fetch-padi.drv" },
     });
 
     expect(h.runCapture).toHaveBeenCalledTimes(2);
@@ -354,7 +356,7 @@ describe("resolveAgentDrv", () => {
     await expect(first).rejects.toThrow(/no output/);
     await expect(first).rejects.not.toBeInstanceOf(ResolveDrvError);
     await expect(resolveAgentDrv(...args)).resolves.toMatchObject({
-      drvPath: "/nix/store/recovered-padi.drv",
+      derivation: { drvPath: "/nix/store/recovered-padi.drv" },
     });
 
     expect(h.runCapture).toHaveBeenCalledTimes(2);
@@ -404,18 +406,19 @@ describe("resolveAgentDrv", () => {
   });
 });
 
-describe("readBakedBinaryCache", () => {
+describe("readBakedDeclaration", () => {
   it("returns the sidecar's declaration and strips a path: ref prefix", () => {
-    const cache = readBakedBinaryCache("path:/nix/store/src")._unsafeUnwrap();
+    const cache = readBakedDeclaration("path:/nix/store/src")._unsafeUnwrap();
     expect(h.readFile).toHaveBeenCalledWith(
       `/nix/store/src/${AGENT_BINARY_CACHE_FILE}`,
       "utf8",
     );
-    expect(cache.binaryCache.substituters).toEqual([
+    expect(cache.caches.substituters).toEqual([
       "https://cache.test.invalid/oss",
     ]);
-    expect(cache.binaryCache.trustedPublicKeys).toHaveLength(1);
+    expect(cache.caches.trustedPublicKeys).toHaveLength(1);
     expect(cache.index).toBeNull();
+    expect(cache.rev).toBeNull();
   });
 
   it("names the real fault for a non-local flake ref, never 'predates the contract'", () => {
@@ -424,7 +427,7 @@ describe("readBakedBinaryCache", () => {
       "git+https://example.invalid/x",
       "tarball:https://example.invalid/x.tar.gz",
     ]) {
-      const failure = readBakedBinaryCache(ref)._unsafeUnwrapErr();
+      const failure = readBakedDeclaration(ref)._unsafeUnwrapErr();
       expect(failure.message).toMatch(/not readable as a directory/);
       // The misleading remedy must NOT appear for this fault.
       expect(failure.message).not.toMatch(/rebuild the binder/);
@@ -440,14 +443,14 @@ describe("readBakedBinaryCache", () => {
       });
     });
     expect(
-      readBakedBinaryCache("/nix/store/pre-contract")._unsafeUnwrapErr(),
+      readBakedDeclaration("/nix/store/pre-contract")._unsafeUnwrapErr(),
     ).toBeInstanceOf(AgentBinaryCacheUnbakedError);
   });
 
   it("errs with the typed unbaked fault on malformed JSON", () => {
     h.readFile.mockReturnValue("not-json{");
     expect(
-      readBakedBinaryCache("/nix/store/src")._unsafeUnwrapErr(),
+      readBakedDeclaration("/nix/store/src")._unsafeUnwrapErr(),
     ).toBeInstanceOf(AgentBinaryCacheUnbakedError);
   });
 
@@ -462,7 +465,7 @@ describe("readBakedBinaryCache", () => {
     ]) {
       h.readFile.mockReturnValue(JSON.stringify(bad));
       expect(
-        readBakedBinaryCache("/nix/store/src")._unsafeUnwrapErr(),
+        readBakedDeclaration("/nix/store/src")._unsafeUnwrapErr(),
       ).toBeInstanceOf(AgentBinaryCacheUnbakedError);
     }
   });
@@ -478,7 +481,7 @@ describe("readBakedBinaryCache", () => {
       "padi",
       resolutionOptions,
     );
-    expect(drv.binaryCache.substituters).toEqual([
+    expect(drv.derivation.binaryCache.substituters).toEqual([
       "https://cache.test.invalid/oss",
     ]);
   });
@@ -531,7 +534,7 @@ describe("the sidecar read is once per source ref", () => {
       throw new Error("EACCES: permission denied");
     });
     await expect(resolveAgentDrv(...args)).resolves.toMatchObject({
-      kind: "flake-installable",
+      derivation: { kind: "flake-installable" },
     });
   });
 });
@@ -552,11 +555,24 @@ describe("the sidecar's closure index", () => {
       throw new Error(`ENOENT: ${path}`);
     });
 
-  it("reads a declared index", () => {
-    bake(INDEX);
-    expect(
-      readBakedBinaryCache("/nix/store/src-index")._unsafeUnwrap().index,
-    ).toEqual(INDEX);
+  it("reads a declared index and the commit-hash it is keyed by", () => {
+    bake(INDEX, "c891495\n");
+    const declared = readBakedDeclaration(
+      "/nix/store/src-index",
+    )._unsafeUnwrap();
+    expect(declared.index).toEqual(INDEX);
+    expect(declared.rev).toBe("c891495");
+  });
+
+  it("an index with no commit-hash (or an empty one) is a hand-assembled tree: the typed fault", () => {
+    for (const rev of [undefined, " \n"]) {
+      bake(INDEX, rev);
+      const failure = readBakedDeclaration(
+        "/nix/store/src-no-rev",
+      )._unsafeUnwrapErr();
+      expect(failure).toBeInstanceOf(AgentBinaryCacheUnbakedError);
+      expect(failure.message).toMatch(/commit-hash/);
+    }
   });
 
   it("refuses a sidecar with no index key, or a malformed one", () => {
@@ -567,7 +583,7 @@ describe("the sidecar's closure index", () => {
     ]) {
       bake(bad);
       expect(
-        readBakedBinaryCache("/nix/store/src-bad-index")._unsafeUnwrapErr(),
+        readBakedDeclaration("/nix/store/src-bad-index")._unsafeUnwrapErr(),
       ).toBeInstanceOf(AgentBinaryCacheUnbakedError);
     }
   });
@@ -584,7 +600,7 @@ describe("the sidecar's closure index", () => {
       "padi",
       resolutionOptions,
     );
-    expect(drv.kind === "flake-installable" && drv.published).toEqual({
+    expect(drv.published).toEqual({
       index: INDEX,
       rev: "c891495",
       attr: "padi",
@@ -614,9 +630,9 @@ describe("the sidecar's closure index", () => {
       "padi",
       resolutionOptions,
     );
-    expect(
-      second.kind === "flake-installable" && second.published?.host.nixVersion,
-    ).toBe("2.35.0");
+    expect(second.published?.host.nixVersion).toBe("2.35.0");
+    // …while the derivation itself is the cached one: per source and system.
+    expect(h.runCapture).toHaveBeenCalledTimes(1);
   });
 
   it("an explicit null index publishes nothing to look up", async () => {
@@ -631,7 +647,7 @@ describe("the sidecar's closure index", () => {
       "padi",
       resolutionOptions,
     );
-    expect(drv.kind === "flake-installable" && drv.published).toBeNull();
+    expect(drv.published).toBeNull();
   });
 
   it("a declared index with no commit-hash is a hand-assembled tree, and loud", async () => {

@@ -240,14 +240,23 @@ jobs:
       # What a remote may resolve from the agent source, DERIVED from the one
       # inventory (`nix/agent-packages.json`'s `expose`), never hand-listed.
       - id: expose
-        run: echo "attrs=$(jq -r '.expose | join(" ")' nix/agent-packages.json)" >> "$GITHUB_OUTPUT"
+        run: |
+          echo "attrs=$(jq -r '.expose | join(" ")' nix/agent-packages.json)" >> "$GITHUB_OUTPUT"
+          # attic from the same pinned nixpkgs `build-and-push` installs it from.
+          echo "nixpkgs=$(jq -r .pins.nixpkgs.url npins/sources.json)" >> "$GITHUB_OUTPUT"
 
       - uses: ./.github/actions/publish-closure
         with:
           source: .#agent-flake-source
           installables: ${{ steps.expose.outputs.attrs }}
           latest: ${{ github.event_name == 'push' && github.ref == 'refs/heads/master' }}
-          # padi and kaval have no `--version`; `--help` loads the whole
-          # program and exits 0, which is what "it execs" needs.
-          smoke-args: --help
+          # One line per exposed attr — the action fails on an attr with none,
+          # so a new `expose` entry cannot slip through unsmoked. padi and
+          # kaval have no `--version`; `--help` loads the whole program and
+          # exits 0, which is what "it execs" needs.
+          smoke: |
+            padi-agent=bin/padi --help
+            padi=bin/padi --help
+            kaval=bin/kaval --help
+          attic-nixpkgs: ${{ steps.expose.outputs.nixpkgs }}
           attic-token: ${{ secrets.ATTIC_TOKEN }}

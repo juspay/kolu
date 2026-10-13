@@ -32,7 +32,11 @@ import {
 } from "./host";
 import { DEFAULT_SSH_KEEPALIVE, type SshKeepalive } from "./keepalive";
 import { type ResolveSystemOptions, resolveHostNix } from "./arch";
-import { resolveAgentDrv, type AgentResolutionContext } from "./agentDrv";
+import {
+  type AgentResolutionContext,
+  type ResolvedAgent,
+  resolveAgentDrv,
+} from "./agentDrv";
 import type { AgentDerivation } from "./agentDerivation";
 import { makeProvisionBudgets, provisionAgent } from "./nixCopy";
 import { stderrLinesOf } from "./process";
@@ -166,7 +170,7 @@ export interface SshConnectorOptions<S extends SurfaceSpec> {
    *
    *  Pass `directAgentDerivation(drvPath, binaryCache)` when the caller already
    *  owns the store path and has no probe to defer — obtain the cache with
-   *  `readBakedBinaryCache(source)` wherever a source is baked, so the
+   *  `readBakedDeclaration(source)`'s `caches` wherever a source is baked, so the
    *  declaration comes from the flake's own `nixConfig` instead of a hand-typed
    *  copy; `agentBinaryCache({…})` states one inline when there is no baked
    *  source. `resolveAgentDrv` constructs the nominal flake-backed arm (reading
@@ -306,6 +310,10 @@ export function sshConnector<S extends SurfaceSpec>(
     // carrying an explicit cause (an unsupported/mis-baked system → `"remote"`,
     // bounded → terminal).
     let derivation: AgentDerivation;
+    // What the bound `resolveAgentDrv` answered this dial: the published
+    // lookup rides beside the derivation it was resolved with. A resolver that
+    // hands back a derivation of its own (a direct `.drv`) publishes nothing.
+    let resolved: ResolvedAgent | undefined;
     try {
       derivation = await opts.resolveDrvPath({
         signal: ctx.signal,
@@ -323,15 +331,17 @@ export function sshConnector<S extends SurfaceSpec>(
             onProgress: ctx.localProgress,
             keepalive,
           }).then((h) => h.system),
-        resolveAgentDrv: (flakeRef, packageName) =>
-          resolveAgentDrv(opts.host, flakeRef, packageName, {
+        resolveAgentDrv: async (flakeRef, packageName) => {
+          resolved = await resolveAgentDrv(opts.host, flakeRef, packageName, {
             signal: ctx.signal,
             onProgress: ctx.localProgress,
             onActivity: () => ctx.activity(),
             onEvaluation: () => ctx.provisioning("provisioning"),
             budget: budgets.evaluation,
             keepalive,
-          }),
+          });
+          return resolved.derivation;
+        },
       });
     } catch (err) {
       const reason = err instanceof Error ? err.message : String(err);
@@ -347,6 +357,10 @@ export function sshConnector<S extends SurfaceSpec>(
     const provision = await provisionAgent({
       host: opts.host,
       derivation,
+      published:
+        resolved !== undefined && resolved.derivation === derivation
+          ? resolved.published
+          : null,
       onProgress: (line) => ctx.localProgress(line),
       onActivity: () => ctx.activity(),
       // Advance before this call's first potentially long required operation:

@@ -104,14 +104,27 @@ export function agentBinaryCache(raw: {
   };
 }
 
-/** What a baked source's {@link AGENT_BINARY_CACHE_FILE} declares: the caches
- * its closures come from, and the content-addressed index they are published
- * on — `null` when the source states it publishes none (`closureIndex = null`
- * on `mkProvenAgentSource`): explicit absence, never a guessed index. */
-export interface BakedBinaryCache {
-  readonly binaryCache: AgentBinaryCache;
-  readonly index: ClosureIndex | null;
-}
+/** The revision file `mkProvenAgentSource` writes at the source's root — the
+ *  key a publisher writes its builds under. */
+const COMMIT_HASH_FILE = "commit-hash";
+
+/** What a baked source declares about its own delivery: the `caches` its
+ * closures come from, and — when it publishes them — the content-addressed
+ * `index` they are published on with the `rev` (its `commit-hash`) they are
+ * keyed by. Both or neither: a source with `closureIndex = null` on
+ * `mkProvenAgentSource` is `{ index: null, rev: null }` — explicit absence,
+ * never a guessed index — and an index with no revision is unspellable. */
+export type BakedDeclaration =
+  | {
+      readonly caches: AgentBinaryCache;
+      readonly index: ClosureIndex;
+      readonly rev: string;
+    }
+  | {
+      readonly caches: AgentBinaryCache;
+      readonly index: null;
+      readonly rev: null;
+    };
 
 const BakedIndexSchema = Schema.Struct({
   index: Schema.NullOr(ClosureIndexSchema),
@@ -144,8 +157,9 @@ export class AgentBinaryCacheUnbakedError extends ResolveDrvError {
   }
 }
 
-/** Read and validate the baked source's {@link AGENT_BINARY_CACHE_FILE} —
- * the caches AND the closure index ({@link BakedBinaryCache}).
+/** Read and validate the baked source's declaration ({@link BakedDeclaration}):
+ * its {@link AGENT_BINARY_CACHE_FILE} — the caches and the closure index — and,
+ * when that names an index, the `commit-hash` beside it.
  * Unreadable or malformed both yield the typed error above: absence means the
  * wrapper was built by a pre-contract `mkProvenAgentSource`, and a shape
  * violation means someone hand-assembled the tree — either way the fix is
@@ -156,9 +170,9 @@ export class AgentBinaryCacheUnbakedError extends ResolveDrvError {
  * A `Result`, like its sibling `readBakedAgentSource` — two readers of two
  * files baked by the same `mkProvenAgentSource` answer on one channel, and the
  * single `throw` sits at the caller's existing classification boundary. */
-export function readBakedBinaryCache(
+export function readBakedDeclaration(
   flakeRef: string,
-): Result<BakedBinaryCache, AgentBinaryCacheUnbakedError> {
+): Result<BakedDeclaration, AgentBinaryCacheUnbakedError> {
   // Baked refs are bare local paths (a store path, or a consumer's own baked
   // directory); tolerate the equivalent explicit `path:` spelling since both
   // evaluate identically. Any OTHER flake-ref scheme (`github:`, `git+https:`,
@@ -187,10 +201,16 @@ export function readBakedBinaryCache(
     // The `index` key is REQUIRED (null or a declaration): a sidecar without
     // it was written by a pre-index `mkProvenAgentSource`.
     const { index } = Schema.decodeUnknownSync(BakedIndexSchema)(raw);
-    return ok({
-      binaryCache: agentBinaryCache(raw as Record<string, unknown>),
-      index,
-    });
+    const caches = agentBinaryCache(raw as Record<string, unknown>);
+    if (index === null) return ok({ caches, index, rev: null });
+    // An index is looked up by revision: a source that declares one carries
+    // the `commit-hash` it is keyed by, or it is a hand-assembled tree.
+    const rev = readFileSync(`${local}/${COMMIT_HASH_FILE}`, "utf8").trim();
+    if (rev === "")
+      throw new Error(
+        `it declares a closure index but its ${COMMIT_HASH_FILE} is empty`,
+      );
+    return ok({ caches, index, rev });
   } catch (cause) {
     return err(
       new AgentBinaryCacheUnbakedError(
