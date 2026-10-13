@@ -9,9 +9,9 @@
  *     <index>/latest/<system>/<profile>.json → { rev, ia, ca }
  *
  * — the newest bundle a main-branch push published for that system: the
- * revision that built it, its input-addressed output (`ia`, what evaluating the
- * flake would name) and its content-addressed rewrite (`ca`, the path a host
- * pulls). Only `ca` is ever put on a host. The rev-keyed files beside `latest/`
+ * revision that built it, its input-addressed output (`ia`) and its
+ * content-addressed rewrite (`ca`, the path a host pulls). kolu reads only
+ * `rev` (logged) and `ca`; `ia` is upstream's and left unchecked. The rev-keyed files beside `latest/`
  * are upstream's own updater's, never read here.
  *
  * Pure: the fetch stays where it runs (kolu-server's `agentDelivery`).
@@ -25,7 +25,6 @@ const StorePath = Schema.String.check(
 
 const CaIndexEntrySchema = Schema.Struct({
   rev: Schema.String.check(Schema.isPattern(/^[0-9a-f]{40}$/)),
-  ia: StorePath,
   ca: StorePath,
 });
 
@@ -40,7 +39,8 @@ export function caIndexUrl(
   return `${index.replace(/\/+$/, "")}/latest/${encodeURIComponent(system)}/${encodeURIComponent(profile)}.json`;
 }
 
-/** Parse one `latest/` entry. Throws on anything else — a format change
+/** Parse one `latest/` entry (`rev` and `ca`; other fields are ignored).
+ *  Throws on a missing or malformed one — a format change
  *  upstream must be loud, never a path guessed. */
 export function parseCaIndexEntry(text: string): CaIndexEntry {
   return Schema.decodeUnknownSync(CaIndexEntrySchema)(JSON.parse(text));

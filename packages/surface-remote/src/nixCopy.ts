@@ -85,10 +85,8 @@
  * "get this exact, already-evaluated output path into that store from the
  * declared cache, and root it there", with NO build at any step. `provisionAgent`
  * is one caller (it adds step 4, realising on the host, when the closure was not
- * delivered); a caller that must never build (kolu delivering agent-distro's
- * bundles, which are only ever fetched) stops where delivery stops, and reads
- * WHY from the result: not in the cache, refused by a darwin target's Nix, or
- * a ship that failed for another reason.
+ * delivered); a caller that must never build stops where delivery stops,
+ * with Nix's own words for why the closure did not land.
  *
  * **Lifetime ownership (#1908 D1b/D1c).** Every child spawns through
  * `process.ts` with a REQUIRED {@link LifetimePolicy}: the quick steps
@@ -354,7 +352,7 @@ export function probePolicy(): DeadlinePolicy {
 /** The progress-liveness policy the two SPECULATIVE copies run under — their
  *  own bound, not a slice of the required build's escalating budget. See
  *  {@link PROVISION_COPY_SILENCE_MS}. */
-function copyPolicy(): ProgressLivenessPolicy {
+export function copyPolicy(): ProgressLivenessPolicy {
   return { kind: "progress-liveness", silenceMs: PROVISION_COPY_SILENCE_MS };
 }
 
@@ -388,7 +386,7 @@ function multiOutputError(host: string, count: number): ProvisionResult {
  *  up NOW, decoupled from the retry counter — a permanently silent provision can't loop
  *  forever. The `cause` stays honest `"network"` (a silent-then-killed step is a transport
  *  fault); `terminal` is the orthogonal give-up axis the session's gate keys off. */
-export function expiredResult(
+function expiredResult(
   host: string,
   cmdLabel: string,
   budget: StepBudget,
@@ -469,20 +467,10 @@ type CopyOutcome =
   | { readonly kind: "delivered" }
   | {
       readonly kind: "missed";
-      /** The destination's Nix refused the paths for want of a signature it
-       *  trusts — the one miss only that store's own settings fix (an
-       *  input-addressed copy only: a content-addressed one needs none). */
-      readonly refused: boolean;
       /** What this step's last attempt said, in Nix's words. */
       readonly reason: string;
     }
   | { readonly kind: "aborted" };
-
-/** Nix's words when a store refuses a path for want of a trusted signature:
- *  "cannot add path '…' because it lacks a signature by a trusted key" (an
- *  untrusted user's import, whatever `--no-check-sigs` asked; the Nix manual's
- *  `require-sigs` / `trusted-users`). */
-const SIGNATURE_REFUSAL = /lacks a (?:valid )?signature/;
 
 /** The ONE shape of "the user's abort landed inside this provisioning step" —
  *  named per step, so an abort during the slow ship can never report the
@@ -546,7 +534,7 @@ async function prefetchAgentClosure(opts: {
   const sshOpts = nixSshOpts(opts.keepalive);
   // The declaration is non-empty by construction (`agentBinaryCache`), so the
   // loop always overwrites this before a miss is returned.
-  let last = { refused: false, reason: "no declared cache was tried" };
+  let last = { reason: "no declared cache was tried" };
   for (const url of opts.binaryCache.substituters) {
     opts.narrate(`prefetching agent closure from ${url} into the local store…`);
     const res = await runNix(
@@ -587,7 +575,7 @@ async function prefetchAgentClosure(opts: {
     // cache may still deliver, and announcing a fall back before trying it is
     // simply false.
     const said = describeNixRun(res);
-    last = { refused: SIGNATURE_REFUSAL.test(said), reason: said };
+    last = { reason: said };
     opts.narrate(`could not fetch the agent closure from ${url}: ${said}`);
   }
   opts.narrate("no declared cache delivered the agent closure");
@@ -605,10 +593,8 @@ async function prefetchAgentClosure(opts: {
  *
  *  The remote daemon accepts the copied paths only when it trusts them: the
  *  ssh user is in its `trusted-users`, or the NARs carry a signature it
- *  already trusts. A refusal is NARRATED with the real levers (trust the
- *  key on the host, or configure the cache there per the quickstart), typed
- *  as `refused` so a caller can say so; `provisionAgent` then falls back to
- *  realising on the host. Those levers are only TRUE of a closure we actually
+ *  already trusts. A refusal is NARRATED with Nix's own words;
+ *  `provisionAgent` then falls back to realising on the host. Those levers are only TRUE of a closure we actually
  *  hold, so the caller runs this step only once local validity is
  *  established. */
 async function shipAgentClosure(opts: {
@@ -659,11 +645,7 @@ async function shipAgentClosure(opts: {
   if (res.kind === "aborted") return { kind: "aborted" };
   const said = describeNixRun(res);
   opts.narrate(`could not ship the agent closure: ${said}`);
-  return {
-    kind: "missed",
-    refused: SIGNATURE_REFUSAL.test(said),
-    reason: said,
-  };
+  return { kind: "missed", reason: said };
 }
 
 /** Is `outPath` valid in `host`'s store right now? The pure, never-substituting
@@ -758,19 +740,7 @@ async function stageInputAddressed(opts: {
     if (prefetch.kind === "aborted") {
       return { bail: abortedDuring(opts.host, "the cache prefetch") };
     }
-    // A refused import is the TARGET's refusal on the local arm, where the
-    // sender's store IS the target. On a remote arm it is the sender's own
-    // Nix refusing the cache: the host was never asked, and the cache HAS
-    // the closure — a different store, and a different fix.
-    if (prefetch.kind === "missed")
-      unfetched = {
-        why: !prefetch.refused
-          ? "uncached"
-          : opts.isLocal
-            ? "refused"
-            : "sender-refused",
-        reason: prefetch.reason,
-      };
+    if (prefetch.kind === "missed") unfetched = { reason: prefetch.reason };
   }
   // Localhost never ships: the store just checked IS the target store, so a
   // hit there is already a hit on the target.
@@ -798,7 +768,7 @@ async function stageInputAddressed(opts: {
   return {
     bail: null,
     onTarget: false,
-    miss: { why: ship.refused ? "refused" : "unshipped", reason: ship.reason },
+    miss: { reason: ship.reason },
   };
 }
 
@@ -1022,7 +992,7 @@ async function stageContentAddressed(opts: {
       return {
         bail: null,
         onTarget: false,
-        miss: { why: "uncached", reason: rewrite.reason },
+        miss: { reason: rewrite.reason },
       };
     path = rewrite.path;
     const bail = await rememberContentAddressed(opts.host, opts.outPath, path, {
@@ -1051,7 +1021,7 @@ async function stageContentAddressed(opts: {
   return {
     bail: null,
     onTarget: false,
-    miss: { why: "unshipped", reason: ship.reason },
+    miss: { reason: ship.reason },
   };
 }
 
@@ -1062,23 +1032,9 @@ function isDarwinSystem(system: string): boolean {
 }
 
 /** Why a closure did not reach the target store — never a build's business:
- *
- *   - `uncached` — the sender could not get it from any declared cache (a
- *     miss, a network failure, a silence kill — Nix's words say which);
- *   - `refused` — a darwin target's store refused the signed paths: its Nix
- *     trusts neither the login (`trusted-users`) nor the cache's key (on the
- *     local arm the target is the sender's own store, importing from the
- *     cache). Only that store's settings change it. A Linux target never
- *     refuses: it is sent the content-addressed closure;
- *   - `sender-refused` — staging a darwin target's signed closure, the
- *     SENDER's own Nix declined the cache's paths for the same want of trust:
- *     the cache has them, the host was never asked, and only the sending
- *     machine's settings change it;
- *   - `unshipped` — the copy to the target failed for any other reason.
- *
- *  `reason` is what Nix said, verbatim. */
+ *  `reason` is what Nix said, verbatim (a cache miss, a network failure, a
+ *  darwin target's signature refusal, a failed ship). */
 export interface ClosureMiss {
-  readonly why: "uncached" | "refused" | "sender-refused" | "unshipped";
   readonly reason: string;
 }
 
@@ -1148,7 +1104,7 @@ export type DeliverClosureResult =
  *  itself), else stage the closure in the form the target's system takes
  *  (content-addressed to Linux, signed to darwin) and copy it there, then
  *  commit it behind `rootPath`. A darwin target whose Nix will not take the
- *  copy is `not-delivered` with `why: "refused"`. */
+ *  copy is `not-delivered`, with Nix's refusal as its `reason`. */
 export async function deliverClosure(
   opts: DeliverClosureOptions,
 ): Promise<DeliverClosureResult> {

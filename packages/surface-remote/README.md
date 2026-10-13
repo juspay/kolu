@@ -28,11 +28,9 @@ key; the rewrite is rooted in your store behind a link per output, which is
 also how the next delivery (after a restart too) knows the rewritten path
 without reading the cache again. A darwin host is sent the signed
 input-addressed closure, since rewriting breaks Mach-O code signatures. The
-result names the path the host now holds. When it does not land, it says why:
-not in the cache (`uncached`), refused by a darwin host's Nix, which trusts
-neither the login nor the cache's key (`refused`), refused by your own Nix
-before the host was asked (`sender-refused`), or a copy that failed otherwise
-(`unshipped`).
+result names the path the host now holds. When it does not land, it carries
+Nix's own words for why (a cache miss, a darwin host's Nix refusing the signed
+paths, a failed copy).
 
 When the path is already published content-addressed in a cache, the host can
 fetch it itself: `pullClosure` runs `nix copy --from <cache>` **on the host**

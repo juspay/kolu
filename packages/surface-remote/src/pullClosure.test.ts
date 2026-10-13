@@ -6,7 +6,11 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { useControlDir } from "./controlDir.testutil";
 import { sshKeepalive } from "./keepalive";
-import { makeStepBudget, PROVISION_STEP_SILENCE_BASE_MS } from "./nixCopy";
+import {
+  makeStepBudget,
+  PROVISION_COPY_SILENCE_MS,
+  PROVISION_STEP_SILENCE_BASE_MS,
+} from "./nixCopy";
 import { nixErrorLine } from "./nixLog.testutil";
 import { type CaptureResult, runCapture } from "./process";
 import { pullClosure } from "./pullClosure";
@@ -75,10 +79,39 @@ describe("pullClosure — the host pulls a content-addressed closure from the ca
     const [cmd, args] = calls().find(([, a]) => isCopy(a)) ?? [];
     // Over ssh: the HOST reads the cache — no `--to`, nothing leaves here.
     expect(cmd).toBe("ssh");
-    expect(args).toEqual(
-      expect.arrayContaining(["nix", "-v", "copy", "--from", CACHE, CA]),
-    );
+    // `nix-command` lifted on the command line: a stock host Nix ships with
+    // it off, and the host must need no setting for it.
+    const nix = args?.indexOf("nix") ?? -1;
+    expect(args?.slice(nix)).toEqual([
+      "nix",
+      "--log-format",
+      "internal-json",
+      "--extra-experimental-features",
+      "nix-command",
+      "-v",
+      "copy",
+      "--from",
+      CACHE,
+      CA,
+    ]);
     expect(args).not.toContain("--to");
+  });
+
+  it("the copy runs under the fixed copy bound, not the root commit's budget", async () => {
+    vi.mocked(runCapture).mockImplementation(async (_cmd, args) =>
+      isCheck(args) ? failOut : okOut,
+    );
+    await pull();
+    const copy = calls().find(([, a]) => isCopy(a));
+    expect(copy?.[2].policy).toEqual({
+      kind: "progress-liveness",
+      silenceMs: PROVISION_COPY_SILENCE_MS,
+    });
+    const pin = calls().find(([, a]) => isPin(a));
+    expect(pin?.[2].policy).toEqual({
+      kind: "progress-liveness",
+      silenceMs: PROVISION_STEP_SILENCE_BASE_MS,
+    });
   });
 
   it("the local arm runs the same steps without ssh", async () => {
@@ -109,7 +142,7 @@ describe("pullClosure — the host pulls a content-addressed closure from the ca
     expect(calls().some(([, a]) => isPin(a))).toBe(false);
   });
 
-  it("a silent copy is killed under the budget and reported as a retryable failure", async () => {
+  it("a silent copy is killed at the copy bound and reported as a retryable failure", async () => {
     vi.mocked(runCapture).mockImplementation(async (_cmd, args) =>
       isCopy(args)
         ? {

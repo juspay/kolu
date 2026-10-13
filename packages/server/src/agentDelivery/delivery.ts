@@ -32,8 +32,9 @@ export interface DeliveryOps {
   /** The Nix system of the host `ssh` reaches (`localhost` for this one). */
   systemOf(ssh: string): Promise<string>;
   /** `profile`'s newest published bundle for `system`, read off upstream's
-   *  index. Throws {@link BundleUnpublishedError} when upstream has published
-   *  none for that system; anything else unexpected throws loud. */
+   *  index. Throws, in words a user reads, when upstream has published none
+   *  for that system or the index cannot be read — never a reason to
+   *  evaluate or build one. */
   published(system: string, profile: string): Promise<CaIndexEntry>;
   /** The route: have the host pull `storePath` from the cache and root it —
    *  never building. */
@@ -43,20 +44,6 @@ export interface DeliveryOps {
     readonly profile: string;
     readonly onProgress: (line: string) => void;
   }): Promise<PullClosureResult>;
-}
-
-/** Upstream's index has no entry for this system and profile — it has not
- *  published that bundle (yet). Never a reason to evaluate or build one. */
-export class BundleUnpublishedError extends Error {
-  constructor(
-    readonly system: string,
-    readonly profile: string,
-  ) {
-    super(
-      `agent-distro has not published the ${profile} agents for ${system} yet`,
-    );
-    this.name = "BundleUnpublishedError";
-  }
 }
 
 /** A host a delivery can reach: its pool key, how the route reaches it, how

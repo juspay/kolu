@@ -29,15 +29,16 @@ import {
   pullClosure,
   resolveSystem,
 } from "@kolu/surface-remote";
-import { BundleUnpublishedError, type DeliveryOps } from "./delivery.ts";
+import type { DeliveryOps } from "./delivery.ts";
 
 /** How long one index read may take — a small JSON file off a CDN. */
 const INDEX_TIMEOUT_MS = 30_000;
 
 /** Read `profile`'s newest published bundle for `system` off the index at
- *  `index` (`fetchText` injectable for tests). A 404 is
- *  {@link BundleUnpublishedError}; any other non-200, or a body that is not
- *  an index entry, throws loud. */
+ *  `index` (`fetchText` injectable for tests). Every failure throws in words
+ *  the host's failure line carries as is: a 404 says upstream has not
+ *  published that bundle; a request that never got an answer, any other
+ *  status, or a body that is not an index entry names the URL. */
 export async function readPublishedBundle(
   index: string,
   system: string,
@@ -54,8 +55,24 @@ export async function readPublishedBundle(
   },
 ) {
   const url = caIndexUrl(index, system, profile);
-  const { status, text } = await fetchText(url);
-  if (status === 404) throw new BundleUnpublishedError(system, profile);
+  let answer: { readonly status: number; readonly text: string };
+  try {
+    answer = await fetchText(url);
+  } catch (err) {
+    // `fetch` rejects with a bare "fetch failed" and the real reason (DNS, no
+    // egress, TLS, the timeout) on its `cause`.
+    const cause =
+      err instanceof Error && err.cause !== undefined ? err.cause : err;
+    throw new Error(
+      `agent-distro's index at ${url} could not be read: ${cause instanceof Error ? cause.message : String(cause)}`,
+      { cause: err },
+    );
+  }
+  const { status, text } = answer;
+  if (status === 404)
+    throw new Error(
+      `agent-distro has not published the ${profile} agents for ${system} yet`,
+    );
   if (status !== 200)
     throw new Error(
       `agent-distro's index answered HTTP ${status} for ${url}: ${text.slice(0, 200)}`,
@@ -64,7 +81,7 @@ export async function readPublishedBundle(
     return parseCaIndexEntry(text);
   } catch (err) {
     throw new Error(
-      `agent-distro's index entry at ${url} is not { rev, ia, ca }: ${err instanceof Error ? err.message : String(err)}`,
+      `agent-distro's index entry at ${url} is not { rev, ca }: ${err instanceof Error ? err.message : String(err)}`,
     );
   }
 }

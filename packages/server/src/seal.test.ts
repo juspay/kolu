@@ -121,15 +121,16 @@ const WEB_SHELL_FILES = [
   "portForward/hostPorts",
   "portForward/resolveViewerHost",
   // ── the agent-delivery arm (packages/server/src/agentDelivery/) ──
-  // kolu-server delivering agent-distro's bundles to every host: lock upstream's
-  // flake once per run, evaluate each host's bundle, ship it over
-  // `@kolu/surface-remote`'s closure-delivery route, and tell each host's padi
-  // how it went — on upstream's schedule. It runs FROM this machine to the
+  // kolu-server delivering agent-distro's bundles to every host: read each
+  // host's content-addressed bundle off upstream's index (one HTTPS GET per
+  // system per run), have the host pull it from the cache over
+  // `@kolu/surface-remote`'s `pullClosure`, and tell each host's padi how it
+  // went — on upstream's schedule. It runs FROM this machine to the
   // hosts (the same arrow as the padi arm), and runs no terminal domain.
   "agentDelivery/bake",
   "agentDelivery/delivery",
   "agentDelivery/install",
-  "agentDelivery/nix",
+  "agentDelivery/ops",
   "agentDelivery/schedule",
   "agentDelivery/timer",
   // ── the serving shell + true leaves (top-level) ──

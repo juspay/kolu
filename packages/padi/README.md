@@ -596,7 +596,7 @@ it; the module is `src/agentDistro/`.
   `KOLU_AGENT_DISTRO_BUNDLE` (the local floor, `default` wrapper only) and
   `KOLU_AGENT_PLUGIN_DIR` (both arms), baked by `@kolu/agent-distro`'s Nix half
   (`packages/agent-distro/default.nix`). (`KOLU_AGENT_DISTRO_DELIVERY` — the
-  flake, cache and schedule — is kolu-server's alone.) The floor is read through
+  index, cache and schedule — is kolu-server's alone.) The floor is read through
   its manifest (`share/kolu/agent-distro.json`), never a directory layout.
   Unbaked reads as none; a half bake, or a floor without its manifest, throws
   at boot.

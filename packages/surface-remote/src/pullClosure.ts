@@ -12,8 +12,10 @@
  *      `--substituters`, which an untrusted user's daemon drops), and a
  *      content-addressed path is accepted by every Nix daemon with no
  *      signature, no key and no `trusted-users` entry (the Nix manual:
- *      `make-content-addressed`, `require-sigs`). A multi-gigabyte download,
- *      so it runs under the caller's progress-liveness budget: Nix's per-path
+ *      `make-content-addressed`, `require-sigs`). `nix-command` is enabled
+ *      on the command line, so the host needs no Nix setting for it either.
+ *      A multi-gigabyte download, so it runs under the copy's fixed
+ *      progress-liveness bound (`PROVISION_COPY_SILENCE_MS`): Nix's per-path
  *      `copying …` lines prove it alive, and only silence kills it.
  *   3. `nix-store --realise <path> --add-root <root> --indirect` — the commit
  *      point, shared with `deliverClosure` and `provisionAgent`.
@@ -30,13 +32,14 @@ import {
   abortedDuring,
   causeFor,
   checkValidity,
-  expiredResult,
+  copyPolicy,
   PROVISION_PROBE_DEADLINE_MS,
   pinGcRoot,
   type ProvisionFailure,
   type StepBudget,
 } from "./nixCopy";
 import { describeNixRun, runNix } from "./nixLog";
+import { describeExit } from "./process";
 
 export interface PullClosureOptions {
   /** The target store's host — an ssh destination, or `localhost` for this
@@ -53,8 +56,9 @@ export interface PullClosureOptions {
   /** Every stderr line of the long-running copy and commit — the owner's
    *  silence watchdog's liveness (see `ProvisionOptions.onActivity`). */
   onActivity: () => void;
-  /** The progress-liveness budget of the copy and the root commit: charged on
-   *  a silence kill, reset on success. */
+  /** The progress-liveness budget of the root commit: charged on a silence
+   *  kill, reset on success. The copy runs under its own fixed bound
+   *  (`PROVISION_COPY_SILENCE_MS`). */
   budget: StepBudget;
   /** Aborting group-kills the in-flight child; the result is a retryable
    *  `"network"` failure naming the step it landed in. */
@@ -106,13 +110,27 @@ export async function pullClosure(
     narrate(`pulling ${storePath} from ${opts.cacheUrl}…`);
     const copy = await runNix(
       target,
-      // `-v`: per-path `copying …` lines keep a healthy download alive under
-      // progress-liveness.
-      ["nix", "-v", "copy", "--from", opts.cacheUrl, storePath],
+      // `--extra-experimental-features nix-command`: `nix copy` is the new
+      // CLI, and a stock host Nix ships with it off — a client-side parse
+      // gate any login may lift, so the host needs no setting for it (it also
+      // makes the `--log-format` `runNix` adds legal). `-v`: per-path
+      // `copying …` lines keep a healthy download alive under
+      // progress-liveness — the COPY bound, not the root commit's budget: a
+      // slow multi-gigabyte download is not a dead one.
+      [
+        "nix",
+        "--extra-experimental-features",
+        "nix-command",
+        "-v",
+        "copy",
+        "--from",
+        opts.cacheUrl,
+        storePath,
+      ],
       {
         narrate,
         onActivity: opts.onActivity,
-        policy: opts.budget.policy(),
+        policy: copyPolicy(),
         signal,
       },
     );
@@ -120,9 +138,11 @@ export async function pullClosure(
       if (copy.kind === "aborted")
         return failed(abortedDuring(host, "the copy from the cache"));
       if (copy.kind === "lifetime-expired")
-        return failed(
-          expiredResult(host, "nix copy --from", opts.budget, copy),
-        );
+        return failed({
+          ok: false,
+          reason: `${host}: 'nix copy --from ${opts.cacheUrl}' ${describeExit(copy)}`,
+          cause: "network",
+        });
       // A transport failure (the ssh to the host dropped) is the dial's to
       // retry, not a statement about the cache.
       if (causeFor(copy) === "network")

@@ -15,7 +15,6 @@ import type { Logger } from "@kolu/log";
 import type { PullClosureResult } from "@kolu/surface-remote";
 import { describe, expect, it, vi } from "vitest";
 import {
-  BundleUnpublishedError,
   createAgentDelivery,
   type DeliveryHost,
   type DeliveryOps,
@@ -67,7 +66,7 @@ function fakeOps(
       const answer = opts.published?.(system, profile);
       if (answer instanceof Error) throw answer;
       const ca = caFor(reads.length, system, profile);
-      return answer ?? { rev: "f".repeat(40), ia: `${ca}-ia`, ca };
+      return answer ?? { rev: "f".repeat(40), ca };
     },
     pull: async ({ ssh, storePath, profile }) => {
       pulled.push({ ssh, storePath, profile });
@@ -160,7 +159,9 @@ describe("createAgentDelivery", () => {
     const nix = fakeOps({
       systems: { pi: "armv7l-linux" },
       published: (system, profile) =>
-        new BundleUnpublishedError(system, profile),
+        new Error(
+          `agent-distro has not published the ${profile} agents for ${system} yet`,
+        ),
     });
     const pi = fakeHost("remote:pi", "pi");
     const delivery = setup({ ops: nix.ops, hosts: [pi.host] });
