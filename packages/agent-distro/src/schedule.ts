@@ -1,9 +1,8 @@
 /**
- * When agent-distro's updater is due — upstream's schedule, read off the updater
- * config kolu already makes concrete for a host (`periodSeconds`,
- * `offsetSeconds`, which `lib.mkUpdater` writes from `lib/schedule.nix`: four
- * runs a day, at 02/08/14/20 UTC), and upstream's "due" rule, applied by padi's
- * own timer instead of launchd's.
+ * When kolu-server delivers agents — upstream's schedule (`periodSeconds`,
+ * `offsetSeconds`, baked from agent-distro's `lib.schedule`: four runs a day,
+ * at 02/08/14/20 UTC, `./bake.ts`), and upstream's "due" rule, applied by
+ * kolu-server's own timer instead of launchd's.
  *
  * Kolu never decides the schedule: the numbers are upstream's, and the rule is
  * a line-for-line mirror of upstream's `updateDue` (`src/update/due.ts`), pinned
@@ -12,22 +11,14 @@
 
 import { Schema } from "effect";
 
-/** The schedule fields of `lib.mkUpdater`'s config (agent-distro's
- *  `src/update/update.ts` `Config`), in seconds. */
-const UpdaterScheduleSchema = Schema.Struct({
+/** Upstream's schedule, in seconds (agent-distro's `lib.schedule`:
+ *  `updatePeriodSeconds`, `updateOffsetSeconds`). */
+export const UpdaterScheduleSchema = Schema.Struct({
   periodSeconds: Schema.Number.check(Schema.isGreaterThan(0)),
   offsetSeconds: Schema.Number.check(Schema.isGreaterThanOrEqualTo(0)),
 });
 
 export type UpdaterSchedule = typeof UpdaterScheduleSchema.Type;
-
-const decodeSchedule = Schema.decodeUnknownSync(UpdaterScheduleSchema);
-
-/** The schedule an updater config carries. Throws on a config without one — a
- *  config not built by `lib.mkUpdater`, which no host should run. */
-export function updaterScheduleOf(configText: string): UpdaterSchedule {
-  return decodeSchedule(JSON.parse(configText));
-}
 
 /** The latest boundary (`offset + k*period`, epoch seconds) not after `now`. */
 function boundaryAtOrBefore(now: number, schedule: UpdaterSchedule): number {
@@ -56,14 +47,14 @@ export function nextBoundary(now: number, schedule: UpdaterSchedule): number {
 /** How many scheduled runs one boundary gets, and how long to wait after one
  *  FAILS before the next — upstream's own `--scheduled` numbers
  *  (`src/update/update.ts` `scheduled()`: up to 3 attempts, sleeping five
- *  minutes after a failed one), mirrored so padi's timer gives a machine that
- *  was offline at the boundary the same chances launchd's would. The wait is
+ *  minutes after a failed one), mirrored so kolu-server's timer gives a run
+ *  that failed at the boundary the same chances launchd's would. The wait is
  *  counted from the failed run's END, as upstream's sleep is. A `skipped` run
  *  is not retried: it waits for the next boundary, as upstream's does. */
 export const SCHEDULED_ATTEMPTS = 3;
 export const SCHEDULED_RETRY_SECONDS = 300;
 
-/** The scheduled runs one boundary has had so far, as padi counts them. */
+/** The scheduled runs one boundary has had so far, as kolu-server counts them. */
 export interface ScheduledAttempts {
   /** The boundary (epoch seconds) these attempts belong to. */
   readonly boundary: number;
@@ -119,8 +110,9 @@ export function scheduledAskNow(input: {
   );
 }
 
-/** The file under a state directory where the updater stamps its last
- *  successful run (`updated` or `unchanged`), in epoch seconds. */
+/** The file under a state directory where a host's last successful landing
+ *  (`updated` or `unchanged`) is stamped, in epoch seconds — upstream's file,
+ *  which padi writes for each delivery. */
 export function lastSuccessFile(stateDir: string): string {
   return `${stateDir}/last-success`;
 }

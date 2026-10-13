@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { lastRunOf, parseHistoryLine, recentEvents } from "./history.ts";
+import {
+  historyLine,
+  historyTimestamp,
+  lastRunOf,
+  parseHistoryLine,
+  recentEvents,
+} from "./history.ts";
 
 /** Real lines from a host's `agent-distro/history.log` (2026-10-05..07). */
 const REAL = [
@@ -46,6 +52,28 @@ describe("parseHistoryLine", () => {
   });
 });
 
+describe("historyLine — what padi appends for a delivery", () => {
+  const date = new Date("2026-10-08T02:00:04Z");
+
+  it("reads back through parseHistoryLine, at the same instant", () => {
+    const line = historyLine(date, "vanilla", "updated", "Pi 1.0.3 → 1.0.4");
+    expect(line.endsWith("\n")).toBe(true);
+    const event = parseHistoryLine(line.trimEnd());
+    expect(event).toMatchObject({
+      profile: "vanilla",
+      kind: "updated",
+      words: "Pi 1.0.3 → 1.0.4",
+    });
+    expect(Date.parse(event.at)).toBe(date.getTime());
+  });
+
+  it("stamps local time with its offset, as `date +%Y-%m-%dT%H:%M:%S%:z` does", () => {
+    expect(historyTimestamp(date)).toMatch(
+      /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}[+-]\d{2}:\d{2}$/,
+    );
+  });
+});
+
 describe("recentEvents", () => {
   it("keeps one profile's last five, newest first", () => {
     const juspay = recentEvents(REAL, "juspay");
@@ -70,7 +98,7 @@ describe("lastRunOf — the last run, off the files alone", () => {
       outcome: "updated",
       words:
         "Oh My Pi 18.7.0, Codex 0.160.1, Claude Code 2.1.292, OpenCode 1.18.35+53d1eab, OpenCode v2 2.0.24, Pi 1.0.4",
-      by: "updater",
+      by: "delivery",
     });
   });
   it("an unchanged run when the stamp is later than every event", () => {
@@ -79,7 +107,7 @@ describe("lastRunOf — the last run, off the files alone", () => {
       at: later * 1000,
       outcome: "unchanged",
       words: "",
-      by: "updater",
+      by: "delivery",
     });
     expect(lastRunOf([], later)).toMatchObject({ outcome: "unchanged" });
   });

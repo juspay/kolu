@@ -18,25 +18,11 @@ import {
   nextBoundary,
   parseLastSuccess,
   updateDue,
-  updaterScheduleOf,
 } from "./schedule.ts";
 
 /** Upstream's schedule, as `lib.mkUpdater` writes it into the config. */
 const UPSTREAM = { periodSeconds: 21600, offsetSeconds: 7200 };
 const at = (iso: string) => Date.parse(iso) / 1000;
-
-describe("updaterScheduleOf", () => {
-  it("reads the schedule an updater config carries", () => {
-    expect(
-      updaterScheduleOf(
-        JSON.stringify({ profile: "vanilla", state: "/s", ...UPSTREAM }),
-      ),
-    ).toEqual(UPSTREAM);
-  });
-  it("throws on a config with no schedule", () => {
-    expect(() => updaterScheduleOf('{"profile":"vanilla"}')).toThrow();
-  });
-});
 
 describe("nextBoundary — 02/08/14/20 UTC", () => {
   it("lands on upstream's four hours", () => {

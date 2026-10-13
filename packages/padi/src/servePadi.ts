@@ -28,7 +28,6 @@ import {
   type PadiTerminal,
   type PadiWatchStatesInput,
   type padiSurface,
-  AgentDistroCheckRefused,
   ScratchWriteRejected,
 } from "@kolu/padi-client/surface";
 import {
@@ -65,9 +64,8 @@ import { EMPTY_URGENCY } from "./activity/urgency.ts";
 import { createEdgeMemory } from "./attention/edgeMemory.ts";
 import {
   agentDistroSettingStore,
-  checkForAgentUpdate,
+  onAgentDistroReport,
   onAgentDistroSettingWrite,
-  retryAgentDownload,
 } from "./agentDistro/agentDistro.ts";
 import { agentDistroBake } from "./agentDistro/bake.ts";
 import { createEventSeq } from "./attention/eventSeq.ts";
@@ -1231,19 +1229,10 @@ export function buildPadiSurfaceDeps(deps: {
         exportHtml: ({ input }) => handle(() => exportTranscriptHtml(input)),
       },
 
-      // "Check now": ONE update of the selected profile, at once, whatever the
-      // schedule says. Answers once it has started; the status cells show it.
-      // "Retry download": the failed-download retry for THIS host — forget the
-      // failure and settle again (the setting write's own two steps, which a
-      // re-push of an unchanged setting cannot reach).
+      // kolu-server's word on a delivery to this host — the only way agents
+      // reach it: padi points `current` at what landed and publishes.
       agentDistro: {
-        checkNow: () =>
-          handle(() => {
-            const outcome = checkForAgentUpdate({ force: true });
-            if (outcome === "running" || outcome === "notReady")
-              throw new AgentDistroCheckRefused({ reason: outcome });
-          }),
-        retryDownload: () => handle(() => retryAgentDownload()),
+        report: ({ input }) => handle(() => onAgentDistroReport(input)),
       },
       session: {
         restore: ({ input }) => handle(() => restoreSession(input)),

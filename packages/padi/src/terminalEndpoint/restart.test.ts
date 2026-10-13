@@ -35,15 +35,15 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { agentDistroSettingStore } from "../agentDistro/agentDistro.ts";
+import {
+  agentDistroSettingStore,
+  onAgentDistroReport,
+} from "../agentDistro/agentDistro.ts";
 import {
   __setAgentDistroBakeForTest,
   type AgentDistroBake,
 } from "../agentDistro/bake.ts";
-import {
-  __resetAgentDistroDownloadsForTest,
-  __setDownloadForTest,
-} from "../agentDistro/download.ts";
+import { __resetAgentDistroDeliveriesForTest } from "../agentDistro/deliveries.ts";
 import { koluScratchDir, setDaemonProcessId } from "../koluRoot.ts";
 import {
   __resetPadiSurfaceCtxForTest,
@@ -166,24 +166,13 @@ function bake(): AgentDistroBake {
       hash: name,
     })),
   };
-  // The updater config names the profile's state dir (where a host's `current`
-  // would live), under the placeholder padi makes concrete per host.
-  // Each profile's updater config, already made concrete for this host (as the
-  // bake reader does once), and the state dir it names.
-  const profile = (name: string) => {
-    const stateDir = join(root, "state", "agent-distro", name);
-    return {
-      name,
-      command: ["/bin/false"],
-      configText: JSON.stringify({
-        state: stateDir,
-        history: join(root, "state", "agent-distro", "history.log"),
-      }),
-      stateDir,
-      historyFile: join(root, "state", "agent-distro", "history.log"),
-      schedule: { periodSeconds: 21600, offsetSeconds: 7200 },
-    };
-  };
+  // Each profile as the bake reader makes it: its state dir (where a host's
+  // `current` would live) already concrete for this host.
+  const profile = (name: string) => ({
+    name,
+    stateDir: join(root, "state", "agent-distro", name),
+    historyFile: join(root, "state", "agent-distro", "history.log"),
+  });
   return {
     floor: manifest,
     plugins: "/p/plugin",
@@ -217,7 +206,7 @@ afterEach(() => {
   if (savedStateHome === undefined) delete process.env.XDG_STATE_HOME;
   else process.env.XDG_STATE_HOME = savedStateHome;
   __setAgentDistroBakeForTest(undefined);
-  __resetAgentDistroDownloadsForTest();
+  __resetAgentDistroDeliveriesForTest();
   agentDistroSettingStore.set({ enabled: false, profile: "vanilla" });
   __resetPadiSurfaceCtxForTest();
 });
@@ -284,19 +273,24 @@ describe("restart — a new PTY in place", () => {
   });
 
   it.each([
-    ["downloading", { kind: "running" }],
+    ["a delivery in flight", { kind: "delivering", profile: "juspay" }],
     [
-      "error",
+      "a failed delivery",
       {
         kind: "failed",
-        failure: { reason: "updater", message: "nix build exit 1" },
+        profile: "juspay",
+        reason: "delivery",
+        message: "nix copy exit 1",
       },
     ],
-  ] as const)("a host reading %s: the new PTY gets no agents, though a bundle is on disk", async (_, state) => {
-    __setDownloadForTest("juspay", state);
+  ] as const)("a host with %s keeps serving the bundle on disk: the new PTY gets it", async (_, report) => {
+    onAgentDistroReport(report);
     seedVanillaTerminal();
     await restartTerminal(ID);
-    expect(activeMeta().agents).toBeUndefined();
+    expect(activeMeta().agents).toEqual({
+      profile: "juspay",
+      bundle: join(root, "store-juspay-kolu"),
+    });
   });
 
   it("agents on: the live agent's conversation resumes, and padi says so", async () => {

@@ -19,16 +19,14 @@
 
 import assert from "node:assert";
 import os from "node:os";
-import { After, Given, Then, When } from "@cucumber/cucumber";
+import { Then, When } from "@cucumber/cucumber";
 import { agentBundleShortHash } from "@kolu/agent-distro/bundle";
 import type {
-  AgentDistroReceipt,
   AgentDistroResolved,
   AgentDistroSetting,
   AgentDistroStatus,
 } from "@kolu/agent-distro/schema";
 import {
-  AGENTS_CHECK_NOW,
   AGENTS_OFF_MEANS,
   AGENTS_UNRESOLVED_MEANS,
   agentProfileCards,
@@ -36,23 +34,19 @@ import {
   agentsChosenLabel,
   agentsResolvedLine,
   agentsStepHint,
-  agentUpdateRunning,
   restartedLabel,
 } from "@kolu/agent-distro/status";
 import {
   FIXTURE_MARK,
   FIXTURE_PROFILES,
   FIXTURE_REFERENCE_PROFILE,
-  FIXTURE_SKIP_REASON,
   fixtureClaudeSays,
-  fixtureNextRun,
   fixturePickerSays,
   fixtureProfile,
-  fixtureResetUpdates,
 } from "../support/agentDistroFixture.ts";
 import { waitForPadiCell } from "../support/padiCellWait.ts";
 import { escapeRegExp } from "../support/regexp.ts";
-import { APP_KEY, type KoluWorld, POLL_TIMEOUT } from "../support/world.ts";
+import { type KoluWorld, POLL_TIMEOUT } from "../support/world.ts";
 import { readBufferText, waitForBufferContains } from "../support/buffer.ts";
 
 /** The focused tile — the one a just-created terminal lands in. */
@@ -62,7 +56,6 @@ const FOCUSED_TILE = '[data-testid="canvas-tile"]:has([data-focused])';
  *  step (inline at zero terminals, or in the Tutorial dialog). */
 const IN_SETTINGS = '[data-testid="settings-popover"]';
 const FIRST_RUN = '[data-testid="welcome-moment-choose-agents"]';
-const PALETTE = '[data-testid="command-palette"]';
 
 /** A profile card inside `scope`, by the profile it writes (`custom` for the
  *  card that writes none). */
@@ -204,18 +197,6 @@ Then(
   },
 );
 
-/** A run in flight is VISIBLE on the tab: the mark keeps its ready colour and
- *  carries the phase (`checking` before bytes move, `downloading` once they
- *  do) — either is the fact this pins. */
-Then(
-  "the host tab's agents mark should show an update running",
-  async function (this: KoluWorld) {
-    await this.page
-      .locator(`${HOST_AGENTS_MARK}[data-state="ready"][data-update]`)
-      .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
-  },
-);
-
 Then(
   "the host tab should show no agents mark",
   async function (this: KoluWorld) {
@@ -238,13 +219,6 @@ Then(
 );
 
 When("I click the host tab's agents mark", async function (this: KoluWorld) {
-  await this.page.click(HOST_AGENTS_MARK);
-  await this.page
-    .locator(HOST_DETAILS)
-    .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
-});
-
-When("I open this machine's host details", async function (this: KoluWorld) {
   await this.page.click(HOST_AGENTS_MARK);
   await this.page
     .locator(HOST_DETAILS)
@@ -869,27 +843,6 @@ Then(
   },
 );
 
-// ── Kept up to date: the palette's check, a machine's own section ─────────────
-
-/** Any scenario that turned agents on ran the fixture's updater (turning them
- *  on asks once whether an update is due), and an update scenario lands
- *  bundles and history: undo it after EVERY scenario, so the next one on this
- *  worker meets the floor and no `last-success`. First wait until padi has no
- *  run in flight for ANY profile — the receipt's running set, read through
- *  `agentUpdateRunning`, not the status (which follows only the selected
- *  profile, so a scenario that switched profiles and turned agents off would
- *  pass with a run still going). Deleting a run's state under it
- *  fails that run, and the next scenario's ask would meet it still going. */
-After(async () => {
-  await waitForPadiCell({
-    memberVerb: "agentDistroReceipt/get",
-    accept: (v) => !agentUpdateRunning([v as AgentDistroReceipt]),
-    what: "no agent-distro run in flight, for any profile",
-    timeoutMs: POLL_TIMEOUT,
-  });
-  fixtureResetUpdates();
-});
-
 /** padi's current value of an agent-distro cell, once `accept` holds. */
 async function padiValue<T>(
   memberVerb: string,
@@ -910,252 +863,3 @@ async function padiValue<T>(
   if (seen === undefined) throw new Error(`no value for ${what}`);
   return seen;
 }
-
-/** Turning agents on asks ONCE whether an update is due, and that run must
- *  settle before a scenario arms the next one: padi refuses a check while a
- *  run of the same profile is going, so an armed knob would be consumed by the
- *  wrong run (or by none). Read off padi's receipt, not the screen. */
-Then(
-  "this machine has finished looking for newer agents",
-  async function (this: KoluWorld) {
-    await padiValue<AgentDistroReceipt>(
-      "agentDistroReceipt/get",
-      (r) => r.lastRun !== undefined && r.running.length === 0,
-      "a settled first update run",
-    );
-  },
-);
-
-Given(
-  "the next {string} agents update finds a newer set",
-  (profile: string) => {
-    fixtureNextRun(profile, "update");
-  },
-);
-
-Given(
-  "the next {string} agents update finds the newer set not ready to download",
-  (profile: string) => {
-    fixtureNextRun(profile, "skip");
-  },
-);
-
-/** The fleet-wide check: a palette command now, with no chord. */
-When(
-  "I check for newer coding agents from the palette",
-  async function (this: KoluWorld) {
-    // The chord needs focus inside the app: a step that just closed Settings
-    // may leave it nowhere.
-    const terminal = this.page.locator(
-      "[data-visible][data-focused] .xterm-helper-textarea",
-    );
-    if ((await terminal.count()) > 0) await terminal.first().focus();
-    await this.page.keyboard.press(`${APP_KEY}+k`);
-    await this.page
-      .locator(`${PALETTE}[data-open]`)
-      .waitFor({ state: "attached", timeout: POLL_TIMEOUT });
-    await this.page.evaluate(
-      ({ sel, q }) => {
-        const input = document.querySelector(`${sel} input`);
-        if (!(input instanceof HTMLInputElement))
-          throw new Error("no palette input");
-        const set = Object.getOwnPropertyDescriptor(
-          HTMLInputElement.prototype,
-          "value",
-        )?.set;
-        if (!set) throw new Error("HTMLInputElement.value setter missing");
-        set.call(input, q);
-        input.dispatchEvent(new Event("input", { bubbles: true }));
-      },
-      { sel: PALETTE, q: AGENTS_CHECK_NOW.label },
-    );
-    await this.page.waitForFunction(
-      ({ sel, q }) => {
-        const row = [
-          ...document.querySelectorAll(`${sel} [role="option"]`),
-        ].find((el) => el.getAttribute("data-palette-name") === q);
-        if (!(row instanceof HTMLElement) || !row.offsetHeight) return false;
-        row.click();
-        return true;
-      },
-      { sel: PALETTE, q: AGENTS_CHECK_NOW.label },
-      { timeout: POLL_TIMEOUT },
-    );
-    await this.page
-      .locator(`${PALETTE}[data-open]`)
-      .waitFor({ state: "detached", timeout: POLL_TIMEOUT });
-  },
-);
-
-/** The per-host check: the action row in that machine's own host details. */
-When(
-  "I check for newer agents from this machine's host details",
-  async function (this: KoluWorld) {
-    await this.page.click(
-      `${HOST_DETAILS} [data-testid="host-agents-action"][data-action="check"]`,
-    );
-  },
-);
-
-/** This machine's last update run as padi's receipt has it, when a step
- *  remembered it — so a later step can tell a NEW run from the one before. */
-let rememberedRunAt: number | undefined;
-
-When(
-  "I remember this machine's last update run",
-  async function (this: KoluWorld) {
-    const receipt = await padiValue<AgentDistroReceipt>(
-      "agentDistroReceipt/get",
-      (r) => r.lastRun !== undefined && r.running.length === 0,
-      "a settled receipt with a last run",
-    );
-    rememberedRunAt = receipt.lastRun?.at;
-    // The updater stamps its success in whole SECONDS (upstream's
-    // `last-success` file), so two runs inside one second are the same stamp
-    // and "a newer run" would be unprovable. Wait out that resolution before
-    // the next check is asked for — the one place this suite needs the clock
-    // to move, so it waits for it rather than retrying a comparison that
-    // cannot distinguish.
-    await this.page.waitForTimeout(1100);
-  },
-);
-
-Then(
-  "this machine's last update run should be newer than the one I remembered",
-  async function (this: KoluWorld) {
-    const before = rememberedRunAt;
-    assert.ok(before !== undefined, "no run remembered");
-    await padiValue<AgentDistroReceipt>(
-      "agentDistroReceipt/get",
-      (r) => (r.lastRun?.at ?? 0) > before,
-      "a receipt whose last run is newer than the remembered one",
-    );
-  },
-);
-
-/** The machine's state line carries its last run: "ready · updated 3h ago",
- *  "ready · checked 2h ago, up to date", "ready · checked 3h ago, skipped". */
-const LAST_RUN_WORDS: Record<string, RegExp> = {
-  updated: /^ready · updated /,
-  unchanged: /^ready · checked .*, up to date$/,
-  skipped: /^ready · checked .*, skipped$/,
-};
-
-Then(
-  "this machine's agents section should say the last run {word}",
-  async function (this: KoluWorld, outcome: string) {
-    const words = LAST_RUN_WORDS[outcome];
-    assert.ok(words, `no words for a ${outcome} run`);
-    try {
-      await this.page
-        .locator(AGENTS_STATE)
-        .filter({ hasText: words })
-        .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
-    } catch (err) {
-      // Say what padi's receipt holds instead — the updater's own words.
-      const receipt = await padiValue<AgentDistroReceipt>(
-        "agentDistroReceipt/get",
-        () => true,
-        "the receipt",
-      );
-      throw new Error(
-        `the section never said the last run ${outcome}; padi's receipt: ${JSON.stringify(receipt)}`,
-        { cause: err },
-      );
-    }
-  },
-);
-
-/** The words of this machine's last `updated` run, as padi's receipt has them. */
-async function updatedWords(): Promise<string> {
-  const receipt = await padiValue<AgentDistroReceipt>(
-    "agentDistroReceipt/get",
-    (r) => r.lastRun?.outcome === "updated",
-    "a receipt with an updated run",
-  );
-  return receipt.lastRun?.words ?? "";
-}
-
-Then(
-  "a toast should say what the update changed on this machine",
-  async function (this: KoluWorld) {
-    const words = agentToast.updated(LOCAL_NAME, await updatedWords());
-    const toast = this.page
-      .locator("[data-sonner-toaster] [data-sonner-toast]")
-      .filter({
-        has: this.page.locator("[data-title]", {
-          hasText: new RegExp(`^${escapeRegExp(words.title)}$`),
-        }),
-      })
-      .first();
-    await toast.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
-    const description = await toast.locator("[data-description]").innerText();
-    assert.strictEqual(description.trim(), words.description);
-  },
-);
-
-Then(
-  "no toast should say an update landed on this machine",
-  async function (this: KoluWorld) {
-    // The run has settled (the section says so) before this is asked.
-    const title = agentToast.updated(LOCAL_NAME, "").title;
-    assert.strictEqual(
-      await this.page
-        .locator("[data-sonner-toaster] [data-title]")
-        .filter({ hasText: new RegExp(`^${escapeRegExp(title)}$`) })
-        .count(),
-      0,
-      "an update toast showed",
-    );
-  },
-);
-
-Then(
-  "this machine's agents section should list the {word} event",
-  async function (this: KoluWorld, kind: string) {
-    const row = this.page
-      .locator(
-        `${HOST_DETAILS} [data-testid="host-agents-event"][data-kind="${kind}"]`,
-      )
-      .first();
-    await row.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
-    // The row quotes padi's own event words.
-    const receipt = await padiValue<AgentDistroReceipt>(
-      "agentDistroReceipt/get",
-      (r) => r.events.some((e) => e.kind === kind),
-      `a receipt with a ${kind} event`,
-    );
-    const event = receipt.events.find((e) => e.kind === kind);
-    if (kind === "skipped")
-      assert.strictEqual(event?.words, FIXTURE_SKIP_REASON);
-    const text = await row.innerText();
-    assert.ok(
-      text.endsWith(event?.words ?? "-"),
-      `the event row ${JSON.stringify(text)} does not quote ${JSON.stringify(event?.words)}`,
-    );
-  },
-);
-
-Then(
-  "the focused tile's agents chip should carry the bundle new terminals get now",
-  async function (this: KoluWorld) {
-    const status = await padiValue<AgentDistroStatus>(
-      "agentDistroStatus/get",
-      (s) => s.kind === "ready" && s.update === undefined,
-      "agents ready",
-    );
-    if (status.kind !== "ready") throw new Error("not ready");
-    const hash = agentBundleShortHash(status.bundle);
-    // Not the floor's: an update landed.
-    assert.notStrictEqual(
-      hash,
-      agentBundleShortHash(`/${status.profile}`),
-      "new terminals still get the floor",
-    );
-    await this.page
-      .locator(
-        `${FOCUSED_TILE} [data-testid="tile-agent-chip"][data-hash="${hash}"]:not([data-stale])`,
-      )
-      .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
-  },
-);

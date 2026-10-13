@@ -1,11 +1,16 @@
 /**
- * What agent-distro's updater has done on a host — upstream's history log, as
- * kolu reads it. The updater appends one line per event (`src/update/update.ts`
- * `record`): `<local ISO time> <profile> <event>`, where the event is
- * `updated: <changes>`, `skipped: <reason>` or `failed: <reason>`, in the
- * updater's own words. A run that changes nothing (`unchanged`) writes no line;
- * it only refreshes the `last-success` stamp (`./schedule.ts`). Kolu quotes these
- * words; it never re-describes a change.
+ * What has landed on a host — upstream's history log, in upstream's format.
+ * One line per event (agent-distro's `src/update/update.ts` `record`):
+ * `<local ISO time> <profile> <event>`, where the event is `updated:
+ * <changes>`, `skipped: <reason>` or `failed: <reason>`. A run that changes
+ * nothing (`unchanged`) writes no line; it only refreshes the `last-success`
+ * stamp (`./schedule.ts`).
+ *
+ * padi writes it when kolu-server delivers a bundle to its host
+ * ({@link historyLine}, with `./versions.ts`' `bundleChanges` for the words) —
+ * in upstream's format, so a host that also runs agent-distro's Home Manager
+ * module keeps ONE log with both writers in it. Kolu reads it back for the
+ * receipt.
  */
 
 import { Schema } from "effect";
@@ -76,10 +81,11 @@ export const AgentUpdateOutcomeSchema = Schema.Literals([
 
 export type AgentUpdateOutcome = typeof AgentUpdateOutcomeSchema.Type;
 
-/** Who wrote a run's words: agent-distro's updater (its result line or its
- *  history log), or padi (a run it could not start, an updater that died
- *  without a result, a landing this host does not resolve). */
-export const AgentUpdateAuthorSchema = Schema.Literals(["updater", "padi"]);
+/** Who wrote a run's words: kolu's delivery (what landed, or why kolu-server
+ *  could not deliver it — the history log and its reports), or padi (a
+ *  delivery its host could not take: a bundle that is not there, a `current`
+ *  that will not move). */
+export const AgentUpdateAuthorSchema = Schema.Literals(["delivery", "padi"]);
 
 export type AgentUpdateAuthor = typeof AgentUpdateAuthorSchema.Type;
 
@@ -95,11 +101,11 @@ export const AgentUpdateRunSchema = Schema.Struct({
 export type AgentUpdateRun = typeof AgentUpdateRunSchema.Type;
 
 /** How far apart two records of one run may be and still be the same run —
- *  its stamp and its history line (the updater writes both within the same
- *  moment), or padi's own record of it and the files'. */
+ *  its stamp and its history line (padi writes both within the same moment),
+ *  or padi's own record of it and the files'. */
 export const SAME_RUN_MS = 5_000;
 
-/** The last run, read off the updater's files alone: the newest history event,
+/** The last run, read off the host's files alone: the newest history event,
  *  unless the `last-success` stamp (epoch seconds) is later than it — then the
  *  last run was one that found nothing newer. `undefined` before any run. */
 export function lastRunOf(
@@ -113,12 +119,33 @@ export function lastRunOf(
     stampAt !== undefined &&
     (eventAt === undefined || stampAt > eventAt + SAME_RUN_MS)
   )
-    return { at: stampAt, outcome: "unchanged", words: "", by: "updater" };
+    return { at: stampAt, outcome: "unchanged", words: "", by: "delivery" };
   if (newest === undefined || eventAt === undefined) return undefined;
   return {
     at: eventAt,
     outcome: newest.kind,
     words: newest.words,
-    by: "updater",
+    by: "delivery",
   };
+}
+
+const pad = (n: number) => String(n).padStart(2, "0");
+
+/** `date` as upstream stamps a history line — local time with its offset, as
+ *  `date +%Y-%m-%dT%H:%M:%S%:z` writes it (agent-distro's `timestamp()`). */
+export function historyTimestamp(date: Date): string {
+  const offset = -date.getTimezoneOffset();
+  const zone = `${offset < 0 ? "-" : "+"}${pad(Math.floor(Math.abs(offset) / 60))}:${pad(Math.abs(offset) % 60)}`;
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}${zone}`;
+}
+
+/** One history line, newline-terminated, as upstream appends it — the inverse
+ *  of {@link parseHistoryLine}. */
+export function historyLine(
+  date: Date,
+  profile: string,
+  kind: AgentUpdateEvent["kind"],
+  words: string,
+): string {
+  return `${historyTimestamp(date)} ${profile} ${kind}: ${words}\n`;
 }

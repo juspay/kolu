@@ -6,9 +6,12 @@ Feature: Agents come with kolu
   resolves, with whether it resolves on this machine said under it. The choice
   puts agent-distro's coding agents on the PATH of NEW terminals. A running
   terminal keeps what it started with, and every tile says which profile it
-  got. What each MACHINE has — its build, its last update, a failed
-  download — lives in that machine's host details. The suite starts every
-  scenario never chosen, as a fresh install does.
+  got. What each MACHINE has — its build, its last delivery, a failed
+  one — lives in that machine's host details. The suite starts every
+  scenario never chosen, as a fresh install does. (kolu-server delivers each
+  machine's agents from agent-distro's binary cache; the suite's kolu-server
+  is built from source and bakes no delivery, so this machine serves its
+  floor. Delivery is unit-tested in kolu-server and padi.)
 
   Scenario: Settings offers the Agents switch, off until chosen
     Given the terminal is ready
@@ -264,63 +267,4 @@ Feature: Agents come with kolu
     And I select "Tutorial" in the palette
     Then the Tutorial should not ask about agents
     And the welcome card's done line should say agents are "Vanilla"
-    And there should be no page errors
-
-  # ── Kept up to date ─────────────────────────────────────────────────────────
-
-  @agent-updates
-  Scenario: The palette's check lands a newer set: the toast says what changed, the open tile offers Restart, a new terminal gets it
-    Given the terminal is ready
-    When I click the settings button
-    And I pick the "vanilla" profile card
-    Then the Agents fleet line should say this machine is ready
-    When I press Escape
-    And I create a terminal
-    Then the focused tile should show the "vanilla" agents chip
-    And this machine has finished looking for newer agents
-    Given the next "vanilla" agents update finds a newer set
-    When I check for newer coding agents from the palette
-    Then the host tab's agents mark should show an update running
-    And a toast should say what the update changed on this machine
-    When I open this machine's host details
-    Then this machine's agents section should say the last run updated
-    And this machine's agents section should list the updated event
-    And the agents section names this machine by its hostname
-    When I press Escape
-    Then the focused tile's agents chip should be stale with a Restart button
-    When I create a terminal
-    Then the focused tile's agents chip should carry the bundle new terminals get now
-    And there should be no page errors
-
-  @agent-updates
-  Scenario: A per-host check with nothing newer: no toast, the section says it checked and is up to date
-    Given the terminal is ready
-    When I click the settings button
-    And I pick the "vanilla" profile card
-    Then the Agents fleet line should say this machine is ready
-    When I press Escape
-    And I open this machine's host details
-    Then this machine's agents section should say the last run unchanged
-    When I remember this machine's last update run
-    And I check for newer agents from this machine's host details
-    Then this machine's agents section should say it is looking for newer agents
-    And this machine's last update run should be newer than the one I remembered
-    And this machine's agents section should say the last run unchanged
-    And no toast should say an update landed on this machine
-    And there should be no page errors
-
-  @agent-updates
-  Scenario: A newer set the cache does not hold yet is skipped: no toast, the machine's events say so
-    Given the terminal is ready
-    When I click the settings button
-    And I pick the "vanilla" profile card
-    Then the Agents fleet line should say this machine is ready
-    And this machine has finished looking for newer agents
-    Given the next "vanilla" agents update finds the newer set not ready to download
-    When I press Escape
-    And I check for newer coding agents from the palette
-    And I open this machine's host details
-    Then this machine's agents section should say the last run skipped
-    And this machine's agents section should list the skipped event
-    And no toast should say an update landed on this machine
     And there should be no page errors

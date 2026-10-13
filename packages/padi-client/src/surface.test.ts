@@ -125,7 +125,11 @@ describe("padiSurface contract", () => {
     // 5.12 adds the per-host agents retry: the `agentDistro.retryDownload` a
     // 5.12 client CALLS from a machine's host details, so the minor drains a
     // 5.11 padi that has no such member.
-    expect(PADI_SURFACE_VERSION).toBe("5.12");
+    // 5.13 hands every host's agent delivery to kolu-server: `checkNow` and
+    // `retryDownload` are gone, the `agentDistro.report` a 5.13 binder CALLS
+    // is new, and the status `error` reason / receipt `by` change vocabulary —
+    // not additive either way, so the minor drains a 5.12 padi first.
+    expect(PADI_SURFACE_VERSION).toBe("5.13");
     expect(DEFAULT_PADI_VERSION.contractVersion).toBe(PADI_SURFACE_VERSION);
     expect(
       Schema.decodeUnknownSync(PadiVersionSchema)(DEFAULT_PADI_VERSION),
@@ -528,14 +532,19 @@ describe("padiDaemonContract — the composed tag set (D1 / #16)", () => {
       "surface/padi/agentDistro/set",
       "surface/padi/agentDistroStatus/get",
       "surface/padi/agentDistroReceipt/get",
-      "surface/padi/agentDistro/checkNow",
-      "surface/padi/agentDistro/retryDownload",
+      "surface/padi/agentDistro/report",
       "surface/control/core/hello",
       "surface/control/core/drain",
       "surface/control/core/clockNow",
       "surface/control/version/get",
     ]) {
       expect(padiDaemonGroup.requests.has(tag)).toBe(true);
+    }
+    // 5.13: padi runs no updater, so nothing asks it to check or retry one.
+    for (const gone of ["checkNow", "retryDownload"]) {
+      expect(
+        padiDaemonGroup.requests.has(`surface/padi/agentDistro/${gone}`),
+      ).toBe(false);
     }
     // The tag algebra is read off the surface value, never re-spelled by hand —
     // this is the same expression `buildSurfaceFace` mints with.
@@ -576,7 +585,6 @@ describe("the declared error vocabulary (PLAN D4)", () => {
     // `preview.repoRootForTerminal`, `session.*`) cannot quietly lose one.
     expect(declared.sort()).toEqual(
       [
-        "agentDistro.checkNow",
         "chrome.setCanvasLayout",
         "chrome.setIntent",
         "chrome.setParent",

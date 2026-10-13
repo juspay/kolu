@@ -27,7 +27,7 @@ export interface AgentLayer {
 
 /** The layer the bundle ON DISK would give, or `undefined` when there is none
  *  (setting off, an unbaked padi, or a host whose bundle has not arrived). NOT
- *  what a new terminal gets: that also hangs on the download's state, and is
+ *  what a new terminal gets: that also hangs on the delivery's state, and is
  *  answered once, by `newTerminalLayer` (`./agentDistro.ts`). */
 export function layerOnHost(
   setting: AgentDistroSetting,

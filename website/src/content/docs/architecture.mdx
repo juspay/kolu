@@ -467,13 +467,18 @@ _out_. The map, grouped:
 - **Contracts & small leaves** — `common` (the shared surface contract), `terminal-vocab`,
   `terminal-protocol`, `transcript-core` / `transcript-html`, `agent-distro`
   (kolu's contract with upstream [agent-distro](https://github.com/juspay/agent-distro):
-  its Nix half builds the agents' local floor, writes the floor's manifest and
-  bakes and proves it onto each wrapper; its TypeScript half holds the listing
-  (composed from each bundle's own `profile.json` and versions file),
-  the updater's progress protocol, its schedule and due rule, its history log
-  and a bundle's versions file, the manifest reader, the setting, status and
-  receipt value schemas padi's cells carry, the wording, and the logo — padi,
-  padi-client, the server and the client import it; it imports none of them),
+  its Nix half builds the agents' local floor, writes the floor's manifest, the
+  profiles listing and kolu-server's delivery bake (upstream's flake, cache and
+  schedule) and bakes and proves them onto each wrapper; its TypeScript half
+  holds the listing (composed from each bundle's own `profile.json` and versions
+  file), the bake readers, upstream's schedule and due rule, its history log
+  (read and written) and a bundle's versions file, the manifest reader, the
+  setting, delivery-report, status and receipt value schemas padi's cells
+  carry, the wording, and the logo — padi, padi-client, the server and the
+  client import it; it imports none of them. The agents themselves are
+  **delivered by kolu-server**: it fetches each host's set from agent-distro's
+  cache and ships it over ssh through `surface-remote`'s `deliverClosure`,
+  never building it, and that host's padi only points `current` at what landed),
   and a set of
   zero-dependency utilities (`log`, `nonempty`, `shell-quote`, `html-escape`, `byte-units` — the one way kolu writes a byte count, in binary units, …).
 

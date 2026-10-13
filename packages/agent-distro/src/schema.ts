@@ -1,5 +1,5 @@
 /**
- * agent-distro on a host — the two value shapes that cross the padi wire for
+ * agent-distro on a host — the value shapes that cross the padi wire for
  * it, defined ONCE, here, beside the rest of kolu's contract with upstream:
  *
  *   - `AgentDistroSetting` — what the binding kolu-server PUSHES into padi's
@@ -7,9 +7,11 @@
  *     coding agents on their PATH, and which profile's. It is the user's global
  *     Agents preference, verbatim (kolu-common builds its preference field from
  *     this schema); padi applies it at each NEW terminal's spawn.
+ *   - `AgentDistroDeliveryReport` — what kolu-server tells a padi about the
+ *     bundle it is delivering to that host (padi's `agentDistro.report`).
  *   - `AgentDistroStatus` — what padi REPORTS about its own host in the
  *     read-only `agentDistroStatus` cell: whether the selected profile's agents
- *     are there yet, being downloaded, or failed to arrive.
+ *     are there yet, being delivered, or failed to arrive.
  *
  * The cell DECLARATIONS stay in `@kolu/padi-client` (padi's surface is its own);
  * only the value schemas live here, so padi-client, padi, kolu-common, the
@@ -68,23 +70,27 @@ export function agentDistroSettingEqual(
   return a.enabled === b.enabled && a.profile === b.profile;
 }
 
-/** Bytes fetched so far of the bundle being downloaded, from the updater's
- *  `--progress` lines (`./progress.ts`). Absent until the first. */
+/** Bytes fetched so far of the bundle being delivered. Absent until the first
+ *  (kolu-server's delivery reports none today: its copies run under Nix's own
+ *  log, which counts paths, not a bundle's bytes). */
 export const AgentDistroProgressSchema = Schema.Struct({
   done: Schema.Number,
   total: Schema.Number,
 });
 
-/** Why a host's download failed, typed so the remedy is worded in ONE place
- *  (`./status.ts`), never baked into padi's message:
+/** Why kolu could not deliver a host its agents, typed so the remedy is worded
+ *  in ONE place (`./status.ts`), never baked into the message:
  *
- *   - `nixMissing` — `nix` is not on padi's PATH on that host, so nothing can be
- *     fetched;
- *   - `updater` — agent-distro's updater ran and failed or skipped (its own
- *     words are the message). */
+ *   - `refused` — the host's Nix would not accept the bundle kolu copied there:
+ *     it trusts neither the login kolu reaches it as (`trusted-users`) nor the
+ *     key agent-distro's cache signs with. Only the host's own Nix settings
+ *     change that, so kolu does not retry on its own;
+ *   - `delivery` — anything else on the way (the flake would not lock or
+ *     evaluate, the cache did not have the bundle, the copy or the root
+ *     failed): kolu-server's words, with Nix's own line. */
 export const AgentDistroFailureReasonSchema = Schema.Union([
-  Schema.Literal("nixMissing"),
-  Schema.Literal("updater"),
+  Schema.Literal("refused"),
+  Schema.Literal("delivery"),
 ]);
 
 export type AgentDistroFailureReason =
@@ -96,18 +102,17 @@ export type AgentDistroFailureReason =
  *   - `off` — the setting is off (or not pushed yet): new terminals get nothing.
  *   - `unavailable` — this padi was built without agent-distro (a from-source
  *     `just dev` / test daemon, which no wrapper baked): nothing to put on PATH.
- *   - `downloading` — the host is fetching the profile's bundle from the binary
- *     cache into its own store. New terminals get no agents until it lands.
+ *   - `downloading` — the host has no bundle for the profile yet and
+ *     kolu-server is delivering one (copying it out of agent-distro's binary
+ *     cache into the host's store). New terminals get no agents until it lands.
  *   - `ready` — new terminals get `bundle` (the exact store path they pin).
- *     With `update`, the updater is running for this profile while `bundle`
- *     keeps serving: checking for a newer set, then downloading it (`progress`).
- *     New terminals keep getting `bundle` until the newer one has fully landed.
- *   - `error` — the download failed or was skipped: `reason` says which kind of
- *     failure, `message` states its cause (the updater's own words, e.g. "cache
- *     … not usable; add it to nix.settings …"). Neither carries the retry or the
- *     remedy — those are worded once, in `./status.ts`. New terminals get no
- *     agents; a bundle the updater landed but did not report stays unused, and
- *     the retry downloads again.
+ *     With `update`, kolu-server is delivering a newer set while `bundle`
+ *     keeps serving. New terminals keep getting `bundle` until the newer one
+ *     has fully landed.
+ *   - `error` — the delivery failed and nothing serves: `reason` says which
+ *     kind of failure, `message` states its cause (kolu-server's words, with
+ *     Nix's own line). Neither carries the remedy — that is worded once, in
+ *     `./status.ts`. New terminals get no agents.
  *
  *  A `Schema.Union` of structs discriminated on `kind`, like
  *  `NewTerminalPolicySchema`. */
@@ -223,22 +228,23 @@ export function agentDistroResolvedEqual(
   return JSON.stringify(a) === JSON.stringify(b);
 }
 
-/** What a host keeps of agent-distro's updates for the selected profile — the
- *  read-only `agentDistroReceipt` cell, published from the updater's own files:
+/** What a host keeps of its agent deliveries for the selected profile — the
+ *  read-only `agentDistroReceipt` cell, published from upstream's files on the
+ *  host (which padi writes as each delivery lands):
  *
  *   - `profile`: which profile it is about;
  *   - `bundle`: the bundle those versions are of;
  *   - `versions`: the agents in the bundle the host serves now, from the
  *     bundle's versions file (empty when it serves none);
- *   - `lastRun`: the last update run, when there was one — how it ended, its
- *     words, and who wrote them (`by`: the updater, or padi);
+ *   - `lastRun`: the last delivery, when there was one — how it ended, its
+ *     words, and who wrote them (`by`: kolu's delivery, or padi);
  *   - `events`: the last few history events, newest first;
- *   - `running`: every profile with a run in flight on the host — any
- *     profile, not only this one (a run outlives a switch away from it);
+ *   - `running`: every profile with a delivery in flight to the host — any
+ *     profile, not only this one (a delivery outlives a switch away from it);
  *   - `error`: why the files would not read, when they would not.
  *
- *  Never part of the status: a background update that fails or skips leaves
- *  the agents working, so it shows here and in padi's log, not as an error. */
+ *  Never part of the status: a later delivery that fails leaves the agents
+ *  that serve working, so it shows here and in the logs, not as an error. */
 export const AgentDistroReceiptSchema = Schema.Struct({
   /** The profile this receipt is about — the setting's (empty before the
    *  first push). A reader drops a receipt for another profile as one padi
@@ -251,10 +257,10 @@ export const AgentDistroReceiptSchema = Schema.Struct({
   versions: Schema.Array(AgentVersionSchema),
   lastRun: Schema.optionalKey(AgentUpdateRunSchema),
   events: Schema.Array(AgentUpdateEventSchema),
-  /** Every profile with a run of the updater in flight on the host (a first
-   *  download or an update), whichever profile is selected. */
+  /** Every profile with a delivery in flight to the host (a first one or an
+   *  update), whichever profile is selected. */
   running: Schema.Array(Schema.String),
-  /** The updater's files would not read (a format upstream changed, say):
+  /** The host's files would not read (a format upstream changed, say):
    *  why, in padi's words. The rest is then empty — never a stale receipt
    *  passed off as current. */
   error: Schema.optionalKey(Schema.String),
@@ -299,3 +305,34 @@ export const TerminalAgentsSchema = Schema.Struct({
 });
 
 export type TerminalAgents = typeof TerminalAgentsSchema.Type;
+
+/** What kolu-server tells a host's padi about delivering it a bundle — the
+ *  input of padi's `agentDistro.report` procedure. `profile` is the BUNDLE's
+ *  name (`bundleProfileOf`): a delivery is a bundle's, and every setting
+ *  riding that bundle shares it.
+ *
+ *   - `delivering` — a delivery to this host started;
+ *   - `landed` — `bundle` is valid in this host's store and rooted there: padi
+ *     points the profile's `current` at it, and new terminals get it;
+ *   - `failed` — the delivery did not land, typed (`reason`) with its cause
+ *     in kolu-server's words. Whatever served keeps serving. */
+export const AgentDistroDeliveryReportSchema = Schema.Union([
+  Schema.Struct({
+    kind: Schema.Literal("delivering"),
+    profile: Schema.String,
+  }),
+  Schema.Struct({
+    kind: Schema.Literal("landed"),
+    profile: Schema.String,
+    bundle: Schema.String.check(Schema.isMinLength(1)),
+  }),
+  Schema.Struct({
+    kind: Schema.Literal("failed"),
+    profile: Schema.String,
+    reason: AgentDistroFailureReasonSchema,
+    message: Schema.String,
+  }),
+]);
+
+export type AgentDistroDeliveryReport =
+  typeof AgentDistroDeliveryReportSchema.Type;

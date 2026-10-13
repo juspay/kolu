@@ -117,6 +117,11 @@ export function installPadiCellPusher<
   /** Structural equality — the dedup that keeps an unrelated input change from
    *  re-sending a byte-identical fact (an ssh round trip per remote host). */
   equals: (a: T, b: T) => boolean;
+  /** Fired once a host's padi has TAKEN a push (its `set` resolved) — every
+   *  bind, reconnect and real change of the value, per host. The agent
+   *  delivery hangs off it: a host that just learned the Agents setting is the
+   *  host to deliver that setting's bundle to. */
+  onPushed?: (host: string) => void;
   log: Logger;
 }): PadiCellPusher {
   const { cell, pool, getValue, equals, log } = deps;
@@ -187,6 +192,7 @@ export function installPadiCellPusher<
             throw err;
           },
         );
+        deps.onPushed?.(host);
       })
       .catch((err: unknown) =>
         log.error({ err, host, cell }, `${cell} push to padi failed`),

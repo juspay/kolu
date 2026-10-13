@@ -12,11 +12,10 @@
  *   - whether the setting's profile RESOLVES on this machine (the local padi's
  *     `agentDistroResolved` cell), for the line under Settings' profile field.
  *
- * Two app-lifetime reactions ride here too, colocated with the facts they
- * react to: toasts at a host's download moments (its mark's words,
- * `agentMarkWords`), and a toast when an update lands on a host (the
- * updater's own words, from its receipt). "Check now" is here too: one call
- * per host.
+ * One app-lifetime reaction rides here too, colocated with the facts it
+ * reacts to: a toast when an update lands on a host (the history's own words,
+ * from its receipt). "Check now" is here too: kolu-server delivers, so it is
+ * one call to kolu-server, for one host or all.
  */
 
 import {
@@ -39,6 +38,7 @@ import {
   createRoot,
   createSignal,
   mapArray,
+  untrack,
 } from "solid-js";
 import { toast } from "solid-sonner";
 import { hostDisplayName } from "../host/hostChipTone";
@@ -57,12 +57,12 @@ import {
   agentHostCheckable,
   agentHostDetail,
   agentMarkOf,
-  agentMarkWords,
-  agentRetryFailed,
   agentToast,
   type HostAgentStatus,
+  type LandedFacts,
+  landedFacts,
+  updateLanded,
 } from "@kolu/agent-distro/status";
-import { watchDownload } from "./firstDownload";
 
 /** The server's identity (its hostname names the local machine), shared. */
 const serverIdentity = useServerIdentity();
@@ -129,7 +129,7 @@ const byHost = createRoot(() => {
         return agoPhrase(entry.clock.toLocal(at), Date.now());
       };
       // An update landed: toast once the receipt for that very bundle is in,
-      // quoting the updater's own words. padi publishes the receipt before the
+      // quoting the history's own words. padi publishes the receipt before the
       // status, but they are two cells — so the edge waits for its receipt.
       const [landed, setLanded] = createSignal<string | undefined>();
       createEffect(() => {
@@ -139,8 +139,8 @@ const byHost = createRoot(() => {
         if (receipt?.bundle !== bundle) return;
         setLanded(undefined);
         const run = receipt.lastRun;
-        // Not an update this padi ran (say, the bundle moved under it): there
-        // are no updater words to quote, so there is nothing to announce.
+        // Not a landing this padi recorded (say, the bundle moved under it):
+        // there are no words to quote, so there is nothing to announce.
         if (run?.outcome !== "updated") return;
         const words = agentToast.updated(agentsWhere(host), run.words);
         toast.success(words.title, {
@@ -148,53 +148,17 @@ const byHost = createRoot(() => {
           icon: AgentDistroLogo({ size: 16 }),
         });
       });
-      // A host's download is worth a toast at each of its moments: one loading
-      // toast when it starts, updated in place (`{ id }`) to success — its next
-      // new terminal has the agents — or to the error, or closed when agents
-      // are turned off under it. Its words are the host mark's own.
-      let toastId: string | number | undefined;
-      watchDownload(
-        () => sub.value(),
-        (moment, status) => {
-          if (moment === "dropped") {
-            if (toastId !== undefined) toast.dismiss(toastId);
-            toastId = undefined;
-            return;
-          }
-          if (moment === "updated") {
-            if (status.kind === "ready") setLanded(status.bundle);
-            return;
-          }
-          const words = agentMarkWords(
-            agentMarkOf(status, false),
-            agentsWhere(host),
-          );
-          if (words === undefined)
-            throw new Error(`a ${moment} download moment with no words`);
-          const options = {
-            description: words.detail.join("\n") || undefined,
-            icon: AgentDistroLogo({ size: 16 }),
-          };
-          switch (moment) {
-            case "start":
-              // No timeout: it stands until the download settles, then
-              // becomes the success or the error below (same id).
-              toastId = toast.loading(words.title, {
-                ...options,
-                duration: Number.POSITIVE_INFINITY,
-              });
-              return;
-            case "ready":
-              toast.success(words.title, { ...options, id: toastId });
-              return;
-            case "failed":
-              toast.error(words.title, { ...options, id: toastId });
-              return;
-            default:
-              return moment satisfies never;
-          }
-        },
-      );
+      // Watch the PLAIN facts (`landedFacts`: profile and bundle, copied out
+      // as strings), never the status value: a cell's value is reconciled in
+      // place into one store object, so the value read before and after a
+      // landing is the same proxy and a watcher keyed on it never sees it.
+      let prev: LandedFacts | undefined;
+      createEffect(() => {
+        const now = landedFacts(sub.value());
+        const didLand = updateLanded(prev, now);
+        prev = now;
+        if (didLand && now !== undefined) untrack(() => setLanded(now.bundle));
+      });
       // "Checking": the host is up and agents are on, but its status cell has
       // not sent its first frame. Derived here from the cell's own pending
       // state; padi has no such status.
@@ -303,8 +267,8 @@ export function hostAgentDetail(host: HostKey): AgentHostDetail | undefined {
 }
 
 /** Can `host` be asked to check for newer agents right now — connected, ready,
- *  with no run going there (`agentHostCheckable`)? What its row in that
- *  machine's host details is enabled by. */
+ *  with no delivery going there, or failed (`agentHostCheckable`)? What its
+ *  row in that machine's host details is enabled by. */
 export function agentHostCheckableNow(host: HostKey): boolean {
   return agentHostCheckable({
     connected: padiMap.entry(host).state().kind === "connected",
@@ -312,61 +276,36 @@ export function agentHostCheckableNow(host: HostKey): boolean {
   });
 }
 
-/** Ask ONE machine to run its update check now. A refusal because a run is
- *  already going there is an ordinary answer; any other failure is a toast. */
-export function checkAgentsOn(host: HostKey): void {
+/** Ask kolu-server to deliver the newest agents to `host` (every connected
+ *  machine for `null`) now — after a failure too, which is how a fixed machine
+ *  is tried again. It answers once the delivery has started; each machine's
+ *  status cells say how it ends, so only a call that never reached kolu-server
+ *  is a toast. */
+function deliverAgents(host: HostKey | null, where: string): void {
   runAction(
     "check for newer agents",
-    padiMap
-      .entry(host)
-      .procedures.agentDistro.checkNow()
-      .pipe(
-        Effect.catchTag("AgentDistroCheckRefused", () => Effect.void),
-        Effect.catch((err) =>
-          Effect.sync(() => {
-            toast.error(
-              agentCheckFailed(
-                agentsWhere(host),
-                err instanceof Error ? err.message : String(err),
-              ),
-            );
-          }),
-        ),
+    app.procedures.agentDistro.deliver({ host }).pipe(
+      Effect.catch((err) =>
+        Effect.sync(() => {
+          toast.error(
+            agentCheckFailed(
+              where,
+              err instanceof Error ? err.message : String(err),
+            ),
+          );
+        }),
       ),
+    ),
   );
 }
 
-/** The palette's "Check for newer coding agents": ask every machine kolu can
- *  reach to run its update check at once — one call per host. WHETHER a
- *  machine may check is padi's own verdict (a run already going, nothing to
- *  serve): `checkAgentsOn` takes its refusal as an ordinary answer, so the
- *  rule lives on one side of the daemon boundary, where it revs. */
+/** Check ONE machine for newer agents: its host-details row. */
+export function checkAgentsOn(host: HostKey): void {
+  deliverAgents(host, agentsWhere(host));
+}
+
+/** The palette's "Check for newer coding agents": every machine kolu reaches,
+ *  in one delivery run (one lock of upstream's flake). */
 export function checkAgentsNow(): void {
-  for (const { host } of byHost.roots())
-    if (padiMap.entry(host).state().kind === "connected") checkAgentsOn(host);
-}
-
-/** Retry ONE machine's failed download (`agentDistro.retryDownload`): that
- *  host forgets the failure and settles its setting again, which starts the
- *  download over. The status cell then says what happened — a download, or the
- *  same failure again — so there is nothing to report on success. */
-export function retryAgentsOn(host: HostKey): void {
-  runAction(
-    "retry the agents download",
-    padiMap
-      .entry(host)
-      .procedures.agentDistro.retryDownload()
-      .pipe(
-        Effect.catch((err) =>
-          Effect.sync(() => {
-            toast.error(
-              agentRetryFailed(
-                agentsWhere(host),
-                err instanceof Error ? err.message : String(err),
-              ),
-            );
-          }),
-        ),
-      ),
-  );
+  deliverAgents(null, "every machine");
 }

@@ -1,12 +1,13 @@
 /**
  * Where agent-distro's things are on THIS host — the host-side lookups over the
- * layout `@kolu/agent-distro/bundle` names: the host's state home (`$XDG_STATE_HOME`, else
- * `~/.local/state`), the `current` link agent-distro's updater flips under it,
- * the floor's profile dirs (as its manifest names them), and the host's own `nix`. Its volatility is
- * agent-distro's state layout and the host's environment, not kolu's policy.
+ * layout `@kolu/agent-distro/bundle` names: the host's state home
+ * (`$XDG_STATE_HOME`, else `~/.local/state`), the `current` link padi points at
+ * each bundle kolu-server delivers, and the floor's profile dirs (as its
+ * manifest names them). Its volatility is agent-distro's state layout and the
+ * host's environment, not kolu's policy.
  */
 
-import { accessSync, constants as fsConstants, realpathSync } from "node:fs";
+import { realpathSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { currentLink } from "@kolu/agent-distro/bundle";
@@ -23,10 +24,10 @@ export function hostStateHome(): string {
 }
 
 /** `path` resolved, or `undefined` when it does not exist. ONE `realpathSync`,
- *  never an exists-then-resolve pair: the updater flips `current` atomically, and
+ *  never an exists-then-resolve pair: `current` is flipped atomically, and
  *  a spawn landing between a separate check and the resolve would throw on a link
  *  that is merely mid-flip. Only `ENOENT` is "absent"; anything else is thrown. */
-function realpathOrUndefined(path: string): string | undefined {
+export function realpathOrUndefined(path: string): string | undefined {
   try {
     return realpathSync(path);
   } catch (err) {
@@ -35,12 +36,12 @@ function realpathOrUndefined(path: string): string | undefined {
   }
 }
 
-/** Where `profile`'s bundle is on this host right now: the `current` the updater
- *  maintains, else the floor; `undefined` when neither exists (a remote host
- *  before its first download). Always a resolved store path, so whoever
+/** Where `profile`'s bundle is on this host right now: the `current` the last
+ *  delivery landed, else the floor; `undefined` when neither exists (a remote
+ *  host before its first delivery). Always a resolved store path, so whoever
  *  receives it pins that exact bundle. A `current` older than a newer kolu's
- *  floor still wins, deliberately: the upgrade restarts padi, whose boot check
- *  then fetches upstream's newest; offline the host keeps serving what it has. */
+ *  floor still wins, deliberately: kolu-server delivers upstream's newest as
+ *  the restarted padi reconnects; offline the host keeps serving what it has. */
 export function bundleOnHost(
   bake: AgentDistroBake,
   profile: AgentDistroProfileBake,
@@ -53,7 +54,7 @@ export function bundleOnHost(
     // The floor is a build fact; a profile the listing names but the floor's
     // manifest lacks is a broken build, not a state to degrade from.
     throw new Error(
-      `agent-distro floor manifest has no profile '${profile.name}', though the updater listing names it`,
+      `agent-distro floor manifest has no profile '${profile.name}', though the profiles listing names it`,
     );
   }
   // Resolved, as `current` is, so the pinned path is the exact bundle.
@@ -63,31 +64,4 @@ export function bundleOnHost(
       `agent-distro floor manifest names ${entry.dir} for '${profile.name}', which does not exist`,
     );
   return floorDir;
-}
-
-/** The host's `nix`, as the updater will find it — on padi's own PATH. A padi
- *  started over a non-login ssh session on a non-NixOS host (or macOS) often
- *  lacks the Nix profile on PATH, and the updater would then die with a bare
- *  spawn error; naming it here gives the host tab the real fix. */
-export function nixOnPath(): string | undefined {
-  return commandOnPath("nix", process.env.PATH);
-}
-
-/** Where `command` resolves on `path` (a `PATH` value), searched front to back
- *  as `execvp` does: the first executable match, or `undefined`. */
-export function commandOnPath(
-  command: string,
-  path: string | undefined,
-): string | undefined {
-  for (const dir of (path ?? "").split(":")) {
-    if (dir === "") continue;
-    const candidate = join(dir, command);
-    try {
-      accessSync(candidate, fsConstants.X_OK);
-      return candidate;
-    } catch {
-      // Not in this PATH entry; the next one may have it.
-    }
-  }
-  return undefined;
 }

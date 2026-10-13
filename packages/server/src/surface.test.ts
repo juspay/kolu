@@ -62,18 +62,25 @@ describe("surfaces map — two siblings (the W1 padi seam)", () => {
     expect(spec.events).toBeUndefined();
   });
 
-  it("koluSurface's only procedures are the two that move the forward map", () => {
+  it("koluSurface's only procedures move the forward map and deliver agents", () => {
     // koluSurface had NO procedures before PRT2 — every mutation the client made
-    // rode padi's per-host surface. These two are here rather than there because
-    // they act on kolu-SERVER's own machine: the listener a forward opens is a
-    // socket in this process, and no host is asked for permission to open it.
+    // rode padi's per-host surface. These are here rather than there because
+    // they act from kolu-SERVER's own machine: the listener a forward opens is a
+    // socket in this process, and agent delivery runs from this machine to
+    // every host (kolu-server locks upstream's flake and ships the bundles).
     const spec = surfaces.kolu.spec as {
       procedures?: Record<string, Record<string, unknown>>;
     };
-    expect(Object.keys(spec.procedures ?? {})).toEqual(["forwards"]);
+    expect(Object.keys(spec.procedures ?? {})).toEqual([
+      "forwards",
+      "agentDistro",
+    ]);
     expect(Object.keys(spec.procedures?.forwards ?? {}).sort()).toEqual([
       "cancel",
       "create",
+    ]);
+    expect(Object.keys(spec.procedures?.agentDistro ?? {})).toEqual([
+      "deliver",
     ]);
   });
 });

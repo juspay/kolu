@@ -4,7 +4,7 @@
  * harness (agent-distro's `src/update/update.ts` `versions()` reads it the same
  * way: a version may itself contain tabs). Kolu reads it for the bundle a host
  * serves, so Settings names what that machine actually has, not what kolu was
- * built with.
+ * built with — and words what a delivery changed from it ({@link bundleChanges}).
  */
 
 import { Schema } from "effect";
@@ -43,4 +43,30 @@ export function parseVersions(text: string): readonly AgentVersion[] {
         );
       return { name, title, version: version.join("\t") };
     });
+}
+
+/** What changed between two bundles' versions, in upstream's words —
+ *  agent-distro's `changes()` (`src/update/update.ts`), mirrored so the history
+ *  line padi writes for a delivery reads as the updater's does: `Claude Code
+ *  2.0.1 → 2.0.3, Pi added 0.4`. `previous` is `undefined` when nothing served
+ *  before (every agent is then named with its version); `next` is `undefined`
+ *  when the new bundle records no versions. */
+export function bundleChanges(
+  previous: readonly AgentVersion[] | undefined,
+  next: readonly AgentVersion[] | undefined,
+): string {
+  if (next === undefined) return "versions not recorded by this bundle";
+  const before = new Map(previous?.map((v) => [v.name, v]));
+  const result: string[] = [];
+  for (const { name, title, version } of next) {
+    const old = before.get(name);
+    if (previous === undefined) result.push(`${title} ${version}`);
+    else if (old === undefined) result.push(`${title} added ${version}`);
+    else if (old.version !== version)
+      result.push(`${title} ${old.version} → ${version}`);
+  }
+  const after = new Set(next.map((v) => v.name));
+  for (const { name, title } of previous ?? [])
+    if (!after.has(name)) result.push(`${title} removed`);
+  return result.join(", ") || "no harness version changed";
 }

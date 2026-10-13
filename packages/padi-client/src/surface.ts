@@ -114,6 +114,7 @@ import {
   AgentDistroStatusSchema,
   agentDistroReceiptEqual,
   agentDistroResolvedEqual,
+  AgentDistroDeliveryReportSchema,
   agentDistroSettingEqual,
   agentDistroStatusEqual,
   DEFAULT_AGENT_DISTRO_SETTING,
@@ -124,7 +125,6 @@ import {
 } from "@kolu/agent-distro/schema";
 import type { ClientErrorPolicy } from "./clientPolicy.ts";
 import {
-  AgentDistroCheckRefused,
   FsGitReadErrorSchema,
   KavalContractSkew,
   PreviewTooLarge,
@@ -569,8 +569,21 @@ export * from "./transcriptSchema.ts";
  *  setting already pushed (the cell's `equals` drops a re-push of the same
  *  value, so re-sending the setting could not do it), and is a no-op while
  *  agents are off there. A 5.12 client CALLS it from a machine's host details,
- *  so the minor drains a 5.11 padi that has no such member. */
-export const PADI_SURFACE_VERSION = "5.12";
+ *  so the minor drains a 5.11 padi that has no such member.
+ *
+ *  5.13 (minor) — kolu-server delivers every host's agents. padi no longer
+ *  runs agent-distro's updater: `agentDistro.checkNow` and
+ *  `agentDistro.retryDownload` (and the `AgentDistroCheckRefused` error) are
+ *  GONE, and a NEW procedure, `agentDistro.report`, carries the binder's word
+ *  on each delivery (`AgentDistroDeliveryReport`: delivering · landed ·
+ *  failed), on which padi points `current` at the landed bundle. The
+ *  `agentDistroStatus` `error` arm's `reason` is now `refused | delivery` in
+ *  place of `nixMissing | updater`, and a receipt run's `by` is
+ *  `delivery | padi` in place of `updater | padi`. Not additive in either
+ *  direction — the 5.10 shape: a 5.13 binder CALLS `report`, and the minor
+ *  drains a 5.12 padi before it can; a gate-only face older than 5.13 meets a
+ *  decode refusal on a failed status, loud. */
+export const PADI_SURFACE_VERSION = "5.13";
 
 /** The `version` cell payload — padi's self-declared surface contract version. */
 export const PadiVersionSchema = Schema.Struct({
@@ -2016,15 +2029,16 @@ export const padiSurface = defineSurfaceWithPolicy<ClientErrorPolicy>()({
       schema: AgentDistroSettingSchema,
       default: DEFAULT_AGENT_DISTRO_SETTING,
       // The one dedup point: a re-push of the same setting (every reconnect)
-      // publishes nothing and starts no download.
+      // publishes nothing.
       equals: agentDistroSettingEqual,
       verbs: ["get", "set"],
       client: { onError: { kind: "toast", label: "Agents setting" } },
     },
     /** Whether the selected profile's agents are on THIS padi's host — `ready`
-     *  (with the bundle new terminals get), `downloading` (a remote host's first
-     *  fetch from the binary cache), `error` (the updater's own message), `off`,
-     *  or `unavailable` (a padi built without agent-distro). Read-only on the
+     *  (with the bundle new terminals get), `downloading` (nothing serves yet;
+     *  kolu-server is delivering it), `error` (the delivery failed, typed, in
+     *  kolu-server's words), `off`, or `unavailable` (a padi built without
+     *  agent-distro). Read-only on the
      *  client; padi's agent-distro module is the sole writer. The host tab and
      *  Settings render it. */
     agentDistroStatus: {
@@ -2035,13 +2049,13 @@ export const padiSurface = defineSurfaceWithPolicy<ClientErrorPolicy>()({
       verbs: ["get"],
       client: { onError: { kind: "hostToast", label: "Agents status" } },
     },
-    /** What this host keeps of agent-distro's updates for the setting's
-     *  profile — the serving bundle's versions, the last update run and the
-     *  last few history events, read off the updater's own files — and every
-     *  profile with a run in flight there. Read-only; published at boot, when a
-     *  run starts and ends, and when the setting changes. A
-     *  background update that fails or skips shows here (and in padi's log),
-     *  never as an `error` status: the agents still work. */
+    /** What this host keeps of its agent deliveries for the setting's profile
+     *  — the serving bundle's versions, the last delivery and the last few
+     *  history events, read off upstream's files on the host — and every
+     *  profile with a delivery in flight there. Read-only; published at boot,
+     *  at every delivery report, and when the setting changes. A later delivery
+     *  that fails shows here (and in the logs), never as an `error` status
+     *  while a bundle serves: the agents still work. */
     agentDistroReceipt: {
       schema: AgentDistroReceiptSchema,
       default: EMPTY_AGENT_DISTRO_RECEIPT,
@@ -2483,21 +2497,15 @@ export const padiSurface = defineSurfaceWithPolicy<ClientErrorPolicy>()({
       },
     },
     /** agent-distro on this host — merged onto the `agentDistro` cell's wire
-     *  node, as `session` is (no verb overlap). `checkNow` runs one update of
-     *  the selected profile at once, whatever the schedule says, and answers
-     *  once it has started (the status cells show it running). Refuses while a
-     *  run is going or nothing serves (`AgentDistroCheckRefused`).
-     *
-     *  `retryDownload` is the FAILED-download retry for this one host: it
-     *  forgets the last failure of the profile this host is set to and settles
-     *  it again, exactly as a write of the setting does. It exists as a
-     *  procedure because the setting cell's `equals` drops a re-push of the
-     *  same value, so there is no way to ask ONE host to try again by writing
-     *  it. Nothing to refuse: with agents off, or nothing failed, settling
-     *  again changes nothing. */
+     *  node, as `session` is (no verb overlap). `report` is kolu-server's word
+     *  on a delivery to this host (`AgentDistroDeliveryReport`): a delivery
+     *  started, a bundle landed (padi points the profile's `current` at it), or
+     *  it failed (typed, in kolu-server's words). Called by the binder only —
+     *  never exposed through the MCP face. Fails on a profile this padi's
+     *  listing does not name, and on a landing this host cannot take (the
+     *  bundle is not here). */
     agentDistro: {
-      checkNow: { error: AgentDistroCheckRefused },
-      retryDownload: {},
+      report: { input: AgentDistroDeliveryReportSchema },
     },
     /** Session restore/import/forfeit — executes host-side (padi as one writer). */
     session: {

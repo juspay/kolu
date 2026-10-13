@@ -121,14 +121,9 @@ export const KOLU_MCP_DENIED: readonly { member: string; reason: string }[] = [
   { member: "lifecycle.wake", reason: "lifecycle policy the canvas owns" },
   { member: "lifecycle.restart", reason: "lifecycle policy the canvas owns" },
   {
-    member: "agentDistro.checkNow",
+    member: "agentDistro.report",
     reason:
-      "an agent inherits the user's coding agents; when they update is the host's schedule, the user's \"Check for newer coding agents\" in the palette, or the per-machine check in that machine's host details — not a tool call",
-  },
-  {
-    member: "agentDistro.retryDownload",
-    reason:
-      "the retry of a download that FAILED on one machine — the user's own verb, in that machine's host details, beside the cause it is about. An agent that re-triggered it would be retrying a host-setup problem it can neither see nor fix",
+      "kolu-server's word on a delivery it ran to this host — the binder's own channel; an agent that called it would be telling padi a bundle landed that kolu never delivered",
   },
   { member: "lifecycle.resize", reason: "layout policy the canvas owns" },
   {

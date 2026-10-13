@@ -1,11 +1,12 @@
 /**
- * What this host keeps of agent-distro's updates for a profile — the
- * `agentDistroReceipt` cell's value, read off the updater's OWN files: its
- * history log (`@kolu/agent-distro/history`), its `last-success` stamp
+ * What this host keeps of its agent deliveries for a profile — the
+ * `agentDistroReceipt` cell's value, read off upstream's files on the host
+ * (which padi writes as each delivery lands, `./deliveries.ts`): the history
+ * log (`@kolu/agent-distro/history`), the `last-success` stamp
  * (`@kolu/agent-distro/schedule`) and the serving bundle's versions file
- * (`@kolu/agent-distro/versions`). The one thing those files may not hold — a
- * run that landed nothing and wrote no line (a crash, a repeated skip) — comes
- * from the run state (`./download.ts`). Its volatility is reading those files.
+ * (`@kolu/agent-distro/versions`). The one thing those files do not hold — a
+ * delivery that landed nothing — comes from the delivery record. Its
+ * volatility is reading those files.
  */
 
 import { readFileSync } from "node:fs";
@@ -39,9 +40,10 @@ export function lastSuccessOf(profile: AgentDistroProfileBake): number | null {
 
 /** The receipt for `profile` on this host: the versions of `serving` (the
  *  bundle new terminals get there now, if any), the last run, and the last few
- *  history events. `unlanded` is the profile's last run that landed nothing, as
- *  the run state remembers it — shown when it is newer than what the files
- *  say; `running` is every profile with a run in flight. Throws on a history
+ *  history events. `unlanded` is the profile's last delivery that landed
+ *  nothing, as the delivery record remembers it — shown when it is newer than
+ *  what the files say; `running` is every profile with a delivery in flight.
+ *  Throws on a history
  *  or versions file that is not upstream's format. */
 export function readReceipt(
   profile: AgentDistroProfileBake,

@@ -120,6 +120,18 @@ const WEB_SHELL_FILES = [
   "portForward/forwards",
   "portForward/hostPorts",
   "portForward/resolveViewerHost",
+  // ── the agent-delivery arm (packages/server/src/agentDelivery/) ──
+  // kolu-server delivering agent-distro's bundles to every host: lock upstream's
+  // flake once per run, evaluate each host's bundle, ship it over
+  // `@kolu/surface-remote`'s closure-delivery route, and tell each host's padi
+  // how it went — on upstream's schedule. It runs FROM this machine to the
+  // hosts (the same arrow as the padi arm), and runs no terminal domain.
+  "agentDelivery/bake",
+  "agentDelivery/delivery",
+  "agentDelivery/install",
+  "agentDelivery/nix",
+  "agentDelivery/schedule",
+  "agentDelivery/timer",
   // ── the serving shell + true leaves (top-level) ──
   // The web face's boot CONTRACT — the `KoluBootFlags` interface `bootKoluWeb` is
   // written against, and nothing else. A LEAF with ZERO imports: the FLAG schema

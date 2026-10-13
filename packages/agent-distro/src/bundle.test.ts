@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import {
   agentBinDir,
   agentBundleShortHash,
-  concreteUpdaterConfig,
+  concreteStatePath,
   currentLink,
 } from "./bundle.ts";
 
@@ -29,37 +29,20 @@ describe("layout", () => {
   });
 });
 
-describe("concreteUpdaterConfig", () => {
-  const config = JSON.stringify({
-    profile: "vanilla",
-    flake: "github:juspay/agent-distro",
-    state: `${PLACEHOLDER}/agent-distro/abc`,
-    history: `${PLACEHOLDER}/agent-distro/history.log`,
-    periodSeconds: 21600,
-  });
-
-  it("puts the host's state home where the placeholder was, and nothing else", () => {
-    const { text, stateDir } = concreteUpdaterConfig(
-      config,
-      PLACEHOLDER,
-      "/home/u/.local/state",
-    );
-    expect(stateDir).toBe("/home/u/.local/state/agent-distro/abc");
-    const parsed = JSON.parse(text) as Record<string, unknown>;
-    expect(parsed.history).toBe(
-      "/home/u/.local/state/agent-distro/history.log",
-    );
-    expect(parsed.flake).toBe("github:juspay/agent-distro");
-    expect(parsed.periodSeconds).toBe(21600);
-  });
-
-  it("refuses a config whose state is not under the placeholder", () => {
-    expect(() =>
-      concreteUpdaterConfig(
-        JSON.stringify({ state: "/root/x", history: "/root/h" }),
+describe("concreteStatePath", () => {
+  it("puts the host's state home where the placeholder was", () => {
+    expect(
+      concreteStatePath(
+        `${PLACEHOLDER}/agent-distro/abc`,
         PLACEHOLDER,
         "/home/u/.local/state",
       ),
+    ).toBe("/home/u/.local/state/agent-distro/abc");
+  });
+
+  it("refuses a path that is not under the placeholder", () => {
+    expect(() =>
+      concreteStatePath("/root/x", PLACEHOLDER, "/home/u/.local/state"),
     ).toThrow(/not under/);
   });
 });

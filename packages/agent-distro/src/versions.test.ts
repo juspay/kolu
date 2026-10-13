@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseVersions, versionsFile } from "./versions.ts";
+import { bundleChanges, parseVersions, versionsFile } from "./versions.ts";
 
 /** A real bundle's `share/agent-distro/versions` (vanilla, 2026-10-07). */
 const REAL = [
@@ -34,6 +34,39 @@ describe("parseVersions", () => {
   it("sits under the bundle", () => {
     expect(versionsFile("/nix/store/x")).toBe(
       "/nix/store/x/share/agent-distro/versions",
+    );
+  });
+});
+
+describe("bundleChanges — upstream's history words", () => {
+  const v = (name: string, title: string, version: string) => ({
+    name,
+    title,
+    version,
+  });
+  const claude = v("claude", "Claude Code", "1");
+  const pi = v("pi", "Pi", "0.3");
+  const before = [claude, pi];
+
+  it("a first landing names every agent with its version", () => {
+    expect(bundleChanges(undefined, before)).toBe("Claude Code 1, Pi 0.3");
+  });
+  it("a changed version reads old → new", () => {
+    expect(bundleChanges(before, [v("claude", "Claude Code", "2"), pi])).toBe(
+      "Claude Code 1 → 2",
+    );
+  });
+  it("names an added agent with its version, and a removed one", () => {
+    expect(bundleChanges(before, [claude, v("codex", "Codex", "0.1")])).toBe(
+      "Codex added 0.1, Pi removed",
+    );
+  });
+  it("says so when nothing changed", () => {
+    expect(bundleChanges(before, before)).toBe("no harness version changed");
+  });
+  it("says so when the new bundle records no versions", () => {
+    expect(bundleChanges(before, undefined)).toBe(
+      "versions not recorded by this bundle",
     );
   });
 });

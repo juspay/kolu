@@ -18,6 +18,15 @@ const session = makeSession({
 pumpRemoteSurface({ source: surface, session, makeSink: ({ seq }) => sink });
 ```
 
+The copy half of provisioning is its own export, `deliverClosure`: get one
+exact, already-evaluated store path into a host's store from a declared binary
+cache and root it there — warm check on the host, `nix copy --from <cache>` into
+your own store, `nix copy --to ssh-ng://host`, GC root — and **never build it**,
+on either side. When it does not land, the result says why: not in the cache
+(`uncached`), refused by the host's Nix, which trusts neither the login nor the cache's key
+(`refused`), or a copy that failed otherwise (`unshipped`). kolu delivers its
+coding agents to every host this way.
+
 By default a dial's ssh gives up on a peer that has not answered a probe for
 ~30s. That is the right answer while someone is watching a host; an unattended
 dial states its own tolerance instead — an `SshKeepalive`,

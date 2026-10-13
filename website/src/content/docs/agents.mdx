@@ -54,7 +54,7 @@ a name, never a flake reference — once agent-distro says the profile resolves 
 this machine; if it does not, agent-distro's words stand there instead of the
 check ([A profile of your own](#a-profile-of-your-own)). On the machine running
 kolu that is at once, because the agents ship inside kolu; it stays only while
-that machine is still downloading them, or if that download failed.
+kolu is still delivering them to that machine, or if that delivery failed.
 
 **Not now** chooses nothing: no preference is written, no agents are added, and
 the question only goes for this session — the next time the welcome card appears
@@ -96,7 +96,7 @@ is one sentence: "Off. New terminals use only the agents you installed yourself.
 Turn on and they start with these, kept up to date:".
 
 Below them is one **fleet line** for every machine at once — "Ready on
-naiveintent and 2 more · buildbox downloading · devbox failed", a coloured dot
+naiveintent and 2 more · buildbox delivering · devbox failed", a coloured dot
 per state. Each machine's name is a link that opens that machine's **host
 details**, where everything true of that machine lives: the build it serves, its
 state and last update, its own events and its own actions
@@ -185,8 +185,8 @@ When a terminal's agents are no longer what a new terminal there would get — y
 named another profile, turned agents off, or a newer build of
 the same set arrived —
 its pill dims and becomes a **Restart** button. Hover it to see what the terminal
-has and what new terminals get. While that machine is still downloading the set,
-or its download failed, new terminals there get no agents — so the pill says so
+has and what new terminals get. While kolu is still delivering the set to that
+machine, or the delivery failed, new terminals there get no agents — so the pill says so
 and offers no Restart yet: restarting then would leave the terminal with none.
 
 Restart gives the terminal a fresh shell in place — the same tile, folder, splits
@@ -225,13 +225,20 @@ set: to switch sets, use [Settings](#pick-a-set).
 
 ## On other machines
 
-Agents work the same on every host you [add](/remote-hosts), but nothing is
-copied over ssh — a [profile of your own](#a-profile-of-your-own) included: a
-flake reference is fetched by each host, and a **path** names a folder on that
-host, so it works only where that folder exists. The first time a host is used with agents on, that host
-**downloads them itself**, from agent-distro's binary cache into its own Nix
-store, and kolu tells you when they have landed. Terminals opened on that host
-before then have no agents (and no pill).
+Agents work the same on every host you [add](/remote-hosts). The machine
+running kolu **delivers** them: it takes the set from agent-distro's binary
+cache into its own Nix store, copies it to the host over the same ssh login
+kolu already uses, and pins it there so Nix's garbage collection leaves it
+alone. The host itself downloads nothing — it needs no flakes, no access to
+GitHub and no cache settings of its own for its agents — and nothing is ever
+compiled, on either side. The host's tab shows the delivery until it lands
+(below). Terminals
+opened on that host before then have no agents (and no pill).
+
+A [profile of your own](#a-profile-of-your-own) is different: it travels as
+words, never as files. A flake reference is fetched by each host when an agent
+starts there, and a **path** names a folder on that host, so it works only where
+that folder exists.
 
 Every host tab with agents on carries agent-distro's mark right after the host
 name, and the mark's look says where that host stands:
@@ -239,77 +246,69 @@ name, and the mark's look says where that host stands:
 | The mark | Means |
 | --- | --- |
 | plain, in the tab's text colour | ready for new terminals |
-| a thin ring around it, filling up | downloading — hover for the progress |
-| plain, with the ring filling | ready, and a newer set is downloading; the current one keeps serving ([Kept up to date](#kept-up-to-date)) |
-| warning colour with a small dot | the download failed — hover for why ([below](#when-a-download-fails)) |
+| a thin ring around it | kolu is delivering the agents to it |
+| plain, with a ring around it | ready, and kolu is delivering a newer set; the current one keeps serving ([Kept up to date](#kept-up-to-date)) |
+| warning colour with a small dot | the delivery failed — hover for why ([below](#when-a-delivery-fails)) |
 | dimmed, with a spinning arc | checking: the host is connected but has not said yet |
 | no mark at all | agents are off |
 
 Clicking the mark opens that machine's **host details** — the popover behind its
 tab's connection pip — without switching tabs. Its **agents** section is
 everything true of that machine: the profile new terminals there get and the
-short hash of the build serving it, its state with its last update run ("ready ·
-updated 3h ago"), that machine's recent update events in the updater's own words,
-and one action — **check for newer agents ↻**, or **retry download ↻** when its
-download failed ([When a download fails](#when-a-download-fails)). The machine
-names on Settings' fleet line open the same place.
+short hash of the build serving it, its state with its last delivery ("ready ·
+updated 3h ago"), that machine's recent update events, and one action — **check
+for newer agents ↻**, which is also how you try a failed machine again ([When a
+delivery fails](#when-a-delivery-fails)). The machine names on Settings' fleet
+line open the same place.
 
-The machine running kolu itself needs no first download: every set ships inside
-kolu, so switching there is instant and works offline. It still keeps itself
-up to date like any other host (below); the set kolu shipped with is what it
-falls back to when it has never been online.
+The machine running kolu itself needs no first delivery: every set ships inside
+kolu, so switching there is instant and works offline. kolu still keeps it up to
+date like any other host (below); the set kolu shipped with is what it uses
+until the first newer one lands.
 
 <Aside type="note" title="Disk">
-  A host keeps its downloaded bundle in its own Nix store (and the machine
-  running kolu also carries the bundles kolu ships). If you also install
-  agent-distro on a host through its Home Manager module, both share the same
-  downloaded bundle for the same set. Only the newest set is protected from
-  Nix's garbage collection: after an update, the one before it can be removed,
-  even while a terminal opened before the update still has it on its PATH.
+  A host keeps its delivered set in its own Nix store (and the machine running
+  kolu also carries the sets kolu ships, plus a copy of each set it passed on).
+  If you also install agent-distro on a host through its Home Manager module,
+  both share the same set and the same update log. Only the newest set is
+  protected from Nix's garbage collection: after an update, the one before it
+  can be removed, even while a terminal opened before the update still has it on
+  its PATH.
 </Aside>
 
 ## Kept up to date
 
 agent-distro publishes a newer tested set of agents up to four times a day. At
 those times — 02:00, 08:00, 14:00 and 20:00 UTC, agent-distro's own schedule —
-every machine with agents on looks for a newer build of the set you chose, and
-downloads it if there is one. Only the chosen set is kept current; switching
-sets downloads the new one as before. A machine that was asleep through one of
-those times looks once within minutes of waking. And whenever a newer kolu
-reaches a machine with agents on, or that machine reboots, it looks once right
-away, so a newer kolu brings the newer agents with it. A look that fails — the
-machine was offline, say — tries again up to twice, five minutes after the
-failed look ended, as agent-distro's own schedule does; that includes a look
-at start that was due anyway, while one taken only because kolu is newer, or because the machine restarted, waits
-for the next of those times.
+kolu looks for a newer build of the set you chose and delivers it to every
+connected machine that does not have it yet. Only the chosen set is kept
+current; switching sets delivers the new one as before. A machine also gets a
+delivery whenever it connects — kolu starts, a host comes back after sleep or a
+dropped link, a newer kolu reaches it — so a machine that was away at those times
+catches up as soon as it is back. A run that fails — the cache did not answer,
+a host dropped off mid-copy — is tried again up to twice, five minutes after the
+failed run ended, as agent-distro's own schedule does.
 
-Nothing is ever compiled. A newer set is downloaded only once agent-distro's
-cache holds all of it; until then the machine skips it and looks again at the
-next time.
+Nothing is ever compiled. If agent-distro's cache does not hold the newer set
+yet, the delivery fails instead and is tried again as above.
 
-While a newer set downloads, the one you have keeps working: new terminals get
+While a newer set is delivered, the one you have keeps working: new terminals get
 it until the new one has fully arrived. The host's mark keeps its plain colour
-and the ring fills around it; Settings' fleet line keeps that machine among the
-ones still working, and its host details say "ready · updating" with the
-progress. Then:
+with the ring around it; Settings' fleet line keeps that machine among the ones
+still working, and its host details say "ready · updating". Then:
 
-- a toast says what changed, in agent-distro's own words ("Claude Code 2.1.286
-  → 2.1.291"), and on which machine;
+- a toast says what changed, in agent-distro's own format ("Claude Code
+  2.1.286 → 2.1.291"), and on which machine;
 - new terminals there start with the new set — `agent-distro` included, since
   it comes in the same build;
 - a terminal already open keeps its own, and its pill offers **Restart**
   ([above](#restarting-a-terminal-onto-the-current-agents)).
 
-A look that finds nothing newer, or skips (the newer set is not fully in the
-cache yet, or the machine's Nix cannot use the cache), says nothing: it shows in
-that machine's host details, as its state's last run ("checked 2h ago, up to
-date", "checked 1h ago, skipped" — hover for agent-distro's own reason) and
-as an event in the list under it. A skip is not a problem, so the fleet line in
-Settings keeps counting that machine as ready. A look that fails says nothing
-either — the agents you have keep working — and it too stands in that machine's
-host details, in the warning colour (and among its events, when agent-distro
-wrote it down: a run that crashed did not, so the line's hover gives kolu's
-words for it).
+A look that finds nothing newer says nothing: it shows in that machine's host
+details, as its state's last run ("checked 2h ago, up to date"). A later
+delivery that fails says nothing either — the agents you have keep working — and
+it too stands in that machine's host details, in the warning colour, with the
+cause.
 
 A terminal keeps the set it started with until you restart it — or until a Nix
 garbage collection on that machine removes that set, which an update leaves
@@ -317,36 +316,65 @@ unprotected. **Restart** gets the current set.
 
 Two places let you look right now:
 
-- the palette's **Check for newer coding agents** ("every machine") looks on
-  every machine at once, whatever the time;
+- the palette's **Check for newer coding agents** ("every machine") looks for
+  every connected machine at once, whatever the time;
 - a machine's host details offer **check for newer agents ↻** for that machine
-  alone, greyed out while it could not answer one — it is not ready, or already
-  looking.
+  alone, greyed out while it could not take one — it is not connected, or a
+  delivery to it is already running.
 
-Each machine's **last five events** — updated, skipped or failed — are in its
-host details too, one line each with the time and agent-distro's own words
-(hover a line for all of them). A machine whose update history kolu could not
-read says so there instead.
+Each machine's **last five events** are in its host details too, one line each
+with the time and the log's own words (hover a line for all of them). They come
+from agent-distro's update log on that machine, which kolu writes in
+agent-distro's own format. A machine whose update log kolu could not read says
+so there instead.
 
-## When a download fails
+## When a delivery fails
 
-The host needs Nix with flakes, reachable on padi's PATH, and its Nix must be
-allowed to use agent-distro's cache (`https://cache.nixos.asia/oss`). If it is
-not, the first download is skipped — the host never compiles agents — and the
-host's mark turns to the warning colour. (A later update that cannot download
-is different: the agents the host already has keep working, and it shows in that
-machine's host details — see [Kept up to date](#kept-up-to-date).) The mark's
-hover and the toast say the same thing: the cause — with Nix's own line after it
-when agent-distro caught one, such as `cannot resolve flake: unable to download
-'…': HTTP error 401` — the setup fix when the cause is a missing `nix`, and
-where to retry: "Fix that, then open that machine's host details and retry the
-download."
+The usual cause is a host's Nix **refusing** the set kolu copied there. Nix
+accepts copied software only from someone it trusts: either the login kolu
+connects as is one of its `trusted-users`, or the software is signed with a key
+it trusts. If neither is true, it refuses, and kolu cannot change that from
+outside — so the host gets no agents (it never compiles them either), and its
+mark turns to the warning colour. The same holds for the machine running kolu,
+which takes each set from the cache into its own Nix store first.
 
-Open them — click the mark, or the machine's name on Settings' fleet line — and
-the **agents** section carries the cause in full, that "New terminals on
-&lt;host&gt; get no coding agents until this is fixed", and the one button that
-retries: **retry download ↻**, which forgets the failure and downloads again on
-that machine. Nothing retries on its own.
+The fix is one line on that machine, either half is enough. On NixOS, trust the
+login kolu connects as:
+
+```nix
+nix.settings.trusted-users = [ "root" "@wheel" "<login>" ];
+```
+
+or trust agent-distro's cache and its key:
+
+```nix
+nix.settings = {
+  extra-substituters = [ "https://cache.nixos.asia/oss" ];
+  extra-trusted-public-keys = [ "oss:KO872wNJkCDgmGN3xy9dT89WAhvv13EiKncTtHDItVU=" ];
+};
+```
+
+Elsewhere, put the same settings in `/etc/nix/nix.conf` (`trusted-users = …`,
+or `extra-substituters = …` and `extra-trusted-public-keys = …`) and restart the
+Nix daemon. This is the same cache [kolu itself comes
+from](/deployment#first-run-compiling-enable-the-binary-cache).
+
+Other failures — agent-distro's cache did not answer or does not hold the set
+yet, the copy broke off — carry kolu's words for the cause, with Nix's own line
+after it. kolu tries those again on its own (see [Kept up to
+date](#kept-up-to-date)).
+
+A refusal is not retried on a loop, because only that machine's settings change
+it. Once you have fixed them, kolu tries again at the next scheduled time or the
+next time the machine connects — or right away: open that machine's host details
+(click the mark, or the machine's name on Settings' fleet line) and press **check
+for newer agents ↻**. Its **agents** section carries the cause in full — Nix's
+own words — that "New terminals on &lt;host&gt; get no coding agents until this is
+fixed", the fix, and a link back to this section.
+
+A later delivery that fails on a machine that already has agents is different:
+the agents it has keep working, and the failure shows only in that machine's
+host details ([Kept up to date](#kept-up-to-date)).
 
 ## Turning it off
 

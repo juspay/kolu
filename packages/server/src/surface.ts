@@ -56,6 +56,7 @@ import {
 } from "@kolu/surface/server";
 import { surfaceAppServer } from "@kolu/surface-app/server";
 import type { AgentDistroSetting } from "@kolu/agent-distro/schema";
+import type { HostKey } from "kolu-common/hostKey";
 import { agentDistroSettingOf } from "@kolu/agent-distro/status";
 import { Effect } from "effect";
 import type { RpcGroup } from "effect/rpc";
@@ -275,6 +276,10 @@ export interface KoluSurfaceDeps {
    *  re-read {@link currentAgentDistroSetting} and re-push to every bound padi (its
    *  per-link dedup drops an unchanged value). */
   onAgentDistroChanged: () => void;
+  /** The user's "check for newer agents": deliver the newest agents to `host`
+   *  (every connected host for `null`) now — `./agentDelivery/install.ts`'s
+   *  `deliverNow`, or a no-op on a kolu built without agents. */
+  deliverAgents: (host: HostKey | null) => void;
   /** The agent-distro profile listing, read once at boot
    *  (`./agentDistroListing.ts`) — the `agentDistroListing` cell's only value. */
   agentDistroListing: AgentDistroListing;
@@ -480,6 +485,11 @@ export function implementKoluSurface(deps: KoluSurfaceDeps) {
           Effect.promise(() => deps.forwards.create(input)),
         cancel: ({ input }) =>
           Effect.promise(() => deps.forwards.cancel(input.key)),
+      },
+      // Starts the delivery and answers; each host's padi cells say how it ends.
+      agentDistro: {
+        deliver: ({ input }) =>
+          Effect.sync(() => deps.deliverAgents(input.host)),
       },
     },
   };

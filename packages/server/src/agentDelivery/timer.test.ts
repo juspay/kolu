@@ -3,13 +3,13 @@
  * look and when poked, and says whether a schedule boundary has passed (on
  * time, late, or across a sleep) — never while there is nothing to keep
  * current. Whether to ask between boundaries (a retry) and whether a run starts
- * is the policy's call (`./schedule`'s `scheduledAskNow`, upstream's due rule;
- * `download.test.ts`).
+ * is the policy's call (`./schedule.ts`, on `scheduledAskNow` and upstream's
+ * due rule; `schedule.test.ts`).
  */
 
 import type { UpdaterSchedule } from "@kolu/agent-distro/schedule";
 import { describe, expect, it } from "vitest";
-import { MAX_WAIT_MS, startUpdateTimer } from "./scheduler.ts";
+import { MAX_WAIT_MS, startUpdateTimer } from "./timer.ts";
 
 /** Upstream's schedule: every six hours from 02:00 UTC. */
 const UPSTREAM: UpdaterSchedule = { periodSeconds: 21600, offsetSeconds: 7200 };

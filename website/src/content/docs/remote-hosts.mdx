@@ -123,14 +123,18 @@ tools ride the same closure as the daemon, they are always the same build as the
 padi they talk to.
 
 The **coding agents** do not ride that closure. With [AI coding agents](/agents)
-on, the first time a host is used the host **downloads them itself** from
-agent-distro's binary cache into its own Nix store; nothing is copied over ssh.
-The host's tab shows the download and says when it has landed; what a host
-needs, and what to do when a download fails, is on that page
-([When a download fails](/agents#when-a-download-fails)). From then on the host
-keeps them current itself, four times a day, and whenever a newer kolu reaches
-it; its tab shows each update downloading while the agents it has keep working
-([Kept up to date](/agents#kept-up-to-date)). It never compiles agents.
+on, the machine running kolu **delivers them** the first time a host connects:
+it takes the set from agent-distro's binary cache into its own Nix store and
+copies it to the host over the same ssh login, the way the daemon itself
+travels — but never builds it. The host downloads nothing itself, so it needs no
+flakes, no GitHub access and no cache settings for its agents. The host's tab
+shows the delivery until it lands. The one thing a host must allow
+is the copy: its Nix has to trust either your ssh login or agent-distro's cache
+key, or it refuses the agents — the one-line fix is in [When a delivery
+fails](/agents#when-a-delivery-fails). From then on kolu keeps the host current,
+four times a day and whenever it reconnects; its tab shows each update arriving
+while the agents it has keep working ([Kept up to
+date](/agents#kept-up-to-date)). Nothing compiles agents, on either machine.
 
 A [profile of your own](/agents#a-profile-of-your-own) reaches every host the
 same way the setting does — as words, never as files. A flake reference
@@ -164,7 +168,8 @@ would run.
 
 Click the **connection pip** for the **diagnostics popover** — connection
 state, terminal and awaiting counts, that machine's **agents** (the profile and
-build its new terminals get, its last update, and its check-or-retry button —
+build its new terminals get, its last update, and its check-for-newer-agents
+button —
 the same popover the tab's agent-distro mark opens), padi·kaval detail,
 remove-with-confirm. The **label** (Home or hostname) only switches hosts;
 diagnostics is never hover-opened.

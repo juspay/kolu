@@ -4,8 +4,9 @@
  * pool/session/client slices are narrow on purpose, so no real padi is needed.
  * What this pins for THIS cell: a push on every connect (first bind and
  * reconnect — padi forgets the setting with its link), a re-push when the
- * preference moves, nothing for an unrelated preference write, and a refusal (a
- * host that does not know the profile) logged and contained.
+ * preference moves, nothing for an unrelated preference write, a refusal (a
+ * host that does not know the profile) logged and contained, and `onPushed` —
+ * the agent delivery's trigger — fired per host only after its padi took it.
  */
 
 import { Effect } from "effect";
@@ -117,6 +118,29 @@ describe("the agentDistro push", () => {
     await settle();
     expect(local.pushed).toEqual([VANILLA, JUSPAY]);
     expect(remote.pushed).toEqual([VANILLA, JUSPAY]);
+  });
+
+  it("fires onPushed per host after a taken push, never after a refused one", async () => {
+    const local = fakeSession();
+    const remote = fakeSession({ refuse: true });
+    const pushedTo: string[] = [];
+    installPadiCellPusher({
+      cell: "agentDistro",
+      pool: poolOf({ local: local.session, "remote:box": remote.session }),
+      getValue: () => VANILLA,
+      equals: agentDistroSettingEqual,
+      onPushed: (host) => pushedTo.push(host),
+      log,
+    });
+    local.to("connected");
+    remote.to("connected");
+    await settle();
+    expect(pushedTo).toEqual(["local"]);
+    // A reconnect re-pushes, and so fires again.
+    local.to("reconnecting");
+    local.to("connected");
+    await settle();
+    expect(pushedTo).toEqual(["local", "local"]);
   });
 
   it("logs a host's refusal at error and keeps running", async () => {

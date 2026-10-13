@@ -5,7 +5,7 @@
 # The package's TypeScript half (src/) reads what this file bakes.
 #
 # Everything here is agent-distro's own library — its validated `profiles`, its
-# `mkLaunchers`, `mkUpdater`, `stateDirectory` and `cache` — read off
+# `mkLaunchers`, `stateDirectory`, `cache` and `schedule` — read off
 # its flake outputs with kolu's nixpkgs standing in for the flake's own input
 # (the same "one nixpkgs for every harness" move agent-distro's
 # lib/flake-source.nix makes for its upstreams). Kolu adds a manifest, a default
@@ -25,15 +25,20 @@
 #     pins), its `bin/` (what goes on PATH) and its store hash. Generated from
 #     the very values that build the directories, so nothing downstream knows a
 #     layout by hand.
-#   * `updater` — per-profile updater configs: how a host fetches a profile's
-#     bundle from the binary cache into its own store (agent-distro's
-#     `lib.mkUpdater`), and where that host keeps `current`. Baked on BOTH arms;
-#     a remote host (no floor) runs it on first use.
+#   * `profiles` — the profiles this build knows, in listing order, and where a
+#     host keeps each one's `current` (agent-distro's own `stateDirectory`,
+#     under a placeholder state home padi makes concrete on its host). Baked on
+#     BOTH arms: padi checks a pushed setting against it and points `current`
+#     at the bundle kolu delivered.
+#   * `delivery` — what the BINDER (kolu-server) needs to deliver a profile's
+#     bundle to every host: upstream's flake, its one binary cache
+#     (`lib.cache`) and its update schedule (`lib.schedule`). Baked on the
+#     floor arm only — a host never fetches its own agents.
 #   * `pluginDir` — this kolu's `agent-plugin`, handed to every harness at launch
 #     through `AGENT_DISTRO_PLUGINS`, so kolu's MCP plugin is loaded in every
 #     profile without agent-distro pinning kolu.
 #   * `bakeArgs { floor }` — the `--set` flags that bake the above onto a
-#     wrapper (the floor only when `floor`).
+#     wrapper (the floor and the delivery only when `floor`).
 #   * `proof { floor }` — the build-time check a wrapper runs on what it baked.
 #     On the floor it runs `readListing`, kolu-server's own boot read of the
 #     floor's profiles (the caller builds that command: this file does not know
@@ -69,10 +74,8 @@ let
   # Some harnesses are unfree (Claude Code), so the launchers need a package
   # set that allows them: kolu's own nixpkgs and overlays, re-instantiated with
   # `allowUnfree`. That is a SECOND evaluation of nixpkgs (kolu's set does not
-  # allow unfree), paid only when the bundle or the updater configs are forced —
-  # `default`, `padi-agent` and `agent-distro-bundle`, never the dev shell. Node
-  # and the runtime tree are free, so the updater's store paths are the same
-  # either way.
+  # allow unfree), paid only when the floor is forced — `default` and
+  # `agent-distro-bundle`, never the dev shell or `padi-agent`.
   pkgsUnfree = import pkgs.path {
     inherit (pkgs.stdenv.hostPlatform) system;
     inherit (pkgs) overlays;
@@ -86,8 +89,8 @@ let
     });
 
   # The manifest: the floor described by the SAME values that build it. Each
-  # profile's directory is agent-distro's bundle as is — the very store path a
-  # host's updater lands as `current`.
+  # profile's directory is agent-distro's bundle as is — the same kind of store
+  # path kolu delivers to a host as `current`.
   manifest = pkgs.writeText "agent-distro.json" (builtins.toJSON {
     default = defaultProfile;
     profiles = map
@@ -107,55 +110,40 @@ let
     cp ${manifest} "$out/share/kolu/agent-distro.json"
   '';
 
-  # The updater a host runs to fetch a profile's bundle from the binary cache.
-  # `mkUpdater` writes an absolute state directory into its config at build
-  # time, but a host's state home is only known on that host — so the config
-  # is built against a placeholder home that padi replaces with the host's real
-  # `$XDG_STATE_HOME` (or `~/.local/state`) before running it. The directory
-  # under that home is agent-distro's own `stateDirectory`, so a host that also
-  # runs agent-distro's Home Manager module for the same profile shares its
-  # `current` rather than keeping a second one.
+  # Where a host keeps each profile: agent-distro's own `stateDirectory`, so a
+  # host that also runs agent-distro's Home Manager module for the same profile
+  # shares its `current` rather than keeping a second one. A host's state home
+  # is only known on that host, so the directory is written against a
+  # placeholder home that padi replaces with the host's real `$XDG_STATE_HOME`
+  # (or `~/.local/state`). The history log is upstream's too.
   flakeRef = "github:juspay/agent-distro";
   stateHomePlaceholder = "@KOLU_XDG_STATE_HOME@";
-  updaterFor = name:
-    let
-      u = distro.lib.mkUpdater {
-        pkgs = pkgsUnfree;
-        # Read only for its `runtime` (the Node and source tree the updater
-        # runs on), so it never forces a harness build.
-        bundle = launchers.${name}.bundle;
-        flake = flakeRef;
-        profile = name;
-        stateDirectory = distro.lib.stateDirectory {
+  profiles = pkgs.writeText "kolu-agent-distro-profiles.json" (builtins.toJSON {
+    inherit stateHomePlaceholder;
+    history = "${stateHomePlaceholder}/agent-distro/history.log";
+    # Listing order: the default first.
+    profiles = map
+      (name: {
+        inherit name;
+        state = distro.lib.stateDirectory {
           xdgStateHome = stateHomePlaceholder;
           flake = flakeRef;
           profile = name;
         };
-        history = "${stateHomePlaceholder}/agent-distro/history.log";
-        # The host's own Nix, found on padi's PATH: the bundle lands in the
-        # host's store, through the host's own substituter settings.
-        nix = "nix";
-        substituters.${distro.lib.cache.url} = distro.lib.cache.publicKey;
-      };
-      # `mkUpdater`'s `command` ENDS with its own (build-time) config path; padi
-      # runs the updater with a host-concrete copy of that config instead, so
-      # the baked command is the command minus its last argument. Asserted, so
-      # an upstream change to `command`'s shape fails this build rather than a
-      # host's download.
-      command =
-        assert lib.assertMsg (lib.last u.command == "${u.config}")
-          "agent-distro's mkUpdater command no longer ends with its config path; packages/agent-distro/default.nix strips it";
-        lib.init u.command;
-    in
-    {
-      inherit name command;
-      config = "${u.config}";
-    };
+      })
+      profileNames;
+  });
 
-  updater = pkgs.writeText "kolu-agent-distro-updater.json" (builtins.toJSON {
-    inherit stateHomePlaceholder;
-    # Listing order: the default first.
-    profiles = map updaterFor profileNames;
+  # What kolu-server delivers from: the flake it locks once per run, the one
+  # binary cache it copies bundles out of (never building one), and when it
+  # runs. All three are upstream's own values — read here, written nowhere else.
+  delivery = pkgs.writeText "kolu-agent-distro-delivery.json" (builtins.toJSON {
+    flake = flakeRef;
+    cache = { inherit (distro.lib.cache) url publicKey; };
+    schedule = {
+      periodSeconds = distro.lib.schedule.updatePeriodSeconds;
+      offsetSeconds = distro.lib.schedule.updateOffsetSeconds;
+    };
   });
 
   pluginDir = builtins.path {
@@ -165,50 +153,46 @@ let
   # The env names a wrapper bakes (padi's `agentDistro/bake.ts` reads them).
   env = {
     bundle = "KOLU_AGENT_DISTRO_BUNDLE";
-    updater = "KOLU_AGENT_DISTRO_UPDATER";
+    profiles = "KOLU_AGENT_DISTRO_PROFILES";
+    delivery = "KOLU_AGENT_DISTRO_DELIVERY";
     pluginDir = "KOLU_AGENT_PLUGIN_DIR";
   };
 
   # The `--set` flags that bake the agents onto a wrapper. Both arms bake the
-  # updater listing and the plugin dir; only the arm a user runs locally bakes
-  # the floor — a remote host must download its agents, never receive them
-  # over ssh.
+  # profiles listing and the plugin dir; only the arm a user runs locally bakes
+  # the floor and the delivery — kolu-server delivers every host's agents, and
+  # a remote host's padi only points `current` at what it was given.
   bakeArgs = { floor }: lib.concatStringsSep " " (
-    lib.optional floor ''--set ${env.bundle} "${bundle}"''
+    lib.optionals floor [
+      ''--set ${env.bundle} "${bundle}"''
+      ''--set ${env.delivery} "${delivery}"''
+    ]
     ++ [
-      ''--set ${env.updater} "${updater}"''
+      ''--set ${env.profiles} "${profiles}"''
       ''--set ${env.pluginDir} "${pluginDir}"''
     ]
   );
 
   # The proof a wrapper runs on the bake it RESOLVED (after sourcing its own
   # composed wrapper): a broken bake fails the build that would ship it, not a
-  # user's spawn. It reads only the manifest and the updater listing — never a
+  # user's spawn. It reads only the manifest and the listings — never a
   # directory layout by hand. Needs `jq` on PATH.
   proof = { floor }: ''
-    echo "resolved ${env.updater}=''${${env.updater}:-}"
+    echo "resolved ${env.profiles}=''${${env.profiles}:-}"
     echo "resolved ${env.pluginDir}=''${${env.pluginDir}:-}"
     if [ ! -f "''${${env.pluginDir}:-}/plugin.json" ]; then
       echo "FAIL: ${env.pluginDir} has no plugin.json — every harness would launch without kolu's plugin." >&2
       exit 1
     fi
-    first=$(jq -r '.profiles[0].name' "''$${env.updater}")
+    first=$(jq -r '.profiles[0].name' "''$${env.profiles}")
     if [ "$first" != ${defaultProfile} ]; then
-      echo "FAIL: the updater listing's first profile is '$first', not kolu's default '${defaultProfile}' (packages/agent-distro/defaults.json)." >&2
+      echo "FAIL: the profiles listing's first profile is '$first', not kolu's default '${defaultProfile}' (packages/agent-distro/defaults.json)." >&2
       exit 1
     fi
-    for f in $(jq -r '.profiles[] | (.command[], .config)' "''$${env.updater}"); do
-      if [ ! -e "$f" ]; then
-        echo "FAIL: the agent-distro updater listing names '$f', which does not exist — a host could never fetch its agents." >&2
-        exit 1
-      fi
-    done
-    for c in $(jq -r '.profiles[].config' "''$${env.updater}"); do
-      if ! jq -e --arg p ${lib.escapeShellArg stateHomePlaceholder} '.state | startswith($p)' "$c" >/dev/null; then
-        echo "FAIL: $c does not keep its state under the host-home placeholder — every host would use the build machine's home." >&2
-        exit 1
-      fi
-    done
+    if ! jq -e --arg p ${lib.escapeShellArg stateHomePlaceholder} 'all(.profiles[]; .state | startswith($p)) and (.history | startswith($p))' "''$${env.profiles}" >/dev/null; then
+      echo "FAIL: the profiles listing does not keep its state under the host-home placeholder — every host would use the build machine's home." >&2
+      exit 1
+    fi
   '' + (if floor then ''
     # The floor: present, described by its manifest, and every profile it
     # names really there — describing itself (read by kolu-server's own boot
@@ -216,6 +200,11 @@ let
     # with a launcher for every harness its versions file names, and its own
     # picker.
     echo "resolved ${env.bundle}=''${${env.bundle}:-}"
+    echo "resolved ${env.delivery}=''${${env.delivery}:-}"
+    if ! jq -e '(.flake | length > 0) and (.cache.url | length > 0) and (.cache.publicKey | length > 0) and (.schedule.periodSeconds > 0)' "''${${env.delivery}:-/dev/null}" >/dev/null; then
+      echo "FAIL: ${env.delivery} does not name agent-distro's flake, cache, key and schedule — kolu-server could deliver no agents." >&2
+      exit 1
+    fi
     m="''${${env.bundle}:-}/share/kolu/agent-distro.json"
     if [ ! -f "$m" ]; then
       echo "FAIL: ${env.bundle} has no manifest at share/kolu/agent-distro.json." >&2
@@ -225,8 +214,8 @@ let
       echo "FAIL: the floor manifest's default is not kolu's default '${defaultProfile}'." >&2
       exit 1
     fi
-    if [ "$(jq -c '[.profiles[].name]' "$m")" != "$(jq -c '[.profiles[].name]' "''$${env.updater}")" ]; then
-      echo "FAIL: the floor manifest and the updater listing name different profiles — Settings would offer a profile padi refuses." >&2
+    if [ "$(jq -c '[.profiles[].name]' "$m")" != "$(jq -c '[.profiles[].name]' "''$${env.profiles}")" ]; then
+      echo "FAIL: the floor manifest and the profiles listing name different profiles — Settings would offer a profile padi refuses." >&2
       exit 1
     fi
     # The listing names exactly the manifest's profiles by construction; a
@@ -259,8 +248,12 @@ let
       echo "FAIL: a floor-less wrapper resolved a floor bundle — it would ship every profile's agents to a remote host." >&2
       exit 1
     fi
+    if [ -n "''${${env.delivery}:-}" ]; then
+      echo "FAIL: a floor-less wrapper resolved the delivery — only kolu-server delivers agents; a host never fetches its own." >&2
+      exit 1
+    fi
   '');
 in
 {
-  inherit bundle updater pluginDir defaultProfile bakeArgs proof;
+  inherit bundle profiles delivery pluginDir defaultProfile bakeArgs proof;
 }

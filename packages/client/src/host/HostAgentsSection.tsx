@@ -1,9 +1,10 @@
 /** The agents section of a machine's host details — everything about
  *  agent-distro that is TRUE OF THAT MACHINE: the profile new terminals there
- *  get and the build serving it, its state with its last update run, a failed
- *  download's own words and what it means there, that machine's last update
- *  events in the updater's words, and the one action it offers (check for
- *  newer agents, or retry the download). The facts and their words are
+ *  get and the build serving it, its state with its last delivery, a failed
+ *  delivery's own words, its host-side fix and what it means there (with the
+ *  one link to the docs that explain it), that machine's last update events,
+ *  and the one action it offers: check for newer agents — which is also how a
+ *  machine whose delivery failed is tried again. The facts and their words are
  *  `agentHostDetail`'s; Settings keeps only the fleet line.
  *
  *  Absent entirely when there are no agents to describe there — a padi built
@@ -13,7 +14,6 @@
 import AgentDistroLogo from "@kolu/agent-distro/solid";
 import {
   AGENTS_HOST_CHECK,
-  AGENTS_HOST_RETRY,
   type AgentHostDetail,
 } from "@kolu/agent-distro/status";
 import type { HostKey } from "kolu-common/hostKey";
@@ -23,19 +23,14 @@ import {
   agentsWhere,
   checkAgentsOn,
   hostAgentDetail,
-  retryAgentsOn,
 } from "../agents/useAgentDistro";
+import { DocLink } from "../ui/DocLink";
 
-/** The one action a machine's section offers, by the fold's verdict. */
-const ActionRow: Component<{ host: HostKey; action: "check" | "retry" }> = (
-  props,
-) => {
-  const words = () =>
-    props.action === "check" ? AGENTS_HOST_CHECK : AGENTS_HOST_RETRY;
-  // A check needs a machine that can answer one; a retry is always offered —
-  // the failure it retries IS the state the section is reporting.
-  const enabled = () =>
-    props.action === "retry" || agentHostCheckableNow(props.host);
+/** The one action a machine's section offers: check for newer agents. */
+const ActionRow: Component<{ host: HostKey; action: "check" }> = (props) => {
+  const words = () => AGENTS_HOST_CHECK;
+  // A check needs a connected machine with no delivery already going there.
+  const enabled = () => agentHostCheckableNow(props.host);
   return (
     <button
       type="button"
@@ -44,11 +39,7 @@ const ActionRow: Component<{ host: HostKey; action: "check" | "retry" }> = (
       disabled={!enabled()}
       title={words().hint}
       class="mt-0.5 flex w-full cursor-pointer items-center justify-between gap-4 rounded-md px-1.5 py-1 text-left text-[11px] text-fg-3 transition-colors hover:bg-surface-2 hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 disabled:cursor-default disabled:opacity-50 disabled:hover:bg-transparent disabled:hover:text-fg-3"
-      onClick={() =>
-        props.action === "check"
-          ? checkAgentsOn(props.host)
-          : retryAgentsOn(props.host)
-      }
+      onClick={() => checkAgentsOn(props.host)}
     >
       <span>{words().label}</span>
       <span aria-hidden="true">↻</span>
@@ -123,6 +114,13 @@ const Section: Component<{ host: HostKey; detail: AgentHostDetail }> = (
         </p>
       )}
     </For>
+    <Show when={props.detail.cause.length > 0}>
+      <p class="mb-0.5 text-[10.5px] leading-4">
+        <DocLink slug="agents" anchor="when-a-delivery-fails">
+          What this means, and the fix on that machine
+        </DocLink>
+      </p>
+    </Show>
     <Show when={props.detail.means}>
       {(means) => (
         <p class="mb-0.5 text-[10.5px] leading-4 text-fg-3">{means()}</p>

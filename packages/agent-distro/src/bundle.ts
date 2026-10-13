@@ -1,15 +1,14 @@
 /**
  * The shape of agent-distro's bundles and state on disk, as kolu relies on it:
  * where a bundle keeps its commands, how its store path is shortened for a
- * tile, and how a host's state directory is named in the updater config
- * `lib.mkUpdater` writes. (Where kolu's floor keeps each profile is the floor's
+ * tile, where a host's `current` link is, where kolu-server roots a bundle it
+ * delivered, and how a state path baked against a placeholder home is made
+ * concrete for a host. (Where kolu's floor keeps each profile is the floor's
  * own manifest — `./manifest.ts` — never a layout known here.)
  *
  * Pure string algebra (POSIX store paths; no `node:path`), so the browser can
  * use the short hash and padi the rest.
  */
-
-import { Schema } from "effect";
 
 /** The directory a terminal gets on its PATH for a bundle — its `bin/`. Both a
  *  profile dir of kolu's floor and a host's `current` target lay their
@@ -18,8 +17,9 @@ export function agentBinDir(bundle: string): string {
   return `${bundle}/bin`;
 }
 
-/** The link agent-distro's updater flips, under a state directory, to the
- *  bundle it last fetched. */
+/** The link under a profile's state directory that names the bundle the host
+ *  serves — agent-distro's own `current` (its shims prefer it), which padi
+ *  points at each bundle kolu delivers. */
 export function currentLink(stateDir: string): string {
   return `${stateDir}/current`;
 }
@@ -32,46 +32,27 @@ export function agentBundleShortHash(bundle: string): string {
   return base.slice(0, 8);
 }
 
-/** The two path fields of `lib.mkUpdater`'s config (agent-distro's
- *  `src/update/update.ts` `Config`) that name a host's state. */
-const UpdaterConfigPathsSchema = Schema.Struct({
-  state: Schema.String,
-  history: Schema.String,
-});
-const decodeConfigPaths = Schema.decodeUnknownSync(UpdaterConfigPathsSchema);
+/** Where kolu-server roots a bundle it delivered to a host, relative to that
+ *  host's home (a remote's ssh login resolves it there; the local arm anchors
+ *  it to `$HOME`). One fixed link per profile: each delivery overwrites it, so
+ *  the previous bundle drops out of the root set once nothing else holds it —
+ *  the same "latest" semantics as `@kolu/surface-remote`'s per-agent roots. */
+export function deliveryGcRootPath(profile: string): string {
+  return `.local/state/kolu/agent-distro/gcroots/${profile}`;
+}
 
-/** An updater config made concrete for one host: `placeholder` (the state home
- *  the config was built against) replaced with the host's real `stateHome` in
- *  `state` and `history`; every other field passed through untouched. Returns
- *  the JSON to hand the updater, the state directory and the history log it
- *  names. Throws if
- *  `state` is not under the placeholder — a config not built that way would
- *  point every host at the build machine's home. */
-export function concreteUpdaterConfig(
-  configText: string,
+/** `path` with `placeholder` (the state home the Nix half built it against)
+ *  replaced by a host's real `stateHome`. Throws if `path` is not under the
+ *  placeholder — a listing not built that way would point every host at the
+ *  build machine's home. */
+export function concreteStatePath(
+  path: string,
   placeholder: string,
   stateHome: string,
-): {
-  readonly text: string;
-  readonly stateDir: string;
-  readonly historyFile: string;
-} {
-  const raw = JSON.parse(configText) as Record<string, unknown>;
-  const fields = decodeConfigPaths(raw);
-  if (!fields.state.startsWith(placeholder)) {
+): string {
+  if (!path.startsWith(placeholder))
     throw new Error(
-      `agent-distro updater config has state '${fields.state}', not under ${placeholder}`,
+      `agent-distro state path '${path}' is not under ${placeholder}`,
     );
-  }
-  const place = (path: string) => path.split(placeholder).join(stateHome);
-  const concrete = {
-    ...raw,
-    state: place(fields.state),
-    history: place(fields.history),
-  };
-  return {
-    text: JSON.stringify(concrete),
-    stateDir: concrete.state,
-    historyFile: concrete.history,
-  };
+  return `${stateHome}${path.slice(placeholder.length)}`;
 }

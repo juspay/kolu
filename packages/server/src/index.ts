@@ -55,6 +55,8 @@ import {
 import { log } from "./log.ts";
 import { enumerateDaemonInventoryOnce } from "./padi/daemonInventory.ts";
 import { readAgentDistroListing } from "./agentDistroListing.ts";
+import { readAgentDistroDeliveryBake } from "./agentDelivery/bake.ts";
+import { installAgentDelivery } from "./agentDelivery/install.ts";
 import { installNewTerminalPolicyPusher } from "./padi/newTerminalPolicy.ts";
 import { installPadiCellPusher } from "./padi/padiCellPusher.ts";
 import {
@@ -765,16 +767,37 @@ export async function bootKoluWeb(flags: KoluBootFlags): Promise<void> {
     getPolicy: currentNewTerminalPolicy,
     log,
   });
+  // AGENT DELIVERY — kolu-server delivers agent-distro's bundles to every host
+  // (`./agentDelivery/`): on upstream's schedule, on the user's check, and to a
+  // host the moment its padi takes the Agents setting (the pusher below). Read
+  // once, here: a broken listing or delivery bake crashes the boot; a kolu built
+  // from source has neither, and delivers nothing.
+  const agentDistroListing = readAgentDistroListing();
+  const deliveryBake = readAgentDistroDeliveryBake();
+  const agentDelivery =
+    deliveryBake === null || agentDistroListing.kind !== "available"
+      ? undefined
+      : installAgentDelivery({
+          bake: deliveryBake,
+          pool,
+          setting: currentAgentDistroSetting,
+          bundles: new Set(agentDistroListing.profiles.map((p) => p.name)),
+          label: (host) =>
+            host.kind === "local" ? serverHostname : host.target,
+          log,
+        });
   // The AGENTS SETTING pusher — the same mechanism, for padi's memory-only
   // `agentDistro` cell: every bound padi (local and every remote host) learns the
   // user's choice on each connect edge and on every preferences write, and applies
   // it to its next new terminal. A padi that does not know the chosen profile
-  // refuses the write; the pusher logs that at error.
+  // refuses the write; the pusher logs that at error. A host that TOOK the
+  // setting is delivered its bundle.
   const agentDistroPusher = installPadiCellPusher({
     cell: "agentDistro",
     pool,
     getValue: currentAgentDistroSetting,
     equals: agentDistroSettingEqual,
+    onPushed: (host) => agentDelivery?.deliverTo(host),
     log,
   });
 
@@ -831,11 +854,16 @@ export async function bootKoluWeb(flags: KoluBootFlags): Promise<void> {
     // re-derive and re-push to every connected padi, so the next terminal any face
     // opens follows the setting the user just changed.
     onPolicyInputsChanged: () => newTerminalPolicyPusher.republish(),
-    onAgentDistroChanged: () => agentDistroPusher.republish(),
-    // Read once, here: a baked floor that does not describe itself is a broken build and crashes the
-    // boot; an unbaked (from-source) kolu reads `unavailable`. A profile kolu
-    // cannot describe in plain words crashes the boot too.
-    agentDistroListing: readAgentDistroListing(),
+    onAgentDistroChanged: () => {
+      agentDistroPusher.republish();
+      agentDelivery?.onSettingChanged();
+    },
+    deliverAgents: (host) => agentDelivery?.deliverNow(host),
+    // Read once, above: a baked floor that does not describe itself is a broken
+    // build and crashes the boot; an unbaked (from-source) kolu reads
+    // `unavailable`. A profile kolu cannot describe in plain words crashes the
+    // boot too.
+    agentDistroListing,
   });
 
   // The ROOT procedures — kolu-server's own seven, bound as the third served

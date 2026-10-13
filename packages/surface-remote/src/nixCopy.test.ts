@@ -12,6 +12,7 @@ import { agentBinaryCache } from "./agentBinaryCache";
 import { directAgentDerivation, flakeAgentDerivation } from "./agentDerivation";
 import {
   agentGcRootPath,
+  deliverClosure,
   makeProvisionBudgets,
   makeStepBudget,
   PROVISION_COPY_SILENCE_MS,
@@ -22,7 +23,7 @@ import {
 import { type CaptureResult, runCapture } from "./process";
 import { sshKeepalive } from "./keepalive";
 import { TEST_BINARY_CACHE } from "./agentDerivation.testutil";
-import { nixJsonLine } from "./nixLog.testutil";
+import { nixErrorLine, nixJsonLine } from "./nixLog.testutil";
 
 vi.mock("./process", async (importOriginal) => ({
   // Keep the real pure helpers (`describeExit`) and mock only the two
@@ -826,11 +827,13 @@ describe("cache prefetch + ship (steps 2 and 3)", () => {
       ...provArgs(),
     });
     expect(res.ok).toBe(true);
+    const lines = onProgress.mock.calls.map(([line]) => String(line));
     expect(
-      onProgress.mock.calls.some(([line]) =>
-        /could not ship the agent closure: .*the host will realise it with its own substituters/s.test(
-          String(line),
-        ),
+      lines.some((l) => /could not ship the agent closure: /.test(l)),
+    ).toBe(true);
+    expect(
+      lines.some((l) =>
+        /the host will realise the agent with its own substituters/.test(l),
       ),
     ).toBe(true);
   });
@@ -1344,5 +1347,82 @@ describe("honest failure reporting (the sheetal-codex incident)", () => {
     );
     // Nix's colour codes never reach the screen.
     expect(lines.some((l) => l.includes("\u001b"))).toBe(false);
+  });
+});
+
+describe("deliverClosure — the route without a build", () => {
+  const deliver = (host: string, onProgress = vi.fn()) =>
+    deliverClosure({
+      host,
+      outPath: STORE,
+      binaryCache: TEST_BINARY_CACHE,
+      rootPath: ".local/state/kolu/agent-distro/gcroots/vanilla",
+      onProgress,
+      onActivity: () => {},
+      budget: makeStepBudget(PROVISION_STEP_SILENCE_BASE_MS, 2),
+      keepalive: sshKeepalive(10, 3),
+    });
+  const isBuild = (args: readonly string[]) =>
+    args.includes("--print-out-paths");
+
+  it("a host that already holds the path is rooted and never copied to", async () => {
+    mockNix({ checkValidity: okOut("") });
+    const res = await deliver("croissant");
+    expect(res).toEqual({ ok: true, outPath: STORE, arrived: "already-there" });
+    const calls = vi.mocked(runCapture).mock.calls.map((c) => c[1]);
+    expect(calls.some(isCopy)).toBe(false);
+    const pin = calls.find((a) => a.includes("--add-root"));
+    expect(pin).toContain(".local/state/kolu/agent-distro/gcroots/vanilla");
+  });
+
+  it("copies from the cache, ships, and roots — with no build at any step", async () => {
+    mockNix({ copy: okOut(""), ship: okOut("") });
+    const res = await deliver("croissant");
+    expect(res).toEqual({ ok: true, outPath: STORE, arrived: "copied" });
+    const calls = vi.mocked(runCapture).mock.calls.map((c) => c[1]);
+    expect(calls.some(isPrefetch)).toBe(true);
+    expect(calls.some(isShip)).toBe(true);
+    expect(calls.some(isBuild)).toBe(false);
+  });
+
+  it("a host whose Nix trusts neither the login nor the key is `refused`, and nothing is built or rooted", async () => {
+    vi.mocked(runCapture).mockImplementation(async (cmd, args, opts) => {
+      if (isShip(args)) {
+        opts.onProgress?.(
+          nixErrorLine(
+            `cannot add path '${STORE}' because it lacks a signature by a trusted key`,
+          ),
+        );
+        return failOut;
+      }
+      if (isCopy(args)) return okOut("");
+      if (cmd === "nix-store" && args.includes("--check-validity"))
+        return failOut;
+      if (args.includes("--check-validity")) return failOut;
+      return okOut("");
+    });
+    const res = await deliver("ci@croissant");
+    expect(res).toMatchObject({
+      ok: false,
+      kind: "not-delivered",
+      why: "refused",
+      reason: expect.stringMatching(/lacks a signature by a trusted key/),
+    });
+    const calls = vi.mocked(runCapture).mock.calls.map((c) => c[1]);
+    expect(calls.some(isBuild)).toBe(false);
+    expect(calls.some((a) => a.includes("--add-root"))).toBe(false);
+  });
+
+  it("a cache that does not hold the path is `uncached`, and nothing is shipped", async () => {
+    mockNix(); // prefetch misses, nothing held locally
+    const res = await deliver("croissant");
+    expect(res).toMatchObject({
+      ok: false,
+      kind: "not-delivered",
+      why: "uncached",
+    });
+    const calls = vi.mocked(runCapture).mock.calls.map((c) => c[1]);
+    expect(calls.some(isShip)).toBe(false);
+    expect(calls.some(isBuild)).toBe(false);
   });
 });

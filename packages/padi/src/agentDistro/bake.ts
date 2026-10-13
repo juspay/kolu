@@ -3,21 +3,25 @@
  * agents a terminal can be given. Three env vars, all written only by
  * `default.nix`, from `@kolu/agent-distro`'s Nix half (`packages/agent-distro/default.nix`):
  *
- *   - `KOLU_AGENT_DISTRO_UPDATER` (both arms) — a JSON file listing the profiles
- *     this build knows, in listing order, and per profile the updater command +
- *     config that fetches its bundle from the binary cache (agent-distro's
- *     `lib.mkUpdater`). Its profile list is the map a pushed setting is checked
- *     against; its config names the host's `current` link.
+ *   - `KOLU_AGENT_DISTRO_PROFILES` (both arms) — the profiles this build knows,
+ *     in listing order, each with the state directory its `current` lives
+ *     under on a host (`@kolu/agent-distro/bake`). Its profile list is the map
+ *     a pushed setting is checked against; its state directories are where
+ *     padi points `current` at each bundle kolu-server delivers.
  *   - `KOLU_AGENT_DISTRO_BUNDLE` (local arm only) — the FLOOR: every profile's
  *     bundle, in this kolu's own closure, described by its manifest
- *     (`@kolu/agent-distro/manifest`). A remote host has no floor; it downloads.
+ *     (`@kolu/agent-distro/manifest`). A remote host has no floor; kolu-server
+ *     delivers its agents.
  *   - `KOLU_AGENT_PLUGIN_DIR` (both arms) — this kolu's `agent-plugin`, handed to
  *     each harness as `AGENT_DISTRO_PLUGINS`.
+ *
+ * (The fourth, `KOLU_AGENT_DISTRO_DELIVERY`, is kolu-server's alone: padi never
+ * fetches anything.)
  *
  * Like `KOLU_AGENT_TOOLS_PATH` (kolu-pty's `readAgentToolsBake`), the bake is a
  * fact the daemon is TOLD, never one it derives: a from-source padi (`just dev`,
  * e2e) has none, and says so by reading `null` — explicit absence, never a
- * guessed path. A HALF bake (the updater listing without its plugin dir, or a
+ * guessed path. A HALF bake (the profiles listing without its plugin dir, or a
  * listing that does not parse) is a broken build and throws at boot.
  *
  * All three are `KOLU_*`, so kolu-pty's `cleanEnv` strips them from every
@@ -25,20 +29,16 @@
  */
 
 import { readFileSync } from "node:fs";
-import { concreteUpdaterConfig } from "@kolu/agent-distro/bundle";
-import {
-  type UpdaterSchedule,
-  updaterScheduleOf,
-} from "@kolu/agent-distro/schedule";
+import { parseAgentDistroProfiles } from "@kolu/agent-distro/bake";
+import { concreteStatePath } from "@kolu/agent-distro/bundle";
 import {
   type AgentDistroManifest,
   manifestFile,
   parseAgentDistroManifest,
 } from "@kolu/agent-distro/manifest";
-import { Schema } from "effect";
 import { hostStateHome } from "./onHost.ts";
 
-export const AGENT_DISTRO_UPDATER_ENV = "KOLU_AGENT_DISTRO_UPDATER";
+export const AGENT_DISTRO_PROFILES_ENV = "KOLU_AGENT_DISTRO_PROFILES";
 export const AGENT_DISTRO_BUNDLE_ENV = "KOLU_AGENT_DISTRO_BUNDLE";
 export const AGENT_PLUGIN_DIR_ENV = "KOLU_AGENT_PLUGIN_DIR";
 
@@ -51,47 +51,27 @@ export const AGENT_DISTRO_PLUGINS_ENV = "AGENT_DISTRO_PLUGINS";
  *  Agents setting's profile, on every terminal that gets agents. */
 export const AI_PROFILE_ENV = "AI_PROFILE";
 
-/** Every bake name, for the binder that forwards them onto a padi it spawns. */
+/** Every bake name padi reads, for the binder that forwards them onto a padi
+ *  it spawns. */
 export const AGENT_DISTRO_BAKE_ENVS = [
-  AGENT_DISTRO_UPDATER_ENV,
+  AGENT_DISTRO_PROFILES_ENV,
   AGENT_DISTRO_BUNDLE_ENV,
   AGENT_PLUGIN_DIR_ENV,
 ] as const;
 
-/** The Nix half's `updater` file. */
-const UpdaterListingSchema = Schema.Struct({
-  stateHomePlaceholder: Schema.String.check(Schema.isMinLength(1)),
-  profiles: Schema.Array(
-    Schema.Struct({
-      name: Schema.String.check(Schema.isMinLength(1)),
-      command: Schema.Array(Schema.String).check(Schema.isMinLength(1)),
-      config: Schema.String.check(Schema.isMinLength(1)),
-    }),
-  ).check(Schema.isMinLength(1)),
-});
-
 export interface AgentDistroProfileBake {
   readonly name: string;
-  /** `node <tree>/src/update/update.ts` — `lib.mkUpdater`'s `command` with its
-   *  trailing build-time config path removed (the Nix half asserts it was
-   *  there); padi appends the host-concrete config instead. */
-  readonly command: readonly string[];
-  /** The updater config made concrete for THIS host — the placeholder state
-   *  home replaced by the host's own, ONCE, when the bake is read. */
-  readonly configText: string;
-  /** The state directory that config names (its `current` link is the
-   *  profile's downloaded bundle) — computed with `configText`, never again. */
+  /** The state directory this host keeps the profile under — the listing's,
+   *  made concrete for THIS host's state home once, when the bake is read. Its
+   *  `current` link is the bundle the host serves. */
   readonly stateDir: string;
-  /** The history log that config names — where the updater writes what each
-   *  run did (shared by every profile on the host). */
+  /** The history log — upstream's, shared by every profile on the host. */
   readonly historyFile: string;
-  /** When an update is due — upstream's schedule, as the config carries it. */
-  readonly schedule: UpdaterSchedule;
 }
 
 export interface AgentDistroBake {
   /** The local floor's manifest, or `undefined` on a host that has none and
-   *  must download. */
+   *  is delivered its agents. */
   readonly floor: AgentDistroManifest | undefined;
   /** This kolu's `agent-plugin` directory. */
   readonly plugins: string;
@@ -99,48 +79,39 @@ export interface AgentDistroBake {
   readonly profiles: ReadonlyMap<string, AgentDistroProfileBake>;
 }
 
-const decodeListing = Schema.decodeUnknownSync(UpdaterListingSchema);
-
 /** Read the bake off `env` (injectable for tests). `null` when unbaked. Each
- *  profile's updater config is made concrete for `stateHome` HERE, once: its
- *  state directory is then a field, not a re-parse at every spawn. */
+ *  profile's state directory is made concrete for `stateHome` HERE, once: it
+ *  is then a field, not a re-substitution at every spawn. */
 export function readAgentDistroBake(
   env: Record<string, string | undefined> = process.env,
   readText: (path: string) => string = (path) => readFileSync(path, "utf8"),
   stateHome: string = hostStateHome(),
 ): AgentDistroBake | null {
-  const listingPath = env[AGENT_DISTRO_UPDATER_ENV];
+  const listingPath = env[AGENT_DISTRO_PROFILES_ENV];
   if (listingPath === undefined || listingPath === "") return null;
   const plugins = env[AGENT_PLUGIN_DIR_ENV];
   if (plugins === undefined || plugins === "") {
     throw new Error(
-      `${AGENT_DISTRO_UPDATER_ENV} is baked but ${AGENT_PLUGIN_DIR_ENV} is not — a half-baked agent-distro wrapper; rebuild kolu`,
+      `${AGENT_DISTRO_PROFILES_ENV} is baked but ${AGENT_PLUGIN_DIR_ENV} is not — a half-baked agent-distro wrapper; rebuild kolu`,
     );
   }
-  const listing = decodeListing(JSON.parse(readText(listingPath)));
+  const listing = parseAgentDistroProfiles(readText(listingPath));
+  const place = (path: string) =>
+    // Throws if the path is not under the placeholder — a listing not built by
+    // the Nix half would point every host at the build machine's home.
+    concreteStatePath(path, listing.stateHomePlaceholder, stateHome);
+  const historyFile = place(listing.history);
   const profiles = new Map<string, AgentDistroProfileBake>();
   for (const p of listing.profiles) {
     if (profiles.has(p.name)) {
       throw new Error(
-        `${AGENT_DISTRO_UPDATER_ENV} (${listingPath}) lists profile '${p.name}' twice`,
+        `${AGENT_DISTRO_PROFILES_ENV} (${listingPath}) lists profile '${p.name}' twice`,
       );
     }
-    // Throws if the baked config does not keep its state under the
-    // placeholder — a config not built by the Nix half would point every host
-    // at the build machine's home.
-    const concrete = concreteUpdaterConfig(
-      readText(p.config),
-      listing.stateHomePlaceholder,
-      stateHome,
-    );
     profiles.set(p.name, {
       name: p.name,
-      command: p.command,
-      configText: concrete.text,
-      stateDir: concrete.stateDir,
-      historyFile: concrete.historyFile,
-      // Throws on a config without upstream's schedule: a broken build.
-      schedule: updaterScheduleOf(concrete.text),
+      stateDir: place(p.state),
+      historyFile,
     });
   }
   const floorDir = env[AGENT_DISTRO_BUNDLE_ENV];

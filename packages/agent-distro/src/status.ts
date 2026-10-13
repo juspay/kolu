@@ -108,7 +108,7 @@ export function agentDistroChoice(
  *     step's autofocus and Settings' "nothing chosen yet" line.);
  *   - a profile chosen: done once this machine has settled with it — the agents
  *     are there (`ready`) or its padi has none to fetch (`unavailable`). While
- *     this machine is still downloading, or the download failed, the step
+ *     this machine is still being delivered, or its delivery failed, the step
  *     stays, so a first-run user watches the agents arrive. Until this
  *     machine's status has caught up with the choice — no frame yet, padi
  *     still `off`, or a status for another profile — it is not known yet
@@ -118,8 +118,8 @@ export function agentDistroChoice(
  *     design: there is nothing true to show about it.
  *
  *  That last reading is deliberate beyond the first run too: switching to a
- *  profile this machine must download, in Settings while no terminals are open,
- *  brings the row back until the download lands — watching it arrive is the
+ *  profile this machine must be delivered, in Settings while no terminals are open,
+ *  brings the row back until the delivery lands — watching it arrive is the
  *  same job. Fenced over the status kind. */
 export function firstRunAgentsDone(input: {
   readonly stored: AgentDistroSetting | null;
@@ -234,11 +234,10 @@ function downloadFraction(
  *   - `checking`: the host is connected and agents are on, but its status has not
  *     arrived yet (a dimmed mark with a spinning arc);
  *   - `ready`: the selected profile is on the host for new terminals — with
- *     `update` while the updater runs there (the old set keeps serving; a ring
- *     fills with bytes once a newer set downloads, the mark keeps its plain
- *     colour);
- *   - `downloading`: the host is fetching it (a ring filling with bytes);
- *   - `failed`: the download failed (the warning colour and a dot). */
+ *     `update` while kolu delivers a newer set there (the old set keeps
+ *     serving; the mark keeps its plain colour);
+ *   - `downloading`: kolu is delivering it to a host that has none yet;
+ *   - `failed`: the delivery failed (the warning colour and a dot). */
 export type AgentMark =
   | {
       readonly kind: "none";
@@ -251,8 +250,8 @@ export type AgentMark =
       readonly kind: "ready";
       readonly profile: string;
       readonly hash: string;
-      /** The updater is running there; `download` once a newer set is coming
-       *  down (its ring fill and bytes). */
+      /** A delivery is running there; `download` once its bytes are counted
+       *  (its ring fill and bytes). */
       readonly update?: {
         readonly download?: {
           readonly fraction: number;
@@ -322,31 +321,38 @@ export function agentMarkOf(
   }
 }
 
-/** The one-line retry under a failed download — worded HERE only (padi's
- *  messages state the cause, never the retry). It points at the one button
- *  that retries: `retry download` in that machine's host details
- *  ({@link AGENTS_HOST_RETRY}). */
-export const AGENTS_RETRY =
-  "Fix that, then open that machine's host details and retry the download.";
+/** What a refused delivery means, in plain words — the cause behind the
+ *  `refused` reason, whatever Nix said. */
+export const AGENTS_REFUSED_MEANS =
+  "That machine's Nix trusts neither the login kolu connects as nor agent-distro's cache key, so it would not accept the agents kolu copied there.";
 
-/** The host-setup remedy for a failure, by its typed reason — `undefined` when
- *  the cause (the updater's own words) already says what to do. */
+/** The host-side fix for a refused delivery — the ONE wording. Either half is
+ *  enough; neither is something kolu changes on a machine itself. */
+export const AGENTS_REFUSED_FIX =
+  "On that machine, add the login to `nix.settings.trusted-users`, or add agent-distro's cache and its key to `nix.settings.substituters` and `nix.settings.trusted-public-keys`.";
+
+/** When kolu tries a failed delivery again — never in a loop of its own. */
+export const AGENTS_DELIVERY_AGAIN =
+  "kolu tries again at the next scheduled update, or when you check that machine from its host details.";
+
+/** The host-setup remedy for a failure, by its typed reason — empty when the
+ *  cause (kolu-server's words, with Nix's own line) says it all. */
 export function agentFailureRemedy(
   reason: AgentDistroFailureReason,
-): string | undefined {
+): readonly string[] {
   switch (reason) {
-    case "nixMissing":
-      return "Make `nix` reachable for non-login ssh sessions: add /nix/var/nix/profiles/default/bin to PATH in /etc/environment (or at the very top of ~/.bashrc, before any early return for non-interactive shells).";
-    case "updater":
-      return undefined;
+    case "refused":
+      return [AGENTS_REFUSED_MEANS, AGENTS_REFUSED_FIX];
+    case "delivery":
+      return [];
     default:
       return reason satisfies never;
   }
 }
 
-/** A failed download's words, in the one order every surface shows them — the
- *  cause, the remedy (by reason, when there is one), the retry — each once. The
- *  tab mark's hover, the failure toast and the Settings line all read this. */
+/** A failed delivery's words, in the one order every surface shows them — the
+ *  cause, the remedy (by reason, when there is one), when kolu tries again —
+ *  each once. The tab mark's hover and the host details read this. */
 export function agentFailureLines(
   failure: {
     readonly reason: AgentDistroFailureReason;
@@ -354,16 +360,15 @@ export function agentFailureLines(
   },
   where: string,
 ): readonly [string, ...string[]] {
-  const remedy = agentFailureRemedy(failure.reason);
   return [
-    `The coding agents could not be downloaded to ${where}: ${failure.message}`,
-    ...(remedy === undefined ? [] : [remedy]),
-    AGENTS_RETRY,
+    `The coding agents could not be delivered to ${where}: ${failure.message}`,
+    ...agentFailureRemedy(failure.reason),
+    AGENTS_DELIVERY_AGAIN,
   ];
 }
 
 /** A mark's words, as a headline and the lines under it — the ONE wording its
- *  hover, the download toasts and the Settings line share. `where` names the
+ *  hover and the Settings line share. `where` names the
  *  machine as the host tab does — the local machine by its hostname, a remote
  *  by its own label; the client's one label function supplies it. A download's bytes are not in it: each surface shows
  *  `mark.bytes` beside its own bar. `undefined` for `none`. */
@@ -390,7 +395,7 @@ export function agentMarkWords(
       };
     case "downloading":
       return {
-        title: `Downloading the coding agents to ${where}…`,
+        title: `Delivering the coding agents to ${where}…`,
         detail: [],
       };
     case "failed": {
@@ -402,12 +407,12 @@ export function agentMarkWords(
   }
 }
 
-/** What a ready host says while the updater looks for a newer set. */
+/** What a ready host says while kolu looks for a newer set for it. */
 export const AGENTS_UPDATE_CHECKING = "checking for newer agents…";
 
-/** What a ready host says while a newer set downloads. */
+/** What a ready host says while a newer set is copied to it. */
 export const AGENTS_UPDATE_DOWNLOADING =
-  "Downloading newer agents — new terminals keep these until they have fully arrived.";
+  "Delivering newer agents — new terminals keep these until they have fully arrived.";
 
 /** The words beside a mark's bar while it fills — a first download's headline,
  *  or a ready host's update line — `undefined` when no bar fills. The ONE
@@ -674,10 +679,11 @@ function receiptFor(
   return receipt?.profile === profile ? receipt : undefined;
 }
 
-/** Who a reason's words are by, as a hover names them: the updater's own
- *  result line or history, or padi's words about a run that gave none. */
+/** Who a reason's words are by, as a hover names them: kolu's delivery (the
+ *  history and its reports), or padi's words about a delivery its host could
+ *  not take. */
 const AUTHOR: Record<AgentUpdateAuthor, string> = {
-  updater: "agent-distro's updater",
+  delivery: "kolu's delivery",
   padi: "padi",
 };
 
@@ -780,7 +786,7 @@ const NONE_LINE: Record<Extract<AgentMark, { kind: "none" }>["why"], string> = {
 /** One group of the Settings fleet line: the machines in one agent state,
  *  named, with the words that state reads as. Rendered as `lead` · the hosts
  *  (each a link to its host details) · `trail`: "Ready on naiveintent and 2
- *  more", "buildbox downloading", "devbox failed". */
+ *  more", "buildbox delivering", "devbox failed". */
 export interface AgentFleetGroup<H> {
   /** The group's identity — the agent state it is about ("ready", "failed",
    *  …). The whole fold is re-minted on every read, so a surface keys its
@@ -788,7 +794,7 @@ export interface AgentFleetGroup<H> {
    *  re-read re-words a group without rebuilding the machine names beside it
    *  (they are buttons, and a rebuilt button drops hover and focus). */
   readonly key: string;
-  /** The dot's colour: ok when ready, accent while a download runs, warning
+  /** The dot's colour: ok when ready, accent while a delivery runs, warning
    *  when one failed, muted when there are no agents there. */
   readonly tone: "ok" | "busy" | "warn" | "muted";
   /** The words before the names — empty when the names lead. */
@@ -824,7 +830,7 @@ function fleetState(mark: AgentMark): AgentFleetState {
         key: "downloading",
         tone: "busy",
         lead: "",
-        trail: "downloading",
+        trail: "delivering",
       };
     case "checking":
       return { key: "checking", tone: "muted", lead: "", trail: "checking…" };
@@ -892,7 +898,7 @@ function lastRunNoteOf(
 }
 
 /** One update event as a host's details lists it: when, what happened, and the
- *  updater's own words. `title`, the hover, names who wrote them. */
+ *  history's own words. `title`, the hover, names who wrote them. */
 export interface AgentEventRow {
   readonly when: string;
   readonly kind: AgentUpdateEvent["kind"] | "unreadable";
@@ -913,10 +919,16 @@ function eventRow(event: AgentUpdateEvent, ago: AgoPhrase): AgentEventRow {
     when: ago(Date.parse(event.at)),
     kind: event.kind,
     text: event.words,
-    title: quoted(EVENT_LABEL[event.kind], "updater", event.words),
+    title: quoted(EVENT_LABEL[event.kind], "delivery", event.words),
     tone: event.kind === "failed" ? "warn" : "muted",
   };
 }
+
+/** A failed delivery's state, in a word or two, by its reason. */
+const FAILED_STATE: Record<AgentDistroFailureReason, string> = {
+  refused: "refused by its Nix",
+  delivery: "delivery failed",
+};
 
 /** What a machine's host details say about its agents: the profile new
  *  terminals there get and the build serving it, the state in one line, a
@@ -929,18 +941,20 @@ export interface AgentHostDetail {
   /** The build serving it — only a ready host has one. */
   readonly hash?: string;
   readonly state: AgentStatusNote;
-  /** A failed download's words: the cause, and the remedy when its reason has
-   *  one. The retry is the button here, never a sentence. */
+  /** A failed delivery's words: the cause, and the remedy when its reason has
+   *  one (which the section follows with its one doc link). Trying again is
+   *  the section's button; `means` says when kolu tries on its own. */
   readonly cause: readonly string[];
   /** What a failure means for new terminals on THAT machine. */
   readonly means?: string;
   /** That machine's last update events, newest first — empty when it has run
    *  nothing, or is not ready. */
   readonly events: readonly AgentEventRow[];
-  /** The one action the section offers: run an update check now
-   *  ({@link AGENTS_HOST_CHECK}), retry the download that failed
-   *  ({@link AGENTS_HOST_RETRY}), or nothing to do from here. */
-  readonly action: "check" | "retry" | undefined;
+  /** The one action the section offers: deliver to that machine now
+   *  ({@link AGENTS_HOST_CHECK}) — after a failure too, which is how the user
+   *  asks kolu to try again once the machine is fixed — or nothing to do from
+   *  here. */
+  readonly action: "check" | undefined;
 }
 
 /** THE fold from one machine's agent facts to its host-details section.
@@ -977,21 +991,23 @@ export function agentHostDetail(input: {
         ...base,
         state: plain(
           mark.bytes === undefined
-            ? "downloading…"
-            : `downloading · ${mark.bytes}`,
+            ? "delivering…"
+            : `delivering · ${mark.bytes}`,
         ),
         action: undefined,
       };
-    case "failed": {
-      const remedy = agentFailureRemedy(mark.reason);
+    case "failed":
       return {
         ...base,
-        state: { text: "download failed", title: mark.message, tone: "warn" },
-        cause: [mark.message, ...(remedy === undefined ? [] : [remedy])],
-        means: `New terminals on ${host.label} get no coding agents until this is fixed.`,
-        action: "retry",
+        state: {
+          text: FAILED_STATE[mark.reason],
+          title: mark.message,
+          tone: "warn",
+        },
+        cause: [mark.message, ...agentFailureRemedy(mark.reason)],
+        means: `New terminals on ${host.label} get no coding agents until this is fixed. ${AGENTS_DELIVERY_AGAIN}`,
+        action: "check",
       };
-    }
     case "ready": {
       const update = agentMarkUpdate(mark);
       const bytes = agentMarkFill(mark)?.bytes;
@@ -1267,8 +1283,8 @@ export function agentStaleLabel(
   switch (now.kind) {
     case "waiting":
       return now.on === "downloading"
-        ? `${had} New terminals get ${now.profile}, which is still downloading to ${where}; Restart appears once it is ready.`
-        : `${had} ${now.profile} could not be downloaded to ${where}, so new terminals get no coding agents; Restart appears once it is ready.`;
+        ? `${had} New terminals get ${now.profile}, which is still being delivered to ${where}; Restart appears once it is ready.`
+        : `${had} ${now.profile} could not be delivered to ${where}, so new terminals get no coding agents; Restart appears once it is ready.`;
     case "off":
       return `${had} Coding agents are now off. Restart to switch; ${agentRestartAction(stale).outcome}.`;
     case "profile":
@@ -1311,15 +1327,14 @@ export function restartedLabel(restarted: {
     : `Restarted with the ${restarted.agentProfile} agents`;
 }
 
-/** The Agents setting's own toasts, worded once. A host's download toasts are
- *  its mark's words ({@link agentMarkWords}), raised at {@link downloadEdge}. */
+/** The Agents setting's own toasts, worded once. */
 export const agentToast = {
   /** Agents on, or a new profile. */
   on: (profile: string) => `New terminals get the ${profile} profile`,
   /** A switch to Off (title; {@link AGENTS_OFF_MEANS} is its description). */
   off: "Coding agents off",
-  /** An update landed on `host` (the {@link downloadEdge} `updated` moment):
-   *  the change in the updater's own words, and what it means for terminals. */
+  /** An update landed on `host` ({@link updateLanded}): the change in the
+   *  history's own words, and what it means for terminals. */
   updated: (host: string, words: string) =>
     ({
       title: `Coding agents updated on ${host}`,
@@ -1327,44 +1342,36 @@ export const agentToast = {
     }) as const,
 } as const;
 
-/** The palette command that runs the update check on EVERY machine now. */
+/** The palette command that delivers the newest agents to EVERY machine now. */
 export const AGENTS_CHECK_NOW = {
   label: "Check for newer coding agents",
   note: "every machine",
-  hint: "Look for newer coding agents on every machine now. Nothing is compiled: a newer set is downloaded only once agent-distro's cache holds all of it, and terminals already open keep theirs.",
+  hint: "Look for newer coding agents and deliver them to every machine now. Nothing is compiled: a newer set is delivered only once agent-distro's cache holds all of it, and terminals already open keep theirs.",
 } as const;
 
-/** The host-details row that runs the update check on THAT machine. */
+/** The host-details row that delivers the newest agents to THAT machine now —
+ *  also how a machine whose delivery failed is tried again. */
 export const AGENTS_HOST_CHECK = {
   label: "check for newer agents",
-  hint: "Look for newer coding agents on this machine now. Terminals already open keep theirs.",
+  hint: "Look for newer coding agents and deliver them to this machine now. Terminals already open keep theirs.",
 } as const;
 
-/** The host-details row that retries a download that failed on THAT machine:
- *  the chosen setting is pushed to it again, which forgets the failure and
- *  starts the download over. */
-export const AGENTS_HOST_RETRY = {
-  label: "retry download",
-  hint: "Download the coding agents to this machine again.",
-} as const;
-
-/** A per-host retry that could not reach the machine. */
-export function agentRetryFailed(host: string, message: string): string {
-  return `Could not retry the coding agents download on ${host}: ${message}`;
-}
-
-/** A Check now that could not reach a host (a transport drop, a host gone). */
+/** A check kolu-server would not run (a run already going, or nothing set). */
 export function agentCheckFailed(host: string, message: string): string {
   return `Could not check for newer coding agents on ${host}: ${message}`;
 }
 
-/** Can `status`'s host run an update check now — ready, with no update
- *  running there? Read through the mark, as the status line and the tab are. */
+/** Can `status`'s host be checked now — ready with no delivery running there,
+ *  or failed (checking is how it is tried again)? Read through the mark, as the
+ *  status line and the tab are. */
 export function agentUpdateCheckable(
   status: AgentDistroStatus | undefined,
 ): boolean {
   const mark = agentMarkOf(status, false);
-  return mark.kind === "ready" && agentMarkUpdate(mark) === undefined;
+  return (
+    (mark.kind === "ready" && agentMarkUpdate(mark) === undefined) ||
+    mark.kind === "failed"
+  );
 }
 
 /** One host as Check now sees it: whether it is connected, and its status. */
@@ -1374,92 +1381,51 @@ export interface AgentCheckHost {
 }
 
 /** Will Check now ask this host — connected (a disconnected host's last-known
- *  `ready` cannot answer), ready, with no update running there? The ONE
+ *  `ready` cannot answer), and ready with no delivery running there, or
+ *  failed ({@link agentUpdateCheckable})? The ONE
  *  per-host test the button's call and its busy state share. */
 export function agentHostCheckable(host: AgentCheckHost): boolean {
   return host.connected && agentUpdateCheckable(host.status);
 }
 
-/** Is a run of the updater in flight on any of these hosts, for any profile —
- *  a first download or an update? Read off each host's receipt (its
- *  `running`), which covers every profile, not only the selected one — what
- *  the e2e reset waits on before it deletes the updater's state. */
+/** Is a delivery in flight to any of these hosts, for any profile — a first
+ *  one or an update? Read off each host's receipt (its `running`), which
+ *  covers every profile, not only the selected one. */
 export function agentUpdateRunning(
   receipts: readonly (AgentDistroReceipt | undefined)[],
 ): boolean {
   return receipts.some((r) => r !== undefined && r.running.length > 0);
 }
 
-/** The facts of a status that its moments are read from — plain strings, so a
+/** The facts of a ready status an update is read from — plain strings, so a
  *  watcher can track them by value (a cell's value is one reconciled store
- *  object, the same before and after a change). */
-export interface DownloadEdgeFacts {
-  readonly kind: AgentDistroStatus["kind"];
-  /** The profile, for a status that names one. */
-  readonly profile?: string;
-  /** The bundle new terminals get, while `ready`. */
-  readonly bundle?: string;
+ *  object, the same before and after a change). `undefined` for any status
+ *  that is not ready. */
+export interface LandedFacts {
+  readonly profile: string;
+  readonly bundle: string;
 }
 
-/** A status's {@link DownloadEdgeFacts}. */
-export function downloadEdgeFacts(
+/** A status's {@link LandedFacts}. */
+export function landedFacts(
   status: AgentDistroStatus | undefined,
-): DownloadEdgeFacts | undefined {
-  if (status === undefined) return undefined;
-  switch (status.kind) {
-    case "off":
-    case "unavailable":
-      return { kind: status.kind };
-    case "downloading":
-    case "error":
-      return { kind: status.kind, profile: status.profile };
-    case "ready":
-      return {
-        kind: status.kind,
-        profile: status.profile,
-        bundle: status.bundle,
-      };
-    default:
-      return status satisfies never;
-  }
+): LandedFacts | undefined {
+  return status?.kind === "ready"
+    ? { profile: status.profile, bundle: status.bundle }
+    : undefined;
 }
 
-/** The moments a host's download is worth a toast, read off two consecutive
- *  statuses — ONE fold, fenced, so the client keeps only the effect that
- *  watches the cell:
- *
- *   - `start`: anything else (including nothing yet) → downloading — a
- *     download began, or is under way when the host is first heard from;
- *   - `ready`: downloading → ready;
- *   - `updated`: ready → ready with ANOTHER bundle of the SAME profile — an
- *     update landed while the old set served (a switch to another profile is
- *     not one);
- *   - `failed`: downloading → error;
- *   - `dropped`: downloading → off / unavailable — the user turned agents off
- *     mid-download, so its standing toast goes away;
- *   - `none`: everything else (a first frame, a progress tick, an update run
- *     starting or finding nothing, an unrelated change). */
-export function downloadEdge(
-  prev: DownloadEdgeFacts | undefined,
-  now: DownloadEdgeFacts | undefined,
-): "start" | "ready" | "updated" | "failed" | "dropped" | "none" {
-  if (now === undefined) return "none";
-  switch (now.kind) {
-    case "downloading":
-      return prev?.kind !== "downloading" ? "start" : "none";
-    case "ready":
-      if (prev?.kind === "downloading") return "ready";
-      return prev?.kind === "ready" &&
-        prev.profile === now.profile &&
-        prev.bundle !== now.bundle
-        ? "updated"
-        : "none";
-    case "error":
-      return prev?.kind === "downloading" ? "failed" : "none";
-    case "off":
-    case "unavailable":
-      return prev?.kind === "downloading" ? "dropped" : "none";
-    default:
-      return now.kind satisfies never;
-  }
+/** Did an update land between two statuses — ready → ready with ANOTHER bundle
+ *  of the SAME profile, while the old set served? A first delivery, a switch
+ *  to another profile, or anything not ready is not one. */
+export function updateLanded(
+  prev: LandedFacts | undefined,
+  now: LandedFacts | undefined,
+): boolean {
+  return (
+    prev !== undefined &&
+    now !== undefined &&
+    prev.profile === now.profile &&
+    prev.bundle !== now.bundle
+  );
 }

@@ -70,8 +70,8 @@ The package graduated to a **process**: `package = process = restart-hash`.
   (`./src/agentToolsBake.ts`, juspay/kolu#2146). The toolchain path
   starts with the wrapper that also bakes agent-distro, so on the machine
   running kolu (the floor rides that wrapper) an upgrade that moves only the
-  agent-distro pin moves the record too, restarts padi, and the boot check
-  (below) runs; a remote host's `padi-agent` carries no pin, so a pin-only bump
+  agent-distro pin moves the record too and restarts padi, whose rebind makes
+  kolu-server deliver the newer agents (below); a remote host's `padi-agent` carries no pin, so a pin-only bump
   leaves it untouched — a coupling `default.nix`'s wrapper proofs assert.
 - **Identity IS the state-root** (`./stateRoot`). Binding requires an explicit
   root (`--state-root` or `KOLU_PADI_STATE_DIR`) — there is no silent default
@@ -428,10 +428,14 @@ framework's transparent re-subscribe re-lead with fresh truth.
 
 padi puts the coding agents of the user's chosen
 [agent-distro](https://github.com/juspay/agent-distro) profile on the PATH of
-every NEW terminal it spawns ([Agents](https://kolu.dev/agents)), and keeps
-that profile current on its host. Three cells, two procedures (`padiSurface`
-5.9, profile references 5.11, the per-host retry 5.12) and one spawn layer
-carry it; the module is `src/agentDistro/`.
+every NEW terminal it spawns ([Agents](https://kolu.dev/agents)). It never
+FETCHES them: the binding kolu-server delivers each profile's bundle into this
+host's store (`packages/server/src/agentDelivery/`, over `@kolu/surface-remote`'s
+`deliverClosure`) and tells padi each step, and padi points the profile's
+`current` at what landed. A host needs neither flakes, GitHub egress, nor `nix`
+on padi's PATH for its agents. Three cells, one procedure (`padiSurface` 5.9,
+profile references 5.11, binder-side delivery 5.13) and one spawn layer carry
+it; the module is `src/agentDistro/`.
 
 - **`agentDistro` (memory-only, `get`/`set`)** — the Agents setting
   (`{ enabled, profile }`), PUSHED by the binding kolu-server on every connect
@@ -440,28 +444,29 @@ carry it; the module is `src/agentDistro/`.
   Any profile is accepted as it is — padi never resolves it: one named like a
   bundle this build ships rides that bundle, anything else (a flake reference,
   a path, a name agent-distro may or may not know) rides the default bundle,
-  `vanilla` (`bundleProfileOf`). Everything padi keeps per bundle (the run, the updates, the
-  receipt files) is keyed by that bundle profile; everything it publishes
+  `vanilla` (`bundleProfileOf`). Everything padi keeps per bundle (its
+  deliveries, its `current`, the receipt files) is keyed by that bundle profile; everything it publishes
   (status, receipt, the record's `agents`) names the profile as the user chose
   it. Not on the MCP face.
 - **`agentDistroStatus` (read-only)** — whether the selected profile's agents
   are on THIS host: `ready` (with the bundle new terminals get — and `update:
-  { progress? }` while an update runs and that bundle keeps serving), `downloading`
-  (with the bytes fetched so far, from the updater's `--progress` lines; any line outside that contract is the run's error), `error` (a
-  typed reason and its cause), `off`, or `unavailable` (an unbaked, from-source padi).
+  {}` while kolu-server delivers a newer one and that bundle keeps serving),
+  `downloading` (nothing serves yet; kolu-server is delivering it), `error`
+  (the delivery failed and nothing serves: a typed `reason` — `refused`, the
+  host's Nix would not take the copied paths, or `delivery`, anything else —
+  and its cause in kolu-server's words), `off`, or `unavailable` (an unbaked,
+  from-source padi).
 - **`agentDistroReceipt` (read-only)** — what this host keeps of the setting's
-  profile's updates, read off the updater's own files: the serving bundle and
-  its versions (`share/agent-distro/versions`), the last run (`updated` ·
-  `unchanged` · `skipped` · `failed`, with its words and who wrote them: the
-  updater's result line or history, or padi's own for a run that gave no
-  result line — a missing `nix`, a config that would not write, a spawn error,
-  a protocol violation, a crash, or a landing this host does not resolve), the
-  last five history
-  events (`history.log`), and `running` — every profile with a run in flight
-  on the host, whichever is selected. Published at boot, when a run starts and
-  ends, and when the setting changes; readable with agents off. A background
-  update that skips or fails shows here and in the log, never as an `error`
-  status.
+  profile's deliveries, read off upstream's files on the host (which padi
+  writes as each delivery lands): the serving bundle and its versions
+  (`share/agent-distro/versions`), the last run (`updated` · `unchanged` ·
+  `skipped` · `failed`, with its words and who wrote them: `delivery` — the
+  history log or kolu-server's report — or `padi`, for a landing this host
+  could not take), the last five history events (`history.log`), and
+  `running` — every profile with a delivery in flight on the host, whichever is
+  selected. Published at boot, at every delivery report, and when the setting
+  changes; readable with agents off. A later delivery that fails shows here
+  and in the logs, never as an `error` status while a bundle serves.
 - **`agentDistroResolved` (read-only)** — whether the setting's profile
   resolves on THIS host. Once a bundle serves, padi asks it ONCE per setting —
   its `bin/agent-distro --list --json` from `$HOME`, with the profile as
@@ -473,64 +478,34 @@ carry it; the module is `src/agentDistro/`.
   on asks again. The setting stands either way. Settings reads the local
   host's, under the reference field of the picker's Custom… card. Not on the
   MCP face.
-- **`agentDistro.checkNow` (procedure)** — run one update of the selected
-  profile now, whatever the schedule says; answers once it has started.
-  Refuses with the declared `AgentDistroCheckRefused` (`running` while a run of
-  that profile is going — one at a time — or `notReady` when nothing serves:
-  agents off, unbaked, or a first download that has not landed). The client's
-  "Check for newer coding agents" palette command calls it on every host, and a
-  machine's host details call it on that one. Not on the MCP face.
-- **`agentDistro.retryDownload` (procedure)** — the failed-download retry for
-  THIS host: forget the last failure of the profile this host is set to and
-  settle it again, the two steps a setting write performs. It is a procedure
-  because the setting cell's `equals` drops a re-push of the same value, so no
-  write could ask ONE host to try again. Nothing to refuse: with agents off, or
-  nothing failed, settling again publishes the state it already had, and it
-  never touches the update schedule. The client calls it from a machine's host
-  details. Not on the MCP face.
-- **Keeping it current** — `scheduler.ts` asks "is an update due" at boot (the
-  binder's first push), whenever the setting changes, and once each of
-  upstream's schedule boundaries has passed (02/08/14/20 UTC, the
-  `periodSeconds`/`offsetSeconds` the updater config carries). Its wait is a
-  chained, unref'd `setTimeout` (the `kavalSupervision` precedent) capped at
-  five minutes, because a node timer stands still while the machine sleeps: a
-  machine that slept through a boundary asks within minutes of waking. The
-  answer is upstream's rule (`updateDue` against the updater's `last-success`
-  stamp, mirrored in `@kolu/agent-distro/schedule`). A scheduled run that
-  FAILS (offline at the boundary) is retried on the next looks — three
-  attempts per boundary, each retry five minutes after the failed run ENDED,
-  upstream's own `--scheduled` numbers (`scheduledAskNow`); a skip waits for the next boundary, and an ask
-  that met a run in flight asks again on the next look. Before any of that,
-  padi's START looks once (the boot check) — on an upgrade that brings a newer
-  kolu (on the machine running kolu a pin bump moves the `agent-tools-bake`
-  record, so the old padi is drained; a remote host's `padi-agent` carries no
-  pin) or a reboot. `startAgentDistroUpdates` arms it; the
-  first tick that finds agents on and a baked profile spends it. If an update
-  is due anyway, that tick asks as a scheduled one (a counted attempt, with its
-  retries); otherwise it runs one update FORCED, as `checkNow` does — so a newer
-  kolu brings upstream's newer bundle with it rather than waiting for the next
-  boundary — and that run is no scheduled attempt (no boundary count, no
-  five-minute retry). A first download in flight, or nothing serving, spends it
-  without a run. A due update runs the same
-  updater in `--progress` mode (never `--scheduled`, which is launchd's and
-  blocks on retries) through the same run state machine, as an UPDATE: the
-  bundle that served when it started keeps serving — even after the updater
-  flips `current` — until the run lands; then the status re-reads `current`,
-  so new terminals get the new bundle and running ones go stale. An update
-  that lands a bundle other than the one it reported (or crashes after the
-  flip) disowns the new `current` and KEEPS the bundle that served — as does
-  one that leaves no `current` at all — never an `error`. The local machine updates too: `current` wins over the floor once
-  it exists. Only the newest bundle has a GC root (`current`): after an update
-  the previous one can be garbage-collected under a terminal still using it,
-  a limit the docs state rather than a root padi holds.
+- **`agentDistro.report` (procedure)** — the binding kolu-server's word on a
+  delivery to THIS host (`AgentDistroDeliveryReport`): `delivering`, `landed`
+  (with the bundle), or `failed` (typed reason, message). A landing points the
+  profile's `<state>/current` at the bundle with one atomic rename, stamps
+  upstream's `last-success`, and — when the bundle changed — appends an
+  `updated:` line to upstream's `history.log` in upstream's own format
+  (`@kolu/agent-distro/history`'s `historyLine`, words from
+  `@kolu/agent-distro/versions`' `bundleChanges`), so a host that also runs
+  agent-distro's Home Manager module keeps ONE log. A landing whose bundle is
+  not on this host (no `bin/`) is padi's own failure, recorded and thrown back.
+  An unknown profile throws: a binder and padi that disagree on the listing are
+  a broken pair. padi never retries and never runs Nix for agents — kolu-server
+  delivers again on upstream's schedule, on every bind, and on the user's
+  check. Binder-only; not on the MCP face.
+- **Keeping it current** — kolu-server's job, not padi's: it delivers on
+  upstream's schedule (02/08/14/20 UTC, retries on a failed run), whenever this
+  padi binds or takes a changed setting, and when the user asks. On the
+  machine running kolu, `current` wins over the floor once it exists. Only the
+  newest delivered bundle has a GC root (kolu-server's
+  `~/.local/state/kolu/agent-distro/gcroots/<profile>` on the host): after an
+  update the previous one can be garbage-collected under a terminal still
+  using it, a limit the docs state rather than a root padi holds.
 - **The spawn layer** — at each spawn (fresh, wake or restart) padi asks the SAME
   question the status answers (`newTerminalLayer`, over `assessAgentDistro`):
   only a host reading `ready` gives a layer, so a host `downloading` or in
   `error` spawns terminals with no agents. The ready bundle is the host's
-  `<state>/current` (what agent-distro's updater fetched) if it exists, else the
-  FLOOR this build carries (local machine only) — never a `current` a download
-  disowned (it landed a bundle other than the one it reported); the retry
-  downloads again. The resolved store path is stamped on the terminal record
+  `<state>/current` (the bundle kolu-server last delivered) if it exists, else
+  the FLOOR this build carries (local machine only). The resolved store path is stamped on the terminal record
   (its one `agents` struct — the tile pill) and its `bin/` joins the
   terminal's toolchain AFTER kolu's own tools, riding the same
   `KOLU_TERMINAL_TOOLS_PATH` stamp the rcfile re-asserts; `AGENT_DISTRO_PLUGINS`
@@ -558,33 +533,25 @@ carry it; the module is `src/agentDistro/`.
   or re-spawned is dropped. A respawn re-stamps `agents` whole, so it is asked
   again. A path reference is a path on THIS host: a remote host resolves it
   against its own disk.
-- **First use on a remote host** — `padi-agent` carries no floor. When the
-  setting turns a profile on and the host has no `current` for it, padi runs
-  agent-distro's updater once (`lib.mkUpdater`'s command and config, the config's
-  state home made concrete for this host), which fetches the bundle from the
-  binary cache into the host's store and flips `current`. No retry loop: a
-  failure is published with a typed `reason` (`nixMissing` | `updater`) and its
-  cause — the remedy and retry are worded once, in `@kolu/agent-distro/status` —
-  and the next time the setting turns that profile on, it tries again.
 - **Where it lives** — `src/agentDistro/`, one module per thing that changes
-  on its own clock: `bake.ts` (what the build baked), `onHost.ts` (looking up
-  agent-distro's state on this host, and the host's `nix`), `layer.ts` (what a
-  terminal spawned now gets, and its record stamp), `inEffect.ts` (asking
-  agent-distro for the profile in effect), `updater.ts` (running the
-  updater process), `download.ts` (the run state machine: a first download or
-  an update · failed with a typed reason), `receipt.ts` (what the updater's
-  files say), `scheduler.ts` (when to ask whether an update is due), and
-  `agentDistro.ts` (kolu's policy: the status, the receipt,
-  when to download and when to update). kolu's contract with upstream agent-distro — the
-  `--progress` line format, the bundle/state layout, the listing — is
+  on its own clock: `bake.ts` (what the build baked), `onHost.ts` (where
+  agent-distro's state is on this host), `layer.ts` (what a terminal spawned
+  now gets, and its record stamp), `inEffect.ts` (asking agent-distro for the
+  profile in effect), `deliveries.ts` (what kolu-server has reported about
+  deliveries here, and landing one), `receipt.ts` (what upstream's files on
+  the host say), and `agentDistro.ts` (kolu's policy: the status, the receipt,
+  the report). kolu's contract with upstream agent-distro — the bundle/state
+  layout, the listing, the history format — is
   [`@kolu/agent-distro`](../agent-distro), which padi imports.
-- **The bake** (`src/agentDistro/bake.ts`) — `KOLU_AGENT_DISTRO_UPDATER` (the
-  profile listing + per-profile updater configs, both arms),
+- **The bake** (`src/agentDistro/bake.ts`) — `KOLU_AGENT_DISTRO_PROFILES` (the
+  profiles this build knows and where each keeps its `current`, both arms),
   `KOLU_AGENT_DISTRO_BUNDLE` (the local floor, `default` wrapper only) and
   `KOLU_AGENT_PLUGIN_DIR` (both arms), baked by `@kolu/agent-distro`'s Nix half
-  (`packages/agent-distro/default.nix`). The floor is read through its manifest
-  (`share/kolu/agent-distro.json`), never a directory layout. Unbaked reads as
-  none; a half bake, or a floor without its manifest, throws at boot.
+  (`packages/agent-distro/default.nix`). (`KOLU_AGENT_DISTRO_DELIVERY` — the
+  flake, cache and schedule — is kolu-server's alone.) The floor is read through
+  its manifest (`share/kolu/agent-distro.json`), never a directory layout.
+  Unbaked reads as none; a half bake, or a floor without its manifest, throws
+  at boot.
   Every one is `KOLU_*`, so no terminal inherits them. A change to any of them
   changes the wrapper's own store path, so the agent-tools bake record
   (`agentToolsBake.ts`) already drains a same-build resident that predates it.

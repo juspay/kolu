@@ -1116,6 +1116,17 @@ export const koluSurface = defineSurfaceWithPolicy<ToastOnlyPolicy>()({
        *  there; it means the caller's view of the list disagrees with the map. */
       cancel: { input: ForwardCancelInputSchema },
     },
+    /** Agents: kolu-server delivers agent-distro's bundles to every host. */
+    agentDistro: {
+      /** Deliver the newest agents now — to `host`, or to every connected host
+       *  for `null` — locking upstream's flake afresh. Answers once the
+       *  delivery has started; each host's padi cells say how it ends. A host
+       *  already being delivered to keeps its delivery. A no-op while agents
+       *  are off, or on a kolu built without agents. */
+      deliver: {
+        input: Schema.Struct({ host: Schema.NullOr(HostKeySchema) }),
+      },
+    },
   },
 });
 
