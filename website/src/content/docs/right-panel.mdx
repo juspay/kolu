@@ -55,7 +55,26 @@ the odu daemon is running on that host, the chip row carries a second rollup —
 behind it a disclosure holds two lists: the latest run's **lanes** (one row per
 `recipe@platform`, failures first, with the attempt number when it took more
 than one, the duration and the machine it landed on) and the checkout's **recent
-runs**, newest first.
+runs**, newest first. The lanes are **open by default** — a run is the thing
+you're watching — and collapse if you'd rather have the rollup alone.
+
+The summary line states the run's **scope**, because a selection is not a
+pipeline: `3 lanes · ci::unit` is one recipe and its dependencies, not the whole
+DAG with the rest of its lanes missing. A run over the whole pipeline states
+nothing extra (there is nothing to qualify), and `--no-deps` rides the same
+qualifier — a green under it says less about the pipeline, so it describes what
+the run covered rather than being a detail of it.
+
+**Click a lane to read its log.** The row opens that attempt's output in odu's
+own web page — searchable, coloured, followed live — rather than in a second log
+view built here. odu's daemon listens on the machine the terminal runs on and
+your browser is often somewhere else, so the link goes through the same
+[port forwarding](/remote-hosts#port-forwarding) the Ports section uses: kolu
+opens a door for odu's port and takes the tab through it (when your browser *is*
+on that machine, the row links straight to the daemon instead). So the first
+click opens the door; once it is open the row is an ordinary link, and ⌘-click,
+copy and "open in a new tab" all work on it. A lane that **hasn't started** yet
+has no log to read, so its row opens the run instead.
 
 The ref carries a `+dirty` marker when the run tested a **working tree** rather
 than a committed state — the verdict is about code that was never committed
@@ -63,8 +82,11 @@ under that hash, so don't read it as a statement about the commit alone.
 
 None of this appears for a checkout odu doesn't know about, and none of it
 appears when the odu daemon isn't running: the Inspector of a terminal outside
-odu's world is exactly what it was. While it *is* shown, kolu dials the daemon
-itself and lets go of the connection when you close the panel or look away.
+odu's world is exactly what it was. A daemon that **answers and cannot be read**
+is the one case that isn't silence — that draws a single `odu CI unavailable`
+line naming the reason, because a broken install and an absent one are different
+facts. While it *is* shown, kolu dials the daemon itself and lets go of the
+connection when you close the panel or look away.
 
 ## Compose a prompt
 
