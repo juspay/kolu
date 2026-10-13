@@ -279,7 +279,6 @@ describe("restart — a new PTY in place", () => {
       {
         kind: "failed",
         profile: "juspay",
-        reason: "delivery",
         message: "nix copy exit 1",
       },
     ],

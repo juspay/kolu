@@ -346,7 +346,10 @@ code signatures macOS checks before it runs a program, so a Mac gets them as
 agent-distro's cache signed them, and its Nix takes them only if it trusts the
 login kolu connects as (`nix.settings.trusted-users`) or the cache's key
 (`nix.settings.trusted-public-keys`). When it trusts neither, the delivery
-fails with Nix's own words and that one-line fix.
+fails with Nix's own words and that one-line fix. The machine running kolu
+takes a Mac's set from the cache into its own store first, so its Nix must
+trust the user kolu runs as or that key too; when it does not, the failure
+says so and names the fix for that machine.
 
 A delivery that fails — agent-distro's cache did not answer or does not hold
 the set yet, the copy broke off, a Mac refused — carries kolu's words for the

@@ -6,12 +6,21 @@
  * builds the argv so the assertions see exactly what would hit the wire. The
  * ask-only warm-check SHAPE (D1a) is pinned in `warmProbeCheck.test.ts`.
  */
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { CI_KEEPALIVE, provArgs, useControlDir } from "./controlDir.testutil";
 import { agentBinaryCache } from "./agentBinaryCache";
 import { directAgentDerivation, flakeAgentDerivation } from "./agentDerivation";
 import {
-  __resetContentAddressedPathsForTest,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readlinkSync,
+  rmSync,
+  symlinkSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
+import {
   agentGcRootPath,
   deliverClosure,
   makeProvisionBudgets,
@@ -108,8 +117,10 @@ function mockNix(over?: {
       return over?.localValidity ?? failOut;
     if (args.includes("--check-validity"))
       return over?.checkValidity ?? failOut; // cold: not on host yet
-    if (args.includes("--add-root"))
+    if (args.includes("--add-root")) {
+      simulateLocalRoot(cmd, args);
       return over?.pin ?? okOut("/home/u/link\n");
+    }
     // Cold realise is `nix build -v --print-out-paths --no-link` (plain -v so
     // per-path lines reach the connect tail, #1962) — not classic `nix-store
     // --realise` (that remains on the pin).
@@ -121,10 +132,39 @@ function mockNix(over?: {
 }
 
 useControlDir("kolu-ssh-nixcopy-");
+/** A fresh `$HOME` per test: the sender roots each content-addressed rewrite
+ *  under it, and that root is the record a later delivery reads back. */
+let home = "";
+beforeEach(() => {
+  home = mkdtempSync(join(tmpdir(), "kolu-nixcopy-home-"));
+  vi.stubEnv("HOME", home);
+});
 afterEach(() => {
   vi.clearAllMocks();
-  __resetContentAddressedPathsForTest();
+  vi.unstubAllEnvs();
+  rmSync(home, { recursive: true, force: true });
 });
+
+/** The sender's root for `STORE`'s content-addressed form. */
+const caRoot = () =>
+  join(
+    home,
+    ".local/state/kolu/surface-remote/content-addressed/agent",
+    STORE.slice("/nix/store/".length, "/nix/store/".length + 32),
+  );
+
+/** What a LOCAL `nix-store --realise <p> --add-root <abs link> --indirect`
+ *  leaves behind: the link, pointing at the path. */
+function simulateLocalRoot(cmd: string, args: readonly string[]): void {
+  const link = args[args.indexOf("--add-root") + 1];
+  const target = args[args.indexOf("--realise") + 1];
+  if (cmd !== "nix-store" || link === undefined || !link.startsWith("/"))
+    return;
+  if (target === undefined) return;
+  mkdirSync(dirname(link), { recursive: true });
+  rmSync(link, { force: true });
+  symlinkSync(target, link);
+}
 
 describe("provisionAgent GC-root pinning (cold path)", () => {
   it("rejects a direct source that is not a derivation path", () => {
@@ -1394,7 +1434,7 @@ describe("deliverClosure — the route without a build", () => {
   const deliver = (host: string, system = LINUX, onProgress = vi.fn()) =>
     deliverClosure({
       host,
-      system,
+      system: async () => system,
       outPath: STORE,
       binaryCache: TEST_BINARY_CACHE,
       rootPath: ".local/state/kolu/agent-distro/gcroots/vanilla",
@@ -1457,22 +1497,88 @@ describe("deliverClosure — the route without a build", () => {
     expect(rewrite).not.toContain("--from");
   });
 
-  it("the rewrite is remembered: a host that already holds the content-addressed path costs a query, not a rewrite", async () => {
+  it("the rewrite is rooted in the sender's store, keyed by the output, and older outputs of the name are let go", async () => {
+    const older = join(dirname(caRoot()), "0".repeat(32));
+    mkdirSync(dirname(older), { recursive: true });
+    symlinkSync("/nix/store/old-agent", older);
     mockNix({ rewrite: rewriteOut, ship: okOut("") });
     await deliver("ci@croissant");
-    vi.mocked(runCapture).mockClear();
-    vi.mocked(runCapture).mockImplementation(async (_cmd, args) =>
-      args.includes("--check-validity")
-        ? args.includes(CA_STORE)
-          ? okOut("")
-          : failOut
-        : okOut(""),
+    // `nix-store --realise CA --add-root <link> --indirect`, on this machine.
+    const senderRoot = vi
+      .mocked(runCapture)
+      .mock.calls.find(
+        ([cmd, args]) => cmd === "nix-store" && args.includes(caRoot()),
+      );
+    expect(senderRoot?.[1]).toEqual(
+      expect.arrayContaining(["--realise", CA_STORE, "--indirect"]),
     );
-    const res = await deliver("other-host");
+    expect(readlinkSync(caRoot())).toBe(CA_STORE);
+    expect(existsSync(older)).toBe(false);
+  });
+
+  it("the rooted rewrite is the record: after a restart the host is asked about the content-addressed path, and nothing is rewritten", async () => {
+    mkdirSync(dirname(caRoot()), { recursive: true });
+    symlinkSync(CA_STORE, caRoot());
+    vi.mocked(runCapture).mockImplementation(async (cmd, args) => {
+      // This store still holds it (rooted); the host does too.
+      if (args.includes("--check-validity"))
+        return args.includes(CA_STORE) ? okOut("") : failOut;
+      if (args.includes("--add-root")) return okOut("");
+      throw new Error(`unexpected command: ${cmd} ${args.join(" ")}`);
+    });
+    const system = vi.fn(async () => LINUX);
+    const res = await deliverClosure({
+      host: "other-host",
+      system,
+      outPath: STORE,
+      binaryCache: TEST_BINARY_CACHE,
+      rootPath: ".local/state/kolu/agent-distro/gcroots/vanilla",
+      onProgress: vi.fn(),
+      onActivity: () => {},
+      budget: makeStepBudget(PROVISION_STEP_SILENCE_BASE_MS, 2),
+      keepalive: sshKeepalive(10, 3),
+    });
     expect(res).toEqual({ ok: true, outPath: CA_STORE });
+    // The FIRST question the host gets is about the content-addressed path.
+    const hostChecks = vi
+      .mocked(runCapture)
+      .mock.calls.filter(
+        ([cmd, args]) => cmd === "ssh" && args.includes("--check-validity"),
+      );
+    expect(hostChecks[0]?.[1]).toContain(CA_STORE);
     expect(argvs().some(isRewrite)).toBe(false);
     expect(argvs().some(isShip)).toBe(false);
-    expect(pinned()).toContain(CA_STORE);
+    // A warm hit never asks what system the host is.
+    expect(system).not.toHaveBeenCalled();
+  });
+
+  it("the store's hard-link noise never reaches the narration, nor stands in for the rewrite's cause", async () => {
+    vi.mocked(runCapture).mockImplementation(async (_cmd, args, opts) => {
+      if (isRewrite(args)) {
+        for (let i = 0; i < 50; i++)
+          opts.onProgress?.(
+            nixErrorLine(
+              `linking '/nix/store/${i}-x/lib/a.so' to '/nix/store/.links/${i}abc': File exists`,
+            ),
+          );
+        opts.onProgress?.(nixErrorLine("unable to download 'https://cache'"));
+        return failOut;
+      }
+      return failOut;
+    });
+    const onProgress = vi.fn();
+    const res = await deliver("ci@croissant", LINUX, onProgress);
+    expect(res).toMatchObject({
+      kind: "not-delivered",
+      why: "uncached",
+      reason: expect.stringContaining("unable to download"),
+    });
+    expect(res.ok === false && "reason" in res && res.reason).not.toMatch(
+      /\.links/,
+    );
+    expect(
+      onProgress.mock.calls.some(([l]) => String(l).includes("/.links/")),
+    ).toBe(false);
   });
 
   it("on the local arm the rewrite itself lands the closure: rooted, never shipped", async () => {
@@ -1526,7 +1632,7 @@ describe("deliverClosure — the route without a build", () => {
     expect(argvs().some((a) => a.includes("--add-root"))).toBe(false);
   });
 
-  it("the sender's OWN refusal of the cache never blames the host — the closure did not come from the cache", async () => {
+  it("the sender's OWN refusal of the cache is `sender-refused` — never blamed on the host, nor on the cache", async () => {
     vi.mocked(runCapture).mockImplementation(async (_cmd, args, opts) => {
       if (isPrefetch(args)) {
         opts.onProgress?.(nixErrorLine(refusal));
@@ -1538,7 +1644,7 @@ describe("deliverClosure — the route without a build", () => {
     expect(await deliver("mac", DARWIN)).toMatchObject({
       ok: false,
       kind: "not-delivered",
-      why: "uncached",
+      why: "sender-refused",
       reason: expect.stringMatching(/lacks a signature/),
     });
     expect(argvs().some(isShip)).toBe(false);
@@ -1581,5 +1687,7 @@ describe("provisionAgent on a Linux target — the content-addressed route", () 
     expect(res).toEqual({ ok: true, agentPath: STORE });
     const calls = vi.mocked(runCapture).mock.calls.map((c) => c[1]);
     expect(calls.some(isRewrite)).toBe(false);
+    // A warm host is a root refresh: the `.drv`'s system is never read.
+    expect(calls.some(isDrvShow)).toBe(false);
   });
 });

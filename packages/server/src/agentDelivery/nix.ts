@@ -75,7 +75,7 @@ export function nixDeliveryOps(bake: AgentDistroDelivery): DeliveryOps {
         );
       return deliverClosure({
         host: ssh,
-        system,
+        system: async () => system,
         outPath,
         binaryCache,
         rootPath,

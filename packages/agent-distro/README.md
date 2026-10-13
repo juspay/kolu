@@ -96,10 +96,9 @@ The **TypeScript half**, as data and pure functions:
   path concrete for a host's state home (`concreteStatePath`).
 - `./status` — how a host's status shows, and every word kolu says about it:
   the one fenced fold from status to the host tab's mark (`agentMarkOf`); its
-  words (`agentMarkLabel`, its hover and accessible name), with a failed delivery's cause, remedy and when kolu tries
-  again worded once (`agentFailureLines`, `agentFailureRemedy`,
-  `AGENTS_REFUSED_MEANS`, `AGENTS_REFUSED_FIX`, `AGENTS_BINDER_REFUSED_MEANS`,
-  `AGENTS_BINDER_REFUSED_FIX`, `AGENTS_DELIVERY_AGAIN`); the
+  words (`agentMarkLabel`, its hover and accessible name), with a failed
+  delivery's cause and when kolu tries again worded once
+  (`agentFailureLines`, `AGENTS_DELIVERY_AGAIN`); the
   stored preference — `null` until someone chooses — and
   the one fold from it to the setting new terminals get (`agentDistroSettingOf`,
   `agentsChosen`; nothing chosen is off on `DEFAULT_AGENT_PROFILE`, the bundle
@@ -121,9 +120,9 @@ The **TypeScript half**, as data and pure functions:
   agent-distro resolved it from, else the setting's); Settings' ONE fleet line,
   one group per agent state, naming machines before it counts them
   (`agentFleetSummary`); what a machine's host details say about its agents —
-  profile and short hash, state with its last run, a failure's cause and what it
-  means there, whether that failure has a fix in a machine's Nix settings
-  (`hasFix`, which earns the docs link), that machine's events, and whether
+  profile and short hash, state with its last run, a failure's cause (`cause`,
+  kolu-server's words with Nix's own line) and what it means there, that
+  machine's events, and whether
   its one action — check for newer agents, also how a failed machine is tried
   again — is offered (`canCheck`: not while a delivery runs there)
   (`agentHostDetail`, with `AGENTS_HOST_CHECK`); whether a

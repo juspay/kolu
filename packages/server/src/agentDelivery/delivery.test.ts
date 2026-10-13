@@ -178,6 +178,48 @@ describe("createAgentDelivery", () => {
     });
   });
 
+  it("kolu running on a Mac that refuses names THIS Mac and the user kolu runs as", async () => {
+    const nix = fakeOps({
+      systems: { localhost: "aarch64-darwin" },
+      result: () => ({
+        ok: false,
+        kind: "not-delivered",
+        why: "refused",
+        reason: "lacks a signature by a trusted key",
+      }),
+    });
+    const local = fakeHost("local", "localhost", "laptop");
+    const delivery = setup({ ops: nix.ops, hosts: [local.host] });
+    expect(await delivery.run({ trigger: "user" })).toEqual(["failed"]);
+    const last = local.reports.at(-1);
+    const message = last?.kind === "failed" ? last.message : "";
+    expect(message).toMatch(/^this Mac's Nix would not take the signed agents/);
+    expect(message).toContain("the user kolu runs as");
+    expect(message).not.toContain("connects as");
+  });
+
+  it("the machine running kolu refusing a Mac's signed agents names that machine, never the cache or the Mac", async () => {
+    const nix = fakeOps({
+      systems: { "srid@mac": "aarch64-darwin" },
+      result: () => ({
+        ok: false,
+        kind: "not-delivered",
+        why: "sender-refused",
+        reason: "lacks a signature by a trusted key",
+      }),
+    });
+    const mac = fakeHost("remote:mac", "srid@mac", "mac");
+    const delivery = setup({ ops: nix.ops, hosts: [mac.host] });
+    expect(await delivery.run({ trigger: "user" })).toEqual(["failed"]);
+    const last = mac.reports.at(-1);
+    const message = last?.kind === "failed" ? last.message : "";
+    expect(message).toMatch(
+      /^the Nix on the machine running kolu would not take mac's signed agents/,
+    );
+    expect(message).toContain("On the machine running kolu");
+    expect(message).not.toMatch(/did not deliver/);
+  });
+
   it("a failure is not remembered: a reconnect delivers again", async () => {
     let fail = true;
     const nix = fakeOps({

@@ -36,9 +36,11 @@
  *        every Nix store takes it from anyone — no `trusted-users`, no
  *        signature, no key (the Nix manual: `make-content-addressed`,
  *        `require-sigs`). Neither the sender's Nix nor the target's needs to
- *        trust anything. The rewrite is deterministic, so its answer is
- *        remembered per output path ({@link contentAddressedPaths}) and a warm
- *        target is asked about it without rewriting again;
+ *        trust anything. The rewritten closure is rooted in the sender's store
+ *        behind a link per output path ({@link contentAddressedRoot}), which
+ *        is also the record of the rewrite: a warm target is asked about the
+ *        content-addressed path, and a new one is shipped it, without reading
+ *        the cache again — across restarts too;
  *      - a darwin target keeps the SIGNED input-addressed closure: `nix copy
  *        --from <declared cache>` into the sender's store. Rewriting a Mach-O
  *        file invalidates its code signature, and arm64 macOS kills an
@@ -101,6 +103,7 @@
  * or prebuilt-binary fallback exists or will.
  */
 
+import { mkdirSync, readdirSync, readlinkSync, rmSync } from "node:fs";
 import type { AgentBinaryCache } from "./agentBinaryCache";
 import type { AgentDerivation } from "./agentDerivation";
 import {
@@ -757,11 +760,15 @@ async function stageInputAddressed(opts: {
     }
     // A refused import is the TARGET's refusal on the local arm, where the
     // sender's store IS the target. On a remote arm it is the sender's own
-    // Nix refusing the cache: the host was never asked, and Nix's words say
-    // so — the closure simply did not come from the cache.
+    // Nix refusing the cache: the host was never asked, and the cache HAS
+    // the closure — a different store, and a different fix.
     if (prefetch.kind === "missed")
       unfetched = {
-        why: prefetch.refused && opts.isLocal ? "refused" : "uncached",
+        why: !prefetch.refused
+          ? "uncached"
+          : opts.isLocal
+            ? "refused"
+            : "sender-refused",
         reason: prefetch.reason,
       };
   }
@@ -795,15 +802,97 @@ async function stageInputAddressed(opts: {
   };
 }
 
-/** Each output path's content-addressed form, once this process has rewritten
- *  it. The rewrite is a pure function of the closure, so the answer never goes
- *  stale; what may go is the rewritten closure itself (an unrooted path in the
- *  sender's store), which is why a ship re-checks it before use. */
-const contentAddressedPaths = new Map<string, string>();
+/** Where the sender roots `outPath`'s content-addressed form: one indirect GC
+ *  root per output path, under a directory per output NAME (the path with its
+ *  store hash cut off), so the newest output of a name replaces the older ones
+ *  ({@link rememberContentAddressed}). The link IS the record of the rewrite —
+ *  reading it back answers "what is this output's content-addressed path"
+ *  across restarts — and it keeps that closure in the sender's store, so a
+ *  later host is shipped it without reading the cache again. `null` when
+ *  `$HOME` is unset. */
+function contentAddressedRoot(outPath: string): {
+  readonly dir: string;
+  readonly link: string;
+} | null {
+  const base = outPath.replace(/^.*\//, "");
+  const dir = homeGcRoot(
+    true,
+    `.local/state/kolu/surface-remote/content-addressed/${base.replace(/^[0-9a-z]{32}-/, "")}`,
+  );
+  return dir === null ? null : { dir, link: `${dir}/${base.slice(0, 32)}` };
+}
 
-/** Test seam: forget every remembered rewrite. */
-export function __resetContentAddressedPathsForTest(): void {
-  contentAddressedPaths.clear();
+/** `outPath`'s content-addressed form, when the sender has rooted one and its
+ *  store still holds it — read off the root link, never a guess. */
+async function rememberedContentAddressed(
+  outPath: string,
+  signal: AbortSignal | undefined,
+): Promise<string | undefined> {
+  const root = contentAddressedRoot(outPath);
+  if (root === null) return undefined;
+  let path: string;
+  try {
+    path = readlinkSync(root.link);
+  } catch (err) {
+    // No link: never rewritten here (or its root was removed). Anything else
+    // is a broken state directory, and loud.
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") return undefined;
+    throw err;
+  }
+  return (await checkValidity("localhost", path, { signal })) === "valid"
+    ? path
+    : undefined;
+}
+
+/** Root the content-addressed `path` of `outPath` in the sender's store
+ *  (`nix-store --realise --add-root --indirect`, the commit `pinGcRoot` makes
+ *  on every target) and drop the roots of older outputs of the same name, so
+ *  the sender keeps the newest closure of each and lets the rest go. */
+async function rememberContentAddressed(
+  host: string,
+  outPath: string,
+  path: string,
+  opts: {
+    readonly keepalive: SshKeepalive;
+    readonly narrate: (line: string) => void;
+    readonly onActivity: () => void;
+    readonly budget: StepBudget;
+    readonly signal: AbortSignal | undefined;
+  },
+): Promise<ProvisionFailure | null> {
+  const root = contentAddressedRoot(outPath);
+  if (root === null)
+    return {
+      ok: false,
+      reason: `${host}: HOME is unset, so the content-addressed agent's GC root on this machine cannot be formed`,
+      cause: "remote",
+    };
+  mkdirSync(root.dir, { recursive: true });
+  const bail = await pinGcRoot(
+    "localhost",
+    opts.keepalive,
+    path,
+    root.link,
+    opts.narrate,
+    opts.onActivity,
+    opts.budget,
+    opts.signal,
+  );
+  if (bail !== null) return bail;
+  const keep = root.link.slice(root.dir.length + 1);
+  for (const older of readdirSync(root.dir))
+    if (older !== keep) rmSync(`${root.dir}/${older}`, { force: true });
+  return null;
+}
+
+/** A line of `make-content-addressed`'s log that is the sender store's own
+ *  hard-link deduplication (`auto-optimise-store`) reporting a link it could
+ *  not make — `error: linking '…' to '/nix/store/.links/…'` — thousands per
+ *  closure, harmless, and never the rewrite's cause. Dropped before the log
+ *  reader, so it neither floods the narration nor stands in for the root
+ *  error of a rewrite that failed. */
+function isStoreDedupNoise(line: string): boolean {
+  return line.includes("/nix/store/.links/");
 }
 
 /** Rewrite `outPath`'s closure into its content-addressed form in the sender's
@@ -851,6 +940,7 @@ async function rewriteContentAddressed(opts: {
         policy: copyPolicy(),
         env: { NIX_SSHOPTS: sshOpts },
         signal: opts.signal,
+        dropLine: isStoreDedupNoise,
       },
     );
     if (res.kind === "aborted") return { kind: "aborted" };
@@ -888,48 +978,33 @@ function rewrittenPath(stdout: string, outPath: string): string {
 }
 
 /** Steps 2 and 3 for a Linux target: the CONTENT-ADDRESSED closure, which no
- *  store refuses. A path this process already rewrote is asked about first,
- *  so a host that holds it costs one query; otherwise the closure is rewritten
- *  (from the local store when it is there, the declared caches otherwise),
- *  asked about, and shipped. On the local arm the rewrite itself lands it in
- *  the target store; a local store already holding the input-addressed closure
- *  needs nothing at all. */
+ *  store refuses. `remembered` is the content-addressed path the sender has
+ *  already rooted for `outPath` (the warm check asked the host about it); a
+ *  sender without one rewrites the closure — from the local store when it
+ *  holds it, the declared caches otherwise — and roots the result. On the
+ *  local arm that rewrite lands it in the target store; a local store already
+ *  holding the input-addressed closure needs nothing at all. */
 async function stageContentAddressed(opts: {
   host: string;
   keepalive: SshKeepalive;
   isLocal: boolean;
   outPath: string;
+  remembered: string | undefined;
   binaryCache: AgentBinaryCache;
   narrate: (line: string) => void;
   onActivity: () => void;
+  budget: StepBudget;
   signal: AbortSignal | undefined;
 }): Promise<Staged> {
-  const target: string | SshDestination = opts.isLocal
-    ? "localhost"
-    : { host: opts.host, keepalive: opts.keepalive };
-  const ask = (path: string, where: string | SshDestination) =>
-    checkValidity(where, path, { signal: opts.signal });
-  const held = await ask(opts.outPath, "localhost");
-  if (held === "aborted")
-    return { bail: abortedDuring(opts.host, "the local validity check") };
-  if (opts.isLocal && held === "valid")
-    return { bail: null, onTarget: true, path: opts.outPath };
-
-  let path = contentAddressedPaths.get(opts.outPath);
-  let asked = false;
-  if (path !== undefined) {
-    const there = await ask(path, target);
-    if (there === "aborted")
-      return { bail: abortedDuring(opts.host, "the cached-agent check") };
-    if (there === "valid") return { bail: null, onTarget: true, path };
-    asked = true;
-  }
-  // The rewritten closure is unrooted in this store, so a GC may have taken
-  // it since: rewrite again rather than ship a path this store lost.
-  const local = path === undefined ? "absent" : await ask(path, "localhost");
-  if (local === "aborted")
-    return { bail: abortedDuring(opts.host, "the local validity check") };
-  if (path === undefined || local !== "valid") {
+  let path = opts.remembered;
+  if (path === undefined) {
+    const held = await checkValidity("localhost", opts.outPath, {
+      signal: opts.signal,
+    });
+    if (held === "aborted")
+      return { bail: abortedDuring(opts.host, "the local validity check") };
+    if (opts.isLocal && held === "valid")
+      return { bail: null, onTarget: true, path: opts.outPath };
     const rewrite = await rewriteContentAddressed({
       outPath: opts.outPath,
       binaryCache: opts.binaryCache,
@@ -950,15 +1025,16 @@ async function stageContentAddressed(opts: {
         miss: { why: "uncached", reason: rewrite.reason },
       };
     path = rewrite.path;
-    contentAddressedPaths.set(opts.outPath, path);
+    const bail = await rememberContentAddressed(opts.host, opts.outPath, path, {
+      keepalive: opts.keepalive,
+      narrate: opts.narrate,
+      onActivity: opts.onActivity,
+      budget: opts.budget,
+      signal: opts.signal,
+    });
+    if (bail !== null) return { bail };
   }
   if (opts.isLocal) return { bail: null, onTarget: true, path };
-  if (!asked) {
-    const there = await ask(path, target);
-    if (there === "aborted")
-      return { bail: abortedDuring(opts.host, "the cached-agent check") };
-    if (there === "valid") return { bail: null, onTarget: true, path };
-  }
   const ship = await shipAgentClosure({
     host: opts.host,
     keepalive: opts.keepalive,
@@ -988,19 +1064,21 @@ function isDarwinSystem(system: string): boolean {
 /** Why a closure did not reach the target store — never a build's business:
  *
  *   - `uncached` — the sender could not get it from any declared cache (a
- *     miss, a network failure, a silence kill, or the sender's own Nix
- *     declining the cache's signed paths for a darwin target — Nix's words
- *     say which);
+ *     miss, a network failure, a silence kill — Nix's words say which);
  *   - `refused` — a darwin target's store refused the signed paths: its Nix
  *     trusts neither the login (`trusted-users`) nor the cache's key (on the
  *     local arm the target is the sender's own store, importing from the
  *     cache). Only that store's settings change it. A Linux target never
  *     refuses: it is sent the content-addressed closure;
+ *   - `sender-refused` — staging a darwin target's signed closure, the
+ *     SENDER's own Nix declined the cache's paths for the same want of trust:
+ *     the cache has them, the host was never asked, and only the sending
+ *     machine's settings change it;
  *   - `unshipped` — the copy to the target failed for any other reason.
  *
  *  `reason` is what Nix said, verbatim. */
 export interface ClosureMiss {
-  readonly why: "uncached" | "refused" | "unshipped";
+  readonly why: "uncached" | "refused" | "sender-refused" | "unshipped";
   readonly reason: string;
 }
 
@@ -1009,9 +1087,12 @@ export interface DeliverClosureOptions {
    *  localhost for the sender's own store. */
   host: string;
   /** The target's Nix system (`x86_64-linux`, `aarch64-darwin`) — what
-   *  `resolveSystem` answers for it. It decides the form the closure travels
-   *  in: content-addressed to Linux, signed input-addressed to darwin. */
-  system: string;
+   *  `resolveSystem` answers for it — or `undefined` when the caller cannot
+   *  say. It decides the form the closure travels in: content-addressed to
+   *  Linux, signed input-addressed to darwin and to a system nobody named
+   *  (the form every store can run). Asked only when the warm check misses,
+   *  so a warm target never pays for it. */
+  system: () => Promise<string | undefined>;
   /** The exact, already-evaluated output path to deliver. Nothing here
    *  evaluates or builds: the path either arrives from `binaryCache` or does
    *  not arrive. */
@@ -1030,7 +1111,7 @@ export interface DeliverClosureOptions {
   /** Fired once immediately before the first potentially long operation (the
    *  copies, or a warm target's root commit). */
   onDelivering?: () => void;
-  /** The progress-liveness budget of the required root commit. Delivery
+  /** The progress-liveness budget of the required root commits. Delivery
    *  charges it on a silence kill and resets it on success. */
   budget: StepBudget;
   /** Aborting group-kills the in-flight child; the result is a retryable
@@ -1050,7 +1131,7 @@ export interface DeliverClosureOptions {
  *   - `not-delivered` — the closure is NOT in the target store, and why
  *     ({@link ClosureMiss}); nothing was rooted. A caller that may build
  *     (`provisionAgent`) builds; one that may not, stops and says why;
- *   - `failed` — an abort, or the required root commit failed: the
+ *   - `failed` — an abort, or a required root commit failed: the
  *     `ProvisionResult` failure shape, with its retry class. */
 export type DeliverClosureResult =
   | { readonly ok: true; readonly outPath: string }
@@ -1062,11 +1143,12 @@ export type DeliverClosureResult =
 
 /** Deliver `outPath`'s closure into `host`'s store and root it there — steps
  *  1–3 and 5 of the module header, and NEVER a build: ask the target whether it
- *  already holds the path (remote; a pure validity query), else stage the
- *  closure in the form the target's system takes (content-addressed to Linux,
- *  signed to darwin) and copy it there, then commit it behind `rootPath`. A
- *  darwin target whose Nix will not take the copy is `not-delivered` with
- *  `why: "refused"`. */
+ *  already holds the closure (remote; a pure validity query, about the
+ *  content-addressed form the sender has rooted for it first, then the output
+ *  itself), else stage the closure in the form the target's system takes
+ *  (content-addressed to Linux, signed to darwin) and copy it there, then
+ *  commit it behind `rootPath`. A darwin target whose Nix will not take the
+ *  copy is `not-delivered` with `why: "refused"`. */
 export async function deliverClosure(
   opts: DeliverClosureOptions,
 ): Promise<DeliverClosureResult> {
@@ -1093,59 +1175,78 @@ export async function deliverClosure(
       opts.budget,
       signal,
     );
+  const remembered = await rememberedContentAddressed(outPath, signal);
 
-  // 1. Warm fast-path (remote only) — the ASK-ONLY check (#1908 D1a). A HIT
-  //    skips the copies. Localhost's own store is what step 2 checks first.
+  // 1. Warm fast-path (remote only) — the ASK-ONLY check (#1908 D1a), about
+  //    each path the host may hold: the content-addressed form this sender
+  //    rooted for `outPath` (what a Linux host is sent), then `outPath`
+  //    itself (a darwin host, or one that built it). A HIT skips the copies.
+  //    Localhost's own store is what staging checks first.
   if (!isLocal) {
     // One SYNTHESIZED, truthful line at check start (NOT raw nix stderr).
     opts.onProgress(`${opts.host}: checking for a cached agent…`);
-    // A pure store query — it NEVER substitutes (verified: `--check-validity`
-    // on an absent path returns non-zero instantly, no fetch).
-    const cached = await checkValidity(
-      { host: opts.host, keepalive },
-      outPath,
-      {
+    for (const path of remembered === undefined
+      ? [outPath]
+      : [remembered, outPath]) {
+      // A pure store query — it NEVER substitutes (verified:
+      // `--check-validity` on an absent path returns non-zero instantly, no
+      // fetch).
+      const cached = await checkValidity({ host: opts.host, keepalive }, path, {
         signal,
-      },
-    );
-    if (cached === "timed-out") {
-      // The cheapest possible round-trip to this host didn't even answer —
-      // say so, rather than silently falling through as if it had cleanly
-      // reported "not cached".
-      opts.onProgress(
-        `${opts.host}: cached-agent check timed out after ${PROVISION_PROBE_DEADLINE_MS}ms — host may be degraded; continuing without the warm fast-path`,
-      );
-    }
-    if (cached === "valid") {
-      // Warm hit. The root operation is the commit point: only a rooted,
-      // still-valid target may short-circuit as success.
-      opts.onDelivering?.();
-      const bail = await pin(outPath);
-      if (bail) return failed(bail);
-      opts.budget.reset();
-      opts.onProgress(
-        `${opts.host}: already provisioned at ${outPath} — skipped copy`,
-      );
-      return { ok: true, outPath };
+      });
+      if (cached === "timed-out") {
+        // The cheapest possible round-trip to this host didn't even answer —
+        // say so, rather than silently falling through as if it had cleanly
+        // reported "not cached".
+        opts.onProgress(
+          `${opts.host}: cached-agent check timed out after ${PROVISION_PROBE_DEADLINE_MS}ms — host may be degraded; continuing without the warm fast-path`,
+        );
+        break;
+      }
+      if (cached === "valid") {
+        // Warm hit. The root operation is the commit point: only a rooted,
+        // still-valid target may short-circuit as success.
+        opts.onDelivering?.();
+        const bail = await pin(path);
+        if (bail) return failed(bail);
+        opts.budget.reset();
+        opts.onProgress(
+          `${opts.host}: already provisioned at ${path} — skipped copy`,
+        );
+        return { ok: true, outPath: path };
+      }
     }
   }
 
   opts.onDelivering?.();
 
   // 2/3. Stage the closure onto the target WITHOUT building it there.
-  const stage = isDarwinSystem(opts.system)
-    ? stageInputAddressed
-    : stageContentAddressed;
-  const staged = await stage({
-    host: opts.host,
-    keepalive,
-    isLocal,
-    outPath,
-    binaryCache: opts.binaryCache,
-    narrate: (line) => opts.onProgress(`${opts.host}: ${line}`),
-    onActivity: opts.onActivity,
-    signal,
-  });
+  const system = await opts.system();
+  const narrate = (line: string) => opts.onProgress(`${opts.host}: ${line}`);
+  const staged =
+    system === undefined || isDarwinSystem(system)
+      ? await stageInputAddressed({
+          host: opts.host,
+          keepalive,
+          isLocal,
+          outPath,
+          binaryCache: opts.binaryCache,
+          narrate,
+          onActivity: opts.onActivity,
+          signal,
+        })
+      : await stageContentAddressed({
+          host: opts.host,
+          keepalive,
+          isLocal,
+          outPath,
+          remembered,
+          binaryCache: opts.binaryCache,
+          narrate,
+          onActivity: opts.onActivity,
+          budget: opts.budget,
+          signal,
+        });
   if (staged.bail !== null) return failed(staged.bail);
   if (!staged.onTarget)
     return { ok: false, kind: "not-delivered", ...staged.miss };
@@ -1254,15 +1355,8 @@ export async function provisionAgent(
     return multiOutputError(opts.host, outputs.length);
   }
   const localAgentPath = outsRes.ok ? outputs[0] : undefined;
-  // …and the system it is built for — the target's, since the caller chose
-  // the derivation for it. It decides the form delivery ships (see
-  // `DeliverClosureOptions.system`). Read off the same local `.drv`.
-  const system =
-    localAgentPath === undefined
-      ? undefined
-      : await derivationSystem(drvPath, signal);
 
-  if (localAgentPath === undefined || system === undefined) {
+  if (localAgentPath === undefined) {
     if (!isLocal) {
       // Step 0's local query missed (GC took the evaluated .drv), so there is
       // no path to ask the host about — say THAT. Name what the query said, so
@@ -1273,9 +1367,7 @@ export async function provisionAgent(
           ? ""
           : ` (${describeNixRun(outsRes)})`;
       opts.onProgress(
-        localAgentPath === undefined
-          ? `${opts.host}: agent output path unknown locally${why} — skipping the cached-agent check; the cold provision re-establishes it`
-          : `${opts.host}: the agent derivation's system is unknown locally — skipping the cached-agent check; the cold provision re-establishes it`,
+        `${opts.host}: agent output path unknown locally${why} — skipping the cached-agent check; the cold provision re-establishes it`,
       );
     }
     opts.onProvisioning?.();
@@ -1287,7 +1379,10 @@ export async function provisionAgent(
     //    build it skips is a full flake evaluation plus an ssh-ng round trip.
     const delivered = await deliverClosure({
       host: opts.host,
-      system,
+      // The system the `.drv` is built for — the target's, since the caller
+      // chose the derivation for it — read off it only when the warm check
+      // misses.
+      system: () => derivationSystem(drvPath, signal),
       outPath: localAgentPath,
       binaryCache: opts.derivation.binaryCache,
       rootPath,

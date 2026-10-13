@@ -376,6 +376,9 @@ export async function runNix(
     readonly narrate?: (line: string) => void;
     readonly signal: AbortSignal | undefined;
     readonly env?: Readonly<Record<string, string>>;
+    /** A raw stderr line the caller knows is noise, kept from the log reader
+     *  — never narrated, never a root error (it still counts as activity). */
+    readonly dropLine?: (line: string) => boolean;
   } & NixRunLifetime,
 ): Promise<NixRun> {
   const narrate = opts.narrate ?? (() => {});
@@ -391,7 +394,7 @@ export async function runNix(
   const res = await runCapture(command, args, {
     onProgress: (line) => {
       if ("onActivity" in opts) opts.onActivity();
-      reader.line(line);
+      if (opts.dropLine?.(line) !== true) reader.line(line);
     },
     policy: opts.policy,
     signal: opts.signal,

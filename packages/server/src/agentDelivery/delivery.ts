@@ -23,7 +23,7 @@ import type { AgentDistroDelivery } from "@kolu/agent-distro/bake";
 import type { AgentDistroDeliveryReport } from "@kolu/agent-distro/schema";
 import { updateDue } from "@kolu/agent-distro/schedule";
 import type { Logger } from "@kolu/log";
-import type { DeliverClosureResult } from "@kolu/surface-remote";
+import { type DeliverClosureResult, isLocalHost } from "@kolu/surface-remote";
 
 /** The Nix steps of a delivery. Each throws with Nix's own words. */
 export interface DeliveryOps {
@@ -78,8 +78,9 @@ export interface AgentDelivery {
 
 /** The words for a delivery that did not land, by how it did not — Nix's own
  *  line inside kolu-server's. A Linux host is sent the content-addressed
- *  bundle, which no Nix refuses; only a Mac, sent the signed bundle, can
- *  refuse it, and that one cause carries its one-line fix. */
+ *  bundle, which no Nix refuses; only a Mac's signed bundle can be refused —
+ *  by the Mac's Nix, or by this machine's while taking it from the cache —
+ *  and each refusal carries the one-line fix for the machine that refused. */
 function notDeliveredMessage(
   bake: AgentDistroDelivery,
   host: DeliveryHost,
@@ -90,7 +91,11 @@ function notDeliveredMessage(
   if (res.kind === "failed") return res.reason;
   switch (res.why) {
     case "refused":
-      return `${host.label}'s Nix would not take the signed agents: ${res.reason}. On that Mac, add the login kolu connects as to \`nix.settings.trusted-users\`, or agent-distro's cache key (${bake.cache.publicKey}) to \`nix.settings.trusted-public-keys\`.`;
+      return isLocalHost(host.ssh)
+        ? `this Mac's Nix would not take the signed agents: ${res.reason}. Add the user kolu runs as to \`nix.settings.trusted-users\`, or agent-distro's cache key (${bake.cache.publicKey}) to \`nix.settings.trusted-public-keys\`.`
+        : `${host.label}'s Nix would not take the signed agents: ${res.reason}. On that Mac, add the login kolu connects as to \`nix.settings.trusted-users\`, or agent-distro's cache key (${bake.cache.publicKey}) to \`nix.settings.trusted-public-keys\`.`;
+    case "sender-refused":
+      return `the Nix on the machine running kolu would not take ${host.label}'s signed agents from agent-distro's cache (${bake.cache.url}), so ${host.label} was never asked: ${res.reason}. On the machine running kolu, add the user kolu runs as to \`nix.settings.trusted-users\`, or agent-distro's cache key (${bake.cache.publicKey}) to \`nix.settings.trusted-public-keys\`.`;
     case "uncached":
       return `agent-distro's cache (${bake.cache.url}) did not deliver the ${profile} agents for ${system} — kolu never builds them: ${res.reason}`;
     case "unshipped":
