@@ -17,7 +17,6 @@ import {
   historyAuthor,
 } from "./history.ts";
 import type {
-  AgentDistroFailureReason,
   AgentDistroReceipt,
   AgentDistroResolved,
   AgentDistroSetting,
@@ -233,7 +232,6 @@ export type AgentMark =
   | { readonly kind: "downloading" }
   | {
       readonly kind: "failed";
-      readonly reason: AgentDistroFailureReason;
       readonly message: string;
     };
 
@@ -266,65 +264,24 @@ export function agentMarkOf(
     case "downloading":
       return { kind: "downloading" };
     case "error":
-      return { kind: "failed", reason: status.reason, message: status.message };
+      return { kind: "failed", message: status.message };
     default:
       return status satisfies never;
   }
 }
 
-/** What a refused delivery means, in plain words — the cause behind the
- *  `refused` reason, whatever Nix said. */
-export const AGENTS_REFUSED_MEANS =
-  "That machine's Nix trusts neither the login kolu connects as nor agent-distro's cache key, so it would not accept the agents kolu copied there.";
-
-/** The host-side fix for a refused delivery — the ONE wording. Either half is
- *  enough; neither is something kolu changes on a machine itself. */
-export const AGENTS_REFUSED_FIX =
-  "On that machine, add the login to `nix.settings.trusted-users`, or add agent-distro's cache and its key to `nix.settings.substituters` and `nix.settings.trusted-public-keys`.";
-
-/** What a delivery the machine RUNNING kolu refused means — its own Nix would
- *  not take the bundle from agent-distro's cache, so no host was even asked. */
-export const AGENTS_BINDER_REFUSED_MEANS =
-  "The Nix on the machine running kolu trusts neither the user kolu runs as nor agent-distro's cache key, so it would not take the agents from the cache to pass on.";
-
-/** The fix for that, on the machine running kolu. */
-export const AGENTS_BINDER_REFUSED_FIX =
-  "On the machine running kolu, add your user to `nix.settings.trusted-users`, or add agent-distro's cache and its key to `nix.settings.substituters` and `nix.settings.trusted-public-keys`.";
-
 /** When kolu tries a failed delivery again — never in a loop of its own. */
 export const AGENTS_DELIVERY_AGAIN =
   "kolu tries again at the next scheduled update, or when you check that machine from its host details.";
 
-/** The host-setup remedy for a failure, by its typed reason — empty when the
- *  cause (kolu-server's words, with Nix's own line) says it all. */
-export function agentFailureRemedy(
-  reason: AgentDistroFailureReason,
-): readonly string[] {
-  switch (reason) {
-    case "refused":
-      return [AGENTS_REFUSED_MEANS, AGENTS_REFUSED_FIX];
-    case "binderRefused":
-      return [AGENTS_BINDER_REFUSED_MEANS, AGENTS_BINDER_REFUSED_FIX];
-    case "delivery":
-      return [];
-    default:
-      return reason satisfies never;
-  }
-}
-
 /** A failed delivery's words, in the one order the mark's hover shows them —
- *  the cause, the remedy (by reason, when there is one), when kolu tries
- *  again — each once. */
+ *  the cause, then when kolu tries again. */
 export function agentFailureLines(
-  failure: {
-    readonly reason: AgentDistroFailureReason;
-    readonly message: string;
-  },
+  failure: { readonly message: string },
   where: string,
 ): readonly string[] {
   return [
     `The coding agents could not be delivered to ${where}: ${failure.message}`,
-    ...agentFailureRemedy(failure.reason),
     AGENTS_DELIVERY_AGAIN,
   ];
 }
@@ -794,13 +751,6 @@ function eventRow(event: AgentUpdateEvent, ago: AgoPhrase): AgentEventRow {
   };
 }
 
-/** A failed delivery's state, in a word or two, by its reason. */
-const FAILED_STATE: Record<AgentDistroFailureReason, string> = {
-  refused: "refused by its Nix",
-  binderRefused: "refused by kolu's own Nix",
-  delivery: "delivery failed",
-};
-
 /** What a machine's host details say about its agents: the profile new
  *  terminals there get and the build serving it, the state in one line, a
  *  failure's own words, that machine's last update events, and which action it
@@ -812,14 +762,9 @@ export interface AgentHostDetail {
   /** The build serving it — only a ready host has one. */
   readonly hash?: string;
   readonly state: AgentStatusNote;
-  /** A failed delivery's words: the cause, and the remedy when its reason has
-   *  one (which the section follows with its one doc link). Trying again is
-   *  the section's button; `means` says when kolu tries on its own. */
-  readonly cause: readonly string[];
-  /** The failure has a fix someone makes in a machine's Nix settings (a
-   *  refusal, here or at the machine running kolu) — the section then links
-   *  to the docs that explain it. */
-  readonly hasFix: boolean;
+  /** A failed delivery's words — kolu-server's, with Nix's own line. Trying
+   *  again is the section's button; `means` says when kolu tries on its own. */
+  readonly cause?: string;
   /** What a failure means for new terminals on THAT machine. */
   readonly means?: string;
   /** That machine's last update events, newest first — empty when it has run
@@ -854,8 +799,6 @@ export function agentHostDetail(input: {
   });
   const base = {
     profile: agentProfileTitle(setting.profile, input.listing),
-    cause: [],
-    hasFix: false,
     events: [],
   } as const;
   switch (mark.kind) {
@@ -868,13 +811,8 @@ export function agentHostDetail(input: {
     case "failed":
       return {
         ...base,
-        state: {
-          text: FAILED_STATE[mark.reason],
-          title: mark.message,
-          tone: "warn",
-        },
-        cause: [mark.message, ...agentFailureRemedy(mark.reason)],
-        hasFix: agentFailureRemedy(mark.reason).length > 0,
+        state: { text: "delivery failed", title: mark.message, tone: "warn" },
+        cause: mark.message,
         means: `New terminals on ${host.label} get no coding agents until this is fixed. ${AGENTS_DELIVERY_AGAIN}`,
         canCheck: true,
       };

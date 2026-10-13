@@ -142,7 +142,7 @@ function buildFixture(): Record<string, string> {
       default: FIXTURE_DEFAULT_PROFILE,
       profiles: FIXTURE_PROFILES.map((name) => {
         const dir = path.join(root, "profiles", name);
-        return { name, dir, bin: path.join(dir, "bin"), hash: name };
+        return { name, dir, bin: path.join(dir, "bin") };
       }),
     }),
   );

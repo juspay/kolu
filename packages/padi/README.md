@@ -499,11 +499,9 @@ it; the module is `src/agentDistro/`.
   `delivering` — true while kolu-server delivers a newer one and that bundle
   keeps serving), `downloading` (nothing serves yet; kolu-server has reported
   it is delivering it), `undelivered` (nothing serves and kolu-server has not
-  said it is delivering — never read as a delivery under way), `error` (the delivery failed and nothing serves: a typed `reason` —
-  `refused`, the host's Nix would not take the copied paths; `binderRefused`,
-  the Nix of the machine running kolu would not take the bundle from
-  agent-distro's cache to pass on; or `delivery`, anything else — and its cause
-  in kolu-server's words), `off`, or `unavailable` (an unbaked, from-source
+  said it is delivering — never read as a delivery under way), `error` (the
+  delivery failed and nothing serves: its cause in kolu-server's words, with
+  Nix's own line), `off`, or `unavailable` (an unbaked, from-source
   padi). No byte progress is reported in either arm.
 - **`agentDistroReceipt` (read-only)** — what this host keeps of the setting's
   profile's deliveries, read off upstream's files on the host (which padi

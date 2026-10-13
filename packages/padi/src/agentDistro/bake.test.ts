@@ -30,7 +30,6 @@ const MANIFEST = {
     name,
     dir: `/s/${name}`,
     bin: `/s/${name}/bin`,
-    hash: name,
   })),
 };
 

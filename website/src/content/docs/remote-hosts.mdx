@@ -47,9 +47,11 @@ already running.
   <Card title="Nix on the remote">
     The host has [Nix installed](https://nixos.asia/en/install) — kolu provisions
     [padi](/padi) there with Nix over ssh. It must be runnable from a
-    *non-interactive* ssh session, not only from a login shell. Make your user
-    **trusted by its nix-daemon** (`trusted-users`) too: kolu then copies padi's
-    binaries from this machine instead of the host building them itself.
+    *non-interactive* ssh session, not only from a login shell. A Linux host
+    needs nothing in its Nix settings: kolu copies padi's binaries there
+    content-addressed, which its Nix accepts from any user. On a Mac, make
+    your user **trusted by its nix-daemon** (`trusted-users`) so kolu can copy
+    them there instead of the Mac building them itself.
   </Card>
   <Card title="A Nix-wrapped kolu">
     Launch kolu through its Nix wrapper, which bakes in its exact agent source.
@@ -124,14 +126,14 @@ padi they talk to.
 
 The **coding agents** do not ride that closure. With [AI coding agents](/agents)
 on, the machine running kolu **delivers them** the first time a host connects:
-it takes the set from agent-distro's binary cache into its own Nix store and
-copies it to the host over the same ssh login, the way the daemon itself
-travels — but never builds it. The host downloads nothing itself, so it needs no
-flakes, no GitHub access and no cache settings for its agents. The host's tab
-shows the delivery until it lands. The one thing a host must allow
-is the copy: its Nix has to trust either your ssh login or agent-distro's cache
-key, or it refuses the agents — the one-line fix is in [When a delivery
-fails](/agents#when-a-delivery-fails). From then on kolu keeps the host current,
+it reads the set from agent-distro's binary cache and copies it to the host
+over the same ssh login, the way the daemon itself travels — but never builds
+it. The host downloads nothing itself, so it needs no flakes, no GitHub access
+and no cache settings for its agents. A Linux host gets the set
+content-addressed, which its Nix takes without trusting your login or any key;
+a Mac must trust one of the two ([When a delivery
+fails](/agents#when-a-delivery-fails)). The host's tab shows the delivery until
+it lands. From then on kolu keeps the host current,
 four times a day and whenever it reconnects; its tab shows each update arriving
 while the agents it has keep working ([Kept up to
 date](/agents#kept-up-to-date)). Nothing compiles agents, on either machine.

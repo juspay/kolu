@@ -3,8 +3,7 @@
  * real numbers (every six hours from 02:00 UTC; up to three runs a boundary,
  * five minutes after a FAILED one ended): a run when due at start, a failed
  * run retried, a run that reached no host retried (never stamped), a
- * refused-only run NOT retried (only the host's own settings
- * change a refusal), a succeeded run not repeated before the next boundary,
+ * succeeded run not repeated before the next boundary,
  * and nothing while agents are off.
  */
 
@@ -100,11 +99,9 @@ function start(opts: {
 }
 
 describe("runFailed", () => {
-  it("a failed host fails the run — refused, busy and landed do not", () => {
+  it("a failed host fails the run — busy and landed do not", () => {
     expect(runFailed(["landed", "failed"])).toBe(true);
-    expect(runFailed(["refused", "failed"])).toBe(true);
-    expect(runFailed(["landed", "refused", "busy"])).toBe(false);
-    expect(runFailed(["refused"])).toBe(false);
+    expect(runFailed(["landed", "busy"])).toBe(false);
     expect(runFailed(["landed"])).toBe(false);
   });
 
@@ -171,20 +168,6 @@ describe("startDeliverySchedule", () => {
     expect(runs.map((r) => r.at)).toEqual([
       at("2026-10-08T09:00:00Z"),
       at("2026-10-08T09:05:00Z"),
-    ]);
-  });
-
-  it("a refused-only run is not retried before the next boundary", async () => {
-    const { clock, runs } = start({
-      start: "2026-10-08T09:00:00Z",
-      outcome: () => ["refused"],
-    });
-    await runUntil(clock, at("2026-10-08T13:59:00Z"));
-    expect(runs.map((r) => r.at)).toEqual([at("2026-10-08T09:00:00Z")]);
-    await runUntil(clock, at("2026-10-08T14:00:00Z"));
-    expect(runs.map((r) => r.at)).toEqual([
-      at("2026-10-08T09:00:00Z"),
-      at("2026-10-08T14:00:00Z"),
     ]);
   });
 

@@ -20,12 +20,15 @@ pumpRemoteSurface({ source: surface, session, makeSink: ({ seq }) => sink });
 
 The copy half of provisioning is its own export, `deliverClosure`: get one
 exact, already-evaluated store path into a host's store from a declared binary
-cache and root it there — warm check on the host, `nix copy --from <cache>` into
-your own store, `nix copy --to ssh-ng://host`, GC root — and **never build it**,
-on either side. When it does not land, the result says why: not in the cache
-(`uncached`), refused by the host's Nix, which trusts neither the login nor the
-cache's key (`refused`), refused by your own Nix before the host was asked
-(`sender-refused`), or a copy that failed otherwise (`unshipped`). The path to
+cache and root it there — and **never build it**, on either side. A Linux host
+is sent the closure **content-addressed** (`nix store make-content-addressed`
+from the cache, or your own store when it holds it, then `nix copy --to
+ssh-ng://host`), which any Nix accepts with no `trusted-users` entry and no
+key; a darwin host is sent the signed input-addressed closure, since rewriting
+breaks Mach-O code signatures. The result names the path the host now holds.
+When it does not land, it says why: not in the cache (`uncached`), refused by a
+darwin host's Nix, which trusts neither the login nor the cache's key
+(`refused`), or a copy that failed otherwise (`unshipped`). The path to
 deliver comes from `lockFlake` and `resolveFlakeOutPath` — the same local
 evaluator `resolveAgentDrv` runs on. kolu delivers its coding agents to every
 host this way.

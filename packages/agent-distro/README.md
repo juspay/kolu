@@ -11,7 +11,7 @@ local floor of every profile with agent-distro's own Nix library — each
 profile's bundle as upstream builds it, with its harness launchers and its own
 picker, `bin/agent-distro`, in `bin/` (kolu bakes no picker of its own) — writes
 its **manifest** (`share/kolu/agent-distro.json`: the default profile, and each
-profile's dir, `bin` and store hash), the **profiles listing** (every profile
+profile's dir and `bin`), the **profiles listing** (every profile
 this build knows, and the state directory a host keeps its `current` under —
 agent-distro's own `stateDirectory`, against a placeholder home padi makes
 concrete), the **delivery** kolu-server reads (upstream's flake, its one binary
@@ -74,12 +74,10 @@ The **TypeScript half**, as data and pure functions:
   defined once: `AgentDistroSetting` (what kolu-server pushes; kolu-common's
   preference field is this schema), `AgentDistroDeliveryReport` (what
   kolu-server tells a padi about a delivery to its host: `delivering` ·
-  `landed` · `failed`), `AgentDistroStatus` (what padi reports — and what a new
-  terminal there gets — and a failure's typed reason,
-  `AgentDistroFailureReason`: `refused`, the host's Nix would not take the
-  copied paths; `binderRefused`, the Nix of the machine running kolu would not
-  take the bundle from agent-distro's cache to pass on; or `delivery`, anything
-  else — and a ready host's `delivering`, set while a newer set is on its way
+  `landed` · `failed`, with its cause in kolu-server's words),
+  `AgentDistroStatus` (what padi reports — and what a new terminal there gets —
+  a failure's cause in kolu-server's words, and a ready host's `delivering`,
+  set while a newer set is on its way
   and the old one keeps serving; no byte counts), their defaults and equality, and
   `TerminalAgents` (the one `agents` field a terminal record is stamped with),
   with its optional `effective` (the profile in effect, `./inEffect`),

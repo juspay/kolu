@@ -28,12 +28,7 @@ import {
   agentsChosenLabel,
   firstRunAgentsDone,
   AGENTS_DELIVERY_AGAIN,
-  AGENTS_REFUSED_FIX,
-  AGENTS_REFUSED_MEANS,
-  AGENTS_BINDER_REFUSED_FIX,
-  AGENTS_BINDER_REFUSED_MEANS,
   agentFailureLines,
-  agentFailureRemedy,
   agentMarkLabel,
   agentChipLabel,
   agentMarkOf,
@@ -108,10 +103,9 @@ describe("agentMarkOf — the one status → treatment fold", () => {
       {
         kind: "error",
         profile: "vanilla",
-        reason: "delivery",
         message: "cache not usable",
       },
-      { kind: "failed", reason: "delivery", message: "cache not usable" },
+      { kind: "failed", message: "cache not usable" },
     ],
   ];
   for (const [name, status, mark] of cases)
@@ -160,10 +154,7 @@ describe("agentMarkLabel", () => {
       "Delivering the coding agents to naiveintent…",
     );
     expect(
-      agentMarkLabel(
-        { kind: "failed", reason: "delivery", message: "nix missing" },
-        "box",
-      ),
+      agentMarkLabel({ kind: "failed", message: "nix missing" }, "box"),
     ).toBe(
       `The coding agents could not be delivered to box: nix missing\n${AGENTS_DELIVERY_AGAIN}`,
     );
@@ -621,7 +612,6 @@ describe("firstRunAgentsDone — the first-run step's done-predicate", () => {
     error: {
       kind: "error",
       profile: "vanilla",
-      reason: "delivery",
       message: "m",
     },
   } as const satisfies {
@@ -820,7 +810,6 @@ describe("agentFleetSummary — the ONE fleet line in Settings", () => {
       host("devbox", {
         kind: "error",
         profile: "vanilla",
-        reason: "delivery",
         message: "cache not usable",
       }),
     ]);
@@ -881,8 +870,6 @@ describe("agentHostDetail — one machine's agents, in its host details", () => 
       profile: "Vanilla",
       hash: "nd11nx5f",
       state: { text: "ready", title: "ready", tone: "muted" },
-      cause: [],
-      hasFix: false,
       events: [],
       canCheck: true,
     });
@@ -896,8 +883,6 @@ describe("agentHostDetail — one machine's agents, in its host details", () => 
         title: "no coding agents delivered",
         tone: "muted",
       },
-      cause: [],
-      hasFix: false,
       events: [],
       canCheck: false,
     });
@@ -941,7 +926,6 @@ describe("agentHostDetail — one machine's agents, in its host details", () => 
       detail({
         kind: "error",
         profile: "vanilla",
-        reason: "delivery",
         message: "the cache does not hold this bundle",
       }),
     ).toEqual({
@@ -951,47 +935,11 @@ describe("agentHostDetail — one machine's agents, in its host details", () => 
         title: "the cache does not hold this bundle",
         tone: "warn",
       },
-      cause: ["the cache does not hold this bundle"],
-      // Nothing to fix in a machine's Nix settings: no docs link.
-      hasFix: false,
+      cause: "the cache does not hold this bundle",
       means: `New terminals on devbox get no coding agents until this is fixed. ${AGENTS_DELIVERY_AGAIN}`,
       events: [],
       canCheck: true,
     });
-  });
-
-  it("refused: names the host's Nix, with what it means and the fix", () => {
-    const d = detail({
-      kind: "error",
-      profile: "vanilla",
-      reason: "refused",
-      message: "cannot add path because it lacks a signature by a trusted key",
-    });
-    expect(d?.state.text).toBe("refused by its Nix");
-    expect(d?.cause).toEqual([
-      "cannot add path because it lacks a signature by a trusted key",
-      AGENTS_REFUSED_MEANS,
-      AGENTS_REFUSED_FIX,
-    ]);
-    expect(d?.hasFix).toBe(true);
-    expect(d?.canCheck).toBe(true);
-  });
-
-  it("binderRefused: names kolu's own Nix, with what it means and the fix there", () => {
-    const d = detail({
-      kind: "error",
-      profile: "vanilla",
-      reason: "binderRefused",
-      message: "cannot add path because it lacks a signature by a trusted key",
-    });
-    expect(d?.state.text).toBe("refused by kolu's own Nix");
-    expect(d?.cause).toEqual([
-      "cannot add path because it lacks a signature by a trusted key",
-      AGENTS_BINDER_REFUSED_MEANS,
-      AGENTS_BINDER_REFUSED_FIX,
-    ]);
-    expect(d?.hasFix).toBe(true);
-    expect(d?.canCheck).toBe(true);
   });
 
   it("delivering and off say what they are, with nothing to do from here", () => {
@@ -1124,7 +1072,6 @@ describe("agentStalenessOf — is a terminal's agents what a new one gets", () =
         status: {
           kind: "error",
           profile: "juspay",
-          reason: "delivery",
           message: "m",
         },
         setting: on("juspay"),
@@ -1189,7 +1136,6 @@ describe("agentStalenessOf — is a terminal's agents what a new one gets", () =
         status: {
           kind: "error",
           profile: "vanilla",
-          reason: "delivery",
           message: "m",
         },
         setting: on("vanilla"),
@@ -1411,44 +1357,25 @@ describe("updateLanded — the moment a delivery is worth the updated toast", ()
   });
 });
 
-describe("a failure's words: cause, then remedy (by reason), then when kolu tries again — each once", () => {
-  const REFUSED =
-    "cannot add path '/nix/store/x' because it lacks a signature by a trusted key";
+describe("a failure's words: its cause, then when kolu tries again — each once", () => {
+  const CAUSE =
+    "agent-distro's cache did not deliver the vanilla agents for x86_64-linux";
 
-  it("refused carries what it means and the host-side fix; try-again appears exactly once", () => {
-    const lines = (
-      agentMarkLabel(
-        { kind: "failed", reason: "refused", message: REFUSED },
-        "box",
-      ) ?? ""
-    ).split("\n");
-    expect(lines).toEqual([
-      `The coding agents could not be delivered to box: ${REFUSED}`,
-      AGENTS_REFUSED_MEANS,
-      AGENTS_REFUSED_FIX,
-      AGENTS_DELIVERY_AGAIN,
-    ]);
-  });
   it("a delivery failure is its own words, then when kolu tries again", () => {
-    expect(agentFailureRemedy("delivery")).toEqual([]);
-    expect(
-      agentFailureLines(
-        { reason: "delivery", message: "cache not usable" },
-        "box",
-      ),
-    ).toEqual([
-      "The coding agents could not be delivered to box: cache not usable",
+    expect(agentFailureLines({ message: CAUSE }, "box")).toEqual([
+      `The coding agents could not be delivered to box: ${CAUSE}`,
       AGENTS_DELIVERY_AGAIN,
     ]);
   });
   it("the hover and the machine's own section say the same words", () => {
-    const failure = { reason: "refused", message: REFUSED } as const;
+    const failure = { message: CAUSE } as const;
     const lines = agentFailureLines(failure, "box");
-    const mark = { kind: "failed", ...failure } as const;
     // Hover / accessible name.
-    expect(agentMarkLabel(mark, "box")).toBe(lines.join("\n"));
-    // The machine's own host-details section: the cause and the remedy, with
-    // trying again its check BUTTON beside the one sentence of when.
+    expect(agentMarkLabel({ kind: "failed", ...failure }, "box")).toBe(
+      lines.join("\n"),
+    );
+    // The machine's own host-details section: the cause, with trying again
+    // its check BUTTON beside the one sentence of when.
     const detail = agentHostDetail({
       host: {
         label: "box",
@@ -1460,23 +1387,9 @@ describe("a failure's words: cause, then remedy (by reason), then when kolu trie
       setting: VANILLA_ON,
       listing: LISTING,
     });
-    expect(detail?.cause).toEqual([failure.message, ...lines.slice(1, -1)]);
+    expect(detail?.cause).toBe(CAUSE);
     expect(detail?.means?.endsWith(AGENTS_DELIVERY_AGAIN)).toBe(true);
     expect(detail?.canCheck).toBe(true);
-  });
-  it("binderRefused carries what it means and the fix on the machine running kolu", () => {
-    expect(agentFailureRemedy("binderRefused")).toEqual([
-      AGENTS_BINDER_REFUSED_MEANS,
-      AGENTS_BINDER_REFUSED_FIX,
-    ]);
-    expect(
-      agentFailureLines({ reason: "binderRefused", message: REFUSED }, "box"),
-    ).toEqual([
-      `The coding agents could not be delivered to box: ${REFUSED}`,
-      AGENTS_BINDER_REFUSED_MEANS,
-      AGENTS_BINDER_REFUSED_FIX,
-      AGENTS_DELIVERY_AGAIN,
-    ]);
   });
 });
 

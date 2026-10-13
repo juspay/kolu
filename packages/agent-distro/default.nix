@@ -20,9 +20,11 @@
 #     `bin/agent-distro` — a command for people, never run for information.
 #     kolu's one file about the floor is the MANIFEST,
 #     `share/kolu/agent-distro.json`:
-#         { default, profiles: [{ name, dir, bin, hash }] }
+#         { default, profiles: [{ name, dir, bin }] }
 #     — the default profile, and each profile's directory (what a terminal
-#     pins), its `bin/` (what goes on PATH) and its store hash. Generated from
+#     pins) and its `bin/` (what goes on PATH). A short hash is read off the
+#     path itself, never a field: a content-addressed rewrite of a bundle
+#     rewrites the store paths in it but not a bare hash. Generated from
 #     the very values that build the directories, so nothing downstream knows a
 #     layout by hand.
 #   * `profiles` — the profiles this build knows, in listing order, and where a
@@ -99,8 +101,6 @@ let
         in {
           inherit name dir;
           bin = "${dir}/bin";
-          # The store hash of the profile directory a terminal pins.
-          hash = builtins.substring 0 32 (builtins.baseNameOf dir);
         })
       profileNames;
   });
@@ -227,9 +227,8 @@ let
     for p in $(jq -r '.profiles[].name' "$m"); do
       dir=$(jq -r --arg p "$p" '.profiles[] | select(.name == $p) | .dir' "$m")
       bin=$(jq -r --arg p "$p" '.profiles[] | select(.name == $p) | .bin' "$m")
-      hash=$(jq -r --arg p "$p" '.profiles[] | select(.name == $p) | .hash' "$m")
-      if [ ! -d "$dir" ] || [ "$bin" != "$dir/bin" ] || [ "$(basename "$dir" | cut -c1-32)" != "$hash" ]; then
-        echo "FAIL: the floor manifest's entry for '$p' does not describe a real profile directory ($dir, $bin, $hash)." >&2
+      if [ ! -d "$dir" ] || [ "$bin" != "$dir/bin" ]; then
+        echo "FAIL: the floor manifest's entry for '$p' does not describe a real profile directory ($dir, $bin)." >&2
         exit 1
       fi
       if [ ! -x "$bin/agent-distro" ]; then

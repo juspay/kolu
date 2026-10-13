@@ -11,6 +11,7 @@ import { CI_KEEPALIVE, provArgs, useControlDir } from "./controlDir.testutil";
 import { agentBinaryCache } from "./agentBinaryCache";
 import { directAgentDerivation, flakeAgentDerivation } from "./agentDerivation";
 import {
+  __resetContentAddressedPathsForTest,
   agentGcRootPath,
   deliverClosure,
   makeProvisionBudgets,
@@ -22,7 +23,10 @@ import {
 } from "./nixCopy";
 import { type CaptureResult, runCapture } from "./process";
 import { sshKeepalive } from "./keepalive";
-import { TEST_BINARY_CACHE } from "./agentDerivation.testutil";
+import {
+  derivationShowAnswer,
+  TEST_BINARY_CACHE,
+} from "./agentDerivation.testutil";
 import { nixErrorLine, nixJsonLine } from "./nixLog.testutil";
 
 vi.mock("./process", async (importOriginal) => ({
@@ -33,6 +37,10 @@ vi.mock("./process", async (importOriginal) => ({
 }));
 
 const STORE = "/nix/store/x8yvl9si8vb93vhwway7kf3zbvv4ahg1-agent";
+/** `STORE`'s content-addressed form, as `make-content-addressed` names it. */
+const CA_STORE = "/nix/store/c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4-agent";
+const LINUX = "x86_64-linux";
+const DARWIN = "aarch64-darwin";
 const DRV = "/nix/store/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-agent.drv";
 const FLAKE_INSTALLABLE = "/nix/store/source#packages.x86_64-linux.agent";
 
@@ -53,6 +61,17 @@ const isPrefetch = (args: readonly string[]): boolean =>
   isCopy(args) && args.includes("--from");
 const isShip = (args: readonly string[]): boolean =>
   isCopy(args) && args.includes("--to");
+const isRewrite = (args: readonly string[]): boolean =>
+  args.includes("make-content-addressed");
+const isDrvShow = (args: readonly string[]): boolean =>
+  derivationShowAnswer(args) !== undefined;
+
+/** `nix derivation show`'s answer for a `.drv` built for `system`. */
+const drvShow = (system: string): CaptureResult =>
+  derivationShowAnswer(["derivation", "show"], system) as CaptureResult;
+
+/** `make-content-addressed --json`'s answer: `STORE` rewritten to `CA_STORE`. */
+const rewriteOut = okOut(JSON.stringify({ rewrites: { [STORE]: CA_STORE } }));
 
 /** Route the mocked `runCapture` by the command it was handed (robust to call
  *  order): the sender-local `-q --outputs`, the ssh `--check-validity`, the
@@ -65,8 +84,16 @@ function mockNix(over?: {
   pin?: CaptureResult;
   copy?: CaptureResult;
   ship?: CaptureResult;
+  /** The target's system, as the `.drv` names it — Linux unless a darwin
+   *  route is the subject. */
+  system?: string;
+  rewrite?: CaptureResult;
 }): void {
   vi.mocked(runCapture).mockImplementation(async (cmd, args) => {
+    if (isDrvShow(args)) return drvShow(over?.system ?? LINUX);
+    // The content-addressed rewrite (a Linux target's step 2) — default MISS,
+    // like the prefetch below.
+    if (isRewrite(args)) return over?.rewrite ?? failOut;
     // Cache prefetch (2) / ship (3) — default MISS/refusal, so the suites
     // written before these steps existed keep exercising the narrated
     // source-realise fallback.
@@ -96,6 +123,7 @@ function mockNix(over?: {
 useControlDir("kolu-ssh-nixcopy-");
 afterEach(() => {
   vi.clearAllMocks();
+  __resetContentAddressedPathsForTest();
 });
 
 describe("provisionAgent GC-root pinning (cold path)", () => {
@@ -177,7 +205,10 @@ describe("provisionAgent GC-root pinning (cold path)", () => {
     // our argv. That includes the cache prefetch: `agentBinaryCache` restricts no
     // substituter scheme, so `ssh://` is a spellable declared cache and a
     // prefetch with no NIX_SSHOPTS would have zero dead-peer detection.
-    const nixCalls = calls.filter(([command]) => command === "nix");
+    // (`nix derivation show` reads the local `.drv` and reaches nothing.)
+    const nixCalls = calls.filter(
+      ([command, args]) => command === "nix" && !isDrvShow(args),
+    );
     expect(nixCalls.length).toBeGreaterThan(0);
     for (const [, args, o] of nixCalls) {
       // Localhost-only invocations legitimately pass no env; every call that can
@@ -610,12 +641,12 @@ describe("agentGcRootPath", () => {
   });
 });
 
-describe("cache prefetch + ship (steps 2 and 3)", () => {
+describe("cache prefetch + ship (steps 2 and 3) — a darwin target, signed and input-addressed", () => {
   const flakeDrv = () =>
     flakeAgentDerivation(DRV, FLAKE_INSTALLABLE, TEST_BINARY_CACHE);
 
   it("prefetches the agent closure from the declared cache before the cold build", async () => {
-    mockNix({ copy: okOut("") });
+    mockNix({ system: DARWIN, copy: okOut("") });
     const res = await provisionAgent({
       host: "build-host",
       derivation: flakeDrv(),
@@ -646,7 +677,7 @@ describe("cache prefetch + ship (steps 2 and 3)", () => {
   });
 
   it("a prefetch miss narrates and the dial still succeeds from source", async () => {
-    mockNix(); // copy defaults to failure
+    mockNix({ system: DARWIN }); // copy defaults to failure
     const onProgress = vi.fn();
     const res = await provisionAgent({
       host: "build-host",
@@ -670,7 +701,7 @@ describe("cache prefetch + ship (steps 2 and 3)", () => {
       substituters: ["https://a.test.invalid", "https://b.test.invalid"],
       trustedPublicKeys: ["k:0000000000000000000000000000000000000000000="],
     });
-    mockNix(); // every --from fails
+    mockNix({ system: DARWIN }); // every --from fails
     const onProgress = vi.fn();
     await provisionAgent({
       host: "build-host",
@@ -697,6 +728,7 @@ describe("cache prefetch + ship (steps 2 and 3)", () => {
       trustedPublicKeys: ["k:0000000000000000000000000000000000000000000="],
     });
     vi.mocked(runCapture).mockImplementation(async (_cmd, args) => {
+      if (isDrvShow(args)) return drvShow(DARWIN);
       // The substituter URL is exactly the `--from` value (args[2]) — an exact
       // compare, not a substring scan (which CodeQL would flag as URL
       // sanitization).
@@ -726,7 +758,7 @@ describe("cache prefetch + ship (steps 2 and 3)", () => {
   });
 
   it("the drv-path arm prefetches too — downstream binders inherit the path", async () => {
-    mockNix({ copy: okOut("") });
+    mockNix({ system: DARWIN, copy: okOut("") });
     const res = await provisionAgent({
       host: "build-host",
       derivation: directAgentDerivation(DRV, TEST_BINARY_CACHE),
@@ -740,7 +772,7 @@ describe("cache prefetch + ship (steps 2 and 3)", () => {
   });
 
   it("SHIPS the local closure to the remote store — the build alone never would", async () => {
-    mockNix({ copy: okOut(""), ship: okOut("") });
+    mockNix({ system: DARWIN, copy: okOut(""), ship: okOut("") });
     await provisionAgent({
       host: "build-host",
       derivation: flakeDrv(),
@@ -768,7 +800,7 @@ describe("cache prefetch + ship (steps 2 and 3)", () => {
 
   it("ships even when every cache missed — IF the warm binder store already holds the closure", async () => {
     // copy (--from) defaults to failure; the LOCAL validity query says we have it.
-    mockNix({ ship: okOut(""), localValidity: okOut("") });
+    mockNix({ system: DARWIN, ship: okOut(""), localValidity: okOut("") });
     await provisionAgent({
       host: "build-host",
       derivation: flakeDrv(),
@@ -785,7 +817,7 @@ describe("cache prefetch + ship (steps 2 and 3)", () => {
     // would fail for a reason that has nothing to do with trust, so shipping
     // anyway would narrate two remedies ("trust the key there", "add the cache
     // to the host's nix.conf") that fix nothing.
-    mockNix({ ship: okOut("") }); // copy + local validity both default to failure
+    mockNix({ system: DARWIN, ship: okOut("") }); // copy + local validity both default to failure
     const onProgress = vi.fn();
     const res = await provisionAgent({
       host: "build-host",
@@ -805,7 +837,7 @@ describe("cache prefetch + ship (steps 2 and 3)", () => {
   });
 
   it("localhost never ships — the prefetch already filled the store the build realises in", async () => {
-    mockNix({ copy: okOut(""), ship: okOut("") });
+    mockNix({ system: DARWIN, copy: okOut(""), ship: okOut("") });
     await provisionAgent({
       host: "localhost",
       derivation: flakeDrv(),
@@ -818,7 +850,7 @@ describe("cache prefetch + ship (steps 2 and 3)", () => {
   });
 
   it("a ship refusal narrates what failed and the dial still succeeds", async () => {
-    mockNix({ copy: okOut("") }); // ship defaults to failure
+    mockNix({ system: DARWIN, copy: okOut("") }); // ship defaults to failure
     const onProgress = vi.fn();
     const res = await provisionAgent({
       host: "build-host",
@@ -844,6 +876,7 @@ describe("cache prefetch + ship (steps 2 and 3)", () => {
     // REMOTE rejection of the build below would read as retryable "network"
     // and the session would retry a deterministic fault forever.
     vi.mocked(runCapture).mockImplementation(async (_cmd, args, opts) => {
+      if (isDrvShow(args)) return drvShow(DARWIN);
       if (isCopy(args)) {
         opts.onProgress?.(
           "error: unable to download: Couldn't connect to server",
@@ -868,7 +901,10 @@ describe("cache prefetch + ship (steps 2 and 3)", () => {
   });
 
   it("an abort mid-prefetch settles the standard aborted result", async () => {
-    mockNix({ copy: { ok: false, kind: "aborted", stdout: "" } });
+    mockNix({
+      system: DARWIN,
+      copy: { ok: false, kind: "aborted", stdout: "" },
+    });
     const res = await provisionAgent({
       host: "build-host",
       derivation: flakeDrv(),
@@ -884,6 +920,7 @@ describe("cache prefetch + ship (steps 2 and 3)", () => {
 
   it("an abort mid-SHIP names the ship — not the prefetch it already finished", async () => {
     mockNix({
+      system: DARWIN,
       copy: okOut(""), // the prefetch DELIVERED
       ship: { ok: false, kind: "aborted", stdout: "" },
     });
@@ -908,7 +945,7 @@ describe("cache prefetch + ship (steps 2 and 3)", () => {
     for (let i = 0; i < 3; i++) budgets.provisioning.recordExpiry();
     // The ship is REFUSED, so the build still runs and its escalated grant is
     // observable alongside the copies' fixed one.
-    mockNix({ copy: okOut("") });
+    mockNix({ system: DARWIN, copy: okOut("") });
     await provisionAgent({
       host: "build-host",
       derivation: flakeDrv(),
@@ -942,6 +979,7 @@ describe("cache prefetch + ship (steps 2 and 3)", () => {
     // The query runs through `runNix` like every other Nix step, so a GC'd or
     // unreadable `.drv` is on record rather than thrown away.
     vi.mocked(runCapture).mockImplementation(async (_cmd, args, opts) => {
+      if (isDrvShow(args)) return drvShow(DARWIN);
       if (args.includes("--outputs")) {
         opts.onProgress?.(
           nixJsonLine({
@@ -972,7 +1010,7 @@ describe("cache prefetch + ship (steps 2 and 3)", () => {
   });
 
   it("skips the prefetch when the local output query fails — the build owns realisation", async () => {
-    mockNix({ outputs: failOut });
+    mockNix({ system: DARWIN, outputs: failOut });
     const res = await provisionAgent({
       host: "build-host",
       derivation: flakeDrv(),
@@ -1012,7 +1050,7 @@ describe("cache prefetch + ship (steps 2 and 3)", () => {
   });
 });
 
-describe("the speculative copies' liveness and honesty", () => {
+describe("the speculative copies' liveness and honesty — a darwin target, signed and input-addressed", () => {
   const flakeDrv = () =>
     flakeAgentDerivation(DRV, FLAKE_INSTALLABLE, TEST_BINARY_CACHE);
 
@@ -1021,7 +1059,7 @@ describe("the speculative copies' liveness and honesty", () => {
     // nothing per path. Under progress-liveness that healthy transfer gets
     // killed and narrated as a MISS, and the host compiles from source — the
     // exact outcome this feature exists to prevent, produced by a timeout.
-    mockNix({ copy: okOut(""), ship: okOut("") });
+    mockNix({ system: DARWIN, copy: okOut(""), ship: okOut("") });
     return provisionAgent({
       host: "build-host",
       derivation: flakeDrv(),
@@ -1041,6 +1079,7 @@ describe("the speculative copies' liveness and honesty", () => {
     // of the agent to ship" for a dial the user just cancelled is a false
     // statement about the store.
     vi.mocked(runCapture).mockImplementation(async (cmd, args) => {
+      if (isDrvShow(args)) return drvShow(DARWIN);
       if (isCopy(args)) return failOut; // every declared cache misses
       if (args.includes("--outputs")) return okOut(`${STORE}\n`);
       if (args.includes("--check-validity")) {
@@ -1072,7 +1111,7 @@ describe("the speculative copies' liveness and honesty", () => {
   });
 
   it("says the check is SKIPPED when the local output path is unknown", async () => {
-    mockNix({ outputs: failOut });
+    mockNix({ system: DARWIN, outputs: failOut });
     const onProgress = vi.fn();
     await provisionAgent({
       host: "build-host",
@@ -1091,12 +1130,12 @@ describe("the speculative copies' liveness and honesty", () => {
   });
 });
 
-describe("staging replaces the build when it can (steps 2/3 → 4a)", () => {
+describe("staging replaces the build when it can (steps 2/3 → 4a) — a darwin target, signed and input-addressed", () => {
   const flakeDrv = () =>
     flakeAgentDerivation(DRV, FLAKE_INSTALLABLE, TEST_BINARY_CACHE);
 
   it("a delivered ship SKIPS the cold build — the payoff the cache exists for", async () => {
-    mockNix({ copy: okOut(""), ship: okOut("") });
+    mockNix({ system: DARWIN, copy: okOut(""), ship: okOut("") });
     const res = await provisionAgent({
       host: "build-host",
       derivation: flakeDrv(),
@@ -1116,6 +1155,7 @@ describe("staging replaces the build when it can (steps 2/3 → 4a)", () => {
 
   it("a locally-valid closure skips the cache fetch entirely — cheap question first", async () => {
     vi.mocked(runCapture).mockImplementation(async (cmd, args) => {
+      if (isDrvShow(args)) return drvShow(DARWIN);
       if (isShip(args)) return okOut("");
       if (isCopy(args)) return failOut;
       if (args.includes("--outputs")) return okOut(`${STORE}\n`);
@@ -1139,7 +1179,7 @@ describe("staging replaces the build when it can (steps 2/3 → 4a)", () => {
   });
 
   it("a refused ship still builds on the host — staging is optional by outcome", async () => {
-    mockNix({ copy: okOut("") }); // ship defaults to refused
+    mockNix({ system: DARWIN, copy: okOut("") }); // ship defaults to refused
     const res = await provisionAgent({
       host: "build-host",
       derivation: flakeDrv(),
@@ -1155,7 +1195,7 @@ describe("staging replaces the build when it can (steps 2/3 → 4a)", () => {
   });
 
   it("localhost stages without shipping, and a hit still skips the build", async () => {
-    mockNix({ copy: okOut("") });
+    mockNix({ system: DARWIN, copy: okOut("") });
     const res = await provisionAgent({
       host: "localhost",
       derivation: flakeDrv(),
@@ -1288,8 +1328,8 @@ describe("honest failure reporting (the sheetal-codex incident)", () => {
     }
   });
 
-  it("ships with --no-check-sigs, so a host that trusts the ssh user accepts the closure", async () => {
-    mockNix({ localValidity: okOut(""), ship: okOut("") });
+  it("ships a darwin target's signed closure with --no-check-sigs, so a host that trusts the ssh user accepts it", async () => {
+    mockNix({ system: DARWIN, localValidity: okOut(""), ship: okOut("") });
     const res = await provisionAgent({
       host: "build-host",
       derivation: flakeDrv(),
@@ -1351,9 +1391,10 @@ describe("honest failure reporting (the sheetal-codex incident)", () => {
 });
 
 describe("deliverClosure — the route without a build", () => {
-  const deliver = (host: string, onProgress = vi.fn()) =>
+  const deliver = (host: string, system = LINUX, onProgress = vi.fn()) =>
     deliverClosure({
       host,
+      system,
       outPath: STORE,
       binaryCache: TEST_BINARY_CACHE,
       rootPath: ".local/state/kolu/agent-distro/gcroots/vanilla",
@@ -1364,109 +1405,181 @@ describe("deliverClosure — the route without a build", () => {
     });
   const isBuild = (args: readonly string[]) =>
     args.includes("--print-out-paths");
+  const argvs = () => vi.mocked(runCapture).mock.calls.map((c) => c[1]);
+  const pinned = () => argvs().find((a) => a.includes("--add-root"));
+  const refusal = `cannot add path '${STORE}' because it lacks a signature by a trusted key`;
 
   it("a host that already holds the path is rooted and never copied to", async () => {
     mockNix({ checkValidity: okOut("") });
     const res = await deliver("croissant");
     expect(res).toEqual({ ok: true, outPath: STORE });
-    const calls = vi.mocked(runCapture).mock.calls.map((c) => c[1]);
-    expect(calls.some(isCopy)).toBe(false);
-    const pin = calls.find((a) => a.includes("--add-root"));
-    expect(pin).toContain(".local/state/kolu/agent-distro/gcroots/vanilla");
+    expect(argvs().some(isCopy)).toBe(false);
+    expect(argvs().some(isRewrite)).toBe(false);
+    expect(pinned()).toContain(
+      ".local/state/kolu/agent-distro/gcroots/vanilla",
+    );
   });
 
-  it("copies from the cache, ships, and roots — with no build at any step", async () => {
-    mockNix({ copy: okOut(""), ship: okOut("") });
-    const res = await deliver("croissant");
-    expect(res).toEqual({ ok: true, outPath: STORE });
-    const calls = vi.mocked(runCapture).mock.calls.map((c) => c[1]);
-    expect(calls.some(isPrefetch)).toBe(true);
-    expect(calls.some(isShip)).toBe(true);
-    expect(calls.some(isBuild)).toBe(false);
-  });
-
-  it("a host whose Nix trusts neither the login nor the key is `refused`, and nothing is built or rooted", async () => {
-    vi.mocked(runCapture).mockImplementation(async (cmd, args, opts) => {
-      if (isShip(args)) {
-        opts.onProgress?.(
-          nixErrorLine(
-            `cannot add path '${STORE}' because it lacks a signature by a trusted key`,
-          ),
-        );
-        return failOut;
-      }
-      if (isCopy(args)) return okOut("");
-      if (cmd === "nix-store" && args.includes("--check-validity"))
-        return failOut;
-      if (args.includes("--check-validity")) return failOut;
-      return okOut("");
-    });
+  it("a Linux host gets the content-addressed closure: rewritten from the cache, shipped without a signature, rooted — never built", async () => {
+    mockNix({ rewrite: rewriteOut, ship: okOut("") });
     const res = await deliver("ci@croissant");
-    expect(res).toMatchObject({
-      ok: false,
-      kind: "not-delivered",
-      why: "refused",
-      reason: expect.stringMatching(/lacks a signature by a trusted key/),
-    });
-    const calls = vi.mocked(runCapture).mock.calls.map((c) => c[1]);
-    expect(calls.some(isBuild)).toBe(false);
-    expect(calls.some((a) => a.includes("--add-root"))).toBe(false);
+    expect(res).toEqual({ ok: true, outPath: CA_STORE });
+    // Not in this store, so the rewrite reads the declared cache directly.
+    const rewrite = argvs().find(isRewrite);
+    expect(rewrite).toEqual([
+      "--log-format",
+      "internal-json",
+      "-v",
+      "store",
+      "make-content-addressed",
+      "--json",
+      "--from",
+      TEST_BINARY_CACHE.substituters[0],
+      STORE,
+    ]);
+    // The ship is the CA path, asking nothing of the host's trust settings.
+    const ship = argvs().find(isShip);
+    expect(ship).toContain(CA_STORE);
+    expect(ship).not.toContain("--no-check-sigs");
+    expect(argvs().some(isPrefetch)).toBe(false);
+    expect(pinned()).toContain(CA_STORE);
+    expect(argvs().some(isBuild)).toBe(false);
   });
 
-  it("the sender's OWN refusal of the cache is `sender-refused` on a remote arm — never blamed on the host", async () => {
-    vi.mocked(runCapture).mockImplementation(async (_cmd, args, opts) => {
-      if (isPrefetch(args)) {
-        opts.onProgress?.(
-          nixErrorLine(
-            `cannot add path '${STORE}' because it lacks a signature by a trusted key`,
-          ),
-        );
-        return failOut;
-      }
-      if (args.includes("--check-validity")) return failOut;
-      return okOut("");
+  it("a closure this store already holds is rewritten from the local store, not the cache", async () => {
+    mockNix({
+      rewrite: rewriteOut,
+      ship: okOut(""),
+      localValidity: okOut(""),
     });
-    const res = await deliver("ci@croissant");
-    expect(res).toMatchObject({
-      ok: false,
-      kind: "not-delivered",
-      why: "sender-refused",
-    });
-    const calls = vi.mocked(runCapture).mock.calls.map((c) => c[1]);
-    expect(calls.some(isShip)).toBe(false);
+    await deliver("ci@croissant");
+    const rewrite = argvs().find(isRewrite);
+    expect(rewrite).not.toContain("--from");
   });
 
-  it("on the local arm the same refusal is the target's own — `refused`", async () => {
-    vi.mocked(runCapture).mockImplementation(async (_cmd, args, opts) => {
-      if (isPrefetch(args)) {
-        opts.onProgress?.(
-          nixErrorLine(
-            `cannot add path '${STORE}' because it lacks a signature by a trusted key`,
-          ),
-        );
-        return failOut;
-      }
-      if (args.includes("--check-validity")) return failOut;
-      return okOut("");
-    });
+  it("the rewrite is remembered: a host that already holds the content-addressed path costs a query, not a rewrite", async () => {
+    mockNix({ rewrite: rewriteOut, ship: okOut("") });
+    await deliver("ci@croissant");
+    vi.mocked(runCapture).mockClear();
+    vi.mocked(runCapture).mockImplementation(async (_cmd, args) =>
+      args.includes("--check-validity")
+        ? args.includes(CA_STORE)
+          ? okOut("")
+          : failOut
+        : okOut(""),
+    );
+    const res = await deliver("other-host");
+    expect(res).toEqual({ ok: true, outPath: CA_STORE });
+    expect(argvs().some(isRewrite)).toBe(false);
+    expect(argvs().some(isShip)).toBe(false);
+    expect(pinned()).toContain(CA_STORE);
+  });
+
+  it("on the local arm the rewrite itself lands the closure: rooted, never shipped", async () => {
+    mockNix({ rewrite: rewriteOut });
     const res = await deliver("localhost");
-    expect(res).toMatchObject({
-      ok: false,
-      kind: "not-delivered",
-      why: "refused",
-    });
+    expect(res).toEqual({ ok: true, outPath: CA_STORE });
+    expect(argvs().some(isShip)).toBe(false);
+    expect(pinned()).toContain(CA_STORE);
   });
 
-  it("a cache that does not hold the path is `uncached`, and nothing is shipped", async () => {
-    mockNix(); // prefetch misses, nothing held locally
+  it("a closure no declared cache holds is `uncached`, and nothing is shipped or built", async () => {
+    mockNix(); // the rewrite misses, nothing held locally
     const res = await deliver("croissant");
     expect(res).toMatchObject({
       ok: false,
       kind: "not-delivered",
       why: "uncached",
     });
+    expect(argvs().some(isShip)).toBe(false);
+    expect(argvs().some(isBuild)).toBe(false);
+  });
+
+  it("a darwin host gets the signed closure: copied from the cache, shipped, and rooted as is", async () => {
+    mockNix({ copy: okOut(""), ship: okOut("") });
+    const res = await deliver("mac", DARWIN);
+    expect(res).toEqual({ ok: true, outPath: STORE });
+    expect(argvs().some(isPrefetch)).toBe(true);
+    expect(argvs().find(isShip)).toContain("--no-check-sigs");
+    expect(argvs().some(isRewrite)).toBe(false);
+    expect(argvs().some(isBuild)).toBe(false);
+  });
+
+  it("a darwin host whose Nix trusts neither the login nor the key is `refused`, and nothing is built or rooted", async () => {
+    vi.mocked(runCapture).mockImplementation(async (_cmd, args, opts) => {
+      if (isShip(args)) {
+        opts.onProgress?.(nixErrorLine(refusal));
+        return failOut;
+      }
+      if (isCopy(args)) return okOut("");
+      if (args.includes("--check-validity")) return failOut;
+      return okOut("");
+    });
+    const res = await deliver("mac", DARWIN);
+    expect(res).toMatchObject({
+      ok: false,
+      kind: "not-delivered",
+      why: "refused",
+      reason: expect.stringMatching(/lacks a signature by a trusted key/),
+    });
+    expect(argvs().some(isBuild)).toBe(false);
+    expect(argvs().some((a) => a.includes("--add-root"))).toBe(false);
+  });
+
+  it("the sender's OWN refusal of the cache never blames the host — the closure did not come from the cache", async () => {
+    vi.mocked(runCapture).mockImplementation(async (_cmd, args, opts) => {
+      if (isPrefetch(args)) {
+        opts.onProgress?.(nixErrorLine(refusal));
+        return failOut;
+      }
+      if (args.includes("--check-validity")) return failOut;
+      return okOut("");
+    });
+    expect(await deliver("mac", DARWIN)).toMatchObject({
+      ok: false,
+      kind: "not-delivered",
+      why: "uncached",
+      reason: expect.stringMatching(/lacks a signature/),
+    });
+    expect(argvs().some(isShip)).toBe(false);
+    // On the local arm the sender's store IS the target: its refusal is the
+    // target's.
+    expect(await deliver("localhost", DARWIN)).toMatchObject({
+      ok: false,
+      kind: "not-delivered",
+      why: "refused",
+    });
+  });
+});
+
+describe("provisionAgent on a Linux target — the content-addressed route", () => {
+  it("runs the agent from the content-addressed path delivery rooted, with no build", async () => {
+    mockNix({ rewrite: rewriteOut, ship: okOut("") });
+    const res = await provisionAgent({
+      host: "build-host",
+      derivation: flakeAgentDerivation(
+        DRV,
+        FLAKE_INSTALLABLE,
+        TEST_BINARY_CACHE,
+      ),
+      onProgress: vi.fn(),
+      ...provArgs(),
+    });
+    expect(res).toEqual({ ok: true, agentPath: CA_STORE });
     const calls = vi.mocked(runCapture).mock.calls.map((c) => c[1]);
-    expect(calls.some(isShip)).toBe(false);
-    expect(calls.some(isBuild)).toBe(false);
+    expect(calls.some((a) => a.includes("--print-out-paths"))).toBe(false);
+  });
+
+  it("a closure the host already holds input-addressed is used as is — a step-4 build stays warm", async () => {
+    mockNix({ checkValidity: okOut("") });
+    const res = await provisionAgent({
+      host: "build-host",
+      derivation: directAgentDerivation(DRV, TEST_BINARY_CACHE),
+      onProgress: vi.fn(),
+      ...provArgs(),
+    });
+    expect(res).toEqual({ ok: true, agentPath: STORE });
+    const calls = vi.mocked(runCapture).mock.calls.map((c) => c[1]);
+    expect(calls.some(isRewrite)).toBe(false);
   });
 });

@@ -70,29 +70,6 @@ export function agentDistroSettingEqual(
   return a.enabled === b.enabled && a.profile === b.profile;
 }
 
-/** Why kolu could not deliver a host its agents, typed so the remedy is worded
- *  in ONE place (`./status.ts`), never baked into the message:
- *
- *   - `refused` — the host's Nix would not accept the bundle kolu copied there:
- *     it trusts neither the login kolu reaches it as (`trusted-users`) nor the
- *     key agent-distro's cache signs with. Only the host's own Nix settings
- *     change that, so kolu does not retry on its own;
- *   - `binderRefused` — the Nix of the machine RUNNING kolu would not take the
- *     bundle from agent-distro's cache to pass on: it trusts neither the user
- *     kolu runs as nor the cache's key. Only that machine's settings change
- *     it (the host was never asked);
- *   - `delivery` — anything else on the way (the flake would not lock or
- *     evaluate, the cache did not have the bundle, the copy or the root
- *     failed): kolu-server's words, with Nix's own line. */
-export const AgentDistroFailureReasonSchema = Schema.Union([
-  Schema.Literal("refused"),
-  Schema.Literal("binderRefused"),
-  Schema.Literal("delivery"),
-]);
-
-export type AgentDistroFailureReason =
-  typeof AgentDistroFailureReasonSchema.Type;
-
 /** A host's agent-distro state for the CURRENTLY selected profile — and what a
  *  terminal spawned there now gets: padi's spawn path reads the same answer.
  *
@@ -110,10 +87,9 @@ export type AgentDistroFailureReason =
  *     `delivering` while kolu-server delivers a newer set and `bundle` keeps
  *     serving; new terminals keep getting `bundle` until the newer one has
  *     fully landed.
- *   - `error` — the delivery failed and nothing serves: `reason` says which
- *     kind of failure, `message` states its cause (kolu-server's words, with
- *     Nix's own line). Neither carries the remedy — that is worded once, in
- *     `./status.ts`. New terminals get no agents.
+ *   - `error` — the delivery failed and nothing serves: `message` states its
+ *     cause (kolu-server's words, with Nix's own line). New terminals get no
+ *     agents.
  *
  *  A `Schema.Union` of structs discriminated on `kind`, like
  *  `NewTerminalPolicySchema`. */
@@ -137,7 +113,6 @@ export const AgentDistroStatusSchema = Schema.Union([
   Schema.Struct({
     kind: Schema.Literal("error"),
     profile: Schema.String,
-    reason: AgentDistroFailureReasonSchema,
     message: Schema.String,
   }),
 ]);
@@ -167,10 +142,7 @@ export function agentDistroStatusEqual(
       );
     case "error":
       return (
-        b.kind === "error" &&
-        a.profile === b.profile &&
-        a.reason === b.reason &&
-        a.message === b.message
+        b.kind === "error" && a.profile === b.profile && a.message === b.message
       );
     default:
       return a satisfies never;
@@ -302,8 +274,8 @@ export type TerminalAgents = typeof TerminalAgentsSchema.Type;
  *   - `delivering` — a delivery to this host started;
  *   - `landed` — `bundle` is valid in this host's store and rooted there: padi
  *     points the profile's `current` at it, and new terminals get it;
- *   - `failed` — the delivery did not land, typed (`reason`) with its cause
- *     in kolu-server's words. Whatever served keeps serving. */
+ *   - `failed` — the delivery did not land: its cause in kolu-server's
+ *     words. Whatever served keeps serving. */
 export const AgentDistroDeliveryReportSchema = Schema.Union([
   Schema.Struct({
     kind: Schema.Literal("delivering"),
@@ -317,7 +289,6 @@ export const AgentDistroDeliveryReportSchema = Schema.Union([
   Schema.Struct({
     kind: Schema.Literal("failed"),
     profile: Schema.String,
-    reason: AgentDistroFailureReasonSchema,
     message: Schema.String,
   }),
 ]);

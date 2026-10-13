@@ -9,6 +9,7 @@
 import { defineSurface } from "@kolu/surface/define";
 import { Schema } from "effect";
 import { type AgentBinaryCache, agentBinaryCache } from "./agentBinaryCache";
+import type { CaptureResult } from "./process";
 
 export const TEST_BINARY_CACHE: AgentBinaryCache = agentBinaryCache({
   substituters: ["https://cache.test.invalid/oss"],
@@ -23,3 +24,20 @@ export const TEST_BINARY_CACHE: AgentBinaryCache = agentBinaryCache({
 export const TEST_AGENT_SURFACE = defineSurface({
   cells: { status: { schema: Schema.String, default: "" } },
 });
+
+/** `nix derivation show`'s answer for a mocked `runCapture`: a `.drv` built
+ *  for `system`, when `args` asks that, else `undefined`. Provisioning reads
+ *  the target's system off the `.drv` (it decides the form delivery ships), so
+ *  every suite that mocks provisioning's Nix answers it. */
+export function derivationShowAnswer(
+  args: readonly string[],
+  system = "x86_64-linux",
+): CaptureResult | undefined {
+  if (!(args.includes("derivation") && args.includes("show"))) return undefined;
+  return {
+    ok: true,
+    kind: "exit",
+    code: 0,
+    stdout: JSON.stringify({ derivations: { "agent.drv": { system } } }),
+  };
+}

@@ -4,7 +4,7 @@
  * values that build the directories, at `share/kolu/agent-distro.json` inside
  * the bundle:
  *
- *     { default, profiles: [{ name, dir, bin, hash }] }
+ *     { default, profiles: [{ name, dir, bin }] }
  *
  * Each profile's directory is agent-distro's bundle as is: its harness
  * commands and its own picker in `bin/`, and the two files that describe it
@@ -33,8 +33,6 @@ export const AgentDistroManifestSchema = Schema.Struct({
       /** `dir`'s `bin/` — what goes on a terminal's PATH, the profile's own
        *  picker (`agent-distro`) among its commands. */
       bin: Schema.String,
-      /** `dir`'s store hash. */
-      hash: Schema.String,
     }),
   ).check(Schema.isMinLength(1)),
 });

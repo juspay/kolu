@@ -1,11 +1,9 @@
 /**
  * The delivery policy on fake Nix steps and fake hosts: what each host's padi
- * is told (delivering, then landed / failed with its typed reason), how a run
- * ends per host, that upstream's flake is locked ONCE per run (and reused
- * within a schedule period for a host's connect, afresh for the user's check
- * and the schedule), that a refusal is REMEMBERED per host and bundle and
- * replayed to a reconnect instead of re-shipped, that a profile switch is its
- * own delivery, and that the ONLY
+ * is told (delivering, then landed / failed with its cause), how a run ends
+ * per host, that upstream's flake is locked ONCE per run (and reused within a
+ * schedule period for a host's connect, afresh for the user's check and the
+ * schedule), that a profile switch is its own delivery, and that the ONLY
  * route a bundle takes is `ops.deliver` — evaluated per distinct system once,
  * never built (no build op exists to call).
  */
@@ -57,7 +55,12 @@ function fakeOps(
 ) {
   let locks = 0;
   const outPathCalls: string[] = [];
-  const delivered: { ssh: string; outPath: string; profile: string }[] = [];
+  const delivered: {
+    ssh: string;
+    system: string;
+    outPath: string;
+    profile: string;
+  }[] = [];
   let gate: Promise<void> | undefined;
   const ops: DeliveryOps = {
     lock: async () => {
@@ -71,8 +74,8 @@ function fakeOps(
       outPathCalls.push(`${ref}#${system}.${profile}`);
       return outPathFor(ref, system, profile);
     },
-    deliver: async ({ ssh, outPath, profile }) => {
-      delivered.push({ ssh, outPath, profile });
+    deliver: async ({ ssh, system, outPath, profile }) => {
+      delivered.push({ ssh, system, outPath, profile });
       if (gate !== undefined) await gate;
       return (
         opts.result?.(ssh, outPath, profile) ?? {
@@ -142,14 +145,22 @@ describe("createAgentDelivery", () => {
       { kind: "delivering", profile: "vanilla" },
       { kind: "landed", profile: "vanilla", bundle: out },
     ]);
+    // The host's system rides to the route: it decides the form the bundle
+    // travels in.
     expect(nix.delivered).toEqual([
-      { ssh: "localhost", outPath: out, profile: "vanilla" },
+      {
+        ssh: "localhost",
+        system: "x86_64-linux",
+        outPath: out,
+        profile: "vanilla",
+      },
     ]);
     expect(delivery.running()).toBe(false);
   });
 
-  it("a refused copy reports failed/refused with ONLY Nix's words and the cache", async () => {
+  it("a Mac whose Nix refuses the signed bundle is a failure with Nix's words and the one-line fix", async () => {
     const nix = fakeOps({
+      systems: { "srid@mac": "aarch64-darwin" },
       result: () => ({
         ok: false,
         kind: "not-delivered",
@@ -157,47 +168,35 @@ describe("createAgentDelivery", () => {
         reason: "cannot add path because it lacks a signature by a trusted key",
       }),
     });
-    const box = fakeHost("remote:box", "srid@box", "box");
-    const delivery = setup({ ops: nix.ops, hosts: [box.host] });
-    expect(await delivery.run({ trigger: "user" })).toEqual(["refused"]);
-    const last = box.reports.at(-1);
-    expect(last).toMatchObject({
+    const mac = fakeHost("remote:mac", "srid@mac", "mac");
+    const delivery = setup({ ops: nix.ops, hosts: [mac.host] });
+    expect(await delivery.run({ trigger: "user" })).toEqual(["failed"]);
+    expect(mac.reports.at(-1)).toEqual({
       kind: "failed",
       profile: "vanilla",
-      reason: "refused",
+      message: `mac's Nix would not take the signed agents: cannot add path because it lacks a signature by a trusted key. On that Mac, add the login kolu connects as to \`nix.settings.trusted-users\`, or agent-distro's cache key (${BAKE.cache.publicKey}) to \`nix.settings.trusted-public-keys\`.`,
     });
-    const message = last?.kind === "failed" ? last.message : "";
-    expect(message).toBe(
-      `cannot add path because it lacks a signature by a trusted key (agent-distro's cache: ${BAKE.cache.url}, key ${BAKE.cache.publicKey})`,
-    );
-    // What a refusal MEANS is worded once, by reason, in agent-distro's
-    // status — never re-explained in the message.
-    expect(message).not.toMatch(/trusts neither/i);
   });
 
-  it("a sender-refused copy is binderRefused, worded the same way and remembered", async () => {
+  it("a failure is not remembered: a reconnect delivers again", async () => {
+    let fail = true;
     const nix = fakeOps({
-      result: () => ({
-        ok: false,
-        kind: "not-delivered",
-        why: "sender-refused",
-        reason: "this machine's Nix refused the substitute",
-      }),
+      result: (_ssh, outPath) =>
+        fail
+          ? {
+              ok: false,
+              kind: "not-delivered",
+              why: "unshipped",
+              reason: "ssh dropped",
+            }
+          : { ok: true, outPath },
     });
     const box = fakeHost("remote:box", "box");
     const delivery = setup({ ops: nix.ops, hosts: [box.host] });
-    expect(await delivery.run({ trigger: "user" })).toEqual(["refused"]);
-    const refusal = box.reports.at(-1);
-    expect(refusal).toEqual({
-      kind: "failed",
-      profile: "vanilla",
-      reason: "binderRefused",
-      message: `this machine's Nix refused the substitute (agent-distro's cache: ${BAKE.cache.url}, key ${BAKE.cache.publicKey})`,
-    });
-    // Remembered like a host's refusal: a reconnect replays it, ships nothing.
-    expect(await delivery.run({ trigger: "connect" })).toEqual(["refused"]);
-    expect(box.reports.at(-1)).toEqual(refusal);
-    expect(nix.delivered).toHaveLength(1);
+    expect(await delivery.run({ trigger: "user" })).toEqual(["failed"]);
+    fail = false;
+    expect(await delivery.run({ trigger: "connect" })).toEqual(["landed"]);
+    expect(nix.delivered).toHaveLength(2);
   });
 
   it("an uncached bundle is a delivery failure, never a build", async () => {
@@ -213,7 +212,7 @@ describe("createAgentDelivery", () => {
     const delivery = setup({ ops: nix.ops, hosts: [local.host] });
     expect(await delivery.run({ trigger: "user" })).toEqual(["failed"]);
     const last = local.reports.at(-1);
-    expect(last).toMatchObject({ kind: "failed", reason: "delivery" });
+    expect(last).toMatchObject({ kind: "failed" });
     const message = last?.kind === "failed" ? last.message : "";
     expect(message).toContain(BAKE.cache.url);
     expect(message).toContain("no substituter has it");
@@ -234,7 +233,6 @@ describe("createAgentDelivery", () => {
     expect(box.reports.at(-1)).toEqual({
       kind: "failed",
       profile: "vanilla",
-      reason: "delivery",
       message: "box: ssh dropped",
     });
   });
@@ -321,7 +319,6 @@ describe("createAgentDelivery", () => {
         {
           kind: "failed",
           profile: "vanilla",
-          reason: "delivery",
           message: "unable to download 'https://api.github.com/…'",
         },
       ]);
@@ -424,90 +421,5 @@ describe("createAgentDelivery", () => {
       bundle: outPathFor("ref1", "x86_64-linux", "pro"),
     });
     expect(delivery.running()).toBe(false);
-  });
-
-  it("a connect after a refusal replays it without locking or shipping; the user's check re-ships; a landing clears it", async () => {
-    let refuse = true;
-    const nix = fakeOps({
-      result: (_ssh, outPath) =>
-        refuse
-          ? {
-              ok: false,
-              kind: "not-delivered",
-              why: "refused",
-              reason: "lacks a signature by a trusted key",
-            }
-          : { ok: true, outPath },
-    });
-    const box = fakeHost("remote:box", "box");
-    const delivery = setup({ ops: nix.ops, hosts: [box.host] });
-    expect(await delivery.run({ trigger: "user" })).toEqual(["refused"]);
-    const refusal = box.reports.at(-1);
-    expect(refusal).toMatchObject({ kind: "failed", reason: "refused" });
-    expect(nix.locks()).toBe(1);
-    expect(nix.delivered).toHaveLength(1);
-
-    // A reconnect: the stored refusal, told again — and nothing else.
-    box.reports.length = 0;
-    expect(await delivery.run({ trigger: "connect" })).toEqual(["refused"]);
-    expect(box.reports).toEqual([refusal]);
-    expect(nix.locks()).toBe(1);
-    expect(nix.delivered).toHaveLength(1);
-    expect(nix.outPathCalls).toHaveLength(1);
-
-    // The user's check asks again (fresh lock, a real ship) — and lands.
-    refuse = false;
-    box.reports.length = 0;
-    expect(await delivery.run({ trigger: "user" })).toEqual(["landed"]);
-    expect(nix.locks()).toBe(2);
-    expect(nix.delivered).toHaveLength(2);
-    expect(box.reports.map((r) => r.kind)).toEqual(["delivering", "landed"]);
-
-    // Landed: the refusal is gone, so a reconnect delivers for real.
-    box.reports.length = 0;
-    expect(await delivery.run({ trigger: "connect" })).toEqual(["landed"]);
-    expect(nix.delivered).toHaveLength(3);
-    expect(box.reports.map((r) => r.kind)).toEqual(["delivering", "landed"]);
-  });
-
-  it("the schedule re-asks a refused host too", async () => {
-    const nix = fakeOps({
-      result: () => ({
-        ok: false,
-        kind: "not-delivered",
-        why: "refused",
-        reason: "lacks a signature by a trusted key",
-      }),
-    });
-    const box = fakeHost("remote:box", "box");
-    const delivery = setup({ ops: nix.ops, hosts: [box.host] });
-    await delivery.run({ trigger: "user" });
-    expect(await delivery.run({ trigger: "schedule" })).toEqual(["refused"]);
-    expect(nix.delivered).toHaveLength(2);
-  });
-
-  it("a refusal is remembered per profile: another profile still ships on connect", async () => {
-    const nix = fakeOps({
-      result: (_ssh, outPath, profile) =>
-        profile === "vanilla"
-          ? {
-              ok: false,
-              kind: "not-delivered",
-              why: "refused",
-              reason: "lacks a signature by a trusted key",
-            }
-          : { ok: true, outPath },
-    });
-    const box = fakeHost("remote:box", "box");
-    let profile = "vanilla";
-    const delivery = setup({
-      ops: nix.ops,
-      hosts: [box.host],
-      bundle: () => profile,
-    });
-    expect(await delivery.run({ trigger: "connect" })).toEqual(["refused"]);
-    profile = "pro";
-    expect(await delivery.run({ trigger: "connect" })).toEqual(["landed"]);
-    expect(nix.delivered.map((d) => d.profile)).toEqual(["vanilla", "pro"]);
   });
 });

@@ -1,8 +1,8 @@
 /** The agents section of a machine's host details — everything about
  *  agent-distro that is TRUE OF THAT MACHINE: the profile new terminals there
  *  get and the build serving it, its state with its last delivery, a failed
- *  delivery's own words, its host-side fix and what it means there (with the
- *  one link to the docs that explain it), that machine's last update events,
+ *  delivery's own words and what it means there, that machine's last update
+ *  events,
  *  and the one action it offers: check for newer agents — which is also how a
  *  machine whose delivery failed is tried again. The facts and their words are
  *  `agentHostDetail`'s; Settings keeps only the fleet line.
@@ -24,7 +24,6 @@ import {
   hostAgentDetail,
 } from "../agents/useAgentDistro";
 import { padiMap } from "../wire";
-import { DocLink } from "../ui/DocLink";
 
 /** The one action a machine's section offers: check for newer agents. Shown
  *  when the machine's agents allow one (`canCheck`); a disconnected machine's
@@ -103,22 +102,15 @@ const Section: Component<{ host: HostKey; detail: AgentHostDetail }> = (
     </div>
     {/* A failure's cause wraps in FULL — it may carry nix's own long line, and
         a cut-off cause is no cause. */}
-    <For each={props.detail.cause}>
-      {(line) => (
+    <Show when={props.detail.cause}>
+      {(cause) => (
         <p
           data-testid="host-agents-cause"
           class="my-0.5 font-mono text-[10px] leading-4 wrap-anywhere text-warning"
         >
-          {line}
+          {cause()}
         </p>
       )}
-    </For>
-    <Show when={props.detail.hasFix}>
-      <p class="mb-0.5 text-[10.5px] leading-4">
-        <DocLink slug="agents" anchor="when-a-delivery-fails">
-          What this means, and the fix
-        </DocLink>
-      </p>
     </Show>
     <Show when={props.detail.means}>
       {(means) => (

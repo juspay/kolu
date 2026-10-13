@@ -10,8 +10,8 @@ import { versionsFile } from "./versions.ts";
 const MANIFEST: AgentDistroManifest = {
   default: "vanilla",
   profiles: [
-    { name: "vanilla", dir: "/s/v", bin: "/s/v/bin", hash: "v" },
-    { name: "juspay", dir: "/s/j", bin: "/s/j/bin", hash: "j" },
+    { name: "vanilla", dir: "/s/v", bin: "/s/v/bin" },
+    { name: "juspay", dir: "/s/j", bin: "/s/j/bin" },
   ],
 };
 

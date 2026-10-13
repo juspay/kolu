@@ -121,7 +121,6 @@ function bake(opts: { floor: boolean }): AgentDistroBake {
       name,
       dir: join(floor, "profiles", name),
       bin: join(floor, "profiles", name, "bin"),
-      hash: name,
     })),
   };
   const profile = (name: string) =>
@@ -362,48 +361,21 @@ describe("delivery reports — what a host does with kolu-server's word", () => 
     expect(newTerminalLayer()?.bundle).toBe(newer);
   });
 
-  it("`failed refused` with nothing serving: status error, and the receipt's last run is the delivery's failure", () => {
+  it("`failed` with nothing serving: status error, and the receipt's last run is the delivery's failure", () => {
     __setAgentDistroBakeForTest(bake({ floor: false }));
     write(ON);
     const message =
-      "the host's nix does not trust agent-distro's cache signing key";
+      "agent-distro's cache did not deliver the vanilla agents for x86_64-linux";
 
-    report({ kind: "failed", profile: "vanilla", reason: "refused", message });
+    report({ kind: "failed", profile: "vanilla", message });
 
-    expect(status()).toEqual({
-      kind: "error",
-      profile: "vanilla",
-      reason: "refused",
-      message,
-    });
+    expect(status()).toEqual({ kind: "error", profile: "vanilla", message });
     expect(newTerminalLayer()).toBeUndefined();
     expect(receipt()?.lastRun).toMatchObject({
       outcome: "failed",
       words: message,
       by: "delivery",
     });
-  });
-
-  it("`failed binderRefused` with nothing serving: status error with that reason", () => {
-    __setAgentDistroBakeForTest(bake({ floor: false }));
-    write(ON);
-    const message =
-      "the binder's nix does not trust agent-distro's cache signing key";
-
-    report({
-      kind: "failed",
-      profile: "vanilla",
-      reason: "binderRefused",
-      message,
-    });
-
-    expect(status()).toEqual({
-      kind: "error",
-      profile: "vanilla",
-      reason: "binderRefused",
-      message,
-    });
-    expect(newTerminalLayer()).toBeUndefined();
   });
 
   it("a failure while a bundle serves leaves the host ready on it: the failure shows only in the receipt", () => {
@@ -421,7 +393,6 @@ describe("delivery reports — what a host does with kolu-server's word", () => 
     report({
       kind: "failed",
       profile: "vanilla",
-      reason: "delivery",
       message: "error: cannot copy path from https://cache.example",
     });
 
@@ -472,7 +443,6 @@ describe("delivery reports — what a host does with kolu-server's word", () => 
     report({
       kind: "failed",
       profile: "vanilla",
-      reason: "delivery",
       message: "boom",
     });
     expect(status()?.kind).toBe("error");
@@ -491,11 +461,7 @@ describe("delivery reports — what a host does with kolu-server's word", () => 
     ).toThrow(/has no .*store-not-here\/bin/);
 
     expect(existsSync(currentLink(stateDirOf("vanilla")))).toBe(false);
-    expect(status()).toMatchObject({
-      kind: "error",
-      profile: "vanilla",
-      reason: "delivery",
-    });
+    expect(status()).toMatchObject({ kind: "error", profile: "vanilla" });
     expect(receipt()?.lastRun).toMatchObject({ outcome: "failed", by: "padi" });
   });
 

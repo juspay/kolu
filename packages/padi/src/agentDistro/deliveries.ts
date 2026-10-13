@@ -12,8 +12,8 @@
  * history line in upstream's format (`@kolu/agent-distro/history`), so a host
  * that also runs agent-distro's Home Manager module keeps one log.
  *
- * A failure is recorded as a TYPED reason with its cause — never a remedy:
- * that is worded once, in `@kolu/agent-distro/status`. padi never retries:
+ * A failure is recorded with its cause, in kolu-server's words. padi never
+ * retries:
  * kolu-server delivers again at its next run (its schedule, a check the user
  * asks for, a reconnect).
  */
@@ -31,16 +31,14 @@ import { dirname } from "node:path";
 import { agentBinDir, currentLink } from "@kolu/agent-distro/bundle";
 import { type AgentUpdateRun, historyLine } from "@kolu/agent-distro/history";
 import { lastSuccessFile } from "@kolu/agent-distro/schedule";
-import type { AgentDistroFailureReason } from "@kolu/agent-distro/schema";
 import { bundleChanges } from "@kolu/agent-distro/versions";
 import { log } from "../log.ts";
 import type { AgentDistroProfileBake } from "./bake.ts";
 import { realpathOrUndefined } from "./onHost.ts";
 import { versionsOf } from "./receipt.ts";
 
-/** Why a profile's last delivery failed: the kind, and the cause in words. */
+/** Why a profile's last delivery failed, in kolu-server's (or padi's) words. */
 export interface DeliveryFailure {
-  readonly reason: AgentDistroFailureReason;
   readonly message: string;
 }
 

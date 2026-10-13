@@ -335,54 +335,29 @@ so there instead.
 
 ## When a delivery fails
 
-The usual cause is a host's Nix **refusing** the set kolu copied there. Nix
-accepts copied software only from someone it trusts: either the login kolu
-connects as is one of its `trusted-users`, or the software is signed with a key
-it trusts. If neither is true, it refuses, and kolu cannot change that from
-outside — so the host gets no agents (it never compiles them either), and its
-mark turns to the warning colour; its host details say "refused by its Nix".
+No Linux host's Nix settings matter here. kolu sends a Linux host the agents
+in **content-addressed** form, where each store path is named by the hash of
+what it holds, so Nix takes it from anyone without asking whom it trusts. The
+login kolu connects as needs no place in `trusted-users`, and neither machine
+needs agent-distro's cache in its `nix.conf`.
 
-The machine running kolu can refuse too: it takes each set from the cache into
-its own Nix store before passing it on, so its Nix must trust the user kolu runs
-as or the cache's key. When it does not, every host's delivery fails the same
-way and says "refused by kolu's own Nix" — the fix below then goes on the
-machine running kolu, with your user in place of the login.
+A Mac is the exception. Rewriting the agents into that form would break the
+code signatures macOS checks before it runs a program, so a Mac gets them as
+agent-distro's cache signed them, and its Nix takes them only if it trusts the
+login kolu connects as (`nix.settings.trusted-users`) or the cache's key
+(`nix.settings.trusted-public-keys`). When it trusts neither, the delivery
+fails with Nix's own words and that one-line fix.
 
-The fix is one line on that machine, either half is enough. On NixOS, trust the
-login kolu connects as:
-
-```nix
-nix.settings.trusted-users = [ "root" "@wheel" "<login>" ];
-```
-
-or trust agent-distro's cache and its key:
-
-```nix
-nix.settings = {
-  extra-substituters = [ "https://cache.nixos.asia/oss" ];
-  extra-trusted-public-keys = [ "oss:KO872wNJkCDgmGN3xy9dT89WAhvv13EiKncTtHDItVU=" ];
-};
-```
-
-Elsewhere, put the same settings in `/etc/nix/nix.conf` (`trusted-users = …`,
-or `extra-substituters = …` and `extra-trusted-public-keys = …`) and restart the
-Nix daemon. This is the same cache [kolu itself comes
-from](/deployment#first-run-compiling-enable-the-binary-cache).
-
-Other failures — agent-distro's cache did not answer or does not hold the set
-yet, the copy broke off — carry kolu's words for the cause, with Nix's own line
-after it. kolu tries those again on its own (see [Kept up to
-date](#kept-up-to-date)).
-
-A refusal is not retried on a loop, because only that machine's settings change
-it — not even when the machine reconnects: kolu remembers the refusal and says
-it again rather than copying the set over once more. Once you have fixed the
-settings, kolu tries again at the next scheduled time — or right away: open
-that machine's host details
-(click the mark, or the machine's name on Settings' fleet line) and press **check
-for newer agents ↻**. Its **agents** section carries the cause in full — Nix's
-own words — that "New terminals on &lt;host&gt; get no coding agents until this is
-fixed", the fix, and a link back to this section.
+A delivery that fails — agent-distro's cache did not answer or does not hold
+the set yet, the copy broke off, a Mac refused — carries kolu's words for the
+cause, with Nix's own line after it. The host gets no agents (kolu never
+compiles them), and its mark turns to the warning colour. kolu tries again on
+its own at the next scheduled time and whenever the machine reconnects (see
+[Kept up to date](#kept-up-to-date)) — or right away: open that machine's host
+details (click the mark, or the machine's name on Settings' fleet line) and
+press **check for newer agents ↻**. Its **agents** section carries the cause in
+full and that "New terminals on &lt;host&gt; get no coding agents until this is
+fixed".
 
 A later delivery that fails on a machine that already has agents is different:
 the agents it has keep working, and the failure shows only in that machine's

@@ -6,13 +6,9 @@
  * the latest boundary (upstream's `updateDue`), so a check the user asked for
  * just before a boundary is not repeated at it.
  *
- * A run FAILS when any host's delivery failed for a reason a retry can fix (a
- * network drop, a cache that did not answer), or when it reached no host at
- * all — so a boundary is never spent on a run that asked nobody. A host whose
- * Nix REFUSED the bundle does not fail the run: only that host's settings
- * change it, so it waits for the next boundary or the user's own check — never
- * a retry loop against a daemon that will refuse every time (a reconnect
- * replays the refusal, `./delivery.ts`).
+ * A run FAILS when any host's delivery failed (a network drop, a cache that
+ * did not answer), or when it reached no host at all — so a boundary is never
+ * spent on a run that asked nobody.
  *
  * The other triggers live with their facts: a host whose padi just bound or
  * whose setting just changed is delivered to by `./install.ts`; the user's
@@ -32,17 +28,11 @@ import type { Logger } from "@kolu/log";
 import type { AgentDelivery, HostOutcome } from "./delivery.ts";
 import { startUpdateTimer, type UpdateTimerDeps } from "./timer.ts";
 
-/** Did a run fail in a way a retry can fix — a host's delivery failed, or
- *  it reached no host at all (every padi still dialling at boot, offline, or
- *  already being delivered to)? A run whose hosts only REFUSED did not: only
- *  their settings change that. */
+/** Did a run fail — a host's delivery failed, or it landed on no host at all
+ *  (every padi still dialling at boot, offline, or already being delivered
+ *  to)? */
 export function runFailed(outcomes: readonly HostOutcome[]): boolean {
-  return outcomes.includes("failed") || !runReached(outcomes);
-}
-
-/** Did a run reach a host and hear its answer — a landing or a refusal? */
-function runReached(outcomes: readonly HostOutcome[]): boolean {
-  return outcomes.some((o) => o === "landed" || o === "refused");
+  return outcomes.includes("failed") || !outcomes.includes("landed");
 }
 
 export function startDeliverySchedule(deps: {

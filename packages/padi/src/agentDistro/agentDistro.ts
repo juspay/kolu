@@ -132,7 +132,6 @@ export function assessAgentDistro(setting: AgentDistroSetting):
     return {
       kind: "error",
       profile: setting.profile,
-      reason: delivery.failure.reason,
       message: delivery.failure.message,
     };
   // Nothing serves and nothing failed: `downloading` only once kolu-server has
@@ -232,17 +231,14 @@ export function onAgentDistroReport(report: AgentDistroDeliveryReport): void {
         deliveryStarted(profile.name);
         return;
       case "failed":
-        deliveryFailed(profile.name, {
-          reason: report.reason,
-          message: report.message,
-        });
+        deliveryFailed(profile.name, { message: report.message });
         return;
       case "landed":
         try {
           landDelivery(profile, report.bundle);
         } catch (err) {
           const message = err instanceof Error ? err.message : String(err);
-          deliveryFailed(profile.name, { reason: "delivery", message }, "padi");
+          deliveryFailed(profile.name, { message }, "padi");
           throw err;
         }
         return;

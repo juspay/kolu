@@ -477,7 +477,8 @@ _out_. The map, grouped:
   carry, the wording, and the logo — padi, padi-client, the server and the
   client import it; it imports none of them. The agents themselves are
   **delivered by kolu-server**: it fetches each host's set from agent-distro's
-  cache and ships it over ssh through `surface-remote`'s `deliverClosure`,
+  cache and ships it over ssh through `surface-remote`'s `deliverClosure` —
+  content-addressed to a Linux host, so no Nix there or here has to trust it —
   never building it, and that host's padi only points `current` at what landed),
   and a set of
   zero-dependency utilities (`log`, `nonempty`, `shell-quote`, `html-escape`, `byte-units` — the one way kolu writes a byte count, in binary units, …).

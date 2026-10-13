@@ -21,6 +21,7 @@ import { type CaptureResult, runCapture } from "./process";
 import { makeSession } from "./session";
 import { sshConnector } from "./sshConnector";
 import {
+  derivationShowAnswer,
   TEST_AGENT_SURFACE,
   TEST_BINARY_CACHE,
 } from "./agentDerivation.testutil";
@@ -66,6 +67,8 @@ describe("#1908 — a permanently silent provision reaches `failed`, bounded", (
   it("publishes provisioning while a warm target's root commit is stalled", async () => {
     vi.mocked(runCapture).mockImplementation(
       async (_cmd, args, runOpts): Promise<CaptureResult> => {
+        const drv = derivationShowAnswer(args);
+        if (drv !== undefined) return drv;
         if (args.includes("--outputs")) {
           return {
             ok: true,

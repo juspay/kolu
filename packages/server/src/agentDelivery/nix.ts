@@ -4,18 +4,20 @@
  * (`lockFlake`, `resolveFlakeOutPath`: progress liveness, Nix's root error and
  * detail, the retry classification), the host's system through
  * `resolveSystem`, and the copy through `deliverClosure`, the same
- * warm-check · prefetch · ship · GC-root route padi itself rides to a host,
+ * warm-check · stage · ship · GC-root route padi itself rides to a host,
  * minus the build. This file holds no Nix argv and no Nix wording.
  *
  * Why the binder and not the host: Nix gives an UNTRUSTED user exactly two ways
- * to obtain a store path — substitute it from a cache the DAEMON is configured
- * with, or build it. `--extra-substituters`, `--accept-flake-config` and `nix
- * copy --no-check-sigs` are all dropped for a user not in `trusted-users` (the
- * Nix manual's `trusted-users` / `require-sigs`; `deliverClosure`'s ship notes).
- * A host that ran its own download therefore needed its `nix.conf` edited. The
- * binder copies the bundle out of agent-distro's cache into its OWN store and
- * ships the signed paths; a host's daemon then takes them if it trusts the
- * login OR the cache's key, and refuses them — typed `refused` — otherwise.
+ * to obtain an input-addressed store path — substitute it from a cache the
+ * DAEMON is configured with, or build it. `--extra-substituters`,
+ * `--accept-flake-config` and `nix copy --no-check-sigs` are all dropped for a
+ * user not in `trusted-users` (the Nix manual's `trusted-users` /
+ * `require-sigs`), so a host that ran its own download needed its `nix.conf`
+ * edited. A CONTENT-ADDRESSED path needs no trust at all: the binder reads the
+ * bundle from agent-distro's cache, rewrites it content-addressed and ships
+ * that, and every Linux host's daemon takes it (`deliverClosure`'s header). A
+ * Mac is sent the signed bundle as is — rewriting breaks its code signatures —
+ * and takes it if it trusts the login or the cache's key.
  */
 
 import type { AgentDistroDelivery } from "@kolu/agent-distro/bake";
@@ -59,7 +61,7 @@ export function nixDeliveryOps(bake: AgentDistroDelivery): DeliveryOps {
     systemOf: (ssh) => resolveSystem(ssh, { onProgress: () => {}, keepalive }),
     outPath: (ref, system, profile) =>
       resolveFlakeOutPath(ref, system, profile, quiet()),
-    deliver: ({ ssh, outPath, profile, onProgress }) => {
+    deliver: ({ ssh, system, outPath, profile, onProgress }) => {
       // kolu's own root, one link per profile ("latest", like surface-remote's
       // per-agent roots). Home-relative, never `$XDG_STATE_HOME`: over ssh the
       // login's home is the one place this process can name on a host.
@@ -73,6 +75,7 @@ export function nixDeliveryOps(bake: AgentDistroDelivery): DeliveryOps {
         );
       return deliverClosure({
         host: ssh,
+        system,
         outPath,
         binaryCache,
         rootPath,

@@ -173,30 +173,29 @@ nix-daemon` on Linux, `sudo launchctl kickstart -k
 system/org.nixos.nix-daemon` on macOS).
 
 Machines you [add as another machine](/remote-hosts) can inherit the cache
-through kolu: provisioning copies the agent's binaries out of **this** machine's
-store onto the host, cross-architecture included. That copy lands only if the
-host trusts it — your ssh user is in the host's `trusted-users`, or the copied
-binaries carry a signature the host trusts (the cache's, when this machine
-downloaded them rather than building them). When it doesn't, kolu shows Nix's
-refusal in the connect log and the host realises the agent itself; the fix is
-`trusted-users` on that machine, or the same `nix.conf` block above applied
-there so it downloads the agent instead of building it.
+through kolu: provisioning copies the agent's binaries from **this** machine
+onto the host, cross-architecture included. A Linux host is sent them
+content-addressed (each store path named by the hash of what it holds), which
+its Nix accepts from anyone — no `trusted-users`, no cache key, nothing in its
+`nix.conf`. A Mac is sent them as signed (rewriting would break macOS's code
+signatures), so that copy lands only if the Mac trusts your ssh user
+(`trusted-users`) or the cache's key; when it trusts neither, kolu shows Nix's
+refusal in the connect log and the Mac realises the agent itself, so the block
+above applied there lets it download instead of build.
 
 The coding agents kolu puts on terminals' PATH ([AI coding agents](/agents)) follow a
 different rule. On the machine running kolu they ship inside kolu itself — every profile —
 so they come down with kolu from the same cache on the two systems the cache is
 filled for (x86_64 Linux and Apple Silicon). On aarch64 Linux the cache has no
 build of them, so the first `nix run` there compiles them, which takes a while. A remote host
-downloads nothing itself: this machine takes the host's set from agent-distro's
-cache (the same `https://cache.nixos.asia/oss` above) into its own store and
-copies it to the host over ssh, never building it — and keeps every machine
-current the same way, four times a day ([Kept up to
-date](/agents#kept-up-to-date)). Both stores must accept that software: on each
-machine, either the login kolu runs as (or connects as) is in `trusted-users`, or
-the block above is applied. Otherwise that machine's Nix refuses the agents and
-it gets none — kolu never compiles them instead (see [When a delivery
-fails](/agents#when-a-delivery-fails)). On the machine running kolu, the set kolu
-shipped with keeps working either way.
+downloads nothing itself: this machine reads the host's set from agent-distro's
+cache (the same `https://cache.nixos.asia/oss` above) and copies it to the host
+over ssh, never building it — and keeps every machine current the same way,
+four times a day ([Kept up to date](/agents#kept-up-to-date)). It travels
+content-addressed to a Linux host, so neither this machine's Nix nor the
+host's has to trust anything; a Mac needs the trust above (see [When a delivery
+fails](/agents#when-a-delivery-fails)). On the machine running kolu, the set
+kolu shipped with keeps working either way.
 
 Whether this machine has those binaries to copy depends on how you installed
 kolu. If you run kolu as a service through the **home-manager module**, it

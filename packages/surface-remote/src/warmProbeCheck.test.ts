@@ -17,7 +17,10 @@ import { provArgs, useControlDir } from "./controlDir.testutil";
 import { directAgentDerivation } from "./agentDerivation";
 import { provisionAgent } from "./nixCopy";
 import { type CaptureResult, runCapture } from "./process";
-import { TEST_BINARY_CACHE } from "./agentDerivation.testutil";
+import {
+  derivationShowAnswer,
+  TEST_BINARY_CACHE,
+} from "./agentDerivation.testutil";
 
 vi.mock("./process", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./process")>()),
@@ -39,6 +42,8 @@ const failOut: CaptureResult = { ok: false, kind: "exit", code: 1, stdout: "" };
 /** A warm host: outputs computed locally, present on the host, pin ok. */
 function mockWarmHit(outputsStdout = `${STORE}\n`): void {
   vi.mocked(runCapture).mockImplementation(async (_cmd, args) => {
+    const drv = derivationShowAnswer(args);
+    if (drv !== undefined) return drv;
     if (args.includes("--outputs")) return okOut(outputsStdout);
     if (args.includes("--check-validity")) return okOut("");
     if (args.includes("--add-root")) return okOut("/home/u/link\n");

@@ -17,7 +17,6 @@ const MANIFEST = {
       name: "vanilla",
       dir: "/nix/store/8rcmf6rd-agent-distro-vanilla-kolu",
       bin: "/nix/store/8rcmf6rd-agent-distro-vanilla-kolu/bin",
-      hash: "8rcmf6rd",
     },
   ],
 };
