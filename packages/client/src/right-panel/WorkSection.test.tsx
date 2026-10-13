@@ -523,8 +523,141 @@ describe("WorkSection odu CI readout", () => {
     });
     expect(text("inspector-odu-chip")).toBe("● odu incomplete 0123456#3+dirty");
     expect(el("inspector-odu-recent")?.textContent).toContain("incomplete");
-    // Not an exception: an interrupted run does not open the list on its own.
-    expect(el("inspector-odu")?.hasAttribute("open")).toBe(false);
+  });
+
+  it("opens the lanes by DEFAULT — a run is the thing being watched", () => {
+    // The disclosure is not an exception-driven fold: a run IS the work in
+    // progress, so its lanes are open for a green run, a red one and an
+    // interrupted one alike (and it can still be collapsed by hand).
+    mountWithOdu(statusFrame());
+    expect(el("inspector-odu")?.hasAttribute("open")).toBe(true);
+  });
+
+  it("states the run's SCOPE, so a selection is not read as the whole pipeline", () => {
+    // `3 lanes` over a `selectors: ["ci::unit"]` run reads as three lanes of a
+    // DAG that never started. The qualifier is odu's own reading
+    // (`@odu/service-client/board`), so it is the same word odu's own board
+    // shows for the same run.
+    mountWithOdu({
+      kind: "status",
+      latest: {
+        run: oduRow({
+          scope: { selectors: ["ci::unit"], platforms: [], noDeps: false },
+        }),
+        lanes: [
+          oduNode("ci::unit@x86_64-linux", "failed"),
+          oduNode("ci::install@x86_64-linux", "ok"),
+        ],
+      },
+      recent: [
+        oduRow({
+          scope: { selectors: ["ci::unit"], platforms: [], noDeps: false },
+        }),
+      ],
+    });
+    expect(el("inspector-odu")?.textContent).toContain("2 lanes");
+    expect(el("inspector-odu")?.textContent).toContain("ci::unit");
+    expect(el("inspector-odu-recent")?.textContent).toContain("ci::unit");
+  });
+
+  it("says nothing extra for a whole-pipeline run", () => {
+    // The full DAG (empty selectors, empty platforms, no `--no-deps`) has no
+    // qualifier to state — the fixture's own scope — and a suffix saying so
+    // would be noise on every row.
+    mountWithOdu(statusFrame());
+    expect(el("inspector-odu")?.textContent).not.toContain("whole pipeline");
+    expect(el("inspector-odu-recent")?.textContent).not.toContain(
+      "whole pipeline",
+    );
+  });
+
+  it("names --no-deps, which is part of the scope and not a run detail", () => {
+    // A green under `--no-deps` says less about the pipeline, so it rides the
+    // same qualifier that a selection does.
+    mountWithOdu({
+      kind: "status",
+      latest: {
+        run: oduRow({ scope: { selectors: [], platforms: [], noDeps: true } }),
+        lanes: [],
+      },
+      recent: [
+        oduRow({ scope: { selectors: [], platforms: [], noDeps: true } }),
+      ],
+    });
+    expect(el("inspector-odu")?.textContent).toContain("no deps");
+    expect(el("inspector-odu-recent")?.textContent).toContain("no deps");
+  });
+
+  it("makes each lane a link to its own log page in odu web", () => {
+    // The row IS the way out: long output is read in odu's own page. With an
+    // address in hand the wrapper is a REAL anchor, so ⌘-click, copy and "open
+    // in new tab" are the browser's own.
+    const opened: string[] = [];
+    host = document.createElement("div");
+    document.body.append(host);
+    dispose = render(
+      () => (
+        <WorkSection
+          meta={RESIZE_BUG}
+          oduCi={statusFrame()}
+          oduLane={{
+            act: () => ({
+              kind: "address",
+              href: "http://pureintent:61003/#/run/run-1/linux/2",
+            }),
+            open: () => opened.push("open"),
+          }}
+        />
+      ),
+      host,
+    );
+    const link = el("inspector-odu-lane-link");
+    expect(link?.tagName).toBe("A");
+    expect(link?.getAttribute("href")).toBe(
+      "http://pureintent:61003/#/run/run-1/linux/2",
+    );
+    expect(link?.getAttribute("title")).toBe("open in odu");
+    // Two lanes, two links.
+    expect(
+      el("inspector-odu-lanes")?.querySelectorAll(
+        "[data-testid='inspector-odu-lane-link']",
+      ).length,
+    ).toBe(2);
+  });
+
+  it("makes a lane whose address needs a door a BUTTON, not a link", () => {
+    // There is nothing to copy until a relay is listening, so the row is a
+    // button — and the click is what opens the door.
+    const opened: string[] = [];
+    host = document.createElement("div");
+    document.body.append(host);
+    dispose = render(
+      () => (
+        <WorkSection
+          meta={RESIZE_BUG}
+          oduCi={statusFrame()}
+          oduLane={{
+            act: () => ({ kind: "door" }),
+            open: () => opened.push("x"),
+          }}
+        />
+      ),
+      host,
+    );
+    const button = el("inspector-odu-lane-link");
+    expect(button?.tagName).toBe("BUTTON");
+    expect(button?.getAttribute("href")).toBeNull();
+    (button as HTMLElement).click();
+    expect(opened).toEqual(["x"]);
+  });
+
+  it("leaves a lane inert when nothing offers a way out", () => {
+    // No outlet (a test rendering this section bare): a lane is still shown.
+    mountWithOdu(statusFrame());
+    expect(el("inspector-odu-lane-link")).toBeNull();
+    expect(el("inspector-odu-lanes")?.textContent).toContain(
+      "ci::e2e@x86_64-linux",
+    );
   });
 
   it("draws an explicit row when the readout FAILED — never a blank", () => {
