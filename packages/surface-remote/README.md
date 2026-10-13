@@ -18,24 +18,16 @@ const session = makeSession({
 pumpRemoteSurface({ source: surface, session, makeSink: ({ seq }) => sink });
 ```
 
-The copy half of provisioning is its own export, `deliverClosure`: get one
-exact, already-evaluated store path into a host's store from a declared binary
-cache and root it there — and **never build it**, on either side. A Linux host
-is sent the closure **content-addressed** (`nix store make-content-addressed`
-from the cache, or your own store when it holds it, then `nix copy --to
-ssh-ng://host`), which any Nix accepts with no `trusted-users` entry and no
-key; the rewrite is rooted in your store behind a link per output, which is
-also how the next delivery (after a restart too) knows the rewritten path
-without reading the cache again. A darwin host is sent the signed
-input-addressed closure, since rewriting breaks Mach-O code signatures. The
-result names the path the host now holds. When it does not land, it says why:
-not in the cache (`uncached`), refused by a darwin host's Nix, which trusts
-neither the login nor the cache's key (`refused`), refused by your own Nix
-before the host was asked (`sender-refused`), or a copy that failed otherwise
-(`unshipped`). The path to
-deliver comes from `lockFlake` and `resolveFlakeOutPath` — the same local
-evaluator `resolveAgentDrv` runs on. kolu delivers its coding agents to every
-host this way.
+When a store path is already published in a cache, the host can fetch it
+itself: `pullClosure` runs `nix copy --from <cache>` **on the host** (after a
+warm check), then roots it — no bytes through your machine and no Nix
+evaluation. A content-addressed path needs no trust setting on the host, since
+`--from` reads a store directly; a signed input-addressed one (`signedBy`, for
+a macOS host, whose Mach-O signatures a rewrite breaks) needs the host to trust
+the login or the key. A content-addressed path is only portable within the Nix
+line that wrote it — 2.35 hashes a self-referencing path differently from 2.34,
+and neither verifies the other's — so `resolveHostNix` answers the host's Nix
+version (with its system, in the one probe) for the caller to choose by.
 
 By default a dial's ssh gives up on a peer that has not answered a probe for
 ~30s. That is the right answer while someone is watching a host; an unattended

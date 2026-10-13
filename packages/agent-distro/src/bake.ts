@@ -8,9 +8,10 @@
  *     `stateDirectory`, written against a placeholder home padi makes concrete
  *     — `./bundle.ts`' `concreteStatePath`), and the history log;
  *   - the DELIVERY (the binder's arm only, `KOLU_AGENT_DISTRO_DELIVERY`):
- *     upstream's flake kolu-server locks once per run, the one binary cache it
- *     copies bundles out of (`lib.cache`: URL and public key), and upstream's
- *     update schedule (`lib.schedule`).
+ *     upstream's content-addressed index kolu-server reads each bundle's path
+ *     off (`./caIndex.ts`), the one binary cache every host pulls that path
+ *     from (`lib.cache`: URL and the key a Mac trusts its signed bundle by),
+ *     and upstream's update schedule (`lib.schedule`).
  *
  * Pure: the readers of the environment and the files stay where they run.
  */
@@ -37,9 +38,11 @@ export function parseAgentDistroProfiles(text: string): AgentDistroProfiles {
 }
 
 const AgentDistroDeliverySchema = Schema.Struct({
-  /** Upstream's flake (`github:juspay/agent-distro`), locked once per run. */
-  flake: NonEmpty,
-  /** The one binary cache bundles are copied out of, and its key. */
+  /** The base URL of upstream's content-addressed index (`./caIndex.ts`). */
+  index: NonEmpty,
+  /** The one binary cache every host pulls a bundle's closure from, and its
+   *  signing key — what a Mac must trust to take the signed bundle (a
+   *  content-addressed one needs none). */
   cache: Schema.Struct({ url: NonEmpty, publicKey: NonEmpty }),
   schedule: UpdaterScheduleSchema,
 });

@@ -1570,7 +1570,6 @@ describe("deliverClosure — the route without a build", () => {
     const res = await deliver("ci@croissant", LINUX, onProgress);
     expect(res).toMatchObject({
       kind: "not-delivered",
-      why: "uncached",
       reason: expect.stringContaining("unable to download"),
     });
     expect(res.ok === false && "reason" in res && res.reason).not.toMatch(
@@ -1589,14 +1588,10 @@ describe("deliverClosure — the route without a build", () => {
     expect(pinned()).toContain(CA_STORE);
   });
 
-  it("a closure no declared cache holds is `uncached`, and nothing is shipped or built", async () => {
+  it("a closure no declared cache holds is not delivered, and nothing is shipped or built", async () => {
     mockNix(); // the rewrite misses, nothing held locally
     const res = await deliver("croissant");
-    expect(res).toMatchObject({
-      ok: false,
-      kind: "not-delivered",
-      why: "uncached",
-    });
+    expect(res).toMatchObject({ ok: false, kind: "not-delivered" });
     expect(argvs().some(isShip)).toBe(false);
     expect(argvs().some(isBuild)).toBe(false);
   });
@@ -1611,7 +1606,7 @@ describe("deliverClosure — the route without a build", () => {
     expect(argvs().some(isBuild)).toBe(false);
   });
 
-  it("a darwin host whose Nix trusts neither the login nor the key is `refused`, and nothing is built or rooted", async () => {
+  it("a darwin host whose Nix trusts neither the login nor the key is not delivered, in Nix's words, and nothing is built or rooted", async () => {
     vi.mocked(runCapture).mockImplementation(async (_cmd, args, opts) => {
       if (isShip(args)) {
         opts.onProgress?.(nixErrorLine(refusal));
@@ -1625,14 +1620,13 @@ describe("deliverClosure — the route without a build", () => {
     expect(res).toMatchObject({
       ok: false,
       kind: "not-delivered",
-      why: "refused",
       reason: expect.stringMatching(/lacks a signature by a trusted key/),
     });
     expect(argvs().some(isBuild)).toBe(false);
     expect(argvs().some((a) => a.includes("--add-root"))).toBe(false);
   });
 
-  it("the sender's OWN refusal of the cache is `sender-refused` — never blamed on the host, nor on the cache", async () => {
+  it("the sender's OWN refusal of the cache stops before the host is asked", async () => {
     vi.mocked(runCapture).mockImplementation(async (_cmd, args, opts) => {
       if (isPrefetch(args)) {
         opts.onProgress?.(nixErrorLine(refusal));
@@ -1644,17 +1638,9 @@ describe("deliverClosure — the route without a build", () => {
     expect(await deliver("mac", DARWIN)).toMatchObject({
       ok: false,
       kind: "not-delivered",
-      why: "sender-refused",
       reason: expect.stringMatching(/lacks a signature/),
     });
     expect(argvs().some(isShip)).toBe(false);
-    // On the local arm the sender's store IS the target: its refusal is the
-    // target's.
-    expect(await deliver("localhost", DARWIN)).toMatchObject({
-      ok: false,
-      kind: "not-delivered",
-      why: "refused",
-    });
   });
 });
 

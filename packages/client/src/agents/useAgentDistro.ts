@@ -281,7 +281,7 @@ export function checkAgentsOn(host: HostKey): void {
 }
 
 /** The palette's "Check for newer coding agents": every machine kolu reaches,
- *  in one delivery run (one lock of upstream's flake). */
+ *  in one delivery run (one read of upstream's index per system). */
 export function checkAgentsNow(): void {
   deliverAgents(null, "every machine");
 }

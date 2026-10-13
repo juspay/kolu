@@ -1,7 +1,7 @@
 /**
  * The delivery bake — what kolu-server's Nix wrapper tells it about delivering
  * agent-distro's bundles: `KOLU_AGENT_DISTRO_DELIVERY`, a file the Nix half
- * writes from upstream's own `lib.cache` and `lib.schedule`
+ * writes from upstream's index, `lib.cache` and `lib.schedule`
  * (`@kolu/agent-distro/bake`). Baked on the floor arm only — the wrapper a user
  * runs — so a from-source kolu-server (`just dev`, e2e) reads `null` and
  * delivers nothing: explicit absence, never a guessed cache.

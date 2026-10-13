@@ -2915,17 +2915,17 @@ retirements:
     destinationLayer: L2
     replacements:
       - file: packages/server/src/agentDelivery/delivery.test.ts
-        test: "createAgentDelivery > a landed delivery reports delivering, then landed with the outPath"
+        test: "createAgentDelivery > a landed delivery reports delivering, then landed with the index's content-addressed path"
         lane: daemon
         platforms:
           - linux
           - darwin
         realism:
-          - fake-nix-ops
+          - fake-delivery-ops
           - real-report-sequence
         reviewEvidence:
           file: packages/server/src/agentDelivery/delivery.test.ts
-          test: "createAgentDelivery > a landed delivery reports delivering, then landed with the outPath"
+          test: "createAgentDelivery > a landed delivery reports delivering, then landed with the index's content-addressed path"
           note: Human review confirmed this collected test exercises the declared defect surface; CI verifies collection, not behavioral equivalence.
       - file: packages/padi/src/agentDistro/agentDistro.test.ts
         test: "delivery reports — what a host does with kolu-server's word > a newer bundle landing names what changed; the same bundle again writes no history line"
@@ -3004,16 +3004,16 @@ retirements:
     destinationLayer: L2
     replacements:
       - file: packages/server/src/agentDelivery/delivery.test.ts
-        test: "createAgentDelivery > an uncached bundle is a delivery failure, never a build"
+        test: "createAgentDelivery > a system upstream has not published is a typed failure, and nothing is pulled"
         lane: daemon
         platforms:
           - linux
           - darwin
         realism:
-          - fake-nix-ops
+          - fake-delivery-ops
         reviewEvidence:
           file: packages/server/src/agentDelivery/delivery.test.ts
-          test: "createAgentDelivery > an uncached bundle is a delivery failure, never a build"
+          test: "createAgentDelivery > a system upstream has not published is a typed failure, and nothing is pulled"
           note: Human review confirmed this collected test exercises the declared defect surface; CI verifies collection, not behavioral equivalence.
       - file: packages/padi/src/agentDistro/agentDistro.test.ts
         test: "delivery reports — what a host does with kolu-server's word > a failure while a bundle serves leaves the host ready on it: the failure shows only in the receipt"

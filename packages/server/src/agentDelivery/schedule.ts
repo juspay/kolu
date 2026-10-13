@@ -12,7 +12,7 @@
  *
  * The other triggers live with their facts: a host whose padi just bound or
  * whose setting just changed is delivered to by `./install.ts`; the user's
- * "check for newer agents" runs at once (a fresh lock), counting toward no
+ * "check for newer agents" runs at once (a fresh index read), counting toward no
  * boundary's attempts.
  */
 

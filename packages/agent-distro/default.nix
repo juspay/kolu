@@ -33,9 +33,11 @@
 #     BOTH arms: padi checks a pushed setting against it and points `current`
 #     at the bundle kolu delivered.
 #   * `delivery` — what the BINDER (kolu-server) needs to deliver a profile's
-#     bundle to every host: upstream's flake, its one binary cache
-#     (`lib.cache`) and its update schedule (`lib.schedule`). Baked on the
-#     floor arm only — a host never fetches its own agents.
+#     bundle to every host: upstream's content-addressed index (`lib.caIndex`:
+#     which store path each system's bundle is), its one binary cache (`lib.cache`, the
+#     store every host pulls that path from) and its update schedule
+#     (`lib.schedule`). Baked on the floor arm only — the binder decides when
+#     and what a host pulls; a host never decides on its own.
 #   * `pluginDir` — this kolu's `agent-plugin`, handed to every harness at launch
 #     through `AGENT_DISTRO_PLUGINS`, so kolu's MCP plugin is loaded in every
 #     profile without agent-distro pinning kolu.
@@ -134,11 +136,13 @@ let
       profileNames;
   });
 
-  # What kolu-server delivers from: the flake it locks once per run, the one
-  # binary cache it copies bundles out of (never building one), and when it
-  # runs. All three are upstream's own values — read here, written nowhere else.
+  # What kolu-server delivers from: the index it reads each bundle's
+  # content-addressed path off (`lib.caIndex`), the one binary cache every host
+  # pulls that path from and the key a Mac trusts its signed bundle by
+  # (`lib.cache`, never building one), and when it runs (`lib.schedule`). All three are upstream's own values — read here, written
+  # nowhere else.
   delivery = pkgs.writeText "kolu-agent-distro-delivery.json" (builtins.toJSON {
-    flake = flakeRef;
+    index = distro.lib.caIndex.rawBase;
     cache = { inherit (distro.lib.cache) url publicKey; };
     schedule = {
       periodSeconds = distro.lib.schedule.updatePeriodSeconds;
@@ -201,8 +205,8 @@ let
     # picker.
     echo "resolved ${env.bundle}=''${${env.bundle}:-}"
     echo "resolved ${env.delivery}=''${${env.delivery}:-}"
-    if ! jq -e '(.flake | length > 0) and (.cache.url | length > 0) and (.cache.publicKey | length > 0) and (.schedule.periodSeconds > 0)' "''${${env.delivery}:-/dev/null}" >/dev/null; then
-      echo "FAIL: ${env.delivery} does not name agent-distro's flake, cache, key and schedule — kolu-server could deliver no agents." >&2
+    if ! jq -e '(.index | length > 0) and (.cache.url | length > 0) and (.cache.publicKey | length > 0) and (.schedule.periodSeconds > 0)' "''${${env.delivery}:-/dev/null}" >/dev/null; then
+      echo "FAIL: ${env.delivery} does not name agent-distro's index, cache, key and schedule — kolu-server could deliver no agents." >&2
       exit 1
     fi
     m="''${${env.bundle}:-}/share/kolu/agent-distro.json"
@@ -248,7 +252,7 @@ let
       exit 1
     fi
     if [ -n "''${${env.delivery}:-}" ]; then
-      echo "FAIL: a floor-less wrapper resolved the delivery — only kolu-server delivers agents; a host never fetches its own." >&2
+      echo "FAIL: a floor-less wrapper resolved the delivery — only kolu-server decides what a host pulls; a host never decides on its own." >&2
       exit 1
     fi
   '');

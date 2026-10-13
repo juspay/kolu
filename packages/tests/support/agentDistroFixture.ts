@@ -21,8 +21,8 @@
  * and off removes both. The Nix build proves the real manifest's entries exist.
  *
  * There is no DELIVERY bake (`KOLU_AGENT_DISTRO_DELIVERY`): delivering needs
- * Nix and agent-distro's binary cache, so the suite's kolu-server delivers
- * nothing and this machine serves the floor. Delivery is unit-tested where it
+ * agent-distro's published index and binary cache, so the suite's kolu-server
+ * delivers nothing and this machine serves the floor. Delivery is unit-tested where it
  * lives (kolu-server's `agentDelivery/`, padi's `agentDistro/`).
  */
 

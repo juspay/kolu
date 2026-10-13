@@ -77,13 +77,6 @@ const drvCache = new QuickLRU<string, AgentDerivation>({
   maxSize: MAX_CACHED_AGENT_DERIVATIONS,
 });
 
-/** Evaluated output paths, keyed by installable — the same bounded,
- *  success-only memo as {@link drvCache}, and as safe: a caller hands
- *  {@link resolveFlakeOutPath} a LOCKED ref, whose output never changes. */
-const outPathCache = new QuickLRU<string, string>({
-  maxSize: MAX_CACHED_AGENT_DERIVATIONS,
-});
-
 /** Successfully-read sidecars, keyed by source ref. The read has to stay AHEAD
  *  of the ssh probe (see `resolveAgentDrv`), but the value it produces is
  *  immutable for a given ref — a baked ref is a content-addressed store path —
@@ -199,9 +192,8 @@ export async function resolveAgentDrv(
   return derivation;
 }
 
-/** The lifetime hooks of a LOCAL flake evaluation (`nix eval`, `nix flake
- *  metadata`): the same contract `resolveAgentDrv` runs its evaluation under. */
-export interface FlakeEvaluationOptions {
+/** The lifetime hooks of the LOCAL flake evaluation `resolveAgentDrv` runs. */
+interface FlakeEvaluationOptions {
   /** Narrated evaluation output (a bounded tail is kept for the error). */
   onProgress: (line: string) => void;
   /** Every stderr line — the owner's silence watchdog's liveness. */
@@ -217,8 +209,7 @@ export interface FlakeEvaluationOptions {
  *  root error and its detail after `what`, a budget-exhausting silence as
  *  {@link AgentResolutionExhaustedError}, deterministic failures as a
  *  non-retryable `ResolveDrvError`, transient ones as a plain `Error`
- *  (`resolverErrorOf`). The ONE evaluator of this package: `resolveAgentDrv`,
- *  {@link lockFlake} and {@link resolveFlakeOutPath} all run through it. */
+ *  (`resolverErrorOf`). */
 async function runLocalEvaluation(
   argv: readonly [string, ...string[]],
   what: string,
@@ -248,70 +239,6 @@ async function runLocalEvaluation(
   }
   opts.budget.reset();
   return result.stdout;
-}
-
-/** Lock `flakeRef` NOW (`nix flake metadata --refresh`): the locked
- *  reference — `github:owner/repo/<rev>?narHash=…` — that every later
- *  evaluation of one run names, so they all see the same revision. Throws the
- *  classified fault (see {@link FlakeEvaluationOptions}). */
-export async function lockFlake(
-  flakeRef: string,
-  opts: FlakeEvaluationOptions,
-): Promise<string> {
-  const stdout = await runLocalEvaluation(
-    [
-      "nix",
-      "flake",
-      "metadata",
-      "--refresh",
-      "--json",
-      "--accept-flake-config",
-      flakeRef,
-    ],
-    `could not lock ${flakeRef}: nix flake metadata failed`,
-    opts,
-  );
-  const url = (JSON.parse(stdout) as { url?: unknown }).url;
-  if (typeof url !== "string" || url === "")
-    throw new ResolveDrvError(
-      `nix flake metadata ${flakeRef} named no locked url`,
-      { kind: "unavailable", failureCause: "remote", terminal: false },
-    );
-  return url;
-}
-
-/** The OUTPUT path of `packages.<system>.<packageName>` at `flakeRef` — the
- *  path a binary cache serves and `deliverClosure` delivers — evaluated
- *  locally, never built. `system` is a host's own (`resolveSystem`). */
-export async function resolveFlakeOutPath(
-  flakeRef: string,
-  system: string,
-  packageName: string,
-  opts: FlakeEvaluationOptions,
-): Promise<string> {
-  const installable = `${flakeRef}#packages.${system}.${packageName}`;
-  const cached = outPathCache.get(installable);
-  if (cached !== undefined) return cached;
-  const out = (
-    await runLocalEvaluation(
-      [
-        "nix",
-        "eval",
-        "--accept-flake-config",
-        "--raw",
-        `${installable}.outPath`,
-      ],
-      `could not resolve ${packageName} for system=${system} from ${flakeRef}: nix eval failed`,
-      opts,
-    )
-  ).trim();
-  if (!out.startsWith("/nix/store/"))
-    throw new ResolveDrvError(
-      `nix eval returned ${JSON.stringify(out)}, not a store path for ${packageName} on system=${system}`,
-      { kind: "unavailable", failureCause: "remote", terminal: false },
-    );
-  outPathCache.set(installable, out);
-  return out;
 }
 
 /** Resolve a package from the wrapper-baked source at the owning dial boundary. */

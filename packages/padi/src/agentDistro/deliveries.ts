@@ -5,8 +5,8 @@
  * that landed (`land`). Its volatility is the host-side half of a delivery;
  * what the setting means and what is published stay in the policy module.
  *
- * kolu-server does every fetch, copy and root (`@kolu/surface-remote`'s
- * `deliverClosure`); padi never runs Nix for agents. A `landed` bundle is
+ * kolu-server decides what lands and has this host's Nix pull and root it over
+ * ssh; padi itself never runs Nix for agents. A `landed` bundle is
  * already valid in this host's store and rooted there, so landing it is a
  * symlink flip plus upstream's two files — the `last-success` stamp and a
  * history line in upstream's format (`@kolu/agent-distro/history`), so a host

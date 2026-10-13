@@ -85,6 +85,81 @@ export async function resolveSystem(
   host: string,
   opts: ResolveSystemOptions,
 ): Promise<string> {
+  const stdout = await evalOnHost(host, opts, [
+    "--expr",
+    "builtins.currentSystem",
+  ]);
+  // nix-instantiate prints the Nix string repr — `"x86_64-linux"\n` —
+  // which is valid JSON for a plain string, so JSON.parse strips the
+  // surrounding quotes.
+  let sys: unknown;
+  try {
+    sys = JSON.parse(stdout.trim());
+  } catch {
+    throw notANixProbe(host, `printed ${JSON.stringify(stdout.trim())}`);
+  }
+  if (typeof sys !== "string" || !NIX_SYSTEM_RE.test(sys)) {
+    throw notANixProbe(host, `returned ${JSON.stringify(sys)}`);
+  }
+  return sys;
+}
+
+/** What a host's Nix says about itself: its system, and its version
+ *  (`builtins.nixVersion`, e.g. `2.34.8`) — the version is what decides which
+ *  form of a published store path that Nix can verify. */
+export interface HostNix {
+  readonly system: string;
+  readonly nixVersion: string;
+}
+
+/** {@link resolveSystem}'s probe, asking for the host's Nix version too — ONE
+ *  round-trip, the same failure classification. */
+export async function resolveHostNix(
+  host: string,
+  opts: ResolveSystemOptions,
+): Promise<HostNix> {
+  const stdout = await evalOnHost(host, opts, [
+    "--strict",
+    "--json",
+    "--expr",
+    "{ system = builtins.currentSystem; nixVersion = builtins.nixVersion; }",
+  ]);
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(stdout.trim());
+  } catch {
+    throw notANixProbe(host, `printed ${JSON.stringify(stdout.trim())}`);
+  }
+  const { system, nixVersion } = (parsed ?? {}) as Record<string, unknown>;
+  if (
+    typeof system !== "string" ||
+    !NIX_SYSTEM_RE.test(system) ||
+    typeof nixVersion !== "string" ||
+    nixVersion === ""
+  )
+    throw notANixProbe(host, `returned ${JSON.stringify(parsed)}`);
+  return { system, nixVersion };
+}
+
+/** Output that is not what the probe asked for is a fact about the HOST
+ *  (commonly a shell rc that prints to stdout on a non-interactive ssh), and
+ *  it repeats on every dial — so it is a bounded remote fault naming what came
+ *  back, never a "network" error retried forever. */
+function notANixProbe(host: string, what: string): ResolveDrvError {
+  return new ResolveDrvError(
+    `${host}: the system probe ${what}, not a nix-system string — something on the host (often a shell startup file) may be printing to stdout on non-interactive ssh`,
+    { kind: "unavailable", failureCause: "remote", terminal: false },
+  );
+}
+
+/** Run `nix-instantiate --eval <args>` on `host` under the quick-step
+ *  deadline, and answer its stdout — or throw the classified fault. The ONE
+ *  host probe: {@link resolveSystem} and {@link resolveHostNix} both ride it. */
+async function evalOnHost(
+  host: string,
+  opts: ResolveSystemOptions,
+  args: readonly string[],
+): Promise<string> {
   // Which arm we are on decides how a missing executable surfaces, and which
   // executable a spawn fault is even ABOUT — see the failure classification below.
   const local = isLocalHost(host);
@@ -95,7 +170,7 @@ export async function resolveSystem(
   // un-multiplexed and lands in this one classifier within a single retry.
   const res = await runNix(
     { host, keepalive: opts.keepalive },
-    ["nix-instantiate", "--eval", "--expr", "builtins.currentSystem"],
+    ["nix-instantiate", "--eval", ...args],
     {
       // The arch probe (#1908 D1b) is a quick `nix-instantiate --eval` round-trip — never a
       // build — so it rides the shared QUICK-step deadline `probePolicy()` (as does the
@@ -176,7 +251,7 @@ export async function resolveSystem(
         { kind: "nix-unavailable", failureCause: "remote", terminal: true },
       );
     }
-    const failure = `${host}: \`nix-instantiate --eval builtins.currentSystem\` failed: ${describeNixRun(res)}`;
+    const failure = `${host}: \`nix-instantiate --eval ${args.at(-1)}\` failed: ${describeNixRun(res)}`;
     // The probe's one exception to the shared resolver table: a spawn fault
     // other than ENOENT (handled above) is transient local resource exhaustion
     // (EMFILE, EAGAIN) that a later dial may well clear, so it keeps the untyped
@@ -190,27 +265,5 @@ export async function resolveSystem(
     // stay retry-forever.
     throw resolverErrorOf(failure, res);
   }
-  // nix-instantiate prints the Nix string repr — `"x86_64-linux"\n` —
-  // which is valid JSON for a plain string, so JSON.parse strips the
-  // surrounding quotes.
-  //
-  // Output that is not a system string is a fact about the HOST (commonly a
-  // shell rc that prints to stdout on a non-interactive ssh), and it repeats on
-  // every dial — so it is a bounded remote fault naming what came back, never a
-  // "network" error retried forever.
-  const notASystem = (what: string): ResolveDrvError =>
-    new ResolveDrvError(
-      `${host}: the system probe ${what}, not a nix-system string — something on the host (often a shell startup file) may be printing to stdout on non-interactive ssh`,
-      { kind: "unavailable", failureCause: "remote", terminal: false },
-    );
-  let sys: unknown;
-  try {
-    sys = JSON.parse(res.stdout.trim());
-  } catch {
-    throw notASystem(`printed ${JSON.stringify(res.stdout.trim())}`);
-  }
-  if (typeof sys !== "string" || !NIX_SYSTEM_RE.test(sys)) {
-    throw notASystem(`returned ${JSON.stringify(sys)}`);
-  }
-  return sys;
+  return res.stdout;
 }

@@ -1,13 +1,15 @@
 /**
  * kolu-server's agent delivery, wired to the warm padi pool — the composition
  * of `./delivery.ts` (deliver to hosts), `./schedule.ts` (upstream's clock)
- * and `./nix.ts` (the real Nix steps), with the triggers that live here:
+ * and `./ops.ts` (the real index read and host pull), with the triggers that
+ * live here:
  *
  *   - a host's padi taking the Agents setting (`deliverTo`, from the setting
  *     pusher's per-host push: every bind and reconnect, and every real change
- *     of the setting) — a lock from the current schedule period is reused;
+ *     of the setting) — an index answer from the current schedule period is
+ *     reused;
  *   - the user's "check for newer agents" (`deliverNow`, one host or all) — a
- *     fresh lock, at once, counted toward no scheduled attempt;
+ *     fresh index read, at once, counted toward no scheduled attempt;
  *   - upstream's schedule (`startDeliverySchedule`).
  *
  * A kolu-server without the delivery bake (built from source) installs none of
@@ -34,7 +36,7 @@ import {
   createAgentDelivery,
   type DeliveryHost,
 } from "./delivery.ts";
-import { nixDeliveryOps } from "./nix.ts";
+import { realDeliveryOps } from "./ops.ts";
 import { startDeliverySchedule } from "./schedule.ts";
 
 /** The pool slice delivery reads: membership and the session behind a key. */
@@ -92,8 +94,8 @@ export function installAgentDelivery(deps: {
       : undefined;
   };
   const delivery: AgentDelivery = createAgentDelivery({
-    bake,
-    ops: nixDeliveryOps(bake),
+    schedule: bake.schedule,
+    ops: realDeliveryOps(bake),
     log,
     bundle,
     hosts: () =>

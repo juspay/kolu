@@ -226,14 +226,18 @@ set: to switch sets, use [Settings](#pick-a-set).
 ## On other machines
 
 Agents work the same on every host you [add](/remote-hosts). The machine
-running kolu **delivers** them: it takes the set from agent-distro's binary
-cache into its own Nix store, copies it to the host over the same ssh login
-kolu already uses, and pins it there so Nix's garbage collection leaves it
-alone. The host itself downloads nothing — it needs no flakes, no access to
-GitHub and no cache settings of its own for its agents — and nothing is ever
-compiled, on either side. The host's tab shows the delivery until it lands
-(below). Terminals
-opened on that host before then have no agents (and no pill).
+running kolu **delivers** them: it looks up which build of the set the host
+needs in agent-distro's published index, then — over the same ssh login kolu
+already uses — has the host download exactly that build from agent-distro's
+binary cache and pins it there so Nix's garbage collection leaves it alone.
+The machine running kolu moves none of the agents' bytes itself. A host needs
+only the ssh login, `nix` on the PATH of that login, and outbound HTTPS to the
+cache — no flakes and no GitHub access; a Linux host needs nothing in its Nix
+settings either, while a Mac must trust the login or the cache's key ([When a
+delivery fails](#when-a-delivery-fails)) — and nothing is ever compiled, on
+either side. The host's tab shows the delivery
+until it lands (below). Terminals opened on that host before then have no
+agents (and no pill).
 
 A [profile of your own](#a-profile-of-your-own) is different: it travels as
 words, never as files. A flake reference is fetched by each host when an agent
@@ -271,7 +275,7 @@ until the first newer one lands.
 
 <Aside type="note" title="Disk">
   A host keeps its delivered set in its own Nix store (and the machine running
-  kolu also carries the sets kolu ships, plus a copy of each set it passed on).
+  kolu also carries the sets kolu ships).
   If you also install agent-distro on a host through its Home Manager module,
   both share the same set and the same update log. Only the newest set is
   protected from Nix's garbage collection: after an update, the one before it
@@ -288,13 +292,15 @@ connected machine that does not have it yet. Only the chosen set is kept
 current; switching sets delivers the new one as before. A machine also gets a
 delivery whenever it connects — kolu starts, a host comes back after sleep or a
 dropped link, a newer kolu reaches it — so a machine that was away at those times
-catches up as soon as it is back. A run that fails — the cache did not answer,
-a host dropped off mid-copy, or no machine was connected to take it — is tried
+catches up as soon as it is back. A run that fails — the index or the cache did
+not answer, a host dropped off mid-download, or no machine was connected to take
+it — is tried
 again up to twice, five minutes after the failed run ended, as agent-distro's
 own schedule does.
 
-Nothing is ever compiled. If agent-distro's cache does not hold the newer set
-yet, the delivery fails instead and is tried again as above.
+Nothing is ever compiled. If agent-distro has not published the set for a
+host's kind of machine yet, the delivery fails instead and is tried again as
+above.
 
 While a newer set is delivered, the one you have keeps working: new terminals get
 it until the new one has fully arrived. The host's mark keeps its plain colour
@@ -335,25 +341,25 @@ so there instead.
 
 ## When a delivery fails
 
-No Linux host's Nix settings matter here. kolu sends a Linux host the agents
-in **content-addressed** form, where each store path is named by the hash of
-what it holds, so Nix takes it from anyone without asking whom it trusts. The
-login kolu connects as needs no place in `trusted-users`, and neither machine
-needs agent-distro's cache in its `nix.conf`.
+No Linux host's Nix settings matter here. A Linux host gets the agents in
+**content-addressed** form, where each store path is named by the hash of what
+it holds, so Nix takes them from anyone without asking whom it trusts. The
+login kolu connects as needs no place in `trusted-users`, and the host needs
+neither agent-distro's cache nor its key in its `nix.conf`. That holds for a
+host on Nix 2.17 through 2.34: Nix 2.35 changed how that form is checked, so
+a Linux host on Nix 2.35 or later is sent the signed agents, like a Mac.
 
 A Mac is the exception. Rewriting the agents into that form would break the
 code signatures macOS checks before it runs a program, so a Mac gets them as
 agent-distro's cache signed them, and its Nix takes them only if it trusts the
 login kolu connects as (`nix.settings.trusted-users`) or the cache's key
 (`nix.settings.trusted-public-keys`). When it trusts neither, the delivery
-fails with Nix's own words and that one-line fix. The machine running kolu
-takes a Mac's set from the cache into its own store first, so its Nix must
-trust the user kolu runs as or that key too; when it does not, the failure
-says so and names the fix for that machine.
+fails with Nix's own words and that one-line fix.
 
-A delivery that fails — agent-distro's cache did not answer or does not hold
-the set yet, the copy broke off, a Mac refused — carries kolu's words for the
-cause, with Nix's own line after it. The host gets no agents (kolu never
+A delivery that fails — agent-distro has not published the set for that kind
+of machine yet, the host could not reach the cache, the download broke off, a
+Mac refused —
+carries kolu's words for the cause, with Nix's own line after it. The host gets no agents (kolu never
 compiles them), and its mark turns to the warning colour. kolu tries again on
 its own at the next scheduled time and whenever the machine reconnects (see
 [Kept up to date](#kept-up-to-date)) — or right away: open that machine's host

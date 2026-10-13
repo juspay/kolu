@@ -480,11 +480,17 @@ framework's transparent re-subscribe re-lead with fresh truth.
 padi puts the coding agents of the user's chosen
 [agent-distro](https://github.com/juspay/agent-distro) profile on the PATH of
 every NEW terminal it spawns ([Agents](https://kolu.dev/agents)). It never
-FETCHES them: the binding kolu-server delivers each profile's bundle into this
-host's store (`packages/server/src/agentDelivery/`, over `@kolu/surface-remote`'s
-`deliverClosure`) and tells padi each step, and padi points the profile's
-`current` at what landed. A host needs neither flakes, GitHub egress, nor `nix`
-on padi's PATH for its agents. Three cells, one procedure (`padiSurface` 5.9,
+DECIDES what to fetch: the binding kolu-server reads the host's build of each
+profile off agent-distro's published index (content-addressed for Linux, signed
+for a Mac), has this host pull it
+from agent-distro's cache over ssh (`packages/server/src/agentDelivery/`, over
+`@kolu/surface-remote`'s `pullClosure`: `nix copy --from <cache>` run on the host,
+then a GC root) and tells padi each step, and padi points the profile's `current`
+at what landed. For its agents a host needs only the ssh login, `nix` on that
+login's PATH and outbound HTTPS to the cache — no flakes and no GitHub egress;
+a Linux host on Nix 2.17–2.34 needs no Nix settings (its path is
+content-addressed); a Mac, or a Linux host on Nix 2.35+, must trust the login or
+the cache's key (`packages/server/src/agentDelivery/route.ts`). Three cells, one procedure (`padiSurface` 5.9,
 profile references 5.11, binder-side delivery 5.13) and one spawn layer carry
 it; the module is `src/agentDistro/`.
 
@@ -598,7 +604,7 @@ it; the module is `src/agentDistro/`.
   `KOLU_AGENT_DISTRO_BUNDLE` (the local floor, `default` wrapper only) and
   `KOLU_AGENT_PLUGIN_DIR` (both arms), baked by `@kolu/agent-distro`'s Nix half
   (`packages/agent-distro/default.nix`). (`KOLU_AGENT_DISTRO_DELIVERY` — the
-  flake, cache and schedule — is kolu-server's alone.) The floor is read through
+  index, cache and schedule — is kolu-server's alone.) The floor is read through
   its manifest (`share/kolu/agent-distro.json`), never a directory layout.
   Unbaked reads as none; a half bake, or a floor without its manifest, throws
   at boot.
