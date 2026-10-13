@@ -15,8 +15,8 @@ profile's dir and `bin`), the **profiles listing** (every profile
 this build knows, and the state directory a host keeps its `current` under —
 agent-distro's own `stateDirectory`, against a placeholder home padi makes
 concrete), the **delivery** kolu-server reads (upstream's content-addressed
-index base, its one binary cache's URL — `lib.cache` — and its schedule,
-`lib.schedule`; the floor arm only) and
+index base — `lib.caIndex.rawBase` — its one binary cache's URL — `lib.cache` —
+and its schedule, `lib.schedule`; the floor arm only) and
 the plugin dir; `bakeArgs { floor }` bakes them onto a wrapper and
 `proof { floor }` is the build-time check every wrapper runs on what it baked —
 on the floor it runs kolu-server's own boot read of the profiles (`readListing`,

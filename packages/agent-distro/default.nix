@@ -33,8 +33,8 @@
 #     BOTH arms: padi checks a pushed setting against it and points `current`
 #     at the bundle kolu delivered.
 #   * `delivery` — what the BINDER (kolu-server) needs to deliver a profile's
-#     bundle to every host: upstream's content-addressed index (which store
-#     path each system's bundle is), its one binary cache (`lib.cache`, the
+#     bundle to every host: upstream's content-addressed index (`lib.caIndex`:
+#     which store path each system's bundle is), its one binary cache (`lib.cache`, the
 #     store every host pulls that path from) and its update schedule
 #     (`lib.schedule`). Baked on the floor arm only — the binder decides when
 #     and what a host pulls; a host never decides on its own.
@@ -137,14 +137,12 @@ let
   });
 
   # What kolu-server delivers from: the index it reads each bundle's
-  # content-addressed path off, the one binary cache every host pulls that path
-  # from (never building one), and when it runs. The cache and the schedule are
-  # upstream's `lib` values; the index base is upstream's too (its own updater's
-  # `CA_INDEX`, src/update/update.ts), spelled here once because `lib` does not
-  # export it.
-  caIndex = "https://raw.githubusercontent.com/juspay/agent-distro/ca-index";
+  # content-addressed path off (`lib.caIndex`), the one binary cache every host
+  # pulls that path from (`lib.cache`, never building one), and when it runs
+  # (`lib.schedule`). All three are upstream's own values — read here, written
+  # nowhere else.
   delivery = pkgs.writeText "kolu-agent-distro-delivery.json" (builtins.toJSON {
-    index = caIndex;
+    index = distro.lib.caIndex.rawBase;
     cache = distro.lib.cache.url;
     schedule = {
       periodSeconds = distro.lib.schedule.updatePeriodSeconds;
