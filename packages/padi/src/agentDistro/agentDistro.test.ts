@@ -222,11 +222,11 @@ describe("layerOnHost — the bundle on disk", () => {
     );
   });
 
-  it("a remote host before its first delivery → nothing yet, downloading", () => {
+  it("a remote host before its first delivery, with no word from kolu-server → nothing, undelivered — never downloading from silence", () => {
     __setAgentDistroBakeForTest(bake({ floor: false }));
     expect(layerOnHost(ON)).toBeUndefined();
     expect(assessAgentDistro(ON)).toEqual({
-      kind: "downloading",
+      kind: "undelivered",
       profile: "vanilla",
     });
   });
@@ -268,11 +268,16 @@ describe("a profile reference — the setting's fallback, on the vanilla bundle"
     __setAgentDistroBakeForTest(bake({ floor: false }));
     write(REFERENCE);
     expect(status()).toEqual({
+      kind: "undelivered",
+      profile: "github:me/profile",
+    });
+    // A delivery is the BUNDLE's: kolu-server names the vanilla bundle.
+    onAgentDistroReport({ kind: "delivering", profile: "vanilla" });
+    expect(status()).toEqual({
       kind: "downloading",
       profile: "github:me/profile",
     });
     const bundle = storeBundle(join(root, "store-vanilla"));
-    // A delivery is the BUNDLE's: kolu-server names the vanilla bundle.
     onAgentDistroReport({ kind: "landed", profile: "vanilla", bundle });
     expect(status()).toEqual({
       kind: "ready",
@@ -504,7 +509,8 @@ describe("delivery reports — what a host does with kolu-server's word", () => 
     expect(() =>
       report({ kind: "delivering", profile: "no-such-profile" }),
     ).toThrow(/no-such-profile/);
-    expect(status()).toEqual({ kind: "downloading", profile: "vanilla" });
+    // The refused report started nothing: still no word of a delivery.
+    expect(status()).toEqual({ kind: "undelivered", profile: "vanilla" });
   });
 
   it("a report to an unbaked padi throws", () => {

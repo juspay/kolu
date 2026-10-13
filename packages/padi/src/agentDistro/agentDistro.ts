@@ -140,11 +140,13 @@ export function assessAgentDistro(setting: AgentDistroSetting):
       reason: delivery.failure.reason,
       message: delivery.failure.message,
     };
-  // Nothing serves and nothing failed: a delivery is under way, or about to
-  // be — kolu-server reports `delivering` the moment this host has taken the
-  // setting, and a kolu-server that cannot deliver at all (built without the
-  // delivery) reports that as a failure instead, so this never stands.
-  return { kind: "downloading", profile: setting.profile };
+  // Nothing serves and nothing failed: `downloading` only once kolu-server has
+  // SAID it is delivering — never inferred from silence, which is also what a
+  // kolu-server that cannot deliver at all sends.
+  return {
+    kind: delivery?.kind === "delivering" ? "downloading" : "undelivered",
+    profile: setting.profile,
+  };
 }
 
 /** What a terminal spawned NOW gets on this host — the same answer the host's

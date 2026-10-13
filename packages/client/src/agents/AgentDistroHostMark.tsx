@@ -82,7 +82,6 @@ const AgentDistroHostMark: Component<{
       type="button"
       data-testid={props.measuring ? undefined : "host-agents-mark"}
       data-state={mark().kind}
-      data-delivering={busy(mark()) ? "" : undefined}
       aria-label={agentMarkLabel(mark(), where())}
       tabIndex={props.measuring ? -1 : undefined}
       onClick={(e) => {

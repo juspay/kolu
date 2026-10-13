@@ -2810,11 +2810,11 @@ retirements:
     defectSurface: [agents, settings]
     destinationLayer: L5
     replacements: []
-    survivorRevisionIds: [revision-fdc19279629072130a9a]
+    survivorRevisionIds: [revision-2ef614a1b7b4deccd43e]
     sameCodePathEvidence:
       file: packages/tests/features/agents.feature
-      symbol: "Scenario: The palette's check lands a newer set: the toast says what changed, the open tile offers Restart, a new terminal gets it"
-      test: The fleet-wide check is the palette's "Check for newer coding agents" instead of a Settings button, and the run's outcome is read in that machine's host details (its state's last run, its events) instead of Settings' line and History. The toast, the stale pill, the Restart and the new terminal's bundle are unchanged. The sub-second "update downloading" phase is no longer asserted in the browser — it is a race against a run that lands in about a second, and the phase is pinned in `packages/agent-distro/src/status.test.ts` (`agentHostDetail` — a run in flight says so, and `agentMarkUpdate`).
+      symbol: "Scenario: This machine's tab carries the agents mark while Agents are on, and it opens its host details"
+      test: "Its survivor (revision-fdc19279629072130a9a) was retired when kolu-server took over delivering agents to every host (see retire-agents-delivery-palette-check); the browser journey that survives opens this machine's host details and asserts the check row. The run's outcomes are pinned in unit tests there."
   - id: revise-agents-ux-check-unchanged
     revisionId: revision-349ba3a7594a9aaa57b5
     action: revised
@@ -2823,11 +2823,11 @@ retirements:
     defectSurface: [agents, settings]
     destinationLayer: L5
     replacements: []
-    survivorRevisionIds: [revision-f89316f38df2484d92da]
+    survivorRevisionIds: [revision-2ef614a1b7b4deccd43e]
     sameCodePathEvidence:
       file: packages/tests/features/agents.feature
-      symbol: "Scenario: A per-host check with nothing newer: no toast, the section says it checked and is up to date"
-      test: The check is now run per machine, from the action row in that machine's host details, and its outcome read on that section's state line instead of Settings'. The remembered-run comparison off padi's receipt and the no-toast assertion are unchanged; the Check now button's busy state went with the button.
+      symbol: "Scenario: This machine's tab carries the agents mark while Agents are on, and it opens its host details"
+      test: "Its survivor (revision-f89316f38df2484d92da) was retired when kolu-server took over delivering agents to every host (see retire-agents-delivery-per-host-check); the browser journey that survives opens this machine's host details and asserts the check row. The run's outcomes are pinned in unit tests there."
   - id: revise-agents-ux-check-skipped
     revisionId: revision-54f0c818cd247da4a0b8
     action: revised
@@ -2836,11 +2836,11 @@ retirements:
     defectSurface: [agents, settings]
     destinationLayer: L5
     replacements: []
-    survivorRevisionIds: [revision-efc2530324ec07b7513a]
+    survivorRevisionIds: [revision-2ef614a1b7b4deccd43e]
     sameCodePathEvidence:
       file: packages/tests/features/agents.feature
-      symbol: "Scenario: A newer set the cache does not hold yet is skipped: no toast, the machine's events say so"
-      test: The skip is read in that machine's host details — its state's last run and its event list — instead of Settings' line and the History disclosure, and the check is the palette's. The fixture's own skip reason is asserted as before. One step is added — the scenario waits for the turn-on run to settle before arming the next one, which the old Settings assertion did implicitly.
+      symbol: "Scenario: This machine's tab carries the agents mark while Agents are on, and it opens its host details"
+      test: "Its survivor (revision-efc2530324ec07b7513a) was retired when kolu-server took over delivering agents to every host (see retire-agents-delivery-skipped); the browser journey that survives opens this machine's host details and asserts the check row. The run's outcomes are pinned in unit tests there."
   - id: revise-agents-r2-pick-juspay-card
     revisionId: revision-9930293ce56c1fad8249
     action: revised
@@ -2888,11 +2888,11 @@ retirements:
     defectSurface: [agents, settings]
     destinationLayer: L5
     replacements: []
-    survivorRevisionIds: [revision-fdc19279629072130a9a]
+    survivorRevisionIds: [revision-2ef614a1b7b4deccd43e]
     sameCodePathEvidence:
       file: packages/tests/features/agents.feature
-      symbol: "Scenario: The palette's check lands a newer set: the toast says what changed, the open tile offers Restart, a new terminal gets it"
-      test: One assertion is added — the tab's agents mark carries a run in flight (`data-update`) right after the palette command, so a RUNNING update is pinned on a surface again rather than only in unit tests. Every other step is unchanged.
+      symbol: "Scenario: This machine's tab carries the agents mark while Agents are on, and it opens its host details"
+      test: "Its survivor (revision-fdc19279629072130a9a) was retired when kolu-server took over delivering agents to every host (see retire-agents-delivery-palette-check); the browser journey that survives opens this machine's host details and asserts the check row. The run's outcomes are pinned in unit tests there."
   - id: revise-agents-r2-per-host-check
     revisionId: revision-eab66a0c0ecfc8e01b38
     action: revised
@@ -2901,8 +2901,134 @@ retirements:
     defectSurface: [agents, settings]
     destinationLayer: L5
     replacements: []
-    survivorRevisionIds: [revision-f89316f38df2484d92da]
+    survivorRevisionIds: [revision-2ef614a1b7b4deccd43e]
     sameCodePathEvidence:
       file: packages/tests/features/agents.feature
-      symbol: "Scenario: A per-host check with nothing newer: no toast, the section says it checked and is up to date"
-      test: One assertion is added — right after the per-host check the section's state line reads the run in flight ("ready · checking for newer agents…"), the second surface that shows an update running. The remembered-run comparison and the no-toast assertion are unchanged.
+      symbol: "Scenario: This machine's tab carries the agents mark while Agents are on, and it opens its host details"
+      test: "Its survivor (revision-f89316f38df2484d92da) was retired when kolu-server took over delivering agents to every host (see retire-agents-delivery-per-host-check); the browser journey that survives opens this machine's host details and asserts the check row. The run's outcomes are pinned in unit tests there."
+  - id: retire-agents-delivery-palette-check
+    revisionId: revision-fdc19279629072130a9a
+    action: replace
+    status: landed
+    promise: "The palette's check lands a newer set: the toast says what changed, the open tile offers Restart, a new terminal gets it"
+    defectSurface: [agents, agent-delivery]
+    destinationLayer: L2
+    replacements:
+      - file: packages/server/src/agentDelivery/delivery.test.ts
+        test: "createAgentDelivery > a landed delivery reports delivering, then landed with the outPath"
+        lane: daemon
+        platforms:
+          - linux
+          - darwin
+        realism:
+          - fake-nix-ops
+          - real-report-sequence
+        reviewEvidence:
+          file: packages/server/src/agentDelivery/delivery.test.ts
+          test: "createAgentDelivery > a landed delivery reports delivering, then landed with the outPath"
+          note: Human review confirmed this collected test exercises the declared defect surface; CI verifies collection, not behavioral equivalence.
+      - file: packages/padi/src/agentDistro/agentDistro.test.ts
+        test: "delivery reports — what a host does with kolu-server's word > a newer bundle landing names what changed; the same bundle again writes no history line"
+        lane: daemon
+        platforms:
+          - linux
+          - darwin
+        realism:
+          - real-state-dir
+          - real-history-log
+        reviewEvidence:
+          file: packages/padi/src/agentDistro/agentDistro.test.ts
+          test: "delivery reports — what a host does with kolu-server's word > a newer bundle landing names what changed; the same bundle again writes no history line"
+          note: Human review confirmed this collected test exercises the declared defect surface; CI verifies collection, not behavioral equivalence.
+      - file: packages/client/src/agents/watchLanding.test.ts
+        test: "watchLanding > fires once when another bundle lands, though the value object never changes identity"
+        lane: unit
+        platforms:
+          - linux
+          - darwin
+        realism:
+          - reconciled-store
+        reviewEvidence:
+          file: packages/client/src/agents/watchLanding.test.ts
+          test: "watchLanding > fires once when another bundle lands, though the value object never changes identity"
+          note: Human review confirmed this collected test exercises the declared defect surface; CI verifies collection, not behavioral equivalence.
+    survivorRevisionIds: [revision-2ef614a1b7b4deccd43e]
+    sameCodePathEvidence:
+      file: packages/tests/features/agents.feature
+      symbol: "Scenario: This machine's tab carries the agents mark while Agents are on, and it opens its host details"
+      test: "The palette's check now asks kolu-server to deliver (`agentDistro.deliver`); a from-source e2e kolu-server bakes no delivery, so a landing cannot be driven in the browser. The delivery's report sequence, padi's landing (current flipped, history line naming what changed) and the client's landed-edge toast are pinned in unit tests; the stale pill and Restart stay covered by the stale-restart journey."
+  - id: retire-agents-delivery-per-host-check
+    revisionId: revision-f89316f38df2484d92da
+    action: replace
+    status: landed
+    promise: "A per-host check with nothing newer: no toast, the section says it checked and is up to date"
+    defectSurface: [agents, agent-delivery]
+    destinationLayer: L2
+    replacements:
+      - file: packages/padi/src/agentDistro/agentDistro.test.ts
+        test: "delivery reports — what a host does with kolu-server's word > a newer bundle landing names what changed; the same bundle again writes no history line"
+        lane: daemon
+        platforms:
+          - linux
+          - darwin
+        realism:
+          - real-state-dir
+          - real-history-log
+        reviewEvidence:
+          file: packages/padi/src/agentDistro/agentDistro.test.ts
+          test: "delivery reports — what a host does with kolu-server's word > a newer bundle landing names what changed; the same bundle again writes no history line"
+          note: Human review confirmed this collected test exercises the declared defect surface; CI verifies collection, not behavioral equivalence.
+      - file: packages/client/src/agents/watchLanding.test.ts
+        test: "watchLanding > a first delivery or a switch to another profile is not an update"
+        lane: unit
+        platforms:
+          - linux
+          - darwin
+        realism:
+          - reconciled-store
+        reviewEvidence:
+          file: packages/client/src/agents/watchLanding.test.ts
+          test: "watchLanding > a first delivery or a switch to another profile is not an update"
+          note: Human review confirmed this collected test exercises the declared defect surface; CI verifies collection, not behavioral equivalence.
+    survivorRevisionIds: [revision-2ef614a1b7b4deccd43e]
+    sameCodePathEvidence:
+      file: packages/tests/features/agents.feature
+      symbol: "Scenario: This machine's tab carries the agents mark while Agents are on, and it opens its host details"
+      test: "A per-host check is now a delivery from kolu-server, which the e2e kolu-server cannot make. The same bundle landing again (no history line, no toast) is pinned in unit tests; the surviving journey asserts the check row itself."
+  - id: retire-agents-delivery-skipped
+    revisionId: revision-efc2530324ec07b7513a
+    action: replace
+    status: landed
+    promise: "A newer set the cache does not hold yet is skipped: no toast, the machine's events say so"
+    defectSurface: [agents, agent-delivery]
+    destinationLayer: L2
+    replacements:
+      - file: packages/server/src/agentDelivery/delivery.test.ts
+        test: "createAgentDelivery > an uncached bundle is a delivery failure, never a build"
+        lane: daemon
+        platforms:
+          - linux
+          - darwin
+        realism:
+          - fake-nix-ops
+        reviewEvidence:
+          file: packages/server/src/agentDelivery/delivery.test.ts
+          test: "createAgentDelivery > an uncached bundle is a delivery failure, never a build"
+          note: Human review confirmed this collected test exercises the declared defect surface; CI verifies collection, not behavioral equivalence.
+      - file: packages/padi/src/agentDistro/agentDistro.test.ts
+        test: "delivery reports — what a host does with kolu-server's word > a failure while a bundle serves leaves the host ready on it: the failure shows only in the receipt"
+        lane: daemon
+        platforms:
+          - linux
+          - darwin
+        realism:
+          - real-state-dir
+        reviewEvidence:
+          file: packages/padi/src/agentDistro/agentDistro.test.ts
+          test: "delivery reports — what a host does with kolu-server's word > a failure while a bundle serves leaves the host ready on it: the failure shows only in the receipt"
+          note: Human review confirmed this collected test exercises the declared defect surface; CI verifies collection, not behavioral equivalence.
+    survivorRevisionIds: [revision-2ef614a1b7b4deccd43e]
+    sameCodePathEvidence:
+      file: packages/tests/features/agents.feature
+      symbol: "Scenario: This machine's tab carries the agents mark while Agents are on, and it opens its host details"
+      test: "There is no host-side skip any more: a bundle agent-distro's cache does not hold is a delivery failure kolu-server reports (never a build), and a host that already serves a set keeps it and shows the failure in its receipt. Both are pinned in unit tests."

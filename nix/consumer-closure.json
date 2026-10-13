@@ -3,9 +3,7 @@
     "@kolu/agent-distro": {
       "dir": "packages/agent-distro",
       "vendored": true,
-      "workspace": [
-        "@kolu/byte-units"
-      ],
+      "workspace": [],
       "external": {
         "effect": "4.0.0",
         "solid-js": "^1.9.0"

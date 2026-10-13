@@ -138,6 +138,7 @@ export function firstRunAgentsDone(input: {
     case "off":
       return undefined;
     case "ready":
+    case "undelivered":
     case "downloading":
     case "error":
       // A status for another profile is one padi has not caught up from.
@@ -201,7 +202,8 @@ export function agentsChosenLabel(
  *  and of its line in Settings.
  *
  *   - `none`: no mark at all (agents off on this host, a padi without the bake,
- *     or a host we cannot hear from) — the tab is as it would be without agents;
+ *     a host kolu has delivered nothing to, or a host we cannot hear from) —
+ *     the tab is as it would be without agents;
  *   - `checking`: the host is connected and agents are on, but its status has not
  *     arrived yet (a dimmed mark with a spinning arc);
  *   - `ready`: the selected profile is on the host for new terminals —
@@ -214,8 +216,9 @@ export type AgentMark =
   | {
       readonly kind: "none";
       /** Why there is no mark: agents are off on the host, the host's padi has
-       *  no agents built in, or we have not heard from the host. */
-      readonly why: "off" | "unavailable" | "unheard";
+       *  no agents built in, kolu has delivered it none (and is not
+       *  delivering), or we have not heard from the host. */
+      readonly why: "off" | "unavailable" | "undelivered" | "unheard";
     }
   | { readonly kind: "checking" }
   | {
@@ -250,6 +253,8 @@ export function agentMarkOf(
       return { kind: "none", why: "off" };
     case "unavailable":
       return { kind: "none", why: "unavailable" };
+    case "undelivered":
+      return { kind: "none", why: "undelivered" };
     case "ready":
       return {
         kind: "ready",
@@ -355,6 +360,10 @@ export function agentMarkWords(
       return mark satisfies never;
   }
 }
+
+/** A ready host's state line, in its host details, while a newer set is
+ *  copied to it. */
+export const AGENTS_READY_DELIVERING = "ready · delivering newer agents…";
 
 /** What a ready host says while a newer set is copied to it. */
 export const AGENTS_UPDATE_DOWNLOADING =
@@ -652,6 +661,7 @@ export interface AgentStatusNote {
 const NONE_LINE: Record<Extract<AgentMark, { kind: "none" }>["why"], string> = {
   off: "agents off",
   unavailable: "no coding agents in this build",
+  undelivered: "no coding agents delivered",
   unheard: "not connected",
 };
 
@@ -847,7 +857,8 @@ export function agentHostDetail(input: {
 }): AgentHostDetail | undefined {
   const { host, setting } = input;
   const mark = agentMarkOf(host.status, host.checking);
-  if (mark.kind === "none" && mark.why !== "off") return undefined;
+  if (mark.kind === "none" && mark.why !== "off" && mark.why !== "undelivered")
+    return undefined;
   const plain = (text: string): AgentStatusNote => ({
     text,
     title: text,
@@ -861,7 +872,7 @@ export function agentHostDetail(input: {
   } as const;
   switch (mark.kind) {
     case "none":
-      return { ...base, state: plain(NONE_LINE.off), canCheck: false };
+      return { ...base, state: plain(NONE_LINE[mark.why]), canCheck: false };
     case "checking":
       return { ...base, state: plain("checking…"), canCheck: false };
     case "downloading":
@@ -883,7 +894,7 @@ export function agentHostDetail(input: {
       const receipt = receiptFor(host.receipt, mark.profile);
       const run = lastRunNoteOf(receipt, host.ago);
       const state: AgentStatusNote = mark.delivering
-        ? plain("ready · delivering newer agents…")
+        ? plain(AGENTS_READY_DELIVERING)
         : run === undefined
           ? plain("ready")
           : { ...run, text: `ready · ${run.text}` };
@@ -1091,6 +1102,7 @@ export function agentStalenessOf(input: {
       return waiting("failed");
     case "off":
     case "unavailable":
+    case "undelivered":
       // The host gives nothing — a status the setting will move it off; there
       // is nothing yet to restart into, and no profile to name.
       return sameProfile ? { kind: "current" } : waiting("downloading");

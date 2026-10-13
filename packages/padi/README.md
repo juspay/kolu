@@ -497,8 +497,9 @@ it; the module is `src/agentDistro/`.
 - **`agentDistroStatus` (read-only)** — whether the selected profile's agents
   are on THIS host: `ready` (with the bundle new terminals get, and
   `delivering` — true while kolu-server delivers a newer one and that bundle
-  keeps serving), `downloading` (nothing serves yet; kolu-server is delivering
-  it), `error` (the delivery failed and nothing serves: a typed `reason` —
+  keeps serving), `downloading` (nothing serves yet; kolu-server has reported
+  it is delivering it), `undelivered` (nothing serves and kolu-server has not
+  said it is delivering — never read as a delivery under way), `error` (the delivery failed and nothing serves: a typed `reason` —
   `refused`, the host's Nix would not take the copied paths; `binderRefused`,
   the Nix of the machine running kolu would not take the bundle from
   agent-distro's cache to pass on; or `delivery`, anything else — and its cause

@@ -117,7 +117,7 @@ describe("runFailed", () => {
 
 describe("startDeliverySchedule", () => {
   it("runs at start when due, as the schedule's trigger", async () => {
-    const { runs, schedule } = start({
+    const { runs } = start({
       start: "2026-10-08T09:00:00Z",
       outcome: () => ["landed"],
     });
@@ -125,11 +125,10 @@ describe("startDeliverySchedule", () => {
     expect(runs).toEqual([
       { at: at("2026-10-08T09:00:00Z"), trigger: "schedule" },
     ]);
-    schedule.stop();
   });
 
   it("a succeeded run is not repeated until the next boundary", async () => {
-    const { clock, runs, schedule } = start({
+    const { clock, runs } = start({
       start: "2026-10-08T09:00:00Z",
       outcome: () => ["landed"],
     });
@@ -140,11 +139,10 @@ describe("startDeliverySchedule", () => {
       at("2026-10-08T09:00:00Z"),
       at("2026-10-08T14:00:00Z"),
     ]);
-    schedule.stop();
   });
 
   it("a failed run is retried five minutes after it ended, at most three runs a boundary", async () => {
-    const { clock, runs, schedule } = start({
+    const { clock, runs } = start({
       start: "2026-10-08T09:00:00Z",
       outcome: () => ["landed", "failed"],
     });
@@ -161,12 +159,11 @@ describe("startDeliverySchedule", () => {
       at("2026-10-08T14:05:00Z"),
       at("2026-10-08T14:10:00Z"),
     ]);
-    schedule.stop();
   });
 
   it("a failed run that then succeeds stops retrying", async () => {
     const outcomes: HostOutcome[][] = [["failed"], ["landed"]];
-    const { clock, runs, schedule } = start({
+    const { clock, runs } = start({
       start: "2026-10-08T09:00:00Z",
       outcome: () => outcomes.shift() ?? ["landed"],
     });
@@ -175,11 +172,10 @@ describe("startDeliverySchedule", () => {
       at("2026-10-08T09:00:00Z"),
       at("2026-10-08T09:05:00Z"),
     ]);
-    schedule.stop();
   });
 
   it("a refused-only run is not retried before the next boundary", async () => {
-    const { clock, runs, schedule } = start({
+    const { clock, runs } = start({
       start: "2026-10-08T09:00:00Z",
       outcome: () => ["refused"],
     });
@@ -190,12 +186,11 @@ describe("startDeliverySchedule", () => {
       at("2026-10-08T09:00:00Z"),
       at("2026-10-08T14:00:00Z"),
     ]);
-    schedule.stop();
   });
 
   it("a run that reached no host is not stamped, and is retried five minutes later", async () => {
     const outcomes: HostOutcome[][] = [[], ["landed"]];
-    const { clock, runs, schedule } = start({
+    const { clock, runs } = start({
       start: "2026-10-08T09:00:00Z",
       outcome: () => outcomes.shift() ?? ["landed"],
     });
@@ -204,11 +199,10 @@ describe("startDeliverySchedule", () => {
       at("2026-10-08T09:00:00Z"),
       at("2026-10-08T09:05:00Z"),
     ]);
-    schedule.stop();
   });
 
   it("an all-busy run is retried within the boundary's three-run budget", async () => {
-    const { clock, runs, schedule } = start({
+    const { clock, runs } = start({
       start: "2026-10-08T09:00:00Z",
       outcome: () => ["busy", "busy"],
     });
@@ -218,7 +212,6 @@ describe("startDeliverySchedule", () => {
       at("2026-10-08T09:05:00Z"),
       at("2026-10-08T09:10:00Z"),
     ]);
-    schedule.stop();
   });
 
   it("runs nothing while agents are off", async () => {
@@ -233,6 +226,5 @@ describe("startDeliverySchedule", () => {
     schedule.poke();
     await settle();
     expect(runs).toEqual([]);
-    schedule.stop();
   });
 });

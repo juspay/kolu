@@ -99,9 +99,13 @@ export type AgentDistroFailureReason =
  *   - `off` — the setting is off (or not pushed yet): new terminals get nothing.
  *   - `unavailable` — this padi was built without agent-distro (a from-source
  *     `just dev` / test daemon, which no wrapper baked): nothing to put on PATH.
+ *   - `undelivered` — the host has no bundle for the profile, and kolu-server
+ *     has not said it is delivering one (it has not got to it yet, or it
+ *     cannot deliver at all). New terminals get no agents.
  *   - `downloading` — the host has no bundle for the profile yet and
- *     kolu-server is delivering one (copying it out of agent-distro's binary
- *     cache into the host's store). New terminals get no agents until it lands.
+ *     kolu-server has said it is delivering one (copying it out of
+ *     agent-distro's binary cache into the host's store). New terminals get no
+ *     agents until it lands.
  *   - `ready` — new terminals get `bundle` (the exact store path they pin).
  *     `delivering` while kolu-server delivers a newer set and `bundle` keeps
  *     serving; new terminals keep getting `bundle` until the newer one has
@@ -116,6 +120,10 @@ export type AgentDistroFailureReason =
 export const AgentDistroStatusSchema = Schema.Union([
   Schema.Struct({ kind: Schema.Literal("off") }),
   Schema.Struct({ kind: Schema.Literal("unavailable") }),
+  Schema.Struct({
+    kind: Schema.Literal("undelivered"),
+    profile: Schema.String,
+  }),
   Schema.Struct({
     kind: Schema.Literal("downloading"),
     profile: Schema.String,
@@ -147,8 +155,9 @@ export function agentDistroStatusEqual(
     case "off":
     case "unavailable":
       return b.kind === a.kind;
+    case "undelivered":
     case "downloading":
-      return b.kind === "downloading" && a.profile === b.profile;
+      return b.kind === a.kind && a.profile === b.profile;
     case "ready":
       return (
         b.kind === "ready" &&

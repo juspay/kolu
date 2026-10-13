@@ -176,6 +176,11 @@ export const RUN_EDGE_ALLOWLIST: readonly RunEdge[] = [
     why: "the two edges of an orderly async boot (locked decision 1): the reactor's poll dep is `() => Promise<T>` — its ENGINE is Effect's Atom, but its FACE is deliberately synchronous and non-Effect; and binding the listener, since `serveSurfaceApp` is a scoped `Effect` and `bootKoluWeb` is a plain async function with no Effect context to hand it (the node `request`-callback edge this file used to carry is GONE — the primitive owns that boundary now)",
   },
   {
+    path: "packages/server/src/agentDelivery/install.ts",
+    sites: 1,
+    why: "agent delivery's report to a host's padi: `agentDistro.report` is an Effect, but the delivery it serves is driven by Nix child processes and upstream's clock (`./delivery.ts`, `./schedule.ts` — Promise-shaped all the way down, off a timer and the pusher's `onPushed` callback), so `DeliveryHost.report` is the one seam where the padi call is run; it awaits the run, so a padi that refuses the report fails that host's delivery instead of being dropped",
+  },
+  {
     path: "packages/server/src/padi/padiBinding.ts",
     sites: 1,
     why: "the local padi `Connector` plug — `@kolu/surface-remote`'s reconnect loop asks for `(ctx) => Promise<Connection>` and OWNS the connection it gets, re-invoking it on its own redial path, so this is where kolu-server's Effect-native `converge(ep)` joins a Promise-shaped seam it does not own (that session machinery is the campaign's recorded residual)",

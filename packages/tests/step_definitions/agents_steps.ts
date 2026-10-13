@@ -417,18 +417,6 @@ Then(
   },
 );
 
-/** The state line while a run is in flight — "ready · checking for newer
- *  agents…" before bytes move, "ready · updating…" once they do. */
-Then(
-  "this machine's agents section should say it is looking for newer agents",
-  async function (this: KoluWorld) {
-    await this.page
-      .locator(AGENTS_STATE)
-      .filter({ hasText: /^ready · (checking for newer agents…|updating)/ })
-      .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
-  },
-);
-
 /** What kolu-server pushed to padi — the stored preference through its one
  *  fold, which is what a pick writes. */
 Then(

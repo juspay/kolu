@@ -53,7 +53,7 @@ export function startDeliverySchedule(deps: {
   readonly log: Logger;
   readonly now?: () => number;
   readonly setTimer?: UpdateTimerDeps["setTimer"];
-}): { readonly poke: () => void; readonly stop: () => void } {
+}): { readonly poke: () => void } {
   const now = deps.now ?? Date.now;
   const { schedule, delivery, log } = deps;
   /** The last run that reached a host and failed nowhere, epoch seconds —
@@ -89,11 +89,12 @@ export function startDeliverySchedule(deps: {
     });
   };
 
-  const timer = startUpdateTimer({
+  // Never stopped: it runs for the server's life, and its timer is unref'd.
+  const { poke } = startUpdateTimer({
     schedule: () => (deps.enabled() ? schedule : undefined),
     onTick,
     now,
     ...(deps.setTimer === undefined ? {} : { setTimer: deps.setTimer }),
   });
-  return timer;
+  return { poke };
 }

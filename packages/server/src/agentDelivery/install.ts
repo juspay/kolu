@@ -10,12 +10,10 @@
  *     fresh lock, at once, counted toward no scheduled attempt;
  *   - upstream's schedule (`startDeliverySchedule`).
  *
- * On a kolu-server without the delivery bake (built from source) nothing
- * delivers, and that is SAID: every REMOTE host that takes the setting (a
- * `padi-agent`, baked with the profiles and no floor) is told the delivery
- * failed and why, rather than left waiting. The local padi shares this
- * process's environment, so it is unbaked too (or carries the e2e fixture's
- * floor) and has nothing to be told.
+ * A kolu-server without the delivery bake (built from source) installs none of
+ * this: it delivers nothing and reports nothing, and a host it serves reads
+ * `undelivered` — padi says `downloading` only once a delivery has said it
+ * started.
  */
 
 import type { AgentDistroDelivery } from "@kolu/agent-distro/bake";
@@ -59,13 +57,8 @@ export interface AgentDeliveryHandle {
   onSettingChanged(): void;
 }
 
-/** What a kolu-server built without the delivery bake tells a host. */
-export const NO_DELIVERY_MESSAGE =
-  "this kolu was built from source without agent delivery (KOLU_AGENT_DISTRO_DELIVERY is not baked), so it delivers no coding agents — run kolu from its Nix wrapper";
-
 export function installAgentDelivery(deps: {
-  /** The delivery bake, or `null` on a kolu-server built from source. */
-  readonly bake: AgentDistroDelivery | null;
+  readonly bake: AgentDistroDelivery;
   readonly pool: DeliveryPool;
   readonly setting: () => AgentDistroSetting;
   /** The bundles this build ships, by name (the floor's listing). */
@@ -98,30 +91,6 @@ export function installAgentDelivery(deps: {
       ? bundleProfileOf(setting.profile, deps.bundles)
       : undefined;
   };
-  if (bake === null) {
-    const tell = (key: string): void => {
-      const profile = bundle();
-      const host = hostOf(key);
-      if (profile === undefined || host === undefined) return;
-      if (decodeHostKey(key).kind !== "remote") return;
-      host
-        .report({
-          kind: "failed",
-          profile,
-          reason: "delivery",
-          message: NO_DELIVERY_MESSAGE,
-        })
-        .catch((err: unknown) =>
-          log.error({ err, host: host.label }, "agent-distro report failed"),
-        );
-    };
-    return {
-      deliverTo: tell,
-      deliverNow: (host) =>
-        (host === null ? pool.hosts() : [encodeHostKey(host)]).forEach(tell),
-      onSettingChanged: () => {},
-    };
-  }
   const delivery: AgentDelivery = createAgentDelivery({
     bake,
     ops: nixDeliveryOps(bake),

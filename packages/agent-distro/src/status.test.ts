@@ -96,6 +96,11 @@ describe("agentMarkOf — the one status → treatment fold", () => {
       },
     ],
     [
+      "undelivered: no mark, nothing turning",
+      { kind: "undelivered", profile: "vanilla" },
+      { kind: "none", why: "undelivered" },
+    ],
+    [
       "downloading",
       { kind: "downloading", profile: "vanilla" },
       { kind: "downloading" },
@@ -609,6 +614,7 @@ describe("firstRunAgentsDone — the first-run step's done-predicate", () => {
   const STATUSES = {
     off: { kind: "off" },
     unavailable: { kind: "unavailable" },
+    undelivered: { kind: "undelivered", profile: "vanilla" },
     downloading: { kind: "downloading", profile: "vanilla" },
     ready: {
       kind: "ready",
@@ -655,6 +661,7 @@ describe("firstRunAgentsDone — the first-run step's done-predicate", () => {
       // padi still off: the push has not landed (a reload, a server restart).
       off: undefined,
       unavailable: true,
+      undelivered: false,
       downloading: false,
       ready: true,
       error: false,
@@ -882,6 +889,21 @@ describe("agentHostDetail — one machine's agents, in its host details", () => 
       hasFix: false,
       events: [],
       canCheck: true,
+    });
+  });
+
+  it("undelivered: the profile and a still state line, and no check to run", () => {
+    expect(detail({ kind: "undelivered", profile: "vanilla" })).toEqual({
+      profile: "Vanilla",
+      state: {
+        text: "no coding agents delivered",
+        title: "no coding agents delivered",
+        tone: "muted",
+      },
+      cause: [],
+      hasFix: false,
+      events: [],
+      canCheck: false,
     });
   });
 
