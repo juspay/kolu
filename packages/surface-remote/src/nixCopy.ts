@@ -859,7 +859,7 @@ async function rememberContentAddressed(
  *  closure, harmless, and never the rewrite's cause. Dropped before the log
  *  reader, so it neither floods the narration nor stands in for the root
  *  error of a rewrite that failed. */
-function isStoreDedupNoise(line: string): boolean {
+export function isStoreDedupNoise(line: string): boolean {
   return line.includes("/nix/store/.links/");
 }
 

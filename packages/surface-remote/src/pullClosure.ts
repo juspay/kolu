@@ -38,6 +38,7 @@ import {
   causeFor,
   checkValidity,
   copyPolicy,
+  isStoreDedupNoise,
   makeStepBudget,
   PROVISION_PROBE_DEADLINE_MS,
   PROVISION_STEP_MAX_EXPIRIES,
@@ -134,6 +135,10 @@ export async function pullClosure(
         onActivity: () => {},
         policy: copyPolicy(),
         signal: undefined,
+        // The host store's own hard-link dedup (`auto-optimise-store`) reports
+        // every link it could not make as an `error:` line — harmless, and
+        // never the copy's cause.
+        dropLine: isStoreDedupNoise,
       },
     );
     if (!copy.ok) {

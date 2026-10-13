@@ -189,6 +189,37 @@ describe("pullClosure — the host pulls a content-addressed closure from the ca
     });
   });
 
+  it("the host store's hard-link noise is neither narrated nor taken for the copy's cause", async () => {
+    vi.mocked(runCapture).mockImplementation(async (_cmd, args, runOpts) => {
+      if (isCopy(args)) {
+        for (let i = 0; i < 20; i++)
+          runOpts.onProgress?.(
+            nixErrorLine(
+              `linking '/nix/store/${i}-x/a.ts' to '/nix/store/.links/${i}abc': File exists`,
+            ),
+          );
+        runOpts.onProgress?.(
+          nixErrorLine("unable to download 'https://cache'"),
+        );
+        return failOut;
+      }
+      return isCheck(args) ? failOut : okOut;
+    });
+    const onProgress = vi.fn();
+    const res = await pull("ci@croissant", onProgress);
+    expect(res).toMatchObject({
+      ok: false,
+      kind: "uncopied",
+      reason: expect.stringContaining("unable to download"),
+    });
+    expect(res.ok === false && "reason" in res && res.reason).not.toMatch(
+      /\.links/,
+    );
+    expect(
+      onProgress.mock.calls.some(([l]) => String(l).includes("/.links/")),
+    ).toBe(false);
+  });
+
   it("the copy narrates through onProgress, prefixed with the host", async () => {
     vi.mocked(runCapture).mockImplementation(async (_cmd, args) =>
       isCheck(args) ? failOut : okOut,
