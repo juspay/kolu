@@ -321,12 +321,15 @@ describe("the primary padi — which one a flag-less client dials among several 
     dirs.push(dirname(tmpSocket));
     expect(tmpSocket.startsWith("/tmp/")).toBe(true);
 
-    // …and dial from the logind shell.
+    // …and dial from the logind shell. The SOCKET is the assertion; the arm it
+    // arrives on is not. `pinFreshHost` isolates the state root, not the box: a
+    // CI machine with this one daemon answers `one`, a developer's box with its
+    // own padis up answers `primary`, and pinning either would make the case
+    // assert nothing on the other kind of host.
     process.env.XDG_RUNTIME_DIR = drawer;
-    expect(resolveRunningPadiSocket()).toMatchObject({
-      kind: "primary",
-      socket: tmpSocket,
-    });
+    const resolved = resolveRunningPadiSocket();
+    expect(resolved).toMatchObject({ socket: tmpSocket });
+    expect(["one", "primary"]).toContain(resolved.kind);
     expect(localPadiSocket({ kind: "auto" })).toEqual({
       kind: "ok",
       socket: tmpSocket,
