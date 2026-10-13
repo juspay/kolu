@@ -79,7 +79,10 @@ import { dirname, join, relative, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parse } from "@babel/parser";
 import { expect, test } from "vitest";
-import { workspacePackageRoots } from "./runtimeDepEdges.testlib.ts";
+import {
+  graftedMembers,
+  workspacePackageRoots,
+} from "./runtimeDepEdges.testlib.ts";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 // packages/daemon-test-gate/src → the repo root (…/kolu or a worktree).
@@ -507,6 +510,16 @@ test("advisory hygiene: every real-spawn test site is describeDaemon-gated or st
 
 const LANE_SCRIPTS = ["test:unit", "test:daemon"] as const;
 
+/** The GRAFTED members (`osfacts-client`, the `@odu/*` trio) — packages kolu
+ *  copies out of an npins pin and never commits. Their suites are their own
+ *  repo's CI's job, and kolu's `pnpm -r` filters skip them by name, so "runs in
+ *  exactly one lane" is a rule they cannot satisfy and one that does not apply
+ *  to them. Derived from the workspace file (an explicit path entry is a graft),
+ *  so a fourth graft joins by being declared there. */
+function graftedRoots(): Set<string> {
+  return new Set(graftedMembers(REPO_ROOT).values());
+}
+
 /** The nearest workspace package root at or above `file` — nearest, so a nested
  *  member (`packages/surface/example/mini-ci`) owns its own files rather than
  *  its parent claiming them. */
@@ -544,6 +557,7 @@ test("a package holding a daemon-gate call site declares `test:daemon`, so the d
   timeout: 60000,
 }, () => {
   const roots = workspacePackageRoots(REPO_ROOT);
+  const grafted = graftedRoots();
   const gated = new Set<string>();
   for (const file of allTestFiles()) {
     const ast = parseFile(file);
@@ -554,6 +568,7 @@ test("a package holding a daemon-gate call site declares `test:daemon`, so the d
     });
     if (hit) gated.add(owningPackage(file, roots));
   }
+  for (const root of grafted) gated.delete(root);
   // The gate's OWN package names these primitives to test them (here, and
   // against synthetic sources); it forks nothing. It also holds
   // `daemon-node.test.ts`, the backstop that fails when the `daemon` CI node is
@@ -577,12 +592,15 @@ test("a package holding a daemon-gate call site declares `test:daemon`, so the d
 
 test("every test-bearing package declares exactly one lane script, so its suite runs in exactly one CI node", () => {
   const roots = workspacePackageRoots(REPO_ROOT);
+  const grafted = graftedRoots();
   const withTests = new Set<string>();
   for (const file of allTestFiles()) {
     // `.testlib.ts` files are helpers vitest never collects on their own; a
     // package needs a lane only if it owns a real `*.test.*` file.
-    if (/\.test\.(ts|cts|mts|tsx)$/.test(file))
-      withTests.add(owningPackage(file, roots));
+    if (/\.test\.(ts|cts|mts|tsx)$/.test(file)) {
+      const owner = owningPackage(file, roots);
+      if (!grafted.has(owner)) withTests.add(owner);
+    }
   }
   const offenders = [...withTests]
     .map((root) => ({ root, lanes: lanesOf(root) }))

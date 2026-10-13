@@ -87,6 +87,7 @@ import {
   TerminalIdSchema,
   UNKNOWN_HOST_LISTENERS,
 } from "@kolu/terminal-vocab/schema";
+import { RunNodeSchema, RunRowSchema } from "@odu/service-client/surface";
 import { Effect, Schema } from "effect";
 import {
   FsListAllInputSchema,
@@ -585,8 +586,16 @@ export * from "./transcriptSchema.ts";
  *  `progress` (no delivery counts bytes). Not additive in either
  *  direction — the 5.10 shape: a 5.13 binder CALLS `report`, and the minor
  *  drains a 5.12 padi before it can; a gate-only face older than 5.13 meets a
- *  decode refusal on a failed status, loud. */
-export const PADI_SURFACE_VERSION = "5.13";
+ *  decode refusal on a failed status, loud.
+ *
+ *  5.14 (additive · minor) — the Inspector's odu CI readout. A NEW stream,
+ *  `ciStatus({ terminalId })`, folds odu's board for one terminal's checkout
+ *  into a full-replacement frame (`CiStatusFrame`), and a 5.14 client
+ *  SUBSCRIBES to it while the Inspector is shown, so the minor drains a 5.13
+ *  padi that has no such member. Additive on the wire in the only direction
+ *  that matters — an older decoder strips the member — which is why this is a
+ *  minor and not the 5.13-style reshape. */
+export const PADI_SURFACE_VERSION = "5.14";
 
 /** The `version` cell payload — padi's self-declared surface contract version. */
 export const PadiVersionSchema = Schema.Struct({
@@ -1608,6 +1617,51 @@ export const PadiWatchPulseSchema = Schema.Struct({
   seq: NonNegativeInt,
 });
 
+/** How many runs `ciStatus` carries in its `recent` list — the wire CAP, so the
+ *  schema and the server that fills it cannot disagree about the bound. */
+export const CI_STATUS_RECENT_RUNS = 5;
+
+/** `ciStatus` — the odu CI readout for ONE terminal's checkout: what the
+ *  Inspector's `odu` chip and its lanes / recent-runs disclosure paint.
+ *
+ *  EVERY frame is a FULL REPLACEMENT (kind `status`), so a rebind replaying the
+ *  current one is correct and the client needs no accumulator. `kind: "none"`
+ *  is the honest "there is nothing to show" — odu's daemon is not running on
+ *  this host, or this checkout has no runs — and it is deliberately the SAME
+ *  arm for both: a reader that cannot act on the difference should not be
+ *  handed it. There is no `unavailable` arm, because a daemon that answers and
+ *  cannot be read is a FAILURE (loud: the stream errors, and padi logs the
+ *  socket path once per session), never a value that renders as "no odu here".
+ *
+ *  `latest.lanes` arrives in TRIAGE order — padi applies the one triage fold,
+ *  so the wire order is the painted order and no consumer re-sorts. `recent` is
+ *  this checkout's runs, newest first, at most {@link CI_STATUS_RECENT_RUNS},
+ *  whose HEAD is `latest.run`.
+ *
+ *  The row and node shapes are odu's OWN (`@odu/service-client/surface`),
+ *  carried verbatim: kolu paints four fields of a node and reads six of a row,
+ *  but a narrowed copy here would be a second declaration of odu's contract —
+ *  the thing kolu consumes odu's packages to avoid. */
+export const CiStatusInputSchema = Schema.Struct({
+  terminalId: TerminalIdSchema,
+});
+export type CiStatusInput = typeof CiStatusInputSchema.Type;
+
+export const CiStatusFrameSchema = Schema.Union([
+  Schema.Struct({ kind: Schema.Literals(["none"]) }),
+  Schema.Struct({
+    kind: Schema.Literals(["status"]),
+    latest: Schema.Struct({
+      run: RunRowSchema,
+      lanes: Schema.Array(RunNodeSchema),
+    }),
+    recent: Schema.Array(RunRowSchema).check(
+      Schema.isMaxLength(CI_STATUS_RECENT_RUNS),
+    ),
+  }),
+]);
+export type CiStatusFrame = typeof CiStatusFrameSchema.Type;
+
 export const PadiSetThemeInputSchema = Schema.Struct({
   id: TerminalIdSchema,
   themeName: Schema.String.check(Schema.isMinLength(1)),
@@ -2238,6 +2292,20 @@ export const padiSurface = defineSurfaceWithPolicy<ClientErrorPolicy>()({
       // kaval's own `TerminalDataMsg` union one hop up (see `TerminalAttachFrame`).
       outputSchema: PadiTerminalAttachFrameSchema,
     },
+    /** The Inspector's odu CI readout for this terminal's checkout — odu's
+     *  board, narrowed to one checkout and folded for painting. Snapshot-then-
+     *  deltas in the VALUE sense: every frame is a full replacement (see
+     *  {@link CiStatusFrameSchema}), so a rebind replaying the current one is
+     *  correct. `kind: "none"` when odu is not running here or the checkout has
+     *  no runs, which is why a non-odu machine's Inspector is untouched.
+     *
+     *  padi dials odu DEMAND-DRIVEN: the first open subscription opens the
+     *  daemon's socket, the last close (after a retire grace) disposes it, and
+     *  nothing dials while nobody is looking. */
+    ciStatus: {
+      inputSchema: CiStatusInputSchema,
+      outputSchema: CiStatusFrameSchema,
+    },
   },
   events: {
     /** Terminal process exited — fires once per terminal lifetime with the
@@ -2592,6 +2660,9 @@ export const PADI_FORWARDING_POLICY = {
   subscribeRepoChange: "value",
   subscribeFileChange: "value",
   terminalAttach: "delta",
+  // `ciStatus` rides the pulse streams' rule for the same reason: every frame
+  // is a FULL replacement, so a rebind replaying the current one is correct.
+  ciStatus: "value",
   // events
   terminalExit: "value",
   // procedure namespaces

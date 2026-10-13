@@ -23,6 +23,8 @@ import {
   LOCAL_LOCATION,
   type TerminalMetadata,
 } from "@kolu/padi-client/surface";
+import type { CiStatusFrame } from "@kolu/padi-client/surface";
+import type { RunNode, RunRow } from "@odu/service-client/surface";
 import type { TerminalId } from "kolu-common/surface";
 import { createSignal } from "solid-js";
 import { render } from "solid-js/web";
@@ -317,5 +319,145 @@ describe("WorkSection PR and CI", () => {
     );
     // The identity half must still have followed the switch.
     expect(text("inspector-branch")).toBe("docs/pesu-chat-rewrite");
+  });
+});
+
+describe("WorkSection odu CI readout", () => {
+  /** A board row as odu publishes it — every field the wire requires, so a
+   *  schema change is a compile error in this fixture rather than a silent
+   *  drift between what the tests assert and what padi sends. */
+  function oduRow(overrides: Partial<RunRow> = {}): RunRow {
+    return {
+      runId: "run-1",
+      repo: "dev/repo",
+      repoRoot:
+        RESIZE_BUG.git.kind === "repo" ? RESIZE_BUG.git.info.repoRoot : "",
+      branch: "resize-bug",
+      sha: "0123456789abcdef0123456789abcdef01234567",
+      dirty: true,
+      seq: 3,
+      pipeline: "ci",
+      createdAt: Date.now() - 90_000,
+      state: "settled",
+      settled: true,
+      passed: false,
+      outcome: "failed",
+      actionable: true,
+      unresolvedFailures: 1,
+      scope: { selectors: [], platforms: [], noDeps: false },
+      reportingDebt: 0,
+      endpoint: null,
+      parentRunId: null,
+      cursor: "run-1:9",
+      ...overrides,
+    };
+  }
+
+  function oduNode(id: string, status: RunNode["status"]): RunNode {
+    return {
+      id,
+      status,
+      attempt: 1,
+      exitCode: null,
+      startedAt: null,
+      durationMs: 1_500,
+      host: "box-1",
+      logKey: `run-1/linux/${id}`,
+    };
+  }
+
+  function statusFrame(): CiStatusFrame {
+    return {
+      kind: "status",
+      latest: {
+        run: oduRow(),
+        // Triage order is padi's: failures first.
+        lanes: [
+          oduNode("ci::e2e@x86_64-linux", "failed"),
+          oduNode("ci::typecheck@x86_64-linux", "ok"),
+        ],
+      },
+      recent: [
+        oduRow(),
+        oduRow({
+          runId: "run-0",
+          seq: 2,
+          passed: true,
+          state: "settled",
+          dirty: false,
+        }),
+      ],
+    };
+  }
+
+  function mountWithOdu(frame: CiStatusFrame | null) {
+    const meta = createSignal(RESIZE_BUG);
+    host = document.createElement("div");
+    document.body.append(host);
+    dispose = render(
+      () => <WorkSection meta={meta[0]()} oduCi={frame} />,
+      host,
+    );
+    return meta[1];
+  }
+
+  it("paints the rollup chip, the lanes and the recent runs", () => {
+    mountWithOdu(statusFrame());
+
+    // The chip: the verdict's own glyph/word plus the count of RED lanes, and
+    // the ref the run is known by (`+dirty` because it tested a working tree).
+    expect(text("inspector-odu-chip")).toBe("✕ 1 failed 0123456#3+dirty");
+
+    const lanes = el("inspector-odu-lanes")?.querySelectorAll("li");
+    expect(lanes?.length).toBe(2);
+    // The lane's own facts: the failing one, its duration and its host.
+    expect(lanes?.[0]?.textContent).toContain("ci::e2e@x86_64-linux");
+    // kolu's own ladder, not a second duration formatter.
+    expect(lanes?.[0]?.textContent).toContain("1s");
+    expect(lanes?.[0]?.textContent).toContain("box-1");
+    // The glyph is odu's own (`STATUS_META`), painted by odu's hue.
+    expect(lanes?.[0]?.textContent).toContain("✗");
+
+    const recent = el("inspector-odu-recent")?.querySelectorAll("li");
+    expect(recent?.length).toBe(2);
+    expect(recent?.[0]?.textContent).toContain("0123456#3+dirty");
+    expect(recent?.[0]?.textContent).toContain("failed");
+    // The head of the list IS the run the chip is about — said, not implied.
+    expect(recent?.[0]?.textContent).toContain("current");
+    expect(recent?.[1]?.textContent).toContain("0123456#2");
+    expect(recent?.[1]?.textContent).toContain("passed");
+    expect(recent?.[1]?.textContent).not.toContain("current");
+  });
+
+  it("renders NOTHING when odu has nothing to say", () => {
+    // A machine without odu, or a checkout with no runs: the frame's `none` arm.
+    // This is the whole of "a non-odu user's Inspector is unchanged".
+    mountWithOdu({ kind: "none" });
+    expect(el("inspector-odu-chip")).toBeNull();
+    expect(el("inspector-odu")).toBeNull();
+    expect(el("inspector-odu-lanes")).toBeNull();
+    expect(el("inspector-odu-recent")).toBeNull();
+  });
+
+  it("reads a passed run as a pass, and a lane-less running run as running", () => {
+    mountWithOdu({
+      kind: "status",
+      latest: {
+        run: oduRow({
+          state: "settled",
+          passed: true,
+          dirty: false,
+          outcome: "passed",
+          unresolvedFailures: 0,
+        }),
+        lanes: [],
+      },
+      recent: [oduRow({ state: "settled", passed: true })],
+    });
+    expect(text("inspector-odu-chip")).toBe("✓ odu passed 0123456#3");
+    // No lanes yet (a run that has not placed any): the disclosure states the
+    // count it has, and renders no list.
+    expect(el("inspector-odu-lanes")).toBeNull();
+    expect(el("inspector-odu")?.textContent).toContain("0 lanes");
   });
 });

@@ -12,13 +12,23 @@
  *  `useTerminalStore`). */
 
 import { activeArm, type TerminalMetadata } from "@kolu/padi-client/surface";
+import type { CiStatusFrame } from "@kolu/padi-client/surface";
 import { terminalKey } from "@kolu/terminal-vocab/terminalKey";
+import { agoPhrase, compactPhrase } from "@kolu/terminal-vocab/duration";
+import { shortSha } from "@odu/run-client/nodeId";
+import {
+  STATUS_META,
+  type RunBoardState,
+  type RunRow,
+  type StatusHue,
+} from "@odu/service-client/surface";
 import { type CheckStatus, type PrInfo, prValue } from "anyforge/schemas";
 import { prUnavailableSource } from "kolu-common/surface";
 import { type Component, createMemo, For, Show } from "solid-js";
 import { ChecksIndicator, PrStateIcon } from "@kolu/solid-dockrow";
 import { ProviderUnavailableContent } from "../terminal/PrUnavailablePopover";
 import { assignColors } from "../terminal/terminalDisplay";
+import { getClockNow } from "../time/clock";
 import Chip from "../ui/Chip";
 import Disclosure from "../ui/Disclosure";
 import { WorktreeIcon } from "../ui/Icons";
@@ -79,6 +89,64 @@ const checksSummary = (counts: Record<CheckStatus, number>): string =>
     .map((o) => `${counts[o]} ${OUTCOME[o].word}`)
     .join(" · ");
 
+/** odu's board states, folded onto the chip vocabulary above.
+ *
+ *  `settled` is the one state whose word depends on the run's own pass flag, so
+ *  it maps to `null` rather than to a guess; every other state is a decision,
+ *  and a state odu adds is a compile error here rather than a silent default.
+ *  `owner_lost`/`expired` read as failed for the reason odu's own board says:
+ *  nothing is running the run and it did not pass, so "running" would leave a
+ *  dead run spinning in this panel forever. */
+const ODU_STATE: Record<RunBoardState, CheckStatus | null> = {
+  provisioning: "pending",
+  running: "pending",
+  settled: null,
+  owner_lost: "fail",
+  expired: "fail",
+};
+
+/** odu's verdict for one row — read off the ROW (`state`/`passed`, odu's own
+ *  fold), never re-judged from the lanes: the lanes only supply the failure
+ *  COUNT, exactly as the CI chip above treats GitHub's checks. */
+const oduVerdict = (run: RunRow): CheckStatus =>
+  ODU_STATE[run.state] ?? (run.passed ? "pass" : "fail");
+
+/** `<sha7>#<seq>` — the ref every odu face prints — plus odu's `+dirty` marker
+ *  when the run tested a working tree that merely claimed that commit. `shortSha`
+ *  is odu's own; the 7 is its rule, not this file's. */
+const oduRef = (run: RunRow): string => {
+  const short = shortSha(run.sha);
+  const ref = run.seq === null ? short : `${short}#${run.seq}`;
+  return run.dirty ? `${ref}+dirty` : ref;
+};
+
+/** A lane's glyph colour, keyed by odu's OWN hue column — `STATUS_META` is the
+ *  wire's table and odu's faces keep no second one, so this is kolu's mapping
+ *  from odu's meanings onto kolu's tokens, not a second assignment of meaning.
+ *  Violet is odu's "infrastructure died" (`errored`), which is kolu's `alert`. */
+const LANE_HUE: Record<StatusHue, string> = {
+  grey: "text-fg-3",
+  amber: "text-warning",
+  green: "text-ok",
+  red: "text-danger",
+  violet: "text-alert",
+};
+
+/** The chip tones' TEXT-only twins, for the rows that state a verdict without a
+ *  chip (the recent-runs list). Keyed by the same `CheckStatus`, so the two can
+ *  never disagree about which word is painted red. */
+const OUTCOME_TEXT: Record<CheckStatus, string> = {
+  fail: "text-danger",
+  pending: "text-warning",
+  pass: "text-ok",
+};
+
+/** The tiny label a disclosure's parts wear — the `Section` header's own type,
+ *  one tier down, because these labels are inside a disclosure and not heads of
+ *  a section. */
+const SUBHEAD =
+  "pt-1.5 pb-0.5 text-[10px] font-bold uppercase tracking-[0.1em] text-fg-3/60";
+
 /** Repo identity chip — monogram + name in the shared repo-colour frame. The
  *  caller supplies the paint; where that hue comes from is `identity()`'s
  *  account to give, not a second one here. Not a status chip. */
@@ -135,6 +203,11 @@ const BranchIdentityChip: Component<{
 
 const WorkSection: Component<{
   meta: TerminalMetadata;
+  /** The checkout's odu CI readout, already subscribed by the Inspector (see
+   *  `useOduCiStatus`): `null` when odu has nothing to say about this checkout —
+   *  no daemon on this host, or no runs — in which case nothing here renders.
+   *  Optional so the section still renders in a test without a wire. */
+  oduCi?: CiStatusFrame | null;
 }> = (props) => {
   /** The git facts AND their paint, as ONE value. Paint is a pure function of
    *  the SAME `git` the chips render — `assignColors` hues by key string alone,
@@ -210,6 +283,42 @@ const WorkSection: Component<{
       },
     };
   });
+  /** odu's readout for this checkout, folded for painting: the chip's rollup,
+   *  the lanes in the order padi sent them (already triaged there, so the wire
+   *  order IS the painted order), and the recent runs. `null` when odu has
+   *  nothing to say, which is the whole of "a non-odu user's Inspector is
+   *  unchanged". */
+  const odu = createMemo(() => {
+    const frame = props.oduCi;
+    if (frame === null || frame === undefined || frame.kind !== "status") {
+      return null;
+    }
+    const { run, lanes } = frame.latest;
+    const status = oduVerdict(run);
+    const { word, glyph, tone } = OUTCOME[status];
+    let failed = 0;
+    for (const lane of lanes) if (STATUS_META[lane.status].isRed) failed += 1;
+    return {
+      status,
+      lanes,
+      recent: frame.recent,
+      tone,
+      /** The rollup reads like the CI chip beside it: the count when there is
+       *  one to state, the verdict's own word otherwise — and always the ref
+       *  the run is known by, so a chip is never about an unnamed commit. */
+      label: `${glyph} ${
+        failed > 0 ? `${failed} ${word}` : `odu ${word}`
+      } ${oduRef(run)}`,
+      summary: `${lanes.length} ${lanes.length === 1 ? "lane" : "lanes"}${
+        failed > 0 ? ` · ${failed} failed` : ""
+      }`,
+      /** Exceptions open their own list, the same rule the check list keeps. */
+      open: status === "fail",
+    };
+  });
+  /** A ticking clock for the recent-runs ages — one interval for the section,
+   *  shared with every other age the client prints (`../time/clock`). */
+  const now = getClockNow();
   return (
     <Section title="Work" accent="border-accent">
       <div class="space-y-1.5">
@@ -253,6 +362,17 @@ const WorkSection: Component<{
                   )}
                 </Show>
               </>
+            )}
+          </Show>
+          {/* odu's own CI board for this checkout, beside the forge's checks —
+           *  and OUTSIDE the PR gate above, because a checkout can have odu
+           *  runs with no PR at all. Renders nothing when odu has nothing to
+           *  say (no daemon on this host, or no runs for this checkout). */}
+          <Show when={odu()}>
+            {(ci) => (
+              <Chip tone={ci().tone} data-testid="inspector-odu-chip">
+                {ci().label}
+              </Chip>
             )}
           </Show>
         </div>
@@ -301,6 +421,93 @@ const WorkSection: Component<{
                 </ul>
               </Disclosure>
             </Show>
+          )}
+        </Show>
+
+        {/* odu's breakdown — reference tier, the same shape as the check list
+         *  above: a rollup chip in the row, the detail behind one disclosure.
+         *  Lanes of the LATEST run (already in triage order from padi), then
+         *  this checkout's recent runs, newest first. */}
+        <Show when={odu()}>
+          {(ci) => (
+            <Disclosure
+              summary={ci().summary}
+              open={ci().open}
+              data-testid="inspector-odu"
+            >
+              <Show when={ci().lanes.length > 0}>
+                <div class={SUBHEAD}>Lanes</div>
+                <ul
+                  data-testid="inspector-odu-lanes"
+                  class="flex flex-col gap-0.5 text-[11px]"
+                >
+                  <For each={ci().lanes}>
+                    {(lane) => (
+                      <li class="flex min-w-0 items-center gap-1.5">
+                        <span
+                          class={`w-3 shrink-0 text-center ${LANE_HUE[STATUS_META[lane.status].hue]}`}
+                          title={lane.status}
+                        >
+                          {STATUS_META[lane.status].glyph}
+                        </span>
+                        <span
+                          class="min-w-0 truncate font-mono"
+                          classList={{
+                            "text-danger font-semibold":
+                              STATUS_META[lane.status].isRed,
+                          }}
+                        >
+                          {lane.id}
+                        </span>
+                        {/* Attempts beyond the first, then the two facts a lane
+                         *  cannot say in its id: how long it took, and which
+                         *  machine it landed on. */}
+                        <Show when={lane.attempt > 1}>
+                          <span class="shrink-0 text-fg-3">
+                            #{lane.attempt}
+                          </span>
+                        </Show>
+                        <span class="ml-auto shrink-0 tabular-nums text-fg-3">
+                          {lane.durationMs === null
+                            ? ""
+                            : compactPhrase(lane.durationMs)}
+                        </span>
+                        <span class="shrink-0 font-mono text-fg-3">
+                          {lane.host ?? ""}
+                        </span>
+                      </li>
+                    )}
+                  </For>
+                </ul>
+              </Show>
+              <div class={SUBHEAD}>Recent runs</div>
+              <ul
+                data-testid="inspector-odu-recent"
+                class="flex flex-col gap-0.5 text-[11px]"
+              >
+                <For each={ci().recent}>
+                  {(run, index) => (
+                    <li class="flex min-w-0 items-baseline gap-1.5">
+                      <span class="min-w-0 truncate font-mono">
+                        {oduRef(run)}
+                      </span>
+                      <span class={`shrink-0 ${OUTCOME_TEXT[oduVerdict(run)]}`}>
+                        {OUTCOME[oduVerdict(run)].word}
+                      </span>
+                      {/* The head of this list IS the run the chip above is
+                       *  about — said, rather than left to be inferred from an
+                       *  ordering. */}
+                      <Show when={index() === 0}>
+                        <span class="shrink-0 text-fg-3">current</span>
+                      </Show>
+                      <span class="ml-auto shrink-0 text-fg-3">
+                        {agoPhrase(run.createdAt, now())}
+                      </span>
+                    </li>
+                  )}
+                </For>
+              </ul>
+            </Disclosure>
           )}
         </Show>
 

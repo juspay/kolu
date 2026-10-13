@@ -13,13 +13,15 @@ nix_shell_e2e := if env('PLAYWRIGHT_BROWSERS_PATH', '') != '' { '' } else { 'nix
 
 cucumber_parallel := env('CUCUMBER_PARALLEL', '4')
 
-# osfacts-client is a workspace member kolu does not own: it is grafted from the
-# npins `osfacts` pin (`_materialize-osfacts-client`), so its tests and typecheck
-# are that repo's CI's job — and its fixtures resolve against ITS repo root, not
-# kolu's. Every `pnpm -r` here must skip it. The root package.json's `typecheck`
-# and `test:unit` scripts carry the same filter for callers that enter through
+# The pinned workspace members are generated, never committed: kolu does not own
+# their source. `osfacts-client` lives in juspay/osfacts; the `@odu/*` trio in
+# juspay/odu (odu pins KOLU, so kolu consuming odu's libraries can only be a
+# graft — see nix/workspace.nix). Every `pnpm -r` here must skip them: their
+# tests and typecheck are their own repos' CI's job, and their fixtures resolve
+# against their own repo roots, not kolu's. The root package.json's `typecheck`
+# and `test:unit` scripts carry the same filters for callers that enter through
 # pnpm instead of just (the Nix typecheck derivation).
-pnpm_vendored_filter := '--filter=!osfacts-client'
+pnpm_vendored_filter := '--filter=!osfacts-client --filter=!@odu/service-client --filter=!@odu/run-client --filter=!@odu/run-history'
 
 # SURFACE_AGENT_FLAKE_REF: the production koluBin wrapper bakes the exact agent
 # source tree so a remote dial can resolve padi for the host's arch. A run from
@@ -46,26 +48,46 @@ default:
 prepare: install
 
 # Install pnpm dependencies
-install: _materialize-osfacts-client
+install: _materialize-pinned-members
     {{ nix_shell }} pnpm install
 
-# Graft osfacts-client into the tree from the npins `osfacts` pin.
+# Graft the PINNED workspace members into the tree from their npins pins.
 #
-# `osfacts-client` is a pnpm workspace member with no copy in this repo — the
-# client lives in juspay/osfacts and nothing here may duplicate it. Nix does
+# They are pnpm workspace members with no copy in this repo — the source lives
+# in juspay/osfacts and juspay/odu, and nothing here may duplicate it. Nix does
 # this graft for a build (nix/workspace.nix); this recipe is the working-tree
 # twin, so `just install`, `just dev`, and a bare vitest run all read the same
-# pinned bytes. Re-copied every time: the pin is the truth, the directory is
-# a cache of it, and a stale cache is the one failure this must not have.
+# pinned bytes. Re-copied every time: the pin is the truth, the directory is a
+# cache of it, and a stale cache is the one failure this must not have.
+#
+# Each row is `member:dest:pin:subdir`, mirroring nix/workspace.nix's
+# `pinnedPins` + `rawMembers` + `graftPath`. The grafted manifest's own `name`
+# is checked against the member the row claims, so a row that drifted from the
+# pin fails here rather than as a resolution error three commands later.
 [private]
-_materialize-osfacts-client:
+_materialize-pinned-members:
     #!/usr/bin/env bash
     set -euo pipefail
-    src="$(nix eval --impure --raw --expr 'toString ((import ./npins).osfacts + "/client-ts")')"
-    rm -rf osfacts-client
-    cp -r "$src" osfacts-client
-    chmod -R u+w osfacts-client
-    echo "osfacts-client ← $src"
+    rows=(
+      "osfacts-client:osfacts-client:osfacts:client-ts"
+      "@odu/service-client:odu/service-client:odu:packages/service-client"
+      "@odu/run-client:odu/run-client:odu:packages/run-client"
+      "@odu/run-history:odu/run-history:odu:packages/run-history"
+    )
+    for row in "${rows[@]}"; do
+      IFS=: read -r member dest pin subdir <<<"$row"
+      src="$(nix eval --impure --raw --expr "toString ((import ./npins).${pin} + \"/${subdir}\")")"
+      rm -rf "$dest"
+      mkdir -p "$(dirname "$dest")"
+      cp -r "$src" "$dest"
+      chmod -R u+w "$dest"
+      got="$(sed -n 's/^ *"name": *"\([^"]*\)".*/\1/p' "$dest/package.json" | head -n 1)"
+      if [ "$got" != "$member" ]; then
+        echo "_materialize-pinned-members: $dest declares name '$got', expected '$member'" >&2
+        exit 1
+      fi
+      echo "$member ← $src"
+    done
 
 # Run server + client in parallel.
 # Bare `just dev` keeps the canonical 7681/5173 (see README). Override either

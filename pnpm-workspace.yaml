@@ -5,6 +5,19 @@ packages:
   # in its own repo. `just install` does the same graft for a working tree; a
   # bare `pnpm install` without it fails loudly rather than half-installing.
   - osfacts-client
+  # The odu trio — GENERATED, never committed (`.gitignore`), grafted from the
+  # npins `odu` pin by the same mechanism. kolu consumes odu's own service
+  # contract instead of re-declaring it, and odu pins KOLU (it hydrates the
+  # `@kolu/surface*` stack from a kolu pin), so these can never be npm
+  # dependencies of each other — only a graft.
+  #
+  # THREE PATHS, not a glob on purpose. pnpm ignores a workspace glob that
+  # matches nothing, so `odu/*` would make a bare `pnpm install` quietly install
+  # a workspace with no odu in it — the failure this entry exists to make loud.
+  # A path that is not there fails the install, exactly as `osfacts-client` does.
+  - odu/service-client
+  - odu/run-client
+  - odu/run-history
   # NOTE: `agents/` (the reusable APM skills package — agents/README.md) is NOT a
   # workspace member. It was one only so the lens-debate engine's unit tests ran
   # under `pnpm -r test:unit`; the engine and every stage that used it are gone,
@@ -51,6 +64,24 @@ catalog:
 # need them for their /react entry points. Kolu consumes the vanilla classes
 # directly from SolidJS, so these are optional.
 packageExtensions:
+  # The grafted odu members import the `@kolu/*` stack WITHOUT declaring it —
+  # in odu those sources are hydrated into node_modules and resolve by walking
+  # up (odu's `bunfig.toml` argues the invariant), so a manifest entry there
+  # would send its package manager to a registry for a package that is not
+  # published. Here the edge is real and kolu can state it: these are the
+  # `@kolu/*` packages each grafted member's source actually imports, so pnpm
+  # links kolu's OWN workspace copies into the member's node_modules — ONE
+  # `effect` and ONE `@kolu/surface` in the whole tree, which is what keeps
+  # Effect's `_tag`-based error narrowing and the surface's schema identity
+  # from splitting across two copies.
+  "@odu/service-client":
+    dependencies:
+      "@kolu/surface": "workspace:*"
+      "@kolu/surface-app": "workspace:*"
+      "@kolu/surface-daemon": "workspace:*"
+  "@odu/run-client":
+    dependencies:
+      "@kolu/surface": "workspace:*"
   "@pierre/trees":
     peerDependenciesMeta:
       react:

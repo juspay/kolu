@@ -129,7 +129,10 @@ describe("padiSurface contract", () => {
     // `retryDownload` are gone, the `agentDistro.report` a 5.13 binder CALLS
     // is new, and the status `error` reason / receipt `by` change vocabulary —
     // not additive either way, so the minor drains a 5.12 padi first.
-    expect(PADI_SURFACE_VERSION).toBe("5.13");
+    // 5.14 adds the Inspector's odu CI readout: the `ciStatus` stream a 5.14
+    // client SUBSCRIBES to while the Inspector is shown, so the minor drains a
+    // 5.13 padi that has no such member.
+    expect(PADI_SURFACE_VERSION).toBe("5.14");
     expect(DEFAULT_PADI_VERSION.contractVersion).toBe(PADI_SURFACE_VERSION);
     expect(
       Schema.decodeUnknownSync(PadiVersionSchema)(DEFAULT_PADI_VERSION),
@@ -204,6 +207,7 @@ describe("padiSurface contract", () => {
       "subscribeRepoChange",
       "subscribeFileChange",
       "terminalAttach",
+      "ciStatus",
     ]);
     expect(Object.keys(spec.events ?? {})).toEqual(["terminalExit"]);
     expect(Object.keys(spec.procedures ?? {})).toEqual([
@@ -356,6 +360,11 @@ describe("padiSurface contract", () => {
     expect(PADI_FORWARDING_POLICY.watchStates).toBe("delta");
     expect(PADI_FORWARDING_POLICY.subscribeRepoChange).toBe("value");
     expect(PADI_FORWARDING_POLICY.subscribeFileChange).toBe("value");
+    // The 5.14 odu CI readout is value for the same reason: every frame is a
+    // full replacement (a run's row + its lanes), so a rebind replaying the
+    // current one is correct — there is no accumulated state a replay could
+    // duplicate.
+    expect(PADI_FORWARDING_POLICY.ciStatus).toBe("value");
     expect(PADI_FORWARDING_POLICY.terminals).toBe("value");
     expect(PADI_FORWARDING_POLICY.terminalExit).toBe("value");
     // The two cells that relocated off koluSurface (W1 padi seam) are value —

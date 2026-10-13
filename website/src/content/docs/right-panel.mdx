@@ -45,6 +45,27 @@ to find good news, and never miss bad news because it was folded away.
 Whatever is left — the foreground process, the terminal's colour theme — sits in
 one quiet line at the very bottom.
 
+## odu CI, when the checkout runs odu
+
+If the checkout uses [odu](https://github.com/juspay/odu) as its CI runner and
+the odu daemon is running on that host, the chip row carries a second rollup —
+`odu`'s own board for **this checkout**, beside the forge's checks. It reads
+`● odu running` / `✓ odu passed` / `✕ 2 failed` with the run's ref
+(`abc1234#3` — the commit's first seven characters and the run's ordinal), and
+behind it a disclosure holds two lists: the latest run's **lanes** (one row per
+`recipe@platform`, failures first, with the attempt number when it took more
+than one, the duration and the machine it landed on) and the checkout's **recent
+runs**, newest first.
+
+The ref carries a `+dirty` marker when the run tested a **working tree** rather
+than a committed state — the verdict is about code that was never committed
+under that hash, so don't read it as a statement about the commit alone.
+
+None of this appears for a checkout odu doesn't know about, and none of it
+appears when the odu daemon isn't running: the Inspector of a terminal outside
+odu's world is exactly what it was. While it *is* shown, kolu dials the daemon
+itself and lets go of the connection when you close the panel or look away.
+
 ## Compose a prompt
 
 Above all of it is the **Compose** box, a single line at rest that grows into a

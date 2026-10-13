@@ -131,6 +131,11 @@ export const RUN_EDGE_ALLOWLIST: readonly RunEdge[] = [
     why: "padi-tui's process edge; a Promise rather than `NodeRuntime.runMain` because that turns SIGINT into fiber interruption, and this CLI's stop semantics are PER COMMAND — a `watch` the user stopped is a clean 0, a `wait` interrupted is a 130 that must still print which terminal was left waiting",
   },
   {
+    path: "packages/padi/src/ciStatus.ts",
+    sites: 1,
+    why: "the odu CI session's dial seam, and the same shape as `ports/sampler.ts`'s row one package over: the session is Promise+AbortSignal shaped BY CONSTRUCTION — it wraps odu's own Promise-shaped `dialServiceSocket` and consumes both of odu's streams through `bridgeStream`, the bridge every one of padi's stream sources uses — while the CONTRACT CHECK inside that dial reads the service cell with odu's Effect-native `readServiceCell`. The two meet in the one `dialChecked` seam, and there is no Effect caller to compose into: the session is a ref-counted daemon-lifetime resource whose subscribers attach from a stream source thunk, not from a fiber tree. One crossing, at the boundary, before the link is handed to the follow loop",
+  },
+  {
     path: "packages/padi/src/daemonBoot/daemonMain.ts",
     sites: 1,
     why: "padi's daemon process edge; a Promise rather than `NodeRuntime.runMain` because the exit-code map lives in the spine's `daemonProcessMain`, which kaval rides too",

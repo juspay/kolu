@@ -136,6 +136,51 @@ export function workspacePackageRoots(repoRoot: string): string[] {
   return [...roots];
 }
 
+/**
+ * The GRAFTED members — the workspace entries spelled as an explicit PATH rather
+ * than a glob, i.e. the packages kolu does not own: it copies their bytes out of
+ * an npins pin (`osfacts-client` from `osfacts`, the `@odu/*` trio from `odu`)
+ * and gitignores them.
+ *
+ * WHY THE WALKER NEEDS TO KNOW. The edge rule below is "a bare import must be
+ * declared in the importing package's manifest", and it exists because a
+ * hydrating consumer installs the DECLARED dependencies and nothing else. For a
+ * grafted member that rule cannot be met the way it is met for kolu's own
+ * packages: its manifest is authored in the UPSTREAM workspace, where the
+ * `@kolu/*` sources it imports are hydrated from a pin rather than declared
+ * (naming one there would send its package manager to a registry for a package
+ * that is not published). In kolu that edge is real and IS declared — in
+ * `pnpm-workspace.yaml`'s `packageExtensions`, pnpm's own way to state "this
+ * member also depends on that one" — which no manifest read here can see, and
+ * which is exactly the declaration pnpm needs to link kolu's own workspace copy
+ * in.
+ *
+ * So for a grafted owner the walk keeps the half of the rule it can still check
+ * — the import must resolve to a WORKSPACE MEMBER, not to some name nobody
+ * provides — and drops the half that would demand kolu author a pinned
+ * manifest. Derived from the workspace file rather than listed, so a fourth
+ * graft joins by being declared there.
+ */
+export function graftedMembers(repoRoot: string): Map<string, string> {
+  const names = new Map<string, string>();
+  for (const pattern of workspacePatterns(repoRoot)) {
+    // A glob is kolu's own tree; an explicit path is a graft (see the
+    // workspace file's own note on each entry).
+    if (pattern.endsWith("/**") || pattern.endsWith("*")) continue;
+    const dir = join(repoRoot, pattern);
+    try {
+      const manifest = JSON.parse(
+        readFileSync(join(dir, "package.json"), "utf8"),
+      ) as { name?: string };
+      if (manifest.name !== undefined) names.set(manifest.name, dir);
+    } catch {
+      // The graft has not been materialized yet (a bare checkout): nothing to
+      // name, and the walk that follows will not reach it either.
+    }
+  }
+  return names;
+}
+
 /** Every workspace member's manifest, cached by package DIRECTORY. One parse per
  *  file no matter how many walks ask — the two walks below both read most of the
  *  tree's manifests. */
@@ -400,6 +445,7 @@ export function walkRuntimeDepEdges(opts: {
   } = opts;
 
   const members = membersByName(repoRoot);
+  const grafted = graftedMembers(repoRoot);
   // Only workspace-discovered names owe the `workspace:` protocol; a pin is
   // spelled however the consumer's manifest spells pins, so the two membership
   // kinds are indexed together for walking but kept apart for that one rule.
@@ -454,15 +500,25 @@ export function walkRuntimeDepEdges(opts: {
         crossed.add(spec);
         const declared = owner.dependencies?.[pkgName];
         if (declared === undefined) {
-          violations.push({
-            file: relative(repoRoot, file),
-            spec,
-            owner: ownerName,
-            problem:
-              owner.devDependencies?.[pkgName] === undefined
-                ? "undeclared"
-                : "dev-dependency",
-          });
+          // A GRAFTED member's manifest is the PIN's, not kolu's: the `@kolu/*`
+          // edge it imports is declared in `pnpm-workspace.yaml`'s
+          // `packageExtensions` (see `graftedMembers`), which no manifest
+          // read here can see. The half of the rule kolu CAN still hold is that
+          // the import resolves to a workspace member rather than to a name
+          // nobody provides.
+          const graftedButResolvable =
+            grafted.has(ownerName) && members.has(pkgName);
+          if (!graftedButResolvable) {
+            violations.push({
+              file: relative(repoRoot, file),
+              spec,
+              owner: ownerName,
+              problem:
+                owner.devDependencies?.[pkgName] === undefined
+                  ? "undeclared"
+                  : "dev-dependency",
+            });
+          }
         } else if (
           workspaceNames.has(pkgName) &&
           !declared.startsWith("workspace:")

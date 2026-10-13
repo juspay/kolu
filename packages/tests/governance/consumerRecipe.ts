@@ -62,17 +62,18 @@ export function extractConsumerRecipe(repoRoot: string): string {
 export function checkConsumerRecipeEvaluates(repoRoot: string): number {
   const recipe = extractConsumerRecipe(repoRoot);
 
-  // The two substitutions, and they are the whole list. A consumer's `../npins`
-  // holds ITS pins of kolu and osfacts; this repo is the kolu, and its own npins
-  // holds the osfacts that `consumer-closure.json` was emitted against — which
-  // is exactly the revision the recipe must agree with, so the check exercises
-  // the agreeing case rather than a contrived one.
-  // EACH rebind is checked, not the pair: a doc that renames one of them would
+  // The substitutions, and they are the whole list. A consumer's `../npins`
+  // holds ITS pins of kolu, osfacts and odu; this repo is the kolu, and its own
+  // npins holds the osfacts and odu that `consumer-closure.json` was emitted
+  // against — which is exactly the revisions the recipe must agree with, so the
+  // check exercises the agreeing case rather than a contrived one.
+  // EACH rebind is checked, not the set: a doc that renames one of them would
   // otherwise slip past a `bound === recipe` test and fail later on a nix path
   // error, which names the wrong thing.
   const rebinds: [string, string][] = [
     ["(import ../npins).kolu;", `${JSON.stringify(repoRoot)};`],
     ["(import ../npins).osfacts;", "(import ./npins).osfacts;"],
+    ["(import ../npins).odu;", "(import ./npins).odu;"],
   ];
   let bound = recipe;
   for (const [from, to] of rebinds) {

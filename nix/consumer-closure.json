@@ -69,6 +69,7 @@
         "@kolu/surface-daemon-supervisor",
         "@kolu/surface-remote",
         "@kolu/terminal-vocab",
+        "@odu/service-client",
         "anyagent",
         "anyforge",
         "kaval",
@@ -105,6 +106,7 @@
         "@kolu/surface-daemon",
         "@kolu/surface-daemon-supervisor",
         "@kolu/terminal-vocab",
+        "@odu/service-client",
         "anyagent",
         "anyforge",
         "kolu-agents",
@@ -497,6 +499,50 @@
         "solid-js": "^1.9.0"
       }
     },
+    "@odu/run-client": {
+      "dir": "odu/run-client",
+      "pin": {
+        "name": "odu",
+        "revision": "f4ab47b137e5ef763e91a9ac681662f09a605926",
+        "subdir": "packages/run-client"
+      },
+      "vendored": true,
+      "workspace": [],
+      "external": {
+        "effect": "4.0.0"
+      }
+    },
+    "@odu/run-history": {
+      "dir": "odu/run-history",
+      "pin": {
+        "name": "odu",
+        "revision": "f4ab47b137e5ef763e91a9ac681662f09a605926",
+        "subdir": "packages/run-history"
+      },
+      "vendored": true,
+      "workspace": [
+        "@odu/run-client"
+      ],
+      "external": {
+        "effect": "4.0.0"
+      }
+    },
+    "@odu/service-client": {
+      "dir": "odu/service-client",
+      "pin": {
+        "name": "odu",
+        "revision": "f4ab47b137e5ef763e91a9ac681662f09a605926",
+        "subdir": "packages/service-client"
+      },
+      "vendored": true,
+      "workspace": [
+        "@odu/run-client",
+        "@odu/run-history"
+      ],
+      "external": {
+        "effect": "4.0.0"
+      }
+    },
     "anyagent": {
       "dir": "packages/integrations/anyagent",
       "vendored": true,
@@ -642,6 +688,8 @@
         "@kolu/theme",
         "@kolu/url-shape",
         "@kolu/xterm-kit",
+        "@odu/run-client",
+        "@odu/service-client",
         "kolu-agents",
         "memorable-names",
         "nonempty",

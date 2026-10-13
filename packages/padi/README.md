@@ -245,6 +245,11 @@ handful of habits that paid for nothing; each is now a rule rather than a tuning
   Clicking between tiles used to rewrite every terminal's record — 253 KB/s of disk
   on a 16-terminal workspace. Shutdown still reads the LIVE marker, so nothing is
   lost at the edge that matters.
+- **Nothing dials odu while nobody is looking.** The `ciStatus` session opens its
+  socket on the first subscription and lets it go (after a 30 s grace) when the
+  last one leaves, so a machine that has never run odu pays one failed `connect`
+  per backoff tick at most — a syscall, never a process — and an Inspector nobody
+  is looking at pays nothing at all.
 - **A repo's change watcher outlives a browser's focus switch.** kolu-git retires
   a repo-change entry 30 s after its last subscriber leaves rather than on the
   drop, and a subscription taken inside that window reuses the live upstreams —
@@ -600,6 +605,45 @@ it; the module is `src/agentDistro/`.
   Every one is `KOLU_*`, so no terminal inherits them. A change to any of them
   changes the wrapper's own store path, so the agent-tools bake record
   (`agentToolsBake.ts`) already drains a same-build resident that predates it.
+
+## `ciStatus` — a demand-driven session with another daemon
+
+The Inspector's odu CI readout is the one member where padi is a CLIENT: odu's
+web daemon (a per-user singleton, absent on most machines) publishes a board of
+every run it has recorded, and `streams.ciStatus({ terminalId })` folds that board
+down to ONE terminal's checkout and publishes a full-replacement frame
+(`{ kind: "none" }` or `{ kind: "status", latest: { run, lanes }, recent }`).
+
+Three properties are the whole design (`./ciStatus.ts`):
+
+- **Demand-driven and ref-counted.** The FIRST open subscription dials the
+  daemon; the last close lets the link go, after a 30 s retire grace (the #2286
+  lesson: the Inspector re-keys its subscription onto the focused pane, so
+  tearing down on the last unsubscribe would rebuild a dial on every focus
+  switch). Nothing dials while nobody is looking — the client shows the panel
+  gate on its side — and nothing ever STARTS odu: bootstrapping is `odu web`'s
+  job.
+- **Absence is a value; a refusal is not.** `ENOENT`/`ECONNREFUSED` — the ordinary
+  state of a machine that has never run odu — becomes `{ kind: "none" }`, which is
+  what the Inspector renders nothing for. A daemon that ANSWERS with a contract
+  this build cannot speak is logged at error and never rendered as absence, so a
+  broken install cannot hide behind a blank panel.
+- **The dial loop IS the retry fence.** A unix socket has no reconnect layer at
+  all, so the loop re-dials with a backoff and re-establishes both subscriptions
+  from scratch: the board is cleared and re-snapshotted (the `deltas` stream opens
+  with a full snapshot) and each subscriber's nodes follow is reopened on the new
+  epoch. A frame after a reconnect is therefore always a fresh snapshot.
+
+The contract, the schemas, the socket path and the dial are all ODU'S OWN
+(`@odu/service-client`, grafted from the npins `odu` pin — see
+[`@kolu/padi-client`](../padi-client)'s README for the graft). What is kolu's here
+is the checkout fold, the lane triage order and the session.
+
+**One recorded limit.** The checkout is resolved from padi's own registry on every
+frame read, so a terminal that `cd`s re-targets as soon as anything re-derives a
+frame (an odu board event, a new run) or the subscription re-keys (a focus change,
+the panel reopening). A `cd` in a focused terminal with a silent odu board is the
+one window where the readout is about the checkout the terminal just left.
 
 ## What padi knows nothing about
 

@@ -17,6 +17,7 @@ Two files here answer that, so a consumer stops answering it by hand.
 let
   koluSrc = (import ../npins).kolu;
   osfacts = (import ../npins).osfacts;
+  odu = (import ../npins).odu;
 
   # ONE call, parameterised by the sources you supply — because you have to ask
   # kolu what to graft BEFORE you can graft it, and `.pins` is answerable with
@@ -31,24 +32,32 @@ let
     seeds = [ "@kolu/padi-client" "@kolu/solid-dockrow" "@kolu/surface-app" ];
   };
 
-  # PINNED members you must supply yourself — this seed set reaches one. Each
-  # entry names the pin, the REVISION kolu was built against, and the
-  # subdirectory to copy. Omitting one is a named throw rather than a broken
+  # PINNED members you must supply yourself — this seed set reaches FOUR, from
+  # two pins. Each entry names the pin, the REVISION kolu was built against, and
+  # the subdirectory to copy. Omitting one is a named throw rather than a broken
   # `cp`; passing a different revision is refused at eval, because kolu compiles
   # this package against its own and you would find out when a field moved.
   pins = (koluWith { }).pins;
+
+  # `pins.<member>.subdir`, never a hardcoded path: the point of `pins` is that
+  # you read kolu's answer instead of carrying a second spelling. Only the
+  # REVISION half is checked at eval — a wrong subdir fails as a broken `cp`,
+  # which is the failure the named throw in `sourceFor` exists to replace.
+  fromPin = pin: name: {
+    src = pkgs.runCommand name { }
+      "cp -r ${pin}/${pins.${name}.subdir} $out";
+    revision = pin.revision;
+  };
 in
 koluWith {
-  osfacts-client = {
-    # `pins.<member>.subdir`, never a hardcoded "/client-ts": the point of
-    # `pins` is that you read kolu's answer instead of carrying a second
-    # spelling. Only the REVISION half is checked at eval — a wrong subdir fails
-    # as a broken `cp`, which is the failure the named throw in `sourceFor`
-    # exists to replace.
-    src = pkgs.runCommand "osfacts-client" { }
-      "cp -r ${osfacts}/${pins.osfacts-client.subdir} $out";
-    revision = osfacts.revision;
-  };
+  # `osfacts-client`: kolu's supervisor manifest names it even though no
+  # published entry compiles it (see the second-pin note below).
+  osfacts-client = fromPin osfacts "osfacts-client";
+  # The `@odu/*` trio: odu's own service contract, grafted the other way round
+  # (odu pins KOLU), reached by `@kolu/padi-client`'s `ciStatus` frame schemas.
+  "@odu/service-client" = fromPin odu "@odu/service-client";
+  "@odu/run-client" = fromPin odu "@odu/run-client";
+  "@odu/run-history" = fromPin odu "@odu/run-history";
 }
 ```
 

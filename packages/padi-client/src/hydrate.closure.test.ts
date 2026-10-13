@@ -110,6 +110,18 @@ const DECLARED_ALLOWED = new Set([
   "@kolu/terminal-vocab",
   "@kolu/log",
   "@kolu/shell-quote",
+  // odu's own service contract — the board row and node schemas the `ciStatus`
+  // frame carries verbatim (kolu reads odu's shapes rather than re-declaring
+  // them; see the package's README). GRAFTED from the npins `odu` pin into
+  // `odu/*`, never committed, and one pin's closure rather than one package:
+  // `service-client` re-publishes the durable record shapes from `run-history`,
+  // which reaches the node-status vocabulary of `run-client`. Their manifests
+  // declare `effect` alone (in odu the `@kolu/*` sources are hydrated from a
+  // pin), so a hydrating consumer copies three directories and installs one
+  // package it already has.
+  "@odu/run-client",
+  "@odu/run-history",
+  "@odu/service-client",
   "anyagent",
   "anyforge",
   "kolu-agents",
@@ -187,6 +199,11 @@ const IMPORTED_ALLOWED = new Set([
   "@kolu/surface-daemon",
   "@kolu/surface-daemon-supervisor",
   "@kolu/terminal-vocab",
+  // Reached through the grafted odu trio's `surface` modules (kolu imports
+  // their schemas; see DECLARED_ALLOWED).
+  "@odu/run-client",
+  "@odu/run-history",
+  "@odu/service-client",
   "anyagent",
   "anyforge",
   "kolu-agents",

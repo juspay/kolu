@@ -51,8 +51,31 @@ let
   # store path, so the filter emptied the whole workspace and the agent source
   # lost every package. A declaration does not depend on where the evaluation
   # is rooted; see workspace-closure.nix's doorstep note.
-  pinnedPins = { "osfacts-client" = "osfacts"; };
+  pinnedPins = {
+    "osfacts-client" = "osfacts";
+    # odu's service contract and its dependency closure — the half of odu a
+    # client of the service holds (see the graft note below). Three members
+    # because the closure is three packages, not one: `service-client` re-publishes
+    # the durable record shapes from `run-history`, which reaches the node-status
+    # vocabulary of `run-client`.
+    "@odu/service-client" = "odu";
+    "@odu/run-client" = "odu";
+    "@odu/run-history" = "odu";
+  };
   pinnedNames = builtins.attrNames pinnedPins;
+
+  # WHICH pinned member lands WHERE in the build tree. A scoped member grafts
+  # under its scope (`@odu/service-client` → `odu/service-client`), so one pin's
+  # members share one generated root; an unscoped one keeps its own name, which
+  # is where `osfacts-client` has always been. DERIVED from the name rather than
+  # declared beside it: the name already says where it belongs, and a second
+  # declaration is a second thing that can disagree with the member it names.
+  graftPath =
+    member:
+    let
+      scoped = builtins.match "@([^/]+)/(.+)" member;
+    in
+    if scoped == null then member else "${builtins.elemAt scoped 0}/${builtins.elemAt scoped 1}";
 
   # Workspace membership: package name → package directory, the ONE Nix-side
   # index of the pnpm workspace. Everything below derives from it — the build
@@ -123,6 +146,14 @@ let
     # this store path to `mkDaemonIdentity` as a `pinnedSources` entry
     # (juspay/kolu#2094) rather than dropping it.
     "osfacts-client" = sources.osfacts + "/client-ts";
+    # NOT paths in this repo either: odu pins kolu, so these three are grafted
+    # from the `odu` pin by the same mechanism (see the graft note below).
+    # `pinnedPins` names the pin, `graftPath` names where each lands
+    # (`odu/service-client`, …), and `pnpm-workspace.yaml` lists those paths so a
+    # bare `pnpm install` without the graft fails loudly.
+    "@odu/service-client" = sources.odu + "/packages/service-client";
+    "@odu/run-client" = sources.odu + "/packages/run-client";
+    "@odu/run-history" = sources.odu + "/packages/run-history";
     "kolu-server" = ../packages/server;
     "kolu-client" = ../packages/client;
     "kolu-transcript-core" = ../packages/transcript-core;
@@ -195,34 +226,49 @@ let
     inherit fileset;
   };
 
-  # osfacts-client, materialized from the npins pin — NEVER committed.
+  # The PIN-GRAFTED members, materialized from their npins pins — NEVER
+  # committed.
   #
-  # The tool left the tree at OSF5 (juspay/osfacts) and its TypeScript client
-  # went with it, but five kolu packages import `osfacts-client` by name and a
-  # pnpm workspace member must be a path inside the repo. The two ways to close
-  # that without a second copy of the source both failed on their own terms: a
-  # registry/tarball dependency needs a publish step nobody wants to own, and
-  # pnpm's git-subdirectory dependency silently DROPS its `#path:` fragment
-  # under `pnpm fetch` + `--offline` (kolu's hermetic install), landing the whole
-  # osfacts repo in node_modules with no package.json at its root.
+  # TWO FAMILIES, one mechanism. `osfacts-client` is the standing case: the tool
+  # left the tree at OSF5 (juspay/osfacts) and its TypeScript client went with
+  # it, but five kolu packages import it by name and a pnpm workspace member
+  # must be a path inside the repo. The `@odu/*` trio is the same fact one
+  # direction over: odu pins KOLU (it hydrates the `@kolu/surface*` stack out of
+  # a content-addressed kolu pin — see its `bunfig.toml`), so kolu consuming
+  # odu's own libraries can never be an npm dependency of them.
+  #
+  # The two ways to close that without a second copy of the source both failed
+  # on their own terms: a registry/tarball dependency needs a publish step
+  # nobody wants to own, and pnpm's git-subdirectory dependency silently DROPS
+  # its `#path:` fragment under `pnpm fetch` + `--offline` (kolu's hermetic
+  # install), landing the whole upstream repo in node_modules with no
+  # package.json at its root.
   #
   # So Nix supplies the source, which it already has: npins pins the repo, and
-  # this grafts `client-ts/` into the build tree as an ordinary workspace member.
-  # pnpm then sees a plain `workspace:*` link with nothing to download — offline
-  # by construction. `just install` performs the same graft for a working tree
-  # (see the justfile's `_materialize-osfacts-client`), so both paths read the
-  # same pinned bytes and neither has a checked-in copy to drift from.
+  # this grafts each member's directory into the build tree as an ordinary
+  # workspace member. pnpm then sees a plain `workspace:*` link with nothing to
+  # download — offline by construction. `just install` performs the same graft
+  # for a working tree (see the justfile's `_materialize-pinned-members`), so
+  # both paths read the same pinned bytes and neither has a checked-in copy to
+  # drift from.
   #
-  # Read back out of `members` rather than re-spelling the pin subpath: the
+  # Read back out of `members` rather than re-spelling each pin subpath: the
   # graft and the identity's `pinnedSources` must name the SAME bytes, and one
   # binding is how that stays true.
-  osfactsClientSrc = members."osfacts-client";
-  src = pkgs.runCommand "kolu-source" { } ''
-    cp -r ${treeSrc} $out
-    chmod -R u+w $out
-    cp -r ${osfactsClientSrc} $out/osfacts-client
-    chmod -R u+w $out/osfacts-client
-  '';
+  graftedMembers = lib.mapAttrsToList
+    (member: _: { dest = graftPath member; src = members.${member}; })
+    pinnedPins;
+  src = pkgs.runCommand "kolu-source" { } (
+    ''
+      cp -r ${treeSrc} $out
+      chmod -R u+w $out
+    ''
+    + lib.concatMapStrings (m: ''
+      mkdir -p "$out/$(dirname ${m.dest})"
+      cp -r ${m.src} "$out/${m.dest}"
+      chmod -R u+w "$out/${m.dest}"
+    '') graftedMembers
+  );
 
   pnpmDeps = pkgs.fetchPnpmDeps {
     pname = "kolu";
