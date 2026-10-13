@@ -22,6 +22,20 @@ describe("caIndexUrl", () => {
   });
 });
 
+describe("caIndexUrl, a base with trailing slashes", () => {
+  it("strips every trailing slash, however many", () => {
+    expect(
+      caIndexUrl(
+        `https://index.example.org/ca-index${"/".repeat(50_000)}`,
+        "aarch64-darwin",
+        "vanilla",
+      ),
+    ).toBe(
+      "https://index.example.org/ca-index/latest/aarch64-darwin/vanilla.json",
+    );
+  });
+});
+
 describe("parseCaIndexEntry", () => {
   it("reads rev and ca, ignoring upstream's other fields", () => {
     expect(

@@ -36,7 +36,11 @@ export function caIndexUrl(
   system: string,
   profile: string,
 ): string {
-  return `${index.replace(/\/+$/, "")}/latest/${encodeURIComponent(system)}/${encodeURIComponent(profile)}.json`;
+  // Trailing slashes stripped by one scan, not a `/\/+$/` regex (which
+  // backtracks polynomially on a long run of slashes).
+  let end = index.length;
+  while (end > 0 && index[end - 1] === "/") end--;
+  return `${index.slice(0, end)}/latest/${encodeURIComponent(system)}/${encodeURIComponent(profile)}.json`;
 }
 
 /** Parse one `latest/` entry (`rev` and `ca`; other fields are ignored).
