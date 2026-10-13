@@ -379,11 +379,15 @@ describe("WorkSection odu CI readout", () => {
       },
       recent: [
         oduRow(),
+        // An older, GREEN run: `outcome` is the word odu reads once a run has
+        // one, so the fixture must state it (a default `outcome: "failed"` would
+        // be the very disagreement this fold exists to prevent).
         oduRow({
           runId: "run-0",
           seq: 2,
           passed: true,
           state: "settled",
+          outcome: "passed",
           dirty: false,
         }),
       ],
@@ -493,7 +497,11 @@ describe("WorkSection odu CI readout", () => {
       recent: [oduRow({ state: "settled", outcome: "failed" })],
     });
     expect(text("inspector-odu-chip")).toBe("✕ 1 failed 0123456#3+dirty");
-    expect(el("inspector-odu-lanes")?.textContent).toContain("failed");
+    // A lane's status is its glyph (painted by odu's hue) and its title, not a
+    // word: the row says what the lane IS, and the chip above states the verdict.
+    const lane = el("inspector-odu-lanes")?.querySelector("li");
+    expect(lane?.textContent).toContain("✗");
+    expect(lane?.querySelector("span")?.getAttribute("title")).toBe("failed");
   });
 
   it("reads a torn-down run as INCOMPLETE, not failed (odu's own precedence)", () => {
