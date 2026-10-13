@@ -82,6 +82,7 @@ export {
   type DeliverClosureOptions,
   type DeliverClosureResult,
   deliverClosure,
+  homeGcRoot,
   makeProvisionBudgets,
   makeStepBudget,
   PROVISION_STEP_MAX_EXPIRIES,

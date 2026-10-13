@@ -21,7 +21,6 @@
 import {
   existsSync,
   mkdirSync,
-  readFileSync,
   renameSync,
   rmSync,
   symlinkSync,
@@ -33,15 +32,11 @@ import { agentBinDir, currentLink } from "@kolu/agent-distro/bundle";
 import { type AgentUpdateRun, historyLine } from "@kolu/agent-distro/history";
 import { lastSuccessFile } from "@kolu/agent-distro/schedule";
 import type { AgentDistroFailureReason } from "@kolu/agent-distro/schema";
-import {
-  type AgentVersion,
-  bundleChanges,
-  parseVersions,
-  versionsFile,
-} from "@kolu/agent-distro/versions";
+import { bundleChanges } from "@kolu/agent-distro/versions";
 import { log } from "../log.ts";
 import type { AgentDistroProfileBake } from "./bake.ts";
 import { realpathOrUndefined } from "./onHost.ts";
+import { versionsOf } from "./receipt.ts";
 
 /** Why a profile's last delivery failed: the kind, and the cause in words. */
 export interface DeliveryFailure {
@@ -69,11 +64,6 @@ export function deliveryOf(
   if (delivering.has(profile)) return { kind: "delivering" };
   const failure = failed.get(profile);
   return failure === undefined ? undefined : { kind: "failed", failure };
-}
-
-/** Every profile with a delivery in flight, whichever is selected. */
-export function deliveringProfiles(): readonly string[] {
-  return [...delivering];
 }
 
 /** `profile`'s last delivery that landed nothing, if any. */
@@ -107,22 +97,6 @@ export function deliveryFailed(
   );
 }
 
-/** `path`'s text, or `undefined` when it does not exist. */
-function readOrUndefined(path: string): string | undefined {
-  try {
-    return readFileSync(path, "utf8");
-  } catch (err) {
-    if ((err as NodeJS.ErrnoException).code === "ENOENT") return undefined;
-    throw err;
-  }
-}
-
-/** A bundle's versions, or `undefined` when it records none. */
-function versionsOf(bundle: string): readonly AgentVersion[] | undefined {
-  const text = readOrUndefined(versionsFile(bundle));
-  return text === undefined ? undefined : parseVersions(text);
-}
-
 /** Write `text` to `path` atomically (a temp file renamed over it). */
 function writeAtomic(path: string, text: string): void {
   const tmp = `${path}.kolu-tmp`;
@@ -133,14 +107,14 @@ function writeAtomic(path: string, text: string): void {
 /** `bundle` landed for `profile`: point its `current` at it — one atomic
  *  rename over the old link, so a spawn never sees a half-flipped one — stamp
  *  `last-success`, and, when the bundle changed, append upstream's `updated:`
- *  history line naming what changed. Answers whether it changed. Throws on a
+ *  history line naming what changed. Throws on a
  *  bundle this host does not hold (no `bin/`): kolu-server rooted it here, so
  *  its absence is a broken delivery, never a state to paper over. */
 export function landDelivery(
   profile: AgentDistroProfileBake,
   bundle: string,
   now: Date = new Date(),
-): "updated" | "unchanged" {
+): void {
   if (!existsSync(agentBinDir(bundle)))
     throw new Error(
       `kolu-server reported ${bundle} landed for '${profile.name}', but this host has no ${agentBinDir(bundle)}`,
@@ -162,7 +136,7 @@ export function landDelivery(
   delivering.delete(profile.name);
   failed.delete(profile.name);
   unlanded.delete(profile.name);
-  if (old === bundle) return "unchanged";
+  if (old === bundle) return;
   mkdirSync(dirname(profile.historyFile), { recursive: true });
   appendFileSync(
     profile.historyFile,
@@ -177,7 +151,6 @@ export function landDelivery(
     { agentDistroProfile: profile.name, bundle, previous: old },
     "agent-distro bundle landed",
   );
-  return "updated";
 }
 
 /** Test seam: forget every delivery in flight, failure and unlanded run. */

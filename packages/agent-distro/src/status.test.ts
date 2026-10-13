@@ -18,10 +18,8 @@ import {
   RECENT_PROFILES_CAP,
   rememberProfile,
   AGENTS_CHECK_NOW,
-  agentHostCheckable,
   AGENTS_RECEIPT_UNREADABLE,
   AGENTS_UPDATE_DOWNLOADING,
-  agentUpdateCheckable,
   agentsStepHint,
   agentDistroChoice,
   agentDistroSettingOf,
@@ -35,7 +33,6 @@ import {
   AGENTS_BINDER_REFUSED_MEANS,
   agentFailureLines,
   agentFailureRemedy,
-  agentMarkWords,
   agentMarkLabel,
   agentChipLabel,
   agentMarkOf,
@@ -367,7 +364,6 @@ describe("agentChips — the agents the Agents row names", () => {
             { name: "claude", title: "Claude Code", version: "3.0.0" },
           ],
           events: [],
-          running: [],
         },
       }),
     ).toEqual([{ title: "Claude Code", version: "3.0.0" }]);
@@ -407,7 +403,6 @@ describe("agentChips — the agents the Agents row names", () => {
       bundle: "/s/v",
       versions: [...parseVersions(read(versionsFile("/s/v")))],
       events: [],
-      running: [],
     };
     expect(chips(receipt)).toEqual(chips(undefined));
     expect(chips(undefined)).toEqual([
@@ -912,7 +907,6 @@ describe("agentHostDetail — one machine's agents, in its host details", () => 
       profile: "vanilla",
       bundle: BUNDLE,
       versions: [],
-      running: [],
       lastRun: { at: 3, outcome: "updated", by: "delivery", words: "C 1 → 2" },
       events: [
         {
@@ -1027,7 +1021,6 @@ describe("agentHostDetail — one machine's agents, in its host details", () => 
         profile: "vanilla",
         bundle: BUNDLE,
         versions: [],
-        running: [],
         events: [],
         error: "the history file is not a history",
       })?.events,
@@ -1447,29 +1440,12 @@ describe("a failure's words: cause, then remedy (by reason), then when kolu trie
       AGENTS_DELIVERY_AGAIN,
     ]);
   });
-  it("the toast's title is the cause and Nix's line, on one line", () => {
-    const message = "ssh: connect to host idli-01 port 22: Connection refused";
-    expect(
-      agentMarkWords(
-        { kind: "failed", reason: "delivery", message },
-        "nix-infra@idli-01",
-      ),
-    ).toEqual({
-      title: `The coding agents could not be delivered to nix-infra@idli-01: ${message}`,
-      detail: [AGENTS_DELIVERY_AGAIN],
-    });
-  });
-  it("the hover, the toast and the machine's own section say the same words", () => {
+  it("the hover and the machine's own section say the same words", () => {
     const failure = { reason: "refused", message: REFUSED } as const;
     const lines = agentFailureLines(failure, "box");
     const mark = { kind: "failed", ...failure } as const;
     // Hover / accessible name.
     expect(agentMarkLabel(mark, "box")).toBe(lines.join("\n"));
-    // Toast: the cause as its title, the rest as its description.
-    expect(agentMarkWords(mark, "box")).toEqual({
-      title: lines[0],
-      detail: lines.slice(1),
-    });
     // The machine's own host-details section: the cause and the remedy, with
     // trying again its check BUTTON beside the one sentence of when.
     const detail = agentHostDetail({
@@ -1515,7 +1491,6 @@ describe("K3 — updates while a bundle serves", () => {
     profile: "vanilla",
     versions: [],
     events: [],
-    running: [],
     ...over,
   });
   const host = (
@@ -1537,11 +1512,11 @@ describe("K3 — updates while a bundle serves", () => {
       hash: "nd11nx5f",
       delivering: true,
     });
-    expect(agentMarkWords(mark, "box")?.detail).toEqual([
+    expect(agentMarkLabel(mark, "box")?.split("\n").slice(1)).toEqual([
       AGENTS_UPDATE_DOWNLOADING,
     ]);
-    expect(agentMarkWords(agentMarkOf(ready, false), "box")?.detail).toEqual(
-      [],
+    expect(agentMarkLabel(agentMarkOf(ready, false), "box")).not.toContain(
+      "\n",
     );
   });
 
@@ -1677,28 +1652,7 @@ describe("K3 — updates while a bundle serves", () => {
     });
   });
 
-  it("Check now: a ready host with no run, or a failed one, can check; any run is busy", () => {
-    expect(agentUpdateCheckable(ready)).toBe(true);
-    expect(
-      agentUpdateCheckable({
-        kind: "error",
-        profile: "vanilla",
-        reason: "delivery",
-        message: "m",
-      }),
-    ).toBe(true);
-    expect(
-      agentUpdateCheckable({ kind: "downloading", profile: "vanilla" }),
-    ).toBe(false);
-    expect(agentUpdateCheckable(delivering)).toBe(false);
-    expect(agentUpdateCheckable({ kind: "off" })).toBe(false);
-    expect(agentUpdateCheckable(undefined)).toBe(false);
-    // A disconnected host's last-known ready cannot answer.
-    expect(agentHostCheckable({ connected: true, status: ready })).toBe(true);
-    expect(agentHostCheckable({ connected: false, status: ready })).toBe(false);
-    expect(agentHostCheckable({ connected: true, status: delivering })).toBe(
-      false,
-    );
+  it("Check now: the palette command's words", () => {
     // The fleet-wide check is a palette command now: its words, and the note
     // that says it asks every machine.
     expect(AGENTS_CHECK_NOW.label).toBe("Check for newer coding agents");

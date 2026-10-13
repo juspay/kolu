@@ -53,7 +53,6 @@ import {
   agentCheckFailed,
   agentDistroSettingOf,
   agentFleetSummary,
-  agentHostCheckable,
   agentHostDetail,
   agentMarkOf,
   agentToast,
@@ -250,16 +249,6 @@ export function hostAgentDetail(host: HostKey): AgentHostDetail | undefined {
     host: hostAgentStatus(host, agentsWhere(host)),
     setting: agentDistroSetting(),
     listing: agentDistroListing(),
-  });
-}
-
-/** Can `host` be asked to check for newer agents right now — connected, ready,
- *  with no delivery going there, or failed (`agentHostCheckable`)? What its
- *  row in that machine's host details is enabled by. */
-export function agentHostCheckableNow(host: HostKey): boolean {
-  return agentHostCheckable({
-    connected: padiMap.entry(host).state().kind === "connected",
-    status: hostAgentStatusOf(host),
   });
 }
 

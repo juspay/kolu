@@ -19,11 +19,11 @@
  */
 
 import type { AgentDistroDelivery } from "@kolu/agent-distro/bake";
-import { deliveryGcRootPath } from "@kolu/agent-distro/bundle";
 import {
   agentBinaryCache,
   DEFAULT_SSH_KEEPALIVE,
   deliverClosure,
+  homeGcRoot,
   isLocalHost,
   lockFlake,
   makeStepBudget,
@@ -60,9 +60,14 @@ export function nixDeliveryOps(bake: AgentDistroDelivery): DeliveryOps {
     outPath: (ref, system, profile) =>
       resolveFlakeOutPath(ref, system, profile, quiet()),
     deliver: ({ ssh, outPath, profile, onProgress }) => {
-      const rel = deliveryGcRootPath(profile);
-      const home = process.env.HOME;
-      if (isLocalHost(ssh) && (home === undefined || home === ""))
+      // kolu's own root, one link per profile ("latest", like surface-remote's
+      // per-agent roots). Home-relative, never `$XDG_STATE_HOME`: over ssh the
+      // login's home is the one place this process can name on a host.
+      const rootPath = homeGcRoot(
+        isLocalHost(ssh),
+        `.local/state/kolu/agent-distro/gcroots/${profile}`,
+      );
+      if (rootPath === null)
         throw new Error(
           "HOME is unset, so the agents' GC root on this machine cannot be formed",
         );
@@ -70,7 +75,7 @@ export function nixDeliveryOps(bake: AgentDistroDelivery): DeliveryOps {
         host: ssh,
         outPath,
         binaryCache,
-        rootPath: isLocalHost(ssh) ? `${home}/${rel}` : rel,
+        rootPath,
         onProgress,
         onActivity: () => {},
         budget: budget(),

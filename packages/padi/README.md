@@ -511,9 +511,7 @@ it; the module is `src/agentDistro/`.
   (`share/agent-distro/versions`), the last run (`updated` · `unchanged` ·
   `skipped` · `failed`, with its words and who wrote them: `delivery` — the
   history log or kolu-server's report — or `padi`, for a landing this host
-  could not take), the last five history events (`history.log`), and
-  `running` — every profile with a delivery in flight on the host, whichever is
-  selected. Published at boot, at every delivery report, and when the setting
+  could not take), and the last five history events (`history.log`). Published at boot, at every delivery report, and when the setting
   changes; readable with agents off. A later delivery that fails shows here
   and in the logs, never as an `error` status while a bundle serves.
 - **`agentDistroResolved` (read-only)** — whether the setting's profile

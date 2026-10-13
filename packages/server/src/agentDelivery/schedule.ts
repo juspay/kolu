@@ -64,8 +64,9 @@ export function startDeliverySchedule(deps: {
   let attempts: ScheduledAttempts | undefined;
   let askAgain = false;
 
+  // The timer ticks only while agents are on (its schedule is `undefined`
+  // otherwise), so a tick never has to ask.
   const onTick = (boundaryPassed: boolean): void => {
-    if (!deps.enabled()) return;
     const t = Math.floor(now() / 1000);
     if (
       !scheduledAskNow({ now: t, schedule, boundaryPassed, askAgain, attempts })
@@ -89,12 +90,10 @@ export function startDeliverySchedule(deps: {
     });
   };
 
-  // Never stopped: it runs for the server's life, and its timer is unref'd.
-  const { poke } = startUpdateTimer({
+  return startUpdateTimer({
     schedule: () => (deps.enabled() ? schedule : undefined),
     onTick,
     now,
     ...(deps.setTimer === undefined ? {} : { setTimer: deps.setTimer }),
   });
-  return { poke };
 }

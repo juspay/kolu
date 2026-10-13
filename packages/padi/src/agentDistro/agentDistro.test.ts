@@ -336,7 +336,6 @@ describe("delivery reports — what a host does with kolu-server's word", () => 
         words: "Claude Code 2.1.291",
         by: "delivery",
       },
-      running: [],
     });
   });
 
@@ -441,7 +440,6 @@ describe("delivery reports — what a host does with kolu-server's word", () => 
         words: "error: cannot copy path from https://cache.example",
         by: "delivery",
       },
-      running: [],
     });
   });
 
@@ -458,7 +456,6 @@ describe("delivery reports — what a host does with kolu-server's word", () => 
     });
     // The serving bundle keeps going to new terminals until the newer lands.
     expect(newTerminalLayer()?.bundle).toBe(floorBundle);
-    expect(receipt()?.running).toEqual(["vanilla"]);
   });
 
   it("`delivering` with nothing serving: downloading, and new terminals get no agents", () => {
@@ -467,7 +464,6 @@ describe("delivery reports — what a host does with kolu-server's word", () => 
     report({ kind: "delivering", profile: "vanilla" });
     expect(status()).toEqual({ kind: "downloading", profile: "vanilla" });
     expect(newTerminalLayer()).toBeUndefined();
-    expect(receipt()?.running).toEqual(["vanilla"]);
   });
 
   it("a new delivery clears the last failure: error → downloading", () => {

@@ -18,7 +18,11 @@ import {
 } from "@kolu/agent-distro/history";
 import { lastSuccessFile, parseLastSuccess } from "@kolu/agent-distro/schedule";
 import type { AgentDistroReceipt } from "@kolu/agent-distro/schema";
-import { parseVersions, versionsFile } from "@kolu/agent-distro/versions";
+import {
+  type AgentVersion,
+  parseVersions,
+  versionsFile,
+} from "@kolu/agent-distro/versions";
 import type { AgentDistroProfileBake } from "./bake.ts";
 
 /** `path`'s text, or `undefined` when it does not exist. Only `ENOENT` is
@@ -34,22 +38,28 @@ function readOrUndefined(path: string): string | undefined {
 
 /** `profile`'s `last-success` stamp (epoch seconds), or `null` before any
  *  successful run. */
-export function lastSuccessOf(profile: AgentDistroProfileBake): number | null {
+function lastSuccessOf(profile: AgentDistroProfileBake): number | null {
   return parseLastSuccess(readOrUndefined(lastSuccessFile(profile.stateDir)));
+}
+
+/** A bundle's versions, or `undefined` when it records none. */
+export function versionsOf(
+  bundle: string,
+): readonly AgentVersion[] | undefined {
+  const text = readOrUndefined(versionsFile(bundle));
+  return text === undefined ? undefined : parseVersions(text);
 }
 
 /** The receipt for `profile` on this host: the versions of `serving` (the
  *  bundle new terminals get there now, if any), the last run, and the last few
  *  history events. `unlanded` is the profile's last delivery that landed
  *  nothing, as the delivery record remembers it — shown when it is newer than
- *  what the files say; `running` is every profile with a delivery in flight.
- *  Throws on a history
+ *  what the files say. Throws on a history
  *  or versions file that is not upstream's format. */
 export function readReceipt(
   profile: AgentDistroProfileBake,
   serving: string | undefined,
   unlanded: AgentUpdateRun | undefined,
-  running: readonly string[],
 ): AgentDistroReceipt {
   const events = recentEvents(
     readOrUndefined(profile.historyFile) ?? "",
@@ -61,15 +71,11 @@ export function readReceipt(
     (fromFiles === undefined || unlanded.at > fromFiles.at + SAME_RUN_MS)
       ? unlanded
       : fromFiles;
-  const versionsText =
-    serving === undefined ? undefined : readOrUndefined(versionsFile(serving));
   return {
     profile: profile.name,
     ...(serving === undefined ? {} : { bundle: serving }),
-    versions:
-      versionsText === undefined ? [] : [...parseVersions(versionsText)],
+    versions: serving === undefined ? [] : [...(versionsOf(serving) ?? [])],
     ...(lastRun === undefined ? {} : { lastRun }),
     events: [...events],
-    running: [...running],
   };
 }

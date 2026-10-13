@@ -86,19 +86,16 @@ The **TypeScript half**, as data and pure functions:
   the setting's profile resolves on a host: `none` · `pending` · `resolved`
   with agent-distro's name and description · `failed` with its own words),
   and `AgentDistroReceipt` (what a host keeps of its deliveries: the serving
-  bundle's versions, the last run, the last five events, `running` — every
-  profile with a delivery in flight there — and `error` when the host's files
+  bundle's versions, the last run, the last five events, and `error` when the host's files
   would not read).
   padi-client DECLARES the cells and record that carry them; padi, kolu-common,
   the server and the client import the values from here.
 - `./bundle` — agent-distro's bundle and state shape: a bundle's `bin/`, a
-  profile's `current` link, a store path's short hash, the GC root a delivered
-  bundle is kept behind on a host (`deliveryGcRootPath`), and making a state
+  profile's `current` link, a store path's short hash, and making a state
   path concrete for a host's state home (`concreteStatePath`).
 - `./status` — how a host's status shows, and every word kolu says about it:
   the one fenced fold from status to the host tab's mark (`agentMarkOf`); its
-  words (`agentMarkWords`, `agentMarkLabel`), which the hover and the host
-  details share, with a failed delivery's cause, remedy and when kolu tries
+  words (`agentMarkLabel`, its hover and accessible name), with a failed delivery's cause, remedy and when kolu tries
   again worded once (`agentFailureLines`, `agentFailureRemedy`,
   `AGENTS_REFUSED_MEANS`, `AGENTS_REFUSED_FIX`, `AGENTS_BINDER_REFUSED_MEANS`,
   `AGENTS_BINDER_REFUSED_FIX`, `AGENTS_DELIVERY_AGAIN`); the

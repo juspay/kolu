@@ -286,6 +286,9 @@ export type ProvisionResult =
       terminal?: boolean;
     };
 
+/** A provisioning step's failure — what a step that cannot succeed returns. */
+type ProvisionFailure = Extract<ProvisionResult, { ok: false }>;
+
 /** Per-agent GC-root path for the realised output, or `null` when one
  *  can't be formed (see the localhost case below). Keyed on the .drv's
  *  name with its store hash stripped, so every version of the *same*
@@ -304,7 +307,16 @@ export function agentGcRootPath(
     .replace(/^.*\//, "") // drop the /nix/store/ prefix
     .replace(/\.drv$/, "") // drop the .drv suffix
     .replace(/^[0-9a-z]{32}-/, ""); // drop the store hash
-  const rel = `.local/state/kolu/surface-remote/gcroots/${name}`;
+  return homeGcRoot(
+    isLocal,
+    `.local/state/kolu/surface-remote/gcroots/${name}`,
+  );
+}
+
+/** A home-relative GC-root path as `nix-store --add-root` takes it on the
+ *  target: as is for a remote (the ssh login's home resolves it), anchored to
+ *  this process's `$HOME` locally — `null` when `$HOME` is unset. */
+export function homeGcRoot(isLocal: boolean, rel: string): string | null {
   if (!isLocal) return rel;
   const home = process.env.HOME;
   return home ? `${home}/${rel}` : null;
@@ -360,7 +372,7 @@ function expiredResult(
   cmdLabel: string,
   budget: StepBudget,
   res: ExitResult,
-): ProvisionResult {
+): ProvisionFailure {
   const terminal = budget.recordExpiry();
   return {
     ok: false,
@@ -399,7 +411,7 @@ async function pinGcRoot(
   onActivity: () => void,
   budget: StepBudget,
   signal: AbortSignal | undefined,
-): Promise<ProvisionResult | null> {
+): Promise<ProvisionFailure | null> {
   onProgress(`${host}: pinning GC root at '${rootPath}'…`);
   const pinRes = await runNix(
     { host, keepalive },
@@ -453,7 +465,7 @@ const SIGNATURE_REFUSAL = /lacks a (?:valid )?signature/;
 /** The ONE shape of "the user's abort landed inside this provisioning step" —
  *  named per step, so an abort during the slow ship can never report the
  *  prefetch it had already finished. */
-function abortedDuring(host: string, step: string): ProvisionResult {
+function abortedDuring(host: string, step: string): ProvisionFailure {
   return {
     ok: false,
     reason: `${host}: provisioning aborted during ${step}`,
@@ -689,7 +701,7 @@ async function stageAgentClosure(opts: {
   onActivity: () => void;
   signal: AbortSignal | undefined;
 }): Promise<
-  | { bail: ProvisionResult }
+  | { bail: ProvisionFailure }
   | { bail: null; onTarget: true }
   | { bail: null; onTarget: false; miss: ClosureMiss }
 > {
@@ -837,16 +849,17 @@ export async function deliverClosure(
 ): Promise<DeliverClosureResult> {
   const isLocal = isLocalHost(opts.host);
   const { signal, keepalive, outPath } = opts;
-  const failed = (
-    r: Extract<ProvisionResult, { ok: false }>,
-  ): DeliverClosureResult => ({ ...r, kind: "failed" });
+  const failed = (r: ProvisionFailure): DeliverClosureResult => ({
+    ...r,
+    kind: "failed",
+  });
   if (signal?.aborted)
     return failed({
       ok: false,
       reason: `${opts.host}: delivery aborted before it started`,
       cause: "network",
     });
-  const pin = (): Promise<ProvisionResult | null> =>
+  const pin = (): Promise<ProvisionFailure | null> =>
     pinGcRoot(
       opts.host,
       keepalive,
@@ -885,7 +898,7 @@ export async function deliverClosure(
       // still-valid target may short-circuit as success.
       opts.onDelivering?.();
       const bail = await pin();
-      if (bail && !bail.ok) return failed(bail);
+      if (bail) return failed(bail);
       opts.budget.reset();
       opts.onProgress(
         `${opts.host}: already provisioned at ${outPath} — skipped copy`,
@@ -907,18 +920,14 @@ export async function deliverClosure(
     onActivity: opts.onActivity,
     signal,
   });
-  if (staged.bail !== null) {
-    if (staged.bail.ok)
-      throw new Error("stageAgentClosure bailed with a success");
-    return failed(staged.bail);
-  }
+  if (staged.bail !== null) return failed(staged.bail);
   if (!staged.onTarget)
     return { ok: false, kind: "not-delivered", ...staged.miss };
 
   // 5. Commit the delivered output behind the root — the same required
   //    operation as the warm hit.
   const bail = await pin();
-  if (bail && !bail.ok) return failed(bail);
+  if (bail) return failed(bail);
   opts.budget.reset();
   // Say only what is known: the closure is valid in the target store. It may
   // have come from the declared cache or been there already.

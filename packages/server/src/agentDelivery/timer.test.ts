@@ -119,15 +119,6 @@ describe("startUpdateTimer", () => {
     expect(clock.armedFor()).toBeUndefined();
   });
 
-  it("stop() ends it", () => {
-    const clock = fakeClock(at("2026-10-08T07:00:00Z"));
-    const t = start({ clock });
-    t.timer.stop();
-    expect(clock.armedFor()).toBeUndefined();
-    t.timer.poke();
-    expect(t.asks).toHaveLength(1);
-  });
-
   it("keeps its cadence when the policy's tick throws", () => {
     const clock = fakeClock(at("2026-10-08T07:59:00Z"));
     let calls = 0;

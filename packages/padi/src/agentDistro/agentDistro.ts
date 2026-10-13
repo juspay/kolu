@@ -38,7 +38,6 @@ import { type CellStore, inMemoryStore } from "@kolu/surface/server";
 import { padiSurfaceCtx } from "../padiSurfaceCtx.ts";
 import { agentDistroBake } from "./bake.ts";
 import {
-  deliveringProfiles,
   deliveryFailed,
   deliveryOf,
   deliveryStarted,
@@ -64,9 +63,8 @@ function bundleName(profile: string): string {
 }
 
 /** Publish what this host keeps of `setting`'s profile's deliveries —
- *  readable with agents off too (the profile the setting still names) — and
- *  which profiles have a delivery in flight. Nothing else to say on an unbaked
- *  padi or before the first push (no profile). */
+ *  readable with agents off too (the profile the setting still names).
+ *  Nothing to say on an unbaked padi or before the first push (no profile). */
 function publishReceipt(setting: AgentDistroSetting): void {
   const bake = agentDistroBake();
   const profile = bake?.profiles.get(bundleName(setting.profile));
@@ -74,7 +72,6 @@ function publishReceipt(setting: AgentDistroSetting): void {
     padiSurfaceCtx.cells.agentDistroReceipt.set({
       ...EMPTY_AGENT_DISTRO_RECEIPT,
       profile: setting.profile,
-      running: [...deliveringProfiles()],
     });
     return;
   }
@@ -85,7 +82,6 @@ function publishReceipt(setting: AgentDistroSetting): void {
       profile,
       bundleOnHost(bake, profile),
       unlandedRunOf(profile.name),
-      deliveringProfiles(),
     ),
     profile: setting.profile,
   });
@@ -103,7 +99,6 @@ function publishReceiptLoud(setting: AgentDistroSetting): void {
     padiSurfaceCtx.cells.agentDistroReceipt.set({
       ...EMPTY_AGENT_DISTRO_RECEIPT,
       profile: setting.profile,
-      running: [...deliveringProfiles()],
       error: err instanceof Error ? err.message : String(err),
     });
   }

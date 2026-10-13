@@ -32,21 +32,6 @@ export function agentBundleShortHash(bundle: string): string {
   return base.slice(0, 8);
 }
 
-/** Where kolu-server roots a bundle it delivered to a host — a KOLU-OWNED
- *  root, relative to that host's home (a remote's ssh login resolves it there;
- *  the local arm anchors it to `$HOME`), beside `@kolu/surface-remote`'s own
- *  per-agent roots and with their "latest" semantics: one fixed link per
- *  profile, each delivery overwrites it, so the previous bundle drops out of
- *  the root set once nothing else holds it.
- *
- *  It deliberately ignores `$XDG_STATE_HOME`, unlike agent-distro's `current`
- *  (which padi points at the same bundle under the host's real state home):
- *  the root is made over ssh by kolu-server, which cannot read a host's
- *  environment, so it names the one place it can — the login's home. */
-export function deliveryGcRootPath(profile: string): string {
-  return `.local/state/kolu/agent-distro/gcroots/${profile}`;
-}
-
 /** `path` with `placeholder` (the state home the Nix half built it against)
  *  replaced by a host's real `stateHome`. Throws if `path` is not under the
  *  placeholder — a listing not built that way would point every host at the

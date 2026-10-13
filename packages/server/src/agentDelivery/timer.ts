@@ -50,23 +50,19 @@ function nodeTimer(fn: () => void, ms: number): () => void {
   return () => clearTimeout(timer);
 }
 
-/** Start the timer. `poke()` asks now and re-arms;
- *  `stop()` ends it. */
+/** Start the timer, for the server's life. `poke()` asks now and re-arms. */
 export function startUpdateTimer(deps: UpdateTimerDeps): {
   readonly poke: () => void;
-  readonly stop: () => void;
 } {
   const now = deps.now ?? Date.now;
   const setTimer = deps.setTimer ?? nodeTimer;
   let cancel: (() => void) | undefined;
-  let stopped = false;
   /** When the timer last ticked with a boundary passed, epoch ms. */
   let boundaryAt: number | undefined;
 
   const arm = (): void => {
     cancel?.();
     cancel = undefined;
-    if (stopped) return;
     const schedule = deps.schedule();
     if (schedule === undefined) return;
     const t = now();
@@ -100,18 +96,10 @@ export function startUpdateTimer(deps: UpdateTimerDeps): {
   }
 
   const poke = (): void => {
-    if (stopped) return;
     if (deps.schedule() !== undefined) tick(true);
     arm();
   };
 
   poke();
-  return {
-    poke,
-    stop: () => {
-      stopped = true;
-      cancel?.();
-      cancel = undefined;
-    },
-  };
+  return { poke };
 }

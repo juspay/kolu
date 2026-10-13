@@ -19,17 +19,18 @@ import {
 import type { HostKey } from "kolu-common/hostKey";
 import { type Component, For, Show } from "solid-js";
 import {
-  agentHostCheckableNow,
   agentsWhere,
   checkAgentsOn,
   hostAgentDetail,
 } from "../agents/useAgentDistro";
+import { padiMap } from "../wire";
 import { DocLink } from "../ui/DocLink";
 
-/** The one action a machine's section offers: check for newer agents. */
+/** The one action a machine's section offers: check for newer agents. Shown
+ *  when the machine's agents allow one (`canCheck`); a disconnected machine's
+ *  last-known status cannot answer it. */
 const CheckRow: Component<{ host: HostKey }> = (props) => {
-  // A check needs a connected machine with no delivery already going there.
-  const enabled = () => agentHostCheckableNow(props.host);
+  const enabled = () => padiMap.entry(props.host).state().kind === "connected";
   return (
     <button
       type="button"

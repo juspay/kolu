@@ -311,54 +311,21 @@ export function agentFailureRemedy(
   }
 }
 
-/** A failed delivery's words, in the one order every surface shows them — the
- *  cause, the remedy (by reason, when there is one), when kolu tries again —
- *  each once. The tab mark's hover and the host details read this. */
+/** A failed delivery's words, in the one order the mark's hover shows them —
+ *  the cause, the remedy (by reason, when there is one), when kolu tries
+ *  again — each once. */
 export function agentFailureLines(
   failure: {
     readonly reason: AgentDistroFailureReason;
     readonly message: string;
   },
   where: string,
-): readonly [string, ...string[]] {
+): readonly string[] {
   return [
     `The coding agents could not be delivered to ${where}: ${failure.message}`,
     ...agentFailureRemedy(failure.reason),
     AGENTS_DELIVERY_AGAIN,
   ];
-}
-
-/** A mark's words, as a headline and the lines under it — the ONE wording its
- *  hover and the Settings line share. `where` names the
- *  machine as the host tab does — the local machine by its hostname, a remote
- *  by its own label; the client's one label function supplies it. `undefined`
- *  for `none`. */
-export function agentMarkWords(
-  mark: AgentMark,
-  where: string,
-): { readonly title: string; readonly detail: readonly string[] } | undefined {
-  switch (mark.kind) {
-    case "none":
-      return undefined;
-    case "checking":
-      return { title: `Coding agents: checking ${where}…`, detail: [] };
-    case "ready":
-      return {
-        title: `Coding agents ready on ${where}: ${mark.profile} (${mark.hash}) — new terminals on ${where} start with them`,
-        detail: mark.delivering ? [AGENTS_UPDATE_DOWNLOADING] : [],
-      };
-    case "downloading":
-      return {
-        title: `Delivering the coding agents to ${where}…`,
-        detail: [],
-      };
-    case "failed": {
-      const [title, ...detail] = agentFailureLines(mark, where);
-      return { title, detail };
-    }
-    default:
-      return mark satisfies never;
-  }
 }
 
 /** A ready host's state line, in its host details, while a newer set is
@@ -369,15 +336,30 @@ export const AGENTS_READY_DELIVERING = "ready · delivering newer agents…";
 export const AGENTS_UPDATE_DOWNLOADING =
   "Delivering newer agents — new terminals keep these until they have fully arrived.";
 
-/** A mark's words as one text — its accessible name and its hover.
- *  `undefined` for `none`. */
+/** A mark's words, one line each — its accessible name and its hover.
+ *  `where` names the machine as the host tab does (the client's one label
+ *  function supplies it). `undefined` for `none`. */
 export function agentMarkLabel(
   mark: AgentMark,
   where: string,
 ): string | undefined {
-  const words = agentMarkWords(mark, where);
-  if (words === undefined) return undefined;
-  return [words.title, ...words.detail].join("\n");
+  switch (mark.kind) {
+    case "none":
+      return undefined;
+    case "checking":
+      return `Coding agents: checking ${where}…`;
+    case "ready":
+      return [
+        `Coding agents ready on ${where}: ${mark.profile} (${mark.hash}) — new terminals on ${where} start with them`,
+        ...(mark.delivering ? [AGENTS_UPDATE_DOWNLOADING] : []),
+      ].join("\n");
+    case "downloading":
+      return `Delivering the coding agents to ${where}…`;
+    case "failed":
+      return agentFailureLines(mark, where).join("\n");
+    default:
+      return mark satisfies never;
+  }
 }
 
 /** A version as agent-distro's picker shows it: without the package's `+`
@@ -1235,30 +1217,6 @@ export const AGENTS_HOST_CHECK = {
 /** A check kolu-server would not run (a run already going, or nothing set). */
 export function agentCheckFailed(host: string, message: string): string {
   return `Could not check for newer coding agents on ${host}: ${message}`;
-}
-
-/** Can `status`'s host be checked now — ready with no delivery running there,
- *  or failed (checking is how it is tried again)? Read through the mark, as the
- *  status line and the tab are. */
-export function agentUpdateCheckable(
-  status: AgentDistroStatus | undefined,
-): boolean {
-  const mark = agentMarkOf(status, false);
-  return (mark.kind === "ready" && !mark.delivering) || mark.kind === "failed";
-}
-
-/** One host as Check now sees it: whether it is connected, and its status. */
-export interface AgentCheckHost {
-  readonly connected: boolean;
-  readonly status: AgentDistroStatus | undefined;
-}
-
-/** Will Check now ask this host — connected (a disconnected host's last-known
- *  `ready` cannot answer), and ready with no delivery running there, or
- *  failed ({@link agentUpdateCheckable})? The ONE
- *  per-host test the button's call and its busy state share. */
-export function agentHostCheckable(host: AgentCheckHost): boolean {
-  return host.connected && agentUpdateCheckable(host.status);
 }
 
 /** The facts of a ready status an update is read from — plain strings, so a
