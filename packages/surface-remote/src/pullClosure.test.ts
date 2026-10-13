@@ -7,7 +7,6 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { useControlDir } from "./controlDir.testutil";
 import { sshKeepalive } from "./keepalive";
 import {
-  makeStepBudget,
   PROVISION_COPY_SILENCE_MS,
   PROVISION_STEP_SILENCE_BASE_MS,
 } from "./nixCopy";
@@ -42,8 +41,6 @@ const pull = (host = "ci@croissant", onProgress = vi.fn()) =>
     storePath: CA,
     rootPath: ROOT,
     onProgress,
-    onActivity: () => {},
-    budget: makeStepBudget(PROVISION_STEP_SILENCE_BASE_MS, 2),
     keepalive: sshKeepalive(10, 3),
   });
 const calls = () => vi.mocked(runCapture).mock.calls;
@@ -51,7 +48,7 @@ const calls = () => vi.mocked(runCapture).mock.calls;
 describe("pullClosure — the host pulls a content-addressed closure from the cache", () => {
   it("a warm host is rooted and never copied to", async () => {
     vi.mocked(runCapture).mockResolvedValue(okOut);
-    expect(await pull()).toEqual({ ok: true, outPath: CA });
+    expect(await pull()).toEqual({ ok: true });
     expect(calls().some(([, a]) => isCopy(a))).toBe(false);
     const pin = calls().find(([, a]) => isPin(a));
     expect(pin?.[0]).toBe("ssh");
@@ -71,7 +68,7 @@ describe("pullClosure — the host pulls a content-addressed closure from the ca
     vi.mocked(runCapture).mockImplementation(async (_cmd, args) =>
       isCheck(args) ? failOut : okOut,
     );
-    expect(await pull()).toEqual({ ok: true, outPath: CA });
+    expect(await pull()).toEqual({ ok: true });
     const order = calls().map(([, a]) =>
       isCheck(a) ? "check" : isCopy(a) ? "copy" : isPin(a) ? "pin" : "?",
     );
@@ -97,7 +94,7 @@ describe("pullClosure — the host pulls a content-addressed closure from the ca
     expect(args).not.toContain("--to");
   });
 
-  it("the copy runs under the fixed copy bound, not the root commit's budget", async () => {
+  it("the copy runs under the fixed copy bound, the root commit under a fresh provisioning budget", async () => {
     vi.mocked(runCapture).mockImplementation(async (_cmd, args) =>
       isCheck(args) ? failOut : okOut,
     );

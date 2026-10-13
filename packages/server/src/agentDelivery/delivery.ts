@@ -1,14 +1,10 @@
 /**
  * Delivering agent-distro's bundles to every host — kolu-server's half of the
- * Agents setting, driven on agent-distro's clock, not kolu's. The binder runs
- * no Nix for it and moves no bundle bytes: per run it reads, for each bound
- * host's system, upstream's content-addressed index
- * (`@kolu/agent-distro/caIndex`) — which store path that system's bundle is —
- * and has the HOST pull that path straight from agent-distro's binary cache
- * and root it (`@kolu/surface-remote`'s `pullClosure`). The path is
- * content-addressed, so no Nix on the host has to trust anything; nothing is
- * ever evaluated, rewritten or built, on any arm. The host's padi is told each
- * step (`agentDistro.report`) and points `current` at what landed.
+ * Agents setting, driven on agent-distro's clock, not kolu's: per run, for
+ * each bound host's system, which bundle (`DeliveryOps.published`), then
+ * getting it onto the host (`DeliveryOps.pull`) — nothing is ever built. The
+ * host's padi is told each step (`agentDistro.report`) and points `current`
+ * at what landed.
  *
  * Why a run happens decides one thing ({@link DeliveryTrigger}): a host taking
  * the setting (`connect`: every bind, reconnect and real change) reuses the
@@ -20,12 +16,10 @@
  * here is testable without a network or a host.
  */
 
-import type { AgentDistroDelivery } from "@kolu/agent-distro/bake";
 import type { CaIndexEntry } from "@kolu/agent-distro/caIndex";
 import type { AgentDistroDeliveryReport } from "@kolu/agent-distro/schema";
-import { updateDue } from "@kolu/agent-distro/schedule";
+import { type UpdaterSchedule, updateDue } from "@kolu/agent-distro/schedule";
 import type { Logger } from "@kolu/log";
-import type { PullClosureResult } from "@kolu/surface-remote";
 
 /** The steps of a delivery. Each throws with its own words. */
 export interface DeliveryOps {
@@ -36,14 +30,18 @@ export interface DeliveryOps {
    *  for that system or the index cannot be read — never a reason to
    *  evaluate or build one. */
   published(system: string, profile: string): Promise<CaIndexEntry>;
-  /** The route: have the host pull `storePath` from the cache and root it —
-   *  never building. */
+  /** The route: have the host pull `storePath` and root it — never building.
+   *  A pull that did not land answers its cause in words a user reads (`label`
+   *  names the host in them). */
   pull(args: {
     readonly ssh: string;
+    readonly label: string;
     readonly storePath: string;
     readonly profile: string;
     readonly onProgress: (line: string) => void;
-  }): Promise<PullClosureResult>;
+  }): Promise<
+    { readonly ok: true } | { readonly ok: false; readonly message: string }
+  >;
 }
 
 /** A host a delivery can reach: its pool key, how the route reaches it, how
@@ -76,27 +74,9 @@ export interface AgentDelivery {
   running(): boolean;
 }
 
-/** The words for a pull that did not land — Nix's own line inside
- *  kolu-server's. */
-function notDeliveredMessage(
-  bake: AgentDistroDelivery,
-  host: DeliveryHost,
-  profile: string,
-  storePath: string,
-  res: Exclude<PullClosureResult, { ok: true }>,
-): string {
-  switch (res.kind) {
-    case "failed":
-      return res.reason;
-    case "uncopied":
-      return `${host.label} could not pull the ${profile} agents (${storePath}) from agent-distro's cache (${bake.cache}): ${res.reason}`;
-    default:
-      return res satisfies never;
-  }
-}
-
 export function createAgentDelivery(deps: {
-  readonly bake: AgentDistroDelivery;
+  /** Upstream's schedule: a connect reuses an index answer within its period. */
+  readonly schedule: UpdaterSchedule;
   readonly ops: DeliveryOps;
   readonly log: Logger;
   /** The bundle the current setting rides (`bundleProfileOf`), or `undefined`
@@ -107,7 +87,7 @@ export function createAgentDelivery(deps: {
   /** Wall clock, epoch ms. */
   readonly now?: () => number;
 }): AgentDelivery {
-  const { bake, ops, log } = deps;
+  const { schedule, ops, log } = deps;
   const now = deps.now ?? Date.now;
   /** The last index answer per `system#profile`, and when it was read: a
    *  host's connect reuses it within the schedule period. */
@@ -131,11 +111,7 @@ export function createAgentDelivery(deps: {
     if (
       !fresh &&
       last !== undefined &&
-      !updateDue(
-        Math.floor(now() / 1000),
-        Math.floor(last.at / 1000),
-        bake.schedule,
-      )
+      !updateDue(Math.floor(now() / 1000), Math.floor(last.at / 1000), schedule)
     )
       return last.entry;
     const entry = await ops.published(system, profile);
@@ -177,20 +153,18 @@ export function createAgentDelivery(deps: {
       const { ca } = await bundleFor(system);
       const res = await ops.pull({
         ssh: host.ssh,
+        label: host.label,
         storePath: ca,
         profile,
         onProgress: (line) =>
           log.debug({ ...at, line }, "agent-distro delivery"),
       });
       if (res.ok) {
-        await report(host, { kind: "landed", profile, bundle: res.outPath });
-        log.info(
-          { ...at, bundle: res.outPath },
-          "agent-distro bundle delivered",
-        );
+        await report(host, { kind: "landed", profile, bundle: ca });
+        log.info({ ...at, bundle: ca }, "agent-distro bundle delivered");
         return "landed";
       }
-      const message = notDeliveredMessage(bake, host, profile, ca, res);
+      const { message } = res;
       log.warn({ ...at, message }, "agent-distro bundle not delivered");
       await report(host, { kind: "failed", profile, message });
       return "failed";

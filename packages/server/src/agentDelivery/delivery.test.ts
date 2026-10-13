@@ -8,11 +8,9 @@
  * path — nothing is evaluated or built (no such op exists to call).
  */
 
-import type { AgentDistroDelivery } from "@kolu/agent-distro/bake";
 import type { CaIndexEntry } from "@kolu/agent-distro/caIndex";
 import type { AgentDistroDeliveryReport } from "@kolu/agent-distro/schema";
 import type { Logger } from "@kolu/log";
-import type { PullClosureResult } from "@kolu/surface-remote";
 import { describe, expect, it, vi } from "vitest";
 import {
   createAgentDelivery,
@@ -20,11 +18,7 @@ import {
   type DeliveryOps,
 } from "./delivery.ts";
 
-const BAKE: AgentDistroDelivery = {
-  index: "https://index.example.org/ca-index",
-  cache: "https://cache.example.org/agent-distro",
-  schedule: { periodSeconds: 21600, offsetSeconds: 7200 },
-};
+const SCHEDULE = { periodSeconds: 21600, offsetSeconds: 7200 };
 
 const log = {
   error: vi.fn(),
@@ -40,16 +34,12 @@ const at = (iso: string) => Date.parse(iso);
 const caFor = (n: number, system: string, profile: string) =>
   `/nix/store/ca${n}-${system}-${profile}`;
 
-/** Fake steps: each records its calls; `pull` answers from `result` (per
- *  ssh), and can be held open with `hold`. */
+/** Fake steps: each records its calls; `pull` answers from `result`,
+ *  and can be held open with `hold`. */
 function fakeOps(
   opts: {
     systems?: Record<string, string>;
-    result?: (
-      ssh: string,
-      storePath: string,
-      profile: string,
-    ) => PullClosureResult;
+    result?: () => Awaited<ReturnType<DeliveryOps["pull"]>>;
     published?: (
       system: string,
       profile: string,
@@ -71,12 +61,7 @@ function fakeOps(
     pull: async ({ ssh, storePath, profile }) => {
       pulled.push({ ssh, storePath, profile });
       if (gate !== undefined) await gate;
-      return (
-        opts.result?.(ssh, storePath, profile) ?? {
-          ok: true,
-          outPath: storePath,
-        }
-      );
+      return opts.result?.() ?? { ok: true };
     },
   };
   return {
@@ -117,7 +102,7 @@ function setup(opts: {
   now?: () => number;
 }) {
   return createAgentDelivery({
-    bake: BAKE,
+    schedule: SCHEDULE,
     ops: opts.ops,
     log,
     bundle: opts.bundle ?? (() => "vanilla"),
@@ -175,31 +160,11 @@ describe("createAgentDelivery", () => {
     expect(nix.pulled).toEqual([]);
   });
 
-  it("a pull the cache could not serve names the host, the path and the cache, in Nix's words", async () => {
-    const nix = fakeOps({
-      result: () => ({
-        ok: false,
-        kind: "uncopied",
-        reason: "unable to download 'https://cache.example.org/…'",
-      }),
-    });
-    const box = fakeHost("remote:box", "box");
-    const delivery = setup({ ops: nix.ops, hosts: [box.host] });
-    expect(await delivery.run({ trigger: "user" })).toEqual(["failed"]);
-    const last = box.reports.at(-1);
-    const message = last?.kind === "failed" ? last.message : "";
-    expect(message).toBe(
-      `box could not pull the vanilla agents (${caFor(1, "x86_64-linux", "vanilla")}) from agent-distro's cache (${BAKE.cache}): unable to download 'https://cache.example.org/…'`,
-    );
-  });
-
   it("a failure is not remembered: a reconnect delivers again", async () => {
     let fail = true;
     const nix = fakeOps({
-      result: (_ssh, storePath) =>
-        fail
-          ? { ok: false, kind: "uncopied", reason: "ssh dropped" }
-          : { ok: true, outPath: storePath },
+      result: () =>
+        fail ? { ok: false, message: "ssh dropped" } : { ok: true },
     });
     const box = fakeHost("remote:box", "box");
     const delivery = setup({ ops: nix.ops, hosts: [box.host] });
@@ -209,14 +174,9 @@ describe("createAgentDelivery", () => {
     expect(nix.pulled).toHaveLength(2);
   });
 
-  it("a pull `failed` (root commit / abort) is a delivery failure", async () => {
+  it("a pull that did not land is a delivery failure, in the pull's own words", async () => {
     const nix = fakeOps({
-      result: () => ({
-        ok: false,
-        kind: "failed",
-        reason: "box: ssh dropped",
-        cause: "network",
-      }),
+      result: () => ({ ok: false, message: "box: ssh dropped" }),
     });
     const box = fakeHost("remote:box", "box");
     const delivery = setup({ ops: nix.ops, hosts: [box.host] });

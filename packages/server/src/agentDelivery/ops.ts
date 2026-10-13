@@ -1,20 +1,9 @@
 /**
- * The real {@link DeliveryOps}. Two moves, neither of them Nix on this machine:
- *
- *   - which bundle: one HTTPS GET of upstream's content-addressed index
- *     (`@kolu/agent-distro/caIndex`) per system and profile;
- *   - getting it there: `@kolu/surface-remote`'s `pullClosure` — the HOST runs
- *     `nix copy --from <cache>` for the content-addressed path and roots it.
- *     The host's system comes from `resolveSystem`.
- *
- * Why the host pulls and needs no trust: Nix gives an UNTRUSTED user two ways
- * to obtain an input-addressed store path — substitute it from a cache the
- * DAEMON is configured with, or build it. A CONTENT-ADDRESSED path is
- * different: every daemon takes it from anyone, and `nix copy --from` reads a
- * store directly rather than proposing a substituter, so no `trusted-users`
- * entry, no key and no `nix.conf` edit is needed anywhere (`pullClosure`'s
- * header). agent-distro's CI publishes that rewrite for every system it
- * builds, Macs included.
+ * The real {@link DeliveryOps}. Which bundle: one HTTPS GET of upstream's
+ * content-addressed index (`@kolu/agent-distro/caIndex`) per system. Getting
+ * it there: `@kolu/surface-remote`'s `pullClosure` — the host pulls the path
+ * from agent-distro's cache and roots it, trusting nothing (its header says
+ * why). This machine runs no Nix for either.
  */
 
 import type { AgentDistroDelivery } from "@kolu/agent-distro/bake";
@@ -23,9 +12,6 @@ import {
   DEFAULT_SSH_KEEPALIVE,
   homeGcRoot,
   isLocalHost,
-  makeStepBudget,
-  PROVISION_STEP_MAX_EXPIRIES,
-  PROVISION_STEP_SILENCE_BASE_MS,
   pullClosure,
   resolveSystem,
 } from "@kolu/surface-remote";
@@ -95,7 +81,7 @@ export function realDeliveryOps(bake: AgentDistroDelivery): DeliveryOps {
     systemOf: (ssh) => resolveSystem(ssh, { onProgress: () => {}, keepalive }),
     published: (system, profile) =>
       readPublishedBundle(bake.index, system, profile),
-    pull: ({ ssh, storePath, profile, onProgress }) => {
+    pull: async ({ ssh, label, storePath, profile, onProgress }) => {
       // kolu's own root, one link per profile ("latest", like surface-remote's
       // per-agent roots). Home-relative, never `$XDG_STATE_HOME`: over ssh the
       // login's home is the one place this process can name on a host.
@@ -107,19 +93,23 @@ export function realDeliveryOps(bake: AgentDistroDelivery): DeliveryOps {
         throw new Error(
           "HOME is unset, so the agents' GC root on this machine cannot be formed",
         );
-      return pullClosure({
+      const res = await pullClosure({
         host: ssh,
         cacheUrl: bake.cache,
         storePath,
         rootPath,
         onProgress,
-        onActivity: () => {},
-        budget: makeStepBudget(
-          PROVISION_STEP_SILENCE_BASE_MS,
-          PROVISION_STEP_MAX_EXPIRIES,
-        ),
         keepalive,
       });
+      if (res.ok) return res;
+      // Nix's own line inside kolu-server's words.
+      return {
+        ok: false,
+        message:
+          res.kind === "uncopied"
+            ? `${label} could not pull the ${profile} agents (${storePath}) from agent-distro's cache (${bake.cache}): ${res.reason}`
+            : res.reason,
+      };
     },
   };
 }

@@ -18,26 +18,11 @@ const session = makeSession({
 pumpRemoteSurface({ source: surface, session, makeSink: ({ seq }) => sink });
 ```
 
-The copy half of provisioning is its own export, `deliverClosure`: get one
-exact, already-evaluated store path into a host's store from a declared binary
-cache and root it there — and **never build it**, on either side. A Linux host
-is sent the closure **content-addressed** (`nix store make-content-addressed`
-from the cache, or your own store when it holds it, then `nix copy --to
-ssh-ng://host`), which any Nix accepts with no `trusted-users` entry and no
-key; the rewrite is rooted in your store behind a link per output, which is
-also how the next delivery (after a restart too) knows the rewritten path
-without reading the cache again. A darwin host is sent the signed
-input-addressed closure, since rewriting breaks Mach-O code signatures. The
-result names the path the host now holds. When it does not land, it carries
-Nix's own words for why (a cache miss, a darwin host's Nix refusing the signed
-paths, a failed copy).
-
-When the path is already published content-addressed in a cache, the host can
-fetch it itself: `pullClosure` runs `nix copy --from <cache>` **on the host**
-(after a warm check), then roots it — no bytes through your machine, no Nix
-evaluation, and no trust setting on the host, since `--from` reads a store
-directly and a content-addressed path needs no signature. kolu delivers its
-coding agents to every host this way.
+When a store path is already published content-addressed in a cache, the host
+can fetch it itself: `pullClosure` runs `nix copy --from <cache>` **on the
+host** (after a warm check), then roots it — no bytes through your machine, no
+Nix evaluation, and no trust setting on the host, since `--from` reads a store
+directly and a content-addressed path needs no signature.
 
 By default a dial's ssh gives up on a peer that has not answered a probe for
 ~30s. That is the right answer while someone is watching a host; an unattended

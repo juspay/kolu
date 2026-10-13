@@ -81,12 +81,10 @@
  *
  * Localhost shortcut: `nix build` and the root commit both target the local store.
  *
- * **Steps 1–3 and 5 are their own public operation, {@link deliverClosure}** —
- * "get this exact, already-evaluated output path into that store from the
- * declared cache, and root it there", with NO build at any step. `provisionAgent`
- * is one caller (it adds step 4, realising on the host, when the closure was not
- * delivered); a caller that must never build stops where delivery stops,
- * with Nix's own words for why the closure did not land.
+ * **Steps 1–3 and 5 are their own operation, {@link deliverClosure}** — "get
+ * this exact, already-evaluated output path into that store from the declared
+ * cache, and root it there", with NO build at any step. `provisionAgent` adds
+ * step 4, realising on the host, when the closure was not delivered.
  *
  * **Lifetime ownership (#1908 D1b/D1c).** Every child spawns through
  * `process.ts` with a REQUIRED {@link LifetimePolicy}: the quick steps
@@ -475,7 +473,7 @@ type CopyOutcome =
 /** The ONE shape of "the user's abort landed inside this provisioning step" —
  *  named per step, so an abort during the slow ship can never report the
  *  prefetch it had already finished. */
-export function abortedDuring(host: string, step: string): ProvisionFailure {
+function abortedDuring(host: string, step: string): ProvisionFailure {
   return {
     ok: false,
     reason: `${host}: provisioning aborted during ${step}`,
@@ -685,11 +683,11 @@ export async function checkValidity(
 
 /** What staging (steps 2 and 3) concluded: a `ProvisionResult` to BAIL with
  *  (the `pinGcRoot` idiom this file already uses), or the path the target
- *  store now provably HOLDS, or why it holds nothing ({@link ClosureMiss}). */
+ *  store now provably HOLDS, or Nix's words for why it holds nothing. */
 type Staged =
   | { bail: ProvisionFailure }
   | { bail: null; onTarget: true; path: string }
-  | { bail: null; onTarget: false; miss: ClosureMiss };
+  | { bail: null; onTarget: false; reason: string };
 
 /** Steps 2 and 3 for a darwin target: the SIGNED, input-addressed closure
  *  (see the module header for why darwin does not get the content-addressed
@@ -726,7 +724,7 @@ async function stageInputAddressed(opts: {
       `local validity check timed out after ${PROVISION_PROBE_DEADLINE_MS}ms — treating the agent closure as not yet cached locally`,
     );
   }
-  let unfetched: ClosureMiss | undefined;
+  let unfetched: string | undefined;
   if (held === "absent" || held === "timed-out") {
     const prefetch = await prefetchAgentClosure({
       outPath: opts.outPath,
@@ -740,7 +738,7 @@ async function stageInputAddressed(opts: {
     if (prefetch.kind === "aborted") {
       return { bail: abortedDuring(opts.host, "the cache prefetch") };
     }
-    if (prefetch.kind === "missed") unfetched = { reason: prefetch.reason };
+    if (prefetch.kind === "missed") unfetched = prefetch.reason;
   }
   // Localhost never ships: the store just checked IS the target store, so a
   // hit there is already a hit on the target.
@@ -748,7 +746,7 @@ async function stageInputAddressed(opts: {
     return { bail: null, onTarget: true, path: opts.outPath };
   if (unfetched !== undefined) {
     if (!opts.isLocal) opts.narrate("no local copy of the agent to ship");
-    return { bail: null, onTarget: false, miss: unfetched };
+    return { bail: null, onTarget: false, reason: unfetched };
   }
   const ship = await shipAgentClosure({
     host: opts.host,
@@ -768,7 +766,7 @@ async function stageInputAddressed(opts: {
   return {
     bail: null,
     onTarget: false,
-    miss: { reason: ship.reason },
+    reason: ship.reason,
   };
 }
 
@@ -992,7 +990,7 @@ async function stageContentAddressed(opts: {
       return {
         bail: null,
         onTarget: false,
-        miss: { reason: rewrite.reason },
+        reason: rewrite.reason,
       };
     path = rewrite.path;
     const bail = await rememberContentAddressed(opts.host, opts.outPath, path, {
@@ -1021,7 +1019,7 @@ async function stageContentAddressed(opts: {
   return {
     bail: null,
     onTarget: false,
-    miss: { reason: ship.reason },
+    reason: ship.reason,
   };
 }
 
@@ -1029,13 +1027,6 @@ async function stageContentAddressed(opts: {
  *  one kind that keeps the signed, input-addressed closure? */
 function isDarwinSystem(system: string): boolean {
   return system.endsWith("-darwin");
-}
-
-/** Why a closure did not reach the target store — never a build's business:
- *  `reason` is what Nix said, verbatim (a cache miss, a network failure, a
- *  darwin target's signature refusal, a failed ship). */
-export interface ClosureMiss {
-  readonly reason: string;
 }
 
 export interface DeliverClosureOptions {
@@ -1084,14 +1075,19 @@ export interface DeliverClosureOptions {
  *     `rootPath`. It is the path the target holds: the input-addressed output
  *     when the target already had it (or is darwin), else its
  *     content-addressed form — the path a caller runs from;
- *   - `not-delivered` — the closure is NOT in the target store, and why
- *     ({@link ClosureMiss}); nothing was rooted. A caller that may build
- *     (`provisionAgent`) builds; one that may not, stops and says why;
+ *   - `not-delivered` — the closure is NOT in the target store; `reason` is
+ *     what Nix said, verbatim (a cache miss, a network failure, a darwin
+ *     target's signature refusal, a failed ship). Nothing was rooted, and
+ *     `provisionAgent` builds;
  *   - `failed` — an abort, or a required root commit failed: the
  *     `ProvisionResult` failure shape, with its retry class. */
 export type DeliverClosureResult =
   | { readonly ok: true; readonly outPath: string }
-  | ({ readonly ok: false; readonly kind: "not-delivered" } & ClosureMiss)
+  | {
+      readonly ok: false;
+      readonly kind: "not-delivered";
+      readonly reason: string;
+    }
   | ({ readonly ok: false; readonly kind: "failed" } & Extract<
       ProvisionResult,
       { ok: false }
@@ -1205,7 +1201,7 @@ export async function deliverClosure(
         });
   if (staged.bail !== null) return failed(staged.bail);
   if (!staged.onTarget)
-    return { ok: false, kind: "not-delivered", ...staged.miss };
+    return { ok: false, kind: "not-delivered", reason: staged.reason };
 
   // 5. Commit the delivered path behind the root — the same required
   //    operation as the warm hit.

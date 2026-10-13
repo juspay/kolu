@@ -94,7 +94,7 @@ export function installAgentDelivery(deps: {
       : undefined;
   };
   const delivery: AgentDelivery = createAgentDelivery({
-    bake,
+    schedule: bake.schedule,
     ops: realDeliveryOps(bake),
     log,
     bundle,

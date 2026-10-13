@@ -18,25 +18,27 @@
  *      progress-liveness bound (`PROVISION_COPY_SILENCE_MS`): Nix's per-path
  *      `copying …` lines prove it alive, and only silence kills it.
  *   3. `nix-store --realise <path> --add-root <root> --indirect` — the commit
- *      point, shared with `deliverClosure` and `provisionAgent`.
+ *      point, shared with `provisionAgent`, under a fresh provisioning
+ *      budget.
  *
  * Nothing is evaluated, rewritten or built, on either side: the caller names
- * a path it already knows is content-addressed and published (kolu reads it
- * off agent-distro's index). An input-addressed path would be refused by an
- * untrusted daemon at step 2 — that is the caller's contract to keep.
+ * a path it already knows is content-addressed and published. An
+ * input-addressed path would be refused by an untrusted daemon at step 2 —
+ * that is the caller's contract to keep.
  */
 
 import { isLocalHost, type SshDestination } from "./host";
 import type { SshKeepalive } from "./keepalive";
 import {
-  abortedDuring,
   causeFor,
   checkValidity,
   copyPolicy,
+  makeStepBudget,
   PROVISION_PROBE_DEADLINE_MS,
+  PROVISION_STEP_MAX_EXPIRIES,
+  PROVISION_STEP_SILENCE_BASE_MS,
   pinGcRoot,
   type ProvisionFailure,
-  type StepBudget,
 } from "./nixCopy";
 import { describeNixRun, runNix } from "./nixLog";
 import { describeExit } from "./process";
@@ -53,16 +55,6 @@ export interface PullClosureOptions {
    *  the ssh login's home when relative. Local: must be absolute. */
   rootPath: string;
   onProgress: (line: string) => void;
-  /** Every stderr line of the long-running copy and commit — the owner's
-   *  silence watchdog's liveness (see `ProvisionOptions.onActivity`). */
-  onActivity: () => void;
-  /** The progress-liveness budget of the root commit: charged on a silence
-   *  kill, reset on success. The copy runs under its own fixed bound
-   *  (`PROVISION_COPY_SILENCE_MS`). */
-  budget: StepBudget;
-  /** Aborting group-kills the in-flight child; the result is a retryable
-   *  `"network"` failure naming the step it landed in. */
-  signal?: AbortSignal;
   /** The ssh dead-peer policy for every ssh the pull opens. REQUIRED. */
   keepalive: SshKeepalive;
 }
@@ -72,10 +64,10 @@ export interface PullClosureOptions {
  *   - `ok` — `storePath` is valid in the target store and rooted at `rootPath`;
  *   - `uncopied` — the host's `nix copy --from <cache>` failed (not in the
  *     cache, no egress, a refused path): Nix's own words in `reason`;
- *   - `failed` — an abort, a silence kill, or the root commit failed: the
+ *   - `failed` — a silence kill, a dropped ssh, or the root commit failed: the
  *     `ProvisionResult` failure shape, with its retry class. */
 export type PullClosureResult =
-  | { readonly ok: true; readonly outPath: string }
+  | { readonly ok: true }
   | { readonly ok: false; readonly kind: "uncopied"; readonly reason: string }
   | ({ readonly ok: false; readonly kind: "failed" } & ProvisionFailure);
 
@@ -84,12 +76,11 @@ export type PullClosureResult =
 export async function pullClosure(
   opts: PullClosureOptions,
 ): Promise<PullClosureResult> {
-  const { host, keepalive, signal, storePath } = opts;
+  const { host, keepalive, storePath } = opts;
   const failed = (r: ProvisionFailure): PullClosureResult => ({
     ...r,
     kind: "failed",
   });
-  if (signal?.aborted) return failed(abortedDuring(host, "the warm check"));
   const target: string | SshDestination = isLocalHost(host)
     ? "localhost"
     : { host, keepalive };
@@ -97,12 +88,11 @@ export async function pullClosure(
 
   // 1. Warm check — the host may already hold it (an earlier pull, or another
   //    profile sharing the closure).
-  narrate("checking for a cached agent…");
-  const held = await checkValidity(target, storePath, { signal });
-  if (held === "aborted") return failed(abortedDuring(host, "the warm check"));
+  narrate(`checking whether the host already holds ${storePath}…`);
+  const held = await checkValidity(target, storePath, { signal: undefined });
   if (held === "timed-out")
     narrate(
-      `cached-agent check timed out after ${PROVISION_PROBE_DEADLINE_MS}ms — host may be degraded; pulling anyway`,
+      `the check timed out after ${PROVISION_PROBE_DEADLINE_MS}ms — host may be degraded; pulling anyway`,
     );
 
   // 2. The host reads the cache itself.
@@ -129,14 +119,12 @@ export async function pullClosure(
       ],
       {
         narrate,
-        onActivity: opts.onActivity,
+        onActivity: () => {},
         policy: copyPolicy(),
-        signal,
+        signal: undefined,
       },
     );
     if (!copy.ok) {
-      if (copy.kind === "aborted")
-        return failed(abortedDuring(host, "the copy from the cache"));
       if (copy.kind === "lifetime-expired")
         return failed({
           ok: false,
@@ -163,11 +151,9 @@ export async function pullClosure(
     storePath,
     opts.rootPath,
     opts.onProgress,
-    opts.onActivity,
-    opts.budget,
-    signal,
+    () => {},
+    makeStepBudget(PROVISION_STEP_SILENCE_BASE_MS, PROVISION_STEP_MAX_EXPIRIES),
+    undefined,
   );
-  if (bail !== null) return failed(bail);
-  opts.budget.reset();
-  return { ok: true, outPath: storePath };
+  return bail === null ? { ok: true } : failed(bail);
 }
