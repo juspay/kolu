@@ -10,8 +10,8 @@
  *   - the DELIVERY (the binder's arm only, `KOLU_AGENT_DISTRO_DELIVERY`):
  *     upstream's content-addressed index kolu-server reads each bundle's path
  *     off (`./caIndex.ts`), the one binary cache every host pulls that path
- *     from (`lib.cache`'s URL), and upstream's update schedule
- *     (`lib.schedule`).
+ *     from (`lib.cache`: URL and the key a Mac trusts its signed bundle by),
+ *     and upstream's update schedule (`lib.schedule`).
  *
  * Pure: the readers of the environment and the files stay where they run.
  */
@@ -40,9 +40,10 @@ export function parseAgentDistroProfiles(text: string): AgentDistroProfiles {
 const AgentDistroDeliverySchema = Schema.Struct({
   /** The base URL of upstream's content-addressed index (`./caIndex.ts`). */
   index: NonEmpty,
-  /** The one binary cache every host pulls a bundle's closure from. A
-   *  content-addressed path needs no key, so none is carried. */
-  cache: NonEmpty,
+  /** The one binary cache every host pulls a bundle's closure from, and its
+   *  signing key — what a Mac must trust to take the signed bundle (a
+   *  content-addressed one needs none). */
+  cache: Schema.Struct({ url: NonEmpty, publicKey: NonEmpty }),
   schedule: UpdaterScheduleSchema,
 });
 

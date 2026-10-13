@@ -38,7 +38,10 @@ describe("parseAgentDistroProfiles", () => {
 describe("parseAgentDistroDelivery", () => {
   const delivery = {
     index: "https://index.example.org/ca-index",
-    cache: "https://cache.example.org",
+    cache: {
+      url: "https://cache.example.org",
+      publicKey: "cache.example.org-1:AAAA",
+    },
     schedule: { periodSeconds: 21600, offsetSeconds: 7200 },
   };
 

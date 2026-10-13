@@ -2,8 +2,13 @@
  * The real {@link DeliveryOps}. Which bundle: one HTTPS GET of upstream's
  * content-addressed index (`@kolu/agent-distro/caIndex`) per system. Getting
  * it there: `@kolu/surface-remote`'s `pullClosure` — the host pulls the path
- * from agent-distro's cache and roots it, trusting nothing (its header says
- * why). This machine runs no Nix for either.
+ * from agent-distro's cache and roots it (its header says what trust each form
+ * needs). A Linux host pulls the content-addressed rewrite, which no Nix
+ * refuses; a Mac pulls the signed input-addressed bundle, because rewriting a
+ * Mach-O breaks its code signature and macOS kills it on launch (verified: a
+ * rewritten bundle's own `bash` fails `codesign --verify`, exit 137) — so a
+ * Mac's Nix must trust the login or the cache's key. This machine runs no Nix
+ * for either.
  */
 
 import type { AgentDistroDelivery } from "@kolu/agent-distro/bake";
@@ -67,7 +72,7 @@ export async function readPublishedBundle(
     return parseCaIndexEntry(text);
   } catch (err) {
     throw new Error(
-      `agent-distro's index entry at ${url} is not { rev, ca }: ${err instanceof Error ? err.message : String(err)}`,
+      `agent-distro's index entry at ${url} is not { rev, ia, ca }: ${err instanceof Error ? err.message : String(err)}`,
     );
   }
 }
@@ -81,7 +86,9 @@ export function realDeliveryOps(bake: AgentDistroDelivery): DeliveryOps {
     systemOf: (ssh) => resolveSystem(ssh, { onProgress: () => {}, keepalive }),
     published: (system, profile) =>
       readPublishedBundle(bake.index, system, profile),
-    pull: async ({ ssh, label, storePath, profile, onProgress }) => {
+    pull: async ({ ssh, label, system, published, profile, onProgress }) => {
+      const mac = system.endsWith("-darwin");
+      const storePath = mac ? published.ia : published.ca;
       // kolu's own root, one link per profile ("latest", like surface-remote's
       // per-agent roots). Home-relative, never `$XDG_STATE_HOME`: over ssh the
       // login's home is the one place this process can name on a host.
@@ -95,20 +102,25 @@ export function realDeliveryOps(bake: AgentDistroDelivery): DeliveryOps {
         );
       const res = await pullClosure({
         host: ssh,
-        cacheUrl: bake.cache,
+        cacheUrl: bake.cache.url,
         storePath,
+        ...(mac ? { signedBy: bake.cache.publicKey } : {}),
         rootPath,
         onProgress,
         keepalive,
       });
-      if (res.ok) return res;
-      // Nix's own line inside kolu-server's words.
+      if (res.ok) return { ok: true, bundle: storePath };
+      if (res.kind === "failed") return { ok: false, message: res.reason };
+      // Nix's own line inside kolu-server's words — and on a Mac, the one-line
+      // fix for the trust a signed bundle needs.
+      const why = `${label} could not pull the ${profile} agents (${storePath}) from agent-distro's cache (${bake.cache.url}): ${res.reason}`;
+      if (!mac) return { ok: false, message: why };
+      const who = isLocalHost(ssh)
+        ? "the user kolu runs as"
+        : "the login kolu connects as";
       return {
         ok: false,
-        message:
-          res.kind === "uncopied"
-            ? `${label} could not pull the ${profile} agents (${storePath}) from agent-distro's cache (${bake.cache}): ${res.reason}`
-            : res.reason,
+        message: `${why}. A Mac takes the signed agents only if its Nix trusts them: on ${label}, add ${who} to \`nix.settings.trusted-users\`, or agent-distro's cache key (${bake.cache.publicKey}) to \`nix.settings.trusted-public-keys\`.`,
       };
     },
   };

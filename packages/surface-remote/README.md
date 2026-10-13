@@ -18,11 +18,13 @@ const session = makeSession({
 pumpRemoteSurface({ source: surface, session, makeSink: ({ seq }) => sink });
 ```
 
-When a store path is already published content-addressed in a cache, the host
-can fetch it itself: `pullClosure` runs `nix copy --from <cache>` **on the
-host** (after a warm check), then roots it — no bytes through your machine, no
-Nix evaluation, and no trust setting on the host, since `--from` reads a store
-directly and a content-addressed path needs no signature.
+When a store path is already published in a cache, the host can fetch it
+itself: `pullClosure` runs `nix copy --from <cache>` **on the host** (after a
+warm check), then roots it — no bytes through your machine and no Nix
+evaluation. A content-addressed path needs no trust setting on the host, since
+`--from` reads a store directly; a signed input-addressed one (`signedBy`, for
+a macOS host, whose Mach-O signatures a rewrite breaks) needs the host to trust
+the login or the key.
 
 By default a dial's ssh gives up on a peer that has not answered a probe for
 ~30s. That is the right answer while someone is watching a host; an unattended

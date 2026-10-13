@@ -232,8 +232,10 @@ already uses — has the host download exactly that build from agent-distro's
 binary cache and pins it there so Nix's garbage collection leaves it alone.
 The machine running kolu moves none of the agents' bytes itself. A host needs
 only the ssh login, `nix` on the PATH of that login, and outbound HTTPS to the
-cache — no flakes, no GitHub access and nothing in its Nix settings — and
-nothing is ever compiled, on either side. The host's tab shows the delivery
+cache — no flakes and no GitHub access; a Linux host needs nothing in its Nix
+settings either, while a Mac must trust the login or the cache's key ([When a
+delivery fails](#when-a-delivery-fails)) — and nothing is ever compiled, on
+either side. The host's tab shows the delivery
 until it lands (below). Terminals opened on that host before then have no
 agents (and no pill).
 
@@ -339,14 +341,22 @@ so there instead.
 
 ## When a delivery fails
 
-No host's Nix settings matter here — Linux or Mac. agent-distro publishes every
-set in **content-addressed** form, where each store path is named by the hash of
-what it holds, so Nix takes it from anyone without asking whom it trusts. The
-login kolu connects as needs no place in `trusted-users`, and no machine needs
-agent-distro's cache or its key in its `nix.conf`.
+No Linux host's Nix settings matter here. A Linux host gets the agents in
+**content-addressed** form, where each store path is named by the hash of what
+it holds, so Nix takes them from anyone without asking whom it trusts. The
+login kolu connects as needs no place in `trusted-users`, and the host needs
+neither agent-distro's cache nor its key in its `nix.conf`.
+
+A Mac is the exception. Rewriting the agents into that form would break the
+code signatures macOS checks before it runs a program, so a Mac gets them as
+agent-distro's cache signed them, and its Nix takes them only if it trusts the
+login kolu connects as (`nix.settings.trusted-users`) or the cache's key
+(`nix.settings.trusted-public-keys`). When it trusts neither, the delivery
+fails with Nix's own words and that one-line fix.
 
 A delivery that fails — agent-distro has not published the set for that kind
-of machine yet, the host could not reach the cache, the download broke off —
+of machine yet, the host could not reach the cache, the download broke off, a
+Mac refused —
 carries kolu's words for the cause, with Nix's own line after it. The host gets no agents (kolu never
 compiles them), and its mark turns to the warning colour. kolu tries again on
 its own at the next scheduled time and whenever the machine reconnects (see

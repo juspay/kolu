@@ -30,17 +30,20 @@ export interface DeliveryOps {
    *  for that system or the index cannot be read — never a reason to
    *  evaluate or build one. */
   published(system: string, profile: string): Promise<CaIndexEntry>;
-  /** The route: have the host pull `storePath` and root it — never building.
-   *  A pull that did not land answers its cause in words a user reads (`label`
-   *  names the host in them). */
+  /** The route: have the host — of Nix system `system` — pull `published`'s
+   *  bundle in the form it runs, and root it — never building. Answers the
+   *  path that landed, or the cause in words a user reads (`label` names the
+   *  host in them). */
   pull(args: {
     readonly ssh: string;
     readonly label: string;
-    readonly storePath: string;
+    readonly system: string;
+    readonly published: CaIndexEntry;
     readonly profile: string;
     readonly onProgress: (line: string) => void;
   }): Promise<
-    { readonly ok: true } | { readonly ok: false; readonly message: string }
+    | { readonly ok: true; readonly bundle: string }
+    | { readonly ok: false; readonly message: string }
   >;
 }
 
@@ -150,18 +153,22 @@ export function createAgentDelivery(deps: {
     const at = { host: host.label, agentDistroProfile: profile };
     try {
       const system = await ops.systemOf(host.ssh);
-      const { ca } = await bundleFor(system);
+      const published = await bundleFor(system);
       const res = await ops.pull({
         ssh: host.ssh,
         label: host.label,
-        storePath: ca,
+        system,
+        published,
         profile,
         onProgress: (line) =>
           log.debug({ ...at, line }, "agent-distro delivery"),
       });
       if (res.ok) {
-        await report(host, { kind: "landed", profile, bundle: ca });
-        log.info({ ...at, bundle: ca }, "agent-distro bundle delivered");
+        await report(host, { kind: "landed", profile, bundle: res.bundle });
+        log.info(
+          { ...at, bundle: res.bundle },
+          "agent-distro bundle delivered",
+        );
         return "landed";
       }
       const { message } = res;

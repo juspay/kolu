@@ -15,6 +15,7 @@ vi.mock("@kolu/surface-remote", async (importOriginal) => ({
 const INDEX = "https://raw.githubusercontent.com/juspay/agent-distro/ca-index";
 const ENTRY = {
   rev: "cb44dd8115ea07c3b80b263f3992c49a587a4e5f",
+  ia: "/nix/store/1xxnk4wx89kk1cfyfnqgz8hg5msbz0gw-agent-distro-vanilla",
   ca: "/nix/store/r6r8xkl3fvi5is4ckfbl6sl1wacz2rak-agent-distro-vanilla",
 };
 
@@ -52,7 +53,7 @@ describe("readPublishedBundle", () => {
         "vanilla",
         answering(200, JSON.stringify({ rev: ENTRY.rev })),
       ),
-    ).rejects.toThrow(/is not \{ rev, ca \}/);
+    ).rejects.toThrow(/is not \{ rev, ia, ca \}/);
     await expect(
       readPublishedBundle(
         INDEX,
@@ -60,7 +61,7 @@ describe("readPublishedBundle", () => {
         "vanilla",
         answering(200, "<html>"),
       ),
-    ).rejects.toThrow(/is not \{ rev, ca \}/);
+    ).rejects.toThrow(/is not \{ rev, ia, ca \}/);
   });
 
   it("a request that never got an answer names the URL and the real cause, not a bare 'fetch failed'", async () => {
@@ -91,19 +92,44 @@ describe("readPublishedBundle", () => {
 });
 
 describe("realDeliveryOps.pull", () => {
+  const CACHE = "https://cache.example.org/oss";
+  const KEY = "oss:KEY=";
   const ops = realDeliveryOps({
     index: INDEX,
-    cache: "https://cache.example.org/oss",
+    cache: { url: CACHE, publicKey: KEY },
     schedule: { periodSeconds: 21600, offsetSeconds: 7200 },
   });
-  const pull = () =>
+  const pull = (system = "x86_64-linux", ssh = "ci@box") =>
     ops.pull({
-      ssh: "ci@box",
+      ssh,
       label: "box",
-      storePath: ENTRY.ca,
+      system,
+      published: ENTRY,
       profile: "vanilla",
       onProgress: () => {},
     });
+  const pulled = () => vi.mocked(pullClosure).mock.calls.at(-1)?.[0];
+
+  it("a Linux host pulls the content-addressed bundle, trusting no key, rooted under kolu's per-profile link", async () => {
+    vi.mocked(pullClosure).mockResolvedValueOnce({ ok: true });
+    expect(await pull()).toEqual({ ok: true, bundle: ENTRY.ca });
+    expect(pulled()).toMatchObject({
+      host: "ci@box",
+      cacheUrl: CACHE,
+      storePath: ENTRY.ca,
+      rootPath: ".local/state/kolu/agent-distro/gcroots/vanilla",
+    });
+    expect(pulled()).not.toHaveProperty("signedBy");
+  });
+
+  it("a Mac pulls the signed input-addressed bundle — a rewritten Mach-O will not run — naming the cache's key", async () => {
+    vi.mocked(pullClosure).mockResolvedValueOnce({ ok: true });
+    expect(await pull("aarch64-darwin")).toEqual({
+      ok: true,
+      bundle: ENTRY.ia,
+    });
+    expect(pulled()).toMatchObject({ storePath: ENTRY.ia, signedBy: KEY });
+  });
 
   it("a copy the cache could not serve names the host, the path and the cache, in Nix's words", async () => {
     vi.mocked(pullClosure).mockResolvedValueOnce({
@@ -113,8 +139,27 @@ describe("realDeliveryOps.pull", () => {
     });
     expect(await pull()).toEqual({
       ok: false,
-      message: `box could not pull the vanilla agents (${ENTRY.ca}) from agent-distro's cache (https://cache.example.org/oss): unable to download 'https://cache.example.org/…'`,
+      message: `box could not pull the vanilla agents (${ENTRY.ca}) from agent-distro's cache (${CACHE}): unable to download 'https://cache.example.org/…'`,
     });
+  });
+
+  it("a Mac that would not take the signed bundle is told the one-line fix — for the login, or for this machine's user", async () => {
+    const refusal =
+      "cannot add path because it lacks a signature by a trusted key";
+    vi.mocked(pullClosure).mockResolvedValue({
+      ok: false,
+      kind: "uncopied",
+      reason: refusal,
+    });
+    expect(await pull("aarch64-darwin", "ci@mac")).toEqual({
+      ok: false,
+      message: `box could not pull the vanilla agents (${ENTRY.ia}) from agent-distro's cache (${CACHE}): ${refusal}. A Mac takes the signed agents only if its Nix trusts them: on box, add the login kolu connects as to \`nix.settings.trusted-users\`, or agent-distro's cache key (${KEY}) to \`nix.settings.trusted-public-keys\`.`,
+    });
+    const local = await pull("aarch64-darwin", "localhost");
+    expect(local.ok === false && local.message).toContain(
+      "add the user kolu runs as",
+    );
+    vi.mocked(pullClosure).mockReset();
   });
 
   it("any other failure is the route's own words", async () => {
@@ -127,17 +172,6 @@ describe("realDeliveryOps.pull", () => {
     expect(await pull()).toEqual({
       ok: false,
       message: "ci@box: could not establish the agent GC root: …",
-    });
-  });
-
-  it("roots under kolu's per-profile link in the login's home", async () => {
-    vi.mocked(pullClosure).mockResolvedValueOnce({ ok: true });
-    expect(await pull()).toEqual({ ok: true });
-    expect(vi.mocked(pullClosure).mock.calls.at(-1)?.[0]).toMatchObject({
-      host: "ci@box",
-      cacheUrl: "https://cache.example.org/oss",
-      storePath: ENTRY.ca,
-      rootPath: ".local/state/kolu/agent-distro/gcroots/vanilla",
     });
   });
 });

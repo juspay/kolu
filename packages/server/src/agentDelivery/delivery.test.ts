@@ -47,7 +47,12 @@ function fakeOps(
   } = {},
 ) {
   const reads: string[] = [];
-  const pulled: { ssh: string; storePath: string; profile: string }[] = [];
+  const pulled: {
+    ssh: string;
+    system: string;
+    storePath: string;
+    profile: string;
+  }[] = [];
   let gate: Promise<void> | undefined;
   const ops: DeliveryOps = {
     systemOf: async (ssh) => opts.systems?.[ssh] ?? "x86_64-linux",
@@ -56,12 +61,14 @@ function fakeOps(
       const answer = opts.published?.(system, profile);
       if (answer instanceof Error) throw answer;
       const ca = caFor(reads.length, system, profile);
-      return answer ?? { rev: "f".repeat(40), ca };
+      return answer ?? { rev: "f".repeat(40), ia: `${ca}-ia`, ca };
     },
-    pull: async ({ ssh, storePath, profile }) => {
-      pulled.push({ ssh, storePath, profile });
+    // Which form a host runs is the ops' call; this fake lands `ca` and
+    // records the system it was told.
+    pull: async ({ ssh, system, published, profile }) => {
+      pulled.push({ ssh, system, storePath: published.ca, profile });
       if (gate !== undefined) await gate;
-      return opts.result?.() ?? { ok: true };
+      return opts.result?.() ?? { ok: true, bundle: published.ca };
     },
   };
   return {
@@ -124,20 +131,34 @@ describe("createAgentDelivery", () => {
       { kind: "landed", profile: "vanilla", bundle: ca },
     ]);
     expect(nix.pulled).toEqual([
-      { ssh: "localhost", storePath: ca, profile: "vanilla" },
+      {
+        ssh: "localhost",
+        system: "x86_64-linux",
+        storePath: ca,
+        profile: "vanilla",
+      },
     ]);
     expect(delivery.running()).toBe(false);
   });
 
-  it("a Mac pulls the content-addressed bundle like any other host", async () => {
-    const nix = fakeOps({ systems: { "srid@mac": "aarch64-darwin" } });
+  it("the pull is told the host's system and that system's index entry, and the landing names what it landed", async () => {
+    const nix = fakeOps({
+      systems: { "srid@mac": "aarch64-darwin" },
+      result: () => ({ ok: true, bundle: "/nix/store/signed-ia-bundle" }),
+    });
     const mac = fakeHost("remote:mac", "srid@mac", "mac");
     const delivery = setup({ ops: nix.ops, hosts: [mac.host] });
     expect(await delivery.run({ trigger: "user" })).toEqual(["landed"]);
     expect(nix.reads).toEqual(["aarch64-darwin.vanilla"]);
-    expect(nix.pulled[0]?.storePath).toBe(
-      caFor(1, "aarch64-darwin", "vanilla"),
-    );
+    expect(nix.pulled[0]).toMatchObject({
+      system: "aarch64-darwin",
+      storePath: caFor(1, "aarch64-darwin", "vanilla"),
+    });
+    expect(mac.reports.at(-1)).toEqual({
+      kind: "landed",
+      profile: "vanilla",
+      bundle: "/nix/store/signed-ia-bundle",
+    });
   });
 
   it("a system upstream has not published is a typed failure, and nothing is pulled", async () => {
@@ -164,7 +185,9 @@ describe("createAgentDelivery", () => {
     let fail = true;
     const nix = fakeOps({
       result: () =>
-        fail ? { ok: false, message: "ssh dropped" } : { ok: true },
+        fail
+          ? { ok: false, message: "ssh dropped" }
+          : { ok: true, bundle: "/nix/store/landed" },
     });
     const box = fakeHost("remote:box", "box");
     const delivery = setup({ ops: nix.ops, hosts: [box.host] });

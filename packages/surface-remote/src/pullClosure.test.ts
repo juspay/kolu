@@ -111,6 +111,37 @@ describe("pullClosure — the host pulls a content-addressed closure from the ca
     });
   });
 
+  it("an input-addressed path names the key the host must trust; a content-addressed one names none", async () => {
+    vi.mocked(runCapture).mockImplementation(async (_cmd, args) =>
+      isCheck(args) ? failOut : okOut,
+    );
+    await pullClosure({
+      host: "ci@mac",
+      cacheUrl: CACHE,
+      storePath: CA,
+      signedBy: "oss:KEY=",
+      rootPath: ROOT,
+      onProgress: () => {},
+      keepalive: sshKeepalive(10, 3),
+    });
+    const [, signed] = calls().find(([, a]) => isCopy(a)) ?? [];
+    expect(signed?.slice(signed.indexOf("copy"))).toEqual([
+      "copy",
+      "--extra-trusted-public-keys",
+      "oss:KEY=",
+      "--from",
+      CACHE,
+      CA,
+    ]);
+    vi.clearAllMocks();
+    vi.mocked(runCapture).mockImplementation(async (_cmd, args) =>
+      isCheck(args) ? failOut : okOut,
+    );
+    await pull();
+    const [, unsigned] = calls().find(([, a]) => isCopy(a)) ?? [];
+    expect(unsigned).not.toContain("--extra-trusted-public-keys");
+  });
+
   it("the local arm runs the same steps without ssh", async () => {
     vi.mocked(runCapture).mockImplementation(async (_cmd, args) =>
       isCheck(args) ? failOut : okOut,

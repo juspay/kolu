@@ -1,6 +1,6 @@
 /**
- * Pull a CONTENT-ADDRESSED closure into a host's store straight from a binary
- * cache, and root it there — the host fetches; the caller moves no bytes.
+ * Pull a published closure into a host's store straight from a binary cache,
+ * and root it there — the host fetches; the caller moves no bytes.
  *
  * The route, three steps, each run AT the target (over ssh for a remote host,
  * directly for `localhost`):
@@ -12,8 +12,12 @@
  *      `--substituters`, which an untrusted user's daemon drops), and a
  *      content-addressed path is accepted by every Nix daemon with no
  *      signature, no key and no `trusted-users` entry (the Nix manual:
- *      `make-content-addressed`, `require-sigs`). `nix-command` is enabled
- *      on the command line, so the host needs no Nix setting for it either.
+ *      `make-content-addressed`, `require-sigs`). An INPUT-addressed path
+ *      (`signedBy`) is taken only when the host's Nix trusts its signature:
+ *      the login is in `trusted-users` (then `--extra-trusted-public-keys`
+ *      names the key), or the key is already in the host's
+ *      `trusted-public-keys`. `nix-command` is enabled on the command line,
+ *      so the host needs no Nix setting for it either.
  *      A multi-gigabyte download, so it runs under the copy's fixed
  *      progress-liveness bound (`PROVISION_COPY_SILENCE_MS`): Nix's per-path
  *      `copying …` lines prove it alive, and only silence kills it.
@@ -22,9 +26,10 @@
  *      budget.
  *
  * Nothing is evaluated, rewritten or built, on either side: the caller names
- * a path it already knows is content-addressed and published. An
- * input-addressed path would be refused by an untrusted daemon at step 2 —
- * that is the caller's contract to keep.
+ * a path it already knows is published — content-addressed (no trust asked
+ * anywhere), or input-addressed and signed (`signedBy`: the trust above). A
+ * content-addressed rewrite is no option for a macOS host: rewriting a Mach-O
+ * invalidates its code signature, and macOS kills it on launch.
  */
 
 import { isLocalHost, type SshDestination } from "./host";
@@ -49,8 +54,12 @@ export interface PullClosureOptions {
   host: string;
   /** The binary cache the host reads the closure from (`https://…`). */
   cacheUrl: string;
-  /** The exact, content-addressed store path to pull. */
+  /** The exact store path to pull. */
   storePath: string;
+  /** For an INPUT-addressed `storePath`: the public key of the signature the
+   *  host's Nix must trust to take it. Absent for a content-addressed path,
+   *  which needs none. */
+  signedBy?: string;
   /** The GC root to commit it behind on the target. Remote: resolved against
    *  the ssh login's home when relative. Local: must be absolute. */
   rootPath: string;
@@ -113,6 +122,9 @@ export async function pullClosure(
         "nix-command",
         "-v",
         "copy",
+        ...(opts.signedBy === undefined
+          ? []
+          : ["--extra-trusted-public-keys", opts.signedBy]),
         "--from",
         opts.cacheUrl,
         storePath,

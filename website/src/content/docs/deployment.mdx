@@ -192,9 +192,10 @@ remote host this machine needs none of that: it reads which build the host needs
 from agent-distro's published index and has the **host** download it over its own
 HTTPS from agent-distro's cache (the same `https://cache.nixos.asia/oss` above),
 never building it — and keeps every machine current the same way, four times a
-day ([Kept up to date](/agents#kept-up-to-date)). The set is content-addressed,
-so no machine's Nix — this one's, a Linux host's or a Mac's — has to trust
-anything, and the block above is not needed for it (see [When a delivery
+day ([Kept up to date](/agents#kept-up-to-date)). This machine's Nix trusts
+nothing for it. A Linux host's needn't either — it gets the set
+content-addressed — while a Mac gets it signed and needs the trust above
+(`trusted-users` for the login, or the cache's key; see [When a delivery
 fails](/agents#when-a-delivery-fails)). On the machine running kolu, the set
 kolu shipped with keeps working either way.
 

@@ -138,12 +138,12 @@ let
 
   # What kolu-server delivers from: the index it reads each bundle's
   # content-addressed path off (`lib.caIndex`), the one binary cache every host
-  # pulls that path from (`lib.cache`, never building one), and when it runs
-  # (`lib.schedule`). All three are upstream's own values — read here, written
+  # pulls that path from and the key a Mac trusts its signed bundle by
+  # (`lib.cache`, never building one), and when it runs (`lib.schedule`). All three are upstream's own values — read here, written
   # nowhere else.
   delivery = pkgs.writeText "kolu-agent-distro-delivery.json" (builtins.toJSON {
     index = distro.lib.caIndex.rawBase;
-    cache = distro.lib.cache.url;
+    cache = { inherit (distro.lib.cache) url publicKey; };
     schedule = {
       periodSeconds = distro.lib.schedule.updatePeriodSeconds;
       offsetSeconds = distro.lib.schedule.updateOffsetSeconds;
@@ -205,8 +205,8 @@ let
     # picker.
     echo "resolved ${env.bundle}=''${${env.bundle}:-}"
     echo "resolved ${env.delivery}=''${${env.delivery}:-}"
-    if ! jq -e '(.index | length > 0) and (.cache | length > 0) and (.schedule.periodSeconds > 0)' "''${${env.delivery}:-/dev/null}" >/dev/null; then
-      echo "FAIL: ${env.delivery} does not name agent-distro's index, cache and schedule — kolu-server could deliver no agents." >&2
+    if ! jq -e '(.index | length > 0) and (.cache.url | length > 0) and (.cache.publicKey | length > 0) and (.schedule.periodSeconds > 0)' "''${${env.delivery}:-/dev/null}" >/dev/null; then
+      echo "FAIL: ${env.delivery} does not name agent-distro's index, cache, key and schedule — kolu-server could deliver no agents." >&2
       exit 1
     fi
     m="''${${env.bundle}:-}/share/kolu/agent-distro.json"
