@@ -146,6 +146,14 @@ const LANE_HUE: Record<StatusHue, string> = {
 const SUBHEAD =
   "pt-1.5 pb-0.5 text-[10px] font-bold uppercase tracking-[0.1em] text-fg-3/60";
 
+/** The lane row's layout — shared by the arms that can be clicked and the one
+ *  that cannot, so a row is one row whichever element it turns out to be.
+ *  `group/lane` is the hover the ID underlines through, which is an affordance
+ *  only the clickable arms get. */
+const ROW = "group/lane flex min-w-0 items-center gap-1.5";
+const INERT = "flex min-w-0 items-center gap-1.5";
+const LANE_TITLE = "open in odu";
+
 /** One lane, and the way out to its log page in odu web.
  *
  *  Long output is READ in odu's own page (searchable, coloured, followed live),
@@ -210,11 +218,6 @@ const LaneRow: Component<{
       <span class="shrink-0 font-mono text-fg-3">{props.lane.host ?? ""}</span>
     </>
   );
-  /** The row's layout, and the `group/lane` its id underlines on hover — which
-   *  is an affordance only the two clickable arms get. */
-  const ROW = "group/lane flex min-w-0 items-center gap-1.5";
-  const INERT = "flex min-w-0 items-center gap-1.5";
-  const TITLE = "open in odu";
   return (
     <Show
       when={href()}
@@ -223,7 +226,7 @@ const LaneRow: Component<{
           <button
             type="button"
             class={`${ROW} cursor-pointer text-left`}
-            title={TITLE}
+            title={LANE_TITLE}
             data-testid="inspector-odu-lane-link"
             onClick={() => props.onOpen()}
           >
@@ -238,7 +241,7 @@ const LaneRow: Component<{
           target="_blank"
           rel="noopener noreferrer"
           class={ROW}
-          title={TITLE}
+          title={LANE_TITLE}
           data-testid="inspector-odu-lane-link"
         >
           {body()}
