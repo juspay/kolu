@@ -164,12 +164,10 @@ const SUBHEAD =
  *  that cannot, so a row is one row whichever element it turns out to be.
  *  `group/lane` is the hover the ID underlines through, which is an affordance
  *  only the clickable arms get. */
-const ROW = "group/lane flex min-w-0 items-center gap-1.5";
-const INERT = "flex min-w-0 items-center gap-1.5";
-/** …and a chip's own chrome, which is only a link's when it has an address. */
+const ROW = "flex min-w-0 items-center gap-1.5";
+/** …and a chip's own chrome, and a lane row's layout minus the glyph. */
 const CHIP_ROW = "inline-flex";
-/** …and a recent-runs row's, which is a lane row's layout minus the glyph. */
-const RECENT_ROW = "group/lane flex min-w-0 items-baseline gap-1.5";
+const RECENT_ROW = "flex min-w-0 items-baseline gap-1.5";
 const ODU_TITLE = "open in odu";
 
 /** One lane: its own facts, and the way out to that attempt's log in odu web.
@@ -259,7 +257,7 @@ const OduLink: Component<{
         >
           <button
             type="button"
-            class={`${props.class} cursor-pointer text-left`}
+            class={`${props.class} group/lane cursor-pointer text-left`}
             title={ODU_TITLE}
             data-testid={props.testid}
             onClick={() => props.onOpen()}
@@ -274,7 +272,7 @@ const OduLink: Component<{
           href={url()}
           target="_blank"
           rel="noopener noreferrer"
-          class={props.class}
+          class={`${props.class} group/lane`}
           title={ODU_TITLE}
           data-testid={props.testid}
         >
