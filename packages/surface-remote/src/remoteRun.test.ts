@@ -13,7 +13,7 @@ vi.mock("./process", async (importOriginal) => ({
 }));
 
 const HOST = "ci@croissant";
-const PID_REPORT = "kolu-remote-pid 4242";
+const PID_REPORT = "surface-remote-pid 4242";
 const ok: CaptureResult = { ok: true, kind: "exit", code: 0, stdout: "" };
 const aborted: CaptureResult = { ok: false, kind: "aborted", stdout: "" };
 
@@ -31,7 +31,7 @@ describe("captureAtCommand", () => {
       [
         "sh",
         "-c",
-        'echo "kolu-remote-pid $$" >&2; exec "$@"',
+        'echo "surface-remote-pid $$" >&2; exec "$@"',
         "sh",
         "nix-store",
         "-q",

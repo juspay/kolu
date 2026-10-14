@@ -83,6 +83,7 @@ describe("D2 — boot-stalled connector card is honest + recovers via the connec
             phase: "provisioning",
             log: [],
             logAbsence: undefined,
+            quiet: undefined,
           }}
         />
       ),
@@ -111,6 +112,7 @@ describe("D2 — boot-stalled connector card is honest + recovers via the connec
             phase: "provisioning",
             log: [],
             logAbsence: undefined,
+            quiet: undefined,
           }}
         />
       ),
@@ -141,6 +143,7 @@ describe("D2 — boot-stalled connector card is honest + recovers via the connec
             phase: "provisioning",
             log: [],
             logAbsence: undefined,
+            quiet: undefined,
           }}
         />
       ),

@@ -5,7 +5,8 @@
  *  The connection frame carries the log tail and the episode's `sinceMs`, but not WHEN
  *  its last line arrived — and that wire schema is shared with drishti, so the time is
  *  derived here instead: `canvasMode` notes the tail on every 1s tick
- *  ({@link noteConnectTail}), and the clock restarts whenever the last line changes.
+ *  ({@link noteConnectTail}), the clock restarts whenever the last line changes, and the
+ *  reading rides the boot tag onto the card's recovery like the tail itself does.
  *  Noting starts with the connect overlay, long before the card can mount, so the card's
  *  reading spans the whole silence this browser watched. It can only UNDER-state (a tab
  *  opened mid-silence starts counting then), which is why the copy says "in the last …".
@@ -14,6 +15,7 @@
  *  same way when a host leaves membership. Monotonic `nowMs`, like them. */
 
 import type { LogLine } from "../ui/logTailChrome";
+import type { BootStalledRecovery } from "./canvasModeResolver";
 
 interface TailMark {
   /** The last line's identity: its text plus the tail's length, so a repeated line
@@ -41,12 +43,18 @@ export function noteConnectTail(
     marks.set(hostEnc, { key, line: last.line, atMs: nowMs });
 }
 
-/** The last line of `hostEnc`'s connect log and how long it has stood unchanged, or
- *  `undefined` when there is no line. */
+/** A connect log's last line and how long it has stood unchanged — narration the
+ *  boot-stalled card renders ({@link BootStalledRecovery}'s `quiet`). */
+export interface ConnectQuiet {
+  readonly lastLine: string;
+  readonly silentMs: number;
+}
+
+/** {@link ConnectQuiet} for `hostEnc`'s connect log, or `undefined` when there is no line. */
 export function connectTailQuiet(
   hostEnc: string,
   nowMs: number,
-): { readonly lastLine: string; readonly silentMs: number } | undefined {
+): ConnectQuiet | undefined {
   const mark = marks.get(hostEnc);
   return mark === undefined
     ? undefined

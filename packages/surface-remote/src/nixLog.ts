@@ -451,6 +451,8 @@ export async function runNix(
     [nixCommand, "--log-format", "internal-json", ...rest],
     {
       isActivity: (line) => {
+        // A dropped line is still activity: the store-dedup noise it filters
+        // (`/nix/store/.links/…`) is the daemon unpacking, which is progress.
         const active =
           opts.dropLine?.(line) === true || reader.isActivity(line);
         if (active && "onActivity" in opts) opts.onActivity();

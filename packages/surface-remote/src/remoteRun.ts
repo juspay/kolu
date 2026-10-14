@@ -18,7 +18,12 @@
  *  A PID — the same "exact recorded PIDs, no pattern kills" law `process.ts` keeps —
  *  and not a tag matched with `pkill -f`: an `env TAG=… cmd` prefix never reaches
  *  the command's own command line (`env` execs it), and the pattern then matches
- *  the killer's own remote shell instead (verified). */
+ *  the killer's own remote shell instead (verified).
+ *
+ *  The one window this cannot close: an abandonment that lands before the PID report
+ *  has reached us. Killing the local ssh before the channel opens means the command
+ *  never starts, so what remains is the few milliseconds between the remote `exec`
+ *  and that line arriving — a run abandoned inside them is not killed on the host. */
 
 import {
   buildSshProbeCommand,
@@ -33,8 +38,8 @@ import {
   runCapture,
 } from "./process";
 
-const REMOTE_PID_SCRIPT = 'echo "kolu-remote-pid $$" >&2; exec "$@"';
-const REMOTE_PID_RE = /^kolu-remote-pid (\d+)$/;
+const REMOTE_PID_SCRIPT = 'echo "surface-remote-pid $$" >&2; exec "$@"';
+const REMOTE_PID_RE = /^surface-remote-pid (\d+)$/;
 
 /** How long the best-effort remote kill may take (an ssh round-trip over the
  *  dial's ControlMaster, or a fresh dial when that master is gone). */

@@ -35,7 +35,11 @@ import {
   watchedBootIdentity,
 } from "./bootDeadline";
 import { getMonotonicNow } from "../time/clock";
-import { noteConnectTail, pruneConnectTails } from "./connectTailClock";
+import {
+  connectTailQuiet,
+  noteConnectTail,
+  pruneConnectTails,
+} from "./connectTailClock";
 import {
   activeEntryState,
   daemonChannelLive,
@@ -105,6 +109,17 @@ export function canvasMode(deps: {
   const connectLog = info?.log ?? NO_LOG_LINES;
   const connectLogAbsence: LogAbsence | undefined =
     info === undefined && !linkLive ? "link-down" : undefined;
+  // The per-host key and the monotonic tick, read once for the tail clock here and the boot
+  // deadline below. The tick makes this memo re-evaluate each second, so a wedged overlay's
+  // elapsed crosses its ceiling (the same 1s cadence the deleted daemon ceiling rode) and the
+  // tail clock's silence advances. `activeHost()` is always defined (even during the
+  // membership stall where `activeScope()` is undefined).
+  const hostEnc = encodeHostKey(activeHost());
+  const nowMs = getMonotonicNow()();
+  // How long the tail's last line has stood (`connectTailClock.ts`) — narration, like the
+  // tail itself, that rides the boot tag onto the stalled card.
+  noteConnectTail(hostEnc, connectLog, nowMs);
+  const connectQuiet = connectTailQuiet(hostEnc, nowMs);
   // The active entry's connection state is the discriminant. A non-`connected`
   // host's re-served daemonStatus is frozen stale, so the kaval-derived facts are
   // gathered ONLY on the `connected` arm.
@@ -118,6 +133,7 @@ export function canvasMode(deps: {
         connectPhase,
         connectLog,
         connectLogAbsence,
+        connectQuiet,
       };
       break;
     case "failed":
@@ -132,6 +148,7 @@ export function canvasMode(deps: {
         connectPhase,
         connectLog,
         connectLogAbsence,
+        connectQuiet,
       };
       break;
     // BLIND — the map's floor moved the entry off its published arm because THIS browser
@@ -147,6 +164,7 @@ export function canvasMode(deps: {
         connectPhase,
         connectLog,
         connectLogAbsence,
+        connectQuiet,
       };
       break;
     case "connected":
@@ -166,10 +184,6 @@ export function canvasMode(deps: {
   // read `exceeded` off the PRIOR frame's stored anchor, run the ONE resolve, then fold this
   // frame's tag back. `activeHost()` is always defined (even during the membership stall
   // where `activeScope()` is undefined), so the anchor keyed on it fixes Hole A structurally.
-  // The monotonic tick makes this memo re-evaluate each second so a wedged overlay's elapsed
-  // crosses its ceiling (the same 1s cadence the deleted daemon ceiling rode).
-  const hostEnc = encodeHostKey(activeHost());
-  const nowMs = getMonotonicNow()();
   // Prune departed hosts' anchors ONLY once membership has snapshotted (non-empty). An EMPTY
   // `hostKeys()` is the pre-snapshot warming window (`wire.ts`), NOT "every host left" —
   // `LOCAL_HOST` is the unremovable seed, so a LOADED membership always contains it (the same
@@ -182,8 +196,6 @@ export function canvasMode(deps: {
     pruneBootAnchors(memberEncs);
     pruneConnectTails(memberEncs);
   }
-  // When the connect log last moved — read by the boot-stalled card (`connectTailClock.ts`).
-  noteConnectTail(hostEnc, connectLog, nowMs);
   // The #1908 R8a campaign backstop: `bootDeadlineExceeded` folds the class ceiling AND the
   // class-blind campaign cell on the one monotonic `nowMs`; `recordBootFrame` arms the campaign
   // cell off the frame's own tag (the connector-owned `provisioning` leg). Both are pure client-

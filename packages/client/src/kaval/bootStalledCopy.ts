@@ -20,6 +20,7 @@
 import type { ConnectPhase } from "kolu-common/surfacesWithPadi";
 import { match } from "ts-pattern";
 import type { ClientStalledLeg } from "./canvasModeResolver";
+import type { ConnectQuiet } from "./connectTailClock";
 
 /** A card's copy — a short title and a plain-language body. Both non-empty
  *  (pinned in `bootStalledCopy.test.ts`). */
@@ -93,7 +94,7 @@ export function bootStalledCopy(leg: ClientStalledLeg): BootStalledCopy {
  *  minute, in whole minutes: shorter is not a stall, and a per-second count would churn. */
 export function bootStalledPhaseDetail(
   phase: ConnectPhase | undefined,
-  quiet?: { readonly lastLine: string; readonly silentMs: number },
+  quiet?: ConnectQuiet,
 ): string | undefined {
   const still = match(phase)
     .with(

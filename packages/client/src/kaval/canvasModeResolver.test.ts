@@ -40,6 +40,7 @@ const notYetConnected = {
   ...liveness,
   connectLog: [],
   connectLogAbsence: undefined,
+  connectQuiet: undefined,
 } as const;
 
 /** A fully "ready" CONNECTED-arm snapshot — one terminal — that resolves to
@@ -366,6 +367,7 @@ describe("resolveCanvasMode — #1763 boot-deadline escape (flipped REDs + the l
         phase: "provisioning",
         log: [],
         logAbsence: undefined,
+        quiet: undefined,
       },
     });
   });
@@ -405,6 +407,7 @@ describe("resolveCanvasMode — #1763 boot-deadline escape (flipped REDs + the l
         phase: "provisioning",
         log: connectLog,
         logAbsence: undefined,
+        quiet: undefined,
       },
     });
     expect((m as { recovery: { log: unknown } }).recovery.log).toBe(connectLog);
@@ -432,6 +435,7 @@ describe("resolveCanvasMode — #1763 boot-deadline escape (flipped REDs + the l
           phase: connectPhase,
           log: [],
           logAbsence: undefined,
+          quiet: undefined,
         },
       });
     }
@@ -748,6 +752,7 @@ describe("resolveCanvasMode — a transport-down browser makes NO boot claim (#2
       entry: "unobservable",
       connectPhase: undefined,
       connectLogAbsence: "link-down",
+      connectQuiet: undefined,
     };
     //  (1) no clock — the observer floor releases the anchor rather than accruing;
     expect(tagOffline(blind)).toEqual({ accrual: "clear" });
@@ -841,6 +846,7 @@ describe("resolveCanvasMode — the floor governs reaching a verdict, not keepin
       entry: "unobservable",
       connectPhase: undefined,
       connectLogAbsence: "link-down",
+      connectQuiet: undefined,
     };
     expect(modeOffline(blind, true)).toEqual({ kind: "connecting" });
     expect(
@@ -864,6 +870,7 @@ describe("resolveCanvasMode — the floor governs reaching a verdict, not keepin
       entry: "warming",
       connectPhase: undefined,
       connectLogAbsence: "link-down",
+      connectQuiet: undefined,
     };
     const earnedBoot = { leg: "session", ceiling: "remote-handshake" } as const;
     const held = resolveCanvasMode(demoted, {

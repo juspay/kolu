@@ -241,7 +241,7 @@ describe("runNix", () => {
 });
 
 describe("runNix on an ssh-wrapped seat — an abandoned Nix run is killed on the host (via `runCaptureAt`)", () => {
-  const PID_REPORT = "kolu-remote-pid 4242";
+  const PID_REPORT = "surface-remote-pid 4242";
   const ok = { ok: true, kind: "exit", code: 0, stdout: "" } as const;
 
   /** One remote run that reports `pid` and then ends as `end`; every later

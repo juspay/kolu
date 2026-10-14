@@ -14,7 +14,13 @@ const h = vi.hoisted(() => ({
   entryKind: "not-a-member" as "not-a-member" | "connected" | "warming",
   members: [] as { kind: "local" }[],
   local: true,
-  connInfo: undefined as { phase?: string; sinceMs?: number } | undefined,
+  connInfo: undefined as
+    | {
+        phase?: string;
+        sinceMs?: number;
+        log?: { source: "local" | "remote"; line: string }[];
+      }
+    | undefined,
   // THE ONE liveness knob: the map's OWN transport liveness — the very value
   // `floorOnLiveness` is handed. `canvasMode` reads it once and feeds BOTH consumers, so
   // one flag models the one physical fact: it separates "the floor dropped the live word"
@@ -65,6 +71,7 @@ const { canvasMode } = await import("./useCanvasMode");
 const { resetBootAnchors, CEILING_MS, CAMPAIGN_CEILING_MS } = await import(
   "./bootDeadline"
 );
+const { resetConnectTails } = await import("./connectTailClock");
 
 const deps = {
   isLoading: () => true,
@@ -79,6 +86,7 @@ const frameAt = (t: number) => {
 
 beforeEach(() => {
   resetBootAnchors();
+  resetConnectTails();
   h.now = 0;
   h.entryKind = "not-a-member";
   h.members = [];
@@ -142,6 +150,7 @@ describe("canvasMode — #1908 R8a campaign backstop escapes a persistently-wedg
         phase: "provisioning",
         log: [],
         logAbsence: undefined,
+        quiet: undefined,
       },
     });
   });
@@ -187,6 +196,34 @@ describe("canvasMode — the tail's absence carries a REASON, decided where the 
     expect(stalledConnectorFrame()).toMatchObject({
       kind: "boot-stalled",
       recovery: { via: "connector", log: [], logAbsence: undefined },
+    });
+  });
+});
+
+describe("canvasMode — the stalled card is told how long the campaign has been silent", () => {
+  it("the tail's last line and the time since it arrived ride the recovery, from the first frame that showed it", () => {
+    h.entryKind = "warming";
+    h.local = false;
+    const copying = { source: "local" as const, line: "copying path 'x'…" };
+    h.connInfo = {
+      phase: "provisioning",
+      log: [{ source: "local" as const, line: "pulling…" }],
+    };
+    frameAt(0);
+    // The line every later frame re-delivers arrived at t=60s, and nothing followed it.
+    h.connInfo = {
+      phase: "provisioning",
+      log: [{ source: "local", line: "pulling…" }, copying],
+    };
+    frameAt(60_000);
+    const past = CEILING_MS["remote-provisioning"] + 1_000;
+    frameAt(past - 1_000);
+    expect(frameAt(past)).toMatchObject({
+      kind: "boot-stalled",
+      recovery: {
+        via: "connector",
+        quiet: { lastLine: copying.line, silentMs: past - 60_000 },
+      },
     });
   });
 });

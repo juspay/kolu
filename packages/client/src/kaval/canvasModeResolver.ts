@@ -66,7 +66,7 @@
  *  outage is the same event that takes the entry off the `connected` arm (onto `unobservable`),
  *  and the not-yet-connected arms derive `leg` from host-locality alone — so a card recomputed
  *  mid-blip would name a DIFFERENT boot than the one that earned it, turning a `session` stall
- *  into the `down`/dead card this floor exists to prevent. The narration (`phase`/`log`/`logAbsence`)
+ *  into the `down`/dead card this floor exists to prevent. The narration (`phase`/`log`/`logAbsence`/`quiet`)
  *  is deliberately NOT held: "kolu cannot see your machine" is true while it is true.
  *
  *  The bug that earned it: `floorOnLiveness` (`@kolu/surface-map`) demotes a published
@@ -107,6 +107,7 @@ import {
   type LogLine,
   NO_LOG_LINES,
 } from "../ui/logTailChrome";
+import type { ConnectQuiet } from "./connectTailClock";
 import type { DaemonDownState } from "./daemonPresentation";
 
 /** Which per-host episode ceiling a boot overlay accrues against (#1763). Every
@@ -160,6 +161,8 @@ export type BootStalledRecovery =
        *  {@link LogAbsence}. Decided where the liveness fact lives (`useCanvasMode`), so
        *  the card renders a reason it was told. */
       logAbsence: LogAbsence | undefined;
+      /** The campaign's last line and how long it has stood — see {@link ConnectQuiet}. */
+      quiet: ConnectQuiet | undefined;
     }
   | { via: "client"; leg: ClientStalledLeg };
 
@@ -194,12 +197,13 @@ export type BootTag =
       phase: ConnectPhase | undefined;
       log: readonly LogLine[];
       logAbsence: LogAbsence | undefined;
+      quiet: ConnectQuiet | undefined;
     };
 
 /** The ACCRUING arm of {@link BootTag} — the only one {@link escapeSurface} can render a card
  *  from. Its fields split into two kinds, and the split is load-bearing (#2129): WHICH BOOT
  *  this is ({@link BootIdentity}) versus what the link is saying about it right now
- *  (`phase`/`log`/`logAbsence`). */
+ *  (`phase`/`log`/`logAbsence`/`quiet`). */
 export type AccruingBootTag = Extract<BootTag, { accrual: "accrue" }>;
 
 /** WHICH BOOT a tag is about — the part that is a property of the episode and must not change
@@ -295,6 +299,9 @@ type NotYetConnectedFacts = EntryLivenessFacts & {
    *  problem. `useCanvasMode` holds the liveness fact and states which; nothing downstream
    *  re-derives it from the emptiness, which is a guess the type cannot back. */
   connectLogAbsence: LogAbsence | undefined;
+  /** How long {@link NotYetConnectedFacts.connectLog}'s last line has stood, read off the
+   *  tail clock `useCanvasMode` keeps (`connectTailClock.ts`); `undefined` with no line. */
+  connectQuiet: ConnectQuiet | undefined;
 };
 
 /** The precedence decision's snapshot — a DISCRIMINATED UNION keyed on the active
@@ -455,6 +462,7 @@ function resolvePrecedence(facts: CanvasFacts): Precedence {
             phase: f.connectPhase,
             log: f.connectLog,
             logAbsence: f.connectLogAbsence,
+            quiet: f.connectQuiet,
           };
           // THE CONNECT OVERLAY (W6), routed off ONE channel: the ACTIVE host's binding is coming
           // up iff its OWN `connection` cell phase is an up-but-not-yet-connected phase — the SAME
@@ -502,6 +510,7 @@ function resolvePrecedence(facts: CanvasFacts): Precedence {
               phase: undefined,
               log: NO_LOG_LINES,
               logAbsence: undefined,
+              quiet: undefined,
             },
           };
         }
@@ -564,6 +573,7 @@ function escapeSurface(tag: AccruingBootTag, facts: CanvasFacts): CanvasMode {
           phase: tag.phase,
           log: tag.log,
           logAbsence: tag.logAbsence,
+          quiet: tag.quiet,
         },
       }),
     )
@@ -632,7 +642,7 @@ export function resolveCanvasMode(
       // host-locality alone, so recomputing would swap the earned card for a different,
       // UNEARNED one — a local `session` stall becoming the `down`/dead card, this PR's own
       // false claim reached through the exemption. Only the identity is held: the NARRATION
-      // (`phase`/`log`/`logAbsence`) stays this frame's, because "kolu cannot see your
+      // (`phase`/`log`/`logAbsence`/`quiet`) stays this frame's, because "kolu cannot see your
       // machine" is a true thing to be saying while it is true. Recording the merged tag is
       // what also keeps the clock frozen — same ceiling → no re-anchor, earned leg (not a
       // demotion-invented `provisioning`) → no campaign cell armed on a frame nobody watched.

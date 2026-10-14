@@ -32,6 +32,7 @@ const boot = (leg: StalledLeg, ceiling: CeilingClass): BootTag => ({
   phase: undefined,
   log: [],
   logAbsence: undefined,
+  quiet: undefined,
 });
 /** A settled surface (workspace/empty/down/host-failed) — releases the anchor. */
 const cleared: BootTag = { accrual: "clear" };
