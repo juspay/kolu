@@ -21,7 +21,7 @@ cucumber_parallel := env('CUCUMBER_PARALLEL', '4')
 # against their own repo roots, not kolu's. The root package.json's `typecheck`
 # and `test:unit` scripts carry the same filters for callers that enter through
 # pnpm instead of just (the Nix typecheck derivation).
-pnpm_vendored_filter := '--filter=!osfacts-client --filter=!@odu/service-client --filter=!@odu/run-client --filter=!@odu/run-history'
+pnpm_vendored_filter := '--filter=!osfacts-client --filter=!@odu/*'
 
 # SURFACE_AGENT_FLAKE_REF: the production koluBin wrapper bakes the exact agent
 # source tree so a remote dial can resolve padi for the host's arch. A run from
@@ -60,20 +60,16 @@ install: _materialize-pinned-members
 # pinned bytes. Re-copied every time: the pin is the truth, the directory is a
 # cache of it, and a stale cache is the one failure this must not have.
 #
-# Each row is `member:dest:pin:subdir`, mirroring nix/workspace.nix's
-# `pinnedPins` + `rawMembers` + `graftPath`. The grafted manifest's own `name`
-# is checked against the member the row claims, so a row that drifted from the
-# pin fails here rather than as a resolution error three commands later.
+# Each row is `member:dest:pin:subdir`, read from nix/consumer-closure.json —
+# the committed artifact that already names every grafted member, its directory
+# and its pin. The grafted manifest's own `name` is checked against the member
+# the row claims, so a pin whose manifest was renamed fails here rather than as
+# a resolution error three commands later.
 [private]
 _materialize-pinned-members:
     #!/usr/bin/env bash
     set -euo pipefail
-    rows=(
-      "osfacts-client:osfacts-client:osfacts:client-ts"
-      "@odu/service-client:odu/service-client:odu:packages/service-client"
-      "@odu/run-client:odu/run-client:odu:packages/run-client"
-      "@odu/run-history:odu/run-history:odu:packages/run-history"
-    )
+    rows=($({{ nix_shell }} jq -r '.members | to_entries[] | select(.value.pin) | "\(.key):\(.value.dir):\(.value.pin.name):\(.value.pin.subdir)"' nix/consumer-closure.json))
     for row in "${rows[@]}"; do
       IFS=: read -r member dest pin subdir <<<"$row"
       src="$(nix eval --impure --raw --expr "toString ((import ./npins).${pin} + \"/${subdir}\")")"
