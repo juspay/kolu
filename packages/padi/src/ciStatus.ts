@@ -292,6 +292,14 @@ function createOduSession(
         continue;
       }
       if (dialed.kind === "absent") {
+        if (current()) {
+          // The daemon is GONE now, which is a different fact from the one an
+          // earlier iteration recorded. A failure kept past an absence would
+          // render "odu CI unavailable" on a machine where odu is simply not
+          // installed — forever, since the session lives as long as padi does
+          // and nothing else would ever clear it.
+          failure = null;
+        }
         if (current() && connection !== null) {
           connection = null;
           board = new Map();

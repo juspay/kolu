@@ -74,7 +74,10 @@ opens a door for odu's port and takes the tab through it (when your browser *is*
 on that machine, the row links straight to the daemon instead). So the first
 click opens the door; once it is open the row is an ordinary link, and ⌘-click,
 copy and "open in a new tab" all work on it. A lane that **hasn't started** yet
-has no log to read, so its row opens the run instead.
+has no log to read, so its row opens the run instead. The door is a raw TCP
+relay, so odu's own websocket and its same-origin check pass through it
+unmodified — the log page is live because nothing in between rewrites the
+request, and no odu setting has to be touched for it to work.
 
 The ref carries a `+dirty` marker when the run tested a **working tree** rather
 than a committed state — the verdict is about code that was never committed

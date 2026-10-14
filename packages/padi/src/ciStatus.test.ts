@@ -626,6 +626,57 @@ function openSubscription(ci: CiStatusSourceDeps): {
 const settle = (): Promise<void> => new Promise((r) => setImmediate(r));
 
 describe("padi's ciStatus session", () => {
+  it("forgets a refusal once the daemon is GONE, rather than failing forever", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout"] });
+    try {
+      // Dial one: a daemon that ANSWERED and cannot be read — a live problem,
+      // and the subscription fails with it. Every dial after that is an
+      // ABSENCE, which is a different fact: the install was removed.
+      let dials = 0;
+      const dial = async (): Promise<ServiceSocketDial> => {
+        dials += 1;
+        if (dials === 1) throw new Error("speaks service contract 9.9");
+        return { kind: "absent", socketPath: "/tmp/fake-odu.sock" };
+      };
+      const ci = createCiStatusSource({ log: stubLog, dial });
+      seedTerminal(CHECKOUT);
+
+      const failures: unknown[] = [];
+      const frames: CiStatusFrame[] = [];
+      const abort = new AbortController();
+      const bridge = (onFrame: (frame: CiStatusFrame) => void): Promise<void> =>
+        bridgeStream(
+          ci.source({ terminalId: TERMINAL_ID }),
+          abort.signal,
+          onFrame,
+          (err) => failures.push(err),
+        );
+
+      const refused = bridge(() => {});
+      await settle();
+      expect(String(failures[0])).toMatch(/9\.9/);
+
+      // The ladder retries, and now nothing is serving. One session serves padi
+      // for its whole life, so a refusal held past this point is held forever.
+      await vi.advanceTimersByTimeAsync(120_000);
+      expect(dials).toBeGreaterThan(1);
+
+      // A subscription opened NOW — the Inspector re-keys its own on every
+      // focus switch — reads the machine as "no odu here", which is the state
+      // the Inspector draws nothing for. Not a refusal nobody can act on.
+      const after = bridge((frame) => frames.push(frame));
+      await settle();
+      expect(frames[0]).toEqual({ kind: "none" });
+      expect(failures).toHaveLength(1);
+
+      abort.abort();
+      await Promise.all([refused, after]);
+      await ci.dispose();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("dials only for subscribers, and only ONCE for many of them", async () => {
     const fake = fakeDial(() => [row()]);
     const ci = createCiStatusSource({ log: stubLog, dial: fake.dial });

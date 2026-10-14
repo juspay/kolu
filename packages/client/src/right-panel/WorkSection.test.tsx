@@ -533,59 +533,102 @@ describe("WorkSection odu CI readout", () => {
     expect(el("inspector-odu")?.hasAttribute("open")).toBe(true);
   });
 
-  it("states the run's SCOPE, so a selection is not read as the whole pipeline", () => {
-    // `3 lanes` over a `selectors: ["ci::unit"]` run reads as three lanes of a
-    // DAG that never started. The qualifier is odu's own reading
-    // (`@odu/service-client/board`), so it is the same word odu's own board
-    // shows for the same run.
-    mountWithOdu({
+  /** The disclosure's summary line — the lane count, the exceptions, and the
+   *  run's scope, which is where a selection stops being read as the whole
+   *  pipeline. Exact, because "contains ci::unit" passes with the scope deleted
+   *  (the lane ids carry that word too). */
+  const summary = (): string =>
+    el("inspector-odu")?.querySelector("summary")?.textContent?.trim() ?? "";
+
+  /** One run and its lanes, scoped however the case needs. */
+  function scopedFrame(
+    scope: RunRow["scope"],
+    lanes: RunNode[] = [
+      oduNode("ci::unit@x86_64-linux", "ok"),
+      oduNode("ci::install@x86_64-linux", "ok"),
+    ],
+  ): CiStatusFrame {
+    return {
       kind: "status",
-      latest: {
-        run: oduRow({
-          scope: { selectors: ["ci::unit"], platforms: [], noDeps: false },
-        }),
-        lanes: [
-          oduNode("ci::unit@x86_64-linux", "failed"),
-          oduNode("ci::install@x86_64-linux", "ok"),
-        ],
-      },
-      recent: [
-        oduRow({
-          scope: { selectors: ["ci::unit"], platforms: [], noDeps: false },
-        }),
-      ],
-    });
-    expect(el("inspector-odu")?.textContent).toContain("2 lanes");
-    expect(el("inspector-odu")?.textContent).toContain("ci::unit");
+      latest: { run: oduRow({ scope }), lanes },
+      recent: [oduRow({ scope })],
+    };
+  }
+
+  it("states the run's SCOPE, in odu's own words", () => {
+    // `2 lanes` over a `selectors: ["ci::unit"]` run reads as two lanes of a DAG
+    // that never started: those lanes say nothing about the rest of the pipeline.
+    mountWithOdu(
+      scopedFrame({ selectors: ["ci::unit"], platforms: [], noDeps: false }),
+    );
+    expect(summary()).toBe("2 lanes · ci::unit");
     expect(el("inspector-odu-recent")?.textContent).toContain("ci::unit");
   });
 
   it("says nothing extra for a whole-pipeline run", () => {
-    // The full DAG (empty selectors, empty platforms, no `--no-deps`) has no
-    // qualifier to state — the fixture's own scope — and a suffix saying so
-    // would be noise on every row.
-    mountWithOdu(statusFrame());
-    expect(el("inspector-odu")?.textContent).not.toContain("whole pipeline");
+    // The full DAG has no qualifier to state — the fixture's own scope — and a
+    // suffix saying so would be noise on every row of every run.
+    mountWithOdu(scopedFrame({ selectors: [], platforms: [], noDeps: false }));
+    expect(summary()).toBe("2 lanes");
     expect(el("inspector-odu-recent")?.textContent).not.toContain(
       "whole pipeline",
     );
   });
 
-  it("names --no-deps, which is part of the scope and not a run detail", () => {
-    // A green under `--no-deps` says less about the pipeline, so it rides the
-    // same qualifier that a selection does.
+  it("names a platform slice, --no-deps and --root, which are scope too", () => {
+    // Each of the three is part of what the run covered, so each rides the same
+    // qualifier a selection does.
+    mountWithOdu(
+      scopedFrame({
+        selectors: [],
+        platforms: ["x86_64-linux"],
+        noDeps: false,
+      }),
+    );
+    expect(summary()).toBe("2 lanes · x86_64-linux");
+
+    mountWithOdu(scopedFrame({ selectors: [], platforms: [], noDeps: true }));
+    expect(summary()).toBe("2 lanes · no deps");
+
+    // A run rooted at a NAMEPATH expanded the DAG under it, so its lanes say as
+    // little about the rest of the pipeline as a selection's do.
+    mountWithOdu(
+      scopedFrame({
+        selectors: [],
+        platforms: [],
+        noDeps: false,
+        root: "ci::install",
+      }),
+    );
+    expect(summary()).toBe("2 lanes · under ci::install");
+    expect(el("inspector-odu-recent")?.textContent).toContain(
+      "under ci::install",
+    );
+  });
+
+  it("does not count lanes it cannot see: a failed run with no red lanes", () => {
+    // The nodes stream failed, or the lanes have not arrived. `✕ 0 failed`
+    // reads as a claim about the lanes; the verdict alone is what is true.
     mountWithOdu({
       kind: "status",
-      latest: {
-        run: oduRow({ scope: { selectors: [], platforms: [], noDeps: true } }),
-        lanes: [],
-      },
-      recent: [
-        oduRow({ scope: { selectors: [], platforms: [], noDeps: true } }),
-      ],
+      latest: { run: oduRow(), lanes: [] },
+      recent: [oduRow()],
     });
-    expect(el("inspector-odu")?.textContent).toContain("no deps");
-    expect(el("inspector-odu-recent")?.textContent).toContain("no deps");
+    expect(text("inspector-odu-chip")).toBe("✕ odu failed 0123456#3+dirty");
+    expect(summary()).toBe("0 lanes");
+  });
+
+  it("keeps the scope in the summary when the run has exceptions", () => {
+    // The count of red lanes and the scope are both about the SAME list, so the
+    // line states them together — and the scope comes last, as the qualifier
+    // for the whole line.
+    mountWithOdu(
+      scopedFrame({ selectors: ["ci::unit"], platforms: [], noDeps: false }, [
+        oduNode("ci::unit@x86_64-linux", "failed"),
+        oduNode("ci::install@x86_64-linux", "ok"),
+      ]),
+    );
+    expect(summary()).toBe("2 lanes · 1 failed · ci::unit");
   });
 
   it("makes each lane a link to its own log page in odu web", () => {

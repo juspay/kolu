@@ -155,6 +155,13 @@ const SUBHEAD =
  *  when that address needs a door opened first: there is nothing to copy yet, and
  *  the address does not exist until the relay is listening.
  *
+ *  WHICH wrapper is a LIVE fact, not a first-paint one: a door opening turns this
+ *  row from a button into an anchor with no other event, and cancelling the door
+ *  turns it back. So each arm is read through its own memo OUTSIDE the `Show`'s
+ *  condition — `Show` hands its child the value it matched, and a branch that read
+ *  `act()` again inside that child would take one snapshot of it (`PortRow`'s
+ *  ready-href does the same).
+ *
  *  With no outlet (a test rendering this section without the wire) the row is
  *  inert text: a lane is worth showing even when nothing offers a way out. */
 const LaneRow: Component<{
@@ -165,6 +172,14 @@ const LaneRow: Component<{
 }> = (props) => {
   const status = () => STATUS_META[props.lane.status];
   const hue = () => LANE_HUE[status().hue];
+  /** The address, when there is one — the arm as a REACTIVE VALUE, so the row
+   *  becomes an anchor the moment a door is listening. */
+  const href = createMemo(() => {
+    const act = props.act();
+    return act !== undefined && act.kind === "address" ? act.href : undefined;
+  });
+  /** …and the other arm: a door has to be opened first. */
+  const opensDoor = createMemo(() => props.act()?.kind === "door");
   /** The row's own facts, one spelling whichever element wraps them — and a
    *  FUNCTION, not a value, so the reads inside stay reactive per paint (a JSX
    *  value built once at setup would freeze on the lane's first status). */
@@ -195,35 +210,40 @@ const LaneRow: Component<{
       <span class="shrink-0 font-mono text-fg-3">{props.lane.host ?? ""}</span>
     </>
   );
+  /** The row's layout, and the `group/lane` its id underlines on hover — which
+   *  is an affordance only the two clickable arms get. */
   const ROW = "group/lane flex min-w-0 items-center gap-1.5";
+  const INERT = "flex min-w-0 items-center gap-1.5";
+  const TITLE = "open in odu";
   return (
-    <Show when={props.act()} fallback={<div class={ROW}>{body()}</div>}>
-      {(act) => {
-        const link = act();
-        const title = "open in odu";
-        return link.kind === "address" ? (
-          <a
-            href={link.href}
-            target="_blank"
-            rel="noopener noreferrer"
-            class={ROW}
-            title={title}
-            data-testid="inspector-odu-lane-link"
-          >
-            {body()}
-          </a>
-        ) : (
+    <Show
+      when={href()}
+      fallback={
+        <Show when={opensDoor()} fallback={<div class={INERT}>{body()}</div>}>
           <button
             type="button"
-            class={`${ROW} text-left`}
-            title={title}
+            class={`${ROW} cursor-pointer text-left`}
+            title={TITLE}
             data-testid="inspector-odu-lane-link"
             onClick={() => props.onOpen()}
           >
             {body()}
           </button>
-        );
-      }}
+        </Show>
+      }
+    >
+      {(url) => (
+        <a
+          href={url()}
+          target="_blank"
+          rel="noopener noreferrer"
+          class={ROW}
+          title={TITLE}
+          data-testid="inspector-odu-lane-link"
+        >
+          {body()}
+        </a>
+      )}
     </Show>
   );
 };
@@ -405,9 +425,13 @@ const WorkSection: Component<{
        *  IS one to state (the failed arm — the sibling counts the verdict's own
        *  bucket, not a neighbouring one), the verdict's own word otherwise, and
        *  always the ref the run is known by, so a chip is never about an
-       *  unnamed commit. */
+       *  unnamed commit.
+       *
+       *  A failed run with NO lane failures is not a zero: its lanes have not
+       *  arrived, or the nodes stream failed. The chip states the verdict alone
+       *  rather than counting a bucket it cannot see into. */
       label: `${ODU_GLYPH[status.hue]} ${
-        word === "failed" ? `${failed} ${word}` : `odu ${word}`
+        word === "failed" && failed > 0 ? `${failed} ${word}` : `odu ${word}`
       } ${oduRef(run)}`,
       /** What this list IS: how many lanes, the exceptions among them, and the
        *  run's SCOPE — odu's own qualifier, absent when the run covered the whole

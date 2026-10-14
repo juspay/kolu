@@ -26,6 +26,7 @@ import {
 } from "@odu/service-client/endpoint";
 import { hostKeysEqual as sameHost } from "kolu-common/hostKey";
 import type { RunNode, RunRow } from "@odu/service-client/surface";
+import { Effect } from "effect";
 import { createMemo } from "solid-js";
 import { isActiveHostLocal } from "../kaval/useDaemonStatus";
 import { forwardsForHost, viewerHost } from "../forwards/useForwards";
@@ -151,6 +152,13 @@ export function useOduLaneLink(): OduLaneOutlet {
       forwardsForHost(host()).find((f) => f.remotePort === ODU_PORT)?.localPort,
   );
 
+  /** The lanes whose door is being opened right now. A row is a button only
+   *  while no door is listening, so a second click in that window is a second
+   *  tab pointed at the same address — the door itself is idempotent, the tab is
+   *  not. Cleared by the effect's own finalizer, so a failed or interrupted open
+   *  leaves the row clickable. */
+  const opening = new Set<string>();
+
   return {
     act: (run, lane) =>
       oduLaneAct({
@@ -161,6 +169,9 @@ export function useOduLaneLink(): OduLaneOutlet {
         pageHost: window.location.hostname,
       }),
     open: (run, lane) => {
+      const hash = laneHash(run, lane);
+      if (opening.has(hash)) return;
+      opening.add(hash);
       // Claimed on the CALLING stack, before anything suspends: a popup blocker
       // judges `window.open` by descent from the user gesture.
       const tab = claimBlankTab();
@@ -170,8 +181,8 @@ export function useOduLaneLink(): OduLaneOutlet {
           host: host(),
           port: ODU_PORT,
           tab,
-          remainder: rootRemainder(laneHash(run, lane)),
-        }),
+          remainder: rootRemainder(hash),
+        }).pipe(Effect.ensuring(Effect.sync(() => opening.delete(hash)))),
       );
     },
   };
