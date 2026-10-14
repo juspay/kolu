@@ -466,19 +466,20 @@ describeDaemon("padi the process — dial acceptance", () => {
     const p = await startPadi(stateRoot);
     const conn = await connect(p.socketPath);
 
-    // A binder NEWER than this padi — it requires a hypothetical padiSurface 6.0
-    // while this padi serves 5.0 — reads the running version from the FROZEN
-    // control-core `hello` (the call that must work at a mismatch) and finds it
-    // INCOMPATIBLE, so it REFUSES to bind the versioned surface. The required
-    // version is spelled one MAJOR above `PADI_SURFACE_VERSION` deliberately: a
-    // literal that happened to equal the current constant would silently turn
-    // this into an assertion that compatibility HOLDS the day the constant
-    // caught up to it, which is exactly how the old "5.0" spelling rotted.
+    // A binder NEWER than this padi — it requires the major ABOVE whatever this
+    // build serves — reads the running version from the FROZEN control-core
+    // `hello` (the call that must work at a mismatch) and finds it INCOMPATIBLE,
+    // so it REFUSES to bind the versioned surface. The required version is
+    // DERIVED from `PADI_SURFACE_VERSION` rather than spelled as a literal,
+    // because a literal rots the day the constant catches up to it and silently
+    // becomes an assertion that compatibility HOLDS — which is what the old
+    // "5.0" spelling did, and then what "6.0" did the day padi reached 6.0.
+    const oneMajorUp = `${Number(PADI_SURFACE_VERSION.split(".")[0]) + 1}.0`;
     const hello = await Effect.runPromise(
       conn.client.control.surface.core.hello(),
     );
     expect(hello.surfaceVersion).toBe(PADI_SURFACE_VERSION);
-    expect(isContractVersionCompatible(hello.surfaceVersion, "6.0")).toBe(
+    expect(isContractVersionCompatible(hello.surfaceVersion, oneMajorUp)).toBe(
       false,
     );
 
