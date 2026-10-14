@@ -813,7 +813,7 @@ export type SurfaceMapSiblings = Record<string, Surface<any>>;
 
 /** The property names an entry FACE already spells (`@kolu/surface-map/client`'s
  *  `Entry`). A sibling is exposed as a NAMED PROPERTY of that face —
- *  `entry(key).odu.streams.checkout(…)` — so a sibling key equal to one of these
+ *  `entry(key).odu.streams.checkout.use(…)` — so a sibling key equal to one of these
  *  would shadow the entry's own subtree and hand a consumer the sibling where it asked
  *  for the entry's cells. Refused at DECLARATION time: the name is the defect, and
  *  renaming it is the only fix. Pinned against the real face in

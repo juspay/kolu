@@ -218,6 +218,12 @@ function buildHostBinding(host: string, agentDrv: string): HostBinding {
 
   // Fold the agent's frames into the local runtime; the first `load` frame is
   // the handshake that flips the session to `connected`.
+  //
+  // The pump holds nothing open — it mirrors whatever client the session
+  // produces. This fleet wants every host's link up whether or not anybody is
+  // looking at it (the entry's own dot is part of what the map answers), so it
+  // pins here and never releases.
+  void session.pin();
   let firstLoad = true;
   void pumpRemoteSurface({
     source: entry,

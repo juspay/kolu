@@ -255,7 +255,9 @@ handful of habits that paid for nothing; each is now a rule rather than a tuning
   leaves, so a machine that has never run odu pays one failed `connect` a minute
   at most — a syscall, never a process, re-probed at the reconnect ladder's
   ceiling because nobody's daemon gets started by polling for it — and an
-  Inspector nobody is looking at pays nothing at all.
+  Inspector nobody is looking at pays nothing at all. It holds END TO END because
+  nothing re-serves the sibling a second time: kolu-server forwards odu's tags
+  straight down the padi link it already holds, so a browser's demand IS padi's.
 - **A repo's change watcher outlives a browser's focus switch.** kolu-git retires
   a repo-change entry 30 s after its last subscriber leaves rather than on the
   drop, and a subscription taken inside that window reuses the live upstreams —
@@ -639,8 +641,11 @@ file knows, and all three are odu's own values, imported rather than restated:
 - **Whether this build may speak to it** — `admitService`, odu's comparison beside
   the version it is about, so padi never compares contract versions itself and
   cannot get the direction of that comparison backwards. A refusal is loud: logged
-  at error, published as a DOWN link. An odu this build cannot read is a different
-  fact from no odu at all, and the two must not render the same.
+  at error, and carried to every reader as a FAILED subscription
+  (`SurfaceUpstreamRefused`, with odu's own sentence on it) rather than as a hold
+  or an absent frame. An odu this build cannot read is a different fact from no
+  odu at all, so the Inspector draws a stated reason where an absent daemon draws
+  nothing.
 - **What "nothing to say about this checkout" is** — odu's `CHECKOUT_NONE`, handed
   to the re-serve as the member's absent frame, so a daemon that was stopped CLEARS
   a reader instead of leaving it painting the last board forever. It is deliberately

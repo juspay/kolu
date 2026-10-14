@@ -62,6 +62,7 @@ import {
   isDeadTransportError,
   isSurfaceRelayTransportLost,
   SurfaceRelayTransportLost,
+  SurfaceUpstreamRefused,
 } from "@kolu/surface/errors";
 import type { UpstreamSource } from "@kolu/surface/project";
 import { Effect, Stream } from "effect";
@@ -130,37 +131,52 @@ export interface RelayHoldOpenOptions<F> extends RelayStreamOptions {
    *  check still tells it apart from `lead` omitted entirely. The old bare
    *  `lead?: F` collided the two — an `undefined` lead frame read as "no lead". */
   lead?: { frame: F };
-  /** What this member says while the upstream is ABSENT — the frame a subscriber
-   *  receives when the far end is not there at all, rather than merely between
-   *  spawns.
+  /** What the upstream is DOING, and what this member says about it.
    *
    *  A hold-open relay's whole job is to survive a drop by SAYING NOTHING, and
-   *  that is right for a link that is coming back. It is wrong for one that was
-   *  never there, or that has been stopped: the subscriber goes on painting the
-   *  last live frame forever, and a reader cannot tell a still board from a dead
-   *  one. So an absence is told, ONCE per episode, as a value the member itself
-   *  declares — "nothing to say about this" in the member's own frame type — and
-   *  the next live frame replaces it.
+   *  that is right for a link that is coming back. It is wrong for the other two
+   *  things a dead holder can mean, and `signal` is how the relay tells them
+   *  apart:
    *
-   *  Only a session whose connector can TELL absence apart from unreachability
-   *  ever enters that state (see `EndpointAbsentError`), so for every other
-   *  relay this is simply omitted and the hold is unchanged. */
-  absent?: { frame: F; signal: AbsenceSignal };
+   *   - ABSENT — never there, or stopped. The subscriber would go on painting
+   *     the last live frame forever, so the absence is told ONCE per episode as
+   *     a value the member itself declares (`absent.frame`), and the next live
+   *     frame replaces it. A relay given no `absent` frame simply holds, as it
+   *     always did.
+   *   - REFUSED — something IS serving and this build cannot read it. No frame
+   *     can say that honestly (it is not a reading of anything), so the
+   *     subscription FAILS with {@link SurfaceUpstreamRefused} carrying the
+   *     refusal's own sentence.
+   *
+   *  Only a session that can tell those states apart ever reports them (see
+   *  `EndpointAbsentError` and the admit verdict), so for every other relay this
+   *  is simply omitted and the hold is unchanged. */
+  upstream?: { signal: UpstreamSignal; absent?: { frame: F } };
 }
 
-/** Is the relay's upstream ABSENT — nothing serving, as opposed to between
- *  spawns — plus a wake for the next change of that answer. Shaped like
- *  {@link ObservableHolder}'s `changed` for the same reason: a waiter detaches by
- *  fiber interruption, with no signal to thread and none to forget. */
-export interface AbsenceSignal {
+/** What the upstream is DOING, for a relay deciding whether to hold — plus a
+ *  wake for the next change of that answer. Shaped like {@link
+ *  ObservableHolder}'s `changed` for the same reason: a waiter detaches by fiber
+ *  interruption, with no signal to thread and none to forget.
+ *
+ *  Two facts, because holding is right for exactly one of the three things a
+ *  `null` client can mean. Between spawns: hold. ABSENT — nothing serving at
+ *  all: say so once in the member's own frame, then hold. REFUSED — something IS
+ *  serving and this build will not speak to it: holding would draw the same
+ *  blank an absent upstream draws, so the subscription FAILS instead. */
+export interface UpstreamSignal {
   readonly isAbsent: () => boolean;
+  /** The standing refusal's sentence, or `null` when there is no quarrel. */
+  readonly refusal: () => string | null;
   readonly changed: Effect.Effect<void>;
 }
 
 /** Await the next live client, holding while `.current` is `null` — or STOP
- *  holding, once, when the upstream turns out to be absent rather than
- *  between spawns (`null` instead of a client, which the caller answers with the
- *  member's own absent frame).
+ *  holding when the upstream turns out to be something other than between
+ *  spawns: ABSENT (yield `null`, which the caller answers with the member's own
+ *  absent frame) or REFUSED (FAIL with {@link SurfaceUpstreamRefused} — no
+ *  frame can say "this daemon is unreadable", and holding would say nothing at
+ *  all).
  *
  *  A plain EFFECT loop rather than stream recursion, so a link that flaps to
  *  `null` and back any number of times before a spawn lands costs no nesting.
@@ -174,33 +190,44 @@ function awaitLiveClient<Cl>(
 function awaitLiveClient<Cl>(
   holder: ObservableHolder<Cl>,
   onWait: () => void,
-  absence: { signal: AbsenceSignal; announce: () => boolean },
-): Effect.Effect<Cl | null>;
+  upstream: { signal: UpstreamSignal; announce: () => boolean },
+): Effect.Effect<Cl | null, SurfaceUpstreamRefused>;
 function awaitLiveClient<Cl>(
   holder: ObservableHolder<Cl>,
   onWait: () => void,
-  absence?: { signal: AbsenceSignal; announce: () => boolean },
-): Effect.Effect<Cl | null> {
+  upstream?: { signal: UpstreamSignal; announce: () => boolean },
+): Effect.Effect<Cl | null, SurfaceUpstreamRefused> {
   return Effect.gen(function* () {
+    /** A refusal outranks a hold AND an absent frame: the far end answered, so
+     *  "nothing is there" would be a lie and waiting would be waiting on a skew
+     *  that no spawn resolves. */
+    const refused = (): SurfaceUpstreamRefused | null => {
+      const reason = upstream?.signal.refusal() ?? null;
+      return reason === null ? null : new SurfaceUpstreamRefused({ reason });
+    };
+    const standing = refused();
+    if (standing !== null) return yield* Effect.fail(standing);
     if (holder.current !== null) return holder.current;
-    if (absence?.signal.isAbsent() === true && absence.announce()) {
+    if (upstream?.signal.isAbsent() === true && upstream.announce()) {
       return null;
     }
     onWait();
     let client = holder.current;
     while (client === null) {
-      // Woken by EITHER the next spawn or the absence verdict changing. Racing
+      // Woken by EITHER the next spawn or the upstream verdict changing. Racing
       // the two is what lets a link that is stopped (rather than blipping) reach
       // its subscribers at all: the holder alone never changes again.
-      yield* absence === undefined
+      yield* upstream === undefined
         ? holder.changed
-        : Effect.raceAllFirst([holder.changed, absence.signal.changed]);
+        : Effect.raceAllFirst([holder.changed, upstream.signal.changed]);
+      const nowRefused = refused();
+      if (nowRefused !== null) return yield* Effect.fail(nowRefused);
       client = holder.current;
       if (
         client === null &&
-        absence !== undefined &&
-        absence.signal.isAbsent() &&
-        absence.announce()
+        upstream !== undefined &&
+        upstream.signal.isAbsent() &&
+        upstream.announce()
       ) {
         return null;
       }
@@ -271,18 +298,20 @@ function requireUpstream<Cl, I, F>(
  * — so it would be classed as a link blip (held) today; a future one that needs
  * surfacing would report its per-input failure as a clean end.
  *
- * The returned stream's failure channel is `never`: every upstream failure is
- * absorbed into a rebind, so the only ways it terminates are a clean upstream end
- * and interruption.
+ * The returned stream fails ONLY on a standing refusal
+ * ({@link SurfaceUpstreamRefused}): every upstream FAILURE is absorbed into a
+ * rebind, so the other ways it terminates are a clean upstream end and
+ * interruption.
  */
 export function holdOpenStreamCore<Cl, I, F>(
   member: string,
   holder: ObservableHolder<Cl>,
   select: (client: Cl) => ForwardableStream<I, F>,
   opts: RelayHoldOpenOptions<F> = {},
-): (input: I) => Stream.Stream<F, never> {
+): (input: I) => Stream.Stream<F, SurfaceUpstreamRefused> {
   const log = opts.log ?? ((): void => {});
-  const absent = opts.absent;
+  const upstream = opts.upstream;
+  const absent = upstream?.absent;
   return (input) => {
     /** Has THIS subscriber already been told about the current absence? One
      *  frame per episode: the absent frame is news the first time and noise
@@ -290,7 +319,7 @@ export function holdOpenStreamCore<Cl, I, F>(
      *  against a daemon nobody is going to start. Reset by a live client, so a
      *  daemon stopped a second time is news again. */
     let toldAbsent = false;
-    const bind = (): Stream.Stream<F, never> =>
+    const bind = (): Stream.Stream<F, SurfaceUpstreamRefused> =>
       Stream.unwrap(
         Effect.gen(function* () {
           const onWait = (): void =>
@@ -298,22 +327,25 @@ export function holdOpenStreamCore<Cl, I, F>(
             // spawn). HOLD — don't complete the downstream — and wake on the
             // next `.current` change.
             log(`${member}: no live client — holding for next spawn`);
-          const client = yield* absent === undefined
+          const client = yield* upstream === undefined
             ? awaitLiveClient(holder, onWait)
             : awaitLiveClient(holder, onWait, {
-                signal: absent.signal,
+                signal: upstream.signal,
                 announce: () => {
-                  if (toldAbsent) return false;
+                  // A relay with no absent frame has nothing to say about an
+                  // absence, so it keeps holding rather than stopping for one.
+                  if (absent === undefined || toldAbsent) return false;
                   toldAbsent = true;
                   return true;
                 },
               });
           if (client === null) {
             if (absent === undefined) {
-              // Unreachable by construction — the park only yields `null` when it
-              // was given an absence arm — and spelled rather than cast, so a
-              // future caller that breaks that pairing gets a defect naming the
-              // member instead of a `TypeError` from the member resolve below.
+              // Unreachable by construction — the park only yields `null` when
+              // `announce` said yes, which needs an absent frame — and spelled
+              // rather than cast, so a future caller that breaks that pairing
+              // gets a defect naming the member instead of a `TypeError` from
+              // the member resolve below.
               throw new Error(
                 `${member}: the relay stopped holding with no absent frame to send`,
               );
@@ -334,8 +366,8 @@ export function holdOpenStreamCore<Cl, I, F>(
           // doesn't expose it is a structural mismatch that must fail loud (a
           // defect), not be caught below as a "link blip" and held open forever
           // waiting for a rebind that can never fix a missing member.
-          const upstream = requireUpstream(select, client, member);
-          const forwarded = upstream.get(input).pipe(
+          const upstreamMember = requireUpstream(select, client, member);
+          const forwarded = upstreamMember.get(input).pipe(
             // Clean end: the source completed THIS input's stream on purpose (a
             // one-shot that fired, a value stream that finished) while the link
             // is live — a transport death FAILS, it never ends cleanly. Waiting
@@ -392,7 +424,7 @@ export function relayHoldOpenStream<P extends RelayPolicy, Cl, I, F>(
   holder: ObservableHolder<Cl>,
   select: (client: Cl) => ForwardableStream<I, F>,
   opts: RelayHoldOpenOptions<F> = {},
-): (input: I) => Stream.Stream<F, never> {
+): (input: I) => Stream.Stream<F, SurfaceUpstreamRefused> {
   // Defence in depth behind the type bound: an `as`-cast caller can't smuggle a
   // delta member through and get it silently held open — fail loud instead.
   if (policy[member] !== "value") {

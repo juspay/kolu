@@ -15,20 +15,14 @@ import {
   resolvePadiStateRoot,
 } from "@kolu/padi/assembly";
 import {
-  ODU_FORWARDING_POLICY,
-  type oduCarriedSurface,
-  oduSibling,
   PADI_FORWARDING_POLICY,
   type PadiProcessMemory,
   padiSurface,
 } from "@kolu/padi-client/surface";
 import { agentDistroSettingEqual } from "@kolu/agent-distro/schema";
-import { buildSurfaceFace } from "@kolu/surface/client";
+import { siblingTagPrefix } from "@kolu/surface/define";
 import { directDispatch } from "@kolu/surface/links/direct";
-import {
-  type SurfaceClientLike,
-  surfaceClientRef,
-} from "@kolu/surface/project";
+import { surfaceClientRef } from "@kolu/surface/project";
 import { parseAllowedOrigins } from "@kolu/surface/ws-origin";
 import { serveSurfaceApp } from "@kolu/surface-app/serve";
 import type { ManifestOptions } from "@kolu/surface-app/server";
@@ -37,8 +31,6 @@ import {
   type ReServedSurface,
   reServeSurface,
   serveHostMap,
-  type Session,
-  type SshProv,
 } from "@kolu/surface-remote";
 import {
   projectConnection,
@@ -69,6 +61,7 @@ import { enumerateDaemonInventoryOnce } from "./padi/daemonInventory.ts";
 import { readAgentDistroListing } from "./agentDistroListing.ts";
 import { readAgentDistroDeliveryBake } from "./agentDelivery/bake.ts";
 import { installAgentDelivery } from "./agentDelivery/install.ts";
+import { entryDispatch } from "./padi/entryDispatch.ts";
 import { installNewTerminalPolicyPusher } from "./padi/newTerminalPolicy.ts";
 import { installPadiCellPusher } from "./padi/padiCellPusher.ts";
 import {
@@ -482,108 +475,14 @@ export async function bootKoluWeb(flags: KoluBootFlags): Promise<void> {
     ),
   );
 
-  /** The SAME padi session, seen as odu's face.
-   *
-   *  A re-serve reads its upstream member off `client.surface.<member>`, and a
-   *  padi link's client is padi's own face — so the odu half needs a view of the
-   *  same link whose `.surface` is odu's. It is a projection, not a second
-   *  session: every verb below the client is the padi session's own, so one
-   *  reconnect loop, one give-up budget and one connection state serve both
-   *  halves.
-   *
-   *  The face is cached BY THE CLIENT PROMISE the session hands out, because the
-   *  mirror pump detects a respawn by that promise's IDENTITY: minting a fresh
-   *  face per read would read as a new spawn on every poll and re-mirror the
-   *  whole surface each time. */
-  const oduFaceSession = (
-    base: PadiSession,
-  ): Session<SurfaceClientLike, SshProv> => {
-    let seen: {
-      from: Promise<unknown>;
-      face: Promise<SurfaceClientLike>;
-    } | null = null;
-    const faceOf = (
-      from: Promise<unknown> | null,
-    ): Promise<SurfaceClientLike> | null => {
-      if (from === null) return null;
-      if (seen !== null && seen.from === from) return seen.face;
-      const face = from.then(() => {
-        const dispatch = base.currentDispatch?.();
-        if (dispatch === undefined) {
-          throw new Error(
-            "kolu-server: the padi session produced a client with no dispatch — the odu sibling's face is built over that dispatch",
-          );
-        }
-        return buildSurfaceFace(
-          oduSibling,
-          dispatch,
-        ) as unknown as SurfaceClientLike;
-      });
-      seen = { from, face };
-      return face;
-    };
-    return {
-      ...base,
-      pin: () => {
-        const pinned = base.pin();
-        return (
-          faceOf(pinned) ??
-          pinned.then(() => {
-            throw new Error("unreachable: a pinned session has a client");
-          })
-        );
-      },
-      currentClient: () => faceOf(base.currentClient()),
-    };
-  };
-
-  // ── The odu SIBLING, carried across the second hop ────────────────────────
-  //
-  // padi serves odu's carried members at `surface/odu/*` on its own socket; the
-  // host map forwards a sibling call to the SAME per-entry dispatch it uses for
-  // padi's own members, so the dispatch has to answer both. These re-serves mint
-  // the odu half, and the two handler records merge below.
-  //
-  // The UPSTREAM face is the odu sibling's face over the padi link's dispatch —
-  // the same link, a different tag prefix. It rides the padi session rather than
-  // a session of its own because there is only one connection here: a second
-  // session over the same socket would be a second reconnect loop with its own
-  // opinion about whether the host is up.
-  const oduReServes = new Map<
-    string,
-    ReServedSurface<typeof oduCarriedSurface.spec>
-  >();
-  const oduReServeFor = (
-    h: HostKey,
-    s: PadiSession,
-  ): ReServedSurface<typeof oduCarriedSurface.spec> => {
-    const enc = encodeHostKey(h);
-    let r = oduReServes.get(enc);
-    if (r === undefined) {
-      r = reServeSurface<typeof oduCarriedSurface.spec>({
-        // The SIBLING value, not the bare surface: its handlers must land at
-        // `surface/odu/*`, which is where the map forwards a sibling member. The
-        // bare `oduCarriedSurface` binds at `surface/*` — handlers nobody
-        // addresses, and a readout that is simply never reached.
-        source: oduSibling,
-        policy: ODU_FORWARDING_POLICY,
-        session: oduFaceSession(s),
-        log: (line) => log.debug({ line, host: enc }, "odu re-serve"),
-        onFault: (fault) =>
-          log.error(
-            {
-              err: fault.err,
-              host: enc,
-              member: fault.label,
-              scope: fault.scope,
-            },
-            "odu projection: a mirrored member's upstream stream died",
-          ),
-      });
-      oduReServes.set(enc, r);
-    }
-    return r;
-  };
+  /** Which tags belong to a SIBLING rather than to the entry surface, derived
+   *  from the map's own declaration so a sibling added there is routed without
+   *  a second list to remember. Upstream — on the host's own socket — a sibling
+   *  member is `surface/<sibling>/<member>/<verb>`, which is exactly the tag
+   *  `serveHostMap` forwards. */
+  const siblingTagPrefixes = Object.keys(padiHostMap.siblings).map(
+    siblingTagPrefix,
+  );
 
   // Eagerly re-serve the LOCAL (default) host so the memory sampler has its in-process
   // client — a `directLink` over the mirror's own router, no socket/ssh hop. It reads
@@ -603,17 +502,14 @@ export async function bootKoluWeb(flags: KoluBootFlags): Promise<void> {
   // without "copying"; `serveHostMap`'s belt (juspay/kolu#1716) checks that off each
   // session's own `provisions` fact now, so there is no app-nominated "local key" to pass.
   const padiMap = serveHostMap(padiHostMap, pool, {
-    // The per-host forwarding target: an in-process dispatch straight over that
-    // host's re-served handler records — no socket, no serialization. BOTH
-    // halves are merged into one record, because the map forwards an entry
-    // member and a SIBLING member to the same dispatch, and the two sets of tags
-    // are disjoint by construction (`surface/<member>/*` vs `surface/odu/*`).
+    // The per-host forwarding target — see `entryDispatch` for why padi's own
+    // members are mirrored here and a sibling's are not.
     dispatchFor: (h, s) =>
-      directDispatch({
-        handlers: {
-          ...reServeFor(h, s).handlers,
-          ...oduReServeFor(h, s).handlers,
-        },
+      entryDispatch({
+        siblingTagPrefixes,
+        mirror: directDispatch({ handlers: reServeFor(h, s).handlers }),
+        link: () => s.currentDispatch?.(),
+        host: encodeHostKey(h),
       }),
     // The clock offset is no longer injected: `makeSession` measures it off the
     // framework-reserved `system.clockNow` at admit and carries it on each session's

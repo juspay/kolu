@@ -30,6 +30,7 @@ import type {
 } from "@odu/service-client/surface";
 import type { OduLinkOutlet } from "./useOduLink";
 import type { TerminalId } from "kolu-common/surface";
+import { SurfaceUpstreamRefused } from "@kolu/surface/errors";
 import { type Accessor, createSignal, type JSX } from "solid-js";
 import { render } from "solid-js/web";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -814,15 +815,17 @@ describe("WorkSection odu CI readout", () => {
     );
   });
 
-  it("draws an explicit row when the READOUT failed — never a blank", () => {
+  it("draws an explicit row when the daemon REFUSES — never a blank", () => {
     // Absence is not this row: an absent odu answers a frame and draws nothing.
-    // This is the subscription itself failing — a frame this client could not
-    // decode, a member the relay could not open — which is an install to go and
-    // look at rather than a quiet machine.
+    // A refusal is the opposite fact — something IS serving, and this build
+    // cannot read it — so it arrives as the subscription FAILING, with the far
+    // end's own sentence on it. An install to go and look at, rather than a
+    // quiet machine.
     mountWithOdu(undefined, {
-      error: new Error(
-        "the odu daemon at /tmp/x.sock speaks service contract 9.9",
-      ),
+      error: new SurfaceUpstreamRefused({
+        reason:
+          "the odu service at /tmp/x.sock speaks contract 9.9; this build reads 1.5",
+      }),
     });
     expect(text("inspector-odu-error")).toContain("odu CI unavailable");
     expect(text("inspector-odu-error")).toContain("9.9");

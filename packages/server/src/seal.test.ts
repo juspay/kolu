@@ -62,6 +62,10 @@ const WEB_SHELL_FILES = [
   // kolu's active one. Shell code (it publishes koluSurface's `daemonInventory` cell,
   // runs no terminal domain), not a terminal-domain module.
   "padi/daemonInventory",
+  // Where ONE host entry's calls go: padi's own members to that host's mirror,
+  // a nested sibling's straight down the host's link. Web-shell routing — it
+  // decides which dispatch answers a tag and runs no terminal domain.
+  "padi/entryDispatch",
   // The new-terminal THEME POLICY pusher — derives the resolved policy from the web
   // shell's own `preferences` + `viewerMode` cells and writes it into every bound padi's
   // `newTerminalPolicy` cell on connect (#2045). Web-shell orchestration: it drives the

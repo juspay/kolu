@@ -89,6 +89,14 @@ type: the shape of "nothing to say" belongs to the source contract, not to this
 relay. Naming a member that is not a `value`-classified stream or event throws at
 wiring time — a frame nobody could ever receive is worse than no frame at all.
 
+A REFUSAL is the third thing a dead holder can mean, and the only one a frame
+cannot say: something IS serving, and this build will not speak to it. The admit
+verdict publishes it on the session (`session.refusal()`), and a hold-open relay
+that reads one stops holding and FAILS its subscription with
+`SurfaceUpstreamRefused`, carrying the far end's own sentence. Never retryable —
+no retry unmakes a version skew — so a reader gets a stated reason where an
+absent upstream draws a blank.
+
 Worked end-to-end in [`packages/surface/example/remote-process-monitor`](../surface/example/remote-process-monitor).
 Part of the kolu monorepo — `"@kolu/surface-remote": "workspace:*"`.
 

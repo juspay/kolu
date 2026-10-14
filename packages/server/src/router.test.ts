@@ -75,14 +75,16 @@ describe("the served group — the wire surface kolu-server advertises", () => {
     expect(tags.filter((t) => t.startsWith("surface/surface/"))).toEqual([]);
   });
 
-  it("the odu SIBLING's forward tags are the tags a per-host re-serve must bind", () => {
+  it("the odu SIBLING's forward tags are the tags a per-host dispatch must answer", () => {
     // THE DEFECT THIS PINS, measured on a live host: the map forwards
     // `entry(h).odu.<member>` onto the entry's dispatch at the SIBLING's upstream
-    // tag (`surface/odu/*`), and the per-host re-serve bound its handlers at the
-    // BARE surface's tags (`surface/*`) because it was handed `oduCarriedSurface`
+    // tag (`surface/odu/*`), and the per-host wiring answered at the BARE
+    // surface's tags (`surface/*`) because it was built from `oduCarriedSurface`
     // instead of `oduSibling`. Both halves typechecked, both were wired, and the
     // readout was simply never reached: `no handler bound at
-    // "surface/odu/checkout/get"`.
+    // "surface/odu/checkout/get"`. It is also why the forward is literal: the
+    // tag the map hands down IS the tag padi serves odu at, so kolu-server
+    // re-prefixes nothing.
     const forwardTags = [...oduSibling.group.requests.keys()].sort();
     expect(forwardTags).toContain("surface/odu/checkout/get");
     expect(forwardTags).toContain("surface/odu/service/get");

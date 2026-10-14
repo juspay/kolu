@@ -89,7 +89,7 @@ declared policy with no interpreter throws at construction.
 An entry may carry whole **sibling surfaces** beside the entry surface — a second
 daemon the entry's own socket already serves, re-served through the map and
 addressed per key. `siblings: { odu: oduSurface }` makes every member of that
-surface reachable as `entry(host).odu.streams.checkout(…)`, typed from odu's own
+surface reachable as `entry(host).odu.streams.checkout.use(…)`, typed from odu's own
 spec. A map that declares none mints not one extra tag: a sibling-free map is
 byte-identical to one defined before siblings existed.
 

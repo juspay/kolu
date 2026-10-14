@@ -71,7 +71,7 @@ import {
   pumpRemoteSurface,
 } from "./hostFanout";
 import {
-  type AbsenceSignal,
+  type UpstreamSignal,
   type ForwardableStream,
   failThroughStreamCore,
   holdOpenStreamCore,
@@ -259,24 +259,34 @@ export function reServeSurface<S extends SurfaceSpec>(
     );
   }
 
-  // ── Absence: "there is nothing serving", told once per episode ────────────
+  // ── What the upstream is DOING, for the relays that would otherwise hold ──
   //
-  // Derived from the SESSION's own arm rather than from the client holder going
-  // null: `null` covers both "between spawns" (hold, say nothing) and "nothing
-  // is there" (say so), and only the session knows which — its connector is what
-  // classified the dial.
+  // Derived from the SESSION's own facts rather than from the client holder
+  // going null: `null` covers "between spawns" (hold, say nothing), "nothing is
+  // there" (say so in the member's frame) and "there is something there this
+  // build will not speak to" (fail loud) — and only the session knows which. Its
+  // connector classified the dial; its admit verdict classified the far end.
   const absentFrames = opts.absent ?? {};
-  const absence: AbsenceSignal = (() => {
-    let isAbsent = session.currentState().phase === "absent";
+  let detachUpstreamSignal: () => void = () => {};
+  const upstream: UpstreamSignal = (() => {
+    const read = (): { absent: boolean; refusal: string | null } => ({
+      absent: session.currentState().phase === "absent",
+      refusal: session.refusal?.() ?? null,
+    });
+    let seen = read();
     const waiters = new Set<() => void>();
-    session.onState((s) => {
-      const next = s.phase === "absent";
-      if (next === isAbsent) return;
-      isAbsent = next;
+    // The unsubscribe is KEPT and detached by `close()`: a re-serve that outlives
+    // its own pump but not its session would otherwise keep this whole closure
+    // reachable from the live session's listener list.
+    detachUpstreamSignal = session.onState(() => {
+      const next = read();
+      if (next.absent === seen.absent && next.refusal === seen.refusal) return;
+      seen = next;
       for (const wake of [...waiters]) wake();
     });
     return {
-      isAbsent: () => isAbsent,
+      isAbsent: () => seen.absent,
+      refusal: () => seen.refusal,
       // Built exactly like `observableHolder.changed`, and for the same reason:
       // an interrupted waiter detaches through the effect's own finalizer, so a
       // torn-down subscription leaves no listener behind.
@@ -487,9 +497,14 @@ export function reServeSurface<S extends SurfaceSpec>(
     const frame = absentFrames[member];
     return holdOpenStreamCore(member, liveClient, select, {
       log,
-      // Only a member the caller named gets an absence arm; every other value
-      // member holds open exactly as before.
-      ...(member in absentFrames ? { absent: { frame, signal: absence } } : {}),
+      // EVERY hold-open relay gets the signal, because a refusal is a reason to
+      // stop holding whether or not this member has a frame for absence. Only a
+      // member the caller named for `absent` can say so in its own frame; the
+      // rest keep holding through an absence exactly as before.
+      upstream: {
+        signal: upstream,
+        ...(member in absentFrames ? { absent: { frame } } : {}),
+      },
     });
   };
   // Streams and events route identically (both per-subscriber relays via
@@ -762,6 +777,11 @@ export function reServeSurface<S extends SurfaceSpec>(
     // caller-owned session), then await its settle (its per-key pumps settle via
     // signal.reason — #1719) before the combinator releases the runtime.
     close: async () => {
+      // The session OUTLIVES this re-serve (it is the caller's), so the state
+      // listener has to come off by hand: left attached, it holds this whole
+      // closure — runtime, caches, relays — reachable from a live session for as
+      // long as that session lives.
+      detachUpstreamSignal();
       pumpAbort.abort();
       await pumpDone.catch(() => {});
     },

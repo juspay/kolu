@@ -838,11 +838,12 @@ export function ensurePadiBindingWith(
       });
       return {
         client: scopePadiSurface(conn.client),
-        // The link's own tag-keyed dispatch, carried so a consumer can build a
-        // SECOND face over the SAME link — which is how the odu sibling is
-        // reached (`index.ts`'s `oduFaceSession`): one connection, two tag
-        // prefixes. The ssh arm has always carried it; the local arm dropped it,
-        // which made the sibling reachable on a remote host and dark on this one.
+        // The link's own tag-keyed dispatch, carried so a consumer can reach a
+        // SECOND tag prefix over the SAME link — which is how the odu sibling is
+        // reached (`index.ts`'s `entryDispatch` forwards `surface/odu/*` down
+        // it): one connection, two contracts. The ssh arm has always carried it;
+        // the local arm dropped it, which made the sibling reachable on a remote
+        // host and dark on this one.
         dispatch: conn.client.dispatch,
         closed,
         // The FROZEN control-core hello round-trip — the liveness probe the watchdog

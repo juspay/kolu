@@ -53,13 +53,6 @@ const MetadataInspector: Component<{
 }> = (props) => {
   const store = useTerminalStore();
 
-  /** The odu-link outlet — how a lane row, a recent-runs row or the chip reaches
-   *  odu web. Opened here rather than inside `WorkSection` so that section can be
-   *  rendered in a test with the link decision stubbed, and it reads the SAME
-   *  active host the section's readout is keyed by, so the page a row opens is
-   *  the daemon that row is describing. */
-  const odu = useOduLink();
-
   /** Is the TILE awake? The Attach section's subject is the tile (its picker
    *  spans the main pane and every split), so its liveness gate must read the
    *  TILE's metadata — not the focused pane's. A sleeping tile released its PTY
@@ -80,40 +73,54 @@ const MetadataInspector: Component<{
         </div>
       }
     >
-      {(meta) => (
-        <div
-          class="overflow-y-auto overflow-x-hidden h-full"
-          data-testid="inspector-cwd"
-        >
-          {/* Compose — draft a prompt and send it to the active terminal.
-           *  Gated on the ACTIVE arm (a sleeping tile released its PTY, so
-           *  `sendInput` would quiet-drop) exactly like the Attach section
-           *  below. `keyed` on the terminal id so a tile switch REMOUNTS the
-           *  section — its per-terminal persisted draft then rebinds to the new
-           *  terminal's localStorage key instead of the previous tile's. */}
-          <Show when={activeArm(meta()) && props.terminalId} keyed>
-            {(id) => (
-              <Section title="Compose">
-                <ComposeSection terminalId={id} />
-              </Section>
-            )}
-          </Show>
+      {(meta) => {
+        /** The odu-link outlet — how a lane row, a recent-runs row or the chip
+         *  reaches odu web. Opened here rather than inside `WorkSection` so that
+         *  section can be rendered in a test with the link decision stubbed, and
+         *  it reads the SAME active host the section's readout is keyed by, so
+         *  the page a row opens is the daemon that row is describing.
+         *
+         *  INSIDE the subject gate, not above it: this outlet subscribes to
+         *  odu's `service` cell, and padi dials odu for whoever is subscribed.
+         *  Opened above the gate it would hold that link open on the active host
+         *  while the Inspector showed "No terminal selected" — a reader looking
+         *  at nothing, with nothing to paint. The `<Show>` owns its lifetime:
+         *  no subject, no subscription. */
+        const odu = useOduLink();
+        return (
+          <div
+            class="overflow-y-auto overflow-x-hidden h-full"
+            data-testid="inspector-cwd"
+          >
+            {/* Compose — draft a prompt and send it to the active terminal.
+             *  Gated on the ACTIVE arm (a sleeping tile released its PTY, so
+             *  `sendInput` would quiet-drop) exactly like the Attach section
+             *  below. `keyed` on the terminal id so a tile switch REMOUNTS the
+             *  section — its per-terminal persisted draft then rebinds to the new
+             *  terminal's localStorage key instead of the previous tile's. */}
+            <Show when={activeArm(meta()) && props.terminalId} keyed>
+              {(id) => (
+                <Section title="Compose">
+                  <ComposeSection terminalId={id} />
+                </Section>
+              )}
+            </Show>
 
-          {/* Agent — tier 1. The status card leads: state chip + left rail in
-           *  semantic color, task, then the quiet meta row. */}
-          <Show when={activeArm(meta())?.agent}>
-            {(agent) => <AgentStatusCard agent={agent()} />}
-          </Show>
+            {/* Agent — tier 1. The status card leads: state chip + left rail in
+             *  semantic color, task, then the quiet meta row. */}
+            <Show when={activeArm(meta())?.agent}>
+              {(agent) => <AgentStatusCard agent={agent()} />}
+            </Show>
 
-          {/* Work — directory + git + PR as one identity cluster, plus the
+            {/* Work — directory + git + PR as one identity cluster, plus the
               checkout's odu CI readout. That readout is the section's OWN
               subscription now (odu's `checkout` stream, keyed by the git fact
               the section already reads), so nothing about it is threaded
               through here; only the lane-link outlet is, so the address a row
               offers stays assertable without a forwards wire. */}
-          <WorkSection meta={meta()} odu={odu} />
+            <WorkSection meta={meta()} odu={odu} />
 
-          {/* Ports — what this TILE is serving, its splits included (a dev server
+            {/* Ports — what this TILE is serving, its splits included (a dev server
               usually runs in a split, so a main-pane-only reading shows nothing in
               the common case). Gated on the TILE id — the subject is the whole
               tile, not the focused pane. `PortsSection` owns which panes to read
@@ -122,64 +129,65 @@ const MetadataInspector: Component<{
               also owns which chips are openable (that needs the active HOST, not
               just this metadata) and rendering nothing at all when the tile serves
               nothing. */}
-          <Show when={props.tileId}>
-            {(id) => <PortsSection terminalId={id()} />}
-          </Show>
+            <Show when={props.tileId}>
+              {(id) => <PortsSection terminalId={id()} />}
+            </Show>
 
-          {/* Attach/snapshot commands per terminal (main + splits) — see
-           *  KavalAttachSection for the socket-pinning + short-id rationale.
-           *  Reference tier: ships COLLAPSED (attach is an occasional act, not
-           *  a status; it used to spend ~40% of the panel).
-           *
-           *  The subject is the TILE (its `getTilePaneIds` picker spans main +
-           *  every split), so BOTH the gate and the `keyed` remount read the
-           *  tile: `tileAwake()` (the tile's own arm — a sleeping tile released
-           *  its PTY and closed its splits, so a command would have nothing to
-           *  reach), and `keyed` on the tile id so a TILE switch remounts. The
-           *  section holds PICKER state (which pane, which verb), and without a
-           *  remount that state survives a tile switch — you would land on
-           *  another tile showing `send` + "Split 1" preselected on a picker you
-           *  never touched there. */}
-          <Show when={tileAwake() && props.tileId} keyed>
-            {(id) => (
-              <Section
-                title="Attach"
-                collapsible
-                data-testid="inspector-attach-section"
-              >
-                <KavalAttachSection terminalId={id} />
-              </Section>
-            )}
-          </Show>
-
-          {/* Footer meta — facts you rarely act on: the foreground process and
-           *  the theme, one quiet mono row instead of two sections. */}
-          <div class="flex flex-wrap items-center gap-x-4 gap-y-1 px-3 py-2.5 font-mono text-[10px] text-fg-3">
-            <Show when={activeArm(meta())?.foreground}>
-              {(fg) => (
-                <span
-                  data-testid="inspector-foreground"
-                  title={fg().title ?? undefined}
+            {/* Attach/snapshot commands per terminal (main + splits) — see
+             *  KavalAttachSection for the socket-pinning + short-id rationale.
+             *  Reference tier: ships COLLAPSED (attach is an occasional act, not
+             *  a status; it used to spend ~40% of the panel).
+             *
+             *  The subject is the TILE (its `getTilePaneIds` picker spans main +
+             *  every split), so BOTH the gate and the `keyed` remount read the
+             *  tile: `tileAwake()` (the tile's own arm — a sleeping tile released
+             *  its PTY and closed its splits, so a command would have nothing to
+             *  reach), and `keyed` on the tile id so a TILE switch remounts. The
+             *  section holds PICKER state (which pane, which verb), and without a
+             *  remount that state survives a tile switch — you would land on
+             *  another tile showing `send` + "Split 1" preselected on a picker you
+             *  never touched there. */}
+            <Show when={tileAwake() && props.tileId} keyed>
+              {(id) => (
+                <Section
+                  title="Attach"
+                  collapsible
+                  data-testid="inspector-attach-section"
                 >
-                  fg <span class="text-fg-2">{fg().name}</span>
-                </span>
+                  <KavalAttachSection terminalId={id} />
+                </Section>
               )}
             </Show>
-            <Show when={props.themeName}>
-              {(name) => (
-                <button
-                  type="button"
-                  data-testid="inspector-theme-button"
-                  class="cursor-pointer text-accent hover:underline"
-                  onClick={props.onThemeClick}
-                >
-                  {name()}
-                </button>
-              )}
-            </Show>
+
+            {/* Footer meta — facts you rarely act on: the foreground process and
+             *  the theme, one quiet mono row instead of two sections. */}
+            <div class="flex flex-wrap items-center gap-x-4 gap-y-1 px-3 py-2.5 font-mono text-[10px] text-fg-3">
+              <Show when={activeArm(meta())?.foreground}>
+                {(fg) => (
+                  <span
+                    data-testid="inspector-foreground"
+                    title={fg().title ?? undefined}
+                  >
+                    fg <span class="text-fg-2">{fg().name}</span>
+                  </span>
+                )}
+              </Show>
+              <Show when={props.themeName}>
+                {(name) => (
+                  <button
+                    type="button"
+                    data-testid="inspector-theme-button"
+                    class="cursor-pointer text-accent hover:underline"
+                    onClick={props.onThemeClick}
+                  >
+                    {name()}
+                  </button>
+                )}
+              </Show>
+            </div>
           </div>
-        </div>
-      )}
+        );
+      }}
     </Show>
   );
 };

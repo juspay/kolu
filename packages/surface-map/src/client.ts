@@ -75,7 +75,7 @@ export type EntrySibling<S extends SurfaceSpec> = Pick<
 >;
 
 /** The named sibling faces an entry carries, typed from the map's `siblings`
- *  declaration — `entry(key).odu.streams.checkout(…)` is typed from odu's OWN spec,
+ *  declaration — `entry(key).odu.streams.checkout.use(…)` is typed from odu's OWN spec,
  *  never `any`. Empty for a map that declares none, so an entry face with no siblings
  *  gains not one property. */
 export type EntrySiblings<Sibs extends SurfaceMapSiblings> = {

@@ -188,6 +188,47 @@ describe("pin / release", () => {
     expect(session.currentState().phase).toBe("connected");
     session.destroy();
   });
+
+  it("supersedes a dial still in flight when the grace expires", async () => {
+    // A connector that is PAST its own abort point: it ignores the signal and
+    // resolves when the test says so. Real ones exist — an admit hello already
+    // on the wire, a provisioning step with no cancellation point left.
+    const landing: { resolve: (() => void) | null } = { resolve: null };
+    let tornDown = 0;
+    const session = mk(async (ctx): Promise<Connection<FakeClient>> => {
+      ctx.connecting();
+      await new Promise<void>((resolve) => {
+        landing.resolve = resolve;
+      });
+      return {
+        client: fakeClient(),
+        closed: new Promise<ClosedInfo>(() => {}),
+        isAlive: () => Promise.resolve(),
+        teardown: () => {
+          tornDown += 1;
+        },
+      };
+    });
+
+    const pinned = session.pin();
+    // The pin is never awaited to completion: the dial is still in flight when
+    // the only subscriber leaves, which is the whole case.
+    pinned.catch(() => {});
+    await flush();
+    session.release();
+    await vi.advanceTimersByTimeAsync(RELEASE_GRACE_MS + 1);
+    await flush();
+
+    landing.resolve?.();
+    await flush();
+
+    // Adopted, it would sit `connected` with zero pins and a grace that has
+    // already fired — nothing would ever let it go. Superseded, its connection
+    // is torn down and the session stays dormant.
+    expect(tornDown).toBe(1);
+    expect(session.currentState().phase).not.toBe("connected");
+    session.destroy();
+  });
 });
 
 describe("the absent arm", () => {

@@ -25,7 +25,7 @@ shared pool; key your own map and `destroy()` them yourself.
 | --- | --- | --- |
 | `makeSession(opts)` | `.` | the reconnect/backoff/give-up/watchdog loop; returns a `Session<AgentClient, Prov>`. Owns no transport — you supply `connectOnce` |
 | `sshConnector<S>(opts)` | `.` | the ssh `Connector`: per dial, resolve the `.drv`, provision, spawn `ssh <host> <binary> --stdio`, **await the agent's readiness banner**, then wire stdio to a typed client. Takes the **`surface` as a value**, not a type parameter — Effect RPC builds its client from `surface.group` and the face is re-nested from `surface.spec`, and neither is recoverable from a type alone |
-| `unixSocketConnector(opts)` | `.` | the unix-socket `Connector`: dial a daemon already listening on a path **on this box** and wire the socket to a typed client. Opts are `{ socketPath, group, client, describe }` — `socketPath` is a THUNK because a daemon's path comes from its environment and a connector that captured it once would keep dialling a stale one. It OWNS the socket it dials (handed to `socketDuplexLink` as both halves), so the socket's own `close` resolves the connection's `closed` and the session notices its daemon die — which dialling through `unixSocketLink` would not give it. A dial answering `ENOENT`/`ECONNREFUSED` throws `EndpointAbsentError`, not a `ConnectError` |
+| `unixSocketConnector(opts)` | `.` | the unix-socket `Connector`: dial a daemon already listening on a path **on this box** and wire the socket to a typed client. Opts are `{ socketPath, group, client, describe }` — `socketPath` is a THUNK because a daemon's path comes from its environment and a connector that captured it once would keep dialling a stale one. It OWNS the socket it dials (handed to `socketDuplexLink` as both halves), so the socket's own `close` resolves the connection's `closed` and the session notices its daemon die — which dialling through `unixSocketLink` would not give it. A dial answering `ENOENT`/`ECONNREFUSED` throws `EndpointAbsentError` — a `ConnectError` SUBCLASS, so every `instanceof ConnectError` path still classifies it, carrying the one extra fact that nothing is serving that path |
 | `dialAgentOnce<S>(opts)` | `.` | one-shot CLI dial: validate the baked source-flake ref, probe the host system, resolve only `packages.<system>.<package>.drvPath`, pin, probe, and return `{ client, dispose }` with the link already proven live. Takes the same `surface` value. `package` (the closure shipped) and `binary` (the program exec'd inside it) are **both required, neither defaulted** — they differ when a host receives more than the daemon (kolu ships `padi-agent`, runs `padi`), and a default of `binary` is precisely how one host silently ended up with two different closures |
 | `SURFACE_AGENT_FLAKE_REF_ENV` / `readBakedAgentSource()` | `.` | the framework-owned wrapper handoff and its sole process-environment adapter; the reader returns the normalized exact source or throws `AgentSourceUnbakedError` |
 | `resolveBakedAgentDrv(host, packageName, opts)` | `.` | resolve from the wrapper-baked source inside a long-lived consumer's own dial/failure boundary, without exposing the environment handoff to that consumer |
@@ -271,6 +271,18 @@ session whose connector can tell absence from unreachability ever sends one; eve
 other re-serve omits the option. Naming a member that is not a `value`-classified
 stream or event throws at build: a frame nobody could ever receive is worse than
 no frame at all.
+
+**A REFUSAL is the opposite fact, and never an absent frame.** A daemon that
+answers and speaks a contract this build cannot read is an install to go and look
+at, not a quiet machine — so the admit verdict's standing refusal is published on
+the session itself (`session.refusal()`, the sentence or `null`), and a hold-open
+relay reading it stops holding and FAILS its subscription with
+`SurfaceUpstreamRefused` (`@kolu/surface/errors`), carrying that sentence. It is
+deliberately NOT retryable: no retry unmakes a version skew, and the fence that
+re-subscribes on a transport loss would otherwise storm a refusal forever. Every
+hold-open relay gets the signal, whether or not its member declares an `absent`
+frame — a frame is how a member says "nothing is there", and there is no honest
+frame for "something is there that I cannot read".
 
 ## The fleet fan-out
 

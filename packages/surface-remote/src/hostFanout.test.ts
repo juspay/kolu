@@ -520,6 +520,72 @@ describe("pumpRemoteSurface — onLinkDown", () => {
   });
 });
 
+describe("pumpRemoteSurface — who holds the link open", () => {
+  it("mirrors NOTHING over a session nobody pins, and starts once something does", async () => {
+    // The pump stopped pinning so a re-serve could gate its upstream on real
+    // demand — which means a caller that wants an always-on mirror has to pin
+    // for itself. One that forgets gets this: a loop parked on a client that is
+    // never dialled, silently serving nothing.
+    const client = {
+      surface: { ticks: { get: () => Stream.make(1) } },
+    } as unknown as SurfaceClientLike;
+
+    const listeners = new Set<() => void>();
+    let pinned = false;
+    let destroyed = false;
+    const clientPromise = Promise.resolve(client);
+    const session = {
+      // A session dials on the first pin, exactly as `makeSession` does: before
+      // one, there is no client to hand anybody.
+      pin: () => {
+        pinned = true;
+        for (const cb of [...listeners]) cb();
+        return clientPromise;
+      },
+      isDestroyed: () => destroyed,
+      currentClient: () => (destroyed || !pinned ? null : clientPromise),
+      onState: (cb: () => void) => {
+        listeners.add(cb);
+        return () => listeners.delete(cb);
+      },
+      destroy: () => {
+        destroyed = true;
+        for (const cb of [...listeners]) cb();
+      },
+    } as unknown as Session;
+
+    let frames = 0;
+    const pumping = pumpRemoteSurface({
+      source: pumpSurface,
+      session,
+      makeSink: () => ({
+        cells: {},
+        collections: {},
+        streams: {
+          ticks: {
+            input: {},
+            onFrame: () => {
+              frames += 1;
+            },
+          },
+        },
+        events: {},
+      }),
+    });
+
+    // Parked: nothing pinned, so nothing was dialled and nothing is mirrored.
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(frames).toBe(0);
+
+    // Somebody holds the link open — and only now does the mirror run.
+    void session.pin();
+    await vi.waitFor(() => expect(frames).toBe(1));
+
+    session.destroy();
+    await pumping;
+  });
+});
+
 describe("pumpRemoteSurface — a mirror that ends on a LIVE link", () => {
   it("EXITS instead of parking forever when the far end still answers", async () => {
     // The park-forever shape: a mirror ends with the link fully alive (every

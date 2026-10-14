@@ -205,7 +205,15 @@ export function buildHostBinding(host: string, agentDrv: string): HostBinding {
   // Pump the agent's frames into the local runtime. `makeSink` is rebuilt per
   // spawn (state resets on reconnect); the first `load` frame is the handshake
   // that flips the session to `connected`.
+  //
+  // The PIN is what makes the link happen at all: the pump mirrors whatever
+  // client the session produces and holds nothing open itself. This fleet wants
+  // every host up whether or not a browser is watching — the dot beside a host
+  // is itself part of the answer — so it says so here, once, and never releases.
   // #region pump
+  session.pin().catch(() => {
+    /* the failure rides the session's own state, which `projectState` reads */
+  });
   let firstLoad = true;
   void pumpRemoteSurface({
     source: surface,

@@ -134,12 +134,16 @@ export const DEFAULT_PRE_CONNECTED_LIVENESS_MS = 1_200_000;
  *  Exported so a test binds the REAL value rather than a copy of the number. */
 export const RELEASE_GRACE_MS = 30_000;
 
+/** The reconnect ladder's CEILING — the longest a backoff ever waits, and the
+ *  floor on how slowly a down link re-probes. */
+const RECONNECT_CEILING_MS = 60_000;
+
 /** How often an ABSENT endpoint is re-probed. The reconnect ladder's own ceiling
- *  rather than a second number: an absence is not a transient to ramp through,
- *  so it starts where the ramp would end. A `connect(2)` to a path with nothing
- *  on it is a syscall rather than a process, so the cost of the cadence is not
- *  the cost of a dial. */
-const ABSENT_PROBE_MS = 60_000;
+ *  rather than a second number — the constant itself, so the two cannot drift:
+ *  an absence is not a transient to ramp through, so it starts where the ramp
+ *  would end. A `connect(2)` to a path with nothing on it is a syscall rather
+ *  than a process, so the cost of the cadence is not the cost of a dial. */
+const ABSENT_PROBE_MS = RECONNECT_CEILING_MS;
 
 /** The observable link state a session publishes (snapshot-then-delta on
  *  `onState`) — ONE framework type. A `log` tail every arm carries, intersected
@@ -324,6 +328,16 @@ export interface Session<
    *  the point: a deferred reader gated on `currentClient()` observes a stale pointer
    *  reassigned mid-frame; a reader gated on `currentState().phase` cannot. */
   currentState(): SessionState<Prov>;
+  /** The STANDING refusal's sentence — the far end answered and this build will
+   *  not speak to it — or `null` when there is no such quarrel. A `disconnected`
+   *  frame alone cannot tell a consumer which of the two it is looking at, and
+   *  the difference decides whether waiting is the right thing to do: a dropped
+   *  link comes back, a version skew does not.
+   *
+   *  OPTIONAL on the role for the same reason {@link Session.currentDispatch} is
+   *  — a hand-built session stays assignable; `makeSession` always implements
+   *  it. A consumer that does not ask simply keeps waiting, as it always did. */
+  refusal?(): string | null;
   /** Has `destroy()` been called? */
   isDestroyed(): boolean;
   /** Snapshot-then-delta listener: fires the current state synchronously, then on
@@ -849,6 +863,23 @@ export function makeSession<
    *  the log ONCE per campaign (not per retry dial — the log survives retries so D2's
    *  attempt display has a tail). */
   let campaignEpoch = 0;
+  /**
+   * The STANDING refusal's sentence, or `null` when this build has no quarrel
+   * with the far end.
+   *
+   * A fact of its own rather than a reading of the down state, because the two
+   * `disconnected` frames a consumer can see are opposites: one is a link that
+   * is coming back and must be waited out, the other is a daemon this build
+   * cannot speak to, which no amount of waiting changes. Only the admit verdict
+   * knows which, so it says so here — and anything holding for a spawn (the
+   * per-subscriber relays) stops holding and fails loud instead of drawing the
+   * blank an absent daemon draws.
+   *
+   * Deliberately NOT on {@link SessionState}: that sum is the wire's
+   * `ConnectionInfo`, and a refusal is a parent-side routing fact, not a new
+   * shape for every browser to learn.
+   */
+  let standingRefusal: string | null = null;
   /** The `campaignEpoch` the last `setUp` published under — a change means a fresh
    *  campaign, so `setUp` drops the prior campaign's log tail exactly once. */
   let lastSetUpEpoch = -1;
@@ -1061,6 +1092,13 @@ export function makeSession<
       "debug",
     );
     clearTimer();
+    // SUPERSEDE the in-flight dial, don't merely abort it. A connector past its
+    // own abort point still RESOLVES — an admit hello already on the wire, a
+    // provisioning step with no more cancellation points — and the late
+    // connection is adopted unless the epoch moved. Adopted here it would enter
+    // a session with no pins and a grace that has already fired, so nothing
+    // would ever let it go again.
+    dialEpoch += 1;
     dialAbort?.abort();
     stopLiveness();
     clearPreConnected();
@@ -1414,7 +1452,10 @@ export function makeSession<
       setDown("failed", reason, cause);
       return;
     }
-    const delay = Math.min(reconnectDelayMs * 2 ** attemptsSoFar, 60_000);
+    const delay = Math.min(
+      reconnectDelayMs * 2 ** attemptsSoFar,
+      RECONNECT_CEILING_MS,
+    );
     // Both arms say what the attempt ran into — its own `reason` — rather than a
     // fixed label. `"network"` is a RETRY class, not proof the host is gone: a
     // wake cycle, a replace-after-drain and a silence kill all ride it, and a
@@ -1502,6 +1543,9 @@ export function makeSession<
    *  the first spawn reopens a silent mid-dial exit for a held session. */
   const attempt = async (): Promise<Client> => {
     dialEpoch += 1;
+    // A fresh dial re-asks the admit question, so the last verdict's refusal is
+    // no longer this session's answer — whatever this dial decides replaces it.
+    standingRefusal = null;
     const myEpoch = dialEpoch;
     // A fresh per-dial abort (#1908 R6b) — `recheck()`/the pre-connected backstop abort
     // THIS controller to group-kill the in-flight provisioning children, so a redial
@@ -1637,12 +1681,17 @@ export function makeSession<
         // (`setDown("disconnected", …)` from `handleClosed`/reconnect) carries NONE and
         // falls back to `"other"`. Keep that split intact: a refuse without a specific
         // cause would be mis-projected as warming (a lying "coming back up"). Pinned in
-        // `remotePadiBinding.test.ts` (the "PROJECTION INVARIANT" tests). The
-        // still-cleaner future shape — a SessionState arm that types standing-refuse
-        // apart from transient-disconnected — is on the padi-cleanup ledger.
+        // `remotePadiBinding.test.ts` (the "PROJECTION INVARIANT" tests).
+        //
+        // The down frame alone cannot carry this: it is a `disconnected` like any
+        // other, and a relay holding for the next spawn would wait out a condition
+        // no spawn is coming to fix. So the refusal is ALSO stated as its own fact
+        // (`refusal()`), which is what every per-subscriber relay reads before it
+        // decides to hold.
         setCurrent(conn);
         wireClosed();
         failures.success();
+        standingRefusal = verdict.state.error;
         setDown("disconnected", verdict.state.error, verdict.state.cause);
         throw new Error(verdict.state.error);
       }
@@ -1963,6 +2012,9 @@ export function makeSession<
       // synchronously (`onState`'s DELTA delivery is microtask-deferred, so a deferred
       // reader gets the CURRENT frame, never the one that woke it).
       return stateCell.current();
+    },
+    refusal() {
+      return standingRefusal;
     },
     isDestroyed() {
       return destroyed;

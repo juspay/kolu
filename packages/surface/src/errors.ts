@@ -143,6 +143,26 @@ export class SurfaceRelayTransportLost extends Schema.TaggedError<SurfaceRelayTr
   }
 }
 
+/** The upstream ANSWERED and this build will not speak to it — a contract skew,
+ *  a socket owned by a stranger. The STANDING counterpart of
+ *  {@link SurfaceRelayTransportLost}: that one is a drop the parent will heal,
+ *  this one is a condition a retry cannot change, so the fence must not retry it
+ *  and a subscriber must be TOLD rather than held.
+ *
+ *  It is the difference between "no daemon here" and "a daemon this build cannot
+ *  read" reaching a reader at all: a relay that held on a refusal would draw the
+ *  same blank an absent upstream draws, and the install that needs looking at
+ *  would look exactly like the machine that never had one. Carries the refusal's
+ *  own sentence, because the far end's version skew is the only thing that can
+ *  say what is wrong. */
+export class SurfaceUpstreamRefused extends Schema.TaggedError<SurfaceUpstreamRefused>(
+  "@kolu/surface/SurfaceUpstreamRefused",
+)("SurfaceUpstreamRefused", { reason: Schema.String }) {
+  override get message(): string {
+    return this.reason;
+  }
+}
+
 // ── Keyed-map rejections (`@kolu/surface-map`) ─────────────────────────
 //
 // Declared HERE rather than in `@kolu/surface-map` for the relay-rehydration
@@ -205,6 +225,7 @@ export const SurfaceErrorSchema = Schema.Union([
   SurfaceTransportRetired,
   SurfaceStdioTransportClosed,
   SurfaceRelayTransportLost,
+  SurfaceUpstreamRefused,
   MapKeyNonCanonical,
   MapKeyUnknown,
   MapEntryFailed,
@@ -277,6 +298,15 @@ export function isSurfaceRelayTransportLost(
   error: unknown,
 ): error is SurfaceRelayTransportLost {
   return error instanceof SurfaceRelayTransportLost;
+}
+
+/** Is `error` the STANDING refusal — the upstream answered and this build cannot
+ *  speak to it? A face that draws a reason reads it off `reason`; the retry fence
+ *  never retries it, because nothing a retry does can unmake a version skew. */
+export function isSurfaceUpstreamRefused(
+  error: unknown,
+): error is SurfaceUpstreamRefused {
+  return error instanceof SurfaceUpstreamRefused;
 }
 
 // ── What an ARBITRARY failure says ───────────────────────────────────────

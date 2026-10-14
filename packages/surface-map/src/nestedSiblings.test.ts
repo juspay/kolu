@@ -2,7 +2,7 @@
  * A map with NESTED SIBLINGS, end to end.
  *
  * kolu's padi daemon re-serves odu's surface as a sibling of its own. The browser must
- * reach it PER HOST — `padiMap.entry(host).odu.streams.checkout({ repoRoot })` — which
+ * reach it PER HOST — `padiMap.entry(host).odu.streams.checkout.use(() => ({ repoRoot }))` — which
  * means a map entry carries, besides the entry surface, whole sibling surfaces of its
  * own. Three facts make that one mechanism rather than three:
  *

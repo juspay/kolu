@@ -128,6 +128,9 @@ export function buildMirror() {
     },
   });
 
+  // The pump mirrors whatever client the session produces; it holds nothing
+  // open. A mirror that wants its link up regardless pins the session itself.
+  void session.pin();
   void pumpRemoteSurface({
     source,
     session,
@@ -170,6 +173,7 @@ export function mirrorEndToEnd() {
     },
   });
 
+  void session.pin();
   void pumpRemoteSurface({
     source: src,
     session,

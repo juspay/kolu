@@ -5,13 +5,17 @@
  * Two shapes a *parent* server needs when it dials many remote agents and
  * re-serves their surfaces to one downstream client (a browser, a TUI):
  *
- *   - `pumpRemoteSurface(session, makeSink)` — the reconnect-mirror loop. Pins
- *     the session, then loops over each successive client the session produces (one
+ *   - `pumpRemoteSurface(session, makeSink)` — the reconnect-mirror loop. PINS
+ *     NOTHING: it loops over each successive client the session produces (one
  *     per (re)dial — stdio links don't recover mid-stream, so the only reliable
  *     recovery is to re-mirror on the *new* client) and runs ONE
  *     `mirrorRemoteSurface` against it, folding the agent's frames into the caller's
- *     sink until the link dies, then waits for the next dial. The consume-side dual
- *     of an `implementSurface` re-serve shell.
+ *     sink until the link dies, then waits for the next dial. WHO HOLDS THE LINK
+ *     OPEN is the caller's question: `reServeSurface` pins on its first
+ *     downstream subscriber, and a parent that wants its link up regardless
+ *     pins the session itself. A pump over a session nobody pins never sees a
+ *     client, and mirrors nothing. The consume-side dual of an
+ *     `implementSurface` re-serve shell.
  *
  *   - `buildRemotePool({ buildEntry })` — the keyed `Map<host, {session,
  *     handler}>` a `?host=` upgrade dispatcher reads. Owns only the map + its
@@ -215,11 +219,14 @@ async function probeEndedLink(
 }
 
 /**
- * Pin `session`, then loop: fetch the current client, mirror the WHOLE agent
- * surface into the caller's sink with one `mirrorRemoteSurface` call, block on
- * `mirror.done` until the link dies (stdio process death), then wait for the
- * session to provide a fresh client (post-reconnect) and repeat — until the
- * session is destroyed.
+ * Loop: fetch the current client, mirror the WHOLE agent surface into the
+ * caller's sink with one `mirrorRemoteSurface` call, block on `mirror.done`
+ * until the link dies (stdio process death), then wait for the session to
+ * provide a fresh client (post-reconnect) and repeat — until the session is
+ * destroyed.
+ *
+ * PINS NOTHING. Somebody else holds the link open (see the body) — a pump over
+ * a session nobody pins waits forever for a client that is never dialled.
  *
  * `mirrorRemoteSurface` returns the non-thenable handle `{ procedures, done }`,
  * so the loop blocks on `.done`. The `makeClientCursor` comparison on the
