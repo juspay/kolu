@@ -710,6 +710,9 @@ describe("padi's ciStatus session", () => {
       expect(fake.disposals()).toBe(0);
 
       await vi.advanceTimersByTimeAsync(30_000);
+      // The retire aborts the loop, and the link is disposed on the way out of
+      // it — one turn of the microtask queue after the timer.
+      await settle();
       expect(fake.disposals()).toBe(1);
       await ci.dispose();
     } finally {
@@ -745,6 +748,7 @@ describe("padi's ciStatus session", () => {
         latest: { run: { runId: "run-2" } },
         recent: [{ runId: "run-2" }],
       });
+      fake.drop();
       sub.stop();
       await ci.dispose();
     } finally {
