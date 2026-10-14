@@ -234,7 +234,8 @@ const OduLink: Component<{
   /** Where this subject lives, or `undefined` when nothing points at it. */
   act: () => OduLinkAct | undefined;
   onOpen: () => void;
-  testid: string;
+  /** The link's own testid — omitted where the content marks itself. */
+  testid?: string;
   /** What the element's own row looks like (`ROW`, `INERT`, …). */
   class: string;
   children: JSX.Element;
@@ -540,10 +541,14 @@ const WorkSection: Component<{
                 onOpen={() =>
                   props.odu?.open(runHash(ci().run.runId), ci().port)
                 }
-                testid="inspector-odu-chip"
                 class={CHIP_ROW}
               >
-                <Chip tone={ci().tone}>{ci().label}</Chip>
+                {/* The chip marks ITSELF, so a reader finds the same surface
+                 *  whether or not an address exists yet; the element around it
+                 *  is what turns into the link. */}
+                <Chip tone={ci().tone} data-testid="inspector-odu-chip">
+                  {ci().label}
+                </Chip>
               </OduLink>
             )}
           </Show>

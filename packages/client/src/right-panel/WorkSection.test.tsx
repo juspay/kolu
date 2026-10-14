@@ -583,13 +583,15 @@ describe("WorkSection odu CI readout", () => {
     expect(rows?.[0]?.getAttribute("href")).toBe(
       "http://pureintent:61003/#/run/run-1",
     );
-    // The CHIP is the same surface for the head run: a real anchor with the
-    // same address, so ⌘-click and copy work on it too.
+    // The CHIP is the same surface for the head run: it marks itself (so a
+    // reader finds it either way) and the element AROUND it is the real anchor,
+    // with the same address — ⌘-click and copy work on it too.
     const chip = el("inspector-odu-chip");
-    expect(chip?.tagName).toBe("A");
-    expect(chip?.getAttribute("href")).toBe(
+    expect(chip?.tagName).toBe("SPAN");
+    expect(chip?.closest("a")?.getAttribute("href")).toBe(
       "http://pureintent:61003/#/run/run-1",
     );
+    expect(chip?.closest("button")).toBeNull();
   });
 
   it("leaves a recent row a BUTTON until a door is listening", () => {
