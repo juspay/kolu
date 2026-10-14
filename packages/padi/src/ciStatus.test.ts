@@ -638,6 +638,21 @@ function openSubscription(ci: CiStatusSourceDeps): {
 /** Let every pending microtask run (fake timers do not advance microtasks). */
 const settle = (): Promise<void> => new Promise((r) => setImmediate(r));
 
+/** The last STATUS frame a subscription saw — the board it is presently
+ *  painting. Asking for the last frame instead would pin the interleaving
+ *  between a board event and a link's own drop, which is not a promise this
+ *  side makes: a `none` in that window says only that nobody is serving. */
+function lastStatus(frames: CiStatusFrame[]) {
+  const statuses = frames.filter(isStatus);
+  const latest = statuses[statuses.length - 1];
+  if (latest === undefined) {
+    throw new Error(
+      `no status frame arrived — frames: ${JSON.stringify(frames)}`,
+    );
+  }
+  return latest;
+}
+
 describe("padi's ciStatus session", () => {
   it("dials only for subscribers, and only ONCE for many of them", async () => {
     const fake = fakeDial(() => [row()]);
@@ -667,17 +682,20 @@ describe("padi's ciStatus session", () => {
       seedTerminal(CHECKOUT);
       const sub = openSubscription(ci);
       await sub.first;
-      expect(fake.disposals()).toBe(0);
+      // Whatever the link itself has already done (this fake's runs stream
+      // ends, which is what a drop looks like), the unsubscribe below must not
+      // add to it.
+      const disposed = fake.disposals();
 
       // The last subscriber leaves: the session RETIRES, it does not die — the
       // Inspector re-keys its subscription onto the focused pane, so a focus
       // switch must not rebuild the dial (#2286's lesson).
       sub.stop();
       await settle();
-      expect(fake.disposals()).toBe(0);
+      expect(fake.disposals()).toBe(disposed);
 
       await vi.advanceTimersByTimeAsync(30_000);
-      expect(fake.disposals()).toBe(1);
+      expect(fake.disposals()).toBe(disposed + 1);
       await ci.dispose();
     } finally {
       vi.useRealTimers();
@@ -696,7 +714,7 @@ describe("padi's ciStatus session", () => {
       seedTerminal(CHECKOUT);
       const sub = openSubscription(ci);
       await sub.first;
-      expect(sub.frames.at(-1)).toMatchObject({
+      expect(lastStatus(sub.frames)).toMatchObject({
         kind: "status",
         latest: { run: { runId: "run-1" } },
       });
@@ -706,7 +724,7 @@ describe("padi's ciStatus session", () => {
       await vi.advanceTimersByTimeAsync(5_000);
       await settle();
       expect(fake.dials()).toBe(2);
-      expect(sub.frames.at(-1)).toMatchObject({
+      expect(lastStatus(sub.frames)).toMatchObject({
         kind: "status",
         latest: { run: { runId: "run-2" } },
         recent: [{ runId: "run-2" }],
