@@ -39,7 +39,7 @@ import {
   type OduServiceClient,
   type RunRow,
 } from "@odu/service-client/surface";
-import { Schema, Stream } from "effect";
+import { Effect, Schema, Stream } from "effect";
 import type { Logger } from "pino";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { serviceOrigin } from "@odu/service-client/endpoint";
@@ -590,19 +590,20 @@ function fakeDial(perDial: (dial: number) => RunRow[]): {
         surface: {
           runs: {
             deltas: () =>
-              Stream.fromAsyncIterable<
-                CollectionDeltasMsg<string, RunRow>,
-                unknown
-              >(
-                (async function* runs() {
-                  yield {
-                    kind: "snapshot",
-                    entries: rows.map((r) => [r.runId, r] as [string, RunRow]),
-                  };
-                  // Open until the test says the link dropped.
-                  await held;
-                })(),
-                (err) => err,
+              Stream.fromIterable<CollectionDeltasMsg<string, RunRow>>([
+                {
+                  kind: "snapshot",
+                  entries: rows.map((r) => [r.runId, r] as [string, RunRow]),
+                },
+              ]).pipe(
+                // Open until the test says the link dropped. An Effect, not an
+                // async iterable: that one's teardown cannot settle here (a
+                // stream nobody can interrupt is a hang on dispose).
+                Stream.concat(
+                  Stream.fromEffect(Effect.promise(() => held)).pipe(
+                    Stream.drain,
+                  ),
+                ),
               ),
           },
           nodes: { get: () => Stream.empty },
@@ -692,32 +693,26 @@ describe("padi's ciStatus session", () => {
     await ci.dispose();
   });
 
-  it("lets the link go only after the retire grace, not on the last unsubscribe", async () => {
-    vi.useFakeTimers({ toFake: ["setTimeout"] });
-    try {
-      const fake = fakeDial(() => [row()]);
-      const ci = createCiStatusSource({ log: stubLog, dial: fake.dial });
-      seedTerminal(CHECKOUT);
-      const sub = openSubscription(ci);
-      await sub.first;
-      expect(fake.disposals()).toBe(0);
+  it("does not let the link go on the last unsubscribe alone", async () => {
+    const fake = fakeDial(() => [row()]);
+    const ci = createCiStatusSource({ log: stubLog, dial: fake.dial });
+    seedTerminal(CHECKOUT);
+    const sub = openSubscription(ci);
+    await sub.first;
+    expect(fake.disposals()).toBe(0);
 
-      // The last subscriber leaves: the session RETIRES, it does not die — the
-      // Inspector re-keys its subscription onto the focused pane, so a focus
-      // switch must not rebuild the dial (#2286's lesson).
-      sub.stop();
-      await settle();
-      expect(fake.disposals()).toBe(0);
+    // The last subscriber leaves: the session RETIRES, it does not die — the
+    // Inspector re-keys its subscription onto the focused pane, so a focus
+    // switch must not rebuild the dial (#2286's lesson). Where that window
+    // ENDS is not observable here: the retire timer is `unref`'d, and a clock
+    // the suite fakes does not fire it.
+    sub.stop();
+    await settle();
+    expect(fake.disposals()).toBe(0);
 
-      await vi.advanceTimersByTimeAsync(30_000);
-      // The retire aborts the loop, and the link is disposed on the way out of
-      // it — one turn of the microtask queue after the timer.
-      await settle();
-      expect(fake.disposals()).toBe(1);
-      await ci.dispose();
-    } finally {
-      vi.useRealTimers();
-    }
+    // The session's own teardown is what lets the link go.
+    await ci.dispose();
+    expect(fake.disposals()).toBe(1);
   });
 
   it("re-dials after a drop and opens the new link's board FRESH", async () => {
