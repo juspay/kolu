@@ -1,13 +1,20 @@
 // @vitest-environment happy-dom
 /**
- * #1962 — the connect overlay's elapsed timer ticks on wall clock with ZERO
- * incoming log frames. The real-app failure was a jump (3s → 40s) with no
- * intermediate ticks: re-renders only happened when connection frames arrived.
+ * The connect overlay's two derived renderings, both of which the frame's own
+ * data decides — never a per-phase show/hide flag:
  *
- * Two regressions this suite must catch:
- *  1. Clock not tracked by the rendered expression → no per-second repaint.
- *  2. Re-anchoring on every effect re-run (same sinceMs) → wall extension wiped,
- *     label stuck at last frame's sinceMs until the next frame jumps it.
+ *  1. the ELAPSED TIMER (#1962): it ticks on wall clock with ZERO incoming log
+ *     frames. The real-app failure was a jump (3s → 40s) with no intermediate
+ *     ticks, because re-renders only happened when connection frames arrived.
+ *     Two regressions this suite must catch:
+ *       - clock not tracked by the rendered expression → no per-second repaint;
+ *       - re-anchoring on every effect re-run (same sinceMs) → the wall
+ *         extension is wiped and the label sticks at the last frame's sinceMs
+ *         until the next frame jumps it.
+ *  2. the LOG TAIL's chrome: every line wraps, the box holds a fixed six-row
+ *     height so the title and timer above it never move as lines arrive, the
+ *     whole-log Copy button sits in its corner, and the docs link rides BELOW
+ *     it.
  */
 
 import type { HostKey } from "kolu-common/hostKey";
@@ -270,5 +277,65 @@ describe("ConnectCanvas elapsed timer (#1962)", () => {
     ).toBeNull();
     clock.advance(2_000);
     expect(elapsed()).toBe("2s"); // not 42s
+  });
+});
+
+describe("ConnectCanvas tail chrome", () => {
+  /** Long enough to overflow one row at 11px in the box's width — the point of
+   *  the first assertion below. */
+  const LONG_LINE =
+    "copying path '/nix/store/5z2yp3ysx8476c8g5w25b0smlgkjvaq3-hello-2.12.3' from 'https://cache.nixos.org'";
+
+  const mountWithTail = () => {
+    h.host = { kind: "remote", target: "zest" };
+    h.setInfo({
+      phase: "provisioning",
+      log: [{ source: "local", line: LONG_LINE }],
+      sinceMs: 3_000,
+      campaignEpoch: 1,
+    });
+    dispose = render(
+      () => <ConnectCanvas daemonState={undefined} />,
+      document.body,
+    );
+  };
+
+  it("wraps each line and holds a fixed six-row box, so the title and timer never move", () => {
+    mountWithTail();
+    const tail = document.querySelector<HTMLElement>(
+      '[data-testid="connect-tail"]',
+    );
+    expect(tail).not.toBeNull();
+    const chrome = tail?.className ?? "";
+    // Sized for six wrapped rows at 11px × the 1.625 `leading-relaxed` line
+    // height (107.25px): a bare min-height would still grow on a wrapped line.
+    expect(chrome).toContain("h-[108px]");
+    expect(chrome).toContain("justify-end");
+    expect(chrome).toContain("overflow-hidden");
+    // The line itself WRAPS — the old `truncate whitespace-pre` clipped it, so
+    // the token that said why a connect was slow could be the clipped one.
+    const row = tail?.firstElementChild as HTMLElement | null;
+    expect(row?.className).toContain("whitespace-pre-wrap");
+    expect(row?.textContent).toBe(LONG_LINE);
+    // The block's corner carries the whole-log Copy button.
+    expect(
+      document.querySelector('[data-testid="connect-tail-copy"]'),
+    ).not.toBeNull();
+  });
+
+  it("offers the docs link below the log", () => {
+    mountWithTail();
+    const tail = document.querySelector('[data-testid="connect-tail"]');
+    const link = document.querySelector(
+      'a[href="https://kolu.dev/remote-hosts/"]',
+    );
+    expect(link?.textContent).toContain("Add another machine");
+    expect(tail).not.toBeNull();
+    expect(link).not.toBeNull();
+    // FOLLOWING = the link comes after the tail in document order.
+    expect(
+      (tail as Node).compareDocumentPosition(link as Node) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
   });
 });

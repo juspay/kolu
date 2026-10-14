@@ -23,12 +23,8 @@
 import { LOCAL_HOST } from "kolu-common/surfacesWithPadi";
 import { For, type JSX, Show } from "solid-js";
 import { WarningIcon } from "../ui/Icons";
-import {
-  LOG_TAIL_LINE,
-  LOG_TAIL_SURFACE,
-  type LogAbsence,
-  type LogLine,
-} from "../ui/logTailChrome";
+import LogTail from "../ui/LogTail";
+import type { LogAbsence, LogLine } from "../ui/logTailChrome";
 import { activeHost, setActiveHost } from "../wire";
 import { runAction } from "../runAction";
 import { reconnectHost } from "./reconnectHost";
@@ -124,7 +120,9 @@ export function CanvasFailureCard(props: {
    *  REQUIRED, though it accepts `undefined` — an optional prop is how one of two callers
    *  silently dropped the evidence, so a caller with nothing to declare declares it.
    *
-   *  Chrome shared with the other tails is named in `ui/logTailChrome.ts`; everything else
+   *  Chrome shared with the other tails lives in `ui/LogTail` (surface, wrap, the
+   *  whole-log Copy button, following the newest line) over the constants in
+   *  `ui/logTailChrome.ts`; everything else
    *  stays local, because the three differ by decision rather than by accident. */
   logAbsence: LogAbsence | undefined;
   /** Test handle for the tail block, supplied by the caller like every other handle on this
@@ -167,14 +165,12 @@ export function CanvasFailureCard(props: {
               </p>
             </Show>
             <Show when={props.log.length > 0}>
-              <div
-                data-testid={props.logTestid}
-                class={`mt-2 max-h-40 overflow-y-auto px-3 py-2 text-[11px] leading-relaxed ${LOG_TAIL_SURFACE}`}
-              >
-                <For each={props.log}>
-                  {(entry) => <div class={LOG_TAIL_LINE}>{entry.line}</div>}
-                </For>
-              </div>
+              <LogTail
+                testid={props.logTestid}
+                lines={props.log}
+                log={props.log}
+                class="mt-2 max-h-40 overflow-y-auto px-3 py-2 text-[11px] leading-relaxed"
+              />
             </Show>
             <Show when={props.footer}>
               {(footer) => (

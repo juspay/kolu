@@ -5,15 +5,13 @@
  *  get one name, the parts that legitimately differ stay local literals at each
  *  site.
  *
- *  What is NOT here, and why. The three differ in ways that are decisions, not
- *  duplication: the connect tail TRUNCATES each line to one row (a rolling
- *  reassurance while work is in flight, six lines deep), while both failure
- *  surfaces WRAP (a post-mortem you have to be able to read whole); and the
- *  popover is a denser scale (`text-[10px]`, tighter padding) because it renders
- *  inside a popover rather than a canvas. Folding those into a `wrap` /`size`
- *  knob would parameterize independently-changing behaviours for a class-string
- *  saving — so sizing, padding, line-clamping and max-height stay at each call
- *  site, and only what every tail shares is named once. */
+ *  What is NOT here, and why: the three are sized differently (a canvas overlay,
+ *  a card, and a denser popover), and each keeps its own scale/padding/max-height
+ *  literal at the call site. Folding those into a `size` knob would parameterize
+ *  independently-changing behaviours for a class-string saving — so sizing,
+ *  padding and max-height stay local, and only what every tail shares is named
+ *  once. The behaviours every tail shares (wrapping, the whole-log Copy button,
+ *  following the newest line) live together in `./LogTail`. */
 
 /** One line of retained output, structurally. Deliberately NOT the domain `LogEntry`
  *  (`@kolu/surface-remote`'s `{ source, line }`): the card and the popover carry no
@@ -54,9 +52,9 @@ export type LogAbsence =
 export const LOG_TAIL_SURFACE =
   "rounded border border-bd-1/50 bg-bg-2/40 font-mono text-fg-4";
 
-/** One line of a WRAPPED tail — the failure card's and the popover's. Both are
- *  post-mortems you have to be able to read whole, so a long line folds instead of
- *  being clipped; the two are the SAME behaviour at two scales, which is why the
- *  string is named once. `ConnectCanvas`'s live tail deliberately does the opposite
- *  (`truncate whitespace-pre`, one row per line) and keeps its own literal. */
+/** One line of a log tail — EVERY tail. A long line folds instead of being
+ *  clipped at the block's edge: a tail is the window onto output a person reads
+ *  to tell an in-flight step from a hung one, and a clipped line hides exactly
+ *  the token that would say which. `LogTail` wears this one string for all three
+ *  surfaces, so a tail reads the same wherever it appears. */
 export const LOG_TAIL_LINE = "whitespace-pre-wrap break-words";
