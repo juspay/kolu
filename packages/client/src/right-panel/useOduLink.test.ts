@@ -35,34 +35,13 @@ vi.mock("../forwards/useForwards", () => ({
   viewerHost: () => null,
 }));
 
-const { laneHash, oduLaneAct } = await import("./useOduLaneLink");
+const { oduLinkAct } = await import("./useOduLink");
 
 /** The port a frame carried off the daemon's own greeting — an arbitrary one on
  *  purpose: the link has to dial THIS, not a default. */
 const DAEMON_PORT = 18777;
 
-describe("the page a lane points at", () => {
-  const run = { runId: "run-1" };
-
-  it("is the lane's own log page once it has one", () => {
-    const key = formatLogKey({
-      runId: "run-1",
-      node: "ci::unit@x86_64-linux",
-      attempt: 2,
-    });
-    expect(laneHash(run, { logKey: key })).toBe(`#/run/${key}`);
-  });
-
-  it("is the RUN page for a lane that never started", () => {
-    // The empty key is odu's own marker, not a local convention: a node on the
-    // roster with no attempt carries `""` so that no face names evidence that
-    // does not exist. A lane with no log has no log page — the run is where it
-    // is read.
-    expect(laneHash(run, { logKey: "" })).toBe("#/run/run-1");
-  });
-});
-
-describe("how a lane is reached", () => {
+describe("how an odu link is reached", () => {
   /** A real address, minted by odu's own token rule rather than hand-spelled:
    *  the point of these cases is the ORIGIN it hangs off, not the fragment. */
   const HASH = logHash(
@@ -83,7 +62,7 @@ describe("how a lane is reached", () => {
     // No door: the browser's own loopback is the machine the daemon is on, so
     // the address is odu's directly.
     expect(
-      oduLaneAct({ ...base, viewerOnHost: true, doorPort: undefined }),
+      oduLinkAct({ ...base, viewerOnHost: true, doorPort: undefined }),
     ).toEqual({
       kind: "address",
       href: `http://localhost:${DAEMON_PORT}${HASH}`,
@@ -94,7 +73,7 @@ describe("how a lane is reached", () => {
     // The door's port, on the host this page came from — the same address
     // `forwardUrl` builds, so a copied link and a click agree.
     expect(
-      oduLaneAct({ ...base, viewerOnHost: false, doorPort: 61003 }),
+      oduLinkAct({ ...base, viewerOnHost: false, doorPort: 61003 }),
     ).toEqual({
       kind: "address",
       href: `http://pureintent:61003${HASH}`,
@@ -103,7 +82,7 @@ describe("how a lane is reached", () => {
 
   it("offers a door when the browser is elsewhere and none is open", () => {
     expect(
-      oduLaneAct({ ...base, viewerOnHost: false, doorPort: undefined }),
+      oduLinkAct({ ...base, viewerOnHost: false, doorPort: undefined }),
     ).toEqual({ kind: "door" });
   });
 
@@ -112,7 +91,7 @@ describe("how a lane is reached", () => {
     // other machine whatever host it is on, so both halves of that flag end in
     // the same door.
     expect(
-      oduLaneAct({
+      oduLinkAct({
         ...base,
         onKoluHost: false,
         viewerOnHost: false,

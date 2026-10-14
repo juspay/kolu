@@ -29,7 +29,7 @@ import {
   serviceBind,
 } from "@odu/service-client/endpoint";
 import type { RunNode, RunRow } from "@odu/service-client/surface";
-import type { OduLaneOutlet } from "./useOduLaneLink";
+import type { OduLinkOutlet } from "./useOduLink";
 import type { TerminalId } from "kolu-common/surface";
 import { createSignal } from "solid-js";
 import { render } from "solid-js/web";
@@ -412,7 +412,7 @@ describe("WorkSection odu CI readout", () => {
    *  tests of this section rather than tests of the mount ritual. */
   function mountWithOdu(
     frame: CiStatusFrame | null,
-    odu: { lane?: OduLaneOutlet; error?: string | null } = {},
+    odu: { link?: OduLinkOutlet; error?: string | null } = {},
   ) {
     const [oduCi, setOduCi] = createSignal<CiStatusFrame | null>(frame);
     host = document.createElement("div");
@@ -422,7 +422,7 @@ describe("WorkSection odu CI readout", () => {
         <WorkSection
           meta={RESIZE_BUG}
           oduCi={oduCi()}
-          oduLane={odu.lane}
+          odu={odu.link}
           oduCiError={odu.error ?? null}
         />
       ),
@@ -563,6 +563,54 @@ describe("WorkSection odu CI readout", () => {
     expect(el("inspector-odu")?.hasAttribute("open")).toBe(true);
   });
 
+  it("opens the run's page from a recent row and from the chip", () => {
+    // Every odu surface in the section reaches odu web through ONE outlet: the
+    // fragment is the caller's (odu's own `runHash`), so a row and the chip it
+    // belongs to address the same page.
+    mountWithOdu(statusFrame(), {
+      link: {
+        act: (hash) => ({
+          kind: "address",
+          href: `http://pureintent:61003/${hash}`,
+        }),
+        open: () => {},
+      },
+    });
+    const rows = el("inspector-odu-recent")?.querySelectorAll(
+      "[data-testid='inspector-odu-run-link']",
+    );
+    expect(rows?.length).toBe(2);
+    expect(rows?.[0]?.getAttribute("href")).toBe(
+      "http://pureintent:61003/#/run/run-1",
+    );
+    // The CHIP is the same surface for the head run: a real anchor with the
+    // same address, so ⌘-click and copy work on it too.
+    const chip = el("inspector-odu-chip");
+    expect(chip?.tagName).toBe("A");
+    expect(chip?.getAttribute("href")).toBe(
+      "http://pureintent:61003/#/run/run-1",
+    );
+  });
+
+  it("leaves a recent row a BUTTON until a door is listening", () => {
+    // The same wrapper as a lane row: with no address yet there is nothing to
+    // copy, so the click opens the door first.
+    const opened: string[] = [];
+    mountWithOdu(statusFrame(), {
+      link: {
+        act: () => ({ kind: "door" }),
+        open: (hash) => opened.push(hash),
+      },
+    });
+    const row = el("inspector-odu-recent")?.querySelector(
+      "[data-testid='inspector-odu-run-link']",
+    );
+    expect(row?.tagName).toBe("BUTTON");
+    expect(row?.getAttribute("href")).toBeNull();
+    (row as HTMLElement).click();
+    expect(opened).toEqual(["#/run/run-1"]);
+  });
+
   it("names odu in its heading, and points at odu's site", () => {
     // A reader who has never heard of odu cannot tell what a lane list is made
     // of, so the heading says whose CI this is and opens its site in a new tab.
@@ -683,7 +731,7 @@ describe("WorkSection odu CI readout", () => {
     // in new tab" are the browser's own.
     const opened: string[] = [];
     mountWithOdu(statusFrame(), {
-      lane: {
+      link: {
         act: () => ({
           kind: "address",
           href: "http://pureintent:61003/#/run/run-1/linux/2",
@@ -710,7 +758,7 @@ describe("WorkSection odu CI readout", () => {
     // button — and the click is what opens the door.
     const opened: string[] = [];
     mountWithOdu(statusFrame(), {
-      lane: { act: () => ({ kind: "door" }), open: () => opened.push("x") },
+      link: { act: () => ({ kind: "door" }), open: () => opened.push("x") },
     });
     const button = el("inspector-odu-lane-link");
     expect(button?.tagName).toBe("BUTTON");

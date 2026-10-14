@@ -1,5 +1,12 @@
 /**
- * The Inspector's way OUT to odu web — a lane, and the log page that lane is.
+ * The Inspector's way OUT to odu web — a lane's log page, or a run's page.
+ *
+ * ONE hook for every odu link the Inspector paints (a lane row, a recent-runs
+ * row, the chip itself): the caller mints the FRAGMENT (`#/run/<runId>`, or
+ * odu's `logHash` for one attempt) and this decides whether an address exists
+ * yet and dials the daemon through the same door mechanism for all of them.
+ * Two URL builders or two reach decisions for the same daemon is how one of
+ * them comes to point at a port nothing serves.
  *
  * odu's own page is where an attempt's output is read (searchable, coloured,
  * followed live), so kolu links to it rather than drawing a second log pane. The
@@ -19,9 +26,7 @@
  * itself.
  */
 
-import { logHash, runHash } from "@odu/service-client/routes";
 import { hostKeysEqual as sameHost } from "kolu-common/hostKey";
-import type { RunNode, RunRow } from "@odu/service-client/surface";
 import { Effect } from "effect";
 import { createMemo } from "solid-js";
 import { isActiveHostLocal } from "../kaval/useDaemonStatus";
@@ -44,32 +49,16 @@ const rootRemainder = (hash: string): UrlRemainder => ({
   hash,
 });
 
-/** The fragment a lane's row points at: its own log page, or — for a lane that
- *  never started — the run page.
- *
- *  odu names "no attempt yet" as an EMPTY log key (`RunNode.logKey`: a node on
- *  the roster with no attempt carries `""` rather than a fabricated attempt 1,
- *  "which would name evidence that does not exist"), so that is the fact read
- *  here. A lane with no log has no log page to open; the run page is where it is
- *  read, which is also what odu's own router does with an address naming no
- *  attempt. */
-export function laneHash(
-  run: Pick<RunRow, "runId">,
-  lane: Pick<RunNode, "logKey">,
-): string {
-  return lane.logKey === "" ? runHash(run.runId) : logHash(lane.logKey);
-}
-
-/** What a lane row does: an address the browser can open, or the need for a door
- *  first. The difference is real and a row shows it — a link can be copied,
+/** What an odu link does: an address the browser can open, or the need for a
+ *  door first. The difference is real and a row shows it — a link can be copied,
  *  ⌘-clicked and opened in a new tab, and there is nothing to copy until a relay
  *  is listening. */
-export type OduLaneAct = { kind: "address"; href: string } | { kind: "door" };
+export type OduLinkAct = { kind: "address"; href: string } | { kind: "door" };
 
-/** The lane-link decision, pure and total over its inputs so it is testable
- *  without a socket or a render. */
-export function oduLaneAct(opts: {
-  /** odu web's fragment for this lane ({@link laneHash}). */
+/** The link decision, pure and total over its inputs so it is testable without
+ *  a socket or a render. */
+export function oduLinkAct(opts: {
+  /** odu web's fragment for this link's subject. */
   hash: string;
   /** The port the daemon ANSWERED ON — the frame's own `port`, which is the
    *  daemon's fact (its environment, its flags) and not a default re-derived in
@@ -84,7 +73,7 @@ export function oduLaneAct(opts: {
   doorPort: number | undefined;
   /** `window.location.hostname` — the host this page was served from. */
   pageHost: string;
-}): OduLaneAct {
+}): OduLinkAct {
   // A LOOPBACK scope, because that is what odu binds — the same judgement the
   // Ports section makes about a loopback listener: a door is the ordinary case
   // rather than an exotic one, because `http://<host>:18440` reaches nothing on
@@ -107,7 +96,7 @@ export function oduLaneAct(opts: {
   // a door (`forward`). A `none` here would mean that fold changed shape, and
   // quietly offering a door instead would promise a relay that cannot answer.
   throw new Error(
-    "odu lane link: a loopback port was judged unreachable — the reach fold changed shape",
+    "odu link: a loopback port was judged unreachable — the reach fold changed shape",
   );
 }
 
@@ -115,25 +104,21 @@ export function oduLaneAct(opts: {
  *  open one that needs a door.
  *
  *  It takes the ROW AND THE LANE rather than an address, so which page a lane
- *  points at ({@link laneHash}) has one spelling — and because the section is
- *  deliberately wire-free, the facts behind the answer (which host, whether a
- *  door exists) arrive as this function rather than as an import. */
-export interface OduLaneOutlet {
+ *  points at is the CALLER's spelling of odu's own fragment — and because the
+ *  section is deliberately wire-free, the facts behind the answer (which host,
+ *  whether a door exists) arrive as this function rather than as an import. */
+export interface OduLinkOutlet {
   act: (
-    run: Pick<RunRow, "runId">,
-    lane: Pick<RunNode, "logKey">,
+    /** odu web's fragment: `runHash(runId)`, or `logHash(lane.logKey)`. */
+    hash: string,
     /** The daemon's own port, off the frame these rows came from. */
     port: number,
-  ) => OduLaneAct;
-  open: (
-    run: Pick<RunRow, "runId">,
-    lane: Pick<RunNode, "logKey">,
-    port: number,
-  ) => void;
+  ) => OduLinkAct;
+  open: (hash: string, port: number) => void;
 }
 
 /** The Inspector's outlet — opened once, beside the CI readout it belongs to. */
-export function useOduLaneLink(): OduLaneOutlet {
+export function useOduLink(): OduLinkOutlet {
   const host = () => activeHost();
 
   /** Is the browser sitting at the daemon's host? One fact about the PAGE,
@@ -159,17 +144,16 @@ export function useOduLaneLink(): OduLaneOutlet {
   const opening = new Set<string>();
 
   return {
-    act: (run, lane, port) =>
-      oduLaneAct({
-        hash: laneHash(run, lane),
+    act: (hash, port) =>
+      oduLinkAct({
+        hash,
         port,
         onKoluHost: isActiveHostLocal(),
         viewerOnHost: viewerOnHost(),
         doorPort: doorPort(port),
         pageHost: window.location.hostname,
       }),
-    open: (run, lane, port) => {
-      const hash = laneHash(run, lane);
+    open: (hash, port) => {
       if (opening.has(hash)) return;
       opening.add(hash);
       // Claimed on the CALLING stack, before anything suspends: a popup blocker

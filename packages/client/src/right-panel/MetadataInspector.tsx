@@ -38,7 +38,7 @@ import ComposeSection from "./ComposeSection";
 import KavalAttachSection from "./KavalAttachSection";
 import PortsSection from "./PortsSection";
 import { useOduCiStatus } from "./useOduCiStatus";
-import { useOduLaneLink } from "./useOduLaneLink";
+import { useOduLink } from "./useOduLink";
 import WorkSection from "./WorkSection";
 
 const MetadataInspector: Component<{
@@ -61,11 +61,11 @@ const MetadataInspector: Component<{
    *  SHOWN-GATED — a hidden Inspector tab is not a subscriber. */
   const oduCi = useOduCiStatus(() => props.terminalId);
 
-  /** The lane-link outlet — how a lane's row reaches odu web's log page.
-   *  Opened here with the readout (same reason: `WorkSection` stays wire-free),
-   *  and it reads the SAME active host the readout is keyed by, so the page a
-   *  lane opens is the daemon the row is describing. */
-  const oduLane = useOduLaneLink();
+  /** The odu-link outlet — how a lane row, a recent-runs row or the chip
+   *  reaches odu web. Opened here with the readout (same reason: `WorkSection`
+   *  stays wire-free), and it reads the SAME active host the readout is keyed
+   *  by, so the page a row opens is the daemon that row is describing. */
+  const odu = useOduLink();
 
   /** Is the TILE awake? The Attach section's subject is the tile (its picker
    *  spans the main pane and every split), so its liveness gate must read the
@@ -124,7 +124,7 @@ const MetadataInspector: Component<{
             meta={meta()}
             oduCi={oduCi.frame()}
             oduCiError={oduCi.error()?.message ?? null}
-            oduLane={oduLane}
+            odu={odu}
           />
 
           {/* Ports — what this TILE is serving, its splits included (a dev server
