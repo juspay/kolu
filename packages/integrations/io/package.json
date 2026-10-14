@@ -14,7 +14,7 @@
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "test:daemon": "vitest run --passWithNoTests"
+    "test:daemon": "vitest run"
   },
   "dependencies": {
     "@kolu/log": "workspace:*"

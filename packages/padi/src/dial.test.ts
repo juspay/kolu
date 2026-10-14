@@ -648,13 +648,14 @@ describeDaemon("padi the process — dial acceptance", () => {
       //   ≈45 s  three consecutive probes at the 10 s inventory cadence, each
       //          spending its full 5 s deadline against a peer that never answers;
       //   ≤10 s  the bounded drain (`restartLocal`'s killAll deadline);
-      //   ≤125 s `reapHolder`'s ladder — REAP_TERM_CEILING_MS (120 s) is spent in
-      //          full here BY DESIGN, because a SIGSTOP'd process cannot handle
-      //          SIGTERM and the graceful window is deliberately generous for a
-      //          daemon that might be draining gigabytes of scrollback (#1034),
-      //          plus REAP_KILL_CEILING_MS (5 s) for the kernel;
+      //   ≤5 s   `reapHolder`'s ladder — the graceful leg is SKIPPED here, because
+      //          a SIGSTOP'd process is provably not running a shutdown handler
+      //          (the state is read at the moment of reap; the SIGTERM is queued,
+      //          not delivered), so only REAP_KILL_CEILING_MS is spent. Before
+      //          that check this leg cost the full REAP_TERM_CEILING_MS (120 s)
+      //          for nothing — the #2101 incident's actual price tag;
       //   ≈10 s  respawn + the fresh daemon's handshake.
-      // ≈190 s, so 240 s is that sum with headroom on a loaded box. The claim
+      // ≈70 s, so 120 s is that sum with headroom on a loaded box. The claim
       // under test is that repair happens AT ALL with no human — the thing that
       // was false before N1, at any window.
       await waitUntil(
@@ -662,7 +663,7 @@ describeDaemon("padi the process — dial acceptance", () => {
           const now = gatePid(kavalGate);
           return now !== undefined && now !== comatose;
         },
-        240_000,
+        120_000,
         "padi never repaired the comatose kaval — the #2101 field incident, reproduced",
       );
     } finally {
@@ -691,7 +692,7 @@ describeDaemon("padi the process — dial acceptance", () => {
     // production, rather than a second, weaker definition written for the test.
     const probe = await Effect.runPromise(probeKavalStatus(p.kavalSocket));
     expect(probe.contractVersion).not.toBeNull();
-  }, 300_000);
+  }, 180_000);
 });
 
 describeDaemon(

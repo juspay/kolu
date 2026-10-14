@@ -94,8 +94,13 @@ export type SshProv = "probing" | "provisioning";
  * `kaval --stdio`) does its full convergence BEFORE it greets, so the worst
  * honest case is the sum of that convergence's own bounds:
  *
- *   - `REAP_TERM_CEILING_MS` 120_000 + `REAP_KILL_CEILING_MS` 5_000 = 125_000ms
- *     — a cross-epoch TAKEOVER: SIGTERM, wait, SIGKILL, wait.
+ *   - a cross-epoch TAKEOVER: SIGTERM, wait, SIGKILL, wait. The graceful leg is
+ *     now skipped whenever the old daemon is observed stopped — a stopped
+ *     process cannot run a shutdown handler, so its SIGTERM is queued, never
+ *     delivered, and `reapHolder` escalates at once (`REAP_KILL_CEILING_MS`
+ *     5_000 alone). So `REAP_TERM_CEILING_MS` 120_000 + `REAP_KILL_CEILING_MS`
+ *     5_000 = 125_000ms is the worst case only for a daemon that IS running its
+ *     shutdown; it stays the budget because it still bounds that case.
  *   -  30_000ms — the endpoint's `socketReadyMs`: the replacement daemon binding
  *     its socket.
  *   -   8_000ms — `UNSPEAKABLE_SILENCE_MS`: the probe's silence deadline, the

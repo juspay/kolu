@@ -87,6 +87,29 @@ describeDaemon("reapHolder", () => {
     expect(isHolderLive(pid)).toBe(false);
   }, 20_000);
 
+  it("does NOT spend the graceful window on a STOPPED holder — KILLs it at once (#2101)", async () => {
+    // A SIGSTOP'd process cannot run its shutdown handler: the SIGTERM is
+    // queued, never delivered. So the 120 s graceful ceiling can only be spent
+    // for nothing — this is the 2 minutes the #2101 field incident paid, and
+    // the reason the ladder checks the process state before it waits.
+    //
+    // Uses the REAL default ceiling (no `termCeilingMs`): the claim IS that a
+    // stopped holder is reaped far below REAP_TERM_CEILING_MS. A test seam
+    // here would be the test asserting its own arithmetic.
+    const pid = await sleeper(false);
+    process.kill(pid, "SIGSTOP");
+    const out = await Effect.runPromise(reapHolder(pid, { intervalMs: 10 }));
+    expect(out).toMatchObject({
+      kind: "reaped",
+      endedBy: "SIGKILL",
+      reason: "stopped",
+    });
+    if (out.kind !== "reaped") throw new Error("unreachable");
+    expect(out.waitedMs).toBeLessThan(REAP_KILL_CEILING_MS);
+    expect(out.waitedMs).toBeLessThan(REAP_TERM_CEILING_MS / 10);
+    expect(isHolderLive(pid)).toBe(false);
+  }, 20_000);
+
   it("succeeds immediately for a pid that is already gone", async () => {
     const pid = await sleeper(false);
     process.kill(pid, "SIGKILL");

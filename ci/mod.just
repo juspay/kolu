@@ -26,6 +26,11 @@
 # `<recipe>@<platform>` GitHub context, whose duration is the slowest slice, so
 # ci/protect never grows a shard name. Our darwin pool is a single host, so
 # nothing is ever free to borrow there and every darwin lane resolves to TOTAL=1.
+#
+# Two leaves are sharded today: `e2e` (cucumber owns the split) and `daemon`
+# (vitest `--shard`, which is what makes a leaf whose wall time is a handful of
+# expensive files — not one long suite — divide at all). Each owns its own
+# translation of the zero-based `ODU_SHARD_*` pair; see the recipes below.
 
 # Submodule recipes default to running from the submodule's directory (`ci/`),
 # but commands like `nix build … --override-input flake .` and `nix develop -c`
@@ -214,8 +219,8 @@ agent-bake: nix
 # `nix` as well as the shared pnpm install so that build is an already-realized
 # lookup, not a concurrent Nix build.
 #
-# The only sharded leaf (the shard contract is at the top of this file): the
-# browser suite is the longest pole on the Linux lane and dwarfs the burst
+# The sharded browser leaf (the shard contract is at the top of this file):
+# the browser suite is the longest pole on the Linux lane and dwarfs the burst
 # `install`+`nix` copies a borrowed box pays, so it is worth up to four slots.
 # Cucumber owns the actual split (`CUCUMBER_SHARD`, packages/tests/cucumber.js);
 # this recipe only translates odu's zero-based index into Cucumber's one-based
@@ -283,6 +288,36 @@ unit: install
 # `unit` must still finish first: running two pnpm/Vitest trees concurrently was
 # externally SIGKILLed on petit even with each tree's package concurrency
 # bounded to one.
+#
+# SHARDED (the shard contract is at the top of this file): the Linux lane's
+# second-longest pole. Its wall time is a handful of expensive FILES, not one
+# long suite — `packages/padi/src/dial.test.ts` alone is ~170 s of padi's 308 s,
+# almost all of it wall-clock deadlines baked into ONE test — so no package-level
+# fan-out helps and a borrowed box is already worth it. vitest owns the split
+# (`--shard`, file-level); `test-daemon` translates the zero-based `ODU_SHARD_*`
+# pair and refuses one that does not parse.
+#
+# N is MEASURED, not guessed. One run at a time with the whole pool free
+# (`selectors: ["ci::daemon"]`, x86_64-linux), the folded `ci::daemon` duration
+# and the slowest slice against the ceiling:
+#
+#     N   folded daemon   slowest slice
+#     2        352 s           352 s
+#     3        284 s           284 s
+#     4        245 s           229 s
+#     5        146 s           146 s
+#     6        144 s           144 s
+#
+# The slowest slice stops moving between 5 and 6 (146 s → 144 s, inside host
+# noise), so 5 is the ceiling: past it a shard only costs a saturated pool and
+# an extra `install`+`unit` closure without shortening the lane. The residual is
+# padi's ~70 s `dial.test.ts` — ONE file, indivisible by any file-level split —
+# plus the primary box's own `install`+`unit` closure, which a shard cannot
+# borrow away. These six runs had the pool to themselves; `e2e` shares the SAME
+# optional-worker pool (each root takes a prefix up to its own ceiling, so the
+# two compete only when both are live), which is why the ceiling is not raised
+# further: a count the pool cannot feed is a wait, not a speedup.
+[metadata("odu:shard=5")]
 daemon: install unit
     {{ nix_shell }} just --no-deps test-daemon
 

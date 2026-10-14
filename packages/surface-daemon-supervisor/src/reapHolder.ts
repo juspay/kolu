@@ -26,10 +26,22 @@
  *    (5 s) for the same reason — we are waiting on the kernel, not on a program.
  *    Still alive after it ⇒ `survived`, and the caller fails LOUD.
  *
- * The outcome is a RECORD, not a boolean: which signal ended it and how long the
- * wait took are exactly what an operator needs to read after the fact, and the
- * takeover's observation line carries both.
+ * Step 1 is for a daemon that HAS a shutdown handler to run. A holder observed
+ * in state `T`/`t` (stopped, or tracing stop) provably does not: the SIGTERM is
+ * queued, never delivered, so the graceful window can only be spent for nothing.
+ * For that one the ladder starts at step 2 — SIGKILL immediately, since SIGKILL
+ * IS delivered to a stopped process — and the outcome carries `reason:
+ * "stopped"`. The state is read ONCE, at the moment of reap, not polled: the
+ * #2101 incident paid the full 120 s ceiling against a SIGSTOP'd daemon for
+ * nothing, and every second of that was wall-clock on the repair.
+ *
+ * The outcome is a RECORD, not a boolean: which signal ended it, how long the
+ * wait took, and (when the graceful leg was skipped) why, are exactly what an
+ * operator needs to read after the fact, and the takeover's observation line
+ * carries them all.
  */
+import { execFileSync } from "node:child_process";
+import { readFileSync } from "node:fs";
 import { Effect } from "effect";
 import { waitForPidGone } from "./waitForPidGone.ts";
 
@@ -47,9 +59,18 @@ export type ReapOutcome =
       readonly endedBy: "SIGTERM" | "SIGKILL";
       /** Wall time from the first signal to the confirmed reap, in ms. */
       readonly waitedMs: number;
+      /** Present only on the early-escalation path below: the holder was
+       *  observed STOPPED (`T`/`t`), so the graceful window was skipped — it
+       *  could not have been running a shutdown handler. */
+      readonly reason?: "stopped";
     }
   /** Still live past BOTH deadlines — uninterruptible sleep or worse. */
-  | { readonly kind: "survived"; readonly waitedMs: number };
+  | {
+      readonly kind: "survived";
+      readonly waitedMs: number;
+      /** Present when the graceful leg was skipped — see the `reaped` variant. */
+      readonly reason?: "stopped";
+    };
 
 export interface ReapHolderOptions {
   /** Graceful window after SIGTERM. Default {@link REAP_TERM_CEILING_MS}. */
@@ -71,6 +92,41 @@ function signalIgnoringRace(pid: number, signal: "SIGTERM" | "SIGKILL"): void {
   }
 }
 
+/** Is `pid` stopped, or gone? READ ONCE at the moment of reap — a bounded
+ *  observation, never a poller.
+ *
+ *  A process in `T` (stopped) or `t` (tracing stop) is provably NOT running a
+ *  shutdown handler: the OS never delivered the SIGTERM we just queued, so the
+ *  120 s graceful window could only ever be spent for nothing. A read that
+ *  fails means the pid is gone — the happy path, and the answer a missing
+ *  `/proc` entry gives too.
+ *
+ *  Linux reads field 3 of `/proc/<pid>/stat`, parsed AFTER the last `)` because
+ *  `comm` may contain spaces or parentheses. Darwin has no `/proc`, so it reads
+ *  the first character of `ps -o stat= -p`. */
+function pidStopped(pid: number): boolean {
+  if (process.platform === "linux") {
+    let stat: string;
+    try {
+      stat = readFileSync(`/proc/${pid}/stat`, "utf8");
+    } catch {
+      return false; // No stat entry ⇒ already gone.
+    }
+    const end = stat.lastIndexOf(")");
+    const state = end === -1 ? "" : stat.slice(end + 2, end + 3);
+    return state === "T" || state === "t";
+  }
+  try {
+    const out = execFileSync("ps", ["-o", "stat=", "-p", String(pid)], {
+      encoding: "utf8",
+    }).trim();
+    const first = out[0];
+    return first === "T" || first === "t";
+  } catch {
+    return false; // `ps` printed nothing / exited non-zero ⇒ gone.
+  }
+}
+
 /** SIGTERM `pid`, wait, escalate to SIGKILL, wait again — see the module doc.
  *  The two waits are ONE fiber, so a caller that gives up (a lost race, an
  *  interrupted converge) cancels the outstanding poll with it rather than
@@ -84,6 +140,29 @@ export function reapHolder(
     const waited = (): number => Date.now() - startedAt;
 
     yield* Effect.sync(() => signalIgnoringRace(pid, "SIGTERM"));
+    // A STOPPED holder cannot hear that SIGTERM — it is queued, not delivered —
+    // so there is no shutdown handler to give the graceful window to. Skip it
+    // and escalate now: SIGKILL IS delivered to a stopped process, and waiting
+    // out REAP_TERM_CEILING_MS against one is the 2 minutes the #2101 incident
+    // paid for nothing. The observation is read ONCE, here, and a read that
+    // fails is "gone" — the happy path the wait below would report anyway.
+    if (yield* Effect.sync(() => pidStopped(pid))) {
+      yield* Effect.sync(() => signalIgnoringRace(pid, "SIGKILL"));
+      if (
+        yield* waitForPidGone(pid, {
+          timeoutMs: opts.killCeilingMs ?? REAP_KILL_CEILING_MS,
+          intervalMs: opts.intervalMs,
+        })
+      ) {
+        return {
+          kind: "reaped",
+          endedBy: "SIGKILL",
+          waitedMs: waited(),
+          reason: "stopped",
+        };
+      }
+      return { kind: "survived", waitedMs: waited() };
+    }
     if (
       yield* waitForPidGone(pid, {
         timeoutMs: opts.termCeilingMs ?? REAP_TERM_CEILING_MS,

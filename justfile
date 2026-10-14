@@ -356,9 +356,60 @@ _reap-ci-run:
 # package declares that script name and nothing else, so `pnpm -r` runs it HERE and
 # skips it in `test-unit`. Before that split both recipes traversed all 54 suites
 # and every fork-free test ran twice per CI run.
+#
+# SHARDED at the FILE level when odu hands down a pair (ci::daemon carries
+# `[metadata("odu:shard=N")]`): `ODU_SHARD_INDEX`/`ODU_SHARD_TOTAL` become one
+# vitest `--shard=<index+1>/<total>` appended to every package's `test:daemon`, so
+# the split is per package, and the slice a box runs is files. Package-level
+# sharding was considered and rejected — padi alone is 308 s, so a package-level
+# floor would cap the win at that package's wall time. vitest's own split is a
+# CONTIGUOUS slice of the files SORTED BY THE SHA1 OF THEIR PATH (not an
+# interleaved deal, and not cost-aware), deterministic for a given file list and
+# a given N; the folded lane is the slowest slice, so the win is bounded by the
+# slowest single file plus the ~15 package boots.
+#
+# The pair is validated the same way `ci::e2e` validates it: a half-set or
+# out-of-range pair is a runner bug, and exit 2 says so instead of quietly running
+# the whole workspace N times or nothing at all. The EXIT janitor and
+# `KOLU_DAEMON_BIND_PID` leash below stay per-slice — each shard is its own box
+# and its own run pid.
+#
+# `--passWithNoTests` is passed ONLY in the sharded branch: a package with fewer
+# files than shards gets an empty slice, and vitest exits non-zero ("No test
+# files found") on nothing to run. On the UNSHARDED path (no pair set — a local
+# `just test-daemon`, and every darwin lane, which resolves TOTAL=1) the guard
+# stays exactly as it was: a package whose glob matches nothing is RED, not a
+# silent green. Because the sharded branch appends this flag to EVERY package's
+# line, no `test:daemon` script may declare it itself: vitest's arg parser
+# rejects a repeated boolean (`Expected a single value for option
+# "--passWithNoTests"`), so `kolu-io`'s copy was dropped when its suite gained
+# real test files.
 test-daemon: install
     #!/usr/bin/env bash
     set -euo pipefail
+    # The vitest args this run adds on top of each package's `test:daemon`.
+    # NOTE: `pnpm -r … test:daemon --shard=…` — NOT `… test:daemon -- --shard=…`.
+    # pnpm forwards a literal `--` into the script line, and vitest reads
+    # everything after a bare `--` as a file filter, so the shard would be
+    # silently ignored and every package would run whole (measured). Appending
+    # the flags directly is the form that works for every script shape in the
+    # tree — a leading env assignment and `--fileParallelism=false`
+    # (`packages/server`), `--exclude …` (`packages/padi`).
+    shard_args=()
+    if [[ -n "${ODU_SHARD_INDEX:-}" || -n "${ODU_SHARD_TOTAL:-}" ]]; then
+        if [[ ! "${ODU_SHARD_INDEX:-}" =~ ^(0|[1-9][0-9]*)$ ]] \
+            || [[ ! "${ODU_SHARD_TOTAL:-}" =~ ^[1-9][0-9]*$ ]] \
+            || ((ODU_SHARD_INDEX >= ODU_SHARD_TOTAL)); then
+            echo "test-daemon: invalid shard pair ODU_SHARD_INDEX='${ODU_SHARD_INDEX:-}' ODU_SHARD_TOTAL='${ODU_SHARD_TOTAL:-}'" >&2
+            exit 2
+        fi
+        echo "test-daemon: shard=$((ODU_SHARD_INDEX + 1))/$ODU_SHARD_TOTAL (odu index=$ODU_SHARD_INDEX of $ODU_SHARD_TOTAL)"
+        # vitest `--shard` is 1-based; odu's index is 0-based.
+        shard_args=("--shard=$((ODU_SHARD_INDEX + 1))/$ODU_SHARD_TOTAL")
+        if ((ODU_SHARD_TOTAL > 1)); then
+            shard_args+=("--passWithNoTests")
+        fi
+    fi
     export KOLU_CI_REAP_BIND_PID=$$
     cleanup() {
         local st=$?
@@ -369,7 +420,7 @@ test-daemon: install
         exit "$st"
     }
     trap cleanup EXIT
-    KOLU_DAEMON_TESTS=1 KOLU_DAEMON_BIND_PID=$$ {{ nix_shell }} pnpm -r {{ pnpm_vendored_filter }} --workspace-concurrency=1 test:daemon
+    KOLU_DAEMON_TESTS=1 KOLU_DAEMON_BIND_PID=$$ {{ nix_shell }} pnpm -r {{ pnpm_vendored_filter }} --workspace-concurrency=1 test:daemon "${shard_args[@]}"
 
 # W3.1 ssh-leg e2e — bind padiSurface over a REAL ssh hop, round-trip a terminal,
 # bench typing-echo latency, and prove drain->converge. TURNKEY on a `pu` box: with no

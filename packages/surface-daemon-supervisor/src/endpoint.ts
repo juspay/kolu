@@ -896,8 +896,11 @@ export function createEndpoint<
         emit({ state: "dead" });
         return yield* Effect.fail(
           new Error(
-            `daemon pid ${holder} survived SIGTERM (${REAP_TERM_CEILING_MS}ms) and then SIGKILL ` +
-              `(${REAP_KILL_CEILING_MS}ms) after ${reap.waitedMs}ms — a process that outlives SIGKILL is ` +
+            `daemon pid ${holder} survived SIGKILL (${REAP_KILL_CEILING_MS}ms) after ${reap.waitedMs}ms — ` +
+              (reap.reason === "stopped"
+                ? "it was stopped, so the graceful window was skipped as provably unspendable"
+                : `it also survived SIGTERM (${REAP_TERM_CEILING_MS}ms)`) +
+              "; a process that outlives SIGKILL is " +
               "stuck in uninterruptible sleep; nothing this supervisor can do will free the rendezvous",
           ),
         );
@@ -1540,12 +1543,16 @@ export function createEndpoint<
           trigger: peer.evidence.trigger,
           endedBy: reap.endedBy,
           waitedMs: reap.waitedMs,
+          ...(reap.reason ? { reapReason: reap.reason } : {}),
           termCeilingMs: REAP_TERM_CEILING_MS,
           killCeilingMs: REAP_KILL_CEILING_MS,
         },
         `convergence: TOOK OVER the daemon at ${peer.socketPath} — pid ${peer.pid} was provably ours ` +
           `(our gate ${peer.gatePath} named it and its process identity verified) and it ${unspeakableClause(peer.evidence)}. ` +
-          `Stopped by ${reap.endedBy} after ${reap.waitedMs}ms; its own shutdown ran, so the session is seeded from disk. ` +
+          `Stopped by ${reap.endedBy} after ${reap.waitedMs}ms; ` +
+          (reap.reason === "stopped"
+            ? "it was stopped, so it could not run a shutdown handler and the graceful window was skipped — the session is seeded from disk. "
+            : "its own shutdown ran, so the session is seeded from disk. ") +
           "Starting this build's daemon in its place.",
       );
       yield* spawnConnectHold();
