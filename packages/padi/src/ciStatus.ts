@@ -608,13 +608,20 @@ export function createCiStatusSource(deps: {
           });
 
           try {
-            for await (const _tick of pollOnEvent<number>({
-              read: async () => serial,
+            for await (const item of pollOnEvent<{
+              serial: number;
+              frame: CiStatusFrame;
+            }>({
+              // The frame is folded AT THE READ, which is the moment the board
+              // is known: deriving it one step later (at the yield) lets a
+              // board the session has since cleared describe a frame that
+              // arrived before the clear.
+              read: async () => ({ serial, frame: frame() }),
               // The frame is a fold of everything above, so "did anything
               // move" is the serial and nothing else. One redundant frame per
               // unrelated board tick is the price of never re-emitting a frame
               // whose inputs did not change.
-              isEqual: (a, b) => a === b,
+              isEqual: (a, b) => a.serial === b.serial,
               install: (onEvent) => {
                 notify = onEvent;
                 // The subscription's own opening read of the board: `install`
@@ -636,7 +643,7 @@ export function createCiStatusSource(deps: {
               // that failure rather than a blank.
               const fatal = session.failure();
               if (fatal !== null) throw fatal;
-              yield frame();
+              yield item.frame;
             }
           } finally {
             stopNodes();
