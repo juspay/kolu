@@ -1,5 +1,7 @@
 /** Which form of a published closure a host pulls, from its Nix. */
 
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { closureRoute, signedBecause } from "./closureRoute";
 
@@ -63,6 +65,30 @@ describe("signedBecause", () => {
     ).toMatch(/code signature/);
     expect(signedBecause("nix-line", linux("2.35.2"))).toBe(
       "its Nix 2.35.2 cannot verify the content-addressed form the publisher writes (written by Nix 2.34; Nix 2.17 through 2.34 can)",
+    );
+  });
+});
+
+describe("the publisher's Nix and the content-addressed lines agree", () => {
+  it("a Linux host on the Nix the publish-closure action rewrites with takes the content-addressed form", () => {
+    // The action pins its Nix by `install_url`; bumping it past the lines
+    // `closureRoute` sends `ca` to would publish a form those hosts refuse.
+    const action = readFileSync(
+      fileURLToPath(
+        new URL(
+          "../../../.github/actions/publish-closure/action.yml",
+          import.meta.url,
+        ),
+      ),
+      "utf8",
+    );
+    const version =
+      /releases\.nixos\.org\/nix\/nix-(\d+\.\d+\.\d+)\/install/.exec(
+        action,
+      )?.[1];
+    expect(version).toBeDefined();
+    expect(closureRoute(linux(version ?? ""), both).kind).toBe(
+      "content-addressed",
     );
   });
 });

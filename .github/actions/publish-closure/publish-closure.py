@@ -26,14 +26,13 @@ Subcommands, one per step of `action.yml`:
     resolve  — the inputs, made concrete: the installables, the declaration
                (caches + index), the index key; written as step outputs.
     index    — build each installable, rewrite it (off darwin), write entries.
-    ca-paths — the content-addressed paths the entries name, one per line.
+    paths    — every store path the entries name (ia, and ca), one per line.
     smoke    — run each rewritten closure's declared program (Linux only).
     verify   — import each published path from the cache into a throwaway
                store with this Nix, and verify it.
 """
 import argparse
 import json
-import os
 import pathlib
 import re
 import subprocess
@@ -42,6 +41,11 @@ import sys
 # An attribute names the index file, so nothing that could climb out of the
 # directory is allowed through.
 ATTR = re.compile(r"[A-Za-z_][A-Za-z0-9_'-]*")
+# The baked source's file names, from the registry Nix writes them by and
+# TypeScript reads them by (`packages/surface-remote/agent-env.json`) — the
+# action's checkout is the whole kolu repository, so it is beside this script.
+AGENT_ENV = json.loads(
+    (pathlib.Path(__file__).resolve().parents[3] / "packages/surface-remote/agent-env.json").read_text())
 STORE_PATH = re.compile(r"/nix/store/[0-9a-z]{32}-[^/]+")
 FULL_REV = re.compile(r"[0-9a-f]{40}")
 
@@ -50,17 +54,17 @@ def die(message: str):
     sys.exit(f"publish-closure: {message}")
 
 
-def nix(nix_command: str, args: list) -> str:
+def nix(args: list) -> str:
     """What `nix ARGS` prints, or exit naming what nix said."""
-    result = subprocess.run([nix_command, *args], capture_output=True, text=True)
+    result = subprocess.run(["nix", *args], capture_output=True, text=True)
     if result.returncode != 0:
         detail = result.stderr.strip().splitlines()
         die(f"nix {' '.join(args)}: {detail[-1] if detail else result.returncode}")
     return result.stdout
 
 
-def nix_json(nix_command: str, args: list):
-    text = nix(nix_command, args)
+def nix_json(args: list):
+    text = nix(args)
     try:
         return json.loads(text)
     except json.JSONDecodeError as error:
@@ -116,12 +120,12 @@ def resolve(args) -> int:
     if args.source:
         if args.sidecar or args.rev_key:
             die("`source` names the sidecar and the key itself — pass neither `sidecar` nor `rev` with it")
-        source = nix(args.nix, ["build", "--no-link", "--print-out-paths", args.source]).strip()
+        source = nix(["build", "--no-link", "--print-out-paths", args.source]).strip()
         if not STORE_PATH.fullmatch(source):
             die(f"{args.source} built {source!r}, not one store path")
-        sidecar = str(pathlib.Path(source) / "binary-cache.json")
+        sidecar = str(pathlib.Path(source) / AGENT_ENV["binaryCacheFile"])
         try:
-            rev_key = (pathlib.Path(source) / "commit-hash").read_text().strip()
+            rev_key = (pathlib.Path(source) / AGENT_ENV["commitHashFile"]).read_text().strip()
         except OSError as error:
             die(f"{args.source} is not a baked agent source: {error}")
         installables = [f"{source}#{attr}" for attr in args.installables]
@@ -160,13 +164,13 @@ def resolve(args) -> int:
     return 0
 
 
-def content_addressed(nix_command: str, ia: str) -> str:
+def content_addressed(ia: str) -> str:
     """`ia`'s content-addressed rewrite, checked against what the store says."""
-    rewrites = nix_json(nix_command, ["store", "make-content-addressed", "--json", ia]).get("rewrites")
+    rewrites = nix_json(["store", "make-content-addressed", "--json", ia]).get("rewrites")
     ca = rewrites.get(ia) if isinstance(rewrites, dict) else None
     if not isinstance(ca, str) or not STORE_PATH.fullmatch(ca):
         die(f"nix rewrote no path for {ia}: {ca!r}")
-    info = nix_json(nix_command, ["path-info", "--json-format", "1", "--json", ca])
+    info = nix_json(["path-info", "--json-format", "1", "--json", ca])
     entry = info.get(ca) if isinstance(info, dict) else None
     if not isinstance(entry, dict) or not str(entry.get("ca") or "").startswith("fixed:"):
         die(f"{ca} is not content-addressed in the store: {entry!r}")
@@ -186,7 +190,7 @@ def index(args) -> int:
     signed_only = args.system.endswith("-darwin")
     for installable in args.installables:
         attr = attr_of(installable)
-        paths = [p for p in nix(args.nix, ["build", "--no-link", "--print-out-paths", installable]).split() if p]
+        paths = [p for p in nix(["build", "--no-link", "--print-out-paths", installable]).split() if p]
         if len(paths) != 1 or not STORE_PATH.fullmatch(paths[0]):
             die(f"{installable}: nix build printed {paths}, not one store path")
         ia = paths[0]
@@ -194,7 +198,7 @@ def index(args) -> int:
         if signed_only:
             print(f"publish-closure: {args.system}/{attr}.json: {ia} (signed: a rewritten Mach-O is killed on arm64 macOS)")
         else:
-            entry["ca"] = content_addressed(args.nix, ia)
+            entry["ca"] = content_addressed(ia)
             print(f"publish-closure: {args.system}/{attr}.json: {ia} -> {entry['ca']}")
         write(args.directory / args.rev_key / args.system / f"{attr}.json", entry)
         if args.latest:
@@ -211,8 +215,11 @@ def entries(directory: pathlib.Path, rev_key: str, system: str) -> list:
     return [(path.stem, json.loads(path.read_text())) for path in found]
 
 
-def ca_paths(args) -> int:
+def paths(args) -> int:
+    """Every store path the entries name — the signed `ia` and, off darwin,
+    the content-addressed `ca` — one per line: what the cache must hold."""
     for _, entry in entries(args.directory, args.rev_key, args.system):
+        print(entry["ia"])
         if entry.get("ca"):
             print(entry["ca"])
     return 0
@@ -277,9 +284,9 @@ def verify(args) -> int:
         if not ca:
             continue
         print(f"publish-closure: verify {attr}: importing {ca} from {args.cache}")
-        nix(args.nix, ["--extra-experimental-features", "nix-command",
+        nix(["--extra-experimental-features", "nix-command",
                        "copy", "--from", args.cache, "--to", store, ca])
-        nix(args.nix, ["--extra-experimental-features", "nix-command",
+        nix(["--extra-experimental-features", "nix-command",
                        "store", "verify", "--store", store, "--recursive", ca])
     print("publish-closure: what was published imports and verifies")
     return 0
@@ -287,7 +294,6 @@ def verify(args) -> int:
 
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--nix", default=os.environ.get("PUBLISH_CLOSURE_NIX", "nix"))
     sub = parser.add_subparsers(dest="command", required=True)
 
     p = sub.add_parser("resolve")
@@ -311,9 +317,9 @@ def main(argv=None) -> int:
     p.add_argument("installables", nargs="+")
     p.set_defaults(run=index)
 
-    p = sub.add_parser("ca-paths")
+    p = sub.add_parser("paths")
     entry_args(p)
-    p.set_defaults(run=ca_paths)
+    p.set_defaults(run=paths)
 
     p = sub.add_parser("smoke")
     entry_args(p)

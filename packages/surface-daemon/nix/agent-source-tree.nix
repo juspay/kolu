@@ -23,10 +23,11 @@ let
   # An index is looked up by the `commit-hash` beside it (`readBakedDeclaration`
   # reads both): a tree that declares one without the other is unusable, so it
   # fails HERE, at the binder's eval, not at dial time.
+  revFile = (lib.importJSON ../../surface-remote/agent-env.json).commitHashFile;
   binaryCache =
     assert lib.assertMsg
-      (closureIndex == null || (extraFiles ? "commit-hash" && extraFiles."commit-hash" != ""))
-      "${label}: closureIndex is set but no `commit-hash` extra file is baked — the index is keyed by it";
+      (closureIndex == null || (extraFiles ? ${revFile} && extraFiles.${revFile} != ""))
+      "${label}: closureIndex is set but no `${revFile}` extra file is baked — the index is keyed by it";
     import ./binary-cache.nix { inherit lib; } {
       inherit flakeNix label closureIndex;
     };

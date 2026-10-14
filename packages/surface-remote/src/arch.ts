@@ -125,7 +125,7 @@ export async function resolveHostNix(
  *  back, never a "network" error retried forever. */
 function notANixProbe(host: string, what: string): ResolveDrvError {
   return new ResolveDrvError(
-    `${host}: the system probe ${what}, not a nix-system string — something on the host (often a shell startup file) may be printing to stdout on non-interactive ssh`,
+    `${host}: the host probe ${what}, not the { system, nixVersion } it asked for — something on the host (often a shell startup file) may be printing to stdout on non-interactive ssh`,
     { kind: "unavailable", failureCause: "remote", terminal: false },
   );
 }

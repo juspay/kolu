@@ -97,7 +97,8 @@ let
     inherit pkgs flakeNix closureIndex;
     src = provenTree;
     label = "mkProvenAgentSource";
-    extraFiles = { "commit-hash" = commitHash; };
+    # The name is the one `@kolu/surface-remote` reads it by (agent-env.json).
+    extraFiles = { ${(lib.importJSON ../../surface-remote/agent-env.json).commitHashFile} = commitHash; };
   };
 in
 {

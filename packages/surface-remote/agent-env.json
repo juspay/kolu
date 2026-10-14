@@ -1,4 +1,5 @@
 {
   "flakeRef": "SURFACE_AGENT_FLAKE_REF",
-  "binaryCacheFile": "binary-cache.json"
+  "binaryCacheFile": "binary-cache.json",
+  "commitHashFile": "commit-hash"
 }

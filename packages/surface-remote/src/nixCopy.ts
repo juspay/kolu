@@ -104,11 +104,17 @@ import type { AgentBinaryCache } from "./agentBinaryCache";
 import type { AgentDerivation } from "./agentDerivation";
 import {
   ClosureIndexError,
+  type ClosureLookup,
   type IndexedClosure,
   fetchClosureIndex,
   readPublishedClosure,
 } from "./closureIndex";
-import { closureRoute, signedBecause } from "./closureRoute";
+import {
+  type ClosureRoute,
+  closureRoute,
+  isDarwinSystem,
+  signedBecause,
+} from "./closureRoute";
 import {
   forEachLine,
   isLocalHost,
@@ -1036,12 +1042,6 @@ async function stageContentAddressed(opts: {
   };
 }
 
-/** Does `system` (a Nix system, `aarch64-darwin`) name a macOS target — the
- *  one kind that keeps the signed, input-addressed closure? */
-function isDarwinSystem(system: string): boolean {
-  return system.endsWith("-darwin");
-}
-
 /**
  * ## pullClosure — pull a published closure into a host's store straight from a binary cache,
  * and root it there — the host fetches; the caller moves no bytes.
@@ -1312,7 +1312,6 @@ async function deliverPublished(opts: {
   published: IndexedClosure;
   binaryCache: AgentBinaryCache;
   rootPath: string;
-  narrate: (line: string) => void;
   onProgress: (line: string) => void;
   onActivity: () => void;
   /** The required root commit's budget — the dial's own. */
@@ -1320,9 +1319,11 @@ async function deliverPublished(opts: {
   signal: AbortSignal | undefined;
   keepalive: SshKeepalive;
 }): Promise<Exclude<DeliverClosureResult, { kind: "not-delivered" }> | null> {
-  const { published, narrate } = opts;
+  const { published } = opts;
   const { system } = published.host;
-  let lookup: Awaited<ReturnType<typeof readPublishedClosure>>;
+  const narrate = (line: string) => opts.onProgress(`${opts.host}: ${line}`);
+  let lookup: ClosureLookup | undefined;
+  let route: ClosureRoute;
   try {
     lookup = await readPublishedClosure(
       fetchClosureIndex,
@@ -1331,34 +1332,26 @@ async function deliverPublished(opts: {
       system,
       published.attr,
     );
+    if (lookup.kind === "not-published") {
+      narrate(
+        `${published.attr} ${published.rev} is not published for ${system} (${lookup.url}) — staging the closure from this machine instead`,
+      );
+      return null;
+    }
+    route = closureRoute(published.host, lookup.entry);
   } catch (err) {
     // A transport failure reaching the index is not a statement about the
-    // publication; an answer that is not an entry is.
+    // publication; an answer that is not an entry (or names no form this
+    // host can take) is.
     if (err instanceof ClosureIndexError && err.kind === "unreadable") {
       narrate(`${err.message} — staging the closure from this machine instead`);
       return null;
     }
+    const where = lookup === undefined ? "" : ` (${lookup.url})`;
     return {
       ok: false,
       kind: "failed",
-      reason: `${opts.host}: ${err instanceof Error ? err.message : String(err)}`,
-      cause: "remote",
-    };
-  }
-  if (lookup.kind === "not-published") {
-    narrate(
-      `${published.attr} ${published.rev} is not published for ${system} (${lookup.url}) — staging the closure from this machine instead`,
-    );
-    return null;
-  }
-  let route: ReturnType<typeof closureRoute>;
-  try {
-    route = closureRoute(published.host, lookup.entry);
-  } catch (err) {
-    return {
-      ok: false,
-      kind: "failed",
-      reason: `${opts.host}: ${err instanceof Error ? err.message : String(err)} (${lookup.url})`,
+      reason: `${opts.host}: ${err instanceof Error ? err.message : String(err)}${where}`,
       cause: "remote",
     };
   }
@@ -1387,10 +1380,7 @@ async function deliverPublished(opts: {
       narrate(`landed ${route.storePath} from the closure index`);
       return { ok: true, outPath: route.storePath };
     }
-    if (pulled.kind === "failed") {
-      const { kind: _kind, ...failure } = pulled;
-      return { ...failure, kind: "failed" };
-    }
+    if (pulled.kind === "failed") return pulled;
     misses.push(`${cacheUrl}: ${pulled.reason}`);
   }
   narrate(
@@ -1479,16 +1469,13 @@ export async function deliverClosure(
   opts.onDelivering?.();
   const narrate = (line: string) => opts.onProgress(`${opts.host}: ${line}`);
 
-  // 1b. The index step: a published build is pulled by the host itself —
-  //     remote only, like the warm check (localhost's staging reads its own
-  //     store first).
-  if (!isLocal && opts.published !== null) {
+  // 1b. The index step: a published build is pulled by the host itself.
+  if (opts.published !== null) {
     const landed = await deliverPublished({
       host: opts.host,
       published: opts.published,
       binaryCache: opts.binaryCache,
       rootPath: opts.rootPath,
-      narrate,
       onProgress: opts.onProgress,
       onActivity: opts.onActivity,
       budget: opts.budget,
@@ -1660,7 +1647,6 @@ export async function provisionAgent(
         published,
         binaryCache: opts.derivation.binaryCache,
         rootPath,
-        narrate: (line) => opts.onProgress(`${opts.host}: ${line}`),
         onProgress: opts.onProgress,
         onActivity: opts.onActivity,
         budget: budgets.provisioning,

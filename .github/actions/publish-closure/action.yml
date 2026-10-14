@@ -143,7 +143,6 @@ runs:
         OUT: ${{ steps.resolve.outputs.directory }}
         REV_KEY: ${{ steps.resolve.outputs.rev-key }}
         SYSTEM: ${{ steps.resolve.outputs.system }}
-        INSTALLABLES: ${{ steps.resolve.outputs.installables }}
         SERVER: ${{ steps.resolve.outputs.attic-server }}
         CACHE: ${{ steps.resolve.outputs.attic-cache }}
         ATTIC_TOKEN: ${{ inputs.attic-token }}
@@ -154,12 +153,10 @@ runs:
         # resolved through the GitHub API at run time.
         nix profile add "$ATTIC_NIXPKGS#attic-client"
         attic login --set-default publish "$SERVER" "$ATTIC_TOKEN"
-        # The signed paths too (`ia`, every system): a darwin host, or a Linux
-        # Nix outside the content-addressed line, pulls those.
-        # shellcheck disable=SC2086
-        paths=$(for i in $INSTALLABLES; do nix build --no-link --print-out-paths "$i"; done
-                python3 "$SCRIPT" ca-paths --rev-key "$REV_KEY" --system "$SYSTEM" --directory "$OUT")
-        printf '%s\n' "$paths" | attic push --stdin "publish:$CACHE"
+        # Every path the entries name — the signed `ia` too: a darwin host, or a
+        # Linux Nix outside the content-addressed line, pulls those.
+        python3 "$SCRIPT" paths --rev-key "$REV_KEY" --system "$SYSTEM" --directory "$OUT" \
+          | attic push --stdin "publish:$CACHE"
 
     # What a consumer does, done here with the publishing Nix: nothing reaches
     # the index unless it imports into a fresh store and verifies.

@@ -36,6 +36,19 @@ export type ClosureRoute =
  *  both ways — agent-distro#102); 2.17 is the oldest line that imports one. */
 const CA_LINES = { from: [2, 17], before: [2, 35] } as const;
 
+/** Does `system` (a Nix system, `aarch64-darwin`) name a macOS host — the one
+ *  kind that only ever takes the signed, input-addressed closure? ONE rule for
+ *  both routes: the published one here and the sender's staging
+ *  (`nixCopy.ts`), so a Nix that one day re-signs a rewritten Mach-O flips
+ *  them together. */
+export function isDarwinSystem(system: string): boolean {
+  return system.endsWith("-darwin");
+}
+
+/** The `major.minor` names of {@link CA_LINES}' first and last lines. */
+const firstCaLine = `${CA_LINES.from[0]}.${CA_LINES.from[1]}`;
+const lastCaLine = `${CA_LINES.before[0]}.${CA_LINES.before[1] - 1}`;
+
 /** `nixVersion`'s `major.minor`. A version that does not start with one is a
  *  fault about the host's Nix, and loud. */
 function nixLine(nixVersion: string): readonly [number, number] {
@@ -59,7 +72,7 @@ export function closureRoute(
   host: HostNix,
   published: PublishedClosure,
 ): ClosureRoute {
-  if (host.system.endsWith("-darwin"))
+  if (isDarwinSystem(host.system))
     return { kind: "signed", storePath: published.ia, because: "mach-o" };
   const line = nixLine(host.nixVersion);
   if (atLeast(line, CA_LINES.from) && !atLeast(line, CA_LINES.before)) {
@@ -78,7 +91,7 @@ export function signedBecause(because: SignedBecause, host: HostNix): string {
     case "mach-o":
       return "macOS kills a program whose code signature a content-addressed rewrite broke";
     case "nix-line":
-      return `its Nix ${host.nixVersion} cannot verify the content-addressed form the publisher writes (written by Nix 2.34; Nix 2.17 through 2.34 can)`;
+      return `its Nix ${host.nixVersion} cannot verify the content-addressed form the publisher writes (written by Nix ${lastCaLine}; Nix ${firstCaLine} through ${lastCaLine} can)`;
     default:
       return because satisfies never;
   }

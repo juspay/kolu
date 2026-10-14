@@ -374,7 +374,7 @@ describe("resolveHostNix — the same probe, with the host's Nix version", () =>
       stdout: '{"system":"x86_64-linux"}\n',
     });
     await expect(resolveHostNix("ci@box", opts())).rejects.toThrow(
-      /the system probe returned/,
+      /the host probe returned/,
     );
   });
 });

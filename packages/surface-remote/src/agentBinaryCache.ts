@@ -105,8 +105,9 @@ export function agentBinaryCache(raw: {
 }
 
 /** The revision file `mkProvenAgentSource` writes at the source's root — the
- *  key a publisher writes its builds under. */
-const COMMIT_HASH_FILE = "commit-hash";
+ *  key a publisher writes its builds under. Named in `agent-env.json`, like
+ *  the sidecar's own name. */
+const COMMIT_HASH_FILE = agentEnv.commitHashFile;
 
 /** What a baked source declares about its own delivery: the `caches` its
  * closures come from, and — when it publishes them — the content-addressed

@@ -12,6 +12,7 @@ REV = "c891495" + "0" * 33
 KEY = "c891495"
 IA = "/nix/store/" + "a" * 32 + "-padi"
 CA = "/nix/store/" + "b" * 32 + "-padi"
+OTHER_IA = "/nix/store/" + "c" * 32 + "-mac"
 SOURCE = "/nix/store/" + "s" * 32 + "-agent-flake-source"
 CONTENT_ADDRESSED = "fixed:r:sha256:abc"
 DECLARATION = {
@@ -255,6 +256,20 @@ class Smoke(unittest.TestCase):
             r = self.smoke(root, "padi=bin/padi", f"{SOURCE}#padi")
             self.assertEqual(r.returncode, 0, r.stderr)
             self.assertNotIn("other", r.stdout)
+
+
+class Paths(unittest.TestCase):
+    def test_names_every_signed_and_content_addressed_path_of_the_entries(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            for attr, entry in [("padi", {"rev": REV, "ia": IA, "ca": CA}), ("mac", {"rev": REV, "ia": OTHER_IA})]:
+                path = root / "idx" / KEY / "x86_64-linux" / f"{attr}.json"
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(json.dumps(entry))
+            r = run(root, stub(root, {}), "paths", "--rev-key", KEY, "--system", "x86_64-linux",
+                    "--directory", str(root / "idx"))
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertEqual(sorted(r.stdout.split()), sorted([IA, CA, OTHER_IA]))
 
 
 class Verify(unittest.TestCase):
