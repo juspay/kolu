@@ -93,9 +93,11 @@ A REFUSAL is the third thing a dead holder can mean, and the only one a frame
 cannot say: something IS serving, and this build will not speak to it. The admit
 verdict publishes it on the session (`session.refusal()`), and a hold-open relay
 that reads one stops holding and FAILS its subscription with
-`SurfaceUpstreamRefused`, carrying the far end's own sentence. Never retryable —
-no retry unmakes a version skew — so a reader gets a stated reason where an
-absent upstream draws a blank.
+`SurfaceUpstreamRefused`, carrying the far end's own sentence. Raised as a defect
+— a streaming member declares no error channel, so a typed failure there arrives
+as a complaint about the encoding instead of the sentence — and never retried: no
+retry unmakes a version skew. A reader gets a stated reason where an absent
+upstream draws a blank.
 
 Worked end-to-end in [`packages/surface/example/remote-process-monitor`](../surface/example/remote-process-monitor).
 Part of the kolu monorepo — `"@kolu/surface-remote": "workspace:*"`.

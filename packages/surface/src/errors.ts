@@ -154,7 +154,17 @@ export class SurfaceRelayTransportLost extends Schema.TaggedError<SurfaceRelayTr
  *  same blank an absent upstream draws, and the install that needs looking at
  *  would look exactly like the machine that never had one. Carries the refusal's
  *  own sentence, because the far end's version skew is the only thing that can
- *  say what is wrong. */
+ *  say what is wrong.
+ *
+ *  RAISED AS A DEFECT, and so NOT in {@link SurfaceErrorSchema}. The union
+ *  above is what a relay hop DECODES and re-encodes on a declared error
+ *  channel; a streaming member has none (D4 declares errors per PROCEDURE), so
+ *  a typed failure on one is encoded against `Schema.Never` and arrives as a
+ *  complaint about the encoding instead of the sentence this class exists to
+ *  carry. A defect crosses with its message intact and is never retried — both
+ *  of which are what a standing refusal wants. The class is still a schema
+ *  class so an in-process consumer narrows on it (`isSurfaceUpstreamRefused`)
+ *  and a member with a DECLARED channel can name it. */
 export class SurfaceUpstreamRefused extends Schema.TaggedError<SurfaceUpstreamRefused>(
   "@kolu/surface/SurfaceUpstreamRefused",
 )("SurfaceUpstreamRefused", { reason: Schema.String }) {
@@ -216,16 +226,17 @@ export class MapEntryFailed extends Schema.TaggedError<MapEntryFailed>(
 
 // ── The closed union ───────────────────────────────────────────────────
 
-/** Every error the FRAMEWORK itself can put on the wire, as one schema. A relay hop
- *  decodes against this union and re-encodes the decoded value, which is what keeps
- *  a `_tag` (and its data) intact across serialize → deserialize → re-serialize.
- *  App-declared procedure errors are NOT in here — they are declared per procedure
- *  on `ProcedureSpec.error` and travel on that procedure's own error channel. */
+/** Every error the FRAMEWORK itself can put on a DECLARED error channel, as one
+ *  schema. A relay hop decodes against this union and re-encodes the decoded
+ *  value, which is what keeps a `_tag` (and its data) intact across serialize →
+ *  deserialize → re-serialize. App-declared procedure errors are NOT in here —
+ *  they are declared per procedure on `ProcedureSpec.error` and travel on that
+ *  procedure's own error channel; {@link SurfaceUpstreamRefused} is not either,
+ *  because it is raised as a DEFECT (see its own note). */
 export const SurfaceErrorSchema = Schema.Union([
   SurfaceTransportRetired,
   SurfaceStdioTransportClosed,
   SurfaceRelayTransportLost,
-  SurfaceUpstreamRefused,
   MapKeyNonCanonical,
   MapKeyUnknown,
   MapEntryFailed,

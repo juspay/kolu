@@ -1518,16 +1518,23 @@ intact.
 | `SurfaceTransportRetired` | the server retired this browser socket (a stale tab, close `4001`). Carries `death: RetiredTransportDeath` — see [the `death` field](#the-stdio-readiness-gate--kolusurfacelinksreadiness) | never — terminal by construction |
 | `SurfaceStdioTransportClosed` | a stdio / unix-socket leg closed; the owner re-dials for a **new** link. Carries `death: StdioTransportDeath` — see [the `death` field](#the-stdio-readiness-gate--kolusurfacelinksreadiness) | never |
 | `SurfaceRelayTransportLost` | a re-serve relay's **middle-hop** upstream drop the parent will heal | **yes** — the one retryable framework error |
-| `SurfaceUpstreamRefused` | the upstream ANSWERED and this build will not speak to it (a contract skew, a socket owned by a stranger). Carries the refusal's own `reason`. The standing counterpart of the row above: a hold-open relay that waited on it would draw the same blank an ABSENT upstream draws, so it fails the subscription instead | never — no retry unmakes a version skew |
 | `MapKeyNonCanonical` · `MapKeyUnknown` · `MapEntryFailed` | the keyed-map rejections (see [`@kolu/surface-map`](/surface/ref-surface-map)) | never |
 
-`SurfaceErrorSchema` is the closed union of all seven — what a relay decodes
+`SurfaceErrorSchema` is the closed union of all six — what a relay decodes
 against, rather than a per-call guess — and `SurfaceError` its decoded type. The
 predicates beside them are **type guards**, so a call site narrows instead of
 re-checking `_tag` by hand: `isSurfaceError`, `isDeadTransportError` (the two
 permanently-dead tags), `isSurfaceTransportRetired`,
-`isSurfaceStdioTransportClosed`, `isSurfaceRelayTransportLost`,
-`isSurfaceUpstreamRefused`.
+`isSurfaceStdioTransportClosed`, `isSurfaceRelayTransportLost`.
+
+**`SurfaceUpstreamRefused` is the one framework error that is NOT in that
+union**, because it is raised as a **defect**: the upstream answered and this
+build will not speak to it (a contract skew, a socket owned by a stranger), and
+the member that meets that is a STREAM, which declares no error channel. A typed
+failure there is encoded against `Schema.Never` and reaches the subscriber as a
+complaint about the encoding; a defect crosses with its `reason` intact and is
+never retried — both of which are what a standing refusal wants. Narrow on it
+in-process with `isSurfaceUpstreamRefused`.
 
 App-declared procedure errors are **not** in this union — they are declared per
 procedure on `ProcedureSpec.error` and travel on that procedure's own error

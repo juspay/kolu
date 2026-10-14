@@ -277,9 +277,11 @@ answers and speaks a contract this build cannot read is an install to go and loo
 at, not a quiet machine — so the admit verdict's standing refusal is published on
 the session itself (`session.refusal()`, the sentence or `null`), and a hold-open
 relay reading it stops holding and FAILS its subscription with
-`SurfaceUpstreamRefused` (`@kolu/surface/errors`), carrying that sentence. It is
-deliberately NOT retryable: no retry unmakes a version skew, and the fence that
-re-subscribes on a transport loss would otherwise storm a refusal forever. Every
+`SurfaceUpstreamRefused` (`@kolu/surface/errors`), carrying that sentence. Raised
+as a **defect**, deliberately: a streaming member declares no error channel, so a
+typed failure there would reach the subscriber as a complaint about the encoding
+rather than as the far end's words — and a defect is never retried, which is
+right, because no retry unmakes a version skew. Every
 hold-open relay gets the signal, whether or not its member declares an `absent`
 frame — a frame is how a member says "nothing is there", and there is no honest
 frame for "something is there that I cannot read".
