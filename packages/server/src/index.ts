@@ -16,7 +16,7 @@ import {
 } from "@kolu/padi/assembly";
 import {
   ODU_FORWARDING_POLICY,
-  oduCarriedSurface,
+  type oduCarriedSurface,
   oduSibling,
   PADI_FORWARDING_POLICY,
   type PadiProcessMemory,
@@ -561,7 +561,11 @@ export async function bootKoluWeb(flags: KoluBootFlags): Promise<void> {
     let r = oduReServes.get(enc);
     if (r === undefined) {
       r = reServeSurface<typeof oduCarriedSurface.spec>({
-        source: oduCarriedSurface,
+        // The SIBLING value, not the bare surface: its handlers must land at
+        // `surface/odu/*`, which is where the map forwards a sibling member. The
+        // bare `oduCarriedSurface` binds at `surface/*` — handlers nobody
+        // addresses, and a readout that is simply never reached.
+        source: oduSibling,
         policy: ODU_FORWARDING_POLICY,
         session: oduFaceSession(s),
         log: (line) => log.debug({ line, host: enc }, "odu re-serve"),

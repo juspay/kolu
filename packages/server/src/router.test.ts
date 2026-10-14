@@ -30,6 +30,7 @@
 import type { SurfaceHandlers } from "@kolu/surface/server";
 import { Effect } from "effect";
 import { koluRootGroup, ROOT_RPC_TAGS } from "kolu-common/contract";
+import { oduCarriedSurface, oduSibling } from "@kolu/padi-client/surface";
 import { padiHostMap } from "kolu-common/surfacesWithPadi";
 import { describe, expect, it } from "vitest";
 import { buildAppRouter } from "./router.ts";
@@ -72,6 +73,28 @@ describe("the served group — the wire surface kolu-server advertises", () => {
     // No double prefix from the assembly (the `/surface/surface/…` shape the old
     // matcher-tree assertion watched for).
     expect(tags.filter((t) => t.startsWith("surface/surface/"))).toEqual([]);
+  });
+
+  it("the odu SIBLING's forward tags are the tags a per-host re-serve must bind", () => {
+    // THE DEFECT THIS PINS, measured on a live host: the map forwards
+    // `entry(h).odu.<member>` onto the entry's dispatch at the SIBLING's upstream
+    // tag (`surface/odu/*`), and the per-host re-serve bound its handlers at the
+    // BARE surface's tags (`surface/*`) because it was handed `oduCarriedSurface`
+    // instead of `oduSibling`. Both halves typechecked, both were wired, and the
+    // readout was simply never reached: `no handler bound at
+    // "surface/odu/checkout/get"`.
+    const forwardTags = [...oduSibling.group.requests.keys()].sort();
+    expect(forwardTags).toContain("surface/odu/checkout/get");
+    expect(forwardTags).toContain("surface/odu/service/get");
+    // The bare surface's tags are NOT those tags — which is the whole trap.
+    expect([...oduCarriedSurface.group.requests.keys()].sort()).not.toEqual(
+      forwardTags,
+    );
+    // …and the MAP advertises the sibling under the padi mount, which is what a
+    // browser addresses.
+    const served = servedTags();
+    expect(served).toContain("surface/padi/odu/checkout/get");
+    expect(served).toContain("surface/padi/odu/service/get");
   });
 
   it("carries kolu-server's own two siblings and the root procedures", () => {

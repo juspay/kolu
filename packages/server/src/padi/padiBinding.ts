@@ -838,6 +838,12 @@ export function ensurePadiBindingWith(
       });
       return {
         client: scopePadiSurface(conn.client),
+        // The link's own tag-keyed dispatch, carried so a consumer can build a
+        // SECOND face over the SAME link — which is how the odu sibling is
+        // reached (`index.ts`'s `oduFaceSession`): one connection, two tag
+        // prefixes. The ssh arm has always carried it; the local arm dropped it,
+        // which made the sibling reachable on a remote host and dark on this one.
+        dispatch: conn.client.dispatch,
         closed,
         // The FROZEN control-core hello round-trip — the liveness probe the watchdog
         // uses. `isAlive` is `@kolu/surface-remote`'s Promise-shaped plug (the session
