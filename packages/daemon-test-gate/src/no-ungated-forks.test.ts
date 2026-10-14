@@ -521,7 +521,9 @@ const LANE_SCRIPTS = ["test:unit", "test:daemon"] as const;
  *  to them. `graftedMembers` reads the pin set from the emitted
  *  `nix/consumer-closure.json`, the same artifact `consumer.nix` checks. */
 function graftedRoots(): Set<string> {
-  return new Set(graftedMembers(REPO_ROOT).values());
+  return new Set(
+    [...graftedMembers(REPO_ROOT).values()].map((dir) => join(REPO_ROOT, dir)),
+  );
 }
 
 /** The nearest workspace package root at or above `file` — nearest, so a nested

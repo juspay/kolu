@@ -183,7 +183,9 @@ export function workspacePackageExtensions(
 /**
  * The GRAFTED members — the packages kolu does not own: it copies their bytes out
  * of an npins pin (`osfacts-client` from `osfacts`, the `@odu/*` trio from `odu`)
- * and gitignores them.
+ * and gitignores them. Package name → its REPO-RELATIVE directory, exactly as the
+ * artifact spells it (`odu/service-client`), so a caller that wants an absolute
+ * path joins `repoRoot` itself and a caller that wants a manifest path appends.
  *
  * READ FROM THE EMITTED ARTIFACT, not re-derived from how the workspace file
  * happens to spell a member. `nix/consumer-closure.json` is where `consumer.nix`
@@ -206,7 +208,7 @@ export function graftedMembers(repoRoot: string): Map<string, string> {
   }
   for (const [name, member] of Object.entries(parsed.members ?? {})) {
     if (member.pin !== undefined && member.dir !== undefined) {
-      names.set(name, join(repoRoot, member.dir));
+      names.set(name, member.dir);
     }
   }
   return names;
@@ -347,7 +349,7 @@ function importsOf(file: string, includeTypeOnly: boolean): string[] {
 
 // ── Manifest + resolution machinery ───────────────────────────────────────────
 
-type Manifest = {
+export type Manifest = {
   name?: string;
   main?: string;
   exports?: Record<string, unknown>;
@@ -586,6 +588,30 @@ export function walkRuntimeDepEdges(opts: {
 
 // ── The DECLARED closure (the TS mirror of nix's `depClosure`) ────────────────
 
+/** A member's DECLARED runtime edges: `dependencies` + `peerDependencies`
+ *  (never `devDependencies` — they never ship, and a hydrating consumer that
+ *  copies a directory installs only what it declares at runtime), plus what this
+ *  workspace declares for the member in `packageExtensions` — an edge a GRAFTED
+ *  member's manifest cannot spell, because the `@kolu/*` packages its source
+ *  imports do not exist in the repo it is authored in (see
+ *  {@link workspacePackageExtensions}). Spec string per package name, later
+ *  spreads winning, which is what makes the extension an override.
+ *
+ *  One spelling: the closure walk below and the consumer-closure emitter
+ *  (`packages/tests/governance/consumerClosure.ts`) both ask this question, and
+ *  an adjacency that disagreed with the closure built on it is a gate grading
+ *  itself against the wrong graph. */
+export function declaredRuntimeEdges(
+  manifest: Manifest,
+  extension: Record<string, string> | undefined,
+): Record<string, string> {
+  return {
+    ...manifest.dependencies,
+    ...manifest.peerDependencies,
+    ...extension,
+  };
+}
+
 /**
  * The transitive RUNTIME-dependency closure of `entries` over workspace members —
  * what a consumer that VENDORS a package directory actually has to copy, whose
@@ -648,15 +674,9 @@ export function declaredDependencyClosure(opts: {
       );
     }
     reached.set(name, dir);
-    const manifest = manifestOf(dir);
-    for (const dep of Object.keys({
-      ...manifest.dependencies,
-      ...manifest.peerDependencies,
-      // …plus what this workspace declares for it in `packageExtensions`: an
-      // edge a consumer copying the directory pays for, and which the manifest
-      // of a GRAFTED member cannot spell (see `workspacePackageExtensions`).
-      ...extensions.get(name),
-    })) {
+    for (const dep of Object.keys(
+      declaredRuntimeEdges(manifestOf(dir), extensions.get(name)),
+    )) {
       if (dirOf.has(dep)) stack.push(dep);
       else outside.add(dep);
     }

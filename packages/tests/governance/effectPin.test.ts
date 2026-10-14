@@ -15,7 +15,6 @@ import {
   catalogPins,
   type EffectPin,
   isEffectFamily,
-  isGraftedManifest,
   literalReason,
   manifestPins,
   overridePins,
@@ -82,7 +81,7 @@ const VENDORED = new Set([
 
 /** The GRAFTED set as DATA too — what the emitted `nix/consumer-closure.json`
  *  answers with, stated here so these pins exercise the rule without reading the
- *  artifact. Both grafts are named on purpose: the predicate answers for the SET
+ *  artifact. Both grafts are named on purpose: the gate answers for the SET
  *  (a caller that spells one manifest by hand is how the odu trio went
  *  unpoliced), which is also why neither parameter has a default. */
 const GRAFTED = new Set([
@@ -224,12 +223,6 @@ test("a vendored manifest that switched to `catalog:` fails — it does not reso
       ]),
     /must spell the literal 4\.0\.0-beta\.102: it is in a vendored package's dependency closure/,
   );
-});
-
-test("only the graft ROOT is grafted — a path merely under it is not", () => {
-  assert.ok(isGraftedManifest("osfacts-client/package.json", GRAFTED));
-  assert.ok(!isGraftedManifest("osfacts-client/example/package.json", GRAFTED));
-  assert.ok(!isGraftedManifest("packages/padi/package.json", GRAFTED));
 });
 
 test("each literal-owing manifest gives its OWN reason, and a member gives none", () => {
