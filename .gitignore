@@ -41,3 +41,6 @@ packages/surface/example/binary-cache.json
 # osfacts-client — grafted from the npins `osfacts` pin by `just install` /
 # nix (nix/workspace.nix). Generated, never committed.
 /osfacts-client/
+
+# Python bytecode (the publish-closure action runs its script in place).
+__pycache__/

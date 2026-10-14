@@ -307,5 +307,22 @@ class Verify(unittest.TestCase):
             self.assertIn("ca hash mismatch", r.stderr)
 
 
+class Archive(unittest.TestCase):
+    """A remote `uses: juspay/kolu/.github/actions/publish-closure@<rev>`
+    resolves from GitHub's archive of that rev, which honours `export-ignore`:
+    the action must be in `git archive`, the workflows need not be."""
+
+    def test_git_archive_carries_the_action(self):
+        repo = SCRIPT.parents[3]
+        names = subprocess.run(
+            ["git", "-C", str(repo), "archive", "--format=tar", "HEAD"],
+            capture_output=True, check=True).stdout
+        listing = subprocess.run(["tar", "t"], input=names, capture_output=True, check=True).stdout.decode()
+        members = set(listing.split())
+        for path in ("action.yml", "publish-closure.py"):
+            self.assertIn(f".github/actions/publish-closure/{path}", members)
+        self.assertFalse(any(m.startswith(".github/workflows/") for m in members))
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -63,7 +63,11 @@ publish-closures:
         attic-token: ${{ secrets.ATTIC_TOKEN }}
 ```
 
-It refuses to run in a repository other than your declared `closureIndex.repo`,
+Without `source`, pass `sidecar` (the declaration) and, optionally, `rev` — the
+key entries are written under. Omitted, `rev` is the commit being published
+(`github.event.pull_request.head.sha || github.sha`); never pass a bare
+`github.sha` on a pull request, where it is GitHub's merge commit and is
+refused. It refuses to run in a repository other than your declared `closureIndex.repo`,
 and an installable with no `smoke` line fails the run rather than skipping.
 For each attribute it builds the closure, rewrites it content-addressed (not
 on macOS), runs the program out of the rewrite, pushes both forms to your

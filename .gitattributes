@@ -28,7 +28,13 @@ apm.lock.yaml linguist-generated
 /.agency export-ignore
 /.apm export-ignore
 /agents export-ignore
-/.github export-ignore
+# `.github/actions` stays IN the archive: a remote
+# `uses: juspay/kolu/.github/actions/<name>@<rev>` resolves from GitHub's
+# archive of that rev, so ignoring all of `/.github` hides every action from
+# every consumer. A negation cannot carve it back out (git does not descend
+# into an export-ignored directory), so the rest is ignored piece by piece.
+/.github/workflows export-ignore
+/.github/pull_request_template.md export-ignore
 /ci export-ignore
 
 # Generated Astro output, committed for in-app (Code tab) preview of the Atlas.

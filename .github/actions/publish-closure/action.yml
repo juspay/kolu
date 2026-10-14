@@ -38,7 +38,11 @@ inputs:
     required: false
     default: ""
   rev:
-    description: Without `source` — the index key entries are written under.
+    description: >-
+      Without `source` — the index key entries are written under. Omitted, it is
+      the commit being published (`github.event.pull_request.head.sha ||
+      github.sha`): on a pull request `github.sha` is GitHub's merge commit,
+      which is not the head this run builds and is refused as a key.
     required: false
     default: ""
   latest:
@@ -89,6 +93,9 @@ runs:
         REPOSITORY: ${{ github.repository }}
       run: |
         set -euo pipefail
+        # Sidecar mode keys entries by the published commit unless told
+        # otherwise; source mode reads its key from the source and takes none.
+        if [ -z "$SOURCE" ] && [ -z "$REV_KEY" ]; then REV_KEY="$REV"; fi
         # shellcheck disable=SC2086 # INSTALLABLES is space-separated on purpose
         python3 "$SCRIPT" resolve --rev "$REV" --repository "$REPOSITORY" --source "$SOURCE" \
           --sidecar "$SIDECAR" --rev-key "$REV_KEY" $INSTALLABLES >> "$GITHUB_OUTPUT"
