@@ -13,7 +13,7 @@
  * integration-tested here (rendering App.tsx drags the whole live `wire` socket stack).
  */
 
-import type { HostKey } from "kolu-common/hostKey";
+import { encodeHostKey, type HostKey } from "kolu-common/hostKey";
 import { createSignal } from "solid-js";
 import { render } from "solid-js/web";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -22,6 +22,7 @@ import {
   CONNECTOR_STALLED_COPY,
 } from "../kaval/bootStalledCopy";
 import type { BootStalledRecovery } from "../kaval/canvasModeResolver";
+import { noteConnectTail, resetConnectTails } from "../kaval/connectTailClock";
 
 const h = vi.hoisted(() => ({ host: { kind: "local" } as HostKey }));
 vi.mock("../wire", () => ({
@@ -39,6 +40,7 @@ afterEach(() => {
   dispose = undefined;
   document.body.innerHTML = "";
   h.host = { kind: "local" };
+  resetConnectTails();
 });
 
 describe("BootStalledCanvas renders non-blank (component render pin)", () => {
@@ -95,6 +97,35 @@ describe("BootStalledCanvas renders non-blank (component render pin)", () => {
     expect(
       document.querySelector('[data-testid="switch-to-local"]'),
     ).not.toBeNull();
+  });
+
+  it("the CONNECTOR arm says how long the campaign has been silent, and what it last said", () => {
+    h.host = { kind: "remote", target: "croissant" };
+    const log = [
+      { line: "croissant: copying path '/nix/store/abc-kolu-2.2.0'…" },
+    ];
+    // `canvasMode` noted this tail 14 minutes ago and it has not moved since.
+    noteConnectTail(
+      encodeHostKey(h.host),
+      log,
+      performance.now() - 14 * 60_000 - 1_000,
+    );
+    dispose = render(
+      () => (
+        <BootStalledCanvas
+          recovery={{
+            via: "connector",
+            phase: "provisioning",
+            log,
+            logAbsence: undefined,
+          }}
+        />
+      ),
+      document.body,
+    );
+    expect(document.body.textContent).toContain(
+      "Still provisioning the agent on the host… No new output in the last 14 min. Last line: croissant: copying path '/nix/store/abc-kolu-2.2.0'…",
+    );
   });
 
   it("the CONNECTOR arm shows the campaign's tail; the CLIENT arm cannot carry one", () => {

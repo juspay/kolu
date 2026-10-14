@@ -91,7 +91,6 @@ describe("pullClosure — the host pulls a content-addressed closure from the ca
       "internal-json",
       "--extra-experimental-features",
       "nix-command",
-      "-v",
       "copy",
       "--from",
       CACHE,

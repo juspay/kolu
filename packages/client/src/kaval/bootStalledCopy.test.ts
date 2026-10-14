@@ -65,4 +65,41 @@ describe("bootStalledPhaseDetail", () => {
   it("has no detail for the pre-frame gap (undefined)", () => {
     expect(bootStalledPhaseDetail(undefined)).toBeUndefined();
   });
+
+  const LAST = "ci@croissant: copying path '/nix/store/abc-kolu-2.2.0'…";
+
+  it("names the campaign's last line and how long nothing has followed it", () => {
+    expect(
+      bootStalledPhaseDetail("provisioning", {
+        lastLine: LAST,
+        silentMs: 14 * 60_000 + 59_000,
+      }),
+    ).toBe(
+      `Still provisioning the agent on the host… No new output in the last 14 min. Last line: ${LAST}`,
+    );
+  });
+
+  it("states the silence only from a full minute — shorter is not a stall", () => {
+    expect(
+      bootStalledPhaseDetail("probing", { lastLine: LAST, silentMs: 59_999 }),
+    ).toBe(
+      `Still checking whether this host already has the agent… Last line: ${LAST}`,
+    );
+  });
+
+  it("spells hours for a long silence", () => {
+    const detail = (min: number) =>
+      bootStalledPhaseDetail("connecting", {
+        lastLine: LAST,
+        silentMs: min * 60_000,
+      });
+    expect(detail(60)).toContain("No new output in the last 1 h.");
+    expect(detail(125)).toContain("No new output in the last 2 h 5 min.");
+  });
+
+  it("no phase, no detail — even with a quiet tail", () => {
+    expect(
+      bootStalledPhaseDetail(undefined, { lastLine: LAST, silentMs: 600_000 }),
+    ).toBeUndefined();
+  });
 });

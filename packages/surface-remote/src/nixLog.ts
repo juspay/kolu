@@ -25,7 +25,7 @@
  * vocabulary used here is Nix's `src/libutil/logging.hh`: `msg` (with a
  * verbosity `level`, 0 = error), `start` of an activity (`type` 105 = a build,
  * whose `fields[0]` is the derivation), and `result` (`type` 101 = one line of
- * that build's log).
+ * that build's log; `type` 105 = an activity's progress counters).
  */
 
 import { stripVTControlCharacters } from "node:util";
@@ -57,9 +57,17 @@ import {
  *  stderr line bumps the lifetime policy) but is not narrated. */
 const LVL_INFO = 3;
 
-/** `ActivityType::actBuild` and `ResultType::resBuildLogLine`. */
+/** `ActivityType::actBuild`, `ResultType::resBuildLogLine` and
+ *  `ResultType::resProgress` (fields `[done, expected, running, failed]`). */
 const ACT_BUILD = 105;
 const RES_BUILD_LOG_LINE = 101;
+const RES_PROGRESS = 105;
+
+/** How many activities' last `done` counter are remembered for
+ *  {@link NixLogReader.isActivity}. An evicted activity's next progress event
+ *  counts as activity once — a bounded table, never a missed stall: a stalled
+ *  transfer repeats ONE activity's counter, which stays hot. */
+const PROGRESS_RETAINED = 1024;
 
 /** How many trailing log lines of each build are retained, and for how many
  *  builds — enough to name why the failed one failed, bounded so a long build
@@ -93,6 +101,15 @@ export interface SshRefusalEvidence {
  *  the human-meaningful ones goes to the `narrate` sink it was built with. */
 export interface NixLogReader {
   readonly line: (line: string) => void;
+  /** Was this stderr line real ACTIVITY — what a silence bound may be reset by?
+   *  Every line is, except a progress result (`type` 105) whose `done` counter
+   *  has not moved past the last one that activity reported. Nix re-sends a
+   *  transfer's progress about once a second from curl's progress callback
+   *  EVEN WHEN NOTHING MOVED, so counting those heartbeats as activity let a
+   *  deadlocked `nix copy` look alive for 25 minutes past a 10-minute bound.
+   *  Stateful (it remembers each activity's last `done`): call it ONCE per
+   *  line. */
+  readonly isActivity: (line: string) => boolean;
   /** The run's root error, or `null` when Nix reported none. */
   readonly rootError: () => NixError | null;
   /** Did the HEADLINE of Nix's own error report a failed connection (a failed
@@ -162,6 +179,34 @@ const NIX_PREFIX = "@nix ";
  *  last log lines) this whole module exists to keep. */
 const RESULT_PREFIX = `${NIX_PREFIX}{"action":"result"`;
 const BUILD_LOG_TYPE_RE = new RegExp(`"type"\\s*:\\s*${RES_BUILD_LOG_LINE}\\b`);
+/** The same whitespace-tolerant pre-filter for a progress result: a result
+ *  line lacking it is activity with no parse at all. */
+const PROGRESS_TYPE_RE = new RegExp(`"type"\\s*:\\s*${RES_PROGRESS}\\b`);
+
+/** A progress result's activity id and `done` counter, or `null` when `line`
+ *  is not one. Only a line that passed the prefix filters is parsed. */
+function progressOf(line: string): { id: number; done: number } | null {
+  if (!line.startsWith(RESULT_PREFIX) || !PROGRESS_TYPE_RE.test(line))
+    return null;
+  let value: unknown;
+  try {
+    value = JSON.parse(line.slice(NIX_PREFIX.length));
+  } catch {
+    return null;
+  }
+  if (typeof value !== "object" || value === null) return null;
+  const { type, id, fields } = value as {
+    type?: unknown;
+    id?: unknown;
+    fields?: unknown;
+  };
+  const done = Array.isArray(fields) ? fields[0] : undefined;
+  return type === RES_PROGRESS &&
+    typeof id === "number" &&
+    typeof done === "number"
+    ? { id, done }
+    : null;
+}
 
 /** Classify one stderr line: a decoded event, `"ignored"` for a Nix event this
  *  reader has no use for (activity stops, progress results — dropped before any
@@ -226,6 +271,9 @@ export function nixLogReader(narrate: (line: string) => void): NixLogReader {
   const builds = new QuickLRU<number, { drv: string; tail: string[] }>({
     maxSize: BUILDS_RETAINED,
   });
+  const lastDone = new QuickLRU<number, number>({
+    maxSize: PROGRESS_RETAINED,
+  });
 
   const say = (line: string): void => {
     if (root !== null) narratedAfterRoot = true;
@@ -265,6 +313,14 @@ export function nixLogReader(narrate: (line: string) => void): NixLogReader {
   };
 
   return {
+    isActivity: (line) => {
+      const progress = progressOf(line);
+      if (progress === null) return true;
+      const before = lastDone.get(progress.id);
+      if (before !== undefined && progress.done <= before) return false;
+      lastDone.set(progress.id, progress.done);
+      return true;
+    },
     line: (line) => {
       const event = classify(line);
       if (event === "ignored") return;
@@ -350,6 +406,62 @@ export type NixRun = CaptureResult & {
   readonly sshRefusal: SshRefusalEvidence | null;
 };
 
+/** The remote wrapper every ssh-wrapped Nix run goes through: it reports its
+ *  own PID on stderr, then `exec`s the Nix command — which therefore runs AS
+ *  that PID. Killing the local ssh does not reach the remote Nix (no tty, so
+ *  the channel close sends it nothing), and a Nix blocked in a socket write
+ *  survives `SIGTERM`; so an abandoned remote run is killed by that exact PID
+ *  ({@link killRemoteRun}). A PID, not a tag matched with `pkill -f`: an
+ *  `env TAG=… nix` prefix never reaches Nix's command line (`env` execs), and
+ *  the pattern then matches the killer's own remote shell instead. */
+const REMOTE_PID_SCRIPT = 'echo "kolu-remote-pid $$" >&2; exec "$@"';
+const REMOTE_PID_RE = /^kolu-remote-pid (\d+)$/;
+
+/** How long the best-effort remote kill may take (an ssh round-trip over the
+ *  dial's ControlMaster, or a fresh dial when that master is gone). */
+const REMOTE_KILL_DEADLINE_MS = 10_000;
+
+/** The argv {@link runNix} spawns: Nix with its log-format flag, directly on
+ *  the local seat, wrapped in {@link REMOTE_PID_SCRIPT} on an ssh-wrapped one. */
+export function nixRunCommand(
+  target: string | SshDestination,
+  argv: readonly [string, ...string[]],
+): { command: string; args: string[] } {
+  const [nixCommand, ...rest] = argv;
+  const nix = [nixCommand, "--log-format", "internal-json", ...rest] as const;
+  return isLocalHost(targetOf(target).host)
+    ? buildSshProbeCommand(target, ...nix)
+    : buildSshProbeCommand(target, "sh", "-c", REMOTE_PID_SCRIPT, "sh", ...nix);
+}
+
+/** SIGKILL the remote run `pid` on `target`, over the same ssh dial options.
+ *  Best-effort: a PID that already exited is not an error (the kill's own
+ *  complaint is silenced and its exit forced to 0), so a non-`ok` result here
+ *  means the kill itself could not run — the host is gone, or the ssh failed —
+ *  and that is narrated, never thrown. */
+async function killRemoteRun(
+  target: string | SshDestination,
+  pid: string,
+  narrate: (line: string) => void,
+): Promise<void> {
+  const { command, args } = buildSshProbeCommand(
+    target,
+    "sh",
+    "-c",
+    'kill -KILL "$1" 2>/dev/null; exit 0',
+    "sh",
+    pid,
+  );
+  const res = await runCapture(command, args, {
+    policy: { kind: "deadline", ms: REMOTE_KILL_DEADLINE_MS },
+    signal: undefined,
+  });
+  if (!res.ok)
+    narrate(
+      `could not stop the abandoned nix on the host (pid ${pid}): ${describeExit(res)}`,
+    );
+}
+
 /** Run one Nix command with its log read through {@link nixLogReader} — the ONE
  *  way provisioning runs Nix, so no step can report an exit code where Nix
  *  said why, or classify a builder's chatter as the host going away.
@@ -357,18 +469,24 @@ export type NixRun = CaptureResult & {
  *  `target` is where the command runs, exactly as {@link buildSshProbeCommand}
  *  takes it: `"localhost"` spawns it directly (also the arm for a local `nix`
  *  that reaches a remote store over `ssh-ng://`), a host wraps it in the dial's
- *  ssh. `argv[0]` is the Nix command; the log-format flag goes right after it.
+ *  ssh ({@link nixRunCommand}). `argv[0]` is the Nix command; the log-format
+ *  flag goes right after it.
+ *
+ *  A remote run that ends ABANDONED — aborted, or killed by its own lifetime
+ *  policy — is SIGKILLed on the host by PID before this returns, so a retry
+ *  never queues behind the previous attempt's store-path lock.
  *
  *  When the run fails after its root error was pushed down by the cascade, the
  *  root error is narrated once more as the LAST lines — a bounded progress tail
  *  (the failure card's evidence) then ends on the cause, not its fallout.
  *
- *  A `progress-liveness` run REQUIRES `onActivity`, called for EVERY stderr line
- *  — narrated or filtered. The child's own policy is kept alive by those same
- *  bytes, so an owner watching for silence one level up (the session's
- *  pre-connected backstop) must see them too, or a healthy build whose output is
- *  all filtered log lines is cycled there while its own bound never fires. A
- *  quick `deadline` run has no such owner to feed, so the type refuses one. */
+ *  A `progress-liveness` run REQUIRES `onActivity`, called for every stderr line
+ *  that is real activity ({@link NixLogReader.isActivity}) — narrated or
+ *  filtered. The child's own policy is kept alive by those same lines, so an
+ *  owner watching for silence one level up (the session's pre-connected
+ *  backstop) must see them too, or a healthy build whose output is all
+ *  filtered log lines is cycled there while its own bound never fires. A quick
+ *  `deadline` run has no such owner to feed, so the type refuses one. */
 export async function runNix(
   target: string | SshDestination,
   argv: readonly [string, ...string[]],
@@ -383,17 +501,29 @@ export async function runNix(
 ): Promise<NixRun> {
   const narrate = opts.narrate ?? (() => {});
   const reader = nixLogReader(narrate);
-  const [nixCommand, ...rest] = argv;
-  const { command, args } = buildSshProbeCommand(
-    target,
-    nixCommand,
-    "--log-format",
-    "internal-json",
-    ...rest,
-  );
+  const remote = !isLocalHost(targetOf(target).host);
+  let remotePid: string | null = null;
+  /** The wrapper's PID report, on a remote run before it is known. */
+  const pidReport = (line: string): string | null =>
+    remote && remotePid === null
+      ? (REMOTE_PID_RE.exec(line)?.[1] ?? null)
+      : null;
+  const { command, args } = nixRunCommand(target, argv);
   const res = await runCapture(command, args, {
+    isActivity: (line) => {
+      const active =
+        pidReport(line) !== null ||
+        opts.dropLine?.(line) === true ||
+        reader.isActivity(line);
+      if (active && "onActivity" in opts) opts.onActivity();
+      return active;
+    },
     onProgress: (line) => {
-      if ("onActivity" in opts) opts.onActivity();
+      const pid = pidReport(line);
+      if (pid !== null) {
+        remotePid = pid;
+        return;
+      }
       if (opts.dropLine?.(line) !== true) reader.line(line);
     },
     policy: opts.policy,
@@ -401,6 +531,11 @@ export async function runNix(
     env: opts.env,
     maxLineLength: NIX_LOG_LINE_MAX,
   });
+  if (
+    remotePid !== null &&
+    (res.kind === "aborted" || res.kind === "lifetime-expired")
+  )
+    await killRemoteRun(target, remotePid, narrate);
   if (!res.ok) for (const l of reader.recap()) narrate(l);
   // See `NixRun.transportFailure` for why the two seats read ssh differently.
   // The local seat trusts only the bare network-error signal, never a
@@ -410,13 +545,13 @@ export async function runNix(
   // talking to THIS dial's target host — an unrelated ssh's "Permission
   // denied" would otherwise misclassify a permanent local config fault as
   // the untyped, retry-forever "network" cause.
-  const sshFailed = isLocalHost(targetOf(target).host)
-    ? reader.sshReportedNetworkFailure()
-    : sshExitIsTransport({
+  const sshFailed = remote
+    ? sshExitIsTransport({
         usesSsh: true,
         code: res.kind === "exit" ? res.code : null,
         sshReportedTransportFailure: reader.sshReportedTransportFailure(),
-      });
+      })
+    : reader.sshReportedNetworkFailure();
   return {
     ...res,
     error: reader.rootError(),

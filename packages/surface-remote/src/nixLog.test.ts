@@ -5,7 +5,14 @@
  * evaluation error — with only the store hashes shortened.
  */
 import { describe, expect, it, vi } from "vitest";
-import { describeNixError, nixLogReader, runNix } from "./nixLog";
+import { shellQuoteArg } from "@kolu/shell-quote";
+import {
+  describeNixError,
+  nixLogReader,
+  nixRunCommand,
+  runNix,
+} from "./nixLog";
+import { nixJsonLine } from "./nixLog.testutil";
 import { runCapture } from "./process";
 
 vi.mock("./process", async (importOriginal) => ({
@@ -133,6 +140,48 @@ describe("nixLogReader", () => {
   });
 });
 
+/** Nix's `resProgress` result for activity `id` at `done` of `expected` — the
+ *  event curl's progress callback re-sends about once a second, moved or not. */
+const progress = (id: number, done: number, expected = 1000): string =>
+  nixJsonLine({
+    action: "result",
+    id,
+    type: 105,
+    fields: [done, expected, 1, 0],
+  });
+
+describe("nixLogReader.isActivity — progress counts, heartbeats do not", () => {
+  it("a progress result whose `done` has not moved is not activity", () => {
+    const reader = nixLogReader(() => {});
+    expect(reader.isActivity(progress(9, 4096))).toBe(true);
+    // The stalled transfer: the same counter, re-sent forever.
+    for (let i = 0; i < 20; i++)
+      expect(reader.isActivity(progress(9, 4096))).toBe(false);
+  });
+
+  it("an advancing `done` is activity, per activity id", () => {
+    const reader = nixLogReader(() => {});
+    expect(reader.isActivity(progress(9, 0))).toBe(true);
+    expect(reader.isActivity(progress(9, 10))).toBe(true);
+    // Another activity's first counter is its own news.
+    expect(reader.isActivity(progress(11, 10))).toBe(true);
+    expect(reader.isActivity(progress(9, 10))).toBe(false);
+    expect(reader.isActivity(progress(9, 11))).toBe(true);
+  });
+
+  it("every other line stays activity — messages, activity starts and stops, other results, raw ssh text", () => {
+    const reader = nixLogReader(() => {});
+    reader.isActivity(progress(9, 1));
+    for (const line of [
+      ...failingBuildWithDependent,
+      nixJsonLine({ action: "result", id: 9, type: 106, fields: [104, 1] }),
+      nixJsonLine({ action: "msg", level: 4, msg: "evaluating file 'x'" }),
+      "ssh: connect to host h port 22: Connection timed out",
+    ])
+      expect(reader.isActivity(line)).toBe(true);
+  });
+});
+
 describe("runNix", () => {
   it("states a line bound far above the 64 KiB text default — a builder's long line must not kill the build", async () => {
     vi.mocked(runCapture).mockResolvedValue({
@@ -192,6 +241,112 @@ describe("runNix", () => {
     // a permanent local config fault.
     expect((await runAt("localhost", [SSH_REFUSED], 1)).transportFailure).toBe(
       false,
+    );
+  });
+});
+
+describe("runNix on an ssh-wrapped seat — an abandoned run is killed on the host", () => {
+  const PID_REPORT = "kolu-remote-pid 4242";
+  const ok = { ok: true, kind: "exit", code: 0, stdout: "" } as const;
+
+  it("wraps the remote Nix so it reports the PID it runs as; the local seat runs Nix bare", () => {
+    const remote = nixRunCommand("h", ["nix-store", "-q", "/nix/store/x"]);
+    expect(remote.command).toBe("ssh");
+    const at = remote.args.indexOf("h");
+    expect(remote.args.slice(at + 1)).toEqual(
+      [
+        "sh",
+        "-c",
+        'echo "kolu-remote-pid $$" >&2; exec "$@"',
+        "sh",
+        "nix-store",
+        "--log-format",
+        "internal-json",
+        "-q",
+        "/nix/store/x",
+      ].map(shellQuoteArg),
+    );
+    expect(
+      nixRunCommand("localhost", ["nix-store", "-q", "/nix/store/x"]),
+    ).toEqual({
+      command: "nix-store",
+      args: ["--log-format", "internal-json", "-q", "/nix/store/x"],
+    });
+  });
+
+  /** One remote run that reports `pid` and then ends as `end`; every later
+   *  `runCapture` (the kill) answers `killResult`. */
+  const remoteRun = (
+    end: Awaited<ReturnType<typeof runCapture>>,
+    killResult: Awaited<ReturnType<typeof runCapture>> = ok,
+  ) => {
+    vi.mocked(runCapture).mockReset();
+    vi.mocked(runCapture)
+      .mockImplementationOnce(async (_cmd, _args, opts) => {
+        opts.isActivity?.(PID_REPORT);
+        opts.onProgress?.(PID_REPORT);
+        return end;
+      })
+      .mockResolvedValue(killResult);
+    const narrated: string[] = [];
+    const run = runNix("ci@croissant", ["nix", "copy", "/nix/store/x"], {
+      policy: { kind: "progress-liveness", silenceMs: 1000 },
+      onActivity: () => {},
+      narrate: (l) => narrated.push(l),
+      signal: undefined,
+    });
+    return { run, narrated };
+  };
+  const killCalls = () => vi.mocked(runCapture).mock.calls.slice(1);
+
+  it.each([
+    ["aborted", { ok: false, kind: "aborted", stdout: "" }],
+    [
+      "killed by its own silence bound",
+      {
+        ok: false,
+        kind: "lifetime-expired",
+        policy: { kind: "progress-liveness", silenceMs: 1000 },
+        signal: "SIGTERM",
+        stdout: "",
+      },
+    ],
+  ] as const)("a run %s is SIGKILLed on the host by the PID it reported", async (_label, end) => {
+    const { run, narrated } = remoteRun(end);
+    await run;
+    expect(killCalls()).toHaveLength(1);
+    const [cmd, args] = killCalls()[0] ?? [];
+    expect(cmd).toBe("ssh");
+    expect(args?.slice(args.indexOf("ci@croissant") + 1)).toEqual(
+      ["sh", "-c", 'kill -KILL "$1" 2>/dev/null; exit 0', "sh", "4242"].map(
+        shellQuoteArg,
+      ),
+    );
+    // Same dial options as the run itself — the same ControlMaster.
+    const runArgs = vi.mocked(runCapture).mock.calls[0]?.[1] ?? [];
+    expect(args?.slice(0, args.indexOf("ci@croissant"))).toEqual(
+      runArgs.slice(0, runArgs.indexOf("ci@croissant")),
+    );
+    // The PID report is the wrapper's, never narrated as Nix's output.
+    expect(narrated).not.toContain(PID_REPORT);
+  });
+
+  it("a run that exited on its own is never killed", async () => {
+    await remoteRun({ ok: false, kind: "exit", code: 1, stdout: "" }).run;
+    expect(killCalls()).toHaveLength(0);
+    await remoteRun(ok).run;
+    expect(killCalls()).toHaveLength(0);
+  });
+
+  it("a kill that cannot reach the host is narrated, never thrown", async () => {
+    const { run, narrated } = remoteRun(
+      { ok: false, kind: "aborted", stdout: "" },
+      { ok: false, kind: "exit", code: 255, stdout: "" },
+    );
+    const res = await run;
+    expect(res.kind).toBe("aborted");
+    expect(narrated).toContain(
+      "could not stop the abandoned nix on the host (pid 4242): exited with code 255",
     );
   });
 });

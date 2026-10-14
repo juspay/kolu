@@ -126,6 +126,13 @@ export interface CaptureOptions extends RunOptions {
    *  long records (Nix's `--log-format internal-json`, one JSON event per line,
    *  builder log lines included) states its own bound. */
   maxLineLength?: number;
+  /** Which stderr lines are real ACTIVITY, for a child whose structured stderr
+   *  also carries heartbeats (Nix's internal-json re-sends an unmoved progress
+   *  counter about once a second while a transfer is stalled). Called ONCE per
+   *  stderr line, before `onProgress`. When given, a `progress-liveness` budget
+   *  is reset by stdout and by the lines it answers `true` for — never by
+   *  stderr bytes alone. Absent, any output is activity. */
+  isActivity?: (line: string) => boolean;
 }
 
 /** A child's stderr as whole, bounded lines — the ONE reader every spawned
@@ -189,6 +196,7 @@ interface LifetimeSpawn {
   policy: LifetimePolicy;
   signal?: AbortSignal;
   maxLineLength?: number;
+  isActivity?: (line: string) => boolean;
 }
 
 /** Spawn a child that OWNS its lifetime: forward stderr lines to `onProgress`,
@@ -260,7 +268,9 @@ function runWithLifetime(
 
     // progress-liveness resets on ANY child output (stdout OR stderr) — `runCapture`'s
     // stdout never becomes a progress line, so a stderr-only reset would starve a
-    // stdout-only step (C1/R4d). A `deadline` policy is fixed and never bumped.
+    // stdout-only step (C1/R4d) — unless the caller said which stderr LINES are
+    // activity (`isActivity`), in which case only those reset it on stderr. A
+    // `deadline` policy is fixed and never bumped.
     const bumpLiveness = (): void => {
       if (settled || o.policy.kind !== "progress-liveness") return;
       clearPolicyTimer();
@@ -276,12 +286,16 @@ function runWithLifetime(
     });
     if (proc.stderr !== null) {
       const lines = stderrLinesOf(proc.stderr, o.maxLineLength);
-      lines.on("data", (line: string) => o.onProgress(line));
+      const { isActivity } = o;
+      lines.on("data", (line: string) => {
+        if (isActivity?.(line) === true) bumpLiveness();
+        o.onProgress(line);
+      });
       lines.on("error", (err: Error) => {
         processGroup.terminate();
         settle({ ok: false, kind: "output-error", message: err.message });
       });
-      proc.stderr.on("data", bumpLiveness);
+      if (isActivity === undefined) proc.stderr.on("data", bumpLiveness);
     }
 
     proc.on("close", (code, signal) => {
@@ -322,5 +336,6 @@ export function runCapture(
     policy: opts.policy,
     signal: opts.signal,
     maxLineLength: opts.maxLineLength,
+    isActivity: opts.isActivity,
   }).then(({ result, stdout }) => ({ ...result, stdout }));
 }

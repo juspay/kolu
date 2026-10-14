@@ -30,6 +30,7 @@
  * are derived separately, so a phase change narrates without churning the buttons.
  */
 
+import { encodeHostKey } from "kolu-common/hostKey";
 import { type Component, createMemo } from "solid-js";
 import { NO_LOG_LINES } from "../ui/logTailChrome";
 import {
@@ -38,6 +39,9 @@ import {
   CONNECTOR_STALLED_COPY,
 } from "../kaval/bootStalledCopy";
 import type { BootStalledRecovery } from "../kaval/canvasModeResolver";
+import { connectTailQuiet } from "../kaval/connectTailClock";
+import { getMonotonicNow } from "../time/clock";
+import { activeHost } from "../wire";
 import {
   type CanvasFailureAction,
   CanvasFailureCard,
@@ -105,8 +109,19 @@ const BootStalledCanvas: Component<{
     return leg === undefined ? CONNECTOR_STALLED_COPY : bootStalledCopy(leg);
   });
   // The live phase detail — the connector card's only per-phase narration (the client arm's
-  // `connectorPhase` is `undefined`, and `bootStalledPhaseDetail(undefined)` is `undefined`).
-  const detail = createMemo(() => bootStalledPhaseDetail(connectorPhase()));
+  // `connectorPhase` is `undefined`, and `bootStalledPhaseDetail(undefined)` is `undefined`) —
+  // with the campaign's last line and how long nothing has followed it. The card renders
+  // for the ACTIVE host, the one `canvasMode` notes the tail of; a string memo, so a tick
+  // that moved no whole minute writes nothing.
+  const detail = createMemo(() => {
+    const phase = connectorPhase();
+    return bootStalledPhaseDetail(
+      phase,
+      phase === undefined
+        ? undefined
+        : connectTailQuiet(encodeHostKey(activeHost()), getMonotonicNow()()),
+    );
+  });
   const dataAttrs = createMemo((): Record<string, string> => {
     const leg = clientLeg();
     return leg === undefined

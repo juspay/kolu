@@ -82,15 +82,20 @@ export function bootStalledCopy(leg: ClientStalledLeg): BootStalledCopy {
 
 /** The live connect-phase DETAIL line for the CONNECTOR card, rendered beside its static body so
  *  a wedged-but-retrying remote campaign names WHERE it is (checking / provisioning /
- *  connecting) rather than a bare title. Lives HERE (this is the card's copy authority — the
- *  module doc's own claim) rather than inline in `BootStalledCanvas`, so all of the card's
- *  plain-language copy has one home and one test. Total over {@link ConnectPhase} PLUS `undefined`
- *  (the pre-frame gap has no detail); every arm reads "still …", honest that the connector is
- *  actively retrying, not that a step failed. */
+ *  connecting) rather than a bare title — and, given the campaign's `quiet` (its last log line
+ *  and how long that line has stood, from `connectTailClock.ts`), what it last said and for how
+ *  long nothing has happened since. A phase phrase alone could not tell a slow download from a
+ *  copy wedged for 25 minutes; the silence can. Lives HERE (this is the card's copy authority —
+ *  the module doc's own claim) rather than inline in `BootStalledCanvas`, so all of the card's
+ *  plain-language copy has one home and one test. Total over {@link ConnectPhase} PLUS
+ *  `undefined` (the pre-frame gap has no detail); every arm reads "still …", honest that the
+ *  connector is actively retrying, not that a step failed. The silence is stated from a full
+ *  minute, in whole minutes: shorter is not a stall, and a per-second count would churn. */
 export function bootStalledPhaseDetail(
   phase: ConnectPhase | undefined,
+  quiet?: { readonly lastLine: string; readonly silentMs: number },
 ): string | undefined {
-  return match(phase)
+  const still = match(phase)
     .with(
       "probing",
       () => "Still checking whether this host already has the agent…",
@@ -99,4 +104,17 @@ export function bootStalledPhaseDetail(
     .with("connecting", () => "Still connecting to the host's agent…")
     .with(undefined, () => undefined)
     .exhaustive();
+  if (still === undefined || quiet === undefined) return still;
+  const minutes = Math.floor(quiet.silentMs / 60_000);
+  const silence =
+    minutes < 1 ? "" : ` No new output in the last ${durationOf(minutes)}.`;
+  return `${still}${silence} Last line: ${quiet.lastLine}`;
+}
+
+/** Whole minutes in words: "14 min", "1 h", "2 h 5 min". */
+function durationOf(minutes: number): string {
+  const h = Math.floor(minutes / 60);
+  const m = minutes % 60;
+  if (h === 0) return `${m} min`;
+  return m === 0 ? `${h} h` : `${h} h ${m} min`;
 }

@@ -185,7 +185,7 @@ diagnostics is never hover-opened.
 <Aside type="note" title="What a cold connect shows you">
   A first-time provisioning **narrates itself** on the canvas:
   **“Provisioning kolu on `<host>`… this can take a few minutes”**, with a
-  **live tail of nix's own verbose lines** (per-path transfer/build chatter)
+  **live tail of nix's own output** (each path copied, each build started)
   and an **elapsed timer** that **keeps climbing every second** even when the log is quiet
   during one large fetch. So a slow-but-working cold connect reads as *in progress*, not a
   hang. There's no fake progress bar — the reassurance is the named phase, nix's real
@@ -203,7 +203,9 @@ diagnostics is never hover-opened.
 
   - While a **remote** machine is still **setting itself up** — probing or provisioning
     its agent over ssh — the card stays **non-terminal**: it says kolu **hasn't given up** and is still working on it
-    (naming the phase it's on), and its recovery verb is **Retry connection**, which recycles
+    (naming the phase it's on, the **last line** the setup printed, and — once it has been a
+    minute or more — **how long nothing new has arrived**, e.g. *“No new output in the last
+    14 min”*), and its recovery verb is **Retry connection**, which recycles
     the **server-side** connection — the only thing that can move a stuck dial, where a browser
     reload can't. There's also a **campaign backstop**: after about half an hour of a setup that
     never connects **on screen**, kolu shows the escape card even while the phase keeps flapping
@@ -308,7 +310,7 @@ The causes it distinguishes:
 | **This host needs passwordless ssh** | the host asked for a password. kolu connects non-interactively and never types one — set up key-based access (`ssh-copy-id`), then reconnect |
 | **This host isn't trusted yet** | ssh doesn't recognise the host's identity key. Run `ssh <host>` once in a terminal to review and accept it — or clear a changed-key warning — then reconnect |
 | **This host has no Nix that kolu can run** | ssh worked, but the host's shell couldn't run `nix-instantiate`. Either Nix isn't [installed](https://nixos.asia/en/install) there, or it isn't on the PATH of a non-interactive ssh session |
-| **Connecting to this host kept stalling** | a step of connecting — the ssh link, a copy, a build — went quiet for too long, too many times. The detail names the step: usually the machine is asleep or off the network, or a download stalled |
+| **Connecting to this host kept stalling** | a step of connecting — the ssh link, a copy, a build — went quiet for too long, too many times. A download whose progress has stopped counts as quiet, however often Nix repeats the same figure. The detail names the step: usually the machine is asleep or off the network, or a download stalled |
 | **Kolu couldn't set up this host** | the host answered, but bringing padi up there kept failing — a Nix build, or the agent refusing or dying before it started. The detail is the error that stopped it |
 | **This kolu run is missing its agent source** | kolu wasn't launched through its Nix wrapper, so it has nothing to deploy |
 | **Kolu couldn't prepare padi for this host** | kolu couldn't work out which padi build the host needs: the host's Nix failed to report its CPU/OS pair (or printed something that isn't one — often a shell startup file writing to stdout), or the baked source couldn't resolve padi for it. The detail shows the error |

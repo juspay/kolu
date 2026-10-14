@@ -556,16 +556,20 @@ async function prefetchAgentClosure(opts: {
     opts.narrate(`prefetching agent closure from ${url} into the local store…`);
     const res = await runNix(
       "localhost",
-      // `-v` keeps a healthy transfer producing output under progress-liveness
-      // (#1964). Under internal-json the per-path activity events already do
-      // on a local-store copy (measured); the flag stays so that guarantee does
-      // not rest on one store type. `--extra-trusted-public-keys` lets a
-      // trusted local user import the declared cache's signatures without a
-      // nix.conf edit; for an untrusted user nix's own refusal is what the
-      // per-URL line below reports, and we fall back.
+      // NEVER `-v` — here or on any provisioning Nix command. It sets
+      // `lvlTalkative`, the exact level at which a store with
+      // `auto-optimise-store` logs "linking … to …" for EVERY file it unpacks;
+      // the daemon forwards each line to the client, which is busy writing the
+      // NAR and reads none of them. Both socket buffers fill and the two block
+      // on each other forever (seen live: a host-side pull hung 25 minutes).
+      // Liveness needs no `-v`: under internal-json the per-path `start`
+      // events and the transfer's progress results arrive at default
+      // verbosity. `--extra-trusted-public-keys` lets a trusted local user
+      // import the declared cache's signatures without a nix.conf edit; for an
+      // untrusted user nix's own refusal is what the per-URL line below
+      // reports, and we fall back.
       [
         "nix",
-        "-v",
         "copy",
         "--from",
         url,
@@ -629,7 +633,7 @@ async function shipAgentClosure(opts: {
   opts.narrate("shipping agent closure to the host's store…");
   const res = await runNix(
     "localhost",
-    // `-v`: see the prefetch.
+    // No `-v`: see the prefetch (the receiving daemon optimises too).
     //
     // `--no-check-sigs` (input-addressed only): without it `nix copy` asks the
     // destination to verify signatures EVEN FOR a trusted user, so
@@ -640,7 +644,6 @@ async function shipAgentClosure(opts: {
     // relaxes nothing it should not.
     [
       "nix",
-      "-v",
       "copy",
       ...(opts.inputAddressed ? ["--no-check-sigs"] : []),
       "--to",
@@ -912,9 +915,9 @@ async function rewriteContentAddressed(opts: {
     );
     const res = await runNix(
       "localhost",
+      // No `-v`: see the prefetch (it writes the rewritten paths here).
       [
         "nix",
-        "-v",
         "store",
         "make-content-addressed",
         "--json",
@@ -1156,15 +1159,16 @@ export async function pullClosure(
       // `--extra-experimental-features nix-command`: `nix copy` is the new
       // CLI, and a stock host Nix ships with it off — a client-side parse
       // gate any login may lift, so the host needs no setting for it (it also
-      // makes the `--log-format` `runNix` adds legal). `-v`: per-path
-      // `copying …` lines keep a healthy download alive under
-      // progress-liveness — the COPY bound, not the root commit's budget: a
-      // slow multi-gigabyte download is not a dead one.
+      // makes the `--log-format` `runNix` adds legal). NO `-v`: on a host
+      // whose store optimises it deadlocks the copy (see the prefetch). The
+      // per-path `start` events and every ADVANCING progress result keep a
+      // healthy download alive under the COPY bound (not the root commit's
+      // budget: a slow multi-gigabyte download is not a dead one); a stalled
+      // one's repeated, unmoved progress does not.
       [
         "nix",
         "--extra-experimental-features",
         "nix-command",
-        "-v",
         "copy",
         ...(opts.signedBy === undefined
           ? []
@@ -1711,9 +1715,9 @@ export async function provisionAgent(
     opts.derivation.kind === "flake-installable"
       ? opts.derivation.installable
       : `${drvPath}^*`;
+  // No `-v`: see `prefetchAgentClosure` (the build imports into a store).
   const provisionArgs: [string, ...string[]] = [
     "nix",
-    "-v",
     "build",
     "--accept-flake-config",
     ...(isLocal

@@ -294,7 +294,9 @@ describe("provisionAgent GC-root pinning (cold path)", () => {
       .mock.calls.map((c) => c[1])
       .find((args) => args.includes("--print-out-paths"));
     expect(buildArgs).toBeDefined();
-    expect(buildArgs).toContain("-v");
+    // Never `-v`: it makes an optimising store's daemon flood the client with
+    // per-file "linking" lines until the two deadlock (see `nixCopy.ts`).
+    expect(buildArgs).not.toContain("-v");
     // Nix's tagged log is what the failure report and the transport verdict
     // are read from (`nixLog.ts`) — never raw `-v` text.
     expect(buildArgs?.slice(0, 2)).toEqual(["--log-format", "internal-json"]);
@@ -706,7 +708,6 @@ describe("cache prefetch + ship (steps 2 and 3) — a darwin target, signed and 
     expect(calls[copyIdx]?.[1]).toEqual([
       "--log-format",
       "internal-json",
-      "-v",
       "copy",
       "--from",
       TEST_BINARY_CACHE.substituters[0],
@@ -825,7 +826,6 @@ describe("cache prefetch + ship (steps 2 and 3) — a darwin target, signed and 
     expect(calls[shipIdx]?.[1]).toEqual([
       "--log-format",
       "internal-json",
-      "-v",
       "copy",
       "--no-check-sigs",
       "--to",
@@ -1098,11 +1098,12 @@ describe("the speculative copies' liveness and honesty — a darwin target, sign
   const flakeDrv = () =>
     flakeAgentDerivation(DRV, FLAKE_INSTALLABLE, TEST_BINARY_CACHE);
 
-  it("both copies pass -v — without it a healthy transfer reads as silence", () => {
-    // Regression: `runCapture` pipes stderr, so a copy without `-v` reports
-    // nothing per path. Under progress-liveness that healthy transfer gets
-    // killed and narrated as a MISS, and the host compiles from source — the
-    // exact outcome this feature exists to prevent, produced by a timeout.
+  it("neither copy passes -v — on an optimising store it deadlocks the copy", () => {
+    // Regression: `-v` is `lvlTalkative`, where an `auto-optimise-store`
+    // daemon logs a "linking" line per unpacked file and forwards each to a
+    // client busy writing the NAR — both socket buffers fill and the copy
+    // hangs forever. Liveness rides internal-json's default-verbosity events
+    // instead (`nixLog.ts`'s `isActivity`).
     mockNix({ system: DARWIN, copy: okOut(""), ship: okOut("") });
     return provisionAgent({
       host: "build-host",
@@ -1114,7 +1115,7 @@ describe("the speculative copies' liveness and honesty — a darwin target, sign
         .mocked(runCapture)
         .mock.calls.filter(([, args]) => isCopy(args));
       expect(copies.length).toBeGreaterThanOrEqual(2);
-      for (const [, args] of copies) expect(args).toContain("-v");
+      for (const [, args] of copies) expect(args).not.toContain("-v");
     });
   });
 
@@ -1331,10 +1332,11 @@ describe("honest failure reporting (the sheetal-codex incident)", () => {
     });
   };
 
-  it("every stderr line of a long step reaches onActivity — even the ones never narrated", async () => {
+  it("every active stderr line of a long step reaches onActivity — even the ones never narrated", async () => {
     // The session's pre-connected backstop listens to narration AND activity; the
-    // child's own silence policy listens to raw bytes. Filtered build-log lines and
-    // transfer progress must feed the backstop, or a healthy long build is cycled.
+    // child's own silence policy listens to the same activity lines. Filtered
+    // build-log lines and advancing transfer progress must feed the backstop, or a
+    // healthy long build is cycled.
     const filtered = [
       nixJsonLine({ action: "result", id: 7, type: 105, fields: [1, 2, 0, 0] }),
       nixJsonLine({
@@ -1348,7 +1350,10 @@ describe("honest failure reporting (the sheetal-codex incident)", () => {
     vi.mocked(runCapture).mockImplementation(async (_cmd, args, opts) => {
       if (args.includes("--outputs")) return okOut(`${STORE}\n`);
       if (args.includes("--print-out-paths")) {
-        for (const l of filtered) opts?.onProgress?.(l);
+        for (const l of filtered) {
+          opts?.isActivity?.(l);
+          opts?.onProgress?.(l);
+        }
         return okOut(`${STORE}\n`);
       }
       if (args.includes("--add-root")) return okOut("/home/u/link\n");
@@ -1474,7 +1479,6 @@ describe("deliverClosure — the route without a build", () => {
     expect(rewrite).toEqual([
       "--log-format",
       "internal-json",
-      "-v",
       "store",
       "make-content-addressed",
       "--json",

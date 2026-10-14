@@ -35,6 +35,7 @@ import {
   watchedBootIdentity,
 } from "./bootDeadline";
 import { getMonotonicNow } from "../time/clock";
+import { noteConnectTail, pruneConnectTails } from "./connectTailClock";
 import {
   activeEntryState,
   daemonChannelLive,
@@ -176,7 +177,13 @@ export function canvasMode(deps: {
   // the active host's OWN anchor every tick during the membership stall (Hole A), reset its
   // elapsed to 0, and the ceiling could never fire — leaving "Connecting to local…" up forever.
   const members = hostKeys();
-  if (members.length > 0) pruneBootAnchors(members.map(encodeHostKey));
+  if (members.length > 0) {
+    const memberEncs = members.map(encodeHostKey);
+    pruneBootAnchors(memberEncs);
+    pruneConnectTails(memberEncs);
+  }
+  // When the connect log last moved — read by the boot-stalled card (`connectTailClock.ts`).
+  noteConnectTail(hostEnc, connectLog, nowMs);
   // The #1908 R8a campaign backstop: `bootDeadlineExceeded` folds the class ceiling AND the
   // class-blind campaign cell on the one monotonic `nowMs`; `recordBootFrame` arms the campaign
   // cell off the frame's own tag (the connector-owned `provisioning` leg). Both are pure client-
