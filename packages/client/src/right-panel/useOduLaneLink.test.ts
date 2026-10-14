@@ -85,7 +85,7 @@ describe("how a lane is reached", () => {
       oduLaneAct({ ...base, viewerOnHost: true, doorPort: undefined }),
     ).toEqual({
       kind: "address",
-      href: `http://localhost:${ODU_PORT}/${HASH}`,
+      href: `http://localhost:${ODU_PORT}${HASH}`,
     });
   });
 
@@ -96,7 +96,7 @@ describe("how a lane is reached", () => {
       oduLaneAct({ ...base, viewerOnHost: false, doorPort: 61003 }),
     ).toEqual({
       kind: "address",
-      href: `http://pureintent:61003/${HASH}`,
+      href: `http://pureintent:61003${HASH}`,
     });
   });
 
