@@ -16,12 +16,21 @@
 , src # the tree to copy in (a store path / pure source)
 , flakeNix # path of the agent flake, copied to $out/flake.nix
 , label # caller name, for the binary-cache eval-time error
+, closureIndex # { repo, branch } the builds are published on, or null (binary-cache.nix)
 , extraFiles ? { } # basename → contents, written on top of the copy
 }:
 let
-  binaryCache = import ./binary-cache.nix { inherit lib; } {
-    inherit flakeNix label;
-  };
+  # An index is looked up by the `commit-hash` beside it (`readBakedDeclaration`
+  # reads both): a tree that declares one without the other is unusable, so it
+  # fails HERE, at the binder's eval, not at dial time.
+  revFile = (lib.importJSON ../../surface-remote/agent-env.json).commitHashFile;
+  binaryCache =
+    assert lib.assertMsg
+      (closureIndex == null || (extraFiles ? ${revFile} && extraFiles.${revFile} != ""))
+      "${label}: closureIndex is set but no `${revFile}` extra file is baked — the index is keyed by it";
+    import ./binary-cache.nix { inherit lib; } {
+      inherit flakeNix label closureIndex;
+    };
   # The sidecar is just another root file, so it rides the SAME writer as the
   # caller's extras rather than carrying its own copy of the shell line. One
   # expression escapes and writes; a change to how files land (a subdirectory,

@@ -30,7 +30,9 @@
 # A check-run's name — which IS the branch-protection context string — is
 # `<job-id> (<matrix value>)` for a single-dimension matrix job with no `name:`
 # override. So the workflow file is the source of truth and this script parses
-# it: one job, one matrix dimension, one flow sequence of values. A hardcoded
+# it: EVERY job, each with one matrix dimension and one flow sequence of values
+# (`build-and-push` warms the cache; `publish-closures` writes the closure
+# index a trust-free remote dial reads — both deploy-critical, both gated). A hardcoded
 # `build-and-push (ubuntu-latest)` here would be a second source of truth that
 # goes stale the day the job or the matrix is renamed — and it would go stale
 # SILENTLY, by requiring a context nothing posts (which blocks every merge) or
@@ -99,12 +101,12 @@ gha_contexts() {
     }
     !in_jobs { next }
 
-    # A job id. More than one and the `<job> (<value>)` derivation below would
-    # describe only a slice of the contexts this workflow posts.
+    # A job id. Every job is a gate; each is checked on its own below.
     indent == 2 {
       njobs++
       job = key
       sub(/:.*$/, "", job)
+      jobs[njobs] = job
       in_strategy = 0
       in_matrix = 0
       next
@@ -113,7 +115,7 @@ gha_contexts() {
     # Job-level keys. A `name:` here renames every check-run, so the derivation
     # would be wrong in a way GitHub reports as "expected, never posted".
     indent == 4 {
-      if (key ~ /^name:/) named = 1
+      if (key ~ /^name:/) named[njobs] = 1
       in_strategy = (key == "strategy:")
       in_matrix = 0
       next
@@ -128,39 +130,42 @@ gha_contexts() {
     # `<job> (<a>, <b>)`, which this parse does not (and should not guess how to)
     # construct.
     indent == 8 && in_matrix {
-      nmatrix++
+      nmatrix[njobs]++
       mkey = key
       sub(/:.*$/, "", mkey)
       mval = key
       sub(/^[^:]*:[[:space:]]*/, "", mval)
-      dimension = mkey
-      values = mval
+      dimension[njobs] = mkey
+      values[njobs] = mval
       next
     }
 
     END {
       if (njobs == 0) bail("no `jobs:` mapping with a job under it")
-      if (njobs != 1) bail("expected exactly 1 job, found " njobs)
-      if (named) bail("job `" job "` sets its own `name:`, which renames every check-run")
-      if (nmatrix != 1) bail("expected exactly 1 matrix dimension under job `" job "`, found " nmatrix)
-      if (values !~ /^\[.*\]$/) bail("matrix `" dimension ":` is not an inline [a, b] sequence")
-      if (job !~ /^[A-Za-z0-9_.-]+$/) bail("job id `" job "` is not a plain identifier")
+      for (j = 1; j <= njobs; j++) {
+        job = jobs[j]
+        if (named[j]) bail("job `" job "` sets its own `name:`, which renames every check-run")
+        if (nmatrix[j] != 1) bail("expected exactly 1 matrix dimension under job `" job "`, found " (nmatrix[j] + 0))
+        vals = values[j]
+        if (vals !~ /^\[.*\]$/) bail("matrix `" dimension[j] ":` of job `" job "` is not an inline [a, b] sequence")
+        if (job !~ /^[A-Za-z0-9_.-]+$/) bail("job id `" job "` is not a plain identifier")
 
-      gsub(/^\[|\]$/, "", values)
-      n = split(values, v, ",")
-      emitted = 0
-      for (i = 1; i <= n; i++) {
-        item = v[i]
-        gsub(/^[[:space:]]*["'"'"']?|["'"'"']?[[:space:]]*$/, "", item)
-        if (item == "") bail("matrix `" dimension ":` has an empty entry")
-        if (item ~ /[()]/) bail("matrix value `" item "` cannot appear in a check-run name")
-        print job " (" item ")"
-        emitted++
+        gsub(/^\[|\]$/, "", vals)
+        n = split(vals, v, ",")
+        emitted = 0
+        for (i = 1; i <= n; i++) {
+          item = v[i]
+          gsub(/^[[:space:]]*["'"'"']?|["'"'"']?[[:space:]]*$/, "", item)
+          if (item == "") bail("matrix `" dimension[j] ":` of job `" job "` has an empty entry")
+          if (item ~ /[()]/) bail("matrix value `" item "` cannot appear in a check-run name")
+          print job " (" item ")"
+          emitted++
+        }
+        # A one-platform gate is the single-platform-subset bug the
+        # `--platform` pinning below exists to prevent, in the other half of
+        # the required set.
+        if (emitted < 2) bail("matrix `" dimension[j] ":` of job `" job "` yields " emitted " context(s), expected at least 2")
       }
-      # A one-platform cache gate is the single-platform-subset bug the
-      # `--platform` pinning below exists to prevent, in the other half of the
-      # required set.
-      if (emitted < 2) bail("matrix `" dimension ":` yields " emitted " context(s), expected at least 2")
     }
   ' "$1"
 }
@@ -169,8 +174,8 @@ gha_contexts() {
 
 contexts=""
 contexts="$(gha_contexts "$workflow")" || die "cannot derive the cache-warm contexts from ${workflow} (see above).
-A check-run's name is '<job-id> (<matrix value>)'; this script requires that
-workflow to hold exactly one job with exactly one inline matrix dimension.
+A check-run's name is '<job-id> (<matrix value>)'; this script requires every
+job in that workflow to hold exactly one inline matrix dimension.
 Fix the workflow or teach this parse the new shape — do NOT let protect run
 without these contexts: an unrequired cache push is how a deploy ends up
 compiling the daemon over ssh (juspay/kolu#2101, G7)."

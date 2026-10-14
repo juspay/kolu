@@ -44,13 +44,10 @@ The **TypeScript half**, as data and pure functions:
   schemas and parsers: the profiles listing (`KOLU_AGENT_DISTRO_PROFILES`,
   `parseAgentDistroProfiles`, read by padi) and the delivery
   (`KOLU_AGENT_DISTRO_DELIVERY`, `parseAgentDistroDelivery`: index base, cache
-  URL and key, schedule — read by kolu-server, which delivers every host's agents).
-- `./caIndex` — upstream's content-addressed index (`{ rev, ia, ca }`: the
-  signed bundle and its content-addressed rewrite): `caIndexUrl` (the
-  `latest/<system>/<profile>.json` entry kolu reads) and `parseCaIndexEntry`
-  (`{ rev, ia, ca }`, throwing on anything else). kolu-server fetches it; a
-  Linux host pulls `ca`, a Mac the signed `ia` (a rewrite breaks Mach-O code
-  signatures).
+  URL and key, schedule — read by kolu-server, which delivers every host's agents;
+  the index's `latest/<system>/<profile>.json` entries are read through
+  `@kolu/surface-remote`'s `readPublishedClosure`, the same reader every
+  binder's dial uses).
 - `./schedule` — upstream's update schedule (`UpdaterScheduleSchema`:
   `periodSeconds`, `offsetSeconds`, from `lib.schedule`: 02/08/14/20 UTC), the
   due rule (a line-for-line mirror of upstream's `updateDue`, golden-tested

@@ -8,9 +8,9 @@
  * path — nothing is evaluated or built (no such op exists to call).
  */
 
-import type { CaIndexEntry } from "@kolu/agent-distro/caIndex";
 import type { AgentDistroDeliveryReport } from "@kolu/agent-distro/schema";
 import type { Logger } from "@kolu/log";
+import type { PublishedClosure } from "@kolu/surface-remote";
 import { describe, expect, it, vi } from "vitest";
 import {
   createAgentDelivery,
@@ -43,7 +43,7 @@ function fakeOps(
     published?: (
       system: string,
       profile: string,
-    ) => CaIndexEntry | Error | undefined;
+    ) => PublishedClosure | Error | undefined;
   } = {},
 ) {
   const reads: string[] = [];
@@ -66,7 +66,7 @@ function fakeOps(
       const ca = caFor(reads.length, system, profile);
       return answer ?? { rev: "f".repeat(40), ia: `${ca}-ia`, ca };
     },
-    // Which form a host runs is the ops' call (`./route.ts`); this fake lands
+    // Which form a host runs is the ops' call (`closureRoute`, `@kolu/surface-remote`); this fake lands
     // `ca` and records the system it was told.
     pull: async ({ ssh, hostNix, published, profile }) => {
       const storePath = published.ca ?? published.ia;

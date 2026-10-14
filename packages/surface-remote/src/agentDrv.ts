@@ -10,13 +10,14 @@
  * evaluation, transfer, and remote realisation as one lifetime.
  */
 
-import { resolveSystem } from "./arch";
+import { resolveHostNix } from "./arch";
 import { ResolveDrvError } from "./host";
 import type { SshKeepalive } from "./keepalive";
 import {
-  type AgentBinaryCache,
-  readBakedBinaryCache,
+  type BakedDeclaration,
+  readBakedDeclaration,
 } from "./agentBinaryCache";
+import type { IndexedClosure } from "./closureIndex";
 import { type AgentDerivation, flakeAgentDerivation } from "./agentDerivation";
 import type { StepBudget } from "./nixCopy";
 import { describeNixRunWithDetail, resolverErrorOf, runNix } from "./nixLog";
@@ -85,17 +86,24 @@ const drvCache = new QuickLRU<string, AgentDerivation>({
  *  error (a permissions blip, a concurrent rebuild) on a sidecar already proven
  *  good. Only SUCCESSES are remembered, so a genuinely broken source keeps
  *  failing and a repaired one is picked up. */
-const sidecarCache = new Map<string, AgentBinaryCache>();
+const sidecarCache = new Map<string, BakedDeclaration>();
 
 /** The read, once per source ref per process. Throws the typed fault, like the
  *  uncached read it wraps. */
-function readBakedBinaryCacheOnce(flakeRef: string): AgentBinaryCache {
+function readBakedDeclarationOnce(flakeRef: string): BakedDeclaration {
   const remembered = sidecarCache.get(flakeRef);
   if (remembered !== undefined) return remembered;
-  const result = readBakedBinaryCache(flakeRef);
+  const result = readBakedDeclaration(flakeRef);
   if (result.isErr()) throw result.error;
   sidecarCache.set(flakeRef, result.value);
   return result.value;
+}
+
+/** What {@link resolveAgentDrv} answers: the derivation, and where that build
+ *  is published for the dialled host (`null`: the source publishes none). */
+export interface ResolvedAgent {
+  readonly derivation: AgentDerivation;
+  readonly published: IndexedClosure | null;
 }
 
 /** Per-dial lifetime hooks required by the local Nix evaluation. */
@@ -115,7 +123,7 @@ export interface AgentDrvResolutionOptions {
   /** Connector-owned campaign budget for the local Nix evaluation. */
   budget: StepBudget;
   /** The owning dial's ssh dead-peer policy, forwarded to this resolver's ONE
-   *  ssh — the {@link resolveSystem} arch probe. (The Nix `eval` below is local;
+   *  ssh — the {@link resolveHostNix} probe. (The Nix `eval` below is local;
    *  it opens no ssh.)
    *
    *  REQUIRED, with no default: this is an INTERNAL seam (the connector is its
@@ -137,7 +145,10 @@ export interface AgentResolutionContext {
 
 /**
  * Probe `host`, then resolve only `packages.<host-system>.<packageName>` from
- * `flakeRef` as a flake-backed {@link AgentDerivation}. Host-probe failures remain plain transport errors so the
+ * `flakeRef` as a flake-backed {@link AgentDerivation}, paired with where THIS
+ * build is published for THIS host ({@link IndexedClosure}, `null` when the
+ * source declares no index) — the per-dial `ProvisionOptions.published` the
+ * connector hands `provisionAgent`. Host-probe failures remain plain transport errors so the
  * session retries them. Deterministic local Nix failures are terminal build
  * faults; transient fetch and owned-lifetime failures remain retryable.
  */
@@ -146,28 +157,40 @@ export async function resolveAgentDrv(
   flakeRef: string,
   packageName: string,
   opts: AgentDrvResolutionOptions,
-): Promise<AgentDerivation> {
+): Promise<ResolvedAgent> {
   // The binary-cache declaration is part of the derivation's identity
   // (provisioning prefetches against it), so read it FIRST — before the ssh
   // arch probe and before any Nix evaluation. A pre-contract wrapper then
   // fails typed and instant, and its DETERMINISTIC local fault always wins the
-  // race against a NONDETERMINISTIC network one: read it after `resolveSystem`
+  // race against a NONDETERMINISTIC network one: read it after `resolveHostNix`
   // and an unreachable/unauthorised host reports `auth-required` /
   // `host-key-unverified` / `nix-unavailable` for a binder that would have
   // failed the same way on a perfectly healthy host. The throw sits at this
   // function's existing classification boundary, like every other one here.
-  const binaryCache = readBakedBinaryCacheOnce(flakeRef);
+  const declaration = readBakedDeclarationOnce(flakeRef);
 
-  const system = await resolveSystem(host, {
+  const hostNix = await resolveHostNix(host, {
     signal: opts.signal,
     onProgress: opts.onProgress,
     keepalive: opts.keepalive,
   });
+  const { system } = hostNix;
   const installable = `${flakeRef}#packages.${system}.${packageName}`;
+  // The derivation is per source and system (cached); the lookup is per dial
+  // — this host's Nix version picks the form — so it rides beside it.
+  const published: IndexedClosure | null =
+    declaration.index === null
+      ? null
+      : {
+          index: declaration.index,
+          rev: declaration.rev,
+          attr: packageName,
+          host: hostNix,
+        };
   const cached = drvCache.get(installable);
   if (cached !== undefined) {
     opts.budget.reset();
-    return cached;
+    return { derivation: cached, published };
   }
 
   opts.onEvaluation();
@@ -187,9 +210,9 @@ export async function resolveAgentDrv(
       },
     );
   }
-  const derivation = flakeAgentDerivation(drv, installable, binaryCache);
+  const derivation = flakeAgentDerivation(drv, installable, declaration.caches);
   drvCache.set(installable, derivation);
-  return derivation;
+  return { derivation, published };
 }
 
 /** The lifetime hooks of the LOCAL flake evaluation `resolveAgentDrv` runs. */

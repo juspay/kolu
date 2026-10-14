@@ -63,5 +63,6 @@ Part of the kolu monorepo — `"@kolu/surface-daemon": "workspace:*"`.
 - Tutorial — [Make it a daemon](https://kolu.dev/surface/make-it-a-daemon)
 - How-to — [Bake an identity](https://kolu.dev/surface/bake-an-identity)
 - Nix — the `nix/` recipes (`mkDaemonIdentity`, `mkWorkspaceClosure`, `mkProvenAgentSource`): [Bake an identity](https://kolu.dev/surface/bake-an-identity#2-derive-the-fileset--dont-list-it)
+- Nix — `mkProvenAgentSource`'s required `closureIndex` (`{ repo, branch }` or `null`): where the binder's builds are published content-addressed, baked into `binary-cache.json` — [Publish your daemon content-addressed](https://kolu.dev/surface/publish-content-addressed)
 - Reference — [@kolu/surface-daemon](https://kolu.dev/surface/ref-surface-daemon) · [Daemon invariants](https://kolu.dev/surface/surface-daemon-invariants)
 - Explanation — [The daemon spine](https://kolu.dev/surface/the-daemon-spine)

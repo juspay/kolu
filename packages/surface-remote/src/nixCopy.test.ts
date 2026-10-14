@@ -1082,11 +1082,15 @@ describe("cache prefetch + ship (steps 2 and 3) — a darwin target, signed and 
       substituters: ["u"],
       trustedPublicKeys: ["k"],
     });
-    // @ts-expect-error — same gate on the flake arm.
-    flakeAgentDerivation(DRV, FLAKE_INSTALLABLE, {
-      substituters: ["u"],
-      trustedPublicKeys: ["k"],
-    });
+    flakeAgentDerivation(
+      DRV,
+      FLAKE_INSTALLABLE,
+      // @ts-expect-error — same gate on the flake arm.
+      {
+        substituters: ["u"],
+        trustedPublicKeys: ["k"],
+      },
+    );
   });
 });
 
@@ -1437,6 +1441,7 @@ describe("deliverClosure — the route without a build", () => {
       system: async () => system,
       outPath: STORE,
       binaryCache: TEST_BINARY_CACHE,
+      published: null,
       rootPath: ".local/state/kolu/agent-distro/gcroots/vanilla",
       onProgress,
       onActivity: () => {},
@@ -1532,6 +1537,7 @@ describe("deliverClosure — the route without a build", () => {
       system,
       outPath: STORE,
       binaryCache: TEST_BINARY_CACHE,
+      published: null,
       rootPath: ".local/state/kolu/agent-distro/gcroots/vanilla",
       onProgress: vi.fn(),
       onActivity: () => {},
@@ -1675,5 +1681,286 @@ describe("provisionAgent on a Linux target — the content-addressed route", () 
     expect(calls.some(isRewrite)).toBe(false);
     // A warm host is a root refresh: the `.drv`'s system is never read.
     expect(calls.some(isDrvShow)).toBe(false);
+  });
+});
+
+describe("provisionAgent — the index step, after the warm check and before staging", () => {
+  const IA = STORE;
+  const PUB_CA = "/nix/store/p0p0p0p0p0p0p0p0p0p0p0p0p0p0p0p0-agent";
+  const REV = "c891495";
+  const FULL_REV = `${REV}${"0".repeat(33)}`;
+  const INDEX = {
+    repo: "juspay/kolu",
+    branch: "ca-index",
+    rawBase: "https://raw.githubusercontent.com/juspay/kolu/ca-index",
+  };
+  const published = (system = LINUX, nixVersion = "2.34.8") => ({
+    index: INDEX,
+    rev: REV,
+    attr: "agent",
+    host: { system, nixVersion },
+  });
+  /** The index answers `status` with `body` for every read. */
+  const index = (status: number, body: unknown = "") =>
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: string) => ({
+        status,
+        text: async () =>
+          typeof body === "string" ? body : JSON.stringify(body),
+      })),
+    );
+  /** `mockNix`'s defaults, plus the HOST's own `nix copy --from` (over ssh)
+   *  answering `hostCopy`. */
+  const mockHostPull = (hostCopy: CaptureResult): void => {
+    mockNix();
+    const rest = vi.mocked(runCapture).getMockImplementation();
+    vi.mocked(runCapture).mockImplementation(async (cmd, args, ...more) =>
+      cmd === "ssh" && isPrefetch(args)
+        ? hostCopy
+        : (rest?.(cmd, args, ...more) ?? failOut),
+    );
+  };
+  const provision = (
+    p: ReturnType<typeof published> | null = published(),
+    onProgress = vi.fn(),
+    host = "ci@croissant",
+  ) =>
+    provisionAgent({
+      host,
+      derivation: flakeAgentDerivation(
+        DRV,
+        FLAKE_INSTALLABLE,
+        TEST_BINARY_CACHE,
+      ),
+      onProgress,
+      ...provArgs(),
+      published: p,
+    });
+  const argvs = () => vi.mocked(runCapture).mock.calls;
+  const hostPulls = () =>
+    argvs().filter(([cmd, a]) => cmd === "ssh" && isPrefetch(a));
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("an index hit is pulled by the host and rooted — no rewrite, no prefetch, no ship, no build", async () => {
+    index(200, { rev: FULL_REV, ia: IA, ca: PUB_CA });
+    mockHostPull(okOut(""));
+    const onProgress = vi.fn();
+    expect(await provision(published(), onProgress)).toEqual({
+      ok: true,
+      agentPath: PUB_CA,
+    });
+    expect(vi.mocked(fetch)).toHaveBeenCalledWith(
+      `${INDEX.rawBase}/${REV}/${LINUX}/agent.json`,
+      expect.anything(),
+    );
+    const [pull] = hostPulls();
+    expect(pull?.[1]).toEqual(
+      expect.arrayContaining([
+        "--from",
+        TEST_BINARY_CACHE.substituters[0],
+        PUB_CA,
+      ]),
+    );
+    // A content-addressed path asks no key of the host.
+    expect(pull?.[1]).not.toContain("--extra-trusted-public-keys");
+    const pin = argvs().find(([, a]) => a.includes("--add-root"));
+    expect(pin?.[1]).toEqual(expect.arrayContaining(["--realise", PUB_CA]));
+    expect(argvs().some(([, a]) => isRewrite(a))).toBe(false);
+    expect(argvs().some(([cmd, a]) => cmd === "nix" && isPrefetch(a))).toBe(
+      false,
+    );
+    expect(argvs().some(([, a]) => isShip(a))).toBe(false);
+    expect(argvs().some(([, a]) => a.includes("--print-out-paths"))).toBe(
+      false,
+    );
+    expect(onProgress.mock.calls.flat().join("\n")).toMatch(
+      /landed .* from the closure index/,
+    );
+  });
+
+  it("the warm check runs FIRST: a host already holding the output never reads the index", async () => {
+    index(200, { rev: FULL_REV, ia: IA, ca: PUB_CA });
+    mockNix({ checkValidity: okOut("") });
+    expect(await provision()).toEqual({ ok: true, agentPath: IA });
+    expect(vi.mocked(fetch)).not.toHaveBeenCalled();
+  });
+
+  it("an unpublished revision (404) falls through to the sender's own steps", async () => {
+    index(404, "404: Not Found");
+    mockHostPull(okOut(""));
+    const onProgress = vi.fn();
+    expect(await provision(published(), onProgress)).toEqual({
+      ok: true,
+      agentPath: STORE,
+    });
+    expect(hostPulls()).toHaveLength(0);
+    // The rewrite was tried, then the cold build realised it.
+    expect(argvs().some(([, a]) => isRewrite(a))).toBe(true);
+    expect(argvs().some(([, a]) => a.includes("--print-out-paths"))).toBe(true);
+    expect(onProgress.mock.calls.flat().join("\n")).toMatch(
+      /is not published for x86_64-linux/,
+    );
+  });
+
+  it("an index the binder cannot reach falls through, naming why", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        throw new TypeError("fetch failed", {
+          cause: new Error("getaddrinfo ENOTFOUND"),
+        });
+      }),
+    );
+    mockNix();
+    const onProgress = vi.fn();
+    expect(await provision(published(), onProgress)).toEqual({
+      ok: true,
+      agentPath: STORE,
+    });
+    expect(onProgress.mock.calls.flat().join("\n")).toMatch(
+      /could not be read: getaddrinfo ENOTFOUND/,
+    );
+  });
+
+  it("a malformed entry fails the provision loudly — no path guessed, no build", async () => {
+    index(200, { rev: FULL_REV });
+    mockNix();
+    const res = await provision();
+    expect(res).toMatchObject({ ok: false, cause: "remote" });
+    expect(res.ok === false && res.reason).toMatch(
+      /is not \{ rev, ia, ca\? \}/,
+    );
+    expect(argvs().some(([, a]) => a.includes("--print-out-paths"))).toBe(
+      false,
+    );
+  });
+
+  it("a darwin host pulls the SIGNED path, naming the declared keys", async () => {
+    index(200, { rev: FULL_REV, ia: IA });
+    mockHostPull(okOut(""));
+    expect(await provision(published(DARWIN))).toEqual({
+      ok: true,
+      agentPath: IA,
+    });
+    const [pull] = hostPulls();
+    expect(pull?.[1]).toEqual(
+      expect.arrayContaining([
+        "--extra-trusted-public-keys",
+        TEST_BINARY_CACHE.trustedPublicKeys.join(" "),
+        IA,
+      ]),
+    );
+  });
+
+  it("a signed pull the host refuses falls through to the sender's own steps, with the reason", async () => {
+    index(200, { rev: FULL_REV, ia: IA });
+    mockNix();
+    const rest = vi.mocked(runCapture).getMockImplementation();
+    vi.mocked(runCapture).mockImplementation(async (cmd, args, opts) => {
+      if (cmd === "ssh" && isPrefetch(args)) {
+        opts.onProgress?.(nixErrorLine("lacks a signature by a trusted key"));
+        return failOut;
+      }
+      return (await rest?.(cmd, args, opts)) ?? failOut;
+    });
+    const onProgress = vi.fn();
+    const res = await provision(published(DARWIN), onProgress);
+    // The darwin sender route: prefetch missed by default → cold build.
+    expect(res).toEqual({ ok: true, agentPath: STORE });
+    expect(argvs().some(([, a]) => a.includes("--print-out-paths"))).toBe(true);
+    const said = onProgress.mock.calls.flat().join("\n");
+    expect(said).toMatch(/macOS kills a program/);
+    expect(said).toMatch(/could not pull the published/);
+  });
+
+  it("a Linux host on Nix 2.35 is sent the signed path — its line cannot verify the rewrite", async () => {
+    index(200, { rev: FULL_REV, ia: IA, ca: PUB_CA });
+    mockHostPull(okOut(""));
+    expect(await provision(published(LINUX, "2.35.1"))).toEqual({
+      ok: true,
+      agentPath: IA,
+    });
+  });
+
+  it("a source with no index never reads one", async () => {
+    index(200, { rev: FULL_REV, ia: IA, ca: PUB_CA });
+    mockNix();
+    await provision(null);
+    expect(vi.mocked(fetch)).not.toHaveBeenCalled();
+  });
+
+  it("localhost never reads the index — its own store is what staging reads first", async () => {
+    index(200, { rev: FULL_REV, ia: IA, ca: PUB_CA });
+    mockNix();
+    await provision(published(), vi.fn(), "localhost");
+    expect(vi.mocked(fetch)).not.toHaveBeenCalled();
+  });
+
+  it("a pull that goes silent past the copy bound is a MISS: the sender's steps run next", async () => {
+    index(200, { rev: FULL_REV, ia: IA, ca: PUB_CA });
+    mockHostPull({
+      ok: false,
+      kind: "lifetime-expired",
+      policy: { kind: "progress-liveness", silenceMs: 1 },
+      signal: "SIGTERM",
+      stdout: "",
+    } as CaptureResult);
+    const onProgress = vi.fn();
+    expect(await provision(published(), onProgress)).toEqual({
+      ok: true,
+      agentPath: STORE,
+    });
+    expect(argvs().some(([, a]) => a.includes("--print-out-paths"))).toBe(true);
+    expect(onProgress.mock.calls.flat().join("\n")).toMatch(
+      /could not pull the published/,
+    );
+  });
+
+  it("a caller that owns its own `.drv` states the lookup itself", async () => {
+    index(200, { rev: FULL_REV, ia: IA, ca: PUB_CA });
+    mockHostPull(okOut(""));
+    expect(
+      await provisionAgent({
+        host: "ci@croissant",
+        derivation: directAgentDerivation(DRV, TEST_BINARY_CACHE),
+        onProgress: vi.fn(),
+        ...provArgs(),
+        published: published(),
+      }),
+    ).toEqual({ ok: true, agentPath: PUB_CA });
+  });
+
+  it("the root commit is charged to the dial's provisioning budget", async () => {
+    index(200, { rev: FULL_REV, ia: IA, ca: PUB_CA });
+    const budgets = makeProvisionBudgets();
+    mockHostPull(okOut(""));
+    const rest = vi.mocked(runCapture).getMockImplementation();
+    vi.mocked(runCapture).mockImplementation(async (cmd, args, ...more) =>
+      args.includes("--add-root")
+        ? ({
+            ok: false,
+            kind: "lifetime-expired",
+            policy: { kind: "progress-liveness", silenceMs: 1 },
+            signal: "SIGTERM",
+            stdout: "",
+          } as CaptureResult)
+        : ((await rest?.(cmd, args, ...more)) ?? failOut),
+    );
+    let res: Awaited<ReturnType<typeof provisionAgent>> | undefined;
+    for (let i = 0; i < 4; i++)
+      res = await provisionAgent({
+        host: "ci@croissant",
+        derivation: flakeAgentDerivation(
+          DRV,
+          FLAKE_INSTALLABLE,
+          TEST_BINARY_CACHE,
+        ),
+        onProgress: vi.fn(),
+        ...provArgs(budgets),
+        published: published(),
+      });
+    // Four silent root commits on one campaign budget: the last is terminal.
+    expect(res).toMatchObject({ ok: false, cause: "network", terminal: true });
   });
 });

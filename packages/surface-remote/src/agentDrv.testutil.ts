@@ -16,6 +16,7 @@ export function makeTestAgentSourceDir(): string {
     JSON.stringify({
       substituters: TEST_BINARY_CACHE.substituters,
       trustedPublicKeys: TEST_BINARY_CACHE.trustedPublicKeys,
+      index: null,
     }),
   );
   return dir;

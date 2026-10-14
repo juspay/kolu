@@ -1,12 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const h = vi.hoisted(() => ({
-  resolveSystem: vi.fn(),
+  resolveHostNix: vi.fn(),
   runCapture: vi.fn(),
   readFile: vi.fn(),
 }));
 
-vi.mock("./arch", () => ({ resolveSystem: h.resolveSystem }));
+vi.mock("./arch", () => ({ resolveHostNix: h.resolveHostNix }));
 vi.mock("./process", async (importOriginal) => {
   const actual = await importOriginal<typeof import("./process")>();
   return { ...actual, runCapture: h.runCapture };
@@ -21,7 +21,7 @@ vi.mock("node:fs", async (importOriginal) => ({
 import {
   AGENT_BINARY_CACHE_FILE,
   AgentBinaryCacheUnbakedError,
-  readBakedBinaryCache,
+  readBakedDeclaration,
 } from "./agentBinaryCache";
 import {
   AgentResolutionExhaustedError,
@@ -48,7 +48,10 @@ const success = (stdout: string) => ({
 const VALID_SIDECAR = JSON.stringify({
   substituters: TEST_BINARY_CACHE.substituters,
   trustedPublicKeys: TEST_BINARY_CACHE.trustedPublicKeys,
+  index: null,
 });
+
+const hostNix = (system: string) => ({ system, nixVersion: "2.34.8" });
 
 const resolutionOptions = {
   signal: new AbortController().signal,
@@ -92,7 +95,7 @@ describe("readBakedAgentSource", () => {
 
 describe("resolveAgentDrv", () => {
   it("derives the installable from the host-reported system and package name", async () => {
-    h.resolveSystem.mockResolvedValue("aarch64-darwin");
+    h.resolveHostNix.mockResolvedValue(hostNix("aarch64-darwin"));
     h.runCapture.mockResolvedValue(success("/nix/store/padi.drv\n"));
 
     await expect(
@@ -103,9 +106,11 @@ describe("resolveAgentDrv", () => {
         resolutionOptions,
       ),
     ).resolves.toMatchObject({
-      kind: "flake-installable",
-      drvPath: "/nix/store/padi.drv",
-      installable: "/nix/store/source-a#packages.aarch64-darwin.padi",
+      derivation: {
+        kind: "flake-installable",
+        drvPath: "/nix/store/padi.drv",
+        installable: "/nix/store/source-a#packages.aarch64-darwin.padi",
+      },
     });
 
     expect(h.runCapture).toHaveBeenCalledWith(
@@ -130,7 +135,7 @@ describe("resolveAgentDrv", () => {
   });
 
   it("reuses the resolved derivation for later dials", async () => {
-    h.resolveSystem.mockResolvedValue("x86_64-linux");
+    h.resolveHostNix.mockResolvedValue(hostNix("x86_64-linux"));
     h.runCapture.mockResolvedValueOnce(success("/nix/store/kaval.drv"));
 
     const args = [
@@ -147,7 +152,7 @@ describe("resolveAgentDrv", () => {
   });
 
   it("leaves an arch-probe failure as a retryable transport error", async () => {
-    h.resolveSystem.mockRejectedValue(new Error("ssh timed out"));
+    h.resolveHostNix.mockRejectedValue(new Error("ssh timed out"));
 
     const failure = resolveAgentDrv(
       "offline",
@@ -161,7 +166,7 @@ describe("resolveAgentDrv", () => {
   });
 
   it("classifies a Nix evaluation failure as terminal and keeps its diagnostics", async () => {
-    h.resolveSystem.mockResolvedValue("x86_64-linux");
+    h.resolveHostNix.mockResolvedValue(hostNix("x86_64-linux"));
     h.runCapture.mockImplementation(
       async (
         _command: string,
@@ -187,7 +192,7 @@ describe("resolveAgentDrv", () => {
   });
 
   it("retries a transient Nix source fetch failure", async () => {
-    h.resolveSystem.mockResolvedValue("x86_64-linux");
+    h.resolveHostNix.mockResolvedValue(hostNix("x86_64-linux"));
     h.runCapture
       .mockImplementationOnce(
         async (
@@ -215,14 +220,14 @@ describe("resolveAgentDrv", () => {
     const first = resolveAgentDrv(...args);
     await expect(first).rejects.not.toBeInstanceOf(ResolveDrvError);
     await expect(resolveAgentDrv(...args)).resolves.toMatchObject({
-      drvPath: "/nix/store/recovered-fetch-padi.drv",
+      derivation: { drvPath: "/nix/store/recovered-fetch-padi.drv" },
     });
 
     expect(h.runCapture).toHaveBeenCalledTimes(2);
   });
 
   it("keeps a permanent missing-source response terminal", async () => {
-    h.resolveSystem.mockResolvedValue("x86_64-linux");
+    h.resolveHostNix.mockResolvedValue(hostNix("x86_64-linux"));
     h.runCapture.mockImplementation(
       async (
         _command: string,
@@ -246,7 +251,7 @@ describe("resolveAgentDrv", () => {
   });
 
   it("keeps an externally killed Nix evaluation terminal to avoid OOM retry thrash", async () => {
-    h.resolveSystem.mockResolvedValue("x86_64-linux");
+    h.resolveHostNix.mockResolvedValue(hostNix("x86_64-linux"));
     h.runCapture.mockResolvedValue({
       ok: false,
       kind: "signal",
@@ -264,7 +269,7 @@ describe("resolveAgentDrv", () => {
   });
 
   it("reports Nix's root error and its trace, not whatever was printed last", async () => {
-    h.resolveSystem.mockResolvedValue("x86_64-linux");
+    h.resolveHostNix.mockResolvedValue(hostNix("x86_64-linux"));
     h.runCapture.mockImplementation(
       async (
         _command: string,
@@ -300,7 +305,7 @@ describe("resolveAgentDrv", () => {
   });
 
   it("does not share host-specific failures across hosts", async () => {
-    h.resolveSystem.mockResolvedValue("x86_64-linux");
+    h.resolveHostNix.mockResolvedValue(hostNix("x86_64-linux"));
     h.runCapture.mockImplementation(
       async (
         _command: string,
@@ -330,7 +335,7 @@ describe("resolveAgentDrv", () => {
   });
 
   it("leaves a silent failed evaluation uncached so the next dial retries", async () => {
-    h.resolveSystem.mockResolvedValue("x86_64-linux");
+    h.resolveHostNix.mockResolvedValue(hostNix("x86_64-linux"));
     h.runCapture
       .mockResolvedValueOnce({
         ok: false,
@@ -351,14 +356,14 @@ describe("resolveAgentDrv", () => {
     await expect(first).rejects.toThrow(/no output/);
     await expect(first).rejects.not.toBeInstanceOf(ResolveDrvError);
     await expect(resolveAgentDrv(...args)).resolves.toMatchObject({
-      drvPath: "/nix/store/recovered-padi.drv",
+      derivation: { drvPath: "/nix/store/recovered-padi.drv" },
     });
 
     expect(h.runCapture).toHaveBeenCalledTimes(2);
   });
 
   it("gives up after the campaign's silent evaluation budget is exhausted", async () => {
-    h.resolveSystem.mockResolvedValue("x86_64-linux");
+    h.resolveHostNix.mockResolvedValue(hostNix("x86_64-linux"));
     h.runCapture.mockResolvedValue({
       ok: false,
       kind: "lifetime-expired",
@@ -387,7 +392,7 @@ describe("resolveAgentDrv", () => {
   });
 
   it("rejects output that is not a derivation path", async () => {
-    h.resolveSystem.mockResolvedValue("x86_64-linux");
+    h.resolveHostNix.mockResolvedValue(hostNix("x86_64-linux"));
     h.runCapture.mockResolvedValue(success("/nix/store/not-a-derivation"));
 
     await expect(
@@ -401,15 +406,19 @@ describe("resolveAgentDrv", () => {
   });
 });
 
-describe("readBakedBinaryCache", () => {
+describe("readBakedDeclaration", () => {
   it("returns the sidecar's declaration and strips a path: ref prefix", () => {
-    const cache = readBakedBinaryCache("path:/nix/store/src")._unsafeUnwrap();
+    const cache = readBakedDeclaration("path:/nix/store/src")._unsafeUnwrap();
     expect(h.readFile).toHaveBeenCalledWith(
       `/nix/store/src/${AGENT_BINARY_CACHE_FILE}`,
       "utf8",
     );
-    expect(cache.substituters).toEqual(["https://cache.test.invalid/oss"]);
-    expect(cache.trustedPublicKeys).toHaveLength(1);
+    expect(cache.caches.substituters).toEqual([
+      "https://cache.test.invalid/oss",
+    ]);
+    expect(cache.caches.trustedPublicKeys).toHaveLength(1);
+    expect(cache.index).toBeNull();
+    expect(cache.rev).toBeNull();
   });
 
   it("names the real fault for a non-local flake ref, never 'predates the contract'", () => {
@@ -418,7 +427,7 @@ describe("readBakedBinaryCache", () => {
       "git+https://example.invalid/x",
       "tarball:https://example.invalid/x.tar.gz",
     ]) {
-      const failure = readBakedBinaryCache(ref)._unsafeUnwrapErr();
+      const failure = readBakedDeclaration(ref)._unsafeUnwrapErr();
       expect(failure.message).toMatch(/not readable as a directory/);
       // The misleading remedy must NOT appear for this fault.
       expect(failure.message).not.toMatch(/rebuild the binder/);
@@ -434,14 +443,14 @@ describe("readBakedBinaryCache", () => {
       });
     });
     expect(
-      readBakedBinaryCache("/nix/store/pre-contract")._unsafeUnwrapErr(),
+      readBakedDeclaration("/nix/store/pre-contract")._unsafeUnwrapErr(),
     ).toBeInstanceOf(AgentBinaryCacheUnbakedError);
   });
 
   it("errs with the typed unbaked fault on malformed JSON", () => {
     h.readFile.mockReturnValue("not-json{");
     expect(
-      readBakedBinaryCache("/nix/store/src")._unsafeUnwrapErr(),
+      readBakedDeclaration("/nix/store/src")._unsafeUnwrapErr(),
     ).toBeInstanceOf(AgentBinaryCacheUnbakedError);
   });
 
@@ -456,13 +465,13 @@ describe("readBakedBinaryCache", () => {
     ]) {
       h.readFile.mockReturnValue(JSON.stringify(bad));
       expect(
-        readBakedBinaryCache("/nix/store/src")._unsafeUnwrapErr(),
+        readBakedDeclaration("/nix/store/src")._unsafeUnwrapErr(),
       ).toBeInstanceOf(AgentBinaryCacheUnbakedError);
     }
   });
 
   it("resolveAgentDrv threads the sidecar onto the derivation it returns", async () => {
-    h.resolveSystem.mockResolvedValue("x86_64-linux");
+    h.resolveHostNix.mockResolvedValue(hostNix("x86_64-linux"));
     h.runCapture.mockResolvedValue(
       success("/nix/store/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-padi.drv"),
     );
@@ -472,13 +481,13 @@ describe("readBakedBinaryCache", () => {
       "padi",
       resolutionOptions,
     );
-    expect(drv.binaryCache.substituters).toEqual([
+    expect(drv.derivation.binaryCache.substituters).toEqual([
       "https://cache.test.invalid/oss",
     ]);
   });
 
   it("fails the resolve, typed, before the arch probe or a Nix evaluation when the sidecar is absent", async () => {
-    h.resolveSystem.mockResolvedValue("x86_64-linux");
+    h.resolveHostNix.mockResolvedValue(hostNix("x86_64-linux"));
     h.readFile.mockImplementation(() => {
       throw new Error("ENOENT");
     });
@@ -493,14 +502,14 @@ describe("readBakedBinaryCache", () => {
     // The DETERMINISTIC local fault precedes both the ssh arch probe and any
     // `nix eval` spawn — so an unreachable host can never mask it with a
     // nondeterministic transport fault.
-    expect(h.resolveSystem).not.toHaveBeenCalled();
+    expect(h.resolveHostNix).not.toHaveBeenCalled();
     expect(h.runCapture).not.toHaveBeenCalled();
   });
 });
 
 describe("the sidecar read is once per source ref", () => {
   it("a proven-good sidecar is never re-read, so a later dial cannot fail on it", async () => {
-    h.resolveSystem.mockResolvedValue("x86_64-linux");
+    h.resolveHostNix.mockResolvedValue(hostNix("x86_64-linux"));
     h.runCapture.mockResolvedValue(
       success("/nix/store/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-padi.drv"),
     );
@@ -525,7 +534,132 @@ describe("the sidecar read is once per source ref", () => {
       throw new Error("EACCES: permission denied");
     });
     await expect(resolveAgentDrv(...args)).resolves.toMatchObject({
-      kind: "flake-installable",
+      derivation: { kind: "flake-installable" },
     });
+  });
+});
+
+describe("the sidecar's closure index", () => {
+  const INDEX = {
+    repo: "juspay/kolu",
+    branch: "ca-index",
+    rawBase: "https://raw.githubusercontent.com/juspay/kolu/ca-index",
+  };
+  /** A baked source whose sidecar declares `index` and whose `commit-hash`
+   *  reads `rev` (`undefined`: no such file). */
+  const bake = (index: unknown, rev?: string) =>
+    h.readFile.mockImplementation((path: string) => {
+      if (path.endsWith(`/${AGENT_BINARY_CACHE_FILE}`))
+        return JSON.stringify({ ...JSON.parse(VALID_SIDECAR), index });
+      if (path.endsWith("/commit-hash") && rev !== undefined) return rev;
+      throw new Error(`ENOENT: ${path}`);
+    });
+
+  it("reads a declared index and the commit-hash it is keyed by", () => {
+    bake(INDEX, "c891495\n");
+    const declared = readBakedDeclaration(
+      "/nix/store/src-index",
+    )._unsafeUnwrap();
+    expect(declared.index).toEqual(INDEX);
+    expect(declared.rev).toBe("c891495");
+  });
+
+  it("an index with no commit-hash (or an empty one) is a hand-assembled tree: the typed fault", () => {
+    for (const rev of [undefined, " \n"]) {
+      bake(INDEX, rev);
+      const failure = readBakedDeclaration(
+        "/nix/store/src-no-rev",
+      )._unsafeUnwrapErr();
+      expect(failure).toBeInstanceOf(AgentBinaryCacheUnbakedError);
+      expect(failure.message).toMatch(/commit-hash/);
+    }
+  });
+
+  it("refuses a sidecar with no index key, or a malformed one", () => {
+    for (const bad of [
+      undefined,
+      { repo: "juspay/kolu", branch: "ca-index" },
+      { ...INDEX, rawBase: "http://insecure.example/x" },
+    ]) {
+      bake(bad);
+      expect(
+        readBakedDeclaration("/nix/store/src-bad-index")._unsafeUnwrapErr(),
+      ).toBeInstanceOf(AgentBinaryCacheUnbakedError);
+    }
+  });
+
+  it("pairs the derivation with the index, the source's commit-hash, the attr and the host's Nix", async () => {
+    bake(INDEX, "c891495\n");
+    h.resolveHostNix.mockResolvedValue(hostNix("x86_64-linux"));
+    h.runCapture.mockResolvedValue(
+      success("/nix/store/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-padi.drv"),
+    );
+    const drv = await resolveAgentDrv(
+      "builder",
+      "/nix/store/source-published",
+      "padi",
+      resolutionOptions,
+    );
+    expect(drv.published).toEqual({
+      index: INDEX,
+      rev: "c891495",
+      attr: "padi",
+      host: hostNix("x86_64-linux"),
+    });
+  });
+
+  it("a cached derivation carries THIS dial's host Nix, not the first one's", async () => {
+    bake(INDEX, "c891495");
+    h.runCapture.mockResolvedValue(
+      success("/nix/store/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-padi.drv"),
+    );
+    h.resolveHostNix.mockResolvedValueOnce(hostNix("x86_64-linux"));
+    await resolveAgentDrv(
+      "a",
+      "/nix/store/source-two-hosts",
+      "padi",
+      resolutionOptions,
+    );
+    h.resolveHostNix.mockResolvedValueOnce({
+      system: "x86_64-linux",
+      nixVersion: "2.35.0",
+    });
+    const second = await resolveAgentDrv(
+      "b",
+      "/nix/store/source-two-hosts",
+      "padi",
+      resolutionOptions,
+    );
+    expect(second.published?.host.nixVersion).toBe("2.35.0");
+    // …while the derivation itself is the cached one: per source and system.
+    expect(h.runCapture).toHaveBeenCalledTimes(1);
+  });
+
+  it("an explicit null index publishes nothing to look up", async () => {
+    bake(null);
+    h.resolveHostNix.mockResolvedValue(hostNix("x86_64-linux"));
+    h.runCapture.mockResolvedValue(
+      success("/nix/store/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-padi.drv"),
+    );
+    const drv = await resolveAgentDrv(
+      "builder",
+      "/nix/store/source-no-index",
+      "padi",
+      resolutionOptions,
+    );
+    expect(drv.published).toBeNull();
+  });
+
+  it("a declared index with no commit-hash is a hand-assembled tree, and loud", async () => {
+    bake(INDEX);
+    h.resolveHostNix.mockResolvedValue(hostNix("x86_64-linux"));
+    await expect(
+      resolveAgentDrv(
+        "builder",
+        "/nix/store/source-no-rev",
+        "padi",
+        resolutionOptions,
+      ),
+    ).rejects.toThrow(/commit-hash/);
   });
 });

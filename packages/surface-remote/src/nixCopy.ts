@@ -103,6 +103,19 @@ import { mkdirSync, readdirSync, readlinkSync, rmSync } from "node:fs";
 import type { AgentBinaryCache } from "./agentBinaryCache";
 import type { AgentDerivation } from "./agentDerivation";
 import {
+  ClosureIndexError,
+  type ClosureLookup,
+  type IndexedClosure,
+  fetchClosureIndex,
+  readPublishedClosure,
+} from "./closureIndex";
+import {
+  type ClosureRoute,
+  closureRoute,
+  isDarwinSystem,
+  signedBecause,
+} from "./closureRoute";
+import {
   forEachLine,
   isLocalHost,
   nixSshOpts,
@@ -253,6 +266,12 @@ export interface ProvisionOptions {
    *  a flake-backed derivation keeps its installable so one `nix build` process
    *  owns evaluation, transfer, and realisation without a GC race. */
   derivation: AgentDerivation;
+  /** Where THIS build is already published for THIS host — the index step
+   *  runs after the warm check and before any staging (see the module
+   *  header). `null`: no index to read. REQUIRED, so "none" is a stated fact.
+   *  The ssh connector forms it from a baked source (`resolveAgentDrv`); a
+   *  caller that owns its `.drv` states it. */
+  published: IndexedClosure | null;
   onProgress: (line: string) => void;
   /** Every stderr line of a long-running provisioning Nix command, narrated or
    *  not — wire it to the session's `ctx.activity` (why: `runNix`). REQUIRED,
@@ -1023,10 +1042,187 @@ async function stageContentAddressed(opts: {
   };
 }
 
-/** Does `system` (a Nix system, `aarch64-darwin`) name a macOS target — the
- *  one kind that keeps the signed, input-addressed closure? */
-function isDarwinSystem(system: string): boolean {
-  return system.endsWith("-darwin");
+/**
+ * ## pullClosure — pull a published closure into a host's store straight from a binary cache,
+ * and root it there — the host fetches; the caller moves no bytes.
+ *
+ * The route, three steps, each run AT the target (over ssh for a remote host,
+ * directly for `localhost`):
+ *
+ *   1. `nix-store --check-validity <path>` — the ask-only warm check (it never
+ *      substitutes). Present ⇒ skip the copy.
+ *   2. `nix copy --from <cacheUrl> <path>` — the host reads the cache itself.
+ *      `--from` names a store to READ, so no trust setting filters it (unlike
+ *      `--substituters`, which an untrusted user's daemon drops), and a
+ *      content-addressed path is accepted by every Nix daemon with no
+ *      signature, no key and no `trusted-users` entry (the Nix manual:
+ *      `make-content-addressed`, `require-sigs`). An INPUT-addressed path
+ *      (`signedBy`) is taken only when the host's Nix trusts its signature:
+ *      the login is in `trusted-users` (then `--extra-trusted-public-keys`
+ *      names the key), or the key is already in the host's
+ *      `trusted-public-keys`. `nix-command` is enabled on the command line,
+ *      so the host needs no Nix setting for it either.
+ *      A multi-gigabyte download, so it runs under the copy's fixed
+ *      progress-liveness bound (`PROVISION_COPY_SILENCE_MS`): Nix's per-path
+ *      `copying …` lines prove it alive, and only silence kills it.
+ *   3. `nix-store --realise <path> --add-root <root> --indirect` — the commit
+ *      point, shared with `provisionAgent`, under a fresh provisioning
+ *      budget.
+ *
+ * Nothing is evaluated, rewritten or built, on either side: the caller names
+ * a path it already knows is published — content-addressed (no trust asked
+ * anywhere), or input-addressed and signed (`signedBy`: the trust above). A
+ * content-addressed rewrite is no option for a macOS host: rewriting a Mach-O
+ * invalidates its code signature, and macOS kills it on launch.
+ */
+
+export interface PullClosureOptions {
+  /** The target store's host — an ssh destination, or `localhost` for this
+   *  machine's own store. */
+  host: string;
+  /** The binary cache the host reads the closure from (`https://…`). */
+  cacheUrl: string;
+  /** The exact store path to pull. */
+  storePath: string;
+  /** For an INPUT-addressed `storePath`: the public key of the signature the
+   *  host's Nix must trust to take it. Absent for a content-addressed path,
+   *  which needs none. */
+  signedBy?: string;
+  /** The GC root to commit it behind on the target. Remote: resolved against
+   *  the ssh login's home when relative. Local: must be absolute. */
+  rootPath: string;
+  onProgress: (line: string) => void;
+  /** Every stderr line of the copy and the root commit — an owner's silence
+   *  watchdog's liveness (see `ProvisionOptions.onActivity`). */
+  onActivity?: () => void;
+  /** The ssh dead-peer policy for every ssh the pull opens. REQUIRED. */
+  keepalive: SshKeepalive;
+  /** Aborting group-kills the in-flight child; the result is a retryable
+   *  `"network"` failure. */
+  signal?: AbortSignal;
+  /** The progress-liveness budget of the required root commit — the CALLER's,
+   *  so a root commit that keeps going silent is charged across retries and
+   *  ends `terminal` once it is spent (#1908), never redialled forever. A
+   *  provisioning dial passes its campaign's `budgets.provisioning`; a one-off
+   *  caller `makeStepBudget(PROVISION_STEP_SILENCE_BASE_MS,
+   *  PROVISION_STEP_MAX_EXPIRIES)`. REQUIRED. Reset on success. */
+  budget: StepBudget;
+}
+
+/** How a pull ended:
+ *
+ *   - `ok` — `storePath` is valid in the target store and rooted at `rootPath`;
+ *   - `uncopied` — the host's `nix copy --from <cache>` failed (not in the
+ *     cache, no egress, a refused path): Nix's own words in `reason`;
+ *   - `failed` — a silence kill, a dropped ssh, or the root commit failed: the
+ *     `ProvisionResult` failure shape, with its retry class. */
+export type PullClosureResult =
+  | { readonly ok: true }
+  | { readonly ok: false; readonly kind: "uncopied"; readonly reason: string }
+  | ({ readonly ok: false; readonly kind: "failed" } & ProvisionFailure);
+
+/** Pull `storePath` from `cacheUrl` into `host`'s store and root it there —
+ *  see the module header. */
+export async function pullClosure(
+  opts: PullClosureOptions,
+): Promise<PullClosureResult> {
+  const { host, keepalive, storePath } = opts;
+  const failed = (r: ProvisionFailure): PullClosureResult => ({
+    ...r,
+    kind: "failed",
+  });
+  const target: string | SshDestination = isLocalHost(host)
+    ? "localhost"
+    : { host, keepalive };
+  const narrate = (line: string) => opts.onProgress(`${host}: ${line}`);
+
+  // 1. Warm check — the host may already hold it (an earlier pull, or another
+  //    profile sharing the closure).
+  narrate(`checking whether the host already holds ${storePath}…`);
+  const { signal } = opts;
+  const onActivity = opts.onActivity ?? (() => {});
+  const held = await checkValidity(target, storePath, { signal });
+  if (held === "aborted") return failed(abortedDuring(host, "the warm check"));
+  if (held === "timed-out")
+    narrate(
+      `the check timed out after ${PROVISION_PROBE_DEADLINE_MS}ms — host may be degraded; pulling anyway`,
+    );
+
+  // 2. The host reads the cache itself.
+  if (held !== "valid") {
+    narrate(`pulling ${storePath} from ${opts.cacheUrl}…`);
+    const copy = await runNix(
+      target,
+      // `--extra-experimental-features nix-command`: `nix copy` is the new
+      // CLI, and a stock host Nix ships with it off — a client-side parse
+      // gate any login may lift, so the host needs no setting for it (it also
+      // makes the `--log-format` `runNix` adds legal). `-v`: per-path
+      // `copying …` lines keep a healthy download alive under
+      // progress-liveness — the COPY bound, not the root commit's budget: a
+      // slow multi-gigabyte download is not a dead one.
+      [
+        "nix",
+        "--extra-experimental-features",
+        "nix-command",
+        "-v",
+        "copy",
+        ...(opts.signedBy === undefined
+          ? []
+          : ["--extra-trusted-public-keys", opts.signedBy]),
+        "--from",
+        opts.cacheUrl,
+        storePath,
+      ],
+      {
+        narrate,
+        onActivity,
+        policy: copyPolicy(),
+        signal,
+        // The host store's own hard-link dedup (`auto-optimise-store`) reports
+        // every link it could not make as an `error:` line — harmless, and
+        // never the copy's cause.
+        dropLine: isStoreDedupNoise,
+      },
+    );
+    if (!copy.ok) {
+      if (copy.kind === "aborted")
+        return failed(abortedDuring(host, "the pull"));
+      // A copy that went silent past the copy bound is a MISS, like every
+      // other speculative copy here: the caller tries its next route rather
+      // than ending a dial on a stalled cache.
+      if (copy.kind === "lifetime-expired")
+        return {
+          ok: false,
+          kind: "uncopied",
+          reason: `'nix copy --from ${opts.cacheUrl}' ${describeExit(copy)}`,
+        };
+      // A transport failure (the ssh to the host dropped) is the dial's to
+      // retry, not a statement about the cache.
+      if (causeFor(copy) === "network")
+        return failed({
+          ok: false,
+          reason: `${host}: lost the connection while pulling from ${opts.cacheUrl}: ${describeNixRun(copy)}`,
+          cause: "network",
+        });
+      return { ok: false, kind: "uncopied", reason: describeNixRun(copy) };
+    }
+    narrate(`pulled ${storePath}`);
+  } else narrate(`already holds ${storePath} — skipped copy`);
+
+  // 3. Commit behind the root.
+  const bail = await pinGcRoot(
+    host,
+    keepalive,
+    storePath,
+    opts.rootPath,
+    opts.onProgress,
+    onActivity,
+    opts.budget,
+    signal,
+  );
+  if (bail !== null) return failed(bail);
+  opts.budget.reset();
+  return { ok: true };
 }
 
 export interface DeliverClosureOptions {
@@ -1034,7 +1230,7 @@ export interface DeliverClosureOptions {
    *  localhost for the sender's own store. */
   host: string;
   /** The target's Nix system (`x86_64-linux`, `aarch64-darwin`) — what
-   *  `resolveSystem` answers for it — or `undefined` when the caller cannot
+   *  `resolveHostNix` answers for it — or `undefined` when the caller cannot
    *  say. It decides the form the closure travels in: content-addressed to
    *  Linux, signed input-addressed to darwin and to a system nobody named
    *  (the form every store can run). Asked only when the warm check misses,
@@ -1047,6 +1243,9 @@ export interface DeliverClosureOptions {
   /** Where the output may be fetched from (REQUIRED, like every provisioning
    *  input: delivery is never cache-blind). */
   binaryCache: AgentBinaryCache;
+  /** Where this build may already be published — the index step runs after
+   *  the warm check and before any staging. `null`: no index to read. */
+  published: IndexedClosure | null;
   /** The GC root to commit the delivered path behind on the target. Remote:
    *  resolved against the ssh login's home when relative. Local: must be
    *  absolute. */
@@ -1092,6 +1291,103 @@ export type DeliverClosureResult =
       ProvisionResult,
       { ok: false }
     >);
+
+/** The index step — a published build pulled by the host itself, before the
+ *  sender stages anything. Reads `<rev>/<system>/<attr>.json` off the baked
+ *  source's index, picks the form the host's Nix can take (`closureRoute`),
+ *  and has the host pull it from each declared cache in turn
+ *  ({@link pullClosure}) and root it at `rootPath`. Answers:
+ *
+ *   - `ok` — the published path is valid on the host and rooted;
+ *   - `failed` — an abort, a dropped ssh, a failed root commit, or a broken
+ *     publication (an entry that is not one, a content-addressed line with no
+ *     `ca`): loud, never skipped past;
+ *   - `null` — the index has nothing to land: not published (a dev build, a
+ *     revision CI never published), unreadable (no egress to the index), or
+ *     no declared cache would give it to the host (the signed form to a host
+ *     whose Nix does not trust it). Narrated, and the sender's own steps run
+ *     next — route ORDER, not a fallback knob. */
+async function deliverPublished(opts: {
+  host: string;
+  published: IndexedClosure;
+  binaryCache: AgentBinaryCache;
+  rootPath: string;
+  onProgress: (line: string) => void;
+  onActivity: () => void;
+  /** The required root commit's budget — the dial's own. */
+  budget: StepBudget;
+  signal: AbortSignal | undefined;
+  keepalive: SshKeepalive;
+}): Promise<Exclude<DeliverClosureResult, { kind: "not-delivered" }> | null> {
+  const { published } = opts;
+  const { system } = published.host;
+  const narrate = (line: string) => opts.onProgress(`${opts.host}: ${line}`);
+  let lookup: ClosureLookup | undefined;
+  let route: ClosureRoute;
+  try {
+    lookup = await readPublishedClosure(
+      fetchClosureIndex,
+      published.index,
+      { rev: published.rev },
+      system,
+      published.attr,
+    );
+    if (lookup.kind === "not-published") {
+      narrate(
+        `${published.attr} ${published.rev} is not published for ${system} (${lookup.url}) — staging the closure from this machine instead`,
+      );
+      return null;
+    }
+    route = closureRoute(published.host, lookup.entry);
+  } catch (err) {
+    // A transport failure reaching the index is not a statement about the
+    // publication; an answer that is not an entry (or names no form this
+    // host can take) is.
+    if (err instanceof ClosureIndexError && err.kind === "unreadable") {
+      narrate(`${err.message} — staging the closure from this machine instead`);
+      return null;
+    }
+    const where = lookup === undefined ? "" : ` (${lookup.url})`;
+    return {
+      ok: false,
+      kind: "failed",
+      reason: `${opts.host}: ${err instanceof Error ? err.message : String(err)}${where}`,
+      cause: "remote",
+    };
+  }
+  narrate(
+    route.kind === "content-addressed"
+      ? `${published.attr} ${published.rev} is published content-addressed — the host pulls it, no trust needed`
+      : `${published.attr} ${published.rev} is published signed — ${signedBecause(route.because, published.host)}`,
+  );
+  const misses: string[] = [];
+  for (const cacheUrl of opts.binaryCache.substituters) {
+    const pulled = await pullClosure({
+      host: opts.host,
+      cacheUrl,
+      storePath: route.storePath,
+      ...(route.kind === "signed"
+        ? { signedBy: opts.binaryCache.trustedPublicKeys.join(" ") }
+        : {}),
+      rootPath: opts.rootPath,
+      onProgress: opts.onProgress,
+      onActivity: opts.onActivity,
+      budget: opts.budget,
+      keepalive: opts.keepalive,
+      signal: opts.signal,
+    });
+    if (pulled.ok) {
+      narrate(`landed ${route.storePath} from the closure index`);
+      return { ok: true, outPath: route.storePath };
+    }
+    if (pulled.kind === "failed") return pulled;
+    misses.push(`${cacheUrl}: ${pulled.reason}`);
+  }
+  narrate(
+    `the host could not pull the published ${route.storePath} (${misses.join("; ")}) — staging the closure from this machine instead`,
+  );
+  return null;
+}
 
 /** Deliver `outPath`'s closure into `host`'s store and root it there — steps
  *  1–3 and 5 of the module header, and NEVER a build: ask the target whether it
@@ -1171,10 +1467,26 @@ export async function deliverClosure(
   }
 
   opts.onDelivering?.();
+  const narrate = (line: string) => opts.onProgress(`${opts.host}: ${line}`);
+
+  // 1b. The index step: a published build is pulled by the host itself.
+  if (opts.published !== null) {
+    const landed = await deliverPublished({
+      host: opts.host,
+      published: opts.published,
+      binaryCache: opts.binaryCache,
+      rootPath: opts.rootPath,
+      onProgress: opts.onProgress,
+      onActivity: opts.onActivity,
+      budget: opts.budget,
+      signal,
+      keepalive,
+    });
+    if (landed !== null) return landed;
+  }
 
   // 2/3. Stage the closure onto the target WITHOUT building it there.
   const system = await opts.system();
-  const narrate = (line: string) => opts.onProgress(`${opts.host}: ${line}`);
   const staged =
     system === undefined || isDarwinSystem(system)
       ? await stageInputAddressed({
@@ -1308,6 +1620,10 @@ export async function provisionAgent(
   }
   const localAgentPath = outsRes.ok ? outputs[0] : undefined;
 
+  // The index step is for a REMOTE host: localhost's own store is what the
+  // sender's staging reads first, so a download from the cache would only
+  // fetch what is already here.
+  const published = isLocal ? null : opts.published;
   if (localAgentPath === undefined) {
     if (!isLocal) {
       // Step 0's local query missed (GC took the evaluated .drv), so there is
@@ -1323,6 +1639,26 @@ export async function provisionAgent(
       );
     }
     opts.onProvisioning?.();
+    // A published build needs no local output path: the index step still
+    // runs before the cold build.
+    if (published !== null) {
+      const landed = await deliverPublished({
+        host: opts.host,
+        published,
+        binaryCache: opts.derivation.binaryCache,
+        rootPath,
+        onProgress: opts.onProgress,
+        onActivity: opts.onActivity,
+        budget: budgets.provisioning,
+        signal,
+        keepalive,
+      });
+      if (landed?.ok) return { ok: true, agentPath: landed.outPath };
+      if (landed !== null) {
+        const { kind: _kind, ...failure } = landed;
+        return failure;
+      }
+    }
   } else {
     // 1–3, 5. Deliver the closure WITHOUT building it — the whole point of
     //    the binary cache. Delivered ⇒ the agent output is already valid and
@@ -1337,6 +1673,7 @@ export async function provisionAgent(
       system: () => derivationSystem(drvPath, signal),
       outPath: localAgentPath,
       binaryCache: opts.derivation.binaryCache,
+      published,
       rootPath,
       onProgress: opts.onProgress,
       onActivity: opts.onActivity,

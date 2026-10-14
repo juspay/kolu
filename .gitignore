@@ -45,3 +45,6 @@ packages/surface/example/binary-cache.json
 # odu/* — the same, from the npins `odu` pin (see `nix/workspace.nix` for why
 # these are a graft rather than a dependency).
 /odu/
+
+# Python bytecode (the publish-closure action runs its script in place).
+__pycache__/

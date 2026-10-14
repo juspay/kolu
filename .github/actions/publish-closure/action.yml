@@ -1,0 +1,228 @@
+# Publish content-addressed closures and the index `@kolu/surface-remote`
+# reads them from — so a host whose Nix trusts nothing (no `trusted-users`, no
+# cache key) still takes a binder's daemon: `provisionAgent` reads
+# `<rev>/<system>/<attr>.json` for its own build and has the host pull it
+# (`readPublishedClosure` → `closureRoute` → `pullClosure`).
+#
+# Lifted from agent-distro's `cache.yml` steps and `ca-index.py`
+# (agent-distro#99/#102), generalised: the script is `publish-closure.py`
+# beside this file, unit-tested by `test-publish-closure.py`.
+#
+# Run it in a job of its OWN, on the system to publish for: it installs the Nix
+# it rewrites with (below), which must be the job's only Nix.
+#
+# Two ways to name what to publish:
+#   * `source` — a `mkProvenAgentSource` binder's baked source (e.g.
+#     `.#agent-flake-source`). The declaration is its `binary-cache.json`
+#     (caches + `closureIndex`), the index key its `commit-hash`, and
+#     `installables` are attribute names under it.
+#   * `sidecar` + `rev` — the declaration (a path, or its JSON inline) and the
+#     index key, with `installables` as full flake installables.
+#
+# The cache pushed to is the declaration's FIRST substituter (an attic cache,
+# `https://<server>/<cache>`); the index is its `closureIndex` — `repo` must be
+# the repository this runs in (refused otherwise), `branch` the one written.
+name: publish-closure
+description: Rewrite closures content-addressed, push them, verify them, and publish their index.
+
+inputs:
+  installables:
+    description: Space-separated attribute names (with `source`) or flake installables (with `sidecar`).
+    required: true
+  source:
+    description: A flake installable building a baked agent source (its binary-cache.json + commit-hash).
+    required: false
+    default: ""
+  sidecar:
+    description: Without `source` — path to the declaration JSON, or the JSON itself.
+    required: false
+    default: ""
+  rev:
+    description: >-
+      Without `source` — the index key entries are written under. Omitted, it is
+      the commit being published (`github.event.pull_request.head.sha ||
+      github.sha`): on a pull request `github.sha` is GitHub's merge commit,
+      which is not the head this run builds and is refused as a key.
+    required: false
+    default: ""
+  latest:
+    description: Also write `latest/<system>/<attr>.json` (a push to the main branch only).
+    required: true
+  smoke:
+    description: >-
+      One line per installable, `<attr>=<bin path relative to the closure> <args>`,
+      run out of each rewritten closure on Linux to prove it execs. Required for
+      every installable: one with no line fails the run, never a silent skip.
+    required: true
+  attic-nixpkgs:
+    description: >-
+      A pinned nixpkgs (flake ref or tarball URL) to install attic-client from —
+      the caller's own pin, never an unpinned ref resolved at run time.
+    required: true
+  attic-token:
+    description: Token for the declaration's attic cache. Empty on a fork pull request — then nothing is pushed.
+    required: true
+
+runs:
+  using: composite
+  steps:
+    # NOT the newest Nix: the line consumers verify on. Nix 2.35 changed how a
+    # self-referencing NAR is hashed (libunistring's .la files are one), so a
+    # path 2.35 rewrites is one a 2.34 host recomputes differently and refuses
+    # — `ca hash mismatch importing path`, measured both ways (agent-distro
+    # #102). Publisher and consumers must agree; `closureRoute`'s `CA_LINES`
+    # (2.17 ≤ line < 2.35) is the consumer half of the same fact. `install_url`
+    # is what pins it: this action version ignores an unknown `nix_version`
+    # input with a warning and installs the newest.
+    - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31
+      with:
+        github_access_token: ${{ github.token }}
+        install_url: https://releases.nixos.org/nix/nix-2.34.8/install
+        extra_nix_config: |
+          accept-flake-config = true
+
+    - id: resolve
+      shell: bash
+      env:
+        SCRIPT: ${{ github.action_path }}/publish-closure.py
+        SOURCE: ${{ inputs.source }}
+        SIDECAR: ${{ inputs.sidecar }}
+        REV_KEY: ${{ inputs.rev }}
+        INSTALLABLES: ${{ inputs.installables }}
+        REV: ${{ github.event.pull_request.head.sha || github.sha }}
+        REPOSITORY: ${{ github.repository }}
+      run: |
+        set -euo pipefail
+        # Sidecar mode keys entries by the published commit unless told
+        # otherwise; source mode reads its key from the source and takes none.
+        if [ -z "$SOURCE" ] && [ -z "$REV_KEY" ]; then REV_KEY="$REV"; fi
+        # shellcheck disable=SC2086 # INSTALLABLES is space-separated on purpose
+        python3 "$SCRIPT" resolve --rev "$REV" --repository "$REPOSITORY" --source "$SOURCE" \
+          --sidecar "$SIDECAR" --rev-key "$REV_KEY" $INSTALLABLES >> "$GITHUB_OUTPUT"
+        echo "system=$(nix config show system)" >> "$GITHUB_OUTPUT"
+        echo "rev=$REV" >> "$GITHUB_OUTPUT"
+        echo "directory=$RUNNER_TEMP/closure-index" >> "$GITHUB_OUTPUT"
+
+    - name: Rewrite and index
+      shell: bash
+      env:
+        SCRIPT: ${{ github.action_path }}/publish-closure.py
+        LATEST: ${{ inputs.latest }}
+        OUT: ${{ steps.resolve.outputs.directory }}
+        REV: ${{ steps.resolve.outputs.rev }}
+        REV_KEY: ${{ steps.resolve.outputs.rev-key }}
+        SYSTEM: ${{ steps.resolve.outputs.system }}
+        INSTALLABLES: ${{ steps.resolve.outputs.installables }}
+      run: |
+        set -euo pipefail
+        args=(index --rev "$REV" --rev-key "$REV_KEY" --system "$SYSTEM" --directory "$OUT")
+        [ "$LATEST" = "true" ] && args+=(--latest)
+        # shellcheck disable=SC2086
+        python3 "$SCRIPT" "${args[@]}" $INSTALLABLES
+
+    # The rewrite replaces every embedded store path, so running the program
+    # out of it is what says the result execs. Linux only: a darwin entry has
+    # no rewrite.
+    - name: Run each rewritten program
+      if: runner.os == 'Linux'
+      shell: bash
+      env:
+        SCRIPT: ${{ github.action_path }}/publish-closure.py
+        OUT: ${{ steps.resolve.outputs.directory }}
+        REV_KEY: ${{ steps.resolve.outputs.rev-key }}
+        SYSTEM: ${{ steps.resolve.outputs.system }}
+        INSTALLABLES: ${{ steps.resolve.outputs.installables }}
+        SMOKE: ${{ inputs.smoke }}
+      run: |
+        set -euo pipefail
+        # shellcheck disable=SC2086
+        python3 "$SCRIPT" smoke --rev-key "$REV_KEY" --system "$SYSTEM" \
+          --directory "$OUT" --smoke "$SMOKE" $INSTALLABLES
+
+    # The index must not name a path the cache does not hold, and the import
+    # guard below reads it back from there — so the push is explicit, here,
+    # and not left to anybody's post step. `attic push` pushes closures.
+    - name: Push the closures
+      if: inputs.attic-token != ''
+      shell: bash
+      env:
+        SCRIPT: ${{ github.action_path }}/publish-closure.py
+        OUT: ${{ steps.resolve.outputs.directory }}
+        REV_KEY: ${{ steps.resolve.outputs.rev-key }}
+        SYSTEM: ${{ steps.resolve.outputs.system }}
+        SERVER: ${{ steps.resolve.outputs.attic-server }}
+        CACHE: ${{ steps.resolve.outputs.attic-cache }}
+        ATTIC_TOKEN: ${{ inputs.attic-token }}
+        ATTIC_NIXPKGS: ${{ inputs.attic-nixpkgs }}
+      run: |
+        set -euo pipefail
+        # attic from the CALLER's pinned nixpkgs, never an unpinned ref
+        # resolved through the GitHub API at run time.
+        nix profile add "$ATTIC_NIXPKGS#attic-client"
+        attic login --set-default publish "$SERVER" "$ATTIC_TOKEN"
+        # Every path the entries name — the signed `ia` too: a darwin host, or a
+        # Linux Nix outside the content-addressed line, pulls those.
+        python3 "$SCRIPT" paths --rev-key "$REV_KEY" --system "$SYSTEM" --directory "$OUT" \
+          | attic push --stdin "publish:$CACHE"
+
+    # What a consumer does, done here with the publishing Nix: nothing reaches
+    # the index unless it imports into a fresh store and verifies.
+    - name: Verify the published closures import
+      if: inputs.attic-token != '' && runner.os == 'Linux'
+      shell: bash
+      env:
+        SCRIPT: ${{ github.action_path }}/publish-closure.py
+        OUT: ${{ steps.resolve.outputs.directory }}
+        REV_KEY: ${{ steps.resolve.outputs.rev-key }}
+        SYSTEM: ${{ steps.resolve.outputs.system }}
+        CACHE_URL: ${{ steps.resolve.outputs.cache }}
+      run: |
+        set -euo pipefail
+        python3 "$SCRIPT" verify --rev-key "$REV_KEY" --system "$SYSTEM" \
+          --directory "$OUT" --cache "$CACHE_URL" --store-root "$RUNNER_TEMP/verify"
+
+    # Every system's entries are disjoint files under its own directory, so a
+    # run that pushed meanwhile is rebased under this one rather than
+    # contested; the branch is created by whichever system gets there first.
+    # Never on a pull request: its entries would key a commit that may never
+    # land — the rewrite, smoke and import guard above still run there.
+    - name: Push the index
+      if: inputs.attic-token != '' && github.event_name != 'pull_request'
+      shell: bash
+      env:
+        OUT: ${{ steps.resolve.outputs.directory }}
+        BRANCH: ${{ steps.resolve.outputs.index-branch }}
+        REV: ${{ steps.resolve.outputs.rev }}
+      run: |
+        set -euo pipefail
+        # The checkout is shallow and detached; the branch is written with
+        # plumbing from the index tree alone, so nothing here touches the
+        # repository's own work tree or its commits.
+        GIT_DIR="$(cd "$(git rev-parse --git-dir)" && pwd)"
+        # A scratch index of its own (a branch name may hold slashes).
+        export GIT_DIR GIT_WORK_TREE="$OUT" GIT_INDEX_FILE="$RUNNER_TEMP/publish-closure.git-index"
+        cd "$OUT"
+        for attempt in $(seq 10); do
+          if git fetch --quiet --depth=1 origin "$BRANCH" 2>/dev/null; then
+            parent=$(git rev-parse FETCH_HEAD)
+            git read-tree "$parent"
+          else
+            parent=
+            git read-tree --empty
+          fi
+          # Keep whatever the branch held: another system's entry is not this
+          # run's to drop.
+          git add --ignore-removal .
+          tree=$(git write-tree)
+          commit=$(git -c user.name='github-actions[bot]' \
+            -c user.email=41898282+github-actions[bot]@users.noreply.github.com \
+            commit-tree "$tree" ${parent:+-p "$parent"} -m "chore($BRANCH): closures built from $REV")
+          if git push --quiet origin "$commit:refs/heads/$BRANCH"; then
+            echo "publish-closure: pushed $commit to $BRANCH"
+            exit 0
+          fi
+          echo "publish-closure: $BRANCH moved; retrying on its new tip (attempt $attempt)"
+          sleep 2
+        done
+        echo "::error::cannot push the $BRANCH branch"
+        exit 1

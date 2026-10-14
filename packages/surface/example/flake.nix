@@ -43,6 +43,8 @@
               src = self.outPath;
               flakeNix = ./flake.nix;
               label = "surface examples";
+              # The examples publish no content-addressed builds.
+              closureIndex = null;
             };
 
           remote = shared // {

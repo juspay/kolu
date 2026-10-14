@@ -23,7 +23,7 @@ import {
   makeSession,
   pumpRemoteSurface,
   readBakedAgentSource,
-  readBakedBinaryCache,
+  readBakedDeclaration,
   type Session,
   sshConnector,
   type SshProv,
@@ -59,11 +59,11 @@ const DEFAULT_LOAD: SF["cells"]["load"]["Value"] = { avg: [0, 0, 0] };
 // two source-configuration faults chain and surface as one typed rejection.
 const resolveDrv = (_host: string): Promise<AgentDerivation> =>
   readBakedAgentSource()
-    .andThen(readBakedBinaryCache)
+    .andThen(readBakedDeclaration)
     .match(
-      (binaryCache) =>
+      ({ caches }) =>
         Promise.resolve(
-          directAgentDerivation("/nix/store/…-my-agent.drv", binaryCache),
+          directAgentDerivation("/nix/store/…-my-agent.drv", caches),
         ),
       (fault) => Promise.reject(fault),
     );

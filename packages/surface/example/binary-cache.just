@@ -32,6 +32,6 @@ binary-cache:
     # evaluations of a file that changed in between.
     out=$(nix eval --impure --raw --expr 'let d = import ../../surface-daemon/nix/binary-cache.nix
             { lib = import "${(import ../../../npins).nixpkgs}/lib"; }
-            { flakeNix = ./flake.nix; label = "surface examples"; };
+            { flakeNix = ./flake.nix; label = "surface examples"; closureIndex = null; };
           in d.fileName + "\n" + d.json')
     printf '%s' "${out#*$'\n'}" > "${out%%$'\n'*}"

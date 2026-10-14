@@ -18,6 +18,14 @@
 # `SURFACE_AGENT_FLAKE_REF` env var rides — Nix writes the file, TypeScript
 # reads it, and neither spells the literal.
 #
+# The sidecar also carries where the source's builds are PUBLISHED, content-
+# addressed: `closureIndex = { repo, branch }` (a GitHub branch the
+# `publish-closure` action writes `<rev>/<system>/<attr>.json` to), or `null`
+# for a source that publishes none. REQUIRED, with no default — explicit
+# absence, never a guessed index. `rawBase` is derived here, once, so nothing in
+# TypeScript spells an index URL; `@kolu/surface-remote`'s `provisionAgent`
+# reads it to let a host pull a published build itself, with no trust.
+#
 # Both flake spellings normalize on BOTH axes: `nixConfig` values may be a
 # space-separated string (the common form) or a list, and nix honors
 # `substituters` / `extra-substituters` (and the `trusted-public-keys` pair)
@@ -26,6 +34,7 @@
 { lib }:
 { flakeNix # path of the flake whose nixConfig declares the caches
 , label # caller name, for the eval-time error
+, closureIndex # { repo, branch } the closures are published on, or null
 }:
 let
   cfg = (import flakeNix).nixConfig or null;
@@ -53,6 +62,21 @@ let
     else lib.unique value;
 
   fileName = (lib.importJSON ../../surface-remote/agent-env.json).binaryCacheFile;
+
+  index =
+    if closureIndex == null then null
+    else
+      assert lib.assertMsg
+        (builtins.isAttrs closureIndex
+          && builtins.isString (closureIndex.repo or null)
+          && builtins.match "[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+" closureIndex.repo != null
+          && builtins.isString (closureIndex.branch or null)
+          && closureIndex.branch != "")
+        "${label}: closureIndex must be null or { repo = \"owner/name\"; branch = \"…\"; }";
+      {
+        inherit (closureIndex) repo branch;
+        rawBase = "https://raw.githubusercontent.com/${closureIndex.repo}/${closureIndex.branch}";
+      };
 in
 rec {
   substituters = require [ "extra-substituters" "substituters" ];
@@ -62,6 +86,6 @@ rec {
   # Both writers — `mkAgentSourceTree`'s derivation and the examples' dev-path
   # justfile — take these two values and use their own mechanism, so this stays
   # a pure value module with no `$out`-in-scope shell convention baked in.
-  inherit fileName;
-  json = builtins.toJSON { inherit substituters trustedPublicKeys; };
+  inherit fileName index;
+  json = builtins.toJSON { inherit substituters trustedPublicKeys index; };
 }

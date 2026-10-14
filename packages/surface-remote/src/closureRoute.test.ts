@@ -1,14 +1,16 @@
-/** Which form of a published bundle a host pulls, from its Nix. */
+/** Which form of a published closure a host pulls, from its Nix. */
 
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { bundleRoute, signedBecause } from "./route.ts";
+import { closureRoute, signedBecause } from "./closureRoute";
 
 const IA = "/nix/store/1xxnk4wx89kk1cfyfnqgz8hg5msbz0gw-agent-distro-vanilla";
 const CA = "/nix/store/r6r8xkl3fvi5is4ckfbl6sl1wacz2rak-agent-distro-vanilla";
 const both = { rev: "f".repeat(40), ia: IA, ca: CA };
 const linux = (nixVersion: string) => ({ system: "x86_64-linux", nixVersion });
 
-describe("bundleRoute", () => {
+describe("closureRoute", () => {
   it("a Linux Nix 2.17 through 2.34 pulls the content-addressed bundle", () => {
     for (const v of [
       "2.17.0",
@@ -16,7 +18,7 @@ describe("bundleRoute", () => {
       "2.34.8",
       "2.34.99pre20261013_abcdef",
     ])
-      expect(bundleRoute(linux(v), both)).toEqual({
+      expect(closureRoute(linux(v), both)).toEqual({
         kind: "content-addressed",
         storePath: CA,
       });
@@ -24,7 +26,7 @@ describe("bundleRoute", () => {
 
   it("a Linux Nix outside that line pulls the signed bundle, because of its Nix line", () => {
     for (const v of ["2.35.0", "2.35.2", "2.40.1", "3.0.0", "2.16.3"])
-      expect(bundleRoute(linux(v), both)).toEqual({
+      expect(closureRoute(linux(v), both)).toEqual({
         kind: "signed",
         storePath: IA,
         because: "nix-line",
@@ -35,19 +37,19 @@ describe("bundleRoute", () => {
     const { ca: _, ...darwinEntry } = both;
     for (const v of ["2.34.8", "2.35.1"])
       expect(
-        bundleRoute({ system: "aarch64-darwin", nixVersion: v }, darwinEntry),
+        closureRoute({ system: "aarch64-darwin", nixVersion: v }, darwinEntry),
       ).toEqual({ kind: "signed", storePath: IA, because: "mach-o" });
   });
 
   it("a Linux host that would pull `ca` from an entry without one is loud", () => {
     const { ca: _, ...noCa } = both;
-    expect(() => bundleRoute(linux("2.34.8"), noCa)).toThrow(
-      "agent-distro's index names no content-addressed bundle for x86_64-linux",
+    expect(() => closureRoute(linux("2.34.8"), noCa)).toThrow(
+      "the closure index names no content-addressed closure for x86_64-linux",
     );
   });
 
   it("a Nix version with no major.minor is loud", () => {
-    expect(() => bundleRoute(linux("unknown"), both)).toThrow(
+    expect(() => closureRoute(linux("unknown"), both)).toThrow(
       /names no major\.minor/,
     );
   });
@@ -62,7 +64,31 @@ describe("signedBecause", () => {
       }),
     ).toMatch(/code signature/);
     expect(signedBecause("nix-line", linux("2.35.2"))).toBe(
-      "its Nix 2.35.2 cannot verify the content-addressed form agent-distro publishes (written by Nix 2.34; Nix 2.17 through 2.34 can)",
+      "its Nix 2.35.2 cannot verify the content-addressed form the publisher writes (written by Nix 2.34; Nix 2.17 through 2.34 can)",
+    );
+  });
+});
+
+describe("the publisher's Nix and the content-addressed lines agree", () => {
+  it("a Linux host on the Nix the publish-closure action rewrites with takes the content-addressed form", () => {
+    // The action pins its Nix by `install_url`; bumping it past the lines
+    // `closureRoute` sends `ca` to would publish a form those hosts refuse.
+    const action = readFileSync(
+      fileURLToPath(
+        new URL(
+          "../../../.github/actions/publish-closure/action.yml",
+          import.meta.url,
+        ),
+      ),
+      "utf8",
+    );
+    const version =
+      /releases\.nixos\.org\/nix\/nix-(\d+\.\d+\.\d+)\/install/.exec(
+        action,
+      )?.[1];
+    expect(version).toBeDefined();
+    expect(closureRoute(linux(version ?? ""), both).kind).toBe(
+      "content-addressed",
     );
   });
 });

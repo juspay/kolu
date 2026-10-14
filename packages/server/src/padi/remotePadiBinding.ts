@@ -285,7 +285,7 @@ const DRV_FAULT: Record<
   "source-unbaked": { cause: "agent-source-unbaked", unsetHint: true },
   "binary-cache-unbaked": { cause: "agent-cache-unbaked", unsetHint: true },
   // The pass-through faults: an unresolvable baked drv, and (probe-classified
-  // terminal — see `resolveSystem`) the two ssh refusals plus an unrunnable
+  // terminal — see `resolveHostNix`) the two ssh refusals plus an unrunnable
   // remote Nix. Each names the actual remedy on the host-down card (set up key
   // auth, accept the host key, install Nix) instead of the generic
   // "can't reach this host".

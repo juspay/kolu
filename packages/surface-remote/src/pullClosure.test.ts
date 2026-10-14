@@ -7,12 +7,14 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { useControlDir } from "./controlDir.testutil";
 import { sshKeepalive } from "./keepalive";
 import {
+  makeStepBudget,
   PROVISION_COPY_SILENCE_MS,
+  PROVISION_STEP_MAX_EXPIRIES,
   PROVISION_STEP_SILENCE_BASE_MS,
 } from "./nixCopy";
 import { nixErrorLine } from "./nixLog.testutil";
 import { type CaptureResult, runCapture } from "./process";
-import { pullClosure } from "./pullClosure";
+import { pullClosure } from "./nixCopy";
 
 vi.mock("./process", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./process")>()),
@@ -42,6 +44,10 @@ const pull = (host = "ci@croissant", onProgress = vi.fn()) =>
     rootPath: ROOT,
     onProgress,
     keepalive: sshKeepalive(10, 3),
+    budget: makeStepBudget(
+      PROVISION_STEP_SILENCE_BASE_MS,
+      PROVISION_STEP_MAX_EXPIRIES,
+    ),
   });
 const calls = () => vi.mocked(runCapture).mock.calls;
 
@@ -122,6 +128,10 @@ describe("pullClosure — the host pulls a content-addressed closure from the ca
       signedBy: "oss:KEY=",
       rootPath: ROOT,
       onProgress: () => {},
+      budget: makeStepBudget(
+        PROVISION_STEP_SILENCE_BASE_MS,
+        PROVISION_STEP_MAX_EXPIRIES,
+      ),
       keepalive: sshKeepalive(10, 3),
     });
     const [, signed] = calls().find(([, a]) => isCopy(a)) ?? [];
@@ -170,7 +180,7 @@ describe("pullClosure — the host pulls a content-addressed closure from the ca
     expect(calls().some(([, a]) => isPin(a))).toBe(false);
   });
 
-  it("a silent copy is killed at the copy bound and reported as a retryable failure", async () => {
+  it("a silent copy is killed at the copy bound and is a MISS (`uncopied`), not a failed dial", async () => {
     vi.mocked(runCapture).mockImplementation(async (_cmd, args) =>
       isCopy(args)
         ? {
@@ -184,8 +194,8 @@ describe("pullClosure — the host pulls a content-addressed closure from the ca
     );
     expect(await pull()).toMatchObject({
       ok: false,
-      kind: "failed",
-      cause: "network",
+      kind: "uncopied",
+      reason: expect.stringContaining("nix copy --from"),
     });
   });
 

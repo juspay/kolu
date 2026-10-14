@@ -1,79 +1,59 @@
 /**
  * The real {@link DeliveryOps}. Which bundle: one HTTPS GET of upstream's
- * content-addressed index (`@kolu/agent-distro/caIndex`) per system. Getting
- * it there: `@kolu/surface-remote`'s `pullClosure` — the host pulls the path
- * from agent-distro's cache and roots it (its header says what trust each form
- * needs), in the form `./route.ts` picks from the host's Nix: the
+ * content-addressed index per system (`@kolu/surface-remote`'s
+ * `readPublishedClosure`, the `latest/` entry). Getting it there:
+ * `@kolu/surface-remote`'s `pullClosure` — the host pulls the path from
+ * agent-distro's cache and roots it (its header says what trust each form
+ * needs), in the form `closureRoute` picks from the host's Nix: the
  * content-addressed rewrite, which needs no trust, or the signed bundle, which
  * needs the host's Nix to trust the login or the cache's key. This machine
- * runs no Nix for either.
+ * runs no Nix for either. kolu's own words — the profile, the per-profile GC
+ * root, the trust fix a refusal names — stay here.
  */
 
 import type { AgentDistroDelivery } from "@kolu/agent-distro/bake";
-import { caIndexUrl, parseCaIndexEntry } from "@kolu/agent-distro/caIndex";
 import {
+  closureRoute,
   DEFAULT_SSH_KEEPALIVE,
+  type FetchText,
+  fetchClosureIndex,
   homeGcRoot,
   isLocalHost,
+  makeStepBudget,
+  PROVISION_STEP_MAX_EXPIRIES,
+  PROVISION_STEP_SILENCE_BASE_MS,
+  type PublishedClosure,
   pullClosure,
+  readPublishedClosure,
   resolveHostNix,
+  signedBecause,
 } from "@kolu/surface-remote";
 import type { DeliveryOps } from "./delivery.ts";
-import { bundleRoute, signedBecause } from "./route.ts";
 
-/** How long one index read may take — a small JSON file off a CDN. */
-const INDEX_TIMEOUT_MS = 30_000;
-
-/** Read `profile`'s newest published bundle for `system` off the index at
- *  `index` (`fetchText` injectable for tests). Every failure throws in words
- *  the host's failure line carries as is: a 404 says upstream has not
- *  published that bundle; a request that never got an answer, any other
- *  status, or a body that is not an index entry names the URL. */
+/** Read `profile`'s newest published bundle for `system` off agent-distro's
+ *  index at `index` — its `latest/` entry, through the framework's reader
+ *  (`fetchText` injectable for tests). A 404 throws in words the host's
+ *  failure line carries as is (upstream has not published that bundle); the
+ *  reader's own errors (no answer, another status, not an entry) name the
+ *  URL. */
 export async function readPublishedBundle(
   index: string,
   system: string,
   profile: string,
-  fetchText: (
-    url: string,
-  ) => Promise<{ readonly status: number; readonly text: string }> = async (
-    url,
-  ) => {
-    const res = await fetch(url, {
-      signal: AbortSignal.timeout(INDEX_TIMEOUT_MS),
-    });
-    return { status: res.status, text: await res.text() };
-  },
-) {
-  const url = caIndexUrl(index, system, profile);
-  let answer: { readonly status: number; readonly text: string };
-  try {
-    answer = await fetchText(url);
-  } catch (err) {
-    // `fetch` rejects with a bare "fetch failed" and the real reason (DNS, no
-    // egress, TLS, the timeout) on its `cause`.
-    const cause =
-      err instanceof Error && err.cause !== undefined ? err.cause : err;
-    throw new Error(
-      `agent-distro's index at ${url} could not be read: ${cause instanceof Error ? cause.message : String(cause)}`,
-      { cause: err },
-    );
-  }
-  const { status, text } = answer;
-  if (status === 404)
+  fetchText: FetchText = fetchClosureIndex,
+): Promise<PublishedClosure> {
+  const read = await readPublishedClosure(
+    fetchText,
+    { rawBase: index },
+    "latest",
+    system,
+    profile,
+  );
+  if (read.kind === "not-published")
     throw new Error(
       `agent-distro has not published the ${profile} agents for ${system} yet`,
     );
-  if (status !== 200)
-    throw new Error(
-      `agent-distro's index answered HTTP ${status} for ${url}: ${text.slice(0, 200)}`,
-    );
-  try {
-    return parseCaIndexEntry(text);
-  } catch (err) {
-    throw new Error(
-      `agent-distro's index entry at ${url} is not { rev, ia, ca }: ${err instanceof Error ? err.message : String(err)}`,
-    );
-  }
+  return read.entry;
 }
 
 /** The real operations, for `bake`'s index and cache. */
@@ -87,7 +67,7 @@ export function realDeliveryOps(bake: AgentDistroDelivery): DeliveryOps {
     published: (system, profile) =>
       readPublishedBundle(bake.index, system, profile),
     pull: async ({ ssh, label, hostNix, published, profile, onProgress }) => {
-      const route = bundleRoute(hostNix, published);
+      const route = closureRoute(hostNix, published);
       const { storePath } = route;
       // kolu's own root, one link per profile ("latest", like surface-remote's
       // per-agent roots). Home-relative, never `$XDG_STATE_HOME`: over ssh the
@@ -108,6 +88,12 @@ export function realDeliveryOps(bake: AgentDistroDelivery): DeliveryOps {
         rootPath,
         onProgress,
         keepalive,
+        // One delivery is one attempt: its root commit gets a fresh budget,
+        // and upstream's schedule (not a redial loop) is what retries it.
+        budget: makeStepBudget(
+          PROVISION_STEP_SILENCE_BASE_MS,
+          PROVISION_STEP_MAX_EXPIRIES,
+        ),
       });
       if (res.ok) return { ok: true, bundle: storePath };
       if (res.kind === "failed") return { ok: false, message: res.reason };

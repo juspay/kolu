@@ -43,7 +43,7 @@ export type AgentDerivation =
  * prefetched from. The parameter is deliberately REQUIRED: downstream
  * binders (drishti's baked drv map, odu's runner flake) inherit the
  * cache-aware provisioning path at compile time, not by opting in. Obtain the
- * declaration with `readBakedBinaryCache` where the deployment bakes one;
+ * declaration with `readBakedDeclaration(…).caches` where the deployment bakes one;
  * `agentBinaryCache({…})` states one inline. */
 export function directAgentDerivation(
   drvPath: string,

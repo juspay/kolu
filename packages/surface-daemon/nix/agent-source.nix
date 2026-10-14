@@ -47,7 +47,13 @@
 # `nix build --accept-flake-config <flakeSrc>#…` would honor); a flakeNix
 # declaring no substituters + trusted keys fails THIS eval, at the binder's
 # `nix build`, so a consumer (kolu, drishti, odu) cannot assemble an agent
-# source that leaves provisioning cache-blind. Both the derivation of that
+# source that leaves provisioning cache-blind. The same sidecar names the
+# content-addressed index the source's builds are published on (`closureIndex`,
+# REQUIRED: `{ repo, branch }` or an explicit `null`), keyed by the
+# `commit-hash` baked below — so a binder's `provisionAgent` looks up exactly
+# its own build and the host pulls it with no trust (the publisher is
+# `.github/actions/publish-closure`; a dirty or unpublished rev simply 404s and
+# provisioning takes its other steps). Both the derivation of that
 # declaration (`binary-cache.nix`) and the assembly of the tree it lands in
 # (`agent-source-tree.nix`) are shared recipes — see those files.
 { lib }:
@@ -57,6 +63,7 @@
 , commitHash        # navigable git ref passed into the nested default.nix
 , agents            # agent attr names to prove (e.g. [ "padi" "kaval" ])
 , flakeNix          # path of the agent flake (copied to $out/flake.nix)
+, closureIndex      # { repo, branch } its builds are published on, or null
 }:
 let
   # Pure: store path changes iff any selected file changes; importable at eval.
@@ -87,10 +94,11 @@ let
   # `mkAgentSourceTree`, so this recipe is exactly prove-then-assemble and the
   # example flake's assemble-only bake cannot drift from it.
   flakeSrc = import ./agent-source-tree.nix { inherit lib; } {
-    inherit pkgs flakeNix;
+    inherit pkgs flakeNix closureIndex;
     src = provenTree;
     label = "mkProvenAgentSource";
-    extraFiles = { "commit-hash" = commitHash; };
+    # The name is the one `@kolu/surface-remote` reads it by (agent-env.json).
+    extraFiles = { ${(lib.importJSON ../../surface-remote/agent-env.json).commitHashFile} = commitHash; };
   };
 in
 {

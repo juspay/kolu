@@ -48,10 +48,13 @@ already running.
     The host has [Nix installed](https://nixos.asia/en/install) — kolu provisions
     [padi](/padi) there with Nix over ssh. It must be runnable from a
     *non-interactive* ssh session, not only from a login shell. A Linux host
-    needs nothing in its Nix settings: kolu copies padi's binaries there
-    content-addressed, which its Nix accepts from any user. On a Mac, make
-    your user **trusted by its nix-daemon** (`trusted-users`) so kolu can copy
-    them there instead of the Mac building them itself.
+    needs nothing in its Nix settings: padi arrives content-addressed, which
+    its Nix accepts from any user — pulled by the host itself from kolu's cache
+    when your kolu is a published build, else copied over by kolu. (That form
+    needs Nix 2.17 through 2.34 on the host; a newer Nix is treated like a
+    Mac.) On a Mac, make your user **trusted by its nix-daemon**
+    (`trusted-users`) so kolu can copy them there instead of the Mac building
+    them itself.
   </Card>
   <Card title="A Nix-wrapped kolu">
     Launch kolu through its Nix wrapper, which bakes in its exact agent source.

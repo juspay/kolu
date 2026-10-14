@@ -16,11 +16,10 @@
  * here is testable without a network or a host.
  */
 
-import type { CaIndexEntry } from "@kolu/agent-distro/caIndex";
 import type { AgentDistroDeliveryReport } from "@kolu/agent-distro/schema";
 import { type UpdaterSchedule, updateDue } from "@kolu/agent-distro/schedule";
 import type { Logger } from "@kolu/log";
-import type { HostNix } from "@kolu/surface-remote";
+import type { HostNix, PublishedClosure } from "@kolu/surface-remote";
 
 /** The steps of a delivery. Each throws with its own words. */
 export interface DeliveryOps {
@@ -31,16 +30,16 @@ export interface DeliveryOps {
    *  index. Throws, in words a user reads, when upstream has published none
    *  for that system or the index cannot be read — never a reason to
    *  evaluate or build one. */
-  published(system: string, profile: string): Promise<CaIndexEntry>;
+  published(system: string, profile: string): Promise<PublishedClosure>;
   /** The route: have the host — whose Nix is `hostNix` — pull `published`'s
-   *  bundle in the form it can take and run (`./route.ts`), and root it —
+   *  bundle in the form it can take and run (`closureRoute`, `@kolu/surface-remote`), and root it —
    *  never building. Answers the path that landed, or the cause in words a
    *  user reads (`label` names the host in them). */
   pull(args: {
     readonly ssh: string;
     readonly label: string;
     readonly hostNix: HostNix;
-    readonly published: CaIndexEntry;
+    readonly published: PublishedClosure;
     readonly profile: string;
     readonly onProgress: (line: string) => void;
   }): Promise<
@@ -98,7 +97,7 @@ export function createAgentDelivery(deps: {
    *  host's connect reuses it within the schedule period. */
   const known = new Map<
     string,
-    { readonly entry: CaIndexEntry; readonly at: number }
+    { readonly entry: PublishedClosure; readonly at: number }
   >();
   /** Deliveries in flight, by `host#bundle`: a switch to ANOTHER profile is
    *  its own delivery, never folded into the one still running. */
@@ -110,7 +109,7 @@ export function createAgentDelivery(deps: {
     system: string,
     profile: string,
     fresh: boolean,
-  ): Promise<CaIndexEntry> => {
+  ): Promise<PublishedClosure> => {
     const key = `${system}#${profile}`;
     const last = known.get(key);
     if (
@@ -156,7 +155,7 @@ export function createAgentDelivery(deps: {
     host: DeliveryHost,
     profile: string,
     /** One index read per system per run, shared by its hosts. */
-    bundleFor: (system: string) => Promise<CaIndexEntry>,
+    bundleFor: (system: string) => Promise<PublishedClosure>,
   ): Promise<HostOutcome> => {
     const at = { host: host.label, agentDistroProfile: profile };
     try {
@@ -227,7 +226,7 @@ export function createAgentDelivery(deps: {
         );
         if (live.length === 0) return outcomes;
         const fresh = trigger !== "connect";
-        const reads = new Map<string, Promise<CaIndexEntry>>();
+        const reads = new Map<string, Promise<PublishedClosure>>();
         const bundleFor = (system: string) => {
           let entry = reads.get(system);
           if (entry === undefined) {

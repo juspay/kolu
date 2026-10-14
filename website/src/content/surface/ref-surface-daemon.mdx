@@ -406,3 +406,14 @@ silent escape. Every mistake is a loud eval failure:
 The third recipe in the same directory, unrelated to identity: it assembles a
 remote-agent source tree and **proves** an agent evaluates from it before the
 path reaches any wrapper. See the file's own header for the prove/expose rule.
+
+Arguments: `{ root, fileset, pkgs, commitHash, agents, flakeNix, closureIndex }`.
+The baked tree carries `flake.nix`, `commit-hash`, and `binary-cache.json` —
+`{ substituters, trustedPublicKeys, index }`, the caches derived from
+`flakeNix`'s own `nixConfig` and `index` from **`closureIndex`**: `{ repo,
+branch }` (a GitHub branch the `publish-closure` action writes
+`<commitHash>/<system>/<attr>.json` to; `rawBase` is derived) or an explicit
+`null`. It is required — no default — and a malformed one fails the binder's
+eval. `@kolu/surface-remote` reads it as `readBakedDeclaration(…).index` (with `rev`, its `commit-hash`), and
+`provisionAgent` looks the binder's own build up there before staging anything
+([Publish your daemon content-addressed](/surface/publish-content-addressed)).
