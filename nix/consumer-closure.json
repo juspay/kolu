@@ -179,6 +179,16 @@
         "solid-js": "^1.9.0"
       }
     },
+    "@kolu/solid-logtail": {
+      "dir": "packages/solid-logtail",
+      "workspace": [
+        "@kolu/theme"
+      ],
+      "external": {
+        "effect": "catalog:",
+        "solid-js": "^1.9.0"
+      }
+    },
     "@kolu/solid-markdown": {
       "dir": "packages/solid-markdown",
       "workspace": [
@@ -433,6 +443,7 @@
       "dir": "packages/surface-remote",
       "vendored": true,
       "workspace": [
+        "@kolu/byte-units",
         "@kolu/log",
         "@kolu/shell-quote",
         "@kolu/surface",
@@ -682,6 +693,7 @@
         "@kolu/solid-browser",
         "@kolu/solid-dockrow",
         "@kolu/solid-fileview",
+        "@kolu/solid-logtail",
         "@kolu/solid-markdown",
         "@kolu/solid-pierre",
         "@kolu/solid-pwa-install",

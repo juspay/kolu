@@ -211,6 +211,11 @@ export const RUN_EDGE_ALLOWLIST: readonly RunEdge[] = [
     why: "`kolu-rpc`'s process edge — the one-shot harness caller places exactly one call and exits, and it runs the Exit (not the value) because a shell needs the CAUSE on stderr",
   },
   {
+    path: "packages/solid-logtail/src/LogTail.tsx",
+    sites: 1,
+    why: "the log tail's own copy edge: the block IS the affordance — its button, its `copied` flash — and the write it runs (`writeTextToClipboard`'s ladder into `execCommand`, for the non-secure context a LAN or Tailscale URL has no `navigator.clipboard` in) must START on the click's own stack, so there is no caller left to compose into. A leaf package cannot reach the app's `runAction` edge above, which is why a failure leaves through a REQUIRED `onCopyError(message)` prop rather than a toast the package would have to own; one crossing, inside the click handler",
+  },
+  {
     path: "packages/surface-app/example/src/server/main.ts",
     sites: 2,
     why: "boot and shutdown of the listener's ONE scope, in a top-level script: `serveSurfaceApp(...)` at module load, and `Scope.close` inside the SIGINT/SIGTERM handler — a node signal callback is a non-Effect runtime, so the close cannot compose into the boot. The `request`-callback edge this file used to carry is GONE: `serveSurfaceApp` owns that boundary now, which is the whole point of the primitive",
