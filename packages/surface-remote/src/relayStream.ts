@@ -191,22 +191,30 @@ function awaitLiveClient<Cl>(
   holder: ObservableHolder<Cl>,
   onWait: () => void,
   upstream: { signal: UpstreamSignal; announce: () => boolean },
-): Effect.Effect<Cl | null, SurfaceUpstreamRefused>;
+): Effect.Effect<Cl | null>;
 function awaitLiveClient<Cl>(
   holder: ObservableHolder<Cl>,
   onWait: () => void,
   upstream?: { signal: UpstreamSignal; announce: () => boolean },
-): Effect.Effect<Cl | null, SurfaceUpstreamRefused> {
+): Effect.Effect<Cl | null> {
   return Effect.gen(function* () {
     /** A refusal outranks a hold AND an absent frame: the far end answered, so
-     *  "nothing is there" would be a lie and waiting would be waiting on a skew
-     *  that no spawn resolves. */
+     *  "nothing is there" would be a lie, and waiting would be waiting on a
+     *  skew that no spawn resolves.
+     *
+     *  Raised as a DEFECT, like `requireUpstream`'s structural mismatch and for
+     *  the same reason: a streaming member declares no error channel (D4 is
+     *  about procedures), so a typed failure here would be encoded against
+     *  `Schema.Never` and reach the subscriber as a complaint about the
+     *  encoding instead of the far end's sentence. A defect carries its message
+     *  across the hop intact, and the retry fence leaves it alone — which is
+     *  right, because no retry unmakes a version skew. */
     const refused = (): SurfaceUpstreamRefused | null => {
       const reason = upstream?.signal.refusal() ?? null;
       return reason === null ? null : new SurfaceUpstreamRefused({ reason });
     };
     const standing = refused();
-    if (standing !== null) return yield* Effect.fail(standing);
+    if (standing !== null) return yield* Effect.die(standing);
     if (holder.current !== null) return holder.current;
     if (upstream?.signal.isAbsent() === true && upstream.announce()) {
       return null;
@@ -221,7 +229,7 @@ function awaitLiveClient<Cl>(
         ? holder.changed
         : Effect.raceAllFirst([holder.changed, upstream.signal.changed]);
       const nowRefused = refused();
-      if (nowRefused !== null) return yield* Effect.fail(nowRefused);
+      if (nowRefused !== null) return yield* Effect.die(nowRefused);
       client = holder.current;
       if (
         client === null &&
@@ -298,17 +306,17 @@ function requireUpstream<Cl, I, F>(
  * — so it would be classed as a link blip (held) today; a future one that needs
  * surfacing would report its per-input failure as a clean end.
  *
- * The returned stream fails ONLY on a standing refusal
- * ({@link SurfaceUpstreamRefused}): every upstream FAILURE is absorbed into a
- * rebind, so the other ways it terminates are a clean upstream end and
- * interruption.
+ * The returned stream's failure channel is `never`: every upstream failure is
+ * absorbed into a rebind, so the only ways it terminates are a clean upstream
+ * end, interruption, and the one DEFECT it raises — a standing refusal
+ * ({@link SurfaceUpstreamRefused}), which no rebind can resolve.
  */
 export function holdOpenStreamCore<Cl, I, F>(
   member: string,
   holder: ObservableHolder<Cl>,
   select: (client: Cl) => ForwardableStream<I, F>,
   opts: RelayHoldOpenOptions<F> = {},
-): (input: I) => Stream.Stream<F, SurfaceUpstreamRefused> {
+): (input: I) => Stream.Stream<F, never> {
   const log = opts.log ?? ((): void => {});
   const upstream = opts.upstream;
   const absent = upstream?.absent;
@@ -319,7 +327,7 @@ export function holdOpenStreamCore<Cl, I, F>(
      *  against a daemon nobody is going to start. Reset by a live client, so a
      *  daemon stopped a second time is news again. */
     let toldAbsent = false;
-    const bind = (): Stream.Stream<F, SurfaceUpstreamRefused> =>
+    const bind = (): Stream.Stream<F, never> =>
       Stream.unwrap(
         Effect.gen(function* () {
           const onWait = (): void =>
@@ -424,7 +432,7 @@ export function relayHoldOpenStream<P extends RelayPolicy, Cl, I, F>(
   holder: ObservableHolder<Cl>,
   select: (client: Cl) => ForwardableStream<I, F>,
   opts: RelayHoldOpenOptions<F> = {},
-): (input: I) => Stream.Stream<F, SurfaceUpstreamRefused> {
+): (input: I) => Stream.Stream<F, never> {
   // Defence in depth behind the type bound: an `as`-cast caller can't smuggle a
   // delta member through and get it silently held open — fail loud instead.
   if (policy[member] !== "value") {
