@@ -187,9 +187,14 @@ diagnostics is never hover-opened.
   **“Provisioning kolu on `<host>`… this can take a few minutes”**, with a
   **live tail of nix's own output** (each path copied, each build started)
   and an **elapsed timer** that **keeps climbing every second** even when the log is quiet
-  during one large fetch. So a slow-but-working cold connect reads as *in progress*, not a
-  hang. There's no fake progress bar — the reassurance is the named phase, nix's real
-  output, and the clock. A warm reconnect still refreshes the mandatory target-store
+  during one large fetch. Lines **wrap** rather than clip, so a long path reads whole, and a big
+  transfer narrates its **own bytes** as they climb (**“kolu-2.2.0: 42 MiB of 180 MiB”**, at
+  every tenth of the way through) instead of going silent for minutes. The tail's box keeps one
+  fixed height, so the title and the clock stay put while lines arrive, and its corner **Copy**
+  button copies the **whole** log that attempt produced — not just the six rows on screen — to
+  hand to someone else. So a slow-but-working cold connect reads as *in progress*, not a hang.
+  There's no fake progress bar — the reassurance is the named phase, nix's real output, its real
+  byte counts, and the clock. A warm reconnect still refreshes the mandatory target-store
   root, so it crosses the same honest provisioning phase; that refresh is normally
   near-instant and may never paint before the connection is ready. After a Kolu restart,
   a cold local derivation cache can additionally require an **evaluation** pass — kolu
