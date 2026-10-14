@@ -15,16 +15,22 @@
  *     once one is open, is what a row offers so that ⌘-click and the click name
  *     the same URL.
  *
- * The wire-bound outlet (`useOduLaneLink`) is stubbed out of the module graph:
- * these decisions need no socket, and a test that opened one would be testing
- * the wire rather than the decision.
+ * The wire-bound outlet (`useOduLink`) is stubbed out of the module graph: these
+ * decisions need no socket, and a test that opened one would be testing the wire
+ * — the hook's own job is now to read WHERE odu is listening off odu's `service`
+ * cell and hand that port to the decision below — rather than the decision.
  */
 
 import { formatLogKey } from "@odu/service-client/logKey";
 import { logHash } from "@odu/service-client/routes";
 import { describe, expect, it, vi } from "vitest";
 
-vi.mock("../wire", () => ({ activeHost: () => ({ kind: "local" }) }));
+// `padiMap` is named only so the module's import binding resolves: these cases
+// call the pure decision, never the hook that reads odu's `service` cell.
+vi.mock("../wire", () => ({
+  activeHost: () => ({ kind: "local" }),
+  padiMap: { entry: () => undefined },
+}));
 vi.mock("../kaval/useDaemonStatus", () => ({
   isActiveHostLocal: () => true,
 }));
@@ -37,8 +43,8 @@ vi.mock("../forwards/useForwards", () => ({
 
 const { oduLinkAct } = await import("./useOduLink");
 
-/** The port a frame carried off the daemon's own greeting — an arbitrary one on
- *  purpose: the link has to dial THIS, not a default. */
+/** The port odu's own `service` cell named (`serviceBind(identity.origin)`) — an
+ *  arbitrary one on purpose: the link has to dial THIS, not a default. */
 const DAEMON_PORT = 18777;
 
 describe("how an odu link is reached", () => {

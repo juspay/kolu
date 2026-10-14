@@ -61,7 +61,6 @@ import type { Logger } from "pino";
 import { createFinishQuiet } from "./activity/finishQuiet.ts";
 import { createLiveActivitySource } from "./activity/liveActivity.ts";
 import { EMPTY_URGENCY } from "./activity/urgency.ts";
-import { createCiStatusSource } from "./ciStatus.ts";
 import { createEdgeMemory } from "./attention/edgeMemory.ts";
 import {
   agentDistroSettingStore,
@@ -375,9 +374,6 @@ export function buildPadiSurfaceDeps(deps: {
   const unsubscribeSettle = settleEvents.onFrame((events) =>
     watchRegistry.acceptSettle(events),
   );
-  // The odu CI session: ONE per daemon, dialling on demand. Its socket is a ref'd
-  // handle, so it belongs to the same lifetime as everything else here.
-  const ciStatus = createCiStatusSource({ log });
   disposeStanding = () => {
     unsubscribeSettle();
     watchRegistry.dispose();
@@ -385,7 +381,6 @@ export function buildPadiSurfaceDeps(deps: {
     settleEvents.dispose();
     watchEdges.dispose();
     finish.dispose();
-    void ciStatus.dispose();
   };
 
   // The padi memory / host-inventory poll cells fire on their fixed cadence AND the
@@ -702,13 +697,6 @@ export function buildPadiSurfaceDeps(deps: {
         },
       },
       ...fsGit.streams,
-      // The Inspector's odu CI readout for one terminal's checkout. The source
-      // owns the demand-driven session with odu's web daemon: the first open
-      // subscription dials it, the last close lets the link go (after a retire
-      // grace), and every frame is a full replacement folded from odu's board
-      // (see `./ciStatus.ts` for the session, the retry fence, and the one
-      // known limit).
-      ciStatus,
       // The per-subscriber terminal byte stream — snapshot-first frame, then
       // live output, with the shipped overflow re-attach (#1591) riding on
       // through `reattachingDeltas`. Routed by the terminal's OWN location so a

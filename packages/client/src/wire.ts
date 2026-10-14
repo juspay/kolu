@@ -622,8 +622,11 @@ type PadiRpcFace = SurfaceClient<typeof padiEntrySurface.spec>["procedures"];
  *  change pulses, whose transient re-subscribes must NOT flicker padi's `health()`
  *  gate, so they take the raw ref rather than the enrolling `.use()`. Every OTHER
  *  (enrolled) per-host stream rides this same fused lens — `entry.streams.<key>.use`
- *  through it, like the Inspector's `ciStatus` — so it is the ONE reach for both
- *  the enrolled members and the carve-outs. */
+ *  through it — so it is the ONE reach for both the enrolled members and the
+ *  carve-outs. The Inspector's odu readout is NOT one of them: odu is a nested
+ *  SIBLING of padi now, so it takes the same entry lens through odu's own face
+ *  (`useEntry(activeHost).odu.streams.checkout.use`), which is a different
+ *  surface's member and not padi's. */
 export const activePadiStreams = hostScoped.streams;
 
 /** The ACTIVE host's link-health value (`phase` + `log` tail), or `undefined` before its

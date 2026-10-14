@@ -37,7 +37,6 @@ import AgentStatusCard from "./AgentStatusCard";
 import ComposeSection from "./ComposeSection";
 import KavalAttachSection from "./KavalAttachSection";
 import PortsSection from "./PortsSection";
-import { useOduCiStatus } from "./useOduCiStatus";
 import { useOduLink } from "./useOduLink";
 import WorkSection from "./WorkSection";
 
@@ -54,17 +53,11 @@ const MetadataInspector: Component<{
 }> = (props) => {
   const store = useTerminalStore();
 
-  /** The checkout's odu CI readout for the focused pane. Opened here rather
-   *  than inside `WorkSection` because that section is deliberately wire-free
-   *  (its own header argues it: it is the one section a test can render without
-   *  the wire in the module graph), and because the subscription is
-   *  SHOWN-GATED — a hidden Inspector tab is not a subscriber. */
-  const oduCi = useOduCiStatus(() => props.terminalId);
-
-  /** The odu-link outlet — how a lane row, a recent-runs row or the chip
-   *  reaches odu web. Opened here with the readout (same reason: `WorkSection`
-   *  stays wire-free), and it reads the SAME active host the readout is keyed
-   *  by, so the page a row opens is the daemon that row is describing. */
+  /** The odu-link outlet — how a lane row, a recent-runs row or the chip reaches
+   *  odu web. Opened here rather than inside `WorkSection` so that section can be
+   *  rendered in a test with the link decision stubbed, and it reads the SAME
+   *  active host the section's readout is keyed by, so the page a row opens is
+   *  the daemon that row is describing. */
   const odu = useOduLink();
 
   /** Is the TILE awake? The Attach section's subject is the tile (its picker
@@ -113,19 +106,12 @@ const MetadataInspector: Component<{
           </Show>
 
           {/* Work — directory + git + PR as one identity cluster, plus the
-              checkout's odu CI readout (which is its own wire-bound
-              subscription, so it is opened HERE and handed down: `WorkSection`
-              stays renderable in a test without the wire in its module graph).
-              The lane-link outlet is passed the same way and for the same
-              reason — and so is the readout's FAILURE, which is the difference
-              between "no odu here" (nothing renders) and "odu answered and could
-              not be read" (a row that says so). */}
-          <WorkSection
-            meta={meta()}
-            oduCi={oduCi.frame()}
-            oduCiError={oduCi.error()?.message ?? null}
-            odu={odu}
-          />
+              checkout's odu CI readout. That readout is the section's OWN
+              subscription now (odu's `checkout` stream, keyed by the git fact
+              the section already reads), so nothing about it is threaded
+              through here; only the lane-link outlet is, so the address a row
+              offers stays assertable without a forwards wire. */}
+          <WorkSection meta={meta()} odu={odu} />
 
           {/* Ports — what this TILE is serving, its splits included (a dev server
               usually runs in a split, so a main-pane-only reading shows nothing in

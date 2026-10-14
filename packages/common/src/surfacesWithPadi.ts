@@ -18,7 +18,7 @@
  * SERVED contract with this padi-ful map locally.
  */
 
-import { padiSurface } from "@kolu/padi-client/surface";
+import { oduCarriedSurface, padiSurface } from "@kolu/padi-client/surface";
 import { mergeDisjointGroups } from "@kolu/surface/define";
 import {
   defineSurfaceMap,
@@ -260,6 +260,12 @@ export const padiEntrySurface = padiSurface;
 export const padiHostMap = defineSurfaceMap({
   key: HostKeySchema,
   entry: padiEntrySurface,
+  // The NESTED SIBLING: odu's carried surface, addressed `entry(h).odu.<member>`
+  // and served at `surface/padi/odu/*`. A sibling rather than more members on
+  // the entry surface, because it is ANOTHER DAEMON's contract — its own
+  // version, its own clock, its own absence — and folding it into padi's entry
+  // surface would make odu's contract part of padi's.
+  siblings: { odu: oduCarriedSurface },
   codec: hostKeyCodec,
   failure: PadiEntryFailureSchema,
   // SR9 — the FINE connection payload rides every LIVE entry (the ONE connection authority;

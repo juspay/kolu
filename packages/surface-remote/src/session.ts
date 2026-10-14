@@ -125,6 +125,22 @@ const MAX_CONSECUTIVE_FAILURES = 5;
  *  that binds the REAL value rather than a copy. See the baked `DEFAULT_PRE_CONNECTED_LIVENESS_MS`. */
 export const DEFAULT_PRE_CONNECTED_LIVENESS_MS = 1_200_000;
 
+/** How long a session outlives its LAST pin before it lets the connection go.
+ *
+ *  A constant, never an option: a consumer whose subscriptions re-key — the
+ *  Inspector following the focused terminal across a click — drops to zero pins
+ *  and back within one tick, and the grace is what makes that crossing free.
+ *  30s is past any such cadence and far short of "nobody is looking any more".
+ *  Exported so a test binds the REAL value rather than a copy of the number. */
+export const RELEASE_GRACE_MS = 30_000;
+
+/** How often an ABSENT endpoint is re-probed. The reconnect ladder's own ceiling
+ *  rather than a second number: an absence is not a transient to ramp through,
+ *  so it starts where the ramp would end. A `connect(2)` to a path with nothing
+ *  on it is a syscall rather than a process, so the cost of the cadence is not
+ *  the cost of a dial. */
+const ABSENT_PROBE_MS = 60_000;
+
 /** The observable link state a session publishes (snapshot-then-delta on
  *  `onState`) — ONE framework type. A `log` tail every arm carries, intersected
  *  with a discriminated union over `phase`'s UP/DOWN split, so "down with no
@@ -158,6 +174,20 @@ export const DEFAULT_PRE_CONNECTED_LIVENESS_MS = 1_200_000;
  *     longer means "retries forever" — it means "transport-class fault"; the budget is
  *     what bounds a silent transport, #1908 codex-debate F3.)
  *
+ *   - `absent` — NOTHING IS SERVING, and that is a steady state rather than a
+ *     fault. Only a connector that can TELL (a unix path: `connect(2)` answers
+ *     ENOENT/ECONNREFUSED, which a websocket dial cannot distinguish from a
+ *     network that swallowed the SYN) may produce it, by throwing
+ *     {@link EndpointAbsentError}. It carries `error` (what the dial said) and
+ *     NO `cause`, because nothing failed: the endpoint is simply not there. It
+ *     retries at the CEILING rather than from the floor (a daemon nobody has
+ *     started is not getting started by polling it), records nothing in the
+ *     give-up ledger (so an absence can never age into a terminal `failed`),
+ *     and logs at `debug` (a machine that has never run the neighbouring daemon
+ *     must not fill an operator's error log). A consumer renders it as NOTHING
+ *     — which is why it must not be spelled `disconnected`, the arm that means
+ *     "there IS one and we lost it".
+ *
  *  `Prov` is the connector's OWN provisioning-phase vocabulary (`= never` for a
  *  non-provisioning endpoint — the local arm, whose up phases are exactly
  *  `connecting`/`connected`, so `"provisioning"` is unspellable there; `=
@@ -189,6 +219,7 @@ export type SessionState<Prov extends string = never> = {
 } & (
   | { phase: "connecting" | Prov }
   | { phase: "connected"; clockOffset: number | null }
+  | { phase: "absent"; error: string }
   | { phase: "disconnected"; error: string; cause: "network" | "remote" }
   | { phase: "failed"; error: string; cause: "network" | "remote" }
 );
@@ -241,6 +272,25 @@ export interface Session<
    *  gap) is not a process hold either: if nothing else holds the loop, it can
    *  go silently unsettled as the process exits. */
   pin(): Promise<Client>;
+  /** Give the pin back. The mirror of {@link pin}: it decrements the same ref
+   *  count, and when the count reaches zero the session lets its CONNECTION go
+   *  after a fixed grace — then re-arms on the next `pin()` with a fresh dial.
+   *
+   *  The GRACE is why this is not "disconnect": a consumer whose subscriptions
+   *  re-key (the Inspector following the focused terminal) unsubscribes and
+   *  resubscribes within one tick, and a session that dropped its link on every
+   *  such crossing would answer the new subscription from a link it had not
+   *  finished opening. The window is a constant ({@link RELEASE_GRACE_MS}), not
+   *  a knob: "how long after nobody is looking" is one answer for the framework,
+   *  and a per-consumer value would be a second one nobody could reconcile.
+   *
+   *  Idempotent per pin, not globally: N pins need N releases. The count floors
+   *  at zero rather than going negative — a negative count would let a later
+   *  `pin()` believe the session was already held and never dial.
+   *
+   *  DISTINCT from {@link destroy}, which is terminal: a released session is
+   *  dormant and dials again the moment somebody wants it. */
+  release(): void;
   /** The in-flight/current client promise, or `null` between a link death and the
    *  next dial. Each dial reassigns it, so a pump detects a respawn by identity
    *  drift.
@@ -562,6 +612,27 @@ export class ConnectError extends Error {
   ) {
     super(message);
     this.name = "ConnectError";
+  }
+}
+
+/** "There is nothing serving there" — a connector's claim that the endpoint is
+ *  ABSENT rather than broken, which puts the session in its `absent` arm.
+ *
+ *  Only a connector that can genuinely TELL may throw it. A unix-path
+ *  `connect(2)` answers ENOENT (no socket file) or ECONNREFUSED (a stale file
+ *  nobody is bound to), and both mean the same thing: the daemon is not here. A
+ *  websocket or ssh dial has no such answer — an unopened connection is equally
+ *  "down", "firewalled" and "slow" — so those connectors never produce this, and
+ *  a session over them can never reach the `absent` arm.
+ *
+ *  It is a {@link ConnectError} subclass so every existing `instanceof
+ *  ConnectError` path still classifies it (`"network"`, non-terminal) if it ever
+ *  reaches one: the absence handling is an EARLIER branch, never a second
+ *  classification of the same error. */
+export class EndpointAbsentError extends ConnectError {
+  constructor(message: string) {
+    super(message, "network", false);
+    this.name = "EndpointAbsentError";
   }
 }
 
@@ -960,6 +1031,46 @@ export function makeSession<
     });
   };
 
+  /** The pending RELEASE grace, armed when the ref count reaches zero. Its own
+   *  slot rather than `pendingTimer`'s: a session can legitimately be waiting on
+   *  a reconnect backoff AND counting down its release at the same time (the
+   *  link died while the last subscriber was leaving), and folding them would
+   *  make one silently cancel the other. */
+  let releaseTimer: NodeJS.Timeout | null = null;
+
+  const clearReleaseTimer = (): void => {
+    if (releaseTimer === null) return;
+    clearTimeout(releaseTimer);
+    releaseTimer = null;
+  };
+
+  /** The grace expired with nobody holding a pin: drop the link and go dormant.
+   *
+   *  NOT a teardown of the session — every verb still works and the next `pin()`
+   *  dials again (`ensureSpawned` sees a null `clientPromise`). What goes is the
+   *  CONNECTION and everything keeping it alive: an in-flight dial is aborted, a
+   *  scheduled reconnect is disarmed, and a live connection is torn down. The
+   *  teardown's own `closed` routes through `handleClosed`, which publishes the
+   *  down arm and — because the ref count is zero — schedules no reconnect, so
+   *  the state transition has ONE author here as everywhere else. */
+  const letTheLinkGo = (): void => {
+    releaseTimer = null;
+    if (destroyed || refCount > 0) return;
+    emit(
+      `[${label}] released — nothing is subscribed; letting the link go`,
+      "debug",
+    );
+    clearTimer();
+    dialAbort?.abort();
+    stopLiveness();
+    clearPreConnected();
+    const live = current;
+    current = null;
+    episode = null;
+    clientPromise = null;
+    live?.teardown();
+  };
+
   /** Bound the `admit` handshake by the SAME `connectTimeoutMs` the non-admit path's
    *  connect watchdog uses. `admit` does a control-core `hello()` over the transport; a
    *  wedged daemon (process up but the first `hello()` never settles) would otherwise
@@ -1087,6 +1198,43 @@ export function makeSession<
       sinceMs: since(),
       campaignEpoch,
     } as SessionState<Prov>);
+  };
+
+  /** Publish the ABSENT arm — nothing is serving, and nothing failed.
+   *
+   *  At `debug`, deliberately: the whole point of this arm is a machine where
+   *  the neighbouring daemon was never installed, and a line per probe at `info`
+   *  or above would be an operator's log filling with the news that software
+   *  they do not run is not running. It carries no `cause`, because there is no
+   *  transport fault to classify. */
+  const setAbsent = (error: string): void => {
+    const prev = stateCell.current();
+    disarmConnectWatchdog(prev.phase, "absent");
+    clearPreConnected();
+    emit(`[${label}] absent: ${error}`, "debug");
+    stateCell.set({
+      phase: "absent",
+      error,
+      log: prev.log,
+      sinceMs: since(),
+      campaignEpoch,
+    } as SessionState<Prov>);
+  };
+
+  /** Re-probe an ABSENT endpoint — at the ceiling, and forever.
+   *
+   *  Its own scheduler rather than {@link scheduleReconnect}: that one records a
+   *  failure, paces a ramp off the recordings, and can reach a terminal verdict —
+   *  an absence must do none of the three. What it shares is the timer slot and
+   *  the ref-count gate, so an absent session parks exactly like a disconnected
+   *  one and wakes the same way. */
+  const scheduleAbsentProbe = (): void => {
+    if (destroyed || pendingTimer !== null) return;
+    clientPromise = null;
+    armTimer(ABSENT_PROBE_MS, () => {
+      if (destroyed || refCount === 0) return;
+      launchAttempt();
+    });
   };
 
   const localProgress = (line: string): void => {
@@ -1387,6 +1535,18 @@ export function makeSession<
       const cause: "network" | "remote" =
         err instanceof ConnectError ? err.failureCause : "network";
       const reason = err instanceof Error ? err.message : String(err);
+      // ABSENCE comes first, and is not a failure: nothing is serving the
+      // endpoint, which is the ordinary state of a machine where the
+      // neighbouring daemon was never started. It publishes its own arm, records
+      // NOTHING in the give-up ledger (an absence that aged into a terminal
+      // `failed` would make "that daemon was never installed here"
+      // indistinguishable from "that daemon is broken here"), and re-probes at
+      // the CEILING — nobody's daemon gets started by polling for it.
+      if (err instanceof EndpointAbsentError) {
+        setAbsent(reason);
+        scheduleAbsentProbe();
+        throw err;
+      }
       const terminal = err instanceof ConnectError ? err.terminal : false;
       setDown("disconnected", reason, cause);
       scheduleReconnect(cause, reason, { terminal });
@@ -1753,8 +1913,19 @@ export function makeSession<
 
   const session: Session<Client, Prov> = {
     pin() {
+      // A pin inside the grace window reclaims the SAME link: the release timer is
+      // disarmed and nothing was torn down, so the subscription that re-keyed is
+      // answered from the connection that was already open.
+      clearReleaseTimer();
       refCount += 1;
       return ensureSpawned();
+    },
+    release() {
+      if (refCount === 0) return;
+      refCount -= 1;
+      if (refCount > 0) return;
+      clearReleaseTimer();
+      releaseTimer = armInternalTimer(RELEASE_GRACE_MS, letTheLinkGo);
     },
     currentClient() {
       return destroyed ? null : clientPromise;
@@ -1790,6 +1961,7 @@ export function makeSession<
     destroy() {
       destroyed = true;
       clearTimer();
+      clearReleaseTimer();
       clearClockProbeTimer();
       cancelInFlightClockProbe();
       clearPreConnected();

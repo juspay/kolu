@@ -119,14 +119,31 @@ one your copier needs is still yours.
 
 ## The odu graft — `@odu/service-client` and its closure
 
-`./surface` imports `@odu/service-client/surface` for the `ciStatus` frame's row
-and node schemas — kolu reads odu's own contract rather than re-declaring it. It
-is a GRAFT rather than a dependency (`nix/workspace.nix` says why): that file
-copies the trio `@odu/service-client`, `@odu/run-client` and `@odu/run-history`
-out of the npins `odu` pin into `odu/` (gitignored, never committed), exactly as
-`osfacts-client` is grafted from `osfacts`. Three directories rather than one
-because that is the closure of the first: `service-client` re-publishes the durable
-record shapes from `run-history`, which reaches `run-client`'s node-status vocabulary.
+`./surface` imports `@odu/service-client/surface` to assemble
+**`oduCarriedSurface`** — the odu members padi carries on its own socket, at
+`surface/odu/*`. Not a second contract: both members are reached through
+`oduServiceSurface.spec` rather than restated, so a change odu makes to the shape
+of a checkout frame is a change here by construction. What kolu chooses is only
+WHICH members cross its wire, and it carries the two a reader needs —
+`cells.service` (who is serving, and on what origin) and `streams.checkout` (one
+checkout, whole). The rest is deliberately left behind: mirroring odu's board
+would have every kolu host holding every run of every checkout, and re-serving its
+procedures would put `run.start` behind kolu's same-origin gate.
+
+`ODU_FORWARDING_POLICY` is that sibling's own policy, beside rather than inside
+`PADI_FORWARDING_POLICY`: a policy answers "how does THIS surface's member survive
+a hop", and the two surfaces are two contracts on two clocks. One flat map over
+both would leave the set-equality gate — which proves a policy names every member
+of its surface and no others — unable to prove either; `oduMemberKeys()` is the
+twin of `padiMemberKeys()` that gate reads.
+
+Those sources are a GRAFT rather than a dependency (`nix/workspace.nix` says
+why): that file copies the trio `@odu/service-client`, `@odu/run-client` and
+`@odu/run-history` out of the npins `odu` pin into `odu/` (gitignored, never
+committed), exactly as `osfacts-client` is grafted from `osfacts`. Three
+directories rather than one because that is the closure of the first:
+`service-client` re-publishes the durable record shapes from `run-history`, which
+reaches `run-client`'s node-status vocabulary.
 
 Their manifests declare `effect` alone — in odu the `@kolu/*` sources are
 hydrated from a pin, so naming one would send its package manager to a registry
@@ -140,7 +157,7 @@ resolvability rather than to a manifest declaration it does not own.
 
 | entry | what it is | browser-safe |
 | --- | --- | --- |
-| `./surface` | `padiSurface` — the Effect Schema contract, the per-member forwarding policy (`value` = hold-open vs `delta` = fail-through), the frozen control-core sibling, and the whole terminal vocabulary it speaks (records, errors, chrome, policy and transcript-export schemas), re-exported from this one entry. It also carries the `ciStatus` frame (the Inspector's odu CI readout), whose row and node shapes are ODU'S OWN schemas (`@odu/service-client/surface`) rather than a narrowed copy — see the graft note above | ✅ |
+| `./surface` | `padiSurface` — the Effect Schema contract, the per-member forwarding policy (`value` = hold-open vs `delta` = fail-through), the frozen control-core sibling, and the whole terminal vocabulary it speaks (records, errors, chrome, policy and transcript-export schemas), re-exported from this one entry. It also declares the **odu sibling** padi re-serves at `surface/odu/*` — `oduCarriedSurface` (odu's own two member declarations, never a narrowed copy), its own `ODU_FORWARDING_POLICY`, and the composed `padiServedSurfaces` — see the graft note above | ✅ |
 | `./attention` | the ATTENTION FOLD over two of that contract's members — the `urgency` cell's class lists and the `activity` stream's live set, folded into `TerminalAttention { klass, live }` and its per-host / per-scope siblings (`frameByClass`, `frameClassOf`, `hostActiveIds`, `scopeAttention`). Pure: what padi's partition MEANS, shipped with the feeds so a consumer reads them rather than reinventing the reading | ✅ |
 | `./attach` | the `terminalAttach` CONSUMER CONTRACT — `snapshotAnswersGrid` (a snapshot is only valid at the grid it was asked for), `snapshotGridMoved` / `snapshotGrid` (the SERVED grid, contract 5.5) and `isSnapshotFrame`, plus the four rules the schemas do not state: what stales a grid (including another client attaching at its own size, last-attach-wins on a shared pty — and rule 2c, that a foreign resize AFTER your snapshot sends no frame at all, so the pty's live grid is watched on the RECORD instead), that a clean end is not an exit, and that silence needs a deadline. The frames themselves are `TerminalAttachFrame`, on `./surface` | ✅ |
 | `./dial` | `connectPadi` — dial a socket, handshake the frozen control core, gate the surface version (`assertPadiSurfaceCompatible`), and hand back both typed faces over one dispatch (`padiClientOver`, `scopePadiSurface`). `dialPadiHello` is the ungated half, for a caller that wants to read `hello` and judge for itself | ❌ `node:net` |

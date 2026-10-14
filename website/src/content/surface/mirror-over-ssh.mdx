@@ -68,6 +68,10 @@ local copy exactly as if the agent were in-process.
   member `value` (held open and replayed across an upstream drop) or `delta` (a byte or
   liveness stream that fails through, so the client re-subscribes end-to-end and a
   snapshot only ever leads a fresh stream).
+  The binding is **demand-gated**: it pins the session when its first downstream
+  subscriber arrives and releases it (after a short grace) when the last leaves, so
+  nothing is dialled while nobody is reading. If you want the link up regardless —
+  because the link's own state is something you display — pin the session yourself.
 </Aside>
 
 ## Connection health is a host-map concept

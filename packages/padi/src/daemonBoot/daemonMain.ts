@@ -28,6 +28,7 @@ import {
   encodeHostLocation,
   LOCAL_LOCATION,
   PADI_SURFACE_VERSION,
+  padiDaemonGroup,
   padiDaemonSurfaces,
 } from "@kolu/padi-client/surface";
 import { buildCommit } from "@kolu/surface/identity";
@@ -66,6 +67,7 @@ import {
   shutdownCleanup,
 } from "../koluRoot.ts";
 import { configureDaemonLog, log as padiLog } from "../log.ts";
+import { serveOduSibling } from "../odu.ts";
 import { setPadiSurfaceCtx } from "../padiSurfaceCtx.ts";
 import {
   getLocalSocketPath,
@@ -445,12 +447,23 @@ function serveDaemonSurfaces(params: {
     // holding.
     lastRites: () => captureFinalSession("surface runtime fault"),
   });
+  // The odu SIBLING: odu's own surface, re-served off its own socket. Its
+  // handlers are already bound at `surface/odu/*` (the re-serve's source IS the
+  // sibling value), so they merge into the record below with nothing to
+  // re-prefix — and the group padi serves is the COMPOSED contract, which has
+  // carried odu's tags all along. Nothing here dials odu: the re-serve's demand
+  // gate does that when a subscriber arrives, and lets the link go a grace after
+  // the last one leaves.
+  const odu = serveOduSibling({ log });
   return {
     // The flat tag map + the handlers bound to it, forwarded verbatim to the
     // spine — a tag carries its own route now, so there is nothing to re-wrap.
-    group: runtime.group,
-    handlers: runtime.handlers,
-    close: runtime.close,
+    group: padiDaemonGroup,
+    handlers: { ...runtime.handlers, ...odu.handlers },
+    close: async () => {
+      await odu.close();
+      await runtime.close();
+    },
     faultSignal,
   };
 }

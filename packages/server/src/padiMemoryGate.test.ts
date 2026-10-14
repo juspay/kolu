@@ -32,6 +32,16 @@ const at = (phase: SessionState<SshProv>["phase"]): SessionState<SshProv> =>
       sinceMs: 0,
       campaignEpoch: 0,
     }))
+    // Unreachable for THIS session (the local padi arm dials an endpoint, not a
+    // unix path) and spelled anyway: the fixture's `.exhaustive()` is what makes
+    // a new session phase a compile error here rather than a silent gap.
+    .with("absent", (p) => ({
+      phase: p,
+      error: "nothing is serving there",
+      log: [],
+      sinceMs: 0,
+      campaignEpoch: 0,
+    }))
     .with("disconnected", (p) => ({
       phase: p,
       error: "link down",

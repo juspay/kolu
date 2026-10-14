@@ -15,13 +15,20 @@ import {
   resolvePadiStateRoot,
 } from "@kolu/padi/assembly";
 import {
+  ODU_FORWARDING_POLICY,
+  oduCarriedSurface,
+  oduSibling,
   PADI_FORWARDING_POLICY,
   type PadiProcessMemory,
   padiSurface,
 } from "@kolu/padi-client/surface";
 import { agentDistroSettingEqual } from "@kolu/agent-distro/schema";
+import { buildSurfaceFace } from "@kolu/surface/client";
 import { directDispatch } from "@kolu/surface/links/direct";
-import { surfaceClientRef } from "@kolu/surface/project";
+import {
+  type SurfaceClientLike,
+  surfaceClientRef,
+} from "@kolu/surface/project";
 import { parseAllowedOrigins } from "@kolu/surface/ws-origin";
 import { serveSurfaceApp } from "@kolu/surface-app/serve";
 import type { ManifestOptions } from "@kolu/surface-app/server";
@@ -30,8 +37,13 @@ import {
   type ReServedSurface,
   reServeSurface,
   serveHostMap,
+  type Session,
+  type SshProv,
 } from "@kolu/surface-remote";
-import { sessionConnection } from "@kolu/surface-remote/connection";
+import {
+  projectConnection,
+  sessionConnection,
+} from "@kolu/surface-remote/connection";
 import { Cause, Effect, Layer, Option, Scope, Stream } from "effect";
 import { HttpRouter } from "effect/http";
 import { discoverKavalDaemons, legacyKavalSocketPath } from "kaval";
@@ -406,6 +418,17 @@ export async function bootKoluWeb(flags: KoluBootFlags): Promise<void> {
           ),
       });
       reServes.set(enc, r);
+      // A HOST's padi is held open whether or not anybody is subscribed to it.
+      // Demand-gating is the re-serve's default — an upstream nobody is looking
+      // at is never dialled — and it is the wrong default HERE: a host's link
+      // state is itself a thing the fleet shows (the host tab's dot, the connect
+      // overlay), terminals keep running behind it, and a host that only dialled
+      // once a browser subscribed to one of its streams would report
+      // `connecting` for as long as nobody looked at it. So kolu-server states
+      // the hold, once, where the host is bound.
+      s.pin().catch(() => {
+        /* the failure rides the session's own state cell, which the map publishes */
+      });
       r.done
         .then(() =>
           // A CLEAN resolve means what it says again, now that an upstream fault
@@ -459,6 +482,105 @@ export async function bootKoluWeb(flags: KoluBootFlags): Promise<void> {
     ),
   );
 
+  /** The SAME padi session, seen as odu's face.
+   *
+   *  A re-serve reads its upstream member off `client.surface.<member>`, and a
+   *  padi link's client is padi's own face — so the odu half needs a view of the
+   *  same link whose `.surface` is odu's. It is a projection, not a second
+   *  session: every verb below the client is the padi session's own, so one
+   *  reconnect loop, one give-up budget and one connection state serve both
+   *  halves.
+   *
+   *  The face is cached BY THE CLIENT PROMISE the session hands out, because the
+   *  mirror pump detects a respawn by that promise's IDENTITY: minting a fresh
+   *  face per read would read as a new spawn on every poll and re-mirror the
+   *  whole surface each time. */
+  const oduFaceSession = (
+    base: PadiSession,
+  ): Session<SurfaceClientLike, SshProv> => {
+    let seen: {
+      from: Promise<unknown>;
+      face: Promise<SurfaceClientLike>;
+    } | null = null;
+    const faceOf = (
+      from: Promise<unknown> | null,
+    ): Promise<SurfaceClientLike> | null => {
+      if (from === null) return null;
+      if (seen !== null && seen.from === from) return seen.face;
+      const face = from.then(() => {
+        const dispatch = base.currentDispatch?.();
+        if (dispatch === undefined) {
+          throw new Error(
+            "kolu-server: the padi session produced a client with no dispatch — the odu sibling's face is built over that dispatch",
+          );
+        }
+        return buildSurfaceFace(
+          oduSibling,
+          dispatch,
+        ) as unknown as SurfaceClientLike;
+      });
+      seen = { from, face };
+      return face;
+    };
+    return {
+      ...base,
+      pin: () => {
+        const pinned = base.pin();
+        return (
+          faceOf(pinned) ??
+          pinned.then(() => {
+            throw new Error("unreachable: a pinned session has a client");
+          })
+        );
+      },
+      currentClient: () => faceOf(base.currentClient()),
+    };
+  };
+
+  // ── The odu SIBLING, carried across the second hop ────────────────────────
+  //
+  // padi serves odu's carried members at `surface/odu/*` on its own socket; the
+  // host map forwards a sibling call to the SAME per-entry dispatch it uses for
+  // padi's own members, so the dispatch has to answer both. These re-serves mint
+  // the odu half, and the two handler records merge below.
+  //
+  // The UPSTREAM face is the odu sibling's face over the padi link's dispatch —
+  // the same link, a different tag prefix. It rides the padi session rather than
+  // a session of its own because there is only one connection here: a second
+  // session over the same socket would be a second reconnect loop with its own
+  // opinion about whether the host is up.
+  const oduReServes = new Map<
+    string,
+    ReServedSurface<typeof oduCarriedSurface.spec>
+  >();
+  const oduReServeFor = (
+    h: HostKey,
+    s: PadiSession,
+  ): ReServedSurface<typeof oduCarriedSurface.spec> => {
+    const enc = encodeHostKey(h);
+    let r = oduReServes.get(enc);
+    if (r === undefined) {
+      r = reServeSurface<typeof oduCarriedSurface.spec>({
+        source: oduCarriedSurface,
+        policy: ODU_FORWARDING_POLICY,
+        session: oduFaceSession(s),
+        log: (line) => log.debug({ line, host: enc }, "odu re-serve"),
+        onFault: (fault) =>
+          log.error(
+            {
+              err: fault.err,
+              host: enc,
+              member: fault.label,
+              scope: fault.scope,
+            },
+            "odu projection: a mirrored member's upstream stream died",
+          ),
+      });
+      oduReServes.set(enc, r);
+    }
+    return r;
+  };
+
   // Eagerly re-serve the LOCAL (default) host so the memory sampler has its in-process
   // client — a `directLink` over the mirror's own router, no socket/ssh hop. It reads
   // padi's `{ padi, kaval }` off the value the re-serve already folds into its per-binding
@@ -478,11 +600,17 @@ export async function bootKoluWeb(flags: KoluBootFlags): Promise<void> {
   // session's own `provisions` fact now, so there is no app-nominated "local key" to pass.
   const padiMap = serveHostMap(padiHostMap, pool, {
     // The per-host forwarding target: an in-process dispatch straight over that
-    // host's re-served handler record — no socket, no serialization. `directDispatch`
-    // takes the `{ handlers }` pair the re-serve hands back, so this connection site
-    // is cast-free (the oRPC `router as any` it replaces existed only because a
-    // nested router proxy had no nameable type).
-    dispatchFor: (h, s) => directDispatch(reServeFor(h, s)),
+    // host's re-served handler records — no socket, no serialization. BOTH
+    // halves are merged into one record, because the map forwards an entry
+    // member and a SIBLING member to the same dispatch, and the two sets of tags
+    // are disjoint by construction (`surface/<member>/*` vs `surface/odu/*`).
+    dispatchFor: (h, s) =>
+      directDispatch({
+        handlers: {
+          ...reServeFor(h, s).handlers,
+          ...oduReServeFor(h, s).handlers,
+        },
+      }),
     // The clock offset is no longer injected: `makeSession` measures it off the
     // framework-reserved `system.clockNow` at admit and carries it on each session's
     // own `connected` state, which `serveHostMap` reads directly. Readiness is
@@ -837,7 +965,10 @@ export async function bootKoluWeb(flags: KoluBootFlags): Promise<void> {
     onState: (cb) =>
       padiSession.onState((s) =>
         cb({
-          link: mapConnectionToPadiLink(s.phase),
+          // Through the ONE projection (`projectConnection`), so this cell reads
+          // the same connection family the browser does — including its fold of
+          // any arm a host session cannot reach.
+          link: mapConnectionToPadiLink(projectConnection(s).phase),
           padiStartedAt: padiStartedAt(),
         }),
       ),

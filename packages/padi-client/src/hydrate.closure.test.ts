@@ -116,10 +116,11 @@ const DECLARED_ALLOWED = new Set([
   "@kolu/terminal-vocab",
   "@kolu/log",
   "@kolu/shell-quote",
-  // odu's own service contract — the board row and node schemas the `ciStatus`
-  // frame carries verbatim (kolu reads odu's shapes rather than re-declaring
-  // them; see the package's README). GRAFTED from the npins `odu` pin into
-  // `odu/*`, never committed, and one pin's closure rather than one package:
+  // odu's own service contract — the cell and stream DECLARATIONS the carried
+  // odu sibling is assembled from (kolu re-serves odu's own members rather than
+  // re-declaring them; see the package's README). GRAFTED from the npins `odu`
+  // pin into `odu/*`, never committed, and one pin's closure rather than one
+  // package:
   // `service-client` re-publishes the durable record shapes from `run-history`,
   // which reaches the node-status vocabulary of `run-client`. Their manifests
   // declare `effect` alone (in odu the `@kolu/*` sources are hydrated from a

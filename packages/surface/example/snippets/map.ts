@@ -122,8 +122,12 @@ function projectState(
       kind: "connected" as const,
       clockOffset: connected.clockOffset,
     }))
-    .with({ phase: "disconnected" }, () => ({
+    .with({ phase: P.union("disconnected", "absent") }, () => ({
       // Transient (no domain failure) → projects to `warming`, self-heals.
+      // `absent` ("nothing is serving there") joins it: only a unix-path
+      // connector can produce that arm and this fleet dials over ssh, so it is
+      // unreachable here — but an exhaustive fold has to name every arm, which
+      // is how a new state can never reach a reader as `undefined`.
       kind: "disconnected" as const,
     }))
     .with({ phase: "failed" }, (failed) => ({

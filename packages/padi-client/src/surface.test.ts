@@ -1,6 +1,7 @@
 import { isContractVersionCompatible, surfaceTag } from "@kolu/surface/define";
 import { Result, Schema } from "effect";
 import { describe, expect, it } from "vitest";
+import { oduServiceSurface } from "@odu/service-client/surface";
 import {
   CONTROL_CORE_VERSION,
   DEFAULT_PADI_IDENTITY,
@@ -21,6 +22,11 @@ import {
   padiDaemonContract,
   padiDaemonGroup,
   padiDaemonSurfaces,
+  padiServedSurfaces,
+  oduCarriedSurface,
+  ODU_FORWARDING_POLICY,
+  oduMemberKeys,
+  oduSibling,
   padiMemberKeys,
   padiSurface,
   padiSurfaceSibling,
@@ -129,10 +135,13 @@ describe("padiSurface contract", () => {
     // `retryDownload` are gone, the `agentDistro.report` a 5.13 binder CALLS
     // is new, and the status `error` reason / receipt `by` change vocabulary —
     // not additive either way, so the minor drains a 5.12 padi first.
-    // 5.14 adds the Inspector's odu CI readout: the `ciStatus` stream a 5.14
-    // client SUBSCRIBES to while the Inspector is shown, so the minor drains a
-    // 5.13 padi that has no such member.
-    expect(PADI_SURFACE_VERSION).toBe("5.14");
+    // 5.14 added the Inspector's odu CI readout as padi's own `ciStatus`
+    // stream; 6.0 RETIRES it. odu is a SIBLING now — its surface is re-served
+    // at `surface/odu/*`, and a reader subscribes to odu's own `checkout`
+    // stream — so the member is gone, and the major is what refuses a 5.14
+    // client at the handshake instead of letting it hang on a tag nobody
+    // serves.
+    expect(PADI_SURFACE_VERSION).toBe("6.0");
     expect(DEFAULT_PADI_VERSION.contractVersion).toBe(PADI_SURFACE_VERSION);
     expect(
       Schema.decodeUnknownSync(PadiVersionSchema)(DEFAULT_PADI_VERSION),
@@ -207,7 +216,6 @@ describe("padiSurface contract", () => {
       "subscribeRepoChange",
       "subscribeFileChange",
       "terminalAttach",
-      "ciStatus",
     ]);
     expect(Object.keys(spec.events ?? {})).toEqual(["terminalExit"]);
     expect(Object.keys(spec.procedures ?? {})).toEqual([
@@ -344,6 +352,36 @@ describe("padiSurface contract", () => {
     expect(annotated).toEqual(members);
   });
 
+  it("annotates every ODU SIBLING member too — its own policy, its own gate", () => {
+    const members = new Set(oduMemberKeys());
+    const annotated = new Set(Object.keys(ODU_FORWARDING_POLICY));
+    expect(annotated).toEqual(members);
+  });
+
+  it("carries odu's OWN declarations, not a copy of them", () => {
+    // The sibling's members ARE odu's: the same schema objects, reached through
+    // odu's spec. A copy would be a second statement of odu's contract — the
+    // thing kolu consumes odu's packages to avoid — and it would pass a
+    // deep-equality check for exactly as long as nobody changed odu.
+    expect(oduCarriedSurface.spec.cells?.service).toBe(
+      oduServiceSurface.spec.cells.service,
+    );
+    expect(oduCarriedSurface.spec.streams?.checkout).toBe(
+      oduServiceSurface.spec.streams.checkout,
+    );
+  });
+
+  it("serves odu beside padi, at its own tag prefix", () => {
+    const tags = [...padiDaemonGroup.requests.keys()];
+    // The sibling's members are reachable, under `surface/odu/*` — so a client
+    // dialling padi sees odu's contract whether or not an odu daemon is running
+    // on that machine.
+    expect(tags).toContain("surface/odu/checkout/get");
+    expect(tags).toContain("surface/odu/service/get");
+    // …and padi's own members are untouched by the composition.
+    expect(tags).toContain("surface/padi/terminals/keys");
+  });
+
   it("value = hold-open vs delta = fail-through — the three streams whose first frame is a fresh snapshot", () => {
     const delta = Object.entries(PADI_FORWARDING_POLICY)
       .filter(([, policy]) => policy === "delta")
@@ -360,11 +398,6 @@ describe("padiSurface contract", () => {
     expect(PADI_FORWARDING_POLICY.watchStates).toBe("delta");
     expect(PADI_FORWARDING_POLICY.subscribeRepoChange).toBe("value");
     expect(PADI_FORWARDING_POLICY.subscribeFileChange).toBe("value");
-    // The 5.14 odu CI readout is value for the same reason: every frame is a
-    // full replacement (a run's row + its lanes), so a rebind replaying the
-    // current one is correct — there is no accumulated state a replay could
-    // duplicate.
-    expect(PADI_FORWARDING_POLICY.ciStatus).toBe("value");
     expect(PADI_FORWARDING_POLICY.terminals).toBe("value");
     expect(PADI_FORWARDING_POLICY.terminalExit).toBe("value");
     // The two cells that relocated off koluSurface (W1 padi seam) are value —
@@ -449,8 +482,16 @@ describe("padiSurface contract", () => {
     // The daemon serves BOTH surfaces on one socket, keyed `padi` + `control`, so
     // a binder reaches the frozen core even when padiSurface is version-skewed.
     expect(Object.keys(padiDaemonSurfaces).sort()).toEqual(["control", "padi"]);
+    // …and SERVES a third, odu's carried sibling, which it re-serves from odu's
+    // own socket rather than implementing: the two sets differ by exactly that.
+    expect(Object.keys(padiServedSurfaces).sort()).toEqual([
+      "control",
+      "odu",
+      "padi",
+    ]);
     expect(Object.keys(padiDaemonContract.siblings).sort()).toEqual([
       "control",
+      "odu",
       "padi",
     ]);
     // The hello handshake validates a well-formed identity — including the additive
@@ -489,7 +530,7 @@ describe("padiSurface contract", () => {
 // both axes, so a collision is a red test rather than a 404 in production.
 
 describe("padiDaemonContract — the composed tag set (D1 / #16)", () => {
-  it("composes the two siblings WITHOUT losing a tag", () => {
+  it("composes the three siblings WITHOUT losing a tag", () => {
     // The proof itself is the framework's now — `composeSurfaceContracts` ends in
     // `mergeDisjointGroups`, which claims every scoped sibling's tags and throws
     // naming both siblings on a collision, so this module's own import-time size
@@ -497,19 +538,25 @@ describe("padiDaemonContract — the composed tag set (D1 / #16)", () => {
     // here is the ARITHMETIC that assert stood for: the composed group carries
     // exactly what the two siblings declare, neither dropping nor inventing.
     expect(padiDaemonGroup.requests.size).toBe(
-      padiSurface.group.requests.size + padiControlSurface.group.requests.size,
+      padiSurface.group.requests.size +
+        padiControlSurface.group.requests.size +
+        oduCarriedSurface.group.requests.size,
     );
   });
 
-  it("each sibling's tags carry its OWN prefix, and the two sets are DISJOINT", () => {
+  it("each sibling's tags carry its OWN prefix, and the three sets are DISJOINT", () => {
     const padi = [...padiSurfaceSibling.group.requests.keys()];
     const control = [...padiControlSibling.group.requests.keys()];
+    const odu = [...oduSibling.group.requests.keys()];
     expect(padi.every((t) => t.startsWith("surface/padi/"))).toBe(true);
     expect(control.every((t) => t.startsWith("surface/control/"))).toBe(true);
-    expect(padi.filter((t) => control.includes(t))).toEqual([]);
+    expect(odu.every((t) => t.startsWith("surface/odu/"))).toBe(true);
+    expect(padi.filter((t) => control.includes(t) || odu.includes(t))).toEqual(
+      [],
+    );
     // Every tag the composed group carries comes from exactly one sibling.
     expect([...padiDaemonGroup.requests.keys()].sort()).toEqual(
-      [...padi, ...control].sort(),
+      [...padi, ...control, ...odu].sort(),
     );
   });
 

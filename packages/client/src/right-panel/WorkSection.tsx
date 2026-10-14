@@ -5,14 +5,18 @@
  *  Replaces the former Directory + Git + Pull Request label/value sections.
  *
  *  Its own file because it is the one section of the Inspector with real
- *  derivation of its own (identity + paint, the check fold) rather than
- *  layout — and because that makes it renderable in a test without dragging
- *  the Inspector's wire-bound siblings into the module graph (Compose and
- *  Ports import `../wire` directly; Attach reaches it transitively through
- *  `useTerminalStore`). */
+ *  derivation of its own (identity + paint, the check fold) rather than layout.
+ *
+ *  It also owns ONE subscription — odu's `checkout` stream, through padi's odu
+ *  sibling — because the input that keys it is the git fact this section already
+ *  reads: a reader that lived a level up would re-derive "which checkout is
+ *  focused" beside the one here and the two would answer differently the moment
+ *  a `cd` landed between them. The subscription is SHOWN-GATED, so a hidden
+ *  Inspector tab (`RightPanel` keeps both mounted) dials nothing. Everything
+ *  ELSE the section needs from the wire — how a row reaches odu web — arrives as
+ *  a prop, so the link decision stays assertable without a forwards wire. */
 
 import { activeArm, type TerminalMetadata } from "@kolu/padi-client/surface";
-import type { CiStatusFrame } from "@kolu/padi-client/surface";
 import { terminalKey } from "@kolu/terminal-vocab/terminalKey";
 import { agoPhrase, compactPhrase } from "@kolu/terminal-vocab/duration";
 import { shortSha } from "@odu/run-client/nodeId";
@@ -40,6 +44,8 @@ import { WorktreeIcon } from "../ui/Icons";
 import RepoMonogram from "../ui/RepoMonogram";
 import Row from "../ui/Row";
 import Section from "../ui/Section";
+import { activeHost, interpretClientError, padiMap } from "../wire";
+import { usePanelShown } from "./panelShown";
 import type { OduLinkAct, OduLinkOutlet } from "./useOduLink";
 
 /** Triage order — the sequence a reader wants: what's broken, what's still
@@ -340,18 +346,10 @@ const BranchIdentityChip: Component<{
 
 const WorkSection: Component<{
   meta: TerminalMetadata;
-  /** The checkout's odu CI readout, already subscribed by the Inspector (see
-   *  `useOduCiStatus`): `null` when odu has nothing to say about this checkout —
-   *  no daemon on this host, or no runs — in which case nothing here renders.
-   *  Optional so the section still renders in a test without a wire. */
-  oduCi?: CiStatusFrame | null;
-  /** Why the readout FAILED, when it did — a daemon that answered and could not
-   *  be read is not "no odu here", so it gets a row of its own instead of the
-   *  blank that means absence. */
-  oduCiError?: string | null;
   /** How an odu surface here reaches odu web — the Inspector's own composition
-   *  of the forwards vocabulary (`useOduLink`), passed in because this section
-   *  is deliberately wire-free (see the header). Absent in a test that renders
+   *  of the forwards vocabulary (`useOduLink`), passed in rather than opened
+   *  here so a test can assert WHICH address a row offers (and whether it is an
+   *  address at all) without a forwards wire. Absent in a test that renders
    *  without one, in which case the rows are inert text. */
   odu?: OduLinkOutlet;
 }> = (props) => {
@@ -429,19 +427,64 @@ const WorkSection: Component<{
       },
     };
   });
+  const shown = usePanelShown();
+  /** This checkout's CI, read from ODU ITSELF: padi carries odu's own surface as
+   *  a sibling (`entry(h).odu`), so this is odu's `checkout` stream and not a
+   *  fold of it assembled a hop away.
+   *
+   *  The input is the FOCUSED TERMINAL's own repo root — a stable KEY rather
+   *  than a live fact, so a `cd` into another checkout simply re-keys the
+   *  subscription and a re-subscribe after a dropped transport replays an input
+   *  that is still true. `null` is "do not subscribe": a terminal outside a repo
+   *  has no checkout to ask about, a sleeping one has no live arm to read, and a
+   *  hidden panel is not a reader.
+   *
+   *  SHOWN-GATED because the gate is what makes "nothing dials while nobody is
+   *  looking" true END TO END: padi's re-serve dials odu on the FIRST subscriber
+   *  and lets the link go a grace after the last one leaves, and `RightPanel`
+   *  keeps this tab MOUNTED while it is hidden — so without the gate a closed
+   *  Inspector would hold an odu link open on every host it ever visited.
+   *
+   *  `useEntry(activeHost)` rather than a point lens: the Inspector describes the
+   *  focused pane, which lives on the active host, so a host switch must re-key
+   *  the readout with it. */
+  const checkout = padiMap.useEntry(activeHost).odu.streams.checkout.use(
+    () => {
+      const git = activeArm(props.meta)?.git;
+      return !shown() || git === undefined || git.kind !== "repo"
+        ? null
+        : { repoRoot: git.info.repoRoot };
+    },
+    {
+      // A `StreamSpec` declares no error policy on the spec, so the use site
+      // supplies one — through the ONE interpreter, like every other stream
+      // (`scopedSub`: the shown host toasts, a background host logs).
+      onError: (err) =>
+        interpretClientError(
+          { kind: "scopedSub", label: "odu CI status" },
+          err,
+          {
+            key: activeHost(),
+          },
+        ),
+    },
+  );
   /** odu's readout for this checkout, folded for painting: the chip's rollup,
    *  the lanes in the run's own schedule sorted into this face's triage, and the
    *  recent runs. `null` when odu has nothing to say, which is the whole of "a
    *  non-odu user's Inspector is unchanged". */
   const odu = createMemo(() => {
-    const frame = props.oduCi;
-    if (frame === null || frame === undefined || frame.kind !== "status") {
-      return null;
-    }
-    const { run, lanes: scheduled } = frame.latest;
+    const frame = checkout();
+    // `latest === null` IS "nothing to show": a checkout nobody has run CI in,
+    // and — because padi's relay answers `CHECKOUT_NONE` for an absent daemon —
+    // a machine with no odu on it. The two are deliberately the same frame and
+    // deliberately render the same nothing; a missing install is not a fact this
+    // section has any business announcing.
+    if (frame === undefined || frame.latest === null) return null;
+    const { run, nodes } = frame.latest;
     // odu sends the run's own schedule (the order a dashboard paints); the
     // order a READER wants first is this face's triage, beside the check list's.
-    const lanes = [...scheduled].sort((a, b) => laneRank(a) - laneRank(b));
+    const lanes = [...nodes].sort((a, b) => laneRank(a) - laneRank(b));
     // odu's own reading of a row: the verdict once there is one, and where the
     // run has got to until then. A run torn down early settles `incomplete` and
     // must not be painted `failed` — that sends a reader looking for a test
@@ -457,7 +500,6 @@ const WorkSection: Component<{
     return {
       run,
       lanes,
-      port: frame.port,
       recent: frame.recent,
       tone: ODU_HUE[status.hue].tone,
       /** The rollup reads like the CI chip beside it: a count only where there
@@ -537,10 +579,8 @@ const WorkSection: Component<{
           <Show when={odu()}>
             {(ci) => (
               <OduLink
-                act={() => props.odu?.act(runHash(ci().run.runId), ci().port)}
-                onOpen={() =>
-                  props.odu?.open(runHash(ci().run.runId), ci().port)
-                }
+                act={() => props.odu?.act(runHash(ci().run.runId))}
+                onOpen={() => props.odu?.open(runHash(ci().run.runId))}
                 class={CHIP_ROW}
               >
                 {/* The chip marks ITSELF, so a reader finds the same surface
@@ -601,9 +641,11 @@ const WorkSection: Component<{
           )}
         </Show>
 
-        {/* odu answered and could not be read: say so. Absence draws nothing
-         *  (below); a broken install must not look like one. */}
-        <Show when={props.oduCiError}>
+        {/* The READOUT itself failed — a frame this client could not decode, or
+         *  a member the relay could not open. Absence is not this row: an absent
+         *  odu answers a frame (`CHECKOUT_NONE`) and draws nothing, so anything
+         *  that reaches here is a subscription that is broken rather than quiet. */}
+        <Show when={checkout.error()?.message}>
           {(reason) => (
             <div
               data-testid="inspector-odu-error"
@@ -658,11 +700,9 @@ const WorkSection: Component<{
                     {(lane) => (
                       <li>
                         <OduLink
-                          act={() =>
-                            props.odu?.act(laneHash(ci().run, lane), ci().port)
-                          }
+                          act={() => props.odu?.act(laneHash(ci().run, lane))}
                           onOpen={() =>
-                            props.odu?.open(laneHash(ci().run, lane), ci().port)
+                            props.odu?.open(laneHash(ci().run, lane))
                           }
                           testid="inspector-odu-lane-link"
                           class={ROW}
@@ -683,12 +723,8 @@ const WorkSection: Component<{
                   {(run, index) => (
                     <li>
                       <OduLink
-                        act={() =>
-                          props.odu?.act(runHash(run.runId), ci().port)
-                        }
-                        onOpen={() =>
-                          props.odu?.open(runHash(run.runId), ci().port)
-                        }
+                        act={() => props.odu?.act(runHash(run.runId))}
+                        onOpen={() => props.odu?.open(runHash(run.runId))}
                         testid="inspector-odu-run-link"
                         class={RECENT_ROW}
                       >

@@ -17,6 +17,12 @@
  * test drives them through `directDispatch`. `map.tagPrefix` decides the tags,
  * so a mounted map's handlers are already keyed under its sibling name and the
  * host has nothing to re-prefix.
+ *
+ * A map's NESTED SIBLINGS are served by the same transform over the same per-entry
+ * dispatch: a sibling member is bound one segment deeper
+ * (`<map.tagPrefix><sibling>/<member>/<verb>`) and forwarded to the entry session
+ * RE-TAGGED onto the sibling's own `surface/<sibling>/…` — because upstream that
+ * daemon is a sibling of the entry's own socket, which knows nothing of this map.
  */
 
 import { collection } from "@kolu/surface";
@@ -28,6 +34,7 @@ import type { SurfaceSpec, WireSchemaAny } from "@kolu/surface/define";
 import {
   resolveCellVerbs,
   resolveCollectionVerbs,
+  siblingTagPrefix,
   surfaceTag,
 } from "@kolu/surface/define";
 import {
@@ -52,8 +59,13 @@ import type {
   FailureRecord,
   MembershipId,
   SurfaceMap,
+  SurfaceMapSiblings,
 } from "./define";
-import { decodeMembershipId, ENTRIES_MEMBER } from "./define";
+import {
+  decodeMembershipId,
+  ENTRIES_MEMBER,
+  mapSiblingTagPrefix,
+} from "./define";
 import { unfoldInput, unfoldKeyField } from "./envelope";
 
 // ── The resolver / membership seam ──────────────────────────────────────
@@ -321,24 +333,27 @@ function projectStatus<Failure, Conn>(
 
 // ── serveSurfaceMap ─────────────────────────────────────────────────────
 
-/** The verbs an entry member exposes, tagged streaming vs unary — the server's
- *  dual of the contract-side fold walk. */
+/** The verbs one member exposes, tagged streaming vs unary. */
 interface MemberVerb {
   verb: string;
   streaming: boolean;
 }
 
-function entryMemberVerbs(
-  entrySpec: SurfaceSpec,
+/** Walk a surface spec into its per-member verbs — the server's dual of the
+ *  contract-side fold walk. Walked for the ENTRY surface and for each nested SIBLING
+ *  surface alike: a sibling's members are served by the same rule, one segment deeper,
+ *  so there is one spec walk here and not two that could drift. */
+function memberVerbs(
+  spec: SurfaceSpec,
 ): Array<[member: string, verbs: MemberVerb[]]> {
   const out: Array<[string, MemberVerb[]]> = [];
-  for (const [key, s] of Object.entries(entrySpec.cells ?? {})) {
+  for (const [key, s] of Object.entries(spec.cells ?? {})) {
     out.push([
       key,
       resolveCellVerbs(s).map((verb) => ({ verb, streaming: verb === "get" })),
     ]);
   }
-  for (const [key, s] of Object.entries(entrySpec.collections ?? {})) {
+  for (const [key, s] of Object.entries(spec.collections ?? {})) {
     out.push([
       key,
       resolveCollectionVerbs(s).map((verb) => ({
@@ -347,13 +362,13 @@ function entryMemberVerbs(
       })),
     ]);
   }
-  for (const key of Object.keys(entrySpec.streams ?? {})) {
+  for (const key of Object.keys(spec.streams ?? {})) {
     out.push([key, [{ verb: "get", streaming: true }]]);
   }
-  for (const key of Object.keys(entrySpec.events ?? {})) {
+  for (const key of Object.keys(spec.events ?? {})) {
     out.push([key, [{ verb: "get", streaming: true }]]);
   }
-  for (const [ns, procs] of Object.entries(entrySpec.procedures ?? {})) {
+  for (const [ns, procs] of Object.entries(spec.procedures ?? {})) {
     out.push([
       ns,
       Object.keys(procs).map((verb) => ({ verb, streaming: false })),
@@ -375,7 +390,8 @@ export interface ServeSurfaceMapResult {
    *  ONE value pair (`group` + `handlers`) into its own served surface, the same
    *  shape `implementSurface` returns. */
   readonly group: RpcGroup.RpcGroup<Rpc.Any>;
-  /** The bound handlers, keyed by FULL wire tag (`<map.tagPrefix><member>/<verb>`).
+  /** The bound handlers, keyed by FULL wire tag — `<map.tagPrefix><member>/<verb>` for
+   *  an entry member, `<map.tagPrefix><sibling>/<member>/<verb>` for a nested sibling's.
    *  Feed them to `directDispatch` for an in-process client, or merge them into a
    *  host's handler record for a wire serve path. A tag carries its own route, so
    *  there is nothing to re-prefix at the mount site. */
@@ -394,7 +410,7 @@ export function serveSurfaceMap<
   Failure = unknown,
   Conn = unknown,
 >(
-  map: SurfaceMap<KS, ES, Failure, Conn>,
+  map: SurfaceMap<KS, ES, Failure, Conn, SurfaceMapSiblings>,
   registry: MapRegistry<KS["Type"], "copying", Failure, Conn>,
 ): ServeSurfaceMapResult {
   type K = KS["Type"];
@@ -402,7 +418,7 @@ export function serveSurfaceMap<
   const has = (k: K) => registry.has(k);
   const resolve = (k: K) => registry.resolve(k);
   const members = () => registry.members();
-  /** The tag a forwarded call carries on the ENTRY surface — the map's own prefix is
+  /** The tag a forwarded ENTRY-member call carries UPSTREAM — the map's own prefix is
    *  stripped by construction (the entry face and the entry server both speak the
    *  entry surface's own tags). Read off `map.entry.tagPrefix`, so a scoped entry
    *  surface would forward at its own tags without this walk knowing. */
@@ -573,8 +589,14 @@ export function serveSurfaceMap<
     );
   }
 
+  /** Both handler factories take the UPSTREAM tag — the tag the call carries on the
+   *  entry's own socket — rather than a (member, verb) pair, because that is the only
+   *  thing an entry member and a nested sibling member differ in: an entry member
+   *  forwards at the entry surface's own tag, a sibling member at `surface/<sibling>/…`
+   *  (the sibling IS a sibling of that socket's host surface). Everything downstream of
+   *  the tag — the key fold, the membership gates, the typed ends — is one path. */
   const streamHandler =
-    (member: string, verb: string): SurfaceHandler =>
+    (upstreamTag: string): SurfaceHandler =>
     (payload) =>
       Stream.unwrap(
         Effect.map(mapKeyOf(payload), (mapKey) => {
@@ -584,14 +606,14 @@ export function serveSurfaceMap<
           return forwardStream(
             mapKey,
             resolved,
-            entryTag(member, verb),
+            upstreamTag,
             unwrapInput(payload),
           );
         }),
       );
 
   const unaryHandler =
-    (member: string, verb: string): SurfaceHandler =>
+    (upstreamTag: string): SurfaceHandler =>
     (payload) =>
       Effect.flatMap(mapKeyOf(payload), (mapKey) => {
         const enc = map.codec.encode(mapKey);
@@ -610,10 +632,7 @@ export function serveSurfaceMap<
             }),
           );
         }
-        return resolved.dispatch.unary(
-          entryTag(member, verb),
-          unwrapInput(payload),
-        );
+        return resolved.dispatch.unary(upstreamTag, unwrapInput(payload));
       });
 
   // ── Bind the handlers ────────────────────────────────────────────────
@@ -631,19 +650,42 @@ export function serveSurfaceMap<
     handlers[tag] = handler;
   };
 
-  for (const [member, verbs] of entryMemberVerbs(map.entry.spec)) {
+  for (const [member, verbs] of memberVerbs(map.entry.spec)) {
     // A member name shared by a non-procedure primitive AND a procedure namespace
     // (padi's `session` is a cell {get, test__set} AND a procedure ns {restore,
-    // import, forfeit}) is emitted TWICE by `entryMemberVerbs` (primitives first,
+    // import, forfeit}) is emitted TWICE by `memberVerbs` (primitives first,
     // procedures last). On a FLAT tag namespace each verb has its own tag, so both
     // sets simply bind — the old "accumulate, don't reset" hazard (a second
     // `inner[member] = {}` dropping the first pass's verbs, 404-ing `session/get` on
     // every boot) is unspellable here: there is no per-member object to reset.
     for (const { verb, streaming } of verbs) {
+      const upstream = entryTag(member, verb);
       bind(
         surfaceTag(map.tagPrefix, member, verb),
-        streaming ? streamHandler(member, verb) : unaryHandler(member, verb),
+        streaming ? streamHandler(upstream) : unaryHandler(upstream),
       );
+    }
+  }
+
+  // The NESTED SIBLINGS, bound by the SAME walk over each sibling's own spec. A
+  // sibling member is addressed one segment deeper downstream
+  // (`surface/<name>/<sibling>/<member>/<verb>`) and forwarded to the SAME per-entry
+  // dispatch `registry.resolve(key)` hands back — the map key still rides the envelope
+  // exactly as it does for an entry member, because it IS the same entry. Upstream the
+  // tag is the sibling's plain `surface/<sibling>/<member>/<verb>`: the entry's own
+  // socket serves that daemon as its own sibling and knows nothing of the map mounted
+  // in front of it.
+  for (const [sibling, surface] of Object.entries(map.siblings)) {
+    const downstreamPrefix = mapSiblingTagPrefix(map, sibling);
+    const upstreamPrefix = siblingTagPrefix(sibling);
+    for (const [member, verbs] of memberVerbs(surface.spec)) {
+      for (const { verb, streaming } of verbs) {
+        const upstream = surfaceTag(upstreamPrefix, member, verb);
+        bind(
+          surfaceTag(downstreamPrefix, member, verb),
+          streaming ? streamHandler(upstream) : unaryHandler(upstream),
+        );
+      }
     }
   }
 

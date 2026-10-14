@@ -131,11 +131,6 @@ export const RUN_EDGE_ALLOWLIST: readonly RunEdge[] = [
     why: "padi-tui's process edge; a Promise rather than `NodeRuntime.runMain` because that turns SIGINT into fiber interruption, and this CLI's stop semantics are PER COMMAND — a `watch` the user stopped is a clean 0, a `wait` interrupted is a 130 that must still print which terminal was left waiting",
   },
   {
-    path: "packages/padi/src/ciStatus.ts",
-    sites: 1,
-    why: "the odu CI session's dial seam, and the same shape as `ports/sampler.ts`'s row one package over: the session is Promise+AbortSignal shaped BY CONSTRUCTION — it wraps odu's own Promise-shaped `dialServiceSocket` and consumes both of odu's streams through `bridgeStream`, the bridge every one of padi's stream sources uses — while the CONTRACT CHECK inside that dial reads the service cell with odu's Effect-native `readServiceCell`. The two meet in the one `dialChecked` seam, and there is no Effect caller to compose into: the session is a ref-counted daemon-lifetime resource whose subscribers attach from a stream source thunk, not from a fiber tree. One crossing, at the boundary, before the link is handed to the follow loop",
-  },
-  {
     path: "packages/padi/src/daemonBoot/daemonMain.ts",
     sites: 1,
     why: "padi's daemon process edge; a Promise rather than `NodeRuntime.runMain` because the exit-code map lives in the spine's `daemonProcessMain`, which kaval rides too",
@@ -149,6 +144,11 @@ export const RUN_EDGE_ALLOWLIST: readonly RunEdge[] = [
     path: "packages/padi/src/kavalSupervision.ts",
     sites: 2,
     why: "steady-state kaval supervision's raw-timer edge (juspay/kolu#2101 N1): the tick rides a chained unref'd `setTimeout` for the same written reasons as kaval's self-liveness row, so the probe read and the observe/repair step each cross at the tick boundary — two runs, one cadence, no Effect caller above the timer to compose into",
+  },
+  {
+    path: "packages/padi/src/odu.ts",
+    sites: 1,
+    why: "the odu sibling's ADMIT hook, Promise-shaped by the framework's own `Admit<Client>` contract (`makeSession` runs it once per dial, between the transport coming up and the session adopting the link) while the thing it has to read — odu's `service` cell — is Effect-native. The two meet in this one seam, and it is a HANDSHAKE rather than a data path: every subscription after it is relayed by `reServeSurface`, which composes Effects all the way down and crosses nothing",
   },
   {
     path: "packages/padi/src/ports/sampler.ts",

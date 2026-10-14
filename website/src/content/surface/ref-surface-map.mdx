@@ -20,7 +20,7 @@ from `.` — for a consumer that must not pull the group builder into its bundle
 
 | Export | Subpath | Role |
 | --- | --- | --- |
-| `defineSurfaceMap({ key, entry, codec, failure, connection?, entriesClient?, name? })` | `.` | build a map from a key schema, an entry `Surface<ES>`, the key's string `codec`, a `failure` schema for the domain failure value, an optional `connection` schema for the fine per-entry connection payload (SR9 — carried on the live arms, validated but never enumerated, like `failure`), an optional `entriesClient` policy for the membership collection (SR11), and an optional mount `name`; returns a `SurfaceMap` |
+| `defineSurfaceMap({ key, entry, codec, failure, connection?, entriesClient?, name?, siblings? })` | `.` | build a map from a key schema, an entry `Surface<ES>`, the key's string `codec`, a `failure` schema for the domain failure value, an optional `connection` schema for the fine per-entry connection payload (SR9 — carried on the live arms, validated but never enumerated, like `failure`), an optional `entriesClient` policy for the membership collection (SR11), an optional mount `name`, and optional nested `siblings`; returns a `SurfaceMap` |
 | `serveSurfaceMap(map, registry)` | `/server` | back the map with a `MapRegistry`; returns `{ group, handlers, dispose }` |
 | `connectSurfaceMap(map, transport, opts?)` | `/client` | consume the map; returns a `SurfaceMapClient` (with the Solid `useEntry`) |
 
@@ -32,7 +32,7 @@ key the map is mounted under in a combined surface (kolu's `"padi"`, drishti's
 `"hosts"`); it decides the map's own `tagPrefix` at declaration time and drives the
 client's transport slice (below), so no stringly key is written at any connection site.
 
-The `SurfaceMap` carries `{ keySchema, entry, group, tagPrefix, name?, entriesSpec, codec }`.
+The `SurfaceMap` carries `{ keySchema, entry, group, tagPrefix, name?, entriesSpec, codec, siblings }`.
 **`group`** is the key-folded wire group: one `Rpc` per entry-member verb (with a
 canonical-string `mapKey` folded into its payload) plus the two unfolded `entries`
 membership members. A host that serves this map merges that group into its own —
@@ -84,6 +84,52 @@ declared policy with no interpreter throws at construction.
 
 <Snippet src="packages/surface/example/snippets/map.ts" region="define" />
 
+## Nested siblings
+
+An entry may carry whole **sibling surfaces** beside the entry surface — a second
+daemon the entry's own socket already serves, re-served through the map and
+addressed per key. `siblings: { odu: oduSurface }` makes every member of that
+surface reachable as `entry(host).odu.streams.checkout(…)`, typed from odu's own
+spec. A map that declares none mints not one extra tag: a sibling-free map is
+byte-identical to one defined before siblings existed.
+
+The tag grammar is one segment of nesting, no more. An entry member of a map
+mounted as `padi` is `surface/padi/<member>/<verb>`; a sibling member is
+`surface/padi/<sibling>/<member>/<verb>`. Upstream — on the entry's own socket,
+where that daemon is a plain sibling of its host surface — the same member is
+`surface/<sibling>/<member>/<verb>`, so the map hop is a **re-tag** between the
+two, derived from the framework's one sibling rule applied twice
+(`mapSiblingTagPrefix`) rather than spelled as string surgery. Both halves of the
+rewrite live in the solid-free `./define`, beside the walk that mints the tags, so
+the contract, the server and the client cannot drift.
+
+Everything else about a sibling member is an entry member's: it folds the SAME
+`mapKey` into its payload, routes to that key's own session, and rides the same
+membership gates. A sibling FACE is therefore the six bound subtrees (`cells` ·
+`collections` · `streams` · `events` · `procedures` · `rpc`) and nothing more —
+`state` and `clock` stay the entry's, since membership and the clock offset are
+facts of the key and a surface served under that entry has no second membership of
+its own. Under `useEntry` a sibling's subscriptions re-key by exactly the entry's
+rule (`{enc, membershipId}`), and the per-key clients — the entry's and each
+sibling's — are cached and disposed as ONE value, never as a parallel cache that
+could outlive the entry's.
+
+Two names are refused at **declaration**, where the name is the defect: a sibling
+key that is not a legal tag segment (the same check `composeSurfaceContracts`
+applies at the same seam), and one that collides with an entry face member
+(`ENTRY_FACE_MEMBERS` — `cells`, `streams`, `state`, …), which would shadow the
+entry's own subtree and hand a consumer the sibling where it asked for the entry.
+The reserved `entries` name is NOT refused for a sibling's member: a sibling's
+members live one segment below the map's membership collection, so a sibling that
+publishes its own `entries` collection cannot shadow the map's.
+
+**Why a sibling rather than more members on the entry surface?** Because it is a
+different program's contract — its own release cadence, its own version, its own
+clock. Folding it into the entry spec would make that contract part of the entry's:
+one spec two daemons must agree about, and a version skew in either that the other
+has to carry. That is also why a sibling is declared as a whole `Surface` and not
+as a spec fragment.
+
 ## The client
 
 `SurfaceMapClient` exposes `entries` (the one membership authority), `live`
@@ -100,7 +146,9 @@ lenses onto an entry.
 | `dispose()` | tear down |
 
 An `Entry<ES>` carries `cells` / `collections` / `streams` / `events` /
-`procedures` (the same bound hooks a single surface has), plus:
+`procedures` (the same bound hooks a single surface has), one named face per
+declared nested sibling (`entry.odu.…` — see [Nested siblings](#nested-siblings)),
+plus:
 
 | Member | Returns |
 | --- | --- |

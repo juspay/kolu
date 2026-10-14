@@ -140,6 +140,14 @@ export function projectState<Prov extends string>(
   s: SessionState<Prov> | undefined,
 ): RawConnectionState {
   if (s === undefined) return { kind: "connecting" };
+  // ABSENT is "nothing is serving there", which from a MAP's point of view is a
+  // link that is down — the map's vocabulary has no third word for it, and
+  // inventing one would put a state on every host's wire for a condition only a
+  // unix-path connector can ever reach (no host session uses one: a host is
+  // dialled over ssh or over the local endpoint, and neither can tell absence
+  // from unreachability). The DISTINCTION stays where it is actionable — the
+  // session's own arm, which padi's odu sibling reads directly.
+  if (s.phase === "absent") return { kind: "disconnected" };
   if (s.phase === "disconnected" || s.phase === "failed") {
     // The RAW (pre-classification) down arms carry NO domain `failure` and no
     // transport `reason` — this projection is Failure-agnostic (it holds no domain

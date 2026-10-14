@@ -52,23 +52,26 @@ import type {
   SurfaceSink,
 } from "@kolu/surface/mirror";
 import type { SurfaceClientLike } from "@kolu/surface/project";
-import type { SurfaceHandlers } from "@kolu/surface/server";
 import {
   type CellCtxSetOpts,
+  emptyHandlers,
   type ImplementSurfaceDeps,
   implementSurfaceOnPublisher,
   inMemoryChannelByName,
   inMemoryCollection,
+  type SurfaceHandlers,
   superviseTerminalSource,
 } from "@kolu/surface/server";
-import { Effect, type Stream } from "effect";
+import { Effect, Stream } from "effect";
 import type { Rpc, RpcGroup } from "effect/rpc";
+import { RpcSchema } from "effect/rpc";
 import {
   type LiveSpawnHolder,
   observableHolder,
   pumpRemoteSurface,
 } from "./hostFanout";
 import {
+  type AbsenceSignal,
   type ForwardableStream,
   failThroughStreamCore,
   holdOpenStreamCore,
@@ -139,6 +142,26 @@ export interface ReServeSurfaceOptions<S extends SurfaceSpec> {
    *  both plug in. The mirror
    *  forwards the client structurally, so the contract type is not needed here. */
   session: Session<SurfaceClientLike, SshProv>;
+  /** What a VALUE member says while the upstream is ABSENT — nothing serving at
+   *  all, as opposed to a link between spawns — keyed by member name.
+   *
+   *  A hold-open relay survives a drop by saying nothing, which is right for a
+   *  link that is coming back and wrong for one that was never there or has been
+   *  stopped: the subscriber keeps painting its last live frame, and a reader
+   *  cannot tell a still board from a dead one. A member named here is told,
+   *  once per absence, in its OWN frame type — the shape of "nothing" belongs to
+   *  the source contract, not to this relay (odu's `CHECKOUT_NONE` is odu's to
+   *  define, exactly as its cell default is).
+   *
+   *  Only a session whose connector can TELL absence apart from unreachability
+   *  ever reaches that state, so every other re-serve omits this. A key that is
+   *  not a `value` streaming member is a wiring defect and fails loud at build —
+   *  a frame nobody can ever receive is worse than no frame at all.
+   *
+   *  Loosely typed (`unknown` per member) for the same reason {@link
+   *  ReServeSurfaceOptions.policy} is a bare record: a precise per-member mapped
+   *  type over `S` would be a second spec-derived walk, and this file keeps one. */
+  absent?: Record<string, unknown>;
   /** Diagnostic CHATTER sink (reconnects, link ends). Default no-op. Faults do
    *  NOT come through here — see {@link ReServeSurfaceOptions.onFault}. Wiring
    *  this at DEBUG is fine and expected; wiring the projection layer's ONLY
@@ -234,6 +257,54 @@ export function reServeSurface<S extends SurfaceSpec>(
     throw new Error(
       "reServeSurface: source surface declares no cells — markConnected is wired to the first folded cell frame (a cell's on-connect snapshot), so a cell-less surface would never mark the session connected. Add a status cell.",
     );
+  }
+
+  // ── Absence: "there is nothing serving", told once per episode ────────────
+  //
+  // Derived from the SESSION's own arm rather than from the client holder going
+  // null: `null` covers both "between spawns" (hold, say nothing) and "nothing
+  // is there" (say so), and only the session knows which — its connector is what
+  // classified the dial.
+  const absentFrames = opts.absent ?? {};
+  const absence: AbsenceSignal = (() => {
+    let isAbsent = session.currentState().phase === "absent";
+    const waiters = new Set<() => void>();
+    session.onState((s) => {
+      const next = s.phase === "absent";
+      if (next === isAbsent) return;
+      isAbsent = next;
+      for (const wake of [...waiters]) wake();
+    });
+    return {
+      isAbsent: () => isAbsent,
+      // Built exactly like `observableHolder.changed`, and for the same reason:
+      // an interrupted waiter detaches through the effect's own finalizer, so a
+      // torn-down subscription leaves no listener behind.
+      changed: Effect.callback<void>((resume) => {
+        const wake = (): void => {
+          waiters.delete(wake);
+          resume(Effect.void);
+        };
+        waiters.add(wake);
+        return Effect.sync(() => {
+          waiters.delete(wake);
+        });
+      }),
+    };
+  })();
+
+  // A frame nobody can ever receive is worse than no frame: an absent entry for a
+  // member that is not a VALUE stream/event would sit there looking wired while
+  // the relay it names holds silent forever.
+  for (const member of Object.keys(absentFrames)) {
+    const streaming =
+      member in (spec.streams ?? {}) || member in (spec.events ?? {});
+    if (!streaming || policy[member] !== "value") {
+      throw new Error(
+        `reServeSurface: absent frame for "${member}", which is not a value-classified stream or event — ` +
+          "only a hold-open relay can send one, so this frame could never reach a subscriber",
+      );
+    }
   }
 
   // ONE channel factory, shared by `implementSurface` (the deps below) AND the cell
@@ -410,9 +481,16 @@ export function reServeSurface<S extends SurfaceSpec>(
     // Route by policy at runtime; the two cores are the impls behind the
     // type-guarded public relays (a widened policy can't satisfy those guards
     // here — the guards are for direct callers + the contract test).
-    return requirePolicy(member) === "value"
-      ? holdOpenStreamCore(member, liveClient, select, { log })
-      : failThroughStreamCore(member, liveClient, select, { log });
+    if (requirePolicy(member) !== "value") {
+      return failThroughStreamCore(member, liveClient, select, { log });
+    }
+    const frame = absentFrames[member];
+    return holdOpenStreamCore(member, liveClient, select, {
+      log,
+      // Only a member the caller named gets an absence arm; every other value
+      // member holds open exactly as before.
+      ...(member in absentFrames ? { absent: { frame, signal: absence } } : {}),
+    });
   };
   // Streams and events route identically (both per-subscriber relays via
   // `relayForMember`), so build both dep maps from one pass.
@@ -511,7 +589,70 @@ export function reServeSurface<S extends SurfaceSpec>(
   };
   // `implementSurfaceOnPublisher` binds every handler at its FULL wire tag, so the
   // pair below is servable verbatim — nothing to re-prefix, nothing to flatten.
-  const { group, handlers } = runtime;
+  const { group } = runtime;
+
+  // ── Demand: the link is held open by the people looking at it ─────────────
+  //
+  // Every downstream call enters through exactly one of these handlers, so this
+  // is where "somebody is looking" is counted — one gate for cells, collections,
+  // streams, events and procedures alike, rather than a notion of demand per
+  // member kind that could disagree with itself.
+  //
+  // The session is PINNED on the crossing from nobody to somebody, and RELEASED
+  // on the way back. A re-serve therefore dials nothing while nothing is
+  // subscribed — which is the whole point for an upstream that is optional (an
+  // odu daemon that most machines do not run), and harmless for one that is not:
+  // a parent that wants its link up regardless pins the session itself, and the
+  // count never reaches zero.
+  let demand = 0;
+  const takeDemand = (): void => {
+    demand += 1;
+    if (demand === 1) {
+      // The promise is the FIRST client, which no caller here is waiting for —
+      // a relay parks on the holder and a procedure forward fails fast on a down
+      // link, exactly as both already do. Its rejection is the session's to
+      // publish on its own state cell.
+      session.pin().catch(() => {});
+    }
+  };
+  const dropDemand = (): void => {
+    demand -= 1;
+    if (demand === 0) session.release();
+  };
+  /** Which tags are STREAMING — asked of the GROUP, the same way
+   *  `restrictHandlers` asks it, so this wrapper cannot disagree with the shape a
+   *  member's `Rpc` promises. (An `Effect` where the protocol expects a `Stream`
+   *  is not a type error at this boundary; it is a subscription that never
+   *  yields.) */
+  const streamingTags = new Set<string>();
+  for (const [tag, rpc] of group.requests) {
+    // `Rpc.Any` narrows away the schema fields the whole union carries;
+    // `AnyWithProps` is Effect's own name for reading them off an erased `Rpc`,
+    // which is what a tag-keyed walk has to do.
+    if (RpcSchema.isStreamSchema((rpc as Rpc.AnyWithProps).successSchema)) {
+      streamingTags.add(tag);
+    }
+  }
+  const handlers: SurfaceHandlers = emptyHandlers();
+  for (const [tag, handler] of Object.entries(runtime.handlers)) {
+    handlers[tag] = streamingTags.has(tag)
+      ? (payload: unknown) =>
+          Stream.suspend(() => {
+            takeDemand();
+            return Stream.ensuring(
+              handler(payload) as Stream.Stream<unknown, unknown>,
+              Effect.sync(dropDemand),
+            );
+          })
+      : (payload: unknown) =>
+          Effect.suspend(() => {
+            takeDemand();
+            return Effect.ensuring(
+              handler(payload) as Effect.Effect<unknown, unknown>,
+              Effect.sync(dropDemand),
+            );
+          });
+  }
 
   // ── The reconnect-mirror pump ─────────────────────────────────────────────
   // The sink folds VALUE cells + collections into the per-binding stores; streams

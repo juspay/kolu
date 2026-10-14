@@ -637,7 +637,7 @@ export function isReservedSurfaceTag(tag: string): boolean {
  *      both spell `surface/conn/get/...`, with DIFFERENT (member, verb) pairs, so
  *      the `claim` duplicate-check could not see it. Refusing the `/` makes the
  *      collision unrepresentable instead of merely detected. */
-function assertTagSegment(kind: string, name: string): void {
+export function assertTagSegment(kind: string, name: string): void {
   if (name.length === 0) {
     throw new Error(
       `defineSurface: empty ${kind} name — every wire tag segment must be a non-empty name.`,

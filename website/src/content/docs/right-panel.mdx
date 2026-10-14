@@ -49,10 +49,12 @@ one quiet line at the very bottom.
 
 If the checkout uses [odu](https://github.com/juspay/odu) as its CI runner and
 the odu daemon is running on that host, the chip row carries a second rollup —
-`odu`'s own board for **this checkout**, beside the forge's checks — the heading
-that introduces it names odu and links to [its site](https://juspay.github.io/odu/),
-so a reader who has not met the tool knows whose CI this is. It reads
-`● odu running` / `✓ odu passed` / `✕ 2 failed` with the run's ref
+`odu`'s own board for **the checkout the terminal is in**, beside the forge's
+checks — the heading that introduces it names odu and links to
+[its site](https://juspay.github.io/odu/), so a reader who has not met the tool
+knows whose CI this is. `cd` somewhere else and the readout follows, because it
+is about the directory the terminal is in rather than the one it started in. It
+reads `● odu running` / `✓ odu passed` / `✕ 2 failed` with the run's ref
 (`abc1234#3` — the commit's first seven characters and the run's ordinal), and
 behind it a disclosure holds two lists: the latest run's **lanes** (one row per
 `recipe@platform`, failures first, with the attempt number when it took more
@@ -89,11 +91,11 @@ under that hash, so don't read it as a statement about the commit alone.
 
 None of this appears for a checkout odu doesn't know about, and none of it
 appears when the odu daemon isn't running: the Inspector of a terminal outside
-odu's world is exactly what it was. A daemon that **answers and cannot be read**
-is the one case that isn't silence — that draws a single `odu CI unavailable`
-line naming the reason, because a broken install and an absent one are different
-facts. While it *is* shown, kolu dials the daemon itself and lets go of the
-connection when you close the panel or look away.
+odu's world is exactly what it was. The one case that isn't silence is a readout
+that **fails** — when the board can't be read at all, a single `odu CI
+unavailable` line names the reason, so a broken reading never hides behind the
+same blank an absent odu draws. While it *is* shown, kolu dials the daemon
+itself and lets go of the connection when you close the panel or look away.
 
 ## Compose a prompt
 

@@ -1,10 +1,16 @@
 /**
  * TYPE-LEVEL pin (W6 review, item 1): the browser `ConnectionInfo` value and the session
- * sum are ONE type family. `ConnectionInfo` is DEFINED as `SessionState<SshProv>`
- * (`./connection`), and the hand-written Effect `ConnectionInfoSchema` — which MUST exist
- * (the wire value needs a concrete browser-safe validator, which a TS-generic type is not)
- * — is pinned STRUCTURALLY EQUAL to it here: `typeof ConnectionInfoSchema.Type` ≡
- * `SessionState<SshProv>`, both directions.
+ * sum are ONE type family. `ConnectionInfo` is DEFINED as `SessionState<SshProv>` minus
+ * the `absent` arm (`./connection`), and the hand-written Effect `ConnectionInfoSchema` —
+ * which MUST exist (the wire value needs a concrete browser-safe validator, which a
+ * TS-generic type is not) — is pinned STRUCTURALLY EQUAL to it here, both directions.
+ *
+ * **Why `absent` is subtracted rather than carried.** Only a connector that can TELL
+ * nothing is serving produces that arm — a unix path, whose `connect(2)` answers
+ * ENOENT/ECONNREFUSED. A HOST is reached over ssh or over the local endpoint, and
+ * neither can distinguish absence from unreachability, so no producer of this wire
+ * value can ever construct the arm. Putting it on the browser's sum would be a state
+ * every reader has to handle and nothing can ever send.
  *
  * So a drift — add a phase (e.g. `probing`) or a field (e.g. `sinceMs`) to the session
  * sum without matching the schema, or change a down arm's `cause` shape (both carry
@@ -30,5 +36,8 @@ type Mutually<A, B> = [A] extends [B]
 
 // If the schema and the session sum ever diverge, `Mutually<…>` is `never` and this
 // assignment fails to compile.
-const _identityPin: Mutually<Inferred, SessionState<SshProv>> = true;
+const _identityPin: Mutually<
+  Inferred,
+  Exclude<SessionState<SshProv>, { phase: "absent" }>
+> = true;
 void _identityPin;

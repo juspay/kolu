@@ -48,6 +48,47 @@ the loosest of four independent bounds on link silence and moves none of the
 others. The [reference page](https://kolu.dev/surface/ref-surface-remote) lists
 all four, with their values, and which of them are knobs at all.
 
+ssh is not the only transport a session can run over. `unixSocketConnector`
+plugs a session onto a daemon already listening on a **unix socket on this box**
+— `makeSession({ connectOnce: unixSocketConnector({ socketPath: () => path,
+group: surface.group, client: (d) => faceOver(d), describe: "odu daemon" }) })`.
+`socketPath` is a thunk because a daemon's path comes from its environment, and
+a connector that captured it once would keep dialling a stale one.
+
+Two things about it are easy to get wrong. It dials and **owns** the socket,
+handing it to `socketDuplexLink` as both halves, so the socket's own `close`
+event is what resolves the connection's `closed` — `unixSocketLink` dials
+internally and gives no such signal, which would leave a session unable to
+notice its daemon die. And **absence is a value, not a failure**: a dial
+answering `ENOENT` or `ECONNREFUSED` means nothing is serving that path, so the
+connector throws `EndpointAbsentError` and the session publishes its quiet
+`absent` arm (retried at the ceiling, logged at debug) instead of escalating
+toward `failed`. Every other dial error stays an ordinary network `ConnectError`.
+
+A re-serve is **demand-gated**. Every downstream call enters through one of
+`reServeSurface`'s handlers, so that is where "somebody is looking" is counted —
+one gate for cells, collections, streams, events and procedures alike. The
+session is pinned on the crossing from nobody to somebody and released on the way
+back, so an upstream nobody is subscribed to is never dialled at all. The release
+waits a fixed grace (`RELEASE_GRACE_MS`, 30s — a constant rather than an option:
+a consumer whose subscriptions re-key drops to zero pins and back within a tick,
+and the grace is what makes that crossing free). `pumpRemoteSurface` pins
+nothing, deliberately; a parent that wants its link up whether or not anyone is
+reading it — kolu-server, whose fleet shows a host's link state before a browser
+subscribes to anything on it — states that by pinning the session itself, and the
+count never reaches zero.
+
+Demand gating is what makes an optional upstream cheap. The `absent` frames are
+what make it honest: a hold-open relay rides out a drop by saying nothing, which
+is right for a link that is coming back and wrong for one that was never there or
+has been stopped — the subscriber goes on painting its last live frame, and a
+reader cannot tell a still board from a dead one. So `reServeSurface` takes an
+absent frame per value member (`absent: { checkout: CHECKOUT_NONE }`), sent ONCE
+per absence and replaced by the next live frame. It is the member's OWN frame
+type: the shape of "nothing to say" belongs to the source contract, not to this
+relay. Naming a member that is not a `value`-classified stream or event throws at
+wiring time — a frame nobody could ever receive is worse than no frame at all.
+
 Worked end-to-end in [`packages/surface/example/remote-process-monitor`](../surface/example/remote-process-monitor).
 Part of the kolu monorepo — `"@kolu/surface-remote": "workspace:*"`.
 

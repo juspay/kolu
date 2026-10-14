@@ -92,9 +92,10 @@ const classify = (
  *  one in, mirroring the production invariant at the test-helper boundary. Typed
  *  over `SshProv` so the ssh arm's provisioning phases (`probing`/`provisioning`) are
  *  spellable here. `connected` is EXCLUDED — it now carries a `clockOffset`, so it
- *  is minted by {@link connected} below. */
+ *  is minted by {@link connected} below — and so is `absent`, which no HOST session
+ *  can reach (only a unix-path connector can tell absence from unreachability). */
 const st = (
-  phase: Exclude<SessionState<SshProv>["phase"], "connected">,
+  phase: Exclude<SessionState<SshProv>["phase"], "connected" | "absent">,
   error?: string,
   // The episode's RETAINED output tail. Defaults to `[]` ("this episode retained no
   // lines") for the many pins that don't care; the evidence pins below pass a real tail,

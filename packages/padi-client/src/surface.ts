@@ -87,7 +87,7 @@ import {
   TerminalIdSchema,
   UNKNOWN_HOST_LISTENERS,
 } from "@kolu/terminal-vocab/schema";
-import { RunNodeSchema, RunRowSchema } from "@odu/service-client/surface";
+import { oduServiceSurface } from "@odu/service-client/surface";
 import { Effect, Schema } from "effect";
 import {
   FsListAllInputSchema,
@@ -589,14 +589,17 @@ export * from "./transcriptSchema.ts";
  *  decode refusal on a failed status, loud.
  *
  *  5.14 (additive · minor) — the Inspector's odu CI readout. A NEW stream,
- *  `ciStatus({ terminalId })`, folds odu's board for one terminal's checkout
- *  into a full-replacement frame (`CiStatusFrame`) — the checkout's runs, and
- *  the port the daemon answered on — and a 5.14 client SUBSCRIBES to it while
- *  the Inspector is shown, so the minor drains a 5.13 padi that has no such
- *  member. Additive on the wire in the only direction that matters — an older
- *  decoder strips the member — which is why this is a minor and not the
- *  5.13-style reshape. */
-export const PADI_SURFACE_VERSION = "5.14";
+ *  `ciStatus({ terminalId })`, folded odu's board for one terminal's checkout
+ *  into a full-replacement frame. RETIRED in 6.0.
+ *
+ *  6.0 (BREAKING · major) — odu is a SIBLING, not a member. `ciStatus` is gone,
+ *  and with it padi's hand-rolled odu client: the daemon now re-serves odu's own
+ *  surface at `surface/odu/*` (see {@link oduCarriedSurface}), so a reader
+ *  subscribes to odu's `checkout` stream rather than to padi's fold of it. A
+ *  major because the member was REMOVED: a 5.14 client subscribing to `ciStatus`
+ *  against a 6.0 padi meets a tag nobody serves, and that must refuse at the
+ *  handshake rather than hang on a subscription. */
+export const PADI_SURFACE_VERSION = "6.0";
 
 /** The `version` cell payload — padi's self-declared surface contract version. */
 export const PadiVersionSchema = Schema.Struct({
@@ -1618,66 +1621,6 @@ export const PadiWatchPulseSchema = Schema.Struct({
   seq: NonNegativeInt,
 });
 
-/** How many runs `ciStatus` carries in its `recent` list. Padi's own bound,
- *  named here because the schema is where the frame's shape is read — NOT
- *  enforced as a decode check: how many rows a disclosure is worth is a
- *  reading's decision, and a padi that later shows eight must not make every
- *  older client fail to decode a frame it could have painted. */
-export const CI_STATUS_RECENT_RUNS = 5;
-
-/** `ciStatus` — the odu CI readout for ONE terminal's checkout: what the
- *  Inspector's `odu` chip and its lanes / recent-runs disclosure paint.
- *
- *  EVERY frame is a FULL REPLACEMENT (kind `status`), so a rebind replaying the
- *  current one is correct and the client needs no accumulator. `kind: "none"`
- *  is the honest "there is nothing to show" — odu's daemon is not running on
- *  this host, or this checkout has no runs — and it is deliberately the SAME
- *  arm for both: a reader that cannot act on the difference should not be
- *  handed it. There is no `unavailable` arm, because a daemon that answers and
- *  cannot be read is a FAILURE (loud: the stream errors, and padi logs the
- *  socket path once per session), never a value that renders as "no odu here".
- *
- *  `latest.lanes` arrives in the RUN's own order — the schedule odu promises a
- *  dashboard paints — and what a reader wants first of those lanes is the
- *  reader's triage, decided where the list is painted. `recent` is this
- *  checkout's runs, newest first, at most {@link CI_STATUS_RECENT_RUNS} of them,
- *  whose HEAD is `latest.run`.
- *
- *  `port` is the port the daemon answered on, from its own greeting's origin:
- *  a link to that daemon's page has to dial where it actually is, and it is a
- *  fact of the daemon's lifecycle (its environment, its flags) that no reader
- *  can derive. It rides the `status` arm because a board exists only while a
- *  link does.
- *
- *  The row and node shapes are odu's OWN (`@odu/service-client/surface`),
- *  carried verbatim: kolu paints four fields of a node and reads six of a row,
- *  but a narrowed copy here would be a second declaration of odu's contract —
- *  the thing kolu consumes odu's packages to avoid.
- *
- *  No `arrayKey`, deliberately: a frame is an OBJECT (`latest` + `recent`), and
- *  the declaration names an identity for a frame that IS an array — a store
- *  reconcile it could not use would be a claim about a shape this member does
- *  not have. */
-export const CiStatusInputSchema = Schema.Struct({
-  terminalId: TerminalIdSchema,
-});
-export type CiStatusInput = typeof CiStatusInputSchema.Type;
-
-export const CiStatusFrameSchema = Schema.Union([
-  Schema.Struct({ kind: Schema.Literals(["none"]) }),
-  Schema.Struct({
-    kind: Schema.Literals(["status"]),
-    /** The port the daemon's own greeting named — see the docstring. */
-    port: Schema.Int,
-    latest: Schema.Struct({
-      run: RunRowSchema,
-      lanes: Schema.Array(RunNodeSchema),
-    }),
-    recent: Schema.Array(RunRowSchema),
-  }),
-]);
-export type CiStatusFrame = typeof CiStatusFrameSchema.Type;
-
 export const PadiSetThemeInputSchema = Schema.Struct({
   id: TerminalIdSchema,
   themeName: Schema.String.check(Schema.isMinLength(1)),
@@ -2308,20 +2251,6 @@ export const padiSurface = defineSurfaceWithPolicy<ClientErrorPolicy>()({
       // kaval's own `TerminalDataMsg` union one hop up (see `TerminalAttachFrame`).
       outputSchema: PadiTerminalAttachFrameSchema,
     },
-    /** The Inspector's odu CI readout for this terminal's checkout — odu's
-     *  board, narrowed to one checkout and folded for painting. Snapshot-then-
-     *  deltas in the VALUE sense: every frame is a full replacement (see
-     *  {@link CiStatusFrameSchema}), so a rebind replaying the current one is
-     *  correct. `kind: "none"` when odu is not running here or the checkout has
-     *  no runs, which is why a non-odu machine's Inspector is untouched.
-     *
-     *  padi dials odu DEMAND-DRIVEN: the first open subscription opens the
-     *  daemon's socket, the last close (after a retire grace) disposes it, and
-     *  nothing dials while nobody is looking. */
-    ciStatus: {
-      inputSchema: CiStatusInputSchema,
-      outputSchema: CiStatusFrameSchema,
-    },
   },
   events: {
     /** Terminal process exited — fires once per terminal lifetime with the
@@ -2676,9 +2605,6 @@ export const PADI_FORWARDING_POLICY = {
   subscribeRepoChange: "value",
   subscribeFileChange: "value",
   terminalAttach: "delta",
-  // `ciStatus` rides the pulse streams' rule for the same reason: every frame
-  // is a FULL replacement, so a rebind replaying the current one is correct.
-  ciStatus: "value",
   // events
   terminalExit: "value",
   // procedure namespaces
@@ -2703,6 +2629,50 @@ export const PADI_FORWARDING_POLICY = {
  *  every member (and no orphan annotation exists). */
 export function padiMemberKeys(): string[] {
   const spec = padiSurface.spec;
+  return [
+    ...Object.keys(spec.cells ?? {}),
+    ...Object.keys(spec.collections ?? {}),
+    ...Object.keys(spec.streams ?? {}),
+    ...Object.keys(spec.events ?? {}),
+    ...Object.keys(spec.procedures ?? {}),
+  ];
+}
+
+/** The forwarding policy of the ODU SIBLING's members — its own policy object,
+ *  not entries bolted onto padi's.
+ *
+ *  A policy answers "how does THIS surface's member survive a hop", and the two
+ *  surfaces are two contracts on two clocks: padi's members are padi's to
+ *  classify and odu's are odu's. One flat map covering both would leave the
+ *  set-equality gate — which proves a policy names every member of its surface
+ *  and no others — unable to prove either.
+ *
+ *  `checkout` is `value`: every frame is a FULL replacement, so a rebind
+ *  replaying the current one is correct, the same rule padi's pulse streams
+ *  ride. `service` is a cell, and cells are always folded as values whatever a
+ *  policy says; it is named anyway, because the gate checks the whole member set
+ *  and a member missing from a policy is how a future stream comes to be
+ *  forwarded by a rule nobody chose. */
+export const ODU_FORWARDING_POLICY = {
+  service: "value",
+  checkout: "value",
+} as const satisfies Record<string, ForwardingPolicy>;
+
+/** Every top-level member key the carried odu sibling declares — the twin of
+ *  {@link padiMemberKeys}, so the contract test can prove
+ *  {@link ODU_FORWARDING_POLICY} covers exactly them. */
+export function oduMemberKeys(): string[] {
+  // Read through the SHAPE every surface spec has rather than the narrowed
+  // literal type of this one, so a member kind added to the sibling later is
+  // counted here (and so caught by the policy gate) instead of being invisible
+  // to it.
+  const spec: {
+    cells?: object;
+    collections?: object;
+    streams?: object;
+    events?: object;
+    procedures?: object;
+  } = oduCarriedSurface.spec;
   return [
     ...Object.keys(spec.cells ?? {}),
     ...Object.keys(spec.collections ?? {}),
@@ -2786,19 +2756,58 @@ export const padiControlSurface = defineSurface({
   },
 });
 
-/** The two surfaces the padi daemon serves on its socket: the versioned
- *  `padiSurface` at `surface.padi.*`, and the frozen control core at
- *  `surface.control.*`. One keyed map, consumed by `implementSurfaces` (server)
- *  and `composeSurfaceContracts` (the binder's wire contract) so the two stay in
- *  lock-step. */
+// ── what padi serves, and what it implements ────────────────────────────────
+
+/**
+ * ODU, as padi carries it — the members of odu's OWN contract that cross kolu's
+ * wire, assembled from odu's own declarations.
+ *
+ * NOT a second contract: every schema below IS `oduServiceSurface`'s, reached
+ * through its spec rather than restated, so a change odu makes to the shape of a
+ * checkout frame is a change here by construction. What kolu chooses is only
+ * WHICH members it carries, and the two it carries are the two a reader needs:
+ *
+ *   - `cells.service` — who is serving, and on what origin. A link out to odu's
+ *     own page has to dial where the daemon actually is, and that is a fact of
+ *     the daemon's lifecycle (its environment, its flags) that no reader can
+ *     derive.
+ *   - `streams.checkout` — one checkout, whole: the run it stands for, that
+ *     run's work, and what ran before it.
+ *
+ * The REST of odu's surface is deliberately not carried. Mirroring its board
+ * would have every kolu host holding every run of every checkout — the per-host
+ * waste this sibling exists to remove — and re-serving its procedures would put
+ * `run.start` behind kolu's same-origin gate, a decision nobody has asked for. A
+ * member that turns out to be wanted is one line here.
+ */
+export const oduCarriedSurface = defineSurface({
+  cells: { service: oduServiceSurface.spec.cells.service },
+  streams: { checkout: oduServiceSurface.spec.streams.checkout },
+});
+
+/** What the padi daemon IMPLEMENTS in its own process. The odu sibling is
+ *  absent here on purpose: it is RE-SERVED from the odu daemon's own socket, so
+ *  padi has no deps to supply for it. */
 export const padiDaemonSurfaces = {
   padi: padiSurface,
   control: padiControlSurface,
 } as const;
 
-/** The combined wire the padi daemon serves — ONE flat `RpcGroup` carrying both
- *  siblings' tags (`surface/padi/*` + `surface/control/*`), plus the per-sibling
- *  `Surface` values a client builds its faces from.
+/** What the padi daemon's socket SERVES — its own two surfaces, plus the odu
+ *  sibling it re-serves. The dialing side opens its link over this contract, so
+ *  a caller sees odu's members at `surface/odu/*` whether or not an odu daemon
+ *  is running on that machine: absence is a FRAME, not a missing tag. A tag set
+ *  that changed with a neighbouring daemon's installation would make every
+ *  client's contract a function of the host it happened to reach. */
+export const padiServedSurfaces = {
+  padi: padiSurface,
+  control: padiControlSurface,
+  odu: oduCarriedSurface,
+} as const;
+
+/** The combined wire the padi daemon serves — ONE flat `RpcGroup` carrying every
+ *  sibling's tags (`surface/padi/*` + `surface/control/*` + `surface/odu/*`),
+ *  plus the per-sibling `Surface` values a client builds its faces from.
  *
  *  Composition is the framework's SIBLING algebra (S1/D1): each surface is
  *  re-walked under its own `surface/<key>/` tag prefix, never `RpcGroup.merge`d
@@ -2811,7 +2820,7 @@ export const padiDaemonSurfaces = {
  *  (`@kolu/surface/define`). This file used to restate that proof as an
  *  import-time size assert of its own; the framework proves it now, so the
  *  restatement is gone and the tag SETS are still pinned literally below. */
-export const padiDaemonContract = composeSurfaceContracts(padiDaemonSurfaces);
+export const padiDaemonContract = composeSurfaceContracts(padiServedSurfaces);
 export type PadiDaemonContract = typeof padiDaemonContract;
 
 /** The flat tag map a padi daemon serves — what `implementSurfaces` binds and
@@ -2829,6 +2838,12 @@ export const padiSurfaceSibling: Surface<typeof padiSurface.spec> =
  *  reaches `core.hello` / `core.drain` here even at a `padiSurface` skew. */
 export const padiControlSibling: Surface<typeof padiControlSurface.spec> =
   padiDaemonContract.siblings.control;
+
+/** The odu sibling — odu's carried members at `surface/odu/*`. The value padi
+ *  RE-SERVES onto (so the re-serve's handlers land at the sibling's own tags),
+ *  and the one a client builds the odu face from. */
+export const oduSibling: Surface<typeof oduCarriedSurface.spec> =
+  padiDaemonContract.siblings.odu;
 
 // The composed sibling registry (`surfacesWithPadi = { ...surfaces, padi }`)
 // lives in `kolu-common/surface` now, NOT here: composing the app's `surfaces`

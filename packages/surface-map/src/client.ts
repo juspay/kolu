@@ -22,7 +22,7 @@
  */
 
 import type { Surface, SurfaceSpec, WireSchemaAny } from "@kolu/surface/define";
-import { defineSurface, scopeSiblingTag } from "@kolu/surface/define";
+import { defineSurface } from "@kolu/surface/define";
 import { isDirectDispatch, type SurfaceDispatch } from "@kolu/surface/link";
 import {
   buildSurfaceClient,
@@ -49,9 +49,10 @@ import type {
   MembershipId,
   ObservedEntryStatus,
   SurfaceMap,
+  SurfaceMapSiblings,
   UnobservableEntry,
 } from "./define";
-import { PENDING_MEMBERSHIP_ID } from "./define";
+import { mapRetag, mapSiblingRetag, PENDING_MEMBERSHIP_ID } from "./define";
 import { fold } from "./envelope";
 
 // ── Entry & client shapes ───────────────────────────────────────────────
@@ -64,10 +65,31 @@ import { fold } from "./envelope";
  *  {@link UnobservableEntry} ride along for the same reason. */
 export type { EntryState, ObservedEntryStatus, UnobservableEntry };
 
-/** The entry-typed subtree PLUS a total existence-as-a-value fold over
- *  `entries`. Reuses the base `SurfaceClient<ES>`'s bound subtrees verbatim
- *  (`.cells`/`.collections`/`.streams`/`.events`/`.procedures`). */
-export interface Entry<
+/** One nested SIBLING's face on an entry — the same bound subtrees {@link Entry}
+ *  exposes for the entry surface itself, generated from the SIBLING's own spec. It
+ *  carries no `state`/`clock`: those are the ENTRY's (one membership authority per
+ *  key), and a sibling served under that entry has no second membership of its own. */
+export type EntrySibling<S extends SurfaceSpec> = Pick<
+  SurfaceClient<S>,
+  "cells" | "collections" | "streams" | "events" | "procedures" | "rpc"
+>;
+
+/** The named sibling faces an entry carries, typed from the map's `siblings`
+ *  declaration — `entry(key).odu.streams.checkout(…)` is typed from odu's OWN spec,
+ *  never `any`. Empty for a map that declares none, so an entry face with no siblings
+ *  gains not one property. */
+export type EntrySiblings<Sibs extends SurfaceMapSiblings> = {
+  readonly [K in keyof Sibs]: Sibs[K] extends Surface<infer S>
+    ? EntrySibling<S>
+    : never;
+};
+
+/** The ENTRY surface's own half of an entry lens — its typed subtree plus a total
+ *  existence-as-a-value fold over `entries`. Reuses the base `SurfaceClient<ES>`'s
+ *  bound subtrees verbatim (`.cells`/`.collections`/`.streams`/`.events`/
+ *  `.procedures`). The full lens a consumer holds is {@link Entry}, which adds the
+ *  declared siblings. */
+export interface EntryFace<
   ES extends SurfaceSpec,
   Failure = unknown,
   Conn = unknown,
@@ -108,6 +130,20 @@ export interface Entry<
    *  dot reads — no second subscription. */
   state(): EntryState<Failure, Conn>;
 }
+
+/** An entry lens: the entry surface's own face, plus ONE named face per nested sibling
+ *  the map declares. A sibling is a NAMED PROPERTY rather than more members on the
+ *  entry surface because it is a second daemon's contract — its own clock, its own
+ *  version, its own release cadence — and folding it into the entry spec would make
+ *  that contract part of the entry's. `defineSurfaceMap` refuses a sibling key that
+ *  collides with an {@link EntryFace} member ({@link ENTRY_FACE_MEMBERS}), so a sibling
+ *  can never shadow the entry's own subtree. */
+export type Entry<
+  ES extends SurfaceSpec,
+  Failure = unknown,
+  Conn = unknown,
+  Sibs extends SurfaceMapSiblings = Record<never, never>,
+> = EntryFace<ES, Failure, Conn> & EntrySiblings<Sibs>;
 
 /** The entry's clock translation (see {@link Entry.clock}). */
 export interface EntryClock {
@@ -265,6 +301,7 @@ export interface SurfaceMapClient<
   ES extends SurfaceSpec,
   Failure = unknown,
   Conn = unknown,
+  Sibs extends SurfaceMapSiblings = Record<never, never>,
 > {
   /** The ONE membership authority, consumed as a normal bound collection. Its value is
    *  {@link ObservedEntryStatus}, NOT the published `EntryStatus`: every value it hands out
@@ -287,33 +324,24 @@ export interface SurfaceMapClient<
    *  decodes of the same logical key (the map client's own cache vs. the caller's). */
   readonly codec: KeyCodec<KS["Type"]>;
   /** PURE lens — partial application of the key. No owner, no I/O, safe
-   *  anywhere. Total. */
-  entry(key: KS["Type"]): Entry<ES, Failure, Conn>;
+   *  anywhere. Total. Carries the map's declared siblings as named faces
+   *  (`entry(key).odu.…`), each typed from that sibling's own spec. */
+  entry(key: KS["Type"]): Entry<ES, Failure, Conn, Sibs>;
   /** Solid reactive lens — owns swap disposal (a keyed root disposes the old
    *  key's subscriptions on switch and rebuilds synchronously). THROWS outside a
-   *  reactive owner. */
-  useEntry(key: Accessor<KS["Type"]>): Entry<ES, Failure, Conn>;
+   *  reactive owner. Sibling faces re-key with the entry's own. */
+  useEntry(key: Accessor<KS["Type"]>): Entry<ES, Failure, Conn, Sibs>;
   dispose(): void;
 }
 
 // ── The key-injecting dispatch ──────────────────────────────────────────
 
-/** A tag rewriter: a STANDALONE surface tag (`surface/<member>/<verb>` — what the
- *  entry face and the membership face both mint) onto the tag the MAP advertises for
- *  it. Identity for a map served at the transport root; `scopeSiblingTag` for a map
- *  DECLARED with a mount name (PR3: the key derives from the declaration, never from
- *  a caller-passed string).
- *
- *  This is the tag-algebra successor of `scopeSibling(link, key)`'s link re-wrap. It
- *  is also why the old brand-stripping hazard is gone: re-tagging never rebuilds the
- *  transport, so the half-open brand and the watchdog `live` stay on the ONE dispatch
- *  the guard already approved. */
-function mapRetag(map: { readonly name?: string }): (tag: string) => string {
-  const name = map.name;
-  return name === undefined
-    ? (tag) => tag
-    : (tag) => scopeSiblingTag(tag, name);
-}
+// The map's tag rewrites (`mapRetag` / `mapSiblingRetag`) live in the solid-free
+// `./define`, beside the fold walk that MINTS the tags they rewrite onto — one
+// authority, read by the contract, the server and this client.
+
+/** A tag rewrite: a standalone surface tag onto the one the map advertises for it. */
+type Retag = (tag: string) => string;
 
 /** Wrap a dispatch so every call carries the uniform fold envelope
  *  `{ mapKey, input }` and lands on the map's own tag — the map server reads `mapKey`
@@ -417,22 +445,49 @@ function reactiveDelegate<R extends object>(current: Accessor<R>): R {
   ) as R;
 }
 
-/** Build the reactive `Entry<ES>` `useEntry` returns: each bound-primitive
- *  `.use()` runs inside a keyed root over `reKeyIdentity` — the `{enc, membershipId}`
- *  identity — so its subscriptions re-key on an active-key SWITCH *and* on a same-key
- *  re-add / authority restart (a new membershipId), the two paths PR3 makes rebuild by
+/** One bound member as a reactive walk sees it: its `use` hook plus its imperative
+ *  verbs. Member and verb names are SPEC data (runtime strings), so the walk is dynamic
+ *  by construction — spelled as callables rather than `any`, so the proxy's own reads
+ *  stay checked and a name the spec never declared is a stated crash instead of a
+ *  `undefined is not a function`. */
+interface BoundMember {
+  use(...args: unknown[]): unknown;
+  readonly [verb: string]: (...args: unknown[]) => unknown;
+}
+
+/** A bound FACE as a reactive walk sees it — one surface's subtrees, whether the entry
+ *  surface's own or a nested sibling's. */
+interface WalkedFace {
+  readonly cells: Record<string, BoundMember>;
+  readonly collections: Record<string, BoundMember>;
+  readonly streams: Record<string, BoundMember>;
+  readonly events: Record<string, BoundMember>;
+  readonly procedures: unknown;
+  readonly rpc: unknown;
+}
+
+/** The reactive form of ONE surface's bound subtrees: each bound-primitive `.use()`
+ *  runs inside a keyed root over `reKeyIdentity` — the `{enc, membershipId}` identity —
+ *  so its subscriptions re-key on an active-key SWITCH *and* on a same-key re-add /
+ *  authority restart (a new membershipId), the two paths PR3 makes rebuild by
  *  construction. Imperative collection members (`upsert`/`delete`) and procedures
- *  delegate to the current key (one-shot — no membership-fresh client needed). */
-function makeReactiveEntry<
+ *  delegate to the current key (one-shot — no membership-fresh client needed).
+ *
+ *  `face` selects WHICH face of the pure entry lens is walked — the entry surface's own
+ *  or one nested sibling's — so a sibling's members re-key by exactly the entry's rule
+ *  rather than through a second copy of this machinery. */
+function reactiveFace<
   ES extends SurfaceSpec,
   K,
-  Failure = unknown,
-  Conn = unknown,
+  Failure,
+  Conn,
+  Sibs extends SurfaceMapSiblings,
 >(
-  entryFor: (key: K) => Entry<ES, Failure, Conn>,
+  entryFor: (key: K) => Entry<ES, Failure, Conn, Sibs>,
   keyAccessor: Accessor<K>,
   reKeyIdentity: (key: K) => string,
-): Entry<ES, Failure, Conn> {
+  face: (entry: Entry<ES, Failure, Conn, Sibs>) => WalkedFace,
+): Record<string, unknown> {
   const primProxy = (prim: "cells" | "collections" | "streams" | "events") =>
     new Proxy(
       {},
@@ -457,8 +512,12 @@ function makeReactiveEntry<
                       () => reKeyIdentity(keyAccessor()),
                       () => {
                         const key = untrack(keyAccessor);
-                        // biome-ignore lint/suspicious/noExplicitAny: dynamic member/verb walk over the bound subtree
-                        const node = (entryFor(key) as any)[prim][member];
+                        const node = face(entryFor(key))[prim][member];
+                        if (node === undefined) {
+                          throw new Error(
+                            `surface-map: no bound "${prim}.${member}" on this face — the walk asked for a member the spec never declared.`,
+                          );
+                        }
                         return node.use(...args) as object;
                       },
                     );
@@ -486,9 +545,15 @@ function makeReactiveEntry<
                 }
                 // Imperative, lifecycle-free members (collection upsert/delete).
                 return (...args: unknown[]) => {
-                  // biome-ignore lint/suspicious/noExplicitAny: dynamic member/verb walk over the bound subtree
-                  const node = (entryFor(keyAccessor()) as any)[prim][member];
-                  return node[verb](...args);
+                  const fn = face(entryFor(keyAccessor()))[prim][member]?.[
+                    verb
+                  ];
+                  if (fn === undefined) {
+                    throw new Error(
+                      `surface-map: no bound "${prim}.${member}.${verb}" on this face — the walk asked for a verb the spec never declared.`,
+                    );
+                  }
+                  return fn(...args);
                 };
               },
             },
@@ -496,10 +561,6 @@ function makeReactiveEntry<
         },
       },
     );
-  // Cast the whole proxy-backed object at once (`as unknown as Entry<ES>`): the fields
-  // are structurally satisfied by the proxies at runtime, and casting the object avoids
-  // expanding `Entry<ES>["rpc"]`'s full contract-client union (a TS2590 "union too
-  // complex" if cast per-field).
   return {
     cells: primProxy("cells"),
     collections: primProxy("collections"),
@@ -508,14 +569,60 @@ function makeReactiveEntry<
     // Procedures and the raw `.rpc` are BOTH current-key imperative point-calls
     // (`procedures.<ns>.<verb>(input)` / `rpc.surface.<ns>.<verb>(input)`) — the same
     // arbitrary-depth path-walk that reads the active key per call. They route through
-    // the SAME `faceDelegate`, differing only in WHICH entry face they walk, so a
-    // procedure's second-level verb (including one named `use`) is a plain call, never
-    // an interception — the mis-route the old shared proxy had to guard is unspellable.
-    procedures: faceDelegate(entryFor, keyAccessor, (e) => e.procedures),
-    rpc: faceDelegate(entryFor, keyAccessor, (e) => e.rpc),
+    // the SAME `faceDelegate`, differing only in WHICH face they walk, so a procedure's
+    // second-level verb (including one named `use`) is a plain call, never an
+    // interception — the mis-route the old shared proxy had to guard is unspellable.
+    procedures: faceDelegate(entryFor, keyAccessor, (e) => face(e).procedures),
+    rpc: faceDelegate(entryFor, keyAccessor, (e) => face(e).rpc),
+  };
+}
+
+/** Build the reactive `Entry` `useEntry` returns: the entry surface's own reactive
+ *  face, one reactive face per DECLARED sibling, and the two map-only lenses
+ *  (`clock`/`state`, which belong to the entry's membership and have no sibling twin).
+ *  The sibling names come from the map declaration, and `defineSurfaceMap` has already
+ *  refused any that collides with an entry face member — so spreading them alongside is
+ *  total, with nothing to shadow. */
+function makeReactiveEntry<
+  ES extends SurfaceSpec,
+  K,
+  Failure,
+  Conn,
+  Sibs extends SurfaceMapSiblings,
+>(
+  entryFor: (key: K) => Entry<ES, Failure, Conn, Sibs>,
+  keyAccessor: Accessor<K>,
+  reKeyIdentity: (key: K) => string,
+  siblingKeys: readonly string[],
+): Entry<ES, Failure, Conn, Sibs> {
+  const siblings: Record<string, unknown> = {};
+  for (const sibling of siblingKeys) {
+    siblings[sibling] = reactiveFace(
+      entryFor,
+      keyAccessor,
+      reKeyIdentity,
+      // The pure lens carries a face at every DECLARED sibling name by construction
+      // (`entry()` builds one per `map.siblings` key), which an index read cannot
+      // prove — hence the assertion rather than a branch on a case that cannot occur.
+      (e) =>
+        (e as unknown as Record<string, WalkedFace>)[sibling] as WalkedFace,
+    );
+  }
+  // Cast the whole proxy-backed object at once (`as unknown as Entry<ES>`): the fields
+  // are structurally satisfied by the proxies at runtime, and casting the object avoids
+  // expanding `Entry<ES>["rpc"]`'s full contract-client union (a TS2590 "union too
+  // complex" if cast per-field).
+  return {
+    ...reactiveFace(
+      entryFor,
+      keyAccessor,
+      reKeyIdentity,
+      (e) => e as unknown as WalkedFace,
+    ),
+    ...siblings,
     clock: makeEntryClock(() => entryFor(keyAccessor()).state()),
     state: () => entryFor(keyAccessor()).state(),
-  } as unknown as Entry<ES, Failure, Conn>;
+  } as unknown as Entry<ES, Failure, Conn, Sibs>;
 }
 
 /** A path-walking proxy over a chosen entry FACE (`e.procedures` or `e.rpc`) that reads
@@ -526,12 +633,13 @@ function makeReactiveEntry<
 function faceDelegate<
   ES extends SurfaceSpec,
   K,
-  Failure = unknown,
-  Conn = unknown,
+  Failure,
+  Conn,
+  Sibs extends SurfaceMapSiblings,
 >(
-  entryFor: (key: K) => Entry<ES, Failure, Conn>,
+  entryFor: (key: K) => Entry<ES, Failure, Conn, Sibs>,
   keyAccessor: Accessor<K>,
-  face: (entry: Entry<ES, Failure, Conn>) => unknown,
+  face: (entry: Entry<ES, Failure, Conn, Sibs>) => unknown,
 ): unknown {
   const walk = (path: string[]): unknown =>
     new Proxy(() => {}, {
@@ -588,11 +696,12 @@ export function connectSurfaceMap<
   ES extends SurfaceSpec,
   Failure = unknown,
   Conn = unknown,
+  Sibs extends SurfaceMapSiblings = Record<never, never>,
 >(
-  map: SurfaceMap<KS, ES, Failure, Conn>,
+  map: SurfaceMap<KS, ES, Failure, Conn, Sibs>,
   transport: unknown,
   opts?: ConnectSurfaceMapOptions<KS["Type"]>,
-): SurfaceMapClient<KS, ES, Failure, Conn> {
+): SurfaceMapClient<KS, ES, Failure, Conn, Sibs> {
   type K = KS["Type"];
   const decodeKeyValue = Schema.decodeUnknownSync(map.keySchema);
 
@@ -744,9 +853,9 @@ export function connectSurfaceMap<
     membershipId: MembershipId | undefined,
   ): string => JSON.stringify([enc, membershipId ?? null]);
 
-  // The pure lens' get-or-create: a per-key `SurfaceClient<ES>` cached by
+  // The pure lens' get-or-create: the per-key clients cached by
   // `{encodedKey, membershipId}` (PR3) — NEVER the enc alone. The identity pair is held
-  // STRUCTURALLY as a nested `Map<enc, Map<membershipId, client>>` (`PENDING_MEMBERSHIP_ID`
+  // STRUCTURALLY as a nested `Map<enc, Map<membershipId, clients>>` (`PENDING_MEMBERSHIP_ID`
   // slots the not-yet-known id), so enc-departure pruning and same-enc eviction are map
   // operations, not substring
   // surgery on a delimited key. A same-key remove/re-add mints a NEW id server-side, and
@@ -756,39 +865,83 @@ export function connectSurfaceMap<
   // used to force, now by construction. The enc (not the raw `K`) is the outer string
   // key because a JS `Map`/`===` compares objects by reference, so two logically-equal
   // `HostKey`s from independent decodes would otherwise never dedup to one client.
-  const clients = new Map<string, Map<string, SurfaceClient<ES>>>();
+  //
+  // What is cached is the ENTRY surface's client PLUS one per DECLARED nested sibling.
+  // They share one identity and one lifetime — a sibling face is reached through the
+  // same entry lens, folds the same key and dies with the same membership — so they are
+  // cached and disposed as ONE value, never as a second parallel cache that could
+  // outlive the entry's.
+  type KeyedClients = {
+    readonly entry: SurfaceClient<ES>;
+    /** Keyed by sibling name — a static table derived from the declaration, so a plain
+     *  record. Held as the erased `SurfaceClient<SurfaceSpec>`: the per-sibling types
+     *  are restored at the `Entry` boundary (`EntrySiblings`), and here they are only
+     *  read and disposed. */
+    readonly siblings: Readonly<Record<string, SurfaceClient<SurfaceSpec>>>;
+  };
+  const disposeKeyed = (c: KeyedClients): void => {
+    c.entry.dispose();
+    for (const s of Object.values(c.siblings)) s.dispose();
+  };
+  // One build plan per declared sibling, derived ONCE from the declaration: the surface
+  // and its retag never vary by key, so re-deriving them inside `clientFor` would mint a
+  // closure per entry for a value that is the same for every one of them.
+  const siblingPlans: ReadonlyArray<
+    readonly [sibling: string, surface: Surface<SurfaceSpec>, retag: Retag]
+  > = Object.entries(map.siblings).map(([sibling, surface]) => [
+    sibling,
+    surface,
+    mapSiblingRetag(map, sibling),
+  ]);
+  const siblingKeys = siblingPlans.map(([sibling]) => sibling);
+  const clients = new Map<string, Map<string, KeyedClients>>();
   const clientFor = (
     key: K,
     membershipId: MembershipId | undefined,
-  ): SurfaceClient<ES> => {
+  ): KeyedClients => {
     const enc = map.codec.encode(key);
     const id = membershipId ?? PENDING_MEMBERSHIP_ID;
     let inner = clients.get(enc);
     if (inner === undefined) {
-      inner = new Map<string, SurfaceClient<ES>>();
+      inner = new Map<string, KeyedClients>();
       clients.set(enc, inner);
     }
     let c = inner.get(id);
     if (!c) {
-      c = build(() =>
-        // INJECT the origin PER KEY: this builder holds the decoded `key: K`, so it
-        // wraps the app interpreter to close `{ key }` over it and hands the base
-        // ORIGIN-FREE `(policy, err)` shape to `buildSurfaceClient` (design §C). So an
-        // origin-bearing policy arm (kolu's hostToast/scopedSub) is only reachable
-        // here, where the key exists — the base stays origin-agnostic.
-        buildSurfaceClient(
+      // INJECT the origin PER KEY: this builder holds the decoded `key: K`, so it
+      // wraps the app interpreter to close `{ key }` over it and hands the base
+      // ORIGIN-FREE `(policy, err)` shape to `buildSurfaceClient` (design §C). So an
+      // origin-bearing policy arm (kolu's hostToast/scopedSub) is only reachable
+      // here, where the key exists — the base stays origin-agnostic.
+      const onError = appOnError
+        ? (policy: unknown, err: Error) => appOnError(policy, err, { key })
+        : undefined;
+      c = build(() => ({
+        // The per-key dispatch folds `{ mapKey: enc }` into every payload AND
+        // re-tags onto the map's own prefix in ONE wrapper over the resolved
+        // dispatch — so the entry face, built from the STANDALONE `map.entry`,
+        // never learns that it is keyed or scoped.
+        entry: buildSurfaceClient(
           map.entry,
-          // The per-key dispatch folds `{ mapKey: enc }` into every payload AND
-          // re-tags onto the map's own prefix in ONE wrapper over the resolved
-          // dispatch — so the entry face, built from the STANDALONE `map.entry`,
-          // never learns that it is keyed or scoped.
           keyInjectingDispatch(fullDispatch, enc, retag),
           live,
-          appOnError
-            ? (policy, err) => appOnError(policy, err, { key })
-            : undefined,
+          onError,
+        ) as SurfaceClient<ES>,
+        // A sibling's face is built from its OWN standalone surface over the SAME key,
+        // differing from the entry's in one thing only: the retag lands it one segment
+        // deeper. So it is exactly as unaware of the map as the entry face is.
+        siblings: Object.fromEntries(
+          siblingPlans.map(([sibling, surface, siblingRetag]) => [
+            sibling,
+            buildSurfaceClient(
+              surface,
+              keyInjectingDispatch(fullDispatch, enc, siblingRetag),
+              live,
+              onError,
+            ),
+          ]),
         ),
-      ) as SurfaceClient<ES>;
+      }));
       inner.set(id, c);
       // A REAL id supersedes every prior client for THIS enc — the `#pending` slot AND
       // any older-id client left by a re-add / authority restart — so dispose them the
@@ -808,7 +961,7 @@ export function connectSurfaceMap<
       if (membershipId !== undefined) {
         for (const [otherId, otherClient] of [...inner]) {
           if (otherId !== id) {
-            otherClient.dispose();
+            disposeKeyed(otherClient);
             inner.delete(otherId);
           }
         }
@@ -838,7 +991,7 @@ export function connectSurfaceMap<
       const present = new Set(members);
       for (const enc of [...clients.keys()]) {
         if (!present.has(enc)) {
-          for (const c of clients.get(enc)?.values() ?? []) c.dispose();
+          for (const c of clients.get(enc)?.values() ?? []) disposeKeyed(c);
           clients.delete(enc);
         }
       }
@@ -877,7 +1030,7 @@ export function connectSurfaceMap<
     );
   };
 
-  const entry = (key: K): Entry<ES, Failure, Conn> => {
+  const entry = (key: K): Entry<ES, Failure, Conn, Sibs> => {
     // Key the per-key client on the CURRENT {enc, membershipId} (PR3). Read the id only
     // inside a reactive owner — the `useEntry` / reactive-`.use()` path, whose keyed root
     // (`reKeyIdentity`) drives the rebuild on a re-add/restart — and read it UNTRACKED, so
@@ -890,21 +1043,41 @@ export function connectSurfaceMap<
       : undefined;
     const c = clientFor(key, membershipId);
     return {
-      cells: c.cells,
-      collections: c.collections,
-      streams: c.streams,
-      events: c.events,
+      cells: c.entry.cells,
+      collections: c.entry.collections,
+      streams: c.entry.streams,
+      events: c.entry.events,
       // The per-key client's bound, declaration-typed procedures — its key-injecting
       // dispatch folds `{ mapKey }` into every call, so the consumer never passes the key.
-      procedures: c.procedures,
+      procedures: c.entry.procedures,
       // The raw nested member face — the addressing-layer escape hatch.
-      rpc: c.rpc as Entry<ES, Failure, Conn>["rpc"],
+      rpc: c.entry.rpc as EntryFace<ES, Failure, Conn>["rpc"],
       clock: makeEntryClock(() => foldState(key)),
       state: () => foldState(key),
+      // One named face per DECLARED sibling, each the same six bound subtrees over that
+      // sibling's own client. `defineSurfaceMap` refused any sibling name that collides
+      // with the entry face above, so this spread shadows nothing. The cast restores the
+      // per-sibling types the runtime record erases — `EntrySiblings` is the authority
+      // on what each name resolves to.
+      ...(Object.fromEntries(
+        Object.entries(c.siblings).map(([sibling, client]) => [
+          sibling,
+          {
+            cells: client.cells,
+            collections: client.collections,
+            streams: client.streams,
+            events: client.events,
+            procedures: client.procedures,
+            rpc: client.rpc,
+          },
+        ]),
+      ) as EntrySiblings<Sibs>),
     };
   };
 
-  const useEntry = (keyAccessor: Accessor<K>): Entry<ES, Failure, Conn> => {
+  const useEntry = (
+    keyAccessor: Accessor<K>,
+  ): Entry<ES, Failure, Conn, Sibs> => {
     if (!getOwner()) {
       throw new Error(
         "connectSurfaceMap: useEntry(accessor) must run inside a reactive owner " +
@@ -934,13 +1107,13 @@ export function connectSurfaceMap<
     // departed-membership prune for no user-visible gain.
     const reKeyIdentity = (key: K): string =>
       clientCacheKey(map.codec.encode(key), membershipIdOf(key));
-    return makeReactiveEntry(entry, stableKey, reKeyIdentity);
+    return makeReactiveEntry(entry, stableKey, reKeyIdentity, siblingKeys);
   };
 
   const dispose = () => {
     entriesClient.dispose();
     for (const inner of clients.values())
-      for (const c of inner.values()) c.dispose();
+      for (const c of inner.values()) disposeKeyed(c);
     clients.clear();
   };
 
@@ -956,6 +1129,6 @@ export {
   type ScopedByEntry,
   scopedByEntry,
   type WatchByEntry,
-  watchByEntry,
   type WatchedValue,
+  watchByEntry,
 } from "./scoped";

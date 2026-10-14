@@ -121,11 +121,19 @@ export const ConnectionInfoSchema = Schema.Union([
   downArm("failed"),
 ]);
 
-/** The connection value IS the session sum at the ssh connector's `Prov` — one type
- *  family, not a parallel mirror. Kept as a TYPE-ONLY alias (both imports are `import
- *  type`, fully erased, so this browser-safe module still pulls no node/server code at
+/** The connection value IS the session sum at the ssh connector's `Prov`, minus the
+ *  one arm a host session can never reach — one type family, not a parallel mirror.
+ *  `absent` ("nothing is serving there") is produced only by a connector that can
+ *  TELL, which means a unix path; a HOST is reached over ssh or over the local
+ *  endpoint, and neither can distinguish absence from unreachability. Carrying it
+ *  here would put a state on the browser's wire that every reader must handle and no
+ *  producer can ever send. Kept as a TYPE-ONLY alias (both imports are `import type`,
+ *  fully erased, so this browser-safe module still pulls no node/server code at
  *  runtime), with the zod schema above pinned structurally equal to it. */
-export type ConnectionInfo = SessionState<SshProv>;
+export type ConnectionInfo = Exclude<
+  SessionState<SshProv>,
+  { phase: "absent" }
+>;
 
 /** The up-but-not-yet-connected phases — what a connect/progress UI narrates (the connect
  *  overlay, a per-host status/color map). The subset of `ConnectionInfo["phase"]` a UI shows
@@ -156,19 +164,37 @@ export const DEFAULT_CONNECTION: ConnectionInfo = {
 
 /** Project a session frame → the browser-facing {@link ConnectionInfo} — the ONE pure
  *  leaf a consumer derives the WORD from the entry with (SR9: "surface-remote exports
- *  only the projection"). A PROVABLE IDENTITY, not a re-box: `ConnectionInfo` IS
- *  `SessionState<SshProv>`, and `SessionState<Prov>` for any `Prov extends SshProv` (the
- *  ssh arm's `SshProv`, or a `never` endpoint — `never extends SshProv`) is a subtype by
- *  `Prov`-covariance, so `s` is already a `ConnectionInfo`. No arm-by-arm reconstruction,
- *  no casts, no runtime zod-throw risk — the two sums can't drift (the
- *  `connectionInfoIdentity` type-d pin enforces the schema tracks the type). Kept as a
- *  named function (rather than inlined) so every consumer that reads the entry's fine
- *  connection names the one projection — the browser-safe leaf both kolu and drishti
- *  import (never a second server-side subscription). */
+ *  only the projection"). A near-identity, not a re-box: `ConnectionInfo` IS
+ *  `SessionState<SshProv>` minus `absent`, and `SessionState<Prov>` for any
+ *  `Prov extends SshProv` (the ssh arm's `SshProv`, or a `never` endpoint — `never
+ *  extends SshProv`) is otherwise a subtype by `Prov`-covariance, so every other arm
+ *  passes through untouched. No arm-by-arm reconstruction, no casts, no runtime
+ *  zod-throw risk — the two sums can't drift (the `connectionInfoIdentity` type-d pin
+ *  enforces the schema tracks the type). Kept as a named function (rather than
+ *  inlined) so every consumer that reads the entry's fine connection names the one
+ *  projection — the browser-safe leaf both kolu and drishti import (never a second
+ *  server-side subscription).
+ *
+ *  The ONE arm that is not a pass-through is `absent`, and the collapse is deliberate:
+ *  a host is dialled over ssh or over the local endpoint, neither of which can tell
+ *  "nothing is serving" from "unreachable", so no session behind this projection can
+ *  produce it. The arm is still FOLDED rather than left to a cast, because a sum with
+ *  an unhandled arm is how a future connector's new state reaches a browser as
+ *  `undefined`. It folds to `disconnected` — the honest word for a link that is not
+ *  there — carrying the absence's own sentence. */
 export function projectConnection<Prov extends SshProv>(
   s: SessionState<Prov>,
 ): ConnectionInfo {
-  return s;
+  // ONE cast, and it crosses precision only: `Prov extends SshProv` makes this
+  // frame a `SessionState<SshProv>` by covariance, but a GENERIC `Prov` defeats
+  // TS's discriminated-union narrowing (for an unconstrained member the up arm's
+  // `phase` could itself be any literal), so the arm test below cannot see the
+  // sum until it is spelled concretely.
+  const frame = s as SessionState<SshProv>;
+  if (frame.phase === "absent") {
+    return { ...frame, phase: "disconnected", cause: "network" };
+  }
+  return frame;
 }
 
 /** The ONE decode of {@link ConnectionInfoSchema} — built once (the parser is

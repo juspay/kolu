@@ -43,6 +43,14 @@
  * which claims each tag and then proves `group.requests.size` matches — `RpcGroup.make`
  * is a last-writer-wins `Map.set` with no collision detection (review #16).
  *
+ * A map may also declare NESTED SIBLINGS — whole surfaces served per entry beside the
+ * entry surface (`siblings: { odu: oduSurface }`). A sibling member lands ONE SEGMENT
+ * deeper than an entry member: `surface/<name>/<sibling>/<member>/<verb>`, minted by
+ * {@link mapSiblingTagPrefix}, which is {@link mapRetag} applied twice — the sibling's
+ * own `surface/<sibling>/` scope, then the map's mount. Upstream (the entry's own
+ * socket, where that daemon IS a sibling of its host surface) the same member is
+ * `surface/<sibling>/<member>/<verb>`, so the map hop is a re-tag between the two.
+ *
  * ## The #17 mapping law
  *
  * Every `.optional()` in this file is `Schema.optionalKey` — NEVER `Schema.optional`,
@@ -64,11 +72,13 @@ import type {
   WireSchemaAny,
 } from "@kolu/surface/define";
 import {
+  assertTagSegment,
   collectionDeltasSchema,
   resolveCellVerbs,
   resolveCollectionVerbs,
-  siblingTagPrefix,
   SURFACE_TAG_PREFIX,
+  scopeSiblingTag,
+  siblingTagPrefix,
   surfaceTag,
 } from "@kolu/surface/define";
 import {
@@ -636,14 +646,45 @@ function entriesRpcs(
   };
 }
 
-/** Walk the entry spec and produce the key-folded Rpcs, keyed by wire tag —
- *  mirroring `defineSurface`'s spec walk. */
+/** The shared key-folded spec walk — the fold dual of `defineSurface`'s own walk,
+ *  parameterised by the tag prefix and by what a claimed member is CALLED, so the
+ *  entry surface and a nested sibling surface are folded by ONE rule and differ only
+ *  in where their tags land and how a collision names them. */
+function foldedSpecRpcs(
+  tagPrefix: string,
+  spec: SurfaceSpec,
+  claim: (member: string, rpcs: Record<string, Rpc.Any>) => void,
+): void {
+  for (const [key, s] of Object.entries(spec.cells ?? {})) {
+    claim(key, foldedCellRpcs(tagPrefix + key, s));
+  }
+  for (const [key, s] of Object.entries(spec.collections ?? {})) {
+    claim(key, foldedCollectionRpcs(tagPrefix + key, s));
+  }
+  for (const [key, s] of Object.entries(spec.streams ?? {})) {
+    claim(key, foldedStreamRpcs(tagPrefix + key, s));
+  }
+  for (const [key, s] of Object.entries(spec.events ?? {})) {
+    claim(key, foldedEventRpcs(tagPrefix + key, s));
+  }
+  for (const [ns, procs] of Object.entries(spec.procedures ?? {})) {
+    const procRpcs: Record<string, Rpc.Any> = {};
+    for (const [verb, ps] of Object.entries(procs)) {
+      procRpcs[verb] = foldedProcedureRpc(surfaceTag(tagPrefix, ns, verb), ps);
+    }
+    claim(ns, procRpcs);
+  }
+}
+
+/** Walk the ENTRY spec and produce the key-folded Rpcs, keyed by wire tag. The
+ *  entry's members sit at the map's OWN prefix, which is where the reserved
+ *  membership collection also lives — so a member named `entries` is refused here. */
 function foldedMemberRpcs(
   tagPrefix: string,
   entry: SurfaceSpec,
 ): Array<[member: string, rpcs: Record<string, Rpc.Any>]> {
   const out: Array<[string, Record<string, Rpc.Any>]> = [];
-  const claim = (key: string, rpcs: Record<string, Rpc.Any>): void => {
+  foldedSpecRpcs(tagPrefix, entry, (key, rpcs) => {
     if (key === ENTRIES_MEMBER) {
       throw new Error(
         'defineSurfaceMap: an entry member named "entries" collides with the ' +
@@ -651,26 +692,26 @@ function foldedMemberRpcs(
       );
     }
     out.push([key, rpcs]);
-  };
-  for (const [key, s] of Object.entries(entry.cells ?? {})) {
-    claim(key, foldedCellRpcs(tagPrefix + key, s));
-  }
-  for (const [key, s] of Object.entries(entry.collections ?? {})) {
-    claim(key, foldedCollectionRpcs(tagPrefix + key, s));
-  }
-  for (const [key, s] of Object.entries(entry.streams ?? {})) {
-    claim(key, foldedStreamRpcs(tagPrefix + key, s));
-  }
-  for (const [key, s] of Object.entries(entry.events ?? {})) {
-    claim(key, foldedEventRpcs(tagPrefix + key, s));
-  }
-  for (const [ns, procs] of Object.entries(entry.procedures ?? {})) {
-    const procRpcs: Record<string, Rpc.Any> = {};
-    for (const [verb, ps] of Object.entries(procs)) {
-      procRpcs[verb] = foldedProcedureRpc(surfaceTag(tagPrefix, ns, verb), ps);
-    }
-    claim(ns, procRpcs);
-  }
+  });
+  return out;
+}
+
+/** Walk ONE nested sibling's spec, folded onto the sibling's own deeper prefix. The
+ *  reserved `entries` name is NOT refused here: a sibling's members live one segment
+ *  below the map's membership collection (`surface/<name>/<sibling>/entries/get` vs
+ *  `surface/<name>/entries/get`), so a sibling that happens to publish its own
+ *  `entries` collection cannot shadow the map's. Claims are LABELLED
+ *  `<sibling>/<member>`, so a duplicate-tag report names which surface claimed it
+ *  rather than only the member. */
+function foldedSiblingRpcs(
+  tagPrefix: string,
+  sibling: string,
+  spec: SurfaceSpec,
+): Array<[member: string, rpcs: Record<string, Rpc.Any>]> {
+  const out: Array<[string, Record<string, Rpc.Any>]> = [];
+  foldedSpecRpcs(tagPrefix, spec, (key, rpcs) => {
+    out.push([`${sibling}/${key}`, rpcs]);
+  });
   return out;
 }
 
@@ -704,6 +745,90 @@ export function assembleMapGroup(
   }
   return group;
 }
+
+// ── The map's tag algebra ───────────────────────────────────────────────
+//
+// ONE home for every rewrite a map performs on a tag, read by all three halves: the
+// contract (minting the folded Rpcs), the server (binding handlers) and the client
+// (re-tagging the faces it builds from STANDALONE surfaces). A second spelling in any
+// of them is a 404 at the far end that nothing else can catch.
+
+/** A tag rewriter: a STANDALONE surface tag (`surface/<member>/<verb>` — what the
+ *  entry face and the membership face both mint) onto the tag the MAP advertises for
+ *  it. Identity for a map served at the transport root; `scopeSiblingTag` for a map
+ *  DECLARED with a mount name (PR3: the key derives from the declaration, never from
+ *  a caller-passed string).
+ *
+ *  This is the tag-algebra successor of `scopeSibling(link, key)`'s link re-wrap. It
+ *  is also why the old brand-stripping hazard is gone: re-tagging never rebuilds the
+ *  transport, so the half-open brand and the watchdog `live` stay on the ONE dispatch
+ *  the guard already approved. */
+export function mapRetag(map: {
+  readonly name?: string;
+}): (tag: string) => string {
+  const name = map.name;
+  return name === undefined
+    ? (tag) => tag
+    : (tag) => scopeSiblingTag(tag, name);
+}
+
+/** The same rewrite for a member of a NESTED SIBLING: `surface/<member>/<verb>` →
+ *  `surface/<name>/<sibling>/<member>/<verb>`, one segment deeper than an entry
+ *  member's. Two applications of the framework's ONE sibling rule —
+ *  `scopeSiblingTag(tag, sibling)` puts the member under the sibling that owns it,
+ *  and {@link mapRetag} puts that under the map's own mount — so "a sibling member is
+ *  an entry member one segment deeper" is derived from the same algebra every other
+ *  tag in the repo is, never spelled as string surgery here. */
+export function mapSiblingRetag(
+  map: { readonly name?: string },
+  sibling: string,
+): (tag: string) => string {
+  const retag = mapRetag(map);
+  return (tag) => retag(scopeSiblingTag(tag, sibling));
+}
+
+/** The tag PREFIX every member of one nested sibling carries. It IS
+ *  {@link mapSiblingRetag} applied to the bare standalone prefix (`scopeSiblingTag`
+ *  of `"surface/"` is `"surface/<sibling>/"`), so the prefix the contract mints at and
+ *  the rewrite the client sends through cannot drift: they are one function, read two
+ *  ways. */
+export function mapSiblingTagPrefix(
+  map: { readonly name?: string },
+  sibling: string,
+): string {
+  return mapSiblingRetag(map, sibling)(SURFACE_TAG_PREFIX);
+}
+
+// ── Nested siblings ─────────────────────────────────────────────────────
+
+/** The nested SIBLING surfaces a map may carry: whole surfaces, each served under the
+ *  map's own mount beside the entry surface and addressed per key
+ *  (`entry(key).<sibling>.<member>`). `Surface<any>` is the same constraint
+ *  `composeSurfaceContracts` takes its bundle at — a concrete `Surface<ConcreteSpec>`
+ *  is not assignable to `Surface<SurfaceSpec>` in this invariant container position,
+ *  so the erasure is the type-plumbing kind, with every value still crossing its own
+ *  `WireSchema` edge. */
+// biome-ignore lint/suspicious/noExplicitAny: type-plumbing constraint over a heterogeneous surface map, mirroring `composeSurfaceContracts`
+export type SurfaceMapSiblings = Record<string, Surface<any>>;
+
+/** The property names an entry FACE already spells (`@kolu/surface-map/client`'s
+ *  `Entry`). A sibling is exposed as a NAMED PROPERTY of that face —
+ *  `entry(key).odu.streams.checkout(…)` — so a sibling key equal to one of these
+ *  would shadow the entry's own subtree and hand a consumer the sibling where it asked
+ *  for the entry's cells. Refused at DECLARATION time: the name is the defect, and
+ *  renaming it is the only fix. Pinned against the real face in
+ *  `nestedSiblings.test.ts` (the entry object's own keys), so a member added to `Entry`
+ *  without being added here fails a test rather than silently becoming shadowable. */
+export const ENTRY_FACE_MEMBERS: readonly string[] = [
+  "cells",
+  "collections",
+  "streams",
+  "events",
+  "procedures",
+  "rpc",
+  "clock",
+  "state",
+];
 
 // ── SurfaceMap value ────────────────────────────────────────────────────
 
@@ -742,6 +867,7 @@ export interface SurfaceMap<
   ES extends SurfaceSpec = SurfaceSpec,
   Failure = unknown,
   Conn = unknown,
+  Sibs extends SurfaceMapSiblings = Record<never, never>,
 > {
   /** The key schema — a decode through it (paired with `codec.decode`) is the sole
    *  producer of a validated key from a wire string. */
@@ -766,6 +892,14 @@ export interface SurfaceMap<
    *  declaration"). Omitted for a map served standalone at the transport root (the
    *  in-process test harness), where nothing is scoped. */
   readonly name?: string;
+  /** The map's NESTED SIBLING surfaces, kept verbatim — the types the per-entry
+   *  sibling faces are generated from, and the specs the server/client walk. Empty
+   *  (`{}`) for a map that declares none, which mints not a single extra tag: a
+   *  sibling-free map is byte-identical to one defined before siblings existed.
+   *  Each sibling's members ride the SAME key fold as an entry member's — the key is
+   *  the entry's, so a sibling call is addressed `entry(key).<sibling>.<member>` and
+   *  routes to that key's own session. */
+  readonly siblings: Sibs;
   /** The membership collection's spec — `Collection<string, EntryStatus<Failure>>`
    *  on the wire (see the module doc for why the collection key is always a plain
    *  string), read-only. Backs both the server's `entries` handlers and the
@@ -790,6 +924,7 @@ export function defineSurfaceMap<
   Failure,
   Conn = unknown,
   EP = never,
+  const Sibs extends SurfaceMapSiblings = Record<never, never>,
 >(opts: {
   key: KS;
   entry: Surface<ES>;
@@ -813,7 +948,15 @@ export function defineSurfaceMap<
   /** The sibling key this map is mounted under in a combined surface (see
    *  {@link SurfaceMap.name}). Omit for a standalone/at-root map. */
   name?: string;
-}): SurfaceMap<KS, ES, Failure, Conn> {
+  /** The NESTED SIBLING surfaces this map serves beside its entry surface, keyed by
+   *  the name each is addressed under: `{ odu: oduSurface }` makes every odu member
+   *  reachable per entry as `entry(key).odu.<member>`, at the wire tag
+   *  `surface/<name>/odu/<member>/<verb>` — one segment deeper than an entry member's
+   *  `surface/<name>/<member>/<verb>`. `const` so the keys AND the surface types
+   *  survive into the client's face. Omit for a map with none: it mints no extra tag
+   *  and its entry face is exactly what it was. */
+  siblings?: Sibs;
+}): SurfaceMap<KS, ES, Failure, Conn, Sibs> {
   const { key: keySchema, entry, codec, failure, connection, name } = opts;
   // The tag prefix is decided ONCE, here, from the declaration — never re-derived by
   // the server or the client (both read it off the value).
@@ -824,8 +967,31 @@ export function defineSurfaceMap<
   // success schema and the `entriesSpec` collection value — rather than deriving the
   // identical schema twice.
   const statusSchema = entryStatusSchema(failure, connection);
+  const siblings = (opts.siblings ?? {}) as Sibs;
   const group = assembleMapGroup([
     ...foldedMemberRpcs(tagPrefix, entry.spec),
+    // Every nested sibling's members, folded onto the SAME key and claimed into the
+    // SAME duplicate proof as the entry's — one assembly, so the proof covers the whole
+    // advertised tag set rather than the entry half of it.
+    ...Object.entries(siblings).flatMap(([sibling, surface]) => {
+      // A sibling key becomes a tag SEGMENT, so it obeys the framework's own segment
+      // grammar — `composeSurfaceContracts` refuses the same names at the same seam and
+      // for the same reason (a `/` in a name makes a tag collision unrepresentable by
+      // detection), and this is that one check, not a second copy of it.
+      assertTagSegment("sibling", sibling);
+      if (ENTRY_FACE_MEMBERS.includes(sibling)) {
+        throw new Error(
+          `defineSurfaceMap: sibling "${sibling}" collides with an entry face member — a ` +
+            `sibling is reached as entry(key).${sibling}, which would shadow the entry's own ` +
+            `${sibling}. Rename the sibling.`,
+        );
+      }
+      return foldedSiblingRpcs(
+        mapSiblingTagPrefix({ name }, sibling),
+        sibling,
+        surface.spec,
+      );
+    }),
     [
       ENTRIES_MEMBER,
       entriesRpcs(tagPrefix, statusSchema as unknown as WireSchemaAny),
@@ -853,5 +1019,6 @@ export function defineSurfaceMap<
     entriesSpec,
     codec,
     name,
+    siblings,
   };
 }

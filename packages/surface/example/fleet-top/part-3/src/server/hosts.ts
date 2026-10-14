@@ -81,9 +81,14 @@ function projectState(
       kind: "connected" as const,
       clockOffset: connected.clockOffset,
     }))
-    .with({ phase: "disconnected" }, () => ({
+    .with({ phase: P.union("disconnected", "absent") }, () => ({
       // Transient — no domain failure attached, so it projects to `warming` (an
-      // unreachable box self-heals; it does not become `failed`).
+      // unreachable box self-heals; it does not become `failed`). `absent`
+      // ("nothing is serving there") lands here too: this fleet's hosts are
+      // dialled over ssh, which can never tell absence from unreachability, so
+      // for these sessions the arm is unreachable — but the fold is exhaustive,
+      // and a sum with an unhandled arm is how a new state reaches a reader as
+      // `undefined`.
       kind: "disconnected" as const,
     }))
     .with({ phase: "failed" }, (failed) => ({

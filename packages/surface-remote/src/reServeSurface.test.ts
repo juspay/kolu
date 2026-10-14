@@ -377,8 +377,18 @@ function makeSession() {
   const fire = (): void => {
     for (const cb of [...listeners]) cb(state);
   };
+  let pins = 0;
   const session = {
-    pin: () => clientPromise ?? Promise.reject(new Error("no client yet")),
+    pin: () => {
+      pins += 1;
+      return clientPromise ?? Promise.reject(new Error("no client yet"));
+    },
+    release: () => {
+      pins -= 1;
+    },
+    /** How many holders this session has right now — the demand gate's whole
+     *  observable effect. */
+    pins: () => pins,
     isDestroyed: () => destroyed,
     currentClient: () => (destroyed ? null : clientPromise),
     currentState: () => state,
@@ -409,6 +419,20 @@ function makeSession() {
         phase: "disconnected",
         error: "link dropped",
         cause: "network",
+        log: [],
+        sinceMs: 0,
+        campaignEpoch: 0,
+      };
+      fire();
+    },
+    /** The endpoint turned out not to be there at all — the arm only a
+     *  unix-path connector can produce, and the one a hold-open relay answers
+     *  with its member's absent frame instead of silence. */
+    setAbsent: () => {
+      clientPromise = null;
+      state = {
+        phase: "absent",
+        error: "nothing is serving there",
         log: [],
         sinceMs: 0,
         campaignEpoch: 0,
@@ -962,5 +986,108 @@ describe("reServeSurface — end-to-end over a toy surface", () => {
     expect(() =>
       reServeSurface({ source: cellless, policy: { s: "delta" }, session: s }),
     ).toThrow(/no cells/);
+  });
+});
+
+describe("reServeSurface — demand, and an upstream that is not there", () => {
+  /** A re-serve over a session nobody has handed a client to yet — the state a
+   *  session is in before anything pins it. */
+  function cold() {
+    const session = makeSession();
+    const served = reServeSurface({
+      source: toySurface,
+      policy: toyPolicy,
+      session: session as unknown as MirrorSession<AgentClient, SshProv>,
+      absent: { pulses: -1 },
+    });
+    return { session, served, downstream: downstreamFace(served) };
+  }
+
+  it("pins nothing until a downstream subscribes, and lets go when it leaves", async () => {
+    const { session, served, downstream } = cold();
+    // Built, wired, serving — and holding NOTHING. An upstream nobody is looking
+    // at is never dialled.
+    expect(session.pins()).toBe(0);
+
+    const sub = drain(downstream.surface.pulses.get({ repo: "r" }));
+    await waitUntil(() => session.pins() === 1, "the subscription to pin");
+
+    // A second subscriber does NOT dial a second time: the re-serve holds ONE
+    // pin for however many people are looking, which is the whole shape of a
+    // shared link. (The count below is still the session's own, so a regression
+    // that pinned per subscriber would be caught here rather than as a mystery
+    // second connection in production.)
+    const second = drain(downstream.surface.pulses.get({ repo: "r2" }));
+    await delay(20);
+    expect(session.pins()).toBe(1);
+
+    // …and the hold lasts until the LAST of them leaves.
+    sub.stop();
+    await delay(20);
+    expect(session.pins()).toBe(1);
+    second.stop();
+    await waitUntil(
+      () => session.pins() === 0,
+      "the last subscriber leaving to release",
+    );
+
+    session.destroy();
+    await served.done;
+  });
+
+  it("tells a subscriber the upstream is ABSENT, in the member's own frame", async () => {
+    const { session, served, downstream } = cold();
+    const upstream = makeUpstream(1);
+    session.setClient(upstream.client);
+    session.markConnected();
+
+    const sub = drain(downstream.surface.pulses.get({ repo: "r" }));
+    const pulses = await upstreamStream(upstream.pulseStreams, "r");
+    pulses.push(7);
+    await sub.waitFrames(1);
+    expect(sub.frames).toEqual([7]);
+
+    // The daemon is stopped. A hold-open relay would say NOTHING — correct for a
+    // link that is coming back, a lie for one that is gone: the subscriber would
+    // paint 7 forever. The absent frame is what clears it.
+    upstream.kill();
+    session.setAbsent();
+    await sub.waitFrames(2);
+    expect(sub.frames).toEqual([7, -1]);
+
+    // ONE frame per episode: the relay does not re-announce an absence this
+    // subscriber has already been told about.
+    session.setAbsent();
+    await delay(20);
+    expect(sub.frames).toEqual([7, -1]);
+
+    // The daemon comes back — in the same subscription, with no reload.
+    const upstream2 = makeUpstream(1);
+    session.setClient(upstream2.client);
+    session.markConnected();
+    const pulses2 = await upstreamStream(upstream2.pulseStreams, "r");
+    pulses2.push(9);
+    await sub.waitFrames(3);
+    expect(sub.frames).toEqual([7, -1, 9]);
+
+    sub.stop();
+    await teardown(session, served.done, upstream2);
+  });
+
+  it("refuses an absent frame for a member that could never send one", () => {
+    const session = makeSession() as unknown as MirrorSession<
+      AgentClient,
+      SshProv
+    >;
+    expect(() =>
+      reServeSurface({
+        source: toySurface,
+        policy: toyPolicy,
+        session,
+        // `attach` is a DELTA stream: it fails through on a drop, so it has no
+        // hold in which an absent frame could ever be sent.
+        absent: { attach: "nothing" },
+      }),
+    ).toThrow(/not a value-classified stream or event/);
   });
 });

@@ -130,24 +130,80 @@ export interface RelayHoldOpenOptions<F> extends RelayStreamOptions {
    *  check still tells it apart from `lead` omitted entirely. The old bare
    *  `lead?: F` collided the two — an `undefined` lead frame read as "no lead". */
   lead?: { frame: F };
+  /** What this member says while the upstream is ABSENT — the frame a subscriber
+   *  receives when the far end is not there at all, rather than merely between
+   *  spawns.
+   *
+   *  A hold-open relay's whole job is to survive a drop by SAYING NOTHING, and
+   *  that is right for a link that is coming back. It is wrong for one that was
+   *  never there, or that has been stopped: the subscriber goes on painting the
+   *  last live frame forever, and a reader cannot tell a still board from a dead
+   *  one. So an absence is told, ONCE per episode, as a value the member itself
+   *  declares — "nothing to say about this" in the member's own frame type — and
+   *  the next live frame replaces it.
+   *
+   *  Only a session whose connector can TELL absence apart from unreachability
+   *  ever enters that state (see `EndpointAbsentError`), so for every other
+   *  relay this is simply omitted and the hold is unchanged. */
+  absent?: { frame: F; signal: AbsenceSignal };
 }
 
-/** Await the next live client, holding while `.current` is `null`. A plain
- *  EFFECT loop rather than stream recursion, so a link that flaps to `null` and
- *  back any number of times before a spawn lands costs no nesting. Interrupting
- *  the consuming fiber detaches the waiter (see `ObservableHolder.changed`) —
- *  that is the whole of the old `waitForHolderChange`'s abort arm. */
+/** Is the relay's upstream ABSENT — nothing serving, as opposed to between
+ *  spawns — plus a wake for the next change of that answer. Shaped like
+ *  {@link ObservableHolder}'s `changed` for the same reason: a waiter detaches by
+ *  fiber interruption, with no signal to thread and none to forget. */
+export interface AbsenceSignal {
+  readonly isAbsent: () => boolean;
+  readonly changed: Effect.Effect<void>;
+}
+
+/** Await the next live client, holding while `.current` is `null` — or STOP
+ *  holding, once, when the upstream turns out to be absent rather than
+ *  between spawns (`null` instead of a client, which the caller answers with the
+ *  member's own absent frame).
+ *
+ *  A plain EFFECT loop rather than stream recursion, so a link that flaps to
+ *  `null` and back any number of times before a spawn lands costs no nesting.
+ *  Interrupting the consuming fiber detaches the waiter (see
+ *  {@link ObservableHolder.changed}) — that is the whole of the old
+ *  `waitForHolderChange`'s abort arm. */
 function awaitLiveClient<Cl>(
   holder: ObservableHolder<Cl>,
   onWait: () => void,
-): Effect.Effect<Cl> {
+): Effect.Effect<Cl>;
+function awaitLiveClient<Cl>(
+  holder: ObservableHolder<Cl>,
+  onWait: () => void,
+  absence: { signal: AbsenceSignal; announce: () => boolean },
+): Effect.Effect<Cl | null>;
+function awaitLiveClient<Cl>(
+  holder: ObservableHolder<Cl>,
+  onWait: () => void,
+  absence?: { signal: AbsenceSignal; announce: () => boolean },
+): Effect.Effect<Cl | null> {
   return Effect.gen(function* () {
     if (holder.current !== null) return holder.current;
+    if (absence?.signal.isAbsent() === true && absence.announce()) {
+      return null;
+    }
     onWait();
     let client = holder.current;
     while (client === null) {
-      yield* holder.changed;
+      // Woken by EITHER the next spawn or the absence verdict changing. Racing
+      // the two is what lets a link that is stopped (rather than blipping) reach
+      // its subscribers at all: the holder alone never changes again.
+      yield* absence === undefined
+        ? holder.changed
+        : Effect.raceAllFirst([holder.changed, absence.signal.changed]);
       client = holder.current;
+      if (
+        client === null &&
+        absence !== undefined &&
+        absence.signal.isAbsent() &&
+        absence.announce()
+      ) {
+        return null;
+      }
     }
     return client;
   });
@@ -226,16 +282,54 @@ export function holdOpenStreamCore<Cl, I, F>(
   opts: RelayHoldOpenOptions<F> = {},
 ): (input: I) => Stream.Stream<F, never> {
   const log = opts.log ?? ((): void => {});
+  const absent = opts.absent;
   return (input) => {
+    /** Has THIS subscriber already been told about the current absence? One
+     *  frame per episode: the absent frame is news the first time and noise
+     *  every time after, and a relay that re-emitted it on every wake would spin
+     *  against a daemon nobody is going to start. Reset by a live client, so a
+     *  daemon stopped a second time is news again. */
+    let toldAbsent = false;
     const bind = (): Stream.Stream<F, never> =>
       Stream.unwrap(
         Effect.gen(function* () {
-          const client = yield* awaitLiveClient(holder, () =>
+          const onWait = (): void =>
             // No live upstream (pre-handshake, or between a drop and the next
             // spawn). HOLD — don't complete the downstream — and wake on the
             // next `.current` change.
-            log(`${member}: no live client — holding for next spawn`),
-          );
+            log(`${member}: no live client — holding for next spawn`);
+          const client = yield* absent === undefined
+            ? awaitLiveClient(holder, onWait)
+            : awaitLiveClient(holder, onWait, {
+                signal: absent.signal,
+                announce: () => {
+                  if (toldAbsent) return false;
+                  toldAbsent = true;
+                  return true;
+                },
+              });
+          if (client === null) {
+            if (absent === undefined) {
+              // Unreachable by construction — the park only yields `null` when it
+              // was given an absence arm — and spelled rather than cast, so a
+              // future caller that breaks that pairing gets a defect naming the
+              // member instead of a `TypeError` from the member resolve below.
+              throw new Error(
+                `${member}: the relay stopped holding with no absent frame to send`,
+              );
+            }
+            // Nothing is serving. Say so in the member's own frame — so a
+            // subscriber clears rather than holding its last live frame — and go
+            // straight back to holding for a spawn.
+            log(
+              `${member}: upstream absent — sending the member's absent frame`,
+            );
+            return Stream.concat(
+              Stream.make(absent.frame),
+              Stream.suspend(bind),
+            );
+          }
+          toldAbsent = false;
           // Resolve the member OUTSIDE the forwarding stream — a client that
           // doesn't expose it is a structural mismatch that must fail loud (a
           // defect), not be caught below as a "link blip" and held open forever

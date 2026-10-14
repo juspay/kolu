@@ -240,12 +240,16 @@ export async function pumpRemoteSurface<S extends SurfaceSpec>(
 ): Promise<void> {
   const log = opts.log ?? (() => {});
   const { session } = opts;
-  log("pinning session (parent-lifetime ref)…");
-  // Pin once. Swallow the initial promise — the loop fetches a fresh (possibly
-  // re-spawned) client below regardless of whether this first spawn succeeded.
-  session.pin().catch(() => {
-    /* failure surfaces via the session's state cell; the loop recovers */
-  });
+  // The pump does NOT pin. Who holds the link open is the re-serve's question,
+  // not the mirror's: `reServeSurface` pins on the first downstream subscriber
+  // and releases on the last, so an upstream nobody is looking at is never
+  // dialled — and a parent that wants its link up regardless pins the session
+  // itself. A pump that pinned would dial every upstream at construction and
+  // make that choice on both their behalves.
+  //
+  // So the loop below is legitimately parked before the first pin: it waits on
+  // the session's next client, which is exactly what arrives when somebody
+  // subscribes.
   // SR9: the pump no longer carries link health onto a `connection` cell — that cell is
   // gone, and link health rides the host-map entry's fine `connection` payload (produced
   // by `serveHostMap` from the pool's `session.onState`, the ONE authority). The pump's

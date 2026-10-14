@@ -53,8 +53,8 @@ koluWith {
   # `osfacts-client`: kolu's supervisor manifest names it even though no
   # published entry compiles it (see the second-pin note below).
   osfacts-client = fromPin osfacts "osfacts-client";
-  # The `@odu/*` trio: odu's own service contract, reached by
-  # `@kolu/padi-client`'s `ciStatus` frame schemas (a graft — see workspace.nix).
+  # The `@odu/*` trio: odu's own service contract, whose members
+  # `@kolu/padi-client` carries as a sibling (a graft — see workspace.nix).
   "@odu/service-client" = fromPin odu "@odu/service-client";
   "@odu/run-client" = fromPin odu "@odu/run-client";
   "@odu/run-history" = fromPin odu "@odu/run-history";

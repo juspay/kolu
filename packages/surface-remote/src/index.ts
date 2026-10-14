@@ -154,6 +154,9 @@ export {
   // param type of `ServeHostMapOptions.failureOf`, so a consumer implementing that
   // classifier can name what it receives.
   type DownSessionState,
+  // A connector's "nothing is serving there" verdict (thrown by `unixSocketConnector`),
+  // so a consumer outside this package can test for it by class rather than by prose.
+  EndpointAbsentError,
   type MakeSessionOptions,
   makeSession,
   type Session,
@@ -167,4 +170,8 @@ export {
   type SshProv,
   sshConnector,
 } from "./sshConnector";
+export {
+  type UnixSocketConnectorOptions,
+  unixSocketConnector,
+} from "./unixSocketConnector";
 export { type ClientCursor, makeClientCursor } from "./waitForNextClient";
