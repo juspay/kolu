@@ -590,11 +590,12 @@ export * from "./transcriptSchema.ts";
  *
  *  5.14 (additive · minor) — the Inspector's odu CI readout. A NEW stream,
  *  `ciStatus({ terminalId })`, folds odu's board for one terminal's checkout
- *  into a full-replacement frame (`CiStatusFrame`), and a 5.14 client
- *  SUBSCRIBES to it while the Inspector is shown, so the minor drains a 5.13
- *  padi that has no such member. Additive on the wire in the only direction
- *  that matters — an older decoder strips the member — which is why this is a
- *  minor and not the 5.13-style reshape. */
+ *  into a full-replacement frame (`CiStatusFrame`) — the checkout's runs, and
+ *  the port the daemon answered on — and a 5.14 client SUBSCRIBES to it while
+ *  the Inspector is shown, so the minor drains a 5.13 padi that has no such
+ *  member. Additive on the wire in the only direction that matters — an older
+ *  decoder strips the member — which is why this is a minor and not the
+ *  5.13-style reshape. */
 export const PADI_SURFACE_VERSION = "5.14";
 
 /** The `version` cell payload — padi's self-declared surface contract version. */
@@ -1617,8 +1618,11 @@ export const PadiWatchPulseSchema = Schema.Struct({
   seq: NonNegativeInt,
 });
 
-/** How many runs `ciStatus` carries in its `recent` list — the wire CAP, so the
- *  schema and the server that fills it cannot disagree about the bound. */
+/** How many runs `ciStatus` carries in its `recent` list. Padi's own bound,
+ *  named here because the schema is where the frame's shape is read — NOT
+ *  enforced as a decode check: how many rows a disclosure is worth is a
+ *  reading's decision, and a padi that later shows eight must not make every
+ *  older client fail to decode a frame it could have painted. */
 export const CI_STATUS_RECENT_RUNS = 5;
 
 /** `ciStatus` — the odu CI readout for ONE terminal's checkout: what the
@@ -1633,10 +1637,17 @@ export const CI_STATUS_RECENT_RUNS = 5;
  *  cannot be read is a FAILURE (loud: the stream errors, and padi logs the
  *  socket path once per session), never a value that renders as "no odu here".
  *
- *  `latest.lanes` arrives in TRIAGE order — padi applies the one triage fold,
- *  so the wire order is the painted order and no consumer re-sorts. `recent` is
- *  this checkout's runs, newest first, at most {@link CI_STATUS_RECENT_RUNS},
+ *  `latest.lanes` arrives in the RUN's own order — the schedule odu promises a
+ *  dashboard paints — and what a reader wants first of those lanes is the
+ *  reader's triage, decided where the list is painted. `recent` is this
+ *  checkout's runs, newest first, at most {@link CI_STATUS_RECENT_RUNS} of them,
  *  whose HEAD is `latest.run`.
+ *
+ *  `port` is the port the daemon answered on, from its own greeting's origin:
+ *  a link to that daemon's page has to dial where it actually is, and it is a
+ *  fact of the daemon's lifecycle (its environment, its flags) that no reader
+ *  can derive. It rides the `status` arm because a board exists only while a
+ *  link does.
  *
  *  The row and node shapes are odu's OWN (`@odu/service-client/surface`),
  *  carried verbatim: kolu paints four fields of a node and reads six of a row,
@@ -1656,13 +1667,13 @@ export const CiStatusFrameSchema = Schema.Union([
   Schema.Struct({ kind: Schema.Literals(["none"]) }),
   Schema.Struct({
     kind: Schema.Literals(["status"]),
+    /** The port the daemon's own greeting named — see the docstring. */
+    port: Schema.Int,
     latest: Schema.Struct({
       run: RunRowSchema,
       lanes: Schema.Array(RunNodeSchema),
     }),
-    recent: Schema.Array(RunRowSchema).check(
-      Schema.isMaxLength(CI_STATUS_RECENT_RUNS),
-    ),
+    recent: Schema.Array(RunRowSchema),
   }),
 ]);
 export type CiStatusFrame = typeof CiStatusFrameSchema.Type;

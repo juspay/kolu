@@ -64,6 +64,7 @@ import { contractIsCompatible } from "@kolu/surface-daemon";
 import type { SurfaceReadFace } from "@kolu/surface/project";
 import { pollOnEvent, streamFromAbortableSource } from "@kolu/surface/server";
 import { runsForCheckout } from "@odu/service-client/board";
+import { serviceBind } from "@odu/service-client/endpoint";
 import { readServiceCell } from "@odu/service-client/dial";
 import {
   dialServiceSocket,
@@ -75,7 +76,6 @@ import type {
 } from "@odu/service-client/socket";
 import {
   SERVICE_CONTRACT_VERSION,
-  STATUS_META,
   type NodesFrame,
   type RunNode,
   type RunRow,
@@ -146,6 +146,11 @@ interface OduSession {
   epoch(): number;
   /** The live face, or null while nothing is serving. */
   connection(): ServiceSocketConnection | null;
+  /** The port the connected daemon ANSWERS ON — its own greeting's origin, not
+   *  a default re-derived here. The port is the daemon's fact (its env, its
+   *  flags), it is what a link to its page has to dial, and the one channel that
+   *  has already reached it is the greeting. Null while nothing is connected. */
+  originPort(): number | null;
   /** The last FATAL dial failure — a daemon that answered and could not be used
    *  — or null when the session is merely absent or connected. A subscriber
    *  FAILS with it rather than rendering nothing: absence is a state a face
@@ -153,6 +158,14 @@ interface OduSession {
   failure(): Error | null;
   /** Let the session go: stop the loop and drop any link it holds. */
   dispose(): Promise<void>;
+}
+
+/** A dial's answer, and what the daemon said about ITSELF when it answered —
+ *  the port it is actually bound on, which no reader can derive. */
+export interface Dialed {
+  dial: ServiceSocketDial;
+  /** Null for an absence: nothing answered, so nothing named an address. */
+  originPort: number | null;
 }
 
 /** How long a dial AND its contract handshake may take before the session gives
@@ -168,9 +181,9 @@ const DIAL_DEADLINE_MS = 3_000;
  *  daemon publishes about itself — never string equality, because an odu that
  *  only ADDED a member is still speakable by this reader and refusing it would
  *  make every additive odu change a flag day. */
-async function dialChecked(): Promise<ServiceSocketDial> {
+async function dialChecked(): Promise<Dialed> {
   const dialed = await dialServiceSocket();
-  if (dialed.kind === "absent") return dialed;
+  if (dialed.kind === "absent") return { dial: dialed, originPort: null };
   try {
     const cell = await Effect.runPromise(readServiceCell(dialed.client));
     if (
@@ -185,7 +198,7 @@ async function dialChecked(): Promise<ServiceSocketDial> {
           `${SERVICE_CONTRACT_VERSION} — upgrade the daemon or this kolu.`,
       );
     }
-    return dialed;
+    return { dial: dialed, originPort: serviceBind(cell.identity.origin).port };
   } catch (err) {
     // A link nobody will use still holds the dial, ping and response fibers.
     await dialed.dispose();
@@ -198,8 +211,8 @@ async function dialChecked(): Promise<ServiceSocketDial> {
  *  has nobody to hand its link to, so it disposes it rather than leaking it. */
 function dialWithin(
   signal: AbortSignal,
-  dial: () => Promise<ServiceSocketDial>,
-): Promise<ServiceSocketDial | null> {
+  dial: () => Promise<Dialed>,
+): Promise<Dialed | null> {
   return new Promise((resolve, reject) => {
     let settled = false;
     const done = (): boolean => {
@@ -220,7 +233,7 @@ function dialWithin(
     dial().then(
       (dialed) => {
         if (!done()) {
-          if (dialed.kind === "connected") void dialed.dispose();
+          if (dialed.dial.kind === "connected") void dialed.dial.dispose();
           return;
         }
         resolve(dialed);
@@ -234,12 +247,14 @@ function dialWithin(
 
 function createOduSession(
   log: Logger,
-  dial: () => Promise<ServiceSocketDial>,
+  dial: () => Promise<Dialed>,
 ): OduSession {
   const listeners = new Set<() => void>();
   let board: Board = new Map();
   let epoch = 0;
   let connection: ServiceSocketConnection | null = null;
+  /** The connected daemon's own bound port ({@link OduSession.originPort}). */
+  let originPort: number | null = null;
   let failure: Error | null = null;
   let live: AbortController | null = null;
   let loop: Promise<void> | null = null;
@@ -251,6 +266,23 @@ function createOduSession(
 
   const announce = (): void => {
     for (const listener of [...listeners]) listener();
+  };
+
+  /** Hand over to a link (or to none) — the ONE place the connection, its
+   *  address and the board it published change together. The board goes with
+   *  the link in both directions: a fresh link's first frame is a full
+   *  snapshot, so this is a reset rather than a gap, and a dead daemon must not
+   *  keep painting a live board. `epoch` is what tells a nodes follow the link
+   *  under it is not the link it opened. */
+  const relink = (
+    next: ServiceSocketConnection | null,
+    port: number | null,
+  ): void => {
+    connection = next;
+    originPort = next === null ? null : port;
+    board = new Map();
+    epoch += 1;
+    announce();
   };
 
   /** The dial-and-follow loop. One iteration is one link's lifetime: dial,
@@ -265,7 +297,7 @@ function createOduSession(
     const current = (): boolean => gen === generation && !signal.aborted;
     let delayMs = DIAL_RETRY_MIN_MS;
     while (!signal.aborted) {
-      let dialed: ServiceSocketDial | null = null;
+      let dialed: Dialed | null = null;
       try {
         dialed = await dialWithin(signal, dial);
       } catch (err) {
@@ -291,7 +323,7 @@ function createOduSession(
         delayMs = Math.min(delayMs * 2, DIAL_RETRY_MAX_MS);
         continue;
       }
-      if (dialed.kind === "absent") {
+      if (dialed.dial.kind === "absent") {
         if (current()) {
           // The daemon is GONE now, which is a different fact from the one an
           // earlier iteration recorded. A failure kept past an absence would
@@ -300,32 +332,22 @@ function createOduSession(
           // and nothing else would ever clear it.
           failure = null;
         }
-        if (current() && connection !== null) {
-          connection = null;
-          board = new Map();
-          epoch += 1;
-          announce();
-        }
+        if (current() && connection !== null) relink(null, null);
         await abortableDelay(delayMs, signal);
         delayMs = Math.min(delayMs * 2, DIAL_RETRY_MAX_MS);
         continue;
       }
       if (!current()) {
         // Stopped while dialling: the link is nobody's now.
-        await dialed.dispose();
+        await dialed.dial.dispose();
         return;
       }
       delayMs = DIAL_RETRY_MIN_MS;
-      connection = dialed;
       failure = null;
-      // A fresh link starts from a fresh board: the `deltas` stream's first
-      // frame is a full snapshot, so this is a reset rather than a gap.
-      board = new Map();
-      epoch += 1;
-      announce();
+      relink(dialed.dial, dialed.originPort);
       try {
         await bridgeStream(
-          (dialed.client as unknown as OduServiceFace).surface.runs.deltas(
+          (dialed.dial.client as unknown as OduServiceFace).surface.runs.deltas(
             undefined,
           ),
           signal,
@@ -344,17 +366,9 @@ function createOduSession(
             ),
         );
       } finally {
-        await dialed.dispose();
-        if (current()) {
-          // The drop edge is the connect edge's mirror: nobody is serving, so
-          // the board goes with the link. A dead daemon must not keep painting
-          // a live board, and a subscriber that attaches in this window must
-          // not derive its first frame from one.
-          connection = null;
-          board = new Map();
-          epoch += 1;
-          announce();
-        }
+        await dialed.dial.dispose();
+        // The drop edge is the connect edge's mirror — `relink(null, null)`.
+        if (current()) relink(null, null);
       }
       if (signal.aborted) return;
       await abortableDelay(delayMs, signal);
@@ -374,6 +388,7 @@ function createOduSession(
   }
 
   return {
+    originPort: () => originPort,
     attach(onChange) {
       if (retire !== null) {
         clearTimeout(retire);
@@ -422,15 +437,15 @@ function applyBoard(
   return next;
 }
 
-/** A run's nodes in TRIAGE order — what broke, what is still moving, what is
- *  done — each rank in the run's own scheduling order (`frame.order`, the order
- *  odu promises a dashboard paints). odu's own faces deliberately keep roster
- *  order; this ordering exists for the Inspector's lane list, and it is applied
- *  HERE so the wire order is the painted order and no consumer re-sorts.
+/** A run's nodes, flattened into the run's own scheduling order (`frame.order`,
+ *  the order odu promises a dashboard paints), with any node the order does not
+ *  mention appended.
  *
- *  "Red" is `STATUS_META`'s own `isRed` column — odu's assignment, not kolu's
- *  copy of it. */
-function laneTriage(frame: NodesFrame): RunNode[] {
+ *  SHAPE only, no rank: what a reader wants first is the Inspector's preference
+ *  and belongs to the Inspector, where the tile list's own triage order already
+ *  lives. This is the one place a `NodesFrame` — a shape that never crosses the
+ *  wire — becomes the array every frame carries. */
+function orderedNodes(frame: NodesFrame): RunNode[] {
   const byId = new Map(frame.nodes.map((node) => [node.id, node]));
   const ordered: RunNode[] = [];
   for (const id of frame.order) {
@@ -439,9 +454,7 @@ function laneTriage(frame: NodesFrame): RunNode[] {
   }
   const listed = new Set(frame.order);
   for (const node of frame.nodes) if (!listed.has(node.id)) ordered.push(node);
-  const rank = (node: RunNode): number =>
-    STATUS_META[node.status].isRed ? 0 : node.status === "running" ? 1 : 2;
-  return ordered.sort((a, b) => rank(a) - rank(b));
+  return ordered;
 }
 
 /** The checkout a terminal is in, off padi's OWN registry (`snapshotFor`, the
@@ -469,7 +482,7 @@ export interface CiStatusSourceDeps {
  *  real socket cannot stage them. Production uses {@link dialChecked}. */
 export function createCiStatusSource(deps: {
   log: Logger;
-  dial?: () => Promise<ServiceSocketDial>;
+  dial?: () => Promise<Dialed>;
 }): CiStatusSourceDeps {
   const session = createOduSession(deps.log, deps.dial ?? dialChecked);
   return {
@@ -536,7 +549,7 @@ export function createCiStatusSource(deps: {
               }),
               ac.signal,
               (frame) => {
-                lanes = laneTriage(frame);
+                lanes = orderedNodes(frame);
                 serial += 1;
                 notify();
               },
@@ -548,70 +561,67 @@ export function createCiStatusSource(deps: {
                 // Forget what was being followed, or the guard above would
                 // block every reopen and freeze the lanes while the chip went
                 // on reporting the run. The next board event (or epoch) retries.
-                if (nodesAbort === ac) {
-                  nodesAbort = null;
-                  followedRunId = null;
-                  followedEpoch = -1;
-                  lanes = [];
-                }
+                // The abort is a no-op on a stream that has already failed, so
+                // the reset is the one `stopNodes` spells.
+                if (nodesAbort === ac) stopNodes();
               },
             );
           };
 
-          /** The frame, derived from what the session and this subscription
-           *  currently hold. The checkout is resolved HERE, on every read, so a
-           *  terminal that moved is picked up by the next event rather than
-           *  cached into the subscription's life. */
-          const frame = (): CiStatusFrame => {
+          /** The checkout's runs, newest first, off what the session currently
+           *  holds. The checkout is resolved HERE, on every read, so a terminal
+           *  that moved is picked up by the next event rather than cached into
+           *  the subscription's life; the runs come from the board the session
+           *  publishes. */
+          const runs = (): RunRow[] => {
             const checkoutRoot = checkoutRootOf(input.terminalId);
-            if (checkoutRoot === null) return { kind: "none" };
-            const runs = runsForCheckout(
-              session.board().values(),
-              checkoutRoot,
-            );
-            const latest = runs[0];
+            return checkoutRoot === null
+              ? []
+              : runsForCheckout(session.board().values(), checkoutRoot);
+          };
+
+          /** The frame, derived from those runs and the lanes being followed. */
+          const frame = (): CiStatusFrame => {
+            const mine = runs();
+            const latest = mine[0];
             if (latest === undefined) return { kind: "none" };
+            const port = session.originPort();
+            if (port === null) {
+              // A board cannot outlive the link that published it, and a link
+              // cannot exist without the port its own greeting named.
+              throw new Error(
+                "padi: odu ciStatus — a board arrived with no link behind it",
+              );
+            }
             return {
               kind: "status",
+              port,
               latest: { run: latest, lanes },
-              recent: runs.slice(0, CI_STATUS_RECENT_RUNS),
+              recent: mine.slice(0, CI_STATUS_RECENT_RUNS),
             };
           };
 
           const unsubscribe = session.attach(() => {
-            const checkoutRoot = checkoutRootOf(input.terminalId);
-            const runs =
-              checkoutRoot === null
-                ? []
-                : runsForCheckout(session.board().values(), checkoutRoot);
-            syncNodes(runs[0] ?? null);
+            syncNodes(runs()[0] ?? null);
             serial += 1;
             notify();
           });
 
           try {
-            for await (const item of pollOnEvent<{
-              serial: number;
-              frame: CiStatusFrame;
-            }>({
-              read: async () => ({ serial, frame: frame() }),
+            for await (const _tick of pollOnEvent<number>({
+              read: async () => serial,
               // The frame is a fold of everything above, so "did anything
               // move" is the serial and nothing else. One redundant frame per
               // unrelated board tick is the price of never re-emitting a frame
               // whose inputs did not change.
-              isEqual: (a, b) => a.serial === b.serial,
+              isEqual: (a, b) => a === b,
               install: (onEvent) => {
                 notify = onEvent;
                 // The subscription's own opening read of the board: `install`
                 // runs BEFORE the initial read, so the first frame is derived
                 // from the board as it stands and with its nodes follow already
                 // opened.
-                const checkoutRoot = checkoutRootOf(input.terminalId);
-                const runs =
-                  checkoutRoot === null
-                    ? []
-                    : runsForCheckout(session.board().values(), checkoutRoot);
-                syncNodes(runs[0] ?? null);
+                syncNodes(runs()[0] ?? null);
                 return unsubscribe;
               },
               signal: sig,
@@ -626,7 +636,7 @@ export function createCiStatusSource(deps: {
               // that failure rather than a blank.
               const fatal = session.failure();
               if (fatal !== null) throw fatal;
-              yield item.frame;
+              yield frame();
             }
           } finally {
             stopNodes();

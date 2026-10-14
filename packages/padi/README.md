@@ -643,7 +643,8 @@ Three properties are the whole design (`./ciStatus.ts`):
 The contract, the schemas, the socket path and the dial are all ODU'S OWN
 (`@odu/service-client`, grafted from the npins `odu` pin — see
 [`@kolu/padi-client`](../padi-client)'s README for the graft). What is kolu's here
-is the checkout fold, the lane triage order and the session.
+is the checkout fold, the daemon's own address (the port its greeting named, so
+a link to its page dials where it actually is) and the session.
 
 **One recorded limit.** The checkout is resolved from padi's own registry on every
 frame read, so a terminal that `cd`s re-targets as soon as anything re-derives a

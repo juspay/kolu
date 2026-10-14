@@ -28,10 +28,7 @@ import {
   serveOverUnixSocket,
   type UnixSocketListener,
 } from "@kolu/surface/unix-socket";
-import {
-  serviceSocketPath,
-  type ServiceSocketDial,
-} from "@odu/service-client/socket";
+import { serviceSocketPath } from "@odu/service-client/socket";
 import {
   NodesFrameSchema,
   RunRowSchema,
@@ -45,7 +42,11 @@ import {
 import { Schema, Stream } from "effect";
 import type { Logger } from "pino";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { createCiStatusSource, type CiStatusSourceDeps } from "./ciStatus.ts";
+import {
+  createCiStatusSource,
+  type CiStatusSourceDeps,
+  type Dialed,
+} from "./ciStatus.ts";
 import { bridgeStream } from "./terminalEndpoint/local.ts";
 import { stubLog } from "./servePadi.testlib.ts";
 import {
@@ -558,7 +559,7 @@ describe("padi's ciStatus source", () => {
  *  dial, then the runs stream ENDS (which is what a dropped link looks like to
  *  the session), and a nodes follow that yields nothing. */
 function fakeDial(perDial: (dial: number) => RunRow[]): {
-  dial: () => Promise<ServiceSocketDial>;
+  dial: () => Promise<Dialed>;
   dials: () => number;
   disposals: () => number;
 } {
@@ -583,13 +584,17 @@ function fakeDial(perDial: (dial: number) => RunRow[]): {
         },
       };
       return {
-        kind: "connected",
-        socketPath: "/tmp/fake-odu.sock",
-        client: face as unknown as OduServiceClient,
-        dispatch: {} as unknown as SurfaceDispatch,
-        dispose: async () => {
-          disposals += 1;
+        dial: {
+          kind: "connected",
+          socketPath: "/tmp/fake-odu.sock",
+          client: face as unknown as OduServiceClient,
+          dispatch: {} as unknown as SurfaceDispatch,
+          dispose: async () => {
+            disposals += 1;
+          },
         },
+        // A daemon's own answer for where it is bound — the frame carries it.
+        originPort: 18440,
       };
     },
     dials: () => dials,
@@ -633,10 +638,13 @@ describe("padi's ciStatus session", () => {
       // and the subscription fails with it. Every dial after that is an
       // ABSENCE, which is a different fact: the install was removed.
       let dials = 0;
-      const dial = async (): Promise<ServiceSocketDial> => {
+      const dial = async (): Promise<Dialed> => {
         dials += 1;
         if (dials === 1) throw new Error("speaks service contract 9.9");
-        return { kind: "absent", socketPath: "/tmp/fake-odu.sock" };
+        return {
+          dial: { kind: "absent", socketPath: "/tmp/fake-odu.sock" },
+          originPort: null,
+        };
       };
       const ci = createCiStatusSource({ log: stubLog, dial });
       seedTerminal(CHECKOUT);
