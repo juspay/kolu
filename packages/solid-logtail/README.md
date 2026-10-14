@@ -18,8 +18,11 @@ narrates itself — plus the clipboard write it relies on.
   writes, and falls back to `execCommand` when `navigator.clipboard` is absent or
   rejects. That absence is the normal case over plain `http://` (a LAN address, a
   Tailscale IP), where the primary API does not exist at all.
-- **`LogLine` / `NO_LOG_LINES` / `LOG_TAIL_SURFACE` / `LOG_TAIL_LINE`** — the
-  chrome and the structural line shape, named once so two tails cannot drift.
+- **`LogLine` / `NO_LOG_LINES`** — the structural line shape (`{ line }`, no
+  domain type) and the shared empty tail, so a consumer with nothing to narrate
+  hands the same array on every repaint instead of a fresh `[]`. The block's own
+  look (its surface, its wrapping line class) is private to the component: a
+  consumer sizes it through `class` and never re-spells its chrome.
 
 ## What a consumer needs
 

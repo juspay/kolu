@@ -31,7 +31,31 @@ import {
   onCleanup,
 } from "solid-js";
 import { writeTextToClipboard } from "./clipboard";
-import { LOG_TAIL_LINE, LOG_TAIL_SURFACE, type LogLine } from "./logTailChrome";
+
+/** One line of retained output, structurally. Deliberately NOT a domain type: a
+ *  component that renders a tail carries no knowledge of where the line came
+ *  from, and a caller hands it whatever tail it kept — its own records, a wire
+ *  payload, a plain string list. */
+export type LogLine = { readonly line: string };
+
+/** The ONE empty tail a consumer reaches for — a shared reference so a site with
+ *  no output to narrate hands this component the SAME array across every
+ *  re-resolve/repaint instead of a fresh `[]` literal (which would churn
+ *  identity-keyed DOM on every tick even though nothing changed). */
+export const NO_LOG_LINES: readonly LogLine[] = [];
+
+/** The block's own look, named once. Private to this file because this file is
+ *  the only wearer: a consumer sizes the block through `class` and never
+ *  re-spells its chrome, which is what keeps two tails in one app from drifting.
+ *
+ *  `LOG_TAIL_SURFACE` — hairline border, recessed tint, monospace, muted ink.
+ *  `LOG_TAIL_LINE` — a long line FOLDS rather than being clipped at the block's
+ *  edge: a tail is the window onto output a person reads to tell an in-flight
+ *  step from a hung one, and a clipped line hides exactly the token that would
+ *  say which. */
+const LOG_TAIL_SURFACE =
+  "rounded border border-bd-1/50 bg-bg-2/40 font-mono text-fg-4";
+const LOG_TAIL_LINE = "whitespace-pre-wrap break-words";
 
 /** How long the button says "copied" — the same 1500ms kolu's canonical copy
  *  affordance (`CopyCommandButton`) flashes, so two copy buttons in one app do
@@ -51,9 +75,11 @@ const failureMessage = (error: Cause.UnknownError): string => {
 export interface LogTailProps {
   /** The rows to render — as many as the consumer chose to show (a tail). */
   lines: readonly LogLine[];
-  /** The whole retained log this attempt produced — what the Copy button writes.
-   *  Kept separate from `lines` because a tail is a WINDOW onto it: copying the
-   *  window would hide exactly the output the reader wanted the button for. */
+  /** The log to copy: everything the CALLER retained for this attempt — the
+   *  tail is a WINDOW onto it, so copying the window would hide exactly the
+   *  output the reader wanted the button for. Handed here rather than derived
+   *  because how much is kept is the caller's decision (kolu's session retains a
+   *  bounded tail of the host's output, not a whole transcript). */
   log: readonly LogLine[];
   /** The block's test handle (each surface names its own). */
   testid: string;

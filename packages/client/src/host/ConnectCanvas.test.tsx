@@ -309,7 +309,7 @@ describe("ConnectCanvas tail chrome", () => {
     const chrome = tail?.className ?? "";
     // Sized for six wrapped rows at 11px × the 1.625 `leading-relaxed` line
     // height (107.25px): a bare min-height would still grow on a wrapped line.
-    expect(chrome).toContain("h-[108px]");
+    expect(chrome).toContain("h-[6lh]");
     expect(chrome).toContain("justify-end");
     expect(chrome).toContain("overflow-hidden");
     // The line itself WRAPS — the old `truncate whitespace-pre` clipped it, so

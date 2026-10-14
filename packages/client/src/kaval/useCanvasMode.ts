@@ -28,7 +28,7 @@ import {
 import { isConnectPhase } from "../host/connectCanvasCopy";
 import { activeHost, connectionInfo, hostKeys, padiMap } from "../wire";
 import { NO_LOG_LINES } from "@kolu/solid-logtail";
-import type { LogAbsence } from "../ui/logTailChrome";
+import type { LogAbsence } from "./canvasModeResolver";
 import {
   bootDeadlineExceeded,
   pruneBootAnchors,

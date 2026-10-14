@@ -387,7 +387,7 @@ export function nixLogReader(
   };
 
   /** Narrate a copy's progress at a human cadence — "glibc-2.44-25: 42 MiB of
-   *  180 MiB" — once the transfer has moved another {@link MILESTONE_FRACTION}
+   *  180 MiB" — once the transfer has moved another {@link MILESTONE_PERCENT}
    *  of its total, or, for one slow enough that 10% takes longer, on
    *  {@link MILESTONE_INTERVAL_MS} instead. The interval gate also requires the
    *  byte count to have MOVED: a stalled transfer repeating its last figure every

@@ -25,7 +25,7 @@ import { LOCAL_HOST } from "kolu-common/surfacesWithPadi";
 import { For, type JSX, Show } from "solid-js";
 import { toast } from "solid-sonner";
 import { WarningIcon } from "../ui/Icons";
-import type { LogAbsence } from "../ui/logTailChrome";
+import type { LogAbsence } from "../kaval/canvasModeResolver";
 import { activeHost, setActiveHost } from "../wire";
 import { runAction } from "../runAction";
 import { reconnectHost } from "./reconnectHost";
@@ -121,9 +121,9 @@ export function CanvasFailureCard(props: {
    *  REQUIRED, though it accepts `undefined` — an optional prop is how one of two callers
    *  silently dropped the evidence, so a caller with nothing to declare declares it.
    *
-   *  Chrome shared with the other tails lives in `@kolu/solid-logtail` (`LogTail`
-   *  — surface, wrap, the whole-log Copy button, following the newest line — over
-   *  its `logTailChrome` constants); everything else
+   *  Chrome shared with the other tails lives in `@kolu/solid-logtail` (the
+   *  `LogTail` block: surface, wrap, the whole-log Copy button, following the
+   *  newest line); everything else
    *  stays local, because the three differ by decision rather than by accident. */
   logAbsence: LogAbsence | undefined;
   /** Test handle for the tail block, supplied by the caller like every other handle on this

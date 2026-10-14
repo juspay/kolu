@@ -280,8 +280,10 @@ export const HostDiagnosticsPopover: Component<{
       ? NO_LOG_LINES
       : tailOf(episode.log, POPOVER_TAIL_LINES);
   });
-  // The WHOLE retained log, beside the tail the block shows: the Copy button copies the
-  // attempt's complete output, not the four rows that fit here.
+  // The whole log the frame carries, beside the four rows this popover shows: the Copy
+  // button hands a person everything the session retained for the attempt, not the
+  // window that fits here. (What the session retains is its own bound — `MAX_PROGRESS_LINES`
+  // in `surface-remote/src/session.ts` — so "retained" is the honest word.)
   const failureWholeLog = createMemo(() => failure()?.log ?? NO_LOG_LINES);
 
   return (

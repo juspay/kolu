@@ -8,7 +8,7 @@
  *
  *  Reads have no safe fallback (the textarea trick is write-only), so a
  *  non-secure context simply cannot paste via OSC 52 — see the package's
- *  `./clipboard` for the whole account. */
+ *  `clipboard.ts` for the whole account. */
 
 import type {
   ClipboardSelectionType,

@@ -181,19 +181,19 @@ export function ConnectCanvas(props: { daemonState: DaemonState | undefined }) {
           {/* The live log tail renders whenever the frame carries log lines — the `probing`
               window's "checking for a cached agent…" narrates the instant it arrives, no
               silent wait. Data presence, not a per-phase flag.
-              A FIXED height sized for six wrapped rows (6 × 11px × the 1.625
-              `leading-relaxed` = 107.25px) with the newest line pinned to the bottom:
-              the block must not grow a row at a time, or the title and the elapsed
-              timer above it would slide on every new line. `min-height` would still
-              grow on a line that wraps, so the height is fixed and the oldest lines
-              clip off the top. */}
+              Six line-heights tall (`6lh`: the CSS unit, so the browser does the
+              arithmetic) with the newest line pinned to the bottom. The height must be
+              FIXED, or the block grows a row at a time and the title and elapsed timer
+              above it slide on every new line — and it must be tied to the text scale,
+              which is why it is a line-height multiple rather than the hand-computed
+              pixel figure it used to be: change the scale and the box follows. */}
           <Show when={tail().length > 0}>
             <div class="w-full max-w-2xl">
               <LogTail
                 testid="connect-tail"
                 lines={tail()}
                 log={log()}
-                class="h-[108px] flex flex-col justify-end overflow-hidden px-3 py-2 text-[11px] leading-relaxed"
+                class="h-[6lh] flex flex-col justify-end overflow-hidden px-3 py-2 text-[11px] leading-relaxed"
                 onCopyError={(message) =>
                   toast.error(`Failed to copy the log: ${message}`)
                 }

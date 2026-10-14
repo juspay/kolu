@@ -7,7 +7,7 @@
  *
  *  `writeTextToClipboard` fires synchronously at the top of the click handler,
  *  before `setCopied(true)`, so the clipboard write stays inside the
- *  user-activation gesture window (see clipboard.ts:28-34). */
+ *  user-activation gesture window (see `@kolu/solid-logtail`'s `clipboard.ts`). */
 
 import { toError } from "@kolu/surface/run-stream";
 import { Effect } from "effect";

@@ -12,7 +12,7 @@
 import { render } from "solid-js/web";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { LogTail } from "./LogTail";
-import type { LogLine } from "./logTailChrome";
+import type { LogLine } from "./LogTail";
 
 const h = vi.hoisted(() => ({
   written: [] as string[],
