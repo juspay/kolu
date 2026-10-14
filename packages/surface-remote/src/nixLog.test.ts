@@ -6,12 +6,7 @@
  */
 import { describe, expect, it, vi } from "vitest";
 import { shellQuoteArg } from "@kolu/shell-quote";
-import {
-  describeNixError,
-  nixLogReader,
-  nixRunCommand,
-  runNix,
-} from "./nixLog";
+import { describeNixError, nixLogReader, runNix } from "./nixLog";
 import { nixJsonLine } from "./nixLog.testutil";
 import { runCapture } from "./process";
 
@@ -245,34 +240,9 @@ describe("runNix", () => {
   });
 });
 
-describe("runNix on an ssh-wrapped seat — an abandoned run is killed on the host", () => {
+describe("runNix on an ssh-wrapped seat — an abandoned Nix run is killed on the host (via `runCaptureAt`)", () => {
   const PID_REPORT = "kolu-remote-pid 4242";
   const ok = { ok: true, kind: "exit", code: 0, stdout: "" } as const;
-
-  it("wraps the remote Nix so it reports the PID it runs as; the local seat runs Nix bare", () => {
-    const remote = nixRunCommand("h", ["nix-store", "-q", "/nix/store/x"]);
-    expect(remote.command).toBe("ssh");
-    const at = remote.args.indexOf("h");
-    expect(remote.args.slice(at + 1)).toEqual(
-      [
-        "sh",
-        "-c",
-        'echo "kolu-remote-pid $$" >&2; exec "$@"',
-        "sh",
-        "nix-store",
-        "--log-format",
-        "internal-json",
-        "-q",
-        "/nix/store/x",
-      ].map(shellQuoteArg),
-    );
-    expect(
-      nixRunCommand("localhost", ["nix-store", "-q", "/nix/store/x"]),
-    ).toEqual({
-      command: "nix-store",
-      args: ["--log-format", "internal-json", "-q", "/nix/store/x"],
-    });
-  });
 
   /** One remote run that reports `pid` and then ends as `end`; every later
    *  `runCapture` (the kill) answers `killResult`. */
@@ -346,7 +316,7 @@ describe("runNix on an ssh-wrapped seat — an abandoned run is killed on the ho
     const res = await run;
     expect(res.kind).toBe("aborted");
     expect(narrated).toContain(
-      "could not stop the abandoned nix on the host (pid 4242): exited with code 255",
+      "could not stop the abandoned 'nix' on the host (pid 4242): exited with code 255",
     );
   });
 });

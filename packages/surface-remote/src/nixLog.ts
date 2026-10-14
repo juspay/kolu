@@ -33,7 +33,7 @@ import { Option, Schema } from "effect";
 import QuickLRU from "quick-lru";
 import { match, P } from "ts-pattern";
 import {
-  buildSshProbeCommand,
+  type buildSshProbeCommand,
   isLocalHost,
   looksLikeNetworkError,
   ResolveDrvError,
@@ -46,11 +46,11 @@ import {
 } from "./host";
 import {
   type CaptureResult,
-  describeExit,
   type DeadlinePolicy,
+  describeExit,
   type ProgressLivenessPolicy,
-  runCapture,
 } from "./process";
+import { runCaptureAt } from "./remoteRun";
 
 /** Nix's verbosity for plain informational messages (`lvlInfo`). Anything above
  *  it is chatter ("evaluating file …"): it still keeps a slow step alive (every
@@ -406,62 +406,6 @@ export type NixRun = CaptureResult & {
   readonly sshRefusal: SshRefusalEvidence | null;
 };
 
-/** The remote wrapper every ssh-wrapped Nix run goes through: it reports its
- *  own PID on stderr, then `exec`s the Nix command — which therefore runs AS
- *  that PID. Killing the local ssh does not reach the remote Nix (no tty, so
- *  the channel close sends it nothing), and a Nix blocked in a socket write
- *  survives `SIGTERM`; so an abandoned remote run is killed by that exact PID
- *  ({@link killRemoteRun}). A PID, not a tag matched with `pkill -f`: an
- *  `env TAG=… nix` prefix never reaches Nix's command line (`env` execs), and
- *  the pattern then matches the killer's own remote shell instead. */
-const REMOTE_PID_SCRIPT = 'echo "kolu-remote-pid $$" >&2; exec "$@"';
-const REMOTE_PID_RE = /^kolu-remote-pid (\d+)$/;
-
-/** How long the best-effort remote kill may take (an ssh round-trip over the
- *  dial's ControlMaster, or a fresh dial when that master is gone). */
-const REMOTE_KILL_DEADLINE_MS = 10_000;
-
-/** The argv {@link runNix} spawns: Nix with its log-format flag, directly on
- *  the local seat, wrapped in {@link REMOTE_PID_SCRIPT} on an ssh-wrapped one. */
-export function nixRunCommand(
-  target: string | SshDestination,
-  argv: readonly [string, ...string[]],
-): { command: string; args: string[] } {
-  const [nixCommand, ...rest] = argv;
-  const nix = [nixCommand, "--log-format", "internal-json", ...rest] as const;
-  return isLocalHost(targetOf(target).host)
-    ? buildSshProbeCommand(target, ...nix)
-    : buildSshProbeCommand(target, "sh", "-c", REMOTE_PID_SCRIPT, "sh", ...nix);
-}
-
-/** SIGKILL the remote run `pid` on `target`, over the same ssh dial options.
- *  Best-effort: a PID that already exited is not an error (the kill's own
- *  complaint is silenced and its exit forced to 0), so a non-`ok` result here
- *  means the kill itself could not run — the host is gone, or the ssh failed —
- *  and that is narrated, never thrown. */
-async function killRemoteRun(
-  target: string | SshDestination,
-  pid: string,
-  narrate: (line: string) => void,
-): Promise<void> {
-  const { command, args } = buildSshProbeCommand(
-    target,
-    "sh",
-    "-c",
-    'kill -KILL "$1" 2>/dev/null; exit 0',
-    "sh",
-    pid,
-  );
-  const res = await runCapture(command, args, {
-    policy: { kind: "deadline", ms: REMOTE_KILL_DEADLINE_MS },
-    signal: undefined,
-  });
-  if (!res.ok)
-    narrate(
-      `could not stop the abandoned nix on the host (pid ${pid}): ${describeExit(res)}`,
-    );
-}
-
 /** Run one Nix command with its log read through {@link nixLogReader} — the ONE
  *  way provisioning runs Nix, so no step can report an exit code where Nix
  *  said why, or classify a builder's chatter as the host going away.
@@ -469,12 +413,11 @@ async function killRemoteRun(
  *  `target` is where the command runs, exactly as {@link buildSshProbeCommand}
  *  takes it: `"localhost"` spawns it directly (also the arm for a local `nix`
  *  that reaches a remote store over `ssh-ng://`), a host wraps it in the dial's
- *  ssh ({@link nixRunCommand}). `argv[0]` is the Nix command; the log-format
- *  flag goes right after it.
- *
- *  A remote run that ends ABANDONED — aborted, or killed by its own lifetime
- *  policy — is SIGKILLed on the host by PID before this returns, so a retry
- *  never queues behind the previous attempt's store-path lock.
+ *  ssh. `argv[0]` is the Nix command; the log-format flag goes right after it.
+ *  It runs through {@link runCaptureAt}, so a remote run that ends ABANDONED —
+ *  aborted, or killed by its own lifetime policy — is SIGKILLed on the host
+ *  before this returns, and a retry never queues behind the previous attempt's
+ *  store-path lock.
  *
  *  When the run fails after its root error was pushed down by the cascade, the
  *  root error is narrated once more as the LAST lines — a bounded progress tail
@@ -502,40 +445,27 @@ export async function runNix(
   const narrate = opts.narrate ?? (() => {});
   const reader = nixLogReader(narrate);
   const remote = !isLocalHost(targetOf(target).host);
-  let remotePid: string | null = null;
-  /** The wrapper's PID report, on a remote run before it is known. */
-  const pidReport = (line: string): string | null =>
-    remote && remotePid === null
-      ? (REMOTE_PID_RE.exec(line)?.[1] ?? null)
-      : null;
-  const { command, args } = nixRunCommand(target, argv);
-  const res = await runCapture(command, args, {
-    isActivity: (line) => {
-      const active =
-        pidReport(line) !== null ||
-        opts.dropLine?.(line) === true ||
-        reader.isActivity(line);
-      if (active && "onActivity" in opts) opts.onActivity();
-      return active;
+  const [nixCommand, ...rest] = argv;
+  const res = await runCaptureAt(
+    target,
+    [nixCommand, "--log-format", "internal-json", ...rest],
+    {
+      isActivity: (line) => {
+        const active =
+          opts.dropLine?.(line) === true || reader.isActivity(line);
+        if (active && "onActivity" in opts) opts.onActivity();
+        return active;
+      },
+      onProgress: (line) => {
+        if (opts.dropLine?.(line) !== true) reader.line(line);
+      },
+      onRemoteKillFailure: narrate,
+      policy: opts.policy,
+      signal: opts.signal,
+      env: opts.env,
+      maxLineLength: NIX_LOG_LINE_MAX,
     },
-    onProgress: (line) => {
-      const pid = pidReport(line);
-      if (pid !== null) {
-        remotePid = pid;
-        return;
-      }
-      if (opts.dropLine?.(line) !== true) reader.line(line);
-    },
-    policy: opts.policy,
-    signal: opts.signal,
-    env: opts.env,
-    maxLineLength: NIX_LOG_LINE_MAX,
-  });
-  if (
-    remotePid !== null &&
-    (res.kind === "aborted" || res.kind === "lifetime-expired")
-  )
-    await killRemoteRun(target, remotePid, narrate);
+  );
   if (!res.ok) for (const l of reader.recap()) narrate(l);
   // See `NixRun.transportFailure` for why the two seats read ssh differently.
   // The local seat trusts only the bare network-error signal, never a
