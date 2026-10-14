@@ -18,7 +18,7 @@
  *     that had to ASK the server would be useless in exactly the case it exists
  *     for — a wire that is lying. It is synchronous for the same reason, plus
  *     one more: {@link writeTextToClipboard} must be reached inside the user's
- *     gesture window (`ui/clipboard.ts`), so the build has to happen inside the
+ *     gesture window (`@kolu/solid-logtail`'s `clipboard.ts`), so the build has to happen inside the
  *     `Effect.suspend` that precedes the write, with no `await` before it.
  *  2. **Never fabricate.** An absent value is `"unknown"`, never a zero, never a
  *     plausible default. Half this block's job is to be read BESIDE a server log,

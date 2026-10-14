@@ -11,7 +11,7 @@ import { toError } from "@kolu/surface/run-stream";
 import { Effect } from "effect";
 import { type Component, For, Show } from "solid-js";
 import { toast } from "solid-sonner";
-import { writeTextToClipboard } from "../ui/clipboard";
+import { writeTextToClipboard } from "@kolu/solid-logtail";
 import { formatMarkdown } from "./formatMarkdown";
 import type { Comment } from "./types";
 import { commentsForTerminal } from "./useComments";

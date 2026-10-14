@@ -28,13 +28,13 @@
 import type { DaemonState } from "@kolu/padi-client/surface";
 import { encodeHostKey } from "kolu-common/hostKey";
 import { createMemo, Show, untrack } from "solid-js";
+import { toast } from "solid-sonner";
+import { LogTail, type LogLine, NO_LOG_LINES } from "@kolu/solid-logtail";
 import { showsElapsed, tailOf } from "../kaval/connectCanvasView";
 import { DAEMON_STATE_PRESENTATION } from "../kaval/daemonPresentation";
 import { getClockNow } from "../time/clock";
 import { formatElapsedShort } from "../time/duration";
 import DocLink from "../ui/DocLink";
-import LogTail from "../ui/LogTail";
-import { type LogLine, NO_LOG_LINES } from "../ui/logTailChrome";
 import { activeHost, connectionInfo } from "../wire";
 import {
   connectCanvasCopy,
@@ -194,6 +194,9 @@ export function ConnectCanvas(props: { daemonState: DaemonState | undefined }) {
                 lines={tail()}
                 log={log()}
                 class="h-[108px] flex flex-col justify-end overflow-hidden px-3 py-2 text-[11px] leading-relaxed"
+                onCopyError={(message) =>
+                  toast.error(`Failed to copy the log: ${message}`)
+                }
               />
             </div>
           </Show>

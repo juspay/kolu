@@ -14,7 +14,7 @@
  *  Module-lifetime and per-host like the boot anchors in `bootDeadline.ts`, pruned the
  *  same way when a host leaves membership. Monotonic `nowMs`, like them. */
 
-import type { LogLine } from "../ui/logTailChrome";
+import type { LogLine } from "@kolu/solid-logtail";
 import type { BootStalledRecovery } from "./canvasModeResolver";
 
 interface TailMark {

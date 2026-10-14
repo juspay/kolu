@@ -52,7 +52,7 @@ import { hostDisplayName } from "../host/hostChipTone";
 import { isActiveHostLocal } from "../kaval/useDaemonStatus";
 import { ServingTerminalLink } from "../forwards/ServingTerminalLink";
 import { runAction, type UiAction } from "../runAction";
-import { writeTextToClipboard } from "../ui/clipboard";
+import { writeTextToClipboard } from "@kolu/solid-logtail";
 import { surface } from "../ui/Surface";
 import { useServerIdentity } from "../useServerIdentity";
 import { activeHost } from "../wire";

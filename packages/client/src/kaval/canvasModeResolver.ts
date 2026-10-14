@@ -101,12 +101,9 @@
 import type { DaemonState } from "@kolu/padi-client/surface";
 import type { ConnectPhase } from "kolu-common/surfacesWithPadi";
 import { match, P } from "ts-pattern";
+import { type LogLine, NO_LOG_LINES } from "@kolu/solid-logtail";
 import { isProvisioningPhase } from "../host/connectCanvasCopy";
-import {
-  type LogAbsence,
-  type LogLine,
-  NO_LOG_LINES,
-} from "../ui/logTailChrome";
+import type { LogAbsence } from "../ui/logTailChrome";
 import type { ConnectQuiet } from "./connectTailClock";
 import type { DaemonDownState } from "./daemonPresentation";
 

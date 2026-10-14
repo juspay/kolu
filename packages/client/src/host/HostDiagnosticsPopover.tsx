@@ -27,6 +27,7 @@ import {
   Show,
 } from "solid-js";
 import { Portal } from "solid-js/web";
+import { toast } from "solid-sonner";
 import { hostMarks } from "../attention/attentionMarks";
 import CopyDiagnosticsButton from "../CopyDiagnosticsButton";
 import { ForwardRows } from "../forwards/ForwardRows";
@@ -39,8 +40,7 @@ import { runAction } from "../runAction";
 import { formatTimeAgo } from "../terminal/staleness";
 import { containingTileOf } from "../terminal/terminalTree";
 import { useTerminalStore } from "../terminal/useTerminalStore";
-import LogTail from "../ui/LogTail";
-import { NO_LOG_LINES } from "../ui/logTailChrome";
+import { LogTail, NO_LOG_LINES } from "@kolu/solid-logtail";
 import { surface } from "../ui/Surface";
 import { type AnchorSide, useAnchoredPopover } from "../ui/useAnchoredPopover";
 import { useServerIdentity } from "../useServerIdentity";
@@ -326,6 +326,9 @@ export const HostDiagnosticsPopover: Component<{
               lines={failureLog()}
               log={failureWholeLog()}
               class="mt-1 max-h-20 overflow-y-auto px-1.5 py-1 text-[10px] leading-4"
+              onCopyError={(message) =>
+                toast.error(`Failed to copy the log: ${message}`)
+              }
             />
           </Show>
 

@@ -35,7 +35,7 @@ import { toast } from "solid-sonner";
 import { createSharedRoot } from "../createSharedRoot";
 import { activeScope } from "../hostScope/hostScopes";
 import { persistedPref } from "../persistedPref";
-import type { LogLine } from "../ui/logTailChrome";
+import type { LogLine } from "@kolu/solid-logtail";
 import { activeHost, app, padiMap } from "../wire";
 import {
   channelLive,

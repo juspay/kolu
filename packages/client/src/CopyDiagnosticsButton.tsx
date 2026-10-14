@@ -6,7 +6,7 @@
  *  (`./diagnosticSnapshot`), so the two can never drift into copying different
  *  things.
  *
- *  **The gesture-window discipline** (`ui/clipboard.ts`): the snapshot is built
+ *  **The gesture-window discipline** (`@kolu/solid-logtail`'s `clipboard.ts`): the snapshot is built
  *  LAZILY inside `Effect.suspend`, so the whole build happens on the click's own
  *  stack with no `await` before the clipboard write. Building it first and
  *  awaiting anything would put the `execCommand` fallback — the only write that
@@ -23,7 +23,7 @@ import {
   type DiagnosticSnapshotInputs,
 } from "./diagnosticSnapshot";
 import { runAction, type UiAction } from "./runAction";
-import { writeTextToClipboard } from "./ui/clipboard";
+import { writeTextToClipboard } from "@kolu/solid-logtail";
 
 /** Build-and-write, as one program run at the click edge. */
 export function copyDiagnosticSnapshot(

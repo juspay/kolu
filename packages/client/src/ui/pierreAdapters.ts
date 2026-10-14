@@ -25,7 +25,7 @@ import { toError } from "@kolu/surface/run-stream";
 import { Effect } from "effect";
 import { toast } from "solid-sonner";
 import { runAction } from "../runAction";
-import { writeTextToClipboard } from "./clipboard";
+import { writeTextToClipboard } from "@kolu/solid-logtail";
 
 /** Hooks the menu needs from the Code tab: the view-switch entries, and the
  *  two facts that decide a file row's Download entry. */

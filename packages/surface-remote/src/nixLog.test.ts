@@ -255,7 +255,12 @@ describe("nixLogReader — a copied path narrates its own bytes (actCopyPath, ty
         copyStart(3, HELLO),
         // The nar header has not been read yet, so Nix reports no total.
         progress(3, 8192, 0),
-        nixJsonLine({ action: "result", fields: [100, 279592], id: 3, type: 106 }),
+        nixJsonLine({
+          action: "result",
+          fields: [100, 279592],
+          id: 3,
+          type: 106,
+        }),
         progress(3, 32768, 279592),
       ],
       () => 0,

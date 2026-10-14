@@ -23,7 +23,7 @@ import type { KoluForward } from "kolu-common/surface";
 import { type Component, createSignal, onCleanup, Show } from "solid-js";
 import { toast } from "solid-sonner";
 import { runAction } from "../runAction";
-import { writeTextToClipboard } from "../ui/clipboard";
+import { writeTextToClipboard } from "@kolu/solid-logtail";
 import { FORWARD_PILL, originTooltip, originWord } from "./forwardTone";
 import { portUrl } from "./portUrl";
 import { cancelForward } from "./useForwards";

@@ -1,0 +1,23 @@
+/* `@kolu/solid-logtail`, whole — the `@source` that keeps the tail's utility
+ * classes from being tree-shaken away, plus the token sheet they resolve
+ * against.
+ *
+ * WHY THIS EXISTS. `LogTail` is Tailwind utilities and nothing else, and a
+ * consumer's own sources spell only SOME of them (`absolute`, `top-1`,
+ * `rounded` are common; `right-1` in this block's corner is not). Tailwind
+ * generates a utility only where it saw one, so without this file the classes
+ * unique to this package are dropped — silently, and not cosmetically: the Copy
+ * button lands at the block's left edge, where the first row's own text runs
+ * under it. That is not hypothetical: it is exactly what the extraction did
+ * before this file existed, caught by clicking the button in a browser rather
+ * than by any class-string assertion.
+ *
+ * The path is relative to THIS file, which is the only spelling that is correct
+ * from kolu's own checkout, from a `node_modules` copy and from a consumer's
+ * hydrated tree alike — the same argument `@kolu/solid-statepip/all.css` gives
+ * for the same two lines.
+ *
+ * No granular door, and no sheet of its own: this package ships no custom CSS,
+ * so there is nothing to compose a second file from. */
+@import "@kolu/theme/theme.css";
+@source "./";

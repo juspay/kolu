@@ -20,7 +20,7 @@ import {
 } from "solid-js";
 import { toast } from "solid-sonner";
 import { runAction } from "../runAction";
-import { writeTextToClipboard } from "./clipboard";
+import { writeTextToClipboard } from "@kolu/solid-logtail";
 
 const CopyCommandButton: Component<{
   /** Command shown in the button (and copied, unless `copyText` overrides). */

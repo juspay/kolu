@@ -24,7 +24,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 const writeTextToClipboard = vi.fn((_text: string) => Effect.void);
 
-vi.mock("../ui/clipboard", () => ({ writeTextToClipboard }));
+vi.mock("@kolu/solid-logtail", () => ({ writeTextToClipboard }));
 vi.mock("./useForwards", () => ({ cancelForward: () => Effect.void }));
 
 const { ForwardCopyButton } = await import("./ForwardPill");

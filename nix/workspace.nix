@@ -105,6 +105,7 @@ let
     "@kolu/solid-browser" = ../packages/solid-browser;
     "@kolu/solid-statepip" = ../packages/solid-statepip;
     "@kolu/solid-dockrow" = ../packages/solid-dockrow;
+    "@kolu/solid-logtail" = ../packages/solid-logtail;
     "kolu-common" = ../packages/common;
     "@kolu/daemon-test-gate" = ../packages/daemon-test-gate;
     "anyagent" = ../packages/integrations/anyagent;

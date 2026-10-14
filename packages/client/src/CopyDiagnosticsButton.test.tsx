@@ -27,7 +27,7 @@ const dialHistory = vi.fn(() => [
 ]);
 
 const writeTextToClipboard = vi.fn((_text: string) => Effect.void);
-vi.mock("./ui/clipboard", () => ({ writeTextToClipboard }));
+vi.mock("@kolu/solid-logtail", () => ({ writeTextToClipboard }));
 vi.mock("./wire", () => ({
   wire: { status: () => "open" },
   wireDiagnostics: { epoch: () => 1, dialHistory },

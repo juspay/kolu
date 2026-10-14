@@ -52,6 +52,14 @@
  * it gets the same two lines the other three have. */
 @import "@kolu/solid-markdown/markdown.css";
 
+/* `@kolu/solid-logtail`, WHOLE — the tail's sheet is its `@source`: the block is
+ * Tailwind utilities and nothing else, and the ones no kolu source spells
+ * (`right-1`, this block's Copy corner) are dropped without it. Caught on
+ * screen, not by a test: the button landed at the block's left edge. The
+ * `@source` inside points Tailwind at the package with a path relative only to
+ * itself, like the three doors above. */
+@import "@kolu/solid-logtail/all.css";
+
 /* The `@source` directives for `@kolu/solid-statepip`, `@kolu/solid-dockrow` and
  * `@kolu/solid-fileview` moved INTO those packages' own `all.css`, above — each
  * points Tailwind at itself with a path relative only to itself, which is the

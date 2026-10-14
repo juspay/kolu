@@ -27,7 +27,7 @@ import { PAINT_STALL_WARN_MS } from "@kolu/xterm-kit/solid";
 import { getTerminalRefs } from "./terminal/terminalRefs";
 import { getDiagnostics } from "./terminal/useTerminalDiagnostics";
 import { webglLifecycleSnapshot } from "./terminal/webglTracker";
-import { writeTextToClipboard } from "./ui/clipboard";
+import { writeTextToClipboard } from "@kolu/solid-logtail";
 import { createDisclosure } from "./ui/createDisclosure";
 import DocLink from "./ui/DocLink";
 import ModalDialog from "./ui/ModalDialog";

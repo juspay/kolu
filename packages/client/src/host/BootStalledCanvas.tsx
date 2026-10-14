@@ -31,7 +31,7 @@
  */
 
 import { type Component, createMemo } from "solid-js";
-import { NO_LOG_LINES } from "../ui/logTailChrome";
+import { NO_LOG_LINES } from "@kolu/solid-logtail";
 import {
   bootStalledCopy,
   bootStalledPhaseDetail,

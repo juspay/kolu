@@ -27,7 +27,7 @@ import { useRightPanel } from "../right-panel/useRightPanel";
 import { runAction, type UiAction } from "../runAction";
 import { CONTEXTUAL_TIPS } from "../settings/tips";
 import { useTips } from "../settings/useTips";
-import { writeTextToClipboard } from "../ui/clipboard";
+import { writeTextToClipboard } from "@kolu/solid-logtail";
 import { activePadiRpc } from "../wire";
 import {
   createEvictionDedup,

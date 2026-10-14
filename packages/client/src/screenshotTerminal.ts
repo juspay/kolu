@@ -315,7 +315,7 @@ export function screenshotTerminal(
     }
     // Image writes have no execCommand equivalent — if navigator.clipboard
     // is undefined (plain-HTTP, non-localhost), the only honest answer is a
-    // diagnostic toast. See `ui/clipboard.ts` for the text-write fallback.
+    // diagnostic toast. See `@kolu/solid-logtail` for the text-write fallback.
     if (!navigator.clipboard?.write) {
       toast.error(
         "Screenshot-to-clipboard requires HTTPS or localhost — image writes have no fallback in non-secure contexts",

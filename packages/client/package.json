@@ -27,6 +27,7 @@
     "@kolu/solid-browser": "workspace:*",
     "@kolu/solid-dockrow": "workspace:*",
     "@kolu/solid-fileview": "workspace:*",
+    "@kolu/solid-logtail": "workspace:*",
     "@kolu/solid-markdown": "workspace:*",
     "@kolu/solid-pierre": "workspace:*",
     "@kolu/solid-pwa-install": "workspace:*",

@@ -26,7 +26,8 @@ import {
 } from "solid-js";
 import { toast } from "solid-sonner";
 import { match } from "ts-pattern";
-import { SafeClipboardProvider, writeTextToClipboard } from "../ui/clipboard";
+import { writeTextToClipboard } from "@kolu/solid-logtail";
+import { SafeClipboardProvider } from "../ui/clipboard";
 import "@xterm/xterm/css/xterm.css";
 import { TERMINAL_RESET } from "@kolu/padi/endpoint";
 import { rejectionFor, sizeRejectionFor } from "@kolu/padi-client/upload";
