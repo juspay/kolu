@@ -118,6 +118,7 @@ export {
 export {
   type DeltaMembers,
   type ForwardableStream,
+  isMiddleHopTransportLoss,
   type RelayedStream,
   type RelayHoldOpenOptions,
   type RelayPolicy,

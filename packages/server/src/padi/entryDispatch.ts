@@ -38,12 +38,9 @@
  * An end the fence retries is self-correcting; a hold on a corpse is not.
  */
 
-import { isTransportError } from "@kolu/surface/client";
-import {
-  isDeadTransportError,
-  SurfaceRelayTransportLost,
-} from "@kolu/surface/errors";
+import { SurfaceRelayTransportLost } from "@kolu/surface/errors";
 import type { SurfaceDispatch } from "@kolu/surface/link";
+import { isMiddleHopTransportLoss } from "@kolu/surface-remote";
 import { Effect, Stream } from "effect";
 
 export interface EntryDispatchOptions {
@@ -74,13 +71,15 @@ export function entryDispatch(opts: EntryDispatchOptions): SurfaceDispatch {
   const noLink = (): SurfaceRelayTransportLost =>
     lost("has no live padi link to forward a sibling call to");
   /** A failure the LINK produced, re-raised as the one tag the client's fence
-   *  re-subscribes on. The link's own death tags (`SurfaceStdioTransportClosed`,
-   *  an RPC transport error) are permanently-dead corpses by definition — true
-   *  of THAT socket, false of this host, which re-dials. Forwarded verbatim
-   *  they would strand the subscriber on a link that has already been replaced.
-   *  A DECLARED failure is the far end's own answer and crosses unchanged. */
-  const classify = (err: unknown): SurfaceRelayTransportLost | unknown =>
-    isDeadTransportError(err) || isTransportError(err)
+   *  re-subscribes on. The link's own death tags are permanently-dead corpses
+   *  by definition — true of THAT socket, false of this host, which re-dials —
+   *  so forwarded verbatim they would strand the subscriber on a link that has
+   *  already been replaced. A DECLARED failure is the far end's own answer and
+   *  crosses unchanged. Which is which is `@kolu/surface-remote`'s own
+   *  question, asked of its own predicate: a relay and a forward must not hold
+   *  two opinions about whether a link just died. */
+  const classify = (err: unknown): unknown =>
+    isMiddleHopTransportLoss(err)
       ? lost("lost its padi link mid-call while forwarding a sibling call")
       : err;
   return {

@@ -492,8 +492,13 @@ function errorText(err: unknown): string {
  *  `RpcClientError`, or an UNTAGGED failure — the exact successor of the oRPC-era
  *  "not an `ORPCError`" arm, which read a raw transport/network rejection the client
  *  never turned into an application error. A tagged failure that is none of the
- *  three transport tags is, by construction, something a schema DECLARED. */
-function isMiddleHopTransportLoss(err: unknown): boolean {
+ *  three transport tags is, by construction, something a schema DECLARED.
+ *
+ *  EXPORTED because a parent can lose its link somewhere other than a relay — a
+ *  hop that FORWARDS a call rather than mirroring it (kolu-server's sibling
+ *  route) faces the same question about the same failures, and two spellings of
+ *  "is this the link dying" is how the two answers come to disagree. */
+export function isMiddleHopTransportLoss(err: unknown): boolean {
   if (isSurfaceRelayTransportLost(err)) return true;
   if (isDeadTransportError(err)) return true;
   if (isTransportError(err)) return true;
