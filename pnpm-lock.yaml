@@ -2103,6 +2103,9 @@ importers:
       '@effect/platform-node':
         specifier: 4.0.0
         version: 4.0.0(effect@4.0.0)(redis@6.2.1)
+      '@kolu/byte-units':
+        specifier: workspace:*
+        version: link:../byte-units
       '@kolu/log':
         specifier: workspace:*
         version: link:../log

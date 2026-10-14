@@ -31,9 +31,9 @@ const failingBuildWithDependent = [
   `@nix {"action":"msg","column":null,"file":null,"level":0,"line":null,"msg":"${J}[31;1merror:${J}[0m Cannot build '${J}[35;1m${TOP_DRV}${J}[0m'.\\n       Reason: ${J}[31;1m1 dependency failed${J}[0m.","raw_msg":"Cannot build '${J}[35;1m${TOP_DRV}${J}[0m'.\\nReason: ${J}[31;1m1 dependency failed${J}[0m."}`,
 ];
 
-function read(lines: readonly string[]) {
+function read(lines: readonly string[], now: () => number = Date.now) {
   const narrated: string[] = [];
-  const reader = nixLogReader((l) => narrated.push(l));
+  const reader = nixLogReader((l) => narrated.push(l), now);
   for (const l of lines) reader.line(l);
   return { reader, narrated };
 }
@@ -174,6 +174,114 @@ describe("nixLogReader.isActivity — progress counts, heartbeats do not", () =>
       "ssh: connect to host h port 22: Connection timed out",
     ])
       expect(reader.isActivity(line)).toBe(true);
+  });
+});
+
+/** A copy activity's `start`, in the shape nix 2.34.8 wrote it (recorded from
+ *  `nix copy --from <cache> --to local?root=…`): `fields[0]` is the store path
+ *  being copied, which is what a milestone line is named after. */
+const copyStart = (id: number, storePath: string) =>
+  nixJsonLine({
+    action: "start",
+    fields: [storePath, "https://cache.nixos.org", "local://"],
+    id,
+    level: 3,
+    parent: 0,
+    text: `copying path '${storePath}' from 'https://cache.nixos.org'`,
+    type: 100,
+  });
+
+describe("nixLogReader — a copied path narrates its own bytes (actCopyPath, type 100)", () => {
+  /** The recorded stream of one real copy of `hello`: 8192-byte steps to the
+   *  path's 279592-byte nar — 35 events, which is why a cadence is a
+   *  requirement and not a nicety. */
+  const HELLO = "/nix/store/5z2yp3ysx8476c8g5w25b0smlgkjvaq3-hello-2.12.3";
+  const helloStream = [
+    ...Array.from({ length: 34 }, (_, i) => (i + 1) * 8192),
+    279592,
+  ];
+
+  it("narrates a copied path by name and bytes — once per 10%, not once per Nix event", () => {
+    const { narrated } = read(
+      [
+        copyStart(1, HELLO),
+        ...helloStream.map((done) => progress(1, done, 279592)),
+      ],
+      // A frozen clock: only the 10% rule can fire here.
+      () => 0,
+    );
+    expect(narrated[0]).toBe(
+      `copying path '${HELLO}' from 'https://cache.nixos.org'`,
+    );
+    expect(narrated.filter((l) => l.startsWith("hello-2.12.3: "))).toEqual([
+      "hello-2.12.3: 32 KiB of 273 KiB",
+      "hello-2.12.3: 64 KiB of 273 KiB",
+      "hello-2.12.3: 96 KiB of 273 KiB",
+      "hello-2.12.3: 128 KiB of 273 KiB",
+      "hello-2.12.3: 160 KiB of 273 KiB",
+      "hello-2.12.3: 192 KiB of 273 KiB",
+      "hello-2.12.3: 224 KiB of 273 KiB",
+      "hello-2.12.3: 256 KiB of 273 KiB",
+    ]);
+  });
+
+  it("falls back to a 15s cadence when 10% takes longer — and never re-announces an unchanged figure", () => {
+    const COUNTER = "/nix/store/xqs3ly085bi005jp3mzzyzzbbjinpxwm-counter";
+    const narrated: string[] = [];
+    let t = 0;
+    const reader = nixLogReader(
+      (l) => narrated.push(l),
+      () => t,
+    );
+    reader.line(copyStart(7, COUNTER));
+    // A frozen byte count per event would be a stall; these move 1 byte every
+    // 15s, so only the interval gate can fire.
+    for (const done of [1, 2, 3, 3, 4]) {
+      t += 15_000;
+      reader.line(progress(7, done, 1_000_000));
+    }
+    expect(narrated.filter((l) => l.startsWith("counter: "))).toEqual([
+      "counter: 1 B of 977 KiB",
+      "counter: 2 B of 977 KiB",
+      "counter: 3 B of 977 KiB",
+      // The 4th event repeats `3` — a stalled transfer must not re-announce it.
+      "counter: 4 B of 977 KiB",
+    ]);
+  });
+
+  it("takes a late `resSetExpected` as the total — progress carrying `expected: 0` waits for it", () => {
+    const { narrated } = read(
+      [
+        copyStart(3, HELLO),
+        // The nar header has not been read yet, so Nix reports no total.
+        progress(3, 8192, 0),
+        nixJsonLine({ action: "result", fields: [100, 279592], id: 3, type: 106 }),
+        progress(3, 32768, 279592),
+      ],
+      () => 0,
+    );
+    expect(narrated.filter((l) => l.startsWith("hello-2.12.3: "))).toEqual([
+      "hello-2.12.3: 32 KiB of 273 KiB",
+    ]);
+  });
+
+  it("narrates nothing for an activity that is not a copied path — a build's own progress stays out of the tail", () => {
+    const { narrated } = read(
+      [
+        nixJsonLine({
+          action: "start",
+          fields: [BAD_DRV, "", 1, 1],
+          id: 9,
+          level: 3,
+          parent: 0,
+          text: `building '${BAD_DRV}'`,
+          type: 105,
+        }),
+        progress(9, 1000, 1000),
+      ],
+      () => 0,
+    );
+    expect(narrated).toEqual([`building '${BAD_DRV}'`]);
   });
 });
 

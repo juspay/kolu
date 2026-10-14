@@ -448,7 +448,7 @@ export async function pinGcRoot(
   budget: StepBudget,
   signal: AbortSignal | undefined,
 ): Promise<ProvisionFailure | null> {
-  onProgress(`${host}: pinning GC root at '${rootPath}'…`);
+  onProgress(`pinning GC root at '${rootPath}'…`);
   const pinRes = await runNix(
     { host, keepalive },
     ["nix-store", "--realise", target, "--add-root", rootPath, "--indirect"],
@@ -515,8 +515,7 @@ function abortedDuring(host: string, step: string): ProvisionFailure {
  *  terminal accounting).
  *
  *  It fills the LOCAL store and has nothing to say to any host, so it takes a
- *  pre-bound `narrate` rather than the target's name: the progress prefix is
- *  the caller's concern.
+ *  pre-bound `narrate` rather than the target's name.
  *
  *  WHY a per-URL `nix copy --from` loop, and not one
  *  `nix build --max-jobs 0 --substituters "<all>"` letting Nix own the
@@ -1137,23 +1136,22 @@ export async function pullClosure(
   const target: string | SshDestination = isLocalHost(host)
     ? "localhost"
     : { host, keepalive };
-  const narrate = (line: string) => opts.onProgress(`${host}: ${line}`);
 
   // 1. Warm check — the host may already hold it (an earlier pull, or another
   //    profile sharing the closure).
-  narrate(`checking whether the host already holds ${storePath}…`);
+  opts.onProgress(`checking whether the host already holds ${storePath}…`);
   const { signal } = opts;
   const onActivity = opts.onActivity ?? (() => {});
   const held = await checkValidity(target, storePath, { signal });
   if (held === "aborted") return failed(abortedDuring(host, "the warm check"));
   if (held === "timed-out")
-    narrate(
+    opts.onProgress(
       `the check timed out after ${PROVISION_PROBE_DEADLINE_MS}ms — host may be degraded; pulling anyway`,
     );
 
   // 2. The host reads the cache itself.
   if (held !== "valid") {
-    narrate(`pulling ${storePath} from ${opts.cacheUrl}…`);
+    opts.onProgress(`pulling ${storePath} from ${opts.cacheUrl}…`);
     const copy = await runNix(
       target,
       // `--extra-experimental-features nix-command`: `nix copy` is the new
@@ -1178,7 +1176,7 @@ export async function pullClosure(
         storePath,
       ],
       {
-        narrate,
+        narrate: opts.onProgress,
         onActivity,
         policy: copyPolicy(),
         signal,
@@ -1210,8 +1208,8 @@ export async function pullClosure(
         });
       return { ok: false, kind: "uncopied", reason: describeNixRun(copy) };
     }
-    narrate(`pulled ${storePath}`);
-  } else narrate(`already holds ${storePath} — skipped copy`);
+    opts.onProgress(`pulled ${storePath}`);
+  } else opts.onProgress(`already holds ${storePath} — skipped copy`);
 
   // 3. Commit behind the root.
   const bail = await pinGcRoot(
@@ -1325,7 +1323,6 @@ async function deliverPublished(opts: {
 }): Promise<Exclude<DeliverClosureResult, { kind: "not-delivered" }> | null> {
   const { published } = opts;
   const { system } = published.host;
-  const narrate = (line: string) => opts.onProgress(`${opts.host}: ${line}`);
   let lookup: ClosureLookup | undefined;
   let route: ClosureRoute;
   try {
@@ -1337,7 +1334,7 @@ async function deliverPublished(opts: {
       published.attr,
     );
     if (lookup.kind === "not-published") {
-      narrate(
+      opts.onProgress(
         `${published.attr} ${published.rev} is not published for ${system} (${lookup.url}) — staging the closure from this machine instead`,
       );
       return null;
@@ -1348,7 +1345,9 @@ async function deliverPublished(opts: {
     // publication; an answer that is not an entry (or names no form this
     // host can take) is.
     if (err instanceof ClosureIndexError && err.kind === "unreadable") {
-      narrate(`${err.message} — staging the closure from this machine instead`);
+      opts.onProgress(
+        `${err.message} — staging the closure from this machine instead`,
+      );
       return null;
     }
     const where = lookup === undefined ? "" : ` (${lookup.url})`;
@@ -1359,7 +1358,7 @@ async function deliverPublished(opts: {
       cause: "remote",
     };
   }
-  narrate(
+  opts.onProgress(
     route.kind === "content-addressed"
       ? `${published.attr} ${published.rev} is published content-addressed — the host pulls it, no trust needed`
       : `${published.attr} ${published.rev} is published signed — ${signedBecause(route.because, published.host)}`,
@@ -1381,13 +1380,13 @@ async function deliverPublished(opts: {
       signal: opts.signal,
     });
     if (pulled.ok) {
-      narrate(`landed ${route.storePath} from the closure index`);
+      opts.onProgress(`landed ${route.storePath} from the closure index`);
       return { ok: true, outPath: route.storePath };
     }
     if (pulled.kind === "failed") return pulled;
     misses.push(`${cacheUrl}: ${pulled.reason}`);
   }
-  narrate(
+  opts.onProgress(
     `the host could not pull the published ${route.storePath} (${misses.join("; ")}) — staging the closure from this machine instead`,
   );
   return null;
@@ -1436,7 +1435,7 @@ export async function deliverClosure(
   //    Localhost's own store is what staging checks first.
   if (!isLocal) {
     // One SYNTHESIZED, truthful line at check start (NOT raw nix stderr).
-    opts.onProgress(`${opts.host}: checking for a cached agent…`);
+    opts.onProgress(`checking for a cached agent…`);
     for (const path of remembered === undefined
       ? [outPath]
       : [remembered, outPath]) {
@@ -1451,7 +1450,7 @@ export async function deliverClosure(
         // say so, rather than silently falling through as if it had cleanly
         // reported "not cached".
         opts.onProgress(
-          `${opts.host}: cached-agent check timed out after ${PROVISION_PROBE_DEADLINE_MS}ms — host may be degraded; continuing without the warm fast-path`,
+          `cached-agent check timed out after ${PROVISION_PROBE_DEADLINE_MS}ms — host may be degraded; continuing without the warm fast-path`,
         );
         break;
       }
@@ -1462,16 +1461,13 @@ export async function deliverClosure(
         const bail = await pin(path);
         if (bail) return failed(bail);
         opts.budget.reset();
-        opts.onProgress(
-          `${opts.host}: already provisioned at ${path} — skipped copy`,
-        );
+        opts.onProgress(`already provisioned at ${path} — skipped copy`);
         return { ok: true, outPath: path };
       }
     }
   }
 
   opts.onDelivering?.();
-  const narrate = (line: string) => opts.onProgress(`${opts.host}: ${line}`);
 
   // 1b. The index step: a published build is pulled by the host itself.
   if (opts.published !== null) {
@@ -1499,7 +1495,7 @@ export async function deliverClosure(
           isLocal,
           outPath,
           binaryCache: opts.binaryCache,
-          narrate,
+          narrate: opts.onProgress,
           onActivity: opts.onActivity,
           signal,
         })
@@ -1510,7 +1506,7 @@ export async function deliverClosure(
           outPath,
           remembered,
           binaryCache: opts.binaryCache,
-          narrate,
+          narrate: opts.onProgress,
           onActivity: opts.onActivity,
           budget: opts.budget,
           signal,
@@ -1528,8 +1524,8 @@ export async function deliverClosure(
   // have come from the declared cache or been there already.
   opts.onProgress(
     isLocal
-      ? `localhost: agent in the local store at ${staged.path} — no build needed`
-      : `${opts.host}: agent in the host's store at ${staged.path} — no build needed`,
+      ? `agent in the local store at ${staged.path} — no build needed`
+      : `agent in the host's store at ${staged.path} — no build needed`,
   );
   return { ok: true, outPath: staged.path };
 }
@@ -1639,7 +1635,7 @@ export async function provisionAgent(
           ? ""
           : ` (${describeNixRun(outsRes)})`;
       opts.onProgress(
-        `${opts.host}: agent output path unknown locally${why} — skipping the cached-agent check; the cold provision re-establishes it`,
+        `agent output path unknown locally${why} — skipping the cached-agent check; the cold provision re-establishes it`,
       );
     }
     opts.onProvisioning?.();
@@ -1695,7 +1691,7 @@ export async function provisionAgent(
     // remote daemon substitutes per ITS OWN nix.conf, or builds).
     if (!isLocal)
       opts.onProgress(
-        `${opts.host}: the host will realise the agent with its own substituters`,
+        `the host will realise the agent with its own substituters`,
       );
   }
 
@@ -1708,8 +1704,8 @@ export async function provisionAgent(
   //    remote-store split.
   opts.onProgress(
     isLocal
-      ? `localhost: realising '${drvPath}'…`
-      : `${opts.host}: provisioning '${drvPath}' on remote…`,
+      ? `realising '${drvPath}'…`
+      : `provisioning '${drvPath}' on remote…`,
   );
   const installable =
     opts.derivation.kind === "flake-installable"
@@ -1764,7 +1760,7 @@ export async function provisionAgent(
       cause: "remote",
     };
   }
-  opts.onProgress(`${opts.host}: agent realised at ${agentPath}`);
+  opts.onProgress(`agent realised at ${agentPath}`);
 
   // 5. Commit the realised output behind a stable, per-agent GC root. This is
   //    the same required operation as the warm-hit and staged paths; provision

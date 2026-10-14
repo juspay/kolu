@@ -229,14 +229,12 @@ describe("pullClosure — the host pulls a content-addressed closure from the ca
     ).toBe(false);
   });
 
-  it("the copy narrates through onProgress, prefixed with the host", async () => {
+  it("the copy narrates through onProgress", async () => {
     vi.mocked(runCapture).mockImplementation(async (_cmd, args) =>
       isCheck(args) ? failOut : okOut,
     );
     const onProgress = vi.fn();
     await pull("ci@croissant", onProgress);
-    expect(onProgress).toHaveBeenCalledWith(
-      `ci@croissant: pulling ${CA} from ${CACHE}…`,
-    );
+    expect(onProgress).toHaveBeenCalledWith(`pulling ${CA} from ${CACHE}…`);
   });
 });

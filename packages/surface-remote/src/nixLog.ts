@@ -24,11 +24,17 @@
  * stores, and the legacy `nix-store` / `nix-instantiate` commands). The event
  * vocabulary used here is Nix's `src/libutil/logging.hh`: `msg` (with a
  * verbosity `level`, 0 = error), `start` of an activity (`type` 105 = a build,
- * whose `fields[0]` is the derivation), and `result` (`type` 101 = one line of
- * that build's log; `type` 105 = an activity's progress counters).
+ * whose `fields[0]` is the derivation; 100/101 = a copy path / a file transfer
+ * inside it), and `result` — `type` 101 = one line of that build's log; `type`
+ * 105 = an activity's progress counters, `[done, expected, running, failed]`
+ * (byte counts for a copy), which is also the ONLY event Nix re-sends without
+ * anything moving (see {@link NixLogReader.isActivity}); and `type` 106
+ * (`resSetExpected`, `[activityType, expected]`). `start.type` and `result.type`
+ * are DIFFERENT enums that share numbers; they never mix here.
  */
 
 import { stripVTControlCharacters } from "node:util";
+import { formatBytes } from "@kolu/byte-units";
 import { Option, Schema } from "effect";
 import QuickLRU from "quick-lru";
 import { match, P } from "ts-pattern";
@@ -57,11 +63,16 @@ import { runCaptureAt } from "./remoteRun";
  *  stderr line bumps the lifetime policy) but is not narrated. */
 const LVL_INFO = 3;
 
-/** `ActivityType::actBuild`, `ResultType::resBuildLogLine` and
- *  `ResultType::resProgress` (fields `[done, expected, running, failed]`). */
+/** `ActivityType::actBuild`, `ResultType::resBuildLogLine`, and the two
+ *  `result` types a copy narrates from — `resProgress` (105, whose fields are
+ *  `[done, expected, running, failed]`, BYTES for a copy) and `resSetExpected`
+ *  (106, `[activityType, expected]`).
+ *  `start.type` and `result.type` are different enums, so the shared number 105
+ *  means an activity type in one place and a result type in the other. */
 const ACT_BUILD = 105;
 const RES_BUILD_LOG_LINE = 101;
 const RES_PROGRESS = 105;
+const RES_SET_EXPECTED = 106;
 
 /** How many activities' last `done` counter are remembered for
  *  {@link NixLogReader.isActivity}. An evicted activity's next progress event
@@ -69,11 +80,41 @@ const RES_PROGRESS = 105;
  *  transfer repeats ONE activity's counter, which stays hot. */
 const PROGRESS_RETAINED = 1024;
 
+/** The copy activity whose progress is NARRATED: `actCopyPath` (100), whose
+ *  `start` names the store path being copied and whose `resProgress` counts the
+ *  BYTES of that path's nar.
+ *
+ *  Its two neighbours in the copy family are deliberately not narrated.
+ *  `actFileTransfer` (101) reports the SAME download again — one level down, as
+ *  the compressed stream, under the nar URL's hash — so narrating it would
+ *  double-report one transfer under a second, opaque name. `actCopyPaths` (103)
+ *  counts PATHS, not bytes, so a byte readout built from it would be a lie
+ *  ("5 B of 5 B").
+ *
+ *  Both are still ACCEPTED by {@link classify}: a result line names only its
+ *  activity's id, so the reader — not the classifier — is what knows an
+ *  activity's type, and only a `start` of type 100 is ever tracked. */
+const ACT_COPY_PATH = 100;
+
 /** How many trailing log lines of each build are retained, and for how many
  *  builds — enough to name why the failed one failed, bounded so a long build
  *  graph cannot grow the server heap. */
 const BUILD_LOG_TAIL = 8;
 const BUILDS_RETAINED = 32;
+
+/** How many in-flight copy activities keep milestone state. Nix runs a handful of
+ *  transfers at once and retires each as it lands, so this sits far above any real
+ *  concurrency: it is a heap bound, not a behaviour — an evicted activity simply
+ *  stops narrating, and its bytes are still covered one level up. */
+const COPY_ACTIVITIES_RETAINED = 64;
+
+/** When a copy narrates: every another {@link MILESTONE_PERCENT} of the
+ *  transfer, or — for one slow enough that 10% takes longer than
+ *  {@link MILESTONE_INTERVAL_MS} — on that cadence instead. Both are needed: the
+ *  fraction keeps a fast transfer from narrating a hundred times, the interval
+ *  keeps a slow one from going silent for minutes. */
+const MILESTONE_PERCENT = 10;
+const MILESTONE_INTERVAL_MS = 15_000;
 
 /** The longest single stderr line a Nix run may write. internal-json puts one
  *  event per line and a builder's log line inside one event, so the default
@@ -158,7 +199,11 @@ const NixEventSchema = Schema.Union([
   Schema.Struct({
     action: Schema.Literal("result"),
     id: Schema.Number,
-    type: Schema.Literal(RES_BUILD_LOG_LINE),
+    // The RESULT type, dispatched in the reader (`resBuildLogLine` /
+    // `resProgress` / `resSetExpected`) rather than narrowed to a literal here:
+    // which result a line is is the reader's decision, and one arm per literal
+    // would spell the same struct three times.
+    type: Schema.Number,
     fields: Schema.Array(Schema.Unknown),
   }),
 ]);
@@ -167,24 +212,44 @@ const decodeNixEvent = Schema.decodeUnknownOption(NixEventSchema);
 
 const NIX_PREFIX = "@nix ";
 
-/** Nix writes `action` first, so a progress result — sent by the hundred
- *  thousand during a large copy — is recognisable from its prefix alone. A
- *  build-log result always carries a `"type":101` field somewhere, so a line
- *  lacking it is dropped with no parse at all; anything else falls through to
- *  the parse. Whitespace-tolerant (`\s*`), not a literal `includes`: the exact
- *  byte spelling is unspecified JSON formatting, not part of the protocol, and
- *  this pre-filter is a PURE optimisation over the parse below (which already
- *  checks `type === RES_BUILD_LOG_LINE` on the decoded number) — a false
- *  negative here would silently drop the exact evidence (a failed build's own
- *  last log lines) this whole module exists to keep. */
+/** Nix writes `action` first, so a result line is recognisable from its prefix
+ *  alone. Of the result types Nix emits, only three are ever wanted — a build's
+ *  log line, and the two progress results a copy narrates from — so a line whose
+ *  `type` is none of them is dropped before any parse; anything else falls
+ *  through to the parse. Whitespace-tolerant (`\s*`), not a literal `includes`:
+ *  the exact byte spelling is unspecified JSON formatting, not part of the
+ *  protocol, and this pre-filter is a PURE optimisation over the parse below
+ *  (which already checks the decoded type against the same set) — a false
+ *  negative here would silently drop either the exact evidence (a failed
+ *  build's own last log lines) or a download's progress, the two things this
+ *  module exists to keep.
+ *
+ *  The progress results are the ones Nix sends by the hundred thousand during a
+ *  large copy; they are PARSED now (the old filter dropped them here, which is
+ *  why a long download narrated nothing while it ran). */
 const RESULT_PREFIX = `${NIX_PREFIX}{"action":"result"`;
-const BUILD_LOG_TYPE_RE = new RegExp(`"type"\\s*:\\s*${RES_BUILD_LOG_LINE}\\b`);
-/** The same whitespace-tolerant pre-filter for a progress result: a result
- *  line lacking it is activity with no parse at all. */
+const WANTED_RESULT_TYPES: readonly number[] = [
+  RES_BUILD_LOG_LINE,
+  RES_PROGRESS,
+  RES_SET_EXPECTED,
+];
+const WANTED_RESULT_TYPE_RE = new RegExp(
+  `"type"\\s*:\\s*(?:${WANTED_RESULT_TYPES.join("|")})\\b`,
+);
+
+/** The SAME whitespace-tolerant pre-filter, tightened to a progress result: the
+ *  liveness question only ever asks about one, and a build-log line should reach
+ *  {@link progressOf} as a regex miss rather than as a parse. */
 const PROGRESS_TYPE_RE = new RegExp(`"type"\\s*:\\s*${RES_PROGRESS}\\b`);
 
 /** A progress result's activity id and `done` counter, or `null` when `line`
- *  is not one. Only a line that passed the prefix filters is parsed. */
+ *  is not one. Only a line that passed the prefix + type filters is parsed.
+ *
+ *  A progress line is therefore parsed twice — here for the liveness verdict
+ *  (which must be answerable before {@link nixLogReader}'s `line` looks at
+ *  anything) and again by {@link classify} for the narration. Both parses are of
+ *  a small object; sharing one would couple the liveness verdict to the reader's
+ *  decode for no measurable gain. */
 function progressOf(line: string): { id: number; done: number } | null {
   if (!line.startsWith(RESULT_PREFIX) || !PROGRESS_TYPE_RE.test(line))
     return null;
@@ -209,13 +274,14 @@ function progressOf(line: string): { id: number; done: number } | null {
 }
 
 /** Classify one stderr line: a decoded event, `"ignored"` for a Nix event this
- *  reader has no use for (activity stops, progress results — dropped before any
- *  schema work), or `"raw"` for a line that is not a Nix event at all (ssh's
- *  own stderr — or a line that claims to be one and is not valid JSON, which
- *  is surfaced verbatim rather than dropped). */
+ *  reader has no use for (activity stops, result types outside
+ *  {@link WANTED_RESULT_TYPES} — dropped before any schema work), or `"raw"` for
+ *  a line that is not a Nix event at all (ssh's own stderr — or a line that
+ *  claims to be one and is not valid JSON, which is surfaced verbatim rather
+ *  than dropped). */
 function classify(line: string): NixEvent | "ignored" | "raw" {
   if (!line.startsWith(NIX_PREFIX)) return "raw";
-  if (line.startsWith(RESULT_PREFIX) && !BUILD_LOG_TYPE_RE.test(line)) {
+  if (line.startsWith(RESULT_PREFIX) && !WANTED_RESULT_TYPE_RE.test(line)) {
     return "ignored";
   }
   let value: unknown;
@@ -229,7 +295,9 @@ function classify(line: string): NixEvent | "ignored" | "raw" {
   const wanted =
     action === "msg" ||
     action === "start" ||
-    (action === "result" && type === RES_BUILD_LOG_LINE);
+    (action === "result" &&
+      typeof type === "number" &&
+      WANTED_RESULT_TYPES.includes(type));
   if (!wanted) return "ignored";
   return Option.getOrElse(decodeNixEvent(value), (): "ignored" => "ignored");
 }
@@ -261,7 +329,34 @@ function headlineOf(msg: string, rawMsg: string | undefined): string {
   return errorLines.at(-1) ?? lines[0]?.trim() ?? "";
 }
 
-export function nixLogReader(narrate: (line: string) => void): NixLogReader {
+/** One in-flight copy's milestone state. `expected` arrives LATE (Nix knows a
+ *  path's size only once it has the nar header), so a milestone waits for it
+ *  rather than reading `0 B of 0 B`. */
+interface CopyActivity {
+  readonly name: string;
+  expected: number;
+  /** Where the last narrated milestone stood: the byte count, and when it was
+   *  said. */
+  lastDone: number;
+  lastAt: number;
+}
+
+/** A copied store path, as a person reads it: `/nix/store/<32-character
+ *  hash>-glibc-2.44-25` → `glibc-2.44-25`. `null` for anything else — a start
+ *  whose `fields[0]` is not a well-formed store path simply never narrates. */
+function copyActivityName(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const name = value.replace(/^\/nix\/store\/[0-9a-z]{32}-/, "");
+  return name === value || name === "" ? null : name;
+}
+
+export function nixLogReader(
+  narrate: (line: string) => void,
+  /** The clock the milestone cadence reads. Injectable so a test can drive the
+   *  15-second gate without waiting 15 seconds; production reads the wall
+   *  clock. */
+  now: () => number = Date.now,
+): NixLogReader {
   let root: { readonly headline: string; readonly msg: string } | null = null;
   let narratedAfterRoot = false;
   let nixTransport = false;
@@ -271,13 +366,62 @@ export function nixLogReader(narrate: (line: string) => void): NixLogReader {
   const builds = new QuickLRU<number, { drv: string; tail: string[] }>({
     maxSize: BUILDS_RETAINED,
   });
+  /** Each activity's last `done` counter, for {@link NixLogReader.isActivity}'s
+   *  verdict — the ONE piece of state that tells a moving transfer from one Nix
+   *  keeps re-reporting unchanged. */
   const lastDone = new QuickLRU<number, number>({
     maxSize: PROGRESS_RETAINED,
+  });
+  /** The copy activities whose progress is worth narrating, by Nix's activity
+   *  id — the milestone cadence's whole state, not the liveness verdict: only an
+   *  `actCopyPath` start is ever tracked here, and its `lastDone` is the byte
+   *  cursor the 10% gate measures from (a different question, and a different
+   *  bound, from the table above — an evicted entry just stops narrating). */
+  const copies = new QuickLRU<number, CopyActivity>({
+    maxSize: COPY_ACTIVITIES_RETAINED,
   });
 
   const say = (line: string): void => {
     if (root !== null) narratedAfterRoot = true;
     narrate(line);
+  };
+
+  /** Narrate a copy's progress at a human cadence — "glibc-2.44-25: 42 MiB of
+   *  180 MiB" — once the transfer has moved another {@link MILESTONE_FRACTION}
+   *  of its total, or, for one slow enough that 10% takes longer, on
+   *  {@link MILESTONE_INTERVAL_MS} instead. The interval gate also requires the
+   *  byte count to have MOVED: a stalled transfer repeating its last figure every
+   *  15 seconds would be noise, not progress. */
+  const onCopyProgress = (id: number, fields: readonly unknown[]): void => {
+    const copy = copies.get(id);
+    if (copy === undefined) return;
+    const [done, expected] = fields;
+    if (typeof done !== "number") return;
+    if (typeof expected === "number" && expected > 0) copy.expected = expected;
+    if (copy.expected <= 0) return;
+    const at = now();
+    // INTEGER arithmetic, not a float fraction: `100 * moved >=
+    // MILESTONE_PERCENT * expected` IS "moved another 10%", where
+    // `done / expected - last >= 0.1` would skip boundaries in binary floating
+    // point (0.3 - 0.2 < 0.1).
+    const moved = done - copy.lastDone;
+    const byFraction = 100 * moved >= MILESTONE_PERCENT * copy.expected;
+    const byInterval = at - copy.lastAt >= MILESTONE_INTERVAL_MS && moved > 0;
+    if (!byFraction && !byInterval) return;
+    say(`${copy.name}: ${formatBytes(done)} of ${formatBytes(copy.expected)}`);
+    copy.lastDone = done;
+    copy.lastAt = at;
+  };
+
+  /** `resSetExpected` — Nix announcing an activity's total AFTER its start. Kept
+   *  rather than dropped because it is the other source of that number, for the
+   *  activities whose own progress events carry `expected: 0` until the header
+   *  lands. */
+  const onSetExpected = (id: number, fields: readonly unknown[]): void => {
+    const copy = copies.get(id);
+    if (copy === undefined) return;
+    const expected = fields[1];
+    if (typeof expected === "number" && expected > 0) copy.expected = expected;
   };
 
   const onMsg = (level: number, msg: string, rawMsg: string | undefined) => {
@@ -343,10 +487,33 @@ export function nixLogReader(narrate: (line: string) => void): NixLogReader {
           if (event.type === ACT_BUILD && typeof drv === "string") {
             builds.set(event.id, { drv, tail: [] });
           }
+          // A copied path to watch: its id is how the progress results below
+          // find their name, and `fields[0]` is the store path's own name part.
+          if (event.type === ACT_COPY_PATH) {
+            const name = copyActivityName(drv);
+            if (name !== null) {
+              copies.set(event.id, {
+                name,
+                expected: 0,
+                lastDone: 0,
+                lastAt: now(),
+              });
+            }
+          }
           if (event.level <= LVL_INFO && event.text !== "") say(event.text);
           return;
         }
         case "result": {
+          if (event.type === RES_PROGRESS) {
+            onCopyProgress(event.id, event.fields);
+            return;
+          }
+          if (event.type === RES_SET_EXPECTED) {
+            onSetExpected(event.id, event.fields);
+            return;
+          }
+          // The last wanted result type: a build's own log line, kept as that
+          // build's failure evidence.
           const build = builds.get(event.id);
           const text = event.fields[0];
           if (build === undefined || typeof text !== "string") return;
