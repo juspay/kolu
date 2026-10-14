@@ -20,10 +20,6 @@
  */
 
 import { logHash, runHash } from "@odu/service-client/routes";
-import {
-  DEFAULT_SERVICE_ORIGIN,
-  serviceBind,
-} from "@odu/service-client/endpoint";
 import { hostKeysEqual as sameHost } from "kolu-common/hostKey";
 import type { RunNode, RunRow } from "@odu/service-client/surface";
 import { Effect } from "effect";
@@ -40,11 +36,6 @@ import {
 import { runAction } from "../runAction";
 import { activeHost } from "../wire";
 import { portReach } from "kolu-common/surface";
-
-/** odu's service port, read off odu's own default origin: the address is the
- *  daemon's contract (`./endpoint` owns it), and a literal 18440 here would be a
- *  second answer to "where is odu". */
-const ODU_PORT = serviceBind(DEFAULT_SERVICE_ORIGIN).port;
 
 /** odu web's own page is the door's whole path — the fragment carries the run. */
 const rootRemainder = (hash: string): UrlRemainder => ({
@@ -80,6 +71,10 @@ export type OduLaneAct = { kind: "address"; href: string } | { kind: "door" };
 export function oduLaneAct(opts: {
   /** odu web's fragment for this lane ({@link laneHash}). */
   hash: string;
+  /** The port the daemon ANSWERED ON — the frame's own `port`, which is the
+   *  daemon's fact (its environment, its flags) and not a default re-derived in
+   *  a browser, where the daemon's address is not knowable. */
+  port: number;
   /** Is the daemon's host the kolu server's own? — `portReach`'s half of the
    *  judgement, asked exactly as the Ports section asks it. */
   onKoluHost: boolean;
@@ -100,7 +95,7 @@ export function oduLaneAct(opts: {
   });
   const decided = urlForPort({
     action,
-    remotePort: ODU_PORT,
+    remotePort: opts.port,
     doorPort: opts.doorPort,
     pageHost: opts.pageHost,
     remainder: rootRemainder(opts.hash),
@@ -127,8 +122,14 @@ export interface OduLaneOutlet {
   act: (
     run: Pick<RunRow, "runId">,
     lane: Pick<RunNode, "logKey">,
+    /** The daemon's own port, off the frame these rows came from. */
+    port: number,
   ) => OduLaneAct;
-  open: (run: Pick<RunRow, "runId">, lane: Pick<RunNode, "logKey">) => void;
+  open: (
+    run: Pick<RunRow, "runId">,
+    lane: Pick<RunNode, "logKey">,
+    port: number,
+  ) => void;
 }
 
 /** The Inspector's outlet — opened once, beside the CI readout it belongs to. */
@@ -147,10 +148,8 @@ export function useOduLaneLink(): OduLaneOutlet {
   /** The door already open to odu on this host, when one is: its port goes
    *  through the same `urlForPort` the click does, so the address a row offers
    *  and the address a click opens cannot disagree. */
-  const doorPort = createMemo(
-    () =>
-      forwardsForHost(host()).find((f) => f.remotePort === ODU_PORT)?.localPort,
-  );
+  const doorPort = (port: number): number | undefined =>
+    forwardsForHost(host()).find((f) => f.remotePort === port)?.localPort;
 
   /** The lanes whose door is being opened right now. A row is a button only
    *  while no door is listening, so a second click in that window is a second
@@ -160,15 +159,16 @@ export function useOduLaneLink(): OduLaneOutlet {
   const opening = new Set<string>();
 
   return {
-    act: (run, lane) =>
+    act: (run, lane, port) =>
       oduLaneAct({
         hash: laneHash(run, lane),
+        port,
         onKoluHost: isActiveHostLocal(),
         viewerOnHost: viewerOnHost(),
-        doorPort: doorPort(),
+        doorPort: doorPort(port),
         pageHost: window.location.hostname,
       }),
-    open: (run, lane) => {
+    open: (run, lane, port) => {
       const hash = laneHash(run, lane);
       if (opening.has(hash)) return;
       opening.add(hash);
@@ -179,7 +179,7 @@ export function useOduLaneLink(): OduLaneOutlet {
         "open odu web",
         openThroughDoor({
           host: host(),
-          port: ODU_PORT,
+          port,
           tab,
           remainder: rootRemainder(hash),
         }).pipe(Effect.ensuring(Effect.sync(() => opening.delete(hash)))),

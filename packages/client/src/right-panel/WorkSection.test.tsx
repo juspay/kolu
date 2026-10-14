@@ -24,7 +24,12 @@ import {
   type TerminalMetadata,
 } from "@kolu/padi-client/surface";
 import type { CiStatusFrame } from "@kolu/padi-client/surface";
+import {
+  DEFAULT_SERVICE_ORIGIN,
+  serviceBind,
+} from "@odu/service-client/endpoint";
 import type { RunNode, RunRow } from "@odu/service-client/surface";
+import type { OduLaneOutlet } from "./useOduLaneLink";
 import type { TerminalId } from "kolu-common/surface";
 import { createSignal } from "solid-js";
 import { render } from "solid-js/web";
@@ -369,6 +374,7 @@ describe("WorkSection odu CI readout", () => {
   function statusFrame(): CiStatusFrame {
     return {
       kind: "status",
+      port: ODU_PORT,
       latest: {
         run: oduRow(),
         // Triage order is padi's: failures first.
@@ -394,15 +400,31 @@ describe("WorkSection odu CI readout", () => {
     };
   }
 
+  /** The port a frame carries — odu's own default, so a fixture states the
+   *  address a real daemon would have named. */
+  const ODU_PORT = serviceBind(DEFAULT_SERVICE_ORIGIN).port;
+
   /** Mount the section with a REACTIVE odu frame — the Inspector is fed changing
    *  props (nothing remounts it), so the frame is a signal here for the same
-   *  reason `meta` is: a value snapshotted at first render freezes. */
-  function mountWithOdu(frame: CiStatusFrame | null) {
+   *  reason `meta` is: a value snapshotted at first render freezes. The section's
+   *  other odu props go through the same door, so the outlet and the failure are
+   *  tests of this section rather than tests of the mount ritual. */
+  function mountWithOdu(
+    frame: CiStatusFrame | null,
+    odu: { lane?: OduLaneOutlet; error?: string | null } = {},
+  ) {
     const [oduCi, setOduCi] = createSignal<CiStatusFrame | null>(frame);
     host = document.createElement("div");
     document.body.append(host);
     dispose = render(
-      () => <WorkSection meta={RESIZE_BUG} oduCi={oduCi()} />,
+      () => (
+        <WorkSection
+          meta={RESIZE_BUG}
+          oduCi={oduCi()}
+          oduLane={odu.lane}
+          oduCiError={odu.error ?? null}
+        />
+      ),
       host,
     );
     return setOduCi;
@@ -449,6 +471,7 @@ describe("WorkSection odu CI readout", () => {
   it("reads a passed run as a pass, and a lane-less running run as running", () => {
     mountWithOdu({
       kind: "status",
+      port: ODU_PORT,
       latest: {
         run: oduRow({
           state: "settled",
@@ -471,6 +494,7 @@ describe("WorkSection odu CI readout", () => {
   it("repaints the chip, the lanes and the recent list when a NEW frame arrives", () => {
     const setFrame = mountWithOdu({
       kind: "status",
+      port: ODU_PORT,
       latest: {
         run: oduRow({
           state: "running",
@@ -490,6 +514,7 @@ describe("WorkSection odu CI readout", () => {
     // The run settles: the same section, one prop change, no remount.
     setFrame({
       kind: "status",
+      port: ODU_PORT,
       latest: {
         run: oduRow({ state: "settled", passed: false, outcome: "failed" }),
         lanes: [oduNode("ci::fmt@x86_64-linux", "failed")],
@@ -510,6 +535,7 @@ describe("WorkSection odu CI readout", () => {
     // test that broke, so the fold reads the OUTCOME once there is one.
     mountWithOdu({
       kind: "status",
+      port: ODU_PORT,
       latest: {
         run: oduRow({
           state: "settled",
@@ -550,6 +576,7 @@ describe("WorkSection odu CI readout", () => {
   ): CiStatusFrame {
     return {
       kind: "status",
+      port: ODU_PORT,
       latest: { run: oduRow({ scope }), lanes },
       recent: [oduRow({ scope })],
     };
@@ -611,6 +638,7 @@ describe("WorkSection odu CI readout", () => {
     // reads as a claim about the lanes; the verdict alone is what is true.
     mountWithOdu({
       kind: "status",
+      port: ODU_PORT,
       latest: { run: oduRow(), lanes: [] },
       recent: [oduRow()],
     });
@@ -636,24 +664,15 @@ describe("WorkSection odu CI readout", () => {
     // address in hand the wrapper is a REAL anchor, so ⌘-click, copy and "open
     // in new tab" are the browser's own.
     const opened: string[] = [];
-    host = document.createElement("div");
-    document.body.append(host);
-    dispose = render(
-      () => (
-        <WorkSection
-          meta={RESIZE_BUG}
-          oduCi={statusFrame()}
-          oduLane={{
-            act: () => ({
-              kind: "address",
-              href: "http://pureintent:61003/#/run/run-1/linux/2",
-            }),
-            open: () => opened.push("open"),
-          }}
-        />
-      ),
-      host,
-    );
+    mountWithOdu(statusFrame(), {
+      lane: {
+        act: () => ({
+          kind: "address",
+          href: "http://pureintent:61003/#/run/run-1/linux/2",
+        }),
+        open: () => opened.push("open"),
+      },
+    });
     const link = el("inspector-odu-lane-link");
     expect(link?.tagName).toBe("A");
     expect(link?.getAttribute("href")).toBe(
@@ -672,21 +691,9 @@ describe("WorkSection odu CI readout", () => {
     // There is nothing to copy until a relay is listening, so the row is a
     // button — and the click is what opens the door.
     const opened: string[] = [];
-    host = document.createElement("div");
-    document.body.append(host);
-    dispose = render(
-      () => (
-        <WorkSection
-          meta={RESIZE_BUG}
-          oduCi={statusFrame()}
-          oduLane={{
-            act: () => ({ kind: "door" }),
-            open: () => opened.push("x"),
-          }}
-        />
-      ),
-      host,
-    );
+    mountWithOdu(statusFrame(), {
+      lane: { act: () => ({ kind: "door" }), open: () => opened.push("x") },
+    });
     const button = el("inspector-odu-lane-link");
     expect(button?.tagName).toBe("BUTTON");
     expect(button?.getAttribute("href")).toBeNull();
@@ -704,18 +711,9 @@ describe("WorkSection odu CI readout", () => {
   });
 
   it("draws an explicit row when the readout FAILED — never a blank", () => {
-    host = document.createElement("div");
-    document.body.append(host);
-    dispose = render(
-      () => (
-        <WorkSection
-          meta={RESIZE_BUG}
-          oduCi={null}
-          oduCiError="the odu daemon at /tmp/x.sock speaks service contract 9.9"
-        />
-      ),
-      host,
-    );
+    mountWithOdu(null, {
+      error: "the odu daemon at /tmp/x.sock speaks service contract 9.9",
+    });
     expect(text("inspector-odu-error")).toContain("odu CI unavailable");
     expect(text("inspector-odu-error")).toContain("9.9");
     // A failure is not "nothing to show": the chip and the disclosure are absent

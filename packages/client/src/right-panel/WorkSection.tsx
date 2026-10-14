@@ -86,6 +86,16 @@ const ciRollup = (
   };
 };
 
+/** A lane's triage class — what's broken, what's still moving, what's done.
+ *  odu's own columns decide it (`isRed`, `progress`), so this file states an
+ *  ORDER over lanes, not a second assignment of meaning to a status; the lanes
+ *  arrive in the run's own schedule and are sorted here because the order a
+ *  reader wants is this face's. */
+const laneRank = (lane: RunNode): number => {
+  const meta = STATUS_META[lane.status];
+  return meta.isRed ? 0 : meta.progress === "running" ? 1 : 2;
+};
+
 /** The disclosure's summary line — "1 failed · 2 running · 6 passed", the
  *  non-empty buckets in triage order. No verdict branching: the order carries
  *  it, and the chip above already states it. */
@@ -94,29 +104,25 @@ const checksSummary = (counts: Record<CheckStatus, number>): string =>
     .map((o) => `${counts[o]} ${OUTCOME[o].word}`)
     .join(" · ");
 
-/** odu's hue column, mapped onto kolu's chip vocabulary — the ONLY place the
- *  two palettes meet. odu assigns meaning to a hue (`BOARD_STATE` / `OUTCOME`,
- *  read through its own `runStatus`); kolu assigns a tone and a glyph to its own
- *  tokens, and nothing here re-reads a run's state.
+/** How kolu paints a hue odu assigned — the ONE place the two palettes meet,
+ *  one row per hue rather than one table per attribute. odu assigns MEANING to
+ *  a hue (`BOARD_STATE` / `OUTCOME`, read through its own `runStatus`); kolu
+ *  assigns the chip tone, the glyph and the text colour, and nothing here
+ *  re-reads a run's state. Row-per-hue is also what keeps a sixth hue from
+ *  landing in one of three lists and not the others — the shape `OUTCOME` above
+ *  already keeps for check outcomes.
  *
  *  `violet` is odu's "the owner is gone": a failure to a reader, and kolu's
- *  `Chip` has no violet. */
-const ODU_TONE: Record<StatusHue, "neutral" | "ok" | "warning" | "danger"> = {
-  grey: "neutral",
-  amber: "warning",
-  green: "ok",
-  red: "danger",
-  violet: "danger",
-};
-
-/** The glyph a run's hue wears, in the same vocabulary as the CI chip above
- *  (`✕`/`●`/`✓`), plus odu's own `⚠` for the violet "owner lost". */
-const ODU_GLYPH: Record<StatusHue, string> = {
-  grey: "○",
-  amber: "●",
-  green: "✓",
-  red: "✕",
-  violet: "⚠",
+ *  `Chip` has no violet, so it wears `danger` there and `alert` in text. */
+const ODU_HUE: Record<
+  StatusHue,
+  { tone: "neutral" | "ok" | "warning" | "danger"; glyph: string; text: string }
+> = {
+  grey: { tone: "neutral", glyph: "○", text: "text-fg-3" },
+  amber: { tone: "warning", glyph: "●", text: "text-warning" },
+  green: { tone: "ok", glyph: "✓", text: "text-ok" },
+  red: { tone: "danger", glyph: "✕", text: "text-danger" },
+  violet: { tone: "danger", glyph: "⚠", text: "text-alert" },
 };
 
 /** `<sha7>#<seq>` — the ref every odu face prints — plus odu's `+dirty` marker
@@ -126,18 +132,6 @@ const oduRef = (run: RunRow): string => {
   const short = shortSha(run.sha);
   const ref = run.seq === null ? short : `${short}#${run.seq}`;
   return run.dirty ? `${ref}+dirty` : ref;
-};
-
-/** A lane's glyph colour, keyed by odu's OWN hue column — `STATUS_META` is the
- *  wire's table and odu's faces keep no second one, so this is kolu's mapping
- *  from odu's meanings onto kolu's tokens, not a second assignment of meaning.
- *  Violet is odu's "infrastructure died" (`errored`), which is kolu's `alert`. */
-const LANE_HUE: Record<StatusHue, string> = {
-  grey: "text-fg-3",
-  amber: "text-warning",
-  green: "text-ok",
-  red: "text-danger",
-  violet: "text-alert",
 };
 
 /** The tiny label a disclosure's parts wear — the `Section` header's own type,
@@ -179,7 +173,7 @@ const LaneRow: Component<{
   onOpen: () => void;
 }> = (props) => {
   const status = () => STATUS_META[props.lane.status];
-  const hue = () => LANE_HUE[status().hue];
+  const hue = () => ODU_HUE[status().hue].text;
   /** The address, when there is one — the arm as a REACTIVE VALUE, so the row
    *  becomes an anchor the moment a door is listening. */
   const href = createMemo(() => {
@@ -406,7 +400,10 @@ const WorkSection: Component<{
     if (frame === null || frame === undefined || frame.kind !== "status") {
       return null;
     }
-    const { run, lanes } = frame.latest;
+    const { run, lanes: scheduled } = frame.latest;
+    // odu sends the run's own schedule (the order a dashboard paints); the
+    // order a READER wants first is this face's triage, beside the check list's.
+    const lanes = [...scheduled].sort((a, b) => laneRank(a) - laneRank(b));
     // odu's own reading of a row: the verdict once there is one, and where the
     // run has got to until then. A run torn down early settles `incomplete` and
     // must not be painted `failed` — that sends a reader looking for a test
@@ -422,8 +419,9 @@ const WorkSection: Component<{
     return {
       run,
       lanes,
+      port: frame.port,
       recent: frame.recent,
-      tone: ODU_TONE[status.hue],
+      tone: ODU_HUE[status.hue].tone,
       /** The rollup reads like the CI chip beside it: a count only where there
        *  IS one to state (the failed arm — the sibling counts the verdict's own
        *  bucket, not a neighbouring one), the verdict's own word otherwise, and
@@ -433,7 +431,7 @@ const WorkSection: Component<{
        *  A failed run with NO lane failures is not a zero: its lanes have not
        *  arrived, or the nodes stream failed. The chip states the verdict alone
        *  rather than counting a bucket it cannot see into. */
-      label: `${ODU_GLYPH[status.hue]} ${
+      label: `${ODU_HUE[status.hue].glyph} ${
         word === "failed" && failed > 0 ? `${failed} ${word}` : `odu ${word}`
       } ${oduRef(run)}`,
       /** What this list IS: how many lanes, the exceptions among them, and the
@@ -444,10 +442,6 @@ const WorkSection: Component<{
       summary: `${lanes.length} ${lanes.length === 1 ? "lane" : "lanes"}${
         failed > 0 ? ` · ${failed} failed` : ""
       }${scope === null ? "" : ` · ${scope}`}`,
-      /** A run is the thing the user is watching, so its lanes are OPEN by
-       *  default — there is no quiet state here worth hiding behind a click. The
-       *  disclosure stays a disclosure so it can be collapsed. */
-      open: true,
     };
   });
   /** A ticking clock for the recent-runs ages — one interval for the section,
@@ -582,7 +576,10 @@ const WorkSection: Component<{
           {(ci) => (
             <Disclosure
               summary={ci().summary}
-              open={ci().open}
+              // Open by default: a run is the thing being watched, so there is
+              // no quiet state here worth hiding behind a click. It stays a
+              // disclosure so it can still be collapsed.
+              open
               data-testid="inspector-odu"
             >
               <Show when={ci().lanes.length > 0}>
@@ -596,8 +593,12 @@ const WorkSection: Component<{
                       <li>
                         <LaneRow
                           lane={lane}
-                          act={() => props.oduLane?.act(ci().run, lane)}
-                          onOpen={() => props.oduLane?.open(ci().run, lane)}
+                          act={() =>
+                            props.oduLane?.act(ci().run, lane, ci().port)
+                          }
+                          onOpen={() =>
+                            props.oduLane?.open(ci().run, lane, ci().port)
+                          }
                         />
                       </li>
                     )}
@@ -615,7 +616,9 @@ const WorkSection: Component<{
                       <span class="min-w-0 truncate font-mono">
                         {oduRef(run)}
                       </span>
-                      <span class={`shrink-0 ${LANE_HUE[runStatus(run).hue]}`}>
+                      <span
+                        class={`shrink-0 ${ODU_HUE[runStatus(run).hue].text}`}
+                      >
                         {runStatus(run).label}
                       </span>
                       {/* The same compact qualifier the summary carries, and

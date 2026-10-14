@@ -20,10 +20,6 @@
  * the wire rather than the decision.
  */
 
-import {
-  DEFAULT_SERVICE_ORIGIN,
-  serviceBind,
-} from "@odu/service-client/endpoint";
 import { formatLogKey } from "@odu/service-client/logKey";
 import { logHash } from "@odu/service-client/routes";
 import { describe, expect, it, vi } from "vitest";
@@ -41,9 +37,9 @@ vi.mock("../forwards/useForwards", () => ({
 
 const { laneHash, oduLaneAct } = await import("./useOduLaneLink");
 
-/** odu's own port, from odu's own contract: the assertion is that the link uses
- *  the address odu publishes, not that it uses a number this file remembered. */
-const ODU_PORT = serviceBind(DEFAULT_SERVICE_ORIGIN).port;
+/** The port a frame carried off the daemon's own greeting — an arbitrary one on
+ *  purpose: the link has to dial THIS, not a default. */
+const DAEMON_PORT = 18777;
 
 describe("the page a lane points at", () => {
   const run = { runId: "run-1" };
@@ -76,7 +72,12 @@ describe("how a lane is reached", () => {
       attempt: 2,
     }),
   );
-  const base = { hash: HASH, onKoluHost: true, pageHost: "pureintent" };
+  const base = {
+    hash: HASH,
+    port: DAEMON_PORT,
+    onKoluHost: true,
+    pageHost: "pureintent",
+  };
 
   it("links the daemon's own port when the browser IS on its host", () => {
     // No door: the browser's own loopback is the machine the daemon is on, so
@@ -85,7 +86,7 @@ describe("how a lane is reached", () => {
       oduLaneAct({ ...base, viewerOnHost: true, doorPort: undefined }),
     ).toEqual({
       kind: "address",
-      href: `http://localhost:${ODU_PORT}${HASH}`,
+      href: `http://localhost:${DAEMON_PORT}${HASH}`,
     });
   });
 
@@ -106,14 +107,14 @@ describe("how a lane is reached", () => {
     ).toEqual({ kind: "door" });
   });
 
-  it("offers a door for a daemon on the kolu server's own host too", () => {
-    // A loopback bind is the whole point: `http://<kolu-host>:<port>` reaches
-    // nothing, because nothing is listening anywhere but that machine's own
-    // 127.0.0.1 — so the door is the ordinary case, not the remote one.
+  it("offers a door for a daemon on a REMOTE host as well", () => {
+    // `onKoluHost` cannot change this: a loopback bind is invisible to every
+    // other machine whatever host it is on, so both halves of that flag end in
+    // the same door.
     expect(
       oduLaneAct({
         ...base,
-        onKoluHost: true,
+        onKoluHost: false,
         viewerOnHost: false,
         doorPort: undefined,
       }),
