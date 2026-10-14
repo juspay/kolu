@@ -1232,7 +1232,11 @@ export function makeSession<
     if (destroyed || pendingTimer !== null) return;
     clientPromise = null;
     armTimer(ABSENT_PROBE_MS, () => {
-      if (destroyed || refCount === 0) return;
+      if (destroyed) return;
+      if (refCount === 0) {
+        clientPromise = null;
+        return;
+      }
       launchAttempt();
     });
   };
@@ -1425,7 +1429,16 @@ export function makeSession<
             `attempt ${verdict.run}/${MAX_CONSECUTIVE_FAILURES} failed: ${reason} — retrying in ${delay}ms…`,
     );
     armTimer(delay, () => {
-      if (destroyed || refCount === 0) return;
+      if (destroyed) return;
+      if (refCount === 0) {
+        // Nobody is holding the session any more (every subscriber left while
+        // it was down). Do NOT dial — and DROP the stale rejected promise, so
+        // the next `pin()` starts a fresh attempt instead of being handed this
+        // dead one. Retaining it is what keeps `launchAttempt` idempotent DURING
+        // a backoff; past the backoff, with no holder, it is a corpse.
+        clientPromise = null;
+        return;
+      }
       launchAttempt();
     });
   };
@@ -1689,12 +1702,24 @@ export function makeSession<
   };
 
   const ensureSpawned = (): Promise<Client> => {
-    // The first dial — or a re-pin after the ref count returned to zero and back (C8) —
-    // begins a fresh campaign (#1908 R7).
-    if (clientPromise === null) {
-      startEpisode();
-      clientPromise = attempt();
-    }
+    if (clientPromise !== null) return clientPromise;
+    // A reconnect may already be ARMED: `handleClosed` clears the client promise
+    // and `scheduleReconnect` arms the backoff, so between those two a `pin()`
+    // finds nothing and would start a dial of its own — a SECOND dial racing the
+    // one the backoff is about to make. Over a connector that SPAWNS its far end
+    // (the local padi binder) that race is two daemons: one wins the gate, the
+    // mirror binds the loser, and its subscriptions end the moment that link
+    // closes. So TAKE OVER the armed attempt rather than running beside it —
+    // same attempt, same give-up budget, just now instead of after the delay.
+    //
+    // `clientPromise === null` is what makes this unambiguous: the other user of
+    // `pendingTimer`, the connect watchdog, is only ever armed once a dial has
+    // resolved, and a dial that resolved left its promise behind.
+    clearTimer();
+    // The first dial — or a re-pin after the ref count returned to zero and back
+    // (C8) — begins a fresh campaign (#1908 R7).
+    startEpisode();
+    clientPromise = attempt();
     return clientPromise;
   };
 
