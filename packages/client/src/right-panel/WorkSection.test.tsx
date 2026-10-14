@@ -821,6 +821,12 @@ describe("WorkSection odu CI readout", () => {
     // cannot read it — so it arrives as the subscription FAILING, with the far
     // end's own sentence on it. An install to go and look at, rather than a
     // quiet machine.
+    //
+    // The class is raised here for its MESSAGE, which is what the row renders.
+    // It is deliberately not an identity claim: the refusal is a defect, and a
+    // defect crosses the wire as `{name, message}` and decodes to a plain
+    // `Error` — so `_tag`/`instanceof` do not survive the hop, and a browser
+    // branch on `isSurfaceUpstreamRefused()` would never fire.
     mountWithOdu(undefined, {
       error: new SurfaceUpstreamRefused({
         reason:

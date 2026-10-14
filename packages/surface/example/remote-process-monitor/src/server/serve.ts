@@ -136,8 +136,8 @@ export function buildSurface(opts: BuildSurfaceOptions) {
       // spawn's client, and `stdio` links don't recover mid-stream (the bridge
       // re-mirrors per respawn). A kill can be invoked any time, including across a
       // respawn, so it forwards through `session.currentClient()` — always the
-      // *current* live client (the pump already pins the session), never a
-      // per-spawn mirror stub.
+      // *current* live client (this server pins the session itself, below),
+      // never a per-spawn mirror stub.
       //
       // `Effect.promise`, not `tryPromise`: this procedure declares no error
       // channel, so a link gap is an UNDECLARED failure and must stay a loud
@@ -162,8 +162,10 @@ export function buildSurface(opts: BuildSurfaceOptions) {
   });
 
   // ── Bridge remote agent surface → parent's local surface ──────────
-  // Start a background pump that pins the session, then loops over each
-  // successive AgentClient the session produces — each time the agent
+  // Start a background pump. It pins NOTHING — who holds the link open is the
+  // caller's question — so `bridgeAgentToParent` pins the session itself (this
+  // server wants its agent up whether or not a browser is reading), then loops
+  // over each successive AgentClient the session produces — each time the agent
   // process is respawned (after a transport drop), the bridge fetches
   // the new client and re-issues ONE `mirrorRemoteSurface` against it. No link
   // retries a CALL (the per-subscription re-subscribe fence is the face's job),

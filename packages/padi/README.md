@@ -258,6 +258,10 @@ handful of habits that paid for nothing; each is now a rule rather than a tuning
   Inspector nobody is looking at pays nothing at all. It holds END TO END because
   nothing re-serves the sibling a second time: kolu-server forwards odu's tags
   straight down the padi link it already holds, so a browser's demand IS padi's.
+  What that costs is stated rather than hidden: a forward has nothing to hold a
+  subscription open WITH, so a padi link death ENDS a sibling subscription where
+  a mirror would have ridden it out — as the one retryable end, so the browser
+  re-asks and the next frame it paints is a fresh reading rather than a replay.
 - **A repo's change watcher outlives a browser's focus switch.** kolu-git retires
   a repo-change entry 30 s after its last subscriber leaves rather than on the
   drop, and a subscription taken inside that window reuses the live upstreams —

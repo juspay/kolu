@@ -125,6 +125,9 @@ export {
   RelayTransportLostError,
   relayFailThroughStream,
   relayHoldOpenStream,
+  // The shape `RelayHoldOpenOptions.upstream.signal` demands. Exported so a
+  // direct caller can name it rather than satisfy it with an inline literal.
+  type UpstreamSignal,
   type ValueMembers,
 } from "./relayStream";
 export {

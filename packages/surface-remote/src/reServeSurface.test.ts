@@ -386,6 +386,10 @@ function makeSession() {
   const session = {
     pin: () => {
       pins += 1;
+      // A pin that finds no link DIALS, and a dial re-asks the admit question —
+      // so the last verdict's refusal stops being this session's answer the
+      // moment the pin is taken, synchronously, exactly as `makeSession` does.
+      if (pins === 1) refusal = null;
       return clientPromise ?? Promise.reject(new Error("no client yet"));
     },
     release: () => {
@@ -1130,6 +1134,13 @@ describe("reServeSurface — demand, and an upstream that is not there", () => {
 
   it("refuses a subscriber that arrives while the refusal is standing", async () => {
     const { session, served, downstream } = cold();
+    const upstream = makeUpstream(1);
+    session.setClient(upstream.client);
+    session.markConnected();
+    // A first subscriber holds the demand, so the daemon this build cannot read
+    // is the CURRENT answer — not a verdict a fresh dial is about to replace.
+    const holder = drain(downstream.surface.pulses.get({ repo: "held" }));
+    await waitUntil(() => session.pins() === 1, "the first subscriber to pin");
     session.setRefused("the daemon speaks a contract this build cannot read");
 
     const sub = drain(downstream.surface.pulses.get({ repo: "r" }));
@@ -1137,8 +1148,35 @@ describe("reServeSurface — demand, and an upstream that is not there", () => {
     expect(isSurfaceUpstreamRefused(sub.error)).toBe(true);
     expect(sub.frames).toEqual([]);
 
-    session.destroy();
-    await served.done;
+    holder.stop();
+    sub.stop();
+    await teardown(session, served.done, upstream);
+  });
+
+  it("does NOT refuse the subscriber whose own pin re-dials", async () => {
+    const { session, served, downstream } = cold();
+    // Nothing is subscribed, so the link was let go while a refusal stood. The
+    // next subscriber's own pin re-dials — and a verdict the dial in flight is
+    // about to replace must not be read back to it. (A refusal is terminal for
+    // a subscription: told it once, this reader would need two re-keys and a
+    // stale sentence to learn the daemon was upgraded.)
+    session.setRefused("the daemon speaks a contract this build cannot read");
+    expect(session.pins()).toBe(0);
+
+    const sub = drain(downstream.surface.pulses.get({ repo: "r" }));
+    await waitUntil(() => session.pins() === 1, "the subscription to pin");
+    // The dial lands on a daemon this build CAN read.
+    const upstream = makeUpstream(1);
+    session.setClient(upstream.client);
+    session.markConnected();
+    const pulses = await upstreamStream(upstream.pulseStreams, "r");
+    pulses.push(7);
+    await sub.waitFrames(1);
+    expect(sub.frames).toEqual([7]);
+    expect(sub.error).toBeNull();
+
+    sub.stop();
+    await teardown(session, served.done, upstream);
   });
 
   it("refuses an absent frame for a member that could never send one", () => {

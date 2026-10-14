@@ -285,8 +285,16 @@ export function reServeSurface<S extends SurfaceSpec>(
       for (const wake of [...waiters]) wake();
     });
     return {
-      isAbsent: () => seen.absent,
-      refusal: () => seen.refusal,
+      // LIVE reads, not the cached pair: `onState`'s delta delivery is
+      // microtask-deferred (which is why `currentState()` exists as the
+      // synchronous point-read), while a pin CLEARS a refusal synchronously —
+      // `takeDemand` → `pin()` → the dial's first statement. A relay asking the
+      // cache would be answered with the PREVIOUS verdict and would refuse a
+      // subscriber on the very dial that was about to disprove it. `seen` stays
+      // what it is: a change DETECTOR that decides who to wake, never the
+      // answer anybody acts on.
+      isAbsent: () => session.currentState().phase === "absent",
+      refusal: () => session.refusal?.() ?? null,
       // Built exactly like `observableHolder.changed`, and for the same reason:
       // an interrupted waiter detaches through the effect's own finalizer, so a
       // torn-down subscription leaves no listener behind.

@@ -94,9 +94,11 @@ cannot say: something IS serving, and this build will not speak to it. The admit
 verdict publishes it on the session (`session.refusal()`), and a hold-open relay
 that reads one stops holding and FAILS its subscription with
 `SurfaceUpstreamRefused`, carrying the far end's own sentence. Raised as a defect
-— a streaming member declares no error channel, so a typed failure there arrives
-as a complaint about the encoding instead of the sentence — and never retried: no
-retry unmakes a version skew. A reader gets a stated reason where an absent
+— a stream minted by `defineSurface` declares no error channel, so a typed
+failure there arrives as a complaint about the encoding instead of the sentence
+(a map-folded stream does declare one; closing the gap for a bare served surface
+is [kolu#2297](https://github.com/juspay/kolu/issues/2297)) — and never retried:
+no retry unmakes a version skew. A reader gets a stated reason where an absent
 upstream draws a blank.
 
 Worked end-to-end in [`packages/surface/example/remote-process-monitor`](../surface/example/remote-process-monitor).

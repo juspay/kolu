@@ -157,14 +157,22 @@ export class SurfaceRelayTransportLost extends Schema.TaggedError<SurfaceRelayTr
  *  say what is wrong.
  *
  *  RAISED AS A DEFECT, and so NOT in {@link SurfaceErrorSchema}. The union
- *  above is what a relay hop DECODES and re-encodes on a declared error
- *  channel; a streaming member has none (D4 declares errors per PROCEDURE), so
- *  a typed failure on one is encoded against `Schema.Never` and arrives as a
- *  complaint about the encoding instead of the sentence this class exists to
- *  carry. A defect crosses with its message intact and is never retried — both
- *  of which are what a standing refusal wants. The class is still a schema
- *  class so an in-process consumer narrows on it (`isSurfaceUpstreamRefused`)
- *  and a member with a DECLARED channel can name it. */
+ *  above is what a relay hop DECODES and re-encodes on a DECLARED error
+ *  channel, and a stream minted by `defineSurface` has none (D4 declares errors
+ *  per PROCEDURE; `Rpc.make({stream: true})` resolves an undeclared channel to
+ *  `Schema.Never`) — so a typed failure on one is encoded against that `Never`
+ *  and arrives as a complaint about the encoding instead of the sentence this
+ *  class exists to carry. A defect crosses with its message intact and is never
+ *  retried, both of which are what a standing refusal wants.
+ *
+ *  A map-FOLDED stream DOES declare a channel (`@kolu/surface-map`'s
+ *  `foldedError`), which is why the transport deaths above cross a map hop by
+ *  `_tag` — so this is a gap in `defineSurface`'s own streams, not a law about
+ *  streams. Giving them the framework union is the standing proposal
+ *  (juspay/kolu#2297); until then the die is the honest local move, and
+ *  the class stays a schema class so an in-process consumer narrows on it
+ *  (`isSurfaceUpstreamRefused`) and a member with a declared channel can name
+ *  it. */
 export class SurfaceUpstreamRefused extends Schema.TaggedError<SurfaceUpstreamRefused>(
   "@kolu/surface/SurfaceUpstreamRefused",
 )("SurfaceUpstreamRefused", { reason: Schema.String }) {

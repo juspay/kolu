@@ -10,7 +10,12 @@
  * old one that somehow survived) can never answer from a destroyed link.
  */
 
-import { isSurfaceRelayTransportLost } from "@kolu/surface/errors";
+import {
+  isDeadTransportError,
+  isSurfaceRelayTransportLost,
+  MapKeyUnknown,
+  SurfaceStdioTransportClosed,
+} from "@kolu/surface/errors";
 import type { SurfaceDispatch } from "@kolu/surface/link";
 import { Effect, Stream } from "effect";
 import { describe, expect, it } from "vitest";
@@ -106,5 +111,61 @@ describe("entryDispatch", () => {
       ),
     );
     expect(isSurfaceRelayTransportLost(streamFailure)).toBe(true);
+  });
+
+  it("ends a sibling stream RETRYABLY when the padi link dies mid-stream", async () => {
+    // The link's own death tag is a corpse the client's fence refuses to retry
+    // — true of that socket, false of this host, which re-dials. Forwarded
+    // verbatim it strands the subscriber on a link already replaced: the board
+    // freezes under an error row and nothing re-asks until the input re-keys.
+    const dead = new SurfaceStdioTransportClosed({
+      reason: "padi exited",
+      death: "streamEnded",
+    });
+    const dispatch = entryDispatch({
+      siblingTagPrefixes: SIBLINGS,
+      mirror: named("mirror"),
+      link: () => ({
+        unary: () => Effect.fail(dead),
+        stream: () => Stream.concat(Stream.make("live"), Stream.fail(dead)),
+      }),
+      host: "remote:guest",
+    });
+
+    const failure = await Effect.runPromise(
+      Effect.flip(
+        Stream.runCollect(dispatch.stream("surface/odu/checkout/get", {})),
+      ),
+    );
+    expect(isSurfaceRelayTransportLost(failure)).toBe(true);
+    expect(isDeadTransportError(failure)).toBe(false);
+
+    const unaryFailure = await Effect.runPromise(
+      Effect.flip(dispatch.unary("surface/odu/service/get", {})),
+    );
+    expect(isSurfaceRelayTransportLost(unaryFailure)).toBe(true);
+  });
+
+  it("lets a DECLARED failure cross unchanged — it is the far end's answer", async () => {
+    // Only a transport death is re-raised. An error the daemon itself declared
+    // is an application-level answer, and rewriting it as a retryable end would
+    // have the client re-ask forever for something it was already told.
+    const declared = new MapKeyUnknown({ mapKey: "remote:ghost" });
+    const dispatch = entryDispatch({
+      siblingTagPrefixes: SIBLINGS,
+      mirror: named("mirror"),
+      link: () => ({
+        unary: () => Effect.fail(declared),
+        stream: () => Stream.fail(declared),
+      }),
+      host: "remote:guest",
+    });
+
+    const failure = await Effect.runPromise(
+      Effect.flip(
+        Stream.runCollect(dispatch.stream("surface/odu/checkout/get", {})),
+      ),
+    );
+    expect(failure).toBe(declared);
   });
 });

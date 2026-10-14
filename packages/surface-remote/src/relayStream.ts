@@ -203,12 +203,14 @@ function awaitLiveClient<Cl>(
      *  skew that no spawn resolves.
      *
      *  Raised as a DEFECT, like `requireUpstream`'s structural mismatch and for
-     *  the same reason: a streaming member declares no error channel (D4 is
-     *  about procedures), so a typed failure here would be encoded against
-     *  `Schema.Never` and reach the subscriber as a complaint about the
-     *  encoding instead of the far end's sentence. A defect carries its message
-     *  across the hop intact, and the retry fence leaves it alone — which is
-     *  right, because no retry unmakes a version skew. */
+     *  the same reason: a stream minted by `defineSurface` declares no error
+     *  channel (D4 is about procedures), so a typed failure here would be
+     *  encoded against `Schema.Never` and reach the subscriber as a complaint
+     *  about the encoding instead of the far end's sentence. A defect carries
+     *  its message across the hop intact, and the retry fence leaves it alone —
+     *  which is right, because no retry unmakes a version skew. (A map-FOLDED
+     *  stream DOES declare a channel; closing that gap for a bare served
+     *  surface is juspay/kolu#2297.) */
     const refused = (): SurfaceUpstreamRefused | null => {
       const reason = upstream?.signal.refusal() ?? null;
       return reason === null ? null : new SurfaceUpstreamRefused({ reason });

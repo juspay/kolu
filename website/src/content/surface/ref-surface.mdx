@@ -1530,11 +1530,19 @@ permanently-dead tags), `isSurfaceTransportRetired`,
 **`SurfaceUpstreamRefused` is the one framework error that is NOT in that
 union**, because it is raised as a **defect**: the upstream answered and this
 build will not speak to it (a contract skew, a socket owned by a stranger), and
-the member that meets that is a STREAM, which declares no error channel. A typed
-failure there is encoded against `Schema.Never` and reaches the subscriber as a
-complaint about the encoding; a defect crosses with its `reason` intact and is
-never retried — both of which are what a standing refusal wants. Narrow on it
-in-process with `isSurfaceUpstreamRefused`.
+the member that meets that is a stream minted by `defineSurface`, which declares
+no error channel (`Rpc.make({stream: true})` resolves an undeclared one to
+`Schema.Never`). A typed failure there is encoded against that `Never` and
+reaches the subscriber as a complaint about the encoding; a defect crosses with
+its `reason` intact and is never retried — both of which are what a standing
+refusal wants. Narrow on it in-process with `isSurfaceUpstreamRefused`.
+
+A map-**folded** stream is the exception: `@kolu/surface-map` gives those a
+declared framework channel (`foldedError`), which is why the transport deaths
+above cross a map hop by `_tag`. Giving `defineSurface`'s own streams the same
+union is [juspay/kolu#2297](https://github.com/juspay/kolu/issues/2297) — until
+then, a relay with a standing condition to report raises a defect rather than
+declaring a channel that is not there.
 
 App-declared procedure errors are **not** in this union — they are declared per
 procedure on `ProcedureSpec.error` and travel on that procedure's own error
