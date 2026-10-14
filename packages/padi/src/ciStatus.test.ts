@@ -564,29 +564,46 @@ describe("padi's ciStatus source", () => {
 // command is not something a real daemon can be asked for.
 
 /** A dialled connection over a face this suite controls: one board snapshot per
- *  dial, then the runs stream ENDS (which is what a dropped link looks like to
- *  the session), and a nodes follow that yields nothing. */
+ *  dial, then a runs stream that STAYS OPEN until the test drops it, and a nodes
+ *  follow that yields nothing. A stream that ended by itself would make every
+ *  fake link look like a dropped one, which is a fact about the fixture rather
+ *  than about the session. */
 function fakeDial(perDial: (dial: number) => RunRow[]): {
   dial: () => Promise<Dialed>;
   dials: () => number;
   disposals: () => number;
+  /** End the current link's runs stream — what a dropped link looks like. */
+  drop: () => void;
 } {
   let dials = 0;
   let disposals = 0;
+  /** Resolved by {@link drop}; each dial gets its own. */
+  let release: () => void = () => {};
   return {
     dial: async () => {
       dials += 1;
       const rows = perDial(dials);
+      const held = new Promise<void>((resolve) => {
+        release = resolve;
+      });
       const face = {
         surface: {
           runs: {
             deltas: () =>
-              Stream.fromIterable<CollectionDeltasMsg<string, RunRow>>([
-                {
-                  kind: "snapshot",
-                  entries: rows.map((r) => [r.runId, r] as [string, RunRow]),
-                },
-              ]),
+              Stream.fromAsyncIterable<
+                CollectionDeltasMsg<string, RunRow>,
+                unknown
+              >(
+                (async function* runs() {
+                  yield {
+                    kind: "snapshot",
+                    entries: rows.map((r) => [r.runId, r] as [string, RunRow]),
+                  };
+                  // Open until the test says the link dropped.
+                  await held;
+                })(),
+                (err) => err,
+              ),
           },
           nodes: { get: () => Stream.empty },
         },
@@ -607,6 +624,7 @@ function fakeDial(perDial: (dial: number) => RunRow[]): {
     },
     dials: () => dials,
     disposals: () => disposals,
+    drop: () => release(),
   };
 }
 
@@ -682,20 +700,17 @@ describe("padi's ciStatus session", () => {
       seedTerminal(CHECKOUT);
       const sub = openSubscription(ci);
       await sub.first;
-      // Whatever the link itself has already done (this fake's runs stream
-      // ends, which is what a drop looks like), the unsubscribe below must not
-      // add to it.
-      const disposed = fake.disposals();
+      expect(fake.disposals()).toBe(0);
 
       // The last subscriber leaves: the session RETIRES, it does not die — the
       // Inspector re-keys its subscription onto the focused pane, so a focus
       // switch must not rebuild the dial (#2286's lesson).
       sub.stop();
       await settle();
-      expect(fake.disposals()).toBe(disposed);
+      expect(fake.disposals()).toBe(0);
 
       await vi.advanceTimersByTimeAsync(30_000);
-      expect(fake.disposals()).toBe(disposed + 1);
+      expect(fake.disposals()).toBe(1);
       await ci.dispose();
     } finally {
       vi.useRealTimers();
@@ -719,8 +734,9 @@ describe("padi's ciStatus session", () => {
         latest: { run: { runId: "run-1" } },
       });
 
-      // The link drops (the runs stream ends). The session re-dials on its own
-      // ladder and the new snapshot REPLACES the board.
+      // The link drops. The session re-dials on its own ladder and the new
+      // snapshot REPLACES the board.
+      fake.drop();
       await vi.advanceTimersByTimeAsync(5_000);
       await settle();
       expect(fake.dials()).toBe(2);
