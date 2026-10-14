@@ -49,7 +49,9 @@ one quiet line at the very bottom.
 
 If the checkout uses [odu](https://github.com/juspay/odu) as its CI runner and
 the odu daemon is running on that host, the chip row carries a second rollup —
-`odu`'s own board for **this checkout**, beside the forge's checks. It reads
+`odu`'s own board for **this checkout**, beside the forge's checks — the heading
+that introduces it names odu and links to [its site](https://juspay.github.io/odu/),
+so a reader who has not met the tool knows whose CI this is. It reads
 `● odu running` / `✓ odu passed` / `✕ 2 failed` with the run's ref
 (`abc1234#3` — the commit's first seven characters and the run's ordinal), and
 behind it a disclosure holds two lists: the latest run's **lanes** (one row per

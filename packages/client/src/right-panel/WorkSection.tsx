@@ -104,6 +104,11 @@ const checksSummary = (counts: Record<CheckStatus, number>): string =>
     .map((o) => `${counts[o]} ${OUTCOME[o].word}`)
     .join(" · ");
 
+/** odu's own site — the heading that introduces the readout names the tool and
+ *  points at it, because a reader who has never heard of odu cannot tell what a
+ *  lane list is made of. */
+const ODU_URL = "https://juspay.github.io/odu/";
+
 /** How kolu paints a hue odu assigned — the ONE place the two palettes meet,
  *  one row per hue rather than one table per attribute. odu assigns MEANING to
  *  a hue (`BOARD_STATE` / `OUTCOME`, read through its own `runStatus`); kolu
@@ -574,7 +579,24 @@ const WorkSection: Component<{
         <Show when={odu()}>
           {(ci) => (
             <Disclosure
-              summary={ci().summary}
+              summary={
+                <>
+                  {/* The heading names odu for a reader who has not heard of it,
+                   *  and links to its site: the count and the scope beside it
+                   *  are meaningless without the thing they belong to. */}
+                  <a
+                    href={ODU_URL}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    title="odu: the CI runner for this checkout"
+                    class="hover:underline"
+                    data-testid="inspector-odu-link"
+                  >
+                    CI by odu ↗
+                  </a>
+                  {` · ${ci().summary}`}
+                </>
+              }
               // Open by default: a run is the thing being watched, so there is
               // no quiet state here worth hiding behind a click. It stays a
               // disclosure so it can still be collapsed.
