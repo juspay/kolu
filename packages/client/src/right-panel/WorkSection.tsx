@@ -391,10 +391,9 @@ const WorkSection: Component<{
     };
   });
   /** odu's readout for this checkout, folded for painting: the chip's rollup,
-   *  the lanes in the order padi sent them (already triaged there, so the wire
-   *  order IS the painted order), and the recent runs. `null` when odu has
-   *  nothing to say, which is the whole of "a non-odu user's Inspector is
-   *  unchanged". */
+   *  the lanes in the run's own schedule sorted into this face's triage, and the
+   *  recent runs. `null` when odu has nothing to say, which is the whole of "a
+   *  non-odu user's Inspector is unchanged". */
   const odu = createMemo(() => {
     const frame = props.oduCi;
     if (frame === null || frame === undefined || frame.kind !== "status") {
@@ -570,8 +569,8 @@ const WorkSection: Component<{
 
         {/* odu's breakdown — reference tier, the same shape as the check list
          *  above: a rollup chip in the row, the detail behind one disclosure.
-         *  Lanes of the LATEST run (already in triage order from padi), then
-         *  this checkout's recent runs, newest first. */}
+         *  Lanes of the LATEST run, triaged here, then this checkout's recent
+         *  runs, newest first. */}
         <Show when={odu()}>
           {(ci) => (
             <Disclosure

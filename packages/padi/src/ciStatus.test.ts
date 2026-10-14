@@ -15,7 +15,10 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { CiStatusFrame } from "@kolu/padi-client/surface";
-import { LOCAL_LOCATION } from "@kolu/padi-client/surface";
+import {
+  CI_STATUS_RECENT_RUNS,
+  LOCAL_LOCATION,
+} from "@kolu/padi-client/surface";
 import type { CollectionDeltasMsg } from "@kolu/surface/define";
 import { defineSurface } from "@kolu/surface/define";
 import type { SurfaceDispatch } from "@kolu/surface/link";
@@ -42,7 +45,7 @@ import {
 import { Effect, Schema, Stream } from "effect";
 import type { Logger } from "pino";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { serviceOrigin } from "@odu/service-client/endpoint";
+import { serviceBind, serviceOrigin } from "@odu/service-client/endpoint";
 import {
   createCiStatusSource,
   type CiStatusSourceDeps,
@@ -448,6 +451,11 @@ describe("padi's ciStatus source", () => {
       },
       recent: [{ runId: "run-1" }],
     });
+    // The address the daemon answered on — its OWN, off the identity it
+    // published, not a default a reader would have to guess.
+    expect(isStatus(withLanes) && withLanes.port).toBe(
+      serviceBind(serviceOrigin()).port,
+    );
 
     // A lane transition is a NEW frame — the whole point of following `nodes`
     // rather than sampling the board.
@@ -496,6 +504,33 @@ describe("padi's ciStatus source", () => {
       latest: { run: { runId: "run-2" }, lanes: [{ id: "b@linux" }] },
       recent: [{ runId: "run-2" }, { runId: "run-1" }],
     });
+    await sub.stop();
+  });
+
+  it("carries at most CI_STATUS_RECENT_RUNS runs, newest first", async () => {
+    const stub = await serveStub();
+    seedTerminal(CHECKOUT);
+    // One more run than the frame carries, oldest first so the newest are the
+    // ones that survive.
+    for (let i = 1; i <= CI_STATUS_RECENT_RUNS + 1; i += 1) {
+      stub.put(row({ runId: `run-${i}`, seq: i, createdAt: i * 1_000 }));
+    }
+    const sub = await subscribe();
+    const framed = await frameWhere(
+      sub,
+      0,
+      "the run's board frame never arrived",
+      (f) => isStatus(f) && f.recent.length > 0,
+    );
+    expect(isStatus(framed) && framed.recent).toHaveLength(
+      CI_STATUS_RECENT_RUNS,
+    );
+    expect(isStatus(framed) && framed.recent.map((r) => r.runId)).toEqual(
+      Array.from(
+        { length: CI_STATUS_RECENT_RUNS },
+        (_, i) => `run-${CI_STATUS_RECENT_RUNS + 1 - i}`,
+      ),
+    );
     await sub.stop();
   });
 
@@ -693,26 +728,33 @@ describe("padi's ciStatus session", () => {
     await ci.dispose();
   });
 
-  it("does not let the link go on the last unsubscribe alone", async () => {
-    const fake = fakeDial(() => [row()]);
-    const ci = createCiStatusSource({ log: stubLog, dial: fake.dial });
-    seedTerminal(CHECKOUT);
-    const sub = openSubscription(ci);
-    await sub.first;
-    expect(fake.disposals()).toBe(0);
+  it("lets the link go only after the retire grace, not on the last unsubscribe", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout"] });
+    try {
+      const fake = fakeDial(() => [row()]);
+      const ci = createCiStatusSource({ log: stubLog, dial: fake.dial });
+      seedTerminal(CHECKOUT);
+      const sub = openSubscription(ci);
+      await sub.first;
+      expect(fake.disposals()).toBe(0);
 
-    // The last subscriber leaves: the session RETIRES, it does not die — the
-    // Inspector re-keys its subscription onto the focused pane, so a focus
-    // switch must not rebuild the dial (#2286's lesson). Where that window
-    // ENDS is not observable here: the retire timer is `unref`'d, and a clock
-    // the suite fakes does not fire it.
-    sub.stop();
-    await settle();
-    expect(fake.disposals()).toBe(0);
+      // The last subscriber leaves: the session RETIRES, it does not die — the
+      // Inspector re-keys its subscription onto the focused pane, so a focus
+      // switch must not rebuild the dial (#2286's lesson).
+      sub.stop();
+      await settle();
+      expect(fake.disposals()).toBe(0);
 
-    // The session's own teardown is what lets the link go.
-    await ci.dispose();
-    expect(fake.disposals()).toBe(1);
+      // The grace runs out. The loop is interrupted where it stands (the fake's
+      // link is one this suite can drop, so the interruption settles) and the
+      // link is disposed on the way out.
+      await vi.advanceTimersByTimeAsync(30_000);
+      await settle();
+      expect(fake.disposals()).toBe(1);
+      await ci.dispose();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("re-dials after a drop and opens the new link's board FRESH", async () => {

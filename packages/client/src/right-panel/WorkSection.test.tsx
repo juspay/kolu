@@ -377,10 +377,11 @@ describe("WorkSection odu CI readout", () => {
       port: ODU_PORT,
       latest: {
         run: oduRow(),
-        // Triage order is padi's: failures first.
+        // The run's own schedule, NOT in triage order: the section sorts its
+        // lanes, so a fixture already failures-first would assert nothing.
         lanes: [
-          oduNode("ci::e2e@x86_64-linux", "failed"),
           oduNode("ci::typecheck@x86_64-linux", "ok"),
+          oduNode("ci::e2e@x86_64-linux", "failed"),
         ],
       },
       recent: [
@@ -439,8 +440,11 @@ describe("WorkSection odu CI readout", () => {
 
     const lanes = el("inspector-odu-lanes")?.querySelectorAll("li");
     expect(lanes?.length).toBe(2);
-    // The lane's own facts: the failing one, its duration and its host.
+    // The lane's own facts: the failing one, its duration and its host — and it
+    // is FIRST although the run scheduled it second, which is this face's
+    // triage and not the wire's order.
     expect(lanes?.[0]?.textContent).toContain("ci::e2e@x86_64-linux");
+    expect(lanes?.[1]?.textContent).toContain("ci::typecheck@x86_64-linux");
     // kolu's own ladder, not a second duration formatter.
     expect(lanes?.[0]?.textContent).toContain("1s");
     expect(lanes?.[0]?.textContent).toContain("box-1");
