@@ -42,7 +42,6 @@ packages/surface/example/binary-cache.json
 # nix (nix/workspace.nix). Generated, never committed.
 /osfacts-client/
 
-# odu/* — the same, from the npins `odu` pin: kolu consumes odu's own service
-# contract rather than re-declaring it, and odu pins kolu, so this can only be
-# a graft.
+# odu/* — the same, from the npins `odu` pin (see `nix/workspace.nix` for why
+# these are a graft rather than a dependency).
 /odu/

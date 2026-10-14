@@ -120,14 +120,13 @@ one your copier needs is still yours.
 ## The odu graft — `@odu/service-client` and its closure
 
 `./surface` imports `@odu/service-client/surface` for the `ciStatus` frame's row
-and node schemas — kolu reads odu's own contract rather than re-declaring it, and
-odu pins KOLU (it hydrates the `@kolu/surface*` stack from a kolu pin), so the
-dependency can never be an npm one. It is a GRAFT: `nix/workspace.nix` copies
-`@odu/service-client`, `@odu/run-client` and `@odu/run-history` out of the npins
-`odu` pin into `odu/` (gitignored, never committed), exactly as `osfacts-client`
-is grafted from `osfacts`. Three directories rather than one because that is the
-closure of the first: `service-client` re-publishes the durable record shapes from
-`run-history`, which reaches the node-status vocabulary of `run-client`.
+and node schemas — kolu reads odu's own contract rather than re-declaring it. It
+is a GRAFT rather than a dependency (`nix/workspace.nix` says why): that file
+copies the trio `@odu/service-client`, `@odu/run-client` and `@odu/run-history`
+out of the npins `odu` pin into `odu/` (gitignored, never committed), exactly as
+`osfacts-client` is grafted from `osfacts`. Three directories rather than one
+because that is the closure of the first: `service-client` re-publishes the durable
+record shapes from `run-history`, which reaches `run-client`'s node-status vocabulary.
 
 Their manifests declare `effect` alone — in odu the `@kolu/*` sources are
 hydrated from a pin, so naming one would send its package manager to a registry

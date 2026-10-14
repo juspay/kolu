@@ -6,10 +6,8 @@ packages:
   # bare `pnpm install` without it fails loudly rather than half-installing.
   - osfacts-client
   # The odu trio — GENERATED, never committed (`.gitignore`), grafted from the
-  # npins `odu` pin by the same mechanism. kolu consumes odu's own service
-  # contract instead of re-declaring it, and odu pins KOLU (it hydrates the
-  # `@kolu/surface*` stack from a kolu pin), so these can never be npm
-  # dependencies of each other — only a graft.
+  # npins `odu` pin by the same mechanism (see `nix/workspace.nix` for why these
+  # are a graft rather than a dependency).
   #
   # THREE PATHS, not a glob on purpose. pnpm ignores a workspace glob that
   # matches nothing, so `odu/*` would make a bare `pnpm install` quietly install
