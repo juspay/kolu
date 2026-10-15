@@ -127,6 +127,7 @@ import {
   outcomeAnomaly,
   probeDaemonIdentity,
 } from "@kolu/surface-daemon-supervisor";
+import { processStateReader } from "@kolu/surface-daemon-supervisor";
 import { Effect, Schema } from "effect";
 import { KAVAL_GATE_FILE, PTY_HOST_CONTRACT_VERSION } from "kaval";
 import {
@@ -1037,6 +1038,7 @@ async function newTakesOverOldPadi(window: ResolvedWindow): Promise<void> {
       home,
       readProcessIdentity: (pid) => processIdentityAsync(osfactsBin, pid),
       readSocketHolders: osfactsSocketHolders(osfactsBin),
+      readProcessState: processStateReader(osfactsBin),
       policy: {
         capability: "drainable",
         baked: {

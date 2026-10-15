@@ -35,6 +35,7 @@
  */
 
 import { readControlCoreHello } from "@kolu/surface-daemon-supervisor";
+import { processStateReader } from "@kolu/surface-daemon-supervisor";
 import type { DaemonConnection } from "@kolu/surface-daemon-supervisor";
 import {
   type ControlCoreProbeClient,
@@ -172,6 +173,7 @@ export function convergeKavalStdioFront(
       probe: probeDaemonIdentity({ capability: "not-drainable" }),
       readProcessIdentity: (pid) => processIdentityAsync(osfactsBin, pid),
       readSocketHolders: osfactsSocketHolders(osfactsBin),
+      readProcessState: processStateReader(osfactsBin),
       driver,
       connect: (path) => connectControlCore(path),
       log,

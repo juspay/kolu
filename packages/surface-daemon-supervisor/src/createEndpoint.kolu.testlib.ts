@@ -52,7 +52,7 @@ export const readSocketHoldersForKoluTests =
 export function createEndpointForKoluTest<C, I, M = undefined>(
   spec: Omit<
     EndpointSpec<C, I, M>,
-    "readProcessIdentity" | "readSocketHolders"
+    "readProcessIdentity" | "readProcessState" | "readSocketHolders"
   >,
 ) {
   return createEndpointForTest<C, I, M>({

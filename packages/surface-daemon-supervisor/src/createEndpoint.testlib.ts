@@ -16,6 +16,7 @@ import {
   createEndpoint as createEndpointCore,
   type EndpointSpec,
 } from "./endpoint.ts";
+import type { ReadProcessState } from "./processState.ts";
 import type { ReadSocketHolders } from "./socketHolder.ts";
 
 /**
@@ -85,7 +86,17 @@ export function testReadSocketHolders(envVar: string): ReadSocketHolders {
 }
 
 /**
- * {@link createEndpointCore} with the identity inject supplied.
+ * A RUNNING state for every pid — the state-reader double a suite that is not
+ * exercising the stopped path passes. `S` is an ordinary sleeping process, so
+ * the ladder takes its full graceful leg, which is what every suite that does
+ * not name `T`/`t` means. A suite testing the early escalation passes its own
+ * reader (`() => Effect.succeed("T")`); a suite testing the read failure passes
+ * one that fails.
+ */
+export const testReadProcessState: ReadProcessState = () => Effect.succeed("S");
+
+/**
+ * {@link createEndpointCore} with the identity and state injects supplied.
  *
  * `readSocketHolders` stays REQUIRED, exactly as production has it: a default
  * here — even a throwing one — is a fallback that defers a missing required
@@ -102,11 +113,12 @@ export function testReadSocketHolders(envVar: string): ReadSocketHolders {
  * for the rest of the suite.
  */
 export function createEndpointForTest<C, I, M = undefined>(
-  spec: Omit<EndpointSpec<C, I, M>, "readProcessIdentity">,
+  spec: Omit<EndpointSpec<C, I, M>, "readProcessIdentity" | "readProcessState">,
 ) {
   return createEndpointCore({
     ...spec,
     readProcessIdentity: (pid) =>
       Effect.sync(() => testReadProcessIdentity(pid)),
+    readProcessState: testReadProcessState,
   });
 }

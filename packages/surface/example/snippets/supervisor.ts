@@ -30,6 +30,9 @@ import {
   type DaemonConnection,
   dialSocket,
   probeDaemonIdentity,
+  type ReadProcessIdentityAsync,
+  type ReadProcessState,
+  type ReadSocketHolders,
   recycle,
   survivableSpawnDriver,
 } from "@kolu/surface-daemon-supervisor";
@@ -145,13 +148,15 @@ function connectTop(
   });
 }
 
-// Both OS-fact injects are Effects — `processIdentityAsync(bin)` and
-// `osfactsSocketHolders(bin)` from `osfacts-client`, bound to ONE resolved
-// binary path. The daemon half's SYNC `ReadProcessIdentity` is a different
-// inject for a different job (the gate claim); it does not fit here.
+// All three OS-fact injects are Effects — `processIdentityAsync(bin)`,
+// `osfactsSocketHolders(bin)` and `processStateReader(bin)` from
+// `osfacts-client` / `@kolu/surface-daemon-supervisor`, bound to ONE resolved binary path. The daemon half's SYNC
+// `ReadProcessIdentity` is a different inject for a different job (the gate
+// claim); it does not fit here.
 export function bootSupervisor(
-  readProcessIdentity: import("@kolu/surface-daemon-supervisor").ReadProcessIdentityAsync,
-  readSocketHolders: import("@kolu/surface-daemon-supervisor").ReadSocketHolders,
+  readProcessIdentity: ReadProcessIdentityAsync,
+  readSocketHolders: ReadSocketHolders,
+  readProcessState: ReadProcessState,
 ): Effect.Effect<void, unknown> {
   // #region endpoint
   const policy: ConvergencePolicy<"not-drainable"> = {
@@ -166,6 +171,7 @@ export function bootSupervisor(
     home, // SAME call as the daemon — disagreement impossible
     readProcessIdentity,
     readSocketHolders, // osfacts-client's osfactsSocketHolders(<the same resolved bin>)
+    readProcessState, // processStateReader(<the same resolved bin>) — a stopped holder skips the graceful reap leg
     policy,
     probe: probeDaemonIdentity({ capability: "not-drainable" }),
     driver: survivableSpawnDriver({

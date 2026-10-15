@@ -31,6 +31,7 @@ import {
   recycle,
   survivableSpawnDriver,
 } from "@kolu/surface-daemon-supervisor";
+import { processStateReader } from "@kolu/surface-daemon-supervisor";
 import { Effect, Option, Stream } from "effect";
 import {
   bakedOsFactsBin,
@@ -88,6 +89,9 @@ const main = Effect.gen(function* () {
     // The second OS-fact inject: who holds the rendezvous socket, for the
     // recovery that runs when the gate no longer names the daemon.
     readSocketHolders: osfactsSocketHolders(osfactsBin),
+    // The third: is the holder stopped? A stopped holder cannot run a shutdown
+    // handler, so the reap ladder skips its graceful window.
+    readProcessState: processStateReader(osfactsBin),
     policy: {
       capability: "not-drainable",
       baked: {

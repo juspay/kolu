@@ -101,6 +101,7 @@ import {
   type ReapOutcome,
   reapHolder,
 } from "./reapHolder.ts";
+import type { ReadProcessState } from "./processState.ts";
 
 // `ENDPOINT_STATES` / `EndpointState` are the single source of truth for the
 // reported state set; they live in the zero-dependency `endpointStates.ts` leaf
@@ -378,6 +379,21 @@ export interface EndpointSpec<
    * Effect-shaped for the same reason — see {@link ReadSocketHolders}.
    */
   readSocketHolders: ReadSocketHolders;
+  /**
+   * Ask the OS for a pid's RUN STATE — the raw `osfacts snapshot --status`
+   * symbol (`T`/`t` stopped, otherwise running), or `undefined` when the pid is
+   * gone. Required, and injected for exactly the reason above: the endpoint
+   * performs no platform traversal itself, and the osfacts binary's path is
+   * baked under a name only the composing program knows
+   * (`processStateReader(bakedOsFactsBin(…))`).
+   *
+   * The kill ladder reads it ONCE, at the moment of reap: a STOPPED holder
+   * cannot run a shutdown handler, so its graceful window is skipped
+   * ({@link reapHolder}). Effect-shaped for the same reason — see
+   * {@link ReadProcessState}; a read that cannot complete travels the error
+   * channel and the endpoint reports `dead`, rather than degrading to the wait.
+   */
+  readProcessState: ReadProcessState;
   /** Spawns the daemon so it outlives us (the survivable-spawn driver). */
   driver: DaemonDriver;
   /**
@@ -880,6 +896,12 @@ export function createEndpoint<
   // `why` names the disposition that reached here (always-recycle boot, gate-less
   // squatter recovery, cross-epoch takeover) so one journal line tells an operator
   // WHICH policy killed this daemon, not merely that something did.
+  //
+  // The reap's error channel is `osfacts-client`'s: a state read that could not
+  // be completed is a failure this endpoint HAS an answer for — report `dead`,
+  // then propagate (R3-5), exactly as a failed `readProcessIdentity` does — so it
+  // is widened into this Effect's `Error` rather than swallowed into "not
+  // stopped", which would spend the 120 s graceful ceiling on a guess.
   const killLiveHolder = (
     holder: number,
     why: string,
@@ -889,7 +911,13 @@ export function createEndpoint<
         { hostId: spec.hostId, pid: holder },
         `stopping live daemon — ${why}`,
       );
-      const reap = yield* reapHolder(holder);
+      const reap = yield* reapHolder(holder, spec.readProcessState).pipe(
+        // The endpoint contract is "failures report `dead` before they
+        // propagate", and the reap's error channel — a state read that could not
+        // be COMPLETED — is exactly that class of failure (R3-5), never a silent
+        // "not stopped" that would spend the 120 s graceful ceiling on a guess.
+        Effect.tapError(() => Effect.sync(() => emit({ state: "dead" }))),
+      );
       if (reap.kind === "survived") {
         // Respawning now would just make the new daemon yield to the still-live
         // gate holder (single instance) — a silent no-op recycle. Fail loudly.

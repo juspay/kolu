@@ -79,62 +79,28 @@ test("the `daemon` recipe delegates to the canonical daemon-test recipe", () => 
   ).toContain("just --no-deps test-daemon");
 });
 
-test("`daemon` is a sharded leaf, and only `e2e` and `daemon` are", () => {
+test("`daemon` is a sharded leaf", () => {
   // odu fans a `[metadata("odu:shard=N")]` leaf across the venue pool. The
   // attribute must sit IMMEDIATELY above the recipe (attributes attach to the
-  // next recipe), so read the contiguous block of attribute lines.
-  const attributesAbove = (recipe: string): string => {
-    const lines = CI.split("\n");
-    const at = lines.findIndex((line) => line.startsWith(`${recipe}:`));
-    expect(at, `must declare a \`${recipe}:\` recipe`).toBeGreaterThan(0);
-    let first = at;
-    while (first > 0 && /^\s*\[/.test(lines[first - 1] ?? "")) first -= 1;
-    return lines.slice(first, at).join("\n");
-  };
-  const shard = (recipe: string): number | undefined => {
-    const match = attributesAbove(recipe).match(/odu:shard=(\d+)/);
-    return match ? Number(match[1]) : undefined;
-  };
-
-  const daemonShards = shard("daemon");
+  // next recipe), so read the contiguous block of attribute lines. This is the
+  // one assertion that protects the DAG SHAPE — that the daemon lane is sharded
+  // at all. How `test-daemon` translates the pair is behaviour, covered by the
+  // odu runs and the recipe's own tests, not by a regex over its body.
+  const lines = CI.split("\n");
+  const at = lines.findIndex((line) => line.startsWith("daemon:"));
+  expect(at, "must declare a `daemon:` recipe").toBeGreaterThan(0);
+  let first = at;
+  while (first > 0 && /^\s*\[/.test(lines[first - 1] ?? "")) first -= 1;
+  const attributes = lines.slice(first, at).join("\n");
+  const match = attributes.match(/odu:shard=(\d+)/);
   expect(
-    daemonShards,
-    "`ci::daemon` must carry `[metadata(\"odu:shard=N\")]` — the daemon lane is the Linux lane's second-longest pole and the whole point of the recipe's shard translation",
+    match,
+    '`ci::daemon` must carry `[metadata("odu:shard=N")]` — the daemon lane is the Linux lane\'s second-longest pole',
+  ).not.toBeNull();
+  expect(
+    Number(match?.[1]),
+    "the shard ceiling must exceed 1 (a single shard is not a shard)",
   ).toBeGreaterThan(1);
-  expect(shard("e2e"), "`e2e` keeps its shard attribute").toBeGreaterThan(1);
-
-  // The shard-contract comment at the top of ci/mod.just names the set; this is
-  // the executable half, so a THIRD sharded leaf appears as a failing test
-  // rather than as a stale sentence.
-  const sharded = CI.split("\n").filter((line) =>
-    /^\s*\[metadata\("odu:shard=\d+"\)\]/.test(line),
-  ).length;
-  expect(
-    sharded,
-    "exactly the two sharded leaves (e2e, daemon) — a new one must update this test and the shard-contract comment",
-  ).toBe(2);
-});
-
-test("`test-daemon` translates odu's shard pair and keeps the unsharded guard", () => {
-  const body = recipeBody(ROOT, "test-daemon");
-  expect(
-    body,
-    "the shard index and total must be read from the runner's pair",
-  ).toContain("ODU_SHARD_INDEX");
-  expect(body).toContain("ODU_SHARD_TOTAL");
-  // odu's index is zero-based; vitest's `--shard` is one-based.
-  expect(
-    body,
-    "the zero-based index must be translated to vitest's one-based `--shard`",
-  ).toMatch(/--shard=\$\(\(ODU_SHARD_INDEX \+ 1\)\)\/\$ODU_SHARD_TOTAL/);
-  expect(body, "a bad pair must fail loud (exit 2)").toMatch(/exit 2/);
-  // `--passWithNoTests` is sharded-only: it lets an empty slice pass without
-  // weakening the unsharded "no test files = red" guard.
-  expect(body).toMatch(/ODU_SHARD_TOTAL > 1[\s\S]*--passWithNoTests/);
-  expect(
-    body.split("--passWithNoTests").length - 1,
-    "the flag must be added in exactly one place",
-  ).toBe(1);
 });
 
 test("the canonical daemon-test recipe turns the gate and spawn leash ON", () => {

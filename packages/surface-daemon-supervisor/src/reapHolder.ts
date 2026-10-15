@@ -35,14 +35,25 @@
  * #2101 incident paid the full 120 s ceiling against a SIGSTOP'd daemon for
  * nothing, and every second of that was wall-clock on the repair.
  *
+ * **The state read is an INJECTED OS fact, never a platform traversal here.**
+ * This module does not parse `/proc/<pid>/stat` or shell out to `ps`: it takes a
+ * {@link ReadProcessState} — the same shape as the endpoint's other OS-fact
+ * seams — and the composition root binds it to {@link processStateReader}
+ * (`endpoint.ts`'s rule: *the endpoint never performs platform process traversal
+ * itself*). Its error channel travels: a read that could not be COMPLETED is a
+ * failure this ladder propagates (the endpoint has an answer for it — report
+ * `dead`, then rethrow), never a silent "not stopped" that would spend the 120 s
+ * ceiling on a guess. `undefined` from the reader is the one honest non-answer —
+ * the pid is gone — and the KILL leg below reports that immediately anyway.
+ *
  * The outcome is a RECORD, not a boolean: which signal ended it, how long the
  * wait took, and (when the graceful leg was skipped) why, are exactly what an
  * operator needs to read after the fact, and the takeover's observation line
  * carries them all.
  */
-import { execFileSync } from "node:child_process";
-import { readFileSync } from "node:fs";
 import { Effect } from "effect";
+import type { OsfactsClientError } from "osfacts-client";
+import type { ReadProcessState, ProcessState } from "./processState.ts";
 import { waitForPidGone } from "./waitForPidGone.ts";
 
 /** How long the daemon's own graceful shutdown gets after SIGTERM. */
@@ -50,6 +61,17 @@ export const REAP_TERM_CEILING_MS = 120_000;
 
 /** How long the KERNEL gets to reap the process after SIGKILL. */
 export const REAP_KILL_CEILING_MS = 5_000;
+
+/**
+ * The ONE fold from a raw OS state symbol to "this process is stopped, so it
+ * cannot be running a shutdown handler". `T` is a job-control stop, `t` a
+ * tracing stop; both mean the process is not executing — a SIGTERM sent to it
+ * is queued, never delivered. Kept here, alone, so a new caller cannot invent a
+ * second reading of the same fact.
+ */
+function isStoppedState(state: ProcessState | undefined): boolean {
+  return state === "T" || state === "t";
+}
 
 /** What happened to the process we asked to stop — evidence as data. */
 export type ReapOutcome =
@@ -92,86 +114,52 @@ function signalIgnoringRace(pid: number, signal: "SIGTERM" | "SIGKILL"): void {
   }
 }
 
-/** Is `pid` stopped, or gone? READ ONCE at the moment of reap — a bounded
- *  observation, never a poller.
+/**
+ * SIGTERM `pid`, wait, escalate to SIGKILL, wait again — see the module doc.
+ * The two waits are ONE fiber, so a caller that gives up (a lost race, an
+ * interrupted converge) cancels the outstanding poll with it rather than
+ * leaving a timer running against a pid nobody is waiting on any more.
  *
- *  A process in `T` (stopped) or `t` (tracing stop) is provably NOT running a
- *  shutdown handler: the OS never delivered the SIGTERM we just queued, so the
- *  120 s graceful window could only ever be spent for nothing. A read that
- *  fails means the pid is gone — the happy path, and the answer a missing
- *  `/proc` entry gives too.
- *
- *  Linux reads field 3 of `/proc/<pid>/stat`, parsed AFTER the last `)` because
- *  `comm` may contain spaces or parentheses. Darwin has no `/proc`, so it reads
- *  the first character of `ps -o stat= -p`. */
-function pidStopped(pid: number): boolean {
-  if (process.platform === "linux") {
-    let stat: string;
-    try {
-      stat = readFileSync(`/proc/${pid}/stat`, "utf8");
-    } catch {
-      return false; // No stat entry ⇒ already gone.
-    }
-    const end = stat.lastIndexOf(")");
-    const state = end === -1 ? "" : stat.slice(end + 2, end + 3);
-    return state === "T" || state === "t";
-  }
-  try {
-    const out = execFileSync("ps", ["-o", "stat=", "-p", String(pid)], {
-      encoding: "utf8",
-    }).trim();
-    const first = out[0];
-    return first === "T" || first === "t";
-  } catch {
-    return false; // `ps` printed nothing / exited non-zero ⇒ gone.
-  }
-}
-
-/** SIGTERM `pid`, wait, escalate to SIGKILL, wait again — see the module doc.
- *  The two waits are ONE fiber, so a caller that gives up (a lost race, an
- *  interrupted converge) cancels the outstanding poll with it rather than
- *  leaving a timer running against a pid nobody is waiting on any more. */
+ * `readProcessState` is REQUIRED — no default, no optional: a default would be a
+ * knob, and the platform read it stands in for belongs to a composition root
+ * (`osfacts-client`), never to this package. Its error channel is on this
+ * Effect, so a read that could not complete fails the ladder rather than
+ * degrading to the graceful window (see the module doc).
+ */
 export function reapHolder(
   pid: number,
+  readProcessState: ReadProcessState,
   opts: ReapHolderOptions = {},
-): Effect.Effect<ReapOutcome> {
+): Effect.Effect<ReapOutcome, OsfactsClientError> {
   return Effect.gen(function* () {
     const startedAt = Date.now();
     const waited = (): number => Date.now() - startedAt;
 
-    yield* Effect.sync(() => signalIgnoringRace(pid, "SIGTERM"));
-    // A STOPPED holder cannot hear that SIGTERM — it is queued, not delivered —
-    // so there is no shutdown handler to give the graceful window to. Skip it
-    // and escalate now: SIGKILL IS delivered to a stopped process, and waiting
-    // out REAP_TERM_CEILING_MS against one is the 2 minutes the #2101 incident
-    // paid for nothing. The observation is read ONCE, here, and a read that
-    // fails is "gone" — the happy path the wait below would report anyway.
-    if (yield* Effect.sync(() => pidStopped(pid))) {
-      yield* Effect.sync(() => signalIgnoringRace(pid, "SIGKILL"));
+    // ONE observation, at the moment of reap — not a poller. A failed read
+    // travels the error channel (the endpoint reports `dead` and rethrows);
+    // `undefined` (pid gone) falls through and the KILL leg reports it.
+    const stopped = isStoppedState(yield* readProcessState(pid));
+
+    // Step 1 is for a daemon that HAS a shutdown handler to run. A stopped
+    // holder provably does not (its SIGTERM would be queued, never delivered),
+    // so the graceful window is skipped and SIGKILL — which IS delivered to a
+    // stopped process — takes it now.
+    if (!stopped) {
+      yield* Effect.sync(() => signalIgnoringRace(pid, "SIGTERM"));
       if (
         yield* waitForPidGone(pid, {
-          timeoutMs: opts.killCeilingMs ?? REAP_KILL_CEILING_MS,
+          timeoutMs: opts.termCeilingMs ?? REAP_TERM_CEILING_MS,
           intervalMs: opts.intervalMs,
         })
       ) {
-        return {
-          kind: "reaped",
-          endedBy: "SIGKILL",
-          waitedMs: waited(),
-          reason: "stopped",
-        };
+        return { kind: "reaped", endedBy: "SIGTERM", waitedMs: waited() };
       }
-      return { kind: "survived", waitedMs: waited() };
-    }
-    if (
-      yield* waitForPidGone(pid, {
-        timeoutMs: opts.termCeilingMs ?? REAP_TERM_CEILING_MS,
-        intervalMs: opts.intervalMs,
-      })
-    ) {
-      return { kind: "reaped", endedBy: "SIGTERM", waitedMs: waited() };
     }
 
+    // The ONE KILL leg — reached immediately on the stopped path, past the
+    // graceful deadline otherwise. `reason` records WHY the graceful leg was
+    // skipped on BOTH outcomes, so the endpoint's survivor message and the
+    // takeover's observation line read the same fact.
     yield* Effect.sync(() => signalIgnoringRace(pid, "SIGKILL"));
     if (
       yield* waitForPidGone(pid, {
@@ -179,9 +167,18 @@ export function reapHolder(
         intervalMs: opts.intervalMs,
       })
     ) {
-      return { kind: "reaped", endedBy: "SIGKILL", waitedMs: waited() };
+      return stopped
+        ? {
+            kind: "reaped",
+            endedBy: "SIGKILL",
+            waitedMs: waited(),
+            reason: "stopped",
+          }
+        : { kind: "reaped", endedBy: "SIGKILL", waitedMs: waited() };
     }
 
-    return { kind: "survived", waitedMs: waited() };
+    return stopped
+      ? { kind: "survived", waitedMs: waited(), reason: "stopped" }
+      : { kind: "survived", waitedMs: waited() };
   });
 }

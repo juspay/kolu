@@ -26,6 +26,7 @@ import {
   type RestartSteps,
   serializeRestart,
 } from "@kolu/surface-daemon-supervisor";
+import { processStateReader } from "@kolu/surface-daemon-supervisor";
 import { Cause, Context, Effect, Fiber, MutableRef, Ref } from "effect";
 import {
   DEFAULT_MIRROR_SCROLLBACK,
@@ -436,6 +437,7 @@ export function ensureLocalEndpoint(opts: {
         // resolution timings on adjacent lines is how the two drift apart.
         readProcessIdentity: (pid) => processIdentityAsync(osfactsBin, pid),
         readSocketHolders: osfactsSocketHolders(osfactsBin),
+        readProcessState: processStateReader(osfactsBin),
         policy: kavalConvergencePolicy(),
         probe: (socketPath) => probeKavalForConvergence(socketPath),
         driver: localKavalDriver(home.socketPath),
