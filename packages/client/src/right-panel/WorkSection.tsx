@@ -222,6 +222,16 @@ const LaneRow: Component<{
 }> = (props) => {
   const status = () => STATUS_META[props.lane.status];
   const hue = () => ODU_HUE[status().hue].text;
+  /** THE BAR, or nothing — one reading, so "is there a bar" is asked once
+   *  rather than split across two conditions a reader has to recombine. A span
+   *  that begins AT the track's end is the clamp's answer for a lane whose
+   *  start outran the run; it has nowhere to be drawn. A zero-WIDTH span is not
+   *  the same thing — a node that genuinely took no measurable time has
+   *  `durationMs: 0`, which is the case the bar's minimum width exists for. */
+  const bar = (): LaneSpan | null => {
+    const span = props.span;
+    return span === null || span.left >= 1 ? null : span;
+  };
   /** What the bar says when you point at it, in the ladder the row's own cells
    *  print — spelled off the SPAN's clamped milliseconds, so the tooltip and
    *  the bar cannot tell different stories about a skewed lane host. */
@@ -262,24 +272,22 @@ const LaneRow: Component<{
        *  span exists to prevent. The track clips, so a clamped bar carrying its
        *  minimum width cannot cross the edge the axis calls the total. */}
       <span class="relative h-2.5 self-center overflow-hidden rounded-sm bg-fg-3/10">
-        <Show when={props.span}>
+        <Show when={bar()}>
           {(span) => (
-            <Show when={span().width > 0}>
-              <span
-                data-testid="inspector-odu-lane-bar"
-                class={`absolute inset-y-0 min-w-0.5 rounded-sm opacity-60 ${hue()}`}
-                classList={{
-                  "bg-current": span().kind === "settled",
-                  "bg-[repeating-linear-gradient(135deg,currentColor_0_3px,transparent_3px_6px)]":
-                    span().kind === "running",
-                }}
-                style={{
-                  left: `${span().left * 100}%`,
-                  width: `${span().width * 100}%`,
-                }}
-                title={barTitle(span())}
-              />
-            </Show>
+            <span
+              data-testid="inspector-odu-lane-bar"
+              class={`absolute inset-y-0 min-w-0.5 rounded-sm opacity-60 ${hue()}`}
+              classList={{
+                "bg-current": span().kind === "settled",
+                "bg-[repeating-linear-gradient(135deg,currentColor_0_3px,transparent_3px_6px)]":
+                  span().kind === "running",
+              }}
+              style={{
+                left: `${span().left * 100}%`,
+                width: `${span().width * 100}%`,
+              }}
+              title={barTitle(span())}
+            />
           )}
         </Show>
       </span>
@@ -788,12 +796,17 @@ const WorkSection: Component<{
                     class="relative col-start-4 h-3 text-[10px] text-fg-3"
                   >
                     <For each={timelineTicks(ci().run, now())}>
-                      {(tick, index) => (
+                      {(tick) => (
                         <span
                           class="absolute top-0 border-l border-edge pl-0.5"
                           classList={{
+                            // The last mark sits ON the track's right edge, so
+                            // it hangs its rule and its label inward; asked by
+                            // POSITION rather than by an index, which would be
+                            // this file holding an opinion about how many marks
+                            // odu mints.
                             "-translate-x-full border-l-0 border-r pr-0.5 pl-0":
-                              index() === 3,
+                              tick.at === 1,
                           }}
                           style={{ left: `${tick.at * 100}%` }}
                         >
@@ -802,7 +815,7 @@ const WorkSection: Component<{
                            *  position and a number, never a spelling, so an
                            *  axis never reads `55.4s` over a cell that reads
                            *  `55s`. */}
-                          {index() === 0 || index() === 3
+                          {tick.at === 0 || tick.at === 1
                             ? compactPhrase(tick.ms)
                             : ""}
                         </span>

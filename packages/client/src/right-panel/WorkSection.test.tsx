@@ -652,6 +652,14 @@ describe("WorkSection odu CI readout", () => {
             startedAt: null,
             durationMs: null,
           }),
+          // Ran, and took no measurable time — a logical node whose shards all
+          // reported none. It HAS a place on the timeline, and the bar's own
+          // minimum width is what keeps it visible; a width-gated row would
+          // drop the one lane that rule exists for.
+          lane("ci::fmt@x86_64-linux", "ok", {
+            startedAt: clock.START - 50_000,
+            durationMs: 0,
+          }),
         ],
       },
       recent: [live],
@@ -678,6 +686,8 @@ describe("WorkSection odu CI readout", () => {
       { left: "0%", width: "50%" },
       // A lane that never started draws NO bar — an empty track is the signal.
       null,
+      // The instant one: placed where it ran, with no width to give it.
+      { left: "50%", width: "0%" },
     ]);
 
     // A hundred seconds later the run is twice as long, so the same two facts
@@ -688,6 +698,7 @@ describe("WorkSection odu CI readout", () => {
       { left: "25%", width: "75%" },
       { left: "0%", width: "25%" },
       null,
+      { left: "25%", width: "0%" },
     ]);
   });
 
