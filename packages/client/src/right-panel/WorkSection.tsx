@@ -223,14 +223,28 @@ const LaneRow: Component<{
 }> = (props) => {
   const status = () => STATUS_META[props.lane.status];
   const hue = () => ODU_HUE[status().hue].text;
-  /** What the bar says when you point at it — the two facts its geometry draws,
-   *  in the words the row's own cells use. */
-  const barTitle = (): string =>
-    `started +${compactPhrase(Math.max(0, (props.lane.startedAt ?? 0) - props.runStartedAt))} · ${
-      props.lane.durationMs === null
-        ? "still running"
-        : `took ${compactPhrase(props.lane.durationMs)}`
-    }`;
+  /** THE BAR, and what it says — one reading, so the title is spelled exactly
+   *  where the lane's own start is known to exist. A bar is drawn only for a
+   *  lane that HAS started, so there is no absent start to stand in for: the
+   *  two conditions are the same condition, and asking them separately is what
+   *  invites a `?? 0` for a state the bar cannot be in.
+   *
+   *  A start before the run's own (a lane host whose clock runs behind) is
+   *  skew, and the ladder's own untrustworthy-delta policy answers it — the
+   *  same one every other duration in this file is subject to. */
+  const bar = (): { span: LaneSpan; title: string } | null => {
+    const span = props.span;
+    const startedAt = props.lane.startedAt;
+    if (span === null || startedAt === null) return null;
+    return {
+      span,
+      title: `started +${compactPhrase(startedAt - props.runStartedAt)} · ${
+        props.lane.durationMs === null
+          ? "still running"
+          : `took ${compactPhrase(props.lane.durationMs)}`
+      }`,
+    };
+  };
   return (
     <>
       <span class={`w-3 text-center ${hue()}`} title={props.lane.status}>
@@ -255,8 +269,8 @@ const LaneRow: Component<{
        *  glyph; a running lane's tail is hatched in that same colour and grows
        *  with the clock, because a solid end would claim it had finished. */}
       <span class="relative h-2.5 self-center rounded-sm bg-fg-3/10">
-        <Show when={props.span}>
-          {(span) => (
+        <Show when={bar()}>
+          {(drawn) => (
             <span
               data-testid="inspector-odu-lane-bar"
               class={`absolute inset-y-0 min-w-0.5 rounded-sm opacity-60 ${hue()}`}
@@ -266,10 +280,10 @@ const LaneRow: Component<{
                   props.lane.durationMs === null,
               }}
               style={{
-                left: `${span().left * 100}%`,
-                width: `${span().width * 100}%`,
+                left: `${drawn().span.left * 100}%`,
+                width: `${drawn().span.width * 100}%`,
               }}
-              title={barTitle()}
+              title={drawn().title}
             />
           )}
         </Show>
@@ -788,7 +802,14 @@ const WorkSection: Component<{
                           }}
                           style={{ left: `${tick.at * 100}%` }}
                         >
-                          {index() === 0 || index() === 3 ? tick.label : ""}
+                          {/* kolu's OWN ladder, the one every duration in this
+                           *  section already prints — odu's tick carries a
+                           *  position and a number, never a spelling, so an
+                           *  axis never reads `55.4s` over a cell that reads
+                           *  `55s`. */}
+                          {index() === 0 || index() === 3
+                            ? compactPhrase(tick.ms)
+                            : ""}
                         </span>
                       )}
                     </For>
