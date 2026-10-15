@@ -191,9 +191,13 @@ const SUBHEAD =
  *
  *  A cell is ALWAYS present, even when it has nothing to say: a row that
  *  omitted its empty attempt or scope would shift every later column left and
- *  take the alignment with it. */
+ *  take the alignment with it.
+ *
+ *  The lane id outweighs its timeline track, deliberately: the track is a
+ *  PICTURE and shrinks gracefully, while an id shortened past `ci::install@…`
+ *  stops naming the work the row is about. */
 const LANE_GRID =
-  "grid grid-cols-[auto_minmax(0,1fr)_auto_minmax(3rem,1.2fr)_auto_auto] gap-x-1.5 gap-y-0.5 text-[11px]";
+  "grid grid-cols-[auto_minmax(0,1.6fr)_auto_minmax(2.5rem,1fr)_auto_auto] gap-x-1.5 gap-y-0.5 text-[11px]";
 const RECENT_GRID =
   "grid grid-cols-[minmax(0,auto)_auto_auto_minmax(0,1fr)_auto_auto] gap-x-1.5 gap-y-0.5 text-[11px]";
 const ROW = "col-span-full grid grid-cols-subgrid items-center";
@@ -762,7 +766,13 @@ const WorkSection: Component<{
                    *  empty cells, so the axis cannot drift from the track it
                    *  labels. Ticks are odu's own, like the geometry: a
                    *  hand-rolled scale here would be a second answer to where
-                   *  the middle of a run is. */}
+                   *  the middle of a run is.
+                   *
+                   *  EVERY tick is marked; only the ENDS are labelled. The
+                   *  Inspector's track is a few dozen pixels wide, where four
+                   *  durations collide into one smear — and the two a reader
+                   *  needs are the origin and the total. Which labels fit is
+                   *  this panel's business; where the marks go is not. */}
                   <li
                     data-testid="inspector-odu-lane-axis"
                     aria-hidden="true"
@@ -778,7 +788,7 @@ const WorkSection: Component<{
                           }}
                           style={{ left: `${tick.at * 100}%` }}
                         >
-                          {tick.label}
+                          {index() === 0 || index() === 3 ? tick.label : ""}
                         </span>
                       )}
                     </For>
