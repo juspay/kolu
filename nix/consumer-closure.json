@@ -515,7 +515,7 @@
       "dir": "odu/run-client",
       "pin": {
         "name": "odu",
-        "revision": "c7dbf8b23bbf38f8409c13b63d75efe4cf0cce42",
+        "revision": "f4376a94d4a70f0f88679093a9fd45277e0c9b23",
         "subdir": "packages/run-client"
       },
       "vendored": true,
@@ -530,7 +530,7 @@
       "dir": "odu/run-history",
       "pin": {
         "name": "odu",
-        "revision": "c7dbf8b23bbf38f8409c13b63d75efe4cf0cce42",
+        "revision": "f4376a94d4a70f0f88679093a9fd45277e0c9b23",
         "subdir": "packages/run-history"
       },
       "vendored": true,
@@ -545,7 +545,7 @@
       "dir": "odu/service-client",
       "pin": {
         "name": "odu",
-        "revision": "c7dbf8b23bbf38f8409c13b63d75efe4cf0cce42",
+        "revision": "f4376a94d4a70f0f88679093a9fd45277e0c9b23",
         "subdir": "packages/service-client"
       },
       "vendored": true,

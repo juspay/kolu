@@ -167,14 +167,31 @@ const oduRef = (run: RunRow): string => {
 const SUBHEAD =
   "pt-1.5 pb-0.5 text-[10px] font-bold uppercase tracking-[0.1em] text-fg-3/60";
 
-/** The lane row's layout — shared by the arms that can be clicked and the one
- *  that cannot, so a row is one row whichever element it turns out to be.
- *  `group/lane` is the hover the ID underlines through, which is an affordance
- *  only the clickable arms get. */
-const ROW = "flex min-w-0 items-center gap-1.5";
-/** …and a chip's own chrome, and a lane row's layout minus the glyph. */
+/** THE ODU LISTS ARE TABLES, and these three strings are where that lives.
+ *
+ *  Each `<ul>` is the grid and each row spans it with `grid-cols-subgrid`, so
+ *  every cell measures against the WHOLE list rather than its own row: the
+ *  durations line up under each other, the hosts start at one x, and a long
+ *  lane id shortens its own cell instead of shoving the numbers sideways. The
+ *  rows used to be independent flex lines, where `ml-auto` had nothing to push
+ *  against (the clickable element is not full-width) and no column agreed with
+ *  the one above it.
+ *
+ *  TWO levels carry `ROW`: the `<li>`, which is the grid's own item, and the
+ *  clickable element inside it — otherwise the cells are laid out against the
+ *  anchor rather than against the list. `group/lane` is the hover the id
+ *  underlines through, an affordance only the clickable arms get.
+ *
+ *  A cell is ALWAYS present, even when it has nothing to say: a row that
+ *  omitted its empty attempt or scope would shift every later column left and
+ *  take the alignment with it. */
+const LANE_GRID =
+  "grid grid-cols-[auto_minmax(0,1fr)_auto_auto_auto] gap-x-1.5 gap-y-0.5 text-[11px]";
+const RECENT_GRID =
+  "grid grid-cols-[minmax(0,auto)_auto_auto_minmax(0,1fr)_auto_auto] gap-x-1.5 gap-y-0.5 text-[11px]";
+const ROW = "col-span-full grid grid-cols-subgrid items-center";
+/** …and a chip's own chrome, which is a control rather than a row. */
 const CHIP_ROW = "inline-flex";
-const RECENT_ROW = "flex min-w-0 items-baseline gap-1.5";
 const ODU_TITLE = "open in odu";
 
 /** One lane: its own facts, and the way out to that attempt's log in odu web.
@@ -182,19 +199,12 @@ const ODU_TITLE = "open in odu";
  *  Long output is READ in odu's own page (searchable, coloured, followed live),
  *  so a lane's row is the link to it — the whole row, because every fact on it is
  *  about one attempt. */
-const LaneRow: Component<{
-  lane: RunNode;
-  /** The lane's own facts, wrapped by the caller's `OduLink`. */
-  children?: JSX.Element;
-}> = (props) => {
+const LaneRow: Component<{ lane: RunNode }> = (props) => {
   const status = () => STATUS_META[props.lane.status];
   const hue = () => ODU_HUE[status().hue].text;
   return (
     <>
-      <span
-        class={`w-3 shrink-0 text-center ${hue()}`}
-        title={props.lane.status}
-      >
+      <span class={`w-3 text-center ${hue()}`} title={props.lane.status}>
         {status().glyph}
       </span>
       <span
@@ -204,17 +214,18 @@ const LaneRow: Component<{
         {props.lane.id}
       </span>
       {/* Attempts beyond the first, then the two facts a lane cannot say in its
-       *  id: how long it took, and which machine it landed on. */}
-      <Show when={props.lane.attempt > 1}>
-        <span class="shrink-0 text-fg-3">#{props.lane.attempt}</span>
-      </Show>
-      <span class="ml-auto shrink-0 tabular-nums text-fg-3">
+       *  id: how long it took, and which machine it landed on. Each keeps its
+       *  cell when it has nothing to say — an omitted cell would slide the rest
+       *  of the row out from under the column above it. */}
+      <span class="text-fg-3">
+        {props.lane.attempt > 1 ? `#${props.lane.attempt}` : ""}
+      </span>
+      <span class="text-right tabular-nums text-fg-3">
         {props.lane.durationMs === null
           ? ""
           : compactPhrase(props.lane.durationMs)}
       </span>
-      <span class="shrink-0 font-mono text-fg-3">{props.lane.host ?? ""}</span>
-      {props.children}
+      <span class="font-mono text-fg-3">{props.lane.host ?? ""}</span>
     </>
   );
 };
@@ -695,13 +706,10 @@ const WorkSection: Component<{
             >
               <Show when={ci().lanes.length > 0}>
                 <div class={SUBHEAD}>Lanes</div>
-                <ul
-                  data-testid="inspector-odu-lanes"
-                  class="flex flex-col gap-0.5 text-[11px]"
-                >
+                <ul data-testid="inspector-odu-lanes" class={LANE_GRID}>
                   <For each={ci().lanes}>
                     {(lane) => (
-                      <li>
+                      <li class={ROW}>
                         <OduLink
                           act={() => props.odu?.act(laneHash(ci().run, lane))}
                           onOpen={() =>
@@ -718,25 +726,20 @@ const WorkSection: Component<{
                 </ul>
               </Show>
               <div class={SUBHEAD}>Recent runs</div>
-              <ul
-                data-testid="inspector-odu-recent"
-                class="flex flex-col gap-0.5 text-[11px]"
-              >
+              <ul data-testid="inspector-odu-recent" class={RECENT_GRID}>
                 <For each={ci().recent}>
                   {(run, index) => (
-                    <li>
+                    <li class={ROW}>
                       <OduLink
                         act={() => props.odu?.act(runHash(run.runId))}
                         onOpen={() => props.odu?.open(runHash(run.runId))}
                         testid="inspector-odu-run-link"
-                        class={RECENT_ROW}
+                        class={ROW}
                       >
                         <span class="min-w-0 truncate font-mono group-hover/lane:underline">
                           {oduRef(run)}
                         </span>
-                        <span
-                          class={`shrink-0 ${ODU_HUE[runStatus(run).hue].text}`}
-                        >
+                        <span class={ODU_HUE[runStatus(run).hue].text}>
                           {runStatus(run).label}
                         </span>
                         {/* How long the run TOOK — odu's own rule, which stops
@@ -744,31 +747,28 @@ const WorkSection: Component<{
                          *  and only a run still going ticks with the clock. */}
                         <span
                           data-testid="inspector-odu-run-took"
-                          class="shrink-0 tabular-nums text-fg-3"
+                          class="text-right tabular-nums text-fg-3"
                         >
                           {compactPhrase(runElapsedMs(run, now()))}
                         </span>
                         {/* The same compact qualifier the summary carries, and
                          *  only when the run was scoped: a row whose run covered
-                         *  the whole pipeline has nothing extra to say, and one
-                         *  line is what keeps the list scannable. */}
-                        <Show when={scopeSuffix(run.scope)}>
-                          {(scope) => (
-                            <span
-                              class="min-w-0 truncate text-fg-3"
-                              title={scope()}
-                            >
-                              {scope()}
-                            </span>
-                          )}
-                        </Show>
+                         *  the whole pipeline has nothing extra to say — the
+                         *  cell stays either way, because the columns after it
+                         *  are measured down the whole list. */}
+                        <span
+                          class="min-w-0 truncate text-fg-3"
+                          title={scopeSuffix(run.scope) ?? undefined}
+                        >
+                          {scopeSuffix(run.scope) ?? ""}
+                        </span>
                         {/* The head of this list IS the run the chip above is
                          *  about — said, rather than left to be inferred from an
                          *  ordering. */}
-                        <Show when={index() === 0}>
-                          <span class="shrink-0 text-fg-3">current</span>
-                        </Show>
-                        <span class="ml-auto shrink-0 text-fg-3">
+                        <span class="text-fg-3">
+                          {index() === 0 ? "current" : ""}
+                        </span>
+                        <span class="text-right text-fg-3">
                           {agoPhrase(run.createdAt, now())}
                         </span>
                       </OduLink>
