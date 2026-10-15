@@ -293,9 +293,7 @@ unit: install
 # second-longest pole. Its wall time is a handful of expensive FILES, not one
 # long suite — `packages/padi/src/dial.test.ts` alone is ~170 s of padi's 308 s,
 # almost all of it wall-clock deadlines baked into ONE test — so no package-level
-# fan-out helps and a borrowed box is already worth it. vitest owns the split
-# (`--shard`, file-level); `test-daemon` translates the zero-based `ODU_SHARD_*`
-# pair and refuses one that does not parse.
+# fan-out helps and a borrowed box is already worth it.
 #
 # N is MEASURED, not guessed. One run at a time with the whole pool free
 # (`selectors: ["ci::daemon"]`, x86_64-linux), the folded `ci::daemon` duration

@@ -157,9 +157,10 @@ export function reapHolder(
     }
 
     // The ONE KILL leg — reached immediately on the stopped path, past the
-    // graceful deadline otherwise. `reason` records WHY the graceful leg was
-    // skipped on BOTH outcomes, so the endpoint's survivor message and the
+    // graceful deadline otherwise. `skipped` records WHY the graceful leg was
+    // skipped, on BOTH outcomes, so the endpoint's survivor message and the
     // takeover's observation line read the same fact.
+    const skipped = stopped ? { reason: "stopped" as const } : {};
     yield* Effect.sync(() => signalIgnoringRace(pid, "SIGKILL"));
     if (
       yield* waitForPidGone(pid, {
@@ -167,18 +168,14 @@ export function reapHolder(
         intervalMs: opts.intervalMs,
       })
     ) {
-      return stopped
-        ? {
-            kind: "reaped",
-            endedBy: "SIGKILL",
-            waitedMs: waited(),
-            reason: "stopped",
-          }
-        : { kind: "reaped", endedBy: "SIGKILL", waitedMs: waited() };
+      return {
+        kind: "reaped",
+        endedBy: "SIGKILL",
+        waitedMs: waited(),
+        ...skipped,
+      };
     }
 
-    return stopped
-      ? { kind: "survived", waitedMs: waited(), reason: "stopped" }
-      : { kind: "survived", waitedMs: waited() };
+    return { kind: "survived", waitedMs: waited(), ...skipped };
   });
 }

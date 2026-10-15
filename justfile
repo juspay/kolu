@@ -357,22 +357,14 @@ _reap-ci-run:
 # skips it in `test-unit`. Before that split both recipes traversed all 54 suites
 # and every fork-free test ran twice per CI run.
 #
-# SHARDED at the FILE level when odu hands down a pair (ci::daemon carries
-# `[metadata("odu:shard=N")]`): `ODU_SHARD_INDEX`/`ODU_SHARD_TOTAL` become one
-# vitest `--shard=<index+1>/<total>` appended to every package's `test:daemon`, so
-# the split is per package, and the slice a box runs is files. Package-level
-# sharding was considered and rejected — padi alone is 308 s, so a package-level
-# floor would cap the win at that package's wall time. vitest's own split is a
-# CONTIGUOUS slice of the files SORTED BY THE SHA1 OF THEIR PATH (not an
-# interleaved deal, and not cost-aware), deterministic for a given file list and
-# a given N; the folded lane is the slowest slice, so the win is bounded by the
-# slowest single file plus the ~15 package boots.
-#
-# The pair is validated the same way `ci::e2e` validates it: a half-set or
-# out-of-range pair is a runner bug, and exit 2 says so instead of quietly running
-# the whole workspace N times or nothing at all. The EXIT janitor and
-# `KOLU_DAEMON_BIND_PID` leash below stay per-slice — each shard is its own box
-# and its own run pid.
+# SHARDED at the FILE level when odu hands down a pair (the shard contract is at
+# the top of `ci/mod.just`): `ODU_SHARD_INDEX`/`ODU_SHARD_TOTAL` become one
+# vitest `--shard=<index+1>/<total>` appended to every package's `test:daemon`.
+# vitest's split is a CONTIGUOUS slice of the files SORTED BY THE SHA1 OF THEIR
+# PATH (not interleaved, not cost-aware), deterministic for a given file list and
+# N. The pair is validated as `ci::e2e` validates it: a half-set or out-of-range
+# pair is a runner bug, and exit 2 says so instead of quietly running the whole
+# workspace N times or nothing at all.
 #
 # `--passWithNoTests` is passed ONLY in the sharded branch: a package with fewer
 # files than shards gets an empty slice, and vitest exits non-zero ("No test
@@ -383,7 +375,8 @@ _reap-ci-run:
 # line, no `test:daemon` script may declare it itself: vitest's arg parser
 # rejects a repeated boolean (`Expected a single value for option
 # "--passWithNoTests"`), so `kolu-io`'s copy was dropped when its suite gained
-# real test files.
+# real test files. The EXIT janitor and `KOLU_DAEMON_BIND_PID` leash below stay
+# per-slice — each shard is its own box and its own run pid.
 test-daemon: install
     #!/usr/bin/env bash
     set -euo pipefail

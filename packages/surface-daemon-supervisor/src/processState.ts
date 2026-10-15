@@ -8,39 +8,31 @@
  * a 120 s graceful window that could only ever be spent for nothing (#2101).
  *
  * **Nothing here reads the OS, and nothing here parses a platform's process
- * table.** The old reader hand-rolled `/proc/<pid>/stat` on linux and shelled out
- * to `ps -o stat=` on darwin. Both are gone: the state is one `osfacts snapshot
- * --pids <pid> --status` call, whose `STAT` row already carries the same symbol
- * `ps` would print. What is left in this module is the SHAPE OF THE ASK — a
- * function type on `EndpointSpec`, and the fold from a status reading to the one
- * domain answer a caller acts on.
+ * table.** The state is one `osfacts snapshot --pids <pid> --status` call, whose
+ * `STAT` row already carries the same symbol `ps` would print. What is left in
+ * this module is the SHAPE OF THE ASK — a function type on `EndpointSpec`, and
+ * the fold from a status reading to the one domain answer a caller acts on. Its
+ * binary-path-injection contract is {@link ReadSocketHolders}'s, stated once in
+ * `socketHolder.ts`: a consumer bakes its own env var and binds this reader to
+ * the same resolved path.
  *
- * **The binary path is injected, not resolved here.** `@kolu/surface-daemon-supervisor`
- * is shared spine: kolu bakes `KOLU_OSFACTS_BIN` and drishti bakes
- * `DRISHTI_OSFACTS_BIN`, and a package that knew either name would be a package
- * that belongs to one of them. Composition roots resolve their own bake once
- * (`bakedOsFactsBin(<their var>)`, which throws loudly at boot when the wrapper
- * did not bake it — no PATH fallback, here or anywhere) and pass that path to
- * {@link processStateReader}.
- *
- * **A read that fails is a FAILURE, never "not stopped".** The fold keeps the
- * same contract as `osfacts-client`'s own `processIdentityAsync`: ESRCH/ENOENT is
- * an honest domain answer (`undefined` — the pid is gone, and the reap ladder's
- * KILL leg reports that immediately anyway), and any other unreadable or missing
- * row THROWS into the error channel. A caller must never see a failed read
- * collapsed into "proceed with the graceful wait", which is the silent fallback
- * this seam exists to make unspellable.
+ * **A read that fails is a FAILURE, never "not stopped".** ESRCH/ENOENT is an
+ * honest domain answer (`undefined` — the pid is gone, and the reap ladder's
+ * KILL leg reports that immediately anyway); any other unreadable or missing row
+ * fails the Effect. A caller must never see a failed read collapsed into
+ * "proceed with the graceful wait", which is the silent fallback this seam
+ * exists to make unspellable.
  */
 import { Effect } from "effect";
-import type { OsfactsClientError } from "osfacts-client";
+import type { OsfactsClientError, SnapshotReading } from "osfacts-client";
 import { OsfactsParseError, snapshotPids } from "osfacts-client";
 
 /**
- * A pid's OS run state — the single-character `ps`/`/proc/<pid>/stat` symbol
- * (`R` running, `S`/`D` sleeping, `T` stopped, `t` tracing stop, `Z` zombie, …),
- * as `osfacts snapshot --status` reports it. Deliberately the RAW symbol: folding
- * a symbol to a consumer's own vocabulary is the consumer's one decision, and a
- * reader that guessed would be a second place to change.
+ * A pid's OS run state — the single-character `ps` symbol `osfacts snapshot
+ * --status` reports (`R` running, `S`/`D` sleeping, `T` stopped, `t` tracing
+ * stop, `Z` zombie, …). Deliberately the RAW symbol: folding a symbol to a
+ * consumer's own vocabulary is the consumer's one decision, and a reader that
+ * guessed would be a second place to change.
  */
 export type ProcessState = string;
 
@@ -60,21 +52,17 @@ export type ReadProcessState = (
 
 /**
  * The fold from a `--status` reading to a pid's run state, or `undefined` when
- * the pid is dead/absent. A twin of `osfacts-client`'s `foldStartTimeReading`,
- * and the same contract: ESRCH/ENOENT is an honest domain answer (`undefined` —
- * the pid is gone), and any other unreadable or missing row throws, because a
- * live pid the OS declined to describe is a failure a caller must see rather
- * than a state it may guess at.
+ * the pid is dead/absent — a twin of `osfacts-client`'s `foldStartTimeReading`,
+ * with the same contract: ESRCH/ENOENT is an honest domain answer, and any other
+ * unreadable or missing row is a FAILURE, because a live pid the OS declined to
+ * describe is not a state a caller may guess at.
  */
 function foldStatusReading(
-  reading: {
-    statuses: readonly { pid: number; state: string }[];
-    unreadable: readonly { pid: number; facet: string; errno: string }[];
-  },
+  reading: SnapshotReading,
   pid: number,
-): ProcessState | undefined {
+): Effect.Effect<ProcessState | undefined, OsfactsClientError> {
   const row = reading.statuses.find((value) => value.pid === pid);
-  if (row !== undefined) return row.state;
+  if (row !== undefined) return Effect.succeed(row.state);
   const unreadable = reading.unreadable.find(
     (value) => value.pid === pid && value.facet === "status",
   );
@@ -82,14 +70,16 @@ function foldStatusReading(
     unreadable !== undefined &&
     (unreadable.errno === "ESRCH" || unreadable.errno === "ENOENT")
   ) {
-    return undefined;
+    return Effect.succeed(undefined);
   }
-  throw new OsfactsParseError({
-    message:
-      unreadable !== undefined
-        ? `osfacts could not read pid ${pid} state (${unreadable.errno})`
-        : `osfacts returned no state for pid ${pid}`,
-  });
+  return Effect.fail(
+    new OsfactsParseError({
+      message:
+        unreadable !== undefined
+          ? `osfacts could not read pid ${pid} state (${unreadable.errno})`
+          : `osfacts returned no state for pid ${pid}`,
+    }),
+  );
 }
 
 /**
@@ -101,9 +91,6 @@ function foldStatusReading(
 export function processStateReader(bin: string): ReadProcessState {
   return (pid) =>
     Effect.flatMap(snapshotPids(bin, [pid], { status: true }), (reading) =>
-      Effect.try({
-        try: () => foldStatusReading(reading, pid),
-        catch: (error) => error as OsfactsClientError,
-      }),
+      foldStatusReading(reading, pid),
     );
 }

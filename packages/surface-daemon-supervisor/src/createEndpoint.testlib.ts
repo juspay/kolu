@@ -17,6 +17,7 @@ import {
   type EndpointSpec,
 } from "./endpoint.ts";
 import type { ReadProcessState } from "./processState.ts";
+import { processStateReader } from "./processState.ts";
 import type { ReadSocketHolders } from "./socketHolder.ts";
 
 /**
@@ -86,24 +87,36 @@ export function testReadSocketHolders(envVar: string): ReadSocketHolders {
 }
 
 /**
- * A RUNNING state for every pid — the state-reader double a suite that is not
- * exercising the stopped path passes. `S` is an ordinary sleeping process, so
- * the ladder takes its full graceful leg, which is what every suite that does
- * not name `T`/`t` means. A suite testing the early escalation passes its own
- * reader (`() => Effect.succeed("T")`); a suite testing the read failure passes
- * one that fails.
+ * The REAL osfacts-backed state reader, for a suite that pins the fold against
+ * the pinned osfacts — the dead-pid and stopped-pid SHAPES are wire facts, so a
+ * fake would prove nothing about the reader that actually runs. Same env-var
+ * indirection and lazy resolution as {@link testReadSocketHolders}.
  */
-export const testReadProcessState: ReadProcessState = () => Effect.succeed("S");
+export function testReadProcessState(envVar: string): ReadProcessState {
+  return (pid) =>
+    Effect.suspend(() => processStateReader(bakedOsFactsBin(envVar))(pid));
+}
 
 /**
- * {@link createEndpointCore} with the identity and state injects supplied.
+ * A RUNNING state for every pid — the double a suite that is not exercising the
+ * stopped path passes. `S` is an ordinary sleeping process, so the ladder takes
+ * its full graceful leg, which is what every suite that does not name `T`/`t`
+ * means. A suite testing the early escalation passes `() => Effect.succeed("T")`;
+ * one testing the fold passes {@link testReadProcessState}.
+ */
+export const testRunningProcessState: ReadProcessState = () =>
+  Effect.succeed("S");
+
+/**
+ * {@link createEndpointCore} with the identity inject supplied.
  *
- * `readSocketHolders` stays REQUIRED, exactly as production has it: a default
- * here — even a throwing one — is a fallback that defers a missing required
- * inject from construction to first use, and it let a suite pass without ever
- * exercising the real injection. kolu's suites get it from
- * `./createEndpoint.kolu.testlib.ts`; a suite that never reaches a holder read
- * passes a one-line stub (`() => Effect.succeed({ kind: "none" })`) and says so.
+ * `readSocketHolders` and `readProcessState` stay REQUIRED, exactly as
+ * production has them: a default here — even a throwing one — is a fallback that
+ * defers a missing required inject from construction to first use, and it let a
+ * suite pass without ever exercising the real injection. kolu's suites get both
+ * from `./createEndpoint.kolu.testlib.ts`; a suite that never reaches them
+ * passes the doubles (`() => Effect.succeed({ kind: "none" })`,
+ * {@link testRunningProcessState}) and says so.
  *
  * The spec seam is Effect-shaped and {@link testReadProcessIdentity} is the
  * SYNC reader (it is shared with `acquirePidGate` pins, whose claim path is
@@ -113,12 +126,11 @@ export const testReadProcessState: ReadProcessState = () => Effect.succeed("S");
  * for the rest of the suite.
  */
 export function createEndpointForTest<C, I, M = undefined>(
-  spec: Omit<EndpointSpec<C, I, M>, "readProcessIdentity" | "readProcessState">,
+  spec: Omit<EndpointSpec<C, I, M>, "readProcessIdentity">,
 ) {
   return createEndpointCore({
     ...spec,
     readProcessIdentity: (pid) =>
       Effect.sync(() => testReadProcessIdentity(pid)),
-    readProcessState: testReadProcessState,
   });
 }

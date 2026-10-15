@@ -15,9 +15,10 @@ import {
 } from "@kolu/daemon-test-gate";
 import { isHolderLive } from "@kolu/surface-daemon";
 import { Effect } from "effect";
-import { OsfactsSpawnError } from "osfacts-client";
+import { bakedOsFactsBin, OsfactsSpawnError } from "osfacts-client";
 import { afterEach, expect, it } from "vitest";
 import type { ReadProcessState } from "./processState.ts";
+import { processStateReader } from "./processState.ts";
 import {
   REAP_KILL_CEILING_MS,
   REAP_TERM_CEILING_MS,
@@ -64,6 +65,13 @@ async function sleeper(
 const running: ReadProcessState = () => Effect.succeed("S");
 /** The reader for the #2101 arm: the pid is STOPPED. */
 const stopped: ReadProcessState = () => Effect.succeed("T");
+
+/** The REAL reader, on kolu's baked osfacts — for the two cases that pin the
+ *  fold's SHAPES (a stopped pid, a reaped pid) against the pinned tool, which a
+ *  fake cannot do. */
+function realReader(): ReadProcessState {
+  return processStateReader(bakedOsFactsBin("KOLU_OSFACTS_BIN"));
+}
 
 describeDaemon("reapHolder", () => {
   it("stops a well-behaved process at the FIRST deadline (SIGTERM)", async () => {
@@ -124,6 +132,48 @@ describeDaemon("reapHolder", () => {
     expect(out.waitedMs).toBeLessThan(REAP_KILL_CEILING_MS);
     expect(out.waitedMs).toBeLessThan(REAP_TERM_CEILING_MS / 10);
     expect(isHolderLive(pid)).toBe(false);
+  }, 20_000);
+
+  it("REAL reader: a SIGSTOP'd sleeper reads as stopped — the T arm, end to end", async () => {
+    // The fold's STOPPED shape is an osfacts wire fact (`STAT <pid> T …`), and
+    // the only other place it is exercised is padi's comatose test. If the shape
+    // moved, this is where it is told.
+    const { pid } = await sleeper(false);
+    process.kill(pid, "SIGSTOP");
+    const out = await Effect.runPromise(
+      reapHolder(pid, realReader(), { intervalMs: 10 }),
+    );
+    expect(out).toMatchObject({
+      kind: "reaped",
+      endedBy: "SIGKILL",
+      reason: "stopped",
+    });
+    if (out.kind !== "reaped") throw new Error("unreachable");
+    expect(out.waitedMs).toBeLessThan(REAP_TERM_CEILING_MS / 10);
+    expect(isHolderLive(pid)).toBe(false);
+  }, 20_000);
+
+  it("REAL reader: a reaped pid reads as gone — the ladder returns at once", async () => {
+    // The fold's DEAD shape is the one every ordinary reap races: a daemon that
+    // exits on its own. If it came back as a thrown parse error instead of
+    // `undefined`, every such reap would report `dead` and fail the converge.
+    const { pid, child } = await sleeper(false);
+    const exited = Promise.withResolvers<void>();
+    child.once("exit", () => exited.resolve());
+    process.kill(pid, "SIGKILL");
+    await exited.promise;
+    const reader = realReader();
+    expect(await Effect.runPromise(reader(pid))).toBeUndefined();
+    const out = await Effect.runPromise(
+      reapHolder(pid, reader, {
+        termCeilingMs: 5_000,
+        killCeilingMs: 2_000,
+        intervalMs: 10,
+      }),
+    );
+    expect(out).toMatchObject({ kind: "reaped", endedBy: "SIGTERM" });
+    if (out.kind !== "reaped") throw new Error("unreachable");
+    expect(out.waitedMs).toBeLessThan(REAP_TERM_CEILING_MS / 10);
   }, 20_000);
 
   it("fails the ladder — and does NOT kill — when the state read cannot complete", async () => {

@@ -382,16 +382,13 @@ export interface EndpointSpec<
   /**
    * Ask the OS for a pid's RUN STATE — the raw `osfacts snapshot --status`
    * symbol (`T`/`t` stopped, otherwise running), or `undefined` when the pid is
-   * gone. Required, and injected for exactly the reason above: the endpoint
-   * performs no platform traversal itself, and the osfacts binary's path is
-   * baked under a name only the composing program knows
-   * (`processStateReader(bakedOsFactsBin(…))`).
+   * gone. Required, and injected for the same reason as `readSocketHolders`.
    *
    * The kill ladder reads it ONCE, at the moment of reap: a STOPPED holder
    * cannot run a shutdown handler, so its graceful window is skipped
-   * ({@link reapHolder}). Effect-shaped for the same reason — see
-   * {@link ReadProcessState}; a read that cannot complete travels the error
-   * channel and the endpoint reports `dead`, rather than degrading to the wait.
+   * ({@link reapHolder}). A read that cannot complete travels the error channel
+   * and the endpoint reports `dead`, rather than degrading to the wait — see
+   * {@link ReadProcessState}.
    */
   readProcessState: ReadProcessState;
   /** Spawns the daemon so it outlives us (the survivable-spawn driver). */

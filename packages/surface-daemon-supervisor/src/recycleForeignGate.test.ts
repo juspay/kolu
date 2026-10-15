@@ -46,7 +46,7 @@ import {
 import {
   testAcquireReadIdentity,
   testReadProcessIdentity,
-  testReadProcessState,
+  testRunningProcessState,
   testSelfIdentity,
   testStartUnixUs,
   fromAsync,
@@ -432,7 +432,7 @@ describeDaemon("recycle vs a foreign gate (upgrade-window)", () => {
     const endpoint = createEndpointCore({
       hostId: "local",
       readSocketHolders: readSocketHoldersForKoluTests,
-      readProcessState: testReadProcessState,
+      readProcessState: testRunningProcessState,
       home: {
         dir: dirname(d.socketPath),
         gatePath: d.gatePath,
@@ -523,7 +523,7 @@ describeDaemon("recycle vs a foreign gate (upgrade-window)", () => {
     const endpoint = createEndpointCore<string, Identity>({
       hostId: "local",
       readSocketHolders: readSocketHoldersForKoluTests,
-      readProcessState: testReadProcessState,
+      readProcessState: testRunningProcessState,
       home: {
         dir: dirname(d.socketPath),
         gatePath: d.gatePath,
