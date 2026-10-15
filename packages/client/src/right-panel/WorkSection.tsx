@@ -213,38 +213,24 @@ const ODU_TITLE = "open in odu";
  *  about one attempt. */
 const LaneRow: Component<{
   lane: RunNode;
-  /** WHERE this lane sat in the run, from odu's own geometry — `null` for a
-   *  lane that has not started, which draws no bar: an empty track is the
-   *  signal that it is still waiting on a machine. */
+  /** WHERE this lane sat in the run, from odu's own geometry — `null` where
+   *  there is no span to know: a lane still waiting on a machine, or one that
+   *  stopped without ever running. Either way the empty track IS the signal.
+   *  Its `kind`, its `left`/`width` and its milliseconds are all the same
+   *  answer, so nothing here re-derives any of them. */
   span: LaneSpan | null;
-  /** The run's own start — the origin the bar's `started +…` is measured from.
-   *  The run row's `createdAt` rather than a second reading of it. */
-  runStartedAt: number;
 }> = (props) => {
   const status = () => STATUS_META[props.lane.status];
   const hue = () => ODU_HUE[status().hue].text;
-  /** THE BAR, and what it says — one reading, so the title is spelled exactly
-   *  where the lane's own start is known to exist. A bar is drawn only for a
-   *  lane that HAS started, so there is no absent start to stand in for: the
-   *  two conditions are the same condition, and asking them separately is what
-   *  invites a `?? 0` for a state the bar cannot be in.
-   *
-   *  A start before the run's own (a lane host whose clock runs behind) is
-   *  skew, and the ladder's own untrustworthy-delta policy answers it — the
-   *  same one every other duration in this file is subject to. */
-  const bar = (): { span: LaneSpan; title: string } | null => {
-    const span = props.span;
-    const startedAt = props.lane.startedAt;
-    if (span === null || startedAt === null) return null;
-    return {
-      span,
-      title: `started +${compactPhrase(startedAt - props.runStartedAt)} · ${
-        props.lane.durationMs === null
-          ? "still running"
-          : `took ${compactPhrase(props.lane.durationMs)}`
-      }`,
-    };
-  };
+  /** What the bar says when you point at it, in the ladder the row's own cells
+   *  print — spelled off the SPAN's clamped milliseconds, so the tooltip and
+   *  the bar cannot tell different stories about a skewed lane host. */
+  const barTitle = (span: LaneSpan): string =>
+    `started +${compactPhrase(span.startedAfterMs)} · ${
+      span.kind === "running"
+        ? "still running"
+        : `took ${compactPhrase(span.tookMs)}`
+    }`;
   return (
     <>
       <span class={`w-3 text-center ${hue()}`} title={props.lane.status}>
@@ -266,25 +252,34 @@ const LaneRow: Component<{
       {/* THE TIMELINE — a Gantt, so the bar's POSITION says when this lane ran
        *  and the column says what overlapped what. The bar wears the hue's TEXT
        *  class and paints with `bg-current`, so it cannot disagree with the
-       *  glyph; a running lane's tail is hatched in that same colour and grows
-       *  with the clock, because a solid end would claim it had finished. */}
-      <span class="relative h-2.5 self-center rounded-sm bg-fg-3/10">
-        <Show when={bar()}>
-          {(drawn) => (
-            <span
-              data-testid="inspector-odu-lane-bar"
-              class={`absolute inset-y-0 min-w-0.5 rounded-sm opacity-60 ${hue()}`}
-              classList={{
-                "bg-current": props.lane.durationMs !== null,
-                "bg-[repeating-linear-gradient(135deg,currentColor_0_3px,transparent_3px_6px)]":
-                  props.lane.durationMs === null,
-              }}
-              style={{
-                left: `${drawn().span.left * 100}%`,
-                width: `${drawn().span.width * 100}%`,
-              }}
-              title={drawn().title}
-            />
+       *  glyph; a lane still arriving is hatched END TO END in that same
+       *  colour, because every millisecond of that bar is measured against a
+       *  clock the next tick moves.
+       *
+       *  `kind` is the geometry's OWN arm, not a second reading of
+       *  `durationMs`: a lane that stopped without ever running has no duration
+       *  either, and painting it as "still arriving" is exactly the lie the
+       *  span exists to prevent. The track clips, so a clamped bar carrying its
+       *  minimum width cannot cross the edge the axis calls the total. */}
+      <span class="relative h-2.5 self-center overflow-hidden rounded-sm bg-fg-3/10">
+        <Show when={props.span}>
+          {(span) => (
+            <Show when={span().width > 0}>
+              <span
+                data-testid="inspector-odu-lane-bar"
+                class={`absolute inset-y-0 min-w-0.5 rounded-sm opacity-60 ${hue()}`}
+                classList={{
+                  "bg-current": span().kind === "settled",
+                  "bg-[repeating-linear-gradient(135deg,currentColor_0_3px,transparent_3px_6px)]":
+                    span().kind === "running",
+                }}
+                style={{
+                  left: `${span().left * 100}%`,
+                  width: `${span().width * 100}%`,
+                }}
+                title={barTitle(span())}
+              />
+            </Show>
           )}
         </Show>
       </span>
@@ -792,7 +787,7 @@ const WorkSection: Component<{
                     aria-hidden="true"
                     class="relative col-start-4 h-3 text-[10px] text-fg-3"
                   >
-                    <For each={timelineTicks(runElapsedMs(ci().run, now()))}>
+                    <For each={timelineTicks(ci().run, now())}>
                       {(tick, index) => (
                         <span
                           class="absolute top-0 border-l border-edge pl-0.5"
@@ -828,7 +823,6 @@ const WorkSection: Component<{
                           <LaneRow
                             lane={lane}
                             span={laneSpan(lane, ci().run, now())}
-                            runStartedAt={ci().run.createdAt}
                           />
                         </OduLink>
                       </li>
