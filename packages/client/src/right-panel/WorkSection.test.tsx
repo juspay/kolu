@@ -78,6 +78,38 @@ vi.mock("../wire", () => ({
   },
 }));
 
+/** The section's clock, driven rather than observed. A run still going reads it
+ *  on every tick — so "the live row's duration advances" is a claim about this
+ *  clock moving, and a real 1 s interval would make it a claim about waiting. */
+const clock = vi.hoisted(() => {
+  const START = 1_000_000;
+  let now = START;
+  const subs = new Set<() => void>();
+  return {
+    START,
+    read: () => now,
+    advance(ms: number) {
+      now += ms;
+      for (const s of [...subs]) s();
+    },
+    subscribe(fn: () => void) {
+      subs.add(fn);
+    },
+    reset() {
+      now = START;
+      subs.clear();
+    },
+  };
+});
+
+vi.mock("../time/clock", () => ({
+  getClockNow: () => {
+    const [n, setN] = createSignal(clock.read());
+    clock.subscribe(() => setN(clock.read()));
+    return n;
+  },
+}));
+
 let dispose: (() => void) | undefined;
 let host: HTMLElement | undefined;
 
@@ -89,6 +121,7 @@ afterEach(() => {
   wire.frame = () => undefined;
   wire.error = () => undefined;
   wire.input = null;
+  clock.reset();
 });
 
 type ActivePr = ActiveTerminal["pr"];
@@ -396,7 +429,13 @@ describe("WorkSection odu CI readout", () => {
       dirty: true,
       seq: 3,
       pipeline: "ci",
-      createdAt: Date.now() - 90_000,
+      // On the driven clock, not the wall one: this run started 90s before the
+      // section's `now` and took 45s, so what it says about itself is a fact
+      // rather than a number that moves with when the suite ran — and its
+      // duration is deliberately NOT its age, so a cell reading the wrong one
+      // is a failure rather than a coincidence.
+      createdAt: clock.START - 90_000,
+      finishedAt: clock.START - 45_000,
       state: "settled",
       settled: true,
       passed: false,
@@ -472,6 +511,16 @@ describe("WorkSection odu CI readout", () => {
     return setFrame;
   }
 
+  /** Each recent row's DURATION cell, in list order. Its own cell rather than
+   *  the row's text, because the row also carries an age and the two numbers
+   *  are equal for exactly the run a tick is worth asserting about. */
+  const took = (): string[] =>
+    [
+      ...(document.querySelectorAll<HTMLElement>(
+        '[data-testid="inspector-odu-run-took"]',
+      ) ?? []),
+    ].map((cell) => cell.textContent ?? "");
+
   it("paints the rollup chip, the lanes and the recent runs", () => {
     mountWithOdu(checkoutFrame());
 
@@ -501,6 +550,49 @@ describe("WorkSection odu CI readout", () => {
     expect(recent?.[1]?.textContent).toContain("0123456#2");
     expect(recent?.[1]?.textContent).toContain("passed");
     expect(recent?.[1]?.textContent).not.toContain("current");
+    // How long the run TOOK, read off its OWN cell: the row's age cell prints a
+    // number too, so an assertion over the whole row would pass on either. 45s
+    // is this run's createdAt→finishedAt — and it is still 45s once the section
+    // has been open another half minute, because a settled run's duration is
+    // not a subtraction against the reader's clock.
+    expect(took()).toEqual(["45s", "45s"]);
+    clock.advance(30_000);
+    expect(took()).toEqual(["45s", "45s"]);
+  });
+
+  it("ticks the duration of the run that has not finished", () => {
+    // No verdict yet, so there is no instant to stop at and the row reads the
+    // section's clock — the one row on the list that moves on its own.
+    mountWithOdu({
+      latest: {
+        run: oduRow({
+          state: "running",
+          settled: false,
+          passed: false,
+          outcome: null,
+          createdAt: clock.START - 30_000,
+          finishedAt: null,
+        }),
+        nodes: [oduNode("ci::unit@x86_64-linux", "running")],
+      },
+      recent: [
+        oduRow({
+          state: "running",
+          settled: false,
+          passed: false,
+          outcome: null,
+          createdAt: clock.START - 30_000,
+          finishedAt: null,
+        }),
+      ],
+      total: 1,
+    });
+
+    // At this instant the age cell says "30s ago" as well, so the claim is only
+    // worth anything read off the duration cell itself.
+    expect(took()).toEqual(["30s"]);
+    clock.advance(25_000);
+    expect(took()).toEqual(["55s"]);
   });
 
   it("renders NOTHING when odu has nothing to say", () => {

@@ -22,6 +22,7 @@ import { agoPhrase, compactPhrase } from "@kolu/terminal-vocab/duration";
 import { shortSha } from "@odu/run-client/nodeId";
 import { logHash, runHash } from "@odu/service-client/routes";
 import {
+  runElapsedMs,
   runStatus,
   scopeSuffix,
   type StatusHue,
@@ -524,8 +525,10 @@ const WorkSection: Component<{
       }${scope === null ? "" : ` · ${scope}`}`,
     };
   });
-  /** A ticking clock for the recent-runs ages — one interval for the section,
-   *  shared with every other age the client prints (`../time/clock`). */
+  /** A ticking clock for the recent-runs ages and for the one run still going —
+   *  a settled run's duration is a fact about the run and does not read it. One
+   *  interval for the section, shared with every other age the client prints
+   *  (`../time/clock`). */
   const now = getClockNow();
   return (
     <Section title="Work" accent="border-accent">
@@ -735,6 +738,15 @@ const WorkSection: Component<{
                           class={`shrink-0 ${ODU_HUE[runStatus(run).hue].text}`}
                         >
                           {runStatus(run).label}
+                        </span>
+                        {/* How long the run TOOK — odu's own rule, which stops
+                         *  at the run's verdict, so a settled row holds still
+                         *  and only a run still going ticks with the clock. */}
+                        <span
+                          data-testid="inspector-odu-run-took"
+                          class="shrink-0 tabular-nums text-fg-3"
+                        >
+                          {compactPhrase(runElapsedMs(run, now()))}
                         </span>
                         {/* The same compact qualifier the summary carries, and
                          *  only when the run was scoped: a row whose run covered

@@ -59,7 +59,8 @@ reads `● odu running` / `✓ odu passed` / `✕ 2 failed` with the run's ref
 behind it a disclosure holds two lists: the latest run's **lanes** (one row per
 `recipe@platform`, failures first, with the attempt number when it took more
 than one, the duration and the machine it landed on) and the checkout's **recent
-runs**, newest first. The lanes are **open by default** — a run is the thing
+runs**, newest first, each with **how long it took** — fixed once the run has a
+verdict, ticking for the one still going. The lanes are **open by default** — a run is the thing
 you're watching — and collapse if you'd rather have the rollup alone.
 
 The summary line states the run's **scope**, because a selection is not a
