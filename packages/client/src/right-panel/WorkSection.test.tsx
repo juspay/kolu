@@ -568,28 +568,23 @@ describe("WorkSection odu CI readout", () => {
   it("ticks the duration of the run that has not finished", () => {
     // No verdict yet, so there is no instant to stop at and the row reads the
     // section's clock — the one row on the list that moves on its own.
+    // ONE run in both slots of the frame, because it IS one run: the checkout's
+    // latest and the head of its history are the same row, and two literals
+    // could drift into disagreeing about the very clock pair under test.
+    const live = oduRow({
+      state: "running",
+      settled: false,
+      passed: false,
+      outcome: null,
+      createdAt: clock.START - 30_000,
+      finishedAt: null,
+    });
     mountWithOdu({
       latest: {
-        run: oduRow({
-          state: "running",
-          settled: false,
-          passed: false,
-          outcome: null,
-          createdAt: clock.START - 30_000,
-          finishedAt: null,
-        }),
+        run: live,
         nodes: [oduNode("ci::unit@x86_64-linux", "running")],
       },
-      recent: [
-        oduRow({
-          state: "running",
-          settled: false,
-          passed: false,
-          outcome: null,
-          createdAt: clock.START - 30_000,
-          finishedAt: null,
-        }),
-      ],
+      recent: [live],
       total: 1,
     });
 
