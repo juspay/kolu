@@ -102,6 +102,11 @@ const clock = vi.hoisted(() => {
   };
 });
 
+/** `getClockNow` hands every caller its own signal and never unsubscribes it —
+ *  deliberately, because the real one does the same: it is an app-lifetime
+ *  shared root with no teardown. The subscriber set is emptied by
+ *  `clock.reset()` in `afterEach`, so a case never ticks a previous case's
+ *  disposed signal. */
 vi.mock("../time/clock", () => ({
   getClockNow: () => {
     const [n, setN] = createSignal(clock.read());
@@ -516,9 +521,9 @@ describe("WorkSection odu CI readout", () => {
    *  are equal for exactly the run a tick is worth asserting about. */
   const took = (): string[] =>
     [
-      ...(document.querySelectorAll<HTMLElement>(
+      ...document.querySelectorAll<HTMLElement>(
         '[data-testid="inspector-odu-run-took"]',
-      ) ?? []),
+      ),
     ].map((cell) => cell.textContent ?? "");
 
   it("paints the rollup chip, the lanes and the recent runs", () => {
