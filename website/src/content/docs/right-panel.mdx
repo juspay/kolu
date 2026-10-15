@@ -63,6 +63,14 @@ runs**, newest first, each with **how long it took** — fixed once the run has 
 verdict, ticking for the one still going. The lanes are **open by default** — a run is the thing
 you're watching — and collapse if you'd rather have the rollup alone.
 
+Each lane also carries a **timeline bar**, scaled to the run itself: where the
+bar sits says *when* that lane ran, so lanes that overlap are drawn overlapping
+and the long bar nothing sits beside is what the run is waiting on. A lane
+still going has a hatched tail that grows with the clock, and a lane that has
+not started has no bar at all — that empty track is a lane still claiming a
+machine. The scale above the list reads `0` to the run's own elapsed, so it
+stretches as a live run grows.
+
 The summary line states the run's **scope**, because a selection is not a
 pipeline: `3 lanes · ci::unit` is one recipe and its dependencies, not the whole
 DAG with the rest of its lanes missing. A run over the whole pipeline states

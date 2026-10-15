@@ -526,6 +526,15 @@ describe("WorkSection odu CI readout", () => {
       ),
     ].map((cell) => cell.textContent ?? "");
 
+  /** The LANE rows of the lanes list, in paint order. The list's first item is
+   *  the timeline AXIS — furniture over the track column, not a lane — and an
+   *  index that counted it would be reading the scale as a row of work. */
+  const laneRows = (): HTMLElement[] => [
+    ...(el("inspector-odu-lanes")?.querySelectorAll<HTMLElement>(
+      'li:not([data-testid="inspector-odu-lane-axis"])',
+    ) ?? []),
+  ];
+
   it("paints the rollup chip, the lanes and the recent runs", () => {
     mountWithOdu(checkoutFrame());
 
@@ -533,7 +542,7 @@ describe("WorkSection odu CI readout", () => {
     // the ref the run is known by (`+dirty` because it tested a working tree).
     expect(text("inspector-odu-chip")).toBe("✕ 1 failed 0123456#3+dirty");
 
-    const lanes = el("inspector-odu-lanes")?.querySelectorAll("li");
+    const lanes = laneRows();
     expect(lanes?.length).toBe(2);
     // The lane's own facts: the failing one, its duration and its host — and it
     // is FIRST although the run scheduled it second, which is this face's
@@ -607,6 +616,81 @@ describe("WorkSection odu CI readout", () => {
     expect(el("inspector-odu-recent")).toBeNull();
   });
 
+  it("draws each lane WHERE it ran, and grows the one still going", () => {
+    // A run still going, a hundred seconds old on the driven clock: the track
+    // is that hundred seconds, and every bar below is a fraction of it.
+    const live = oduRow({
+      state: "running",
+      settled: false,
+      passed: false,
+      outcome: null,
+      createdAt: clock.START - 100_000,
+      finishedAt: null,
+    });
+    const lane = (
+      id: string,
+      status: RunNode["status"],
+      over: Partial<RunNode>,
+    ): RunNode => ({ ...oduNode(id, status), ...over });
+    mountWithOdu({
+      latest: {
+        run: live,
+        nodes: [
+          // Ran the first half of the run and stopped.
+          lane("ci::install@x86_64-linux", "ok", {
+            startedAt: clock.START - 100_000,
+            durationMs: 50_000,
+          }),
+          // Started halfway and is still going — no duration to read, so its
+          // width is the clock's.
+          lane("ci::unit@x86_64-linux", "running", {
+            startedAt: clock.START - 50_000,
+            durationMs: null,
+          }),
+          // Still waiting on a machine.
+          lane("ci::e2e@x86_64-linux", "pending", {
+            startedAt: null,
+            durationMs: null,
+          }),
+        ],
+      },
+      recent: [live],
+      total: 1,
+    });
+
+    /** Each lane row's bar, in the order the list paints — running first, then
+     *  the rest — or `null` for a row that drew none. */
+    const bars = (): ({ left: string; width: string } | null)[] =>
+      laneRows().map((row) => {
+        const bar = row.querySelector<HTMLElement>(
+          '[data-testid="inspector-odu-lane-bar"]',
+        );
+        return bar === null
+          ? null
+          : { left: bar.style.left, width: bar.style.width };
+      });
+
+    expect(bars()).toEqual([
+      // The running lane, sorted first by this face's triage: it started
+      // halfway through the run and has been going since.
+      { left: "50%", width: "50%" },
+      // The settled one: the run's first half, and it stays there.
+      { left: "0%", width: "50%" },
+      // A lane that never started draws NO bar — an empty track is the signal.
+      null,
+    ]);
+
+    // A hundred seconds later the run is twice as long, so the same two facts
+    // occupy different fractions of it: the live lane has grown, the settled
+    // one has slid left into a track that grew around it.
+    clock.advance(100_000);
+    expect(bars()).toEqual([
+      { left: "25%", width: "75%" },
+      { left: "0%", width: "25%" },
+      null,
+    ]);
+  });
+
   it("reads a passed run as a pass, and a lane-less running run as running", () => {
     mountWithOdu({
       latest: {
@@ -660,7 +744,7 @@ describe("WorkSection odu CI readout", () => {
     expect(text("inspector-odu-chip")).toBe("✕ 1 failed 0123456#3+dirty");
     // A lane's status is its glyph (painted by odu's hue) and its title, not a
     // word: the row says what the lane IS, and the chip above states the verdict.
-    const lane = el("inspector-odu-lanes")?.querySelector("li");
+    const lane = laneRows()[0];
     expect(lane?.textContent).toContain("✗");
     expect(lane?.querySelector("span")?.getAttribute("title")).toBe("failed");
   });

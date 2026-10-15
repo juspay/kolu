@@ -22,10 +22,13 @@ import { agoPhrase, compactPhrase } from "@kolu/terminal-vocab/duration";
 import { shortSha } from "@odu/run-client/nodeId";
 import { logHash, runHash } from "@odu/service-client/routes";
 import {
+  type LaneSpan,
+  laneSpan,
   runElapsedMs,
   runStatus,
   scopeSuffix,
   type StatusHue,
+  timelineTicks,
 } from "@odu/service-client/board";
 import {
   STATUS_META,
@@ -140,7 +143,11 @@ const ODU_URL = "https://juspay.github.io/odu/";
  *  already keeps for check outcomes.
  *
  *  `violet` is odu's "the owner is gone": a failure to a reader, and kolu's
- *  `Chip` has no violet, so it wears `danger` there and `alert` in text. */
+ *  `Chip` has no violet, so it wears `danger` there and `alert` in text.
+ *
+ *  `text` paints the TIMELINE BAR too, through `bg-current`: a second entry for
+ *  the bar's own colour would be a second place for a hue to disagree with its
+ *  glyph, which is the whole thing this table exists to prevent. */
 const ODU_HUE: Record<
   StatusHue,
   { tone: "neutral" | "ok" | "warning" | "danger"; glyph: string; text: string }
@@ -186,7 +193,7 @@ const SUBHEAD =
  *  omitted its empty attempt or scope would shift every later column left and
  *  take the alignment with it. */
 const LANE_GRID =
-  "grid grid-cols-[auto_minmax(0,1fr)_auto_auto_auto] gap-x-1.5 gap-y-0.5 text-[11px]";
+  "grid grid-cols-[auto_minmax(0,1fr)_auto_minmax(3rem,1.2fr)_auto_auto] gap-x-1.5 gap-y-0.5 text-[11px]";
 const RECENT_GRID =
   "grid grid-cols-[minmax(0,auto)_auto_auto_minmax(0,1fr)_auto_auto] gap-x-1.5 gap-y-0.5 text-[11px]";
 const ROW = "col-span-full grid grid-cols-subgrid items-center";
@@ -194,14 +201,32 @@ const ROW = "col-span-full grid grid-cols-subgrid items-center";
 const CHIP_ROW = "inline-flex";
 const ODU_TITLE = "open in odu";
 
-/** One lane: its own facts, and the way out to that attempt's log in odu web.
+/** One lane: its own facts, where it sat in the run, and the way out to that
+ *  attempt's log in odu web.
  *
  *  Long output is READ in odu's own page (searchable, coloured, followed live),
  *  so a lane's row is the link to it — the whole row, because every fact on it is
  *  about one attempt. */
-const LaneRow: Component<{ lane: RunNode }> = (props) => {
+const LaneRow: Component<{
+  lane: RunNode;
+  /** WHERE this lane sat in the run, from odu's own geometry — `null` for a
+   *  lane that has not started, which draws no bar: an empty track is the
+   *  signal that it is still waiting on a machine. */
+  span: LaneSpan | null;
+  /** The run's own start — the origin the bar's `started +…` is measured from.
+   *  The run row's `createdAt` rather than a second reading of it. */
+  runStartedAt: number;
+}> = (props) => {
   const status = () => STATUS_META[props.lane.status];
   const hue = () => ODU_HUE[status().hue].text;
+  /** What the bar says when you point at it — the two facts its geometry draws,
+   *  in the words the row's own cells use. */
+  const barTitle = (): string =>
+    `started +${compactPhrase(Math.max(0, (props.lane.startedAt ?? 0) - props.runStartedAt))} · ${
+      props.lane.durationMs === null
+        ? "still running"
+        : `took ${compactPhrase(props.lane.durationMs)}`
+    }`;
   return (
     <>
       <span class={`w-3 text-center ${hue()}`} title={props.lane.status}>
@@ -219,6 +244,31 @@ const LaneRow: Component<{ lane: RunNode }> = (props) => {
        *  of the row out from under the column above it. */}
       <span class="text-fg-3">
         {props.lane.attempt > 1 ? `#${props.lane.attempt}` : ""}
+      </span>
+      {/* THE TIMELINE — a Gantt, so the bar's POSITION says when this lane ran
+       *  and the column says what overlapped what. The bar wears the hue's TEXT
+       *  class and paints with `bg-current`, so it cannot disagree with the
+       *  glyph; a running lane's tail is hatched in that same colour and grows
+       *  with the clock, because a solid end would claim it had finished. */}
+      <span class="relative h-2.5 self-center rounded-sm bg-fg-3/10">
+        <Show when={props.span}>
+          {(span) => (
+            <span
+              data-testid="inspector-odu-lane-bar"
+              class={`absolute inset-y-0 min-w-0.5 rounded-sm opacity-60 ${hue()}`}
+              classList={{
+                "bg-current": props.lane.durationMs !== null,
+                "bg-[repeating-linear-gradient(135deg,currentColor_0_3px,transparent_3px_6px)]":
+                  props.lane.durationMs === null,
+              }}
+              style={{
+                left: `${span().left * 100}%`,
+                width: `${span().width * 100}%`,
+              }}
+              title={barTitle()}
+            />
+          )}
+        </Show>
       </span>
       <span class="text-right tabular-nums text-fg-3">
         {props.lane.durationMs === null
@@ -707,6 +757,32 @@ const WorkSection: Component<{
               <Show when={ci().lanes.length > 0}>
                 <div class={SUBHEAD}>Lanes</div>
                 <ul data-testid="inspector-odu-lanes" class={LANE_GRID}>
+                  {/* THE SCALE the bars are read against, over the track column
+                   *  alone — placed by column rather than as a full row of
+                   *  empty cells, so the axis cannot drift from the track it
+                   *  labels. Ticks are odu's own, like the geometry: a
+                   *  hand-rolled scale here would be a second answer to where
+                   *  the middle of a run is. */}
+                  <li
+                    data-testid="inspector-odu-lane-axis"
+                    aria-hidden="true"
+                    class="relative col-start-4 h-3 text-[10px] text-fg-3"
+                  >
+                    <For each={timelineTicks(runElapsedMs(ci().run, now()))}>
+                      {(tick, index) => (
+                        <span
+                          class="absolute top-0 border-l border-edge pl-0.5"
+                          classList={{
+                            "-translate-x-full border-l-0 border-r pr-0.5 pl-0":
+                              index() === 3,
+                          }}
+                          style={{ left: `${tick.at * 100}%` }}
+                        >
+                          {tick.label}
+                        </span>
+                      )}
+                    </For>
+                  </li>
                   <For each={ci().lanes}>
                     {(lane) => (
                       <li class={ROW}>
@@ -718,7 +794,11 @@ const WorkSection: Component<{
                           testid="inspector-odu-lane-link"
                           class={ROW}
                         >
-                          <LaneRow lane={lane} />
+                          <LaneRow
+                            lane={lane}
+                            span={laneSpan(lane, ci().run, now())}
+                            runStartedAt={ci().run.createdAt}
+                          />
                         </OduLink>
                       </li>
                     )}
