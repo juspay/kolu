@@ -1,8 +1,8 @@
 /**
  * kolu-server's agent delivery, wired to the warm padi pool — the composition
  * of `./delivery.ts` (deliver to hosts), `./schedule.ts` (upstream's clock)
- * and `./ops.ts` (the real index read and host pull), with the triggers that
- * live here:
+ * and `./ops.ts` (the real index read, profile builds and host transfers),
+ * with the triggers that live here:
  *
  *   - a host's padi taking the Agents setting (`deliverTo`, from the setting
  *     pusher's per-host push: every bind and reconnect, and every real change
@@ -19,9 +19,9 @@
  */
 
 import type { AgentDistroDelivery } from "@kolu/agent-distro/bake";
-import {
-  type AgentDistroSetting,
-  bundleProfileOf,
+import type {
+  AgentDistroSetting,
+  AgentProfiles,
 } from "@kolu/agent-distro/schema";
 import type { PadiSurfaceClient } from "@kolu/padi-client/dial";
 import type { Logger } from "@kolu/log";
@@ -55,7 +55,8 @@ export interface AgentDeliveryHandle {
   deliverTo(key: string): void;
   /** The user's check: `host`, or every connected host for `null`. */
   deliverNow(host: HostKey | null): void;
-  /** The setting changed: wake the schedule (it idles while agents are off). */
+  /** The setting changed: say whether its profiles build, and wake the
+   *  schedule (it idles while agents are off). */
   onSettingChanged(): void;
 }
 
@@ -63,8 +64,9 @@ export function installAgentDelivery(deps: {
   readonly bake: AgentDistroDelivery;
   readonly pool: DeliveryPool;
   readonly setting: () => AgentDistroSetting;
-  /** The bundles this build ships, by name (the floor's listing). */
-  readonly bundles: ReadonlySet<string>;
+  /** Publish whether each profile of the setting builds (kolu's
+   *  `agentProfiles` cell). */
+  readonly publishProfiles: (profiles: AgentProfiles) => void;
   /** How messages name a host (the local machine by its hostname). */
   readonly label: (host: HostKey) => string;
   readonly log: Logger;
@@ -87,17 +89,16 @@ export function installAgentDelivery(deps: {
       },
     };
   };
-  const bundle = (): string | undefined => {
+  const stack = (): readonly string[] | undefined => {
     const setting = deps.setting();
-    return setting.enabled
-      ? bundleProfileOf(setting.profile, deps.bundles)
-      : undefined;
+    return setting.enabled ? setting.profiles : undefined;
   };
   const delivery: AgentDelivery = createAgentDelivery({
     schedule: bake.schedule,
     ops: realDeliveryOps(bake),
     log,
-    bundle,
+    stack,
+    onResolution: deps.publishProfiles,
     hosts: () =>
       pool
         .hosts()
@@ -117,6 +118,9 @@ export function installAgentDelivery(deps: {
         ...(host === null ? {} : { keys: [encodeHostKey(host)] }),
         trigger: "user",
       }),
-    onSettingChanged: () => schedule.poke(),
+    onSettingChanged: () => {
+      void delivery.resolve();
+      schedule.poke();
+    },
   };
 }

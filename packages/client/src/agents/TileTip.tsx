@@ -383,7 +383,9 @@ const TipSourceMark: Component<{ source: Tip["source"] }> = (props) => {
     const s = props.source;
     switch (s.kind) {
       case "agent-distro":
-        return `agent-distro · ${s.profile}`;
+        return s.profile === undefined
+          ? "agent-distro"
+          : `agent-distro · ${s.profile}`;
       case "kolu-plugin":
         return "kolu plugin";
       default:

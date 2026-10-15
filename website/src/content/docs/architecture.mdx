@@ -469,24 +469,31 @@ _out_. The map, grouped:
 - **Contracts & small leaves** — `common` (the shared surface contract), `terminal-vocab`,
   `terminal-protocol`, `transcript-core` / `transcript-html`, `agent-distro`
   (kolu's contract with upstream [agent-distro](https://github.com/juspay/agent-distro):
-  its Nix half builds the agents' local floor, writes the floor's manifest, the
-  profiles listing and kolu-server's delivery bake (upstream's content-addressed
-  index, cache and schedule) and bakes and proves them onto each wrapper; its TypeScript half
-  holds the listing (composed from each bundle's own `profile.json` and versions
-  file), the bake readers, upstream's schedule and due rule, its history log
-  (read and written) and a bundle's versions file, the manifest reader, the
-  setting, delivery-report, status and receipt value schemas padi's cells
-  carry, the wording, and the logo — padi, padi-client, the server and the
-  client import it; it imports none of them. The agents themselves are
-  **delivered by kolu-server** without Nix of its own: it reads each host's
-  content-addressed build off agent-distro's published index (one HTTPS GET per
-  system, through `surface-remote`'s `readPublishedClosure`) and has the host
-  pull it from the cache over ssh through `surface-remote`'s `pullClosure`, in
-  the form its `closureRoute` picks — content-addressed to a Linux host on Nix
-  2.17–2.34 (the line that can verify it), so no
-  Nix there has to trust it; signed to a Mac, whose code signatures a rewrite
-  breaks, and to a newer Nix line — never building it, and that host's padi only points `current`
-  at what landed),
+  its Nix half builds the agents' local floor — upstream's one package — writes
+  the floor's manifest, the host-state file and kolu-server's delivery bake
+  (upstream's flake, content-addressed index, cache and schedule) and bakes and
+  proves them onto each wrapper; its TypeScript half holds the harness listing,
+  the bake readers, the delivered set and its history wording, the receipt
+  reader, the manifest reader, the setting, delivery-report, status, receipt
+  and profile-resolution value schemas the cells carry, the wording, and the
+  logo. The updater's own vocabulary — its due rule, history line, versions
+  file and `--list --json` — is upstream's, imported from the pinned source
+  (`@juspay/agent-distro`, grafted like the `@odu/*` packages) rather than
+  repeated. padi, padi-client, the server and the client import it; it imports
+  none of them. The agents themselves are
+  **delivered by kolu-server**: it reads each host's content-addressed build of
+  the package off agent-distro's published index (one HTTPS GET per system,
+  through `surface-remote`'s `readPublishedClosure`) and has the host pull it
+  from the cache over ssh through `surface-remote`'s `pullClosure`, in the form
+  its `closureRoute` picks — content-addressed to a Linux host on Nix
+  2.17–2.34 (the line that can verify it), so no Nix there has to trust it;
+  signed to a Mac, whose code signatures a rewrite breaks, and to a newer Nix
+  line — never building it. The Agents setting's **profiles** are the one
+  thing kolu-server builds: it locks each reference, builds it with upstream's
+  `lib.mkProfile` at the package's revision for the host's system, and ships
+  the result with `surface-remote`'s `deliverClosure`, the route an agent's
+  closure takes. That host's padi only records the set that landed and points
+  `current` at the package),
   and a set of
   zero-dependency utilities (`log`, `nonempty`, `shell-quote`, `html-escape`, `byte-units` — the one way kolu writes a byte count, in binary units, …).
 

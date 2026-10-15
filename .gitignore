@@ -46,5 +46,9 @@ packages/surface/example/binary-cache.json
 # these are a graft rather than a dependency).
 /odu/
 
+# juspay/agent-distro — the same, from the npins `agent-distro` pin (its
+# runtime tree, `src/`).
+/juspay/
+
 # Python bytecode (the publish-closure action runs its script in place).
 __pycache__/

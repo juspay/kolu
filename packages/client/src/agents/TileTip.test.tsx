@@ -93,17 +93,11 @@ const HARNESSES = vi.hoisted(() => [
 vi.mock("./useAgentDistro", () => ({
   agentDistroListing: () => ({
     kind: "available",
-    profiles: [
-      {
-        name: "vanilla",
-        description: "Upstream harnesses",
-        harnesses: HARNESSES.map((name) => ({
-          name,
-          title: name,
-          version: "1",
-        })),
-      },
-    ],
+    harnesses: HARNESSES.map((name) => ({
+      name,
+      title: name,
+      version: "1",
+    })),
   }),
 }));
 
@@ -126,7 +120,16 @@ vi.mock("./useAgentDistro", () => ({
 
 const { default: TileTip } = await import("./TileTip");
 
-const AGENTS = { profile: "vanilla", bundle: "/nix/store/abc-vanilla" };
+const AGENTS = {
+  bundle: "/nix/store/abc-agent-distro",
+  profiles: [
+    {
+      reference: "github:juspay/skills",
+      name: "juspay",
+      path: "/nix/store/p-juspay",
+    },
+  ],
+};
 const REPO = { kind: "repo", info: { repoName: "kolu" } };
 const NO_REPO = { kind: "none" };
 const SHELL = { name: "zsh", title: null, shell: true };
@@ -205,7 +208,7 @@ describe("TileTip — the bar for each rung", () => {
       document
         .querySelector('[data-testid="tile-tip-source"]')
         ?.textContent?.trim(),
-    ).toBe("agent-distro · vanilla");
+    ).toBe("agent-distro · juspay");
     expect(
       document.querySelector(
         '[data-testid="tile-tip-source"] [data-testid="agent-distro-logo"]',

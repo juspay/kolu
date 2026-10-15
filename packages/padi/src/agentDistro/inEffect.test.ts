@@ -1,68 +1,83 @@
 /**
- * Whether the setting's profile resolves on this host — one run of the
- * bundle's `agent-distro --list --json` from `$HOME`, against the stand-in the
- * e2e fixture uses too (`@kolu/agent-distro/testing`).
+ * Asking agent-distro which profile is in effect in a terminal — one run of
+ * the package's `agent-distro --list --json` in the terminal's cwd and spawn
+ * env, against the stand-in the e2e fixture uses too
+ * (`@kolu/agent-distro/testing`).
  */
 
 import { mkdirSync, mkdtempSync, realpathSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import {
-  STAND_IN_REFERENCE_PROFILE,
-  standInListJson,
-} from "@kolu/agent-distro/testing";
+import { STAND_IN_PROFILE, standInListJson } from "@kolu/agent-distro/testing";
 import { beforeEach, describe, expect, it } from "vitest";
-import { resolveProfileOnHost } from "./inEffect.ts";
+import { probeProfileInEffect } from "./inEffect.ts";
+
+const HARNESSES = [
+  { name: "claude", title: "Claude Code", version: "2.1.291" },
+] as const;
 
 let bundle: string;
 
+/** A package whose picker runs `script` (POSIX sh). */
+function picker(script: string): void {
+  writeFileSync(join(bundle, "bin", "agent-distro"), `#!/bin/sh\n${script}\n`, {
+    mode: 0o755,
+  });
+}
+
 beforeEach(() => {
-  bundle = realpathSync(mkdtempSync(join(tmpdir(), "agent-distro-resolve-")));
+  bundle = realpathSync(mkdtempSync(join(tmpdir(), "agent-distro-probe-")));
   mkdirSync(join(bundle, "bin"));
-  writeFileSync(
-    join(bundle, "bin", "agent-distro"),
-    `#!/bin/sh\n${standInListJson("vanilla", ["vanilla"])}\nexit 2\n`,
-    { mode: 0o755 },
-  );
+  picker(`${standInListJson(HARNESSES)}\nexit 2`);
 });
 
-describe("resolveProfileOnHost", () => {
-  it("a reference that resolves: agent-distro's name and description for it", async () => {
+const probe = (env: Record<string, string>) =>
+  probeProfileInEffect({ bundle, cwd: bundle, env, terminal: "T-probe" });
+
+describe("probeProfileInEffect", () => {
+  it("a terminal with an AI_PROFILE stack: the profile in effect, in upstream's words", async () => {
+    expect(await probe({ AI_PROFILE: "/nix/store/p-juspay" })).toEqual({
+      name: STAND_IN_PROFILE.name,
+      description: STAND_IN_PROFILE.description,
+      source: "from AI_PROFILE=/nix/store/p-juspay",
+    });
+  });
+
+  it("no profile in effect (no AI_PROFILE): undefined", async () => {
+    expect(await probe({})).toBeUndefined();
+  });
+
+  it("runs in the terminal's cwd", async () => {
+    const cwd = join(bundle, "repo");
+    mkdirSync(cwd);
+    picker(
+      `printf '{"harnesses":[{"name":"claude","tagline":"t","title":"Claude Code","version":"2.1.291"}],"profile":{"name":"repo","description":"d","source":"repository","origin":"%s"}}\\n' "$PWD"`,
+    );
+    const answer = await probeProfileInEffect({
+      bundle,
+      cwd,
+      env: {},
+      terminal: "T-probe",
+    });
+    expect(answer?.name).toBe("repo");
+    expect(answer?.source).toBe(`from ${cwd}`);
+  });
+
+  it("a picker that fails, or cannot run: undefined, never a throw", async () => {
+    picker("echo nope >&2; exit 3");
+    expect(await probe({})).toBeUndefined();
     expect(
-      await resolveProfileOnHost({ bundle, profile: "github:juspay/skills" }),
-    ).toEqual({
-      kind: "resolved",
-      profile: "github:juspay/skills",
-      name: STAND_IN_REFERENCE_PROFILE.name,
-      description: STAND_IN_REFERENCE_PROFILE.description,
-    });
+      await probeProfileInEffect({
+        bundle: join(bundle, "missing"),
+        cwd: bundle,
+        env: {},
+        terminal: "T-probe",
+      }),
+    ).toBeUndefined();
   });
 
-  it("a built-in resolves to itself", async () => {
-    expect(await resolveProfileOnHost({ bundle, profile: "vanilla" })).toEqual({
-      kind: "resolved",
-      profile: "vanilla",
-      name: "vanilla",
-      description: "Fixture profile vanilla",
-    });
-  });
-
-  it("one that does not: agent-distro's own words, on one line", async () => {
-    expect(
-      await resolveProfileOnHost({ bundle, profile: "github:nobody/nothing" }),
-    ).toEqual({
-      kind: "failed",
-      profile: "github:nobody/nothing",
-      message:
-        "agent-distro: AI_PROFILE=github:nobody/nothing: cannot fetch github:nobody/nothing: error: unable to download: HTTP error 404",
-    });
-  });
-
-  it("a picker that cannot run is a failure too, never a throw", async () => {
-    const answer = await resolveProfileOnHost({
-      bundle: join(bundle, "missing"),
-      profile: "vanilla",
-    });
-    expect(answer.kind).toBe("failed");
+  it("a picker that prints something kolu cannot read: undefined", async () => {
+    picker("echo 'not json'");
+    expect(await probe({})).toBeUndefined();
   });
 });

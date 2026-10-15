@@ -18,6 +18,7 @@ let
   koluSrc = (import ../npins).kolu;
   osfacts = (import ../npins).osfacts;
   odu = (import ../npins).odu;
+  agent-distro = (import ../npins).agent-distro;
 
   # ONE call, parameterised by the sources you supply — because you have to ask
   # kolu what to graft BEFORE you can graft it, and `.pins` is answerable with
@@ -32,8 +33,8 @@ let
     seeds = [ "@kolu/padi-client" "@kolu/solid-dockrow" "@kolu/surface-app" ];
   };
 
-  # PINNED members you must supply yourself — this seed set reaches FOUR, from
-  # two pins. Each entry names the pin, the REVISION kolu was built against, and
+  # PINNED members you must supply yourself — this seed set reaches FIVE, from
+  # three pins. Each entry names the pin, the REVISION kolu was built against, and
   # the subdirectory to copy. Omitting one is a named throw rather than a broken
   # `cp`; passing a different revision is refused at eval, because kolu compiles
   # this package against its own and you would find out when a field moved.
@@ -58,6 +59,9 @@ koluWith {
   "@odu/service-client" = fromPin odu "@odu/service-client";
   "@odu/run-client" = fromPin odu "@odu/run-client";
   "@odu/run-history" = fromPin odu "@odu/run-history";
+  # agent-distro's own vocabulary (its runtime tree), which
+  # `@kolu/agent-distro` — in `@kolu/padi-client`'s closure — imports.
+  "@juspay/agent-distro" = fromPin agent-distro "@juspay/agent-distro";
 }
 ```
 

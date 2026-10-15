@@ -16,6 +16,10 @@ packages:
   - odu/service-client
   - odu/run-client
   - odu/run-history
+  # agent-distro's vocabulary (its runtime tree, `src/`), grafted from the npins
+  # `agent-distro` pin by the same mechanism — `@kolu/agent-distro` imports the
+  # updater's own due rule, history line and versions wording from it.
+  - juspay/agent-distro
   # NOTE: `agents/` (the reusable APM skills package — agents/README.md) is NOT a
   # workspace member. It was one only so the lens-debate engine's unit tests ran
   # under `pnpm -r test:unit`; the engine and every stage that used it are gone,

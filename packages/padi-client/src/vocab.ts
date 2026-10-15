@@ -1154,15 +1154,38 @@ export function backfillSnapshotCutover(
   return next;
 }
 
+/** Drop an `agents` stamp from before agent-distro's one package: it named a
+ *  per-profile BUNDLE (`{ profile, bundle }`), and the current
+ *  `TerminalAgentsSchema` names the package and the built profiles exported as
+ *  `AI_PROFILE`, which the old record cannot say (its profile was a name or a
+ *  reference, never a built path). Nothing is lost by dropping it: a saved
+ *  terminal has no process, and the spawn that brings it back re-stamps
+ *  `agents` whole with what its host serves then. Keyed on shape: a stamp that
+ *  already carries `profiles`, or a record with none, passes through. */
+export function backfillAgentsStamp(
+  t: Record<string, unknown>,
+): Record<string, unknown> {
+  const agents = t.agents;
+  if (
+    agents === undefined ||
+    (typeof agents === "object" && agents !== null && "profiles" in agents)
+  )
+    return t;
+  const { agents: _legacy, ...rest } = t;
+  return rest;
+}
+
 /** Bring one legacy saved-terminal record up to the current
  *  `SavedTerminalSchema` by composing every field backfill above. Order-free
  *  (each is idempotent + presence-keyed); spelled in ladder order for reading. */
 export function backfillSavedTerminal(
   t: Record<string, unknown>,
 ): Record<string, unknown> {
-  return backfillSnapshotCutover(
-    backfillTerminalState(
-      backfillLocation(backfillGitFact(backfillRemoteUrl(t))),
+  return backfillAgentsStamp(
+    backfillSnapshotCutover(
+      backfillTerminalState(
+        backfillLocation(backfillGitFact(backfillRemoteUrl(t))),
+      ),
     ),
   );
 }

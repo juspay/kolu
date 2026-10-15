@@ -835,9 +835,9 @@ async function startServerChild(koluServer: string): Promise<void> {
           // never touch ~/.config and the dir can be wiped in AfterAll.
           KOLU_STATE_DIR: koluStateDir,
           // A stand-in agent-distro bake (see `agentDistroFixture.ts`): Settings
-          // lists its profiles, and a terminal spawned with Agents on gets its
-          // stub `claude`. The server forwards it to the padi it spawns, as the
-          // `default` wrapper's real bake is.
+          // names its harnesses, and a terminal spawned with Agents on (and no
+          // profiles) gets its stub `claude`. The server forwards it to the padi
+          // it spawns, as the `default` wrapper's real bake is.
           ...agentDistroFixture,
           // Per-worker padi state-root: the server forwards this to the padi
           // PROCESS it spawns, and padi's socket + gate AND its kaval's socket +

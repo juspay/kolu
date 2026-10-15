@@ -41,7 +41,7 @@ interface PadiPersistedState {
 }
 
 /** padi's state schema version — the last step of {@link PADI_STATE_MIGRATIONS}. */
-export const PADI_STATE_SCHEMA_VERSION = "1.1.0";
+export const PADI_STATE_SCHEMA_VERSION = "1.2.0";
 
 /** padi's migration ladder, keyed by the version each step brings the file to.
  *
@@ -50,12 +50,22 @@ export const PADI_STATE_SCHEMA_VERSION = "1.1.0";
  *    current shape by the SAME saved-terminal backfill the restore and import
  *    paths run (`backfillSavedSession`), so the file and every reader agree. The
  *    session cell is served straight off this store — undecoded — so the disk
- *    shape must be current, not merely decodable. */
+ *    shape must be current, not merely decodable.
+ *  - `1.2.0`: a saved terminal's `agents` stamp names agent-distro's one
+ *    package and the built profiles it exported (`{ bundle, profiles }`); a
+ *    stamp from before (`{ profile, bundle }`) is dropped by the same backfill
+ *    (`backfillAgentsStamp`) — the spawn that brings the terminal back stamps
+ *    it afresh. */
 const PADI_STATE_MIGRATIONS: Record<
   string,
   (store: Conf<PadiPersistedState>) => void
 > = {
   "1.1.0": (store) => {
+    const session = store.get("session");
+    if (session === null) return;
+    store.set("session", backfillSavedSession(session) as SavedSession);
+  },
+  "1.2.0": (store) => {
     const session = store.get("session");
     if (session === null) return;
     store.set("session", backfillSavedSession(session) as SavedSession);

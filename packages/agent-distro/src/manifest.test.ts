@@ -2,52 +2,43 @@
  *  that a broken one is refused rather than read around. */
 
 import { describe, expect, it } from "vitest";
-import defaults from "../defaults.json" with { type: "json" };
-import {
-  DEFAULT_AGENT_PROFILE,
-  manifestFile,
-  manifestProfile,
-  parseAgentDistroManifest,
-} from "./manifest.ts";
+import { manifestFile, parseAgentDistroManifest } from "./manifest.ts";
 
 const MANIFEST = {
-  default: "vanilla",
-  profiles: [
-    {
-      name: "vanilla",
-      dir: "/nix/store/8rcmf6rd-agent-distro-vanilla-kolu",
-      bin: "/nix/store/8rcmf6rd-agent-distro-vanilla-kolu/bin",
-    },
-  ],
+  dir: "/nix/store/8rcmf6rd-agent-distro",
+  bin: "/nix/store/8rcmf6rd-agent-distro/bin",
 };
 
 describe("the floor manifest", () => {
-  it("sits at share/kolu/agent-distro.json inside the bundle", () => {
-    expect(manifestFile("/nix/store/f-agent-distro-bundle")).toBe(
-      "/nix/store/f-agent-distro-bundle/share/kolu/agent-distro.json",
+  it("sits at share/kolu/agent-distro.json inside the floor", () => {
+    expect(manifestFile("/nix/store/f-agent-distro-floor")).toBe(
+      "/nix/store/f-agent-distro-floor/share/kolu/agent-distro.json",
     );
   });
 
-  it("parses, and names each profile's dir and bin", () => {
-    const m = parseAgentDistroManifest(JSON.stringify(MANIFEST));
-    expect(m).toEqual(MANIFEST);
-    expect(manifestProfile(m, "vanilla")?.bin).toBe(
-      "/nix/store/8rcmf6rd-agent-distro-vanilla-kolu/bin",
+  it("parses the one package's dir and bin", () => {
+    expect(parseAgentDistroManifest(JSON.stringify(MANIFEST))).toEqual(
+      MANIFEST,
     );
-    expect(manifestProfile(m, "juspay")).toBeUndefined();
   });
 
-  it("refuses a manifest with no profiles, or a missing field", () => {
+  it("refuses a manifest with a missing or empty field", () => {
+    const { bin: _, ...noBin } = MANIFEST;
+    expect(() => parseAgentDistroManifest(JSON.stringify(noBin))).toThrow();
     expect(() =>
-      parseAgentDistroManifest(JSON.stringify({ ...MANIFEST, profiles: [] })),
+      parseAgentDistroManifest(JSON.stringify({ ...MANIFEST, dir: "" })),
     ).toThrow();
-    const { default: _default, ...noDefault } = MANIFEST;
-    expect(() => parseAgentDistroManifest(JSON.stringify(noDefault))).toThrow();
+    expect(() => parseAgentDistroManifest("not json")).toThrow();
   });
-});
 
-describe("the default profile", () => {
-  it("is typed once, in defaults.json — the file the Nix half reads too", () => {
-    expect(DEFAULT_AGENT_PROFILE).toBe(defaults.defaultProfile);
+  it("refuses the old per-profile manifest — a floor of another shape is a broken build", () => {
+    expect(() =>
+      parseAgentDistroManifest(
+        JSON.stringify({
+          default: "vanilla",
+          profiles: [{ name: "vanilla", ...MANIFEST }],
+        }),
+      ),
+    ).toThrow();
   });
 });

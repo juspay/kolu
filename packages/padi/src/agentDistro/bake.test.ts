@@ -4,58 +4,39 @@
  * state home in place of the build-time placeholder).
  */
 
+import { readFrom } from "@kolu/agent-distro/testing";
 import { describe, expect, it } from "vitest";
 import {
   AGENT_DISTRO_BUNDLE_ENV,
-  AGENT_DISTRO_PROFILES_ENV,
+  AGENT_DISTRO_STATE_ENV,
   AGENT_PLUGIN_DIR_ENV,
   readAgentDistroBake,
 } from "./bake.ts";
 
 const PLACEHOLDER = "@KOLU_XDG_STATE_HOME@";
 
-const listing = (
-  profiles: readonly { name: string; state: string }[],
-  history = `${PLACEHOLDER}/agent-distro/history.log`,
-) => JSON.stringify({ stateHomePlaceholder: PLACEHOLDER, history, profiles });
+const hostState = (over: Partial<Record<string, string>> = {}) =>
+  JSON.stringify({
+    stateHomePlaceholder: PLACEHOLDER,
+    state: `${PLACEHOLDER}/agent-distro/abcpackage`,
+    history: `${PLACEHOLDER}/agent-distro/history.log`,
+    landed: `${PLACEHOLDER}/kolu/agent-distro-landed.json`,
+    ...over,
+  });
 
-const LISTING = listing([
-  { name: "vanilla", state: `${PLACEHOLDER}/agent-distro/abcvanilla` },
-  { name: "juspay", state: `${PLACEHOLDER}/agent-distro/abcjuspay` },
-]);
+const MANIFEST = { dir: "/s/package", bin: "/s/package/bin" };
 
-const MANIFEST = {
-  default: "vanilla",
-  profiles: ["vanilla", "juspay"].map((name) => ({
-    name,
-    dir: `/s/${name}`,
-    bin: `/s/${name}/bin`,
-  })),
-};
-
-const files: Record<string, string> = {
-  "/l/listing.json": LISTING,
-  "/l/twice.json": listing([
-    { name: "vanilla", state: `${PLACEHOLDER}/agent-distro/a` },
-    { name: "vanilla", state: `${PLACEHOLDER}/agent-distro/b` },
-  ]),
-  "/l/elsewhere.json": listing([{ name: "vanilla", state: "/root/x" }]),
-  "/l/history-elsewhere.json": listing(
-    [{ name: "vanilla", state: `${PLACEHOLDER}/agent-distro/a` }],
-    "/root/history.log",
-  ),
-  "/l/empty.json": listing([]),
-  "/l/not-a-listing.json": JSON.stringify({ state: "/x" }),
+const read = readFrom({
+  "/l/state.json": hostState(),
+  "/l/state-elsewhere.json": hostState({ state: "/root/x" }),
+  "/l/history-elsewhere.json": hostState({ history: "/root/history.log" }),
+  "/l/landed-elsewhere.json": hostState({ landed: "/root/landed.json" }),
+  "/l/not-a-state.json": JSON.stringify({ state: "/x" }),
   "/f/floor/share/kolu/agent-distro.json": JSON.stringify(MANIFEST),
-};
-const read = (path: string) => {
-  const text = files[path];
-  if (text === undefined) throw new Error(`no such file ${path}`);
-  return text;
-};
+});
 
-const baked = (listingPath: string) => ({
-  [AGENT_DISTRO_PROFILES_ENV]: listingPath,
+const baked = (statePath: string) => ({
+  [AGENT_DISTRO_STATE_ENV]: statePath,
   [AGENT_PLUGIN_DIR_ENV]: "/p/plugin",
 });
 
@@ -63,24 +44,23 @@ describe("readAgentDistroBake", () => {
   it("reads null when unbaked — a from-source padi gives no agents", () => {
     expect(readAgentDistroBake({}, read)).toBeNull();
     expect(
-      readAgentDistroBake({ [AGENT_DISTRO_PROFILES_ENV]: "" }, read),
+      readAgentDistroBake({ [AGENT_DISTRO_STATE_ENV]: "" }, read),
     ).toBeNull();
   });
 
-  it("reads the profiles in listing order, the plugin dir and the floor's manifest", () => {
+  it("reads the plugin dir and the floor's manifest", () => {
     const bake = readAgentDistroBake(
-      { ...baked("/l/listing.json"), [AGENT_DISTRO_BUNDLE_ENV]: "/f/floor" },
+      { ...baked("/l/state.json"), [AGENT_DISTRO_BUNDLE_ENV]: "/f/floor" },
       read,
     );
     expect(bake?.floor).toEqual(MANIFEST);
     expect(bake?.plugins).toBe("/p/plugin");
-    expect([...(bake?.profiles.keys() ?? [])]).toEqual(["vanilla", "juspay"]);
   });
 
   it("a baked floor without its manifest is a broken build: it throws", () => {
     expect(() =>
       readAgentDistroBake(
-        { ...baked("/l/listing.json"), [AGENT_DISTRO_BUNDLE_ENV]: "/no/floor" },
+        { ...baked("/l/state.json"), [AGENT_DISTRO_BUNDLE_ENV]: "/no/floor" },
         read,
       ),
     ).toThrow();
@@ -88,59 +68,44 @@ describe("readAgentDistroBake", () => {
 
   it("a remote bake has no floor", () => {
     expect(
-      readAgentDistroBake(baked("/l/listing.json"), read)?.floor,
+      readAgentDistroBake(baked("/l/state.json"), read)?.floor,
     ).toBeUndefined();
   });
 
-  it("throws on a half bake (listing without the plugin dir)", () => {
+  it("throws on a half bake (host state without the plugin dir)", () => {
     expect(() =>
-      readAgentDistroBake(
-        { [AGENT_DISTRO_PROFILES_ENV]: "/l/listing.json" },
-        read,
-      ),
+      readAgentDistroBake({ [AGENT_DISTRO_STATE_ENV]: "/l/state.json" }, read),
     ).toThrow(/half-baked/);
   });
 
-  it("throws on a listing that does not parse as one, or names no profile", () => {
+  it("throws on a host state that does not parse as one", () => {
     expect(() =>
-      readAgentDistroBake(baked("/l/not-a-listing.json"), read),
+      readAgentDistroBake(baked("/l/not-a-state.json"), read),
     ).toThrow();
-    expect(() => readAgentDistroBake(baked("/l/empty.json"), read)).toThrow();
-  });
-
-  it("throws on a listing that names a profile twice", () => {
-    expect(() => readAgentDistroBake(baked("/l/twice.json"), read)).toThrow(
-      /twice/,
-    );
   });
 });
 
-describe("each profile's state, made concrete once, at read", () => {
-  const bake = readAgentDistroBake(
-    baked("/l/listing.json"),
-    read,
-    "/home/u/.local/state",
-  );
-  const vanilla = bake?.profiles.get("vanilla");
-  if (!bake || !vanilla) throw new Error("fixture bake did not read");
-
+describe("the host state, made concrete once, at read", () => {
   it("puts the host's state home where the placeholder was", () => {
-    expect(vanilla).toEqual({
-      name: "vanilla",
-      stateDir: "/home/u/.local/state/agent-distro/abcvanilla",
+    expect(
+      readAgentDistroBake(baked("/l/state.json"), read, "/home/u/.local/state"),
+    ).toEqual({
+      floor: undefined,
+      plugins: "/p/plugin",
+      stateDir: "/home/u/.local/state/agent-distro/abcpackage",
       historyFile: "/home/u/.local/state/agent-distro/history.log",
+      landedFile: "/home/u/.local/state/kolu/agent-distro-landed.json",
     });
-    expect(bake.profiles.get("juspay")?.stateDir).toBe(
-      "/home/u/.local/state/agent-distro/abcjuspay",
-    );
   });
 
-  it("refuses, at read, a state dir or history log not under the placeholder", () => {
-    expect(() =>
-      readAgentDistroBake(baked("/l/elsewhere.json"), read, "/h"),
-    ).toThrow(/not under/);
-    expect(() =>
-      readAgentDistroBake(baked("/l/history-elsewhere.json"), read, "/h"),
-    ).toThrow(/not under/);
+  it("refuses, at read, a state dir, history log or landed record not under the placeholder", () => {
+    for (const path of [
+      "/l/state-elsewhere.json",
+      "/l/history-elsewhere.json",
+      "/l/landed-elsewhere.json",
+    ])
+      expect(() => readAgentDistroBake(baked(path), read, "/h")).toThrow(
+        /not under/,
+      );
   });
 });

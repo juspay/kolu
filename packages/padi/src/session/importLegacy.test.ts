@@ -11,7 +11,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { importLegacyConfigOnce } from "./importLegacy.ts";
-import { requirePadiStateStores as openPadiStateStores } from "./stateStore.ts";
+import {
+  PADI_STATE_SCHEMA_VERSION,
+  requirePadiStateStores as openPadiStateStores,
+} from "./stateStore.ts";
 
 const log = {
   debug() {},
@@ -260,7 +263,64 @@ describe("padi's own migration ladder", () => {
     const onDisk = JSON.parse(
       readFileSync(join(stateRoot, "config.json"), "utf8"),
     ) as { __internal__: { migrations: { version: string } } };
-    expect(onDisk.__internal__.migrations.version).toBe("1.1.0");
+    expect(onDisk.__internal__.migrations.version).toBe(
+      PADI_STATE_SCHEMA_VERSION,
+    );
+  });
+
+  it("1.2.0: a 1.1.0 file's old-shape `agents` stamp is dropped; a current one is kept", () => {
+    const current = {
+      bundle: "/nix/store/aaa-agent-distro",
+      profiles: [
+        {
+          reference: "github:juspay/skills",
+          name: "juspay",
+          rev: "a1b2c3d",
+          path: "/nix/store/bbb-profile-juspay",
+        },
+      ],
+    };
+    const terminal = (id: string, agents?: unknown) => ({
+      id,
+      state: "active",
+      cwd: "/tmp",
+      git: { kind: "unresolved" },
+      ...(agents === undefined ? {} : { agents }),
+    });
+    writeFileSync(
+      join(stateRoot, "config.json"),
+      JSON.stringify({
+        session: {
+          terminals: [
+            terminal("old", {
+              profile: "juspay",
+              bundle: "/nix/store/ccc-agent-distro-juspay",
+            }),
+            terminal("new", current),
+            terminal("none"),
+          ],
+          activeTerminalId: "old",
+          savedAt: 1,
+        },
+        __internal__: { migrations: { version: "1.1.0" } },
+      }),
+    );
+    const stores = openPadiStateStores(stateRoot);
+    const terminals = stores.session.get()?.terminals ?? [];
+    expect(terminals.map((t) => [t.id, t.agents])).toEqual([
+      ["old", undefined],
+      ["new", current],
+      ["none", undefined],
+    ]);
+    expect("agents" in (terminals[0] ?? {})).toBe(false);
+    const onDisk = JSON.parse(
+      readFileSync(join(stateRoot, "config.json"), "utf8"),
+    ) as {
+      session: { terminals: Record<string, unknown>[] };
+      __internal__: { migrations: { version: string } };
+    };
+    expect(onDisk.__internal__.migrations.version).toBe("1.2.0");
+    expect(onDisk.session.terminals[0]).not.toHaveProperty("agents");
   });
 
   it("a fresh state-root has no session to migrate", () => {

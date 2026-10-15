@@ -21,7 +21,7 @@ cucumber_parallel := env('CUCUMBER_PARALLEL', '4')
 # against their own repo roots, not kolu's. The root package.json's `typecheck`
 # and `test:unit` scripts carry the same filters for callers that enter through
 # pnpm instead of just (the Nix typecheck derivation).
-pnpm_vendored_filter := '--filter=!osfacts-client --filter=!@odu/*'
+pnpm_vendored_filter := '--filter=!osfacts-client --filter=!@odu/* --filter=!@juspay/*'
 
 # SURFACE_AGENT_FLAKE_REF: the production koluBin wrapper bakes the exact agent
 # source tree so a remote dial can resolve padi for the host's arch. A run from

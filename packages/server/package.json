@@ -11,6 +11,7 @@
   },
   "dependencies": {
     "@effect/platform-node": "catalog:",
+    "@juspay/agent-distro": "workspace:*",
     "@kolu/agent-distro": "workspace:*",
     "@kolu/artifact-sdk": "workspace:*",
     "@kolu/heap-diag": "workspace:*",

@@ -80,8 +80,15 @@ const sentinel: SavedActiveTerminal = {
   // A surviving PTY keeps the agents it was spawned with, so adoption must keep
   // the pill's one `agents` struct rather than re-resolve it.
   agents: {
-    profile: "sentinel-profile",
-    bundle: "/nix/store/00000000sentinel-agent-distro-sentinel-profile",
+    bundle: "/nix/store/00000000sentinel-agent-distro",
+    profiles: [
+      {
+        reference: "github:sentinel/profile",
+        name: "sentinel",
+        rev: "0123456789abcdef",
+        path: "/nix/store/11111111sentinel-profile",
+      },
+    ],
   },
   themeName: "Dracula",
   parentId: "term-parent",

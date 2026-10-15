@@ -110,17 +110,14 @@ import {
 } from "./chromeVocab.ts";
 import {
   AgentDistroReceiptSchema,
-  AgentDistroResolvedSchema,
   AgentDistroSettingSchema,
   AgentDistroStatusSchema,
   agentDistroReceiptEqual,
-  agentDistroResolvedEqual,
   AgentDistroDeliveryReportSchema,
   agentDistroSettingEqual,
   agentDistroStatusEqual,
   DEFAULT_AGENT_DISTRO_SETTING,
   DEFAULT_AGENT_DISTRO_STATUS,
-  DEFAULT_AGENT_DISTRO_RESOLVED,
   EMPTY_AGENT_DISTRO_RECEIPT,
   TerminalAgentsSchema,
 } from "@kolu/agent-distro/schema";
@@ -598,8 +595,22 @@ export * from "./transcriptSchema.ts";
  *  subscribes to odu's `checkout` stream rather than to padi's fold of it. A
  *  major because the member was REMOVED: a 5.14 client subscribing to `ciStatus`
  *  against a 6.0 padi meets a tag nobody serves, and that must refuse at the
- *  handshake rather than hang on a subscription. */
-export const PADI_SURFACE_VERSION = "6.0";
+ *  handshake rather than hang on a subscription.
+ *
+ *  7.0 (BREAKING · major) — agent-distro is one package, and profiles are built
+ *  and delivered beside it. The `agentDistro` setting's `profile: string`
+ *  becomes `profiles: string[]` (the stack, bottom to top); every
+ *  `agentDistroStatus` arm that named a profile names the stack (`profiles`),
+ *  and `ready` gains a REQUIRED `delivered` (the built profiles new terminals
+ *  get as `AI_PROFILE`); `agentDistro.report`'s arms name the stack, and
+ *  `landed` carries the built profiles (`delivered`); the receipt drops its
+ *  `profile` for the landed `profiles`; the record's `agents` becomes
+ *  `{ bundle, profiles, effective? }` with `effective` naming the composed
+ *  stack (`name`, `description`, `source`). The `agentDistroResolved` cell is
+ *  GONE: kolu-server resolves a profile when it builds it, so a host has
+ *  nothing to ask. A major because a member was removed and no arm decodes
+ *  across the change. */
+export const PADI_SURFACE_VERSION = "7.0";
 
 /** The `version` cell payload — padi's self-declared surface contract version. */
 export const PadiVersionSchema = Schema.Struct({
@@ -2035,12 +2046,11 @@ export const padiSurface = defineSurfaceWithPolicy<ClientErrorPolicy>()({
     },
     /** The Agents setting — WRITTEN by the binding kolu-server (the user's
      *  global preference, verbatim), READ by padi's spawn path: a terminal
-     *  spawned while it is on gets the profile's agents on its PATH. Memory-only
-     *  for the reason `newTerminalPolicy` is (the binder re-pushes on every
-     *  bind). It takes any profile: one this padi's build has no bundle for
-     *  rides the default bundle, and agent-distro resolves it. NOT exposed
-     *  through the MCP face: an agent inherits the user's choice, it does not
-     *  make it. */
+     *  spawned while it is on gets agent-distro's harnesses on its PATH, and the
+     *  setting's profiles — as kolu-server built and delivered them — as its
+     *  `AI_PROFILE`. Memory-only for the reason `newTerminalPolicy` is (the
+     *  binder re-pushes on every bind). NOT exposed through the MCP face: an
+     *  agent inherits the user's choice, it does not make it. */
     agentDistro: {
       schema: AgentDistroSettingSchema,
       default: DEFAULT_AGENT_DISTRO_SETTING,
@@ -2050,8 +2060,8 @@ export const padiSurface = defineSurfaceWithPolicy<ClientErrorPolicy>()({
       verbs: ["get", "set"],
       client: { onError: { kind: "toast", label: "Agents setting" } },
     },
-    /** Whether the selected profile's agents are on THIS padi's host — `ready`
-     *  (with the bundle new terminals get), `downloading` (nothing serves yet;
+    /** Whether the setting's set is on THIS padi's host — `ready` (with the
+     *  package and the built profiles new terminals get), `downloading` (nothing serves yet;
      *  kolu-server is delivering it), `error` (the delivery failed, typed, in
      *  kolu-server's words), `off`, or `unavailable` (a padi built without
      *  agent-distro). Read-only on the
@@ -2065,10 +2075,9 @@ export const padiSurface = defineSurfaceWithPolicy<ClientErrorPolicy>()({
       verbs: ["get"],
       client: { onError: { kind: "hostToast", label: "Agents status" } },
     },
-    /** What this host keeps of its agent deliveries for the setting's profile
-     *  — the serving bundle's versions, the last delivery and the last few
-     *  history events, read off upstream's files on the host — and every
-     *  profile with a delivery in flight there. Read-only; published at boot,
+    /** What this host keeps of its agent deliveries — the serving package's
+     *  versions and the profiles that landed with it, the last delivery and
+     *  the last few history events, read off the files on the host. Read-only; published at boot,
      *  at every delivery report, and when the setting changes. A later delivery
      *  that fails shows here (and in the logs), never as an `error` status
      *  while a bundle serves: the agents still work. */
@@ -2078,19 +2087,6 @@ export const padiSurface = defineSurfaceWithPolicy<ClientErrorPolicy>()({
       equals: agentDistroReceiptEqual,
       verbs: ["get"],
       client: { onError: { kind: "hostToast", label: "Agents updates" } },
-    },
-    /** Whether the setting's profile resolves on THIS host — asked once per
-     *  setting of the bundle's own `agent-distro --list --json`, from `$HOME`
-     *  with the profile as `AI_PROFILE`: `pending`, `resolved` (agent-distro's
-     *  name and description for it) or `failed` (its own words), or `none`
-     *  while there is nothing to ask. Read-only; padi's agent-distro module is
-     *  the sole writer. Settings shows it under the profile field. */
-    agentDistroResolved: {
-      schema: AgentDistroResolvedSchema,
-      default: DEFAULT_AGENT_DISTRO_RESOLVED,
-      equals: agentDistroResolvedEqual,
-      verbs: ["get"],
-      client: { onError: { kind: "hostToast", label: "Agents profile" } },
     },
     /** Every TCP listener on THIS padi's host — what the terminal-scoped `ports`
      *  on each record cannot see: a server that detached from the terminal that
@@ -2586,7 +2582,6 @@ export const PADI_FORWARDING_POLICY = {
   agentDistro: "value",
   agentDistroStatus: "value",
   agentDistroReceipt: "value",
-  agentDistroResolved: "value",
   hostListeners: "value",
   hostInventory: "value",
   processMemory: "value",

@@ -331,7 +331,7 @@ describe("composeSpawnInput agent-distro layer", () => {
     restore(AGENT_DISTRO_PLUGINS_ENV, savedPlugins);
   });
 
-  it("puts the profile's dir AFTER kolu's own tools and before the user's PATH", () => {
+  it("puts the package's bin/ AFTER kolu's own tools and before the user's PATH", () => {
     // kolu / kaval-tui / padi-tui keep a name collision with anything a profile
     // ships; the bundled `claude` wins over one the user installed.
     const input = composeSpawnInput(
@@ -339,7 +339,7 @@ describe("composeSpawnInput agent-distro layer", () => {
       info(),
       spec({
         toolsPath: [TOOLS],
-        agents: { binDir: AGENTS, plugins: PLUGINS, profile: "vanilla" },
+        agents: { binDir: AGENTS, plugins: PLUGINS, profiles: [] },
       }),
     );
     expect(input.env.PATH).toBe(`${TOOLS}:${AGENTS}:/usr/bin:/bin`);
@@ -351,7 +351,7 @@ describe("composeSpawnInput agent-distro layer", () => {
       info(),
       spec({
         toolsPath: [TOOLS],
-        agents: { binDir: AGENTS, plugins: PLUGINS, profile: "vanilla" },
+        agents: { binDir: AGENTS, plugins: PLUGINS, profiles: [] },
       }),
     );
     expect(input.env[TERMINAL_TOOLS_PATH_ENV]).toBe(`${TOOLS}:${AGENTS}`);
@@ -362,7 +362,7 @@ describe("composeSpawnInput agent-distro layer", () => {
       { id: "T-agents-only" },
       info(),
       spec({
-        agents: { binDir: AGENTS, plugins: PLUGINS, profile: "vanilla" },
+        agents: { binDir: AGENTS, plugins: PLUGINS, profiles: [] },
       }),
     );
     expect(input.env.PATH).toBe(`${AGENTS}:/usr/bin:/bin`);
@@ -374,24 +374,55 @@ describe("composeSpawnInput agent-distro layer", () => {
       { id: "T-agents-plugins" },
       info(),
       spec({
-        agents: { binDir: AGENTS, plugins: PLUGINS, profile: "vanilla" },
+        agents: { binDir: AGENTS, plugins: PLUGINS, profiles: [] },
       }),
     );
     expect(input.env[AGENT_DISTRO_PLUGINS_ENV]).toBe(PLUGINS);
   });
 
-  it("exports the setting's profile as AI_PROFILE, whichever bundle it rides", () => {
-    for (const [profile, bundle] of [
-      ["github:me/profile", "/s/vanilla"],
-      ["juspay", "/s/juspay"],
-    ] as const) {
+  it("exports the built profiles as AI_PROFILE, space-joined bottom to top", () => {
+    const profile = (name: string) => ({
+      reference: `github:me/${name}`,
+      name,
+      path: `/nix/store/ppp-${name}`,
+    });
+    const input = composeSpawnInput(
+      { id: "T-agents-stack" },
+      info(),
+      spec({
+        agents: agentSpawnEnv({
+          bundle: "/s/package",
+          profiles: [profile("juspay"), profile("ekala")],
+          plugins: PLUGINS,
+        }),
+      }),
+    );
+    expect(input.env[AI_PROFILE_ENV]).toBe(
+      "/nix/store/ppp-juspay /nix/store/ppp-ekala",
+    );
+    expect(input.env[AGENT_DISTRO_PLUGINS_ENV]).toBe(PLUGINS);
+    expect(input.env.PATH).toBe("/s/package/bin:/usr/bin:/bin");
+  });
+
+  it("no profiles: AI_PROFILE is not set at all, and an inherited one is not carried", () => {
+    const saved = process.env[AI_PROFILE_ENV];
+    process.env[AI_PROFILE_ENV] = "github:somewhere/else";
+    try {
       const input = composeSpawnInput(
-        { id: `T-agents-${bundle}` },
+        { id: "T-agents-stock" },
         info(),
-        spec({ agents: agentSpawnEnv({ profile, bundle, plugins: PLUGINS }) }),
+        spec({
+          agents: agentSpawnEnv({
+            bundle: "/s/package",
+            profiles: [],
+            plugins: PLUGINS,
+          }),
+        }),
       );
-      expect(input.env[AI_PROFILE_ENV]).toBe(profile);
+      expect(AI_PROFILE_ENV in input.env).toBe(false);
       expect(input.env[AGENT_DISTRO_PLUGINS_ENV]).toBe(PLUGINS);
+    } finally {
+      restore(AI_PROFILE_ENV, saved);
     }
   });
 

@@ -16,6 +16,7 @@ import type { AgentInfo, TerminalSnapshot } from "@kolu/terminal-vocab/schema";
 import { Result, Schema } from "effect";
 import { describe, expect, it } from "vitest";
 import {
+  backfillAgentsStamp,
   backfillGitFact,
   backfillSavedTerminal,
   type AuthoredActiveTerminal,
@@ -225,5 +226,55 @@ describe("backfillGitFact — the old nullable git becomes the three-case fact",
       kind: "repo",
       info,
     });
+  });
+});
+
+describe("backfillAgentsStamp — a per-profile bundle stamp is dropped, not translated", () => {
+  const current = {
+    bundle: "/nix/store/aaa-agent-distro",
+    profiles: [
+      {
+        reference: "github:juspay/skills",
+        name: "juspay",
+        rev: "a1b2c3d",
+        path: "/nix/store/bbb-profile-juspay",
+      },
+    ],
+  };
+
+  it("drops the old `{ profile, bundle }` stamp whole: the respawn re-stamps it", () => {
+    const legacy = {
+      id: "t",
+      agents: { profile: "juspay", bundle: "/nix/store/ccc-juspay" },
+    };
+    const repaired = backfillAgentsStamp(legacy);
+    expect(repaired).toEqual({ id: "t" });
+    expect("agents" in repaired).toBe(false);
+  });
+
+  it("is idempotent: a current stamp, an empty stack, or no stamp passes through", () => {
+    for (const t of [
+      { id: "t", agents: current },
+      { id: "t", agents: { bundle: "/nix/store/aaa", profiles: [] } },
+      { id: "t" },
+    ])
+      expect(backfillAgentsStamp(t)).toBe(t);
+  });
+
+  it("runs in the saved-terminal ladder", () => {
+    expect(
+      backfillSavedTerminal({
+        id: "t",
+        git: { kind: "unresolved" },
+        agents: { profile: "vanilla", bundle: "/nix/store/ddd" },
+      }),
+    ).not.toHaveProperty("agents");
+    expect(
+      backfillSavedTerminal({
+        id: "t",
+        git: { kind: "unresolved" },
+        agents: current,
+      }).agents,
+    ).toEqual(current);
   });
 });

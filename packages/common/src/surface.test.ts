@@ -369,28 +369,51 @@ describe("the forwards cell declares what identifies a row", () => {
 });
 
 describe("applyPreferencesPatch — the Agents setting", () => {
-  it("writes agentDistro WHOLE, replacing what was stored", () => {
+  it("writes agentDistro WHOLE, replacing what was stored — the stack and its order included", () => {
     const on = applyPreferencesPatch(DEFAULT_PREFERENCES, {
-      agentDistro: { enabled: true, profile: "juspay" },
+      agentDistro: {
+        enabled: true,
+        profiles: ["github:juspay/skills", "~/mine"],
+      },
     });
-    expect(on.agentDistro).toEqual({ enabled: true, profile: "juspay" });
-    const off = applyPreferencesPatch(on, {
-      agentDistro: { enabled: false, profile: "juspay" },
+    expect(on.agentDistro).toEqual({
+      enabled: true,
+      profiles: ["github:juspay/skills", "~/mine"],
     });
-    expect(off.agentDistro).toEqual({ enabled: false, profile: "juspay" });
+    const reordered = applyPreferencesPatch(on, {
+      agentDistro: {
+        enabled: true,
+        profiles: ["~/mine", "github:juspay/skills"],
+      },
+    });
+    expect(reordered.agentDistro).toEqual({
+      enabled: true,
+      profiles: ["~/mine", "github:juspay/skills"],
+    });
+    const off = applyPreferencesPatch(reordered, {
+      agentDistro: { enabled: false, profiles: [] },
+    });
+    expect(off.agentDistro).toEqual({ enabled: false, profiles: [] });
     // An unrelated patch leaves the choice alone.
     expect(
       applyPreferencesPatch(off, { scrollLock: false }).agentDistro,
     ).toEqual(off.agentDistro);
   });
 
-  it("refuses a partial or null agentDistro patch — never chosen cannot be re-entered", () => {
+  it("refuses a partial, null, old-shaped or empty-reference agentDistro patch — never chosen cannot be re-entered", () => {
     const patchAccepts = accepts(PreferencesPatchSchema);
-    expect(
-      patchAccepts({ agentDistro: { enabled: true, profile: "vanilla" } }),
-    ).toBe(true);
+    expect(patchAccepts({ agentDistro: { enabled: true, profiles: [] } })).toBe(
+      true,
+    );
     expect(patchAccepts({ agentDistro: { enabled: true } })).toBe(false);
     expect(patchAccepts({ agentDistro: null })).toBe(false);
+    // The single `profile` is gone: the stack is the only shape.
+    expect(
+      patchAccepts({ agentDistro: { enabled: true, profile: "vanilla" } }),
+    ).toBe(false);
+    expect(
+      patchAccepts({ agentDistro: { enabled: true, profiles: [""] } }),
+    ).toBe(false);
   });
 
   it("starts as never chosen (null) — kolu adds nothing to a PATH until asked", () => {

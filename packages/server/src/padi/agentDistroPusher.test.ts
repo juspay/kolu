@@ -4,8 +4,8 @@
  * pool/session/client slices are narrow on purpose, so no real padi is needed.
  * What this pins for THIS cell: a push on every connect (first bind and
  * reconnect — padi forgets the setting with its link), a re-push when the
- * preference moves, nothing for an unrelated preference write, a refusal (a
- * host that does not know the profile) logged and contained, and `onPushed` —
+ * preference moves (the stack's order is part of it), nothing for an unrelated
+ * preference write, a refusal logged and contained, and `onPushed` —
  * the agent delivery's trigger — fired per host only after its padi took it.
  */
 
@@ -21,8 +21,19 @@ import {
   type PadiCellPushSession,
 } from "./padiCellPusher.ts";
 
-const VANILLA: AgentDistroSetting = { enabled: true, profile: "vanilla" };
-const JUSPAY: AgentDistroSetting = { enabled: true, profile: "juspay" };
+const VANILLA: AgentDistroSetting = { enabled: true, profiles: [] };
+const JUSPAY: AgentDistroSetting = {
+  enabled: true,
+  profiles: ["github:juspay/skills"],
+};
+const STACKED: AgentDistroSetting = {
+  enabled: true,
+  profiles: ["github:juspay/skills", "~/my-profile"],
+};
+const REORDERED: AgentDistroSetting = {
+  enabled: true,
+  profiles: ["~/my-profile", "github:juspay/skills"],
+};
 
 const log = {
   error: vi.fn(),
@@ -43,7 +54,7 @@ function fakeSession(opts: { refuse?: boolean } = {}) {
         set: (value: AgentDistroSetting) =>
           Effect.suspend(() => {
             if (opts.refuse === true)
-              return Effect.fail(new Error("unknown agent-distro profile"));
+              return Effect.fail(new Error("padi refused the setting"));
             pushed.push(value);
             return Effect.void;
           }),
@@ -118,6 +129,18 @@ describe("the agentDistro push", () => {
     await settle();
     expect(local.pushed).toEqual([VANILLA, JUSPAY]);
     expect(remote.pushed).toEqual([VANILLA, JUSPAY]);
+    // A profile added, then the same profiles reordered: each is a change.
+    value = STACKED;
+    pusher.republish();
+    await settle();
+    value = { ...REORDERED, profiles: [...REORDERED.profiles] };
+    pusher.republish();
+    await settle();
+    // An equal stack in a new array is no change.
+    value = { ...REORDERED, profiles: [...REORDERED.profiles] };
+    pusher.republish();
+    await settle();
+    expect(local.pushed).toEqual([VANILLA, JUSPAY, STACKED, REORDERED]);
   });
 
   it("fires onPushed per host after a taken push, never after a refused one", async () => {

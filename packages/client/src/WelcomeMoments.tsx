@@ -33,8 +33,8 @@ import {
   agentDistroListing,
   agentDistroSetting,
   agentDistroStored,
+  agentProfilesNow,
   hostAgentStatusOf,
-  localAgentResolved,
 } from "./agents/useAgentDistro";
 import { useHostMembers } from "./host/useHostMembers";
 import { ACTIONS, advertisedNewTerminalKey } from "./input/actions";
@@ -68,7 +68,7 @@ const doneText = (id: WelcomeMomentId): string | undefined => {
       return agentsChosenLabel(
         agentDistroSetting(),
         agentDistroListing(),
-        localAgentResolved(),
+        agentProfilesNow(),
       );
     case "pin":
       return "📌 Pinned ✓";
@@ -149,23 +149,21 @@ const MomentShell: Component<{
 );
 
 /** The agents choice: the same `AgentsChooser` as Settings → Agents, laid out
- *  as a welcome row with agent-distro's logo — the profiles kolu ships as
- *  named cards (the default one preselected), "Turn on" to take the picked
- *  one, and "Not now" to go on with plain terminals. A reference of your own
- *  stays a Settings matter.
+ *  as a welcome row with agent-distro's logo — the profile list (empty, the
+ *  agents as they ship, with Juspay's one-click entry; a reference of your own
+ *  stays a Settings matter), "Turn on" to take it, and "Not now" to go on with
+ *  plain terminals.
  *
- *  Nothing is written until "Turn on": a card is a choice, not a switch, and
- *  "Not now" must leave the preference UNchosen — it hides the row for this
- *  session and the card asks again next time. The row stays at the top while
- *  agents are off (nothing chosen, or switched off). Only while NOTHING is
- *  chosen does the picked card take focus on mount, so **Enter** turns agents
- *  on with it — the step answers the key itself, because a radio does not
- *  (Space picks one; Enter submits a form, and there is none here). Someone
- *  who switched agents off sees the row at every empty canvas, but an Enter
- *  out of habit must not switch them back on, so nothing is focused then.
- *  ⌘⏎ still creates a terminal from anywhere. */
+ *  Nothing is written until "Turn on": the list is held by the step, and "Not
+ *  now" must leave the preference UNchosen — it hides the row for this session
+ *  and the card asks again next time. The row stays at the top while agents
+ *  are off (nothing chosen, or switched off). Only while NOTHING is chosen does
+ *  "Turn on" take focus on mount, so **Enter** turns agents on. Someone who
+ *  switched agents off sees the row at every empty canvas, but an Enter out of
+ *  habit must not switch them back on, so nothing is focused then. ⌘⏎ still
+ *  creates a terminal from anywhere. */
 const ChooseAgentsMoment: Component<{ onNotNow: () => void }> = (props) => (
-  <AgentsChooser deferred autofocus={!agentsChosen(agentDistroStored())}>
+  <AgentsChooser deferred>
     {(parts) => (
       <MomentShell
         testId="welcome-moment-choose-agents"
@@ -173,22 +171,18 @@ const ChooseAgentsMoment: Component<{ onNotNow: () => void }> = (props) => (
         title={AGENTS_FIRST_RUN_TITLE}
         body={parts.stepHint()}
         details={
-          // The key belongs to the STEP, not to one control in it: whichever
-          // card has the focus, Enter takes the card picked right then.
-          <div
-            on:keydown={(e) => {
-              if (e.key !== "Enter" || !parts.canTurnOn()) return;
-              e.preventDefault();
-              parts.turnOn();
-            }}
-          >
-            {parts.picker}
+          <div>
+            {parts.profiles}
             <div class="mt-2.5 flex items-center gap-3.5">
               <Show when={parts.canTurnOn()}>
                 <button
+                  ref={(el) => {
+                    if (!agentsChosen(agentDistroStored()))
+                      queueMicrotask(() => el.focus());
+                  }}
                   type="button"
                   data-testid="welcome-agents-turn-on"
-                  class="inline-flex cursor-pointer items-center gap-2 rounded-lg bg-accent px-3 py-1.5 text-xs font-semibold text-surface-1 transition-all hover:brightness-110"
+                  class="inline-flex cursor-pointer items-center gap-2 rounded-lg bg-accent px-3 py-1.5 text-xs font-semibold text-surface-1 transition-all hover:brightness-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 focus-visible:ring-offset-1"
                   onClick={() => parts.turnOn()}
                 >
                   Turn on
@@ -310,7 +304,7 @@ const WelcomeMoments: Component<{
     return state === "installed" ? null : state;
   };
 
-  // The step's last KNOWN reading: a pick leaves this machine's status behind
+  // The step's last KNOWN reading: a choice leaves this machine's status behind
   // the choice for a moment, and the row stays through it (`latchKnown`).
   const chooseAgentsDone = latchKnown(() =>
     preferencesArrived()

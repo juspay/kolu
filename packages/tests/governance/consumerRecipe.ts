@@ -63,8 +63,8 @@ export function checkConsumerRecipeEvaluates(repoRoot: string): number {
   const recipe = extractConsumerRecipe(repoRoot);
 
   // The substitutions, and they are the whole list. A consumer's `../npins`
-  // holds ITS pins of kolu, osfacts and odu; this repo is the kolu, and its own
-  // npins holds the osfacts and odu that `consumer-closure.json` was emitted
+  // holds ITS pins of kolu, osfacts, odu and agent-distro; this repo is the
+  // kolu, and its own npins holds the osfacts, odu and agent-distro that `consumer-closure.json` was emitted
   // against — which is exactly the revisions the recipe must agree with, so the
   // check exercises the agreeing case rather than a contrived one.
   // EACH rebind is checked, not the set: a doc that renames one of them would
@@ -74,6 +74,7 @@ export function checkConsumerRecipeEvaluates(repoRoot: string): number {
     ["(import ../npins).kolu;", `${JSON.stringify(repoRoot)};`],
     ["(import ../npins).osfacts;", "(import ./npins).osfacts;"],
     ["(import ../npins).odu;", "(import ./npins).odu;"],
+    ["(import ../npins).agent-distro;", "(import ./npins).agent-distro;"],
   ];
   let bound = recipe;
   for (const [from, to] of rebinds) {

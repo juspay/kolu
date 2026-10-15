@@ -1,80 +1,63 @@
 /**
- * What this host keeps of its agent deliveries for a profile — the
- * `agentDistroReceipt` cell's value, read off upstream's files on the host
- * (which padi writes as each delivery lands, `./deliveries.ts`): the history
- * log (`@kolu/agent-distro/history`), the `last-success` stamp
- * (`@kolu/agent-distro/schedule`) and the serving bundle's versions file
- * (`@kolu/agent-distro/versions`). The one thing those files do not hold — a
+ * What this host keeps of its agent deliveries — the `agentDistroReceipt`
+ * cell's value, read off the files on the host (which padi writes as each
+ * delivery lands, `./deliveries.ts`): upstream's history log and
+ * `last-success` stamp (read with upstream's own parsers, through
+ * `@kolu/agent-distro/receipt`), the serving package's versions file, and the
+ * profiles that landed with it. The one thing those files do not hold — a
  * delivery that landed nothing — comes from the delivery record. Its
  * volatility is reading those files.
  */
 
-import { readFileSync } from "node:fs";
+import { parseStamp } from "@juspay/agent-distro/update/due";
+import {
+  parseVersions,
+  type Version,
+} from "@juspay/agent-distro/update/versions";
+import { lastSuccessFile, versionsFile } from "@kolu/agent-distro/bundle";
+import type { DeliveredSet } from "@kolu/agent-distro/landing";
 import {
   type AgentUpdateRun,
   lastRunOf,
   recentEvents,
   SAME_RUN_MS,
-} from "@kolu/agent-distro/history";
-import { lastSuccessFile, parseLastSuccess } from "@kolu/agent-distro/schedule";
+} from "@kolu/agent-distro/receipt";
 import type { AgentDistroReceipt } from "@kolu/agent-distro/schema";
-import {
-  type AgentVersion,
-  parseVersions,
-  versionsFile,
-} from "@kolu/agent-distro/versions";
-import type { AgentDistroProfileBake } from "./bake.ts";
+import type { AgentDistroBake } from "./bake.ts";
+import { readOrUndefined } from "./onHost.ts";
 
-/** `path`'s text, or `undefined` when it does not exist. Only `ENOENT` is
- *  "absent"; anything else is thrown. */
-function readOrUndefined(path: string): string | undefined {
-  try {
-    return readFileSync(path, "utf8");
-  } catch (err) {
-    if ((err as NodeJS.ErrnoException).code === "ENOENT") return undefined;
-    throw err;
-  }
-}
-
-/** `profile`'s `last-success` stamp (epoch seconds), or `null` before any
- *  successful run. */
-function lastSuccessOf(profile: AgentDistroProfileBake): number | null {
-  return parseLastSuccess(readOrUndefined(lastSuccessFile(profile.stateDir)));
-}
-
-/** A bundle's versions, or `undefined` when it records none. */
-export function versionsOf(
-  bundle: string,
-): readonly AgentVersion[] | undefined {
+/** A package's harnesses, or `undefined` when it records none. */
+export function versionsOf(bundle: string): Version[] | undefined {
   const text = readOrUndefined(versionsFile(bundle));
   return text === undefined ? undefined : parseVersions(text);
 }
 
-/** The receipt for `profile` on this host: the versions of `serving` (the
- *  bundle new terminals get there now, if any), the last run, and the last few
- *  history events. `unlanded` is the profile's last delivery that landed
- *  nothing, as the delivery record remembers it — shown when it is newer than
- *  what the files say. Throws on a history
- *  or versions file that is not upstream's format. */
+/** The receipt on this host: the versions and profiles of `serving` (the set
+ *  new terminals get there now, if any), the last run, and the last few
+ *  history events. `unlanded` is the last delivery that landed nothing, as the
+ *  delivery record remembers it — shown when it is newer than what the files
+ *  say. Throws on a history or versions file upstream's readers refuse. */
 export function readReceipt(
-  profile: AgentDistroProfileBake,
-  serving: string | undefined,
+  bake: AgentDistroBake,
+  serving: DeliveredSet | undefined,
   unlanded: AgentUpdateRun | undefined,
 ): AgentDistroReceipt {
-  const events = recentEvents(
-    readOrUndefined(profile.historyFile) ?? "",
-    profile.name,
+  const events = recentEvents(readOrUndefined(bake.historyFile) ?? "");
+  const stampText = readOrUndefined(lastSuccessFile(bake.stateDir));
+  const fromFiles = lastRunOf(
+    events,
+    stampText === undefined ? null : parseStamp(stampText),
   );
-  const fromFiles = lastRunOf(events, lastSuccessOf(profile));
   const lastRun =
     unlanded !== undefined &&
     (fromFiles === undefined || unlanded.at > fromFiles.at + SAME_RUN_MS)
       ? unlanded
       : fromFiles;
   return {
-    profile: profile.name,
-    ...(serving === undefined ? {} : { bundle: serving }),
-    versions: serving === undefined ? [] : [...(versionsOf(serving) ?? [])],
+    ...(serving === undefined ? {} : { bundle: serving.bundle }),
+    versions:
+      serving === undefined ? [] : [...(versionsOf(serving.bundle) ?? [])],
+    profiles: serving === undefined ? [] : [...serving.profiles],
     ...(lastRun === undefined ? {} : { lastRun }),
     events: [...events],
   };

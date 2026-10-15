@@ -1,20 +1,27 @@
 /**
- * The real {@link DeliveryOps}. Which bundle: one HTTPS GET of upstream's
+ * The real {@link DeliveryOps}. Which package: one HTTPS GET of upstream's
  * content-addressed index per system (`@kolu/surface-remote`'s
- * `readPublishedClosure`, the `latest/` entry). Getting it there:
- * `@kolu/surface-remote`'s `pullClosure` — the host pulls the path from
+ * `readPublishedClosure`, the `latest/` entry of its one package). Getting it
+ * there: `@kolu/surface-remote`'s `pullClosure` — the host pulls the path from
  * agent-distro's cache and roots it (its header says what trust each form
  * needs), in the form `closureRoute` picks from the host's Nix: the
- * content-addressed rewrite, which needs no trust, or the signed bundle, which
- * needs the host's Nix to trust the login or the cache's key. This machine
- * runs no Nix for either. kolu's own words — the profile, the per-profile GC
- * root, the trust fix a refusal names — stay here.
+ * content-addressed rewrite, which needs no trust, or the signed package,
+ * which needs the host's Nix to trust the login or the cache's key.
+ *
+ * A profile is locked and built on THIS machine (`./profiles.ts`), and shipped
+ * with `@kolu/surface-remote`'s `deliverClosure` — the same route an agent's
+ * closure takes: content-addressed to a Linux host (no trust needed), signed
+ * input-addressed to a Mac (which must trust the login), rooted either way.
+ * kolu's own words — the GC roots, the trust fix a refusal names — stay here.
  */
 
+import { createHash } from "node:crypto";
 import type { AgentDistroDelivery } from "@kolu/agent-distro/bake";
 import {
+  agentBinaryCache,
   closureRoute,
   DEFAULT_SSH_KEEPALIVE,
+  deliverClosure,
   type FetchText,
   fetchClosureIndex,
   homeGcRoot,
@@ -29,17 +36,35 @@ import {
   signedBecause,
 } from "@kolu/surface-remote";
 import type { DeliveryOps } from "./delivery.ts";
+import { buildProfile, lockProfile } from "./profiles.ts";
 
-/** Read `profile`'s newest published bundle for `system` off agent-distro's
- *  index at `index` — its `latest/` entry, through the framework's reader
+/** The attribute upstream's index publishes its one package under
+ *  (`<rev>/<system>/default.json`, and `latest/` on main). */
+const PACKAGE_ATTRIBUTE = "default";
+
+/** Where kolu roots what it delivered, under the login's home (over ssh the
+ *  login's home is the one place this process can name on a host): the
+ *  package, and each profile by its reference. */
+const GC_ROOTS = ".local/state/kolu/agent-distro/gcroots";
+
+function gcRoot(ssh: string, name: string): string {
+  const root = homeGcRoot(isLocalHost(ssh), `${GC_ROOTS}/${name}`);
+  if (root === null)
+    throw new Error(
+      "HOME is unset, so the agents' GC root on this machine cannot be formed",
+    );
+  return root;
+}
+
+/** Read the newest published package for `system` off agent-distro's index
+ *  at `index` — its `latest/` entry, through the framework's reader
  *  (`fetchText` injectable for tests). A 404 throws in words the host's
- *  failure line carries as is (upstream has not published that bundle); the
+ *  failure line carries as is (upstream has not published that package); the
  *  reader's own errors (no answer, another status, not an entry) name the
  *  URL. */
-export async function readPublishedBundle(
+export async function readPublishedPackage(
   index: string,
   system: string,
-  profile: string,
   fetchText: FetchText = fetchClosureIndex,
 ): Promise<PublishedClosure> {
   const read = await readPublishedClosure(
@@ -47,11 +72,11 @@ export async function readPublishedBundle(
     { rawBase: index },
     "latest",
     system,
-    profile,
+    PACKAGE_ATTRIBUTE,
   );
   if (read.kind === "not-published")
     throw new Error(
-      `agent-distro has not published the ${profile} agents for ${system} yet`,
+      `agent-distro has not published its agents for ${system} yet`,
     );
   return read.entry;
 }
@@ -61,25 +86,59 @@ export function realDeliveryOps(bake: AgentDistroDelivery): DeliveryOps {
   // The interactive default on purpose: every ssh to a host shares ONE
   // ControlMaster keyed by its keepalive, padi's own dial's included.
   const keepalive = DEFAULT_SSH_KEEPALIVE;
+  const binaryCache = agentBinaryCache({
+    substituters: [bake.cache.url],
+    trustedPublicKeys: [bake.cache.publicKey],
+  });
   return {
     hostNixOf: (ssh) =>
       resolveHostNix(ssh, { onProgress: () => {}, keepalive }),
-    published: (system, profile) =>
-      readPublishedBundle(bake.index, system, profile),
-    pull: async ({ ssh, label, hostNix, published, profile, onProgress }) => {
+    published: (system) => readPublishedPackage(bake.index, system),
+    lock: lockProfile,
+    build: ({ rev, locked, hostSystem }) =>
+      buildProfile({ flake: bake.flake, rev, locked, hostSystem }),
+    ship: async ({ ssh, label, hostNix, reference, path, onProgress }) => {
+      const res = await deliverClosure({
+        host: ssh,
+        system: async () => hostNix.system,
+        outPath: path,
+        // Built on this machine, so held here: the cache is never read for
+        // it. Named because a delivery is never cache-blind.
+        binaryCache,
+        published: null,
+        // One root per reference ("latest", like the package's).
+        rootPath: gcRoot(
+          ssh,
+          `profile-${createHash("sha256").update(reference).digest("hex").slice(0, 16)}`,
+        ),
+        onProgress,
+        onActivity: () => {},
+        budget: makeStepBudget(
+          PROVISION_STEP_SILENCE_BASE_MS,
+          PROVISION_STEP_MAX_EXPIRIES,
+        ),
+        keepalive,
+      });
+      if (res.ok) return { ok: true, path: res.outPath };
+      const why = `${label} could not take ${path}: ${res.reason}`;
+      if (
+        res.kind === "failed" ||
+        isLocalHost(ssh) ||
+        !hostNix.system.endsWith("-darwin")
+      )
+        return { ok: false, message: why };
+      // A Mac takes only the signed form, and this machine's build is signed
+      // by no one: its Nix must trust the login.
+      return {
+        ok: false,
+        message: `${why}. ${label} takes a profile built here only when its Nix trusts the login kolu connects as: on ${label}, add it to \`nix.settings.trusted-users\`.`,
+      };
+    },
+    pull: async ({ ssh, label, hostNix, published, onProgress }) => {
       const route = closureRoute(hostNix, published);
       const { storePath } = route;
-      // kolu's own root, one link per profile ("latest", like surface-remote's
-      // per-agent roots). Home-relative, never `$XDG_STATE_HOME`: over ssh the
-      // login's home is the one place this process can name on a host.
-      const rootPath = homeGcRoot(
-        isLocalHost(ssh),
-        `.local/state/kolu/agent-distro/gcroots/${profile}`,
-      );
-      if (rootPath === null)
-        throw new Error(
-          "HOME is unset, so the agents' GC root on this machine cannot be formed",
-        );
+      // kolu's own root ("latest", like surface-remote's per-agent roots).
+      const rootPath = gcRoot(ssh, "package");
       const res = await pullClosure({
         host: ssh,
         cacheUrl: bake.cache.url,
@@ -99,7 +158,7 @@ export function realDeliveryOps(bake: AgentDistroDelivery): DeliveryOps {
       if (res.kind === "failed") return { ok: false, message: res.reason };
       // Nix's own line inside kolu-server's words — and for a signed bundle,
       // why the host was sent it and the one-line fix for the trust it needs.
-      const why = `${label} could not pull the ${profile} agents (${storePath}) from agent-distro's cache (${bake.cache.url}): ${res.reason}`;
+      const why = `${label} could not pull the agents (${storePath}) from agent-distro's cache (${bake.cache.url}): ${res.reason}`;
       if (route.kind === "content-addressed")
         return { ok: false, message: why };
       const who = isLocalHost(ssh)

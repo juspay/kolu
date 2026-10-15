@@ -703,9 +703,9 @@ let
         # The coupling the agent-distro bake rides: the toolchain path padi records
         # (#2146) starts with THIS wrapper's `$out/bin`, and this wrapper bakes
         # agent-distro — so a change to that bake moves the record and restarts padi.
-        if [ -z "''${KOLU_AGENT_DISTRO_PROFILES:-}" ] || [ "''${dirs[0]}" != "$out/bin" ]; then
+        if [ -z "''${KOLU_AGENT_DISTRO_STATE:-}" ] || [ "''${dirs[0]}" != "$out/bin" ]; then
           echo "FAIL: the composed KOLU_AGENT_TOOLS_PATH must start with this wrapper's" >&2
-          echo "\$out/bin, and this wrapper must bake KOLU_AGENT_DISTRO_PROFILES — else a" >&2
+          echo "\$out/bin, and this wrapper must bake KOLU_AGENT_DISTRO_STATE — else a" >&2
           echo "change to that bake (on the machine running kolu, an agent-distro pin bump," >&2
           echo "which moves the floor) would no longer restart padi, so a newer kolu would" >&2
           echo "not bring the newer agents." >&2
@@ -1032,10 +1032,10 @@ let
       IFS=: read -ra agent_dirs <<< "$KOLU_AGENT_TOOLS_PATH"
       # The coupling the host's bake rides: its toolchain path is THIS wrapper's
       # `$out/bin`, and this wrapper bakes agent-distro (no pin: see above).
-      if [ -z "''${KOLU_AGENT_DISTRO_PROFILES:-}" ] || [ "''${agent_dirs[0]}" != "$out/bin" ]; then
+      if [ -z "''${KOLU_AGENT_DISTRO_STATE:-}" ] || [ "''${agent_dirs[0]}" != "$out/bin" ]; then
         echo "FAIL: the composed KOLU_AGENT_TOOLS_PATH of the padi a remote host is dialed" >&2
         echo "with must start with padi-agent's \$out/bin, and that wrapper must bake" >&2
-        echo "KOLU_AGENT_DISTRO_PROFILES — else a change to the bake the host is dialed" >&2
+        echo "KOLU_AGENT_DISTRO_STATE — else a change to the bake the host is dialed" >&2
         echo "with, or to padi-agent, would no longer restart the host's padi." >&2
         exit 1
       fi
@@ -1077,4 +1077,7 @@ in
   # The local floor of coding agents, exposed so CI builds it and nix-cache.yml
   # pushes it (a `nix run` user then substitutes it rather than compiling).
   agent-distro-bundle = agentDistro.bundle;
+  # The same agents baked as shell variables, for a working-tree run with no
+  # wrapper to bake into (`.saatchi/mod.just`'s evidence server).
+  agent-distro-env = agentDistro.shellEnv;
 }

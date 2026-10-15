@@ -23,47 +23,66 @@ function harness() {
     dispose = d;
     watchLanding(
       () => store.v,
-      (bundle) => landed.push(bundle),
+      (set) => landed.push(set),
     );
   });
   return { store, write, landed, dispose };
 }
 
-const ready = (bundle: string, delivering = false): AgentDistroStatus => ({
+const JUSPAY = "github:juspay/skills";
+
+/** A ready status: the package `bundle`, and Juspay's profile built at
+ *  `profilePath` when given. */
+const ready = (
+  bundle: string,
+  opts: { delivering?: boolean; profilePath?: string } = {},
+): AgentDistroStatus => ({
   kind: "ready",
-  profile: "vanilla",
+  profiles: opts.profilePath === undefined ? [] : [JUSPAY],
   bundle,
-  delivering,
+  delivered:
+    opts.profilePath === undefined
+      ? []
+      : [{ reference: JUSPAY, name: "juspay", path: opts.profilePath }],
+  delivering: opts.delivering ?? false,
 });
 
+/** The set `landedFacts` names for a package and its profile builds. */
+const set = (...paths: string[]) => JSON.stringify(paths);
+
 describe("watchLanding", () => {
-  it("fires once when another bundle lands, though the value object never changes identity", async () => {
+  it("fires once when another package lands, though the value object never changes identity", async () => {
     const h = harness();
     h.write(ready("/nix/store/a"));
     await flush();
     const before = h.store.v;
-    h.write(ready("/nix/store/a", true));
+    h.write(ready("/nix/store/a", { delivering: true }));
     await flush();
     h.write(ready("/nix/store/b"));
     await flush();
     // The premise: reconcile kept the same object across the landing.
     expect(h.store.v).toBe(before);
-    expect(h.landed).toEqual(["/nix/store/b"]);
+    expect(h.landed).toEqual([set("/nix/store/b")]);
     h.dispose();
   });
 
-  it("a first delivery or a switch to another profile is not an update", async () => {
+  it("a newer profile build over the same package is an update too", async () => {
     const h = harness();
-    h.write({ kind: "downloading", profile: "vanilla" });
+    h.write(ready("/nix/store/a", { profilePath: "/nix/store/p1" }));
+    await flush();
+    h.write(ready("/nix/store/a", { profilePath: "/nix/store/p2" }));
+    await flush();
+    expect(h.landed).toEqual([set("/nix/store/a", "/nix/store/p2")]);
+    h.dispose();
+  });
+
+  it("a first delivery or a change of the stack is not an update", async () => {
+    const h = harness();
+    h.write({ kind: "downloading", profiles: [] });
     await flush();
     h.write(ready("/nix/store/a"));
     await flush();
-    h.write({
-      kind: "ready",
-      profile: "juspay",
-      bundle: "/nix/store/c",
-      delivering: false,
-    });
+    h.write(ready("/nix/store/c", { profilePath: "/nix/store/p1" }));
     await flush();
     expect(h.landed).toEqual([]);
     h.dispose();

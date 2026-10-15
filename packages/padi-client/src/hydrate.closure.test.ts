@@ -100,6 +100,12 @@ const DECLARED_ALLOWED = new Set([
   // in kolu's contract-with-upstream package; its manifest is `effect` plus
   // `solid-js` (for the logo component), both already in the framework tier.
   "@kolu/agent-distro",
+  // agent-distro's own pure vocabulary (its listing, history-line and versions
+  // readers) that `@kolu/agent-distro` builds on — GRAFTED from the npins
+  // `agent-distro` pin into `juspay/agent-distro`, never committed, like the
+  // odu trio below. Its manifest declares no dependency at all, so a hydrating
+  // consumer copies one directory and installs nothing.
+  "@juspay/agent-distro",
   // The one byte formatter (binary units): a zero-dependency leaf. Imported by
   // `upload.ts` so the drop limit is worded in the units every size is.
   "@kolu/byte-units",
@@ -197,6 +203,8 @@ const DECLARED_ALLOWED = new Set([
  *  package's fs/spawn graph. It costs a hydrating consumer nothing new: the
  *  directory was already in `DECLARED_ALLOWED`. */
 const IMPORTED_ALLOWED = new Set([
+  // Reached through `@kolu/agent-distro`'s schemas (see DECLARED_ALLOWED).
+  "@juspay/agent-distro",
   "@kolu/agent-distro",
   "@kolu/byte-units",
   "@kolu/log",

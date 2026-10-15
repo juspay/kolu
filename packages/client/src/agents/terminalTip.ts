@@ -4,10 +4,10 @@
  *
  *  A tip is a readout of the terminal's state: it shows whenever its condition
  *  holds and goes when it no longer does. Nothing is remembered. Both rungs
- *  need agents on this terminal, and read the profile's harnesses off the
+ *  need agents on this terminal, and read the package's harnesses off the
  *  listing:
  *    - the shell in front, in a repo → "launch an agent", one chip per harness
- *      of its profile (a chip types its name and presses Enter);
+ *      the package brings (a chip types its name and presses Enter);
  *    - one of those harnesses in front (by its command name — known the moment
  *      it starts, before kolu has detected the agent) and no live turn yet → a
  *      plugin skill (the chip inserts its invocation, no Enter).
@@ -16,6 +16,7 @@
  *  the active one. Pending facts are not faults; broken invariants throw. */
 
 import type { TerminalAgents } from "@kolu/agent-distro/schema";
+import { agentChipProfile } from "@kolu/agent-distro/status";
 import { agentBucket } from "@kolu/terminal-vocab/agentProjection";
 import type {
   AgentInfo,
@@ -40,7 +41,12 @@ export interface TipChip {
 
 /** Where the suggestion comes from, shown at the bar's right end. */
 export type TipSource =
-  | { readonly kind: "agent-distro"; readonly profile: string }
+  | {
+      readonly kind: "agent-distro";
+      /** The profile in effect, as the tile's pill names it — `undefined`
+       *  with none (`agentChipProfile`). */
+      readonly profile: string | undefined;
+    }
   | { readonly kind: "kolu-plugin" };
 
 /** What the fold reads off one terminal and the app. */
@@ -57,7 +63,7 @@ export interface TerminalTipFacts {
   readonly promptedAt: number | null;
   /** The agents padi put on this terminal's PATH — absent when none. */
   readonly agents: TerminalAgents | undefined;
-  /** The profile listing; `undefined` until its first frame. */
+  /** The package listing; `undefined` until its first frame. */
   readonly listing: AgentDistroListing | undefined;
   /** The plugin skill the skill tip offers. */
   readonly skill: PluginSkill;
@@ -92,8 +98,8 @@ export function tileTipSentence(tip: Tip): string {
  *  the agent-distro listing names it): the words on the chip, which it
  *  inserts into the agent's input (the user finishes it). Every harness
  *  agent-distro ships takes a slash command — confirmed for claude, omp and
- *  pi; assumed for codex, opencode and opencode2. Exhaustive over the names
- *  the listing produces: a new harness name throws until it is decided here
+ *  pi; assumed for codex and opencode. Exhaustive over the names the listing
+ *  produces: a new harness name throws until it is decided here
  *  (`skillInvocation.test.ts` walks the pinned agent-distro's harnesses). */
 export function skillInvocation(harness: string, name: string): string {
   switch (harness) {
@@ -103,7 +109,6 @@ export function skillInvocation(harness: string, name: string): string {
     // Not yet confirmed live:
     case "codex":
     case "opencode":
-    case "opencode2":
       return `/${name}`;
     default:
       throw new Error(
@@ -126,20 +131,16 @@ function candidate(facts: TerminalTipFacts): TerminalTip {
   if (listing === undefined) return quiet("the agents listing is pending");
   if (listing.kind === "unavailable")
     return quiet("this kolu was built without agents");
-  const profileName = facts.agents.profile;
-  const profile = listing.profiles.find((p) => p.name === profileName);
-  if (profile === undefined)
-    return quiet(`profile ${profileName} is not in the listing`);
-  if (profile.harnesses.length === 0)
+  if (listing.harnesses.length === 0)
     throw new Error(
-      `terminalTip: profile ${profileName} has no harness — the listing schema requires one`,
+      "terminalTip: the agent-distro package has no harness — the listing schema requires one",
     );
-  const harnesses = profile.harnesses.map((h) => h.name);
+  const harnesses = listing.harnesses.map((h) => h.name);
 
   const fg = facts.foreground;
   if (fg === null) return quiet("foreground not sampled yet");
   if (!fg.shell) {
-    // A harness of this profile in front, by name: it is known as the process
+    // A harness of the package in front, by name: it is known as the process
     // starts, while the agent itself is detected only once it has a session.
     if (!harnesses.includes(fg.name)) return quiet(`${fg.name} is running`);
     return skillTip(facts, fg.name);
@@ -161,14 +162,14 @@ function candidate(facts: TerminalTipFacts): TerminalTip {
     kind: "tip",
     id: "tip-launch-agent",
     lead: "Launch an agent",
-    // Every harness of the profile, in the listing's order — none is guessed
+    // Every harness of the package, in the listing's order — none is guessed
     // at. Launching is the suggestion, so each chip runs its harness.
     chips: harnesses.map((harness) => ({
       label: harness,
       action: { kind: "launch", harness },
     })),
     rest: "",
-    source: { kind: "agent-distro", profile: profileName },
+    source: { kind: "agent-distro", profile: agentChipProfile(facts.agents) },
   };
 }
 

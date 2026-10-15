@@ -8,7 +8,7 @@ import type {
   ShuffleBehavior,
 } from "kolu-common/surface";
 import { type Component, Show } from "solid-js";
-import { AGENTS_PROFILE_MENU_TESTID } from "../agents/AgentsProfilePicker";
+import { AGENTS_PROFILE_MENU_TESTID } from "../agents/AgentsProfileList";
 import AgentsSettingsSection from "../agents/AgentsSettingsSection";
 import { Portal } from "solid-js/web";
 import SegmentedControl, {
@@ -110,7 +110,7 @@ const SettingsPopover: Component<{
     open: () => props.open,
     onDismiss: () => props.onOpenChange(false),
     anchor: "bottom-end",
-    // The Agents profile menu is portalled out of this panel but opened
+    // The Agents add-a-profile menu is portalled out of this panel but opened
     // from it: a click there is not outside.
     isInside: (node) =>
       (node instanceof Element ? node : node.parentElement)?.closest(
@@ -128,7 +128,9 @@ const SettingsPopover: Component<{
           data-testid="settings-popover"
           // A fixed width that fits every row: hints wrap instead of setting the
           // width, so switching a setting never moves the panel's left edge.
-          class={`fixed z-50 ${chrome.class} p-4 w-[min(92vw,30rem)] space-y-4`}
+          // Capped to the window below the top bar and scrolled within, so a
+          // short window still reaches the last row (the Agents profile list).
+          class={`fixed z-50 ${chrome.class} p-4 w-[min(92vw,30rem)] max-h-[calc(100dvh-3.5rem)] overflow-y-auto overscroll-contain space-y-4`}
           style={{ ...panelStyle(), ...chrome.style }}
         >
           <SettingRow

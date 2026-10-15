@@ -1,13 +1,14 @@
 /** The tile header's agent-distro pill: the agent-distro mark, the profile in
- *  effect in the terminal — as agent-distro answered for it after the spawn
- *  (`agents.effective`: a repository's own `agent-distro.nix` wins over the
- *  setting), else the setting's profile it was spawned with — and the short
- *  hash of the exact bundle it pinned (dimmer). ONE button in the theme pill's treatment — the caller passes the
- *  tile chrome's shared class — and no pill at all when agent-distro was off at
- *  spawn (the caller renders this only for a record that carries both fields).
+ *  effect in the terminal (`agentChipProfile`) — as agent-distro answered for
+ *  it after the spawn (`agents.effective`: a repository's own
+ *  `agent-distro.nix` composes over the stack), else the stack it was spawned
+ *  with; nothing when it has neither — and the short hash of the exact package
+ *  it pinned (dimmer). ONE button in the theme pill's treatment — the caller
+ *  passes the tile chrome's shared class — and no pill at all when agents were
+ *  off at spawn (the caller renders this only for a record that carries them).
  *
- *  Current, a click opens Settings at the Agents row, where the profile for NEW
- *  terminals is changed. STALE (`agentStalenessOf`: a new terminal on this host
+ *  Current, a click opens Settings at the Agents row, where the profiles for
+ *  NEW terminals are changed. STALE (`agentStalenessOf`: a new terminal on this host
  *  would get different agents) the profile and hash dim, and — once there is
  *  something to restart into — the same pill grows a thin divider and an accent
  *  "↻ Restart", and the WHOLE pill becomes the restart: one element, one target.
@@ -116,9 +117,16 @@ const AgentProfileChip: Component<{
         aria-label={`${props.restart ? `${action()} — ` : ""}${label()} Bundle: ${props.agents.bundle}`}
       >
         <AgentDistroLogo size={14} />
-        <span classList={{ "opacity-75": stale() !== undefined }}>
-          {agentChipProfile(props.agents)}
-        </span>
+        <Show when={agentChipProfile(props.agents)}>
+          {(profile) => (
+            <span
+              data-testid="tile-agent-profile"
+              classList={{ "opacity-75": stale() !== undefined }}
+            >
+              {profile()}
+            </span>
+          )}
+        </Show>
         <span class="opacity-60 tabular-nums">
           {agentBundleShortHash(props.agents.bundle)}
         </span>

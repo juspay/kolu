@@ -50,7 +50,7 @@ describe("Preferences — the conf store's `preferences` field", () => {
       '"newTerminalCollapsed":true,"shuffleBehavior":"colourful","scrollLock":false,' +
       '"attentionAlerts":false,"colorScheme":"system","terminalRenderer":"webgl",' +
       '"rightPanel":{"size":0.4,"codeTabTreeSize":0.5},' +
-      '"agentDistro":{"enabled":false,"profile":"github:juspay/skills"},"agentProfilesRecent":["github:me/p"],"tipBarCollapsed":true}';
+      '"agentDistro":{"enabled":false,"profiles":["github:juspay/skills","~/mine"]},"agentProfilesRecent":["github:me/p"],"tipBarCollapsed":true}';
     const decoded = Schema.decodeUnknownSync(PreferencesSchema)(
       JSON.parse(stored),
     );

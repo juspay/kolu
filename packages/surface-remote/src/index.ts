@@ -94,6 +94,9 @@ export {
   type RemotePoolOptions,
 } from "./hostFanout";
 export {
+  type DeliverClosureOptions,
+  type DeliverClosureResult,
+  deliverClosure,
   homeGcRoot,
   makeProvisionBudgets,
   makeStepBudget,

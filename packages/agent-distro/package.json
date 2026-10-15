@@ -8,6 +8,8 @@
   "exports": {
     "./listing": "./src/listing.ts",
     "./inEffect": "./src/inEffect.ts",
+    "./landing": "./src/landing.ts",
+    "./receipt": "./src/receipt.ts",
     "./bundle": "./src/bundle.ts",
     "./bake": "./src/bake.ts",
     "./manifest": "./src/manifest.ts",
@@ -15,9 +17,6 @@
     "./schema": "./src/schema.ts",
     "./status": "./src/status.ts",
     "./testing": "./src/testing.ts",
-    "./schedule": "./src/schedule.ts",
-    "./history": "./src/history.ts",
-    "./versions": "./src/versions.ts",
     "./solid": "./src/solid/AgentDistroLogo.tsx"
   },
   "scripts": {
@@ -25,6 +24,7 @@
     "test:unit": "vitest run"
   },
   "dependencies": {
+    "@juspay/agent-distro": "workspace:*",
     "effect": "4.0.0",
     "solid-js": "^1.9.0"
   },

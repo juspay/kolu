@@ -32,7 +32,6 @@ import {
 } from "@kolu/padi-client/surface";
 import {
   DEFAULT_AGENT_DISTRO_STATUS,
-  DEFAULT_AGENT_DISTRO_RESOLVED,
   EMPTY_AGENT_DISTRO_RECEIPT,
 } from "@kolu/agent-distro/schema";
 import { watchScopeOf } from "@kolu/padi-client/watchScope";
@@ -445,10 +444,9 @@ export function buildPadiSurfaceDeps(deps: {
       // what makes `lifecycle.create` resolve against the wire-written authority.
       newTerminalPolicy: { store: newTerminalPolicyStore },
       // The Agents setting the binding kolu-server pushes. The SAME module store
-      // the spawn path resolves against (`newTerminalLayer`). It takes any
-      // profile (agent-distro resolves it, in each terminal); `onWrite` publishes the host status and starts a remote host's one
-      // download. Both run only for a CHANGED value — the spec's `equals` drops a
-      // reconnect's identical re-push.
+      // the spawn path resolves against (`newTerminalLayer`); `onWrite`
+      // publishes the host status for it. Only for a CHANGED value — the spec's
+      // `equals` drops a reconnect's identical re-push.
       agentDistro: {
         store: agentDistroSettingStore,
         onWrite: onAgentDistroSettingWrite,
@@ -458,16 +456,11 @@ export function buildPadiSurfaceDeps(deps: {
       agentDistroStatus: {
         store: inMemoryStore(DEFAULT_AGENT_DISTRO_STATUS),
       },
-      // Read-only: written only by the agent-distro module, from the updater's
-      // own files — at boot, when a run starts and ends, and when the setting
+      // Read-only: written only by the agent-distro module, from the files on
+      // the host — at boot, at every delivery report, and when the setting
       // changes.
       agentDistroReceipt: {
         store: inMemoryStore(EMPTY_AGENT_DISTRO_RECEIPT),
-      },
-      // Read-only: written only by the agent-distro module, once per setting,
-      // from the bundle's own `agent-distro --list --json`.
-      agentDistroResolved: {
-        store: inMemoryStore(DEFAULT_AGENT_DISTRO_RESOLVED),
       },
       // Every TCP listener on THIS padi's host — written by the port sampler (the
       // same pass that feeds each terminal's `ports`), read by the printed-URL
@@ -1230,7 +1223,8 @@ export function buildPadiSurfaceDeps(deps: {
       },
 
       // kolu-server's word on a delivery to this host — the only way agents
-      // reach it: padi points `current` at what landed and publishes.
+      // reach it: padi records the set that landed, points `current` at its
+      // package, and publishes.
       agentDistro: {
         report: ({ input }) => handle(() => onAgentDistroReport(input)),
       },

@@ -30,7 +30,10 @@ content-addressed path needs no trust setting, but only within the Nix line
 that wrote it — publishers rewrite with Nix 2.34, which hosts on 2.17–2.34
 verify; 2.35+ and macOS (a rewrite breaks Mach-O signatures) get the signed
 path, which needs the host to trust the login or the key. Publishing is
-`.github/actions/publish-closure` ([Publish your daemon content-addressed](https://kolu.dev/surface/publish-content-addressed)).
+`.github/actions/publish-closure` ([Publish your daemon content-addressed](https://kolu.dev/surface/publish-content-addressed)). The
+delivery steps alone — warm check, index step, staging, root, never a build —
+are `deliverClosure`, for a path the caller already holds (kolu ships the
+agent profiles it builds through it).
 
 By default a dial's ssh gives up on a peer that has not answered a probe for
 ~30s. That is the right answer while someone is watching a host; an unattended

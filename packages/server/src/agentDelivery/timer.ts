@@ -6,7 +6,7 @@
  * schedule boundary (02/08/14/20 UTC, upstream's `lib.schedule` as baked) has
  * passed since the last boundary tick. The policy asks at a boundary, and
  * between boundaries only to retry a failed run (upstream's attempts,
- * `@kolu/agent-distro/schedule`'s `scheduledAskNow`) or an ask that met a run
+ * `./schedule.ts`' `scheduledAskNow`) or an ask that met a run
  * in flight.
  *
  * ## Timer choice — a chained, capped `setTimeout`
@@ -21,11 +21,24 @@
  * then runs the missed update once.
  */
 
-import {
-  nextBoundary,
-  type UpdaterSchedule,
-} from "@kolu/agent-distro/schedule";
+import type { UpdaterSchedule } from "@kolu/agent-distro/bake";
 import { log } from "../log.ts";
+
+/** The latest boundary (`offset + k*period`, epoch seconds) not after `now`
+ *  — the instant upstream's `updateDue` measures a stamp against. */
+export function boundaryAtOrBefore(
+  now: number,
+  schedule: UpdaterSchedule,
+): number {
+  const { periodSeconds: period, offsetSeconds: offset } = schedule;
+  return Math.floor((now - offset) / period) * period + offset;
+}
+
+/** The next boundary strictly after `now` (epoch seconds) — when an update
+ *  next becomes due. */
+export function nextBoundary(now: number, schedule: UpdaterSchedule): number {
+  return boundaryAtOrBefore(now, schedule) + schedule.periodSeconds;
+}
 
 /** The longest the timer waits between looks at the wall clock. */
 export const MAX_WAIT_MS = 5 * 60_000;

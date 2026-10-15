@@ -7,7 +7,11 @@
  * and nothing while agents are off.
  */
 
-import type { UpdaterSchedule } from "@kolu/agent-distro/schedule";
+import {
+  SCHEDULED_ATTEMPTS,
+  SCHEDULED_RETRY_SECONDS,
+} from "@juspay/agent-distro/update/due";
+import type { UpdaterSchedule } from "@kolu/agent-distro/bake";
 import type { Logger } from "@kolu/log";
 import { describe, expect, it, vi } from "vitest";
 import type {
@@ -15,7 +19,14 @@ import type {
   DeliveryTrigger,
   HostOutcome,
 } from "./delivery.ts";
-import { runFailed, startDeliverySchedule } from "./schedule.ts";
+import {
+  attemptEnded,
+  attemptStarted,
+  runFailed,
+  type ScheduledAttempts,
+  scheduledAskNow,
+  startDeliverySchedule,
+} from "./schedule.ts";
 
 /** Upstream's schedule: every six hours from 02:00 UTC. */
 const UPSTREAM: UpdaterSchedule = { periodSeconds: 21600, offsetSeconds: 7200 };
@@ -63,6 +74,7 @@ function fakeDelivery(
   const runs: { at: number; trigger: DeliveryTrigger }[] = [];
   const delivery: AgentDelivery = {
     running: () => false,
+    resolve: async () => {},
     run: async ({ trigger }) => {
       runs.push({ at: now(), trigger });
       return outcome();
@@ -209,5 +221,66 @@ describe("startDeliverySchedule", () => {
     schedule.poke();
     await settle();
     expect(runs).toEqual([]);
+  });
+});
+
+describe("scheduledAskNow — a boundary, a missed ask, and upstream's retries", () => {
+  // A fake clock walked in the timer's 5-minute steps from the 08:00 boundary.
+  const t0 = at("2026-10-08T08:00:00Z") / 1000;
+  const ask = (
+    now: number,
+    attempts: ScheduledAttempts | undefined,
+    extra: { boundaryPassed?: boolean; askAgain?: boolean } = {},
+  ) =>
+    scheduledAskNow({
+      now,
+      schedule: UPSTREAM,
+      boundaryPassed: extra.boundaryPassed ?? false,
+      askAgain: extra.askAgain ?? false,
+      attempts,
+    });
+
+  it("rides upstream's numbers: 3 attempts, 5 minutes apart", () => {
+    expect(SCHEDULED_ATTEMPTS).toBe(3);
+    expect(SCHEDULED_RETRY_SECONDS).toBe(300);
+  });
+
+  it("a failed run (offline at the boundary) is retried twice, five minutes apart, then waits for the next boundary", () => {
+    expect(ask(t0, undefined, { boundaryPassed: true })).toBe(true);
+    let a = attemptEnded(attemptStarted(undefined, t0, UPSTREAM), t0, true);
+    expect(ask(t0 + 60, a)).toBe(false); // too soon
+    expect(ask(t0 + 300, a)).toBe(true);
+    a = attemptEnded(attemptStarted(a, t0 + 300, UPSTREAM), t0 + 300, true);
+    expect(a.count).toBe(2);
+    expect(ask(t0 + 600, a)).toBe(true);
+    a = attemptEnded(attemptStarted(a, t0 + 600, UPSTREAM), t0 + 600, true);
+    expect(a.count).toBe(3);
+    expect(ask(t0 + 900, a)).toBe(false); // out of attempts
+    expect(ask(t0 + 3 * 3600, a)).toBe(false);
+    // The next boundary starts over.
+    const next = t0 + 6 * 3600;
+    expect(ask(next, a, { boundaryPassed: true })).toBe(true);
+    expect(attemptStarted(a, next, UPSTREAM).count).toBe(1);
+  });
+
+  it("the five minutes count from the failed run's END, as upstream's sleep does", () => {
+    // A run that fails four minutes in.
+    const started = attemptStarted(undefined, t0, UPSTREAM);
+    expect(ask(t0 + 300, started)).toBe(false); // still running: no retry
+    const a = attemptEnded(started, t0 + 240, true);
+    expect(ask(t0 + 300, a)).toBe(false); // a minute after it failed
+    expect(ask(t0 + 539, a)).toBe(false);
+    expect(ask(t0 + 540, a)).toBe(true);
+  });
+
+  it("a run that did not fail is not retried: it waits for the next boundary", () => {
+    const a = attemptEnded(attemptStarted(undefined, t0, UPSTREAM), t0, false);
+    expect(ask(t0 + 300, a)).toBe(false);
+    expect(ask(t0 + 3600, a)).toBe(false);
+  });
+
+  it("an ask that met a run in flight asks again on the next tick", () => {
+    expect(ask(t0 + 300, undefined, { askAgain: true })).toBe(true);
+    expect(ask(t0 + 300, undefined)).toBe(false);
   });
 });

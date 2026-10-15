@@ -42,11 +42,14 @@ describe("surfaces map — two siblings (the W1 padi seam)", () => {
     // `viewerMode` (the browser's raw OS light/dark reading — an observation
     // about the VIEWER, and the second input to the new-terminal policy
     // kolu-server derives; a terminal never appears in it), and
-    // `agentDistroListing` (the agent-distro profiles THIS kolu's build ships,
-    // read once off the floor's profile bundles — a build fact, not a host's).
+    // `agentDistroListing` (the harnesses THIS kolu's build's agent-distro
+    // package brings, read once off the floor — a build fact, not a host's),
+    // and `agentProfiles` (whether each profile of the Agents setting builds,
+    // as kolu-server's delivery finds when it locks and builds them HERE).
     // No collections, no events.
     expect(Object.keys(spec.cells ?? {}).sort()).toEqual([
       "agentDistroListing",
+      "agentProfiles",
       "daemonInventory",
       "forwards",
       "padiLink",
@@ -67,7 +70,8 @@ describe("surfaces map — two siblings (the W1 padi seam)", () => {
     // rode padi's per-host surface. These are here rather than there because
     // they act from kolu-SERVER's own machine: the listener a forward opens is a
     // socket in this process, and agent delivery runs from this machine to
-    // every host (kolu-server locks upstream's flake and ships the bundles).
+    // every host (kolu-server reads upstream's index, builds each profile here,
+    // and ships them).
     const spec = surfaces.kolu.spec as {
       procedures?: Record<string, Record<string, unknown>>;
     };

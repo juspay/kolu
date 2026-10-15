@@ -1,16 +1,15 @@
 /**
  * The client's view of agent-distro — the Agents setting's live facts.
  *
- *   - the profile LISTING kolu-server read off the floor's profile bundles
- *     (what Settings offers);
+ *   - the LISTING kolu-server read off agent-distro's package (the harnesses
+ *     it brings);
+ *   - whether each profile of the setting BUILDS (kolu-server's
+ *     `agentProfiles` cell), for the line under each row of Settings' list;
  *   - each host's agent STATUS (padi's `agentDistroStatus` cell): whether the
- *     selected profile's agents are on that machine, being downloaded, or failed
- *     — and whether an update is running there;
+ *     setting's set is on that machine, being delivered, or failed — and
+ *     whether a newer one is being delivered there;
  *   - each host's RECEIPT (padi's `agentDistroReceipt` cell): the versions it
  *     serves, its last update run and its recent update history.
- *
- *   - whether the setting's profile RESOLVES on this machine (the local padi's
- *     `agentDistroResolved` cell), for the line under Settings' profile field.
  *
  * One app-lifetime reaction rides here too, colocated with the facts it
  * reacts to: a toast when an update lands on a host (the history's own words,
@@ -26,8 +25,8 @@ import {
 } from "kolu-common/hostKey";
 import type {
   AgentDistroReceipt,
-  AgentDistroResolved,
   AgentDistroStatus,
+  AgentProfiles,
 } from "@kolu/agent-distro/schema";
 import { agoPhrase } from "@kolu/terminal-vocab/duration";
 import { Effect } from "effect";
@@ -56,6 +55,7 @@ import {
   agentHostDetail,
   agentMarkOf,
   agentToast,
+  receiptSet,
   type HostAgentStatus,
 } from "@kolu/agent-distro/status";
 import { watchLanding } from "./watchLanding";
@@ -76,21 +76,17 @@ export function agentsWhere(host: HostKey): string {
 // `.use()` is torn down a microtask after load and its first frame lands on nobody.
 const listingSub = createRoot(() => app.cells.agentDistroListing.use());
 
-/** The profile listing, or `undefined` until its first frame. */
+/** The package listing, or `undefined` until its first frame. */
 export function agentDistroListing(): AgentDistroListing | undefined {
   return listingSub.value();
 }
 
-// This machine's answer only: the field it explains is this machine's
-// setting, and a remote host's agents are its status line's to describe.
-const resolvedSub = createRoot(() =>
-  padiMap.entry(LOCAL_HOST).cells.agentDistroResolved.use(),
-);
+const profilesSub = createRoot(() => app.cells.agentProfiles.use());
 
-/** Whether the setting's profile resolves on this machine — `undefined` until
- *  its first frame. */
-export function localAgentResolved(): AgentDistroResolved | undefined {
-  return resolvedSub.value();
+/** Whether each profile of the setting builds, as kolu-server last answered —
+ *  `undefined` until its first frame. */
+export function agentProfilesNow(): AgentProfiles | undefined {
+  return profilesSub.value();
 }
 
 /** The STORED Agents preference — `null` while nobody has chosen. Read only
@@ -124,18 +120,21 @@ const byHost = createRoot(() => {
         tick();
         return agoPhrase(entry.clock.toLocal(at), Date.now());
       };
-      // An update landed: toast once the receipt for that very bundle is in,
+      // An update landed: toast once the receipt for that very SET is in,
       // quoting the history's own words. padi publishes the receipt before the
       // status, but they are two cells — so the edge waits for its receipt.
+      // Paired on the whole set (`receiptSet`, `landedFacts`' encoding), not
+      // the package alone: a profile-only
+      // update keeps the same package.
       const [landed, setLanded] = createSignal<string | undefined>();
       createEffect(() => {
-        const bundle = landed();
-        if (bundle === undefined) return;
+        const set = landed();
+        if (set === undefined) return;
         const receipt = receiptSub.value();
-        if (receipt?.bundle !== bundle) return;
+        if (receipt === undefined || receiptSet(receipt) !== set) return;
         setLanded(undefined);
         const run = receipt.lastRun;
-        // Not a landing this padi recorded (say, the bundle moved under it):
+        // Not a landing this padi recorded (say, the set moved under it):
         // there are no words to quote, so there is nothing to announce.
         if (run?.outcome !== "updated") return;
         const words = agentToast.updated(agentsWhere(host), run.words);
@@ -248,7 +247,6 @@ export function hostAgentDetail(host: HostKey): AgentHostDetail | undefined {
   return agentHostDetail({
     host: hostAgentStatus(host, agentsWhere(host)),
     setting: agentDistroSetting(),
-    listing: agentDistroListing(),
   });
 }
 

@@ -93,6 +93,7 @@ import {
 } from "./stateBackups.ts";
 import {
   assembleServedHandlers,
+  agentProfilesStore,
   currentAgentDistroSetting,
   currentNewTerminalPolicy,
   implementKoluSurface,
@@ -795,8 +796,8 @@ export async function bootKoluWeb(flags: KoluBootFlags): Promise<void> {
     getPolicy: currentNewTerminalPolicy,
     log,
   });
-  // AGENT DELIVERY — kolu-server delivers agent-distro's bundles to every host
-  // (`./agentDelivery/`): on upstream's schedule, on the user's check, and to a
+  // AGENT DELIVERY — kolu-server delivers agent-distro's package, and the
+  // profiles of the Agents setting it builds, to every host (`./agentDelivery/`): on upstream's schedule, on the user's check, and to a
   // host the moment its padi takes the Agents setting (the pusher below). Read
   // once, here: a broken listing or delivery bake crashes the boot; a kolu built
   // from source has no delivery bake and delivers nothing (its hosts read
@@ -810,11 +811,7 @@ export async function bootKoluWeb(flags: KoluBootFlags): Promise<void> {
           bake: deliveryBake,
           pool,
           setting: currentAgentDistroSetting,
-          bundles: new Set(
-            agentDistroListing.kind === "available"
-              ? agentDistroListing.profiles.map((p) => p.name)
-              : [],
-          ),
+          publishProfiles: (profiles) => agentProfilesStore.set(profiles),
           label: (host) =>
             host.kind === "local" ? serverHostname : host.target,
           log,
@@ -822,9 +819,8 @@ export async function bootKoluWeb(flags: KoluBootFlags): Promise<void> {
   // The AGENTS SETTING pusher — the same mechanism, for padi's memory-only
   // `agentDistro` cell: every bound padi (local and every remote host) learns the
   // user's choice on each connect edge and on every preferences write, and applies
-  // it to its next new terminal. A padi that does not know the chosen profile
-  // refuses the write; the pusher logs that at error. A host that TOOK the
-  // setting is delivered its bundle.
+  // it to its next new terminal. A host that TOOK the setting is delivered its
+  // set.
   const agentDistroPusher = installPadiCellPusher({
     cell: "agentDistro",
     pool,

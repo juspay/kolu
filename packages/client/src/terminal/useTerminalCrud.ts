@@ -17,7 +17,7 @@ import { Data, Effect } from "effect";
 import type { TerminalId } from "kolu-common/surface";
 import { toast } from "solid-sonner";
 import AgentDistroLogo from "@kolu/agent-distro/solid";
-import { restartedLabel } from "@kolu/agent-distro/status";
+import { restartedLabel, stackTitle } from "@kolu/agent-distro/status";
 import { usePendingLayouts } from "../canvas/usePendingLayouts";
 import { createSharedRoot } from "../createSharedRoot";
 import { exportScrollbackAsPdf } from "../exportScrollbackAsPdf";
@@ -431,14 +431,17 @@ export const useTerminalCrud = createSharedRoot(() => {
    *  id, in the same folder and canvas spot, so it picks up what a new terminal
    *  gets now — the stale-agents pill's Restart. The tile flips dormant and back
    *  through the ordinary metadata subscription. padi answers once the new PTY
-   *  is up, with the profile it actually got, and the toast says exactly that. */
+   *  is up, with the agents it actually got, and the toast says exactly that. */
   function handleRestart(id: TerminalId): UiAction {
     return activePadiRpc.lifecycle.restart({ id }).pipe(
       Effect.tap((restarted) =>
         Effect.sync(() =>
           toast.success(
             restartedLabel({
-              agentProfile: restarted.agents?.profile,
+              agents:
+                restarted.agents === undefined
+                  ? undefined
+                  : stackTitle(restarted.agents.profiles),
               resumed: restarted.resumed,
             }),
             { icon: AgentDistroLogo({ size: 16 }) },

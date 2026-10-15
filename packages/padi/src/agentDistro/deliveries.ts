@@ -1,96 +1,104 @@
 /**
- * What kolu-server has told this host about delivering it bundles — the
- * per-bundle record padi's policy (`./agentDistro.ts`) reads, and the one act
- * a delivery asks of this host: pointing a profile's `current` at the bundle
- * that landed (`land`). Its volatility is the host-side half of a delivery;
- * what the setting means and what is published stay in the policy module.
+ * What kolu-server has told this host about delivering it the setting's set —
+ * the per-stack record padi's policy (`./agentDistro.ts`) reads, and the one
+ * act a delivery asks of this host: recording the set that landed (`land`).
+ * Its volatility is the host-side half of a delivery; what the setting means
+ * and what is published stay in the policy module.
  *
- * kolu-server decides what lands and has this host's Nix pull and root it over
- * ssh; padi itself never runs Nix for agents. A `landed` bundle is
- * already valid in this host's store and rooted there, so landing it is a
- * symlink flip plus upstream's two files — the `last-success` stamp and a
- * history line in upstream's format (`@kolu/agent-distro/history`), so a host
- * that also runs agent-distro's Home Manager module keeps one log.
+ * kolu-server decides what lands — it builds the profiles and has this host's
+ * Nix pull or receive every path over ssh, rooted — and padi itself never runs
+ * Nix for agents. A `landed` set is already valid in this host's store and
+ * rooted there, so landing it is a record and a symlink flip plus upstream's
+ * two files: the `last-success` stamp and a history line in upstream's format
+ * (`@juspay/agent-distro/update/history`), so a host that also runs
+ * agent-distro's Home Manager module keeps one log.
  *
  * A failure is recorded with its cause, in kolu-server's words. padi never
- * retries:
- * kolu-server delivers again at its next run (its schedule, a check the user
- * asks for, a reconnect).
+ * retries: kolu-server delivers again at its next run (its schedule, a check
+ * the user asks for, a reconnect).
  */
 
 import {
-  existsSync,
+  appendFileSync,
   mkdirSync,
   renameSync,
   rmSync,
   symlinkSync,
   writeFileSync,
-  appendFileSync,
 } from "node:fs";
 import { dirname } from "node:path";
-import { agentBinDir, currentLink } from "@kolu/agent-distro/bundle";
-import { type AgentUpdateRun, historyLine } from "@kolu/agent-distro/history";
-import { lastSuccessFile } from "@kolu/agent-distro/schedule";
-import { bundleChanges } from "@kolu/agent-distro/versions";
+import { historyLine } from "@juspay/agent-distro/update/history";
+import { currentLink, lastSuccessFile } from "@kolu/agent-distro/bundle";
+import {
+  type DeliveredSet,
+  deliveryChanges,
+  parseDeliveredSet,
+} from "@kolu/agent-distro/landing";
+import type { AgentUpdateRun } from "@kolu/agent-distro/receipt";
 import { log } from "../log.ts";
-import type { AgentDistroProfileBake } from "./bake.ts";
-import { realpathOrUndefined } from "./onHost.ts";
+import type { AgentDistroBake } from "./bake.ts";
+import { assertSetOnHost, readOrUndefined } from "./onHost.ts";
 import { versionsOf } from "./receipt.ts";
 
-/** Why a profile's last delivery failed, in kolu-server's (or padi's) words. */
+/** Why the last delivery failed, in kolu-server's (or padi's) words. */
 export interface DeliveryFailure {
   readonly message: string;
 }
 
-/** Bundle profiles kolu-server is delivering to this host right now. */
-const delivering = new Set<string>();
-/** Bundle profiles whose last delivery failed, and why — cleared when the next
- *  one starts or lands. */
-const failed = new Map<string, DeliveryFailure>();
-/** Each profile's last delivery that landed nothing — the one thing the host's
- *  files do not show (a failure writes no history line). */
-const unlanded = new Map<string, AgentUpdateRun>();
+/** A stack, as the delivery record keys it. */
+function key(stack: readonly string[]): string {
+  return JSON.stringify(stack);
+}
 
-/** Where `profile`'s deliveries stand: one in flight, a failed last one, or
+/** Stacks kolu-server is delivering to this host right now. */
+const delivering = new Set<string>();
+/** Stacks whose last delivery failed, and why — cleared when the next one
+ *  starts or lands. */
+const failed = new Map<string, DeliveryFailure>();
+/** The last delivery that landed nothing — the one thing the host's files do
+ *  not show (a failure writes no history line). */
+let unlanded: AgentUpdateRun | undefined;
+
+/** Where the deliveries of `stack` stand: one in flight, a failed last one, or
  *  nothing to say (`undefined`). */
 export function deliveryOf(
-  profile: string,
+  stack: readonly string[],
 ):
   | { readonly kind: "delivering" }
   | { readonly kind: "failed"; readonly failure: DeliveryFailure }
   | undefined {
-  if (delivering.has(profile)) return { kind: "delivering" };
-  const failure = failed.get(profile);
+  if (delivering.has(key(stack))) return { kind: "delivering" };
+  const failure = failed.get(key(stack));
   return failure === undefined ? undefined : { kind: "failed", failure };
 }
 
-/** `profile`'s last delivery that landed nothing, if any. */
-export function unlandedRunOf(profile: string): AgentUpdateRun | undefined {
-  return unlanded.get(profile);
+/** The last delivery that landed nothing, if any. */
+export function unlandedRun(): AgentUpdateRun | undefined {
+  return unlanded;
 }
 
-/** A delivery of `profile` started. */
-export function deliveryStarted(profile: string): void {
-  delivering.add(profile);
-  failed.delete(profile);
+/** A delivery of `stack` started. */
+export function deliveryStarted(stack: readonly string[]): void {
+  delivering.add(key(stack));
+  failed.delete(key(stack));
 }
 
-/** A delivery of `profile` failed: whatever serves keeps serving. */
+/** A delivery of `stack` failed: whatever serves keeps serving. */
 export function deliveryFailed(
-  profile: string,
+  stack: readonly string[],
   failure: DeliveryFailure,
   by: AgentUpdateRun["by"] = "delivery",
 ): void {
-  delivering.delete(profile);
-  failed.set(profile, failure);
-  unlanded.set(profile, {
+  delivering.delete(key(stack));
+  failed.set(key(stack), failure);
+  unlanded = {
     at: Date.now(),
     outcome: "failed",
     words: failure.message,
     by,
-  });
+  };
   log.warn(
-    { agentDistroProfile: profile, ...failure },
+    { agentDistroProfiles: stack, ...failure },
     "agent-distro delivery did not land",
   );
 }
@@ -102,52 +110,48 @@ function writeAtomic(path: string, text: string): void {
   renameSync(tmp, path);
 }
 
-/** `bundle` landed for `profile`: point its `current` at it — one atomic
- *  rename over the old link, so a spawn never sees a half-flipped one — stamp
- *  `last-success`, and, when the bundle changed, append upstream's `updated:`
- *  history line naming what changed. Throws on a
- *  bundle this host does not hold (no `bin/`): kolu-server rooted it here, so
- *  its absence is a broken delivery, never a state to paper over. */
+/** `set` landed for `stack`: record it — one atomic rename, so a spawn never
+ *  reads a half-written record — point upstream's `current` at its package,
+ *  stamp `last-success`, and, when anything changed, append upstream's
+ *  `updated:` history line naming what. Throws on a set this host does not
+ *  hold: kolu-server rooted it here, so its absence is a broken delivery,
+ *  never a state to paper over. */
 export function landDelivery(
-  profile: AgentDistroProfileBake,
-  bundle: string,
+  bake: AgentDistroBake,
+  stack: readonly string[],
+  set: DeliveredSet,
   now: Date = new Date(),
 ): void {
-  if (!existsSync(agentBinDir(bundle)))
-    throw new Error(
-      `kolu-server reported ${bundle} landed for '${profile.name}', but this host has no ${agentBinDir(bundle)}`,
-    );
-  mkdirSync(profile.stateDir, { recursive: true });
-  const link = currentLink(profile.stateDir);
-  const old = realpathOrUndefined(link);
-  const previous = old === undefined ? undefined : versionsOf(old);
-  if (old !== bundle) {
-    const tmp = `${link}.kolu-tmp`;
-    rmSync(tmp, { force: true });
-    symlinkSync(bundle, tmp);
-    renameSync(tmp, link);
-  }
+  assertSetOnHost(set);
+  const oldText = readOrUndefined(bake.landedFile);
+  const old = oldText === undefined ? undefined : parseDeliveredSet(oldText);
+  mkdirSync(dirname(bake.landedFile), { recursive: true });
+  writeAtomic(bake.landedFile, `${JSON.stringify(set)}\n`);
+  mkdirSync(bake.stateDir, { recursive: true });
+  const link = currentLink(bake.stateDir);
+  const tmp = `${link}.kolu-tmp`;
+  rmSync(tmp, { force: true });
+  symlinkSync(set.bundle, tmp);
+  renameSync(tmp, link);
   writeAtomic(
-    lastSuccessFile(profile.stateDir),
+    lastSuccessFile(bake.stateDir),
     `${Math.floor(now.getTime() / 1000)}\n`,
   );
-  delivering.delete(profile.name);
-  failed.delete(profile.name);
-  unlanded.delete(profile.name);
-  if (old === bundle) return;
-  mkdirSync(dirname(profile.historyFile), { recursive: true });
-  appendFileSync(
-    profile.historyFile,
-    historyLine(
-      now,
-      profile.name,
-      "updated",
-      bundleChanges(previous, versionsOf(bundle)),
-    ),
+  delivering.delete(key(stack));
+  failed.delete(key(stack));
+  unlanded = undefined;
+  const words = deliveryChanges(
+    old === undefined
+      ? undefined
+      : { set: old, versions: versionsOf(old.bundle) },
+    { set, versions: versionsOf(set.bundle) },
   );
+  if (words === "") return;
+  mkdirSync(dirname(bake.historyFile), { recursive: true });
+  appendFileSync(bake.historyFile, historyLine(`updated: ${words}`, now));
   log.info(
-    { agentDistroProfile: profile.name, bundle, previous: old },
-    "agent-distro bundle landed",
+    { bundle: set.bundle, profiles: set.profiles, previous: old },
+    "agent-distro set landed",
   );
 }
 
@@ -155,5 +159,5 @@ export function landDelivery(
 export function __resetAgentDistroDeliveriesForTest(): void {
   delivering.clear();
   failed.clear();
-  unlanded.clear();
+  unlanded = undefined;
 }

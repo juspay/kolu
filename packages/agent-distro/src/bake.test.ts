@@ -2,41 +2,36 @@
  *  kolu-server parse them. */
 
 import { describe, expect, it } from "vitest";
-import { parseAgentDistroDelivery, parseAgentDistroProfiles } from "./bake.ts";
+import { parseAgentDistroDelivery, parseAgentDistroHostState } from "./bake.ts";
 
 const PLACEHOLDER = "@KOLU_XDG_STATE_HOME@";
 
-describe("parseAgentDistroProfiles", () => {
-  const profiles = {
+describe("parseAgentDistroHostState", () => {
+  const state = {
     stateHomePlaceholder: PLACEHOLDER,
+    state: `${PLACEHOLDER}/agent-distro/abc`,
     history: `${PLACEHOLDER}/agent-distro/history.log`,
-    profiles: [
-      { name: "vanilla", state: `${PLACEHOLDER}/agent-distro/abc` },
-      { name: "juspay", state: `${PLACEHOLDER}/agent-distro/def` },
-    ],
+    landed: `${PLACEHOLDER}/kolu/agent-distro-landed.json`,
   };
 
-  it("reads the listing, in its order", () => {
-    expect(parseAgentDistroProfiles(JSON.stringify(profiles))).toEqual(
-      profiles,
-    );
+  it("reads the package's state directory, the shared history log and kolu's landed record", () => {
+    expect(parseAgentDistroHostState(JSON.stringify(state))).toEqual(state);
   });
-  it("throws on an empty profiles list", () => {
-    expect(() =>
-      parseAgentDistroProfiles(JSON.stringify({ ...profiles, profiles: [] })),
-    ).toThrow();
+  it("throws on a host state without its landed record — a broken build", () => {
+    const { landed: _, ...noLanded } = state;
+    expect(() => parseAgentDistroHostState(JSON.stringify(noLanded))).toThrow();
   });
-  it("throws on a profile with no state directory", () => {
+  it("throws on an empty path, or on text that is no JSON", () => {
     expect(() =>
-      parseAgentDistroProfiles(
-        JSON.stringify({ ...profiles, profiles: [{ name: "vanilla" }] }),
-      ),
+      parseAgentDistroHostState(JSON.stringify({ ...state, state: "" })),
     ).toThrow();
+    expect(() => parseAgentDistroHostState("state")).toThrow();
   });
 });
 
 describe("parseAgentDistroDelivery", () => {
   const delivery = {
+    flake: "github:juspay/agent-distro",
     index: "https://index.example.org/ca-index",
     cache: {
       url: "https://cache.example.org",
@@ -53,6 +48,16 @@ describe("parseAgentDistroDelivery", () => {
   it("throws on one with no index", () => {
     expect(() =>
       parseAgentDistroDelivery(JSON.stringify({ ...delivery, index: "" })),
+    ).toThrow();
+  });
+  it("throws on a schedule with no period — kolu never decides one", () => {
+    expect(() =>
+      parseAgentDistroDelivery(
+        JSON.stringify({
+          ...delivery,
+          schedule: { periodSeconds: 0, offsetSeconds: 0 },
+        }),
+      ),
     ).toThrow();
   });
 });

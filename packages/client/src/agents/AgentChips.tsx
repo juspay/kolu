@@ -1,5 +1,5 @@
 /** The agents the Agents row brings, one chip each — the set and its versions
- *  are `agentChips`'s (off: the default bundle's names; on: this machine's own
+ *  are `agentChips`'s (off: the package's names; on: this machine's own
  *  versions once its receipt is in). A chip names its agent; its version sits
  *  beside the name while agents are on, quieter, and in the chip's hover
  *  either way — so the row scans as "which agents" and still answers "which

@@ -1,80 +1,50 @@
 /**
- * The profiles kolu offers, as their bundles describe themselves. Each of the
- * floor's profile bundles carries two files (agent-distro's README, "Bundle
- * layout"): `share/agent-distro/profile.json` (its name and description,
- * `./profileFile`) and `share/agent-distro/versions` (its harnesses with titles
- * and versions, `./versions`). kolu reads those and never runs a picker for
- * information; it never re-describes a profile either.
+ * The harnesses kolu offers, as the package describes them: agent-distro's
+ * `share/agent-distro/versions` (one `name\ttitle\tversion` line per harness),
+ * read with upstream's own parser (`@juspay/agent-distro/update/versions`).
+ * kolu never runs the picker for information, and never re-describes a
+ * harness. A profile is not part of the package, so the listing names none.
  */
 
+import { parseVersions } from "@juspay/agent-distro/update/versions";
 import { Schema } from "effect";
+import { versionsFile } from "./bundle.ts";
 import type { AgentDistroManifest } from "./manifest.ts";
-import {
-  ProfileFileSchema,
-  parseProfileFile,
-  profileFile,
-} from "./profileFile.ts";
-import { AgentVersionSchema, parseVersions, versionsFile } from "./versions.ts";
 
-/** One profile: what its bundle's two files say — `profile.json`'s name and
- *  description, and the lines of its `versions` as its harnesses, at least one
- *  (upstream's own listing parser refuses an empty one too). */
-export const AgentDistroProfileSchema = Schema.Struct({
-  ...ProfileFileSchema.fields,
-  harnesses: Schema.Array(AgentVersionSchema).check(Schema.isMinLength(1)),
+/** One harness a package carries — upstream's `Version`, as a wire schema. */
+export const AgentVersionSchema = Schema.Struct({
+  /** The command name (`claude`). */
+  name: Schema.String,
+  /** How people know it (`Claude Code`). */
+  title: Schema.String,
+  version: Schema.String,
 });
 
-export type AgentDistroProfile = typeof AgentDistroProfileSchema.Type;
+export type AgentVersion = typeof AgentVersionSchema.Type;
 
-/** What kolu knows of a build's profiles: at least one, `profiles[0]` the
- *  default, or `unavailable` for a kolu built without agent-distro (explicit
- *  absence). */
+/** What kolu knows of its build's package: its harnesses, at least one
+ *  (upstream's own listing parser refuses an empty menu too), or
+ *  `unavailable` for a kolu built without agent-distro (explicit absence). */
 export const AgentDistroListingSchema = Schema.Union([
   Schema.Struct({ kind: Schema.Literal("unavailable") }),
   Schema.Struct({
     kind: Schema.Literal("available"),
-    profiles: Schema.Array(AgentDistroProfileSchema).check(
-      Schema.isMinLength(1),
-    ),
+    harnesses: Schema.Array(AgentVersionSchema).check(Schema.isMinLength(1)),
   }),
 ]);
 
 export type AgentDistroListing = typeof AgentDistroListingSchema.Type;
 
-const decodeProfile = Schema.decodeUnknownSync(AgentDistroProfileSchema);
+const decodeListing = Schema.decodeUnknownSync(AgentDistroListingSchema);
 
-/** The ONE composition of a profile's entry from its bundle's two files.
- *  `name` is the profile the caller expects at `bundle`; a `profile.json` that
- *  names another is a broken build and throws, as does either file missing or
- *  out of upstream's format, or a `versions` that names no harness. */
-export function profileOfBundle(
-  name: string,
-  bundle: string,
-  readText: (path: string) => string,
-): AgentDistroProfile {
-  const file = parseProfileFile(readText(profileFile(bundle)));
-  if (file.name !== name)
-    throw new Error(
-      `agent-distro bundle ${bundle} describes profile '${file.name}', but the floor manifest names it '${name}'`,
-    );
-  return decodeProfile({
-    name,
-    description: file.description,
-    harnesses: parseVersions(readText(versionsFile(bundle))),
-  });
-}
-
-/** Every floor profile, in the manifest's order (which the Nix half writes
- *  default first; kolu-server's boot read checks it), each read off its own
- *  bundle. */
+/** The floor's harnesses, read off its package's versions file. Throws on a
+ *  file that is missing, out of upstream's format, or names no harness. */
 export function floorListing(
   manifest: AgentDistroManifest,
   readText: (path: string) => string,
 ): AgentDistroListing {
-  return {
+  return decodeListing({
     kind: "available",
-    profiles: manifest.profiles.map((p) =>
-      profileOfBundle(p.name, p.dir, readText),
-    ),
-  };
+    harnesses: parseVersions(readText(versionsFile(manifest.dir))),
+  });
 }

@@ -44,6 +44,7 @@ import {
   migratePreferences_1_38_0,
   migratePreferences_1_39_0,
   migratePreferences_1_40_0,
+  migratePreferences_1_41_0,
 } from "./state.ts";
 
 const dirs: string[] = [];
@@ -60,7 +61,7 @@ function makeStore(): Conf<Record<string, unknown>> {
   dirs.push(dir);
   return new Conf<Record<string, unknown>>({
     cwd: dir,
-    projectVersion: "1.40.0",
+    projectVersion: "1.41.0",
     configFileMode: 0o600,
     defaults: {
       preferences: DEFAULT_PREFERENCES,
@@ -163,14 +164,17 @@ describe("the migration ladder over legacy on-disk blobs", () => {
         `"terminalRenderer":"auto","rightPanel":{"collapsed":true,"size":0.25,"codeTabTreeSize":0.35}}`,
     ) as Record<string, unknown>;
 
-    // The ladder, in order — the same seven bodies `state.ts`'s `migrations`
-    // map calls at 1.30.0 / 1.32.0 / 1.34.0 / 1.37.0 / 1.38.0 / 1.39.0 / 1.40.0.
-    const migrated = migratePreferences_1_40_0(
-      migratePreferences_1_39_0(
-        migratePreferences_1_38_0(
-          migratePreferences_1_37_0(
-            migratePreferences_1_34_0(
-              migratePreferences_1_32_0(migratePreferences_1_30_0(legacy)),
+    // The ladder, in order — the same eight bodies `state.ts`'s `migrations`
+    // map calls at 1.30.0 / 1.32.0 / 1.34.0 / 1.37.0 / 1.38.0 / 1.39.0 / 1.40.0 /
+    // 1.41.0.
+    const migrated = migratePreferences_1_41_0(
+      migratePreferences_1_40_0(
+        migratePreferences_1_39_0(
+          migratePreferences_1_38_0(
+            migratePreferences_1_37_0(
+              migratePreferences_1_34_0(
+                migratePreferences_1_32_0(migratePreferences_1_30_0(legacy)),
+              ),
             ),
           ),
         ),
@@ -212,10 +216,12 @@ describe("the migration ladder over legacy on-disk blobs", () => {
         `"activityAlerts":true,"colorScheme":"dark","terminalRenderer":"dom",` +
         `"rightPanel":{"size":0.25,"codeTabTreeSize":0.35}}`,
     ) as Record<string, unknown>;
-    const migrated = migratePreferences_1_40_0(
-      migratePreferences_1_39_0(
-        migratePreferences_1_38_0(
-          migratePreferences_1_37_0(migratePreferences_1_34_0(legacy)),
+    const migrated = migratePreferences_1_41_0(
+      migratePreferences_1_40_0(
+        migratePreferences_1_39_0(
+          migratePreferences_1_38_0(
+            migratePreferences_1_37_0(migratePreferences_1_34_0(legacy)),
+          ),
         ),
       ),
     );
@@ -271,7 +277,15 @@ describe("the migration ladder over legacy on-disk blobs", () => {
       agentDistro: { enabled: true, profile: "juspay" },
     };
     expect(migratePreferences_1_38_0(on)).toEqual(on);
-    expect(accepts(PreferencesSchema, on)).toBe(true);
+    // The rest of the ladder carries it into a shape the live schema decodes.
+    expect(
+      accepts(
+        PreferencesSchema,
+        migratePreferences_1_41_0(
+          migratePreferences_1_40_0(migratePreferences_1_39_0(on)),
+        ),
+      ),
+    ).toBe(true);
   });
 
   it("a 1.34-era blob is already current — the ladder is a no-op on its bytes", () => {

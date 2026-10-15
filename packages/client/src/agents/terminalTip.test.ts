@@ -13,23 +13,24 @@ const KOLU = {
 
 const LISTING: TerminalTipFacts["listing"] = {
   kind: "available",
-  profiles: [
-    {
-      name: "vanilla",
-      description: "Upstream harnesses",
-      harnesses: [
-        { name: "claude", title: "Claude Code", version: "2.1.292" },
-        { name: "codex", title: "Codex", version: "0.112.0" },
-        { name: "opencode", title: "opencode", version: "1.0.0" },
-        { name: "pi", title: "Pi", version: "0.9.0" },
-        { name: "omp", title: "Oh My Pi", version: "0.3.0" },
-        { name: "opencode2", title: "OpenCode v2", version: "2.0.25" },
-      ],
-    },
+  harnesses: [
+    { name: "claude", title: "Claude Code", version: "2.1.292" },
+    { name: "codex", title: "Codex", version: "0.112.0" },
+    { name: "opencode", title: "OpenCode", version: "1.0.0" },
+    { name: "pi", title: "Pi", version: "0.9.0" },
+    { name: "omp", title: "Oh My Pi", version: "0.3.0" },
   ],
 };
 
-const AGENTS = { profile: "vanilla", bundle: "/nix/store/abc-vanilla" };
+const JUSPAY = {
+  reference: "github:juspay/skills",
+  name: "juspay",
+  path: "/nix/store/p-juspay",
+};
+const AGENTS: TerminalTipFacts["agents"] = {
+  bundle: "/nix/store/abc-agent-distro",
+  profiles: [JUSPAY],
+};
 const REPO: TerminalTipFacts["git"] = {
   kind: "repo",
   info: {
@@ -90,10 +91,10 @@ function show(f: TerminalTipFacts) {
   }
 }
 
-const HARNESSES = ["claude", "codex", "opencode", "pi", "omp", "opencode2"];
+const HARNESSES = ["claude", "codex", "opencode", "pi", "omp"];
 
 describe("terminalTip — launch an agent (the shell in front, in a repo)", () => {
-  it("one chip per harness of the profile, in the listing's order, each launching its own", () => {
+  it("one chip per harness of the package, in the listing's order, each launching its own", () => {
     expect(show(facts())).toEqual({
       id: "tip-launch-agent",
       lead: "Launch an agent",
@@ -102,40 +103,37 @@ describe("terminalTip — launch an agent (the shell in front, in a repo)", () =
         label: harness,
         action: { kind: "launch", harness },
       })),
-      source: { kind: "agent-distro", profile: "vanilla" },
+      source: { kind: "agent-distro", profile: "juspay" },
     });
   });
 
-  it("offers only the terminal's own profile", () => {
-    const listing: TerminalTipFacts["listing"] = {
-      kind: "available",
-      profiles: [
-        ...(LISTING.kind === "available" ? LISTING.profiles : []),
-        {
-          name: "juspay",
-          description: "Juspay's set",
-          harnesses: [{ name: "omp", title: "Oh My Pi", version: "0.3.0" }],
-        },
-      ],
-    };
+  it("the source names the profile in effect, else the stack, else none", () => {
     expect(
       show(
         facts({
-          listing,
-          agents: { profile: "juspay", bundle: "/nix/store/x" },
+          agents: {
+            ...AGENTS,
+            effective: {
+              name: "juspay + repo",
+              description: "d",
+              source: "from AI_PROFILE",
+            },
+          },
         }),
       ),
     ).toMatchObject({
-      chips: [{ label: "omp", action: { kind: "launch", harness: "omp" } }],
-      source: { kind: "agent-distro", profile: "juspay" },
+      source: { kind: "agent-distro", profile: "juspay + repo" },
     });
+    expect(
+      show(facts({ agents: { bundle: "/nix/store/x", profiles: [] } })),
+    ).toMatchObject({ source: { kind: "agent-distro", profile: undefined } });
   });
 
   it("the whole sentence reads lead, then the chips", () => {
     const t = terminalTip(facts());
     if (t.kind !== "tip") throw new Error("expected a tip");
     expect(tileTipSentence(t)).toBe(
-      "Launch an agent: claude, codex, opencode, pi, omp, opencode2",
+      "Launch an agent: claude, codex, opencode, pi, omp",
     );
   });
 
@@ -152,7 +150,7 @@ describe("terminalTip — launch an agent (the shell in front, in a repo)", () =
   });
 });
 
-describe("terminalTip — try a skill (a harness of the profile in front, no live turn yet)", () => {
+describe("terminalTip — try a skill (a harness of the package in front, no live turn yet)", () => {
   const SKILL = {
     lead: "Try a skill",
     rest: "— drive one AI agent from another through kolu's terminals",
@@ -219,33 +217,21 @@ describe("terminalTip — try a skill (a harness of the profile in front, no liv
     });
   });
 
-  it("a program that is not a harness of the profile in front: quiet", () => {
+  it("a program that is not a harness of the package in front: quiet", () => {
     for (const name of ["vim", "ssh", "make"])
       expect(show(facts({ foreground: running(name) }))).toEqual({
         quiet: `${name} is running`,
       });
   });
 
-  it("a harness of another profile in front: quiet", () => {
+  it("a harness the package does not bring in front: quiet", () => {
     const listing: TerminalTipFacts["listing"] = {
       kind: "available",
-      profiles: [
-        {
-          name: "juspay",
-          description: "Juspay's set",
-          harnesses: [{ name: "omp", title: "Oh My Pi", version: "0.3.0" }],
-        },
-      ],
+      harnesses: [{ name: "omp", title: "Oh My Pi", version: "0.3.0" }],
     };
-    expect(
-      show(
-        facts({
-          listing,
-          agents: { profile: "juspay", bundle: "/nix/store/x" },
-          foreground: running("claude"),
-        }),
-      ),
-    ).toEqual({ quiet: "claude is running" });
+    expect(show(facts({ listing, foreground: running("claude") }))).toEqual({
+      quiet: "claude is running",
+    });
   });
 
   it("does not need a repo", () => {
@@ -265,13 +251,7 @@ describe("terminalTip — try a skill (a harness of the profile in front, no liv
   it("a harness name with no invocation decided throws rather than guess", () => {
     const listing: TerminalTipFacts["listing"] = {
       kind: "available",
-      profiles: [
-        {
-          name: "vanilla",
-          description: "d",
-          harnesses: [{ name: "newagent", title: "New", version: "1" }],
-        },
-      ],
+      harnesses: [{ name: "newagent", title: "New", version: "1" }],
     };
     expect(() =>
       terminalTip(facts({ listing, foreground: running("newagent") })),
@@ -315,12 +295,6 @@ describe("terminalTip — quiet", () => {
     });
   });
 
-  it("profile unknown to the listing", () => {
-    expect(
-      show(facts({ agents: { profile: "juspay", bundle: "/nix/store/x" } })),
-    ).toEqual({ quiet: "profile juspay is not in the listing" });
-  });
-
   it("no agents on this terminal: neither tip", () => {
     expect(show(facts({ agents: undefined }))).toEqual({
       quiet: "no agents on this terminal",
@@ -332,10 +306,10 @@ describe("terminalTip — quiet", () => {
 });
 
 describe("terminalTip — broken invariants throw", () => {
-  it("a listed profile with no harness", () => {
+  it("a package with no harness", () => {
     const empty: TerminalTipFacts["listing"] = {
       kind: "available",
-      profiles: [{ name: "vanilla", description: "d", harnesses: [] as never }],
+      harnesses: [] as never,
     };
     expect(() => terminalTip(facts({ listing: empty }))).toThrow(/no harness/);
   });

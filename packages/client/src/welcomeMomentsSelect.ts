@@ -21,11 +21,11 @@ export type WelcomeMomentId =
   | "shortcuts";
 
 export interface WelcomeMomentFlags {
-  /** `undefined` while it is not known yet — preferences or the profile
+  /** `undefined` while it is not known yet — preferences or the agents
    *  listing not arrived, or this machine's status not caught up with a chosen
    *  set (`firstRunAgentsDone`): the moment is then neither a row nor in the
    *  header, so a user who has chosen never sees it flash on a reload. Read
-   *  through {@link latchKnown}, so a pick does not unmount the row while this
+   *  through {@link latchKnown}, so a choice does not unmount the row while this
    *  machine catches up with it. */
   chooseAgentsDone: boolean | undefined;
   /** "Not now" was pressed in this session: the row goes, the preference
@@ -95,8 +95,8 @@ export function selectWelcomeMoments(
 /** The last KNOWN reading of `read` — a `true` or `false` stays until the next
  *  `true` or `false`, and `undefined` ("not known yet") changes nothing. A
  *  fresh load starts with nothing known, so the moment stays hidden until it
- *  is (no reload flash); and a pick, which leaves this machine's status behind
- *  the choice for a moment, keeps the row it was made in instead of unmounting
+ *  is (no reload flash); and a choice, which leaves this machine's status behind it
+ *  for a moment, keeps the row it was made in instead of unmounting
  *  it (and its focus) and mounting it again when a download begins. */
 export function latchKnown(
   read: Accessor<boolean | undefined>,

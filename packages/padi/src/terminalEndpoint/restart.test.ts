@@ -31,9 +31,12 @@ import {
   realpathSync,
   rmSync,
   symlinkSync,
+  writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import type { DeliveredProfile } from "@kolu/agent-distro/landing";
+import { builtProfileFiles } from "@kolu/agent-distro/testing";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   agentDistroSettingStore,
@@ -43,7 +46,10 @@ import {
   __setAgentDistroBakeForTest,
   type AgentDistroBake,
 } from "../agentDistro/bake.ts";
-import { __resetAgentDistroDeliveriesForTest } from "../agentDistro/deliveries.ts";
+import {
+  __resetAgentDistroDeliveriesForTest,
+  landDelivery,
+} from "../agentDistro/deliveries.ts";
 import { koluScratchDir, setDaemonProcessId } from "../koluRoot.ts";
 import {
   __resetPadiSurfaceCtxForTest,
@@ -146,41 +152,45 @@ const LAYOUT = { x: 120, y: 80, w: 640, h: 400 };
 let root: string;
 let savedStateHome: string | undefined;
 
-/** A floor with both profiles, as a baked padi has it. */
+const JUSPAY = "github:juspay/skills";
+
+/** The package on the floor (what the terminal was spawned with), and the set
+ *  kolu-server landed since for the setting's stack. */
+const floorPackage = () => join(root, "store", "floor-package");
+const deliveredPackage = () => join(root, "store", "delivered-package");
+const juspay = (): DeliveredProfile => ({
+  reference: JUSPAY,
+  name: "juspay",
+  rev: "a1b2c3d4e5f6",
+  path: join(root, "store", "profile-juspay"),
+});
+
+/** A baked padi with its floor (reached through a link, as a store path is),
+ *  and the juspay set landed on it. */
 function bake(): AgentDistroBake {
-  const floor = join(root, "floor");
-  mkdirSync(join(floor, "profiles"), { recursive: true });
-  for (const p of ["vanilla", "juspay"]) {
-    const target = join(root, `store-${p}-kolu`);
-    mkdirSync(join(target, "bin"), { recursive: true });
-    symlinkSync(target, join(floor, "profiles", p));
+  for (const dir of [floorPackage(), deliveredPackage()])
+    mkdirSync(join(dir, "bin"), { recursive: true });
+  for (const [path, text] of Object.entries(
+    builtProfileFiles(juspay().path, { name: "juspay", description: "" }),
+  )) {
+    mkdirSync(dirname(path), { recursive: true });
+    writeFileSync(path, text);
   }
-  // The floor as its manifest names it: each profile's dir is a link (as a
-  // store profile dir is reached), so the resolved path is what gets pinned.
-  const manifest = {
-    default: "vanilla",
-    profiles: ["vanilla", "juspay"].map((name) => ({
-      name,
-      dir: join(floor, "profiles", name),
-      bin: join(floor, "profiles", name, "bin"),
-      hash: name,
-    })),
-  };
-  // Each profile as the bake reader makes it: its state dir (where a host's
-  // `current` would live) already concrete for this host.
-  const profile = (name: string) => ({
-    name,
-    stateDir: join(root, "state", "agent-distro", name),
-    historyFile: join(root, "state", "agent-distro", "history.log"),
-  });
-  return {
-    floor: manifest,
+  const floorLink = join(root, "floor");
+  symlinkSync(floorPackage(), floorLink);
+  const state = join(root, "state");
+  const b: AgentDistroBake = {
+    floor: { dir: floorLink, bin: join(floorLink, "bin") },
     plugins: "/p/plugin",
-    profiles: new Map([
-      ["vanilla", profile("vanilla")],
-      ["juspay", profile("juspay")],
-    ]),
+    stateDir: join(state, "agent-distro", "package"),
+    historyFile: join(state, "agent-distro", "history.log"),
+    landedFile: join(state, "kolu", "agent-distro-landed.json"),
   };
+  landDelivery(b, [JUSPAY], {
+    bundle: deliveredPackage(),
+    profiles: [juspay()],
+  });
+  return b;
 }
 
 beforeEach(() => {
@@ -190,7 +200,7 @@ beforeEach(() => {
   savedStateHome = process.env.XDG_STATE_HOME;
   process.env.XDG_STATE_HOME = join(root, "state");
   __setAgentDistroBakeForTest(bake());
-  agentDistroSettingStore.set({ enabled: true, profile: "juspay" });
+  agentDistroSettingStore.set({ enabled: true, profiles: [JUSPAY] });
   calls.log = [];
   calls.writes = [];
   calls.killFails = false;
@@ -207,13 +217,13 @@ afterEach(() => {
   else process.env.XDG_STATE_HOME = savedStateHome;
   __setAgentDistroBakeForTest(undefined);
   __resetAgentDistroDeliveriesForTest();
-  agentDistroSettingStore.set({ enabled: false, profile: "vanilla" });
+  agentDistroSettingStore.set({ enabled: false, profiles: [] });
   __resetPadiSurfaceCtxForTest();
 });
 
-/** An active terminal spawned under vanilla, with authored chrome worth
+/** An active terminal spawned on the floor's package with no profile, with authored chrome worth
  *  keeping and a live agent (the fixture's `exact` restore target). */
-function seedVanillaTerminal(): void {
+function seedTerminal(): void {
   const entry = activeEntry(ID);
   registerTerminal(ID, {
     ...entry,
@@ -221,7 +231,7 @@ function seedVanillaTerminal(): void {
       ...entry.meta,
       parentId: PARENT,
       canvasLayout: LAYOUT,
-      agents: { profile: "vanilla", bundle: join(root, "store-vanilla-kolu") },
+      agents: { bundle: floorPackage(), profiles: [] },
     },
   });
   installSnapshot(ID);
@@ -243,7 +253,7 @@ function deferred(): { promise: Promise<void>; resolve: () => void } {
 
 describe("restart — a new PTY in place", () => {
   it("keeps id, cwd, layout, parent, theme, intent and scratch; saves, kills, then spawns — and resolves on the new pid", async () => {
-    seedVanillaTerminal();
+    seedTerminal();
     const pasted = saveTerminalFile(
       ID,
       "pasted.png",
@@ -264,43 +274,43 @@ describe("restart — a new PTY in place", () => {
   });
 
   it("re-stamps the agents a new terminal gets now", async () => {
-    seedVanillaTerminal();
+    seedTerminal();
     await restartTerminal(ID);
     expect(activeMeta().agents).toEqual({
-      profile: "juspay",
-      bundle: join(root, "store-juspay-kolu"),
+      bundle: deliveredPackage(),
+      profiles: [juspay()],
     });
   });
 
   it.each([
-    ["a delivery in flight", { kind: "delivering", profile: "juspay" }],
+    ["a delivery in flight", { kind: "delivering", profiles: [JUSPAY] }],
     [
       "a failed delivery",
       {
         kind: "failed",
-        profile: "juspay",
+        profiles: [JUSPAY],
         message: "nix copy exit 1",
       },
     ],
-  ] as const)("a host with %s keeps serving the bundle on disk: the new PTY gets it", async (_, report) => {
+  ] as const)("a host with %s keeps serving the set on disk: the new PTY gets it", async (_, report) => {
     onAgentDistroReport(report);
-    seedVanillaTerminal();
+    seedTerminal();
     await restartTerminal(ID);
     expect(activeMeta().agents).toEqual({
-      profile: "juspay",
-      bundle: join(root, "store-juspay-kolu"),
+      bundle: deliveredPackage(),
+      profiles: [juspay()],
     });
   });
 
   it("agents on: the live agent's conversation resumes, and padi says so", async () => {
-    seedVanillaTerminal();
+    seedTerminal();
     expect((await restartTerminal(ID))?.resumed).toBe(true);
     await vi.waitFor(() => expect(calls.writes.length).toBe(1));
   });
 
   it("agents now off: a bare shell — no agents, nothing replayed", async () => {
-    agentDistroSettingStore.set({ enabled: false, profile: "juspay" });
-    seedVanillaTerminal();
+    agentDistroSettingStore.set({ enabled: false, profiles: [JUSPAY] });
+    seedTerminal();
     expect((await restartTerminal(ID))?.resumed).toBe(false);
     expect(activeMeta().agents).toBeUndefined();
     expect(calls.writes).toEqual([]);
@@ -312,26 +322,26 @@ describe("restart — a new PTY in place", () => {
   });
 
   it("a failed kill with the PTY still alive: the record goes back on it, and it throws", async () => {
-    seedVanillaTerminal();
+    seedTerminal();
     calls.killFails = true;
     calls.listed = [ID];
 
     await expect(restartTerminal(ID)).rejects.toThrow(/would not stop/);
     expect(getTerminal(ID)?.meta.state).toBe("active");
-    expect(activeMeta().agents?.profile).toBe("vanilla");
+    expect(activeMeta().agents?.bundle).toBe(floorPackage());
     expect(calls.log.some((e) => e.startsWith("spawn:"))).toBe(false);
   });
 
   it("a failed kill with the PTY gone: the restart goes on", async () => {
-    seedVanillaTerminal();
+    seedTerminal();
     calls.killFails = true;
 
     expect((await restartTerminal(ID))?.info.pid).toBe(NEW_PID);
-    expect(activeMeta().agents?.profile).toBe("juspay");
+    expect(activeMeta().agents?.profiles).toEqual([juspay()]);
   });
 
   it("a wake that wins the id during the kill: answered with the woken terminal, spawned once", async () => {
-    seedVanillaTerminal();
+    seedTerminal();
     const killStarted = deferred();
     const hold = deferred();
     calls.killGate = () => {
@@ -352,7 +362,7 @@ describe("restart — a new PTY in place", () => {
   });
 
   it("a discard that wins the id during the kill: answered with nothing", async () => {
-    seedVanillaTerminal();
+    seedTerminal();
     const killStarted = deferred();
     const hold = deferred();
     calls.killGate = () => {
@@ -370,7 +380,7 @@ describe("restart — a new PTY in place", () => {
   });
 
   it("a respawn that fails: it throws, and the tile is asleep to wake", async () => {
-    seedVanillaTerminal();
+    seedTerminal();
     calls.spawnFails = true;
 
     await expect(restartTerminal(ID)).rejects.toThrow(/did not start/);
@@ -378,7 +388,7 @@ describe("restart — a new PTY in place", () => {
   });
 
   it("a restarted terminal sleeps like any other", async () => {
-    seedVanillaTerminal();
+    seedTerminal();
     await restartTerminal(ID);
     await sleepTerminal(ID);
     expect(getTerminal(ID)?.meta.state).toBe("sleeping");
@@ -389,7 +399,7 @@ describe("restart — a new PTY in place", () => {
 describe("an attach during a restart", () => {
   /** Start a restart and hold it inside the kill, with the record sleeping. */
   async function holdRestartInKill() {
-    seedVanillaTerminal();
+    seedTerminal();
     const killStarted = deferred();
     const hold = deferred();
     calls.killGate = () => {
@@ -434,7 +444,7 @@ describe("an attach during a restart", () => {
     await expect(requireAttachableTerminal(ID)).rejects.toMatchObject({
       _tag: "TerminalNotFound",
     });
-    seedVanillaTerminal();
+    seedTerminal();
     await sleepTerminal(ID);
     await expect(requireAttachableTerminal(ID)).rejects.toMatchObject({
       _tag: "TerminalNotFound",

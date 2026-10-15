@@ -1,9 +1,11 @@
 /**
- * Which bundle a new terminal gets on this host, and how kolu-server's
- * delivery reports (`agentDistro.report`) move it: the spawn-time resolution
- * that pins a bundle, and the status / receipt a host publishes as deliveries
- * start, land and fail. Real temp dirs throughout — `current`, `last-success`
- * and the history log are the files upstream reads too.
+ * Which set a new terminal gets on this host, and how kolu-server's delivery
+ * reports (`agentDistro.report`) move it: the served set (`landed.json`, else
+ * the floor's package with no profile), the stack-matching readiness that
+ * decides whether it serves the setting, and the status / receipt a host
+ * publishes as deliveries start, land and fail. Real temp dirs throughout —
+ * `current`, `last-success` and the history log are the files upstream reads
+ * too.
  */
 
 import {
@@ -17,14 +19,16 @@ import {
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { currentLink } from "@kolu/agent-distro/bundle";
+import type { DeliveredProfile } from "@kolu/agent-distro/landing";
 import type {
   AgentDistroDeliveryReport,
   AgentDistroReceipt,
   AgentDistroSetting,
   AgentDistroStatus,
 } from "@kolu/agent-distro/schema";
+import { builtProfileFiles, packageFiles } from "@kolu/agent-distro/testing";
 import type { PtyHostSystemInfo } from "kaval";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
@@ -40,24 +44,59 @@ import {
   onAgentDistroSettingWrite,
 } from "./agentDistro.ts";
 import { __setAgentDistroBakeForTest, type AgentDistroBake } from "./bake.ts";
-import { __resetAgentDistroDeliveriesForTest } from "./deliveries.ts";
-import { type AgentLayer, layerOnHost, withAgentLayer } from "./layer.ts";
+import {
+  __resetAgentDistroDeliveriesForTest,
+  landDelivery,
+} from "./deliveries.ts";
+import { type AgentLayer, withAgentLayer } from "./layer.ts";
+import { servedSetOnHost } from "./onHost.ts";
 
-const ON: AgentDistroSetting = { enabled: true, profile: "vanilla" };
-const OFF: AgentDistroSetting = { enabled: false, profile: "vanilla" };
+const JUSPAY = "github:juspay/skills";
+const EKALA = "github:ekala/agents";
 
-/** A store bundle as agent-distro builds it: `bin/` holds the harness
- *  commands AND the profile's own picker, `agent-distro`; `versions` (when
- *  given) is its `share/agent-distro/versions` file. */
-function storeBundle(dir: string, versions?: string): string {
+const STOCK: AgentDistroSetting = { enabled: true, profiles: [] };
+const OFF: AgentDistroSetting = { enabled: false, profiles: [] };
+const stack = (...profiles: string[]): AgentDistroSetting => ({
+  enabled: true,
+  profiles,
+});
+
+/** Write `files` (path → text) to disk. */
+function writeFiles(files: Record<string, string>): void {
+  for (const [path, text] of Object.entries(files)) {
+    mkdirSync(dirname(path), { recursive: true });
+    writeFileSync(path, text);
+  }
+}
+
+/** agent-distro's package as it builds: `bin/` holds the harness commands AND
+ *  the picker, `agent-distro`; `versions` (when given) is its versions file. */
+function storePackage(
+  dir: string,
+  versions?: readonly { name: string; title: string; version: string }[],
+): string {
   mkdirSync(join(dir, "bin"), { recursive: true });
   for (const command of ["claude", "agent-distro"])
     writeFileSync(join(dir, "bin", command), "#!/bin/sh\n", { mode: 0o755 });
-  if (versions !== undefined) {
-    mkdirSync(join(dir, "share", "agent-distro"), { recursive: true });
-    writeFileSync(join(dir, "share", "agent-distro", "versions"), versions);
-  }
+  if (versions !== undefined) writeFiles(packageFiles(dir, versions));
   return dir;
+}
+
+/** A built profile in the store, as `mkProfile` writes it, delivered for
+ *  `reference`. */
+function storeProfile(
+  reference: string,
+  name: string,
+  opts: { dir?: string; rev?: string } = {},
+): DeliveredProfile {
+  const path = join(root, "store", opts.dir ?? `profile-${name}`);
+  writeFiles(builtProfileFiles(path, { name, description: `the ${name}` }));
+  return {
+    reference,
+    name,
+    ...(opts.rev === undefined ? {} : { rev: opts.rev }),
+    path,
+  };
 }
 
 /** The first `command` a shell finds on `PATH`. */
@@ -69,13 +108,10 @@ function commandOnPath(command: string, PATH: string | undefined) {
   return undefined;
 }
 
-/** Where a shell finds `command` on the PATH a terminal spawned with `layer`
- *  gets — the spawn input padi really composes. */
-function whichOnSpawnPath(
-  layer: AgentLayer,
-  command: string,
-): string | undefined {
-  const input = composeSpawnInput(
+/** The env a terminal spawned with `layer` gets — the spawn input padi really
+ *  composes. */
+function spawnEnv(layer: AgentLayer): Record<string, string | undefined> {
+  return composeSpawnInput(
     { id: "T-agents-path" },
     {
       shell: "/bin/sh",
@@ -89,8 +125,7 @@ function whichOnSpawnPath(
       agents: agentSpawnEnv(layer),
       serverVersion: "9.9.9-test",
     },
-  );
-  return commandOnPath(command, input.env.PATH);
+  ).env;
 }
 
 let root: string;
@@ -98,42 +133,34 @@ const saved: Record<string, string | undefined> = {};
 let published: AgentDistroStatus[];
 let receipts: AgentDistroReceipt[];
 
-const stateDirOf = (name: string) => join(root, "state", "agent-distro", name);
+const stateDir = () => join(root, "state", "agent-distro", "package");
 const historyFile = () => join(root, "state", "agent-distro", "history.log");
+const landedFile = () =>
+  join(root, "state", "kolu", "agent-distro-landed.json");
+const historyLines = () =>
+  existsSync(historyFile())
+    ? readFileSync(historyFile(), "utf8").trim().split("\n")
+    : [];
 
 /** A bake as the reader makes it — concrete for this host — with the local
- *  floor (both profiles' bundles in kolu's closure) or none (a remote host). */
+ *  floor (agent-distro's package in kolu's closure, reached through a link as
+ *  a store path is) or none (a remote host). */
 function bake(opts: { floor: boolean }): AgentDistroBake {
-  const floor = join(root, "floor");
-  if (opts.floor) {
-    for (const p of ["vanilla", "juspay"]) {
-      const target = join(root, `agent-distro-${p}`);
-      storeBundle(target);
-      mkdirSync(join(floor, "profiles"), { recursive: true });
-      symlinkSync(target, join(floor, "profiles", p));
-    }
-  }
-  // The floor as its manifest names it: each profile's dir is a link (as a
-  // store profile dir is reached), so the resolved path is what gets pinned.
-  const manifest = {
-    default: "vanilla",
-    profiles: ["vanilla", "juspay"].map((name) => ({
-      name,
-      dir: join(floor, "profiles", name),
-      bin: join(floor, "profiles", name, "bin"),
-    })),
-  };
-  const profile = (name: string) =>
-    [
-      name,
-      { name, stateDir: stateDirOf(name), historyFile: historyFile() },
-    ] as const;
+  const floorLink = join(root, "floor");
+  if (opts.floor)
+    symlinkSync(storePackage(join(root, "store", "floor-package")), floorLink);
   return {
-    floor: opts.floor ? manifest : undefined,
+    floor: opts.floor
+      ? { dir: floorLink, bin: join(floorLink, "bin") }
+      : undefined,
     plugins: "/p/plugin",
-    profiles: new Map([profile("vanilla"), profile("juspay")]),
+    stateDir: stateDir(),
+    historyFile: historyFile(),
+    landedFile: landedFile(),
   };
 }
+
+const floorPackage = () => join(root, "store", "floor-package");
 
 /** The framework's order for a setting write: `onWrite` first, then the
  *  store. */
@@ -144,10 +171,23 @@ function write(next: AgentDistroSetting): void {
 
 const status = () => published.at(-1);
 const receipt = () => receipts.at(-1);
+const report = (r: AgentDistroDeliveryReport) => onAgentDistroReport(r);
+
+/** A `landed` report of `bundle` with `delivered`, for the stack they name. */
+const landed = (
+  bundle: string,
+  delivered: readonly DeliveredProfile[],
+): AgentDistroDeliveryReport => ({
+  kind: "landed",
+  profiles: delivered.map((p) => p.reference),
+  bundle,
+  delivered: [...delivered],
+});
 
 beforeEach(() => {
   root = realpathSync(mkdtempSync(join(tmpdir(), "agent-distro-test-")));
-  for (const k of ["XDG_STATE_HOME", "PATH"]) saved[k] = process.env[k];
+  for (const k of ["XDG_STATE_HOME", "PATH", "AI_PROFILE"])
+    saved[k] = process.env[k];
   process.env.XDG_STATE_HOME = join(root, "state");
   process.env.PATH = "/usr/bin:/bin";
   __resetAgentDistroDeliveriesForTest();
@@ -183,193 +223,331 @@ afterEach(() => {
   }
 });
 
-describe("layerOnHost — the bundle on disk", () => {
-  it("off → nothing", () => {
-    __setAgentDistroBakeForTest(bake({ floor: true }));
-    expect(layerOnHost(OFF)).toBeUndefined();
-  });
-
-  it("an unbaked padi → nothing, even when on", () => {
-    __setAgentDistroBakeForTest(null);
-    expect(layerOnHost(ON)).toBeUndefined();
-    expect(assessAgentDistro(ON)).toEqual({ kind: "unavailable" });
-  });
-
-  it("the local floor: the profile's EXACT resolved dir, never the symlink", () => {
-    __setAgentDistroBakeForTest(bake({ floor: true }));
-    expect(layerOnHost(ON)).toEqual({
-      profile: "vanilla",
-      bundle: join(root, "agent-distro-vanilla"),
-      plugins: "/p/plugin",
+describe("servedSetOnHost — the set this host serves", () => {
+  it("before any landing: the floor's EXACT resolved package, never the link, with no profile", () => {
+    expect(servedSetOnHost(bake({ floor: true }))).toEqual({
+      bundle: floorPackage(),
+      profiles: [],
     });
   });
 
-  it("the host's `current` wins over the floor, resolved to its target", () => {
-    __setAgentDistroBakeForTest(bake({ floor: true }));
-    const fetched = storeBundle(join(root, "agent-distro-vanilla-fetched"));
-    mkdirSync(stateDirOf("vanilla"), { recursive: true });
-    symlinkSync(fetched, currentLink(stateDirOf("vanilla")));
-    expect(layerOnHost(ON)?.bundle).toBe(fetched);
+  it("a remote host before its first delivery serves nothing", () => {
+    expect(servedSetOnHost(bake({ floor: false }))).toBeUndefined();
   });
 
-  it("a new terminal's PATH finds `agent-distro` in the floor's bin/", () => {
-    __setAgentDistroBakeForTest(bake({ floor: true }));
-    const onFloor = layerOnHost(ON);
-    if (onFloor === undefined) throw new Error("no layer on the floor");
-    expect(whichOnSpawnPath(onFloor, "agent-distro")).toBe(
-      join(root, "agent-distro-vanilla", "bin", "agent-distro"),
-    );
+  it("a floor whose package is gone is a broken build: it throws", () => {
+    const b = bake({ floor: false });
+    expect(() =>
+      servedSetOnHost({
+        ...b,
+        floor: { dir: join(root, "gone"), bin: join(root, "gone", "bin") },
+      }),
+    ).toThrow(/does not exist/);
   });
 
-  it("a remote host before its first delivery, with no word from kolu-server → nothing, undelivered — never downloading from silence", () => {
-    __setAgentDistroBakeForTest(bake({ floor: false }));
-    expect(layerOnHost(ON)).toBeUndefined();
-    expect(assessAgentDistro(ON)).toEqual({
-      kind: "undelivered",
-      profile: "vanilla",
-    });
+  it("the landed record wins over the floor", () => {
+    const b = bake({ floor: true });
+    const bundle = storePackage(join(root, "store", "delivered"));
+    const juspay = storeProfile(JUSPAY, "juspay", { rev: "a1b2c3d4e5" });
+    landDelivery(b, [JUSPAY], { bundle, profiles: [juspay] });
+    expect(servedSetOnHost(b)).toEqual({ bundle, profiles: [juspay] });
   });
 
-  it("status reads ready with the layer a new terminal gets", () => {
-    __setAgentDistroBakeForTest(bake({ floor: true }));
-    expect(assessAgentDistro(ON)).toEqual({
-      kind: "ready",
-      layer: {
-        profile: "vanilla",
-        bundle: join(root, "agent-distro-vanilla"),
-        plugins: "/p/plugin",
-      },
-      delivering: false,
+  it("a landed record naming a profile this host lacks throws, naming it", () => {
+    const b = bake({ floor: true });
+    const bundle = storePackage(join(root, "store", "delivered"));
+    writeFiles({
+      [landedFile()]: JSON.stringify({
+        bundle,
+        profiles: [
+          { reference: JUSPAY, name: "juspay", path: join(root, "nope") },
+        ],
+      }),
     });
-    expect(assessAgentDistro({ enabled: false, profile: "x" })).toEqual({
-      kind: "off",
-    });
+    expect(() => servedSetOnHost(b)).toThrow(/juspay profile at .*nope/);
+  });
+
+  it("a landed record that does not parse throws", () => {
+    const b = bake({ floor: true });
+    writeFiles({ [landedFile()]: JSON.stringify({ profile: "vanilla" }) });
+    expect(() => servedSetOnHost(b)).toThrow();
   });
 });
 
-describe("a profile reference — the setting's fallback, on the vanilla bundle", () => {
-  const REFERENCE = { enabled: true, profile: "github:me/profile" } as const;
-
-  it("gets the vanilla bundle, and the layer keeps the reference as the profile", () => {
+describe("assessAgentDistro — the set serves only the stack it was built for", () => {
+  it("off → off; an unbaked padi → unavailable, even when on", () => {
     __setAgentDistroBakeForTest(bake({ floor: true }));
-    expect(assessAgentDistro(REFERENCE)).toEqual({
+    expect(assessAgentDistro(OFF)).toEqual({ kind: "off" });
+    __setAgentDistroBakeForTest(null);
+    expect(assessAgentDistro(STOCK)).toEqual({ kind: "unavailable" });
+  });
+
+  it("the empty stack on the floor: ready with the package and no profile", () => {
+    __setAgentDistroBakeForTest(bake({ floor: true }));
+    expect(assessAgentDistro(STOCK)).toEqual({
       kind: "ready",
-      layer: {
-        profile: "github:me/profile",
-        bundle: join(root, "agent-distro-vanilla"),
-        plugins: "/p/plugin",
-      },
+      layer: { bundle: floorPackage(), profiles: [], plugins: "/p/plugin" },
       delivering: false,
     });
   });
 
-  it("waits on the vanilla bundle's delivery on a host without one, and gets it once it lands", () => {
-    __setAgentDistroBakeForTest(bake({ floor: false }));
-    write(REFERENCE);
-    expect(status()).toEqual({
+  it("a stack the floor cannot serve waits: undelivered, never the floor without its profiles", () => {
+    __setAgentDistroBakeForTest(bake({ floor: true }));
+    expect(assessAgentDistro(stack(JUSPAY))).toEqual({
       kind: "undelivered",
-      profile: "github:me/profile",
+      profiles: [JUSPAY],
     });
-    // A delivery is the BUNDLE's: kolu-server names the vanilla bundle.
-    onAgentDistroReport({ kind: "delivering", profile: "vanilla" });
-    expect(status()).toEqual({
-      kind: "downloading",
-      profile: "github:me/profile",
+    write(stack(JUSPAY));
+    expect(newTerminalLayer()).toBeUndefined();
+  });
+
+  it("a remote host before its first delivery, with no word from kolu-server → undelivered — never downloading from silence", () => {
+    __setAgentDistroBakeForTest(bake({ floor: false }));
+    expect(assessAgentDistro(STOCK)).toEqual({
+      kind: "undelivered",
+      profiles: [],
     });
-    const bundle = storeBundle(join(root, "store-vanilla"));
-    onAgentDistroReport({ kind: "landed", profile: "vanilla", bundle });
-    expect(status()).toEqual({
-      kind: "ready",
-      profile: "github:me/profile",
+  });
+
+  it("the same profiles in another order are another stack", () => {
+    const b = bake({ floor: false });
+    __setAgentDistroBakeForTest(b);
+    const bundle = storePackage(join(root, "store", "delivered"));
+    landDelivery(b, [JUSPAY, EKALA], {
       bundle,
+      profiles: [storeProfile(JUSPAY, "juspay"), storeProfile(EKALA, "ekala")],
+    });
+    expect(assessAgentDistro(stack(JUSPAY, EKALA)).kind).toBe("ready");
+    expect(assessAgentDistro(stack(EKALA, JUSPAY))).toEqual({
+      kind: "undelivered",
+      profiles: [EKALA, JUSPAY],
+    });
+    expect(assessAgentDistro(stack(JUSPAY)).kind).toBe("undelivered");
+  });
+
+  it("a landed record this host cannot hold reads as an error in padi's words, not a half set", () => {
+    __setAgentDistroBakeForTest(bake({ floor: true }));
+    writeFiles({ [landedFile()]: "{ not json" });
+    expect(assessAgentDistro(STOCK)).toMatchObject({
+      kind: "error",
+      profiles: [],
+    });
+  });
+
+  it("a delivery of ANOTHER stack does not mark the serving one as delivering", () => {
+    __setAgentDistroBakeForTest(bake({ floor: true }));
+    report({ kind: "delivering", profiles: [JUSPAY] });
+    expect(assessAgentDistro(STOCK)).toMatchObject({
+      kind: "ready",
       delivering: false,
+    });
+    expect(assessAgentDistro(stack(JUSPAY))).toEqual({
+      kind: "downloading",
+      profiles: [JUSPAY],
     });
   });
 });
 
 describe("delivery reports — what a host does with kolu-server's word", () => {
-  const report = (r: AgentDistroDeliveryReport) => onAgentDistroReport(r);
-
-  it("`landed`: `current` points at the bundle, upstream's files are written, and new terminals get it on PATH", () => {
+  it("`landed`: the set is recorded, `current` points at the package, upstream's files are written, and new terminals get it", () => {
     __setAgentDistroBakeForTest(bake({ floor: false }));
-    write(ON);
-    const bundle = storeBundle(
-      join(root, "store-vanilla"),
-      "claude\tClaude Code\t2.1.291\n",
-    );
+    write(stack(JUSPAY));
+    const bundle = storePackage(join(root, "store", "delivered"), [
+      { name: "claude", title: "Claude Code", version: "2.1.291" },
+    ]);
+    const juspay = storeProfile(JUSPAY, "juspay", { rev: "a1b2c3d4e5f6" });
     const before = Math.floor(Date.now() / 1000);
 
-    report({ kind: "landed", profile: "vanilla", bundle });
+    report(landed(bundle, [juspay]));
 
-    const link = currentLink(stateDirOf("vanilla"));
+    expect(JSON.parse(readFileSync(landedFile(), "utf8"))).toEqual({
+      bundle,
+      profiles: [juspay],
+    });
+    const link = currentLink(stateDir());
     expect(lstatSync(link).isSymbolicLink()).toBe(true);
     expect(realpathSync(link)).toBe(bundle);
     const stamp = Number(
-      readFileSync(join(stateDirOf("vanilla"), "last-success"), "utf8"),
+      readFileSync(join(stateDir(), "last-success"), "utf8"),
     );
     expect(stamp).toBeGreaterThanOrEqual(before);
     expect(stamp).toBeLessThanOrEqual(Math.floor(Date.now() / 1000));
-    const history = readFileSync(historyFile(), "utf8").trim().split("\n");
-    expect(history).toHaveLength(1);
-    expect(history[0]).toMatch(/ vanilla updated: Claude Code 2\.1\.291$/);
+    // Upstream's one-package line: `<time> updated: <words>`, no profile.
+    expect(historyLines()).toEqual([
+      expect.stringMatching(
+        /^\S+ updated: Claude Code 2\.1\.291, juspay a1b2c3d$/,
+      ),
+    ]);
 
     expect(status()).toEqual({
       kind: "ready",
-      profile: "vanilla",
+      profiles: [JUSPAY],
       bundle,
+      delivered: [juspay],
       delivering: false,
     });
     const layer = newTerminalLayer();
-    expect(layer).toEqual({ profile: "vanilla", bundle, plugins: "/p/plugin" });
+    expect(layer).toEqual({
+      bundle,
+      profiles: [juspay],
+      plugins: "/p/plugin",
+    });
     if (layer === undefined) throw new Error("no layer after landing");
-    expect(whichOnSpawnPath(layer, "agent-distro")).toBe(
+    const env = spawnEnv(layer);
+    expect(commandOnPath("agent-distro", env.PATH)).toBe(
       join(bundle, "bin", "agent-distro"),
     );
+    expect(env.AI_PROFILE).toBe(juspay.path);
+    expect(env.AGENT_DISTRO_PLUGINS).toBe("/p/plugin");
 
     expect(receipt()).toMatchObject({
-      profile: "vanilla",
       bundle,
       versions: [{ name: "claude", title: "Claude Code", version: "2.1.291" }],
+      profiles: [juspay],
       lastRun: {
         outcome: "updated",
-        words: "Claude Code 2.1.291",
+        words: "Claude Code 2.1.291, juspay a1b2c3d",
         by: "log",
       },
     });
   });
 
-  it("a newer bundle landing names what changed; the same bundle again writes no history line", () => {
+  it("a stack exports every built profile as AI_PROFILE, space-joined bottom to top", () => {
     __setAgentDistroBakeForTest(bake({ floor: false }));
-    write(ON);
-    const older = storeBundle(
-      join(root, "store-older"),
-      "claude\tClaude Code\t2.1.286\n",
+    write(stack(JUSPAY, EKALA));
+    const bundle = storePackage(join(root, "store", "delivered"));
+    const juspay = storeProfile(JUSPAY, "juspay");
+    const ekala = storeProfile(EKALA, "ekala");
+    report(landed(bundle, [juspay, ekala]));
+    const layer = newTerminalLayer();
+    if (layer === undefined) throw new Error("no layer after landing");
+    expect(spawnEnv(layer).AI_PROFILE).toBe(`${juspay.path} ${ekala.path}`);
+  });
+
+  it("the empty stack exports no AI_PROFILE at all", () => {
+    __setAgentDistroBakeForTest(bake({ floor: true }));
+    write(STOCK);
+    const layer = newTerminalLayer();
+    if (layer === undefined) throw new Error("no layer on the floor");
+    expect("AI_PROFILE" in spawnEnv(layer)).toBe(false);
+  });
+
+  it("a newer landing names what changed in the history; the same set again writes no line", () => {
+    __setAgentDistroBakeForTest(bake({ floor: false }));
+    write(stack(JUSPAY, EKALA));
+    const older = storePackage(join(root, "store", "older"), [
+      { name: "claude", title: "Claude Code", version: "2.1.286" },
+    ]);
+    const newer = storePackage(join(root, "store", "newer"), [
+      { name: "claude", title: "Claude Code", version: "2.1.291" },
+      { name: "pi", title: "Pi", version: "0.4" },
+    ]);
+    const juspayOld = storeProfile(JUSPAY, "juspay", {
+      dir: "juspay-old",
+      rev: "1111111aaaa",
+    });
+    const juspayNew = storeProfile(JUSPAY, "juspay", {
+      dir: "juspay-new",
+      rev: "2222222bbbb",
+    });
+    const ekala = storeProfile(EKALA, "ekala", { rev: "3333333cccc" });
+    report(landed(older, [juspayOld, ekala]));
+    report(landed(newer, [juspayNew, ekala]));
+    report(landed(newer, [juspayNew, ekala]));
+    const lines = historyLines();
+    expect(lines).toHaveLength(2);
+    expect(lines[1]).toMatch(
+      /^\S+ updated: Claude Code 2\.1\.286 → 2\.1\.291, Pi added 0\.4, juspay 1111111 → 2222222$/,
     );
-    const newer = storeBundle(
-      join(root, "store-newer"),
-      "claude\tClaude Code\t2.1.291\npi\tPi\t0.4\n",
-    );
-    report({ kind: "landed", profile: "vanilla", bundle: older });
-    report({ kind: "landed", profile: "vanilla", bundle: newer });
-    report({ kind: "landed", profile: "vanilla", bundle: newer });
-    const history = readFileSync(historyFile(), "utf8").trim().split("\n");
-    expect(history).toHaveLength(2);
-    expect(history[1]).toMatch(
-      / vanilla updated: Claude Code 2\.1\.286 → 2\.1\.291, Pi added 0\.4$/,
-    );
-    expect(realpathSync(currentLink(stateDirOf("vanilla")))).toBe(newer);
+    expect(realpathSync(currentLink(stateDir()))).toBe(newer);
     expect(newTerminalLayer()?.bundle).toBe(newer);
+  });
+
+  it("a changed list is said in the history: a profile added or removed, the package unchanged", () => {
+    __setAgentDistroBakeForTest(bake({ floor: false }));
+    const bundle = storePackage(join(root, "store", "delivered"));
+    const juspay = storeProfile(JUSPAY, "juspay", { rev: "a1b2c3d4" });
+    const ekala = storeProfile(EKALA, "ekala", { rev: "e1e2e3e4e5" });
+    write(stack(JUSPAY));
+    report(landed(bundle, [juspay]));
+    write(stack(JUSPAY, EKALA));
+    report(landed(bundle, [juspay, ekala]));
+    write(stack(EKALA));
+    report(landed(bundle, [ekala]));
+    write(stack(EKALA, JUSPAY));
+    report(landed(bundle, [ekala, juspay]));
+    write(stack(JUSPAY, EKALA));
+    report(landed(bundle, [juspay, ekala]));
+    expect(historyLines().map((l) => l.replace(/^\S+ /, ""))).toEqual([
+      "updated: versions not recorded by this package, juspay a1b2c3d",
+      "updated: ekala added e1e2e3e",
+      "updated: juspay removed",
+      "updated: juspay added a1b2c3d",
+      "updated: profiles reordered: juspay + ekala",
+    ]);
+  });
+
+  it("a landed report whose `delivered` refs do not match its stack throws, records padi's failure, and lands nothing", () => {
+    __setAgentDistroBakeForTest(bake({ floor: false }));
+    write(stack(JUSPAY, EKALA));
+    const bundle = storePackage(join(root, "store", "delivered"));
+    const juspay = storeProfile(JUSPAY, "juspay");
+
+    expect(() =>
+      report({
+        kind: "landed",
+        profiles: [JUSPAY, EKALA],
+        bundle,
+        delivered: [juspay],
+      }),
+    ).toThrow(/whose profiles name/);
+
+    expect(existsSync(landedFile())).toBe(false);
+    expect(existsSync(currentLink(stateDir()))).toBe(false);
+    expect(status()).toMatchObject({
+      kind: "error",
+      profiles: [JUSPAY, EKALA],
+    });
+    expect(receipt()?.lastRun).toMatchObject({ outcome: "failed", by: "padi" });
+  });
+
+  it("`landed` for a package this host lacks (no bin/) throws, and is recorded as padi's failure", () => {
+    __setAgentDistroBakeForTest(bake({ floor: false }));
+    write(STOCK);
+    const missing = join(root, "store-not-here");
+    mkdirSync(missing);
+
+    expect(() => report(landed(missing, []))).toThrow(
+      /has no .*store-not-here\/bin/,
+    );
+
+    expect(existsSync(currentLink(stateDir()))).toBe(false);
+    expect(status()).toMatchObject({ kind: "error", profiles: [] });
+    expect(receipt()?.lastRun).toMatchObject({ outcome: "failed", by: "padi" });
+  });
+
+  it("`landed` naming a profile this host lacks throws, naming the profile", () => {
+    __setAgentDistroBakeForTest(bake({ floor: false }));
+    write(stack(JUSPAY));
+    const bundle = storePackage(join(root, "store", "delivered"));
+    expect(() =>
+      report(
+        landed(bundle, [
+          { reference: JUSPAY, name: "juspay", path: join(root, "absent") },
+        ]),
+      ),
+    ).toThrow(/the juspay profile at .*absent/);
+    expect(existsSync(landedFile())).toBe(false);
   });
 
   it("`failed` with nothing serving: status error, and the receipt's last run is the delivery's failure", () => {
     __setAgentDistroBakeForTest(bake({ floor: false }));
-    write(ON);
-    const message =
-      "agent-distro's cache did not deliver the vanilla agents for x86_64-linux";
+    write(stack(JUSPAY));
+    const message = `the ${JUSPAY} profile did not build for x86_64-linux`;
 
-    report({ kind: "failed", profile: "vanilla", message });
+    report({ kind: "failed", profiles: [JUSPAY], message });
 
-    expect(status()).toEqual({ kind: "error", profile: "vanilla", message });
+    expect(status()).toEqual({ kind: "error", profiles: [JUSPAY], message });
     expect(newTerminalLayer()).toBeUndefined();
     expect(receipt()?.lastRun).toMatchObject({
       outcome: "failed",
@@ -378,34 +556,30 @@ describe("delivery reports — what a host does with kolu-server's word", () => 
     });
   });
 
-  it("a failure while a bundle serves leaves the host ready on it: the failure shows only in the receipt", () => {
+  it("a failure while a set serves leaves the host ready on it: the failure shows only in the receipt", () => {
     __setAgentDistroBakeForTest(bake({ floor: true }));
-    write(ON);
-    const floorBundle = join(root, "agent-distro-vanilla");
-    expect(status()).toEqual({
+    write(STOCK);
+    const ready = {
       kind: "ready",
-      profile: "vanilla",
-      bundle: floorBundle,
+      profiles: [],
+      bundle: floorPackage(),
+      delivered: [],
       delivering: false,
-    });
+    };
+    expect(status()).toEqual(ready);
 
-    report({ kind: "delivering", profile: "vanilla" });
+    report({ kind: "delivering", profiles: [] });
     report({
       kind: "failed",
-      profile: "vanilla",
+      profiles: [],
       message: "error: cannot copy path from https://cache.example",
     });
 
-    expect(status()).toEqual({
-      kind: "ready",
-      profile: "vanilla",
-      bundle: floorBundle,
-      delivering: false,
-    });
-    expect(newTerminalLayer()?.bundle).toBe(floorBundle);
+    expect(status()).toEqual(ready);
+    expect(newTerminalLayer()?.bundle).toBe(floorPackage());
     expect(receipt()).toMatchObject({
-      profile: "vanilla",
-      bundle: floorBundle,
+      bundle: floorPackage(),
+      profiles: [],
       lastRun: {
         outcome: "failed",
         words: "error: cannot copy path from https://cache.example",
@@ -414,91 +588,62 @@ describe("delivery reports — what a host does with kolu-server's word", () => 
     });
   });
 
-  it("`delivering` while a bundle serves: ready on it, delivering", () => {
+  it("`delivering` while a set serves its stack: ready on it, delivering — it keeps serving until the newer lands", () => {
     __setAgentDistroBakeForTest(bake({ floor: true }));
-    write(ON);
-    report({ kind: "delivering", profile: "vanilla" });
-    const floorBundle = join(root, "agent-distro-vanilla");
-    expect(status()).toEqual({
+    write(STOCK);
+    report({ kind: "delivering", profiles: [] });
+    expect(status()).toMatchObject({
       kind: "ready",
-      profile: "vanilla",
-      bundle: floorBundle,
+      bundle: floorPackage(),
       delivering: true,
     });
-    // The serving bundle keeps going to new terminals until the newer lands.
-    expect(newTerminalLayer()?.bundle).toBe(floorBundle);
+    expect(newTerminalLayer()?.bundle).toBe(floorPackage());
   });
 
-  it("`delivering` with nothing serving: downloading, and new terminals get no agents", () => {
-    __setAgentDistroBakeForTest(bake({ floor: false }));
-    write(ON);
-    report({ kind: "delivering", profile: "vanilla" });
-    expect(status()).toEqual({ kind: "downloading", profile: "vanilla" });
+  it("a changed list waits for its own set: downloading, no agents — the old set does not serve it", () => {
+    __setAgentDistroBakeForTest(bake({ floor: true }));
+    write(stack(JUSPAY));
+    report({ kind: "delivering", profiles: [JUSPAY] });
+    expect(status()).toEqual({ kind: "downloading", profiles: [JUSPAY] });
     expect(newTerminalLayer()).toBeUndefined();
   });
 
   it("a new delivery clears the last failure: error → downloading", () => {
     __setAgentDistroBakeForTest(bake({ floor: false }));
-    write(ON);
-    report({
-      kind: "failed",
-      profile: "vanilla",
-      message: "boom",
-    });
+    write(STOCK);
+    report({ kind: "failed", profiles: [], message: "boom" });
     expect(status()?.kind).toBe("error");
-    report({ kind: "delivering", profile: "vanilla" });
-    expect(status()).toEqual({ kind: "downloading", profile: "vanilla" });
-  });
-
-  it("`landed` for a bundle this host lacks (no bin/) throws, and is recorded as padi's failure", () => {
-    __setAgentDistroBakeForTest(bake({ floor: false }));
-    write(ON);
-    const missing = join(root, "store-not-here");
-    mkdirSync(missing);
-
-    expect(() =>
-      report({ kind: "landed", profile: "vanilla", bundle: missing }),
-    ).toThrow(/has no .*store-not-here\/bin/);
-
-    expect(existsSync(currentLink(stateDirOf("vanilla")))).toBe(false);
-    expect(status()).toMatchObject({ kind: "error", profile: "vanilla" });
-    expect(receipt()?.lastRun).toMatchObject({ outcome: "failed", by: "padi" });
-  });
-
-  it("a report for a profile this padi's listing does not name throws", () => {
-    __setAgentDistroBakeForTest(bake({ floor: false }));
-    write(ON);
-    expect(() =>
-      report({ kind: "delivering", profile: "no-such-profile" }),
-    ).toThrow(/no-such-profile/);
-    // The refused report started nothing: still no word of a delivery.
-    expect(status()).toEqual({ kind: "undelivered", profile: "vanilla" });
+    report({ kind: "delivering", profiles: [] });
+    expect(status()).toEqual({ kind: "downloading", profiles: [] });
   });
 
   it("a report to an unbaked padi throws", () => {
     __setAgentDistroBakeForTest(null);
-    expect(() => report({ kind: "delivering", profile: "vanilla" })).toThrow(
+    expect(() => report({ kind: "delivering", profiles: [] })).toThrow(
       /no agent-distro bake/,
     );
   });
 });
 
 describe("withAgentLayer — the record stamp the chip reads", () => {
-  it("stamps the agents struct whole, and strips a previous spawn's for no layer", () => {
-    const stamped = withAgentLayer(
-      { agents: { profile: "juspay", bundle: "/old" }, other: 1 },
-      { profile: "vanilla", bundle: "/new", plugins: "/p" },
-    );
-    expect(stamped).toEqual({
-      agents: { profile: "vanilla", bundle: "/new" },
-      other: 1,
-    });
+  const juspay: DeliveredProfile = {
+    reference: JUSPAY,
+    name: "juspay",
+    rev: "a1b2c3d",
+    path: "/nix/store/p-juspay",
+  };
+
+  it("stamps the package and profiles whole, and strips a previous spawn's for no layer", () => {
+    const old = { bundle: "/old", profiles: [] };
     expect(
       withAgentLayer(
-        { agents: { profile: "juspay", bundle: "/old" }, other: 1 },
-        undefined,
+        { agents: old, other: 1 },
+        { bundle: "/new", profiles: [juspay], plugins: "/p" },
       ),
-    ).toEqual({ other: 1 });
+    ).toEqual({ agents: { bundle: "/new", profiles: [juspay] }, other: 1 });
+    expect(withAgentLayer({ agents: old, other: 1 }, undefined)).toEqual({
+      other: 1,
+    });
   });
 
   it("drops a previous spawn's profile in effect: the new one is asked again", () => {
@@ -506,17 +651,17 @@ describe("withAgentLayer — the record stamp the chip reads", () => {
       withAgentLayer(
         {
           agents: {
-            profile: "github:me/p",
             bundle: "/old",
+            profiles: [juspay],
             effective: {
-              name: "mine",
+              name: "juspay + repo",
               description: "",
-              origin: "github:me/p",
+              source: "from ./agent-distro.nix over AI_PROFILE=/nix/store/p",
             },
           },
         },
-        { profile: "github:me/p", bundle: "/new", plugins: "/p" },
+        { bundle: "/new", profiles: [juspay], plugins: "/p" },
       ),
-    ).toEqual({ agents: { profile: "github:me/p", bundle: "/new" } });
+    ).toEqual({ agents: { bundle: "/new", profiles: [juspay] } });
   });
 });

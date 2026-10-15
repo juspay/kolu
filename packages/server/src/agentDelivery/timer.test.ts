@@ -7,9 +7,14 @@
  * due rule; `schedule.test.ts`).
  */
 
-import type { UpdaterSchedule } from "@kolu/agent-distro/schedule";
+import type { UpdaterSchedule } from "@kolu/agent-distro/bake";
 import { describe, expect, it } from "vitest";
-import { MAX_WAIT_MS, startUpdateTimer } from "./timer.ts";
+import {
+  boundaryAtOrBefore,
+  MAX_WAIT_MS,
+  nextBoundary,
+  startUpdateTimer,
+} from "./timer.ts";
 
 /** Upstream's schedule: every six hours from 02:00 UTC. */
 const UPSTREAM: UpdaterSchedule = { periodSeconds: 21600, offsetSeconds: 7200 };
@@ -134,5 +139,36 @@ describe("startUpdateTimer", () => {
     clock.fire();
     expect(calls).toBe(2);
     expect(clock.armedFor()).toBeDefined();
+  });
+});
+
+describe("boundaries — 02/08/14/20 UTC", () => {
+  const s = (iso: string) => at(iso) / 1000;
+
+  it("nextBoundary lands on upstream's four hours, strictly after now", () => {
+    expect(nextBoundary(s("2026-10-08T00:30:00Z"), UPSTREAM)).toBe(
+      s("2026-10-08T02:00:00Z"),
+    );
+    expect(nextBoundary(s("2026-10-08T02:00:00Z"), UPSTREAM)).toBe(
+      s("2026-10-08T08:00:00Z"),
+    );
+    expect(nextBoundary(s("2026-10-08T13:59:59Z"), UPSTREAM)).toBe(
+      s("2026-10-08T14:00:00Z"),
+    );
+    expect(nextBoundary(s("2026-10-08T21:00:00Z"), UPSTREAM)).toBe(
+      s("2026-10-09T02:00:00Z"),
+    );
+  });
+
+  it("boundaryAtOrBefore is the latest boundary not after now", () => {
+    expect(boundaryAtOrBefore(s("2026-10-08T08:00:00Z"), UPSTREAM)).toBe(
+      s("2026-10-08T08:00:00Z"),
+    );
+    expect(boundaryAtOrBefore(s("2026-10-08T13:59:59Z"), UPSTREAM)).toBe(
+      s("2026-10-08T08:00:00Z"),
+    );
+    expect(boundaryAtOrBefore(s("2026-10-08T01:00:00Z"), UPSTREAM)).toBe(
+      s("2026-10-07T20:00:00Z"),
+    );
   });
 });

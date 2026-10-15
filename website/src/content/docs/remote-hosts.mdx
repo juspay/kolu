@@ -129,7 +129,7 @@ padi they talk to.
 
 The **coding agents** do not ride that closure. With [AI coding agents](/agents)
 on, the machine running kolu **delivers them** the first time a host connects:
-it looks up the host's build of the set in agent-distro's published index and,
+it looks up the host's build of the agents in agent-distro's published index and,
 over the same ssh login, has the host download that build straight from
 agent-distro's binary cache — never building it. For its agents a host needs
 only that login, `nix` on the login's PATH and outbound HTTPS to the cache: no
@@ -144,17 +144,15 @@ four times a day and whenever it reconnects; its tab shows each update arriving
 while the agents it has keep working ([Kept up to
 date](/agents#kept-up-to-date)). Nothing compiles agents, on either machine.
 
-A [profile of your own](/agents#a-profile-of-your-own) reaches every host the
-same way the setting does — as words, never as files. A flake reference
-(`github:you/your-profile`) is fetched by each host for itself; a **path**
-(`~/src/my-profile`) names a folder on the host a terminal runs on, so it works
-only on a host that holds that folder. Elsewhere it does not resolve, and the
-agents in that host's new terminals fail to start until it does — inside a
-repository with its own `agent-distro.nix` they still run, and the terminal's
-pill names the profile agent-distro actually used there. The line under the
-reference field in Settings (the picker's **Custom…** card) speaks for the
-machine running kolu only; what every other machine made of the profile is in
-its own host details.
+Your [profiles](/agents#profiles) reach every host the same way the agents do:
+the machine running kolu fetches and builds each one — a flake reference
+(`github:you/your-profile`) or a **path** on that machine (`~/src/my-profile`)
+— and copies the result into the host's store over the same login. So a host
+needs no GitHub access for a profile either, and a path works on every host. A
+profile that lists commands for the host's kind of machine must be built on
+that kind of machine; from a machine of another kind, that host's delivery
+fails, naming the profile ([Built once, by kolu](/agents#built-once-by-kolu)).
+A Mac takes a profile built by kolu only when its Nix trusts the login.
 
 Each host is a **tab**: **local** is a Home icon plus the machine hostname
 kolu is running on; remotes show the ssh target. Every tab carries a

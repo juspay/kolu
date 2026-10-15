@@ -1,5 +1,5 @@
 /** The agents section of a machine's host details — everything about
- *  agent-distro that is TRUE OF THAT MACHINE: the profile new terminals there
+ *  agent-distro that is TRUE OF THAT MACHINE: the profiles new terminals there
  *  get and the build serving it, its state with its last delivery, a failed
  *  delivery's own words and what it means there, that machine's last update
  *  events,
@@ -63,11 +63,11 @@ const Section: Component<{ host: HostKey; detail: AgentHostDetail }> = (
     <div
       class="flex items-center justify-between gap-4 py-0.5 text-[11px]"
       data-testid="host-agents-profile"
-      data-profile={props.detail.profile}
+      data-profile={props.detail.stack}
     >
-      <span class="text-fg-3">profile</span>
+      <span class="text-fg-3">profiles</span>
       <span class="min-w-0 truncate font-medium text-fg">
-        {props.detail.profile}
+        {props.detail.stack === "" ? "none" : props.detail.stack}
         <Show when={props.detail.hash}>
           {(hash) => (
             <span class="ml-1 font-mono font-normal text-fg-3">{hash()}</span>

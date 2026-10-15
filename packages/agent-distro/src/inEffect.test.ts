@@ -1,51 +1,70 @@
-/** The profile in effect, read off `agent-distro --list --json`, and the
- *  bundle a profile rides. */
+/** The profile in effect, read off `agent-distro --list --json` with
+ *  upstream's own parser and words. */
 
 import { describe, expect, it } from "vitest";
 import { parseProfileInEffect } from "./inEffect.ts";
-import { DEFAULT_AGENT_PROFILE } from "./manifest.ts";
-import { bundleProfileOf } from "./schema.ts";
 
-/** Upstream's listing, as its `src/listing.ts` documents it, cut to one
+/** Upstream's listing, as its `listing.ts` documents it, cut to one
  *  harness. */
 const MENU = {
-  profiles: [
+  harnesses: [
     {
-      description: "Upstream harnesses with your own provider",
-      harnesses: [
-        {
-          name: "claude",
-          tagline: "Anthropic login",
-          title: "Claude Code",
-          version: "2.1.291",
-        },
-      ],
-      name: "vanilla",
+      name: "claude",
+      tagline: "Anthropic login",
+      title: "Claude Code",
+      version: "2.1.291",
     },
   ],
 };
 
 describe("parseProfileInEffect", () => {
-  it("reads the profile in effect and where it came from", () => {
+  it("reads a profile from AI_PROFILE, in upstream's words", () => {
+    const profile = {
+      description: "Juspay skills + Kolu",
+      name: "juspay",
+      origin: "/nix/store/p-juspay",
+      source: "variable",
+    };
+    expect(parseProfileInEffect(JSON.stringify({ ...MENU, profile }))).toEqual({
+      name: "juspay",
+      description: "Juspay skills + Kolu",
+      source: "from AI_PROFILE=/nix/store/p-juspay",
+    });
+  });
+
+  it("names a repository's profile stacked over the AI_PROFILE stack, bottom to top", () => {
     const profile = {
       description: "Ekala's agents",
       name: "ekala",
       origin: "/home/me/ekala/agent-distro.nix",
       source: "repository",
+      over: {
+        description: "Juspay skills + Kolu",
+        name: "juspay",
+        origin: "/nix/store/p-juspay",
+        source: "variable",
+      },
     };
-    // `source` is upstream's to grow; kolu reads only what the pill shows.
-    const { source: _, ...read } = profile;
-    expect(parseProfileInEffect(JSON.stringify({ ...MENU, profile }))).toEqual(
-      read,
-    );
+    expect(parseProfileInEffect(JSON.stringify({ ...MENU, profile }))).toEqual({
+      name: "juspay + ekala",
+      // The TOP profile's description.
+      description: "Ekala's agents",
+      source:
+        "from /home/me/ekala/agent-distro.nix over AI_PROFILE=/nix/store/p-juspay",
+    });
   });
 
-  it("a bundle older than profile references names none", () => {
+  it("a launch with no profile at all names none", () => {
     expect(parseProfileInEffect(JSON.stringify(MENU))).toBeUndefined();
   });
 
   it("refuses output out of upstream's format, loudly", () => {
     expect(() => parseProfileInEffect("agent-distro picker")).toThrow();
+    // The old per-profile menu.
+    expect(() =>
+      parseProfileInEffect(JSON.stringify({ profiles: [] })),
+    ).toThrow();
+    // A profile with no name, or an unknown source.
     expect(() =>
       parseProfileInEffect(
         JSON.stringify({
@@ -54,22 +73,33 @@ describe("parseProfileInEffect", () => {
             name: "",
             description: "",
             origin: "x",
+            source: "variable",
           },
         }),
       ),
     ).toThrow();
-  });
-});
-
-describe("bundleProfileOf", () => {
-  const bundles = new Set(["vanilla", "juspay"]);
-  it("a shipped bundle's name rides its own bundle; anything else the default one", () => {
-    expect(bundleProfileOf("juspay", bundles)).toBe("juspay");
-    expect(bundleProfileOf("github:me/profile", bundles)).toBe(
-      DEFAULT_AGENT_PROFILE,
-    );
-    expect(bundleProfileOf("~/profile", bundles)).toBe(DEFAULT_AGENT_PROFILE);
-    // A bare name kolu does not ship is agent-distro's to refuse, in a terminal.
-    expect(bundleProfileOf("ekala", bundles)).toBe(DEFAULT_AGENT_PROFILE);
+    expect(() =>
+      parseProfileInEffect(
+        JSON.stringify({
+          ...MENU,
+          profile: { name: "a", description: "", origin: "x", source: "env" },
+        }),
+      ),
+    ).toThrow();
+    // A malformed `over` is refused too, not cut off.
+    expect(() =>
+      parseProfileInEffect(
+        JSON.stringify({
+          ...MENU,
+          profile: {
+            name: "a",
+            description: "",
+            origin: "x",
+            source: "repository",
+            over: { name: "b" },
+          },
+        }),
+      ),
+    ).toThrow();
   });
 });

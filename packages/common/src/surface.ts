@@ -37,8 +37,6 @@
 import {
   type AgentDistroListing,
   AgentDistroListingSchema,
-  type AgentDistroProfile,
-  AgentDistroProfileSchema,
 } from "@kolu/agent-distro/listing";
 import { mibOf } from "@kolu/byte-units";
 
@@ -47,7 +45,11 @@ import {
   type NewTerminalPolicy,
   type ToastOnlyPolicy,
 } from "@kolu/padi-client/surface";
-import { AgentDistroSettingSchema } from "@kolu/agent-distro/schema";
+import {
+  type AgentProfiles,
+  AgentProfilesSchema,
+  AgentDistroSettingSchema,
+} from "@kolu/agent-distro/schema";
 import {
   defineSurfaceWithPolicy,
   type SurfaceTypes,
@@ -238,25 +240,26 @@ export const RightPanelPrefsSchema = Schema.Struct({
   codeTabTreeSize: Schema.Number,
 });
 
-/** The Agents setting — whether new terminals get agent-distro's coding agents
- *  on their PATH, and which profile's. Global, not per host or per terminal:
- *  kolu-server pushes it to every bound padi (its memory-only `agentDistro`
- *  cell), and padi applies it at each NEW terminal's spawn — a running terminal
- *  keeps the bundle it started with. `profile` is a bundle the pinned
- *  agent-distro ships (kolu-server's `agentDistroListing` cell) or a reference
- *  agent-distro resolves; one that does not resolve is said under Settings'
- *  profile field, never silently reset. */
+/** The Agents setting — whether new terminals get agent-distro's harnesses on
+ *  their PATH (`enabled`), and the profiles stacked over them (`profiles`, an
+ *  ordered list of references; empty is the harnesses as they ship). Global,
+ *  not per host or per terminal: kolu-server pushes it to every bound padi (its
+ *  memory-only `agentDistro` cell) and delivers every host the set it means —
+ *  the package and each profile, built — and padi applies it at each NEW
+ *  terminal's spawn; a running terminal keeps what it started with. A profile
+ *  that does not build is said under its entry in Settings (kolu-server's
+ *  `agentProfiles` cell), never silently dropped. */
 export const AgentDistroPrefsSchema = AgentDistroSettingSchema;
 
-// kolu's listing cell value — composed from each bundle's own `profile.json`
-// and `versions` — lives in `@kolu/agent-distro` (kolu's contract with
-// upstream); re-exported here so the surface and its importers reach it
-// through their usual door.
+// kolu's listing cell value — the package's harnesses, from its own
+// `versions` — and the profiles' resolution live in `@kolu/agent-distro`
+// (kolu's contract with upstream); re-exported here so the surface and its
+// importers reach them through their usual door.
 export {
   type AgentDistroListing,
   AgentDistroListingSchema,
-  type AgentDistroProfile,
-  AgentDistroProfileSchema,
+  type AgentProfiles,
+  AgentProfilesSchema,
 };
 
 export const PreferencesSchema = Schema.Struct({
@@ -293,9 +296,9 @@ export const PreferencesSchema = Schema.Struct({
    *  as off (`agentDistroSettingOf` in `@kolu/agent-distro/status` is the one
    *  fold to the effective setting). */
   agentDistro: Schema.NullOr(AgentDistroPrefsSchema),
-  /** The profiles the user set in the Agents field before, most recent first,
-   *  at most eight (`rememberProfile` in `@kolu/agent-distro/status`) — the
-   *  field's suggestions after the built-ins. */
+  /** The profile references the user added before, most recent first, at
+   *  most eight (`rememberProfiles` in `@kolu/agent-distro/status`) — the add
+   *  field's suggestions. */
   agentProfilesRecent: Schema.Array(Schema.String),
   /** The tile tip's size: the full bar under the title bar (`false`), or a
    *  small tab hanging from its bottom-right edge (`true`). One switch for
@@ -972,15 +975,28 @@ export const koluSurface = defineSurfaceWithPolicy<ToastOnlyPolicy>()({
       client: { onError: { kind: "toast", label: "Viewer mode" } },
     },
 
-    /** The agent-distro profiles Settings offers (see
+    /** The harnesses agent-distro's package brings (see
      *  {@link AgentDistroListingSchema}) — read once at boot off the floor's
-     *  profile bundles (each one's `profile.json` and `versions`), seeded into
-     *  an in-memory store, never written after. Read-only on the client. */
+     *  `versions`, seeded into an in-memory store, never written after.
+     *  Read-only on the client. */
     agentDistroListing: {
       schema: AgentDistroListingSchema,
       default: { kind: "unavailable" } satisfies AgentDistroListing,
       verbs: ["get"],
       client: { onError: { kind: "toast", label: "Agents listing" } },
+    },
+
+    /** Whether each profile of the Agents setting builds (see
+     *  {@link AgentProfilesSchema}) — kolu-server's answer from locking and
+     *  building it for its own system: pending, resolved (its name,
+     *  description and locked revision) or failed (Nix's own words).
+     *  Written only by kolu-server's delivery; read-only on the client, where
+     *  each profile's entry in Settings shows it. */
+    agentProfiles: {
+      schema: AgentProfilesSchema,
+      default: [] satisfies AgentProfiles,
+      verbs: ["get"],
+      client: { onError: { kind: "toast", label: "Agents profiles" } },
     },
 
     /** Live process-memory readout (kolu-server + padi + kaval RSS) for the rail.
@@ -1116,10 +1132,12 @@ export const koluSurface = defineSurfaceWithPolicy<ToastOnlyPolicy>()({
        *  there; it means the caller's view of the list disagrees with the map. */
       cancel: { input: ForwardCancelInputSchema },
     },
-    /** Agents: kolu-server delivers agent-distro's bundles to every host. */
+    /** Agents: kolu-server delivers agent-distro's package, and the profiles
+     *  it builds, to every host. */
     agentDistro: {
       /** Deliver the newest agents now — to `host`, or to every connected host
-       *  for `null` — locking upstream's flake afresh. Answers once the
+       *  for `null` — reading upstream's index and locking every profile
+       *  afresh. Answers once the
        *  delivery has started; each host's padi cells say how it ends. A host
        *  already being delivered to keeps its delivery. A no-op while agents
        *  are off, or on a kolu built without agents. */

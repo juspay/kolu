@@ -63,7 +63,7 @@ describe("padiSurface contract", () => {
     expect(padiSurface.tagPrefix).toBe("surface/");
   });
 
-  it("is version 5.9 — a minor over the D6 protocol epoch — and DEFAULT_PADI_VERSION carries + validates it", () => {
+  it("is version 7.0 — the current major — DEFAULT_PADI_VERSION carries + validates it", () => {
     // 1.1–1.3 were additive minors over 1.0 (recycleKaval, hostInventory, identity).
     // 2.0 was the first MAJOR: (a) it ADDED the per-terminal right-panel `collapsed`
     // field (the panel follows the terminal, #959) — a major because an older client's
@@ -141,7 +141,13 @@ describe("padiSurface contract", () => {
     // stream — so the member is gone, and the major is what refuses a 5.14
     // client at the handshake instead of letting it hang on a tag nobody
     // serves.
-    expect(PADI_SURFACE_VERSION).toBe("6.0");
+    // 7.0 makes agent-distro one package with profiles built and delivered
+    // beside it: the setting's `profile` becomes the `profiles` stack, every
+    // status / report arm names the stack, the record's `agents` names the
+    // package and the built profiles, and the `agentDistroResolved` cell is
+    // GONE (kolu-server resolves a profile when it builds it). A member was
+    // removed and no arm decodes across the change, so it is a major.
+    expect(PADI_SURFACE_VERSION).toBe("7.0");
     expect(DEFAULT_PADI_VERSION.contractVersion).toBe(PADI_SURFACE_VERSION);
     expect(
       Schema.decodeUnknownSync(PadiVersionSchema)(DEFAULT_PADI_VERSION),
@@ -198,7 +204,6 @@ describe("padiSurface contract", () => {
       "agentDistro",
       "agentDistroStatus",
       "agentDistroReceipt",
-      "agentDistroResolved",
       "hostListeners",
       "hostInventory",
       "processMemory",

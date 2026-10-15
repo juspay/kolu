@@ -1,54 +1,24 @@
 /**
  * What a terminal gets from agent-distro, and how its record remembers it — the
- * spawn-time facts. A layer is the profile, the EXACT bundle store path whose
- * `bin/` goes on PATH (the terminal pins it: a later update or profile switch
- * never touches a running terminal), and the plugin dir. The record carries the
- * profile and bundle (`agents`, the tile pill); the spawn
- * reads its PATH back off the record, so the chip and the PATH are one value.
+ * spawn-time facts. A layer is the EXACT package store path whose `bin/` goes
+ * on PATH, the exact built profiles exported as `AI_PROFILE` (the terminal pins
+ * them: a later update or a change of the list never touches a running
+ * terminal), and the plugin dir. The record carries the package and profiles
+ * (`agents`, the tile pill); the spawn reads its env back off the record, so
+ * the chip and the env are one value.
  */
 
-import {
-  type AgentDistroSetting,
-  bundleProfileOf,
-  type TerminalAgents,
-} from "@kolu/agent-distro/schema";
+import type { DeliveredProfile } from "@kolu/agent-distro/landing";
+import type { TerminalAgents } from "@kolu/agent-distro/schema";
 import { agentDistroBake } from "./bake.ts";
-import { bundleOnHost } from "./onHost.ts";
 
-/** What a new terminal gets: the profile, the exact bundle (whose `bin/` goes on
- *  PATH), and the plugin dir (`AGENT_DISTRO_PLUGINS`). */
+/** What a new terminal gets: the package (whose `bin/` goes on PATH), the
+ *  built profiles (`AI_PROFILE`, in stack order), and the plugin dir
+ *  (`AGENT_DISTRO_PLUGINS`). */
 export interface AgentLayer {
-  /** The setting's profile, which the spawn exports as `AI_PROFILE`; `bundle`
-   *  is the bundle it rides (`bundleProfileOf`). */
-  readonly profile: string;
   readonly bundle: string;
+  readonly profiles: readonly DeliveredProfile[];
   readonly plugins: string;
-}
-
-/** The layer the bundle ON DISK would give, or `undefined` when there is none
- *  (setting off, an unbaked padi, or a host whose bundle has not arrived). NOT
- *  what a new terminal gets: that also hangs on the delivery's state, and is
- *  answered once, by `newTerminalLayer` (`./agentDistro.ts`). */
-export function layerOnHost(
-  setting: AgentDistroSetting,
-): AgentLayer | undefined {
-  if (!setting.enabled) return undefined;
-  const bake = agentDistroBake();
-  if (bake === null) return undefined;
-  const profile = bake.profiles.get(
-    bundleProfileOf(setting.profile, bake.profiles),
-  );
-  // Anything without a bundle of its own rides the default one, which the
-  // build bakes (`default.nix` asserts it), so this is unreachable short of a
-  // broken bake — and then it fails loudly here.
-  if (profile === undefined)
-    throw new Error(
-      `agent-distro profile '${setting.profile}' is not in this padi's listing`,
-    );
-  const bundle = bundleOnHost(bake, profile);
-  return bundle === undefined
-    ? undefined
-    : { profile: setting.profile, bundle, plugins: bake.plugins };
 }
 
 /** The one record field a layer stamps (`@kolu/agent-distro/schema`). */
@@ -66,11 +36,14 @@ export function withAgentLayer<R extends AgentLayerFields>(
   return (
     layer === undefined
       ? rest
-      : { ...rest, agents: { profile: layer.profile, bundle: layer.bundle } }
+      : {
+          ...rest,
+          agents: { bundle: layer.bundle, profiles: [...layer.profiles] },
+        }
   ) as R;
 }
 
-/** The layer a record was stamped with, for the spawn that reads its PATH off
+/** The layer a record was stamped with, for the spawn that reads its env off
  *  the record. `undefined` for an unstamped record. */
 export function agentLayerOfRecord(
   record: AgentLayerFields,
@@ -82,8 +55,8 @@ export function agentLayerOfRecord(
       "a terminal record carries an agent layer, but this padi has no agent-distro bake",
     );
   return {
-    profile: record.agents.profile,
     bundle: record.agents.bundle,
+    profiles: record.agents.profiles,
     plugins: bake.plugins,
   };
 }

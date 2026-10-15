@@ -1,7 +1,8 @@
 // @vitest-environment happy-dom
 /**
  * The tile header's agent-distro pill: ONE button in the theme pill's
- * treatment, wearing agent-distro's mark — the profile and a dimmer short hash.
+ * treatment, wearing agent-distro's mark — the profile in effect (none with
+ * no profile) and the package's dimmer short hash.
  *
  *  - current: a click is the caller's (the tile chrome opens Settings);
  *  - stale with nothing to restart into yet: dimmed, still opens Settings;
@@ -33,12 +34,18 @@ vi.mock("../settings/useTips", () => ({
 
 const { default: AgentProfileChip } = await import("./AgentProfileChip");
 
-const BUNDLE =
-  "/nix/store/nd11nx5f1dkf02cr9dhxqq4axg23vzgc-agent-distro-vanilla";
+const BUNDLE = "/nix/store/nd11nx5f1dkf02cr9dhxqq4axg23vzgc-agent-distro";
+const JUSPAY = {
+  reference: "github:juspay/skills",
+  name: "juspay",
+  path: "/nix/store/p-juspay",
+};
+/** A terminal with Juspay's profile over the package. */
+const WITH_JUSPAY: TerminalAgents = { bundle: BUNDLE, profiles: [JUSPAY] };
 const STALE: AgentStaleness = {
   kind: "stale",
-  had: { profile: "vanilla", hash: "nd11nx5f" },
-  now: { kind: "profile", profile: "juspay", hash: "ivzki9f3" },
+  had: { stack: "juspay", hash: "nd11nx5f" },
+  now: { kind: "set", stack: "juspay", hash: "ivzki9f3" },
 };
 
 /** The action for a stale terminal whose agents stay on. */
@@ -66,7 +73,7 @@ function mount(opts: {
   dispose = render(
     () => (
       <AgentProfileChip
-        agents={opts.agents ?? { profile: "vanilla", bundle: BUNDLE }}
+        agents={opts.agents ?? WITH_JUSPAY}
         buttonClass="tile-button"
         where="naiveintent"
         onClick={opts.onClick ?? (() => {})}
@@ -111,40 +118,54 @@ describe("AgentProfileChip — current", () => {
     const spans = [...chip.querySelectorAll(":scope > span")].map(
       (s) => s.textContent,
     );
-    expect(spans.slice(1)).toEqual(["vanilla", "nd11nx5f"]);
+    expect(spans.slice(1)).toEqual(["juspay", "nd11nx5f"]);
     expect(action()).toBeUndefined();
+  });
+
+  it("with no profile, shows the hash alone", () => {
+    const { chip } = mount({ agents: { bundle: BUNDLE, profiles: [] } });
+    const spans = [...chip.querySelectorAll(":scope > span")].map(
+      (s) => s.textContent,
+    );
+    expect(spans.slice(1)).toEqual(["nd11nx5f"]);
+    expect(chip.hasAttribute("data-profile")).toBe(false);
   });
 
   it("says what the terminal got and what a click does; the store path is in the accessible name only", () => {
     const { chip } = mount({});
-    const agents = { profile: "vanilla", bundle: BUNDLE };
+    const agents = WITH_JUSPAY;
     expect(agentChipLabel(agents)).toBe(
-      "This terminal started with the vanilla coding agents (nd11nx5f). Click to choose what new terminals get.",
+      "This terminal started with the coding agents (nd11nx5f) and juspay. Click to choose what new terminals get.",
     );
     expect(chip.getAttribute("aria-label")).toBe(
       `${agentChipLabel(agents)} Bundle: ${BUNDLE}`,
     );
   });
 
-  it("names the profile in effect once agent-distro said, else the setting's — the tooltip says where it came from", () => {
-    const reference = { profile: "github:me/profile", bundle: BUNDLE };
+  it("names the profile in effect once agent-distro said, else the stack — the tooltip says where it came from", () => {
+    const reference: TerminalAgents = {
+      bundle: BUNDLE,
+      profiles: [
+        { reference: "github:me/profile", name: "mine", path: "/nix/store/m" },
+      ],
+    };
     const before = mount({ agents: reference }).chip;
-    expect(before.getAttribute("data-profile")).toBe("github:me/profile");
+    expect(before.getAttribute("data-profile")).toBe("mine");
     dispose?.();
     document.body.innerHTML = "";
     const effective = {
       ...reference,
       effective: {
-        name: "ekala",
+        name: "mine + ekala",
         description: "Ekala's agents",
-        origin: "/home/me/ekala/agent-distro.nix",
+        source: "from /home/me/ekala/agent-distro.nix",
       },
     };
     const { chip } = mount({ agents: effective });
     const spans = [...chip.querySelectorAll(":scope > span")].map(
       (s) => s.textContent,
     );
-    expect(spans.slice(1)).toEqual(["ekala", "nd11nx5f"]);
+    expect(spans.slice(1)).toEqual(["mine + ekala", "nd11nx5f"]);
     expect(chip.getAttribute("aria-label")).toContain(
       "from /home/me/ekala/agent-distro.nix",
     );
