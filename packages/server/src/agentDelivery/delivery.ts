@@ -8,8 +8,7 @@
  *     host from upstream's cache (`DeliveryOps.pull`) — nothing is built;
  *   - each PROFILE of the setting's stack, in order: locked once per run
  *     (`DeliveryOps.lock`), built with agent-distro's `mkProfile` at the
- *     package's own revision for the host's system (`DeliveryOps.build`,
- *     remembered per revision, tree and system), and shipped into the host's
+ *     package's own revision for the host's system (`DeliveryOps.build`), and shipped into the host's
  *     store, rooted (`DeliveryOps.ship`).
  *
  * The host's padi is told each step (`agentDistro.report`) and records the set
@@ -20,7 +19,8 @@
  * the setting (`connect`: every bind, reconnect and real change) reuses the
  * current schedule period's answers — a reconnect does not re-ask GitHub —
  * while the user's check (`user`) and upstream's schedule (`schedule`) read
- * the index and lock every reference afresh. Within one run each answer is
+ * the index, lock every reference and build every profile afresh (so an
+ * edited path profile is picked up). Within one run each answer is
  * read once.
  *
  * Every run also says whether each profile builds at all (`onResolution`): it
@@ -157,9 +157,11 @@ export function createAgentDelivery(deps: {
    *  host's connect reuses them within the schedule period. */
   const indexed = new Map<string, Known<PublishedClosure>>();
   const locks = new Map<string, Known<LockedProfile>>();
-  /** Every build, by agent-distro revision, tree and system — the same inputs
-   *  build the same path, so it is never asked twice. */
-  const builds = new Map<string, Promise<BuiltProfile>>();
+  /** The last build per agent-distro revision, tree and system — reused like
+   *  the index and the locks, never longer: a path's tree is the user's own
+   *  directory, which changes under the same key, and a profile's plugins
+   *  named by a flake reference are locked only when it builds. */
+  const builds = new Map<string, Known<BuiltProfile>>();
   /** Deliveries in flight, by `host#stack`: a change of the stack is its own
    *  delivery, never folded into the one still running. */
   const inFlight = new Set<string>();
@@ -209,26 +211,32 @@ export function createAgentDelivery(deps: {
       return locked;
     });
 
-  const buildFor = (
+  const readBuild = (
     rev: string,
     locked: LockedProfile,
     hostSystem: string,
-  ): Promise<BuiltProfile> => {
-    const key = JSON.stringify([rev, locked.tree, hostSystem]);
-    let build = builds.get(key);
-    if (build === undefined) {
-      build = ops.build({ rev, locked, hostSystem });
-      builds.set(key, build);
-      // A failed build is asked again next time: the next fetch may fix it.
-      build.catch(() => builds.delete(key));
-    }
-    return build;
-  };
+    fresh: boolean,
+  ) =>
+    reuse(
+      builds,
+      JSON.stringify([rev, locked.tree, hostSystem]),
+      fresh,
+      async () => {
+        const built = await ops.build({ rev, locked, hostSystem });
+        log.info(
+          { reference: locked.reference, hostSystem, path: built.path },
+          "agent-distro profile built",
+        );
+        return built;
+      },
+    );
 
-  /** One run's reads, each asked once: the index per system, each lock. */
+  /** One run's reads, each asked once: the index per system, each lock, each
+   *  build. */
   const runReads = (fresh: boolean) => {
     const index = new Map<string, Promise<PublishedClosure>>();
     const lock = new Map<string, Promise<LockedProfile>>();
+    const build = new Map<string, Promise<BuiltProfile>>();
     const once = <T>(
       m: Map<string, Promise<T>>,
       key: string,
@@ -246,6 +254,10 @@ export function createAgentDelivery(deps: {
         once(index, system, () => readIndex(system, fresh)),
       lock: (reference: string) =>
         once(lock, reference, () => readLock(reference, fresh)),
+      build: (rev: string, locked: LockedProfile, hostSystem: string) =>
+        once(build, JSON.stringify([rev, locked.tree, hostSystem]), () =>
+          readBuild(rev, locked, hostSystem, fresh),
+        ),
     };
   };
 
@@ -257,7 +269,7 @@ export function createAgentDelivery(deps: {
     hostSystem: string,
   ): Promise<{ locked: LockedProfile; built: BuiltProfile }> => {
     const locked = await reads.lock(reference);
-    return { locked, built: await buildFor(rev, locked, hostSystem) };
+    return { locked, built: await reads.build(rev, locked, hostSystem) };
   };
 
   /** Say, for this machine's system, whether each profile of `stack` builds. */

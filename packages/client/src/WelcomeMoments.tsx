@@ -28,6 +28,7 @@ import {
   type JSX,
   Show,
 } from "solid-js";
+import { makeEventListener } from "@solid-primitives/event-listener";
 import AgentsChooser from "./agents/AgentsChooser";
 import {
   agentDistroListing,
@@ -161,48 +162,81 @@ const MomentShell: Component<{
  *  "Turn on" take focus on mount, so **Enter** turns agents on. Someone who
  *  switched agents off sees the row at every empty canvas, but an Enter out of
  *  habit must not switch them back on, so nothing is focused then. ⌘⏎ still
- *  creates a terminal from anywhere. */
+ *  creates a terminal from anywhere.
+ *
+ *  **Enter belongs to the STEP**, not to "Turn on": whatever in the step has
+ *  the focus, Enter turns agents on — except on a control of its own (a
+ *  button, the list's arrows), which keeps its Enter. Editing the list can
+ *  take the focused control away (the Juspay entry goes once it is added), and
+ *  focus then falls to the page, so while nothing is chosen an Enter there is
+ *  the step's too — the same rule as the mount focus above. */
 const ChooseAgentsMoment: Component<{ onNotNow: () => void }> = (props) => (
   <AgentsChooser deferred>
-    {(parts) => (
-      <MomentShell
-        testId="welcome-moment-choose-agents"
-        icon={<AgentDistroLogo size={16} />}
-        title={AGENTS_FIRST_RUN_TITLE}
-        body={parts.stepHint()}
-        details={
-          <div>
-            {parts.profiles}
-            <div class="mt-2.5 flex items-center gap-3.5">
-              <Show when={parts.canTurnOn()}>
+    {(parts) => {
+      let step: HTMLDivElement | undefined;
+      makeEventListener(document, "keydown", (e: KeyboardEvent) => {
+        if (
+          e.key !== "Enter" ||
+          e.metaKey ||
+          e.ctrlKey ||
+          e.altKey ||
+          e.shiftKey ||
+          !parts.canTurnOn()
+        )
+          return;
+        const target = e.target;
+        const inStep = target instanceof Node && step?.contains(target);
+        const loose =
+          target === document.body && !agentsChosen(agentDistroStored());
+        if (!inStep && !loose) return;
+        if (
+          target instanceof Element &&
+          target.closest("button, input, textarea, select, a")
+        )
+          return;
+        e.preventDefault();
+        parts.turnOn();
+      });
+      return (
+        <MomentShell
+          testId="welcome-moment-choose-agents"
+          icon={<AgentDistroLogo size={16} />}
+          title={AGENTS_FIRST_RUN_TITLE}
+          body={parts.stepHint()}
+          details={
+            <div ref={step}>
+              {parts.profiles}
+              <div class="mt-2.5 flex items-center gap-3.5">
+                <Show when={parts.canTurnOn()}>
+                  <button
+                    ref={(el) => {
+                      if (!agentsChosen(agentDistroStored()))
+                        queueMicrotask(() => el.focus());
+                    }}
+                    type="button"
+                    data-testid="welcome-agents-turn-on"
+                    class="inline-flex cursor-pointer items-center gap-2 rounded-lg bg-accent px-3 py-1.5 text-xs font-semibold text-surface-1 transition-all hover:brightness-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 focus-visible:ring-offset-1"
+                    onClick={() => parts.turnOn()}
+                  >
+                    Turn on
+                    <Kbd>⏎</Kbd>
+                  </button>
+                </Show>
                 <button
-                  ref={(el) => {
-                    if (!agentsChosen(agentDistroStored()))
-                      queueMicrotask(() => el.focus());
-                  }}
                   type="button"
-                  data-testid="welcome-agents-turn-on"
-                  class="inline-flex cursor-pointer items-center gap-2 rounded-lg bg-accent px-3 py-1.5 text-xs font-semibold text-surface-1 transition-all hover:brightness-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 focus-visible:ring-offset-1"
-                  onClick={() => parts.turnOn()}
+                  data-testid="welcome-agents-not-now"
+                  class="cursor-pointer text-xs text-fg-3 hover:text-fg-2 hover:underline"
+                  onClick={() => props.onNotNow()}
                 >
-                  Turn on
-                  <Kbd>⏎</Kbd>
+                  Not now — plain terminals, ask again later
                 </button>
-              </Show>
-              <button
-                type="button"
-                data-testid="welcome-agents-not-now"
-                class="cursor-pointer text-xs text-fg-3 hover:text-fg-2 hover:underline"
-                onClick={() => props.onNotNow()}
-              >
-                Not now — plain terminals, ask again later
-              </button>
+              </div>
             </div>
-          </div>
-        }
-        docSlug="agents"
-      />
-    )}
+          }
+          docSlug="agents"
+        />
+      );
+    }}
   </AgentsChooser>
 );
 

@@ -10,7 +10,11 @@ agent-distro is ONE package — every harness launcher and its picker,
 launch reads from `AI_PROFILE` (a whitespace-separated stack, bottom to top),
 with a repository's own `agent-distro.nix` composed over it. kolu models
 exactly that: the Agents setting is a switch for the harnesses and, separate
-from it, an ordered list of profile references. There is no bundle of the two.
+from it, an ordered list of profile references — nothing combines the two. (The
+word `bundle` survives only as a name for the package's own store path: the
+floor's flake output `agent-distro-bundle`, its bake variable
+`KOLU_AGENT_DISTRO_BUNDLE`, and the `bundle` field a status or record names the
+package by.)
 
 **What belongs here: the upstream contract — both halves, build and runtime.**
 
@@ -87,6 +91,9 @@ The **TypeScript half**, as data and pure functions:
   `AI_PROFILE`, and the profile in effect, `./inEffect`). padi-client and
   kolu-common DECLARE the cells and records that carry them; padi, the server
   and the client import the values from here.
+- `./gcRoots` — where kolu roots what it delivered on a host (the package,
+  each profile by its reference), which kolu-server writes and padi prunes as
+  a stack lands (`staleProfileRoots`).
 - `./bundle` — agent-distro's package and state shape: its `bin/` and versions
   file, the `current` link and `last-success` stamp, a store path's short hash,
   and making a state path concrete for a host's state home

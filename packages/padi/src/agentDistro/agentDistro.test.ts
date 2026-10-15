@@ -13,6 +13,7 @@ import {
   lstatSync,
   mkdirSync,
   mkdtempSync,
+  readdirSync,
   readFileSync,
   realpathSync,
   symlinkSync,
@@ -21,6 +22,11 @@ import {
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { currentLink } from "@kolu/agent-distro/bundle";
+import {
+  GC_ROOTS_DIR,
+  PACKAGE_GC_ROOT,
+  profileGcRoot,
+} from "@kolu/agent-distro/gcRoots";
 import type { DeliveredProfile } from "@kolu/agent-distro/landing";
 import type {
   AgentDistroDeliveryReport,
@@ -186,9 +192,11 @@ const landed = (
 
 beforeEach(() => {
   root = realpathSync(mkdtempSync(join(tmpdir(), "agent-distro-test-")));
-  for (const k of ["XDG_STATE_HOME", "PATH", "AI_PROFILE"])
+  for (const k of ["XDG_STATE_HOME", "PATH", "AI_PROFILE", "HOME"])
     saved[k] = process.env[k];
   process.env.XDG_STATE_HOME = join(root, "state");
+  // A landing prunes GC roots under the login's home: never the real one.
+  process.env.HOME = join(root, "home");
   process.env.PATH = "/usr/bin:/bin";
   __resetAgentDistroDeliveriesForTest();
   agentDistroSettingStore.set(OFF);
@@ -509,6 +517,50 @@ describe("delivery reports — what a host does with kolu-server's word", () => 
       profiles: [JUSPAY, EKALA],
     });
     expect(receipt()?.lastRun).toMatchObject({ outcome: "failed", by: "padi" });
+  });
+
+  it("a landing for a stack the setting has since left is refused: the current set keeps serving, and the receipt is untouched", () => {
+    __setAgentDistroBakeForTest(bake({ floor: false }));
+    write(stack(JUSPAY));
+    const bundle = storePackage(join(root, "store", "delivered"));
+    const juspay = storeProfile(JUSPAY, "juspay");
+    report(landed(bundle, [juspay]));
+    expect(status()).toMatchObject({ kind: "ready", profiles: [JUSPAY] });
+    const before = receipt();
+
+    // A delivery of the longer stack started before the list was cut back.
+    const ekala = storeProfile(EKALA, "ekala");
+    expect(() => report(landed(bundle, [juspay, ekala]))).toThrow(
+      /the Agents setting is now/,
+    );
+    expect(status()).toMatchObject({
+      kind: "ready",
+      profiles: [JUSPAY],
+      delivered: [juspay],
+    });
+    expect(newTerminalLayer()?.profiles).toEqual([juspay]);
+    // Its failure report, which kolu-server sends next, marks nothing either.
+    report({ kind: "failed", profiles: [JUSPAY, EKALA], message: "refused" });
+    expect(status()).toMatchObject({ kind: "ready", profiles: [JUSPAY] });
+    expect(receipt()?.lastRun).toEqual(before?.lastRun);
+  });
+
+  it("a landing removes the GC roots of profiles the stack no longer names, keeping the package's and its own", () => {
+    __setAgentDistroBakeForTest(bake({ floor: false }));
+    const roots = join(root, "home", GC_ROOTS_DIR);
+    mkdirSync(roots, { recursive: true });
+    for (const name of [
+      PACKAGE_GC_ROOT,
+      profileGcRoot(JUSPAY),
+      profileGcRoot(EKALA),
+    ])
+      symlinkSync(join(root, "store"), join(roots, name));
+    write(stack(JUSPAY));
+    const bundle = storePackage(join(root, "store", "delivered"));
+    report(landed(bundle, [storeProfile(JUSPAY, "juspay")]));
+    expect(readdirSync(roots).sort()).toEqual(
+      [PACKAGE_GC_ROOT, profileGcRoot(JUSPAY)].sort(),
+    );
   });
 
   it("`landed` for a package this host lacks (no bin/) throws, and is recorded as padi's failure", () => {

@@ -15,8 +15,12 @@
  * kolu's own words — the GC roots, the trust fix a refusal names — stay here.
  */
 
-import { createHash } from "node:crypto";
 import type { AgentDistroDelivery } from "@kolu/agent-distro/bake";
+import {
+  GC_ROOTS_DIR,
+  PACKAGE_GC_ROOT,
+  profileGcRoot,
+} from "@kolu/agent-distro/gcRoots";
 import {
   agentBinaryCache,
   closureRoute,
@@ -42,13 +46,11 @@ import { buildProfile, lockProfile } from "./profiles.ts";
  *  (`<rev>/<system>/default.json`, and `latest/` on main). */
 const PACKAGE_ATTRIBUTE = "default";
 
-/** Where kolu roots what it delivered, under the login's home (over ssh the
- *  login's home is the one place this process can name on a host): the
- *  package, and each profile by its reference. */
-const GC_ROOTS = ".local/state/kolu/agent-distro/gcroots";
-
+/** Where kolu roots a delivered path on the host `ssh` reaches
+ *  (`@kolu/agent-distro/gcRoots`: the package, and each profile by its
+ *  reference — padi prunes the profiles' as a stack lands). */
 function gcRoot(ssh: string, name: string): string {
-  const root = homeGcRoot(isLocalHost(ssh), `${GC_ROOTS}/${name}`);
+  const root = homeGcRoot(isLocalHost(ssh), `${GC_ROOTS_DIR}/${name}`);
   if (root === null)
     throw new Error(
       "HOME is unset, so the agents' GC root on this machine cannot be formed",
@@ -107,10 +109,7 @@ export function realDeliveryOps(bake: AgentDistroDelivery): DeliveryOps {
         binaryCache,
         published: null,
         // One root per reference ("latest", like the package's).
-        rootPath: gcRoot(
-          ssh,
-          `profile-${createHash("sha256").update(reference).digest("hex").slice(0, 16)}`,
-        ),
+        rootPath: gcRoot(ssh, profileGcRoot(reference)),
         onProgress,
         onActivity: () => {},
         budget: makeStepBudget(
@@ -138,7 +137,7 @@ export function realDeliveryOps(bake: AgentDistroDelivery): DeliveryOps {
       const route = closureRoute(hostNix, published);
       const { storePath } = route;
       // kolu's own root ("latest", like surface-remote's per-agent roots).
-      const rootPath = gcRoot(ssh, "package");
+      const rootPath = gcRoot(ssh, PACKAGE_GC_ROOT);
       const res = await pullClosure({
         host: ssh,
         cacheUrl: bake.cache.url,

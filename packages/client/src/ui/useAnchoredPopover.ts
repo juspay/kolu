@@ -6,7 +6,8 @@
  *    - viewport-clamped positioning (`bottom-start` left-anchored,
  *      `bottom-end` right-anchored, `top-start` left-anchored above the
  *      trigger, or `top-end` right-anchored above the trigger —
- *      recomputed on open/trigger change),
+ *      recomputed on open/trigger change, and on any scroll or resize while
+ *      open, so a panel follows a trigger inside a scrolling container),
  *    - document-level outside-click dismiss (active only while open),
  *    - Escape-key dismiss (same).
  *
@@ -134,6 +135,17 @@ export function useAnchoredPopover(
   createEventListener(docTarget, "keydown", (e) => {
     if (e.key === "Escape") opts.onDismiss();
   });
+
+  // Follow the trigger while open: a scroll ANYWHERE (captured — scroll
+  // events do not bubble, and the trigger may sit in a scrolling panel such
+  // as Settings) or a window resize moves it, and a body-portalled panel
+  // would otherwise float where it first opened.
+  const winTarget = () => (opts.open() ? window : undefined);
+  createEventListener(winTarget, "scroll", updatePos, {
+    capture: true,
+    passive: true,
+  });
+  createEventListener(winTarget, "resize", updatePos, { passive: true });
 
   // Reposition when the trigger ref or open state changes — covers both
   // first open and trigger remounts (e.g. a button that re-renders).

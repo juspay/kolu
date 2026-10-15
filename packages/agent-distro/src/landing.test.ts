@@ -134,6 +134,19 @@ describe("deliveryChanges — a landing in the history log's words", () => {
     ).toBe("ekala 9f8e7d6c → 0a1b2c3d");
   });
 
+  it("the same revision built anew is named by its store hashes, never `a1b2c3d → a1b2c3d`", () => {
+    const rebuilt = {
+      ...JUSPAY,
+      path: "/nix/store/llllllll5555555555555555555555-profile-juspay",
+    };
+    expect(
+      deliveryChanges(
+        { set: set(PKG_A, [JUSPAY]), versions: V1 },
+        { set: set(PKG_A, [rebuilt]), versions: V1 },
+      ),
+    ).toBe("juspay jjjjjjjj → llllllll");
+  });
+
   it("a package and its profiles moving together are named in one line, harnesses first", () => {
     expect(
       deliveryChanges(

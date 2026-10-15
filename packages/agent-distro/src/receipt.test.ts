@@ -35,7 +35,7 @@ describe("recentEvents", () => {
     ]);
   });
 
-  it("reads a pre-#115 line's kind and words, and carries no profile token", () => {
+  it("reads a pre-#115 line's kind and words, and keeps the profile it named", () => {
     expect(
       recentEvents(
         "2026-10-06T22:07:03-04:00 juspay updated: Oh My Pi 18.6.2 → 18.6.3\n",
@@ -45,6 +45,7 @@ describe("recentEvents", () => {
         at: "2026-10-06T22:07:03-04:00",
         kind: "updated",
         words: "Oh My Pi 18.6.2 → 18.6.3",
+        profile: "juspay",
       },
     ]);
   });

@@ -93,10 +93,16 @@ export function deliveryChanges(
           ? `${p.name} ${profileBuildLabel(p)}`
           : `${p.name} added ${profileBuildLabel(p)}`,
       );
-    else if (old.path !== p.path)
-      words.push(
-        `${p.name} ${profileBuildLabel(old)} → ${profileBuildLabel(p)}`,
-      );
+    else if (old.path !== p.path) {
+      // The same revision can build anew (a plugin it names by a flake
+      // reference is locked only when it builds): then the store hashes are
+      // what tell the two builds apart.
+      const [was, now] =
+        profileBuildLabel(old) === profileBuildLabel(p)
+          ? [agentBundleShortHash(old.path), agentBundleShortHash(p.path)]
+          : [profileBuildLabel(old), profileBuildLabel(p)];
+      words.push(`${p.name} ${was} → ${now}`);
+    }
   }
   const after = new Set(referencesOf(next.set.profiles));
   for (const p of previous?.set.profiles ?? [])

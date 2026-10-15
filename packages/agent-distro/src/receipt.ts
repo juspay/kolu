@@ -23,6 +23,9 @@ export const AgentUpdateEventSchema = Schema.Struct({
   kind: Schema.Literals(["updated", "skipped", "failed"]),
   /** The updater's own words after the colon: what changed, or why not. */
   words: Schema.String,
+  /** The profile a line written before agent-distro's one-package release was
+   *  about (it kept a log per profile in one file); absent on every line since. */
+  profile: Schema.optionalKey(Schema.String),
 });
 
 export type AgentUpdateEvent = typeof AgentUpdateEventSchema.Type;
@@ -31,13 +34,21 @@ export type AgentUpdateEvent = typeof AgentUpdateEventSchema.Type;
 export const RECEIPT_EVENTS = 5;
 
 /** The last {@link RECEIPT_EVENTS} events of a history log's text, newest
- *  first. Throws on a line upstream's reader refuses — a format change must
+ *  first — an older line's profile kept, so a host upgraded from per-profile
+ *  bundles still says which profile each was about. Throws on a line upstream's reader refuses — a format change must
  *  be loud, never a silently shorter history. */
 export function recentEvents(text: string): readonly AgentUpdateEvent[] {
   return parseHistory(text)
     .slice(-RECEIPT_EVENTS)
     .reverse()
-    .map(({ at, kind, words }: HistoryEvent) => ({ at, kind, words }));
+    .map(
+      ({ at, kind, words, profile }: HistoryEvent): AgentUpdateEvent => ({
+        at,
+        kind,
+        words,
+        ...(profile === undefined ? {} : { profile }),
+      }),
+    );
 }
 
 /** How a run ended, as the receipt shows it: `unchanged` is a successful run

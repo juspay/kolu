@@ -1347,3 +1347,38 @@ describe("receiptSet — a receipt paired with the set that landed", () => {
     ).toBeUndefined();
   });
 });
+
+describe("a history line from before agent-distro was one package", () => {
+  it("names the profile it was about, in the row and its hover", () => {
+    const detail = agentHostDetail({
+      host: {
+        label: "box",
+        status: {
+          kind: "ready",
+          profiles: [],
+          bundle: "/nix/store/nd11nx5f1dkf02cr9dhxqq4axg23vzgc-agent-distro",
+          delivered: [],
+          delivering: false,
+        },
+        checking: false,
+        receipt: {
+          bundle: "/nix/store/nd11nx5f1dkf02cr9dhxqq4axg23vzgc-agent-distro",
+          versions: [],
+          profiles: [],
+          events: [
+            {
+              at: "2026-10-06T22:07:03-04:00",
+              kind: "updated",
+              words: "Pi 1.0 → 1.1",
+              profile: "vanilla",
+            },
+          ],
+        },
+        ago: () => "1d ago",
+      },
+      setting: { enabled: true, profiles: [] },
+    });
+    expect(detail?.events[0]?.text).toBe("vanilla · Pi 1.0 → 1.1");
+    expect(detail?.events[0]?.title).toContain("vanilla · Pi 1.0 → 1.1");
+  });
+});

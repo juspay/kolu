@@ -1077,7 +1077,4 @@ in
   # The local floor of coding agents, exposed so CI builds it and nix-cache.yml
   # pushes it (a `nix run` user then substitutes it rather than compiling).
   agent-distro-bundle = agentDistro.bundle;
-  # The same agents baked as shell variables, for a working-tree run with no
-  # wrapper to bake into (`.saatchi/mod.just`'s evidence server).
-  agent-distro-env = agentDistro.shellEnv;
 }

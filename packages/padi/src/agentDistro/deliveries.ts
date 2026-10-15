@@ -21,14 +21,17 @@
 import {
   appendFileSync,
   mkdirSync,
+  readdirSync,
   renameSync,
   rmSync,
   symlinkSync,
   writeFileSync,
 } from "node:fs";
-import { dirname } from "node:path";
+import { homedir } from "node:os";
+import { dirname, join } from "node:path";
 import { historyLine } from "@juspay/agent-distro/update/history";
 import { currentLink, lastSuccessFile } from "@kolu/agent-distro/bundle";
+import { GC_ROOTS_DIR, staleProfileRoots } from "@kolu/agent-distro/gcRoots";
 import {
   type DeliveredSet,
   deliveryChanges,
@@ -103,6 +106,17 @@ export function deliveryFailed(
   );
 }
 
+/** A delivery of `stack` ended without landing, and nothing about it is this
+ *  host's to report (a stack the setting has since left). */
+export function deliveryDropped(stack: readonly string[]): void {
+  delivering.delete(key(stack));
+  failed.delete(key(stack));
+  log.info(
+    { agentDistroProfiles: stack },
+    "agent-distro landing for a stack the setting has left was refused",
+  );
+}
+
 /** Write `text` to `path` atomically (a temp file renamed over it). */
 function writeAtomic(path: string, text: string): void {
   const tmp = `${path}.kolu-tmp`;
@@ -112,7 +126,8 @@ function writeAtomic(path: string, text: string): void {
 
 /** `set` landed for `stack`: record it — one atomic rename, so a spawn never
  *  reads a half-written record — point upstream's `current` at its package,
- *  stamp `last-success`, and, when anything changed, append upstream's
+ *  stamp `last-success`, remove the GC roots of profiles the stack no longer
+ *  names, and, when anything changed, append upstream's
  *  `updated:` history line naming what. Throws on a set this host does not
  *  hold: kolu-server rooted it here, so its absence is a broken delivery,
  *  never a state to paper over. */
@@ -140,6 +155,7 @@ export function landDelivery(
   delivering.delete(key(stack));
   failed.delete(key(stack));
   unlanded = undefined;
+  pruneProfileRoots(stack);
   const words = deliveryChanges(
     old === undefined
       ? undefined
@@ -153,6 +169,32 @@ export function landDelivery(
     { bundle: set.bundle, profiles: set.profiles, previous: old },
     "agent-distro set landed",
   );
+}
+
+/** Remove the GC roots of profiles the landed `stack` no longer names
+ *  (`@kolu/agent-distro/gcRoots`), so only what serves stays protected from
+ *  Nix's garbage collection. A root that will not go is logged at error, never thrown:
+ *  the set has landed, and a leftover root costs disk, not correctness. */
+function pruneProfileRoots(stack: readonly string[]): void {
+  const dir = join(homedir(), GC_ROOTS_DIR);
+  let names: string[];
+  try {
+    names = readdirSync(dir);
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") return;
+    log.error({ err, dir }, "agent-distro GC roots could not be listed");
+    return;
+  }
+  for (const name of staleProfileRoots(names, stack)) {
+    try {
+      rmSync(join(dir, name), { force: true });
+    } catch (err) {
+      log.error(
+        { err, root: name },
+        "agent-distro GC root could not be removed",
+      );
+    }
+  }
 }
 
 /** Test seam: forget every delivery in flight, failure and unlanded run. */

@@ -210,7 +210,7 @@ Feature: Agents come with kolu
     When I add the Juspay profile in the first-run step
     Then the first-run step's profile rows should be "github:juspay/skills"
     And Agents should still be off with no profiles
-    When I turn agents on from the first-run step
+    When I press Enter
     Then a toast should say new terminals get the coding agents with "github:juspay/skills"
     And the stored Agents profiles should be "github:juspay/skills"
     And padi should give new terminals no agents for "github:juspay/skills"

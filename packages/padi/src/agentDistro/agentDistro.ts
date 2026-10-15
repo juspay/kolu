@@ -41,6 +41,7 @@ import { log } from "../log.ts";
 import { padiSurfaceCtx } from "../padiSurfaceCtx.ts";
 import { agentDistroBake } from "./bake.ts";
 import {
+  deliveryDropped,
   deliveryFailed,
   deliveryOf,
   deliveryStarted,
@@ -173,7 +174,10 @@ export function onAgentDistroSettingWrite(next: AgentDistroSetting): void {
  *  landing records the set and points `current` at its package; if that cannot
  *  be done here (a path is not on this host, the state dir will not write) it
  *  is this host's failure, recorded in padi's words AND thrown back, so
- *  kolu-server's log has it too. Re-publishes the receipt first, then the
+ *  kolu-server's log has it too. A landing or a failure of a stack the
+ *  setting has since left (a delivery that ran while the list changed) is
+ *  refused or dropped: it never replaces, or marks, the set the current stack
+ *  serves. Re-publishes the receipt first, then the
  *  status — so a client that sees the new set can already read what
  *  changed. */
 export function onAgentDistroReport(report: AgentDistroDeliveryReport): void {
@@ -189,9 +193,24 @@ export function onAgentDistroReport(report: AgentDistroDeliveryReport): void {
         deliveryStarted(stack);
         return;
       case "failed":
-        deliveryFailed(stack, { message: report.message });
+        // A stack the setting has left failing is no failure of what this
+        // host serves: the receipt is about the current set.
+        if (!sameStack(stack, agentDistroSettingStore.get().profiles))
+          deliveryDropped(stack);
+        else deliveryFailed(stack, { message: report.message });
         return;
-      case "landed":
+      case "landed": {
+        // A delivery of a stack the setting has since left (the list changed
+        // while it ran) must not replace the set the current stack landed —
+        // new terminals would get nothing until the next delivery. It is no
+        // failure of this host's either, so the receipt keeps what it says.
+        const current = agentDistroSettingStore.get().profiles;
+        if (!sameStack(stack, current)) {
+          deliveryDropped(stack);
+          throw new Error(
+            `kolu-server reported a landing for ${JSON.stringify(stack)}, but the Agents setting is now ${JSON.stringify(current)}; the set this host serves is kept`,
+          );
+        }
         try {
           if (
             !sameStack(
@@ -202,6 +221,7 @@ export function onAgentDistroReport(report: AgentDistroDeliveryReport): void {
             throw new Error(
               `kolu-server reported a landing for ${JSON.stringify(stack)} whose profiles name ${JSON.stringify(report.delivered.map((p) => p.reference))}`,
             );
+
           landDelivery(bake, stack, {
             bundle: report.bundle,
             profiles: report.delivered,
@@ -212,6 +232,7 @@ export function onAgentDistroReport(report: AgentDistroDeliveryReport): void {
           throw err;
         }
         return;
+      }
       default:
         report satisfies never;
     }

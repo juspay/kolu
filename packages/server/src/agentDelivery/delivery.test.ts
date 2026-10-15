@@ -668,9 +668,10 @@ describe("createAgentDelivery — reads and builds, each asked once", () => {
     expect(nix.reads).toHaveLength(2);
   });
 
-  it("a build is remembered by revision, tree and system: a re-lock to the same tree builds nothing; a new tree or revision builds again", async () => {
+  it("a build is reused like the index and locks: a connect within the period builds nothing, a check rebuilds — an edited path profile is picked up", async () => {
     let tree = "/nix/store/src-one";
     let rev = REV;
+    let now = at("2026-10-08T09:00:00Z");
     const nix = fakeOps({
       lock: (reference) => ({ reference, tree, rev: LOCKED_REV }),
       published: () => ({ rev, ia: "/nix/store/pkg-ia", ca: "/nix/store/pkg" }),
@@ -680,26 +681,25 @@ describe("createAgentDelivery — reads and builds, each asked once", () => {
       ops: nix.ops,
       hosts: [local.host],
       stack: () => [JUSPAY],
+      now: () => now,
     });
-    await delivery.run({ trigger: "user" });
+    await delivery.run({ trigger: "connect" });
     expect(nix.builds).toEqual([
       { rev: REV, tree: "/nix/store/src-one", hostSystem: "x86_64-linux" },
     ]);
-    // The user's check re-locks, to the same tree: no new build.
-    await delivery.run({ trigger: "user" });
-    expect(nix.locks).toHaveLength(2);
+    // A reconnect in the same period reuses the build (and the lock).
+    now = at("2026-10-08T13:00:00Z");
+    await delivery.run({ trigger: "connect" });
     expect(nix.builds).toHaveLength(1);
-    // The profile moved: built again.
+    // The user's check builds again, whatever the tree: a path profile's tree
+    // is a directory that changes under the same key.
+    await delivery.run({ trigger: "user" });
+    expect(nix.builds).toHaveLength(2);
+    // A new tree or a new package revision is a new build too.
     tree = "/nix/store/src-two";
-    await delivery.run({ trigger: "user" });
-    expect(nix.builds.at(-1)).toEqual({
-      rev: REV,
-      tree: "/nix/store/src-two",
-      hostSystem: "x86_64-linux",
-    });
-    // agent-distro published a new package: built again, at its revision.
     rev = "e".repeat(40);
-    await delivery.run({ trigger: "user" });
+    now = at("2026-10-08T14:01:00Z");
+    await delivery.run({ trigger: "connect" });
     expect(nix.builds.at(-1)).toEqual({
       rev,
       tree: "/nix/store/src-two",
@@ -724,7 +724,8 @@ describe("createAgentDelivery — reads and builds, each asked once", () => {
     broken = false;
     expect(await delivery.run({ trigger: "connect" })).toEqual(["landed"]);
     expect(nix.builds.length).toBeGreaterThan(failedBuilds);
-    // A build that succeeded is remembered: a third run builds nothing.
+    // A build that succeeded is reused within the period: a third connect
+    // builds nothing.
     const built = nix.builds.length;
     await delivery.run({ trigger: "connect" });
     expect(nix.builds).toHaveLength(built);

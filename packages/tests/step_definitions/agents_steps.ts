@@ -628,6 +628,7 @@ Then(
 Then(
   "the terminal's AI_PROFILE should be unset",
   async function (this: KoluWorld) {
+    // biome-ignore lint/suspicious/noTemplateCurlyInString: a SHELL expansion, typed into the terminal as is.
     await this.terminalRunAndWait('echo "ai-profile=[${AI_PROFILE-un}set]"');
     await waitForBufferContains(this.page, `ai-profile=[${"un"}set]`);
   },

@@ -11,6 +11,7 @@
     "./landing": "./src/landing.ts",
     "./receipt": "./src/receipt.ts",
     "./bundle": "./src/bundle.ts",
+    "./gcRoots": "./src/gcRoots.ts",
     "./bake": "./src/bake.ts",
     "./manifest": "./src/manifest.ts",
     "./profileFile": "./src/profileFile.ts",

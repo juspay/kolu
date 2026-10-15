@@ -724,15 +724,17 @@ const EVENT_LABEL: Record<AgentUpdateEvent["kind"], string> = {
 };
 
 function eventRow(event: AgentUpdateEvent, ago: AgoPhrase): AgentEventRow {
+  // A line from before agent-distro was one package names the profile it was
+  // about; it is said, so mixed old lines are not read as one profile's.
+  const text =
+    event.profile === undefined
+      ? event.words
+      : `${event.profile} · ${event.words}`;
   return {
     when: ago(Date.parse(event.at)),
     kind: event.kind,
-    text: event.words,
-    title: quoted(
-      EVENT_LABEL[event.kind],
-      historyAuthor(event.kind),
-      event.words,
-    ),
+    text,
+    title: quoted(EVENT_LABEL[event.kind], historyAuthor(event.kind), text),
     tone: event.kind === "failed" ? "warn" : "muted",
   };
 }

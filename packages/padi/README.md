@@ -504,7 +504,9 @@ needs only the ssh login, `nix` on that login's PATH and outbound HTTPS to the
 cache — no flakes and no GitHub egress, for the agents or the profiles; a Linux
 host on Nix 2.17–2.34 needs no Nix settings (its paths are content-addressed);
 a Mac, or a Linux host on Nix 2.35+, must trust the login or the cache's key
-(`closureRoute`), and a profile built by kolu is taken by a Mac only when it
+(`closureRoute`, for the package). A profile kolu built is staged by the host's
+system alone (`deliverClosure`): content-addressed to a Linux host, and to a
+Mac as built here — signed by no one, so a Mac takes it only when its Nix
 trusts the login. Two cells, one procedure (`padiSurface` 7.0) and one spawn
 layer carry it; the module is `src/agentDistro/`.
 
@@ -555,11 +557,13 @@ layer carry it; the module is `src/agentDistro/`.
 - **Keeping it current** — kolu-server's job, not padi's: it delivers on
   upstream's schedule (02/08/14/20 UTC, retries on a failed run), whenever this
   padi binds or takes a changed setting, and when the user asks — re-reading the
-  index and re-locking every profile. On the machine running kolu, a landed set
-  wins over the floor once it exists. Only the newest delivered package and
-  each profile's newest build have a GC root (kolu-server's
-  `~/.local/state/kolu/agent-distro/gcroots/` on the host): after an update
-  the previous one can be garbage-collected under a terminal still using it, a
+  index, re-locking and rebuilding every profile. On the machine running kolu,
+  a landed set wins over the floor once it exists. Only the newest delivered
+  package and the newest build of each profile in the stack have a GC root
+  (kolu-server writes them under `~/.local/state/kolu/agent-distro/gcroots/`
+  on the host — `@kolu/agent-distro/gcRoots` — and padi, as a stack lands,
+  removes the roots of profiles it no longer names): after an update the
+  previous one can be garbage-collected under a terminal still using it, a
   limit the docs state rather than a root padi holds.
 - **The spawn layer** — at each spawn (fresh, wake or restart) padi asks the SAME
   question the status answers (`newTerminalLayer`, over `assessAgentDistro`):

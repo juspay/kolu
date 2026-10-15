@@ -138,7 +138,7 @@ describe("AgentProfileChip — current", () => {
       "This terminal started with the coding agents (nd11nx5f) and juspay. Click to choose what new terminals get.",
     );
     expect(chip.getAttribute("aria-label")).toBe(
-      `${agentChipLabel(agents)} Bundle: ${BUNDLE}`,
+      `${agentChipLabel(agents)} Package: ${BUNDLE}`,
     );
   });
 

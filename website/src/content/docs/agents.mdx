@@ -129,14 +129,17 @@ open terminals in repositories you trust, as with a `.envrc`.
 ### Built once, by kolu
 
 kolu does not hand your references to the agents. The machine running kolu
-**builds** each profile — fetches it once, pins it to the revision it found, and
-builds it with agent-distro's own builder — and delivers the result to every
-machine beside the agents ([On other machines](#on-other-machines)). A terminal
-gets the built profiles as its `AI_PROFILE`, so starting an agent fetches,
-evaluates and compiles nothing, and works offline. A path is read on the
-machine running kolu, so a profile in `~/src/my-profile` there reaches every
-host. A newer revision of a profile is picked up when kolu next looks for newer
-agents ([Kept up to date](#kept-up-to-date)).
+**builds** each profile — fetches it, notes the revision it found, and builds
+it with agent-distro's own builder, which fetches any plugin the profile names
+by a flake reference right then — and delivers the result to every machine
+beside the agents ([On other machines](#on-other-machines)). The build is the
+pinned thing: a terminal gets the built profiles as its `AI_PROFILE`, so
+starting an agent fetches, evaluates and compiles nothing, and works offline. A
+path is read on the machine running kolu, so a profile in `~/src/my-profile`
+there reaches every host. Every time kolu looks for newer agents — on its
+schedule, or when you check ([Kept up to date](#kept-up-to-date)) — it fetches
+and builds each profile again, so a newer revision, a plugin's newer commit or
+an edit to a path profile reaches your machines then.
 
 ## New terminals only, and each one says which
 
@@ -190,8 +193,8 @@ With agents on, a new terminal's PATH reads, from the front:
 2. the agents,
 3. your own PATH — including anything your shell's dotfiles add.
 
-A profile's own commands (the MCP servers' programs it lists) join the PATH
-when an agent starts, not in the shell.
+A profile's own commands (the MCP servers' programs it lists) go first on the
+agent's PATH when it starts — not in the shell.
 
 So the bundled `claude` wins over one you installed yourself. That is on purpose.
 kolu re-applies this order after your `.bashrc` / `.zshrc` run, so neither a
@@ -271,10 +274,11 @@ first newer ones land.
   A host keeps its delivered agents and profiles in its own Nix store (and the
   machine running kolu also carries the agents kolu ships).
   If you also install agent-distro on a host through its Home Manager module,
-  both share the same set and the same update log. Only the newest set is
-  protected from Nix's garbage collection: after an update, the one before it
-  can be removed, even while a terminal opened before the update still has it on
-  its PATH.
+  both share the same set and the same update log. Only the set that serves —
+  the newest agents and the newest build of each profile you list — is
+  protected from Nix's garbage collection: after an update, or once you remove
+  a profile, what came before can be removed, even while a terminal opened
+  before then still has it.
 </Aside>
 
 ## Kept up to date

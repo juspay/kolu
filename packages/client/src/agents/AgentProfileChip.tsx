@@ -114,7 +114,7 @@ const AgentProfileChip: Component<{
           lastClick = e;
           guard.press();
         }}
-        aria-label={`${props.restart ? `${action()} — ` : ""}${label()} Bundle: ${props.agents.bundle}`}
+        aria-label={`${props.restart ? `${action()} — ` : ""}${label()} Package: ${props.agents.bundle}`}
       >
         <AgentDistroLogo size={14} />
         <Show when={agentChipProfile(props.agents)}>

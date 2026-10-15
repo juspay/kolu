@@ -46,8 +46,7 @@
 #     through `AGENT_DISTRO_PLUGINS`, so kolu's MCP plugin is loaded in every
 #     terminal without agent-distro pinning kolu.
 #   * `bakeArgs { floor }` — the `--set` flags that bake the above onto a
-#     wrapper (the floor and the delivery only when `floor`); `shellEnv`, the
-#     floor arm's bake as a file a working-tree run sources.
+#     wrapper (the floor and the delivery only when `floor`).
 #   * `proof { floor }` — the build-time check a wrapper runs on what it baked.
 #     On the floor it runs `readListing`, kolu-server's own boot read of the
 #     floor (the caller builds that command: this file does not know where
@@ -100,14 +99,18 @@ let
   # rather than keeping a second one. A host's state home is only known on
   # that host, so everything is written against a placeholder home that padi
   # replaces with the host's real `$XDG_STATE_HOME` (or `~/.local/state`). The
-  # history log is upstream's too; the record of the profiles that landed is
-  # kolu's own, beside its GC roots.
+  # history log is upstream's too; the record of the set that landed is
+  # kolu's own.
   stateHomePlaceholder = "@KOLU_XDG_STATE_HOME@";
+  # The flake upstream's index publishes, named once from `lib.caIndex`: the
+  # key of the package's state directory (as the Home Manager module keys it)
+  # and the flake kolu-server builds profiles with.
+  flakeRef = "github:${distro.lib.caIndex.repo}";
   hostState = pkgs.writeText "kolu-agent-distro-state.json" (builtins.toJSON {
     inherit stateHomePlaceholder;
     state = distro.lib.stateDirectory {
       xdgStateHome = stateHomePlaceholder;
-      flake = "github:juspay/agent-distro";
+      flake = flakeRef;
       profile = "default";
     };
     history = "${stateHomePlaceholder}/agent-distro/history.log";
@@ -123,7 +126,7 @@ let
   delivery = pkgs.writeText "kolu-agent-distro-delivery.json" (builtins.toJSON {
     # The flake the index publishes, which kolu-server builds the profiles
     # with at the package's own revision (`github:<repo>/<rev>`).
-    flake = "github:${distro.lib.caIndex.repo}";
+    flake = flakeRef;
     index = distro.lib.caIndex.rawBase;
     cache = { inherit (distro.lib.cache) url publicKey; };
     schedule = {
@@ -161,11 +164,6 @@ let
   # The `--set` flags that bake the agents onto a wrapper.
   bakeArgs = { floor }: lib.concatStringsSep " "
     (lib.mapAttrsToList (name: value: ''--set ${name} "${value}"'') (bakeEnv { inherit floor; }));
-
-  # The same bake, as shell-sourceable data, for a working-tree run that has no
-  # wrapper to bake into (evidence capture: `.saatchi/mod.just`) — the floor
-  # arm, as the machine running kolu gets it.
-  shellEnv = pkgs.writeText "agent-distro-env" (lib.toShellVars (bakeEnv { floor = true; }));
 
   # The proof a wrapper runs on the bake it RESOLVED (after sourcing its own
   # composed wrapper): a broken bake fails the build that would ship it, not a
@@ -230,5 +228,5 @@ let
   '');
 in
 {
-  inherit bundle hostState delivery pluginDir bakeArgs shellEnv proof;
+  inherit bundle hostState delivery pluginDir bakeArgs proof;
 }

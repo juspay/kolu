@@ -3194,11 +3194,24 @@ retirements:
     defectSurface: [agents, welcome, preferences]
     destinationLayer: L5
     replacements: []
-    survivorRevisionIds: [revision-427aafcd3b0aff6c3211]
+    survivorRevisionIds: [revision-3d559259c4f3850c5a8a]
     sameCodePathEvidence:
       file: packages/tests/features/agents.feature
       symbol: "Scenario: Juspay added in the first-run step is written only by Turn on"
       test: "Picking the Juspay card became adding Juspay to the step's list. Adds that nothing is stored before Turn on; after it, the stored stack, toast, padi (undelivered: the suite delivers no profile) and Settings' row are asserted. The done line is not: it waits for the stack to be delivered, which the suite cannot do."
+  - id: revise-agents-stack-first-run-enter
+    revisionId: revision-427aafcd3b0aff6c3211
+    action: revised
+    status: landed
+    promise: What the first-run step holds is written only by Turn on
+    defectSurface: [agents, welcome, preferences]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-3d559259c4f3850c5a8a]
+    sameCodePathEvidence:
+      file: packages/tests/features/agents.feature
+      symbol: "Scenario: Juspay added in the first-run step is written only by Turn on"
+      test: "Turn on is now pressed with Enter right after clicking + Juspay — the click takes the focused button away, so the step's own Enter (not the button's) is what writes the held list. Everything else asserted is unchanged."
   - id: revise-agents-stack-switch-off-asks
     revisionId: revision-335373098158404b35db
     action: revised

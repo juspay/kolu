@@ -126,6 +126,9 @@ const AddField: Component<{
     open,
     onDismiss: close,
     anchor: "bottom-start",
+    // The field sits at the foot of Settings, which is capped to the window:
+    // the menu opens upward when there is more room there.
+    flip: true,
   });
   const chrome = surface({ radius: "lg", shadow: "light", portalled: true });
 
@@ -260,10 +263,14 @@ const ResolvedLine: Component<{ line: AgentsResolvedLine }> = (props) => (
     data-kind={props.line.kind}
     class="min-w-0 text-xs leading-relaxed"
   >
+    {/* A resolved line is one line (a name and a description); a failure's
+        words wrap in FULL — they carry Nix's own line, and a cut-off cause is
+        no cause (the host details' rule for the same words). */}
     <p
       title={props.line.text}
-      class="truncate"
       classList={{
+        truncate: props.line.kind !== "failed",
+        "wrap-anywhere": props.line.kind === "failed",
         "text-fg-3/70 italic": props.line.kind === "pending",
         "text-fg-3": props.line.kind === "resolved",
         "text-danger": props.line.kind === "failed",
@@ -460,8 +467,9 @@ const AgentsProfileList: Component<{
         >
           <span class="mt-px w-4 shrink-0" aria-hidden="true" />
           <div class="min-w-0 flex-1 text-xs leading-relaxed text-fg-3">
-            <span class="font-mono text-fg-2">agent-distro.nix</span> — a
-            repository's own composes over everything above it.{" "}
+            A repository's own{" "}
+            <span class="font-mono text-fg-2">agent-distro.nix</span> composes
+            over everything above it.{" "}
             <DocLink slug="agents" anchor="how-profiles-stack">
               How profiles stack →
             </DocLink>
