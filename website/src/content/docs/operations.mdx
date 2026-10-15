@@ -155,7 +155,8 @@ redirections absorb. Check with `ps` rather than trusting the exit status.
   on disk otherwise trails the live workspace by up to half a second, and which
   terminal is *active* by up to five. SIGKILL skips that final capture and makes
   the last autosave your recovery point. Keep SIGKILL for a daemon that has
-  already ignored a SIGTERM.
+  already ignored a SIGTERM — or, as kolu's own supervisor does, one it observed
+  stopped, since a stopped process cannot act on SIGTERM at all.
 </Aside>
 
 ## Roll back to an older release

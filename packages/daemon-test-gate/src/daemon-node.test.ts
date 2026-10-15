@@ -79,6 +79,30 @@ test("the `daemon` recipe delegates to the canonical daemon-test recipe", () => 
   ).toContain("just --no-deps test-daemon");
 });
 
+test("`daemon` is a sharded leaf", () => {
+  // odu fans a `[metadata("odu:shard=N")]` leaf across the venue pool. The
+  // attribute must sit IMMEDIATELY above the recipe (attributes attach to the
+  // next recipe), so read the contiguous block of attribute lines. This is the
+  // one assertion that protects the DAG SHAPE — that the daemon lane is sharded
+  // at all. How `test-daemon` translates the pair is behaviour, covered by the
+  // odu runs and the recipe's own tests, not by a regex over its body.
+  const lines = CI.split("\n");
+  const at = lines.findIndex((line) => line.startsWith("daemon:"));
+  expect(at, "must declare a `daemon:` recipe").toBeGreaterThan(0);
+  let first = at;
+  while (first > 0 && /^\s*\[/.test(lines[first - 1] ?? "")) first -= 1;
+  const attributes = lines.slice(first, at).join("\n");
+  const match = attributes.match(/odu:shard=(\d+)/);
+  expect(
+    match,
+    '`ci::daemon` must carry `[metadata("odu:shard=N")]` — the daemon lane is the Linux lane\'s second-longest pole',
+  ).not.toBeNull();
+  expect(
+    Number(match?.[1]),
+    "the shard ceiling must exceed 1 (a single shard is not a shard)",
+  ).toBeGreaterThan(1);
+});
+
 test("the canonical daemon-test recipe turns the gate and spawn leash ON", () => {
   const body = recipeBody(ROOT, "test-daemon");
   expect(

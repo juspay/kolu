@@ -101,6 +101,7 @@ import {
   type ReapOutcome,
   reapHolder,
 } from "./reapHolder.ts";
+import type { ReadProcessState } from "./processState.ts";
 
 // `ENDPOINT_STATES` / `EndpointState` are the single source of truth for the
 // reported state set; they live in the zero-dependency `endpointStates.ts` leaf
@@ -378,6 +379,18 @@ export interface EndpointSpec<
    * Effect-shaped for the same reason — see {@link ReadSocketHolders}.
    */
   readSocketHolders: ReadSocketHolders;
+  /**
+   * Ask the OS for a pid's RUN STATE — the raw `osfacts snapshot --status`
+   * symbol (`T`/`t` stopped, otherwise running), or `undefined` when the pid is
+   * gone. Required, and injected for the same reason as `readSocketHolders`.
+   *
+   * The kill ladder reads it ONCE, at the moment of reap: a STOPPED holder
+   * cannot run a shutdown handler, so its graceful window is skipped
+   * ({@link reapHolder}). A read that cannot complete travels the error channel
+   * and the endpoint reports `dead`, rather than degrading to the wait — see
+   * {@link ReadProcessState}.
+   */
+  readProcessState: ReadProcessState;
   /** Spawns the daemon so it outlives us (the survivable-spawn driver). */
   driver: DaemonDriver;
   /**
@@ -880,6 +893,12 @@ export function createEndpoint<
   // `why` names the disposition that reached here (always-recycle boot, gate-less
   // squatter recovery, cross-epoch takeover) so one journal line tells an operator
   // WHICH policy killed this daemon, not merely that something did.
+  //
+  // The reap's error channel is `osfacts-client`'s: a state read that could not
+  // be completed is a failure this endpoint HAS an answer for — report `dead`,
+  // then propagate (R3-5), exactly as a failed `readProcessIdentity` does — so it
+  // is widened into this Effect's `Error` rather than swallowed into "not
+  // stopped", which would spend the 120 s graceful ceiling on a guess.
   const killLiveHolder = (
     holder: number,
     why: string,
@@ -889,15 +908,24 @@ export function createEndpoint<
         { hostId: spec.hostId, pid: holder },
         `stopping live daemon — ${why}`,
       );
-      const reap = yield* reapHolder(holder);
+      const reap = yield* reapHolder(holder, spec.readProcessState).pipe(
+        // The endpoint contract is "failures report `dead` before they
+        // propagate", and the reap's error channel — a state read that could not
+        // be COMPLETED — is exactly that class of failure (R3-5), never a silent
+        // "not stopped" that would spend the 120 s graceful ceiling on a guess.
+        Effect.tapError(() => Effect.sync(() => emit({ state: "dead" }))),
+      );
       if (reap.kind === "survived") {
         // Respawning now would just make the new daemon yield to the still-live
         // gate holder (single instance) — a silent no-op recycle. Fail loudly.
         emit({ state: "dead" });
         return yield* Effect.fail(
           new Error(
-            `daemon pid ${holder} survived SIGTERM (${REAP_TERM_CEILING_MS}ms) and then SIGKILL ` +
-              `(${REAP_KILL_CEILING_MS}ms) after ${reap.waitedMs}ms — a process that outlives SIGKILL is ` +
+            `daemon pid ${holder} survived SIGKILL (${REAP_KILL_CEILING_MS}ms) after ${reap.waitedMs}ms — ` +
+              (reap.reason === "stopped"
+                ? "it was stopped, so the graceful window was skipped as provably unspendable"
+                : `it also survived SIGTERM (${REAP_TERM_CEILING_MS}ms)`) +
+              "; a process that outlives SIGKILL is " +
               "stuck in uninterruptible sleep; nothing this supervisor can do will free the rendezvous",
           ),
         );
@@ -1540,12 +1568,16 @@ export function createEndpoint<
           trigger: peer.evidence.trigger,
           endedBy: reap.endedBy,
           waitedMs: reap.waitedMs,
+          ...(reap.reason ? { reapReason: reap.reason } : {}),
           termCeilingMs: REAP_TERM_CEILING_MS,
           killCeilingMs: REAP_KILL_CEILING_MS,
         },
         `convergence: TOOK OVER the daemon at ${peer.socketPath} — pid ${peer.pid} was provably ours ` +
           `(our gate ${peer.gatePath} named it and its process identity verified) and it ${unspeakableClause(peer.evidence)}. ` +
-          `Stopped by ${reap.endedBy} after ${reap.waitedMs}ms; its own shutdown ran, so the session is seeded from disk. ` +
+          `Stopped by ${reap.endedBy} after ${reap.waitedMs}ms; ` +
+          (reap.reason === "stopped"
+            ? "it was stopped, so it could not run a shutdown handler and the graceful window was skipped — the session is seeded from disk. "
+            : "its own shutdown ran, so the session is seeded from disk. ") +
           "Starting this build's daemon in its place.",
       );
       yield* spawnConnectHold();

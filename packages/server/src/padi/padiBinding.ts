@@ -79,6 +79,7 @@ import {
   scrubDaemonNodeOptions,
   survivableSpawnDriver,
 } from "@kolu/surface-daemon-supervisor";
+import { processStateReader } from "@kolu/surface-daemon-supervisor";
 import {
   type ClosedInfo,
   ConnectError,
@@ -685,6 +686,7 @@ export function ensurePadiBindingWith(
     // resolution timings on adjacent lines is how the two drift apart.
     readProcessIdentity: (pid) => processIdentityAsync(osfactsBin, pid),
     readSocketHolders: osfactsSocketHolders(osfactsBin),
+    readProcessState: processStateReader(osfactsBin),
     // Policy stated once — baked identity + Cap-gated budget. The only boot verb is
     // `converge(ep)`; boot methods are internal.
     policy: deps.policy,

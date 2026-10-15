@@ -15,6 +15,7 @@
 
 import {
   createEndpointForTest,
+  testReadProcessState,
   testReadSocketHolders,
 } from "./createEndpoint.testlib.ts";
 import type { EndpointSpec } from "./endpoint.ts";
@@ -26,37 +27,43 @@ const KOLU_OSFACTS_ENV = "KOLU_OSFACTS_BIN";
 export const readSocketHoldersForKoluTests =
   testReadSocketHolders(KOLU_OSFACTS_ENV);
 
+/** The REAL osfacts-backed state reader, on the same bake. */
+export const readProcessStateForKoluTests =
+  testReadProcessState(KOLU_OSFACTS_ENV);
+
 /**
- * {@link createEndpointForTest} with kolu's holder reader already supplied.
+ * {@link createEndpointForTest} with kolu's two osfacts readers already
+ * supplied.
  *
- * It SUPPLIES the reader, it does not default one: the inject is unspellable
- * here, so this helper cannot be handed an explicit `undefined` and cannot
- * defer a missing inject to first use. That is the same rule
- * `createEndpointForTest` states for `readSocketHolders` one file over — a
- * helper that made it optional-with-default would have been arguing against it.
- * A suite that wants a DIFFERENT reader (a fake `unattributed` reading, say)
- * reaches past this adapter for the general `createEndpointForTest` and passes
- * its own, which is also the honest signal that it is not exercising kolu's
- * bake.
+ * It SUPPLIES the readers, it does not default them: the injects are unspellable
+ * here, so this helper cannot be handed an explicit `undefined` and cannot defer
+ * a missing inject to first use. That is the same rule `createEndpointForTest`
+ * states for both one file over — a helper that made them optional-with-default
+ * would have been arguing against it. A suite that wants a DIFFERENT reader (a
+ * fake `unattributed` reading, say) reaches past this adapter for the general
+ * `createEndpointForTest` and passes its own, which is also the honest signal
+ * that it is not exercising kolu's bake.
  *
- * The holder reader is real; the IDENTITY reader is not. `createEndpointForTest`
- * supplies `testReadProcessIdentity` — synthetic start times (`pid * 1000`) that
- * agree only with gates a suite plants itself (`testStartUnixUs`). A suite that
- * meets a gate written by a REAL daemon must not come through here: the fake
- * disagrees with every genuine start instant, so a two-field gate naming a
- * provably-live holder reads as "no gate of ours names a verified holder" and
- * the takeover silently becomes a refusal. Those suites compose `createEndpoint`
- * with the production injects (`processIdentityAsync` / `osfactsSocketHolders`
- * over `bakedOsFactsBin`), exactly as the daemon's own composition root does.
+ * Both osfacts readers are real; the IDENTITY reader is not.
+ * `createEndpointForTest` supplies `testReadProcessIdentity` — synthetic start
+ * times (`pid * 1000`) that agree only with gates a suite plants itself
+ * (`testStartUnixUs`). A suite that meets a gate written by a REAL daemon must
+ * not come through here: the fake disagrees with every genuine start instant, so
+ * a two-field gate naming a provably-live holder reads as "no gate of ours names
+ * a verified holder" and the takeover silently becomes a refusal. Those suites
+ * compose `createEndpoint` with the production injects (`processIdentityAsync` /
+ * `osfactsSocketHolders` over `bakedOsFactsBin`), exactly as the daemon's own
+ * composition root does.
  */
 export function createEndpointForKoluTest<C, I, M = undefined>(
   spec: Omit<
     EndpointSpec<C, I, M>,
-    "readProcessIdentity" | "readSocketHolders"
+    "readProcessIdentity" | "readProcessState" | "readSocketHolders"
   >,
 ) {
   return createEndpointForTest<C, I, M>({
     ...spec,
     readSocketHolders: readSocketHoldersForKoluTests,
+    readProcessState: readProcessStateForKoluTests,
   });
 }

@@ -32,7 +32,11 @@ import { createEndpointForKoluTest as createEndpoint } from "./createEndpoint.ko
 // The ONE pin in this file that does not want kolu's real osfacts reader: it
 // fakes the OS answer, so it reaches past the kolu adapter for the general
 // helper and supplies `readSocketHolders` itself.
-import { createEndpointForTest, fromAsync } from "./createEndpoint.testlib.ts";
+import {
+  createEndpointForTest,
+  fromAsync,
+  testRunningProcessState,
+} from "./createEndpoint.testlib.ts";
 
 import { endpointPrivate } from "./endpoint.private.ts";
 
@@ -269,6 +273,7 @@ describeDaemon("SQUAT1 — gate-less socket-squatter recovery", () => {
       // The OS answers `unattributed`, exactly as darwin's denied fd walk does.
       readSocketHolders: () =>
         Effect.succeed({ kind: "unattributed" as const, detail: blind }),
+      readProcessState: testRunningProcessState,
       policy: {
         capability: "not-drainable",
         baked: {

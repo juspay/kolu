@@ -3,14 +3,14 @@
  *
  *  1. The boot-method trio is NOT on the public `Endpoint` type. A comment is
  *     not a lock — absence from the type is.
- *  2. **No member of `EndpointSpec` is Promise-shaped.** The two that were —
- *     `readProcessIdentity` and `readSocketHolders` — were the last, and they
- *     were Promise-shaped only because `osfacts-client` declared no `effect`
- *     dependency. It does now, so the spec is Effect-throughout and a
- *     Promise-returning inject is a compile error rather than a lift somebody
- *     has to remember to write. Prose could claim that; the two
- *     `@ts-expect-error`s below prove it, and they go green — which is a
- *     failure — the moment either seam widens back to tolerate a Promise.
+ *  2. **No member of `EndpointSpec` is Promise-shaped.** The three that were —
+ *     `readProcessIdentity`, `readSocketHolders` and `readProcessState` — were
+ *     the last, and they were Promise-shaped only because `osfacts-client`
+ *     declared no `effect` dependency. It does now, so the spec is
+ *     Effect-throughout and a Promise-returning inject is a compile error rather
+ *     than a lift somebody has to remember to write. Prose could claim that; the
+ *     three `@ts-expect-error`s below prove it, and they go green — which is a
+ *     failure — the moment any seam widens back to tolerate a Promise.
  */
 import { Effect } from "effect";
 import { createEndpoint } from "./endpoint.ts";
@@ -28,6 +28,7 @@ const endpoint: Endpoint<string, { id: string }> = createEndpoint({
   home,
   readProcessIdentity: () => Effect.succeed(undefined),
   readSocketHolders: () => Effect.succeed({ kind: "none" as const }),
+  readProcessState: () => Effect.succeed("S"),
   policy: {
     capability: "not-drainable",
     baked: { contractVersion: "1.0", build: daemonBuild("x") },
@@ -61,14 +62,15 @@ void endpoint.policy;
 void endpoint.probe;
 void endpoint.log;
 
-// The two OS-fact seams take Effects and ONLY Effects. A Promise-returning
+// The three OS-fact seams take Effects and ONLY Effects. A Promise-returning
 // inject was legal until the client went Effect-native; each line below fails
-// to fail if either seam widens back.
+// to fail if any seam widens back.
 declare const promisedIdentity: () => Promise<{
   pid: number;
   startUnixUs: number;
 }>;
 declare const promisedHolders: () => Promise<{ kind: "none" }>;
+declare const promisedState: () => Promise<string | undefined>;
 // @ts-expect-error readProcessIdentity must not tolerate a Promise
 const _identityInject: EndpointSpec<
   string,
@@ -79,5 +81,9 @@ const _holdersInject: EndpointSpec<
   string,
   { id: string }
 >["readSocketHolders"] = promisedHolders;
+// @ts-expect-error readProcessState must not tolerate a Promise
+const _stateInject: EndpointSpec<string, { id: string }>["readProcessState"] =
+  promisedState;
 void _identityInject;
 void _holdersInject;
+void _stateInject;

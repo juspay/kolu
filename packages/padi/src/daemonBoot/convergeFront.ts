@@ -69,6 +69,7 @@ import {
   outcomeAnomaly,
   probeDaemonIdentity,
 } from "@kolu/surface-daemon-supervisor";
+import { processStateReader } from "@kolu/surface-daemon-supervisor";
 import { Effect } from "effect";
 import { AGENT_TOOLS_BAKE_ENV } from "kolu-pty";
 import {
@@ -163,6 +164,7 @@ export function convergeStdioFront(
       probe,
       readProcessIdentity: (pid) => processIdentityAsync(osfactsBin, pid),
       readSocketHolders: osfactsSocketHolders(osfactsBin),
+      readProcessState: processStateReader(osfactsBin),
       driver,
       connect: (path) => connectPadi(path),
       log,
