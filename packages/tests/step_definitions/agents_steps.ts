@@ -807,13 +807,18 @@ Then(
   },
 );
 
-/** The step's list starts empty — the agents as they ship — with the
- *  repository row and the same add field as Settings. */
+/** The step's list starts empty — the agents as they ship — opening with
+ *  Juspay's one-click row, and ending with the repository row and the add
+ *  field. Offered, not chosen: nothing is listed. */
 Then(
-  "the first-run step should start with an empty list and its add field",
+  "the first-run step should start with an empty list and Juspay one click away",
   async function (this: KoluWorld) {
     await waitForRows(this, FIRST_RUN, []);
-    for (const id of ["agents-profile-repo", "agents-profile-input"])
+    for (const id of [
+      "agents-add-juspay",
+      "agents-profile-repo",
+      "agents-profile-input",
+    ])
       await this.page
         .locator(`${FIRST_RUN} [data-testid="${id}"]`)
         .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
@@ -832,10 +837,13 @@ Then(
   },
 );
 
+/** Its one-click row — the step's own visible offer. Pressing it takes the
+ *  focused control away, so the page's Enter is the step's next. */
 When(
   "I add the Juspay profile in the first-run step",
   async function (this: KoluWorld) {
-    await addJuspay(this, FIRST_RUN);
+    await this.page.click(`${FIRST_RUN} [data-testid="agents-add-juspay"]`);
+    await this.waitForFrame();
   },
 );
 

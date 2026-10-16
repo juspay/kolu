@@ -5,9 +5,10 @@
  * states — removed by its ✕ and, with two rows or more, moved by its arrows,
  * the WHOLE next list handed to the caller; an empty list draws no rows; and
  * the one read-only row a repository's agent-distro.nix makes, always last.
- * Below: the ONE add field, whose menu of suggestions — Juspay's first — opens
+ * Below: the add field, whose menu of suggestions — Juspay's first — opens
  * on focus or from the chevron, filters as you type, and adds on Enter or a
- * click.
+ * click. With `prominentJuspay` (the welcome step) Juspay is instead a
+ * visible one-click row above the list, gone once it is listed.
  */
 
 import {
@@ -33,7 +34,10 @@ const SUGGESTIONS: readonly ProfileSuggestion[] = [
   { value: "~/work/profile", note: "used before" },
 ];
 
-function mount(initial: readonly ProfileListRow[]) {
+function mount(
+  initial: readonly ProfileListRow[],
+  opts: { prominentJuspay?: boolean } = {},
+) {
   const [rows, setRows] = createSignal(initial);
   const changes: (readonly string[])[] = [];
   const host = document.createElement("div");
@@ -43,6 +47,7 @@ function mount(initial: readonly ProfileListRow[]) {
       <AgentsProfileList
         rows={rows()}
         suggestions={SUGGESTIONS}
+        prominentJuspay={opts.prominentJuspay}
         onChange={(next) => {
           changes.push(next);
           // As the caller's write comes back: the rows follow the list.
@@ -202,6 +207,31 @@ describe("adding", () => {
       "~/work/profile",
     ]);
     expect(options()[0]?.textContent).toBe("+ JuspayJuspay skills + Kolu");
+  });
+
+  it("no one-click Juspay row unless asked for (Settings)", () => {
+    const f = mount([]);
+    expect(f.host.querySelector("[data-testid=agents-add-juspay]")).toBeNull();
+  });
+
+  it("prominent: Juspay is a one-click row above the list, not in the field's menu, gone once listed", () => {
+    const f = mount([row("~/mine")], { prominentJuspay: true });
+    const juspay = () =>
+      f.host.querySelector<HTMLButtonElement>(
+        "[data-testid=agents-add-juspay]",
+      );
+    // Above the list.
+    expect(
+      f.host.querySelector("[data-testid=agents-profiles]")?.firstElementChild,
+    ).toBe(juspay());
+    f.input()?.focus();
+    expect(options().map((o) => o.dataset.value)).toEqual([
+      "github:me/p",
+      "~/work/profile",
+    ]);
+    juspay()?.click();
+    expect(f.changes).toEqual([["~/mine", JUSPAY_PROFILE]]);
+    expect(juspay()).toBeNull();
   });
 
   it("picking Juspay's suggestion appends it", () => {

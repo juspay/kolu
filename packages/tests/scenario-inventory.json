@@ -9160,6 +9160,18 @@
       "exampleRows": [],
       "executions": 1,
       "firstSeenSha": "ddc76bbad5807c16b7420ae25564ec81db941ba6"
+    },
+    {
+      "revisionId": "revision-1baeed3f7108c5ba146d",
+      "scenarioKey": "scenario-98518b88c182ffcb31f0",
+      "feature": "features/agents.feature",
+      "scenario": "The first run starts with an empty list and Juspay one click away, and Enter turns the agents on as they ship",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "166e6e411e8e398ffe5c6933c7a55e91a08195350884a7bfb6fd1fd1bc50ed1d",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "867e08c3669d568cc74894e357d959c6261ec121"
     }
   ]
 }

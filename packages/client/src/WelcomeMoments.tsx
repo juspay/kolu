@@ -151,8 +151,9 @@ const MomentShell: Component<{
 
 /** The agents choice: the same `AgentsChooser` as Settings → Agents, laid out
  *  as a welcome row with agent-distro's logo — the profile list (always empty
- *  to start with, the agents as they ship; its add field suggests Juspay
- *  first), "Turn on" to take it, and "Not now" to go on with plain terminals.
+ *  to start with, the agents as they ship) opening with a one-click
+ *  "+ Juspay" row, "Turn on" to take it, and "Not now" to go on with plain
+ *  terminals.
  *
  *  Nothing is written until "Turn on": the list is held by the step, and "Not
  *  now" must leave the preference UNchosen — it hides the row for this session
@@ -166,7 +167,8 @@ const MomentShell: Component<{
  *  **Enter belongs to the STEP**, not to "Turn on": whatever in the step has
  *  the focus, Enter turns agents on — except on a control of its own (a
  *  button, the add field, the list's arrows), which keeps its Enter. Editing
- *  the list can take the focused control away (a removed row's ✕), and
+ *  the list can take the focused control away ("+ Juspay" goes once it is
+ *  added, a removed row's ✕ with its row), and
  *  focus then falls to the page, so while nothing is chosen an Enter there is
  *  the step's too — the same rule as the mount focus above — claimed by the
  *  one copy of the step that had the focus last, never by every copy
@@ -178,7 +180,7 @@ const ChooseAgentsMoment: Component<{ onNotNow: () => void }> = (props) => (
       // Which copy of the step the page's Enter belongs to: the one whose
       // subtree had the focus last. The welcome card can be mounted twice (the
       // empty canvas's, and the Tutorial's over it), and focus that falls to
-      // the page — a removed row's ✕ going away under it — names neither.
+      // the page — the "+ Juspay" row going away under it — names neither.
       const [owned, setOwned] = createSignal(false);
       makeEventListener(document, "focusin", (e: FocusEvent) => {
         setOwned(e.target instanceof Node && step?.contains(e.target) === true);

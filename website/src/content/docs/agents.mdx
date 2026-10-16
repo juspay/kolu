@@ -23,8 +23,8 @@ as the fallback.
 Two things make up the choice, and they are separate. The **agents** are a
 switch: on, every new terminal gets them. **Profiles** are a list on top of
 them: each one brings skills, MCP servers and settings to every agent — such as
-**Juspay**'s (`github:juspay/skills`), the first suggestion when you add one —
-and they stack in the order you list them. With no profile the agents are exactly as they ship.
+**Juspay**'s (`github:juspay/skills`), one click away — and they stack in the
+order you list them. With no profile the agents are exactly as they ship.
 
 Until you choose, nothing changes: kolu adds no agents to your terminals until
 you switch them on, on a fresh install and on one that predates this. The agents
@@ -42,8 +42,10 @@ Until agents are on, kolu asks in three places:
 
 The welcome card and the Tutorial ask with the same profile list as Settings,
 always empty to start with, and two buttons — **Turn on ⏎**, and **Not now —
-plain terminals, ask again later**. Juspay's profile is never there unless you
-add it: its field suggests it first ([Profiles](#profiles)). Until you choose,
+plain terminals, ask again later**. Above the list sits **+ Juspay — Juspay
+skills + Kolu, via Juspay's LiteLLM gateway**: one click adds Juspay's profile,
+and the row goes once it is listed. It is an offer, never a default — Juspay is
+never in the list unless you click it. Until you choose,
 **Turn on** already has the keyboard: press **Enter** and agents are on, with
 whatever profiles the step lists. Nothing is written until you press it.
 
@@ -101,9 +103,10 @@ skills + Kolu, via Juspay's LiteLLM gateway"), or, in red, Nix's or
 agent-distro's own words for why not. Each row is removed by its **✕**; with
 two or more, each can also move up or down.
 
-There is one way to add a profile: the field under the list. Clicking into it
-opens its suggestions — **+ Juspay** first, then the profiles you added before,
-none the list already holds — and typing filters them. Pick one, or type a
+Add one with the field under the list. Clicking into it opens its suggestions —
+in Settings **+ Juspay** first (the welcome step offers it as its own row
+instead), then the profiles you added before, none the list already holds — and
+typing filters them. Pick one, or type a
 flake reference (`github:you/your-profile`) or a path to its directory
 (`~/src/my-profile`, or an absolute path) and press **Enter**. An empty list
 draws no rows: it is the agents as they ship.

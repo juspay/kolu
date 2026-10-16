@@ -40,8 +40,8 @@ import {
 } from "./schema.ts";
 
 /** Juspay's profile, as a reference — the one profile kolu offers by itself,
- *  as the first suggestion of the list's add field. Never added unless
- *  someone picks it. */
+ *  as the first suggestion of the list's add field — or, in the welcome step,
+ *  as a one-click row above the list. Never added unless someone picks it. */
 export const JUSPAY_PROFILE = "github:juspay/skills";
 
 /** The Juspay suggestion's words. HERE and not read off the profile: it is
@@ -499,8 +499,8 @@ export interface ProfileSuggestion {
 }
 
 /** The add field's suggestions, none the list already holds: Juspay's first
- *  ({@link JUSPAY_OFFER} — the one way kolu offers it), then what the user
- *  added before, most recent first. */
+ *  ({@link JUSPAY_OFFER}), then what the user added before, most recent
+ *  first. */
 export function profileSuggestions(input: {
   readonly recent: readonly string[];
   readonly profiles: readonly string[];

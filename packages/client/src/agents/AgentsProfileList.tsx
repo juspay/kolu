@@ -13,7 +13,12 @@
  *  stacking rule is stated. It is not an entry of the setting, so it cannot be
  *  moved or removed.
  *
- *  Below it, the ONE way to add: a field that takes any reference or path,
+ *  With `prominentJuspay` (the welcome step), the list OPENS with a one-click
+ *  "+ Juspay" row while the list does not hold it — the first-run choice made
+ *  obvious, still a click and never a default; the field then suggests only
+ *  the rest. Settings passes nothing: Juspay is its field's first suggestion.
+ *
+ *  Below it, the way to add anything: a field that takes any reference or path,
  *  with a menu of suggestions (`profileSuggestions`: Juspay's first, then the
  *  references added before, none the list holds). The menu opens when the
  *  field takes the focus, from the chevron inside its right edge, or by typing
@@ -31,6 +36,7 @@
 import {
   AGENTS_UNRESOLVED_MEANS,
   type AgentsResolvedLine,
+  JUSPAY_OFFER,
   type ProfileSuggestion,
   profilesWithAdded,
   profilesWithMoved,
@@ -307,6 +313,9 @@ const AgentsProfileList: Component<{
   rows: readonly ProfileListRow[];
   /** The add field's suggestions (`profileSuggestions`). */
   suggestions: readonly ProfileSuggestion[];
+  /** Offer Juspay as a visible one-click row above the list, and not in the
+   *  field's menu (the welcome step). */
+  prominentJuspay?: boolean;
   /** The whole next list, after one edit. */
   onChange: (next: readonly string[]) => void;
 }> = (props) => {
@@ -385,6 +394,26 @@ const AgentsProfileList: Component<{
 
   return (
     <div data-testid="agents-profiles" class="mt-2 flex flex-col gap-1.5">
+      <Show
+        when={
+          props.prominentJuspay === true &&
+          !references().includes(JUSPAY_OFFER.reference)
+        }
+      >
+        <button
+          type="button"
+          data-testid="agents-add-juspay"
+          class="flex w-full cursor-pointer items-baseline gap-2 rounded-lg border border-accent/40 bg-accent/10 px-2.5 py-2 text-left text-xs transition-colors hover:border-accent/70 hover:bg-accent/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
+          onClick={() => add(JUSPAY_OFFER.reference)}
+        >
+          <span class="shrink-0 text-[13px] font-semibold text-accent">
+            + {JUSPAY_OFFER.title}
+          </span>
+          <span class="min-w-0 truncate text-fg-2">
+            {JUSPAY_OFFER.description}
+          </span>
+        </button>
+      </Show>
       <ol
         ref={list}
         aria-label="Profiles, stacked in this order"
@@ -479,7 +508,16 @@ const AgentsProfileList: Component<{
           </div>
         </li>
       </ol>
-      <AddField suggestions={props.suggestions} onAdd={add} />
+      <AddField
+        suggestions={
+          props.prominentJuspay === true
+            ? props.suggestions.filter(
+                (s) => s.value !== JUSPAY_OFFER.reference,
+              )
+            : props.suggestions
+        }
+        onAdd={add}
+      />
     </div>
   );
 };

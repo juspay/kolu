@@ -9,7 +9,8 @@
  *  Settings' list writes each edit at once — the whole list, never touching
  *  the switch. The welcome step's list is DEFERRED: it starts EMPTY, whatever
  *  is stored (a list kept from before agents were switched off included —
- *  Juspay is never there unless picked in this step), is held here, and is
+ *  Juspay is never there unless picked in this step, from its one-click row
+ *  above the list), is held here, and is
  *  written only by "Turn on" (`turnOn`, agents on with the list), so "Not now"
  *  leaves nothing chosen.
  *
@@ -132,6 +133,7 @@ export default function AgentsChooser(props: {
           recent: preferences().agentProfilesRecent,
           profiles: held(),
         })}
+        prominentJuspay
         onChange={setHeld}
       />
     ) : (

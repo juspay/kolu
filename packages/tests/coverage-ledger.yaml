@@ -2550,7 +2550,7 @@ retirements:
     defectSurface: [agents, welcome]
     destinationLayer: L5
     replacements: []
-    survivorRevisionIds: [revision-a55aa239235ff23c2568]
+    survivorRevisionIds: [revision-1baeed3f7108c5ba146d]
     sameCodePathEvidence:
       file: packages/tests/features/agents.feature
       symbol: "Scenario: The first run asks with one switch, and Enter turns on Juspay's profile"
@@ -2758,7 +2758,7 @@ retirements:
     defectSurface: [agents, settings]
     destinationLayer: L5
     replacements: []
-    survivorRevisionIds: [revision-a55aa239235ff23c2568]
+    survivorRevisionIds: [revision-1baeed3f7108c5ba146d]
     sameCodePathEvidence:
       file: packages/tests/features/agents.feature
       symbol: "Scenario: The first run offers the profiles by name, and Enter turns on Vanilla"
@@ -2875,7 +2875,7 @@ retirements:
     defectSurface: [agents, settings]
     destinationLayer: L5
     replacements: []
-    survivorRevisionIds: [revision-a55aa239235ff23c2568]
+    survivorRevisionIds: [revision-1baeed3f7108c5ba146d]
     sameCodePathEvidence:
       file: packages/tests/features/agents.feature
       symbol: "Scenario: The first run offers the profiles by name, and Enter turns on Vanilla"
@@ -3181,10 +3181,10 @@ retirements:
     defectSurface: [agents, welcome, keyboard]
     destinationLayer: L5
     replacements: []
-    survivorRevisionIds: [revision-a55aa239235ff23c2568]
+    survivorRevisionIds: [revision-1baeed3f7108c5ba146d]
     sameCodePathEvidence:
       file: packages/tests/features/agents.feature
-      symbol: "Scenario: The first run starts with an empty list, and Enter turns the agents on as they ship"
+      symbol: "Scenario: The first run starts with an empty list and Juspay one click away, and Enter turns the agents on as they ship"
       test: "The step now shows an empty list with Juspay's one-click entry and the repository row (no cards, no add field), focus lands on Turn on rather than a picked card, and Enter turns agents on with no profiles. The toast, padi, the done line (now \"Agents: on\"), the next terminal's pill and Settings are asserted as before."
   - id: revise-agents-stack-first-run-pick
     revisionId: revision-e8a5ec70f799e828679d
@@ -3194,24 +3194,24 @@ retirements:
     defectSurface: [agents, welcome, preferences]
     destinationLayer: L5
     replacements: []
-    survivorRevisionIds: [revision-427aafcd3b0aff6c3211]
+    survivorRevisionIds: [revision-3d559259c4f3850c5a8a]
     sameCodePathEvidence:
       file: packages/tests/features/agents.feature
       symbol: "Scenario: Juspay added in the first-run step is written only by Turn on"
       test: "Picking the Juspay card became adding Juspay to the step's list. Adds that nothing is stored before Turn on; after it, the stored stack, toast, padi (undelivered: the suite delivers no profile) and Settings' row are asserted. The done line is not: it waits for the stack to be delivered, which the suite cannot do."
   - id: revise-agents-stack-first-run-enter
-    revisionId: revision-3d559259c4f3850c5a8a
+    revisionId: revision-427aafcd3b0aff6c3211
     action: revised
     status: landed
     promise: What the first-run step holds is written only by Turn on
     defectSurface: [agents, welcome, preferences]
     destinationLayer: L5
     replacements: []
-    survivorRevisionIds: [revision-427aafcd3b0aff6c3211]
+    survivorRevisionIds: [revision-3d559259c4f3850c5a8a]
     sameCodePathEvidence:
       file: packages/tests/features/agents.feature
       symbol: "Scenario: Juspay added in the first-run step is written only by Turn on"
-      test: "Juspay is now picked from the step's add field (its first suggestion), which keeps the focus — the field owns its Enter — so Turn on is pressed by its button, the scenario's earlier form. Nothing is stored before Turn on; after it the stored stack, toast, padi and Settings' row are asserted unchanged."
+      test: "Juspay is added by the step's visible one-click row again, which takes the focused control away, so the step's own Enter (not the button's) writes the held list — the Enter-ownership path the button press could not reach. Nothing is stored before it; after it the stored stack, toast, padi and Settings' row are asserted unchanged."
   - id: revise-agents-stack-switch-off-asks
     revisionId: revision-335373098158404b35db
     action: revised
@@ -3272,10 +3272,10 @@ retirements:
     defectSurface: [agents, welcome, preferences]
     destinationLayer: L5
     replacements: []
-    survivorRevisionIds: [revision-a55aa239235ff23c2568]
+    survivorRevisionIds: [revision-1baeed3f7108c5ba146d]
     sameCodePathEvidence:
       file: packages/tests/features/agents.feature
-      symbol: "Scenario: The first run starts with an empty list, and Enter turns the agents on as they ship"
+      symbol: "Scenario: The first run starts with an empty list and Juspay one click away, and Enter turns the agents on as they ship"
       test: "Adds that Enter from a fresh store stores no profile, and that the next terminal's AI_PROFILE is unset — Juspay is an explicit opt-in. Every other step is unchanged."
   - id: revise-agents-simple-list-switch-off-asks
     revisionId: revision-f4eee34d4b6b7ba34d24
@@ -3298,8 +3298,21 @@ retirements:
     defectSurface: [agents, welcome, preferences]
     destinationLayer: L5
     replacements: []
-    survivorRevisionIds: [revision-a55aa239235ff23c2568]
+    survivorRevisionIds: [revision-1baeed3f7108c5ba146d]
     sameCodePathEvidence:
       file: packages/tests/features/agents.feature
-      symbol: "Scenario: The first run starts with an empty list, and Enter turns the agents on as they ship"
+      symbol: "Scenario: The first run starts with an empty list and Juspay one click away, and Enter turns the agents on as they ship"
       test: "The step no longer has a one-click Juspay entry or a no-profiles placeholder: it asserts an empty list, the repository row and the same add field as Settings (Juspay is its first suggestion). Focus on Turn on, Enter, and every assertion after it are unchanged."
+  - id: revise-agents-welcome-juspay-one-click
+    revisionId: revision-a55aa239235ff23c2568
+    action: revised
+    status: landed
+    promise: Enter on the first-run step turns the agents on as they ship
+    defectSurface: [agents, welcome, preferences]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-1baeed3f7108c5ba146d]
+    sameCodePathEvidence:
+      file: packages/tests/features/agents.feature
+      symbol: "Scenario: The first run starts with an empty list and Juspay one click away, and Enter turns the agents on as they ship"
+      test: "The step's empty list now opens with a visible one-click + Juspay row, asserted alongside the repository row and the add field — offered, not listed. Focus on Turn on, Enter, and every assertion after it are unchanged."
