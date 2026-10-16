@@ -9112,6 +9112,30 @@
       "exampleRows": [],
       "executions": 1,
       "firstSeenSha": "0961e11c24a7de007383d7f9145bb751b33c1dbb"
+    },
+    {
+      "revisionId": "revision-9aa18087eea92988a939",
+      "scenarioKey": "scenario-3051dfbb3c39e8e62d9a",
+      "feature": "features/agents.feature",
+      "scenario": "The first run offers Juspay by one click, and Enter turns the agents on as they ship",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "ae6e1e8e9d62e696ee4165ecd5de6c33fd95521540e1cfb956df45ef050daca5",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "248d8c2da781dfb890c02352e55da008e00184fe"
+    },
+    {
+      "revisionId": "revision-bfe4e06e81b4496eb329",
+      "scenarioKey": "scenario-29280ce0dd0dbe21070e",
+      "feature": "features/agents.feature",
+      "scenario": "Turning Agents on reaches the next terminal, not the current one",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "5efeff3a6e178ad412ab5049b0c3eabfe9fc9ba9a1225d7dca2fbea1333f2945",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "248d8c2da781dfb890c02352e55da008e00184fe"
     }
   ]
 }

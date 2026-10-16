@@ -28,6 +28,7 @@ Feature: Agents come with kolu
     When I click the settings button
     And I turn Agents on
     Then a toast should say new terminals get the coding agents
+    And the stored Agents profiles should be empty
     And padi should give new terminals the agents with no profiles
     And the Agents profile list should be empty
     And the Agents profile list should end with the repository row
@@ -193,11 +194,13 @@ Feature: Agents come with kolu
     And the first-run step should say what kolu can bring
     When I press Enter
     Then a toast should say new terminals get the coding agents
+    And the stored Agents profiles should be empty
     And padi should give new terminals the agents with no profiles
     And the welcome card should not ask about agents
     And the welcome card's done line should say agents are on
     When I create a terminal
     Then the focused tile's agents chip should show only the build it serves
+    And the terminal's AI_PROFILE should be unset
     When I click the settings button
     Then the Agents switch in Settings should be on
     And the Agents profile list should be empty

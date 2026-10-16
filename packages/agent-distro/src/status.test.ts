@@ -1392,3 +1392,19 @@ describe("updateWords — a run's words, legacy profile first", () => {
     expect(updateWords({ words: "Pi 1.0 → 1.1" })).toBe("Pi 1.0 → 1.1");
   });
 });
+
+describe("Juspay is an explicit opt-in", () => {
+  it("a fresh store turned on gets the agents with NO profile", () => {
+    expect(agentDistroChoice({ on: true }, null)).toEqual({
+      enabled: true,
+      profiles: [],
+    });
+    expect(agentDistroSettingOf(null).profiles).toEqual([]);
+  });
+
+  it("only adding it puts Juspay in the list", () => {
+    expect(profilesWithAdded([], JUSPAY_PROFILE)).toEqual([JUSPAY_PROFILE]);
+    expect(rememberProfiles([], [JUSPAY_PROFILE])).toEqual([]);
+    expect(profileSuggestions({ recent: [], profiles: [] })).toEqual([]);
+  });
+});

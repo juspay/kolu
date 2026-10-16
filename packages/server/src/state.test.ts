@@ -243,11 +243,19 @@ describe("migratePreferences_1_41_0 — one profile becomes the stack", () => {
       });
   });
 
-  it("any other profile becomes the stack's one entry, on or off", () => {
+  it("Juspay's reference — once the never-chosen default — never becomes an entry: Juspay is opt-in", () => {
     for (const enabled of [true, false])
       expect(stored({ enabled, profile: "github:juspay/skills" })).toEqual({
         enabled,
-        profiles: ["github:juspay/skills"],
+        profiles: [],
+      });
+  });
+
+  it("any other profile becomes the stack's one entry, on or off", () => {
+    for (const enabled of [true, false])
+      expect(stored({ enabled, profile: "github:me/p" })).toEqual({
+        enabled,
+        profiles: ["github:me/p"],
       });
     expect(stored({ enabled: true, profile: "~/my-profile" })).toEqual({
       enabled: true,
@@ -346,10 +354,11 @@ describe("the CHAINED preference ladder (a pre-1.30 blob walking every rung)", (
           ),
         ),
       ).agentDistro;
-    // juspay was a bundle, then a reference (1.40), then the stack's entry.
+    // juspay was a bundle, then a reference (1.40) — and, once the
+    // never-chosen default, it never becomes an entry: Juspay is opt-in.
     expect(walkAgents({ enabled: true, profile: "juspay" })).toEqual({
       enabled: true,
-      profiles: ["github:juspay/skills"],
+      profiles: [],
     });
     expect(walkAgents({ enabled: true, profile: "vanilla" })).toEqual({
       enabled: true,

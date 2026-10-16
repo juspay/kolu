@@ -145,12 +145,22 @@ export function migratePreferences_1_40_0(
 }
 
 /** 1.41.0 — agent-distro is one package, and the Agents setting's single
- *  `profile` became `profiles`, the stack over it. The one bundle kolu shipped,
- *  `vanilla`, was the harnesses with no profile — an empty stack; any other
- *  value was a reference agent-distro read as `AI_PROFILE`, and is the stack's
- *  one entry. On or off is kept; `null` (never chosen) stays `null`, and a
- *  record already in the new shape is returned untouched. Exported for
- *  `state.test.ts`. */
+ *  `profile` became `profiles`, the stack over it. On or off is kept; `null`
+ *  (never chosen) stays `null`, and a record already in the new shape is
+ *  returned untouched. The stored profile becomes the stack's one entry only
+ *  when it can only have been someone's CHOICE:
+ *
+ *   - `vanilla` — the one bundle kolu shipped, the harnesses with no profile —
+ *     is the empty stack;
+ *   - `github:juspay/skills` is the empty stack too: for a while (between
+ *     #2279 and #2287) it was the NEVER-CHOSEN default, so turning the switch
+ *     on stored it with nobody picking it, and nothing on disk tells that
+ *     apart from a pick. Juspay is an explicit opt-in — "+ Juspay" — so a
+ *     value that may be a default never becomes an entry. The setting never
+ *     shipped in a release, so only development builds wrote either;
+ *   - any other reference was typed by someone, and is the stack's one entry.
+ *
+ *  Exported for `state.test.ts`. */
 export function migratePreferences_1_41_0(
   current: Record<string, unknown>,
 ): Record<string, unknown> {
@@ -161,11 +171,12 @@ export function migratePreferences_1_41_0(
     | undefined;
   if (stored === null || stored === undefined || !("profile" in stored))
     return current;
+  const defaulted = ["vanilla", "github:juspay/skills"];
   return {
     ...current,
     agentDistro: {
       enabled: stored.enabled,
-      profiles: stored.profile === "vanilla" ? [] : [stored.profile],
+      profiles: defaulted.includes(stored.profile) ? [] : [stored.profile],
     },
   };
 }
@@ -868,8 +879,9 @@ const CONF_MIGRATIONS = {
     );
   },
   // The Agents setting's `profile` becomes `profiles`, the stack over
-  // agent-distro's one package: `vanilla` (the harnesses alone) is the empty
-  // stack, a reference its one entry.
+  // agent-distro's one package: `vanilla` (the harnesses alone) and Juspay's
+  // reference (once the never-chosen default, so never provably a pick) are
+  // the empty stack; any other reference is its one entry.
   "1.41.0": (store: Conf<PersistedState>) => {
     store.set(
       "preferences",
