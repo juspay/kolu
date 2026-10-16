@@ -35,16 +35,22 @@ build-time check every wrapper runs on what it baked — on the floor it runs
 kolu-server's own boot read of the package (`readListing`, a command the root
 `default.nix` builds) and checks every harness it names has a launcher.
 
-Upstream's own **vocabulary** — the due rule and the scheduled run's numbers,
-the history line's writer and reader, the history log's one writer
-(`appendHistory`, which keeps it trimmed under upstream's lock), the state
-directory's `current` and `last-success`, what a profile reference names and
-how a flake reference is fetched (`classifyReference`, `prefetchArgs`,
-`prefetchedTree`), the versions file and `changes()`, the `--list --json`
-value and its words — is imported, never repeated: upstream's
-runtime tree (`src/`) names itself `@juspay/agent-distro`, and kolu grafts it
-from the npins pin as a workspace member (`nix/workspace.nix`, the `@odu/*`
-mechanism). This package depends on it.
+Upstream's own **vocabulary** is imported, never repeated: upstream's runtime
+tree (`src/`) names itself `@juspay/agent-distro`, and kolu grafts it from the
+npins pin as a workspace member (`nix/workspace.nix`, the `@odu/*` mechanism).
+Each piece is imported where it is used:
+
+- **this package** — the history line's reader (`update/history`), the
+  versions file and `changes()` (`update/versions`), and the `--list --json`
+  value and its words (`listing`);
+- **padi** — the history line's writer (`historyLine`), the history log's one
+  writer (`appendHistory`, `update/history-log`, which keeps it trimmed under
+  upstream's lock), the state directory's `current` and `last-success`
+  (`update/state`) and the stamp's reader (`parseStamp`);
+- **kolu-server** — the due rule and the scheduled run's numbers
+  (`update/due`), and what a profile reference names and how a flake reference
+  is fetched (`profile/reference`: `classifyReference`, `prefetchArgs`,
+  `prefetchedTree`).
 
 The **TypeScript half**, as data and pure functions:
 
