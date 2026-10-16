@@ -7,10 +7,10 @@
         "owner": "juspay",
         "repo": "agent-distro"
       },
-      "branch": "library-builds-and-history",
+      "branch": "main",
       "submodules": false,
-      "revision": "e5d340fdfd6c93009aa60784ca772f8a3ae31b9b",
-      "url": "https://github.com/juspay/agent-distro/archive/e5d340fdfd6c93009aa60784ca772f8a3ae31b9b.tar.gz",
+      "revision": "3053b529669011872666d4b16621af8af3cf38fc",
+      "url": "https://github.com/juspay/agent-distro/archive/3053b529669011872666d4b16621af8af3cf38fc.tar.gz",
       "hash": "sha256-wvZ6bsnBuInU+aPAdGfgdzFvNJPk0yd4FwAnT1w1PW0="
     },
     "iTerm2-Color-Schemes": {
