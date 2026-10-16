@@ -63,11 +63,7 @@ nix_shell := if env('IN_NIX_SHELL', '') != '' { '' } else { 'nix develop --accep
 #     commands remain self-contained, but start from a warmed store after the
 #     root evaluator/build process has exited instead of competing with it for
 #     CPU, memory, and Nix locks.
-#   * `home-manager` is deliberately NOT one of those. Its `--override-input
-#     kolu .` builds the SAME kolu derivations `nix` builds, and Nix's
-#     per-derivation build lock makes whichever builder arrives second WAIT on
-#     the first — it never rebuilds them. So there was nothing for an edge to
-#     guard there; it only serialized a 2m node behind a 52s one.
+#   * `home-manager` is the one deliberate exception — its recipe owns why.
 #
 # The remaining edges intentionally trade critical-path length for lower peak
 # contention.
@@ -295,13 +291,16 @@ unit: install
 # call sites disagree). Before that split every fork-free test in the tree ran
 # twice per run — the whole `unit` node, ~5m, on the critical path for nothing.
 #
-# `daemon` deliberately does NOT depend on `unit`: the edge's only
-# justification was an externally SIGKILLed pair of pnpm/Vitest trees on
-# `petit` — a box that predates the leased Incus pool (`kolu-ci-1..8`) every
-# Linux lane now runs on — and it cost the whole `unit` node (~2m) of latency
-# on a node whose own work is a sharded ~1m per slice. Both root recipes pin
-# `--workspace-concurrency=1`, so the two trees the runner starts together are
-# each bounded to one package at a time.
+# `daemon` deliberately does NOT depend on `unit`. The lone incident behind that
+# edge is the macOS `petit` SIGKILL pair recorded in docs/ci-flakes.md: the root
+# recipes then had unbounded package concurrency, and `unit` and `daemon` each
+# traversed the whole workspace. Both causes were fixed on their own —
+# `--workspace-concurrency=1` bounds each tree, and the split above means the
+# two nodes no longer run the same suites — so the edge was, by then, a third
+# fix for a cause the other two had removed: a darwin incident's remedy levied
+# on the Linux lane. What it costs is structural — the whole `unit` node on
+# `daemon`'s critical path, and that closure replayed on every borrowed daemon
+# shard box before its own slice.
 #
 # SHARDED (the shard contract is at the top of this file): the Linux lane's
 # second-longest pole. Its wall time is a handful of expensive FILES, not one
