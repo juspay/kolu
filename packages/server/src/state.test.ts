@@ -244,14 +244,6 @@ describe("migratePreferences_1_41_0 — one profile becomes the stack", () => {
       });
   });
 
-  it("Juspay's reference — once the never-chosen default — never becomes an entry: Juspay is opt-in", () => {
-    for (const enabled of [true, false])
-      expect(stored({ enabled, profile: "github:juspay/skills" })).toEqual({
-        enabled,
-        profiles: [],
-      });
-  });
-
   it("any other profile becomes the stack's one entry, on or off", () => {
     for (const enabled of [true, false])
       expect(stored({ enabled, profile: "github:me/p" })).toEqual({
@@ -291,7 +283,7 @@ describe("migratePreferences_1_41_0 — one profile becomes the stack", () => {
   });
 });
 
-describe("migratePreferences_1_42_0 — Juspay leaves a 1.41.0 stack: it is opt-in", () => {
+describe("migratePreferences_1_42_0 — Juspay leaves the stack: it is opt-in", () => {
   const base = { ...DEFAULT_PREFERENCES } as Record<string, unknown>;
   const JUSPAY = "github:juspay/skills";
 

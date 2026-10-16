@@ -53,6 +53,26 @@ export function sameStack(a: readonly string[], b: readonly string[]): boolean {
   return a.length === b.length && a.every((ref, i) => ref === b[i]);
 }
 
+/** A set as one string — the package and every profile's build, in order:
+ *  two sets are the same set exactly when their keys are equal. */
+export function setKey(set: DeliveredSet): string {
+  return JSON.stringify([set.bundle, ...set.profiles.map((p) => p.path)]);
+}
+
+/** Are two sets the same — the same package and the same builds, in order? */
+export function sameSet(a: DeliveredSet, b: DeliveredSet): boolean {
+  return setKey(a) === setKey(b);
+}
+
+/** How a stack is named: each profile by the name its build gives itself, in
+ *  stack order — `juspay + ekala`, as agent-distro names a stack. Empty for no
+ *  profiles. */
+export function stackTitle(
+  profiles: readonly Pick<DeliveredProfile, "name">[],
+): string {
+  return profiles.map((p) => p.name).join(" + ");
+}
+
 /** The references a delivered stack names, in order. */
 export function referencesOf(profiles: readonly DeliveredProfile[]): string[] {
   return profiles.map((p) => p.reference);
@@ -117,8 +137,6 @@ export function deliveryChanges(
       referencesOf(next.set.profiles),
     )
   )
-    words.push(
-      `profiles reordered: ${next.set.profiles.map((p) => p.name).join(" + ")}`,
-    );
+    words.push(`profiles reordered: ${stackTitle(next.set.profiles)}`);
   return words.join(", ");
 }

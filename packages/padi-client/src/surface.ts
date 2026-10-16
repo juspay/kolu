@@ -601,10 +601,11 @@ export * from "./transcriptSchema.ts";
  *  and delivered beside it. The `agentDistro` setting's `profile: string`
  *  becomes `profiles: string[]` (the stack, bottom to top); every
  *  `agentDistroStatus` arm that named a profile names the stack (`profiles`),
- *  and `ready` gains a REQUIRED `delivered` (the built profiles new terminals
- *  get as `AI_PROFILE`); `agentDistro.report`'s arms name the stack, and
- *  `landed` carries the built profiles (`delivered`); the receipt drops its
- *  `profile` for the landed `profiles`; the record's `agents` becomes
+ *  and `ready` carries the whole `set` instead (the package and the built
+ *  profiles new terminals get as `AI_PROFILE` — its stack is theirs);
+ *  `agentDistro.report`'s arms name the stack, and `landed` carries the `set`;
+ *  the receipt drops `profile`, `bundle` and `versions` for one optional
+ *  `serving: { set, versions }`; the record's `agents` becomes
  *  `{ bundle, profiles, effective? }` with `effective` naming the composed
  *  stack (`name`, `description`, `source`). The `agentDistroResolved` cell is
  *  GONE: kolu-server resolves a profile when it builds it, so a host has

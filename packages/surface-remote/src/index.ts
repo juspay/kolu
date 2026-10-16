@@ -33,6 +33,7 @@ export {
 export {
   type ClosureRoute,
   closureRoute,
+  isDarwinSystem,
   type SignedBecause,
   signedBecause,
 } from "./closureRoute";

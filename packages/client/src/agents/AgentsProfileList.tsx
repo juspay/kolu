@@ -30,6 +30,7 @@ import {
   AGENTS_UNRESOLVED_MEANS,
   type AgentsResolvedLine,
   JUSPAY_OFFER,
+  juspayOffered,
   type ProfileSuggestion,
   profilesWithAdded,
   profilesWithMoved,
@@ -293,8 +294,6 @@ type RowAction = "up" | "down" | "remove";
 const AgentsProfileList: Component<{
   /** The list's rows, in stack order. */
   rows: readonly ProfileListRow[];
-  /** Offer Juspay's one-click entry (`juspayOffered`). */
-  juspay: boolean;
   /** The add field's suggestions (`profileSuggestions`) — the field shows
    *  only when they are given (Settings); the welcome step keeps to the
    *  one-click entry. */
@@ -476,7 +475,7 @@ const AgentsProfileList: Component<{
           </div>
         </li>
       </ol>
-      <Show when={props.juspay}>
+      <Show when={juspayOffered(references())}>
         <button
           type="button"
           data-testid="agents-add-juspay"

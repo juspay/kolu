@@ -125,9 +125,20 @@ export interface AgentDelivery {
 }
 
 /** A remembered answer and when it was read, epoch ms. */
+/** How a run reads: `since` — the ask count when a fresh run started, which
+ *  takes only answers asked after — or absent for a connect, which reuses the
+ *  period's. */
+interface Run {
+  readonly since?: number;
+}
+
+/** A remembered answer: when it was asked (wall clock, for the period), its
+ *  place in the order of asks (for a fresh run), and whether it failed. */
 interface Known<T> {
   readonly value: T;
   readonly at: number;
+  readonly ask: number;
+  failed: boolean;
 }
 
 export function createAgentDelivery(deps: {
@@ -166,40 +177,54 @@ export function createAgentDelivery(deps: {
    *  delivery, never folded into the one still running. */
   const inFlight = new Set<string>();
 
-  /** A remembered answer when `fresh` allows and its period has not turned,
-   *  else a new one. The PROMISE is remembered, the moment it is asked — so
-   *  runs that overlap (one per host's connect) share one read or build
-   *  rather than each starting its own — and forgotten if it fails, so the
-   *  next run asks again. */
+  /** Every answer asked, counted: a fresh run takes only answers asked after
+   *  it started (a count, never the clock — two asks in one millisecond are
+   *  still ordered). */
+  let asks = 0;
+
+  /** A remembered answer, or a new one. A run that may reuse (a connect,
+   *  `since` absent) takes a settled-well answer while its schedule period
+   *  has not turned; a fresh run (the user's check, the schedule) takes only
+   *  one asked since it started — failed or not, so its hosts share ONE
+   *  read, lock and build, and see the same answer. The PROMISE is remembered
+   *  the moment it is asked, so runs that overlap share it too; a failed one
+   *  is never handed to a later run, which asks again. */
   const reuse = <T>(
     memo: Map<string, Known<Promise<T>>>,
     key: string,
-    fresh: boolean,
+    run: Run,
     read: () => Promise<T>,
   ): Promise<T> => {
     const last = memo.get(key);
     if (
-      !fresh &&
       last !== undefined &&
-      !updateDue(
-        Math.floor(now() / 1000),
-        Math.floor(last.at / 1000),
-        schedule.periodSeconds,
-        schedule.offsetSeconds,
-      )
+      (run.since === undefined
+        ? !last.failed &&
+          !updateDue(
+            Math.floor(now() / 1000),
+            Math.floor(last.at / 1000),
+            schedule.periodSeconds,
+            schedule.offsetSeconds,
+          )
+        : last.ask > run.since)
     )
       return last.value;
     const value = read();
-    const known = { value, at: now() };
+    const known: Known<Promise<T>> = {
+      value,
+      at: now(),
+      ask: ++asks,
+      failed: false,
+    };
     memo.set(key, known);
     value.catch(() => {
-      if (memo.get(key) === known) memo.delete(key);
+      known.failed = true;
     });
     return value;
   };
 
-  const readIndex = (system: string, fresh: boolean) =>
-    reuse(indexed, system, fresh, async () => {
+  const readIndex = (system: string, run: Run) =>
+    reuse(indexed, system, run, async () => {
       const entry = await ops.published(system);
       log.info(
         { system, rev: entry.rev, ia: entry.ia, ca: entry.ca },
@@ -208,8 +233,8 @@ export function createAgentDelivery(deps: {
       return entry;
     });
 
-  const readLock = (reference: string, fresh: boolean) =>
-    reuse(locks, reference, fresh, async () => {
+  const readLock = (reference: string, run: Run) =>
+    reuse(locks, reference, run, async () => {
       const locked = await ops.lock(reference);
       log.info(
         { reference, tree: locked.tree, rev: locked.rev },
@@ -222,12 +247,12 @@ export function createAgentDelivery(deps: {
     rev: string,
     locked: LockedProfile,
     hostSystem: string,
-    fresh: boolean,
+    run: Run,
   ) =>
     reuse(
       builds,
       JSON.stringify([rev, locked.tree, hostSystem]),
-      fresh,
+      run,
       async () => {
         const built = await ops.build({ rev, locked, hostSystem });
         log.info(
@@ -238,51 +263,21 @@ export function createAgentDelivery(deps: {
       },
     );
 
-  /** One run's reads, each asked once: the index per system, each lock, each
-   *  build. */
-  const runReads = (fresh: boolean) => {
-    const index = new Map<string, Promise<PublishedClosure>>();
-    const lock = new Map<string, Promise<LockedProfile>>();
-    const build = new Map<string, Promise<BuiltProfile>>();
-    const once = <T>(
-      m: Map<string, Promise<T>>,
-      key: string,
-      read: () => Promise<T>,
-    ): Promise<T> => {
-      let p = m.get(key);
-      if (p === undefined) {
-        p = read();
-        m.set(key, p);
-      }
-      return p;
-    };
-    return {
-      index: (system: string) =>
-        once(index, system, () => readIndex(system, fresh)),
-      lock: (reference: string) =>
-        once(lock, reference, () => readLock(reference, fresh)),
-      build: (rev: string, locked: LockedProfile, hostSystem: string) =>
-        once(build, JSON.stringify([rev, locked.tree, hostSystem]), () =>
-          readBuild(rev, locked, hostSystem, fresh),
-        ),
-    };
-  };
-
   /** Lock and build `reference` for `hostSystem`, with the package's `rev`. */
   const profileFor = async (
-    reads: ReturnType<typeof runReads>,
+    run: Run,
     reference: string,
     rev: string,
     hostSystem: string,
   ): Promise<{ locked: LockedProfile; built: BuiltProfile }> => {
-    const locked = await reads.lock(reference);
-    return { locked, built: await reads.build(rev, locked, hostSystem) };
+    const locked = await readLock(reference, run);
+    return { locked, built: await readBuild(rev, locked, hostSystem, run) };
   };
 
   /** Say, for this machine's system, whether each profile of `stack` builds. */
   const resolveStack = async (
     stack: readonly string[],
-    reads: ReturnType<typeof runReads>,
+    run: Run,
   ): Promise<void> => {
     if (stack.length === 0) {
       deps.onResolution([]);
@@ -301,12 +296,12 @@ export function createAgentDelivery(deps: {
     publish();
     try {
       const { system } = await ops.hostNixOf("localhost");
-      const { rev } = await reads.index(system);
+      const { rev } = await readIndex(system, run);
       await Promise.all(
         stack.map(async (reference) => {
           try {
             const { locked, built } = await profileFor(
-              reads,
+              run,
               reference,
               rev,
               system,
@@ -357,7 +352,7 @@ export function createAgentDelivery(deps: {
   const deliverOne = async (
     host: DeliveryHost,
     stack: readonly string[],
-    reads: ReturnType<typeof runReads>,
+    run: Run,
   ): Promise<HostOutcome> => {
     const at = { host: host.label, agentDistroProfiles: stack };
     const onProgress = (line: string) =>
@@ -371,14 +366,14 @@ export function createAgentDelivery(deps: {
     };
     try {
       const hostNix = await ops.hostNixOf(host.ssh);
-      const published = await reads.index(hostNix.system);
+      const published = await readIndex(hostNix.system, run);
       const delivered: DeliveredProfile[] = [];
       for (const reference of stack) {
         let built: BuiltProfile;
         let locked: LockedProfile;
         try {
           ({ locked, built } = await profileFor(
-            reads,
+            run,
             reference,
             published.rev,
             hostNix.system,
@@ -413,16 +408,9 @@ export function createAgentDelivery(deps: {
         onProgress,
       });
       if (!res.ok) return await failed(res.message);
-      await report(host, {
-        kind: "landed",
-        profiles: stack,
-        bundle: res.bundle,
-        delivered,
-      });
-      log.info(
-        { ...at, bundle: res.bundle, delivered },
-        "agent-distro set delivered",
-      );
+      const set = { bundle: res.bundle, profiles: delivered };
+      await report(host, { kind: "landed", set });
+      log.info({ ...at, set }, "agent-distro set delivered");
       return "landed";
     } catch (err) {
       log.warn({ ...at, err }, "agent-distro delivery failed");
@@ -438,7 +426,7 @@ export function createAgentDelivery(deps: {
         deps.onResolution([]);
         return;
       }
-      await resolveStack(stack, runReads(false));
+      await resolveStack(stack, {});
     },
     run: async ({ keys, trigger }) => {
       const stack = deps.stack();
@@ -456,10 +444,10 @@ export function createAgentDelivery(deps: {
           ours.push(host);
         }
       }
-      const reads = runReads(trigger !== "connect");
+      const run: Run = trigger === "connect" ? {} : { since: asks };
       // Settings learns whether each profile builds, whether or not a host is
       // reachable this run.
-      const resolved = resolveStack(stack, reads);
+      const resolved = resolveStack(stack, run);
       if (ours.length === 0) {
         await resolved;
         return outcomes;
@@ -480,7 +468,7 @@ export function createAgentDelivery(deps: {
           ...ours.filter((h) => !live.includes(h)).map(() => "failed" as const),
         );
         outcomes.push(
-          ...(await Promise.all(live.map((h) => deliverOne(h, stack, reads)))),
+          ...(await Promise.all(live.map((h) => deliverOne(h, stack, run)))),
         );
         await resolved;
         return outcomes;

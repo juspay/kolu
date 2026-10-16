@@ -32,15 +32,16 @@ export function versionsOf(bundle: string): Version[] | undefined {
   return text === undefined ? undefined : parseVersions(text);
 }
 
-/** The receipt on this host: the versions and profiles of `serving` (the set
- *  new terminals get there now, if any), the last run, and the last few
- *  history events. `unlanded` is the last delivery that landed nothing, as the
- *  delivery record remembers it — shown when it is newer than what the files
- *  say. Throws on a history or versions file upstream's readers refuse. */
+/** The receipt on this host: the set new terminals get there now (if any)
+ *  with its package's harnesses, the last run, and the last few history
+ *  events. `failure` is the setting's stack's last delivery that landed
+ *  nothing, as the delivery record keeps it — shown when it is newer than
+ *  what the files say. Throws on a history or versions file upstream's
+ *  readers refuse. */
 export function readReceipt(
   bake: AgentDistroBake,
   serving: DeliveredSet | undefined,
-  unlanded: AgentUpdateRun | undefined,
+  failure: AgentUpdateRun | undefined,
 ): AgentDistroReceipt {
   const events = recentEvents(readOrUndefined(bake.historyFile) ?? "");
   const stampText = readOrUndefined(lastSuccessFile(bake.stateDir));
@@ -49,15 +50,19 @@ export function readReceipt(
     stampText === undefined ? null : parseStamp(stampText),
   );
   const lastRun =
-    unlanded !== undefined &&
-    (fromFiles === undefined || unlanded.at > fromFiles.at + SAME_RUN_MS)
-      ? unlanded
+    failure !== undefined &&
+    (fromFiles === undefined || failure.at > fromFiles.at + SAME_RUN_MS)
+      ? failure
       : fromFiles;
   return {
-    ...(serving === undefined ? {} : { bundle: serving.bundle }),
-    versions:
-      serving === undefined ? [] : [...(versionsOf(serving.bundle) ?? [])],
-    profiles: serving === undefined ? [] : [...serving.profiles],
+    ...(serving === undefined
+      ? {}
+      : {
+          serving: {
+            set: serving,
+            versions: [...(versionsOf(serving.bundle) ?? [])],
+          },
+        }),
     ...(lastRun === undefined ? {} : { lastRun }),
     events: [...events],
   };

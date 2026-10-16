@@ -418,7 +418,7 @@ async function readyWithNoProfiles(): Promise<
 > {
   const status = await padiValue<AgentDistroStatus>(
     "agentDistroStatus/get",
-    (s) => s.kind === "ready" && s.profiles.length === 0,
+    (s) => s.kind === "ready" && s.set.profiles.length === 0,
     "the agents ready with no profiles",
   );
   if (status.kind !== "ready") throw new Error("not ready");
@@ -547,7 +547,7 @@ Then(
     const status = await readyWithNoProfiles();
     assert.match(
       await profiles.innerText(),
-      new RegExp(escapeRegExp(agentBundleShortHash(status.bundle))),
+      new RegExp(escapeRegExp(agentBundleShortHash(status.set.bundle))),
     );
   },
 );
@@ -586,7 +586,7 @@ Then(
   async function (this: KoluWorld) {
     const status = await readyWithNoProfiles();
     const pill = this.page.locator(
-      `${PILL}[data-hash="${agentBundleShortHash(status.bundle)}"]`,
+      `${PILL}[data-hash="${agentBundleShortHash(status.set.bundle)}"]`,
     );
     await pill.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
     assert.strictEqual(

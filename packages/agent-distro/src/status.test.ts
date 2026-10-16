@@ -53,8 +53,8 @@ import {
   profilesWithRemoved,
   RECENT_PROFILES_CAP,
   rememberProfiles,
+  referencesTitle,
   restartedLabel,
-  stackTitle,
   updateLanded,
 } from "./status.ts";
 
@@ -107,9 +107,7 @@ const ready = (
   delivering = false,
 ): Extract<AgentDistroStatus, { kind: "ready" }> => ({
   kind: "ready",
-  profiles: delivered.map((p) => p.reference),
-  bundle,
-  delivered,
+  set: { bundle, profiles: delivered },
   delivering,
 });
 
@@ -288,9 +286,22 @@ describe("naming profiles", () => {
     expect(agentProfileTitle(EKALA_REF)).toBe(EKALA_REF);
   });
 
-  it("stackTitle: each built profile by its own name, bottom to top", () => {
-    expect(stackTitle([JUSPAY, EKALA])).toBe("juspay + ekala");
-    expect(stackTitle([])).toBe("");
+  it("referencesTitle: each reference by its built name once resolved, else as itself", () => {
+    expect(referencesTitle([JUSPAY_PROFILE, EKALA_REF])).toBe(
+      `${JUSPAY_OFFER.title} + ${EKALA_REF}`,
+    );
+    expect(
+      referencesTitle(
+        [JUSPAY_PROFILE, EKALA_REF],
+        [
+          {
+            reference: EKALA_REF,
+            resolution: { kind: "resolved", name: "ekala", description: "" },
+          },
+        ],
+      ),
+    ).toBe(`${JUSPAY_OFFER.title} + ekala`);
+    expect(referencesTitle([])).toBe("");
   });
 });
 
@@ -650,9 +661,7 @@ describe("agentFleetSummary — the ONE fleet line in Settings", () => {
 
 describe("agentHostDetail — one machine's agents, in its host details", () => {
   const receipt = (over: Partial<AgentDistroReceipt>): AgentDistroReceipt => ({
-    bundle: PKG,
-    versions: [],
-    profiles: [JUSPAY],
+    serving: { set: { bundle: PKG, profiles: [JUSPAY] }, versions: [] },
     events: [],
     ...over,
   });
@@ -940,13 +949,7 @@ describe("agentChips — the harnesses the Agents row names", () => {
       { title: "Codex", version: "0.160.1" },
     ]);
     // A receipt with no package serving is not this machine's versions.
-    expect(
-      chips(on(), {
-        versions: [{ name: "claude", title: "Claude Code", version: "9" }],
-        profiles: [],
-        events: [],
-      }),
-    ).toEqual([
+    expect(chips(on(), { events: [] })).toEqual([
       { title: "Claude Code", version: "2.1.291" },
       { title: "Codex", version: "0.160.1" },
     ]);
@@ -955,16 +958,20 @@ describe("agentChips — the harnesses the Agents row names", () => {
   it("on: this machine's own versions once its receipt names a package — none when it records none", () => {
     expect(
       chips(on(), {
-        bundle: PKG,
-        versions: [
-          { name: "claude", title: "Claude Code", version: "2.1.299" },
-        ],
-        profiles: [],
+        serving: {
+          set: { bundle: PKG, profiles: [] },
+          versions: [
+            { name: "claude", title: "Claude Code", version: "2.1.299" },
+          ],
+        },
         events: [],
       }),
     ).toEqual([{ title: "Claude Code", version: "2.1.299" }]);
     expect(
-      chips(on(), { bundle: PKG, versions: [], profiles: [], events: [] }),
+      chips(on(), {
+        serving: { set: { bundle: PKG, profiles: [] }, versions: [] },
+        events: [],
+      }),
     ).toEqual([]);
   });
 
@@ -980,11 +987,12 @@ describe("agentChips — the harnesses the Agents row names", () => {
     ]);
     expect(
       chips(on(), {
-        bundle: PKG,
-        versions: [
-          { name: "opencode", title: "OpenCode", version: "1.18.36+aa" },
-        ],
-        profiles: [],
+        serving: {
+          set: { bundle: PKG, profiles: [] },
+          versions: [
+            { name: "opencode", title: "OpenCode", version: "1.18.36+aa" },
+          ],
+        },
         events: [],
       }),
     ).toEqual([{ title: "OpenCode", version: "1.18.36" }]);
@@ -1277,7 +1285,6 @@ describe("updateLanded — the moment a delivery is worth the updated toast", ()
     expect(facts(ready([JUSPAY]))).toEqual({
       stack: JSON.stringify([JUSPAY_PROFILE]),
       set: JSON.stringify([PKG, JUSPAY.path]),
-      bundle: PKG,
     });
     expect(facts({ kind: "off" })).toBeUndefined();
     expect(
@@ -1327,25 +1334,22 @@ describe("receiptSet — a receipt paired with the set that landed", () => {
     ];
     const facts = landedFacts({
       kind: "ready",
-      profiles: [JUSPAY_PROFILE],
-      bundle: "/nix/store/b-agent-distro",
-      delivered,
+      set: { bundle: "/nix/store/b-agent-distro", profiles: delivered },
       delivering: false,
     });
     expect(
       receiptSet({
-        bundle: "/nix/store/b-agent-distro",
-        versions: [],
-        profiles: delivered,
+        serving: {
+          set: { bundle: "/nix/store/b-agent-distro", profiles: delivered },
+          versions: [],
+        },
         events: [],
       }),
     ).toBe(facts?.set);
   });
 
   it("is undefined for a receipt with nothing serving", () => {
-    expect(
-      receiptSet({ versions: [], profiles: [], events: [] }),
-    ).toBeUndefined();
+    expect(receiptSet({ events: [] })).toBeUndefined();
   });
 });
 
@@ -1356,16 +1360,22 @@ describe("a history line from before agent-distro was one package", () => {
         label: "box",
         status: {
           kind: "ready",
-          profiles: [],
-          bundle: "/nix/store/nd11nx5f1dkf02cr9dhxqq4axg23vzgc-agent-distro",
-          delivered: [],
+          set: {
+            bundle: "/nix/store/nd11nx5f1dkf02cr9dhxqq4axg23vzgc-agent-distro",
+            profiles: [],
+          },
           delivering: false,
         },
         checking: false,
         receipt: {
-          bundle: "/nix/store/nd11nx5f1dkf02cr9dhxqq4axg23vzgc-agent-distro",
-          versions: [],
-          profiles: [],
+          serving: {
+            set: {
+              bundle:
+                "/nix/store/nd11nx5f1dkf02cr9dhxqq4axg23vzgc-agent-distro",
+              profiles: [],
+            },
+            versions: [],
+          },
           events: [
             {
               at: "2026-10-06T22:07:03-04:00",

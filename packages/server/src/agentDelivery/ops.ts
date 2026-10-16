@@ -29,6 +29,7 @@ import {
   type FetchText,
   fetchClosureIndex,
   homeGcRoot,
+  isDarwinSystem,
   isLocalHost,
   makeStepBudget,
   PROVISION_STEP_MAX_EXPIRIES,
@@ -123,7 +124,7 @@ export function realDeliveryOps(bake: AgentDistroDelivery): DeliveryOps {
       if (
         res.kind === "failed" ||
         isLocalHost(ssh) ||
-        !hostNix.system.endsWith("-darwin")
+        !isDarwinSystem(hostNix.system)
       )
         return { ok: false, message: why };
       // A Mac takes only the signed form, and this machine's build is signed

@@ -519,7 +519,8 @@ layer carry it; the module is `src/agentDistro/`.
   stack of the set that landed. Not on the MCP face.
 - **`agentDistroStatus` (read-only)** — whether the setting's set is on THIS
   host. A set serves only while its profiles are the setting's stack, in order:
-  `ready` (the package and the built profiles new terminals get, and
+  `ready` (the set new terminals get — the package and the built profiles,
+  whose references are the stack — and
   `delivering` — true while kolu-server delivers a newer set for the same stack
   and this one keeps serving), `downloading` (nothing serves this stack yet;
   kolu-server has reported it is delivering it), `undelivered` (nothing serves
@@ -527,13 +528,13 @@ layer carry it; the module is `src/agentDistro/`.
   under way), `error` (the delivery failed and nothing serves: its cause in
   kolu-server's words, with Nix's own line; or a landed record this host cannot
   hold, in padi's), `off`, or `unavailable` (an unbaked, from-source padi).
-  Every arm about a stack names it (`profiles`), so a reader drops one padi has
-  not caught up from. A changed list therefore waits for its own set: no
+  Every other arm about a stack names it (`profiles`), so a reader drops one
+  padi has not caught up from. A changed list therefore waits for its own set: no
   terminal starts without a profile the setting names.
 - **`agentDistroReceipt` (read-only)** — what this host keeps of its
   deliveries, read off the files on the host (which padi writes as each
-  delivery lands): the serving package and its versions
-  (`share/agent-distro/versions`), the profiles that landed with it, the last
+  delivery lands): the set that serves, with its package's versions
+  (`share/agent-distro/versions`), the last
   run (`updated` · `unchanged` · `skipped` · `failed`, with its words and who
   wrote them), and the last five history events (`history.log`, read with
   upstream's own parser). Published at boot, at every delivery report, and when

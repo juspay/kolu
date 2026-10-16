@@ -38,12 +38,13 @@ const ready = (
   opts: { delivering?: boolean; profilePath?: string } = {},
 ): AgentDistroStatus => ({
   kind: "ready",
-  profiles: opts.profilePath === undefined ? [] : [JUSPAY],
-  bundle,
-  delivered:
-    opts.profilePath === undefined
-      ? []
-      : [{ reference: JUSPAY, name: "juspay", path: opts.profilePath }],
+  set: {
+    bundle,
+    profiles:
+      opts.profilePath === undefined
+        ? []
+        : [{ reference: JUSPAY, name: "juspay", path: opts.profilePath }],
+  },
   delivering: opts.delivering ?? false,
 });
 

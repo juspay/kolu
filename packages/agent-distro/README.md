@@ -58,7 +58,9 @@ The **TypeScript half**, as data and pure functions:
   parser. kolu-server reads it off each profile it builds.
 - `./landing` — what kolu delivers to a host: `DeliveredProfile` (reference,
   name, locked revision, store path) and `DeliveredSet` (the package and its
-  profiles, in stack order — padi's `landed.json`), `sameStack`, and
+  profiles, in stack order — padi's `landed.json`), one identity for a set
+  (`setKey`, `sameSet`) and for a stack (`sameStack`, `referencesOf`), how a
+  delivered stack is named (`stackTitle`: `juspay + ekala`), and
   `deliveryChanges`, the history log's words for a landing in upstream's idiom
   (`changes()` for the package, extended for profiles: `juspay a1b2c3d →
   d4e5f6a`, `ekala added 9f8e7d6`, `profiles reordered: …`).
@@ -78,14 +80,14 @@ The **TypeScript half**, as data and pure functions:
   defined once: `AgentDistroSetting` (`{ enabled, profiles }` — what
   kolu-server pushes; kolu-common's preference field is this schema),
   `AgentDistroDeliveryReport` (what kolu-server tells a padi about a delivery:
-  `delivering` · `landed` with the package and the built profiles · `failed`
+  `delivering` · `landed` with the set — the package and the built profiles · `failed`
   with its cause in kolu-server's words, each naming the stack it is about),
   `AgentDistroStatus` (what padi reports — and what a new terminal there gets:
   a set serves only while it is the setting's stack), `AgentProfiles` (whether
   each profile of the setting builds — kolu-server's `agentProfiles` cell),
-  `AgentDistroReceipt` (what a host keeps of its deliveries: the serving
-  package's versions, the profiles that landed with it, the last run, the last
-  five events, and `error` when the host's files would not read), their
+  `AgentDistroReceipt` (what a host keeps of its deliveries: the set that
+  serves with its package's versions, the last run, the last five events, and
+  `error` when the host's files would not read), their
   defaults and equality, and `TerminalAgents` (the one `agents` field a
   terminal record is stamped with: the package, the built profiles exported as
   `AI_PROFILE`, and the profile in effect, `./inEffect`). padi-client and
@@ -122,7 +124,7 @@ The **TypeScript half**, as data and pure functions:
   `agentRestartReady`, `agentRestartAction`, `agentStaleLabel`,
   `restartedLabel`); the tile pill's words (`agentChipProfile`,
   `agentChipLabel`); keeping it current (`AGENTS_CHECK_NOW`,
-  `agentCheckFailed`, `landedFacts`, `updateLanded`); and the setting's own
+  `agentCheckFailed`, `landedFacts`, `receiptSet`, `updateLanded`); and the setting's own
   toasts (`agentToast`) — typed against `./schema`, so a field added to the
   wire is one the folds must handle.
 - `./testing` — test support only: `packageFiles` (the package's versions

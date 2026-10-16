@@ -39,7 +39,6 @@ import {
   agentToast,
   agentsHint,
   agentsStepHint,
-  juspayOffered,
   profileSuggestions,
   rememberProfiles,
 } from "@kolu/agent-distro/status";
@@ -154,13 +153,11 @@ export default function AgentsChooser(props: {
           reference,
           title: agentProfileTitle(reference),
         }))}
-        juspay={juspayOffered(held())}
         onChange={setHeld}
       />
     ) : (
       <AgentsProfileList
         rows={agentProfileRows(agentDistroSetting(), agentProfilesNow())}
-        juspay={juspayOffered(agentDistroSetting().profiles)}
         suggestions={profileSuggestions({
           recent: preferences().agentProfilesRecent,
           profiles: agentDistroSetting().profiles,

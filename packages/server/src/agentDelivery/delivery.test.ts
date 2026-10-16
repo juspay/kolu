@@ -12,6 +12,7 @@
  * delivery.
  */
 
+import { referencesOf } from "@kolu/agent-distro/landing";
 import type { AgentProfiles } from "@kolu/agent-distro/schema";
 import type { AgentDistroDeliveryReport } from "@kolu/agent-distro/schema";
 import type { Logger } from "@kolu/log";
@@ -221,7 +222,7 @@ describe("createAgentDelivery — the package", () => {
     expect(outcomes).toEqual(["landed"]);
     expect(local.reports).toEqual([
       { kind: "delivering", profiles: [] },
-      { kind: "landed", profiles: [], bundle: ca, delivered: [] },
+      { kind: "landed", set: { bundle: ca, profiles: [] } },
     ]);
     expect(nix.pulled).toEqual([
       { ssh: "localhost", system: "x86_64-linux", storePath: ca },
@@ -249,9 +250,7 @@ describe("createAgentDelivery — the package", () => {
     });
     expect(mac.reports.at(-1)).toEqual({
       kind: "landed",
-      profiles: [],
-      bundle: "/nix/store/signed-ia-bundle",
-      delivered: [],
+      set: { bundle: "/nix/store/signed-ia-bundle", profiles: [] },
     });
   });
 
@@ -333,7 +332,9 @@ describe("createAgentDelivery — the package", () => {
         },
       ]);
     }
-    expect(nix.reads).toHaveLength(1);
+    // One read for the whole run — Settings' resolution and every host share
+    // it, failed as it is, so they all see the same answer.
+    expect(nix.reads).toEqual(["x86_64-linux"]);
     expect(nix.builds).toEqual([]);
     expect(nix.pulled).toEqual([]);
     // No profile can be built here, and Settings says why.
@@ -399,19 +400,20 @@ describe("createAgentDelivery — the profiles", () => {
     expect(nix.shipped.map((s) => s.path)).toEqual([juspayPath, minePath]);
     expect(box.reports.at(-1)).toEqual({
       kind: "landed",
-      profiles: [JUSPAY, MINE],
-      bundle: caFor(nix.reads.indexOf("aarch64-linux") + 1, "aarch64-linux"),
-      delivered: [
-        // The path is the one the host has (`ship`'s answer); a path
-        // reference has no revision.
-        {
-          reference: JUSPAY,
-          name: "skills",
-          rev: LOCKED_REV,
-          path: `${juspayPath}-on-box`,
-        },
-        { reference: MINE, name: "my-profile", path: `${minePath}-on-box` },
-      ],
+      set: {
+        bundle: caFor(nix.reads.indexOf("aarch64-linux") + 1, "aarch64-linux"),
+        profiles: [
+          // The path is the one the host has (`ship`'s answer); a path
+          // reference has no revision.
+          {
+            reference: JUSPAY,
+            name: "skills",
+            rev: LOCKED_REV,
+            path: `${juspayPath}-on-box`,
+          },
+          { reference: MINE, name: "my-profile", path: `${minePath}-on-box` },
+        ],
+      },
     });
   });
 
@@ -641,7 +643,9 @@ describe("createAgentDelivery — reads and builds, each asked once", () => {
     await delivery.run({ trigger: "connect" });
     expect(nix.reads).toHaveLength(3);
     expect(nix.locks).toHaveLength(3);
-    // The schedule reads afresh too.
+    // The schedule reads afresh too — even within the period, an answer asked
+    // before it started is not its own.
+    now = at("2026-10-08T14:02:00Z");
     await delivery.run({ trigger: "schedule" });
     expect(nix.reads).toHaveLength(4);
     expect(nix.locks).toHaveLength(4);
@@ -830,16 +834,17 @@ describe("createAgentDelivery — hosts and runs", () => {
     expect(await first).toEqual(["landed"]);
     expect(await second).toEqual(["landed"]);
     // Each delivery told its own stack's story.
+    const stackOf = (r: AgentDistroDeliveryReport) =>
+      r.kind === "landed" ? referencesOf(r.set.profiles) : r.profiles;
     const story = (s: readonly string[]) =>
       box.reports
-        .filter((r) => JSON.stringify(r.profiles) === JSON.stringify(s))
+        .filter((r) => JSON.stringify(stackOf(r)) === JSON.stringify(s))
         .map((r) => r.kind);
     expect(story([])).toEqual(["delivering", "landed"]);
     expect(story([JUSPAY])).toEqual(["delivering", "landed"]);
     expect(box.reports.at(-1)).toMatchObject({
       kind: "landed",
-      profiles: [JUSPAY],
-      delivered: [{ reference: JUSPAY, name: "skills" }],
+      set: { profiles: [{ reference: JUSPAY, name: "skills" }] },
     });
     expect(delivery.running()).toBe(false);
   });

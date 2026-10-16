@@ -35,17 +35,13 @@ import {
   type DeliveredSet,
   deliveryChanges,
   parseDeliveredSet,
+  referencesOf,
 } from "@kolu/agent-distro/landing";
 import type { AgentUpdateRun } from "@kolu/agent-distro/receipt";
 import { log } from "../log.ts";
 import type { AgentDistroBake } from "./bake.ts";
 import { assertSetOnHost, readOrUndefined } from "./onHost.ts";
 import { versionsOf } from "./receipt.ts";
-
-/** Why the last delivery failed, in kolu-server's (or padi's) words. */
-export interface DeliveryFailure {
-  readonly message: string;
-}
 
 /** A stack, as the delivery record keys it. */
 function key(stack: readonly string[]): string {
@@ -54,12 +50,12 @@ function key(stack: readonly string[]): string {
 
 /** Stacks kolu-server is delivering to this host right now. */
 const delivering = new Set<string>();
-/** Stacks whose last delivery failed, and why — cleared when the next one
- *  starts or lands. */
-const failed = new Map<string, DeliveryFailure>();
-/** The last delivery that landed nothing — the one thing the host's files do
- *  not show (a failure writes no history line). */
-let unlanded: AgentUpdateRun | undefined;
+/** Each stack's last delivery that landed nothing — when, why (in
+ *  kolu-server's or padi's words), and who said so: the one thing the host's
+ *  files do not show (a failure writes no history line). Kept while a newer
+ *  attempt runs, so it stays the last run until that one ends; cleared when
+ *  a set lands. */
+const failed = new Map<string, AgentUpdateRun>();
 
 /** Where the deliveries of `stack` stand: one in flight, a failed last one, or
  *  nothing to say (`undefined`). */
@@ -67,52 +63,53 @@ export function deliveryOf(
   stack: readonly string[],
 ):
   | { readonly kind: "delivering" }
-  | { readonly kind: "failed"; readonly failure: DeliveryFailure }
+  | { readonly kind: "failed"; readonly failure: AgentUpdateRun }
   | undefined {
   if (delivering.has(key(stack))) return { kind: "delivering" };
   const failure = failed.get(key(stack));
   return failure === undefined ? undefined : { kind: "failed", failure };
 }
 
-/** The last delivery that landed nothing, if any. */
-export function unlandedRun(): AgentUpdateRun | undefined {
-  return unlanded;
+/** `stack`'s last delivery that landed nothing, if any — a newer attempt may
+ *  be running. */
+export function lastFailureOf(
+  stack: readonly string[],
+): AgentUpdateRun | undefined {
+  return failed.get(key(stack));
 }
 
 /** A delivery of `stack` started. */
 export function deliveryStarted(stack: readonly string[]): void {
   delivering.add(key(stack));
-  failed.delete(key(stack));
 }
 
 /** A delivery of `stack` failed: whatever serves keeps serving. */
 export function deliveryFailed(
   stack: readonly string[],
-  failure: DeliveryFailure,
+  message: string,
   by: AgentUpdateRun["by"] = "delivery",
 ): void {
   delivering.delete(key(stack));
-  failed.set(key(stack), failure);
-  unlanded = {
+  failed.set(key(stack), {
     at: Date.now(),
     outcome: "failed",
-    words: failure.message,
+    words: message,
     by,
-  };
+  });
   log.warn(
-    { agentDistroProfiles: stack, ...failure },
+    { agentDistroProfiles: stack, message, by },
     "agent-distro delivery did not land",
   );
 }
 
-/** A delivery of `stack` ended without landing, and nothing about it is this
- *  host's to report (a stack the setting has since left). */
+/** A delivery of `stack` ended, and nothing about it is this host's to report
+ *  (a stack the setting has since left). */
 export function deliveryDropped(stack: readonly string[]): void {
   delivering.delete(key(stack));
   failed.delete(key(stack));
   log.info(
     { agentDistroProfiles: stack },
-    "agent-distro landing for a stack the setting has left was refused",
+    "agent-distro report for a stack the setting has left was dropped",
   );
 }
 
@@ -123,7 +120,7 @@ function writeAtomic(path: string, text: string): void {
   renameSync(tmp, path);
 }
 
-/** `set` landed for `stack`: record it — one atomic rename, so a spawn never
+/** `set` landed (for its own stack): record it — one atomic rename, so a spawn never
  *  reads a half-written record — point upstream's `current` at its package,
  *  stamp `last-success`, remove every GC root but the package's and those of
  *  the landed stack (the setting's own — a landing of any other is refused
@@ -133,11 +130,11 @@ function writeAtomic(path: string, text: string): void {
  *  never a state to paper over. */
 export function landDelivery(
   bake: AgentDistroBake,
-  stack: readonly string[],
   set: DeliveredSet,
   now: Date = new Date(),
 ): void {
   assertSetOnHost(set);
+  const stack = referencesOf(set.profiles);
   const oldText = readOrUndefined(bake.landedFile);
   const old = oldText === undefined ? undefined : parseDeliveredSet(oldText);
   mkdirSync(dirname(bake.landedFile), { recursive: true });
@@ -154,7 +151,6 @@ export function landDelivery(
   );
   delivering.delete(key(stack));
   failed.delete(key(stack));
-  unlanded = undefined;
   pruneGcRoots(bake.gcRootsDir, stack);
   const words = deliveryChanges(
     old === undefined
@@ -198,9 +194,8 @@ export function pruneGcRoots(dir: string, keep: readonly string[]): void {
   }
 }
 
-/** Test seam: forget every delivery in flight, failure and unlanded run. */
+/** Test seam: forget every delivery in flight and every failure. */
 export function __resetAgentDistroDeliveriesForTest(): void {
   delivering.clear();
   failed.clear();
-  unlanded = undefined;
 }

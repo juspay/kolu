@@ -28,7 +28,7 @@
  * serve reports the failure as its status.
  */
 
-import { sameStack } from "@kolu/agent-distro/landing";
+import { referencesOf, sameStack } from "@kolu/agent-distro/landing";
 import {
   type AgentDistroDeliveryReport,
   type AgentDistroSetting,
@@ -46,8 +46,8 @@ import {
   deliveryOf,
   deliveryStarted,
   landDelivery,
+  lastFailureOf,
   pruneGcRoots,
-  unlandedRun,
 } from "./deliveries.ts";
 import type { AgentLayer } from "./layer.ts";
 import { servedSetOnHost } from "./onHost.ts";
@@ -59,14 +59,18 @@ import { readReceipt } from "./receipt.ts";
 export const agentDistroSettingStore: CellStore<AgentDistroSetting> =
   inMemoryStore(DEFAULT_AGENT_DISTRO_SETTING);
 
-/** Publish what this host keeps of its deliveries — readable with agents off
- *  too. Nothing to say on an unbaked padi. */
-function publishReceipt(): void {
+/** Publish what this host keeps of its deliveries for `setting` — readable
+ *  with agents off too. Nothing to say on an unbaked padi. */
+function publishReceipt(setting: AgentDistroSetting): void {
   const bake = agentDistroBake();
   padiSurfaceCtx.cells.agentDistroReceipt.set(
     bake === null
       ? EMPTY_AGENT_DISTRO_RECEIPT
-      : readReceipt(bake, servedSetOnHost(bake), unlandedRun()),
+      : readReceipt(
+          bake,
+          servedSetOnHost(bake),
+          lastFailureOf(setting.profiles),
+        ),
   );
 }
 
@@ -74,9 +78,9 @@ function publishReceipt(): void {
  *  a file that will not read (a history line upstream changed the shape of,
  *  say) is logged loudly AND published as the receipt's `error`, so the host's
  *  line in Settings says so instead of keeping the last good receipt. */
-function publishReceiptLoud(): void {
+function publishReceiptLoud(setting: AgentDistroSetting): void {
   try {
-    publishReceipt();
+    publishReceipt(setting);
   } catch (err) {
     log.error({ err }, "agent-distro receipt could not be read");
     padiSurfaceCtx.cells.agentDistroReceipt.set({
@@ -119,10 +123,7 @@ export function assessAgentDistro(setting: AgentDistroSetting):
   const delivery = deliveryOf(profiles);
   if (
     served !== undefined &&
-    sameStack(
-      served.profiles.map((p) => p.reference),
-      profiles,
-    )
+    sameStack(referencesOf(served.profiles), profiles)
   )
     return {
       kind: "ready",
@@ -130,7 +131,7 @@ export function assessAgentDistro(setting: AgentDistroSetting):
       delivering: delivery?.kind === "delivering",
     };
   if (delivery?.kind === "failed")
-    return { kind: "error", profiles, message: delivery.failure.message };
+    return { kind: "error", profiles, message: delivery.failure.words };
   // Nothing serves this stack and nothing failed: `downloading` only once
   // kolu-server has SAID it is delivering — never inferred from silence, which
   // is also what a kolu-server that cannot deliver at all sends.
@@ -154,9 +155,10 @@ function settle(setting: AgentDistroSetting): void {
     assessed.kind === "ready"
       ? {
           kind: "ready",
-          profiles: setting.profiles,
-          bundle: assessed.layer.bundle,
-          delivered: assessed.layer.profiles,
+          set: {
+            bundle: assessed.layer.bundle,
+            profiles: assessed.layer.profiles,
+          },
           delivering: assessed.delivering,
         }
       : assessed,
@@ -168,7 +170,7 @@ function settle(setting: AgentDistroSetting): void {
  *  BEFORE the store write, so it reads `next`, never the store. */
 export function onAgentDistroSettingWrite(next: AgentDistroSetting): void {
   settle(next);
-  publishReceiptLoud();
+  publishReceiptLoud(next);
 }
 
 /** `agentDistro.report`: kolu-server's word on a delivery to this host. A
@@ -187,7 +189,10 @@ export function onAgentDistroReport(report: AgentDistroDeliveryReport): void {
     throw new Error(
       "kolu-server reported an agent-distro delivery, but this padi has no agent-distro bake",
     );
-  const stack = report.profiles;
+  const stack =
+    report.kind === "landed"
+      ? referencesOf(report.set.profiles)
+      : report.profiles;
   try {
     switch (report.kind) {
       case "delivering":
@@ -198,7 +203,7 @@ export function onAgentDistroReport(report: AgentDistroDeliveryReport): void {
         // host serves: the receipt is about the current set.
         if (!sameStack(stack, agentDistroSettingStore.get().profiles))
           deliveryDropped(stack);
-        else deliveryFailed(stack, { message: report.message });
+        else deliveryFailed(stack, report.message);
         return;
       case "landed": {
         // A delivery of a stack the setting has since left (the list changed
@@ -213,23 +218,13 @@ export function onAgentDistroReport(report: AgentDistroDeliveryReport): void {
           );
         }
         try {
-          if (
-            !sameStack(
-              report.delivered.map((p) => p.reference),
-              stack,
-            )
-          )
-            throw new Error(
-              `kolu-server reported a landing for ${JSON.stringify(stack)} whose profiles name ${JSON.stringify(report.delivered.map((p) => p.reference))}`,
-            );
-
-          landDelivery(bake, stack, {
-            bundle: report.bundle,
-            profiles: report.delivered,
-          });
+          landDelivery(bake, report.set);
         } catch (err) {
-          const message = err instanceof Error ? err.message : String(err);
-          deliveryFailed(stack, { message }, "padi");
+          deliveryFailed(
+            stack,
+            err instanceof Error ? err.message : String(err),
+            "padi",
+          );
           throw err;
         }
         return;
@@ -238,8 +233,9 @@ export function onAgentDistroReport(report: AgentDistroDeliveryReport): void {
         report satisfies never;
     }
   } finally {
-    publishReceiptLoud();
-    settle(agentDistroSettingStore.get());
+    const setting = agentDistroSettingStore.get();
+    publishReceiptLoud(setting);
+    settle(setting);
   }
 }
 
@@ -247,8 +243,9 @@ export function onAgentDistroReport(report: AgentDistroDeliveryReport): void {
  *  once, at boot. */
 export function publishAgentDistroAtBoot(): void {
   sweepGcRootsAtBoot();
-  publishReceiptLoud();
-  settle(agentDistroSettingStore.get());
+  const setting = agentDistroSettingStore.get();
+  publishReceiptLoud(setting);
+  settle(setting);
 }
 
 /** At boot, before kolu-server has pushed or delivered anything, remove every

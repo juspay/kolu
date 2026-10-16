@@ -15,8 +15,13 @@
  */
 
 import { agentBundleShortHash } from "./bundle.ts";
-import type { DeliveredProfile } from "./landing.ts";
-import { sameStack } from "./landing.ts";
+import {
+  referencesOf,
+  sameSet,
+  sameStack,
+  setKey,
+  stackTitle,
+} from "./landing.ts";
 import type { AgentDistroListing } from "./listing.ts";
 import {
   type AgentUpdateAuthor,
@@ -194,7 +199,8 @@ export function firstRunAgentsDone(input: {
     case "downloading":
     case "error":
       // A status for another stack is one padi has not caught up from.
-      if (!sameStack(local.profiles, stored.profiles)) return undefined;
+      if (!sameStack(statusStack(local) ?? [], stored.profiles))
+        return undefined;
       return local.kind === "ready";
     default:
       return local satisfies never;
@@ -209,15 +215,6 @@ export const AGENTS_FIRST_RUN_TITLE = "Choose your coding agents";
  *  path) as itself. */
 export function agentProfileTitle(reference: string): string {
   return reference === JUSPAY_PROFILE ? JUSPAY_OFFER.title : reference;
-}
-
-/** How a stack is named: each profile by the name its build gives itself, in
- *  stack order — `juspay + ekala`, as agent-distro names a stack. Empty for no
- *  profiles. */
-export function stackTitle(
-  profiles: readonly Pick<DeliveredProfile, "name">[],
-): string {
-  return profiles.map((p) => p.name).join(" + ");
 }
 
 /** The line under one profile of the list: whether kolu-server could build it
@@ -297,13 +294,14 @@ export function juspayOffered(profiles: readonly string[]): boolean {
   return !profiles.includes(JUSPAY_PROFILE);
 }
 
-/** The setting's stack as names: each profile by the name kolu-server's build
- *  gave it once it has one, else by {@link agentProfileTitle}. */
-function settingStackTitle(
-  setting: AgentDistroSetting,
-  profiles: AgentProfiles | undefined,
+/** A stack of references as names, in order: each by the name kolu-server's
+ *  build gave it once it has one (`resolutions`), else by
+ *  {@link agentProfileTitle}. THE way a setting's stack is named. */
+export function referencesTitle(
+  references: readonly string[],
+  profiles?: AgentProfiles,
 ): string {
-  return setting.profiles
+  return references
     .map((reference) => {
       const r = resolutionOf(reference, profiles);
       return r?.kind === "resolved" ? r.name : agentProfileTitle(reference);
@@ -324,7 +322,7 @@ export function agentsChosenLabel(
 ): string | undefined {
   if (listing?.kind === "unavailable" || !setting.enabled) return undefined;
   if (setting.profiles.length === 0) return "Agents: on";
-  const name = settingStackTitle(setting, profiles);
+  const name = referencesTitle(setting.profiles, profiles);
   const lines = setting.profiles.map((r) => agentsResolvedLine(r, profiles));
   const failed = lines.find((l) => l.kind === "failed");
   if (failed !== undefined) return `Agents: ${name} — ${failed.text}`;
@@ -395,8 +393,8 @@ export function agentMarkOf(
     case "ready":
       return {
         kind: "ready",
-        stack: stackTitle(status.delivered),
-        hash: agentBundleShortHash(status.bundle),
+        stack: stackTitle(status.set.profiles),
+        hash: agentBundleShortHash(status.set.bundle),
         delivering: status.delivering,
       };
     case "downloading":
@@ -794,7 +792,7 @@ export function agentHostDetail(input: {
     tone: "muted",
   });
   const base = {
-    stack: setting.profiles.map(agentProfileTitle).join(" + "),
+    stack: referencesTitle(setting.profiles),
     events: [],
   } as const;
   switch (mark.kind) {
@@ -923,9 +921,7 @@ export function agentChips(input: {
   if (listing?.kind !== "available") return [];
   if (!setting.enabled)
     return listing.harnesses.map(({ title }) => ({ title }));
-  const versions = input.localReceipt?.bundle
-    ? input.localReceipt.versions
-    : listing.harnesses;
+  const versions = input.localReceipt?.serving?.versions ?? listing.harnesses;
   return versions.map((h) => ({
     title: h.title,
     version: displayVersion(h.version),
@@ -958,14 +954,6 @@ export type AgentStaleness =
             readonly on: "downloading" | "failed";
           };
     };
-
-/** Do two delivered stacks name the same builds, in order? */
-function sameBuilds(
-  a: readonly DeliveredProfile[],
-  b: readonly DeliveredProfile[],
-): boolean {
-  return a.length === b.length && a.every((p, i) => p.path === b[i]?.path);
-}
 
 /** THE stale test, one fold: a terminal is stale when it has agents and a new
  *  terminal on its host would get something else —
@@ -1000,11 +988,11 @@ export function agentStalenessOf(input: {
   const waiting = (on: "downloading" | "failed") =>
     stale({
       kind: "waiting",
-      stack: setting.profiles.map(agentProfileTitle).join(" + "),
+      stack: referencesTitle(setting.profiles),
       on,
     });
   const sameReferences = sameStack(
-    agents.profiles.map((p) => p.reference),
+    referencesOf(agents.profiles),
     setting.profiles,
   );
   // A status for another stack is one the host has not caught up from.
@@ -1019,13 +1007,12 @@ export function agentStalenessOf(input: {
     return sameReferences ? { kind: "current" } : waiting("downloading");
   switch (status.kind) {
     case "ready":
-      return status.bundle === agents.bundle &&
-        sameBuilds(status.delivered, agents.profiles)
+      return sameSet(status.set, agents)
         ? { kind: "current" }
         : stale({
             kind: "set",
-            stack: stackTitle(status.delivered),
-            hash: agentBundleShortHash(status.bundle),
+            stack: stackTitle(status.set.profiles),
+            hash: agentBundleShortHash(status.set.bundle),
           });
     case "downloading":
       return waiting("downloading");
@@ -1153,7 +1140,7 @@ export const agentToast = {
   on: (profiles: readonly string[]) =>
     profiles.length === 0
       ? "New terminals get the coding agents"
-      : `New terminals get the coding agents with ${profiles.map(agentProfileTitle).join(" + ")}`,
+      : `New terminals get the coding agents with ${referencesTitle(profiles)}`,
   /** A switch to Off (title; {@link AGENTS_OFF_MEANS} is its description). */
   off: "Coding agents off",
   /** An update landed on `host` ({@link updateLanded}): the change in the
@@ -1191,17 +1178,8 @@ export function agentCheckFailed(host: string, message: string): string {
 export interface LandedFacts {
   /** The stack's references, as one string. */
   readonly stack: string;
-  /** The package and every profile's build, as one string. */
+  /** The set, as `./landing.ts`' `setKey` writes it. */
   readonly set: string;
-  /** The package — what a receipt is paired with. */
-  readonly bundle: string;
-}
-
-/** A set — the package and every profile's build — as one string: what
- *  {@link LandedFacts}' `set` holds, and what a receipt is paired by
- *  ({@link receiptSet}). */
-function setKey(bundle: string, profiles: readonly DeliveredProfile[]): string {
-  return JSON.stringify([bundle, ...profiles.map((p) => p.path)]);
 }
 
 /** A status's {@link LandedFacts}. */
@@ -1210,20 +1188,19 @@ export function landedFacts(
 ): LandedFacts | undefined {
   return status?.kind === "ready"
     ? {
-        stack: JSON.stringify(status.profiles),
-        set: setKey(status.bundle, status.delivered),
-        bundle: status.bundle,
+        stack: JSON.stringify(referencesOf(status.set.profiles)),
+        set: setKey(status.set),
       }
     : undefined;
 }
 
-/** The set a receipt is about, in {@link LandedFacts}' `set` encoding —
- *  `undefined` when nothing serves. A watcher that saw a set land waits for
- *  the receipt of that very set. */
+/** The set a receipt is about, as {@link LandedFacts}' `set` — `undefined`
+ *  when nothing serves. A watcher that saw a set land waits for the receipt
+ *  of that very set. */
 export function receiptSet(receipt: AgentDistroReceipt): string | undefined {
-  return receipt.bundle === undefined
+  return receipt.serving === undefined
     ? undefined
-    : setKey(receipt.bundle, receipt.profiles);
+    : setKey(receipt.serving.set);
 }
 
 /** Did an update land between two statuses — ready → ready with ANOTHER set

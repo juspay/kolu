@@ -29,7 +29,7 @@
 
 import { Schema } from "effect";
 import { ProfileInEffectSchema } from "./inEffect.ts";
-import { DeliveredProfileSchema } from "./landing.ts";
+import { DeliveredSetSchema, referencesOf, sameStack } from "./landing.ts";
 import { AgentVersionSchema } from "./listing.ts";
 import { AgentUpdateEventSchema, AgentUpdateRunSchema } from "./receipt.ts";
 
@@ -64,11 +64,7 @@ export function agentDistroSettingEqual(
   a: AgentDistroSetting,
   b: AgentDistroSetting,
 ): boolean {
-  return (
-    a.enabled === b.enabled &&
-    a.profiles.length === b.profiles.length &&
-    a.profiles.every((p, i) => p === b.profiles[i])
-  );
+  return a.enabled === b.enabled && sameStack(a.profiles, b.profiles);
 }
 
 /** A host's agent-distro state for the setting's stack — and what a terminal
@@ -84,9 +80,9 @@ export function agentDistroSettingEqual(
  *   - `downloading` — the host has no set for this stack yet and kolu-server
  *     has said it is delivering one. New terminals get no agents until it
  *     lands: a terminal never starts without a profile the setting names.
- *   - `ready` — new terminals get `bundle` (the package's exact store path) and
- *     `delivered` (the built profiles, in stack order) — `delivering` while
- *     kolu-server delivers a newer set and this one keeps serving.
+ *   - `ready` — new terminals get `set` (the package's exact store path and
+ *     the built profiles, in stack order; its stack is theirs) — `delivering`
+ *     while kolu-server delivers a newer set and this one keeps serving.
  *   - `error` — the delivery failed and nothing serves: `message` states its
  *     cause (kolu-server's words, with Nix's own line). New terminals get no
  *     agents.
@@ -106,9 +102,7 @@ export const AgentDistroStatusSchema = Schema.Union([
   }),
   Schema.Struct({
     kind: Schema.Literal("ready"),
-    profiles: Schema.Array(ProfileReference),
-    bundle: Schema.String,
-    delivered: Schema.Array(DeliveredProfileSchema),
+    set: DeliveredSetSchema,
     delivering: Schema.Boolean,
   }),
   Schema.Struct({
@@ -131,10 +125,11 @@ export function agentDistroStatusEqual(
 }
 
 /** The stack a status is about — `undefined` for `off` and `unavailable`,
- *  which are about none. */
+ *  which are about none; a ready set's is the one it was built for. */
 export function statusStack(
   status: AgentDistroStatus,
 ): readonly string[] | undefined {
+  if (status.kind === "ready") return referencesOf(status.set.profiles);
   return "profiles" in status ? status.profiles : undefined;
 }
 
@@ -174,10 +169,8 @@ export type AgentProfiles = typeof AgentProfilesSchema.Type;
  *  `agentDistroReceipt` cell, published from the files on the host (which
  *  padi writes as each delivery lands):
  *
- *   - `bundle`: the package new terminals there get now;
- *   - `versions`: its harnesses, from its versions file (empty when it serves
- *     none);
- *   - `profiles`: the profiles that landed with it, in stack order;
+ *   - `serving`: the set new terminals there get now, and its package's
+ *     harnesses (from its versions file) — absent when none serves;
  *   - `lastRun`: the last delivery, when there was one — how it ended, its
  *     words, and who wrote them (`by`: kolu's delivery, padi, or — read off
  *     the shared history log — agent-distro's updater or the log itself);
@@ -187,12 +180,15 @@ export type AgentProfiles = typeof AgentProfilesSchema.Type;
  *  Never part of the status: a later delivery that fails leaves the set that
  *  serves working, so it shows here and in the logs, not as an error. */
 export const AgentDistroReceiptSchema = Schema.Struct({
-  /** The package new terminals get there now, whose versions these are —
-   *  absent when none serves. A reader pairs an update it sees in the status
-   *  with the receipt for that same package. */
-  bundle: Schema.optionalKey(Schema.String),
-  versions: Schema.Array(AgentVersionSchema),
-  profiles: Schema.Array(DeliveredProfileSchema),
+  /** The set new terminals get there now, with its harnesses. A reader pairs
+   *  an update it sees in the status with the receipt for that same set
+   *  (`./landing.ts`' `setKey`). */
+  serving: Schema.optionalKey(
+    Schema.Struct({
+      set: DeliveredSetSchema,
+      versions: Schema.Array(AgentVersionSchema),
+    }),
+  ),
   lastRun: Schema.optionalKey(AgentUpdateRunSchema),
   events: Schema.Array(AgentUpdateEventSchema),
   /** The host's files would not read (a format upstream changed, say):
@@ -203,10 +199,8 @@ export const AgentDistroReceiptSchema = Schema.Struct({
 
 export type AgentDistroReceipt = typeof AgentDistroReceiptSchema.Type;
 
-/** Before padi has read anything: no versions, no profiles, no runs. */
+/** Before padi has read anything: nothing serving, no runs. */
 export const EMPTY_AGENT_DISTRO_RECEIPT: AgentDistroReceipt = {
-  versions: [],
-  profiles: [],
   events: [],
 };
 
@@ -224,12 +218,10 @@ export function agentDistroReceiptEqual(
  *  change while the terminal runs (it pins the paths it started with); a
  *  respawn re-stamps it whole. `effective` is written once, after the spawn. */
 export const TerminalAgentsSchema = Schema.Struct({
-  /** The exact package store path whose `bin/` went on the PATH — the tile
-   *  pill's short hash. */
-  bundle: Schema.String.check(Schema.isMinLength(1)),
-  /** The built profiles exported to the terminal as `AI_PROFILE`, in stack
-   *  order (empty: none exported). */
-  profiles: Schema.Array(DeliveredProfileSchema),
+  /** The set the terminal got: the exact package store path whose `bin/`
+   *  went on the PATH (the tile pill's short hash), and the built profiles
+   *  exported as `AI_PROFILE`, in stack order (empty: none exported). */
+  ...DeliveredSetSchema.fields,
   /** The profile in effect in this terminal, as agent-distro answered
    *  `--list --json` in its cwd and environment once it started (a repository's
    *  own `agent-distro.nix` composes over the stack). Absent until that
@@ -241,12 +233,13 @@ export type TerminalAgents = typeof TerminalAgentsSchema.Type;
 
 /** What kolu-server tells a host's padi about delivering it the setting's set
  *  — the input of padi's `agentDistro.report` procedure. Each names the stack
- *  it is about (`profiles`: the setting's references, in order).
+ *  it is about (`profiles`, the setting's references in order; a landing's is
+ *  its set's).
  *
  *   - `delivering` — a delivery to this host started;
- *   - `landed` — `bundle` and every profile in `delivered` are valid in this
- *     host's store and rooted there: padi points `current` at the package,
- *     records the set, and new terminals get it;
+ *   - `landed` — every path of `set` is valid in this host's store and
+ *     rooted there: padi points `current` at the package, records the set,
+ *     and new terminals get it. Its stack is the set's own;
  *   - `failed` — the delivery did not land: its cause in kolu-server's words.
  *     Whatever served keeps serving. */
 export const AgentDistroDeliveryReportSchema = Schema.Union([
@@ -256,9 +249,7 @@ export const AgentDistroDeliveryReportSchema = Schema.Union([
   }),
   Schema.Struct({
     kind: Schema.Literal("landed"),
-    profiles: Schema.Array(ProfileReference),
-    bundle: Schema.String.check(Schema.isMinLength(1)),
-    delivered: Schema.Array(DeliveredProfileSchema),
+    set: DeliveredSetSchema,
   }),
   Schema.Struct({
     kind: Schema.Literal("failed"),

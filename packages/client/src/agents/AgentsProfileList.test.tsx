@@ -37,7 +37,7 @@ const SUGGESTIONS: readonly ProfileSuggestion[] = [
 
 function mount(
   initial: readonly ProfileListRow[],
-  opts: { juspay?: boolean; field?: boolean } = {},
+  opts: { field?: boolean } = {},
 ) {
   const [rows, setRows] = createSignal(initial);
   const changes: (readonly string[])[] = [];
@@ -47,7 +47,6 @@ function mount(
     () => (
       <AgentsProfileList
         rows={rows()}
-        juspay={opts.juspay ?? true}
         suggestions={opts.field === false ? undefined : SUGGESTIONS}
         onChange={(next) => {
           changes.push(next);
@@ -198,7 +197,8 @@ describe("adding", () => {
     expect(f.changes).toEqual([["~/mine", JUSPAY_PROFILE]]);
     dispose?.();
     document.body.innerHTML = "";
-    const g = mount([], { juspay: false });
+    // A list that holds Juspay offers no entry for it.
+    const g = mount([{ reference: JUSPAY_PROFILE, title: "Juspay" }]);
     expect(g.host.querySelector("[data-testid=agents-add-juspay]")).toBeNull();
   });
 

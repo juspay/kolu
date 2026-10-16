@@ -9,7 +9,10 @@ import {
   parseDeliveredSet,
   profileBuildLabel,
   referencesOf,
+  sameSet,
   sameStack,
+  setKey,
+  stackTitle,
 } from "./landing.ts";
 
 const PKG_A = "/nix/store/nd11nx5f1dkf02cr9dhxqq4axg23vzgc-agent-distro";
@@ -77,6 +80,35 @@ describe("sameStack and referencesOf", () => {
       "github:juspay/skills",
       "~/ekala",
     ]);
+  });
+});
+
+describe("setKey and sameSet — one set is its package and builds, in order", () => {
+  it("the same package and builds are the same set; any change is another", () => {
+    expect(sameSet(set(PKG_A, [JUSPAY]), set(PKG_A, [JUSPAY]))).toBe(true);
+    expect(sameSet(set(PKG_A, []), set(PKG_A, []))).toBe(true);
+    expect(sameSet(set(PKG_A, [JUSPAY]), set(PKG_B, [JUSPAY]))).toBe(false);
+    expect(sameSet(set(PKG_A, [JUSPAY]), set(PKG_A, [JUSPAY_NEXT]))).toBe(
+      false,
+    );
+    expect(
+      sameSet(set(PKG_A, [JUSPAY, EKALA]), set(PKG_A, [EKALA, JUSPAY])),
+    ).toBe(false);
+    expect(sameSet(set(PKG_A, [JUSPAY]), set(PKG_A, [JUSPAY, EKALA]))).toBe(
+      false,
+    );
+  });
+  it("keys a set by its package and each build's path", () => {
+    expect(setKey(set(PKG_A, [JUSPAY, EKALA]))).toBe(
+      JSON.stringify([PKG_A, JUSPAY.path, EKALA.path]),
+    );
+  });
+});
+
+describe("stackTitle", () => {
+  it("each built profile by its own name, bottom to top", () => {
+    expect(stackTitle([JUSPAY, EKALA])).toBe("juspay + ekala");
+    expect(stackTitle([])).toBe("");
   });
 });
 

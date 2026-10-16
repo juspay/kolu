@@ -182,15 +182,13 @@ const status = () => published.at(-1);
 const receipt = () => receipts.at(-1);
 const report = (r: AgentDistroDeliveryReport) => onAgentDistroReport(r);
 
-/** A `landed` report of `bundle` with `delivered`, for the stack they name. */
+/** A `landed` report of `bundle` with `delivered` — its stack is theirs. */
 const landed = (
   bundle: string,
   delivered: readonly DeliveredProfile[],
 ): AgentDistroDeliveryReport => ({
   kind: "landed",
-  profiles: delivered.map((p) => p.reference),
-  bundle,
-  delivered: [...delivered],
+  set: { bundle, profiles: [...delivered] },
 });
 
 beforeEach(() => {
@@ -258,7 +256,7 @@ describe("servedSetOnHost — the set this host serves", () => {
     const b = bake({ floor: true });
     const bundle = storePackage(join(root, "store", "delivered"));
     const juspay = storeProfile(JUSPAY, "juspay", { rev: "a1b2c3d4e5" });
-    landDelivery(b, [JUSPAY], { bundle, profiles: [juspay] });
+    landDelivery(b, { bundle, profiles: [juspay] });
     expect(servedSetOnHost(b)).toEqual({ bundle, profiles: [juspay] });
   });
 
@@ -322,7 +320,7 @@ describe("assessAgentDistro — the set serves only the stack it was built for",
     const b = bake({ floor: false });
     __setAgentDistroBakeForTest(b);
     const bundle = storePackage(join(root, "store", "delivered"));
-    landDelivery(b, [JUSPAY, EKALA], {
+    landDelivery(b, {
       bundle,
       profiles: [storeProfile(JUSPAY, "juspay"), storeProfile(EKALA, "ekala")],
     });
@@ -390,9 +388,7 @@ describe("delivery reports — what a host does with kolu-server's word", () => 
 
     expect(status()).toEqual({
       kind: "ready",
-      profiles: [JUSPAY],
-      bundle,
-      delivered: [juspay],
+      set: { bundle, profiles: [juspay] },
       delivering: false,
     });
     const layer = newTerminalLayer();
@@ -410,9 +406,12 @@ describe("delivery reports — what a host does with kolu-server's word", () => 
     expect(env.AGENT_DISTRO_PLUGINS).toBe("/p/plugin");
 
     expect(receipt()).toMatchObject({
-      bundle,
-      versions: [{ name: "claude", title: "Claude Code", version: "2.1.291" }],
-      profiles: [juspay],
+      serving: {
+        set: { bundle, profiles: [juspay] },
+        versions: [
+          { name: "claude", title: "Claude Code", version: "2.1.291" },
+        ],
+      },
       lastRun: {
         outcome: "updated",
         words: "Claude Code 2.1.291, juspay a1b2c3d",
@@ -496,37 +495,16 @@ describe("delivery reports — what a host does with kolu-server's word", () => 
     ]);
   });
 
-  it("a landed report whose `delivered` refs do not match its stack throws, records padi's failure, and lands nothing", () => {
-    __setAgentDistroBakeForTest(bake({ floor: false }));
-    write(stack(JUSPAY, EKALA));
-    const bundle = storePackage(join(root, "store", "delivered"));
-    const juspay = storeProfile(JUSPAY, "juspay");
-
-    expect(() =>
-      report({
-        kind: "landed",
-        profiles: [JUSPAY, EKALA],
-        bundle,
-        delivered: [juspay],
-      }),
-    ).toThrow(/whose profiles name/);
-
-    expect(existsSync(landedFile())).toBe(false);
-    expect(existsSync(currentLink(stateDir()))).toBe(false);
-    expect(status()).toMatchObject({
-      kind: "error",
-      profiles: [JUSPAY, EKALA],
-    });
-    expect(receipt()?.lastRun).toMatchObject({ outcome: "failed", by: "padi" });
-  });
-
   it("a landing for a stack the setting has since left is refused: the current set keeps serving, and the receipt is untouched", () => {
     __setAgentDistroBakeForTest(bake({ floor: false }));
     write(stack(JUSPAY));
     const bundle = storePackage(join(root, "store", "delivered"));
     const juspay = storeProfile(JUSPAY, "juspay");
     report(landed(bundle, [juspay]));
-    expect(status()).toMatchObject({ kind: "ready", profiles: [JUSPAY] });
+    expect(status()).toMatchObject({
+      kind: "ready",
+      set: { profiles: [juspay] },
+    });
     const before = receipt();
 
     // A delivery of the longer stack started before the list was cut back.
@@ -536,13 +514,15 @@ describe("delivery reports — what a host does with kolu-server's word", () => 
     );
     expect(status()).toMatchObject({
       kind: "ready",
-      profiles: [JUSPAY],
-      delivered: [juspay],
+      set: { bundle, profiles: [juspay] },
     });
     expect(newTerminalLayer()?.profiles).toEqual([juspay]);
     // Its failure report, which kolu-server sends next, marks nothing either.
     report({ kind: "failed", profiles: [JUSPAY, EKALA], message: "refused" });
-    expect(status()).toMatchObject({ kind: "ready", profiles: [JUSPAY] });
+    expect(status()).toMatchObject({
+      kind: "ready",
+      set: { profiles: [juspay] },
+    });
     expect(receipt()?.lastRun).toEqual(before?.lastRun);
   });
 
@@ -636,9 +616,7 @@ describe("delivery reports — what a host does with kolu-server's word", () => 
     write(STOCK);
     const ready = {
       kind: "ready",
-      profiles: [],
-      bundle: floorPackage(),
-      delivered: [],
+      set: { bundle: floorPackage(), profiles: [] },
       delivering: false,
     };
     expect(status()).toEqual(ready);
@@ -653,8 +631,7 @@ describe("delivery reports — what a host does with kolu-server's word", () => 
     expect(status()).toEqual(ready);
     expect(newTerminalLayer()?.bundle).toBe(floorPackage());
     expect(receipt()).toMatchObject({
-      bundle: floorPackage(),
-      profiles: [],
+      serving: { set: { bundle: floorPackage(), profiles: [] } },
       lastRun: {
         outcome: "failed",
         words: "error: cannot copy path from https://cache.example",
@@ -669,7 +646,7 @@ describe("delivery reports — what a host does with kolu-server's word", () => 
     report({ kind: "delivering", profiles: [] });
     expect(status()).toMatchObject({
       kind: "ready",
-      bundle: floorPackage(),
+      set: { bundle: floorPackage() },
       delivering: true,
     });
     expect(newTerminalLayer()?.bundle).toBe(floorPackage());
@@ -683,13 +660,45 @@ describe("delivery reports — what a host does with kolu-server's word", () => 
     expect(newTerminalLayer()).toBeUndefined();
   });
 
-  it("a new delivery clears the last failure: error → downloading", () => {
+  it("a new delivery after a failure reads downloading — the failure stays the last run until it ends", () => {
     __setAgentDistroBakeForTest(bake({ floor: false }));
     write(STOCK);
     report({ kind: "failed", profiles: [], message: "boom" });
-    expect(status()?.kind).toBe("error");
+    expect(status()).toEqual({ kind: "error", profiles: [], message: "boom" });
     report({ kind: "delivering", profiles: [] });
     expect(status()).toEqual({ kind: "downloading", profiles: [] });
+    expect(receipt()?.lastRun).toMatchObject({
+      outcome: "failed",
+      words: "boom",
+      by: "delivery",
+    });
+  });
+
+  it("a set that lands clears its stack's failure: the receipt's last run is the landing", () => {
+    __setAgentDistroBakeForTest(bake({ floor: false }));
+    write(STOCK);
+    report({ kind: "failed", profiles: [], message: "boom" });
+    report({ kind: "delivering", profiles: [] });
+    const bundle = storePackage(join(root, "store", "delivered"), [
+      { name: "claude", title: "Claude Code", version: "2.1.291" },
+    ]);
+    report(landed(bundle, []));
+    expect(status()).toMatchObject({ kind: "ready", delivering: false });
+    expect(receipt()?.lastRun).toMatchObject({ outcome: "updated" });
+  });
+
+  it("the receipt shows the failure of the setting's stack only", () => {
+    __setAgentDistroBakeForTest(bake({ floor: true }));
+    write(stack(JUSPAY));
+    report({ kind: "failed", profiles: [JUSPAY], message: "juspay broke" });
+    expect(receipt()?.lastRun).toMatchObject({ words: "juspay broke" });
+    // The setting's write re-publishes the receipt for the NEW stack — its
+    // onWrite runs before the store holds it, so it must not read the store.
+    write(STOCK);
+    expect(status()).toMatchObject({ kind: "ready" });
+    expect(receipt()?.lastRun).toBeUndefined();
+    write(stack(JUSPAY));
+    expect(receipt()?.lastRun).toMatchObject({ words: "juspay broke" });
   });
 
   it("a report to an unbaked padi throws", () => {
