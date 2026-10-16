@@ -14,7 +14,10 @@
  */
 
 import { referencesOf } from "@kolu/agent-distro/landing";
-import type { AgentProfiles } from "@kolu/agent-distro/schema";
+import type {
+  AgentDistroSetting,
+  AgentProfiles,
+} from "@kolu/agent-distro/schema";
 import type { AgentDistroDeliveryReport } from "@kolu/agent-distro/schema";
 import type { Logger } from "@kolu/log";
 import type { PublishedClosure } from "@kolu/surface-remote";
@@ -189,15 +192,26 @@ function fakeHost(key: string, ssh: string, label = ssh) {
 function setup(opts: {
   ops: DeliveryOps;
   hosts: DeliveryHost[];
+  /** The setting as its stack: `undefined` is off (with an empty list). */
   stack?: () => readonly string[] | undefined;
+  /** The whole setting, when a test needs the list while off. */
+  setting?: () => AgentDistroSetting;
   now?: () => number;
 }) {
   const resolutions: AgentProfiles[] = [];
+  const stack = opts.stack ?? (() => []);
   const delivery = createAgentDelivery({
     schedule: SCHEDULE,
     ops: opts.ops,
     log,
-    stack: opts.stack ?? (() => []),
+    setting:
+      opts.setting ??
+      (() => {
+        const profiles = stack();
+        return profiles === undefined
+          ? { enabled: false, profiles: [] }
+          : { enabled: true, profiles };
+      }),
     hosts: () => opts.hosts,
     onResolution: (profiles) => {
       resolutions.push(profiles);
@@ -780,6 +794,48 @@ describe("createAgentDelivery — a re-check keeps what Settings knows", () => {
   });
 });
 
+describe("createAgentDelivery — an outdated run's answers", () => {
+  it("are neither shown nor remembered: a later re-check opens with the newer answer, not the outdated failure", async () => {
+    const nix = fakeOps();
+    let profiles: readonly string[] = [JUSPAY];
+    // The first lock of Juspay is held, then fails; every later one locks.
+    let failFirst!: (err: Error) => void;
+    let first = true;
+    const ops: DeliveryOps = {
+      ...nix.ops,
+      lock: (reference) => {
+        if (reference === JUSPAY && first) {
+          first = false;
+          return new Promise((_, reject) => {
+            failFirst = reject;
+          });
+        }
+        return nix.ops.lock(reference);
+      },
+    };
+    const { delivery, resolutions } = setup({
+      ops,
+      hosts: [],
+      stack: () => profiles,
+    });
+    const outdated = delivery.run({ trigger: "user" });
+    await vi.waitFor(() => expect(failFirst).toBeDefined());
+    profiles = [JUSPAY, MINE];
+    await delivery.run({ trigger: "user" });
+    const juspayIn = (p: AgentProfiles | undefined) =>
+      p?.find((e) => e.reference === JUSPAY)?.resolution.kind;
+    expect(juspayIn(resolutions.at(-1))).toBe("resolved");
+    const shown = resolutions.length;
+    failFirst(new Error("network went away"));
+    await outdated;
+    // The outdated run's failure is not shown…
+    expect(resolutions).toHaveLength(shown);
+    // …nor remembered: the next re-check opens with the newer answer.
+    await delivery.run({ trigger: "schedule" });
+    expect(juspayIn(resolutions[shown])).toBe("resolved");
+  });
+});
+
 describe("createAgentDelivery — hosts and runs", () => {
   it("a host already being delivered to is busy, and keeps its delivery", async () => {
     const nix = fakeOps();
@@ -804,7 +860,7 @@ describe("createAgentDelivery — hosts and runs", () => {
     expect(delivery.running()).toBe(false);
   });
 
-  it("a run the setting moved on from while it ran is superseded: no landing, no failure, nothing for Settings", async () => {
+  it("a run whose profile list changed while it ran is superseded: no landing, only the report padi drops, nothing for Settings", async () => {
     const nix = fakeOps();
     const local = fakeHost("local", "localhost");
     let stack: readonly string[] = [];
@@ -822,11 +878,35 @@ describe("createAgentDelivery — hosts and runs", () => {
     const published = resolutions.length;
     release();
     expect(await stale).toEqual(["superseded"]);
-    // padi would refuse a landing for [] now: none is reported, and no
-    // failure either — the newer stack's run delivers.
-    expect(local.reports).toEqual([{ kind: "delivering", profiles: [] }]);
+    // padi would refuse a landing for [] now: none is reported. Its one
+    // closing report is `failed` for [] — which padi drops silently for a
+    // list the setting has left, ending its `delivering` record for [].
+    expect(local.reports.map((r) => r.kind)).toEqual(["delivering", "failed"]);
+    expect(local.reports.at(-1)).toMatchObject({
+      kind: "failed",
+      profiles: [],
+    });
     expect(resolutions).toHaveLength(published);
     expect(log.error).not.toHaveBeenCalled();
+  });
+
+  it("the switch going off mid-delivery supersedes nothing: the set lands, as padi takes it", async () => {
+    const nix = fakeOps();
+    const local = fakeHost("local", "localhost");
+    let setting: AgentDistroSetting = { enabled: true, profiles: [JUSPAY] };
+    const { delivery } = setup({
+      ops: nix.ops,
+      hosts: [local.host],
+      setting: () => setting,
+    });
+    const release = nix.hold();
+    const run = delivery.run({ trigger: "user" });
+    await vi.waitFor(() => expect(nix.pulled).toHaveLength(1));
+    // Off keeps the list; padi judges a landing by the list alone.
+    setting = { enabled: false, profiles: [JUSPAY] };
+    release();
+    expect(await run).toEqual(["landed"]);
+    expect(local.reports.map((r) => r.kind)).toEqual(["delivering", "landed"]);
   });
 
   it("delivers only to the asked keys", async () => {
@@ -893,7 +973,7 @@ describe("createAgentDelivery — hosts and runs", () => {
       box.reports
         .filter((r) => JSON.stringify(stackOf(r)) === JSON.stringify(s))
         .map((r) => r.kind);
-    expect(story([])).toEqual(["delivering"]);
+    expect(story([])).toEqual(["delivering", "failed"]);
     expect(story([JUSPAY])).toEqual(["delivering", "landed"]);
     expect(box.reports.at(-1)).toMatchObject({
       kind: "landed",

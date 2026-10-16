@@ -40,6 +40,7 @@ import {
 } from "@kolu/agent-distro/landing";
 import type {
   AgentDistroDeliveryReport,
+  AgentDistroSetting,
   AgentProfileResolution,
 } from "@kolu/agent-distro/schema";
 import type { Logger } from "@kolu/log";
@@ -110,10 +111,13 @@ export type DeliveryTrigger = "connect" | "user" | "schedule";
 
 /** How one host's delivery ended: `landed`; `failed` (retried on upstream's
  *  schedule, a reconnect, or the user's check); `busy` (a delivery of that
- *  stack to it was already running); or `superseded` (the setting moved to
- *  another stack while it ran — the newer stack's own run delivers that, and
- *  padi would refuse this one's landing, so nothing is reported and nothing
- *  failed). */
+ *  stack to it was already running); or `superseded` (the setting's profile
+ *  list changed while it ran — the newer list's own run delivers that, and
+ *  padi would refuse this one's landing). A superseded run lands nothing and
+ *  failed at nothing; it reports `failed` for its stack only so padi drops its
+ *  `delivering` record, which padi does silently for a stack the setting has
+ *  left. The switch going off supersedes nothing: padi judges a landing by
+ *  the list alone, and takes it. */
 export type HostOutcome = "landed" | "failed" | "busy" | "superseded";
 
 export interface AgentDelivery {
@@ -153,9 +157,9 @@ export function createAgentDelivery(deps: {
   readonly schedule: UpdaterSchedule;
   readonly ops: DeliveryOps;
   readonly log: Logger;
-  /** The setting's stack, or `undefined` while agents are off. Read at each
-   *  run. */
-  readonly stack: () => readonly string[] | undefined;
+  /** The Agents setting, read at each run: its stack while on; its profile
+   *  list is what a run in flight is judged current against. */
+  readonly setting: () => AgentDistroSetting;
   /** Every host a delivery can reach now (connected padis). */
   readonly hosts: () => readonly DeliveryHost[];
   /** Each profile of the stack, in order, with whether it builds — published
@@ -184,12 +188,17 @@ export function createAgentDelivery(deps: {
    *  of a profile that built does not flash back to `pending`; only a
    *  reference never answered is. */
   const lastAnswers = new Map<string, AgentProfileResolution>();
-  /** The setting still names `stack` (off names none). A run that outlived its
-   *  stack publishes nothing and reports nothing: the newer stack's run does. */
-  const current = (stack: readonly string[]): boolean => {
-    const now = deps.stack();
-    return now !== undefined && sameStack(now, stack);
+  /** The setting's stack, or `undefined` while agents are off. */
+  const stackNow = (): readonly string[] | undefined => {
+    const setting = deps.setting();
+    return setting.enabled ? setting.profiles : undefined;
   };
+  /** The setting's profile list is still `stack` — padi's own staleness rule
+   *  (its `report` handler compares the list alone), so a run kolu-server
+   *  calls current is one padi will take. A run that outlived its list
+   *  publishes nothing and lands nothing: the newer list's run does. */
+  const current = (stack: readonly string[]): boolean =>
+    sameStack(deps.setting().profiles, stack);
   /** Deliveries in flight, by `host#stack`: a change of the stack is its own
    *  delivery, never folded into the one still running. */
   const inFlight = new Set<string>();
@@ -302,9 +311,11 @@ export function createAgentDelivery(deps: {
     }
     const answers = new Map<string, AgentProfileResolution>();
     const publish = () => {
+      // Gate first: an outdated run's answers are neither shown nor
+      // remembered, so one can never stand in for a newer answer later.
+      if (!current(stack)) return;
       for (const [reference, answer] of answers)
         lastAnswers.set(reference, answer);
-      if (!current(stack)) return;
       deps.onResolution(
         stack.map((reference) => ({
           reference,
@@ -382,15 +393,23 @@ export function createAgentDelivery(deps: {
     const at = { host: host.label, agentDistroProfiles: stack };
     const onProgress = (line: string) =>
       log.debug({ ...at, line }, "agent-distro delivery");
-    const superseded = (): HostOutcome => {
+    const superseded = async (): Promise<HostOutcome> => {
       log.info(
-        { ...at, now: deps.stack() ?? null },
-        "agent-distro delivery superseded by a newer setting",
+        { ...at, now: deps.setting().profiles },
+        "agent-distro delivery superseded by a newer profile list",
       );
+      // The terminal report padi drops silently for a list the setting has
+      // left — so its `delivering` record for this stack ends with the run.
+      await report(host, {
+        kind: "failed",
+        profiles: stack,
+        message:
+          "superseded: the Agents profile list changed while this delivery ran",
+      }).catch(() => {});
       return "superseded";
     };
     const failed = async (message: string): Promise<HostOutcome> => {
-      if (!current(stack)) return superseded();
+      if (!current(stack)) return await superseded();
       log.warn({ ...at, message }, "agent-distro set not delivered");
       await report(host, { kind: "failed", profiles: stack, message }).catch(
         () => {},
@@ -441,13 +460,13 @@ export function createAgentDelivery(deps: {
         onProgress,
       });
       if (!res.ok) return await failed(res.message);
-      if (!current(stack)) return superseded();
+      if (!current(stack)) return await superseded();
       const set = { bundle: res.bundle, profiles: delivered };
       await report(host, { kind: "landed", set });
       log.info({ ...at, set }, "agent-distro set delivered");
       return "landed";
     } catch (err) {
-      if (!current(stack)) return superseded();
+      if (!current(stack)) return await superseded();
       log.warn({ ...at, err }, "agent-distro delivery failed");
       return await failed(err instanceof Error ? err.message : String(err));
     }
@@ -456,7 +475,7 @@ export function createAgentDelivery(deps: {
   return {
     running: () => inFlight.size > 0,
     resolve: async () => {
-      const stack = deps.stack();
+      const stack = stackNow();
       if (stack === undefined) {
         deps.onResolution([]);
         return;
@@ -464,7 +483,7 @@ export function createAgentDelivery(deps: {
       await resolveStack(stack, {});
     },
     run: async ({ keys, trigger }) => {
-      const stack = deps.stack();
+      const stack = stackNow();
       if (stack === undefined) return [];
       const slotOf = (h: DeliveryHost) => `${h.key}#${JSON.stringify(stack)}`;
       const targets = deps

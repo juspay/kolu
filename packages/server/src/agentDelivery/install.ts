@@ -89,15 +89,11 @@ export function installAgentDelivery(deps: {
       },
     };
   };
-  const stack = (): readonly string[] | undefined => {
-    const setting = deps.setting();
-    return setting.enabled ? setting.profiles : undefined;
-  };
   const delivery: AgentDelivery = createAgentDelivery({
     schedule: bake.schedule,
     ops: realDeliveryOps(bake),
     log,
-    stack,
+    setting: deps.setting,
     onResolution: deps.publishProfiles,
     hosts: () =>
       pool
