@@ -177,11 +177,10 @@ odu-nix: nix
 # Build the separate home-manager example flake. Deliberately NOT dependent on
 # `nix`: `--override-input kolu .` builds the same kolu derivations `ci::nix`
 # builds, and Nix's per-derivation build lock makes whichever node arrives
-# second WAIT on the first rather than rebuild — the two dedupe through Nix
-# itself, so an edge guards nothing and only serializes this node behind the
-# root gate. Darwin checks the activation package and launchd configuration.
-# Linux checks the NixOS configuration and runs the service, adoption, and
-# upgrade VM tests.
+# second WAIT, never rebuild — so an edge guards nothing and only serializes
+# this node behind the root gate. Darwin checks the activation package and
+# launchd configuration. Linux checks the NixOS configuration and runs the
+# service, adoption, and upgrade VM tests.
 home-manager:
     if [ "$(uname)" = Darwin ]; then \
       bash ci/flake-build --kinds checks ./nix/home/example -- --override-input kolu .; \
@@ -291,16 +290,15 @@ unit: install
 # call sites disagree). Before that split every fork-free test in the tree ran
 # twice per run — the whole `unit` node, ~5m, on the critical path for nothing.
 #
-# `daemon` deliberately does NOT depend on `unit`. The lone incident behind that
-# edge is the macOS `petit` SIGKILL pair recorded in docs/ci-flakes.md: the root
-# recipes then had unbounded package concurrency, and `unit` and `daemon` each
-# traversed the whole workspace. Both causes were fixed on their own —
-# `--workspace-concurrency=1` bounds each tree, and the split above means the
-# two nodes no longer run the same suites — so the edge was, by then, a third
-# fix for a cause the other two had removed: a darwin incident's remedy levied
-# on the Linux lane. What it costs is structural — the whole `unit` node on
-# `daemon`'s critical path, and that closure replayed on every borrowed daemon
-# shard box before its own slice.
+# `daemon` deliberately does NOT depend on `unit`. Its lone incident — the macOS
+# `petit` SIGKILL pair (docs/ci-flakes.md) — had two causes, unbounded package
+# concurrency and `unit`/`daemon` traversing the same workspace, and the root
+# recipes' `--workspace-concurrency=1` bound and the partition above each fixed
+# one. So it was a third fix for a cause the other two had already removed — a
+# darwin remedy, levied on the Linux lane.
+#
+# What it cost was structural: `unit` on `daemon`'s critical path, and that
+# closure replayed on every borrowed shard box before its own slice.
 #
 # SHARDED (the shard contract is at the top of this file): the Linux lane's
 # second-longest pole. Its wall time is a handful of expensive FILES, not one
