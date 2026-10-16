@@ -1,30 +1,22 @@
-/** The package and state layout kolu relies on. */
+/** The package layout kolu relies on. */
 
 import { describe, expect, it } from "vitest";
 import {
   agentBinDir,
   agentBundleShortHash,
   concreteStatePath,
-  currentLink,
-  lastSuccessFile,
   versionsFile,
 } from "./bundle.ts";
 
 const PLACEHOLDER = "@KOLU_XDG_STATE_HOME@";
 
 describe("layout", () => {
-  it("names a package's bin and versions, and a state dir's current and last-success", () => {
+  it("names a package's bin and versions", () => {
     expect(agentBinDir("/nix/store/x-agent-distro")).toBe(
       "/nix/store/x-agent-distro/bin",
     );
     expect(versionsFile("/nix/store/x-agent-distro")).toBe(
       "/nix/store/x-agent-distro/share/agent-distro/versions",
-    );
-    expect(currentLink("/s/agent-distro/abc")).toBe(
-      "/s/agent-distro/abc/current",
-    );
-    expect(lastSuccessFile("/s/agent-distro/abc")).toBe(
-      "/s/agent-distro/abc/last-success",
     );
   });
 

@@ -10,8 +10,10 @@
  * Nix for agents. A `landed` set is already valid in this host's store and
  * rooted there, so landing it is a record and a symlink flip plus upstream's
  * two files: the `last-success` stamp and a history line in upstream's format
- * (`@juspay/agent-distro/update/history`), so a host that also runs
- * agent-distro's Home Manager module keeps one log.
+ * (`@juspay/agent-distro/update/history`), appended through upstream's one
+ * writer (`…/update/history-log`), which keeps the log trimmed under the lock
+ * its own updater takes — so a host that also runs agent-distro's Home
+ * Manager module keeps one bounded log.
  *
  * A failure is recorded with its cause, in kolu-server's words. padi never
  * retries: kolu-server delivers again at its next run (its schedule, a check
@@ -19,7 +21,6 @@
  */
 
 import {
-  appendFileSync,
   mkdirSync,
   readdirSync,
   renameSync,
@@ -29,7 +30,11 @@ import {
 } from "node:fs";
 import { dirname, join } from "node:path";
 import { historyLine } from "@juspay/agent-distro/update/history";
-import { currentLink, lastSuccessFile } from "@kolu/agent-distro/bundle";
+import { appendHistory } from "@juspay/agent-distro/update/history-log";
+import {
+  currentLink,
+  lastSuccessFile,
+} from "@juspay/agent-distro/update/state";
 import { staleGcRoots } from "@kolu/agent-distro/gcRoots";
 import {
   type DeliveredSet,
@@ -160,7 +165,7 @@ export function landDelivery(
   );
   if (words === "") return;
   mkdirSync(dirname(bake.historyFile), { recursive: true });
-  appendFileSync(bake.historyFile, historyLine(`updated: ${words}`, now));
+  appendHistory(bake.historyFile, historyLine(`updated: ${words}`, now));
   log.info(
     { bundle: set.bundle, profiles: set.profiles, previous: old },
     "agent-distro set landed",

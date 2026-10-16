@@ -8,9 +8,9 @@
  *     a path (absolute, or `~/`) names a tree on this machine and is used as
  *     it is. So a `Custom…` path works on every host: the host never reads it.
  *   - BUILD (`buildProfile`): agent-distro's own `lib.mkProfile`, from the
- *     revision the host's package was published at (`./profile.nix`), into a
- *     store path holding everything a launch reads — nothing is fetched,
- *     evaluated or compiled at launch.
+ *     revision the host's package was published at, for the host's system,
+ *     into a store path holding everything a launch reads — nothing is
+ *     fetched, evaluated or compiled at launch.
  *
  * Shipping the built path to a host is `./ops.ts`'s, beside the package's
  * pull. Every failure throws with Nix's own words, on one line: a profile that
@@ -21,7 +21,11 @@
 import { execFile } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import {
+  classifyReference,
+  prefetchArgs,
+  prefetchedTree,
+} from "@juspay/agent-distro/profile/reference";
 import { parseProfileFile, profileFile } from "@kolu/agent-distro/profileFile";
 
 /** A reference pinned: the tree it names (a store path, or a path on this
@@ -74,58 +78,43 @@ function runNix(args: readonly string[], what: string): Promise<string> {
   });
 }
 
-/** Is `reference` a path rather than a flake reference? Only an absolute path
- *  or one under `~/` names anything on this machine; a relative one names
- *  nothing (kolu-server has no working directory of the user's), and is
- *  refused by {@link lockProfile}. */
-function pathOf(reference: string): string | undefined {
-  if (reference.startsWith("/")) return reference;
-  if (reference.startsWith("~/")) return join(homedir(), reference.slice(2));
-  return undefined;
-}
-
-/** Pin `reference` — see the module header. */
+/** Pin `reference` — see the module header. What a reference names, the
+ *  fetch's arguments and where its answer put the tree are upstream's own
+ *  rules (`@juspay/agent-distro/profile/reference`, which its launch reads a
+ *  reference with); kolu-server runs the fetch itself, asynchronously, and
+ *  reads nothing against a working directory — it has none of the user's — so
+ *  a relative path is refused. */
 export async function lockProfile(reference: string): Promise<LockedProfile> {
-  const path = pathOf(reference);
-  if (path !== undefined) return { reference, tree: path };
-  if (reference.startsWith("./") || reference.startsWith("../"))
+  const kind = classifyReference(reference, { home: homedir() });
+  if (kind === null)
     throw new Error(
-      `${reference}: a relative path names no profile here — use an absolute path, or one under ~/`,
+      /^\.\.?(\/|$)/.test(reference)
+        ? `${reference}: a relative path names no profile here — use an absolute path, or one under ~/`
+        : `${reference}: not a profile reference — a flake reference (github:owner/repo), an absolute path, or one under ~/`,
     );
-  // The global registry is downloaded before any fetch; only an indirect
-  // reference (no `scheme:`) is looked up in it — agent-distro's own rule.
-  const registry = /^[a-z][a-z0-9+.-]*:/i.test(reference)
-    ? ["--option", "flake-registry", ""]
-    : [];
-  const out = await runNix(
-    ["flake", "prefetch", ...registry, "--json", reference],
-    `cannot fetch ${reference}`,
+  if ("path" in kind) return { reference, tree: kind.path };
+  const what = `cannot fetch ${reference}`;
+  const tree = prefetchedTree(
+    JSON.parse(await runNix(prefetchArgs(kind.flake), what)),
   );
-  const value = JSON.parse(out) as {
-    storePath?: unknown;
-    locked?: { rev?: unknown; dir?: unknown };
-    original?: { dir?: unknown };
-  };
-  if (typeof value.storePath !== "string")
-    throw new Error(
-      `cannot fetch ${reference}: nix flake prefetch gave no store path`,
-    );
-  const dir = value.locked?.dir ?? value.original?.dir;
-  const rev = value.locked?.rev;
+  if (tree === null)
+    throw new Error(`${what}: nix flake prefetch gave no store path`);
   return {
     reference,
-    tree:
-      typeof dir === "string" && dir !== ""
-        ? join(value.storePath, dir)
-        : value.storePath,
-    ...(typeof rev === "string" ? { rev } : {}),
+    tree: tree.path,
+    ...(tree.rev === undefined ? {} : { rev: tree.rev }),
   };
 }
 
-const PROFILE_NIX = join(import.meta.dirname, "profile.nix");
-
-/** Build `locked` for `hostSystem` with `flake` (agent-distro) at `rev` — see
- *  `./profile.nix`. */
+/** Build `locked` for `hostSystem` with agent-distro's own `lib.mkProfile`,
+ *  from `flake` at `rev` — the revision the host's package was published at,
+ *  so the same nixpkgs and the same plugin reader as the launcher that reads
+ *  the profile there, and a launch fetches, evaluates and compiles nothing.
+ *  A host of another system gets a profile built for this machine's, without
+ *  packages — or, when it has packages for the host's system, mkProfile's
+ *  refusal naming the profile and both systems (its `hostSystem`). Impure for
+ *  `getFlake`, and for mkProfile locking a plugin named by a flake
+ *  reference. */
 export async function buildProfile(args: {
   readonly flake: string;
   readonly rev: string;
@@ -133,7 +122,7 @@ export async function buildProfile(args: {
   readonly hostSystem: string;
 }): Promise<BuiltProfile> {
   const { locked } = args;
-  const expr = `import ${JSON.stringify(PROFILE_NIX)} { agentDistro = ${JSON.stringify(`${args.flake}/${args.rev}`)}; profile = ${JSON.stringify(locked.tree)}; hostSystem = ${JSON.stringify(args.hostSystem)}; }`;
+  const expr = `(builtins.getFlake ${JSON.stringify(`${args.flake}/${args.rev}`)}).lib.mkProfile { system = builtins.currentSystem; hostSystem = ${JSON.stringify(args.hostSystem)}; profile = ${JSON.stringify(locked.tree)}; }`;
   const out = await runNix(
     ["build", "--impure", "--no-link", "--print-out-paths", "--expr", expr],
     `cannot build ${locked.reference} for ${args.hostSystem}`,

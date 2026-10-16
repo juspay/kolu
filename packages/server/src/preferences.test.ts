@@ -33,15 +33,15 @@ describe("the Agents setting pushed to padi", () => {
     store.set("preferences", { ...DEFAULT_PREFERENCES, agentDistro: null });
     expect(currentAgentDistroSetting()).toEqual({
       enabled: false,
-      profile: "vanilla",
+      profiles: [],
     });
     store.set("preferences", {
       ...DEFAULT_PREFERENCES,
-      agentDistro: { enabled: true, profile: "juspay" },
+      agentDistro: { enabled: true, profiles: ["github:juspay/skills"] },
     });
     expect(currentAgentDistroSetting()).toEqual({
       enabled: true,
-      profile: "juspay",
+      profiles: ["github:juspay/skills"],
     });
   });
 });

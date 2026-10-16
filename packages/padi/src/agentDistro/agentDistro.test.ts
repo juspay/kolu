@@ -21,7 +21,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { currentLink } from "@kolu/agent-distro/bundle";
+import { currentLink } from "@juspay/agent-distro/update/state";
 import {
   GC_ROOTS_DIR,
   PACKAGE_GC_ROOT,

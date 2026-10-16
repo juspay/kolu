@@ -135,6 +135,7 @@ const WEB_SHELL_FILES = [
   "agentDelivery/delivery",
   "agentDelivery/install",
   "agentDelivery/ops",
+  "agentDelivery/profiles",
   "agentDelivery/schedule",
   "agentDelivery/timer",
   // ── the serving shell + true leaves (top-level) ──

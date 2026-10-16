@@ -1,5 +1,5 @@
 /** A profile's lock, for the references that need no Nix — a path is used as
- *  it is, a relative one is refused — and Nix's words on one line. (Fetching a
+ *  it is, a relative one or a bare word is refused — and Nix's words on one line. (Fetching a
  *  flake reference and building one run Nix, and are the delivery's e2e.) */
 
 import { homedir } from "node:os";
@@ -23,10 +23,16 @@ describe("lockProfile — paths", () => {
   });
 
   it("a relative path names nothing here, and says what to use instead", async () => {
-    for (const reference of ["./mine", "../mine"])
+    for (const reference of ["./mine", "../mine", "."])
       await expect(lockProfile(reference)).rejects.toThrow(
         `${reference}: a relative path names no profile here — use an absolute path, or one under ~/`,
       );
+  });
+
+  it("a bare word is no reference at all — upstream's rule, as a launch reads it", async () => {
+    await expect(lockProfile("juspay")).rejects.toThrow(
+      "juspay: not a profile reference — a flake reference (github:owner/repo), an absolute path, or one under ~/",
+    );
   });
 });
 

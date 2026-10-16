@@ -549,8 +549,12 @@ layer carry it; the module is `src/agentDistro/`.
   appends an `updated:` line to upstream's `history.log` in upstream's own
   format (`@juspay/agent-distro/update/history`'s `historyLine`, words from
   `@kolu/agent-distro/landing`'s `deliveryChanges`: upstream's `changes()` for
-  the package, `juspay a1b2c3d → d4e5f6a` for a profile), so a host that also
-  runs agent-distro's Home Manager module keeps ONE log. A landing naming a
+  the package, `juspay a1b2c3d → d4e5f6a` for a profile) through upstream's
+  one writer (`…/update/history-log`'s `appendHistory`, which keeps the log's
+  newest `HISTORY_LINES` under the lock upstream's updater takes too), so a
+  host that also runs agent-distro's Home Manager module keeps ONE bounded
+  log. The `current` link and `last-success` stamp are named by upstream too
+  (`…/update/state`). A landing naming a
   path not on this host is padi's own failure, recorded and thrown back. padi
   never retries and never runs Nix for agents — kolu-server delivers again on
   upstream's schedule, on every bind, and on the user's check. Binder-only; not

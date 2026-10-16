@@ -113,7 +113,7 @@ let
       flake = flakeRef;
       profile = "default";
     };
-    history = "${stateHomePlaceholder}/agent-distro/history.log";
+    history = distro.lib.historyFile stateHomePlaceholder;
     landed = "${stateHomePlaceholder}/kolu/agent-distro/landed.json";
   });
 

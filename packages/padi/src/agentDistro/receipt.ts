@@ -14,7 +14,8 @@ import {
   parseVersions,
   type Version,
 } from "@juspay/agent-distro/update/versions";
-import { lastSuccessFile, versionsFile } from "@kolu/agent-distro/bundle";
+import { lastSuccessFile } from "@juspay/agent-distro/update/state";
+import { versionsFile } from "@kolu/agent-distro/bundle";
 import type { DeliveredSet } from "@kolu/agent-distro/landing";
 import {
   type AgentUpdateRun,

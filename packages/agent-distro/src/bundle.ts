@@ -1,9 +1,9 @@
 /**
- * The shape of agent-distro's package and state on disk, as kolu relies on it:
- * where the package keeps its commands and its versions, how a store path is
- * shortened for a tile, where a host's `current` and `last-success` are, and
- * how a state path baked against a placeholder home is made concrete for a
- * host. (Where kolu's floor keeps the package is the floor's own manifest —
+ * The shape of agent-distro's package on disk, as kolu relies on it: where the
+ * package keeps its commands and its versions, how a store path is shortened
+ * for a tile, and how a state path baked against a placeholder home is made
+ * concrete for a host. (The files a state directory holds — `current`,
+ * `last-success` — are upstream's own, `@juspay/agent-distro/update/state`.) (Where kolu's floor keeps the package is the floor's own manifest —
  * `./manifest.ts` — never a layout known here.)
  *
  * Pure string algebra (POSIX store paths; no `node:path`), so the browser can
@@ -23,20 +23,6 @@ export function agentBinDir(bundle: string): string {
  *  `VERSIONS_FILE`). */
 export function versionsFile(bundle: string): string {
   return `${bundle}/${VERSIONS_FILE}`;
-}
-
-/** The link under the package's state directory that names the package the
- *  host serves — agent-distro's own `current` (its shims prefer it), which
- *  padi points at each package kolu delivers. */
-export function currentLink(stateDir: string): string {
-  return `${stateDir}/current`;
-}
-
-/** The file under the state directory where a host's last successful landing
- *  is stamped, in epoch seconds — upstream's `last-success`, read with its
- *  `parseStamp`. */
-export function lastSuccessFile(stateDir: string): string {
-  return `${stateDir}/last-success`;
 }
 
 /** The short hash a tile's pill shows for a store path (the package, or a

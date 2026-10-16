@@ -23,7 +23,8 @@ local floor — the package as upstream builds it (`mkLaunchers`), with its
 picker in `bin/` (kolu bakes no picker of its own) — and writes its
 **manifest** (`share/kolu/agent-distro.json`: `{ dir, bin }`), the **host
 state** (`KOLU_AGENT_DISTRO_STATE`: the package's state directory —
-agent-distro's own `stateDirectory` for its one package — the history log and
+agent-distro's own `stateDirectory` for its one package — the history log
+(`lib.historyFile`) and
 kolu's record of the set that landed, against a placeholder home padi makes
 concrete), the **delivery** kolu-server reads (upstream's flake —
 `github:<lib.caIndex.repo>` — its content-addressed index base,
@@ -35,8 +36,12 @@ kolu-server's own boot read of the package (`readListing`, a command the root
 `default.nix` builds) and checks every harness it names has a launcher.
 
 Upstream's own **vocabulary** — the due rule and the scheduled run's numbers,
-the history line's writer and reader, the versions file and `changes()`, the
-`--list --json` value and its words — is imported, never repeated: upstream's
+the history line's writer and reader, the history log's one writer
+(`appendHistory`, which keeps it trimmed under upstream's lock), the state
+directory's `current` and `last-success`, what a profile reference names and
+how a flake reference is fetched (`classifyReference`, `prefetchArgs`,
+`prefetchedTree`), the versions file and `changes()`, the `--list --json`
+value and its words — is imported, never repeated: upstream's
 runtime tree (`src/`) names itself `@juspay/agent-distro`, and kolu grafts it
 from the npins pin as a workspace member (`nix/workspace.nix`, the `@odu/*`
 mechanism). This package depends on it.
@@ -97,10 +102,10 @@ The **TypeScript half**, as data and pure functions:
   each profile by its reference), which kolu-server writes and padi prunes as
   a stack lands: every root but the package's and the kept stacks'
   (`staleGcRoots` — a legacy bundle's bare-name root included).
-- `./bundle` — agent-distro's package and state shape: its `bin/` and versions
-  file, the `current` link and `last-success` stamp, a store path's short hash,
-  and making a state path concrete for a host's state home
-  (`concreteStatePath`).
+- `./bundle` — agent-distro's package shape: its `bin/` and versions file, a
+  store path's short hash, and making a state path concrete for a host's state
+  home (`concreteStatePath`). (The state directory's `current` and
+  `last-success` are upstream's, `@juspay/agent-distro/update/state`.)
 - `./status` — how a host's status shows, and every word kolu says about it:
   the one fenced fold from status to the host tab's mark (`agentMarkOf`) and
   its words (`agentMarkLabel`), a failed delivery's cause and when kolu tries
