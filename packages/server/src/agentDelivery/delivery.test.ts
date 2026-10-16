@@ -836,6 +836,38 @@ describe("createAgentDelivery — an outdated run's answers", () => {
   });
 });
 
+describe("createAgentDelivery — the switch going off", () => {
+  it("empties Settings' answers, and a check still settling then publishes nothing", async () => {
+    const nix = fakeOps();
+    let setting: AgentDistroSetting = { enabled: true, profiles: [JUSPAY] };
+    let failLock!: (err: Error) => void;
+    const ops: DeliveryOps = {
+      ...nix.ops,
+      lock: () =>
+        new Promise((_, reject) => {
+          failLock = reject;
+        }),
+    };
+    const { delivery, resolutions } = setup({
+      ops,
+      hosts: [],
+      setting: () => setting,
+    });
+    const check = delivery.run({ trigger: "user" });
+    await vi.waitFor(() => expect(failLock).toBeDefined());
+    // Off, mid-check: the cell empties (the list is kept)…
+    setting = { enabled: false, profiles: [JUSPAY] };
+    await delivery.resolve();
+    expect(resolutions.at(-1)).toEqual([]);
+    const shown = resolutions.length;
+    // …and the check settling now — here with a failure — publishes nothing:
+    // no red line under a list the user switched off.
+    failLock(new Error("network went away"));
+    await check;
+    expect(resolutions).toHaveLength(shown);
+  });
+});
+
 describe("createAgentDelivery — hosts and runs", () => {
   it("a host already being delivered to is busy, and keeps its delivery", async () => {
     const nix = fakeOps();

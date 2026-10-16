@@ -199,6 +199,14 @@ export function createAgentDelivery(deps: {
    *  publishes nothing and lands nothing: the newer list's run does. */
   const current = (stack: readonly string[]): boolean =>
     sameStack(deps.setting().profiles, stack);
+  /** Settings shows `stack`'s answers: agents are on and it is the setting's
+   *  stack. Stricter than {@link current}, which a landing needs: the
+   *  `agentProfiles` cell is empty while agents are off, so a run that settles
+   *  after the switch went off publishes nothing. */
+  const shown = (stack: readonly string[]): boolean => {
+    const now = stackNow();
+    return now !== undefined && sameStack(now, stack);
+  };
   /** Deliveries in flight, by `host#stack`: a change of the stack is its own
    *  delivery, never folded into the one still running. */
   const inFlight = new Set<string>();
@@ -306,14 +314,15 @@ export function createAgentDelivery(deps: {
     run: Run,
   ): Promise<void> => {
     if (stack.length === 0) {
-      if (current(stack)) deps.onResolution([]);
+      if (shown(stack)) deps.onResolution([]);
       return;
     }
     const answers = new Map<string, AgentProfileResolution>();
     const publish = () => {
-      // Gate first: an outdated run's answers are neither shown nor
+      // Gate first: an answer Settings no longer shows — an outdated run's, or
+      // one settling after the switch went off — is neither published nor
       // remembered, so one can never stand in for a newer answer later.
-      if (!current(stack)) return;
+      if (!shown(stack)) return;
       for (const [reference, answer] of answers)
         lastAnswers.set(reference, answer);
       deps.onResolution(
