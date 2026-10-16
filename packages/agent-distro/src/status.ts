@@ -504,12 +504,15 @@ export interface ProfileSuggestion {
 }
 
 /** The add field's suggestions: what the user added before, most recent
- *  first, without what the list already holds. */
+ *  first, without what the list already holds — and never
+ *  {@link JUSPAY_PROFILE}, whose own one-click entry is the one way it is
+ *  offered. */
 export function profileSuggestions(input: {
   readonly recent: readonly string[];
   readonly profiles: readonly string[];
 }): readonly ProfileSuggestion[] {
   return input.recent
+    .filter((value) => value !== JUSPAY_PROFILE)
     .filter((value) => !input.profiles.includes(value))
     .map((value) => ({ value, note: "used before" }));
 }

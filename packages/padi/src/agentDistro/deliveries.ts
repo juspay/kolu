@@ -126,8 +126,8 @@ function writeAtomic(path: string, text: string): void {
 /** `set` landed for `stack`: record it — one atomic rename, so a spawn never
  *  reads a half-written record — point upstream's `current` at its package,
  *  stamp `last-success`, remove every GC root but the package's and those of
- *  the profiles `keep` names (the landed stack, and any stack a delivery may
- *  still be rooting beside it), and, when anything changed, append upstream's
+ *  the landed stack (the setting's own — a landing of any other is refused
+ *  before it gets here), and, when anything changed, append upstream's
  *  `updated:` history line naming what. Throws on a set this host does not
  *  hold: kolu-server rooted it here, so its absence is a broken delivery,
  *  never a state to paper over. */
@@ -135,7 +135,6 @@ export function landDelivery(
   bake: AgentDistroBake,
   stack: readonly string[],
   set: DeliveredSet,
-  keep: readonly string[],
   now: Date = new Date(),
 ): void {
   assertSetOnHost(set);
@@ -156,7 +155,7 @@ export function landDelivery(
   delivering.delete(key(stack));
   failed.delete(key(stack));
   unlanded = undefined;
-  pruneGcRoots(bake.gcRootsDir, keep);
+  pruneGcRoots(bake.gcRootsDir, stack);
   const words = deliveryChanges(
     old === undefined
       ? undefined
@@ -178,7 +177,7 @@ export function landDelivery(
  *  Nix's garbage collection. A root that will not go is logged at error, never
  *  thrown: the set has landed, and a leftover root costs disk, not
  *  correctness. */
-function pruneGcRoots(dir: string, keep: readonly string[]): void {
+export function pruneGcRoots(dir: string, keep: readonly string[]): void {
   let names: string[];
   try {
     names = readdirSync(dir);

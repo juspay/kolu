@@ -181,6 +181,38 @@ export function migratePreferences_1_41_0(
   };
 }
 
+/** 1.42.0 — the same rule as 1.41.0, for a store that reached 1.41.0 before
+ *  that rung refused Juspay's reference (development builds of the
+ *  one-package change): `github:juspay/skills` leaves the stack, and leaves
+ *  `agentProfilesRecent` too (Juspay has its own one-click entry, and is never
+ *  remembered). Juspay is an explicit opt-in, and a stored entry here may be
+ *  the old never-chosen default; one click adds it back. Exported for
+ *  `state.test.ts`. */
+export function migratePreferences_1_42_0(
+  current: Record<string, unknown>,
+): Record<string, unknown> {
+  const juspay = "github:juspay/skills";
+  const stored = current.agentDistro as
+    | { enabled: boolean; profiles: string[] }
+    | null
+    | undefined;
+  const recent = current.agentProfilesRecent as string[] | undefined;
+  return {
+    ...current,
+    ...(stored === null || stored === undefined
+      ? {}
+      : {
+          agentDistro: {
+            ...stored,
+            profiles: stored.profiles.filter((p) => p !== juspay),
+          },
+        }),
+    ...(recent === undefined
+      ? {}
+      : { agentProfilesRecent: recent.filter((p) => p !== juspay) }),
+  };
+}
+
 /** 1.32.0 — the new-terminal collapsed DEFAULT moved off `rightPanel.collapsed`
  *  (a write-dead seed jammed next to live geometry) to a top-level
  *  `newTerminalCollapsed` preference beside `newTerminalTheme`. CARRY the old
@@ -325,7 +357,7 @@ function readPersistedRecord(
  * Must be valid semver. `conf` runs all migration handlers
  * whose keys are > the last-seen version and ≤ this value.
  */
-const SCHEMA_VERSION = "1.41.0";
+const SCHEMA_VERSION = "1.42.0";
 
 // Callers must pass an explicit directory via KOLU_STATE_DIR. A bare launch
 // with no env would silently clobber whatever happens to live at conf's
@@ -886,6 +918,16 @@ const CONF_MIGRATIONS = {
     store.set(
       "preferences",
       migratePreferences_1_41_0(
+        store.get("preferences") as Record<string, unknown>,
+      ) as unknown as Preferences,
+    );
+  },
+  // Juspay's reference leaves a stack (and the remembered references) that
+  // reached 1.41.0 before that rung refused it: it is an explicit opt-in.
+  "1.42.0": (store: Conf<PersistedState>) => {
+    store.set(
+      "preferences",
+      migratePreferences_1_42_0(
         store.get("preferences") as Record<string, unknown>,
       ) as unknown as Preferences,
     );

@@ -48,6 +48,7 @@ import {
   newTerminalLayer,
   onAgentDistroReport,
   onAgentDistroSettingWrite,
+  publishAgentDistroAtBoot,
 } from "./agentDistro.ts";
 import { __setAgentDistroBakeForTest, type AgentDistroBake } from "./bake.ts";
 import {
@@ -257,7 +258,7 @@ describe("servedSetOnHost — the set this host serves", () => {
     const b = bake({ floor: true });
     const bundle = storePackage(join(root, "store", "delivered"));
     const juspay = storeProfile(JUSPAY, "juspay", { rev: "a1b2c3d4e5" });
-    landDelivery(b, [JUSPAY], { bundle, profiles: [juspay] }, [JUSPAY]);
+    landDelivery(b, [JUSPAY], { bundle, profiles: [juspay] });
     expect(servedSetOnHost(b)).toEqual({ bundle, profiles: [juspay] });
   });
 
@@ -321,18 +322,10 @@ describe("assessAgentDistro — the set serves only the stack it was built for",
     const b = bake({ floor: false });
     __setAgentDistroBakeForTest(b);
     const bundle = storePackage(join(root, "store", "delivered"));
-    landDelivery(
-      b,
-      [JUSPAY, EKALA],
-      {
-        bundle,
-        profiles: [
-          storeProfile(JUSPAY, "juspay"),
-          storeProfile(EKALA, "ekala"),
-        ],
-      },
-      [JUSPAY, EKALA],
-    );
+    landDelivery(b, [JUSPAY, EKALA], {
+      bundle,
+      profiles: [storeProfile(JUSPAY, "juspay"), storeProfile(EKALA, "ekala")],
+    });
     expect(assessAgentDistro(stack(JUSPAY, EKALA)).kind).toBe("ready");
     expect(assessAgentDistro(stack(EKALA, JUSPAY))).toEqual({
       kind: "undelivered",
@@ -572,21 +565,24 @@ describe("delivery reports — what a host does with kolu-server's word", () => 
     );
   });
 
-  it("a landing keeps the roots of every stack it is told to keep — a newer list's delivery may be rooting beside it", () => {
-    const b = bake({ floor: false });
+  it("at boot, every root but the served set's goes — a host whose agents are off still drops an older kolu's bundle root", () => {
+    __setAgentDistroBakeForTest(bake({ floor: false }));
+    const bundle = storePackage(join(root, "store", "delivered"));
+    write(stack(JUSPAY));
+    report(landed(bundle, [storeProfile(JUSPAY, "juspay")]));
     const roots = gcRootsDir();
     mkdirSync(roots, { recursive: true });
-    for (const name of [profileGcRoot(JUSPAY), profileGcRoot(EKALA)])
+    for (const name of [
+      PACKAGE_GC_ROOT,
+      profileGcRoot(JUSPAY),
+      profileGcRoot(EKALA),
+      "vanilla",
+    ])
       symlinkSync(join(root, "store"), join(roots, name));
-    const bundle = storePackage(join(root, "store", "delivered"));
-    landDelivery(
-      b,
-      [JUSPAY],
-      { bundle, profiles: [storeProfile(JUSPAY, "juspay")] },
-      [JUSPAY, JUSPAY, EKALA],
-    );
+    write(OFF);
+    publishAgentDistroAtBoot();
     expect(readdirSync(roots).sort()).toEqual(
-      [profileGcRoot(JUSPAY), profileGcRoot(EKALA)].sort(),
+      [PACKAGE_GC_ROOT, profileGcRoot(JUSPAY)].sort(),
     );
   });
 

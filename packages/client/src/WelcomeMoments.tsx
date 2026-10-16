@@ -184,11 +184,25 @@ const ChooseAgentsMoment: Component<{ onNotNow: () => void }> = (props) => (
       makeEventListener(document, "focusin", (e: FocusEvent) => {
         setOwned(e.target instanceof Node && step?.contains(e.target) === true);
       });
+      // A copy hidden while it held the focus (the Tutorial's, force-mounted
+      // and hidden on Escape) moves no focus anywhere: it gives the latch up
+      // as its subtree loses the focus.
+      makeEventListener(document, "focusout", (e: FocusEvent) => {
+        if (
+          e.target instanceof Node &&
+          step?.contains(e.target) === true &&
+          step.checkVisibility() !== true
+        )
+          setOwned(false);
+      });
       /** An Enter on the page itself turns agents on: only while nothing is
        *  chosen (an Enter out of habit never re-enables agents someone
-       *  switched off), and only for the copy that had the focus. */
+       *  switched off), only for the copy that had the focus, and only while
+       *  that copy can be seen. The ⏎ on "Turn on" is painted exactly then. */
       const pageEnterArmed = () =>
-        owned() && !agentsChosen(agentDistroStored());
+        owned() &&
+        step?.checkVisibility() === true &&
+        !agentsChosen(agentDistroStored());
       makeEventListener(document, "keydown", (e: KeyboardEvent) => {
         if (
           e.key !== "Enter" ||
@@ -233,9 +247,8 @@ const ChooseAgentsMoment: Component<{ onNotNow: () => void }> = (props) => (
                     onClick={() => parts.turnOn()}
                   >
                     Turn on
-                    {/* Painted only while Enter does it from anywhere in the
-                        step — never for someone who switched agents off. */}
-                    <Show when={!agentsChosen(agentDistroStored())}>
+                    {/* Painted only while the page's Enter does it. */}
+                    <Show when={pageEnterArmed()}>
                       <Kbd>⏎</Kbd>
                     </Show>
                   </button>

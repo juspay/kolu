@@ -187,12 +187,10 @@ function bake(): AgentDistroBake {
     landedFile: join(state, "kolu", "agent-distro-landed.json"),
     gcRootsDir: join(root, "home", "gcroots"),
   };
-  landDelivery(
-    b,
-    [JUSPAY],
-    { bundle: deliveredPackage(), profiles: [juspay()] },
-    [JUSPAY],
-  );
+  landDelivery(b, [JUSPAY], {
+    bundle: deliveredPackage(),
+    profiles: [juspay()],
+  });
   return b;
 }
 

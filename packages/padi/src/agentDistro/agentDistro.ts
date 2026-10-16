@@ -46,6 +46,7 @@ import {
   deliveryOf,
   deliveryStarted,
   landDelivery,
+  pruneGcRoots,
   unlandedRun,
 } from "./deliveries.ts";
 import type { AgentLayer } from "./layer.ts";
@@ -222,15 +223,10 @@ export function onAgentDistroReport(report: AgentDistroDeliveryReport): void {
               `kolu-server reported a landing for ${JSON.stringify(stack)} whose profiles name ${JSON.stringify(report.delivered.map((p) => p.reference))}`,
             );
 
-          // The roots kept: this stack's, and the current setting's — read
-          // again here, since a delivery of a newer list may already be
-          // rooting its profiles beside this one.
-          landDelivery(
-            bake,
-            stack,
-            { bundle: report.bundle, profiles: report.delivered },
-            [...stack, ...agentDistroSettingStore.get().profiles],
-          );
+          landDelivery(bake, stack, {
+            bundle: report.bundle,
+            profiles: report.delivered,
+          });
         } catch (err) {
           const message = err instanceof Error ? err.message : String(err);
           deliveryFailed(stack, { message }, "padi");
@@ -250,6 +246,28 @@ export function onAgentDistroReport(report: AgentDistroDeliveryReport): void {
 /** Publish the receipt and status for the setting padi boots with. Called
  *  once, at boot. */
 export function publishAgentDistroAtBoot(): void {
+  sweepGcRootsAtBoot();
   publishReceiptLoud();
   settle(agentDistroSettingStore.get());
+}
+
+/** At boot, before kolu-server has pushed or delivered anything, remove every
+ *  GC root but those of the set this host serves — so a host whose agents are
+ *  off (no delivery ever lands to prune) still drops what an older kolu rooted
+ *  (a per-profile bundle's bare-name root). A set on record this host cannot
+ *  read is the status's to report: nothing is swept then. */
+function sweepGcRootsAtBoot(): void {
+  const bake = agentDistroBake();
+  if (bake === null) return;
+  let served: ReturnType<typeof servedSetOnHost>;
+  try {
+    served = servedSetOnHost(bake);
+  } catch (err) {
+    log.error(
+      { err },
+      "agent-distro GC roots not swept: the served set does not read",
+    );
+    return;
+  }
+  pruneGcRoots(bake.gcRootsDir, served?.profiles.map((p) => p.reference) ?? []);
 }

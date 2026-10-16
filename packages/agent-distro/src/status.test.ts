@@ -1408,3 +1408,14 @@ describe("Juspay is an explicit opt-in", () => {
     expect(profileSuggestions({ recent: [], profiles: [] })).toEqual([]);
   });
 });
+
+describe("profileSuggestions never offers Juspay", () => {
+  it("drops it from what was used before — its one-click entry is the one way in", () => {
+    expect(
+      profileSuggestions({
+        recent: [JUSPAY_PROFILE, "~/a"],
+        profiles: [],
+      }).map((s) => s.value),
+    ).toEqual(["~/a"]);
+  });
+});
