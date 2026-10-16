@@ -40,12 +40,13 @@ import {
 } from "./schema.ts";
 
 /** Juspay's profile, as a reference — the one profile kolu offers by itself,
- *  as a one-click entry in the list. */
+ *  as the first suggestion of the list's add field. Never added unless
+ *  someone picks it. */
 export const JUSPAY_PROFILE = "github:juspay/skills";
 
-/** The one-click entry's words. HERE and not read off the profile: it is
+/** The Juspay suggestion's words. HERE and not read off the profile: it is
  *  offered before anything has been fetched, and what it brings is what the
- *  button says. */
+ *  suggestion says. */
 export const JUSPAY_OFFER = {
   reference: JUSPAY_PROFILE,
   title: "Juspay",
@@ -288,12 +289,6 @@ export function agentProfileRows(
   }));
 }
 
-/** Is Juspay's one-click entry offered? Only while the list does not already
- *  hold it. */
-export function juspayOffered(profiles: readonly string[]): boolean {
-  return !profiles.includes(JUSPAY_PROFILE);
-}
-
 /** A stack of references as names, in order: each by the name kolu-server's
  *  build gave it once it has one (`resolutions`), else by
  *  {@link agentProfileTitle}. THE way a setting's stack is named. */
@@ -482,7 +477,8 @@ export const RECENT_PROFILES_CAP = 8;
 
 /** The references the field remembers after `added` were added: they first,
  *  then the others in their order, at most {@link RECENT_PROFILES_CAP}.
- *  {@link JUSPAY_PROFILE} is not remembered — it has its own one-click entry. */
+ *  {@link JUSPAY_PROFILE} is not remembered — it is always the first
+ *  suggestion. */
 export function rememberProfiles(
   recent: readonly string[],
   added: readonly string[],
@@ -494,25 +490,32 @@ export function rememberProfiles(
   );
 }
 
-/** One suggestion under the add-a-profile field: the reference it adds, and a
- *  note beside it. */
+/** One suggestion in the add field's menu: the reference it adds, the name
+ *  it shows by when it has one, and a note beside it. */
 export interface ProfileSuggestion {
   readonly value: string;
+  readonly title?: string;
   readonly note: string;
 }
 
-/** The add field's suggestions: what the user added before, most recent
- *  first, without what the list already holds — and never
- *  {@link JUSPAY_PROFILE}, whose own one-click entry is the one way it is
- *  offered. */
+/** The add field's suggestions, none the list already holds: Juspay's first
+ *  ({@link JUSPAY_OFFER} — the one way kolu offers it), then what the user
+ *  added before, most recent first. */
 export function profileSuggestions(input: {
   readonly recent: readonly string[];
   readonly profiles: readonly string[];
 }): readonly ProfileSuggestion[] {
-  return input.recent
-    .filter((value) => value !== JUSPAY_PROFILE)
-    .filter((value) => !input.profiles.includes(value))
-    .map((value) => ({ value, note: "used before" }));
+  const juspay: ProfileSuggestion = {
+    value: JUSPAY_OFFER.reference,
+    title: JUSPAY_OFFER.title,
+    note: JUSPAY_OFFER.description,
+  };
+  return [
+    juspay,
+    ...input.recent
+      .filter((value) => value !== JUSPAY_PROFILE)
+      .map((value) => ({ value, note: "used before" })),
+  ].filter((s) => !input.profiles.includes(s.value));
 }
 
 /** One host's agent-distro facts, for its line in Settings. */
@@ -887,10 +890,6 @@ export function agentsHint(input: {
     tone: "muted",
   };
 }
-
-/** What the profile list's fine print says under it. */
-export const AGENTS_PROFILES_MEAN =
-  "Profiles stack in this order, each over the one above it — skills, MCP servers and settings for every agent. A repository's own agent-distro.nix composes over them.";
 
 /** One agent chip: the agent as people know it, and the version this machine
  *  has — `undefined` while agents are off, where the set is what kolu would

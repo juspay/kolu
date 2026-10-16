@@ -171,8 +171,8 @@ export function migratePreferences_1_41_0(
 }
 
 /** 1.42.0 — Juspay is an explicit opt-in: `github:juspay/skills` leaves the
- *  stack, and `agentProfilesRecent` (it has its own one-click entry, and is
- *  never remembered). Between #2279 and #2287 it was the NEVER-CHOSEN default,
+ *  stack, and `agentProfilesRecent` (it is always the add field's first
+ *  suggestion, and never remembered). Between #2279 and #2287 it was the NEVER-CHOSEN default,
  *  so turning the switch on stored it with nobody picking it, and nothing on
  *  disk tells that apart from a pick — a value that may be a default never
  *  stays an entry; one click adds it back. The setting never shipped in a

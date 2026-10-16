@@ -23,8 +23,8 @@ as the fallback.
 Two things make up the choice, and they are separate. The **agents** are a
 switch: on, every new terminal gets them. **Profiles** are a list on top of
 them: each one brings skills, MCP servers and settings to every agent — such as
-**Juspay**'s, one click away (`github:juspay/skills`) — and they stack in the
-order you list them. With no profile the agents are exactly as they ship.
+**Juspay**'s (`github:juspay/skills`), the first suggestion when you add one —
+and they stack in the order you list them. With no profile the agents are exactly as they ship.
 
 Until you choose, nothing changes: kolu adds no agents to your terminals until
 you switch them on, on a fresh install and on one that predates this. The agents
@@ -40,12 +40,12 @@ Until agents are on, kolu asks in three places:
 - the palette's **Tutorial** command, which shows the same welcome at any time;
 - **Settings → Agents**, at any time.
 
-The welcome card and the Tutorial ask with two buttons — **Turn on ⏎**, and
-**Not now — plain terminals, ask again later** — and the Juspay profile to add
-first if you want it. Until you choose, **Turn on** already has the keyboard:
-press **Enter** and agents are on, with whatever profiles the step lists
-(none, unless you added Juspay). Nothing is written until you press it. Any
-other profile is a Settings matter.
+The welcome card and the Tutorial ask with the same profile list as Settings,
+always empty to start with, and two buttons — **Turn on ⏎**, and **Not now —
+plain terminals, ask again later**. Juspay's profile is never there unless you
+add it: its field suggests it first ([Profiles](#profiles)). Until you choose,
+**Turn on** already has the keyboard: press **Enter** and agents are on, with
+whatever profiles the step lists. Nothing is written until you press it.
 
 The question then folds away into the welcome's done line — "Agents: on", or
 "Agents: juspay ✓" once each profile has been built ([Profiles](#profiles)); if
@@ -57,7 +57,7 @@ the question only goes for this session — the next time the welcome card appea
 it asks again.
 
 Until agents are on, the welcome card keeps the question at the top: switch them
-off again in Settings and it comes back. Once you have chosen, it no longer takes
+off again in Settings and it comes back, its list empty again. Once you have chosen, it no longer takes
 the keyboard when the welcome card appears, so an **Enter** out of habit changes
 nothing. If you upgraded and your session brings your terminals back, you will
 not see the welcome card: your terminals have no agents until you switch them on
@@ -98,14 +98,15 @@ gives every agent. The **profile list** in Settings → Agents names them, one r
 each, in order. Under each row kolu says whether it builds — its name and
 description and the revision it was fetched at ("juspay (a1b2c3d) · Juspay
 skills + Kolu, via Juspay's LiteLLM gateway"), or, in red, Nix's or
-agent-distro's own words for why not. Each row can move up or down, or be
-removed.
+agent-distro's own words for why not. Each row is removed by its **✕**; with
+two or more, each can also move up or down.
 
-Add one by typing it into the field under the list and pressing **Enter**: a
+There is one way to add a profile: the field under the list. Clicking into it
+opens its suggestions — **+ Juspay** first, then the profiles you added before,
+none the list already holds — and typing filters them. Pick one, or type a
 flake reference (`github:you/your-profile`) or a path to its directory
-(`~/src/my-profile`, or an absolute path) — the field's menu offers the ones
-you added before. **Juspay** is one click away while the list does not hold it.
-An empty list is the agents as they ship; nothing names that.
+(`~/src/my-profile`, or an absolute path) and press **Enter**. An empty list
+draws no rows: it is the agents as they ship.
 
 A profile that does not build stays in the list, said in red under its row, and
 while it is there new terminals get no coding agents — a terminal never starts
@@ -117,9 +118,9 @@ when you edit the list), or remove it.
 Profiles are applied **in list order, each over the one above it**: where two
 of them set the same thing, the lower one wins. A **repository's own
 `agent-distro.nix`** comes last of all — opening an agent in a repository that
-carries one composes that profile over your whole list. The list in Settings
-ends with that row, which you cannot edit or remove: it is where your
-repository's profile goes, not a setting.
+carries one composes that profile over your whole list. The list ends with a
+row saying so — the one place it says how profiles stack — which you cannot
+edit or remove: it is where your repository's profile goes, not a setting.
 
 Opening a terminal in a repository reads that repository's `agent-distro.nix`
 through agent-distro, before you type anything, to tell the pill what is in

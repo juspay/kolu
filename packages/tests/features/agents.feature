@@ -1,6 +1,7 @@
 Feature: Agents come with kolu
   Until agents are on, the welcome card asks for them; Turn on takes them with
-  the profiles the step holds (none, or Juspay by one click), Not now leaves the
+  the profiles the step holds (none to start with — Juspay only when picked from
+  its add field's suggestions), Not now leaves the
   question for later. Settings → Agents is a switch and a list: the switch puts
   agent-distro's coding agents on the PATH of NEW terminals, and the list stacks
   profiles over them, in order — empty is the agents as they ship, and a
@@ -186,10 +187,10 @@ Feature: Agents come with kolu
     Then the active terminal should show "v=unset pid=changed cwd=same"
     And there should be no page errors
 
-  Scenario: The first run offers Juspay by one click, and Enter turns the agents on as they ship
+  Scenario: The first run starts with an empty list, and Enter turns the agents on as they ship
     When I open the app
     Then the welcome card's first row should ask which agents I want
-    And the first-run step should offer Juspay over an empty list
+    And the first-run step should start with an empty list and its add field
     And keyboard focus should be on the first-run Turn on button
     And the first-run step should say what kolu can bring
     When I press Enter
@@ -213,7 +214,7 @@ Feature: Agents come with kolu
     When I add the Juspay profile in the first-run step
     Then the first-run step's profile rows should be "github:juspay/skills"
     And Agents should still be off with no profiles
-    When I press Enter
+    When I turn agents on from the first-run step
     Then a toast should say new terminals get the coding agents with "github:juspay/skills"
     And the stored Agents profiles should be "github:juspay/skills"
     And padi should give new terminals no agents for "github:juspay/skills"
@@ -241,10 +242,13 @@ Feature: Agents come with kolu
     And I click the settings button
     And I turn Agents on
     Then padi should give new terminals the agents with no profiles
+    When I add the Juspay profile
+    Then the stored Agents profiles should be "github:juspay/skills"
     When I turn Agents off
     Then a toast should say agents are off
     When I press Escape
     Then the welcome card's first row should ask which agents I want
+    And the first-run step's profile list should be empty
     And the welcome card's done line should not mention agents
     When I reload the page
     Then the welcome card's first row should ask which agents I want

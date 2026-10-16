@@ -33,6 +33,7 @@ import {
   agentsChosenLabel,
   agentsResolvedLine,
   agentsStepHint,
+  JUSPAY_PROFILE,
   restartedLabel,
 } from "@kolu/agent-distro/status";
 import {
@@ -218,7 +219,7 @@ Then(
     await settingsList(this);
     await waitForRows(this, IN_SETTINGS, []);
     await this.page
-      .locator(`${IN_SETTINGS} [data-testid="agents-profiles-empty"]`)
+      .locator(`${IN_SETTINGS} [data-testid="agents-profile-repo"]`)
       .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
   },
 );
@@ -281,14 +282,31 @@ Then(
   },
 );
 
+/** The add field's Juspay suggestion, as focusing the field in `scope`
+ *  opens its menu (portalled to the body, so found on the page). */
+async function focusField(world: KoluWorld, scope: string) {
+  const input = world.page.locator(
+    `${scope} [data-testid="agents-profile-input"]`,
+  );
+  await input.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+  // A field that already has the focus (after a pick) gets no focus event:
+  // let it go first, so focusing opens the menu.
+  await input.blur();
+  await input.focus();
+  return input;
+}
+
+const JUSPAY_OPTION = `[data-testid="agents-profile-option"][data-value="${JUSPAY_PROFILE}"]`;
+
 async function juspayOffered(world: KoluWorld, offered: boolean) {
   await settingsList(world);
-  await world.page
-    .locator(`${IN_SETTINGS} [data-testid="agents-add-juspay"]`)
-    .waitFor({
-      state: offered ? "visible" : "detached",
-      timeout: POLL_TIMEOUT,
-    });
+  const input = await focusField(world, IN_SETTINGS);
+  await world.page.locator(JUSPAY_OPTION).waitFor({
+    state: offered ? "visible" : "detached",
+    timeout: POLL_TIMEOUT,
+  });
+  // Close the menu again, so a later Escape reaches Settings.
+  await input.press("Escape");
 }
 
 Then("the Juspay profile should be offered", async function (this: KoluWorld) {
@@ -302,9 +320,16 @@ Then(
   },
 );
 
+/** Picked from the add field's suggestions — the one way kolu offers it. */
+async function addJuspay(world: KoluWorld, scope: string) {
+  await focusField(world, scope);
+  await world.page.click(JUSPAY_OPTION);
+  await world.waitForFrame();
+}
+
 When("I add the Juspay profile", async function (this: KoluWorld) {
-  await this.page.click(`${IN_SETTINGS} [data-testid="agents-add-juspay"]`);
-  await this.waitForFrame();
+  await settingsList(this);
+  await addJuspay(this, IN_SETTINGS);
 });
 
 /** Typed into the add field and Enter — the field takes any reference. */
@@ -782,35 +807,35 @@ Then(
   },
 );
 
-/** The step's list starts empty — the agents as they ship — with Juspay's
- *  one-click entry under it and the repository row last. A reference of your
- *  own stays a Settings matter: no add field here. */
+/** The step's list starts empty — the agents as they ship — with the
+ *  repository row and the same add field as Settings. */
 Then(
-  "the first-run step should offer Juspay over an empty list",
+  "the first-run step should start with an empty list and its add field",
   async function (this: KoluWorld) {
-    for (const id of [
-      "agents-profiles-empty",
-      "agents-profile-repo",
-      "agents-add-juspay",
-    ])
+    await waitForRows(this, FIRST_RUN, []);
+    for (const id of ["agents-profile-repo", "agents-profile-input"])
       await this.page
         .locator(`${FIRST_RUN} [data-testid="${id}"]`)
         .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
-    assert.strictEqual(
-      await this.page
-        .locator(`${FIRST_RUN} [data-testid="agents-profile-input"]`)
-        .count(),
-      0,
-      "the welcome step must not offer the add field",
-    );
+  },
+);
+
+/** Whatever is stored — a list kept from before agents went off included —
+ *  the step's list starts empty. */
+Then(
+  "the first-run step's profile list should be empty",
+  async function (this: KoluWorld) {
+    await this.page
+      .locator(`${FIRST_RUN} [data-testid="agents-profile-repo"]`)
+      .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    await waitForRows(this, FIRST_RUN, []);
   },
 );
 
 When(
   "I add the Juspay profile in the first-run step",
   async function (this: KoluWorld) {
-    await this.page.click(`${FIRST_RUN} [data-testid="agents-add-juspay"]`);
-    await this.waitForFrame();
+    await addJuspay(this, FIRST_RUN);
   },
 );
 

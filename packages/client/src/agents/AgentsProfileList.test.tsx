@@ -2,12 +2,12 @@
 /**
  * The Agents profile list: one row per profile in stack order — its title,
  * the reference beside it when they differ, and the resolved line's three
- * states — each moved or removed by its own buttons, the WHOLE next list
- * handed to the caller; an empty list that says it is the agents as they
- * ship; and the one read-only row a repository's agent-distro.nix makes,
- * always last. Below: Juspay's one-click entry and the add field, whose
- * menu of earlier references opens from the chevron, filters as you type,
- * and adds on Enter or a click.
+ * states — removed by its ✕ and, with two rows or more, moved by its arrows,
+ * the WHOLE next list handed to the caller; an empty list draws no rows; and
+ * the one read-only row a repository's agent-distro.nix makes, always last.
+ * Below: the ONE add field, whose menu of suggestions — Juspay's first — opens
+ * on focus or from the chevron, filters as you type, and adds on Enter or a
+ * click.
  */
 
 import {
@@ -19,10 +19,7 @@ import {
 import { createSignal } from "solid-js";
 import { render } from "solid-js/web";
 import { afterEach, describe, expect, it } from "vitest";
-import AgentsProfileList, {
-  AGENTS_NO_PROFILES,
-  type ProfileListRow,
-} from "./AgentsProfileList";
+import AgentsProfileList, { type ProfileListRow } from "./AgentsProfileList";
 
 let dispose: (() => void) | undefined;
 afterEach(() => {
@@ -31,14 +28,12 @@ afterEach(() => {
 });
 
 const SUGGESTIONS: readonly ProfileSuggestion[] = [
+  { value: JUSPAY_PROFILE, title: "Juspay", note: "Juspay skills + Kolu" },
   { value: "github:me/p", note: "used before" },
   { value: "~/work/profile", note: "used before" },
 ];
 
-function mount(
-  initial: readonly ProfileListRow[],
-  opts: { field?: boolean } = {},
-) {
+function mount(initial: readonly ProfileListRow[]) {
   const [rows, setRows] = createSignal(initial);
   const changes: (readonly string[])[] = [];
   const host = document.createElement("div");
@@ -47,7 +42,7 @@ function mount(
     () => (
       <AgentsProfileList
         rows={rows()}
-        suggestions={opts.field === false ? undefined : SUGGESTIONS}
+        suggestions={SUGGESTIONS}
         onChange={(next) => {
           changes.push(next);
           // As the caller's write comes back: the rows follow the list.
@@ -110,16 +105,23 @@ function type(input: HTMLInputElement, text: string): void {
 }
 
 describe("the rows", () => {
-  it("empty: says it is the agents as they ship, and still ends with the repository's row", () => {
+  it("empty: no rows — only the repository's row, then the add field", () => {
     const f = mount([]);
     expect(f.rows()).toEqual([]);
-    expect(
-      f.host.querySelector("[data-testid=agents-profiles-empty]")?.textContent,
-    ).toBe(AGENTS_NO_PROFILES);
     const items = [...f.host.querySelectorAll("ol > li")];
-    expect(items.at(-1)?.getAttribute("data-testid")).toBe(
+    expect(items.map((li) => li.getAttribute("data-testid"))).toEqual([
       "agents-profile-repo",
-    );
+    ]);
+    expect(f.input()).not.toBeNull();
+    // The stacking rule is said once, in the repository's row.
+    expect(f.host.querySelectorAll("p")).toHaveLength(0);
+  });
+
+  it("one row: its ✕, and no arrows — order means nothing yet", () => {
+    const f = mount([row("a")]);
+    expect(f.button("up", 0)).toBeUndefined();
+    expect(f.button("down", 0)).toBeUndefined();
+    expect(f.button("remove", 0)).toBeDefined();
   });
 
   it("one per profile in stack order, the reference beside a title that differs from it", () => {
@@ -189,22 +191,26 @@ describe("the rows", () => {
 });
 
 describe("adding", () => {
-  it("Juspay's one-click entry appends it, when offered", () => {
-    const f = mount([row("~/mine")]);
-    f.host
-      .querySelector<HTMLButtonElement>("[data-testid=agents-add-juspay]")
-      ?.click();
-    expect(f.changes).toEqual([["~/mine", JUSPAY_PROFILE]]);
-    dispose?.();
-    document.body.innerHTML = "";
-    // A list that holds Juspay offers no entry for it.
-    const g = mount([{ reference: JUSPAY_PROFILE, title: "Juspay" }]);
-    expect(g.host.querySelector("[data-testid=agents-add-juspay]")).toBeNull();
+  it("focusing the field opens its suggestions, Juspay's first", () => {
+    const f = mount([]);
+    const input = f.input();
+    if (input === null) throw new Error("no input");
+    input.focus();
+    expect(options().map((o) => o.dataset.value)).toEqual([
+      JUSPAY_PROFILE,
+      "github:me/p",
+      "~/work/profile",
+    ]);
+    expect(options()[0]?.textContent).toBe("+ JuspayJuspay skills + Kolu");
   });
 
-  it("no field without suggestions to give it (the welcome step)", () => {
-    const f = mount([], { field: false });
-    expect(f.input()).toBeNull();
+  it("picking Juspay's suggestion appends it", () => {
+    const f = mount([row("~/mine")]);
+    const input = f.input();
+    if (input === null) throw new Error("no input");
+    input.focus();
+    options()[0]?.click();
+    expect(f.changes).toEqual([["~/mine", JUSPAY_PROFILE]]);
   });
 
   it("Enter appends the text, trimmed, and empties the field", () => {
@@ -237,10 +243,11 @@ describe("adding", () => {
     chevron?.click();
     expect(chevron?.getAttribute("aria-expanded")).toBe("true");
     expect(options().map((o) => o.dataset.value)).toEqual([
+      JUSPAY_PROFILE,
       "github:me/p",
       "~/work/profile",
     ]);
-    expect(options()[0]?.textContent).toBe("github:me/pused before");
+    expect(options()[1]?.textContent).toBe("github:me/pused before");
   });
 
   it("typing filters the rows; ↓ then Enter adds one", () => {
@@ -261,7 +268,7 @@ describe("adding", () => {
     const input = f.input();
     if (input === null) throw new Error("no input");
     key(input, "ArrowDown");
-    options()[0]?.click();
+    options()[1]?.click();
     expect(f.changes).toEqual([["github:me/p"]]);
   });
 

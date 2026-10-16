@@ -9136,6 +9136,30 @@
       "exampleRows": [],
       "executions": 1,
       "firstSeenSha": "248d8c2da781dfb890c02352e55da008e00184fe"
+    },
+    {
+      "revisionId": "revision-9df9b12b1c354aca13c8",
+      "scenarioKey": "scenario-b2f59fa6f3773c9c2caa",
+      "feature": "features/agents.feature",
+      "scenario": "Switching agents off brings the question back, without taking the keyboard",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "63d1712446914e57f43880668e447ca28a513690ef735509e2c786886956f00d",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "ddc76bbad5807c16b7420ae25564ec81db941ba6"
+    },
+    {
+      "revisionId": "revision-a55aa239235ff23c2568",
+      "scenarioKey": "scenario-f1d016574c8f887f9abd",
+      "feature": "features/agents.feature",
+      "scenario": "The first run starts with an empty list, and Enter turns the agents on as they ship",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "ca9020b6353063e7cd3a0d506ee6459145216e3c289998c0784e5ea104e26798",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "ddc76bbad5807c16b7420ae25564ec81db941ba6"
     }
   ]
 }

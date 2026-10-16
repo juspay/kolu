@@ -7,7 +7,9 @@
  *  the parts out in its own row (`children` receives them).
  *
  *  Settings' list writes each edit at once — the whole list, never touching
- *  the switch. The welcome step's list is DEFERRED: it is held here and
+ *  the switch. The welcome step's list is DEFERRED: it starts EMPTY, whatever
+ *  is stored (a list kept from before agents were switched off included —
+ *  Juspay is never there unless picked in this step), is held here, and is
  *  written only by "Turn on" (`turnOn`, agents on with the list), so "Not now"
  *  leaves nothing chosen.
  *
@@ -15,14 +17,7 @@
  *  host applies it to its NEXT new terminal. */
 
 import type { Hint } from "../settings/SettingRow";
-import {
-  createEffect,
-  createMemo,
-  createSignal,
-  type JSX,
-  on,
-  Show,
-} from "solid-js";
+import { createSignal, type JSX, Show } from "solid-js";
 import { agentDistroSettingEqual } from "@kolu/agent-distro/schema";
 import { toast } from "solid-sonner";
 import Toggle from "../ui/Toggle";
@@ -121,29 +116,9 @@ export default function AgentsChooser(props: {
   children: (parts: AgentsChooserParts) => JSX.Element;
 }): JSX.Element {
   const available = () => agentDistroListing()?.kind === "available";
-  /** The deferred list: the stored one to start with, edited here, written
-   *  by "Turn on". It is put back the moment the STORED AGENTS SETTING moves —
-   *  a write from another tab, say — so it never shows a list the setting
-   *  has left behind.
-   *
-   *  The source is an EQUALITY-checked memo, not `agentDistroStored` itself:
-   *  that reads `preferences()`, the one cell behind every preference, so a
-   *  `seenTips` or `colorScheme` write anywhere in the app would otherwise
-   *  throw away the list being put together. */
-  const storedAgents = createMemo(agentDistroStored, undefined, {
-    equals: (a, b) =>
-      a === null || b === null ? a === b : agentDistroSettingEqual(a, b),
-  });
-  const [held, setHeld] = createSignal<readonly string[]>(
-    agentDistroSettingOf(storedAgents()).profiles,
-  );
-  createEffect(
-    on(
-      storedAgents,
-      (stored) => setHeld(agentDistroSettingOf(stored).profiles),
-      { defer: true },
-    ),
-  );
+  /** The deferred list: empty to start with, edited here, written by
+   *  "Turn on". */
+  const [held, setHeld] = createSignal<readonly string[]>([]);
   const list = () =>
     props.deferred === true ? (
       // Its profiles are not the setting's yet, so kolu-server has built none
@@ -153,6 +128,10 @@ export default function AgentsChooser(props: {
           reference,
           title: agentProfileTitle(reference),
         }))}
+        suggestions={profileSuggestions({
+          recent: preferences().agentProfilesRecent,
+          profiles: held(),
+        })}
         onChange={setHeld}
       />
     ) : (

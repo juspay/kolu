@@ -5,11 +5,12 @@
  *  - Settings' list writes each edit at once — the WHOLE list — and never
  *    touches the switch; a reference it adds is remembered for the field's
  *    suggestions;
- *  - the welcome step's list is held, written only by "Turn on" (agents on
- *    with it). It rides one cell with every other preference, so the danger
- *    is a write that has nothing to do with agents — a tip dismissed, the
- *    colour scheme flipped — throwing away the list being put together; a
- *    move of the stored Agents setting itself puts it back.
+ *  - the welcome step's list starts EMPTY whatever is stored — Juspay is
+ *    never there unless picked — and is held, written only by "Turn on"
+ *    (agents on with it). A preference write elsewhere never throws away the
+ *    list being put together.
+ *
+ *  Both add only through the field, whose first suggestion is Juspay's.
  */
 
 import type { AgentDistroSetting } from "@kolu/agent-distro/schema";
@@ -107,8 +108,16 @@ function mount(deferred: boolean) {
           "[data-testid=agents-profile-row]",
         ),
       ].map((r) => r.dataset.reference),
-    juspay: () => q<HTMLButtonElement>("[data-testid=agents-add-juspay]"),
     input: () => q<HTMLInputElement>("[data-testid=agents-profile-input]"),
+    /** The field's suggestions, as focusing it opens them. */
+    suggested: () => {
+      q<HTMLInputElement>("[data-testid=agents-profile-input]")?.focus();
+      return [
+        ...document.querySelectorAll<HTMLElement>(
+          "[data-testid=agents-profile-option]",
+        ),
+      ];
+    },
     remove: (i: number) =>
       document
         .querySelectorAll<HTMLButtonElement>(
@@ -127,22 +136,23 @@ describe("Settings' list", () => {
     writePrefs({ agentDistro: { enabled: false, profiles: [] } });
     const ui = mount(false);
     expect(document.querySelector("[data-testid=agents-profiles]")).toBeNull();
-    expect(ui.juspay()).toBeUndefined();
+    expect(ui.input()).toBeUndefined();
   });
 
   it("each edit writes the whole list at once, the switch untouched", () => {
     writePrefs({ agentDistro: { enabled: true, profiles: [] } });
     const ui = mount(false);
-    ui.juspay()?.click();
+    const input = ui.input();
+    if (input === undefined) throw new Error("no add field");
+    ui.suggested()[0]?.click();
     expect(h.prefs?.().agentDistro).toEqual({
       enabled: true,
       profiles: ["github:juspay/skills"],
     });
-    // The one-click entry goes once the list holds it.
-    expect(ui.juspay()).toBeUndefined();
+    // Juspay is no longer suggested once the list holds it.
+    input.blur();
+    expect(ui.suggested().map((o) => o.dataset.value)).toEqual([]);
 
-    const input = ui.input();
-    if (input === undefined) throw new Error("no add field");
     input.value = "~/my-profile";
     input.dispatchEvent(new InputEvent("input", { bubbles: true }));
     input.dispatchEvent(
@@ -152,7 +162,7 @@ describe("Settings' list", () => {
       enabled: true,
       profiles: ["github:juspay/skills", "~/my-profile"],
     });
-    // Remembered for the field's suggestions — Juspay has its own entry.
+    // Remembered for the field's suggestions — Juspay is always suggested.
     expect(h.prefs?.().agentProfilesRecent).toEqual(["~/my-profile"]);
     expect(input.value).toBe("");
 
@@ -186,12 +196,21 @@ describe("Settings' list", () => {
 });
 
 describe("the welcome step's held list", () => {
+  it("starts empty whatever is stored — a list kept from before agents went off included", () => {
+    writePrefs({
+      agentDistro: { enabled: false, profiles: ["github:juspay/skills"] },
+    });
+    const ui = mount(true);
+    expect(ui.rows()).toEqual([]);
+  });
+
   it("writes nothing until Turn on, then agents on with the list", () => {
     writePrefs({ agentDistro: null });
     const ui = mount(true);
-    // No field of your own on the first run: the one-click entry only.
-    expect(ui.input()).toBeUndefined();
-    ui.juspay()?.click();
+    // The same field as Settings, Juspay its first suggestion.
+    const first = ui.suggested()[0];
+    expect(first?.dataset.value).toBe("github:juspay/skills");
+    first?.click();
     expect(ui.rows()).toEqual(["github:juspay/skills"]);
     expect(h.writes).toEqual([]);
     expect(h.prefs?.().agentDistro).toBeNull();
@@ -211,21 +230,12 @@ describe("the welcome step's held list", () => {
     expect(h.prefs?.().agentDistro).toEqual({ enabled: true, profiles: [] });
   });
 
-  it("survives a write to an unrelated preference", () => {
+  it("survives a write to another preference", () => {
     writePrefs({ agentDistro: null });
     const ui = mount(true);
-    ui.juspay()?.click();
+    ui.suggested()[0]?.click();
     writePrefs({ seenTips: ["agents"] });
+    writePrefs({ agentDistro: { enabled: false, profiles: ["github:me/p"] } });
     expect(ui.rows()).toEqual(["github:juspay/skills"]);
-  });
-
-  it("is put back when the stored Agents setting itself moves", () => {
-    writePrefs({ agentDistro: null });
-    const ui = mount(true);
-    ui.juspay()?.click();
-    writePrefs({
-      agentDistro: { enabled: false, profiles: ["github:me/p"] },
-    });
-    expect(ui.rows()).toEqual(["github:me/p"]);
   });
 });

@@ -44,7 +44,6 @@ import {
   firstRunAgentsDone,
   JUSPAY_OFFER,
   JUSPAY_PROFILE,
-  juspayOffered,
   landedFacts,
   receiptSet,
   profileSuggestions,
@@ -365,7 +364,7 @@ describe("agentsResolvedLine — does the profile build", () => {
   });
 });
 
-describe("the profile list's rows and Juspay's one-click entry", () => {
+describe("the profile list's rows", () => {
   it("one row per reference, in stack order, each named and resolved", () => {
     const profiles: AgentProfiles = [
       {
@@ -386,12 +385,6 @@ describe("the profile list's rows and Juspay's one-click entry", () => {
       },
     ]);
     expect(agentProfileRows(on(), profiles)).toEqual([]);
-  });
-
-  it("Juspay is offered only while the list does not hold it", () => {
-    expect(juspayOffered(on().profiles)).toBe(true);
-    expect(juspayOffered(off(EKALA_REF).profiles)).toBe(true);
-    expect(juspayOffered(on(EKALA_REF, JUSPAY_PROFILE).profiles)).toBe(false);
   });
 });
 
@@ -554,13 +547,26 @@ describe("the add field's suggestions and memory", () => {
     expect(rememberProfiles([], many)).toHaveLength(RECENT_PROFILES_CAP);
   });
 
-  it("suggests what was used before, without what the list already holds", () => {
+  it("suggests Juspay first, then what was used before, without what the list already holds", () => {
     expect(
       profileSuggestions({ recent: ["a", "b", "c"], profiles: ["b"] }),
     ).toEqual([
+      {
+        value: JUSPAY_PROFILE,
+        title: JUSPAY_OFFER.title,
+        note: JUSPAY_OFFER.description,
+      },
       { value: "a", note: "used before" },
       { value: "c", note: "used before" },
     ]);
+  });
+
+  it("stops offering Juspay once the list holds it", () => {
+    expect(
+      profileSuggestions({ recent: ["a"], profiles: [JUSPAY_PROFILE] }).map(
+        (s) => s.value,
+      ),
+    ).toEqual(["a"]);
   });
 });
 
@@ -1415,17 +1421,14 @@ describe("Juspay is an explicit opt-in", () => {
   it("only adding it puts Juspay in the list", () => {
     expect(profilesWithAdded([], JUSPAY_PROFILE)).toEqual([JUSPAY_PROFILE]);
     expect(rememberProfiles([], [JUSPAY_PROFILE])).toEqual([]);
-    expect(profileSuggestions({ recent: [], profiles: [] })).toEqual([]);
   });
-});
 
-describe("profileSuggestions never offers Juspay", () => {
-  it("drops it from what was used before — its one-click entry is the one way in", () => {
+  it("offers Juspay once, as the first suggestion — never from what was used before", () => {
     expect(
       profileSuggestions({
         recent: [JUSPAY_PROFILE, "~/a"],
         profiles: [],
       }).map((s) => s.value),
-    ).toEqual(["~/a"]);
+    ).toEqual([JUSPAY_PROFILE, "~/a"]);
   });
 });

@@ -122,10 +122,9 @@ The **TypeScript half**, as data and pure functions:
   list's edits (`profilesWithAdded`, `profilesWithRemoved`,
   `profilesWithMoved`); the list's rows and the line under each — pending,
   what it built to, or its own words (`agentProfileRows`,
-  `agentsResolvedLine`, `AGENTS_UNRESOLVED_MEANS`), the Juspay entry
-  (`JUSPAY_OFFER`, `juspayOffered`) and the fine print (`AGENTS_PROFILES_MEAN`);
-  the add field's suggestions and memory (`profileSuggestions`,
-  `rememberProfiles`); the first-run step's done-predicate and words
+  `agentsResolvedLine`, `AGENTS_UNRESOLVED_MEANS`); the add field's
+  suggestions — Juspay's first (`JUSPAY_OFFER`), then the remembered ones —
+  and its memory (`profileSuggestions`, `rememberProfiles`); the first-run step's done-predicate and words
   (`firstRunAgentsDone`, `AGENTS_FIRST_RUN_TITLE`, `agentsChosenLabel`); the
   harness chips (`agentChips`), the off hint (`agentsHint`) and the welcome
   step's line (`agentsStepHint`); Settings' ONE fleet line
