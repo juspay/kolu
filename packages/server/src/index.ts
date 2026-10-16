@@ -19,7 +19,10 @@ import {
   type PadiProcessMemory,
   padiSurface,
 } from "@kolu/padi-client/surface";
-import { agentDistroSettingEqual } from "@kolu/agent-distro/schema";
+import {
+  type AgentProfiles,
+  agentDistroSettingEqual,
+} from "@kolu/agent-distro/schema";
 import { siblingTagPrefix } from "@kolu/surface/define";
 import { directDispatch } from "@kolu/surface/links/direct";
 import { surfaceClientRef } from "@kolu/surface/project";
@@ -93,7 +96,6 @@ import {
 } from "./stateBackups.ts";
 import {
   assembleServedHandlers,
-  agentProfilesStore,
   currentAgentDistroSetting,
   currentNewTerminalPolicy,
   implementKoluSurface,
@@ -804,6 +806,8 @@ export async function bootKoluWeb(flags: KoluBootFlags): Promise<void> {
   // `undelivered`).
   const agentDistroListing = readAgentDistroListing();
   const deliveryBake = readAgentDistroDeliveryBake();
+  /** The `agentProfiles` cell's writer, bound once kolu's surface is served. */
+  let setAgentProfiles: ((profiles: AgentProfiles) => void) | undefined;
   const agentDelivery =
     deliveryBake === null
       ? undefined
@@ -811,7 +815,15 @@ export async function bootKoluWeb(flags: KoluBootFlags): Promise<void> {
           bake: deliveryBake,
           pool,
           setting: currentAgentDistroSetting,
-          publishProfiles: (profiles) => agentProfilesStore.set(profiles),
+          publishProfiles: (profiles) => {
+            // The cell is served below (its surface's handlers call the
+            // delivery): bound there, and a write before it is a boot bug.
+            if (setAgentProfiles === undefined)
+              throw new Error(
+                "agent profiles published before kolu's surface was served",
+              );
+            setAgentProfiles(profiles);
+          },
           label: (host) =>
             host.kind === "local" ? serverHostname : host.target,
           log,
@@ -897,6 +909,7 @@ export async function bootKoluWeb(flags: KoluBootFlags): Promise<void> {
     // boot too.
     agentDistroListing,
   });
+  setAgentProfiles = koluServed.setAgentProfiles;
 
   // The ROOT procedures — kolu-server's own seven, bound as the third served
   // fragment. There is no router SPLICE any more: the wire namespace is flat, so the
