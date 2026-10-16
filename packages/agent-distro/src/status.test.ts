@@ -35,6 +35,7 @@ import {
   agentStaleLabel,
   agentStalenessOf,
   agentToast,
+  updateWords,
   agentsChosen,
   agentsChosenLabel,
   agentsHint,
@@ -1380,5 +1381,14 @@ describe("a history line from before agent-distro was one package", () => {
     });
     expect(detail?.events[0]?.text).toBe("vanilla · Pi 1.0 → 1.1");
     expect(detail?.events[0]?.title).toContain("vanilla · Pi 1.0 → 1.1");
+  });
+});
+
+describe("updateWords — a run's words, legacy profile first", () => {
+  it("names the profile a pre-#115 line was about, and nothing otherwise", () => {
+    expect(updateWords({ words: "Pi 1.0 → 1.1", profile: "vanilla" })).toBe(
+      "vanilla · Pi 1.0 → 1.1",
+    );
+    expect(updateWords({ words: "Pi 1.0 → 1.1" })).toBe("Pi 1.0 → 1.1");
   });
 });

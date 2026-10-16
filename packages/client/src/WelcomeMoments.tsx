@@ -169,11 +169,26 @@ const MomentShell: Component<{
  *  button, the list's arrows), which keeps its Enter. Editing the list can
  *  take the focused control away (the Juspay entry goes once it is added), and
  *  focus then falls to the page, so while nothing is chosen an Enter there is
- *  the step's too — the same rule as the mount focus above. */
+ *  the step's too — the same rule as the mount focus above — claimed by the
+ *  one copy of the step that had the focus last, never by every copy
+ *  mounted. The ⏎ on "Turn on" is painted only while that holds. */
 const ChooseAgentsMoment: Component<{ onNotNow: () => void }> = (props) => (
   <AgentsChooser deferred>
     {(parts) => {
       let step: HTMLDivElement | undefined;
+      // Which copy of the step the page's Enter belongs to: the one whose
+      // subtree had the focus last. The welcome card can be mounted twice (the
+      // empty canvas's, and the Tutorial's over it), and focus that falls to
+      // the page — the "+ Juspay" entry going away under it — names neither.
+      const [owned, setOwned] = createSignal(false);
+      makeEventListener(document, "focusin", (e: FocusEvent) => {
+        setOwned(e.target instanceof Node && step?.contains(e.target) === true);
+      });
+      /** An Enter on the page itself turns agents on: only while nothing is
+       *  chosen (an Enter out of habit never re-enables agents someone
+       *  switched off), and only for the copy that had the focus. */
+      const pageEnterArmed = () =>
+        owned() && !agentsChosen(agentDistroStored());
       makeEventListener(document, "keydown", (e: KeyboardEvent) => {
         if (
           e.key !== "Enter" ||
@@ -186,8 +201,7 @@ const ChooseAgentsMoment: Component<{ onNotNow: () => void }> = (props) => (
           return;
         const target = e.target;
         const inStep = target instanceof Node && step?.contains(target);
-        const loose =
-          target === document.body && !agentsChosen(agentDistroStored());
+        const loose = target === document.body && pageEnterArmed();
         if (!inStep && !loose) return;
         if (
           target instanceof Element &&
@@ -219,7 +233,11 @@ const ChooseAgentsMoment: Component<{ onNotNow: () => void }> = (props) => (
                     onClick={() => parts.turnOn()}
                   >
                     Turn on
-                    <Kbd>⏎</Kbd>
+                    {/* Painted only while Enter does it from anywhere in the
+                        step — never for someone who switched agents off. */}
+                    <Show when={!agentsChosen(agentDistroStored())}>
+                      <Kbd>⏎</Kbd>
+                    </Show>
                   </button>
                 </Show>
                 <button

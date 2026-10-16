@@ -1,11 +1,7 @@
 /** The GC-root names kolu-server writes and padi prunes. */
 
 import { describe, expect, it } from "vitest";
-import {
-  PACKAGE_GC_ROOT,
-  profileGcRoot,
-  staleProfileRoots,
-} from "./gcRoots.ts";
+import { PACKAGE_GC_ROOT, profileGcRoot, staleGcRoots } from "./gcRoots.ts";
 
 describe("GC roots", () => {
   it("names a profile's root by its reference, stably", () => {
@@ -18,15 +14,16 @@ describe("GC roots", () => {
     expect(profileGcRoot("~/a")).not.toBe(profileGcRoot("~/b"));
   });
 
-  it("finds the profile roots a stack no longer names, never the package's", () => {
+  it("keeps the package's root and the kept stacks' — everything else goes, a bare legacy name included", () => {
     const kept = profileGcRoot("github:juspay/skills");
+    const next = profileGcRoot("~/src/new");
     const gone = profileGcRoot("~/src/old");
     expect(
-      staleProfileRoots(
-        [PACKAGE_GC_ROOT, kept, gone, "unrelated"],
-        ["github:juspay/skills"],
+      staleGcRoots(
+        [PACKAGE_GC_ROOT, kept, next, gone, "vanilla"],
+        ["github:juspay/skills", "~/src/new"],
       ),
-    ).toEqual([gone]);
-    expect(staleProfileRoots([PACKAGE_GC_ROOT, kept], [])).toEqual([kept]);
+    ).toEqual([gone, "vanilla"]);
+    expect(staleGcRoots([PACKAGE_GC_ROOT, kept], [])).toEqual([kept]);
   });
 });

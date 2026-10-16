@@ -141,6 +141,7 @@ let receipts: AgentDistroReceipt[];
 
 const stateDir = () => join(root, "state", "agent-distro", "package");
 const historyFile = () => join(root, "state", "agent-distro", "history.log");
+const gcRootsDir = () => join(root, "home", GC_ROOTS_DIR);
 const landedFile = () =>
   join(root, "state", "kolu", "agent-distro-landed.json");
 const historyLines = () =>
@@ -163,6 +164,7 @@ function bake(opts: { floor: boolean }): AgentDistroBake {
     stateDir: stateDir(),
     historyFile: historyFile(),
     landedFile: landedFile(),
+    gcRootsDir: gcRootsDir(),
   };
 }
 
@@ -192,11 +194,9 @@ const landed = (
 
 beforeEach(() => {
   root = realpathSync(mkdtempSync(join(tmpdir(), "agent-distro-test-")));
-  for (const k of ["XDG_STATE_HOME", "PATH", "AI_PROFILE", "HOME"])
+  for (const k of ["XDG_STATE_HOME", "PATH", "AI_PROFILE"])
     saved[k] = process.env[k];
   process.env.XDG_STATE_HOME = join(root, "state");
-  // A landing prunes GC roots under the login's home: never the real one.
-  process.env.HOME = join(root, "home");
   process.env.PATH = "/usr/bin:/bin";
   __resetAgentDistroDeliveriesForTest();
   agentDistroSettingStore.set(OFF);
@@ -257,7 +257,7 @@ describe("servedSetOnHost — the set this host serves", () => {
     const b = bake({ floor: true });
     const bundle = storePackage(join(root, "store", "delivered"));
     const juspay = storeProfile(JUSPAY, "juspay", { rev: "a1b2c3d4e5" });
-    landDelivery(b, [JUSPAY], { bundle, profiles: [juspay] });
+    landDelivery(b, [JUSPAY], { bundle, profiles: [juspay] }, [JUSPAY]);
     expect(servedSetOnHost(b)).toEqual({ bundle, profiles: [juspay] });
   });
 
@@ -321,10 +321,18 @@ describe("assessAgentDistro — the set serves only the stack it was built for",
     const b = bake({ floor: false });
     __setAgentDistroBakeForTest(b);
     const bundle = storePackage(join(root, "store", "delivered"));
-    landDelivery(b, [JUSPAY, EKALA], {
-      bundle,
-      profiles: [storeProfile(JUSPAY, "juspay"), storeProfile(EKALA, "ekala")],
-    });
+    landDelivery(
+      b,
+      [JUSPAY, EKALA],
+      {
+        bundle,
+        profiles: [
+          storeProfile(JUSPAY, "juspay"),
+          storeProfile(EKALA, "ekala"),
+        ],
+      },
+      [JUSPAY, EKALA],
+    );
     expect(assessAgentDistro(stack(JUSPAY, EKALA)).kind).toBe("ready");
     expect(assessAgentDistro(stack(EKALA, JUSPAY))).toEqual({
       kind: "undelivered",
@@ -545,14 +553,15 @@ describe("delivery reports — what a host does with kolu-server's word", () => 
     expect(receipt()?.lastRun).toEqual(before?.lastRun);
   });
 
-  it("a landing removes the GC roots of profiles the stack no longer names, keeping the package's and its own", () => {
+  it("a landing removes every GC root but the package's and its stack's — a legacy bundle's bare-name root included", () => {
     __setAgentDistroBakeForTest(bake({ floor: false }));
-    const roots = join(root, "home", GC_ROOTS_DIR);
+    const roots = gcRootsDir();
     mkdirSync(roots, { recursive: true });
     for (const name of [
       PACKAGE_GC_ROOT,
       profileGcRoot(JUSPAY),
       profileGcRoot(EKALA),
+      "vanilla",
     ])
       symlinkSync(join(root, "store"), join(roots, name));
     write(stack(JUSPAY));
@@ -560,6 +569,24 @@ describe("delivery reports — what a host does with kolu-server's word", () => 
     report(landed(bundle, [storeProfile(JUSPAY, "juspay")]));
     expect(readdirSync(roots).sort()).toEqual(
       [PACKAGE_GC_ROOT, profileGcRoot(JUSPAY)].sort(),
+    );
+  });
+
+  it("a landing keeps the roots of every stack it is told to keep — a newer list's delivery may be rooting beside it", () => {
+    const b = bake({ floor: false });
+    const roots = gcRootsDir();
+    mkdirSync(roots, { recursive: true });
+    for (const name of [profileGcRoot(JUSPAY), profileGcRoot(EKALA)])
+      symlinkSync(join(root, "store"), join(roots, name));
+    const bundle = storePackage(join(root, "store", "delivered"));
+    landDelivery(
+      b,
+      [JUSPAY],
+      { bundle, profiles: [storeProfile(JUSPAY, "juspay")] },
+      [JUSPAY, JUSPAY, EKALA],
+    );
+    expect(readdirSync(roots).sort()).toEqual(
+      [profileGcRoot(JUSPAY), profileGcRoot(EKALA)].sort(),
     );
   });
 

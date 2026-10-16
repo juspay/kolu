@@ -155,21 +155,24 @@ export function createAgentDelivery(deps: {
   const now = deps.now ?? Date.now;
   /** The last index answer per system, and the last lock per reference: a
    *  host's connect reuses them within the schedule period. */
-  const indexed = new Map<string, Known<PublishedClosure>>();
-  const locks = new Map<string, Known<LockedProfile>>();
+  const indexed = new Map<string, Known<Promise<PublishedClosure>>>();
+  const locks = new Map<string, Known<Promise<LockedProfile>>>();
   /** The last build per agent-distro revision, tree and system — reused like
    *  the index and the locks, never longer: a path's tree is the user's own
    *  directory, which changes under the same key, and a profile's plugins
    *  named by a flake reference are locked only when it builds. */
-  const builds = new Map<string, Known<BuiltProfile>>();
+  const builds = new Map<string, Known<Promise<BuiltProfile>>>();
   /** Deliveries in flight, by `host#stack`: a change of the stack is its own
    *  delivery, never folded into the one still running. */
   const inFlight = new Set<string>();
 
   /** A remembered answer when `fresh` allows and its period has not turned,
-   *  else a new one (remembered on success). */
-  const reuse = async <T>(
-    memo: Map<string, Known<T>>,
+   *  else a new one. The PROMISE is remembered, the moment it is asked — so
+   *  runs that overlap (one per host's connect) share one read or build
+   *  rather than each starting its own — and forgotten if it fails, so the
+   *  next run asks again. */
+  const reuse = <T>(
+    memo: Map<string, Known<Promise<T>>>,
     key: string,
     fresh: boolean,
     read: () => Promise<T>,
@@ -186,8 +189,12 @@ export function createAgentDelivery(deps: {
       )
     )
       return last.value;
-    const value = await read();
-    memo.set(key, { value, at: now() });
+    const value = read();
+    const known = { value, at: now() };
+    memo.set(key, known);
+    value.catch(() => {
+      if (memo.get(key) === known) memo.delete(key);
+    });
     return value;
   };
 

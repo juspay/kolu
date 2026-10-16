@@ -56,6 +56,7 @@ import {
   agentMarkOf,
   agentToast,
   receiptSet,
+  updateWords,
   type HostAgentStatus,
 } from "@kolu/agent-distro/status";
 import { watchLanding } from "./watchLanding";
@@ -137,7 +138,7 @@ const byHost = createRoot(() => {
         // Not a landing this padi recorded (say, the set moved under it):
         // there are no words to quote, so there is nothing to announce.
         if (run?.outcome !== "updated") return;
-        const words = agentToast.updated(agentsWhere(host), run.words);
+        const words = agentToast.updated(agentsWhere(host), updateWords(run));
         toast.success(words.title, {
           description: words.description,
           icon: AgentDistroLogo({ size: 16 }),

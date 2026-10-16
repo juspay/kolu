@@ -708,6 +708,24 @@ describe("createAgentDelivery — reads and builds, each asked once", () => {
     expect(nix.builds).toHaveLength(3);
   });
 
+  it("two runs that overlap (one per host's connect) share one build, one lock and one read", async () => {
+    const nix = fakeOps();
+    const local = fakeHost("local", "localhost");
+    const box = fakeHost("remote:box", "box");
+    const { delivery } = setup({
+      ops: nix.ops,
+      hosts: [local.host, box.host],
+      stack: () => [JUSPAY],
+    });
+    await Promise.all([
+      delivery.run({ keys: ["local"], trigger: "connect" }),
+      delivery.run({ keys: ["remote:box"], trigger: "connect" }),
+    ]);
+    expect(nix.reads).toHaveLength(1);
+    expect(nix.locks).toHaveLength(1);
+    expect(nix.builds).toHaveLength(1);
+  });
+
   it("a failed build is asked again next time", async () => {
     let broken = true;
     const nix = fakeOps({

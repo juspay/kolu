@@ -562,7 +562,9 @@ layer carry it; the module is `src/agentDistro/`.
   package and the newest build of each profile in the stack have a GC root
   (kolu-server writes them under `~/.local/state/kolu/agent-distro/gcroots/`
   on the host — `@kolu/agent-distro/gcRoots` — and padi, as a stack lands,
-  removes the roots of profiles it no longer names): after an update the
+  removes every other root there: those of profiles neither the landed stack
+  nor the current setting names, and an older kolu's per-bundle roots; the
+  directory is part of padi's bake, `gcRootsDir`): after an update the
   previous one can be garbage-collected under a terminal still using it, a
   limit the docs state rather than a root padi holds.
 - **The spawn layer** — at each spawn (fresh, wake or restart) padi asks the SAME

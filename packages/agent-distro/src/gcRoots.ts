@@ -18,20 +18,22 @@ export const GC_ROOTS_DIR = ".local/state/kolu/agent-distro/gcroots";
 /** The package's root's name. */
 export const PACKAGE_GC_ROOT = "package";
 
-const PROFILE_PREFIX = "profile-";
-
 /** One profile's root's name — by its reference, hashed, since a reference
  *  is free text (a path, a flake reference with a query). */
 export function profileGcRoot(reference: string): string {
-  return `${PROFILE_PREFIX}${createHash("sha256").update(reference).digest("hex").slice(0, 16)}`;
+  return `profile-${createHash("sha256").update(reference).digest("hex").slice(0, 16)}`;
 }
 
-/** The profile roots in `names` (a listing of {@link GC_ROOTS_DIR}) that the
- *  stack `references` no longer names — the ones to remove when it lands. */
-export function staleProfileRoots(
+/** The roots in `names` (a listing of {@link GC_ROOTS_DIR}) to remove once
+ *  a stack lands: everything but the package's and those of the profiles
+ *  `keep` names — the landed stack and the setting's current one, since a
+ *  delivery of the latter may be running beside it. That includes roots an
+ *  older kolu wrote by a per-profile bundle's bare name (`vanilla`): the
+ *  directory is kolu's alone, and nothing else it holds still serves. */
+export function staleGcRoots(
   names: readonly string[],
-  references: readonly string[],
+  keep: readonly string[],
 ): readonly string[] {
-  const keep = new Set(references.map(profileGcRoot));
-  return names.filter((n) => n.startsWith(PROFILE_PREFIX) && !keep.has(n));
+  const kept = new Set([PACKAGE_GC_ROOT, ...keep.map(profileGcRoot)]);
+  return names.filter((n) => !kept.has(n));
 }

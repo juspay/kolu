@@ -550,9 +550,10 @@ function quoted(text: string, by: AgentUpdateAuthor, words: string): string {
  *  quotes the reason verbatim, naming who wrote it. */
 function lastRunNote(run: AgentUpdateRun, ago: AgoPhrase): AgentStatusNote {
   const when = ago(run.at);
+  const words = updateWords(run);
   const note = (text: string, tone: AgentStatusNote["tone"]) => ({
     text,
-    title: run.words === "" ? text : quoted(text, run.by, run.words),
+    title: words === "" ? text : quoted(text, run.by, words),
     tone,
   });
   switch (run.outcome) {
@@ -723,13 +724,19 @@ const EVENT_LABEL: Record<AgentUpdateEvent["kind"], string> = {
   failed: "failed",
 };
 
+/** An event's or a run's words as kolu shows them: a history line from
+ *  before agent-distro was one package names the profile it was about, and
+ *  that is said first, so mixed old lines are never read as one profile's. */
+export function updateWords(
+  run: Pick<AgentUpdateEvent, "words" | "profile">,
+): string {
+  return run.profile === undefined
+    ? run.words
+    : `${run.profile} · ${run.words}`;
+}
+
 function eventRow(event: AgentUpdateEvent, ago: AgoPhrase): AgentEventRow {
-  // A line from before agent-distro was one package names the profile it was
-  // about; it is said, so mixed old lines are not read as one profile's.
-  const text =
-    event.profile === undefined
-      ? event.words
-      : `${event.profile} · ${event.words}`;
+  const text = updateWords(event);
   return {
     when: ago(Date.parse(event.at)),
     kind: event.kind,

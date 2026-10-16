@@ -93,7 +93,8 @@ The **TypeScript half**, as data and pure functions:
   and the client import the values from here.
 - `./gcRoots` — where kolu roots what it delivered on a host (the package,
   each profile by its reference), which kolu-server writes and padi prunes as
-  a stack lands (`staleProfileRoots`).
+  a stack lands: every root but the package's and the kept stacks'
+  (`staleGcRoots` — a legacy bundle's bare-name root included).
 - `./bundle` — agent-distro's package and state shape: its `bin/` and versions
   file, the `current` link and `last-success` stamp, a store path's short hash,
   and making a state path concrete for a host's state home

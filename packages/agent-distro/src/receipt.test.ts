@@ -115,3 +115,16 @@ describe("lastRunOf — the last run, off the files alone", () => {
     expect(lastRunOf([], null)).toBeUndefined();
   });
 });
+
+describe("lastRunOf — a legacy line's profile", () => {
+  it("carries the profile a pre-#115 line named into the last run", () => {
+    const events = recentEvents(
+      "2026-10-06T22:07:03-04:00 juspay updated: Oh My Pi 18.6.2 → 18.6.3\n",
+    );
+    expect(lastRunOf(events, null)).toMatchObject({
+      outcome: "updated",
+      words: "Oh My Pi 18.6.2 → 18.6.3",
+      profile: "juspay",
+    });
+  });
+});

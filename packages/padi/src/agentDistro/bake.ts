@@ -29,8 +29,11 @@
  */
 
 import { readFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
 import { parseAgentDistroHostState } from "@kolu/agent-distro/bake";
 import { concreteStatePath } from "@kolu/agent-distro/bundle";
+import { GC_ROOTS_DIR } from "@kolu/agent-distro/gcRoots";
 import {
   type AgentDistroManifest,
   manifestFile,
@@ -72,15 +75,22 @@ export interface AgentDistroBake {
   readonly historyFile: string;
   /** kolu's record of the set that landed here (`@kolu/agent-distro/landing`). */
   readonly landedFile: string;
+  /** Where kolu-server roots what it delivered on this host
+   *  (`@kolu/agent-distro/gcRoots`, under the login's home) — the directory a
+   *  landing prunes. Read once here, never reached for at call time, so
+   *  whatever builds a bake owns it. */
+  readonly gcRootsDir: string;
 }
 
 /** Read the bake off `env` (injectable for tests). `null` when unbaked. Every
- *  path is made concrete for `stateHome` HERE, once: it is then a field, not a
+ *  path is made concrete for `stateHome` (and the GC roots for the login's
+ *  `home`) HERE, once: it is then a field, not a
  *  re-substitution at every spawn. */
 export function readAgentDistroBake(
   env: Record<string, string | undefined> = process.env,
   readText: (path: string) => string = (path) => readFileSync(path, "utf8"),
   stateHome: string = hostStateHome(),
+  home: string = homedir(),
 ): AgentDistroBake | null {
   const statePath = env[AGENT_DISTRO_STATE_ENV];
   if (statePath === undefined || statePath === "") return null;
@@ -107,6 +117,7 @@ export function readAgentDistroBake(
     stateDir: place(state.state),
     historyFile: place(state.history),
     landedFile: place(state.landed),
+    gcRootsDir: join(home, GC_ROOTS_DIR),
   };
 }
 

@@ -81,6 +81,9 @@ export const AgentUpdateRunSchema = Schema.Struct({
   outcome: AgentUpdateOutcomeSchema,
   words: Schema.String,
   by: AgentUpdateAuthorSchema,
+  /** The profile a history line from before agent-distro's one-package
+   *  release was about — {@link AgentUpdateEventSchema}'s, carried through. */
+  profile: Schema.optionalKey(Schema.String),
 });
 
 export type AgentUpdateRun = typeof AgentUpdateRunSchema.Type;
@@ -123,5 +126,6 @@ export function lastRunOf(
     outcome: newest.kind,
     words: newest.words,
     by: historyAuthor(newest.kind),
+    ...(newest.profile === undefined ? {} : { profile: newest.profile }),
   };
 }

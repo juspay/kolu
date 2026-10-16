@@ -222,10 +222,15 @@ export function onAgentDistroReport(report: AgentDistroDeliveryReport): void {
               `kolu-server reported a landing for ${JSON.stringify(stack)} whose profiles name ${JSON.stringify(report.delivered.map((p) => p.reference))}`,
             );
 
-          landDelivery(bake, stack, {
-            bundle: report.bundle,
-            profiles: report.delivered,
-          });
+          // The roots kept: this stack's, and the current setting's — read
+          // again here, since a delivery of a newer list may already be
+          // rooting its profiles beside this one.
+          landDelivery(
+            bake,
+            stack,
+            { bundle: report.bundle, profiles: report.delivered },
+            [...stack, ...agentDistroSettingStore.get().profiles],
+          );
         } catch (err) {
           const message = err instanceof Error ? err.message : String(err);
           deliveryFailed(stack, { message }, "padi");

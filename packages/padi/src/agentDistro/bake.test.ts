@@ -88,13 +88,19 @@ describe("readAgentDistroBake", () => {
 describe("the host state, made concrete once, at read", () => {
   it("puts the host's state home where the placeholder was", () => {
     expect(
-      readAgentDistroBake(baked("/l/state.json"), read, "/home/u/.local/state"),
+      readAgentDistroBake(
+        baked("/l/state.json"),
+        read,
+        "/home/u/.local/state",
+        "/home/u",
+      ),
     ).toEqual({
       floor: undefined,
       plugins: "/p/plugin",
       stateDir: "/home/u/.local/state/agent-distro/abcpackage",
       historyFile: "/home/u/.local/state/agent-distro/history.log",
       landedFile: "/home/u/.local/state/kolu/agent-distro-landed.json",
+      gcRootsDir: "/home/u/.local/state/kolu/agent-distro/gcroots",
     });
   });
 

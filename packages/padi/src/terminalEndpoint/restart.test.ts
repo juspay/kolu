@@ -185,11 +185,14 @@ function bake(): AgentDistroBake {
     stateDir: join(state, "agent-distro", "package"),
     historyFile: join(state, "agent-distro", "history.log"),
     landedFile: join(state, "kolu", "agent-distro-landed.json"),
+    gcRootsDir: join(root, "home", "gcroots"),
   };
-  landDelivery(b, [JUSPAY], {
-    bundle: deliveredPackage(),
-    profiles: [juspay()],
-  });
+  landDelivery(
+    b,
+    [JUSPAY],
+    { bundle: deliveredPackage(), profiles: [juspay()] },
+    [JUSPAY],
+  );
   return b;
 }
 
