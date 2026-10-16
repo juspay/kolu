@@ -33,7 +33,11 @@
 
 import { updateDue } from "@juspay/agent-distro/update/due";
 import type { UpdaterSchedule } from "@kolu/agent-distro/bake";
-import type { DeliveredProfile } from "@kolu/agent-distro/landing";
+import {
+  type DeliveredProfile,
+  referencesOf,
+  sameStack,
+} from "@kolu/agent-distro/landing";
 import type {
   AgentDistroDeliveryReport,
   AgentProfileResolution,
@@ -105,9 +109,12 @@ export interface DeliveryHost {
 export type DeliveryTrigger = "connect" | "user" | "schedule";
 
 /** How one host's delivery ended: `landed`; `failed` (retried on upstream's
- *  schedule, a reconnect, or the user's check); or `busy` (a delivery of that
- *  stack to it was already running). */
-export type HostOutcome = "landed" | "failed" | "busy";
+ *  schedule, a reconnect, or the user's check); `busy` (a delivery of that
+ *  stack to it was already running); or `superseded` (the setting moved to
+ *  another stack while it ran — the newer stack's own run delivers that, and
+ *  padi would refuse this one's landing, so nothing is reported and nothing
+ *  failed). */
+export type HostOutcome = "landed" | "failed" | "busy" | "superseded";
 
 export interface AgentDelivery {
   /** Deliver to `keys` (every connected host when omitted), for `trigger`.
@@ -173,6 +180,16 @@ export function createAgentDelivery(deps: {
    *  directory, which changes under the same key, and a profile's plugins
    *  named by a flake reference are locked only when it builds. */
   const builds = new Map<string, Known<Promise<BuiltProfile>>>();
+  /** Each reference's last answer, shown while it is asked again — a re-check
+   *  of a profile that built does not flash back to `pending`; only a
+   *  reference never answered is. */
+  const lastAnswers = new Map<string, AgentProfileResolution>();
+  /** The setting still names `stack` (off names none). A run that outlived its
+   *  stack publishes nothing and reports nothing: the newer stack's run does. */
+  const current = (stack: readonly string[]): boolean => {
+    const now = deps.stack();
+    return now !== undefined && sameStack(now, stack);
+  };
   /** Deliveries in flight, by `host#stack`: a change of the stack is its own
    *  delivery, never folded into the one still running. */
   const inFlight = new Set<string>();
@@ -280,19 +297,22 @@ export function createAgentDelivery(deps: {
     run: Run,
   ): Promise<void> => {
     if (stack.length === 0) {
-      deps.onResolution([]);
+      if (current(stack)) deps.onResolution([]);
       return;
     }
-    const answers = new Map<string, AgentProfileResolution>(
-      stack.map((reference) => [reference, { kind: "pending" }]),
-    );
-    const publish = () =>
+    const answers = new Map<string, AgentProfileResolution>();
+    const publish = () => {
+      for (const [reference, answer] of answers)
+        lastAnswers.set(reference, answer);
+      if (!current(stack)) return;
       deps.onResolution(
         stack.map((reference) => ({
           reference,
-          resolution: answers.get(reference) ?? { kind: "pending" },
+          resolution: answers.get(reference) ??
+            lastAnswers.get(reference) ?? { kind: "pending" },
         })),
       );
+    };
     publish();
     try {
       const { system } = await ops.hostNixOf("localhost");
@@ -339,12 +359,17 @@ export function createAgentDelivery(deps: {
       await host.report(r);
     } catch (err) {
       // The host's padi did not take the report (it dropped, or refused a
-      // landing it cannot hold): logged at error, and the outcome below is the
-      // delivery's own.
-      log.error(
-        { err, host: host.label, report: r.kind },
-        "agent-distro delivery report to padi failed",
-      );
+      // landing it cannot hold) — unless the setting moved on meanwhile, when
+      // padi's refusal of a stale landing is the expected answer: logged at
+      // error, and the outcome below is the delivery's own.
+      if (
+        r.kind === "delivering" ||
+        current(r.kind === "landed" ? referencesOf(r.set.profiles) : r.profiles)
+      )
+        log.error(
+          { err, host: host.label, report: r.kind },
+          "agent-distro delivery report to padi failed",
+        );
       throw err;
     }
   };
@@ -357,7 +382,15 @@ export function createAgentDelivery(deps: {
     const at = { host: host.label, agentDistroProfiles: stack };
     const onProgress = (line: string) =>
       log.debug({ ...at, line }, "agent-distro delivery");
+    const superseded = (): HostOutcome => {
+      log.info(
+        { ...at, now: deps.stack() ?? null },
+        "agent-distro delivery superseded by a newer setting",
+      );
+      return "superseded";
+    };
     const failed = async (message: string): Promise<HostOutcome> => {
+      if (!current(stack)) return superseded();
       log.warn({ ...at, message }, "agent-distro set not delivered");
       await report(host, { kind: "failed", profiles: stack, message }).catch(
         () => {},
@@ -408,11 +441,13 @@ export function createAgentDelivery(deps: {
         onProgress,
       });
       if (!res.ok) return await failed(res.message);
+      if (!current(stack)) return superseded();
       const set = { bundle: res.bundle, profiles: delivered };
       await report(host, { kind: "landed", set });
       log.info({ ...at, set }, "agent-distro set delivered");
       return "landed";
     } catch (err) {
+      if (!current(stack)) return superseded();
       log.warn({ ...at, err }, "agent-distro delivery failed");
       return await failed(err instanceof Error ? err.message : String(err));
     }

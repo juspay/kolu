@@ -8,8 +8,9 @@
  * told of each profile (`onResolution`); that upstream's index and each lock
  * are read ONCE per run (and reused within a schedule period for a host's
  * connect, afresh for the user's check and the schedule); that a build is
- * remembered by revision, tree and system; and that a stack change is its own
- * delivery.
+ * remembered by revision, tree and system; that a stack change is its own
+ * delivery, the outdated run ending superseded; and that a re-check keeps the
+ * answers Settings already has.
  */
 
 import { referencesOf } from "@kolu/agent-distro/landing";
@@ -754,6 +755,31 @@ describe("createAgentDelivery — reads and builds, each asked once", () => {
   });
 });
 
+describe("createAgentDelivery — a re-check keeps what Settings knows", () => {
+  it("a profile that built shows its answer while a fresh run asks again — never `pending` again", async () => {
+    const nix = fakeOps();
+    const local = fakeHost("local", "localhost");
+    const { delivery, resolutions } = setup({
+      ops: nix.ops,
+      hosts: [local.host],
+      stack: () => [JUSPAY],
+    });
+    expect(await delivery.run({ trigger: "user" })).toEqual(["landed"]);
+    expect(resolutions[0]).toEqual([
+      { reference: JUSPAY, resolution: { kind: "pending" } },
+    ]);
+    const answered = resolutions.at(-1);
+    expect(answered?.[0]?.resolution.kind).toBe("resolved");
+    const before = resolutions.length;
+    // The schedule's run asks afresh: every publish it makes says resolved.
+    expect(await delivery.run({ trigger: "schedule" })).toEqual(["landed"]);
+    const again = resolutions.slice(before);
+    expect(again.length).toBeGreaterThan(0);
+    for (const profiles of again)
+      expect(profiles[0]?.resolution.kind).toBe("resolved");
+  });
+});
+
 describe("createAgentDelivery — hosts and runs", () => {
   it("a host already being delivered to is busy, and keeps its delivery", async () => {
     const nix = fakeOps();
@@ -776,6 +802,31 @@ describe("createAgentDelivery — hosts and runs", () => {
     // local was told ONE delivery's story, not two.
     expect(local.reports.map((r) => r.kind)).toEqual(["delivering", "landed"]);
     expect(delivery.running()).toBe(false);
+  });
+
+  it("a run the setting moved on from while it ran is superseded: no landing, no failure, nothing for Settings", async () => {
+    const nix = fakeOps();
+    const local = fakeHost("local", "localhost");
+    let stack: readonly string[] = [];
+    const { delivery, resolutions } = setup({
+      ops: nix.ops,
+      hosts: [local.host],
+      stack: () => stack,
+    });
+    const release = nix.hold();
+    // The switch turned on with an empty list; its run is pulling the package
+    // when Juspay is added.
+    const stale = delivery.run({ trigger: "user" });
+    await vi.waitFor(() => expect(nix.pulled).toHaveLength(1));
+    stack = [JUSPAY];
+    const published = resolutions.length;
+    release();
+    expect(await stale).toEqual(["superseded"]);
+    // padi would refuse a landing for [] now: none is reported, and no
+    // failure either — the newer stack's run delivers.
+    expect(local.reports).toEqual([{ kind: "delivering", profiles: [] }]);
+    expect(resolutions).toHaveLength(published);
+    expect(log.error).not.toHaveBeenCalled();
   });
 
   it("delivers only to the asked keys", async () => {
@@ -831,7 +882,9 @@ describe("createAgentDelivery — hosts and runs", () => {
     const second = delivery.run({ trigger: "connect" });
     await vi.waitFor(() => expect(nix.pulled).toHaveLength(2));
     release();
-    expect(await first).toEqual(["landed"]);
+    // The first run's stack is no longer the setting's: superseded, its
+    // landing never reported (padi would refuse it).
+    expect(await first).toEqual(["superseded"]);
     expect(await second).toEqual(["landed"]);
     // Each delivery told its own stack's story.
     const stackOf = (r: AgentDistroDeliveryReport) =>
@@ -840,7 +893,7 @@ describe("createAgentDelivery — hosts and runs", () => {
       box.reports
         .filter((r) => JSON.stringify(stackOf(r)) === JSON.stringify(s))
         .map((r) => r.kind);
-    expect(story([])).toEqual(["delivering", "landed"]);
+    expect(story([])).toEqual(["delivering"]);
     expect(story([JUSPAY])).toEqual(["delivering", "landed"]);
     expect(box.reports.at(-1)).toMatchObject({
       kind: "landed",
