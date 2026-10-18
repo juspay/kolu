@@ -3,14 +3,16 @@
  *
  * The real OpenCode TUI owns a single SQLite database at
  * `~/.local/share/opencode/opencode.db`. The kolu provider opens it
- * read-only and derives state from the latest message's `data` JSON
- * blob plus the matching tool-`part` rows. This helper synthesizes the
- * same tables directly so e2e scenarios can drive the provider through
- * a controlled lifecycle without launching a real `opencode` TUI.
+ * read-only and derives state from the latest `session_message` row —
+ * its `type` column plus its `data` JSON blob, whose `content[]` carries
+ * the message's tool parts inline. This helper synthesizes the same
+ * OpenCode 2.x tables directly so e2e scenarios can drive the provider
+ * through a controlled lifecycle without launching a real `opencode` TUI.
  *
  * The SQL schema and JSON shapes here are a subset of what the real
- * TUI writes — only the columns and fields the kolu opencode provider
- * actually reads. That subset is the contract this fixture exercises.
+ * TUI (2.0.29) writes — only the columns and fields the kolu opencode
+ * provider actually reads. That subset is the contract this fixture
+ * exercises.
  */
 
 import * as fs from "node:fs";
@@ -19,31 +21,28 @@ import { DatabaseSync } from "node:sqlite";
 import type { AgentLifecycleState } from "./agent-lifecycle.ts";
 
 const OPENCODE_SCHEMA = `
-CREATE TABLE IF NOT EXISTS session (
+CREATE TABLE IF NOT EXISTS session_v2 (
   id TEXT PRIMARY KEY,
-  title TEXT,
+  parent_id TEXT,
   directory TEXT NOT NULL,
+  title TEXT,
+  revert TEXT,
+  time_created INTEGER NOT NULL,
   time_updated INTEGER NOT NULL,
   time_archived INTEGER
 );
-CREATE TABLE IF NOT EXISTS message (
+CREATE TABLE IF NOT EXISTS session_message (
   id TEXT PRIMARY KEY,
   session_id TEXT NOT NULL,
+  type TEXT NOT NULL,
+  seq INTEGER NOT NULL,
   time_created INTEGER NOT NULL,
+  time_updated INTEGER NOT NULL,
   data TEXT NOT NULL
 );
-CREATE INDEX IF NOT EXISTS message_session_idx ON message(session_id, time_created);
-CREATE TABLE IF NOT EXISTS part (
-  id TEXT,
-  message_id TEXT NOT NULL,
-  data TEXT NOT NULL
-);
-CREATE INDEX IF NOT EXISTS part_message_id_id_idx ON part(message_id, id);
-CREATE TABLE IF NOT EXISTS todo (
-  id TEXT,
-  session_id TEXT NOT NULL,
-  status TEXT NOT NULL
-);
+CREATE UNIQUE INDEX IF NOT EXISTS session_message_session_seq_idx ON session_message (session_id, seq);
+CREATE INDEX IF NOT EXISTS session_message_session_type_seq_idx ON session_message (session_id, type, seq);
+CREATE INDEX IF NOT EXISTS session_message_session_time_created_id_idx ON session_message (session_id, time_created, id);
 `;
 
 export interface OpenCodeFixture {
@@ -54,19 +53,21 @@ export interface OpenCodeFixture {
 /** Create OpenCode's SQLite database under `dbPath` with a single session
  *  in the requested lifecycle state.
  *
- *  State derivation mirrors `parseMessageState` + `hasRunningTools`:
- *   - thinking: latest row is a `user` message (assistant-token bookkeeping
- *     lives on an earlier `assistant` row)
- *   - tool_use: latest assistant message has no `time.completed`, plus a
- *     `part` row with `data.state.status = "running"`
- *   - waiting:  latest assistant message has `time.completed` + `finish = "stop"`
+ *  State derivation mirrors `deriveSessionState` / `parseMessageState`:
+ *   - thinking: latest conversational row is a `user` message (the
+ *     token-bearing `assistant` row, if any, is an earlier one)
+ *   - tool_use: latest `assistant` row has no `time.completed`, and a
+ *     `content[]` tool part with `state.status = "running"`
+ *   - awaiting_user: as tool_use, but the running tool is `question`
+ *   - waiting:  latest `assistant` row has `time.completed` + `finish = "stop"`
+ *  `contextTokens` lands as the assistant row's `tokens.input` (the other
+ *  usage fields zero), so the published sum equals it.
  */
 export function writeOpenCodeFixture(opts: {
   dbPath: string;
   cwd: string;
   state: AgentLifecycleState;
   contextTokens?: number;
-  todos?: { total: number; completed: number };
   title?: string;
   modelID?: string;
   providerID?: string;
@@ -91,112 +92,102 @@ export function writeOpenCodeFixture(opts: {
     // sees the new row and re-matches, but on a busy x86_64-linux
     // builder the window can outlast the test's 20 s poll budget.
     db.exec("BEGIN IMMEDIATE;");
-    db.prepare("DELETE FROM session WHERE id = ? OR directory = ?").run(
+    db.prepare("DELETE FROM session_v2 WHERE id = ? OR directory = ?").run(
       sessionId,
       opts.cwd,
     );
-    db.prepare("DELETE FROM message WHERE session_id = ?").run(sessionId);
-    db.prepare(
-      "DELETE FROM part WHERE message_id IN (SELECT id FROM message WHERE session_id = ?)",
-    ).run(sessionId);
-    db.prepare("DELETE FROM todo WHERE session_id = ?").run(sessionId);
+    db.prepare("DELETE FROM session_message WHERE session_id = ?").run(
+      sessionId,
+    );
 
     const now = Date.now();
     db.prepare(
-      "INSERT INTO session (id, title, directory, time_updated, time_archived) VALUES (?, ?, ?, ?, NULL)",
-    ).run(sessionId, opts.title ?? "opencode-mock test session", opts.cwd, now);
+      "INSERT INTO session_v2 (id, title, directory, time_created, time_updated, time_archived) VALUES (?, ?, ?, ?, ?, NULL)",
+    ).run(
+      sessionId,
+      opts.title ?? "opencode-mock test session",
+      opts.cwd,
+      now,
+      now,
+    );
 
-    const modelID = opts.modelID ?? "qwen2.5-coder";
-    const providerID = opts.providerID ?? "test";
+    const model = {
+      id: opts.modelID ?? "qwen2.5-coder",
+      providerID: opts.providerID ?? "test",
+    };
+    const tokens =
+      opts.contextTokens === undefined
+        ? undefined
+        : {
+            input: opts.contextTokens,
+            output: 0,
+            reasoning: 0,
+            cache: { read: 0, write: 0 },
+          };
 
-    const assistantId = `${sessionId}-m-assistant`;
-    const userId = `${sessionId}-m-user`;
+    let seq = 0;
+    const insert = (
+      type: "user" | "assistant",
+      time: number,
+      data: Record<string, unknown>,
+    ) => {
+      db.prepare(
+        "INSERT INTO session_message (id, session_id, type, seq, time_created, time_updated, data) VALUES (?, ?, ?, ?, ?, ?, ?)",
+      ).run(
+        `${sessionId}-m${seq}`,
+        sessionId,
+        type,
+        seq,
+        time,
+        time,
+        JSON.stringify(data),
+      );
+      seq++;
+    };
+
+    const runningTool = (name: string) => ({
+      time: { created: now },
+      model,
+      ...(tokens && { tokens }),
+      content: [
+        {
+          type: "tool",
+          id: "call_1",
+          name,
+          executed: false,
+          state: { status: "running", input: {} },
+        },
+      ],
+    });
 
     if (opts.state === "thinking") {
-      // Optional earlier assistant row carrying the running token total —
+      // Optional earlier assistant row carrying the token usage —
       // `getLatestAssistantFacts` reads the newest assistant row through a
-      // separate query scoped to `role='assistant'` (that row is also where
+      // separate query scoped to `type='assistant'` (that row is also where
       // the session-scoped model comes from), so the user message as the
       // newest row still drives state derivation to `thinking`.
-      if (opts.contextTokens !== undefined) {
-        db.prepare(
-          "INSERT INTO message (id, session_id, time_created, data) VALUES (?, ?, ?, ?)",
-        ).run(
-          assistantId,
-          sessionId,
-          now - 10,
-          JSON.stringify({
-            role: "assistant",
-            modelID,
-            providerID,
-            finish: "stop",
-            time: { created: now - 10, completed: now - 5 },
-            tokens: { total: opts.contextTokens },
-          }),
-        );
-      }
-      db.prepare(
-        "INSERT INTO message (id, session_id, time_created, data) VALUES (?, ?, ?, ?)",
-      ).run(
-        userId,
-        sessionId,
-        now,
-        JSON.stringify({ role: "user", time: { created: now } }),
-      );
-    } else if (opts.state === "tool_use") {
-      db.prepare(
-        "INSERT INTO message (id, session_id, time_created, data) VALUES (?, ?, ?, ?)",
-      ).run(
-        assistantId,
-        sessionId,
-        now,
-        JSON.stringify({
-          role: "assistant",
-          modelID,
-          providerID,
-          time: { created: now },
-          ...(opts.contextTokens !== undefined && {
-            tokens: { total: opts.contextTokens },
-          }),
-        }),
-      );
-      db.prepare(
-        "INSERT INTO part (id, message_id, data) VALUES (?, ?, ?)",
-      ).run(
-        "p1",
-        assistantId,
-        JSON.stringify({ type: "tool", state: { status: "running" } }),
-      );
-    } else {
-      db.prepare(
-        "INSERT INTO message (id, session_id, time_created, data) VALUES (?, ?, ?, ?)",
-      ).run(
-        assistantId,
-        sessionId,
-        now,
-        JSON.stringify({
-          role: "assistant",
-          modelID,
-          providerID,
+      if (tokens) {
+        insert("assistant", now - 10, {
+          time: { created: now - 10, completed: now - 5 },
+          model,
           finish: "stop",
-          time: { created: now, completed: now },
-          ...(opts.contextTokens !== undefined && {
-            tokens: { total: opts.contextTokens },
-          }),
-        }),
-      );
-    }
-
-    if (opts.todos) {
-      for (let i = 0; i < opts.todos.total; i++) {
-        db.prepare(
-          "INSERT INTO todo (id, session_id, status) VALUES (?, ?, ?)",
-        ).run(
-          `t${i}`,
-          sessionId,
-          i < opts.todos.completed ? "completed" : "pending",
-        );
+          tokens,
+          content: [{ type: "text", text: "Done." }],
+        });
       }
+      insert("user", now, { time: { created: now }, text: "next" });
+    } else if (opts.state === "tool_use") {
+      insert("assistant", now, runningTool("shell"));
+    } else if (opts.state === "awaiting_user") {
+      insert("assistant", now, runningTool("question"));
+    } else {
+      insert("assistant", now, {
+        time: { created: now, completed: now },
+        model,
+        finish: "stop",
+        ...(tokens && { tokens }),
+        content: [{ type: "text", text: "Done." }],
+      });
     }
 
     db.exec("COMMIT;");

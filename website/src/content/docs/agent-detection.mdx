@@ -262,23 +262,24 @@ is a stable first-class count. **Transcript export** reads `chat_history.jsonl`
 
 ## OpenCode
 
-When the foreground process is `opencode`, kolu queries OpenCode's SQLite database
-directly at `~/.local/share/opencode/opencode.db` for the live sessions whose
-directory matches the terminal — most recently updated first — and takes the best
+Requires **OpenCode 2.0 or later.** When the foreground process is `opencode`,
+kolu queries OpenCode's SQLite database directly at
+`~/.local/share/opencode/opencode.db` — the 2.x session store, `session_v2` and
+`session_message` — for the live sessions whose directory matches the terminal — most recently updated first — and takes the best
 one no other terminal already holds. The database's write-ahead log drives live
 updates.
 
 | State | Indicator | Meaning |
 | --- | --- | --- |
-| Thinking | pulsing accent dot | latest assistant message has no `time.completed` |
+| Thinking | pulsing accent dot | latest message is your prompt, or an assistant message with no `time.completed` |
 | Tool use | spinning amber | a running part whose tool is neither `question` nor `plan_exit` |
 | Awaiting input | pulsing alert | every running part is `question` or `plan_exit` — blocked on a reply |
 | Waiting | dim dot | latest assistant message is completed with `finish: "stop"` |
 
-Todo progress comes free from a count over OpenCode's `todo` table, and the tile
-shows the model and the running token count OpenCode pre-sums itself — both read
-from the newest _assistant_ message, since a message of any kind can be the
-newest row and neither fact belongs to one message.
+The tile shows the model from the newest _assistant_ message, and the context
+token count OpenCode's own TUI shows — the newest accounted step's input, output,
+reasoning and cache tokens — so neither blanks while your prompt is the newest
+row. OpenCode 2.x keeps no todo list, so an OpenCode tile shows no task progress.
 
 <Aside type="note" title="Why read SQLite, not an HTTP API?">
   The OpenCode TUI doesn't expose an HTTP server by default. Reading the SQLite
@@ -296,6 +297,9 @@ newest row and neither fact belongs to one message.
   sessions is really its own. A session started *inside* a running OpenCode is
   therefore indistinguishable from one started elsewhere in that directory, so
   the tile stays on the previous session until you exit the agent.
+- **OpenCode 1.x** — its `session` / `message` tables are not read. Against a
+  database without `session_v2`, no OpenCode tile lights up and padi's log names
+  the missing table on every check.
 - **Non-default database location** — set `KOLU_OPENCODE_DB` to override the path.
 
 ## Pi

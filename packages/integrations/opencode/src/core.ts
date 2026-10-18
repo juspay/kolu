@@ -13,11 +13,22 @@
  * Read concurrency is safe because OpenCode uses WAL mode — readers don't
  * block writers and vice versa. We open the DB read-only.
  *
- * State derivation from the latest message in a session:
- *   - role: "user"                          → "thinking" (waiting for assistant)
- *   - role: "assistant", no time.completed  → "thinking" (in flight)
- *   - role: "assistant", finish: "stop"     → "waiting"  (assistant finished)
- *   - role: "assistant", finish: other      → "thinking" (still working)
+ * Schema: OpenCode ≥ 2.0 only. 2.x writes conversations to `session_v2` +
+ * `session_message` (one row per message, its parts inline in
+ * `data.content[]`); the 1.x `session` / `message` / `part` / `todo` tables
+ * survive in an upgraded DB but stop being written at the cutover, so reading
+ * them would find a frozen history. There is no 1.x path: a DB without
+ * `session_v2` makes every query here throw, and that failure is logged at
+ * `error` by `readDb` / `withDb` (see `findSessionsByDirectory` for what the
+ * orchestrator does with it).
+ *
+ * State derivation from the latest conversational message (`type` column):
+ *   - "user"                          → "thinking" (waiting for assistant)
+ *   - "assistant", no time.completed  → "thinking" (in flight)
+ *   - "assistant", finish: "stop"     → "waiting"  (assistant finished)
+ *   - "assistant", finish: other      → "thinking" (still working)
+ * and a "thinking" assistant is refined by its running tool parts
+ * (`runningToolsBucket`) into "tool_use" / "awaiting_user".
  *
  * Structure note: this file holds the leaf module. Peers `session-watcher.ts`,
  * `wal-watcher.ts`, and `agent-adapter.ts` import from here; `index.ts` is
@@ -30,7 +41,7 @@ import type { Logger } from "kolu-shared";
 import { readDbList, withDb as sharedWithDb } from "kolu-shared/sqlite";
 import { match } from "ts-pattern";
 import { OPENCODE_DB_PATH } from "./config.ts";
-import type { OpenCodeInfo, TaskProgress } from "./schemas.ts";
+import type { OpenCodeInfo } from "./schemas.ts";
 
 // --- Database helpers ---
 
@@ -92,10 +103,19 @@ export function openDb(log?: Logger): DatabaseSync | null {
  * the same session and their dock rows converged (juspay/kolu#2057). The
  * orchestrator's ownership arbiter walks the list and gives each terminal a
  * session of its own.
+ *
+ * A DB with no `session_v2` (OpenCode < 2.0) makes the prepare throw: `readDb`
+ * logs it at `error` ("opencode session query failed", the SQLite message
+ * naming the missing table) and this returns `null`. Only a missing DB FILE is
+ * swallowed (`openDb`'s ENOENT → `[]`). `null` is the adapter contract's
+ * "could not read the store", so the orchestrator holds the terminal's previous
+ * match rather than releasing it — for a pre-2.0 DB there never was one, so the
+ * terminal shows no OpenCode row and the error line says why, every reconcile.
  */
 export function findSessionsByDirectory(
   directory: string,
   log?: Logger,
+  db?: DatabaseSync,
 ): OpenCodeSession[] | null {
   // `readDb`, not `withDb` — see the twin in kolu-codex's `core.ts`: the
   // ownership arbiter releases a terminal's session on an empty list, so a
@@ -104,22 +124,22 @@ export function findSessionsByDirectory(
   //
   // `started_at` is the same "when did this conversation begin" that
   // `getSessionStartedAt` reads for the watcher, folded into this one query as a
-  // correlated MIN over `message_session_idx` (session_id, time_created) — an
-  // index seek per row rather than a round trip per candidate. It rides the
-  // match result because session ownership is arbitrated before any watcher
-  // exists, and without it a terminal could never tell its own session from an
-  // earlier run's in the same directory.
+  // correlated MIN over `session_message_session_time_created_id_idx`
+  // (session_id, time_created, id) — an index seek per row rather than a round
+  // trip per candidate. It rides the match result because session ownership is
+  // arbitrated before any watcher exists, and without it a terminal could never
+  // tell its own session from an earlier run's in the same directory.
   return readDbList(
     openDb,
     (conn) =>
       (
         conn
           .prepare(
-            `SELECT s.id, s.title, s.directory, (SELECT MIN(time_created) FROM message m WHERE m.session_id = s.id) AS started_at FROM session s WHERE s.directory = ? AND s.time_archived IS NULL ORDER BY s.time_updated DESC LIMIT ${MAX_CANDIDATES}`,
+            `SELECT s.id, s.title, s.directory, (SELECT MIN(time_created) FROM session_message m WHERE m.session_id = s.id) AS started_at FROM session_v2 s WHERE s.directory = ? AND s.time_archived IS NULL ORDER BY s.time_updated DESC LIMIT ${MAX_CANDIDATES}`,
           )
           .all(directory) as {
           id: string;
-          title: string;
+          title: string | null;
           directory: string;
           started_at: number | null;
         }[]
@@ -132,6 +152,7 @@ export function findSessionsByDirectory(
     "opencode session query failed",
     { directory },
     log,
+    db,
   );
 }
 
@@ -146,8 +167,8 @@ export function getSessionTitle(
   return withDb(
     (conn) => {
       const row = conn
-        .prepare("SELECT title FROM session WHERE id = ?")
-        .get(sessionId) as { title: string } | undefined;
+        .prepare("SELECT title FROM session_v2 WHERE id = ?")
+        .get(sessionId) as { title: string | null } | undefined;
       return row?.title || null;
     },
     "opencode session title query failed",
@@ -176,7 +197,7 @@ export function getSessionStartedAt(
     (conn) => {
       const row = conn
         .prepare(
-          "SELECT time_created FROM message WHERE session_id = ? ORDER BY time_created ASC LIMIT 1",
+          "SELECT time_created FROM session_message WHERE session_id = ? ORDER BY time_created ASC LIMIT 1",
         )
         .get(sessionId) as { time_created: number } | undefined;
       return row?.time_created ?? null;
@@ -188,57 +209,33 @@ export function getSessionStartedAt(
   );
 }
 
-// --- Todo progress ---
-
-/**
- * Read todo progress for a session from the `todo` table.
- * Returns null if the session has no todos.
- *
- * Pass an existing `db` to share a connection with the caller — used by
- * `createOpenCodeWatcher` to avoid opening/closing on every WAL event.
- * If `db` is omitted, opens and closes its own connection.
- */
-export function getSessionTaskProgress(
-  sessionId: string,
-  log?: Logger,
-  db?: DatabaseSync,
-): TaskProgress | null {
-  return withDb(
-    (conn) => {
-      const row = conn
-        .prepare(
-          "SELECT COUNT(*) AS total, SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) AS completed FROM todo WHERE session_id = ?",
-        )
-        .get(sessionId) as
-        | { total: number; completed: number | null }
-        | undefined;
-      if (!row || row.total === 0) return null;
-      return { total: row.total, completed: row.completed ?? 0 };
-    },
-    "opencode todo query failed",
-    { sessionId },
-    log,
-    db,
-  );
-}
-
 // --- Latest assistant message ---
 
 /**
- * Read the newest assistant message's session-scoped facts: its running
- * context-token total (`tokens.total`) and the model it ran on.
+ * Read the session-scoped facts that live on assistant messages: the model the
+ * newest assistant message ran on, and the context-window token count.
  *
  * Independent of `deriveSessionState` because the signals terminate
- * differently: state pivots on the newest message of ANY role, but these two
- * only live on assistant messages — taking them from the single latest
- * message would blank both whenever the user's prompt (or a tool result) is
- * the newest row, i.e. throughout the Thinking window. For the model that is
- * not merely a blank: the wire's `model` means one thing across every
- * integration — see `AgentInfoShape.model`.
+ * differently: state pivots on the newest conversational message of either
+ * type, but these two only live on assistant messages — taking them from the
+ * single latest message would blank both whenever the user's prompt is the
+ * newest row, i.e. throughout the Thinking window. For the model that is not
+ * merely a blank: the wire's `model` means one thing across every integration
+ * — see `AgentInfoShape.model`.
  *
- * One indexed query against (session_id, time_created). `json_extract`
- * forces per-row blob inspection, but the walker stops at the first match
- * — in practice 1–3 rows.
+ * `contextTokens` is OpenCode's own context-usage number, so the badge agrees
+ * with the TUI's footer/sidebar. Upstream (v2.0.29) `lastAssistantWithUsage`
+ * (`packages/client/src/solid/usage.ts`) picks the newest assistant message
+ * that HAS `tokens`, after the last completed compaction and before the
+ * session's revert boundary (`session.revert.messageID`); `contextUsage`
+ * (`packages/tui/src/util/session.ts`) sums `input + output + reasoning +
+ * cache.read + cache.write` (`TokenUsage.total`) and shows nothing when that
+ * is ≤ 0. The second query below is that selection; the sum is
+ * `contextTokensOf`. The streaming assistant carries no `tokens` yet, so the
+ * count stays on the previous step instead of blanking mid-turn.
+ *
+ * Both queries ride `session_message_session_type_seq_idx`
+ * (session_id, type, seq) and stop at the first row.
  *
  * `null` is `withDb`'s documented fold and carries THREE causes: the session
  * has no assistant message yet, the query threw, or the newest assistant blob
@@ -247,8 +244,7 @@ export function getSessionTaskProgress(
  * "this session has no model" on a corrupt row is the case `readDb` exists for
  * (see `sqlite/with-db.ts`). The watcher publishes this null straight onto the
  * wire, so a schema-drifted build drops the model tag until a readable row
- * lands — unchanged for `contextTokens` since before this function existed,
- * and now true of `model` too.
+ * lands.
  */
 export function getLatestAssistantFacts(
   sessionId: string,
@@ -257,15 +253,37 @@ export function getLatestAssistantFacts(
 ): { model: string | null; contextTokens: number | null } | null {
   return withDb(
     (conn) => {
-      const row = conn
+      const latest = conn
         .prepare(
-          "SELECT data FROM message WHERE session_id = ? AND json_extract(data, '$.role') = 'assistant' ORDER BY time_created DESC LIMIT 1",
+          "SELECT data FROM session_message WHERE session_id = ? AND type = 'assistant' ORDER BY seq DESC LIMIT 1",
         )
         .get(sessionId) as { data: string } | undefined;
-      if (!row) return null;
-      let parsed: MessageData;
+      if (!latest) return null;
+      // `bound`: the revert boundary's seq (messages at/after it are undone),
+      // or no bound. `floor`: the last completed compaction before it, whose
+      // summary replaced everything earlier in the context window.
+      const usage = conn
+        .prepare(
+          `WITH bound AS (
+             SELECT COALESCE(
+               (SELECT seq FROM session_message WHERE session_id = ?1 AND id = (SELECT json_extract(revert, '$.messageID') FROM session_v2 WHERE id = ?1)),
+               9223372036854775807
+             ) AS seq
+           ), floor AS (
+             SELECT COALESCE(MAX(seq), -1) AS seq FROM session_message
+              WHERE session_id = ?1 AND type = 'compaction' AND json_extract(data, '$.status') = 'completed' AND seq < (SELECT seq FROM bound)
+           )
+           SELECT data FROM session_message
+            WHERE session_id = ?1 AND type = 'assistant' AND json_extract(data, '$.tokens') IS NOT NULL
+              AND seq > (SELECT seq FROM floor) AND seq < (SELECT seq FROM bound)
+            ORDER BY seq DESC LIMIT 1`,
+        )
+        .get(sessionId) as { data: string } | undefined;
+      let latestData: MessageData;
+      let usageData: MessageData | null;
       try {
-        parsed = JSON.parse(row.data) as MessageData;
+        latestData = JSON.parse(latest.data) as MessageData;
+        usageData = usage ? (JSON.parse(usage.data) as MessageData) : null;
       } catch (err) {
         // OpenCode writes this JSON itself, so a parse failure is a real
         // anomaly — surface it rather than silently blanking the badge.
@@ -276,8 +294,8 @@ export function getLatestAssistantFacts(
         return null;
       }
       return {
-        model: assistantModelLabel(parsed),
-        contextTokens: parsed.tokens?.total ?? null,
+        model: assistantModelLabel(latestData),
+        contextTokens: usageData ? contextTokensOf(usageData) : null,
       };
     },
     "opencode assistant-facts query failed",
@@ -287,107 +305,117 @@ export function getLatestAssistantFacts(
   );
 }
 
+/** OpenCode's `TokenUsage.total` over one assistant message, `null` when the
+ *  message carries no usage or it sums to ≤ 0 (the TUI shows nothing then).
+ *  See `getLatestAssistantFacts` for the upstream citation. */
+function contextTokensOf(m: MessageData): number | null {
+  const t = m.tokens;
+  if (!t) return null;
+  const total = t.input + t.output + t.reasoning + t.cache.read + t.cache.write;
+  return total > 0 ? total : null;
+}
+
 // --- Tool detection ---
 
 /** OpenCode built-in tools whose pending invocation means the agent is
- *  awaiting the human. Both call `Question.Service.ask` and write a
- *  `part` row with `state.status = "running"` while blocking on the
- *  user's reply (upstream verification:
+ *  awaiting the human. Both block on the user's reply while their content
+ *  part sits at `state.status = "running"` (upstream verification:
  *  `packages/opencode/src/tool/question.ts:24` and
  *  `packages/opencode/src/tool/plan.ts:29`). Other interactive flows
  *  (`ctx.ask` permission prompts inside `shell`/`edit`/`write`/etc.)
- *  don't surface a distinct `tool` value — the part stays `shell`/etc.
+ *  don't surface a distinct tool name — the part stays `shell`/etc.
  *  and is indistinguishable from a real-work tool. */
-const AWAITING_USER_TOOLS = ["question", "plan_exit"] as const;
+const AWAITING_USER_TOOLS: ReadonlySet<string> = new Set([
+  "question",
+  "plan_exit",
+]);
 
 /** Classify the tool parts currently in the "running" state for one
- *  message (the current assistant turn) — scoped per-message rather
- *  than per-session so a transcript with thousands of completed tool
- *  parts stays cheap to scan.
+ *  assistant message (the current turn). In 2.x the parts live inline in
+ *  the message's `data.content[]` as `{ type: "tool", name, state: { status } }`,
+ *  so this is a pure fold over the blob `deriveSessionState` already parsed —
+ *  no second read.
  *
  *  Returns `null` when no tools are running (the caller keeps its base
  *  state), `"tool_use"` when at least one real-work tool is in flight,
  *  and `"awaiting_user"` when every running part is in
- *  `AWAITING_USER_TOOLS`. One SQL pass counts total + awaiting using
- *  the `part_message_id_id_idx` index. */
+ *  `AWAITING_USER_TOOLS`. Exported for unit testing. */
 export function runningToolsBucket(
-  messageId: string,
-  log?: Logger,
-  db?: DatabaseSync,
+  content: readonly ContentPart[] | undefined,
 ): "tool_use" | "awaiting_user" | null {
-  // SQLite's parameter binding doesn't accept arrays for `IN (...)`,
-  // so the placeholder list is constructed inline from a constant —
-  // safe because every value is a hard-coded literal, not user input.
-  const placeholders = AWAITING_USER_TOOLS.map(() => "?").join(", ");
-  return (
-    withDb(
-      (conn) => {
-        const row = conn
-          .prepare(
-            `SELECT COUNT(*) AS total, SUM(CASE WHEN json_extract(data, '$.tool') IN (${placeholders}) THEN 1 ELSE 0 END) AS awaiting FROM part WHERE message_id = ? AND json_extract(data, '$.type') = 'tool' AND json_extract(data, '$.state.status') = 'running'`,
-          )
-          .get(...AWAITING_USER_TOOLS, messageId) as
-          | { total: number; awaiting: number | null }
-          | undefined;
-        const total = row?.total ?? 0;
-        if (total === 0) return null;
-        return classifyByAwaiting(row?.awaiting ?? 0, total);
-      },
-      "opencode running-tools query failed",
-      { messageId },
-      log,
-      db,
-    ) ?? null
-  );
+  let total = 0;
+  let awaiting = 0;
+  for (const part of content ?? []) {
+    if (part.type !== "tool" || part.state?.status !== "running") continue;
+    total++;
+    if (part.name !== undefined && AWAITING_USER_TOOLS.has(part.name))
+      awaiting++;
+  }
+  if (total === 0) return null;
+  return classifyByAwaiting(awaiting, total);
 }
 
 // --- State derivation ---
 
-/** Shape of the JSON in `message.data`. Only the fields we read. */
+/** The conversational `session_message.type` values — the ones state derives
+ *  from. 2.x also writes `system`, `synthetic`, `compaction` and `idle` rows
+ *  into the same sequence (a tool-rename notice, injected instructions, a
+ *  summary, a turn-end marker); none of them says whose turn it is, and a
+ *  `system` row is the newest one in many settled sessions, so the latest
+ *  message is picked among these two only. */
+type ConversationalType = "user" | "assistant";
+
+/** One entry of an assistant message's `data.content[]`. Only the fields we
+ *  read. */
+export interface ContentPart {
+  type?: string;
+  name?: string;
+  state?: { status?: string };
+}
+
+/** Shape of the JSON in `session_message.data` for a user/assistant row.
+ *  Only the fields we read. */
 interface MessageData {
-  role?: "user" | "assistant";
-  modelID?: string;
-  providerID?: string;
+  model?: { id?: string; providerID?: string };
   finish?: string;
   time?: { created?: number; completed?: number };
-  /** Present on assistant messages once OpenCode has accounted the turn.
-   *  `total` is the running session token count, pre-summed by the
-   *  provider — we just pass it through. */
-  tokens?: { total?: number };
+  /** Present on an assistant message once OpenCode has accounted the step. */
+  tokens?: {
+    input: number;
+    output: number;
+    reasoning: number;
+    cache: { read: number; write: number };
+  };
+  content?: ContentPart[];
 }
 
 /** How one message blob names the model it ran on: the `provider/model`
- *  OpenCode records as two fields (`anthropic` + `claude-opus-4-6`), falling
- *  back to whichever half is present, `null` when it names neither. The ONE
- *  spelling shared by its two readers — the session-scoped assistant query
- *  (the wire's `model`, a session fact) and the transcript loader, which
- *  labels each message by its own — so it takes the two FIELDS it reads
- *  rather than either caller's blob type. */
+ *  OpenCode records as `model.providerID` + `model.id` (`anthropic` +
+ *  `claude-opus-4-6`), falling back to the id alone, `null` when it names
+ *  none. The ONE spelling shared by its two readers — the session-scoped
+ *  assistant query (the wire's `model`, a session fact) and the transcript
+ *  loader, which labels each message by its own. */
 export function assistantModelLabel(
-  m: Pick<MessageData, "modelID" | "providerID">,
+  m: Pick<MessageData, "model">,
 ): string | null {
-  if (!m.modelID) return null;
-  return m.providerID ? `${m.providerID}/${m.modelID}` : m.modelID;
+  const id = m.model?.id;
+  if (!id) return null;
+  const provider = m.model?.providerID;
+  return provider ? `${provider}/${id}` : id;
 }
 
 /** State derived from message JSON content only. Telemetry is a separate
  *  signal (see `getLatestAssistantFacts`) because the latest-message lens this
  *  function provides doesn't match the latest-assistant-message lens those
- *  facts need — the same divergence that made a per-message `model` here the
- *  wrong answer to publish. */
+ *  facts need. */
 export type ParsedMessageState = {
   state: OpenCodeInfo["state"];
 };
 
-/** Full derived state including the message ID for scoping
- *  downstream queries (e.g. tool-part lookup) to the current turn. */
-export type DerivedState = ParsedMessageState & {
-  messageId: string;
-};
-
 /**
- * Read the latest message for a session and derive Kolu state from it.
- * Returns null if the session has no messages or the DB is absent.
+ * Read the latest conversational message for a session and derive Kolu state
+ * from it. Returns null if the session has no user/assistant messages or the
+ * DB is absent.
  *
  * Pass an existing `db` to share a connection with the caller — used by
  * `createOpenCodeWatcher` to avoid opening/closing on every WAL event.
@@ -397,14 +425,16 @@ export function deriveSessionState(
   sessionId: string,
   log?: Logger,
   db?: DatabaseSync,
-): DerivedState | null {
+): ParsedMessageState | null {
   return withDb(
     (conn) => {
       const row = conn
         .prepare(
-          "SELECT id, data FROM message WHERE session_id = ? ORDER BY time_created DESC LIMIT 1",
+          "SELECT type, data FROM session_message WHERE session_id = ? AND type IN ('user', 'assistant') ORDER BY seq DESC LIMIT 1",
         )
-        .get(sessionId) as { id: string; data: string } | undefined;
+        .get(sessionId) as
+        | { type: ConversationalType; data: string }
+        | undefined;
       if (!row) {
         // Genuinely empty session — an expected-absent condition, logged at
         // the layer that knows the row is missing. A malformed latest row is
@@ -412,9 +442,7 @@ export function deriveSessionState(
         log?.debug({ sessionId }, "no messages yet for opencode session");
         return null;
       }
-      const parsed = parseMessageState(row.data, log, sessionId);
-      if (!parsed) return null;
-      return { ...parsed, messageId: row.id };
+      return parseMessageState(row.type, row.data, log, sessionId);
     },
     "opencode message query failed",
     { sessionId },
@@ -423,12 +451,13 @@ export function deriveSessionState(
   );
 }
 
-/** Parse a `message.data` JSON blob into derived state. Returns null for a
- *  blob whose role we don't model, and for malformed JSON — but the latter
- *  is logged as an error (OpenCode owns this JSON, so a parse failure is
- *  real schema drift or corruption, not an empty session). Pass `sessionId`
- *  to tag that error. Exported for unit testing. */
+/** Derive state from one message row: its `type` column plus its `data` JSON
+ *  blob. Returns null for a type we don't model, and for malformed JSON — but
+ *  the latter is logged as an error (OpenCode owns this JSON, so a parse
+ *  failure is real schema drift or corruption, not an empty session). Pass
+ *  `sessionId` to tag that error. Exported for unit testing. */
 export function parseMessageState(
+  type: string,
   data: string,
   log?: Logger,
   sessionId?: string,
@@ -446,17 +475,19 @@ export function parseMessageState(
     return null;
   }
 
-  return match(parsed)
-    .with({ role: "user" }, () => ({ state: "thinking" as const }))
-    .with({ role: "assistant" }, (m) => {
+  return match(type)
+    .with("user", () => ({ state: "thinking" as const }))
+    .with("assistant", () => {
       // Assistant message with completion timestamp + clean stop = waiting
-      if (m.time?.completed && m.finish === "stop") {
+      if (parsed.time?.completed && parsed.finish === "stop") {
         return { state: "waiting" as const };
       }
-      // Otherwise still working (no completion yet, or non-stop finish
-      // reason like "tool-calls"). The watcher upgrades "thinking" to
-      // "tool_use" when hasRunningTools() finds active tool parts.
-      return { state: "thinking" as const };
+      // Otherwise still working (no completion yet, or a non-stop finish
+      // like "tool-calls"): a running tool part refines "thinking" into
+      // "tool_use" / "awaiting_user".
+      return {
+        state: runningToolsBucket(parsed.content) ?? ("thinking" as const),
+      };
     })
     .otherwise(() => null);
 }

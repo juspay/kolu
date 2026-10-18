@@ -20,11 +20,10 @@ export { opencodeAdapter } from "./agent-adapter.ts";
 export { OPENCODE_DB_PATH, OPENCODE_DB_WAL_PATH } from "./config.ts";
 
 export {
-  type DerivedState,
+  type ContentPart,
   deriveSessionState,
   findSessionsByDirectory,
   getLatestAssistantFacts,
-  getSessionTaskProgress,
   getSessionTitle,
   type OpenCodeSession,
   openDb,

@@ -9172,6 +9172,30 @@
       "exampleRows": [],
       "executions": 1,
       "firstSeenSha": "867e08c3669d568cc74894e357d959c6261ec121"
+    },
+    {
+      "revisionId": "revision-5caec9e0a84481b0fa30",
+      "scenarioKey": "scenario-5ceec4391d9e2981687c",
+      "feature": "features/opencode.feature",
+      "scenario": "OpenCode asking a question shows it is awaiting the user",
+      "kind": "scenario",
+      "tags": ["@opencode-mock"],
+      "bodyHash": "ba41bd428ea548f836deb227a8cb1382e1a9f2908b6be774ab0e889a9768fe75",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "97d8c599b219ab13f371f010068b24aa36ff3e7d"
+    },
+    {
+      "revisionId": "revision-6fb0bff8a85d5f752098",
+      "scenarioKey": "scenario-9bc705ff95f0bcd5137d",
+      "feature": "features/opencode.feature",
+      "scenario": "OpenCode running a tool shows tool use",
+      "kind": "scenario",
+      "tags": ["@opencode-mock"],
+      "bodyHash": "53838d3eae01437648dd4fd89a42ec02bf40d63e7f24362a9c17803890d9f8ed",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "97d8c599b219ab13f371f010068b24aa36ff3e7d"
     }
   ]
 }

@@ -21,7 +21,8 @@ describe("OpenCodeInfoSchema — encoded bytes", () => {
       sessionId: "ses_01H8XYZ",
       model: "litellm/glm-latest",
       summary: "Refactor the WAL watcher",
-      taskProgress: { total: 5, completed: 2 },
+      // OpenCode 2.x has no todo table — always null on the wire.
+      taskProgress: null,
       contextTokens: 41_233,
       startedAt: 1_750_000_000_000,
     };
@@ -29,7 +30,7 @@ describe("OpenCodeInfoSchema — encoded bytes", () => {
     expect(JSON.stringify(encode(info))).toBe(
       '{"kind":"opencode","state":"tool_use","sessionId":"ses_01H8XYZ",' +
         '"model":"litellm/glm-latest","summary":"Refactor the WAL watcher",' +
-        '"taskProgress":{"total":5,"completed":2},"contextTokens":41233,' +
+        '"taskProgress":null,"contextTokens":41233,' +
         '"startedAt":1750000000000}',
     );
   });

@@ -18,11 +18,9 @@ import {
   deriveSessionState,
   getLatestAssistantFacts,
   getSessionStartedAt,
-  getSessionTaskProgress,
   getSessionTitle,
   type OpenCodeSession,
   openDb,
-  runningToolsBucket,
 } from "./core.ts";
 import type { OpenCodeInfo } from "./schemas.ts";
 import { subscribeOpenCodeDb } from "./wal-watcher.ts";
@@ -63,6 +61,10 @@ export function createOpenCodeWatcher(
   let startedAt: number | null = null;
 
   function refresh(db: DatabaseSync): OpenCodeInfo | null {
+    // `deriveSessionState` folds the latest message's running tool parts in
+    // (tool execution vs LLM generation, and within tool execution "blocked
+    // on a question" vs real compute) — the parts ride the message's own
+    // `data.content[]` in 2.x, so there is no second per-turn query.
     const derived = deriveSessionState(session.id, log, db);
     if (!derived) {
       // deriveSessionState already logged the precise cause — a debug
@@ -71,26 +73,14 @@ export function createOpenCodeWatcher(
       return null;
     }
 
-    // When the assistant is actively generating (state === "thinking"),
-    // classify the current message's running tool parts to distinguish
-    // tool execution from LLM generation — and within tool execution,
-    // separate "blocked on user question" from real compute. Scoped to
-    // derived.messageId (the latest message) — not the entire session —
-    // so we only scan the handful of current-turn parts.
-    const state =
-      derived.state === "thinking"
-        ? (runningToolsBucket(derived.messageId, log, db) ?? derived.state)
-        : derived.state;
-
-    const taskProgress = getSessionTaskProgress(session.id, log, db);
     // Re-read title on each refresh so mid-conversation title changes
     // (e.g. OpenCode auto-generating a title after the first exchange)
     // are picked up live, not stuck at the snapshot from session match.
     const summary = getSessionTitle(session.id, log, db) ?? session.title;
     // Model and context tokens come from the newest ASSISTANT message, not
-    // from `derived` — `derived` reads the newest message of any role, so its
-    // `model` is null whenever a user prompt or tool result is the newest row,
-    // and its token count is absent on the same rows. Both are session facts:
+    // from `derived` — `derived` reads the newest user/assistant message, which
+    // is a user prompt (naming no model, carrying no tokens) for the whole
+    // Thinking window. Both are session facts:
     // OpenCode matches a session to a terminal once, and the model it runs is
     // stable across the turns within it.
     const assistant = getLatestAssistantFacts(session.id, log, db);
@@ -98,11 +88,12 @@ export function createOpenCodeWatcher(
 
     return {
       kind: "opencode",
-      state,
+      state: derived.state,
       sessionId: session.id,
       model: assistant?.model ?? null,
       summary,
-      taskProgress,
+      // OpenCode 2.x keeps no todo table — see `OpenCodeInfoSchema`.
+      taskProgress: null,
       contextTokens: assistant?.contextTokens ?? null,
       startedAt,
     };

@@ -72,7 +72,6 @@ async function startShimmedAgent(world: KoluWorld): Promise<void> {
 interface MockOpts {
   state: AgentLifecycleState;
   contextTokens?: number;
-  todos?: { total: number; completed: number };
 }
 
 async function mockOpenCodeSession(
@@ -127,21 +126,6 @@ When(
 );
 
 When(
-  "an OpenCode session is mocked with state {string} and {int} todos with {int} completed",
-  async function (
-    this: KoluWorld,
-    state: string,
-    total: number,
-    completed: number,
-  ) {
-    await mockOpenCodeSession(this, {
-      state: state as AgentLifecycleState,
-      todos: { total, completed },
-    });
-  },
-);
-
-When(
   "the OpenCode session state changes to {string}",
   async function (this: KoluWorld, state: string) {
     const dbPath = getOpenCodeDb();
@@ -155,10 +139,10 @@ When(
   },
 );
 
-/** Mock-side WAL nudge for the opencode `session` DB. See
+/** Mock-side WAL nudge for the opencode `session_v2` DB. See
  *  `codex_steps.ts::CODEX_NUDGE_SQL` for the BEGIN/COMMIT and
  *  `__kolu_nudge__` rationale. */
-const OPENCODE_NUDGE_SQL = `BEGIN; INSERT INTO session (id, title, directory, time_updated) VALUES ('__kolu_nudge__', '', '', 0); DELETE FROM session WHERE id = '__kolu_nudge__'; COMMIT;`;
+const OPENCODE_NUDGE_SQL = `BEGIN; INSERT INTO session_v2 (id, title, directory, time_created, time_updated) VALUES ('__kolu_nudge__', '', '', 0, 0); DELETE FROM session_v2 WHERE id = '__kolu_nudge__'; COMMIT;`;
 
 const nudgeOpenCode = () => nudgeWal(getOpenCodeDb(), OPENCODE_NUDGE_SQL);
 

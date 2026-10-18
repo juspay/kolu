@@ -102,8 +102,8 @@ export interface AgentInfoShape {
    *  if the agent doesn't expose telemetry (or hasn't yet produced an
    *  assistant turn). Derivation is per-integration — Claude Code sums
    *  input+cache_creation+cache_read from the latest assistant entry's
-   *  `message.usage`; OpenCode reads `tokens.total` from the latest
-   *  assistant message. Both collapse to the same scalar meaning. */
+   *  `message.usage`; OpenCode sums the newest accounted assistant
+   *  step's `tokens` the way its own TUI does. Both collapse to the same scalar meaning. */
   contextTokens: number | null;
   /** Epoch-ms the conversation began — one shared meaning across integrations:
    *  the age of the conversation/thread, which SURVIVES a resume (it is not the
