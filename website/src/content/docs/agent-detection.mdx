@@ -119,8 +119,13 @@ shell wrapping it, e.g. `kaval-tui create -- codex` — there is no shell to pri
 that marker, so kolu instead **remembers the exact command the terminal was
 spawned with** and uses it as the recognition hint (and reads that root's
 foreground as busy, since the agent *is* the root). kolu never scrapes a running
-process's argv from `/proc`; it uses only the shell's marks and the command it was
-handed at spawn. Adding a new agent is one small package that declares its
+process's argv from `/proc`, with one exception: a nixpkgs-wrapped binary runs as
+a **dynamic loader** (`ld-linux…` / `ld-musl-…` / `ld.so`) with the real program
+as its first argument, so when the foreground's `argv[0]` *is* a loader kolu
+reads that argument from `/proc` and recognises the program the loader loads —
+which is how `opencode` is found even with no shell marker naming it. Otherwise
+it uses only the shell's marks and the command it was handed at spawn. Adding a
+new agent is one small package that declares its
 `AgentVocab` (name, mark, CLI grammar, resume policy, info schema) and its
 `AgentPlugin` (detection adapter, transcript fetcher, env keys), plus one row in
 the agent registry and the build wiring (`nix/workspace.nix`, lockfile) — no
@@ -188,7 +193,9 @@ for the framework's prompt chrome and buckets it as _awaiting you_.
   to anchor on yet; a deliberate follow-up.
 - **Streaming progress** — only final state transitions, not intermediate tokens.
 - **Wrapped invocations** — launched via a wrapper (e.g. `script -q out.log claude`),
-  the foreground pid is the wrapper, so the session lookup misses.
+  the foreground pid is the wrapper, so the session lookup misses. A
+  **dynamic-loader** wrapper is the one exception: kolu resolves it to the program
+  it loads (see the intro above), so a nixpkgs-wrapped agent is recognised.
 - **Sub-agents** — nested spawns aren't tracked as separate sessions. (When the
   parent waits on a launched _dynamic workflow_, kolu does surface that workflow's
   name and live sub-agent count.)
@@ -262,8 +269,9 @@ is a stable first-class count. **Transcript export** reads `chat_history.jsonl`
 
 ## OpenCode
 
-Requires **OpenCode 2.0 or later.** When the foreground process is `opencode`,
-kolu queries OpenCode's SQLite database directly at
+Requires **OpenCode 2.0 or later.** When the foreground process is `opencode`
+(the nixpkgs build runs through the glibc loader — kolu resolves that to the
+program it loads), kolu queries OpenCode's SQLite database directly at
 `~/.local/share/opencode/opencode.db` — the 2.x session store, `session_v2` and
 `session_message` — for the live sessions whose directory matches the terminal — most recently updated first — and takes the best
 one no other terminal already holds. The database's write-ahead log drives live

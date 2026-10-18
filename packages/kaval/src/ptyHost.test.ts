@@ -1,3 +1,4 @@
+import { spawn } from "node:child_process";
 import { createRequire } from "node:module";
 import {
   ANSWERED_DEVICE_QUERIES,
@@ -9,9 +10,11 @@ import { Effect, type Stream } from "effect";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   createPtyHost,
+  foregroundNameFromArgv,
   getScreenText,
   HEADLESS_TERM_ID,
   type PtyHost,
+  readProcCmdline,
   resolveScreenExtent,
 } from "./ptyHost.ts";
 import {
@@ -164,6 +167,102 @@ describe("boundScreenCells", () => {
     // A zero-column grid is not a grid: the wire schema refuses one, and every
     // cell of it would be out of bounds for the renderer.
     expect(boundScreenCells(0, 200)).toEqual({ rows: 0, cols: 200 });
+  });
+});
+
+// ── Loader-wrapped foreground names (nixpkgs `makeCWrapper`) ────────────
+//
+// A nixpkgs-wrapped binary runs as `ld-linux… --argv0 … <binary>`, so node-pty
+// reports the loader as the foreground `argv[0]` basename. These pin the two
+// halves of the normalization kaval applies at its single producer
+// (`readForeground`): the pure argv parse, and the `/proc` read it feeds on.
+
+describe("foregroundNameFromArgv", () => {
+  const cases: {
+    name: string;
+    argv: string[];
+    expected: string | undefined;
+  }[] = [
+    {
+      name: "glibc loader, program only",
+      argv: ["ld-linux-x86-64.so.2", "/nix/store/x/libexec/opencode"],
+      expected: "/nix/store/x/libexec/opencode",
+    },
+    {
+      name: "glibc loader reached by its full store path",
+      argv: [
+        "/nix/store/g/lib/ld-linux-x86-64.so.2",
+        "/nix/store/x/libexec/opencode",
+      ],
+      expected: "/nix/store/x/libexec/opencode",
+    },
+    {
+      name: "glibc loader with --argv0 and --library-path",
+      argv: [
+        "ld-linux-x86-64.so.2",
+        "--argv0",
+        "opencode",
+        "--library-path",
+        "/a",
+        "/nix/store/x/libexec/opencode",
+      ],
+      expected: "/nix/store/x/libexec/opencode",
+    },
+    {
+      name: "musl loader",
+      argv: ["ld-musl-x86_64.so.1", "/nix/store/x/libexec/opencode"],
+      expected: "/nix/store/x/libexec/opencode",
+    },
+    {
+      name: "bare ld.so",
+      argv: ["ld.so", "/nix/store/x/libexec/opencode"],
+      expected: "/nix/store/x/libexec/opencode",
+    },
+    {
+      name: "non-loader argv[0] is left alone",
+      argv: ["opencode", "--model", "x"],
+      expected: undefined,
+    },
+    {
+      name: "loader with no program",
+      argv: ["ld-linux-x86-64.so.2"],
+      expected: undefined,
+    },
+    {
+      name: "loader with only bare flags",
+      argv: ["ld-linux-x86-64.so.2", "--list", "--inhibit-cache"],
+      expected: undefined,
+    },
+    { name: "empty argv", argv: [], expected: undefined },
+  ];
+
+  it.each(cases)("$name", ({ argv, expected }) => {
+    expect(foregroundNameFromArgv(argv)).toBe(expected);
+  });
+});
+
+describe("readProcCmdline", () => {
+  it("reads a live child's argv from /proc", async () => {
+    // `node:fs` only — the same reader the loader path uses, proven against a
+    // real child with known args (the loader case itself needs a real
+    // loader-wrapped binary, which this repo does not ship).
+    if (process.platform !== "linux") return; // Darwin has no /proc
+    const code = "setTimeout(() => {}, 10000)";
+    const child = spawn(process.execPath, ["-e", code, "kolu-argv-arg"]);
+    try {
+      await waitFor(() => readProcCmdline(child.pid!) !== undefined);
+      const argv = readProcCmdline(child.pid!);
+      expect(argv?.[0]).toBe(process.execPath);
+      expect(argv?.slice(1)).toEqual(["-e", code, "kolu-argv-arg"]);
+    } finally {
+      child.kill();
+    }
+  });
+
+  it("returns undefined for a pid that cannot be read", () => {
+    if (process.platform !== "linux") return;
+    // A pid above the kernel's maximum can never exist → the read fails.
+    expect(readProcCmdline(2 ** 30)).toBeUndefined();
   });
 });
 

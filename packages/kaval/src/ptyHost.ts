@@ -25,6 +25,7 @@
  */
 
 import { randomUUID } from "node:crypto";
+import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { shellJoin } from "@kolu/shell-quote";
 import { shouldForwardHeadlessReply } from "@kolu/terminal-protocol";
@@ -730,6 +731,99 @@ export function shouldEmitActivityEdge(
   );
 }
 
+/** A dynamic loader's basename — glibc's `ld-linux*.so*`, musl's
+ *  `ld-musl-*.so*`, or the bare `ld.so`. Such a process is a loader running a
+ *  real program given as its first non-option argument, which is exactly what
+ *  a nixpkgs `makeCWrapper` package (`opencode`, and every other
+ *  `ld-linux… --argv0 … <binary>` wrapper) execs. */
+const LOADER_BASENAME = /^(?:ld-(?:linux|musl)[^/]*\.so(?:\.[^/]*)?|ld\.so)$/;
+
+/** The loader options that consume a FOLLOWING argument (`ld.so --help` lists
+ *  them). Everything else on a loader's command line is either a bare flag
+ *  (`--inhibit-cache`, `--list`, `--verify`, …) or the program to run. */
+const LOADER_VALUE_OPTIONS = new Set([
+  "--argv0",
+  "--library-path",
+  "--preload",
+  "--audit",
+  "--glibc-hwcaps-prepend",
+  "--glibc-hwcaps-mask",
+  "--inhibit-rpath",
+]);
+
+/** The final path segment — a `node:path`-free basename. kaval stays
+ *  dependency-light, and every name here is already POSIX. */
+function lastSegment(p: string): string {
+  const i = p.lastIndexOf("/");
+  return i === -1 ? p : p.slice(i + 1);
+}
+
+/** Whether `name` (a basename, or a path whose last segment is one) names a
+ *  dynamic loader. See {@link LOADER_BASENAME}. */
+function isDynamicLoader(name: string): boolean {
+  return LOADER_BASENAME.test(lastSegment(name));
+}
+
+/** The program a dynamic-loader `argv` will run, or `undefined`.
+ *
+ *  `undefined` when `argv[0]` is not a loader — the caller keeps node-pty's
+ *  answer untouched, so the normal path pays nothing — or when the loader was
+ *  invoked with no program at all (`--list`, `--help`, `--verify`). The first
+ *  non-option argument is returned whole: every consumer takes `basename`
+ *  itself, so the full store path is fine to publish. */
+export function foregroundNameFromArgv(
+  argv: readonly string[],
+): string | undefined {
+  const argv0 = argv[0];
+  if (argv0 === undefined || !isDynamicLoader(argv0)) return undefined;
+  for (let i = 1; i < argv.length; i++) {
+    const arg = argv[i];
+    if (arg === undefined) continue;
+    if (!arg.startsWith("--")) return arg;
+    if (LOADER_VALUE_OPTIONS.has(arg)) i++; // skip the option's value
+  }
+  return undefined;
+}
+
+/** `/proc/<pid>/cmdline` split into argv (NUL-separated, trailing empty
+ *  dropped), or `undefined` when the read fails — the process is already gone,
+ *  or `/proc` is hidden. Linux-only: on Darwin node-pty reports `p_comm`, so
+ *  the loader case cannot arise and there is nothing to resolve. Exported for
+ *  the real-child test. */
+export function readProcCmdline(pid: number): readonly string[] | undefined {
+  if (process.platform !== "linux") return undefined;
+  try {
+    const argv = readFileSync(`/proc/${pid}/cmdline`, "utf8").split("\0");
+    if (argv[argv.length - 1] === "") argv.pop();
+    return argv;
+  } catch {
+    return undefined;
+  }
+}
+
+/** The PTY's foreground process name, NORMALIZED for a loader-wrapped command.
+ *
+ *  node-pty reports the foreground's `argv[0]` basename. For a nixpkgs-wrapped
+ *  binary that is the glibc/musl loader (`ld-linux-x86-64.so.2`) rather than
+ *  the program it loads, so agent detection would never see `opencode` and
+ *  recognition would hang on the shell's OSC 633;E hint. When the reported
+ *  name IS a loader, resolve the real program from the foreground process's
+ *  own `/proc/<pid>/cmdline`; on any failure keep the loader name — it is the
+ *  honest `argv[0]`, not a fabricated value (the same best-effort stance as
+ *  padi's `readProcessSnapshot`). This runs on every output burst, so the
+ *  loader test is a cheap string match and the `/proc` read happens only for a
+ *  loader. */
+function normalizeForegroundName(
+  reported: string,
+  foregroundPid: number | undefined,
+): string {
+  if (!isDynamicLoader(reported) || foregroundPid === undefined)
+    return reported;
+  const argv = readProcCmdline(foregroundPid);
+  if (argv === undefined) return reported;
+  return foregroundNameFromArgv(argv) ?? reported;
+}
+
 /** Read node-pty's foreground-pid accessor, collapsing the transient 0
  *  (before the child finishes `setsid`) to `undefined`. */
 function readForegroundPid(proc: pty.IPty): number | undefined {
@@ -785,18 +879,23 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
       cwd: entry.cwd,
       lastActivity: entry.lastActivity,
       title: entry.title,
-      foregroundProcess: entry.proc.process,
+      foregroundProcess: readForeground(entry).process,
       commandRooted: entry.commandRooted,
     };
   }
 
   /** Read `{process, foregroundPid}` at the tty. Cheap: a property read + a
    *  `tcgetpgrp` syscall — so a subscriber's snapshot takes a FRESH reading
-   *  rather than replaying whatever the dedup below last let through. */
+   *  rather than replaying whatever the dedup below last let through. The
+   *  process name is NORMALIZED here — the one place a foreground name is
+   *  produced — so a loader-wrapped command (`opencode`) reads as the program
+   *  it loads on every published path (the `foreground` tap and
+   *  `list.foregroundProcess`). See {@link normalizeForegroundName}. */
   function readForeground(entry: Entry): ForegroundSample {
+    const foregroundPid = readForegroundPid(entry.proc);
     return {
-      process: entry.proc.process,
-      foregroundPid: readForegroundPid(entry.proc),
+      process: normalizeForegroundName(entry.proc.process, foregroundPid),
+      foregroundPid,
     };
   }
 
@@ -1481,7 +1580,8 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
         return entries.get(id)?.cwd ?? spawnCwd;
       },
       get process() {
-        return entries.get(id)?.proc.process ?? "";
+        const e = entries.get(id);
+        return e ? readForeground(e).process : "";
       },
       get foregroundPid() {
         return getForegroundPid(id);
@@ -1551,7 +1651,10 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
     has: (id) => entries.has(id),
     size: () => entries.size,
     getForegroundPid,
-    getProcess: (id) => entries.get(id)?.proc.process,
+    getProcess: (id) => {
+      const e = entries.get(id);
+      return e ? readForeground(e).process : undefined;
+    },
     getLastCommand: (id) => entries.get(id)?.lastCommand,
     getLastCommandShellJoin: (id) =>
       entries.get(id)?.lastCommandShellJoin ?? false,
