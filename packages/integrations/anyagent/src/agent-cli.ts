@@ -111,23 +111,44 @@ function basename(s: string): string {
 
 /** One `NAME=value` environment assignment from a launch line's prefix. `value`
  *  is the LITERAL value (source quoting already removed). */
-export interface EnvAssignment {
+interface EnvAssignment {
   readonly name: string;
   readonly value: string;
 }
 
 /** The anatomy of a POSIX simple command: the env assignments in front of the
  *  binary, the binary itself, and its arguments. */
-export interface SimpleCommandAnatomy {
+interface SimpleCommandAnatomy {
   readonly assignments: readonly EnvAssignment[];
   readonly head: string;
   readonly args: readonly string[];
 }
 
+/** The two quoting dialects a command line arrives in — the ONE place a
+ *  dialect picks its tokenizer and its assignment-value dequoter. `raw` is a
+ *  user's shell line (an OSC 633;E mark); `string-argv` keeps mid-word quotes
+ *  (`B='x y'` is one token WITH its quotes), so values are dequoted by the same
+ *  tokenizer. `shellJoin` is our own wire format (a command-rooted seed, or
+ *  `parseAgentCommand`'s output), which `shellSplit` exactly inverts. */
+const DIALECTS = {
+  raw: {
+    split: parseArgsStringToArgv,
+    dequote: (value: string): string | null => {
+      const words = parseArgsStringToArgv(value);
+      if (words.length === 0) return "";
+      return words.length === 1 ? (words[0] ?? null) : null;
+    },
+  },
+  shellJoin: {
+    split: shellSplit,
+    dequote: (value: string): string | null => value,
+  },
+} as const;
+
 const ASSIGNMENT_WORD = /^([A-Za-z_][A-Za-z0-9_]*)=(.*)$/s;
 
 /**
- * Split an argv into its POSIX simple-command prefix — the ONE place every head
+ * Dissect a command line into its POSIX simple-command prefix — the ONE place every head
  * reader (`parseAgentCommand`, `agentKindFromCommand`, `agentNameFromCommand`,
  * `resumeAgentCommand`) learns where the binary is, so `FOO=1 claude` is read as
  * `claude` by all of them or by none.
@@ -137,16 +158,14 @@ const ASSIGNMENT_WORD = /^([A-Za-z_][A-Za-z0-9_]*)=(.*)$/s;
  * `NAME=value` words — then the binary and its arguments. Anything we can't read
  * exactly yields `null` rather than a guess: a flag on `env`/`exec` (`env -i`,
  * `env -u X`, `exec -a name`), or a line with no binary at all.
- *
- * `dequote` turns an assignment's raw value text into its literal value. The
- * `string-argv` dialect keeps mid-word quotes (`B='x y'` arrives as one token
- * WITH its quotes), so that caller passes a dequoter; `shellSplit` already
- * strips them. A value that doesn't dequote to exactly one word → `null`.
+ * An assignment value that doesn't dequote to exactly one word → `null` too.
  */
-export function simpleCommandAnatomy(
-  argv: readonly string[],
-  dequote: (raw: string) => string | null = (raw) => raw,
+function simpleCommandAnatomy(
+  line: string,
+  dialect: keyof typeof DIALECTS,
 ): SimpleCommandAnatomy | null {
+  const { split, dequote } = DIALECTS[dialect];
+  const argv = split(line.trim());
   const assignments: EnvAssignment[] = [];
   let i = 0;
   // Consume `NAME=value` words from `i`; false if a value fails to dequote.
@@ -172,29 +191,19 @@ export function simpleCommandAnatomy(
   return { assignments, head, args: argv.slice(i + 1) };
 }
 
-/** Render assignments back to shell source in the `shellJoin` dialect: the NAME
- *  stays bare (a quoted `'FOO=x y'` would be a command word, not an assignment)
- *  and only the value is quoted. Returns `""` for none. */
-function renderAssignments(assignments: readonly EnvAssignment[]): string {
-  return assignments
-    .map(({ name, value }) =>
+/** Render assignments + head in the `shellJoin` dialect — NAME bare (a quoted
+ *  `'FOO=x y'` is a command word, not an assignment), value quoted. The one
+ *  renderer of the prefix, for `parseAgentCommand` and `resumeAgentCommand`. */
+function renderPrefix(
+  assignments: readonly EnvAssignment[],
+  head: string,
+): string {
+  return [
+    ...assignments.map(({ name, value }) =>
       value === "" ? `${name}=` : `${name}=${shellQuoteArg(value)}`,
-    )
-    .join(" ");
-}
-
-/** Dequote one assignment value written in the user's shell dialect, reusing
- *  `string-argv` (the same tokenizer that produced the token). */
-function dequoteRawValue(raw: string): string | null {
-  const words = parseArgsStringToArgv(raw);
-  if (words.length === 0) return "";
-  return words.length === 1 ? (words[0] ?? null) : null;
-}
-
-/** The anatomy of a command in the `shellJoin` wire format (the normalized
- *  output of `parseAgentCommand`, which `shellSplit` exactly inverts). */
-function normalizedAnatomy(command: string): SimpleCommandAnatomy | null {
-  return simpleCommandAnatomy(shellSplit(command.trim()));
+    ),
+    shellQuoteArg(head),
+  ].join(" ");
 }
 
 /**
@@ -220,10 +229,10 @@ export function parseAgentCommand(
   raw: string,
   shellJoinFormat = false,
 ): string | null {
-  const trimmed = raw.trim();
-  const anatomy = shellJoinFormat
-    ? simpleCommandAnatomy(shellSplit(trimmed))
-    : simpleCommandAnatomy(parseArgsStringToArgv(trimmed), dequoteRawValue);
+  const anatomy = simpleCommandAnatomy(
+    raw,
+    shellJoinFormat ? "shellJoin" : "raw",
+  );
   if (anatomy === null) return null;
   const entry = reg.byBasename(basename(anatomy.head));
   if (entry === undefined) return null;
@@ -249,7 +258,7 @@ function normalizeAgentInvocation(
 
   // Keep only allowlisted flags + their values. Anything else (unknown flags,
   // positional args) is dropped.
-  const kept: string[] = [agent];
+  const kept: string[] = [];
   for (let i = 0; i < args.length; i++) {
     const t = args[i];
     if (t === undefined) break;
@@ -288,8 +297,8 @@ function normalizeAgentInvocation(
   // shell re-expands it to the same home path the source used — is left as-is.
   // `shellJoin`'s exact inverse is `shellSplit` (see `@kolu/shell-quote`), which
   // the resume/head-extraction paths use to reparse this wire format.
-  const prefix = renderAssignments(assignments);
-  return prefix === "" ? shellJoin(kept) : `${prefix} ${shellJoin(kept)}`;
+  const prefix = renderPrefix(assignments, agent);
+  return kept.length === 0 ? prefix : `${prefix} ${shellJoin(kept)}`;
 }
 
 /**
@@ -303,7 +312,7 @@ export function agentKindFromCommand(
   reg: AgentCliRegistry,
   command: string,
 ): string | null {
-  const anatomy = normalizedAnatomy(command);
+  const anatomy = simpleCommandAnatomy(command, "shellJoin");
   if (anatomy === null) return null;
   const entry = reg.byBasename(basename(anatomy.head));
   return entry !== undefined && isVocab(entry) ? entry.kind : null;
@@ -349,7 +358,7 @@ export function exactRestoreTarget(
  * registry needed — this is pure string anatomy.
  */
 export function agentNameFromCommand(command: string): string | null {
-  const anatomy = normalizedAnatomy(command);
+  const anatomy = simpleCommandAnatomy(command, "shellJoin");
   return anatomy === null ? null : basename(anatomy.head);
 }
 
@@ -390,7 +399,7 @@ export function resumeAgentCommand(
   // quoting of the tail VERBATIM: a re-tokenize + re-join round-trip would (a)
   // lose the literal-`~` quoting `parseAgentCommand` recovered (F2) and (b) risk
   // re-mangling the canonical `'\''` idiom (F3).
-  const anatomy = normalizedAnatomy(trimmed);
+  const anatomy = simpleCommandAnatomy(trimmed, "shellJoin");
   if (anatomy === null) return null;
   const entry = reg.byBasename(basename(anatomy.head));
   if (entry === undefined || !isVocab(entry)) return null;
@@ -406,8 +415,7 @@ export function resumeAgentCommand(
   // `lastAgentCommand` string into a `legacyMostRecent` target unchecked — so a
   // hand-edited state file could reach this, and a throw would blank restore
   // for the whole session instead of one terminal.
-  const assigned = renderAssignments(anatomy.assignments);
-  const head = assigned === "" ? anatomy.head : `${assigned} ${anatomy.head}`;
+  const head = renderPrefix(anatomy.assignments, anatomy.head);
   if (!trimmed.startsWith(head)) return null;
   const tail = trimmed.slice(head.length).trimStart(); // everything after the head token
   const policy = vocab.resume;
