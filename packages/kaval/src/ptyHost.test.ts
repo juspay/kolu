@@ -241,29 +241,36 @@ describe("foregroundNameFromArgv", () => {
   });
 });
 
+// Linux-only: on Darwin node-pty reports `p_comm`, so `readProcCmdline` returns
+// `undefined` and there is nothing to read. `skipIf` (not an early `return`)
+// keeps that visible as a SKIP on the macOS lanes rather than a green no-op.
 describe("readProcCmdline", () => {
-  it("reads a live child's argv from /proc", async () => {
-    // `node:fs` only — the same reader the loader path uses, proven against a
-    // real child with known args (the loader case itself needs a real
-    // loader-wrapped binary, which this repo does not ship).
-    if (process.platform !== "linux") return; // Darwin has no /proc
-    const code = "setTimeout(() => {}, 10000)";
-    const child = spawn(process.execPath, ["-e", code, "kolu-argv-arg"]);
-    try {
-      await waitFor(() => readProcCmdline(child.pid!) !== undefined);
-      const argv = readProcCmdline(child.pid!);
-      expect(argv?.[0]).toBe(process.execPath);
-      expect(argv?.slice(1)).toEqual(["-e", code, "kolu-argv-arg"]);
-    } finally {
-      child.kill();
-    }
-  });
+  it.skipIf(process.platform !== "linux")(
+    "reads a live child's argv from /proc",
+    async () => {
+      // `node:fs` only — the same reader the loader path uses, proven against a
+      // real child with known args (the loader case itself needs a real
+      // loader-wrapped binary, which this repo does not ship).
+      const code = "setTimeout(() => {}, 10000)";
+      const child = spawn(process.execPath, ["-e", code, "kolu-argv-arg"]);
+      try {
+        await waitFor(() => readProcCmdline(child.pid!) !== undefined);
+        const argv = readProcCmdline(child.pid!);
+        expect(argv?.[0]).toBe(process.execPath);
+        expect(argv?.slice(1)).toEqual(["-e", code, "kolu-argv-arg"]);
+      } finally {
+        child.kill();
+      }
+    },
+  );
 
-  it("returns undefined for a pid that cannot be read", () => {
-    if (process.platform !== "linux") return;
-    // A pid above the kernel's maximum can never exist → the read fails.
-    expect(readProcCmdline(2 ** 30)).toBeUndefined();
-  });
+  it.skipIf(process.platform !== "linux")(
+    "returns undefined for a pid that cannot be read",
+    () => {
+      // A pid above the kernel's maximum can never exist → the read fails.
+      expect(readProcCmdline(2 ** 30)).toBeUndefined();
+    },
+  );
 });
 
 // ── PTY host (real node-pty children) ──────────────────────────────────

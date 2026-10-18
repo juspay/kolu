@@ -812,7 +812,14 @@ export function readProcCmdline(pid: number): readonly string[] | undefined {
  *  honest `argv[0]`, not a fabricated value (the same best-effort stance as
  *  padi's `readProcessSnapshot`). This runs on every output burst, so the
  *  loader test is a cheap string match and the `/proc` read happens only for a
- *  loader. */
+ *  loader.
+ *
+ *  `reported` and `foregroundPid` are two separate syscalls, not one atomic
+ *  sample — a foreground that changes between them can pair a loader name with
+ *  a non-loader pid. That is harmless here (the non-loader `argv[0]` makes
+ *  {@link foregroundNameFromArgv} return `undefined`, so the loader name is
+ *  kept) and the next burst sample corrects it, so this stays best-effort and
+ *  never throws. */
 function normalizeForegroundName(
   reported: string,
   foregroundPid: number | undefined,
