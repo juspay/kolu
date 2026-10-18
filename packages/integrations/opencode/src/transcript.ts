@@ -21,9 +21,10 @@
  *       recursively inlines that child's events between
  *       `subtask_start` / `subtask_end` boundary markers.
  *
- *  Skipped message types: `system`, `synthetic`, `compaction`, `idle` —
- *  lifecycle rows (tool-rename notices, injected instructions, summaries,
- *  turn-end markers) that don't read as conversation content. The IR's
+ *  Only `user` and `assistant` rows are read; the non-conversational rows
+ *  2.x also writes (such as `system` tool-rename notices, `synthetic`
+ *  injected instructions, `compaction` summaries, `idle` turn-end markers)
+ *  don't read as conversation content. The IR's
  *  `subtask_start`/`subtask_end` events are emitted by the loader's
  *  recursion, not pulled from the DB. */
 

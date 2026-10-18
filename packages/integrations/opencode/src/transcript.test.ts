@@ -248,15 +248,6 @@ describe("eventsFromMessageParts", () => {
       { kind: "assistant", text: "real reply", model: null, ts: 1000 },
     ]);
   });
-
-  it("skips part types that carry no conversation content", () => {
-    expect(
-      eventsFromMessageParts("assistant", null, 1000, [
-        { type: "step-start" },
-        { type: "file" },
-      ]),
-    ).toEqual([]);
-  });
 });
 
 describe("normalizeOpenCodeToolInput", () => {

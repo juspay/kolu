@@ -271,9 +271,9 @@ updates.
 
 | State | Indicator | Meaning |
 | --- | --- | --- |
-| Thinking | pulsing accent dot | latest message is your prompt, or an assistant message with no `time.completed` |
-| Tool use | spinning amber | a running part whose tool is neither `question` nor `plan_exit` |
-| Awaiting input | pulsing alert | every running part is `question` or `plan_exit` — blocked on a reply |
+| Thinking | pulsing accent dot | latest message is your prompt, or an assistant message not finished with `finish: "stop"` (still streaming, or ended on `tool-calls` / `error`) and no tool running |
+| Tool use | spinning amber | a running tool part other than `question` |
+| Awaiting input | pulsing alert | every running tool part is `question` — blocked on a reply |
 | Waiting | dim dot | latest assistant message is completed with `finish: "stop"` |
 
 The tile shows the model from the newest _assistant_ message, and the context

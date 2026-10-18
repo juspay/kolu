@@ -69,8 +69,7 @@ export function writeOpenCodeFixture(opts: {
   state: AgentLifecycleState;
   contextTokens?: number;
   title?: string;
-  modelID?: string;
-  providerID?: string;
+  model?: { id: string; providerID: string };
 }): OpenCodeFixture {
   fs.mkdirSync(path.dirname(opts.dbPath), { recursive: true });
   const sessionId = "opencode-mock-session-0001";
@@ -111,10 +110,7 @@ export function writeOpenCodeFixture(opts: {
       now,
     );
 
-    const model = {
-      id: opts.modelID ?? "qwen2.5-coder",
-      providerID: opts.providerID ?? "test",
-    };
+    const model = opts.model ?? { id: "qwen2.5-coder", providerID: "test" };
     const tokens =
       opts.contextTokens === undefined
         ? undefined

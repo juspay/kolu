@@ -230,11 +230,10 @@ export function getSessionStartedAt(
  * session's revert boundary (`session.revert.messageID`); `contextUsage`
  * (`packages/tui/src/util/session.ts`) sums `input + output + reasoning +
  * cache.read + cache.write` (`TokenUsage.total`) and shows nothing when that
- * is ≤ 0. The second query below is that selection; the sum is
- * `contextTokensOf`. The streaming assistant carries no `tokens` yet, so the
+ * is ≤ 0. `latestUsageRow` is that selection; the sum is `contextTokensOf`. The streaming assistant carries no `tokens` yet, so the
  * count stays on the previous step instead of blanking mid-turn.
  *
- * Both queries ride `session_message_session_type_seq_idx`
+ * The message queries ride `session_message_session_type_seq_idx`
  * (session_id, type, seq) and stop at the first row.
  *
  * `null` is `withDb`'s documented fold and carries THREE causes: the session
@@ -259,26 +258,7 @@ export function getLatestAssistantFacts(
         )
         .get(sessionId) as { data: string } | undefined;
       if (!latest) return null;
-      // `bound`: the revert boundary's seq (messages at/after it are undone),
-      // or no bound. `floor`: the last completed compaction before it, whose
-      // summary replaced everything earlier in the context window.
-      const usage = conn
-        .prepare(
-          `WITH bound AS (
-             SELECT COALESCE(
-               (SELECT seq FROM session_message WHERE session_id = ?1 AND id = (SELECT json_extract(revert, '$.messageID') FROM session_v2 WHERE id = ?1)),
-               9223372036854775807
-             ) AS seq
-           ), floor AS (
-             SELECT COALESCE(MAX(seq), -1) AS seq FROM session_message
-              WHERE session_id = ?1 AND type = 'compaction' AND json_extract(data, '$.status') = 'completed' AND seq < (SELECT seq FROM bound)
-           )
-           SELECT data FROM session_message
-            WHERE session_id = ?1 AND type = 'assistant' AND json_extract(data, '$.tokens') IS NOT NULL
-              AND seq > (SELECT seq FROM floor) AND seq < (SELECT seq FROM bound)
-            ORDER BY seq DESC LIMIT 1`,
-        )
-        .get(sessionId) as { data: string } | undefined;
+      const usage = latestUsageRow(conn, sessionId);
       let latestData: MessageData;
       let usageData: MessageData | null;
       try {
@@ -305,6 +285,50 @@ export function getLatestAssistantFacts(
   );
 }
 
+/** The assistant row whose `tokens` fill the context window now — upstream's
+ *  `lastAssistantWithUsage` (see `getLatestAssistantFacts`): the newest
+ *  assistant row with `tokens`, after the last completed compaction and
+ *  before the revert boundary (`session_v2.revert.messageID`; that message
+ *  and everything after it are undone). A boundary that names no message
+ *  yields nothing, as upstream returns `undefined` for it. */
+function latestUsageRow(
+  conn: DatabaseSync,
+  sessionId: string,
+): { data: string } | undefined {
+  const revertId =
+    (
+      conn
+        .prepare(
+          "SELECT json_extract(revert, '$.messageID') AS id FROM session_v2 WHERE id = ?",
+        )
+        .get(sessionId) as { id: string | null } | undefined
+    )?.id ?? null;
+  let bound: number | null = null;
+  if (revertId !== null) {
+    const row = conn
+      .prepare(
+        "SELECT seq FROM session_message WHERE session_id = ? AND id = ?",
+      )
+      .get(sessionId, revertId) as { seq: number } | undefined;
+    if (!row) return undefined;
+    bound = row.seq;
+  }
+  // `?2 IS NULL`: no revert boundary.
+  return conn
+    .prepare(
+      `WITH floor AS (
+         SELECT COALESCE(MAX(seq), -1) AS seq FROM session_message
+          WHERE session_id = ?1 AND type = 'compaction' AND json_extract(data, '$.status') = 'completed'
+            AND (?2 IS NULL OR seq < ?2)
+       )
+       SELECT data FROM session_message
+        WHERE session_id = ?1 AND type = 'assistant' AND json_extract(data, '$.tokens') IS NOT NULL
+          AND seq > (SELECT seq FROM floor) AND (?2 IS NULL OR seq < ?2)
+        ORDER BY seq DESC LIMIT 1`,
+    )
+    .get(sessionId, bound) as { data: string } | undefined;
+}
+
 /** OpenCode's `TokenUsage.total` over one assistant message, `null` when the
  *  message carries no usage or it sums to ≤ 0 (the TUI shows nothing then).
  *  See `getLatestAssistantFacts` for the upstream citation. */
@@ -317,18 +341,16 @@ function contextTokensOf(m: MessageData): number | null {
 
 // --- Tool detection ---
 
-/** OpenCode built-in tools whose pending invocation means the agent is
- *  awaiting the human. Both block on the user's reply while their content
- *  part sits at `state.status = "running"` (upstream verification:
- *  `packages/opencode/src/tool/question.ts:24` and
- *  `packages/opencode/src/tool/plan.ts:29`). Other interactive flows
- *  (`ctx.ask` permission prompts inside `shell`/`edit`/`write`/etc.)
- *  don't surface a distinct tool name — the part stays `shell`/etc.
- *  and is indistinguishable from a real-work tool. */
-const AWAITING_USER_TOOLS: ReadonlySet<string> = new Set([
-  "question",
-  "plan_exit",
-]);
+/** OpenCode tools whose pending invocation means the agent is awaiting the
+ *  human. At v2.0.29 that is the `question` tool alone
+ *  (`packages/core/src/tool/plugin/question.ts`, `name = "question"`): it
+ *  blocks on the user's reply while its content part sits at
+ *  `state.status = "running"`. Plan mode (`packages/core/src/plugin/plan.ts`)
+ *  registers no tool. Other interactive flows (`ctx.ask` permission prompts
+ *  inside `shell`/`edit`/`write`/etc.) don't surface a distinct tool name —
+ *  the part stays `shell`/etc. and is indistinguishable from a real-work
+ *  tool. */
+const AWAITING_USER_TOOLS: ReadonlySet<string> = new Set(["question"]);
 
 /** Classify the tool parts currently in the "running" state for one
  *  assistant message (the current turn). In 2.x the parts live inline in
@@ -358,11 +380,11 @@ export function runningToolsBucket(
 // --- State derivation ---
 
 /** The conversational `session_message.type` values — the ones state derives
- *  from. 2.x also writes `system`, `synthetic`, `compaction` and `idle` rows
- *  into the same sequence (a tool-rename notice, injected instructions, a
- *  summary, a turn-end marker); none of them says whose turn it is, and a
- *  `system` row is the newest one in many settled sessions, so the latest
- *  message is picked among these two only. */
+ *  from. 2.x also writes non-conversational rows into the same sequence, such
+ *  as `system` (a tool-rename notice), `synthetic` (injected instructions),
+ *  `compaction` (a summary) and `idle` (a turn-end marker); none of them says
+ *  whose turn it is, and a `system` row is the newest one in many settled
+ *  sessions, so the latest message is picked among these two only. */
 type ConversationalType = "user" | "assistant";
 
 /** One entry of an assistant message's `data.content[]`. Only the fields we

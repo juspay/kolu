@@ -3320,7 +3320,7 @@ retirements:
     revisionId: revision-c0540b367c53e53fffba
     action: revised
     status: landed
-    promise: Tile chrome shows OpenCode tool-use state
+    promise: Tile chrome shows OpenCode task progress
     defectSurface: [opencode, user-journey]
     destinationLayer: L5
     replacements: []

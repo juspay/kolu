@@ -15,8 +15,9 @@ export type {
 } from "./vocab.ts";
 
 /** Task/todo progress — total items and completed count.
- *  Used by both Claude Code (from TaskCreate/TaskUpdate tool calls)
- *  and OpenCode (from the `todo` SQLite table). */
+ *  Reported by Claude Code (from TaskCreate/TaskUpdate tool calls); the
+ *  integrations with no todo primitive (OpenCode 2.x among them) report
+ *  `null`. */
 export const TaskProgressSchema = Schema.Struct({
   total: Schema.Number,
   completed: Schema.Number,

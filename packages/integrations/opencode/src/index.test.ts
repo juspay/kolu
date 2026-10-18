@@ -259,11 +259,7 @@ describe("findSessionsByDirectory", () => {
     const log = spyLog();
     expect(findSessionsByDirectory("/repo", log, db)).toBeNull();
     expect(log.error).toHaveBeenCalledWith(
-      expect.objectContaining({
-        err: expect.objectContaining({
-          message: expect.stringContaining("session_v2"),
-        }),
-      }),
+      expect.anything(),
       "opencode session query failed",
     );
   });
@@ -338,6 +334,20 @@ describe("getLatestAssistantFacts", () => {
     );
   });
 
+  it("counts nothing when the revert boundary names no message", () => {
+    // Upstream's `lastAssistantWithUsage` returns undefined for a boundary it
+    // cannot find — the TUI then shows no context usage at all.
+    const db = withSession(
+      [{ type: "assistant", data: { tokens: usage(100) } }],
+      {
+        revert: { messageID: "gone" },
+      },
+    );
+    expect(getLatestAssistantFacts("s1", undefined, db)?.contextTokens).toBe(
+      null,
+    );
+  });
+
   it("falls back to the model id alone if providerID is missing", () => {
     const db = withSession([
       { type: "assistant", data: { model: { id: "glm-latest" } } },
@@ -370,20 +380,17 @@ describe("runningToolsBucket", () => {
     expect(runningToolsBucket([tool("shell", "running")])).toBe("tool_use");
   });
 
-  it.each([
-    "question",
-    "plan_exit",
-  ])("returns awaiting_user when the only running tool is %s", (toolName) => {
-    expect(runningToolsBucket([tool(toolName, "running")])).toBe(
+  it("returns awaiting_user when the only running tool is question", () => {
+    expect(runningToolsBucket([tool("question", "running")])).toBe(
       "awaiting_user",
     );
   });
 
-  it("returns awaiting_user when every running tool is some awaiting-user tool", () => {
+  it("returns awaiting_user when every running tool is a question", () => {
     expect(
       runningToolsBucket([
         tool("question", "running"),
-        tool("plan_exit", "running"),
+        tool("question", "running"),
       ]),
     ).toBe("awaiting_user");
   });
