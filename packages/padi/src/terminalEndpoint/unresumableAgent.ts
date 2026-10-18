@@ -2,8 +2,9 @@
  *
  *  A terminal can hold a LIVE agent identity (an adapter matched the foreground
  *  process and its session file) while the fold remembers NO launch command —
- *  the 633;E line that started it was something `parseAgentCommand` could not
- *  read (a pipeline, `cd x && agent`, `env -i agent`). Such a terminal's restore
+ *  either the 633;E line that started it was something `parseAgentCommand`
+ *  could not read (a pipeline, `cd x && agent`, `env -i agent`), or no 633;E
+ *  line reached padi at all. Such a terminal's restore
  *  target is `none`, so a kaval restart brings it back as a bare shell. That
  *  used to happen in silence; this names it once in padi's log.
  *
@@ -42,10 +43,28 @@ export function unresumableAgentWatch(
       }
       if (warned || memory.lastAgentCommand !== undefined) return;
       warned = true;
-      log.warn(
-        { terminal: id, agent: snapshot.agent.kind, lastRawCommand },
-        "agent detected but its launch line was not recognized — this terminal will not resume across restart",
-      );
+      // Two different facts, two different messages: the shell DID report a
+      // line and we couldn't read it, or it never reported one at all (fish, a
+      // bare `kaval-tui create` shell, history turned off).
+      if (lastRawCommand === undefined)
+        log.warn(
+          {
+            terminal: id,
+            agent: snapshot.agent.kind,
+            reason: "no-launch-line",
+          },
+          "agent detected but no launch line was ever seen for this terminal — it will not resume across restart",
+        );
+      else
+        log.warn(
+          {
+            terminal: id,
+            agent: snapshot.agent.kind,
+            reason: "unrecognized",
+            lastRawCommand,
+          },
+          "agent detected but its launch line was not recognized — this terminal will not resume across restart",
+        );
     },
   };
 }

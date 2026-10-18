@@ -373,6 +373,10 @@ export function agentNameFromCommand(command: string): string | null {
  *   - no ref, or a ref for a DIFFERENT agent → fall back to the most-recent
  *     marker (`claude -c`, etc.). This is the compatibility path for terminals
  *     that captured no id; it never aims an id at the wrong CLI.
+ *
+ * Every failure is `null`, never a throw — including a command that is not in
+ * normalized form at all (`exec claude`): this runs on persisted state, where
+ * one bad record must cost one terminal its resume, not the whole session.
  */
 export function resumeAgentCommand(
   reg: AgentCliRegistry,
@@ -392,15 +396,19 @@ export function resumeAgentCommand(
   if (entry === undefined || !isVocab(entry)) return null;
   const vocab = entry;
   // The assignments stay in front of the head, exactly as `parseAgentCommand`
-  // rendered them. A normalized command always begins with that rendering; one
-  // that doesn't was never normalized (an `exec`/`env` wrapper, odd spacing) —
-  // a caller bug, so crash loudly rather than splice into the wrong offset.
+  // rendered them. Its output always begins with that rendering, so the splice
+  // offset is exact. A command that doesn't (an `exec`/`env` wrapper, odd
+  // spacing) was never normalized, and we REFUSE it with `null` — the same
+  // "bare shell, loud by absence" answer as a broken ref — rather than throw.
+  // A throw is not safe here: this runs on PERSISTED commands (the restore card
+  // and `session/resumable.ts` via `resumableCommand`, wake via `resumeFormFor`),
+  // and `backfillSnapshotCutover` (padi-client `vocab.ts`) copies any on-disk
+  // `lastAgentCommand` string into a `legacyMostRecent` target unchecked — so a
+  // hand-edited state file could reach this, and a throw would blank restore
+  // for the whole session instead of one terminal.
   const assigned = renderAssignments(anatomy.assignments);
   const head = assigned === "" ? anatomy.head : `${assigned} ${anatomy.head}`;
-  if (!trimmed.startsWith(head))
-    throw new Error(
-      `resumeAgentCommand: not a normalized agent command: ${JSON.stringify(normalized)}`,
-    );
+  if (!trimmed.startsWith(head)) return null;
   const tail = trimmed.slice(head.length).trimStart(); // everything after the head token
   const policy = vocab.resume;
 

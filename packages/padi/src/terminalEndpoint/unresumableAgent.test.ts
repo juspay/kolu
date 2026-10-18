@@ -63,9 +63,10 @@ describe("unresumableAgentWatch", () => {
     expect(h.warn.mock.calls[0]?.[0]).toEqual({
       terminal: "t1",
       agent: "opencode",
+      reason: "unrecognized",
       lastRawCommand: "cd /work && opencode",
     });
-    expect(h.warn.mock.calls[0]?.[1]).toMatch(/will not resume/);
+    expect(h.warn.mock.calls[0]?.[1]).toMatch(/not recognized/);
 
     // A later recognized launch fills the memory — no further warning.
     h.agent(null);
@@ -73,6 +74,20 @@ describe("unresumableAgentWatch", () => {
     h.agent(opencode("ses_b"));
     expect(h.state().memory.lastAgentCommand).toBe("FOO=bar opencode");
     expect(h.warn).toHaveBeenCalledTimes(1);
+  });
+
+  // No 633;E line at all (fish, a bare kaval-tui shell, history off): the
+  // warning must not claim a line was seen and rejected.
+  it("says no launch line was seen when the shell never reported one", () => {
+    const h = harness();
+    h.agent(opencode("ses_a"));
+    expect(h.warn).toHaveBeenCalledTimes(1);
+    expect(h.warn.mock.calls[0]?.[0]).toEqual({
+      terminal: "t1",
+      agent: "opencode",
+      reason: "no-launch-line",
+    });
+    expect(h.warn.mock.calls[0]?.[1]).toMatch(/no launch line was ever seen/);
   });
 
   it("stays quiet for a recognized prefixed launch", () => {

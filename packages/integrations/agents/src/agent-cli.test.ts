@@ -1080,9 +1080,16 @@ describe("launch lines with an env / exec / env-wrapper prefix", () => {
     ],
     [`A=1 B='x y' claude --model sonnet`, `A=1 B='x y' claude --model sonnet`],
     [`A=1 B="x y" claude --model sonnet`, `A=1 B='x y' claude --model sonnet`],
+    // The incident's second line, verbatim.
     [
-      `OPENCODE_CONFIG_CONTENT='{"a":1}' opencode`,
-      `OPENCODE_CONFIG_CONTENT='{"a":1}' opencode`,
+      `OPENCODE_CONFIG_CONTENT='{"model":"opencode/deepseek-v4.1-flash"}' opencode --auto`,
+      `OPENCODE_CONFIG_CONTENT='{"model":"opencode/deepseek-v4.1-flash"}' opencode`,
+    ],
+    // string-argv keeps the mid-word quotes; the space and inner double quotes
+    // must survive the dequote → re-quote.
+    [
+      `OPENCODE_CONFIG_CONTENT='{"model": "x y"}' opencode`,
+      `OPENCODE_CONFIG_CONTENT='{"model": "x y"}' opencode`,
     ],
     ["EMPTY= opencode", "EMPTY= opencode"],
     ["exec omp --model fable", "omp --model fable"],
@@ -1100,6 +1107,23 @@ describe("launch lines with an env / exec / env-wrapper prefix", () => {
     [shellJoin(["exec", "omp", "--model", "fable"]), "omp --model fable"],
     [shellJoin(["env", "FOO=1", "codex"]), "FOO=1 codex"],
     [`B='x y' claude --model sonnet`, `B='x y' claude --model sonnet`],
+    // The incident lines as a command-rooted argv seed.
+    [
+      shellJoin(["AI_PROFILE=github:juspay/skills", "opencode", "--auto"]),
+      "AI_PROFILE=github:juspay/skills opencode",
+    ],
+    [
+      shellJoin([
+        'OPENCODE_CONFIG_CONTENT={"model":"opencode/deepseek-v4.1-flash"}',
+        "opencode",
+        "--auto",
+      ]),
+      `OPENCODE_CONFIG_CONTENT='{"model":"opencode/deepseek-v4.1-flash"}' opencode`,
+    ],
+    [
+      shellJoin(['OPENCODE_CONFIG_CONTENT={"model": "x y"}', "opencode"]),
+      `OPENCODE_CONFIG_CONTENT='{"model": "x y"}' opencode`,
+    ],
   ])("shellJoin seed %j → %j", (seed, expected) => {
     expect(parseAgentCommand(seed, true)).toBe(expected);
   });
@@ -1135,6 +1159,29 @@ describe("launch lines with an env / exec / env-wrapper prefix", () => {
     expect(agentNameFromCommand("")).toBeNull();
   });
 
+  it("resumes the JSON incident line with its config value intact", () => {
+    const OPENCODE_ID = "ses_118316090ffewMmbj6bsfKwj4R";
+    const command = parseAgentCommand(
+      `OPENCODE_CONFIG_CONTENT='{"model": "x y"}' opencode --auto`,
+    );
+    if (command === null) throw new Error("not recognized");
+    const resumed = resumeAgentCommand(command, {
+      kind: "opencode",
+      sessionId: OPENCODE_ID,
+      resumeRef: OPENCODE_ID,
+    });
+    expect(resumed).toBe(
+      `OPENCODE_CONFIG_CONTENT='{"model": "x y"}' opencode --session ${OPENCODE_ID}`,
+    );
+    // What a shell re-reading the resume line would see.
+    expect(shellSplit(resumed as string)).toEqual([
+      'OPENCODE_CONFIG_CONTENT={"model": "x y"}',
+      "opencode",
+      "--session",
+      OPENCODE_ID,
+    ]);
+  });
+
   it("keeps the assignments in front of the head across the resume splice", () => {
     expect(resumeAgentCommand("FOO=bar opencode")).toBe(
       "FOO=bar opencode --continue",
@@ -1145,10 +1192,14 @@ describe("launch lines with an env / exec / env-wrapper prefix", () => {
     expect(resumeAgentCommand("FOO=1 aider")).toBeNull(); // detection-only
   });
 
-  it("crashes on a command that was never normalized", () => {
-    expect(() => resumeAgentCommand("exec claude")).toThrow(
-      /not a normalized agent command/,
-    );
+  // A command that was never normalized can still arrive from disk (the
+  // cutover migration copies any stored string) — refuse it, don't crash.
+  it("refuses a command that was never normalized", () => {
+    expect(resumeAgentCommand("exec claude")).toBeNull();
+    expect(resumeAgentCommand("env FOO=1 claude")).toBeNull();
+    expect(
+      resumableCommand({ kind: "legacyMostRecent", command: "exec claude" }),
+    ).toBeNull();
   });
 
   // The whole chain the incident broke: raw line → normalized → kind gate →

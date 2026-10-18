@@ -148,8 +148,10 @@ Environment assignments are **kept**, so the resumed agent gets the same profile
 or config it started with. `exec` and `env` are dropped. Anything else in front of
 the agent — a pipeline, `cd dir && claude`, a subshell, a flag on `env` like
 `env -i` — is not recognized. The agent is still detected and shown, but its
-terminal will **not** resume across a restart, and padi's log says so once with
-the line it saw (`agent detected but its launch line was not recognized`).
+terminal will **not** resume across a restart, and padi's log says so once: with
+the line it saw when the line was not recognized (`reason: "unrecognized"`), or
+noting that no launch line ever arrived — a shell without kolu's integration, such
+as fish (`reason: "no-launch-line"`).
 
 <Aside type="note" title="One conversation belongs to one terminal">
   Claude Code, Grok, and Oh My Pi anchor a conversation to a specific terminal —
