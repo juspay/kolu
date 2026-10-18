@@ -1,8 +1,8 @@
 @opencode-mock
 Feature: OpenCode status detection
   When OpenCode is running in a terminal, the canvas tile chrome shows
-  its current state (thinking, tool use, waiting), context-token total,
-  and task progress.
+  its current state (thinking, tool use, awaiting the user, waiting) and
+  context-token total, read from OpenCode 2.x's session store.
 
   Requires KOLU_OPENCODE_DB to point at a test-controlled path and PATH
   to include an `opencode` binary stub (a renamed `sleep` copy) so the
@@ -25,10 +25,14 @@ Feature: OpenCode status detection
     And the tile chrome should show context tokens "23K"
     And there should be no page errors
 
-  Scenario: Tile chrome shows OpenCode task progress
-    When an OpenCode session is mocked with state "tool_use" and 5 todos with 3 completed
+  Scenario: OpenCode running a tool shows tool use
+    When an OpenCode session is mocked with state "tool_use"
     Then the tile chrome should show an OpenCode indicator with state "tool_use"
-    And the tile chrome should show task progress "3/5"
+    And there should be no page errors
+
+  Scenario: OpenCode asking a question shows it is awaiting the user
+    When an OpenCode session is mocked with state "awaiting_user"
+    Then the tile chrome should show an OpenCode indicator with state "awaiting_user"
     And there should be no page errors
 
   Scenario: npm-shimmed OpenCode is detected via the OSC 633;E preexec hint

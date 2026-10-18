@@ -3316,3 +3316,16 @@ retirements:
       file: packages/tests/features/agents.feature
       symbol: "Scenario: The first run starts with an empty list and Juspay one click away, and Enter turns the agents on as they ship"
       test: "The step's empty list now opens with a visible one-click + Juspay row, asserted alongside the repository row and the add field — offered, not listed. Focus on Turn on, Enter, and every assertion after it are unchanged."
+  - id: revise-c0540b367c53e53fffba
+    revisionId: revision-c0540b367c53e53fffba
+    action: revised
+    status: landed
+    promise: Tile chrome shows OpenCode task progress
+    defectSurface: [opencode, user-journey]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-6fb0bff8a85d5f752098]
+    sameCodePathEvidence:
+      file: packages/tests/features/opencode.feature
+      symbol: "Scenario: OpenCode running a tool shows tool use"
+      test: The revised scenario keeps the tool_use journey; its task-progress half is dropped because OpenCode 2.x writes no todo table.

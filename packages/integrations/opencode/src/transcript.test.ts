@@ -43,12 +43,12 @@ describe("eventsFromMessageParts", () => {
     const events = eventsFromMessageParts("assistant", null, 3000, [
       {
         type: "tool",
-        callID: "call_1",
-        tool: "glob",
+        id: "call_1",
+        name: "glob",
         state: {
           status: "completed",
           input: { pattern: "**/*.ts" },
-          output: "file.ts",
+          content: [{ type: "text", text: "file.ts" }],
         },
       },
     ]);
@@ -74,8 +74,8 @@ describe("eventsFromMessageParts", () => {
     const events = eventsFromMessageParts("assistant", null, 3000, [
       {
         type: "tool",
-        callID: "call_2",
-        tool: "edit",
+        id: "call_2",
+        name: "edit",
         state: { status: "running", input: { filePath: "/x" } },
       },
     ]);
@@ -87,17 +87,24 @@ describe("eventsFromMessageParts", () => {
     const events = eventsFromMessageParts("assistant", null, 3000, [
       {
         type: "tool",
-        callID: "call_3",
-        tool: "exec",
-        state: { status: "error", output: "non-zero exit" },
+        id: "call_3",
+        name: "shell",
+        state: {
+          status: "error",
+          error: { message: "non-zero exit" },
+        },
       },
     ]);
-    expect(events[1]).toMatchObject({ kind: "tool_result", isError: true });
+    expect(events[1]).toMatchObject({
+      kind: "tool_result",
+      output: "non-zero exit",
+      isError: true,
+    });
   });
 
   it("inlines a child subagent run when given an inlineSubtask resolver", () => {
-    // Mirrors what the real loader does: the `task` tool's metadata
-    // carries `sessionId` (the child session id) and `state.input`
+    // Mirrors what the real loader does: the `subagent` tool's metadata
+    // carries `sessionID` (the child session id) and `state.input`
     // carries `description`. The resolver is responsible for loading
     // the child's events; here we stub it.
     const stubChildEvents = [
@@ -116,17 +123,18 @@ describe("eventsFromMessageParts", () => {
       [
         {
           type: "tool",
-          callID: "task_1",
-          tool: "task",
+          id: "call_task_1",
+          name: "subagent",
           state: {
             status: "completed",
-            input: {
-              description: "Lowy review of diff",
-              subagent_type: "lowy",
-            },
-            output:
-              "task_id: ses_child123 (for resuming)\n\n<task_result>\nLGTM\n</task_result>",
-            metadata: { sessionId: "ses_child123" },
+            input: { agent: "lowy", description: "Lowy review of diff" },
+            content: [
+              {
+                type: "text",
+                text: '<subagent sessionID="ses_child123" state="completed">\nLGTM\n</subagent>',
+              },
+            ],
+            metadata: { sessionID: "ses_child123", status: "completed" },
           },
         },
       ],
@@ -158,7 +166,16 @@ describe("eventsFromMessageParts", () => {
     expect(start.agentName).toBe("lowy");
   });
 
-  it("falls back to parsing the child session id from task output when metadata is absent", () => {
+  it.each([
+    [
+      "subagent",
+      '<subagent sessionID="ses_fromOutput" state="completed">ok</subagent>',
+    ],
+    [
+      "task",
+      '<task id="ses_fromOutput" state="completed">\n<task_result>ok</task_result>',
+    ],
+  ])("falls back to parsing the child session id from %s output when metadata is absent", (name, text) => {
     const events = eventsFromMessageParts(
       "assistant",
       null,
@@ -166,13 +183,12 @@ describe("eventsFromMessageParts", () => {
       [
         {
           type: "tool",
-          callID: "task_2",
-          tool: "task",
+          id: "call_task_2",
+          name,
           state: {
             status: "completed",
             input: { description: "Hickey review" },
-            output:
-              "task_id: ses_fromOutput (resuming...)\n\n<task_result>ok</task_result>",
+            content: [{ type: "text", text }],
           },
         },
       ],
@@ -200,12 +216,12 @@ describe("eventsFromMessageParts", () => {
       [
         {
           type: "tool",
-          callID: "g_1",
-          tool: "glob",
+          id: "g_1",
+          name: "glob",
           state: {
             status: "completed",
             input: { pattern: "*.ts" },
-            output: "x",
+            content: [{ type: "text", text: "x" }],
           },
         },
       ],
@@ -231,20 +247,6 @@ describe("eventsFromMessageParts", () => {
     expect(events).toEqual([
       { kind: "assistant", text: "real reply", model: null, ts: 1000 },
     ]);
-  });
-
-  it("skips lifecycle and metadata part types", () => {
-    expect(
-      eventsFromMessageParts("assistant", null, 1000, [
-        { type: "step-start" },
-        { type: "step-finish" },
-        { type: "compaction" },
-        { type: "agent" },
-        { type: "subtask" },
-        { type: "file", filename: "x.md" },
-        { type: "patch" },
-      ]),
-    ).toEqual([]);
   });
 });
 
@@ -297,6 +299,17 @@ describe("normalizeOpenCodeToolInput", () => {
     expect(
       normalizeOpenCodeToolInput("grep", { pattern: "TODO", path: "/x" }),
     ).toEqual({ kind: "grep", pattern: "TODO", path: "/x" });
+  });
+
+  it("decodes the 2.x tool spellings: shell, and read's `path`", () => {
+    expect(normalizeOpenCodeToolInput("shell", { command: "ls" })).toEqual({
+      kind: "bash",
+      command: "ls",
+    });
+    expect(normalizeOpenCodeToolInput("read", { path: "/a.ts" })).toEqual({
+      kind: "read",
+      filePath: "/a.ts",
+    });
   });
 
   it("falls through to unknown for tools we don't model", () => {

@@ -27,12 +27,14 @@ export const OpenCodeInfoSchema = Schema.Struct({
   model: Schema.NullOr(Schema.String),
   /** Session title from OpenCode. */
   summary: Schema.NullOr(Schema.String),
-  /** Todo progress from OpenCode's `todo` table. null when no todos. */
+  /** OpenCode 2.x writes no todo table (1.x's `todo` froze at the
+   *  cutover) — permanently null; the field is kept for union shape
+   *  uniformity. */
   taskProgress: Schema.NullOr(TaskProgressSchema),
-  /** Running context-window token count from the latest assistant
-   *  message's `tokens.total` field (OpenCode emits it pre-summed).
-   *  Null when the latest message is a user turn or the agent has not
-   *  yet produced an assistant reply. */
+  /** Context-window token count, as OpenCode's own TUI computes it: the
+   *  newest accounted assistant step's `input + output + reasoning +
+   *  cache.read + cache.write` (see `getLatestAssistantFacts`). Null until
+   *  the agent has produced an accounted assistant step. */
   contextTokens: Schema.NullOr(Schema.Number),
   /** Epoch-ms the session began — the `time_created` of its earliest
    *  message (one indexed query). Null until the first message lands.
