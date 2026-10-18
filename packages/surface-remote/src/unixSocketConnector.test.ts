@@ -7,7 +7,7 @@
  * Every wait here is a real event (`listening`, `close`, the connection's own
  * `closed` promise). A timer would make the suite's verdict depend on a guess.
  */
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, renameSync, rmSync } from "node:fs";
 import { createServer, type Server, type Socket } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -90,9 +90,22 @@ describe("unixSocketConnector", () => {
   });
 
   it("throws EndpointAbsentError when the path exists but refuses (ECONNREFUSED)", async () => {
-    const socketPath = join(tempDir(), "stale.sock");
-    // A file nobody is bound to — exactly the leftover a crashed daemon leaves.
-    writeFileSync(socketPath, "");
+    const dir = tempDir();
+    const socketPath = join(dir, "stale.sock");
+    // A SOCKET file nobody is bound to — exactly the leftover a crashed daemon
+    // leaves. A regular file is NOT that: on darwin, connecting to one is
+    // ENOTSOCK, not ECONNREFUSED, so the fixture must be a real socket. Bind
+    // one, move it out from under libuv's remembered name, then close the
+    // listener — the file survives, listenerless, at `socketPath`.
+    const bound = join(dir, "bound.sock");
+    const server = createServer();
+    servers.push(server);
+    server.listen(bound);
+    await once(server, "listening");
+    renameSync(bound, socketPath);
+    server.close();
+    await once(server, "close");
+
     const err = await connectorFor(socketPath)(fakeCtx()).then(
       () => null,
       (e: unknown) => e,
