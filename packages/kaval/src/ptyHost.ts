@@ -886,7 +886,7 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
       cwd: entry.cwd,
       lastActivity: entry.lastActivity,
       title: entry.title,
-      foregroundProcess: readForeground(entry).process,
+      foregroundProcess: foregroundNameOf(entry),
       commandRooted: entry.commandRooted,
     };
   }
@@ -894,10 +894,10 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
   /** Read `{process, foregroundPid}` at the tty. Cheap: a property read + a
    *  `tcgetpgrp` syscall — so a subscriber's snapshot takes a FRESH reading
    *  rather than replaying whatever the dedup below last let through. The
-   *  process name is NORMALIZED here — the one place a foreground name is
-   *  produced — so a loader-wrapped command (`opencode`) reads as the program
-   *  it loads on every published path (the `foreground` tap and
-   *  `list.foregroundProcess`). See {@link normalizeForegroundName}. */
+   *  process name is NORMALIZED through the one {@link normalizeForegroundName}
+   *  (as is {@link foregroundNameOf}'s), so a loader-wrapped command (`opencode`)
+   *  reads as the program it loads on every published path (the `foreground` tap
+   *  and `list.foregroundProcess`). */
   function readForeground(entry: Entry): ForegroundSample {
     const foregroundPid = readForegroundPid(entry.proc);
     return {
@@ -906,13 +906,26 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
     };
   }
 
-  /** The PTY's normalized foreground process name, or `undefined` if it is
-   *  gone — the ONE lookup `PtyHandle.process` and {@link getProcess} both read
-   *  through, so a name query cannot answer with the raw loader name on one
-   *  accessor and the resolved program on another. */
+  /** The PTY's normalized foreground process NAME — the cheap loader test
+   *  FIRST, so a name-only consumer never pays a `tcgetpgrp` it has no use for
+   *  (and on darwin, where no reported name is ever a loader, this is exactly
+   *  the pre-normalization cost: the `process` read and nothing more). The
+   *  `foreground` tap reads {@link readForeground} instead, because its sample
+   *  carries the pid. */
+  function foregroundNameOf(entry: Entry): string {
+    const reported = entry.proc.process;
+    return isDynamicLoader(reported)
+      ? normalizeForegroundName(reported, readForegroundPid(entry.proc))
+      : reported;
+  }
+
+  /** {@link foregroundNameOf} by id, or `undefined` if the PTY is gone — the
+   *  ONE lookup `PtyHandle.process` and {@link getProcess} both read through,
+   *  so a name query cannot answer with the raw loader name on one accessor
+   *  and the resolved program on another. */
   function foregroundProcessName(id: PtyId): string | undefined {
     const entry = entries.get(id);
-    return entry === undefined ? undefined : readForeground(entry).process;
+    return entry === undefined ? undefined : foregroundNameOf(entry);
   }
 
   /** Sample `{process, foregroundPid}` and publish it on the entry's foreground
