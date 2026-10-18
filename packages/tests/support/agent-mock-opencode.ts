@@ -68,8 +68,6 @@ export function writeOpenCodeFixture(opts: {
   cwd: string;
   state: AgentLifecycleState;
   contextTokens?: number;
-  title?: string;
-  model?: { id: string; providerID: string };
 }): OpenCodeFixture {
   fs.mkdirSync(path.dirname(opts.dbPath), { recursive: true });
   const sessionId = "opencode-mock-session-0001";
@@ -102,15 +100,9 @@ export function writeOpenCodeFixture(opts: {
     const now = Date.now();
     db.prepare(
       "INSERT INTO session_v2 (id, title, directory, time_created, time_updated, time_archived) VALUES (?, ?, ?, ?, ?, NULL)",
-    ).run(
-      sessionId,
-      opts.title ?? "opencode-mock test session",
-      opts.cwd,
-      now,
-      now,
-    );
+    ).run(sessionId, "opencode-mock test session", opts.cwd, now, now);
 
-    const model = opts.model ?? { id: "qwen2.5-coder", providerID: "test" };
+    const model = { id: "qwen2.5-coder", providerID: "test" };
     const tokens =
       opts.contextTokens === undefined
         ? undefined
@@ -146,14 +138,15 @@ export function writeOpenCodeFixture(opts: {
       model,
       ...(tokens && { tokens }),
       content: [
-        {
-          type: "tool",
-          id: "call_1",
-          name,
-          executed: false,
-          state: { status: "running", input: {} },
-        },
+        { type: "tool", id: "call_1", name, state: { status: "running" } },
       ],
+    });
+    const finished = (time: number) => ({
+      time: { created: time, completed: time },
+      model,
+      finish: "stop",
+      ...(tokens && { tokens }),
+      content: [{ type: "text", text: "Done." }],
     });
 
     if (opts.state === "thinking") {
@@ -162,28 +155,14 @@ export function writeOpenCodeFixture(opts: {
       // separate query scoped to `type='assistant'` (that row is also where
       // the session-scoped model comes from), so the user message as the
       // newest row still drives state derivation to `thinking`.
-      if (tokens) {
-        insert("assistant", now - 10, {
-          time: { created: now - 10, completed: now - 5 },
-          model,
-          finish: "stop",
-          tokens,
-          content: [{ type: "text", text: "Done." }],
-        });
-      }
+      if (tokens) insert("assistant", now - 10, finished(now - 10));
       insert("user", now, { time: { created: now }, text: "next" });
     } else if (opts.state === "tool_use") {
       insert("assistant", now, runningTool("shell"));
     } else if (opts.state === "awaiting_user") {
       insert("assistant", now, runningTool("question"));
     } else {
-      insert("assistant", now, {
-        time: { created: now, completed: now },
-        model,
-        finish: "stop",
-        ...(tokens && { tokens }),
-        content: [{ type: "text", text: "Done." }],
-      });
+      insert("assistant", now, finished(now));
     }
 
     db.exec("COMMIT;");

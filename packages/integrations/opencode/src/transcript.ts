@@ -37,42 +37,14 @@ import type {
   Transcript,
   TranscriptEvent,
 } from "kolu-transcript-core";
+import {
+  assistantModelLabel,
+  type ContentPart,
+  type MessageData,
+  openDb,
+  parseData,
+} from "./core.ts";
 import { opencodeVocab } from "./schemas.ts";
-import { assistantModelLabel, openDb } from "./core.ts";
-
-/** One entry of an assistant message's `data.content[]`. Only the fields
- *  we read. */
-interface PartData {
-  type?: string;
-  text?: string;
-  /** Tool-call id. */
-  id?: string;
-  /** Tool name. */
-  name?: string;
-  state?: {
-    status?: string;
-    input?: unknown;
-    /** The tool's output, as content blocks (`{ type: "text", text }`). */
-    content?: Array<{ type?: string; text?: string }>;
-    error?: { message?: string };
-    /** A subagent call records its child session here — `sessionID` from
-     *  the `subagent` tool, `sessionId` from the older `task` tool. */
-    metadata?: { sessionID?: string; sessionId?: string } & Record<
-      string,
-      unknown
-    >;
-  };
-}
-
-/** The JSON in `session_message.data` for a user/assistant row. */
-interface MessageData {
-  /** A user message's prompt. */
-  text?: string;
-  model?: { id?: string; providerID?: string };
-  time?: { created?: number; completed?: number };
-  /** An assistant message's parts. */
-  content?: PartData[];
-}
 
 /** Defensive cap on the parent-id walk. OpenCode shouldn't produce
  *  cycles (each child is created with `parentID = current`), but a
@@ -225,7 +197,7 @@ export function normalizeOpenCodeToolInput(
 const SUBAGENT_TOOLS: ReadonlySet<string> = new Set(["subagent", "task"]);
 
 /** A tool part's output as text: its text content blocks joined. */
-function toolOutputText(part: PartData): string {
+function toolOutputText(part: ContentPart): string {
   return (part.state?.content ?? [])
     .map((c) => (c.type === "text" && typeof c.text === "string" ? c.text : ""))
     .join("");
@@ -237,7 +209,7 @@ function toolOutputText(part: PartData): string {
  *  output envelope, `<subagent sessionID="ses_…">` or `<task id="ses_…">`. */
 const SUBAGENT_OUTPUT_RE =
   /<(?:subagent sessionID|task id)="(ses_[A-Za-z0-9]+)"/;
-function extractTaskChildSessionId(part: PartData): string | null {
+function extractTaskChildSessionId(part: ContentPart): string | null {
   const meta = part.state?.metadata;
   const fromMeta = meta?.sessionID ?? meta?.sessionId;
   if (typeof fromMeta === "string" && fromMeta.length > 0) return fromMeta;
@@ -269,7 +241,7 @@ export function eventsFromMessageParts(
   messageRole: "user" | "assistant",
   modelLabel: string | null,
   messageTs: number | null,
-  parts: PartData[],
+  parts: ContentPart[],
   inlineSubtask?: (
     childSessionId: string,
     description: string,
@@ -394,7 +366,7 @@ function loadSessionEvents(
   for (const row of rows) {
     let data: MessageData;
     try {
-      data = JSON.parse(row.data) as MessageData;
+      data = parseData(row.data);
     } catch {
       // Drop the whole message — OpenCode writes this JSON itself, so a
       // parse failure is exotic.
@@ -402,7 +374,7 @@ function loadSessionEvents(
     }
     // A user row's prompt is its `text`; an assistant row's parts are its
     // `content[]`. Both go through the same part fold.
-    const parts: PartData[] =
+    const parts: ContentPart[] =
       row.type === "user"
         ? typeof data.text === "string"
           ? [{ type: "text", text: data.text }]

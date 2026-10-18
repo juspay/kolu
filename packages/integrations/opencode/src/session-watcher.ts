@@ -61,10 +61,7 @@ export function createOpenCodeWatcher(
   let startedAt: number | null = null;
 
   function refresh(db: DatabaseSync): OpenCodeInfo | null {
-    // `deriveSessionState` folds the latest message's running tool parts in
-    // (tool execution vs LLM generation, and within tool execution "blocked
-    // on a question" vs real compute) — the parts ride the message's own
-    // `data.content[]` in 2.x, so there is no second per-turn query.
+    // State includes the running tool parts (`tool_use` / `awaiting_user`).
     const derived = deriveSessionState(session.id, log, db);
     if (!derived) {
       // deriveSessionState already logged the precise cause — a debug
@@ -77,12 +74,11 @@ export function createOpenCodeWatcher(
     // (e.g. OpenCode auto-generating a title after the first exchange)
     // are picked up live, not stuck at the snapshot from session match.
     const summary = getSessionTitle(session.id, log, db) ?? session.title;
-    // Model and context tokens come from the newest ASSISTANT message, not
-    // from `derived` — `derived` reads the newest user/assistant message, which
-    // is a user prompt (naming no model, carrying no tokens) for the whole
-    // Thinking window. Both are session facts:
-    // OpenCode matches a session to a terminal once, and the model it runs is
-    // stable across the turns within it.
+    // Model and context tokens come from ASSISTANT messages, not from
+    // `derived` — `derived` reads the newest user/assistant message, which is
+    // a user prompt (naming no model, carrying no tokens) for the whole
+    // Thinking window. Both are session facts: OpenCode matches a session to
+    // a terminal once, and the model it runs is stable across its turns.
     const assistant = getLatestAssistantFacts(session.id, log, db);
     startedAt ??= getSessionStartedAt(session.id, log, db);
 

@@ -230,11 +230,13 @@ export function getSessionStartedAt(
  * session's revert boundary (`session.revert.messageID`); `contextUsage`
  * (`packages/tui/src/util/session.ts`) sums `input + output + reasoning +
  * cache.read + cache.write` (`TokenUsage.total`) and shows nothing when that
- * is ≤ 0. `latestUsageRow` is that selection; the sum is `contextTokensOf`. The streaming assistant carries no `tokens` yet, so the
+ * is ≤ 0. `latestUsageRow` is that selection; the sum is
+ * `contextTokensOf`. The streaming assistant carries no `tokens` yet, so the
  * count stays on the previous step instead of blanking mid-turn.
  *
- * The message queries ride `session_message_session_type_seq_idx`
- * (session_id, type, seq) and stop at the first row.
+ * The two assistant-row selections (the newest one, and the newest one with
+ * `tokens`) ride `session_message_session_type_seq_idx` (session_id, type,
+ * seq) and stop at the first row.
  *
  * `null` is `withDb`'s documented fold and carries THREE causes: the session
  * has no assistant message yet, the query threw, or the newest assistant blob
@@ -259,11 +261,11 @@ export function getLatestAssistantFacts(
         .get(sessionId) as { data: string } | undefined;
       if (!latest) return null;
       const usage = latestUsageRow(conn, sessionId);
-      let latestData: MessageData;
-      let usageData: MessageData | null;
       try {
-        latestData = JSON.parse(latest.data) as MessageData;
-        usageData = usage ? (JSON.parse(usage.data) as MessageData) : null;
+        return {
+          model: assistantModelLabel(parseData(latest.data)),
+          contextTokens: usage ? contextTokensOf(parseData(usage.data)) : null,
+        };
       } catch (err) {
         // OpenCode writes this JSON itself, so a parse failure is a real
         // anomaly — surface it rather than silently blanking the badge.
@@ -273,10 +275,6 @@ export function getLatestAssistantFacts(
         );
         return null;
       }
-      return {
-        model: assistantModelLabel(latestData),
-        contextTokens: usageData ? contextTokensOf(usageData) : null,
-      };
     },
     "opencode assistant-facts query failed",
     { sessionId },
@@ -379,25 +377,37 @@ export function runningToolsBucket(
 
 // --- State derivation ---
 
-/** The conversational `session_message.type` values — the ones state derives
- *  from. 2.x also writes non-conversational rows into the same sequence, such
- *  as `system` (a tool-rename notice), `synthetic` (injected instructions),
- *  `compaction` (a summary) and `idle` (a turn-end marker); none of them says
- *  whose turn it is, and a `system` row is the newest one in many settled
- *  sessions, so the latest message is picked among these two only. */
-type ConversationalType = "user" | "assistant";
-
-/** One entry of an assistant message's `data.content[]`. Only the fields we
- *  read. */
+/** One entry of an assistant message's `data.content[]` — a `text`,
+ *  `reasoning` or `tool` part. Only the fields kolu reads (state derivation
+ *  here, the transcript export in `transcript.ts`): this and `MessageData`
+ *  are the ONE description of OpenCode 2.x's message blob. */
 export interface ContentPart {
   type?: string;
+  text?: string;
+  /** Tool-call id. */
+  id?: string;
+  /** Tool name. */
   name?: string;
-  state?: { status?: string };
+  state?: {
+    status?: string;
+    input?: unknown;
+    /** The tool's output, as content blocks (`{ type: "text", text }`). */
+    content?: Array<{ type?: string; text?: string }>;
+    error?: { message?: string };
+    /** A subagent call records its child session here — `sessionID` from
+     *  the `subagent` tool, `sessionId` from the older `task` tool. */
+    metadata?: { sessionID?: string; sessionId?: string } & Record<
+      string,
+      unknown
+    >;
+  };
 }
 
 /** Shape of the JSON in `session_message.data` for a user/assistant row.
- *  Only the fields we read. */
-interface MessageData {
+ *  Only the fields kolu reads. */
+export interface MessageData {
+  /** A user message's prompt. */
+  text?: string;
   model?: { id?: string; providerID?: string };
   finish?: string;
   time?: { created?: number; completed?: number };
@@ -408,7 +418,14 @@ interface MessageData {
     reasoning: number;
     cache: { read: number; write: number };
   };
+  /** An assistant message's parts. */
   content?: ContentPart[];
+}
+
+/** Parse a `session_message.data` blob. Throws on malformed JSON — each
+ *  caller decides how loudly that surfaces. */
+export function parseData(data: string): MessageData {
+  return JSON.parse(data) as MessageData;
 }
 
 /** How one message blob names the model it ran on: the `provider/model`
@@ -450,13 +467,16 @@ export function deriveSessionState(
 ): ParsedMessageState | null {
   return withDb(
     (conn) => {
+      // Only the conversational rows say whose turn it is. 2.x also writes
+      // non-conversational rows into the same sequence, such as `system` (a
+      // tool-rename notice), `synthetic` (injected instructions), `compaction`
+      // (a summary) and `idle` (a turn-end marker) — and a `system` row is the
+      // newest one in many settled sessions.
       const row = conn
         .prepare(
           "SELECT type, data FROM session_message WHERE session_id = ? AND type IN ('user', 'assistant') ORDER BY seq DESC LIMIT 1",
         )
-        .get(sessionId) as
-        | { type: ConversationalType; data: string }
-        | undefined;
+        .get(sessionId) as { type: string; data: string } | undefined;
       if (!row) {
         // Genuinely empty session — an expected-absent condition, logged at
         // the layer that knows the row is missing. A malformed latest row is
@@ -486,7 +506,7 @@ export function parseMessageState(
 ): ParsedMessageState | null {
   let parsed: MessageData;
   try {
-    parsed = JSON.parse(data) as MessageData;
+    parsed = parseData(data);
   } catch (err) {
     // Distinct from "no row": there IS a latest message, we just can't read
     // it. Surface it as a dropped-state error so the watcher never reports
