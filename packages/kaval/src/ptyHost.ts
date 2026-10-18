@@ -906,6 +906,15 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
     };
   }
 
+  /** The PTY's normalized foreground process name, or `undefined` if it is
+   *  gone — the ONE lookup `PtyHandle.process` and {@link getProcess} both read
+   *  through, so a name query cannot answer with the raw loader name on one
+   *  accessor and the resolved program on another. */
+  function foregroundProcessName(id: PtyId): string | undefined {
+    const entry = entries.get(id);
+    return entry === undefined ? undefined : readForeground(entry).process;
+  }
+
   /** Sample `{process, foregroundPid}` and publish it on the entry's foreground
    *  tap iff it changed since the last publish (dedup by a compound key). */
   function sampleForeground(entry: Entry): void {
@@ -1587,8 +1596,7 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
         return entries.get(id)?.cwd ?? spawnCwd;
       },
       get process() {
-        const e = entries.get(id);
-        return e ? readForeground(e).process : "";
+        return foregroundProcessName(id) ?? "";
       },
       get foregroundPid() {
         return getForegroundPid(id);
@@ -1658,10 +1666,7 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
     has: (id) => entries.has(id),
     size: () => entries.size,
     getForegroundPid,
-    getProcess: (id) => {
-      const e = entries.get(id);
-      return e ? readForeground(e).process : undefined;
-    },
+    getProcess: foregroundProcessName,
     getLastCommand: (id) => entries.get(id)?.lastCommand,
     getLastCommandShellJoin: (id) =>
       entries.get(id)?.lastCommandShellJoin ?? false,
