@@ -92,6 +92,21 @@ export const SHARED_ARTIFACTS: readonly SharedArtifact[] = [
     why: "The toolchain bake the running daemon stamps into terminals, recorded so a same-machine supervisor of a newer build can see toolchain drift and recycle the daemon (#2146). Absent (an older daemon) → no drift verdict; the build-mismatch drain covers that window because the build introducing the record changed padi's source closure.",
   },
   {
+    id: "padi-agent-tools-links",
+    pathShape: "$XDG_RUNTIME_DIR/padi-<digest>/tools/<i>",
+    role: "manifest",
+    coveredByTest: "padi/agentToolsBakeRecord.test.ts",
+    versionField: null,
+    diskBasenames: [],
+    // The link itself AND everything under it: the sweep's recursive readdir
+    // follows `tools/<i>` (a symlink to a store dir), so the matched path can be
+    // the link or a tool inside it. Both are the bake's store content, not a padi
+    // protocol surface — the pattern is what keeps the store's bin names out of
+    // the unknown-artifact report.
+    diskBasenamePatterns: [/(^|\/)tools\/[0-9]+(?:\/|$)/],
+    why: "The daemon-owned LATE-BINDING tool links a terminal is actually stamped with (#2305): each tools/<i> is a symlink to the bake's store dir, flipped at every padi boot, so a terminal spawned under ANY build resolves the `kolu` of the daemon CURRENTLY serving it instead of the build it was born under. A pre-link daemon wrote none, so an old terminal keeps its frozen store path and must be reopened once; a live one always has one link per bake entry, pruned to the current count.",
+  },
+  {
     id: "padi-state-root-config",
     pathShape: "<stateRoot>/config.json",
     role: "config",

@@ -212,8 +212,11 @@ describe("composeSpawnInput env layering", () => {
 });
 
 describe("composeSpawnInput agent toolchain (PATH injection)", () => {
-  const TOOLS = "/nix/store/aaa-padi/bin";
-  const TOOLS2 = "/nix/store/bbb-kolu-agent-tools/bin";
+  // The daemon-owned LINK dirs, not store paths: padi materializes
+  // `<runtimeDir>/tools/<i>` at boot and hands THOSE to the composer, so a
+  // terminal spawned under any build follows the daemon's current one (#2305).
+  const TOOLS = "/run/user/1000/padi-9f2c1a4b8e0d6f37/tools/0";
+  const TOOLS2 = "/run/user/1000/padi-9f2c1a4b8e0d6f37/tools/1";
 
   // The dedupe case seeds process.env.PATH; restore it so the rest of the worker
   // (and any sibling suite) keeps the PATH it was launched with.
@@ -231,7 +234,8 @@ describe("composeSpawnInput agent toolchain (PATH injection)", () => {
     // closure is nix-copied per dial), so an agent inside it cannot drive its
     // siblings or reach the MCP face. Prepending — not appending — is what makes
     // the daemon's OWN build win a name collision with an older one the user
-    // happens to have installed.
+    // happens to have installed. Bake ORDER is preserved: tools/0 is the highest
+    // priority, so the wrapper's first dir still wins within kolu's own set.
     const input = composeSpawnInput(
       { id: "T-tools" },
       info(),
@@ -315,7 +319,9 @@ describe("composeSpawnInput agent toolchain (PATH injection)", () => {
 });
 
 describe("composeSpawnInput agent-distro layer", () => {
-  const TOOLS = "/nix/store/aaa-kolu/bin";
+  // kolu's own tools are LINK dirs (see the toolchain block above); the agent
+  // package's `bin/` is a PINNED store path and rides AFTER them.
+  const TOOLS = "/run/user/1000/padi-9f2c1a4b8e0d6f37/tools/0";
   const AGENTS = "/nix/store/ccc-agent-distro-vanilla-kolu/bin";
   const PLUGINS = "/nix/store/ddd-kolu-agent-plugin";
 

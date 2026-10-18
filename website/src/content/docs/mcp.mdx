@@ -133,9 +133,14 @@ installed on that machine: an agent you started on a remote host can drive its
 sibling terminals the moment it boots.
 
 The tools it gets are the ones from the **same build** as the daemon serving it —
-they arrive in the closure kolu copies to the host when it dials, so a tool and
-its daemon can never disagree about the wire between them. Your own `PATH` is
-untouched apart from these names taking precedence.
+they arrive in the closure kolu copies to the host when it dials, and the daemon
+puts them on the terminal's `PATH` through a path it **owns and re-points at
+every start**. So a tool and its daemon can never disagree about the wire between
+them — including after an upgrade: a terminal you opened before kolu was upgraded
+runs the new build's `kolu` the next time it is used, with nothing to reopen. (A
+terminal opened by a kolu *older* than the one that introduced this carries that
+older build's exact path instead, and has to be reopened once.) Your own `PATH`
+is untouched apart from these names taking precedence.
 
 One bound worth stating plainly: **in bash and zsh** kolu re-applies its `PATH`
 entries *after* your dotfiles have run, so an absolute `PATH=…` line in

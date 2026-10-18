@@ -58,7 +58,11 @@ import type { Rpc, RpcGroup } from "effect/rpc";
 import { KAVAL_GATE_FILE, KAVAL_NS_PREFIX, PTY_HOST_SOCK_FILE } from "kaval";
 import { configureNixShellEnv } from "kolu-pty";
 import { processIdentityFromEnv } from "osfacts-client";
-import { writeAgentToolsBakeRecord } from "../agentToolsBake.ts";
+import {
+  setAgentToolsLinkDirs,
+  writeAgentToolsBakeRecord,
+  writeAgentToolsLinks,
+} from "../agentToolsBake.ts";
 import { observeHeldKaval } from "../kavalObservation.ts";
 import { startKavalSupervision } from "../kavalSupervision.ts";
 import {
@@ -744,6 +748,13 @@ function padiDaemonProgram(
     // manifest so a SAME-MACHINE supervisor of a newer build can see toolchain
     // drift and recycle this daemon (juspay/kolu#2146; see agentToolsBake.ts).
     writeAgentToolsBakeRecord(home.dir);
+    // …and the LATE-BINDING form of that toolchain: one symlink per bake entry
+    // under `<home>/tools/<i>`, which is what a terminal is actually stamped
+    // with. Store paths are frozen, so a terminal stamped with them would run the
+    // old `kolu` forever after an upgrade (#2305); the links flip on every boot,
+    // so every surviving terminal follows this daemon's build. Recorded for the
+    // spawn path here, before the serving socket opens at `daemonMain` below.
+    setAgentToolsLinkDirs(writeAgentToolsLinks(home.dir));
     // Beside the kaval this padi ACTUALLY holds — `getLocalSocketPath()` is the digest
     // socket normally, but the adopted LEGACY port socket after an upgrade adoption, so
     // discovery labels the real daemon and no empty digest dir is minted.

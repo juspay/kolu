@@ -51,6 +51,28 @@
  * daemon permanently "mismatched". A separate, same-machine-only pre-check
  * leaves the kit and the wire untouched.
  *
+ * ## The daemon's other job here: the late-binding tool links (#2305)
+ *
+ * The record above is how a supervisor makes a STALE daemon step aside. It does
+ * nothing for the terminals a stale daemon already spawned: those carry the
+ * store-path toolchain it stamped at spawn, and store paths are immutable, so
+ * every surviving terminal keeps resolving the OLD `kolu` forever — and answers
+ * the NEW daemon with `padiSurface contract skew` (juspay/kolu#2305).
+ *
+ * So at boot this daemon also materializes, under its own runtime rendezvous dir
+ * (`<runtimeDir>/tools/<i>`, beside `padi.sock`), one symlink per bake entry to
+ * that entry's store dir. The spawn path then stamps those LINK dirs into a
+ * terminal (`TerminalEnvSpec.toolsPath`) instead of the store paths. A store
+ * path is frozen; a link padi owns is not: the next padi boot flips every link
+ * to the new build's dirs, so the next `kolu` exec in a terminal spawned under
+ * ANY build of this daemon is the build the CURRENT daemon serves. The
+ * cross-version supervisor drain is still what triggers the boot that flips
+ * them.
+ *
+ * The residue is one-time and stated rather than papered over: a terminal a
+ * PRE-link build spawned carries store paths, not links, so it must be reopened
+ * once.
+ *
  * ## Subordinate to the kit's build axis, by construction
  *
  * The drain fires ONLY when the resident is the SAME build as the supervisor
@@ -77,7 +99,16 @@
  *     adopt-rather-than-go-dark stance as the kit's drain-budget `adopt-stale`.
  */
 
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { join } from "node:path";
 import {
   buildsMatch,
@@ -87,7 +118,7 @@ import {
   drainRejectionSuffix,
 } from "@kolu/surface-daemon-supervisor";
 import { Effect } from "effect";
-import { AGENT_TOOLS_BAKE_ENV } from "kolu-pty";
+import { AGENT_TOOLS_BAKE_ENV, readAgentToolsBake } from "kolu-pty";
 
 /** The record's filename inside padi's runtime rendezvous dir (`padi-<digest>/`),
  *  beside `padi.sock` / `padi.pid` / `state-root`. Registered in the
@@ -125,6 +156,81 @@ export function readAgentToolsBakeRecord(
     return undefined;
   }
   return raw.split("\n", 1)[0] ?? "";
+}
+
+/** The subdirectory of padi's runtime rendezvous dir (`padi-<digest>/`) holding
+ *  the late-binding tool links, one per bake entry, named by index. Beside
+ *  `padi.sock` / `padi.pid` / `state-root`; found on disk by the upgrade-window
+ *  shared-artifact inventory (`upgradeWindow/sharedArtifacts.testlib.ts`). */
+export const AGENT_TOOLS_LINKS_DIRNAME = "tools";
+
+/** Materialize the terminal-facing tool links for `bake` (a daemon's raw
+ *  `KOLU_AGENT_TOOLS_PATH` dirs, bake order) as `<runtimeDir>/tools/<i>` and
+ *  return those link dirs, in the same order.
+ *
+ *  Why links, not the store dirs (#2305): a terminal stamped with store paths
+ *  resolves the build the daemon was born with, forever — store paths never
+ *  change — so after a padi upgrade every surviving terminal still runs the old
+ *  `kolu` and the new daemon refuses it with `padiSurface contract skew`. A link
+ *  padi owns flips at every boot, so a terminal spawned under ANY build gets the
+ *  build the CURRENT daemon serves (see the module header).
+ *
+ *  The flip is atomic per index — a symlink to `<link>.kolu-tmp`, then
+ *  `renameSync` over the link (the `current`-link idiom) — so a spawn never sees
+ *  a half-written link, and a shorter bake prunes the stale `tools/<j>` beyond
+ *  it. Empty bake stamps nothing. Fail fast: a bake dir that is not there, or a
+ *  link that cannot be written, throws here at boot — never a silent skip. */
+export function writeAgentToolsLinks(
+  runtimeDir: string,
+  bake: readonly string[] = readAgentToolsBake(),
+): readonly string[] {
+  const dir = join(runtimeDir, AGENT_TOOLS_LINKS_DIRNAME);
+  mkdirSync(dir, { recursive: true, mode: 0o700 });
+  const links = bake.map((storeDir, index) => {
+    if (!existsSync(storeDir)) {
+      throw new Error(
+        `agent-tools bake names a directory that does not exist: ${storeDir}`,
+      );
+    }
+    const link = join(dir, String(index));
+    const tmp = `${link}.kolu-tmp`;
+    rmSync(tmp, { force: true });
+    symlinkSync(storeDir, tmp);
+    renameSync(tmp, link);
+    return link;
+  });
+  // This dir has one writer, so anything not just written is a stale link from
+  // a longer earlier bake (or a `.kolu-tmp` a crash between the two calls above
+  // left behind) and is pruned.
+  const keep = new Set(bake.map((_, index) => String(index)));
+  for (const name of readdirSync(dir)) {
+    if (!keep.has(name)) rmSync(join(dir, name), { force: true });
+  }
+  return links;
+}
+
+/** The link dirs THIS daemon materialized at boot (bake order) — what
+ *  `buildTerminalSpawnInput` hands `composeSpawnInput` as `toolsPath`, and so
+ *  what lands on every terminal's `PATH` and under `KOLU_TERMINAL_TOOLS_PATH`.
+ *  `undefined` until `daemonMain` records them (the spawn path is unreachable
+ *  before that); `[]` once an unbaked daemon has stated its honest empty — the
+ *  same never-set-vs-empty distinction the bake record keeps. */
+let linkDirs: readonly string[] | undefined;
+
+/** Record the link dirs written at boot (`writeAgentToolsLinks`' return). */
+export function setAgentToolsLinkDirs(dirs: readonly string[]): void {
+  linkDirs = dirs;
+}
+
+/** The link dirs to stamp into a terminal. Reading before boot records them is
+ *  an ordering bug — crash loud rather than ship a terminal with no tools. */
+export function readAgentToolsLinkDirs(): readonly string[] {
+  if (linkDirs === undefined) {
+    throw new Error(
+      "agent-tools link dirs read before the daemon recorded them at boot",
+    );
+  }
+  return linkDirs;
 }
 
 /** What the drift pre-check found and did. `in-sync` folds every no-verdict

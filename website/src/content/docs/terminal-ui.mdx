@@ -205,7 +205,10 @@ that owns you is already in the environment.
 <Aside type="note" title="`kolu` is on every terminal's PATH">
   Every terminal kolu spawns — local or on a remote host — gets `kolu` on its
   PATH from the same build as the daemon that spawned it, so an agent running
-  inside a terminal can drive its siblings with no setup. `kolu web` runs the
+  inside a terminal can drive its siblings with no setup. The daemon re-points
+  that PATH entry at the current build every time it starts, so a terminal you
+  opened before an upgrade runs the new `kolu` the next time it is used — only a
+  terminal opened by an older kolu needs reopening once. `kolu web` runs the
   server itself; running `kolu` with no subcommand lists the verbs.
 </Aside>
 

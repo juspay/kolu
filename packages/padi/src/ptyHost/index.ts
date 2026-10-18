@@ -43,7 +43,6 @@ import {
   koluIdentityEnv,
   prepareShellInit,
   prependPathEntries,
-  readAgentToolsBake,
   TERMINAL_TOOLS_PATH_ENV,
 } from "kolu-pty";
 import {
@@ -57,6 +56,7 @@ import {
   AGENT_DISTRO_PLUGINS_ENV,
   AI_PROFILE_ENV,
 } from "../agentDistro/bake.ts";
+import { readAgentToolsLinkDirs } from "../agentToolsBake.ts";
 import type { KavalObservation } from "../kavalObservation.ts";
 import { log } from "../log.ts";
 import {
@@ -549,9 +549,11 @@ export interface TerminalEnvSpec {
   padiSocket?: string;
   /** Tool dirs to put on `PATH`, highest priority first; `[]` when this daemon
    *  was never baked with a toolchain. Required, with `[]` as the honest empty:
-   *  the only producer (`readAgentToolsBake`) cannot return `undefined`, so an
-   *  optional marker would add a representable state that means nothing.
-   *  (`padiSocket?` is genuinely optional — its producer really can be unset.) */
+   *  the only producer (`readAgentToolsLinkDirs`) cannot return `undefined`, so
+   *  an optional marker would add a representable state that means nothing.
+   *  (`padiSocket?` is genuinely optional — its producer really can be unset.)
+   *  These are the daemon-owned LINK dirs under its runtime home, not the bake's
+   *  store paths — see `agentToolsBake.ts` (#2305). */
   toolsPath: readonly string[];
   /** The agent-distro layer this terminal gets, or `undefined` for none (the
    *  Agents setting off at spawn, an unbaked daemon, or a host whose bundle has
@@ -606,12 +608,14 @@ export function agentSpawnEnv(
  *      without scanning `/tmp` — and, on macOS where `$XDG_RUNTIME_DIR` is unset,
  *      without guessing the port-namespaced path at all.
  *   6. `PATH` + `KOLU_TERMINAL_TOOLS_PATH` — the daemon's own client toolchain
- *      (`spec.toolsPath`). The locators above only pay off if the tools that
- *      READ them can be run: a socket in the env is useless to an agent whose
- *      shell has no `padi-tui` and no `kolu` to speak it. This is the one layer
- *      that MERGES with (rather than stomps) what came before — the dirs are
- *      prepended to the inherited `PATH`, so the user's own tools all still
- *      resolve, kolu's just win a name collision.
+ *      (`spec.toolsPath`, the daemon-owned LINK dirs under its runtime home). The
+ *      locators above only pay off if the tools that READ them can be run: a
+ *      socket in the env is useless to an agent whose shell has no `padi-tui` and
+ *      no `kolu` to speak it. This is the one layer that MERGES with (rather than
+ *      stomps) what came before — the dirs are prepended to the inherited `PATH`,
+ *      so the user's own tools all still resolve, kolu's just win a name collision.
+ *      That the dirs are links padi flips at boot is what keeps a terminal spawned
+ *      under an older build from running that build's `kolu` forever (#2305).
  *   7. The agent-distro layer (`spec.agents`) — the selected profile's harness
  *      dir joins the SAME toolchain list, after kolu's own tools (so it rides
  *      the same PATH prepend and the same `KOLU_TERMINAL_TOOLS_PATH` stamp the
@@ -730,19 +734,23 @@ export function buildTerminalSpawnInput(args: {
     // (`setPadiServeSocketPath`) and stamped as `PADI_SOCKET`. Optional (see
     // `getPadiServeSocketPath`) — an unset value just omits the locator and padi-tui
     // autodiscovers, so no boot-order guard here (unlike the required KAVAL socket).
-    // `readAgentToolsBake()` needs no guard for the opposite reason: a from-source
-    // daemon has no baked toolchain and says so by returning `[]`.
     //
-    // `requireSpawnServerVersion()` DOES crash on an unset read — the app version
-    // is injected at boot and a blank `TERM_PROGRAM_VERSION` must not ship — and it
-    // is gathered here with the rest, so the composer reads no globals of its own.
+    // The toolchain is the daemon-owned LINK dirs, not the bake's store paths: store
+    // paths are immutable, so a terminal stamped with them would run the old `kolu`
+    // forever after a padi upgrade (#2305). `readAgentToolsLinkDirs()` DOES crash if
+    // read before boot — the links are materialized and recorded at boot, before the
+    // serving socket opens, and a terminal must never ship with a blank toolchain.
+    //
+    // `requireSpawnServerVersion()` is the same story — the app version is injected
+    // at boot and a blank `TERM_PROGRAM_VERSION` must not ship — and both are
+    // gathered here with the rest, so the composer reads no globals of its own.
     return composeSpawnInput(
       { id: args.id, cwd: args.cwd },
       yield* endpointState.info,
       {
         kavalSocket,
         padiSocket: getPadiServeSocketPath(),
-        toolsPath: readAgentToolsBake(),
+        toolsPath: readAgentToolsLinkDirs(),
         ...(args.agents !== undefined
           ? { agents: agentSpawnEnv(args.agents) }
           : {}),

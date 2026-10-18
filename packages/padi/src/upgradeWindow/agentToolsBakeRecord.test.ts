@@ -1,6 +1,8 @@
 /**
- * The agent-tools bake record + drift drain (juspay/kolu#2146) — the covering
- * test the shared-artifact inventory names for `padi-agent-tools-bake`.
+ * The agent-tools bake record + drift drain (juspay/kolu#2146), and the
+ * late-binding tool links (juspay/kolu#2305) — the covering test the
+ * shared-artifact inventory names for `padi-agent-tools-bake` AND
+ * `padi-agent-tools-links`.
  *
  * The mixed-version disposition proven here is the ABSENT-record row: a daemon
  * predating the record yields NO drift verdict from a newer supervisor (the
@@ -8,9 +10,20 @@
  * judges a baked daemon. The drain rows prove the drift path end-to-end against
  * a fake probe, including that failure arms surface their error text instead of
  * collapsing to a silent adopt.
+ *
+ * The link block proves the terminal-facing half: one link per bake entry in
+ * bake order, flipped atomically to a newer bake with the extras pruned, and a
+ * crash-loud read before boot.
  */
 
-import { mkdtempSync, rmSync } from "node:fs";
+import {
+  lstatSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  realpathSync,
+  rmSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ConvergenceProbe } from "@kolu/surface-daemon-supervisor";
@@ -20,7 +33,10 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   drainResidentOnAgentToolsBakeDrift,
   readAgentToolsBakeRecord,
+  readAgentToolsLinkDirs,
+  setAgentToolsLinkDirs,
   writeAgentToolsBakeRecord,
+  writeAgentToolsLinks,
 } from "../agentToolsBake.ts";
 
 const NEW_BAKE = "/nix/store/new-kolu/bin:/nix/store/new-tools/bin";
@@ -32,6 +48,12 @@ const SAME_BUILD = "t";
 const dirs: string[] = [];
 function runtimeDir(): string {
   const dir = mkdtempSync(join(tmpdir(), "agent-tools-bake-"));
+  dirs.push(dir);
+  return dir;
+}
+/** A directory standing in for one bake entry's store dir. */
+function storeDir(name: string): string {
+  const dir = mkdtempSync(join(tmpdir(), `agent-tools-store-${name}-`));
   dirs.push(dir);
   return dir;
 }
@@ -71,6 +93,68 @@ describe("agent-tools bake record", () => {
     // An unbaked daemon records the honest empty — a stated fact, not absence.
     writeAgentToolsBakeRecord(dir, {});
     expect(readAgentToolsBakeRecord(dir)).toBe("");
+  });
+});
+
+describe("agent-tools link dirs (#2305)", () => {
+  it("crash-loud: reading the link dirs before boot records them throws", () => {
+    // The boot-order fail-fast, pinned first (a fresh module graph starts with the
+    // links unrecorded). A terminal that shipped with no tools because a spawn ran
+    // before boot would be exactly the silent degradation this guard forbids.
+    expect(() => readAgentToolsLinkDirs()).toThrow(
+      "agent-tools link dirs read before the daemon recorded them at boot",
+    );
+  });
+
+  it("materializes one link per bake entry, in bake order, resolving to its store dir", () => {
+    const runtime = runtimeDir();
+    const a = storeDir("a");
+    const b = storeDir("b");
+    const links = writeAgentToolsLinks(runtime, [a, b]);
+    expect(links).toEqual([
+      join(runtime, "tools", "0"),
+      join(runtime, "tools", "1"),
+    ]);
+    expect(lstatSync(links[0]!).isSymbolicLink()).toBe(true);
+    expect(realpathSync(links[0]!)).toBe(realpathSync(a));
+    expect(realpathSync(links[1]!)).toBe(realpathSync(b));
+
+    // What daemonMain records for the spawn path is exactly these dirs.
+    setAgentToolsLinkDirs(links);
+    expect(readAgentToolsLinkDirs()).toEqual(links);
+  });
+
+  it("flips tools/<i> to a newer bake, prunes the extras, leaves no temp", () => {
+    const runtime = runtimeDir();
+    const a0 = storeDir("a0");
+    const a1 = storeDir("a1");
+    const b0 = storeDir("b0");
+    writeAgentToolsLinks(runtime, [a0, a1]);
+    expect(realpathSync(join(runtime, "tools", "0"))).toBe(realpathSync(a0));
+
+    // A newer, SHORTER bake (a wrapper that stopped forwarding one dir).
+    const links = writeAgentToolsLinks(runtime, [b0]);
+    expect(links).toEqual([join(runtime, "tools", "0")]);
+    // The link flipped to the newer build — a terminal spawned under either bake
+    // execs B through it.
+    expect(realpathSync(join(runtime, "tools", "0"))).toBe(realpathSync(b0));
+    // tools/1 is pruned, and the atomic rename left no `<link>.kolu-tmp` behind.
+    expect(readdirSync(join(runtime, "tools"))).toEqual(["0"]);
+  });
+
+  it("stamps nothing for an empty bake (from-source), pruning stale links", () => {
+    const runtime = runtimeDir();
+    writeAgentToolsLinks(runtime, [storeDir("stale")]);
+    expect(writeAgentToolsLinks(runtime, [])).toEqual([]);
+    expect(readdirSync(join(runtime, "tools"))).toEqual([]);
+  });
+
+  it("throws when the bake names a directory that does not exist (fail fast)", () => {
+    const runtime = runtimeDir();
+    const missing = join(runtime, "not-a-store-dir");
+    expect(() => writeAgentToolsLinks(runtime, [missing])).toThrow(
+      `agent-tools bake names a directory that does not exist: ${missing}`,
+    );
   });
 });
 

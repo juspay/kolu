@@ -48,7 +48,8 @@ The package graduated to a **process**: `package = process = restart-hash`.
   `buildId.closure.test.ts`) and `PADI_COMMIT_HASH` navigable source identity.
   The pair is both-or-neither: both values are non-empty or both variables are
   absent; a half-baked or explicitly empty baked identity crashes at boot.
-- **The toolchain it hands its terminals** (kolu-pty's `readAgentToolsBake`).
+- **The toolchain it hands its terminals** (kolu-pty's `readAgentToolsBake`,
+  materialized into links by `./src/agentToolsBake.ts`).
   Every terminal padi spawns gets kolu's own CLIs (`kaval-tui`, `padi-tui`,
   `kolu`) on `PATH` plus `KOLU_TERMINAL_TOOLS_PATH`, so an agent inside can drive
   its siblings and reach the MCP face. The dirs are a fact padi is **told**
@@ -60,14 +61,23 @@ The package graduated to a **process**: `package = process = restart-hash`.
   nothing, stated rather than guessed. The **bake** name (what a wrapper tells a
   daemon) and the **stamp** name (what a daemon tells a terminal) are deliberately
   two variables: nothing writes the bake into a terminal, so a kolu launched
-  inside one cannot inherit a foreign build's tools. Because the bake is frozen
-  at daemon spawn while padi outlives kolu upgrades — and the tools bundle is
-  invisible to the `PADI_BUILD_ID` derivation above — padi **records** its bake
+  inside one cannot inherit a foreign build's tools. What a terminal is stamped
+  with is not a bake store path but a **link padi owns**
+  (`<runtime>/tools/<i>`, one symlink per bake entry, materialized and flipped at
+  every boot): store paths are immutable, so a terminal stamped with them would
+  run the `kolu` padi was born under forever and answer a newer daemon with
+  `padiSurface contract skew` (#2305); a link padi re-points makes the next
+  `kolu` exec in ANY terminal the build the current daemon serves. Because the
+  bake is frozen at daemon spawn while padi outlives kolu upgrades — and the
+  tools bundle is invisible to the `PADI_BUILD_ID` derivation above — padi
+  **records** its bake
   at boot (`agent-tools-bake`, beside the `state-root` manifest) and every
   same-machine supervisor (kolu-server's binder, the `padi --stdio` front)
   drains a resident whose record names a different toolchain than its own
-  build's, so a kolu-CLI-only upgrade still reaches new terminals
-  (`./src/agentToolsBake.ts`, juspay/kolu#2146). The toolchain path
+  build's, so a kolu-CLI-only upgrade still reaches terminals — the new ones, and
+  through the flipped links the ones already open; a terminal a pre-link build
+  opened keeps its frozen store path and must be reopened once
+  (`./src/agentToolsBake.ts`, juspay/kolu#2146, #2305). The toolchain path
   starts with the wrapper that also bakes agent-distro, so on the machine
   running kolu (the floor rides that wrapper) an upgrade that moves only the
   agent-distro pin moves the record too and restarts padi, whose rebind makes
@@ -581,7 +591,11 @@ layer carry it; the module is `src/agentDistro/`.
   only). Its exact paths are stamped on the terminal record (its one `agents`
   struct — the tile pill): the package's `bin/` joins the terminal's toolchain
   AFTER kolu's own tools, riding the same `KOLU_TERMINAL_TOOLS_PATH` stamp the
-  rcfile re-asserts; `AGENT_DISTRO_PLUGINS` names this kolu's `agent-plugin`;
+  rcfile re-asserts — and it is a **pinned store path**, deliberately NOT a
+  `tools/<i>` link: agent-distro's currency is the delivery above, not the
+  tool link `agentToolsBake.ts` owns (the link exists only for kolu's own CLIs,
+  whose skew against the daemon is a contract break); `AGENT_DISTRO_PLUGINS`
+  names this kolu's `agent-plugin`;
   the built profiles' store paths are exported as `AI_PROFILE`,
   whitespace-joined in stack order — and with no profile it is not set at all.
   A running terminal never changes set, except through `lifecycle.restart`: a
