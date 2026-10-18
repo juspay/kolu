@@ -244,7 +244,9 @@ describe("foregroundNameFromArgv", () => {
 // Linux-only: on Darwin node-pty reports `p_comm`, so `readProcCmdline` returns
 // `undefined` and there is nothing to read. `skipIf` (not an early `return`)
 // keeps that visible as a SKIP on the macOS lanes rather than a green no-op.
-describe("readProcCmdline", () => {
+// Daemon-gated: the real-child read forks a live `process.execPath`, so a bare
+// `vitest` must skip the block (the #1375 fork bomb).
+describeDaemon("readProcCmdline", () => {
   it.skipIf(process.platform !== "linux")(
     "reads a live child's argv from /proc",
     async () => {
