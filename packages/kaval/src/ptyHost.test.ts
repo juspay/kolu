@@ -13,6 +13,7 @@ import {
   foregroundNameFromArgv,
   getScreenText,
   HEADLESS_TERM_ID,
+  isDynamicLoader,
   type PtyHost,
   readProcCmdline,
   resolveScreenExtent,
@@ -238,6 +239,19 @@ describe("foregroundNameFromArgv", () => {
 
   it.each(cases)("$name", ({ argv, expected }) => {
     expect(foregroundNameFromArgv(argv)).toBe(expected);
+  });
+});
+
+// The darwin edge node-pty hands us: its `process` getter returns `undefined`
+// whenever `pty_getproc` cannot name the foreground pgrp — `tcgetpgrp(3)` is -1
+// in the window before the child claims the tty, and `p_comm` is empty during
+// an `exec` (linux's `|| this._file` always yields a string instead). `list()`
+// and the `foreground` tap read a name on every burst, so a predicate that
+// dereferenced `undefined` took the whole terminal list down on darwin.
+describe("isDynamicLoader", () => {
+  it("reads an absent name as not-a-loader, never throws", () => {
+    expect(isDynamicLoader(undefined)).toBe(false);
+    expect(isDynamicLoader("ld-linux-x86-64.so.2")).toBe(true);
   });
 });
 

@@ -759,9 +759,17 @@ function lastSegment(p: string): string {
 }
 
 /** Whether `name` (a basename, or a path whose last segment is one) names a
- *  dynamic loader. See {@link LOADER_BASENAME}. */
-function isDynamicLoader(name: string): boolean {
-  return LOADER_BASENAME.test(lastSegment(name));
+ *  dynamic loader. See {@link LOADER_BASENAME}.
+ *
+ *  `undefined` is a REAL input, not a type lie papered over: node-pty's
+ *  `process` returns `undefined` on darwin whenever its `pty_getproc` cannot
+ *  name the foreground process group — `tcgetpgrp(3)` is -1 in the window
+ *  before the child claims the tty, and `p_comm` is empty during an `exec` —
+ *  where linux's `|| this._file` always yields a string. An absent name is not
+ *  a loader, and the caller keeps it verbatim, exactly as node-pty reported.
+ *  Exported for the test that pins that darwin edge. */
+export function isDynamicLoader(name: string | undefined): boolean {
+  return name !== undefined && LOADER_BASENAME.test(lastSegment(name));
 }
 
 /** The program a dynamic-loader `argv` will run, or `undefined`.
