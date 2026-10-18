@@ -77,7 +77,9 @@ form (`claude --resume <id>`, `codex resume <id>`, `opencode --session <id>`,
 transcript's absolute path, which those two accept verbatim), not merely the
 most-recent conversation in that folder. The launch line it replays — flags
 included — is the one kolu's [shell integration](/shell-integration) captured
-when you started the agent. When a terminal slept before kolu captured its
+when you started the agent, env-assignment prefix (`FOO=bar claude`) included —
+[what a launch line may carry](/agent-detection#what-a-launch-line-may-carry)
+lists what kolu can read. When a terminal slept before kolu captured its
 session id, wake falls back to the agent's own most-recent resume
 (`xyne --continue` and friends). The one exception is
 deliberate: if you'd **quit** the agent to a bare shell before sleeping, waking

@@ -94,9 +94,10 @@ export function trackRecentRepo(repoRoot: string, repoName: string): void {
 
 /** Upsert a normalized agent command into the recent agents MRU.
  *  Called from `LocalTerminalEndpoint`'s agent-command tracker whenever the preexec OSC 633;E
- *  handler fires with a command whose first token matches a known agent
- *  binary. The `command` string is the normalized form produced by
- *  `parseAgentCommand` — raw prompt text has already been stripped. */
+ *  handler fires with a command whose binary (behind any env-assignment /
+ *  `exec` / `env` prefix) is a known agent. The `command` string is the
+ *  normalized form produced by `parseAgentCommand` — raw prompt text has
+ *  already been stripped; env assignments are kept in front. */
 export function trackRecentAgent(command: string): void {
   const feed = padiSurfaceCtx.cells.activityFeed.get();
   const next = upsertMru(

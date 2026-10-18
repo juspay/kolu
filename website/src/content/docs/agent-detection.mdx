@@ -131,6 +131,26 @@ new agent is one small package that declares its
 the agent registry and the build wiring (`nix/workspace.nix`, lockfile) — no
 shared table anywhere in the tree changes.
 
+### What a launch line may carry
+
+The command you type to start an agent is also the line kolu replays to
+[resume it](/sessions) after a sleep or restart. kolu reads the agent's name
+behind a plain shell prefix:
+
+| You type | kolu remembers |
+| --- | --- |
+| `opencode --model x` | `opencode --model x` |
+| `AI_PROFILE=github:juspay/skills opencode` | `AI_PROFILE=github:juspay/skills opencode` |
+| `exec omp --model fable` | `omp --model fable` |
+| `env FOO=1 codex` | `FOO=1 codex` |
+
+Environment assignments are **kept**, so the resumed agent gets the same profile
+or config it started with. `exec` and `env` are dropped. Anything else in front of
+the agent — a pipeline, `cd dir && claude`, a subshell, a flag on `env` like
+`env -i` — is not recognized. The agent is still detected and shown, but its
+terminal will **not** resume across a restart, and padi's log says so once with
+the line it saw (`agent detected but its launch line was not recognized`).
+
 <Aside type="note" title="One conversation belongs to one terminal">
   Claude Code, Grok, and Oh My Pi anchor a conversation to a specific terminal —
   the first two by process id, Oh My Pi by <strong>recording the terminal
