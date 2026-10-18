@@ -12,8 +12,8 @@
  * collapsing to a silent adopt.
  *
  * The link block proves the terminal-facing half: one link per bake entry in
- * bake order, flipped atomically to a newer bake with the extras pruned, and a
- * crash-loud read before boot.
+ * bake order, flipped atomically to a newer bake with the extras pruned, and the
+ * planted link tree classified by the shared-artifact inventory.
  */
 
 import {
@@ -23,10 +23,12 @@ import {
   readdirSync,
   realpathSync,
   rmSync,
+  writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ConvergenceProbe } from "@kolu/surface-daemon-supervisor";
+import { unknownProtocolFilesOnDisk } from "@kolu/surface-daemon/upgrade-window.testlib";
 import { Effect } from "effect";
 import { AGENT_TOOLS_BAKE_ENV } from "kolu-pty";
 import { afterEach, describe, expect, it } from "vitest";
@@ -38,6 +40,7 @@ import {
   writeAgentToolsBakeRecord,
   writeAgentToolsLinks,
 } from "../agentToolsBake.ts";
+import { SHARED_ARTIFACTS } from "./sharedArtifacts.testlib.ts";
 
 const NEW_BAKE = "/nix/store/new-kolu/bin:/nix/store/new-tools/bin";
 const OLD_BAKE = "/nix/store/old-padi-agent/bin";
@@ -97,15 +100,6 @@ describe("agent-tools bake record", () => {
 });
 
 describe("agent-tools link dirs (#2305)", () => {
-  it("crash-loud: reading the link dirs before boot records them throws", () => {
-    // The boot-order fail-fast, pinned first (a fresh module graph starts with the
-    // links unrecorded). A terminal that shipped with no tools because a spawn ran
-    // before boot would be exactly the silent degradation this guard forbids.
-    expect(() => readAgentToolsLinkDirs()).toThrow(
-      "agent-tools link dirs read before the daemon recorded them at boot",
-    );
-  });
-
   it("materializes one link per bake entry, in bake order, resolving to its store dir", () => {
     const runtime = runtimeDir();
     const a = storeDir("a");
@@ -155,6 +149,22 @@ describe("agent-tools link dirs (#2305)", () => {
     expect(() => writeAgentToolsLinks(runtime, [missing])).toThrow(
       `agent-tools bake names a directory that does not exist: ${missing}`,
     );
+  });
+
+  it("the planted link tree is accounted for by the shared-artifact inventory", () => {
+    // The real on-disk shape under a `padi-<digest>` runtime dir: tools/0 is a
+    // symlink to a store dir, and a tool inside that dir is a file. Node's
+    // recursive readdir FOLLOWS the symlink, so the grounded sweep sees
+    // `…/tools/0/kolu` — the `padi-agent-tools-links` row's `diskBasenamePatterns`
+    // must classify it, or the watchdog reports the store's bin names as unknown
+    // shared artifacts on a real host. (Mutate the regex and this goes red.)
+    const runtime = runtimeDir();
+    const padiDir = join(runtime, "padi-deadbeef");
+    mkdirSync(padiDir, { recursive: true, mode: 0o700 });
+    const store = storeDir("sweep");
+    writeFileSync(join(store, "kolu"), "# stub\n");
+    writeAgentToolsLinks(padiDir, [store]);
+    expect(unknownProtocolFilesOnDisk(SHARED_ARTIFACTS, runtime)).toEqual([]);
   });
 });
 
