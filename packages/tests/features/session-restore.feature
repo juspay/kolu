@@ -91,8 +91,13 @@ Feature: Session restore
   # (no "+N splits" collapse). The host owns the resumable set; the client only
   # opts out. Regression: the client used to filter `!parentId` out of the resume
   # opt-in, so a split's agent was never resumed and its restoreTarget was wiped.
+  #
+  # The launch line may carry an env-assignment prefix (an orchestrator's
+  # `AI_PROFILE=… opencode`): the prefix is part of the remembered command, so
+  # the split still resumes — WITH the same prefix. Regression: such a split
+  # used to come back as a bare shell, its launch line unrecognized.
   @codex-mock @kaval-restart
-  Scenario: A split terminal's agent resumes on session restore
+  Scenario Outline: A split terminal's agent resumes on session restore
     # Agent is mocked in the focused SPLIT (create-sub focuses it). Tile
     # titlebar chrome only paints the main pane's agent, and a split's agent
     # reaches NO client chrome at all, so the tile-chrome gate every other
@@ -104,7 +109,7 @@ Feature: Session restore
     # "Restore 2 terminals" with no agent to resume, for as long as you poll.
     Given the terminal is ready
     When I create a sub-terminal via command palette
-    And a Codex session is mocked with state "waiting"
+    And a Codex session is mocked with state "waiting" launched with the prefix "<prefix>"
     Then the saved session should list 1 resumable agents
     When the kaval daemon is killed
     Then the degraded canvas is shown
@@ -115,8 +120,13 @@ Feature: Session restore
     When I click the restore button
     Then there should be 1 workspace switcher entries
     And the restored split sub-terminal should be visible
-    And a restored terminal should replay the agent resume invocation "codex resume 00000000-0000-0000-0000-000000000001"
+    And a restored terminal should replay the agent resume invocation "<resume>"
     And there should be no page errors
+
+    Examples:
+      | prefix                 | resume                                                                |
+      |                        | codex resume 00000000-0000-0000-0000-000000000001                     |
+      | KOLU_E2E_PROFILE=split | KOLU_E2E_PROFILE=split codex resume 00000000-0000-0000-0000-000000000001 |
 
   # Captured agent commands (persisted on each SavedTerminal's `lastAgentCommand`)
   # surface as a "resume M agents" suffix on the restore button, with each

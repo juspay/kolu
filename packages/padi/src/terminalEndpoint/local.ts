@@ -79,6 +79,7 @@ import { probeProfileInEffect } from "../agentDistro/inEffect.ts";
 import { agentLayerOfRecord, withAgentLayer } from "../agentDistro/layer.ts";
 import { buildTerminalSpawnInput, ptyHostClient } from "../ptyHost/index.ts";
 import { notifyDirty } from "../publisher.ts";
+import { unresumableAgentWatch } from "./unresumableAgent.ts";
 import {
   type ActiveTerminalProcess,
   claimActiveTerminal,
@@ -1261,6 +1262,7 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
       seedEntry.meta.restoreTarget,
     );
     const runStartedAt = Date.now();
+    const unresumable = unresumableAgentWatch(id, log);
 
     const emit = (o: TerminalEvent): void => {
       const before = current;
@@ -1284,6 +1286,7 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
         trackRecentRepo(o.git.info.mainRepoRoot, o.git.info.repoName);
       if (o.kind === "commandRun" && !o.replayed) trackRecentAgent(o.command);
       if (current === before) return; // `unknown`/dedup no-op — nothing else to commit
+      unresumable.check(current);
       // Three effect arms, each gated by ITS OWN delta — no firehose on any:
       //  - the OBSERVED half → the `snapshots` collection, on a snapshot change;
       //  - the MEMORY half + the derived `restoreTarget` → `kolu.authored`, on an
@@ -1317,6 +1320,7 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
       (msg) => {
         // The OSC 633 command mark: a command that just started is the one most
         // likely to bind a port. The 5 s baseline is what reports it.
+        unresumable.noteRawCommand(msg.command);
         signals.commandRun.publish({
           command: msg.command,
           replayed: msg.replayed,

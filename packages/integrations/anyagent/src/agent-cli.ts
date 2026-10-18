@@ -9,7 +9,12 @@
  * is not a known agent invocation.
  *
  * Normalization rules:
- * - First token (basename-stripped) must name an agent in the registry.
+ * - The binary (basename-stripped) must name an agent in the registry. It is
+ *   found behind the POSIX simple-command prefix — `NAME=value` assignments,
+ *   then an optional `exec` or `env NAME=value…` wrapper — by
+ *   `simpleCommandAnatomy`. The assignments are kept in the normalized form;
+ *   the wrapper is dropped. Anything else in front (a pipeline, `cd x &&`, a
+ *   flag on `env`) leaves the line unrecognized.
  * - Commands containing exit-immediately flags (`--version`, `--help`,
  *   `-V`, `-h`, plus any per-agent spellings) return `null`.
  * - Only flags listed in the agent's `stableFlags` are preserved.
@@ -36,7 +41,7 @@
  * drops real positionals.
  */
 
-import { shellJoin, shellSplit } from "@kolu/shell-quote";
+import { shellJoin, shellQuoteArg, shellSplit } from "@kolu/shell-quote";
 import { parseArgsStringToArgv } from "string-argv";
 import type { AgentIdentity, RestoreTarget } from "./schemas.ts";
 import type { AnyAgentVocab, AgentCliGrammar } from "./vocab.ts";
@@ -104,10 +109,100 @@ function basename(s: string): string {
   return slash === -1 ? s : s.slice(slash + 1);
 }
 
+/** One `NAME=value` environment assignment from a launch line's prefix. `value`
+ *  is the LITERAL value (source quoting already removed). */
+export interface EnvAssignment {
+  readonly name: string;
+  readonly value: string;
+}
+
+/** The anatomy of a POSIX simple command: the env assignments in front of the
+ *  binary, the binary itself, and its arguments. */
+export interface SimpleCommandAnatomy {
+  readonly assignments: readonly EnvAssignment[];
+  readonly head: string;
+  readonly args: readonly string[];
+}
+
+const ASSIGNMENT_WORD = /^([A-Za-z_][A-Za-z0-9_]*)=(.*)$/s;
+
+/**
+ * Split an argv into its POSIX simple-command prefix — the ONE place every head
+ * reader (`parseAgentCommand`, `agentKindFromCommand`, `agentNameFromCommand`,
+ * `resumeAgentCommand`) learns where the binary is, so `FOO=1 claude` is read as
+ * `claude` by all of them or by none.
+ *
+ * Grammar: leading `NAME=value` words, then at most one wrapper — `exec` (dropped:
+ * a resume line is typed into a fresh shell anyway) or `env` followed by more
+ * `NAME=value` words — then the binary and its arguments. Anything we can't read
+ * exactly yields `null` rather than a guess: a flag on `env`/`exec` (`env -i`,
+ * `env -u X`, `exec -a name`), or a line with no binary at all.
+ *
+ * `dequote` turns an assignment's raw value text into its literal value. The
+ * `string-argv` dialect keeps mid-word quotes (`B='x y'` arrives as one token
+ * WITH its quotes), so that caller passes a dequoter; `shellSplit` already
+ * strips them. A value that doesn't dequote to exactly one word → `null`.
+ */
+export function simpleCommandAnatomy(
+  argv: readonly string[],
+  dequote: (raw: string) => string | null = (raw) => raw,
+): SimpleCommandAnatomy | null {
+  const assignments: EnvAssignment[] = [];
+  let i = 0;
+  // Consume `NAME=value` words from `i`; false if a value fails to dequote.
+  const takeAssignments = (): boolean => {
+    for (; i < argv.length; i++) {
+      const m = ASSIGNMENT_WORD.exec(argv[i] ?? "");
+      if (m === null) return true;
+      const value = dequote(m[2] ?? "");
+      if (value === null) return false;
+      assignments.push({ name: m[1] ?? "", value });
+    }
+    return true;
+  };
+  if (!takeAssignments()) return null;
+  const wrapper = argv[i];
+  if (wrapper === "exec" || wrapper === "env") {
+    i++;
+    if (argv[i]?.startsWith("-")) return null; // a wrapper flag — don't guess
+    if (wrapper === "env" && !takeAssignments()) return null;
+  }
+  const head = argv[i];
+  if (head === undefined) return null;
+  return { assignments, head, args: argv.slice(i + 1) };
+}
+
+/** Render assignments back to shell source in the `shellJoin` dialect: the NAME
+ *  stays bare (a quoted `'FOO=x y'` would be a command word, not an assignment)
+ *  and only the value is quoted. Returns `""` for none. */
+function renderAssignments(assignments: readonly EnvAssignment[]): string {
+  return assignments
+    .map(({ name, value }) =>
+      value === "" ? `${name}=` : `${name}=${shellQuoteArg(value)}`,
+    )
+    .join(" ");
+}
+
+/** Dequote one assignment value written in the user's shell dialect, reusing
+ *  `string-argv` (the same tokenizer that produced the token). */
+function dequoteRawValue(raw: string): string | null {
+  const words = parseArgsStringToArgv(raw);
+  if (words.length === 0) return "";
+  return words.length === 1 ? (words[0] ?? null) : null;
+}
+
+/** The anatomy of a command in the `shellJoin` wire format (the normalized
+ *  output of `parseAgentCommand`, which `shellSplit` exactly inverts). */
+function normalizedAnatomy(command: string): SimpleCommandAnatomy | null {
+  return simpleCommandAnatomy(shellSplit(command.trim()));
+}
+
 /**
  * Parse a raw command line. Returns the normalized agent invocation
- * string (e.g. `"claude --model sonnet"`) if the first token resolves
- * to a known agent binary, or `null` otherwise.
+ * string (e.g. `"claude --model sonnet"`) if the command's binary (after any
+ * env-assignment / `exec` / `env` prefix, see `simpleCommandAnatomy`) resolves
+ * to a known agent, or `null` otherwise. The env assignments are KEPT in front
+ * (`AI_PROFILE=x opencode`) so a resume replays the same configuration.
  *
  * TWO input formats reach here, in two different quoting dialects, and the CALLER
  * knows which — so it says so rather than the string being sniffed (a raw line
@@ -126,26 +221,22 @@ export function parseAgentCommand(
   shellJoinFormat = false,
 ): string | null {
   const trimmed = raw.trim();
-  const argv = shellJoinFormat
-    ? shellSplit(trimmed)
-    : parseArgsStringToArgv(trimmed);
-  const head = argv[0];
-  if (head === undefined) return null;
-  const entry = reg.byBasename(basename(head));
+  const anatomy = shellJoinFormat
+    ? simpleCommandAnatomy(shellSplit(trimmed))
+    : simpleCommandAnatomy(parseArgsStringToArgv(trimmed), dequoteRawValue);
+  if (anatomy === null) return null;
+  const entry = reg.byBasename(basename(anatomy.head));
   if (entry === undefined) return null;
-  return normalizeAgentInvocation(isVocab(entry) ? entry.cli : entry, argv);
+  return normalizeAgentInvocation(isVocab(entry) ? entry.cli : entry, anatomy);
 }
 
-/** Normalize an already-tokenized argv to its agent invocation string, or `null`
- *  if `argv[0]` isn't the grammar's binary. Shared by both tokenizer attempts
- *  above. */
+/** Normalize an already-dissected command to its agent invocation string, or
+ *  `null` if its head isn't the grammar's binary. Shared by both tokenizer
+ *  dialects above. */
 function normalizeAgentInvocation(
   grammar: AgentCliGrammar,
-  argv: string[],
+  { assignments, head, args }: SimpleCommandAnatomy,
 ): string | null {
-  const [head, ...args] = argv;
-  if (head === undefined) return null;
-
   const agent = basename(head);
   // Caller already resolved the grammar by basename; a direct re-check keeps
   // this function total on its own (no caller contract to remember).
@@ -197,21 +288,24 @@ function normalizeAgentInvocation(
   // shell re-expands it to the same home path the source used — is left as-is.
   // `shellJoin`'s exact inverse is `shellSplit` (see `@kolu/shell-quote`), which
   // the resume/head-extraction paths use to reparse this wire format.
-  return shellJoin(kept);
+  const prefix = renderAssignments(assignments);
+  return prefix === "" ? shellJoin(kept) : `${prefix} ${shellJoin(kept)}`;
 }
 
 /**
  * Resolve the agent `kind` discriminator for a command string (typically
- * the normalized output of `parseAgentCommand`, but raw command strings
- * with a path prefix are handled too via `basename`). Returns `null` for
+ * the normalized output of `parseAgentCommand`, but a path prefix on the
+ * binary is handled too via `basename`). The head is read through
+ * `simpleCommandAnatomy`, so `FOO=1 opencode` is `opencode`. Returns `null` for
  * unrecognized commands and for detection-only agents.
  */
 export function agentKindFromCommand(
   reg: AgentCliRegistry,
   command: string,
 ): string | null {
-  const head = command.trim().split(/\s+/, 1)[0] ?? "";
-  const entry = reg.byBasename(basename(head));
+  const anatomy = normalizedAnatomy(command);
+  if (anatomy === null) return null;
+  const entry = reg.byBasename(basename(anatomy.head));
   return entry !== undefined && isVocab(entry) ? entry.kind : null;
 }
 
@@ -250,12 +344,13 @@ export function exactRestoreTarget(
  * normalized form, see `@kolu/shell-quote`) so the joined wire format stays
  * fully encapsulated: consumers ask anyagent "what's the agent here?" instead
  * of re-splitting the joined string and depending on the head token never
- * being quoted. Returns `null` for an empty command. No registry needed — this
- * is pure string anatomy.
+ * being quoted. The head is read through `simpleCommandAnatomy`, so
+ * `FOO=1 opencode` names `opencode`. Returns `null` for an empty command. No
+ * registry needed — this is pure string anatomy.
  */
 export function agentNameFromCommand(command: string): string | null {
-  const head = shellSplit(command.trim())[0];
-  return head === undefined ? null : basename(head);
+  const anatomy = normalizedAnatomy(command);
+  return anatomy === null ? null : basename(anatomy.head);
 }
 
 /**
@@ -285,17 +380,27 @@ export function resumeAgentCommand(
   session?: AgentIdentity,
 ): string | null {
   const trimmed = normalized.trim();
-  // The agent basename is always a safe bare word, so `shellSplit` reads the
-  // head reliably. We only need it to look up the agent — we do NOT re-render
-  // the tail. Splicing the resume marker as a STRING between head and tail
-  // keeps the already-correct quoting of the tail VERBATIM: a re-tokenize +
-  // re-join round-trip would (a) lose the literal-`~` quoting `parseAgentCommand`
-  // recovered (F2) and (b) risk re-mangling the canonical `'\''` idiom (F3).
-  const head = shellSplit(trimmed)[0];
-  if (head === undefined) return null;
-  const entry = reg.byBasename(basename(head));
+  // `simpleCommandAnatomy` finds the head behind any env assignments. We only
+  // need it to look up the agent — we do NOT re-render the tail. Splicing the
+  // resume marker as a STRING between head and tail keeps the already-correct
+  // quoting of the tail VERBATIM: a re-tokenize + re-join round-trip would (a)
+  // lose the literal-`~` quoting `parseAgentCommand` recovered (F2) and (b) risk
+  // re-mangling the canonical `'\''` idiom (F3).
+  const anatomy = normalizedAnatomy(trimmed);
+  if (anatomy === null) return null;
+  const entry = reg.byBasename(basename(anatomy.head));
   if (entry === undefined || !isVocab(entry)) return null;
   const vocab = entry;
+  // The assignments stay in front of the head, exactly as `parseAgentCommand`
+  // rendered them. A normalized command always begins with that rendering; one
+  // that doesn't was never normalized (an `exec`/`env` wrapper, odd spacing) —
+  // a caller bug, so crash loudly rather than splice into the wrong offset.
+  const assigned = renderAssignments(anatomy.assignments);
+  const head = assigned === "" ? anatomy.head : `${assigned} ${anatomy.head}`;
+  if (!trimmed.startsWith(head))
+    throw new Error(
+      `resumeAgentCommand: not a normalized agent command: ${JSON.stringify(normalized)}`,
+    );
   const tail = trimmed.slice(head.length).trimStart(); // everything after the head token
   const policy = vocab.resume;
 

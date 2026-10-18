@@ -71,7 +71,7 @@ async function cdTerminalInto(world: KoluWorld, cwd: string): Promise<void> {
   await waitForBufferContains(world.page, marker);
 }
 
-async function startFakeAgent(world: KoluWorld): Promise<void> {
+async function startFakeAgent(world: KoluWorld, prefix = ""): Promise<void> {
   // Long-lived foreground process — the bash copy at
   // $KOLU_FAKE_CODEX_BIN runs as the pty's foreground while its `sleep`
   // child holds. Invoked by absolute path, not via PATH: ~/.bashrc on
@@ -103,8 +103,10 @@ async function startFakeAgent(world: KoluWorld): Promise<void> {
   // scenarios, which SIGKILLs the whole tree.
   const bin = process.env.KOLU_FAKE_CODEX_BIN;
   if (!bin) throw new Error("KOLU_FAKE_CODEX_BIN must be set");
+  // `prefix` is typed in front of the binary verbatim — an env-assignment
+  // prefix (`FOO=bar codex …`) the launch-line parser must see through.
   await world.page.keyboard.type(
-    `${bin} -c "printf '\\033]0;codex\\007'; sleep 99999 ; :"`,
+    `${prefix === "" ? "" : `${prefix} `}${bin} -c "printf '\\033]0;codex\\007'; sleep 99999 ; :"`,
   );
   await world.page.keyboard.press("Enter");
 }
@@ -143,7 +145,7 @@ interface CodexMockOpts {
 async function mockCodexSession(
   world: KoluWorld,
   opts: CodexMockOpts,
-  { shimmed }: { shimmed?: boolean } = {},
+  { shimmed, prefix }: { shimmed?: boolean; prefix?: string } = {},
 ): Promise<void> {
   const codexDir = getCodexDir();
   if (!codexDir) throw new Error("KOLU_CODEX_DIR must be set");
@@ -159,7 +161,7 @@ async function mockCodexSession(
   if (shimmed) {
     await startShimmedAgent(world);
   } else {
-    await startFakeAgent(world);
+    await startFakeAgent(world, prefix);
   }
 }
 
@@ -167,6 +169,17 @@ When(
   "a Codex session is mocked with state {string}",
   async function (this: KoluWorld, state: string) {
     await mockCodexSession(this, { state: state as AgentLifecycleState });
+  },
+);
+
+When(
+  "a Codex session is mocked with state {string} launched with the prefix {string}",
+  async function (this: KoluWorld, state: string, prefix: string) {
+    await mockCodexSession(
+      this,
+      { state: state as AgentLifecycleState },
+      { prefix },
+    );
   },
 );
 
