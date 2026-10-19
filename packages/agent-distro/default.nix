@@ -174,7 +174,7 @@ let
   proof = { floor }: ''
     echo "resolved ${env.state}=''${${env.state}:-}"
     echo "resolved ${env.pluginDir}=''${${env.pluginDir}:-}"
-    for f in plugin.json mcp.json skills/kolu/SKILL.md; do
+    for f in plugin.json mcp.json skills/kolu/SKILL.md .claude-plugin/plugin.json; do
       if [ ! -f "''${${env.pluginDir}:-}/$f" ]; then
         echo "FAIL: ${env.pluginDir} has no $f — every harness would launch without kolu's plugin." >&2
         exit 1

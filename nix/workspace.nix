@@ -228,9 +228,9 @@ let
     ../pnpm-workspace.yaml
     ../pnpm-lock.yaml
     ../tsconfig.base.json
-    # kolu's own agent plugin (at the repository root): the client reads its
-    # skills' SKILL.md at build time
-    # (`packages/client/src/agents/pluginSkills.ts`) to name one in a tile tip.
+    # kolu's own agent plugin (at the repository root): the client reads
+    # skills/*/SKILL.md at build time (packages/client/src/agents/pluginSkills.ts)
+    # to name one in a tile tip.
     ../skills
   ] ++ lib.attrValues treeMembers);
   treeSrc = lib.fileset.toSource {

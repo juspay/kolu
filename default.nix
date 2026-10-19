@@ -110,6 +110,16 @@ let
       (pkgs.lib.all (p: pkgs.lib.elem p m.expose) m.prove)
       "nix/agent-packages.json: every `prove` entry must also be in `expose` (a proven attr no remote can resolve)";
     m;
+  # kolu's own agent plugin is the repository root's four paths
+  # (`github:juspay/kolu` IS the plugin; no `?dir=` subpath). ONE list, because
+  # two builds read it: the plugin derivation copies exactly these, and the
+  # remote agent tree must carry the same set.
+  agentPluginFileset = pkgs.lib.fileset.unions [
+    ./plugin.json
+    ./mcp.json
+    ./skills
+    ./.claude-plugin/plugin.json
+  ];
   agentSource = mkProvenAgentSource {
     root = ./.;
     fileset = pkgs.lib.fileset.unions [
@@ -118,12 +128,9 @@ let
       ./default.nix
       ./nix
       ./npins
-      # padi-agent bakes kolu's agent plugin (packages/agent-distro), so the tree
-      # a remote resolves padi-agent from must carry it. `skills/` arrives via
-      # the workspace `fileset` above; these are the plugin's root manifests.
-      ./plugin.json
-      ./mcp.json
-      ./.claude-plugin/plugin.json
+      # padi-agent bakes kolu's agent plugin (packages/agent-distro), so the
+      # tree a remote resolves padi-agent from must carry it.
+      agentPluginFileset
     ];
     inherit pkgs commitHash;
     agents = agentPackages.prove;
@@ -153,18 +160,12 @@ let
   # without a value containing a space silently mis-sourcing.
   agentFlakeEnv = pkgs.writeText "agent-flake-env" (pkgs.lib.toShellVars agentBakedEnv);
 
-  # kolu's own agent plugin lives at the repository root (`github:juspay/kolu`
-  # IS the plugin; no `?dir=` subpath). The plugin derivation must copy exactly
-  # the plugin — its manifest, MCP config, skills, and Claude plugin manifest —
-  # not the monorepo, so its source is this fileset rather than `./.`.
+  # The plugin derivation must copy exactly the plugin — its manifest, MCP
+  # config, skills, and Claude plugin manifest — not the monorepo, so its source
+  # is the plugin fileset above rather than `./.`.
   agentPluginSrc = pkgs.lib.fileset.toSource {
     root = ./.;
-    fileset = pkgs.lib.fileset.unions [
-      ./plugin.json
-      ./mcp.json
-      ./skills
-      ./.claude-plugin/plugin.json
-    ];
+    fileset = agentPluginFileset;
   };
 
   # agent-distro — the coding agents a kolu terminal can get on its PATH. All of

@@ -595,7 +595,7 @@ layer carry it; the module is `src/agentDistro/`.
   `tools/<i>` link: agent-distro's currency is the delivery above, not the
   tool link `agentToolsBake.ts` owns (the link exists only for kolu's own CLIs,
   whose skew against the daemon is a contract break); `AGENT_DISTRO_PLUGINS`
-  names kolu's agent plugin at the repository root;
+  names the `kolu-agent-plugin` copy of kolu's agent plugin;
   the built profiles' store paths are exported as `AI_PROFILE`,
   whitespace-joined in stack order — and with no profile it is not set at all.
   A running terminal never changes set, except through `lifecycle.restart`: a
