@@ -42,9 +42,11 @@
 #     (`lib.cache`, the store every host pulls that path from) and its update
 #     schedule (`lib.schedule`). Baked on the floor arm only — the binder
 #     decides when and what a host gets; a host never decides on its own.
-#   * `pluginDir` — kolu's agent plugin (the repository root), handed to every
-#     harness at launch through `AGENT_DISTRO_PLUGINS`, so kolu's MCP plugin is
-#     loaded in every terminal without agent-distro pinning kolu.
+#   * `pluginDir` — the four-path copy of kolu's agent plugin (`plugin.json`,
+#     `mcp.json`, `skills/`, `.claude-plugin/plugin.json`), built as
+#     `kolu-agent-plugin` and handed to every harness at launch through
+#     `AGENT_DISTRO_PLUGINS`, so kolu's MCP plugin is loaded in every terminal
+#     without agent-distro pinning kolu.
 #   * `bakeArgs { floor }` — the `--set` flags that bake the above onto a
 #     wrapper (the floor and the delivery only when `floor`).
 #   * `proof { floor }` — the build-time check a wrapper runs on what it baked.
@@ -172,10 +174,12 @@ let
   proof = { floor }: ''
     echo "resolved ${env.state}=''${${env.state}:-}"
     echo "resolved ${env.pluginDir}=''${${env.pluginDir}:-}"
-    if [ ! -f "''${${env.pluginDir}:-}/plugin.json" ]; then
-      echo "FAIL: ${env.pluginDir} has no plugin.json — every harness would launch without kolu's plugin." >&2
-      exit 1
-    fi
+    for f in plugin.json mcp.json skills/kolu/SKILL.md; do
+      if [ ! -f "''${${env.pluginDir}:-}/$f" ]; then
+        echo "FAIL: ${env.pluginDir} has no $f — every harness would launch without kolu's plugin." >&2
+        exit 1
+      fi
+    done
     if ! jq -e --arg p ${lib.escapeShellArg stateHomePlaceholder} '(.state | startswith($p)) and (.history | startswith($p)) and (.landed | startswith($p))' "''${${env.state}:-/dev/null}" >/dev/null; then
       echo "FAIL: ${env.state} does not keep its state under the host-home placeholder — every host would use the build machine's home." >&2
       exit 1

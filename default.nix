@@ -123,7 +123,7 @@ let
       # the workspace `fileset` above; these are the plugin's root manifests.
       ./plugin.json
       ./mcp.json
-      ./.claude-plugin
+      ./.claude-plugin/plugin.json
     ];
     inherit pkgs commitHash;
     agents = agentPackages.prove;
@@ -163,7 +163,7 @@ let
       ./plugin.json
       ./mcp.json
       ./skills
-      ./.claude-plugin
+      ./.claude-plugin/plugin.json
     ];
   };
 
