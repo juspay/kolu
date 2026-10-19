@@ -77,7 +77,7 @@ interface BackupRow {
 /** How a restore ENDED. Not every non-throw is a clean success: kolu-server's
  *  restore applies the cells and then converges the host pool, so a host that
  *  would not dial leaves the state restored and the fleet short — a degraded
- *  outcome (`toast.warning` per `.claude/rules/toast-conventions.md`), not the
+ *  outcome (`toast.warning` per `dev/skills/solidjs/SKILL.md`), not the
  *  self-contradicting "Restore failed: state restored, but…" the error channel
  *  used to force. */
 type RestoreOutcome =
@@ -213,7 +213,7 @@ const StateBackupsDialog: Component = () => {
   };
 
   /** The restore act — loading/success/error toast round-trip per
-   *  `.claude/rules/toast-conventions.md`, re-entry-guarded like the import
+   *  `dev/skills/solidjs/SKILL.md`, re-entry-guarded like the import
    *  action (a double click must not restore twice). Written once: the two
    *  stores differ only in the adapter's `restore`. */
   const restore = (store: StoreAdapter, row: BackupRow): UiAction =>

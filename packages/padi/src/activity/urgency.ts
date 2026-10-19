@@ -14,7 +14,7 @@
  * (`agentBucket` from `@kolu/terminal-vocab/agentProjection`) rather than a
  * hand-rolled switch over the state literals, so a new `AgentInfo["state"]`
  * forces its decision in the fenced fold, not here (see
- * `.claude/rules/dock-fleet-mirror.md`). A sleeping/parked entry carries
+ * `dev/skills/dock-state/SKILL.md`). A sleeping/parked entry carries
  * `agent: null` and contributes 0.
  *
  * **Effective finish (EF2):** `finishedIds` is not raw `waiting` — a waiting

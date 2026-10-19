@@ -25,7 +25,7 @@
  *       · you resized while the request was in flight;
  *       · the framework's transport retry re-subscribed by REPLAYING the input
  *         it captured at the first call — so a retry re-sends the ORIGINAL grid
- *         even though your pane has moved on (see `.claude/rules/streaming.md`,
+ *         even though your pane has moved on (see `dev/skills/streaming/SKILL.md`,
  *         "A member's input is CAPTURED — never a live fact").
  *
  *     Both are LOCAL: the predicate compares the grid you asked at with the grid

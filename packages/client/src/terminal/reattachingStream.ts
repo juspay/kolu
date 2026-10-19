@@ -688,7 +688,7 @@ export function consumeReattachingStream<T>(
         // error is surfaced with its cause. The framework's own `containThrow`
         // says the same thing one layer down, but it is not exported to
         // consumers, and adding an export is a gated @kolu/surface change
-        // (`.claude/rules/surface.md`) — see this round's sweep report, which
+        // (`dev/skills/surface/SKILL.md`) — see this round's sweep report, which
         // records the same defect on `fenceStream`'s `onRetry`.
         try {
           onReattach();

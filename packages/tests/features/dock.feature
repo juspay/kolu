@@ -162,7 +162,7 @@ Feature: Dock
     # from `--dock-edge-stripe-w`), a monogram + sticky header band so the
     # repo label survives the scroll, and air between cards. Assert the
     # structural facts via computed style, never a class selector
-    # (see .claude/rules/e2e-testing.md).
+    # (see dev/skills/e2e-testing/SKILL.md).
     Given I create a terminal
     When the dock is expanded
     Then the dock section should carry a repo-colour spine

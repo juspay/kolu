@@ -56,7 +56,7 @@
  * and that copy is exactly what a composition root must not own: it consumed
  * `terminalAttach` raw, outside the per-subscription retry fence (so a transport
  * blip killed the wait instead of re-subscribing —
- * `.claude/rules/streaming.md` rule 1), and it raced `terminalExit` in a way
+ * `dev/skills/streaming/SKILL.md` rule 1), and it raced `terminalExit` in a way
  * that could report a terminal whose sentinel HAD printed as "gone". It lives in
  * `packages/padi/src/cliClient/watch.ts` now, where that subscription spine is
  * written once.

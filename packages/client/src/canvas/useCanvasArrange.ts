@@ -1,6 +1,6 @@
 /** Repo-island arrange — glues the pure layout module (`repoIslands.ts`)
  *  against the live terminal store. Lives outside `App.tsx` per the
- *  "App.tsx is a thin layout shell" rule (`.claude/rules/solidjs.md`):
+ *  "App.tsx is a thin layout shell" rule (`dev/skills/solidjs/SKILL.md`):
  *  arrange is its own domain (store reads, no-op skip on writes,
  *  post-arrange recenter), and that domain owns its `useXxx.ts` module.
  *

@@ -196,7 +196,7 @@ home-manager:
 # build; the node remains separate because booting the result is a distinct
 # runtime proof.
 smoke: nix
-    {{ nix_shell }} bash .apm/skills/ci/smoke.sh
+    {{ nix_shell }} bash dev/skills/ci/smoke.sh
 
 # `smoke`'s dev-mode twin. `smoke` boots the PACKAGED binary; this one boots
 # `just dev` and asserts the browser console is clean — the only node that
@@ -489,13 +489,13 @@ protect *args:
 # the fixed pool of warm boxes (kolu-ci-1 .. kolu-ci-N) that odu leases from
 # natively per run (odu picks a free box from the `hosts.json` pool, holds it
 # for the run, and releases on finish), replacing the old fork-a-golden-per-run
-# model. See .apm/instructions/implementer.instructions.md and docs/pu-box-ci-ralph-report.md.
+# model. See AGENTS.md and docs/pu-box-ci-ralph-report.md.
 
 # Bring the pool up to strength: (re)create any missing/unhealthy slot, leave
 # healthy (warm) slots untouched. Size with KOLU_CI_POOL (default 8).
 pool-ensure:
-    bash .apm/skills/ci/pu/pool.sh
+    bash dev/skills/ci/pu/pool.sh
 
 # Report pool health without changing anything.
 pool-status:
-    bash .apm/skills/ci/pu/pool.sh status
+    bash dev/skills/ci/pu/pool.sh status

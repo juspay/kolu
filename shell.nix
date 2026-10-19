@@ -40,10 +40,7 @@ pkgs.mkShell {
     # binary fetches via pnpm postinstall. Version drift between this and
     # biome.jsonc's $schema URL is tolerable for IDE auto-complete (#885).
     biome
-    # `uv` provides `uvx`, used by agents/ai.just to run APM from
-    # git+https without a global install.
-    uv
-    # `d2` renders architectural diagrams in Atlas notes (docs/atlas,
+    # d2 renders architectural diagrams in Atlas notes (docs/atlas,
     # frozen) to self-contained inline SVG at build time, via the local
     # `D2.astro` component. Pinned through nixpkgs so output is
     # byte-deterministic and the build stays host-independent.

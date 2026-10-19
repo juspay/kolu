@@ -151,7 +151,7 @@ describe("publishGridAction", () => {
   it("a DECLARED resize failure on a connected host still toasts with its message", async () => {
     // The pre-existing arm, unchanged: a typed failure (not a defect) reaches
     // the action's own `Effect.catch`, which reports it next to the logic that
-    // produced it (`.claude/rules/toast-conventions.md`).
+    // produced it (`dev/skills/solidjs/SKILL.md`).
     const resize = vi.fn(() => Effect.fail(new Error("kaval said no")));
 
     runAction(

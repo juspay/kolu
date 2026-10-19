@@ -1,5 +1,4 @@
 {
   "name": "kolu",
-  "mcpServers": "./mcp.json",
-  "agents": []
+  "mcpServers": "./mcp.json"
 }

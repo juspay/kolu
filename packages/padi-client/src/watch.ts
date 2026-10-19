@@ -314,7 +314,7 @@ type AttachFrame =
  * exact part a hand-rolled copy in a composition root got wrong:
  *
  *   - **The retry fence.** Both members ride `unenrolledStreamCall`
- *     (`.claude/rules/streaming.md` rule 1), so a transport blip transparently
+ *     (`dev/skills/streaming/SKILL.md` rule 1), so a transport blip transparently
  *     re-subscribes instead of killing the wait. Consuming a member's `Stream`
  *     directly silently loses reconnect handling — no error, just a wait that
  *     dies on a blip. UN-enrolled deliberately: one terminal's re-attach must

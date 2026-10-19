@@ -1,17 +1,5 @@
 npins/default.nix linguist-generated
 
-# APM-generated runtime and lock outputs.
-AGENTS.md linguist-generated
-CLAUDE.md linguist-generated
-.mcp.json linguist-generated
-opencode.json linguist-generated
-apm.lock.yaml linguist-generated
-.claude/** linguist-generated
-.claude/launch.json -linguist-generated
-.agents/** linguist-generated
-.codex/** linguist-generated
-.opencode/** linguist-generated
-
 # Exclude from `git archive` / GitHub source tarballs (what `github:…` flake
 # inputs unpack into ~/.cache/nix/tarball-cache).
 #
@@ -21,13 +9,7 @@ apm.lock.yaml linguist-generated
 # EMFILE under macOS's default soft maxfiles (256).
 /website export-ignore
 /docs export-ignore
-/.claude export-ignore
-/.agents export-ignore
-/.codex export-ignore
-/.opencode export-ignore
 /.agency export-ignore
-/.apm export-ignore
-/agents export-ignore
 # `.github/actions` stays IN the archive: a remote
 # `uses: juspay/kolu/.github/actions/<name>@<rev>` resolves from GitHub's
 # archive of that rev, so ignoring all of `/.github` hides every action from

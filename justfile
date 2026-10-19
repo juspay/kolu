@@ -35,7 +35,6 @@ pnpm_vendored_filter := '--filter=!osfacts-client --filter=!@odu/* --filter=!@ju
 # The parallel recipes stay nix-free, and no entrypoint bakes twice.
 agent_bake := 'set -a; . "$(nix build --no-link --print-out-paths --accept-flake-config .#agent-flake-env)"; set +a'
 
-mod ai 'agents/ai.just'
 mod ci 'ci/mod.just'
 mod website 'website/mod.just'
 mod atlas 'docs/atlas/mod.just'
@@ -753,7 +752,7 @@ record name="": install
 
 # Boot the packaged Kolu and verify /api/health — production-like runtime smoke
 smoke:
-    {{ nix_shell }} bash .apm/skills/ci/smoke.sh
+    {{ nix_shell }} bash dev/skills/ci/smoke.sh
 
 # What a `deltas` frame costs the client, before vs after the store rewrite
 # (juspay/kolu surface deltas frame). Prints the two arms per collection shape and

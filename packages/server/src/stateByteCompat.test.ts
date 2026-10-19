@@ -17,7 +17,7 @@
  *     producing a schema-valid record used to surface as a wire validation failure
  *     at the first client connect (#1237); here it is a unit failure.
  *
- * `PersistedStateSchema` is deliberately unexported (`.claude/rules/state.md`), so
+ * `PersistedStateSchema` is deliberately unexported (`dev/skills/state/SKILL.md`), so
  * nothing below reaches for it: the aggregate is pinned at the FILE, and the
  * per-domain decode is pinned through the same exported schemas `state.ts`
  * composes.

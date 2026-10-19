@@ -4,20 +4,13 @@
     "chrome-devtools": {
       "type": "local",
       "enabled": true,
-      "command": [
-        ".agents/skills/nix-chrome-devtools-mcp/bin/serve"
-      ]
+      "command": ["dev/skills/nix-chrome-devtools-mcp/bin/serve"]
     },
     "kolu": {
       "type": "local",
       "enabled": true,
-      "command": [
-        "kolu",
-        "mcp"
-      ],
-      "env_vars": [
-        "PADI_SOCKET"
-      ]
+      "command": ["kolu", "mcp"],
+      "env_vars": ["PADI_SOCKET"]
     }
   }
 }

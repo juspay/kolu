@@ -105,7 +105,7 @@ export interface TerminalAttachment {
 /** One frame of the terminal byte stream a client consumes — a discriminated
  *  union, mirroring kaval's own `TerminalDataMsg` shape one hop up rather than
  *  flattening it to an optional field (the streaming-convention "explicit
- *  discriminated union" for snapshot-vs-delta, `.claude/rules/streaming.md` §2).
+ *  discriminated union" for snapshot-vs-delta, `dev/skills/streaming/SKILL.md` §2).
  *  A `delta` is just bytes to write. A `snapshot` frame — the stream's first
  *  frame and every overflow-driven re-attach — carries the fresh `topLine` seed
  *  for the client's backfill cursor. Modelling it as a union makes the two

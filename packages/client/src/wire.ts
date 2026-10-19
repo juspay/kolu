@@ -266,7 +266,7 @@ export const wireDiagnostics: WireDiagnostics = link.diagnostics;
 // spec (`toast` for the root cells; `hostToast`/`scopedSub` for the padi map's per-host
 // members), and the ONE `interpretClientError` (registered at both `connectSurfaces` and
 // `connectSurfaceMap` above) renders it next to the state it owns — the house style
-// (`.claude/rules/toast-conventions.md`: "colocated, not centralized"), now DECLARED once
+// (`dev/skills/solidjs/SKILL.md`: "colocated, not centralized"), now DECLARED once
 // per member rather than hand-wired at every `.use()`.
 // A single global "is the app healthy?" gate is the wrong shape for a terminal
 // workspace, where one degraded cell must not blank the canvas. The fold ships for a

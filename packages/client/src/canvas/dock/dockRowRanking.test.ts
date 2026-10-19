@@ -27,7 +27,7 @@ import {
  *  ranks nothing now, so the one claim left worth pinning is that
  *  `classifyDockRow` agrees with `agentUrgency` state for state — which is what
  *  stops it drifting from the vocabulary the rest of the fleet speaks (see
- *  `.claude/rules/dock-fleet-mirror.md`).
+ *  `dev/skills/dock-state/SKILL.md`).
  *
  *  It replaces a seven-entry rank table that spelled its own numbers as
  *  `URGENCY_RANK.need` / `.work` / `.idle` and was then asserted against

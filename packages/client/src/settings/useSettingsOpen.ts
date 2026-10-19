@@ -4,7 +4,7 @@
  *  signal. Only one chrome surface mounts at a time (the `isDesktop()` gate), so
  *  the shared signal never has two live popovers.
  *
- *  Singleton pattern (per `.claude/rules/solidjs.md` — state per domain): the
+ *  Singleton pattern (per `dev/skills/solidjs/SKILL.md` — state per domain): the
  *  signal is created once at module scope; every consumer imports the same
  *  accessor/setter pair rather than threading props through the shell. */
 

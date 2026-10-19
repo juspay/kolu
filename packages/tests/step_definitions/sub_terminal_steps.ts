@@ -24,7 +24,7 @@ const VISIBLE_SUB = "[data-sub-terminal][data-visible]";
  *  The trailing marker is shell-QUOTED here so the shell's own echo of this
  *  command line reads `SPLIT-"BOTTOM"-MARK` and can never satisfy an assertion
  *  looking for the unquoted `SPLIT-BOTTOM-MARK` that only `echo`'s OUTPUT
- *  produces (`.claude/rules/e2e-testing.md` — no vacuous assertions). */
+ *  produces (`dev/skills/e2e-testing/SKILL.md` — no vacuous assertions). */
 const WIDE_OUTPUT_COMMAND =
   `clear; for i in $(seq 1 40); do printf 'L%02d' $i; ` +
   `printf '%*s' 88 '' | tr ' ' '.'; printf 'END%02d\\n' $i; done; ` +

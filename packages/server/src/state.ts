@@ -305,7 +305,7 @@ const PersistedStateSchema = Schema.Struct({
  *  So the store's type parameter is the mutable projection of the decoded shape —
  *  the SAME fields, the same bytes, just without the `readonly` markers that would
  *  make every `store.set("preferences", …)` a compile error. Nothing outside this
- *  module sees it (the schema is deliberately unexported — `.claude/rules/state.md`). */
+ *  module sees it (the schema is deliberately unexported — `dev/skills/state/SKILL.md`). */
 type PersistedState = {
   -readonly [K in keyof typeof PersistedStateSchema.Type]: (typeof PersistedStateSchema.Type)[K];
 };
@@ -660,7 +660,7 @@ const CONF_MIGRATIONS = {
   // terminalRenderer enum widened from ["auto","dom"] to ["auto","webgl","dom"].
   // Existing on-disk values ("auto" and "dom") are valid literals of the
   // widened enum, so no value transformation is required. The bump is
-  // recorded here for the ladder's sake (see .claude/rules/state.md).
+  // recorded here for the ladder's sake (see dev/skills/state/SKILL.md).
   "1.16.0": () => {},
   // rightPanel.pinned removed — the panel now always docks, so the
   // pin/overlay toggle (1.11.0) is gone. Strip the field from disk so
@@ -773,7 +773,7 @@ const CONF_MIGRATIONS = {
   // The field is OPTIONAL, so a pre-1.28 record that lacks it parses cleanly and
   // simply falls back to the most-recent-conversation resume — no data to
   // backfill, no validation failure. The bump + this entry exist only to honor
-  // the "persisted-shape change ⇒ migration ladder step" rule (.claude/rules/state.md).
+  // the "persisted-shape change ⇒ migration ladder step" rule (dev/skills/state/SKILL.md).
   "1.28.0": () => {},
   // 1.29.0 ran the awareness-derive-store cutover (#1621) on legacy SESSION
   // terminals (backfilling `pr` + synthesizing `restoreTarget`). `session`
@@ -816,7 +816,7 @@ const CONF_MIGRATIONS = {
   // W10 — `hosts` (the strip-added fleet) is now a field on the schema. Seed the empty
   // list onto an existing pre-W10 file so its on-disk shape matches PersistedStateSchema
   // exactly. conf's `defaults` already merges `[]` on read, so this is belt-and-suspenders
-  // that also honors the "persisted-shape change ⇒ ladder step" rule (.claude/rules/state.md).
+  // that also honors the "persisted-shape change ⇒ ladder step" rule (dev/skills/state/SKILL.md).
   // A genuine fleet is only ever written by the pool's `persist` hook, never here.
   "1.33.0": (store: Conf<PersistedState>) => {
     if (!store.has("hosts")) store.set("hosts", []);
@@ -842,14 +842,14 @@ const CONF_MIGRATIONS = {
   // `ShuffleBehaviorSchema` gained `colourful` (saturated shuffle pool).
   // Existing records keep their prior `shuffleBehavior` string — no rewrite.
   // Ladder step only so a PreferencesSchema change advances SCHEMA_VERSION
-  // (see .claude/rules/state.md).
+  // (see dev/skills/state/SKILL.md).
   "1.35.0": () => {},
   // `viewerMode` — the browser's last-reported OS light/dark reading — is now a
   // field on the schema (it feeds the new-terminal theme policy kolu-server pushes
   // to padi). Seed the default onto an existing file so its on-disk shape matches
   // `PersistedStateSchema` exactly; conf's `defaults` already merges it on read,
   // so this honours the "persisted-shape change ⇒ ladder step" rule
-  // (.claude/rules/state.md) rather than adding behaviour. A real reading is only
+  // (dev/skills/state/SKILL.md) rather than adding behaviour. A real reading is only
   // ever written by the `viewerMode` cell's store, never here.
   "1.36.0": (store: Conf<PersistedState>) => {
     if (!store.has("viewerMode")) store.set("viewerMode", "dark");
@@ -968,7 +968,7 @@ if (Result.isFailure(result)) {
 /** The DECODED shape a backup restore hands back — the FULL persisted shape,
  *  ALIASED off the (deliberately unexported) `PersistedStateSchema` rather than
  *  re-listed, so a new persisted key cannot land without the restore path seeing
- *  it. Per `.claude/rules/state.md` consumers reach the disk shape through
+ *  it. Per `dev/skills/state/SKILL.md` consumers reach the disk shape through
  *  domain accessors; this is the restore path's one. */
 export type DecodedStateBackup = typeof PersistedStateSchema.Type;
 

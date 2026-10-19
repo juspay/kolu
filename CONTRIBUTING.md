@@ -40,4 +40,4 @@ Coding agents are great at fleshing out a proposal — motivation, alternatives,
 ## Implementer notes
 
 For the check / format / test / CI commands and the doc + PR-evidence discipline, see
-[`.apm/instructions/implementer.instructions.md`](./.apm/instructions/implementer.instructions.md).
+[`AGENTS.md`](./AGENTS.md#implementer-playbook).

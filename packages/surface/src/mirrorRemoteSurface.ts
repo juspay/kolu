@@ -397,7 +397,7 @@ function buildProcedureForwarders(
  * `master` still does `await mirrorRemoteSurface(...)` on its streaming sinks (the
  * #1497 shape it adopted in drishti PR #70). So the migration is mechanical, not
  * documentary, and now real: the paired drishti PR #71 (the surface→drishti
- * merge-gate in `.claude/rules/surface.md`) audits that one call site to
+ * merge-gate in `dev/skills/surface/SKILL.md`) audits that one call site to
  * `await mirrorRemoteSurface(...).done`, pinned to this R7 revision; its FULL CI is
  * GREEN against the new `{ procedures, done }` API — all 18 odu nodes (every lane —
  * nix/typecheck/fmt-check/bun-nix-fresh/home-manager/drv-stability — on both

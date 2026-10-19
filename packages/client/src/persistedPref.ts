@@ -51,7 +51,7 @@ export interface PersistedPrefOptions<T> {
   /** Side effect on corrupt/unexpected stored data (e.g. a toast). Receives
    *  the thrown error and the offending raw string. A callback, not a baked-in
    *  toast, so notifications stay colocated with their trigger per
-   *  `.claude/rules/toast-conventions.md`. */
+   *  `dev/skills/solidjs/SKILL.md`. */
   onInvalid?: (err: unknown, raw: string) => void;
   /** Storage backend — a first-class DURABILITY choice, not just a test seam:
    *  `localStorage` (device-wide, the default via `makePersisted`) or

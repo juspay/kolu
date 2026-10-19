@@ -5,8 +5,7 @@ dist/
 !/docs/atlas/dist/**
 result
 .direnv/
-# APM: generated metadata + per-user state (not vendored)
-apm_modules/
+# Claude Code per-user state (not vendored)
 .claude/worktrees/
 .claude/settings.local.json
 .claude/scheduled_tasks.lock

@@ -30,7 +30,7 @@
  * can never count, however fast or however equal.
  *
  * The repo's own doctrine already said this: cut feedback loops with PROVENANCE,
- * not value-dedup (`.claude/rules/solidjs.md`, the controlled-component echo
+ * not value-dedup (`dev/skills/solidjs/SKILL.md`, the controlled-component echo
  * rule). This is the same lesson in the reactor.
  */
 

@@ -176,14 +176,7 @@ export function catalogPins(relPath: string, yamlText: string): EffectPin[] {
  *  effect dependency, and a graft whose Effect disagreed with this workspace's
  *  would put two copies in one process — exactly the split this gate exists to
  *  refuse. Not ours to author is not the same as not ours to check. */
-const SKIPPED = new Set([
-  "node_modules",
-  "dist",
-  ".git",
-  ".direnv",
-  ".logs",
-  "apm_modules",
-]);
+const SKIPPED = new Set(["node_modules", "dist", ".git", ".direnv", ".logs"]);
 
 function walkManifests(dir: string, out: string[]): void {
   for (const entry of readdirSync(dir)) {

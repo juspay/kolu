@@ -18,7 +18,7 @@
  *
  * **Why the action must be total (`E = never`).** The house style is that a
  * failure is reported next to the logic that produced it
- * (`.claude/rules/toast-conventions.md`: colocated, not centralized), and the
+ * (`dev/skills/solidjs/SKILL.md`: colocated, not centralized), and the
  * repo forbids a caught error collapsing to an empty state. Typing the edge on
  * `Effect<unknown, never>` makes both a COMPILE-TIME fact: a module that forgot
  * its `Effect.catch`/`catchTag` toast cannot reach the edge at all, and a caller

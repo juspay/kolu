@@ -2,7 +2,7 @@
  *  forwards to that host.
  *
  *  Two facts, one glyph, and deliberately not one paint: the DOT's colour is the
- *  connection-health fact and nothing else (`.claude/rules/solidjs.md` — never
+ *  connection-health fact and nothing else (`dev/skills/solidjs/SKILL.md` — never
  *  colour a status dot from anything but the fact), while the RING is a separate
  *  element around it carrying a fact of a completely different kind. Composing
  *  rather than merging is what keeps a forward from ever being able to influence

@@ -1,0 +1,8 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "kolu-dev",
+  "description": "Maintainer skills for developing kolu itself: CI, tests, evidence, release, documentation, and repo conventions.",
+  "homepage": "https://kolu.dev",
+  "repository": "https://github.com/juspay/kolu",
+  "license": "AGPL-3.0-or-later"
+}

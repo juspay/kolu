@@ -81,7 +81,7 @@ export {
 // `SurfaceClientCallable` (`src/cli/mcp.ts`) and `toInputSchema`
 // (`src/mcp/argSchemas.test.ts`) from THIS module. `private` governs npm
 // publication, not this repo's consumer set — so dropping a re-export below
-// breaks odu at its next pin bump, which is the failure `.claude/rules/surface.md`'s
+// breaks odu at its next pin bump, which is the failure `dev/skills/surface/SKILL.md`'s
 // ODU-IMPACT ledger exists to catch before it ships.
 //
 // `BespokeTool` and `ToolInputSchema` come from `./tools` rather than from here:
