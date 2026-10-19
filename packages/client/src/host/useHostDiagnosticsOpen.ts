@@ -25,7 +25,7 @@
  *  rather than leaving it anchored to a detached node — its opener says so
  *  through {@link releaseHostDiagnosticsAnchor}.
  *
- *  Singleton pattern (per `dev/skills/solidjs/SKILL.md` — state per domain): the
+ *  Singleton pattern (per `dev/skills/kolu-client/SKILL.md` — state per domain): the
  *  signals are created once at module scope; every consumer imports the same
  *  accessors rather than threading props through the shell. The selector
  *  rides `createSharedRoot`, the repo's spelling for a shared reactive value

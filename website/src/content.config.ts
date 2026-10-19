@@ -68,10 +68,8 @@ const blog = defineCollection({
 // agent appends to on every user-facing PR. A dateless entry is the open
 // Unreleased section; `/release X.Y.Z` stamps it with a version + date.
 const changelog = defineCollection({
-  // AGENTS.md is apm-generated agent guidance deployed into this directory —
-  // guidance for writing entries, not an entry.
   loader: glob({
-    pattern: ["**/*.{md,mdx}", "!**/AGENTS.md"],
+    pattern: "**/*.{md,mdx}",
     base: "./src/content/changelog",
   }),
   // Release identity is one strict pair: the perpetual Unreleased entry is

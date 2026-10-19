@@ -3,7 +3,7 @@
  *
  * Lives here rather than inline in `commands.tsx` because it is a parse plus an
  * async call plus its error handling, and the palette registry stays a registry
- * (`dev/skills/solidjs/SKILL.md`: commands call a handler, they do not contain one).
+ * (`dev/skills/kolu-client/SKILL.md`: commands call a handler, they do not contain one).
  *
  * The input is `host:port`, or a bare port meaning the host you are looking at.
  * The host must be one kolu already has, and that is a real restriction rather

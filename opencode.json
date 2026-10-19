@@ -4,8 +4,7 @@
     "kolu": {
       "type": "local",
       "enabled": true,
-      "command": ["kolu", "mcp"],
-      "env_vars": ["PADI_SOCKET"]
+      "command": ["kolu", "mcp"]
     }
   }
 }

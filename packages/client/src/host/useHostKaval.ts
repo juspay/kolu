@@ -48,7 +48,7 @@ export function useHostKaval(host: HostKey): {
   // (mark dot, version, state, uptime ×2, memory, update) — each an unmemoized
   // call would redo the `byKey` lookup AND mint a fresh `{...status}` spread.
   // One reprojection per `daemonStatus` change, shared by every consumer
-  // (`solidjs.md`: memo a multi-consumer derivation). Runs for every mounted
+  // (`dev/skills/kolu-client/SKILL.md`: memo a multi-consumer derivation). Runs for every mounted
   // host chip (active and inactive), so it sits on the per-host-status path.
   // Reprojection body is the shared `reprojectDaemonStatus` (useDaemonStatus.ts)
   // — the local-daemon memo there reprojects through the SAME function.

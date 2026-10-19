@@ -162,7 +162,11 @@ let
 
   # The plugin derivation must copy exactly the plugin — its manifest, MCP
   # config, skills, and Claude plugin manifest — not the monorepo, so its source
-  # is the plugin fileset above rather than `./.`.
+  # is the plugin fileset above rather than `./.`. The copied `plugin.json`
+  # carries the root manifest's `extensions` verbatim: that list is read only
+  # when the full repo is used as an agent-distro *profile*; the
+  # `AGENT_DISTRO_PLUGINS` path loads this copy as a plugin dir and never
+  # follows it, so the list is inert here and the copy stays the four items.
   agentPluginSrc = pkgs.lib.fileset.toSource {
     root = ./.;
     fileset = agentPluginFileset;

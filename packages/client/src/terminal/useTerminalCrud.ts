@@ -82,7 +82,7 @@ export const useTerminalCrud = createSharedRoot(() => {
 
   /** Toast `${prefix}: ${message}` for whatever failed, and RECOVER — the shape
    *  every "fire it, tell the user if it broke" handler below ends in. Named once
-   *  so the wording rule (`dev/skills/solidjs/SKILL.md`: always surface
+   *  so the wording rule (`dev/skills/kolu-client/SKILL.md`: always surface
    *  `err.message`) is one function rather than fifteen copies. */
   const toastFailure =
     (prefix: string) =>

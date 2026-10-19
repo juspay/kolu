@@ -14,7 +14,7 @@
  *
  * The load-bearing property survives every cut, and is what this file exists to
  * pin: **the marker never touches the pip's colour.** That colour is painted from
- * the connection-health fact and nothing else (`dev/skills/solidjs/SKILL.md` — never
+ * the connection-health fact and nothing else (`dev/skills/kolu-client/SKILL.md` — never
  * colour a status dot from anything but the fact), so it has to compose AROUND
  * the pip. A marker that recoloured it would be a green-over-a-dead-link dot by a
  * new route, which is exactly the class of bug that rule exists to make

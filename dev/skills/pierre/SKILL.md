@@ -318,7 +318,7 @@ Keep (not replaced by pierre):
 6. **`setItems` reconciles by id**; same-id same-version is treated as
    no-change. Bump `version` when content swaps for an existing id.
 7. **Nix `fetchPnpmDeps` hash** must be regenerated after adding new deps; see
-   the `nix-typescript` skill.
+   the `nix-typescript` skill in `juspay/skills`.
 
 ## Development tips
 

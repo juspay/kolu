@@ -74,7 +74,7 @@ export {
 // just on a real liveness flip. Folding once behind a `===`-diffed memo collapses
 // both: consumers track only the boolean and re-paint only when `live` actually
 // changes. The `createSharedRoot` idiom is the same app-lifetime singleton
-// `getClockNow` / the stale-ticker use (solidjs.md "memos for multi-consumer
+// `getClockNow` / the stale-ticker use (dev/skills/kolu-client/SKILL.md "memos for multi-consumer
 // derivations").
 const sharedDaemonTransportLive = createSharedRoot(() =>
   createMemo(() => app.health().live),

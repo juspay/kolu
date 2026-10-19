@@ -10,7 +10,7 @@
  *
  *  This restores both: a plain `inFlight` flag (a second call while one is in
  *  flight is a no-op) and the loading/success/error toast round-trip per
- *  `dev/skills/solidjs/SKILL.md` (loading toast + `{ id }` update for a
+ *  `dev/skills/kolu-client/SKILL.md` (loading toast + `{ id }` update for a
  *  slow op; the error toast ALWAYS carries `err.message`).
  *
  *  Extracted from App.tsx (rather than inlined) for two reasons: App.tsx is a

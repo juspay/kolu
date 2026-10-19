@@ -13,9 +13,9 @@ committed `dist/` in under `/atlas/`).
   which serves the committed self-contained HTML with the relative links between
   notes intact. Reflects what's merged to `master`.
 
-The rendered `dist/` is **committed** (marked generated in `.gitattributes`); an
-`.apm` rule regenerates it whenever a note changes. Author markdown/MDX only —
-never hand-edit the generated HTML under `dist/`.
+The rendered `dist/` is **committed** (marked generated in `.gitattributes`);
+`just atlas::build` regenerates it and `ci::atlas-sync` fails when it is stale.
+Author markdown/MDX only — never hand-edit the generated HTML under `dist/`.
 
 Code fences: every fence language used in `src/` is **derived and preloaded**
 into shiki at build start (`scripts/fence-langs.mjs`, shared with the website;

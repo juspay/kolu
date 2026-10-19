@@ -28,7 +28,7 @@ import { preferences, setViewerMode, updatePreferences } from "../wire";
 export type { ColorScheme };
 
 // One memo + one `<html>` effect + one publish effect across all consumers
-// (singleton — see solidjs.md "State per domain"). `createSharedRoot` owns them
+// (singleton — see dev/skills/kolu-client/SKILL.md "State per domain"). `createSharedRoot` owns them
 // at APP lifetime: the standing media-query listener and the publish effect must
 // outlive the first caller's owner, which the old lazy module-level singleton
 // did not (they died with whichever component happened to call first).

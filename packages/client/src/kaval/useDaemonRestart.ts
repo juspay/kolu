@@ -86,7 +86,7 @@ export function restartDaemon(): UiAction {
       ),
       Effect.catchTag("KavalContractSkew", (skew) =>
         // Surface the server's own message (the versions ride it, typed —
-        // toast-conventions.md: never swallow `err.message`) AND the guidance the
+        // dev/skills/kolu-client/SKILL.md: never swallow `err.message`) AND the guidance the
         // typed skew lets us add: a restart can't fix a contract skew, so point at
         // the recovery the `incompatible` daemon state surfaces beside this toast
         // (the skew card / dialog's "Update & restart kaval").

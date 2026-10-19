@@ -209,7 +209,7 @@ deliverable here.
 | file | what |
 |---|---|
 | `ci/pu-ci-host.sh` | Provision a warm linux CI host: timeout-guarded fork of `kolu-ci-golden` (with `ssh_config` synth) → cold `pu create` → (empty ⇒ `hosts.json`). Tested end-to-end. |
-| `AGENTS.md` | `/do`'s CI step calls `ci/pu-ci-host.sh`; documents keeping the golden box warm. |
+| `dev/skills/ci/SKILL.md` | `/do`'s CI step calls `ci/pu-ci-host.sh`; documents keeping the golden box warm. |
 | `docs/pu-box-ci-ralph-report.md` | this report |
 
 Not changed (deliberately): the `CUCUMBER_PARALLEL` clamp (Lever 2 is noise).

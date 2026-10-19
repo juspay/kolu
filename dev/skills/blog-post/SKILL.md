@@ -41,8 +41,7 @@ not just the obviously visual ones.
    The digest is the fact-checked spine; never fabricate numbers, dates, quotes,
    or PRs.
 
-3. **Write it in the author's voice.** Use the `pg` skill (Paul Graham voice)
-   unless told otherwise, and settle the inline house style up front. Match the
+3. **Write it in the author's voice.** Use the `pg` voice skill from `juspay/skills` if your profile provides it (Paul Graham voice) unless told otherwise, and settle the inline house style up front. Match the
    register of the existing posts; a new post often pairs as a sequel to one.
    **Give it a non-cryptic title.** The frontmatter `title` is a plain,
    self-explanatory headline that states what happened and carries the payoff —
@@ -68,7 +67,7 @@ not just the obviously visual ones.
    enumeration (e.g. two API methods that each fail, two gotchas), use a markdown
    list or table instead of a dense paragraph — keep the *argument* in prose, but
    stop hiding enumerable content in paragraphs (a deliberate post-specific
-   loosening of the `pg` skill's "don't replace argument with bullets" rule).
+   loosening of the `pg` voice model's "don't replace argument with bullets" rule).
    When you quote something the author literally typed into an agent's CLI prompt
    box (Claude Code, Codex, etc.) as a turning point, render it with the `Prompt`
    component (`website/src/components/Prompt.astro`) — `<Prompt>…</Prompt>` — not a

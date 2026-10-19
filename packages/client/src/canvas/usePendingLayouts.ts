@@ -12,7 +12,7 @@
  *    of the still-saved pre-arrange ones — the metadata round-trip
  *    hasn't completed yet.
  *
- *  Singleton hook per `dev/skills/solidjs/SKILL.md`'s "State per domain"
+ *  Singleton hook per `dev/skills/kolu-client/SKILL.md`'s "State per domain"
  *  rule. `createStore` (per the same rule, "use createStore over
  *  createSignal<Record> for keyed state") gives fine-grained per-key
  *  reactivity so a single `setOne` doesn't invalidate every consumer

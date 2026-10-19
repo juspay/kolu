@@ -283,7 +283,7 @@ export const FileTree: Component<FileTreeProps> = (props) => {
   // gesture token gets right — a genuine user click that interleaves with one of
   // the wrapper's own deferred writes during churn. Separately, lifting this
   // token into a shared provenance primitive is deferred to population-two
-  // (prove-then-extract, dovetailing with the solidjs.md graduation candidate) —
+  // (prove-then-extract, dovetailing with the dev/skills/kolu-client/SKILL.md graduation candidate) —
   // that deferral is about extraction, not about the adjacency-vs-causal choice.
   let userGesture = false;
 

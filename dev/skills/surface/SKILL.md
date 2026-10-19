@@ -59,7 +59,7 @@ Runnable end-to-end: `packages/surface/example/` (its `mini-ci` stdio example is
 
 The consumer guide above is for using the stack. Changing it has two gates.
 
-## Surface libraries are shared — mirror API changes to drishti
+### Surface libraries are shared — mirror API changes to drishti
 
 `@kolu/surface` and its sibling libraries (`@kolu/surface-app`, `@kolu/surface-map`, `@kolu/surface-remote`, and — since drishti's durable agent landed (UW3) — `@kolu/surface-daemon` and `@kolu/surface-daemon-supervisor`) are not kolu-internal: they are consumed by [`drishti`](https://github.com/srid/drishti) as well as kolu. Drishti's daemon serves the frozen control-core fragment, rides `daemonHome`/`daemonMain`/`frontDaemonOverStdio`, converges via `convergeAdmit`/`probeDaemonIdentityFrom`, and imports `./upgrade-window.testlib` — the daemon packages are production surface for it, gate file included. Drishti's *client* reads the host map through `@kolu/surface-map`: `EntryState` and the `entries` collection back its host dot, its fleet card, its tab chip and its readiness gate across a dozen files.
 
@@ -72,9 +72,9 @@ The consumer guide above is for using the stack. Changing it has two gates.
 - The drishti PR is not optional and "done" is not "done" until drishti's CI is green against the new surface API.
 - **The gate is only satisfied against the *final* kolu HEAD — re-validate it after any post-gate edit that touches the surface API.** A drishti CI green pinned to a pre-gauntlet SHA is **stale**: the review gauntlet (lens/debate/police) and CI fix-commits routinely reshape the shared API *after* the gate first passed — e.g. a gauntlet fix dropping a parameter (`pumpRemoteSurface`'s `makeSink` client arg) silently breaks drishti's consumer (`(_client, {seq})` → `({seq})`), which a gate validated at the earlier SHA never caught. Whenever the surface API moves after the gate was last green, bump the drishti PR's pin to the final kolu HEAD and re-confirm its CI is green there before calling it done.
 - Purely internal changes (private helpers, tests, comments, refactors with no observable API delta) do not need a drishti PR.
-- **The recorded near-miss this list's completeness exists to prevent:** [juspay/kolu#2129](https://github.com/juspay/kolu/pull/2129) added an arm to `@kolu/surface-map`'s client-facing `EntryState` — a change that fails drishti's build outright — while `surface-map` was absent from the `applyTo` glob above. The gate did not fire, and the pair PR ([srid/drishti#134](https://github.com/srid/drishti/pull/134)) was opened only because the author grepped drishti's tree by hand. A glob that is *nearly* right is worse than an obviously partial one: it reads as authoritative, so nobody re-derives it. Hence the grep above, and hence this note.
+- **The recorded near-miss this list's completeness exists to prevent:** [juspay/kolu#2129](https://github.com/juspay/kolu/pull/2129) added an arm to `@kolu/surface-map`'s client-facing `EntryState` — a change that fails drishti's build outright — while `surface-map` was absent from the package list above. The gate did not fire, and the pair PR ([srid/drishti#134](https://github.com/srid/drishti/pull/134)) was opened only because the author grepped drishti's tree by hand. A glob that is *nearly* right is worse than an obviously partial one: it reads as authoritative, so nobody re-derives it. Hence the grep above, and hence this note.
 
-## The third consumer — odu rides a loose pin, and pays with a verdict
+### The third consumer — odu rides a loose pin, and pays with a verdict
 
 [`odu`](https://github.com/juspay/odu) also consumes `@kolu/surface*`, but **deliberately loosely**: it pins kolu by npins and absorbs changes at its own pin bumps — there is **no per-PR odu pair** (three-repo lockstep was considered and rejected; drishti is the tight twin because it tracks kolu master continuously). The recorded failure this section exists to prevent: a whole campaign of surface changes accumulated with **zero odu-impact accounting**, so nobody knew what the eventual bump would break until it was scheduled.
 
@@ -82,7 +82,7 @@ The consumer guide above is for using the stack. Changing it has two gates.
 - **Any non-`none` verdict is appended as a line item to the standing ledger — [odu#43](https://github.com/juspay/odu/issues/43)** — naming the kolu PR, the affected odu site, and the verdict. The ledger, not memory, is what the next pin bump drains.
 - **A `breaks-at-bump` item makes the next bump schedulable work, not someday-work** — the coordinator surfaces it; the bump PR's body checks off every drained line item.
 
-## Surface public-API changes must update the Reference docs in the same PR
+### Surface public-API changes must update the Reference docs in the same PR
 
 The `@kolu/surface*` packages each have a **Reference page** in the four-quadrant
 Surface docs at `website/src/content/surface/`. Those pages are the austere,
@@ -108,6 +108,6 @@ wires against — **must update the matching Reference page in the same PR.**
 | `@kolu/surface-map` | `website/src/content/surface/ref-surface-map.mdx` |
 
 - Update the affected entries (names, signatures, tables, snippets) so the page describes the new surface, not the old one. If the change touches an invariant, update `surface-daemon-invariants.mdx` or the relevant Explanation page too.
-- "Done" is not done until the page matches the shipped API. This is the mirror, on the docs side, of the drishti-consumer gate in the sibling surface rule — the same "the record must not lie" discipline that the docs themselves are built on.
+- "Done" is not done until the page matches the shipped API. This is the mirror, on the docs side, of the drishti-consumer gate above — the same "the record must not lie" discipline that the docs themselves are built on.
 - Purely internal changes (private helpers, tests, comments, refactors with no observable API delta) do not need a docs update.
 - A new export that a consumer is meant to use is an API change: add it to the Reference page. If the package's README changes shape, keep the ~15-line README (identity + install + one snippet + links into the quadrants) pointing at the Reference page rather than duplicating it.

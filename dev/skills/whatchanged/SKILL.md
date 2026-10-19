@@ -8,7 +8,7 @@ List features added to Kolu during the timeframe the user names (e.g. "last week
 
 ## Instructions
 
-1. Determine the repo from `git remote get-url origin`. Run `gh pr list --repo <owner/repo> --state merged --search "merged:>=$(date -d '<timeframe>' +%Y-%m-%d 2>/dev/null || date -d '<timeframe>' +%Y-%m-%d 2>/dev/null)" --json number,title,mergedAt,url --limit 200` to get merged PRs in the timeframe. If the date parsing fails, fall back to `git log --since="<timeframe>" --merges --oneline` and correlate with `gh pr list --state merged`.
+1. Determine the repo from `git remote get-url origin`. Run `gh pr list --repo <owner/repo> --state merged --search "merged:>=$(date -d '<timeframe> ago' +%Y-%m-%d 2>/dev/null || date -d '<timeframe>' +%Y-%m-%d 2>/dev/null)" --json number,title,mergedAt,url --limit 200` to get merged PRs in the timeframe. If the date parsing fails, fall back to `git log --since="<timeframe>" --merges --oneline` and correlate with `gh pr list --state merged`.
 2. Filter to user-facing changes — skip pure refactors, CI fixes, test-only changes, docs-only changes, and dependency bumps unless they unlock a visible feature.
 3. For each PR, read the PR title and body (via `gh pr view <number>`) to understand what changed.
 4. Group notable features by area (e.g. Terminal, Sidebar, Theme, Networking, Developer Experience). Within each area, lead with the biggest feature, then list related smaller ones. Put minor fixes/polish in a flat "Minor" section at the end.

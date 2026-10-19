@@ -1,7 +1,7 @@
 ---
-name: solidjs
+name: kolu-client
 description: >-
-  SolidJS patterns, UI component conventions, and toast notifications in kolu's client. Use when building or changing a client component, a store, a subscription, or a toast.
+  kolu's client component conventions: SolidJS patterns, UI component rules, and toast notifications. Use when building or changing a client component, a store, a subscription, or a toast.
 ---
 
 ## UI

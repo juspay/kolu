@@ -5,7 +5,7 @@
  *  those subscriptions is a pure function of the live terminal list, so it is
  *  driven the same way `useTerminalMetadata` drives its per-terminal metadata
  *  subscriptions: `mapArray` gives each terminal id its own reactive owner and
- *  disposes it the instant the id leaves the list — see solidjs.md,
+ *  disposes it the instant the id leaves the list — see dev/skills/kolu-client/SKILL.md,
  *  "mapArray for dynamic per-entity subscriptions".
  *
  *  This list-keyed disposal is the fix for the leak where explicit kills

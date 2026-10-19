@@ -227,7 +227,7 @@ export function servePtyHost(deps: InProcessPtyHostDeps) {
 
   const surface = implementSurface(ptyHostSurface, {
     streams: {
-      // Per-terminal output — snapshot then live deltas (streaming.md §2).
+      // Per-terminal output — snapshot then live deltas (dev/skills/streaming/SKILL.md §2).
       terminalAttach: {
         source: (input) =>
           Stream.unwrap(
@@ -287,7 +287,7 @@ export function servePtyHost(deps: InProcessPtyHostDeps) {
             );
           }),
       },
-      // Preexec command marks — snapshot-then-deltas (streaming.md §2). The
+      // Preexec command marks — snapshot-then-deltas (dev/skills/streaming/SKILL.md §2). The
       // last command replays first (`replayed: true`) so a sensor that attaches
       // AFTER the mark (a lazily-attaching or restarted padi) still learns it
       // and resolves a command-only agent like codex; live marks follow with
@@ -366,7 +366,7 @@ export function servePtyHost(deps: InProcessPtyHostDeps) {
           ),
       },
       // Host-global membership feed — a snapshot of every live PTY first
-      // (snapshot-then-deltas, streaming.md §2), then created/exited deltas as
+      // (snapshot-then-deltas, dev/skills/streaming/SKILL.md §2), then created/exited deltas as
       // other clients spawn or end PTYs. The host takes both halves in ONE step
       // (`subscribeInventory`), so a spawn racing the pair is delivered as a
       // delta rather than dropped. Takes no id, so it is deliberately not

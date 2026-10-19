@@ -57,8 +57,8 @@ build: install
 # CI gate (wired in as ci::atlas-sync): types + a real build + fail if the
 # committed dist/ is stale — i.e. a note changed but the generated HTML wasn't
 # regenerated and committed. The fresh build below doubles as the compile gate,
-# so this catches type AND MDX/build errors, not just staleness. This is the
-# enforcement behind the .apm Atlas rule.
+# so this catches type AND MDX/build errors, not just staleness. This gate is
+# the enforcement.
 #
 # NON-MUTATING BY CONSTRUCTION — the gate never writes the worktree. Every CI
 # lane on a platform shares one checkout, so a gate that rebuilt the tracked
