@@ -355,7 +355,7 @@ describe("diffInventory — directory→file type change (blank-tree repro)", ()
     ".claude/skills/odu",
     ".claude/skills/odu/serve",
     ".claude/skills/odu/SKILL.md",
-    "agent-plugin/skills/odu/SKILL.md",
+    "skills/odu/SKILL.md",
   ];
 
   it("builds a real Pierre tree from the diff inventory without throwing", () => {
@@ -427,10 +427,10 @@ describe("foldTypeChanges", () => {
           ".claude/skills/odu",
           ".claude/skills/odu/serve",
           ".claude/skills/odu/SKILL.md",
-          "agent-plugin/skills/odu/SKILL.md",
+          "skills/odu/SKILL.md",
         ],
         false,
       ).paths,
-    ).toEqual([".claude/skills/odu", "agent-plugin/skills/odu/SKILL.md"]);
+    ).toEqual([".claude/skills/odu", "skills/odu/SKILL.md"]);
   });
 });

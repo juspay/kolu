@@ -23,9 +23,10 @@ Repo-agnostic skills that don't depend on kolu internals:
 | `hostility-review`  | Audit a done-claim against its plan with a hostile peer agent          |
 | `diataxis`          | Classify, write, and audit documentation per Diátaxis                  |
 
-The `kolu` skill lives in `../agent-plugin/skills/kolu/`, the exported Agent
-Plugins package, and is consumed through a local path dependency. Its content
-and references are shared with standalone plugin consumers.
+The `kolu` skill lives in `../skills/kolu/`, the exported Agent
+Plugins package at the repository root, and is consumed through a local path
+dependency. Its content and references are shared with standalone plugin
+consumers.
 
 The package declares the shared packages these skills call
 (`juspay/project-unknown`, `juspay/odu`) as its own dependencies, so they come
@@ -71,5 +72,5 @@ The generated `.claude/` output is committed to git rather than gitignored. This
 
 The single source of truth remains `apm.yml` + top-level `.apm/` (kolu-local
 skills), `agents/apm.yml` + `agents/.apm/` (the reusable package), and
-`agent-plugin/skills/kolu/` (the exported kolu skill). Edit these sources,
+`skills/kolu/` (the exported kolu skill). Edit these sources,
 run `just ai::apm`, and commit the result.

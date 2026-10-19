@@ -57,7 +57,7 @@ index 0000000..1111111
 --- /dev/null
 +++ b/skills/odu
 @@ -0,0 +1 @@
-+../../agent-plugin/skills/odu
++../../skills/odu
 \\ No newline at end of file
 diff --git a/skills/odu/SKILL.md b/skills/odu/SKILL.md
 deleted file mode 100644

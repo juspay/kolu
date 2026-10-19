@@ -118,9 +118,12 @@ let
       ./default.nix
       ./nix
       ./npins
-      # padi-agent bakes this kolu's agent-plugin dir (packages/agent-distro), so
-      # the tree a remote resolves padi-agent from must carry it.
-      ./agent-plugin
+      # padi-agent bakes kolu's agent plugin (packages/agent-distro), so the tree
+      # a remote resolves padi-agent from must carry it. `skills/` arrives via
+      # the workspace `fileset` above; these are the plugin's root manifests.
+      ./plugin.json
+      ./mcp.json
+      ./.claude-plugin
     ];
     inherit pkgs commitHash;
     agents = agentPackages.prove;
@@ -150,12 +153,26 @@ let
   # without a value containing a space silently mis-sourcing.
   agentFlakeEnv = pkgs.writeText "agent-flake-env" (pkgs.lib.toShellVars agentBakedEnv);
 
+  # kolu's own agent plugin lives at the repository root (`github:juspay/kolu`
+  # IS the plugin; no `?dir=` subpath). The plugin derivation must copy exactly
+  # the plugin — its manifest, MCP config, skills, and Claude plugin manifest —
+  # not the monorepo, so its source is this fileset rather than `./.`.
+  agentPluginSrc = pkgs.lib.fileset.toSource {
+    root = ./.;
+    fileset = pkgs.lib.fileset.unions [
+      ./plugin.json
+      ./mcp.json
+      ./skills
+      ./.claude-plugin
+    ];
+  };
+
   # agent-distro — the coding agents a kolu terminal can get on its PATH. All of
   # kolu's agent-distro knowledge (build, bake, proof) is the package's own Nix.
   agentDistro = import ./packages/agent-distro {
     inherit pkgs;
     src = sources.agent-distro;
-    pluginSrc = ./agent-plugin;
+    pluginSrc = agentPluginSrc;
     # kolu-server's own boot read of the floor's profiles (the one function
     # `index.ts` calls, every boot check inside it), printing the listing it
     # would serve. The floor proof runs it on the bake it resolved.

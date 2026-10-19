@@ -49,19 +49,20 @@ With `kolu` on PATH and a running kolu daemon, install the plugin in Claude Code
 Restart Claude Code, then use `/kolu:kolu` for the terminal-driving skill and
 `/mcp` to check the server connection.
 
-For Oh My Pi, pass the plugin directory from a checkout:
+For Oh My Pi, pass the repository root as the plugin directory:
 
 ```sh
-omp -e ./agent-plugin
+omp -e .
 ```
 
 Use `/skill:kolu` to load the skill. The plugin also registers `kolu mcp`.
 Keep your host's environment forwarding configured for `PADI_SOCKET` when
 connecting to the daemon of the current kolu terminal.
 
-Nix consumers can use `${inputs.kolu}/agent-plugin` from a `github:juspay/kolu`
-input. The directory is included in source archives and contains the skill,
-its reference file, and the MCP configuration; no plugin build output is needed.
+Nix consumers can use `${inputs.kolu}` from a `github:juspay/kolu` input — the
+repository root **is** the plugin. The directory is included in source archives
+and contains the skill, its reference file, and the MCP configuration; no plugin
+build output is needed.
 
 ## Connect it to your agent
 

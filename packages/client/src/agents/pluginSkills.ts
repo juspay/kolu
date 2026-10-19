@@ -1,7 +1,8 @@
-/** The skills kolu's own agent plugin declares — read from each
- *  `agent-plugin/skills/<name>/SKILL.md` at BUILD time. The plugin is kolu's own
- *  source and ships in the same build that loads it into every agent, so the
- *  build is the source of truth: no wire, no runtime read.
+/** The skills kolu's own agent plugin declares — it lives at the repository
+ *  root (`github:juspay/kolu` IS the plugin), read from each
+ *  `skills/<name>/SKILL.md` at BUILD time. The plugin is kolu's own source and
+ *  ships in the same build that loads it into every agent, so the build is the
+ *  source of truth: no wire, no runtime read.
  *
  *  A tile tip names one of these at an agent's first prompt (`terminalTip.ts`). */
 
@@ -38,10 +39,11 @@ export function parseSkill(path: string, source: string): PluginSkill {
   return { name, blurb: skillBlurb(description) };
 }
 
-const SOURCES = import.meta.glob<string>(
-  "../../../../agent-plugin/skills/*/SKILL.md",
-  { query: "?raw", import: "default", eager: true },
-);
+const SOURCES = import.meta.glob<string>("../../../../skills/*/SKILL.md", {
+  query: "?raw",
+  import: "default",
+  eager: true,
+});
 
 /** Every skill the plugin declares, sorted by name. Never empty: kolu ships the
  *  `kolu` skill, so finding none means the build lost the plugin directory —
@@ -51,6 +53,6 @@ export const PLUGIN_SKILLS: readonly [PluginSkill, ...PluginSkill[]] = (() => {
     .map(([path, source]) => parseSkill(path, source))
     .sort((a, b) => a.name.localeCompare(b.name));
   if (first === undefined)
-    throw new Error("agent-plugin/skills: no SKILL.md found in this build");
+    throw new Error("skills: no SKILL.md found in this build");
   return [first, ...rest];
 })();

@@ -42,9 +42,9 @@
 #     (`lib.cache`, the store every host pulls that path from) and its update
 #     schedule (`lib.schedule`). Baked on the floor arm only — the binder
 #     decides when and what a host gets; a host never decides on its own.
-#   * `pluginDir` — this kolu's `agent-plugin`, handed to every harness at launch
-#     through `AGENT_DISTRO_PLUGINS`, so kolu's MCP plugin is loaded in every
-#     terminal without agent-distro pinning kolu.
+#   * `pluginDir` — kolu's agent plugin (the repository root), handed to every
+#     harness at launch through `AGENT_DISTRO_PLUGINS`, so kolu's MCP plugin is
+#     loaded in every terminal without agent-distro pinning kolu.
 #   * `bakeArgs { floor }` — the `--set` flags that bake the above onto a
 #     wrapper (the floor and the delivery only when `floor`).
 #   * `proof { floor }` — the build-time check a wrapper runs on what it baked.

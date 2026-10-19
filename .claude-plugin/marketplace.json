@@ -6,7 +6,7 @@
   "plugins": [
     {
       "name": "kolu",
-      "source": "./agent-plugin",
+      "source": "./",
       "description": "Drive coding agents through kolu's terminals."
     }
   ]

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { PLUGIN_SKILLS, parseSkill, skillBlurb } from "./pluginSkills";
 
-describe("PLUGIN_SKILLS — the real agent-plugin/skills", () => {
+describe("PLUGIN_SKILLS — the real skills/ directory", () => {
   it("reads kolu's own skill with its name and first-clause blurb", () => {
     const kolu = PLUGIN_SKILLS.find((s) => s.name === "kolu");
     expect(kolu).toEqual({

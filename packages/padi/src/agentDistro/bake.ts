@@ -12,8 +12,8 @@
  *     package, in this kolu's own closure, described by its manifest
  *     (`@kolu/agent-distro/manifest`). A remote host has no floor; kolu-server
  *     delivers its agents.
- *   - `KOLU_AGENT_PLUGIN_DIR` (both arms) — this kolu's `agent-plugin`, handed to
- *     each harness as `AGENT_DISTRO_PLUGINS`.
+ *   - `KOLU_AGENT_PLUGIN_DIR` (both arms) — kolu's agent plugin at the
+ *     repository root, handed to each harness as `AGENT_DISTRO_PLUGINS`.
  *
  * (The fourth, `KOLU_AGENT_DISTRO_DELIVERY`, is kolu-server's alone: padi never
  * fetches or builds anything.)
@@ -65,7 +65,7 @@ export interface AgentDistroBake {
   /** The local floor's manifest, or `undefined` on a host that has none and
    *  is delivered its agents. */
   readonly floor: AgentDistroManifest | undefined;
-  /** This kolu's `agent-plugin` directory. */
+  /** kolu's agent plugin directory — the repository root. */
   readonly plugins: string;
   /** The package's state directory on THIS host — made concrete for its state
    *  home once, when the bake is read. Its `current` link is the package the
