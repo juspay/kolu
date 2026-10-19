@@ -1,16 +1,12 @@
 ---
 name: ci
-description: Run this repo's CI end-to-end — the kolu-specific procedure on top of the odu runner: the odu MCP front door, banned opt-out flags, linux-only platform pinning, venue-pool leasing, fail-fast surfacing, e2e timing evidence, and the green-gate. Triggers on "run CI", "drive CI", "re-run the pipeline", "close the red check", "warm the pool". Runner mechanics live in the `/odu` skill.
+description: Run this repo's CI end-to-end — kolu's policy on top of the odu runner: banned opt-out flags, x86_64-linux pinning, pool upkeep, fail-fast surfacing, e2e timing evidence, and the green-gate. Triggers on "run CI", "drive CI", "re-run the pipeline", "close the red check", "warm the pool". Runner mechanics live in the `/odu` skill.
 ---
 
 # CI
 
-**Drive CI through the odu MCP server — the single front door.** The runner is
-**odu** (npins-pinned by `ci/flake.nix`, `nix run ./ci#odu`): `mcp__odu__run`
-spawns the coordinator, `mcp__odu__wait_for_settle` blocks until settle or first
-red node (its verdict is stamped `sha7#seq`; pass `expected_sha` to hard-check),
-the `surface://collections/logs/{id}` resource drills into a failure,
-`mcp__odu__node_rerun` closes a red check. Runner mechanics: `/odu` skill.
+Run CI through **odu**; its verbs, flags, MCP front door and venue leasing are
+the `/odu` skill. This skill is what kolu adds on top.
 
 **Banned flags: never `--no-post`, `--no-strict`, `--no-snapshot`.** CI here is
 always strict and always posts commit statuses — a run that doesn't post isn't
@@ -28,56 +24,23 @@ gauntlet round is mid-commit — it races the index.
 **Every run is `x86_64-linux` ONLY.** Pin it explicitly —
 `platforms=["x86_64-linux"]` — never trust a machine-local default: a platform
 you don't name **silently drops**, and an unpinned run picks up whatever
-`hosts.json` happens to list (today that includes a darwin box). A linux green
-IS the green this repo gates on; master's required-status set is linux-only.
+`hosts.json` happens to list. A linux green IS the green this repo gates on;
+master's required-status set is linux-only.
 
 **Never run `aarch64-darwin` unless the user asks for it in THIS
-conversation.** Not "to be safe", not because a change looks platform-shaped,
-not because an older note called two-platform coverage mandatory. Darwin's Nix
-closure still gets built by `.github/workflows/nix-cache.yml` on every push —
-that lane is GitHub's to drive, not yours.
+conversation.** Not "to be safe", not because a change looks platform-shaped.
+Darwin's Nix closure is built by `.github/workflows/nix-cache.yml` on every
+push — that lane is GitHub's to drive, not yours.
 
-<details>
-<summary>Asked for a darwin lane explicitly? Then, and only then:</summary>
+**Kolu's Linux pool:** `just ci::pool-ensure` / `just ci::pool-status` keep the
+warm `kolu-ci-1..N` boxes healthy; odu leases them natively. Warm idle slots by
+running the linux lane against master with a `hosts=` pin (strict and posting,
+like every run).
 
-Add `"aarch64-darwin"` to `platforms` and `--platform aarch64-darwin` to
-`just ci::protect`. A named platform with no pool entry is **refused loudly**
-(juspay/odu#46).
-
-**Read `hosts.json`, never this skill, for the box.** The darwin fleet is
-volatile (this file hard-named the live box three times and was stale each
-time) — `~/.config/odu/hosts.json` (`nix run ./ci#odu -- hosts`) is the only
-source of truth; copy entries verbatim when pinning (user@ and tailnet suffixes
-differ). Durable rules: under a coordinator, ask it before every darwin
-dispatch (single-tenant); treat fs-watch-class reds on darwin as suspect box
-environment and report before chasing; a dead pool entry silently stalls the
-whole darwin lane — report it for removal rather than waiting it out.
-
-**A companion repo's darwin lane uses `--host aarch64-darwin=<box>`, never
-inline `$ODU_HOSTS`** — odu reads `$ODU_HOSTS` as a *file path*, so inline JSON
-is silently ignored and burns a run on a dead host.
-
-</details>
-
-**Linux lane: odu leases natively** from the warm Incus pool
-(`kolu-ci-1..8` in `hosts.json`) — picks a free box, holds it for the run,
-releases on settle. No manual leasing. Saturated pool waits in line
-(`no_wait: true` to fail fast instead); `nix run ./ci#odu -- hosts` shows
-free/busy. To keep the *same* hot box across fix→rerun cycles, take an
-agent-held lease with `mcp__odu__lease` first and `mcp__odu__release` when
-done. Pool upkeep: `just ci::pool-ensure` / `just ci::pool-status`; warm idle
-slots by running the linux lane against master with a `hosts=` pin (strict and
-posting, like every run).
-
-**Fail fast on the MCP; don't drain the pipeline.** `wait_for_settle` returns
-on the first red node with `{failed[], errored[]}` — read the red node's log
-(the log resource, or `.ci/<sha7>/<platform>/<recipe>.log`) and start the
-fix → fmt → commit → retry loop immediately. **Waiting IS `wait_for_settle`
-re-invoked**: an unsettled return at timeout means call it again — never park
-the wait on a background shell watcher over `.ci/<sha7>/runs/` or a
-`gh pr checks` poll. A hand-guessed ledger predicate hangs silently, and a
-watcher that only detects settle forfeits first-red. `errored` (vs `failed`)
-means infrastructure death — `node_rerun` it rather than hunting a test bug.
+**Fail fast:** read the first red node's log (the log resource, or
+`.ci/<sha7>/<platform>/<recipe>.log`) and start the fix → fmt → commit → retry
+loop immediately. Re-invoke the wait rather than parking a background watcher
+over the ledger; a watcher that only detects settle forfeits first-red.
 
 **`pu` misbehaves → log it on
 [juspay/kolu#1204](https://github.com/juspay/kolu/issues/1204)** via
@@ -113,8 +76,8 @@ whose duration is the slowest slice. So:
   `.ci/<sha7>/<platform>/ci::e2e[k-of-N].log`;
 - a darwin lane (only ever present when explicitly requested) has a
   single-host pool: `1/4` and exactly one row;
-- `node_rerun` targets ONE shard node (`ci::e2e[2-of-3]@x86_64-linux`), not the
-  logical context: re-running the fold would re-run every slice.
+- re-run ONE shard node (`ci::e2e[2-of-3]@x86_64-linux`), not the logical
+  context: re-running the fold would re-run every slice.
 
 **The green-gate: every required status check green on the PR's current
 `HEAD`.** Source the required list from `just ci::protect --dry-run` — the

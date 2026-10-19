@@ -113,5 +113,5 @@ Kolu's world is not a clean single quadrant; use the `/diataxis` skill, whose "K
 ## Agent configuration
 
 - The repository root is kolu's published **Agent Plugin**: `plugin.json`, `mcp.json`, `skills/kolu/`, and `.claude-plugin/plugin.json`. Consumers reference it as `github:juspay/kolu`.
-- Maintainer-only skills live in the **`dev/` plugin** (`dev/plugin.json`, name `kolu-dev`, `dev/skills/<name>/SKILL.md`). The root manifest lists it under `extensions."asia.nixos.agent-distro".plugins = ["./dev"]`, so agent-distro composes both over the harness at launch.
+- Maintainer-only skills live in the **`dev/` plugin** (`dev/plugin.json`, name `kolu-dev`, `dev/skills/<name>/SKILL.md`). The root manifest lists it under `extensions."asia.nixos.agent-distro".plugins` alongside the external plugins maintainers need (odu, nix-chrome-devtools-mcp, xyne-boxes, juspay/skills), so agent-distro composes them all over the harness at launch.
 - There is **no generated runtime directory** and no APM: editing a skill under `skills/` or `dev/skills/` is the change. Task-specific conventions live in `dev/skills/<topic>/SKILL.md`; project-wide rules live in this file.

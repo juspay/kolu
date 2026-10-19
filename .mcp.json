@@ -1,10 +1,5 @@
 {
   "mcpServers": {
-    "chrome-devtools": {
-      "type": "stdio",
-      "command": "dev/skills/nix-chrome-devtools-mcp/bin/serve",
-      "args": []
-    },
     "kolu": {
       "type": "stdio",
       "command": "kolu",

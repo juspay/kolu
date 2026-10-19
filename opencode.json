@@ -1,11 +1,6 @@
 {
   "$schema": "https://opencode.ai/config.json",
   "mcp": {
-    "chrome-devtools": {
-      "type": "local",
-      "enabled": true,
-      "command": ["dev/skills/nix-chrome-devtools-mcp/bin/serve"]
-    },
     "kolu": {
       "type": "local",
       "enabled": true,

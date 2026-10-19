@@ -5,9 +5,16 @@
   "homepage": "https://kolu.dev",
   "repository": "https://github.com/juspay/kolu",
   "license": "AGPL-3.0-or-later",
+  "//": "Drop the /agent-plugin branch suffixes once the nix-chrome-devtools-mcp and xyne-boxes PRs merge; odu goes bare (github:juspay/odu) once odu #128 lands.",
   "extensions": {
     "asia.nixos.agent-distro": {
-      "plugins": ["./dev"]
+      "plugins": [
+        "./dev",
+        "github:juspay/odu?dir=agent-plugin",
+        "github:juspay/nix-chrome-devtools-mcp/agent-plugin",
+        "github:juspay/xyne-boxes/agent-plugin",
+        "github:juspay/skills"
+      ]
     }
   }
 }
