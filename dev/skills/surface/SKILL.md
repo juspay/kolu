@@ -57,7 +57,9 @@ Runnable end-to-end: `packages/surface/example/` (its `mini-ci` stdio example is
 
 ## Changing the framework
 
-The consumer guide above is for using the stack. Changing it has two gates.
+The consumer guide above is for using the stack. Changing it has two gates and
+one docs requirement: the drishti pair, the ODU-IMPACT verdict, and the
+Reference-page update below.
 
 ### Surface libraries are shared — mirror API changes to drishti
 

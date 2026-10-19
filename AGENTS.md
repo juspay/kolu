@@ -1,8 +1,8 @@
 # AGENTS.md
 
-kolu's project-wide agent conventions. Task-specific runbooks live in
-`dev/skills/<name>/SKILL.md` (loaded with the repo's dev plugin); read the
-matching one before a task in its area.
+kolu's project-wide agent conventions. Task-specific runbooks live in the
+repository's `dev/` plugin (`dev/skills/<name>/SKILL.md`), composed with the
+repo profile; read the matching one before a task in its area.
 
 ## Communication
 
