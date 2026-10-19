@@ -10,8 +10,8 @@
       "plugins": [
         "./dev",
         "github:juspay/odu?dir=agent-plugin",
-        "github:juspay/nix-chrome-devtools-mcp",
-        "github:juspay/xyne-boxes"
+        "github:juspay/nix-chrome-devtools-mcp/agent-plugin",
+        "github:juspay/xyne-boxes/agent-plugin"
       ]
     }
   }
