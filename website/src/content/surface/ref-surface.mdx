@@ -1838,9 +1838,10 @@ back in place of a transport-only `status`.
   roam), and every app that smoothed it by hand re-derived the same number.
   `createSurfaceReadout` derives it once, from the same window, for `connectSurface`
   / `connectSurfaces` and every consumer of a readout — so the policy cannot be
-  forgotten. A **retired** readout presents immediately (a retired wire never
-  re-dials; there is nothing a grace window could hold back) — the framework's one
-  frozen `retired` readout carries `presentingDown: true`.
+  forgotten. A **retired** readout presents IMMEDIATELY (a retired wire never
+  re-dials; there is nothing a grace window could hold back) — the frozen
+  `retired` readout a disposed connection hands back is `true` for the same
+  reason, and the two cannot disagree.
 - **`status` itself stays INSTANTANEOUS.** The header dot, the heartbeat probe
   gate and the client read the raw state with no delay; only the overlay gate is
   graced. Do not debounce `status`.

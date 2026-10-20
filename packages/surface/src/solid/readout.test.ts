@@ -328,11 +328,13 @@ describe("createSurfaceReadout — the graced down-state (presentingDown)", () =
     w.dispose();
   });
 
-  it("presents `retired` once graced like any other non-live state", async () => {
+  it("presents `retired` IMMEDIATELY — terminal, so the grace window is bypassed", async () => {
     const w = await watch("live");
     w.setStatus("retired");
     await Promise.resolve();
-    vi.advanceTimersByTime(DISCONNECT_OVERLAY_GRACE_MS);
+    // No timer advance: a retired wire never re-dials, so there is nothing the
+    // grace window could hold back. This matches the frozen disposed-connection
+    // readout (`connectSurfaces`' `retiredReadout`), which is also `true`.
     expect(w.readout().presentingDown).toBe(true);
     expect(w.readout().needsReload).toBe(true);
     w.dispose();

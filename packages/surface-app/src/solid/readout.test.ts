@@ -140,9 +140,9 @@ describe("connectSurface().readout", () => {
       expect(conn.readout()).toEqual({
         status: "retired",
         needsReload: true,
-        // NOT yet presented: `retired` is graced like every other not-live
-        // state, so the overlay waits out `DISCONNECT_OVERLAY_GRACE_MS` first.
-        presentingDown: false,
+        // A retired wire never re-dials, so it presents IMMEDIATELY (the grace
+        // window is bypassed) — matching the frozen disposed-connection readout.
+        presentingDown: true,
       });
 
       await conn.dispose();

@@ -84,14 +84,15 @@ export interface TransportReadout {
   readonly status: Exclude<SurfaceReadoutStatus, "degraded">;
   readonly stopped?: undefined;
   /** The grace-windowed "should a consumer present its down-state *now*"? fact:
-   *  `true` only once the readout has been not-`live` continuously for
+   *  `true` once the readout has been not-`live` continuously for
    *  {@link DISCONNECT_OVERLAY_GRACE_MS}, and back to `false` the instant it
    *  recovers. This is the bit an OVERLAY gates on — a sub-second watchdog
    *  forced-reconnect never presents, a sustained outage does. It is distinct
    *  from `status`, which stays instantaneous for the dot, the probe gate and
-   *  the client. `retired` is a definitive down, so it presents once graced like
-   *  any other non-`live` state. See {@link createSurfaceReadout}, which derives
-   *  it once for every consumer. */
+   *  the client. `retired` is a DEFINITIVE down — the wire never re-dials, so
+   *  there is nothing a grace window could hold back — and therefore presents
+   *  IMMEDIATELY, matching the frozen disposed-connection readout. See
+   *  {@link createSurfaceReadout}, which derives it once for every consumer. */
   readonly presentingDown: boolean;
   /** True for `retired`, and ONLY for `retired`: the server closed this tab at
    *  the handshake because the process that served it has been replaced, so the
@@ -228,7 +229,9 @@ export interface SurfaceReadoutHandle {
  * policy every app had to remember to wire, now un-forgettable. That is why the
  * graced predicate reads the FOLDED status (so a mirror whose upstream is down
  * presents too), while the underlying `status` the dot/probe/client read stays
- * instantaneous.
+ * instantaneous. `retired` bypasses the window (it is terminal — present it at
+ * once, as the frozen disposed readout does); every other not-live state waits
+ * it out.
  */
 export function createSurfaceReadout(
   status: Accessor<SurfaceConnectionStatus>,
@@ -256,9 +259,14 @@ export function createSurfaceReadout(
       readout: createMemo(
         (): SurfaceReadout => {
           const base = raw();
-          return base.status === "live" || base.status === "degraded"
-            ? base
-            : { ...base, presentingDown: down() };
+          if (base.status === "live" || base.status === "degraded") return base;
+          // `retired` is TERMINAL — the wire never re-dials, so there is nothing a
+          // grace window could hold back; present it IMMEDIATELY, exactly as the
+          // frozen disposed-connection readout (`connectSurfaces`' `retiredReadout`)
+          // does. Every OTHER not-live state is graced, so a sub-second forced
+          // reconnect never flashes an overlay.
+          const presentingDown = base.status === "retired" ? true : down();
+          return { ...base, presentingDown };
         },
         undefined,
         { equals: sameReadout },
