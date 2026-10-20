@@ -49,8 +49,11 @@ import { SurfaceStdioTransportClosed } from "../errors";
 import { RPC_PING_FATAL_SILENCE_MS, RPC_PING_INTERVAL_MS } from "../keepAlive";
 import { brandHalfOpenDispatch, type SurfaceDispatch } from "../link";
 
-// Re-exported from the leaflet that owns the numbers (`../keepAlive`), so this
-// subpath's importers keep one import path. See there for the mechanism.
+/** How often `RpcClient.makeProtocolSocket`'s own pinger writes a ping, and the
+ *  worst-case silence it tolerates before ending the socket run — Effect's
+ *  numbers, OBSERVED, not knobs we own. Re-exported from `../keepAlive` (the
+ *  leaflet that owns them) so this subpath's importers keep one import path;
+ *  the canonical account of the MECHANISM is `keepAliveWentUnanswered` below. */
 export { RPC_PING_FATAL_SILENCE_MS, RPC_PING_INTERVAL_MS };
 
 /** The retry schedule for a link bound to one stream pair: halt on the first
@@ -71,13 +74,6 @@ const neverReconnect: Schedule.Schedule<number, Socket.SocketError> =
       Cause.done(meta.attempt),
     ),
   );
-
-/** How often `RpcClient.makeProtocolSocket`'s own pinger writes a ping, and the
- *  worst-case silence it tolerates before ending the socket run — Effect's
- *  numbers, OBSERVED, re-exported from `../keepAlive` so the arithmetic that
- *  must respect the deadline (frame chunk sizing) and the tests elsewhere can
- *  reference the fact instead of transcribing it. The canonical account of the
- *  MECHANISM is `keepAliveWentUnanswered` below. */
 
 /** What every wire link factory returns: the dispatch the face binds against,
  *  plus the release of the scope the link opened. `dispose` is idempotent and
