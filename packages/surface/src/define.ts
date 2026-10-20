@@ -146,10 +146,31 @@ export const READ_VERBS: readonly (CellVerb | CollectionVerb)[] = [
 
 /** One frame of a collection's batched `deltas` stream: the full keyed set on
  *  (re)subscribe, then one coalesced `{upserts, removes}` per producer tick.
- *  The bulk-friendly twin of the per-key `get` stream — see {@link CollectionVerb}. */
+ *  The bulk-friendly twin of the per-key `get` stream — see {@link CollectionVerb}.
+ *
+ *  A frame that scales with user content is split into bounded PARTS before it
+ *  reaches the wire (`./collectionDeltasFraming.ts`); each part is one of these
+ *  arms carrying an optional {@link CollectionDeltaPart} marker, and the client
+ *  face folds the parts back before any consumer sees them. A frame under the
+ *  budget carries NO marker and is byte-identical to the format that predates
+ *  chunking. */
 export type CollectionDeltasMsg<K, T> =
-  | { kind: "snapshot"; entries: [K, T][] }
-  | { kind: "delta"; upserts: [K, T][]; removes: K[] };
+  | { kind: "snapshot"; entries: [K, T][]; part?: CollectionDeltaPart }
+  | {
+      kind: "delta";
+      upserts: [K, T][];
+      removes: K[];
+      part?: CollectionDeltaPart;
+    };
+
+/** The marker that turns a whole `deltas` frame into one PART of a larger one —
+ *  0-based `seq` within `of` total, present only on a frame the framer actually
+ *  divided (`of ≥ 2`). See `./collectionDeltasFraming.ts` for the split and the
+ *  reassembly contract. */
+export interface CollectionDeltaPart {
+  readonly seq: number;
+  readonly of: number;
+}
 
 /** The `delta` frame of {@link CollectionDeltasMsg} — one coalesced
  *  `{upserts, removes}` batch for a producer tick. Carried both on the server's
@@ -706,15 +727,23 @@ export function collectionDeltasSchema<
   VSc extends WireSchemaAny,
 >(keySchema: KSc, schema: VSc) {
   const entry = Schema.Tuple([keySchema, schema]);
+  // The chunk marker, optional on BOTH arms: absent on every whole frame (so the
+  // bytes are the frozen ones), present only on a part a reader must join. See
+  // `CollectionDeltasMsg` / `CollectionDeltaPart`.
+  const part = Schema.optionalKey(
+    Schema.Struct({ seq: Schema.Number, of: Schema.Number }),
+  );
   return Schema.Union([
     Schema.Struct({
       kind: Schema.Literal("snapshot"),
       entries: Schema.Array(entry),
+      part,
     }),
     Schema.Struct({
       kind: Schema.Literal("delta"),
       upserts: Schema.Array(entry),
       removes: Schema.Array(keySchema),
+      part,
     }),
   ]);
 }

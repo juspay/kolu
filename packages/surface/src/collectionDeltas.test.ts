@@ -271,8 +271,10 @@ describe("collection deltas — handler subscribe-before-snapshot", () => {
     let subscribersDuringSnapshot = -1;
     let publishedInGap = false;
     const handlers = collectionHandlers(
-      // The descriptor is only read for `_coll.name` in error messages.
-      { name: "items" } as never,
+      // A real descriptor: since the bounded-frame split (`collectionDeltasFraming`)
+      // the handler reads `_coll.keySchema`/`schema` to size frames, so a
+      // schema-less stub no longer suffices.
+      numericKeyed,
       {
         readAll: () => {
           if (!publishedInGap) {
@@ -316,7 +318,7 @@ describe("collection deltas — handler subscribe-before-snapshot", () => {
     // channel forever, its queue growing on every publish.
     const store = new Map<number, V>([[1, { name: "a" }]]);
     const deltasBus = inMemoryChannel<CollectionDelta<number, V>>();
-    const handlers = collectionHandlers({ name: "items" } as never, {
+    const handlers = collectionHandlers(numericKeyed, {
       readAll: () => store,
       perKeyBus: () => inMemoryChannel<V>(),
       keysBus: inMemoryChannel<number[]>(),

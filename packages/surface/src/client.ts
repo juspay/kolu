@@ -37,6 +37,7 @@ import { CLOCK_NOW_NAMESPACE, CLOCK_NOW_VERB } from "./clockNow";
 import { containThrow } from "./containThrow";
 import {
   type CellSpec,
+  type CollectionDeltasMsg,
   type CollectionSpec,
   type ProcedureSpec,
   resolveCellVerbs,
@@ -47,6 +48,7 @@ import {
   type WireSchemaAny,
 } from "./define";
 import { isSurfaceRelayTransportLost, type SurfaceError } from "./errors";
+import { reassembleCollectionDeltas } from "./collectionDeltasFraming";
 import { IDENTITY_NAMESPACE, IDENTITY_VERB } from "./identity";
 import type { SurfaceDispatch } from "./link";
 import { LIVENESS_NAMESPACE, LIVENESS_VERB } from "./liveness";
@@ -668,19 +670,32 @@ export function buildSurfaceFace<S extends SurfaceSpec>(
     );
   };
 
-  /** Mint one STREAMING verb — a lazy `Stream` at the member's wire tag. */
+  /** Mint one STREAMING verb — a lazy `Stream` at the member's wire tag.
+   *
+   *  The `deltas` verb is special-cased: its frames may arrive as bounded PARTS —
+   *  a collection snapshot scales with the collection's size
+   *  (`./collectionDeltasFraming.ts`), so the wire splits it. The parts are folded
+   *  back HERE, at the one seam every consumer crosses (`surfaceClient`'s `.use()`
+   *  / `.unenrolledDeltas` / `.rpc`, `mirrorRemoteSurface`, a `SurfaceMap` fold),
+   *  so no consumer sees a `part` marker or has to know the wire bounded
+   *  anything. Every other streaming verb passes through untouched. */
   const mintStream = (
     name: string,
     verb: string,
     payload: WireSchemaAny | undefined,
     decodeInput: boolean,
   ): void => {
-    member(name)[verb] = streamRef(
-      dispatch,
-      tagOf(name, verb),
-      payload,
-      decodeInput,
-    );
+    const ref = streamRef(dispatch, tagOf(name, verb), payload, decodeInput);
+    member(name)[verb] =
+      verb === "deltas"
+        ? (input?: unknown) =>
+            reassembleCollectionDeltas(
+              ref(input) as Stream.Stream<
+                CollectionDeltasMsg<unknown, unknown>,
+                unknown
+              >,
+            )
+        : ref;
   };
 
   for (const [key, raw] of Object.entries(spec.cells ?? {})) {

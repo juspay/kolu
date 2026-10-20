@@ -106,6 +106,7 @@ export { composeSurfaceContracts };
 
 import { CLOCK_NOW_NAMESPACE, CLOCK_NOW_VERB } from "./clockNow";
 import { containThrow } from "./containThrow";
+import { deltasSizes, splitCollectionDeltas } from "./collectionDeltasFraming";
 import {
   type BakedIdentity,
   IDENTITY_NAMESPACE,
@@ -1069,16 +1070,31 @@ export function collectionHandlers<Name extends string, K, T>(
   // remove of an absent key is a no-op.)
   const deltasBus = deps.deltasBus;
   if (deltasBus) {
+    // BOUNDED FRAMES: a snapshot (or a coalesced delta) that scales with user
+    // content is split into parts small enough to drain inside Effect's ping
+    // window, so it can never starve the link's keep-alive (the olai incident —
+    // see `./collectionDeltasFraming.ts` and `./frameChunking.ts`). The client
+    // face reassembles the parts into exactly the frames it always saw.
+    const sizes = deltasSizes<K, T>(_coll.keySchema, _coll.schema);
+    // ONE PART PER WIRE FRAME (`Stream.rechunk(1)`). Effect RPC writes one frame
+    // per stream CHUNK, not per element, so without this the parts would ride a
+    // single `Chunk` message and the whole point — a bounded frame the socket
+    // can drain before the next ping — would be lost to a re-combined megabyte.
+    // A delta frame is already one coalesced tick, so one-per-chunk is also
+    // exactly the right delivery shape for the live half.
     handlers.deltas = () =>
-      subscribeBeforeSnapshot<CollectionDeltasMsg<K, T>, CollectionDelta<K, T>>(
-        deltasBus,
-        () => [
+      Stream.flatMap(
+        subscribeBeforeSnapshot<
+          CollectionDeltasMsg<K, T>,
+          CollectionDelta<K, T>
+        >(deltasBus, () => [
           {
             kind: "snapshot",
             entries: Array.from(deps.readAll().entries()),
           },
-        ],
-      );
+        ]),
+        (frame) => Stream.fromIterable(splitCollectionDeltas(frame, sizes)),
+      ).pipe(Stream.rechunk(1));
   }
 
   return handlers;

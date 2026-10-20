@@ -74,6 +74,28 @@ describe("collectionDeltasSchema wire format", () => {
     );
   });
 
+  it("a PART frame carries seq/of and round-trips — the framing is additive", () => {
+    // The bounded-frame split (`collectionDeltasFraming`) stamps `part` onto a
+    // frame it had to divide. It is optional, so a whole frame keeps the frozen
+    // bytes above; a part must survive the same decode → re-encode hop.
+    const part: Msg = {
+      kind: "snapshot",
+      entries: [[1, { label: "a", n: 1 }]],
+      part: { seq: 1, of: 3 },
+    };
+    const json = JSON.stringify(encode(part));
+    expect(json).toBe(
+      '{"kind":"snapshot","entries":[[1,{"label":"a","n":1}]],"part":{"seq":1,"of":3}}',
+    );
+    expect(JSON.stringify(encode(decode(JSON.parse(json))))).toBe(json);
+  });
+
+  it("a whole frame omits `part` entirely — the pre-chunking bytes are untouched", () => {
+    // `Schema.optionalKey` must DROP the key rather than emit `"part":null`, or
+    // every small collection's bytes would change on the wire.
+    expect(JSON.stringify(encode(SNAPSHOT))).toBe(SNAPSHOT_JSON);
+  });
+
   it("rejects a frame with an unknown discriminant", () => {
     expect(() => decode({ kind: "patch", entries: [] })).toThrow();
   });
