@@ -72,13 +72,15 @@ function throttleReadable(
 type V = { text: string };
 
 /** How many entries the snapshot carries, and how long each value is: chosen so
- *  the encoded snapshot spans several `RPC_STREAM_CHUNK_BYTES` parts (the frame
- *  that starved the ping on a slow link). ~1000 entries × ~1 KiB ≈ 1 MiB. */
-const ENTRIES = 1_000;
+ *  an UNCHUNKED snapshot would outlast `RPC_PING_FATAL_SILENCE_MS` at
+ *  {@link BYTES_PER_SECOND} — ~3 MiB / 250 KiB/s ≈ 12 s > the 10 s fatal window,
+ *  so a single-frame snapshot would starve the pong and kill the link before the
+ *  assertions ran. That is what makes this test FAIL without the split. */
+const ENTRIES = 3_000;
 const TEXT = "x".repeat(1_000);
-/** A tether-ish rate: one 256 KiB chunk drains in ~1s, the whole ~1 MiB snapshot
- *  in ~4s — comfortably past the 5s ping interval, so an unchunked frame would
- *  starve the pong and kill the link. */
+/** A tether-ish rate: one 256 KiB chunk drains in ~1s, the whole ~3 MiB snapshot
+ *  in ~12 s — past the 10 s fatal window, so an unchunked frame would starve the
+ *  pong and kill the link. */
 const BYTES_PER_SECOND = 250 * 1024;
 
 const surface = defineSurface({
@@ -213,11 +215,15 @@ describe("bounded collection frames over a throttled wire", () => {
       // (2) Interleaving: the small frame landed WHILE the snapshot was still
       // arriving. This is the property chunking buys — one frame would have
       // queued the small frame behind the whole snapshot.
-      expect(bigAt).toBeGreaterThan(1_500);
+      //
+      // `bigAt` past the 10 s fatal window is the SURVIVAL claim: an unchunked
+      // ~3 MiB frame would have killed the link before it arrived (measured by
+      // running this with the `server.ts` split reverted).
+      expect(bigAt).toBeGreaterThan(10_000);
       expect(smallAt).toBeGreaterThan(0);
       expect(smallAt).toBeLessThan(bigAt);
     } finally {
       await done();
     }
-  }, 30_000);
+  }, 45_000);
 });
