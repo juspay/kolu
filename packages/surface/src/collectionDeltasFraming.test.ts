@@ -16,7 +16,7 @@
  */
 
 import { Effect, Schema, Stream } from "effect";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { collectionDeltasSchema, type CollectionDeltasMsg } from "./define";
 import {
   deltasSizes,
@@ -179,6 +179,38 @@ describe("reassembleCollectionDeltas — parts fold back", () => {
     await expect(
       collect(reassembleCollectionDeltas(Stream.fromIterable(gapped))),
     ).rejects.toThrow(/expected part 1 but received 2/);
+  });
+});
+
+describe("deltasSizes — measuring a shared frame once", () => {
+  it("measures a frame ONCE however many subscribers read it (the bus fans out one object)", () => {
+    // Every subscriber's handler runs the fast-path test on the SAME frame object
+    // the bus delivered (`inMemoryChannel` fans one value out). Without the memo
+    // that is one encode per tab per tick — "per token, per tab". The spy counts
+    // the `JSON.stringify` inside the measurement.
+    const sizes = deltasSizes<number, V>(keySchema, valueSchema);
+    const frame: Msg = {
+      kind: "delta",
+      upserts: [[1, { name: "a" }]],
+      removes: [],
+    };
+    const spy = vi.spyOn(JSON, "stringify");
+    try {
+      sizes.frame(frame);
+      sizes.frame(frame);
+      sizes.frame(frame);
+      expect(spy).toHaveBeenCalledTimes(1);
+      // A DIFFERENT object is measured afresh — the memo is by identity, not by
+      // content, so two frames that happen to look alike are still each measured.
+      sizes.frame({
+        kind: "delta",
+        upserts: [[1, { name: "a" }]],
+        removes: [],
+      });
+      expect(spy).toHaveBeenCalledTimes(2);
+    } finally {
+      spy.mockRestore();
+    }
   });
 });
 

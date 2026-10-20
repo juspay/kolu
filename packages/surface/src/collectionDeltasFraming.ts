@@ -94,8 +94,22 @@ export function deltasSizes<K, T>(
   const entryJson = Schema.encodeUnknownSync(Schema.Tuple([keySchema, schema]));
   const keyJson = Schema.encodeUnknownSync(keySchema);
   const bytes = (encoded: unknown): number => JSON.stringify(encoded).length;
+  // Measure each frame ONCE, however many subscribers read it. A collection's
+  // `deltasBus` fans ONE value object out to every subscriber (`inMemoryChannel`),
+  // and every subscriber's handler runs the fast-path test on that same object —
+  // so a WeakMap keyed by the frame makes the per-subscriber encode a one-time
+  // cost per frame instead of one per tab per tick. The snapshot is a fresh
+  // object per subscribe (its encode is inherent to producing the response); the
+  // DELTA frames are the hot path this saves.
+  const measured = new WeakMap<object, number>();
   return {
-    frame: (msg) => bytes(frameJson(msg)),
+    frame: (msg) => {
+      const hit = measured.get(msg);
+      if (hit !== undefined) return hit;
+      const size = bytes(frameJson(msg));
+      measured.set(msg, size);
+      return size;
+    },
     entry: (pair) => bytes(entryJson(pair)),
     key: (key) => bytes(keyJson(key)),
   };
