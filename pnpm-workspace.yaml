@@ -20,10 +20,6 @@ packages:
   # `agent-distro` pin by the same mechanism — `@kolu/agent-distro` imports the
   # updater's own due rule, history line and versions wording from it.
   - juspay/agent-distro
-  # NOTE: `agents/` (the reusable APM skills package — agents/README.md) is NOT a
-  # workspace member. It was one only so the lens-debate engine's unit tests ran
-  # under `pnpm -r test:unit`; the engine and every stage that used it are gone,
-  # so the package is pure markdown with nothing to test or build.
 
 # Effect 4 (stable). Every @effect/* package must resolve to the SAME version as
 # `effect` itself, so these are exact pins (no `^`) for kolu-private members.
