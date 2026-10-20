@@ -1968,8 +1968,14 @@ the cap answers "will the decoder reject this?"; the drain budget answers "will
 this frame still be in flight when the next ping fires?". A subscription's frames
 are ack-gated, so at most one part is in flight; 256 KiB drains in ~2 s at a
 1 Mbit/s floor plus a ~0.5 s ack round trip — comfortably inside the 5 s ping
-interval. The split and the reassembly both live beside the wire's frame budget
-(in the package's `collectionDeltasFraming` module).
+interval. The bound is **per stream**: a reconnect re-subscribes every collection
+at once, so up to K parts (K = the collections whose snapshot exceeds the budget)
+can share the socket, and the pong queues behind all K. K is small — a snapshot
+is a single frame unless it exceeds the budget, and the incident is one such
+collection — but K large snapshots resuming together on a very slow link can
+still delay the pong; a per-connection part gate is the follow-up. The split and
+the reassembly both live beside the wire's frame budget (in the package's
+`collectionDeltasFraming` module).
 
 ## Cross-cutting invariants
 

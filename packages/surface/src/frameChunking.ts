@@ -114,7 +114,24 @@ import { RPC_PING_INTERVAL_MS } from "./keepAlive.ts";
  *  time at a 200ms RTT, against ~39s of pure transmission at 1 Mbit/s — an
  *  acceptable tax for a link that stays alive.
  *
- *  BAKED, not a knob: a tunable would be a way to reintroduce the starvation. */
+ *  BAKED, not a knob: a tunable would be a way to reintroduce the starvation.
+ *
+ *  ## The bound is per STREAM — and the socket is shared
+ *
+ *  Ack-gating bounds ONE stream to a single part in flight, but a reconnect
+ *  re-subscribes every collection on the socket at once, so up to K parts can sit
+ *  on the wire together (K = the collections whose snapshot exceeds this budget),
+ *  and the pong queues behind all K rather than one. K is small in practice: a
+ *  collection's snapshot is a SINGLE frame unless it exceeds the budget, and the
+ *  incident this exists for is one such collection (a long transcript, K = 1 →
+ *  ~2s at the 1 Mbit/s floor). Stated honestly: K large snapshots resuming
+ *  together on a 1 Mbit/s link can delay the pong past the ping interval — the
+ *  per-stream bound does not become a per-CONNECTION one, and a connection-level
+ *  part gate (one part in flight per socket) is the follow-up. It is deferred
+ *  rather than denied because a handler cannot see its connection, and the
+ *  alternative — a budget small enough that K of them still fit — multiplies the
+ *  ack round trips on EVERY transfer to buy headroom for a case the measured
+ *  incident never reaches. */
 export const RPC_STREAM_CHUNK_BYTES = 256 * 1024;
 
 /** What everything on the frame OTHER than the base64 payload is budgeted at:
