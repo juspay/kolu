@@ -359,6 +359,10 @@ export function createHeartbeat(opts: HeartbeatOptions): {
       // against it, so they cannot disagree about how long a verdict has been
       // deferred.
       const currentMono = mono();
+      // The budget shared by BOTH void paths: while it is unspent a void defers
+      // the verdict; once spent, the verdict fires — voiding may DEFER a stale
+      // verdict but must never SILENCE it.
+      const withinVoidBudget = currentMono - lastSettledMono <= voidBudgetMs;
       // LIVENESS IS PROGRESS, checked FIRST because it is verdict-free: a frame
       // arrived on this link during the probe's own window, so the link is
       // demonstrably ALIVE (slow, busy, mid-snapshot) — never half-open, whatever
@@ -378,7 +382,7 @@ export function createHeartbeat(opts: HeartbeatOptions): {
       if (
         lastActivity !== undefined &&
         lastActivity() >= launchMono &&
-        currentMono - lastSettledMono <= voidBudgetMs
+        withinVoidBudget
       ) {
         abandon();
         tick();
@@ -393,7 +397,7 @@ export function createHeartbeat(opts: HeartbeatOptions): {
       // stale, so voiding can never silence the watchdog.
       const suspended =
         now() - launchWall - (currentMono - launchMono) > SUSPENSION_SLACK_MS;
-      if (suspended && currentMono - lastSettledMono <= voidBudgetMs) {
+      if (suspended && withinVoidBudget) {
         abandon();
         tick(); // fresh, full-timeoutMs probe over a continuously-running window
         return;

@@ -49,13 +49,6 @@ import {
 } from "./define";
 import { RPC_STREAM_CHUNK_BYTES } from "./frameChunking";
 
-/** Is this frame one part of a larger one? */
-export function isCollectionDeltaPart(
-  msg: CollectionDeltasMsg<unknown, unknown>,
-): boolean {
-  return msg.part !== undefined;
-}
-
 /** The byte sizes the framer needs, all measured by the CALLER (which owns the
  *  key/value schemas) so the arithmetic here never guesses at an encoding it
  *  cannot see. A trimmed estimate would be the exact bug the budget exists to
@@ -75,7 +68,7 @@ export interface DeltasSizes<K, T> {
  *  {"seq":N,"of":M}}`. Generous by an order of magnitude — the two-digit indices
  *  and the scaffolding are tens of bytes — and subtracted from the budget so a
  *  part's ITEMS are packed to fit after it. */
-export const DELTA_PART_ENVELOPE_BYTES = 256;
+const DELTA_PART_ENVELOPE_BYTES = 256;
 
 /** The byte sizes a collection's schemas imply, measured with the ONE encoder
  *  the wire itself uses (`Schema.encodeUnknownSync`) rather than a `JSON.stringify`
@@ -125,15 +118,38 @@ export function deltasSizes<K, T>(
   };
 }
 
+/** Contiguous index runs of `sizes`, each whose sum is ≤ `capacity` — the ONE
+ *  statement of the packing arithmetic, shared by both frame arms. A single item
+ *  larger than `capacity` gets a run of its own: the item is the unit this layer
+ *  knows, so it cannot be split further. */
+function packRuns(
+  sizes: readonly number[],
+  capacity: number,
+): Array<[from: number, to: number]> {
+  const runs: Array<[number, number]> = [];
+  let start = 0;
+  let used = 0;
+  for (let i = 0; i < sizes.length; i++) {
+    const size = sizes[i]!;
+    if (i > start && used + size > capacity) {
+      runs.push([start, i]);
+      start = i;
+      used = 0;
+    }
+    used += size;
+  }
+  if (start < sizes.length) runs.push([start, sizes.length]);
+  return runs;
+}
+
 /** Split a frame into wire-legal parts, each whose ITEMS fit
  *  `budget - DELTA_PART_ENVELOPE_BYTES` and none larger than `budget`.
  *
  *  A frame within budget is returned UNCHANGED, as a one-element array — the
  *  common case, and the one that keeps a small collection's bytes frozen. A
- *  single ITEM larger than the budget cannot be split here (the item IS the unit
- *  this layer knows), so it is emitted whole in a one-item part: still under the
- *  16 MiB decoder cap by construction of the collection schemas, just past the
- *  soft drain budget — the honest answer, not a silent truncation. */
+ *  single ITEM larger than the budget is emitted whole in a one-item part: still
+ *  under the 16 MiB decoder cap by construction of the collection schemas, just
+ *  past the soft drain budget — the honest answer, not a silent truncation. */
 export function splitCollectionDeltas<K, T>(
   msg: CollectionDeltasMsg<K, T>,
   sizes: DeltasSizes<K, T>,
@@ -143,54 +159,34 @@ export function splitCollectionDeltas<K, T>(
   const capacity = budget - DELTA_PART_ENVELOPE_BYTES;
 
   if (msg.kind === "snapshot") {
-    const parts: CollectionDeltasMsg<K, T>[] = [];
-    let batch: [K, T][] = [];
-    let used = 0;
-    const flush = (): void => {
-      if (batch.length === 0) return;
-      parts.push({ kind: "snapshot", entries: batch });
-      batch = [];
-      used = 0;
-    };
-    for (const pair of msg.entries) {
-      const size = sizes.entry(pair);
-      if (batch.length > 0 && used + size > capacity) flush();
-      batch.push(pair);
-      used += size;
-    }
-    flush();
+    const parts = packRuns(msg.entries.map(sizes.entry), capacity).map(
+      ([from, to]): CollectionDeltasMsg<K, T> => ({
+        kind: "snapshot",
+        entries: msg.entries.slice(from, to),
+      }),
+    );
     return withPartMarkers(parts);
   }
 
-  // A delta carries two ordered lists (upserts, then removes). Pack them in
-  // order into one run of parts; the reassembler concatenates each list back in
-  // `seq` order, so the split point between the lists is invisible.
-  const parts: CollectionDeltasMsg<K, T>[] = [];
-  let upserts: [K, T][] = [];
-  let removes: K[] = [];
-  let used = 0;
-  const flush = (): void => {
-    if (upserts.length === 0 && removes.length === 0) return;
-    parts.push({ kind: "delta", upserts, removes });
-    upserts = [];
-    removes = [];
-    used = 0;
-  };
-  for (const pair of msg.upserts) {
-    const size = sizes.entry(pair);
-    if ((upserts.length > 0 || removes.length > 0) && used + size > capacity)
-      flush();
-    upserts.push(pair);
-    used += size;
-  }
-  for (const key of msg.removes) {
-    const size = sizes.key(key);
-    if ((upserts.length > 0 || removes.length > 0) && used + size > capacity)
-      flush();
-    removes.push(key);
-    used += size;
-  }
-  flush();
+  // A delta carries two ordered lists (upserts, then removes) packed as ONE run,
+  // so a part boundary may fall between them; each part is rebuilt by slicing
+  // each list at the run, and the reassembler concatenates them back in `seq`
+  // order — the split point is invisible.
+  const upsertCount = msg.upserts.length;
+  const itemSizes = [
+    ...msg.upserts.map(sizes.entry),
+    ...msg.removes.map(sizes.key),
+  ];
+  const parts = packRuns(itemSizes, capacity).map(
+    ([from, to]): CollectionDeltasMsg<K, T> => ({
+      kind: "delta",
+      upserts: msg.upserts.slice(from, Math.min(to, upsertCount)),
+      removes: msg.removes.slice(
+        Math.max(0, from - upsertCount),
+        Math.max(0, to - upsertCount),
+      ),
+    }),
+  );
   return withPartMarkers(parts);
 }
 
@@ -220,23 +216,37 @@ function withPartMarkers<K, T>(
 export function reassembleCollectionDeltas<K, T>(
   frames: Stream.Stream<CollectionDeltasMsg<K, T>, unknown>,
 ): Stream.Stream<CollectionDeltasMsg<K, T>, unknown> {
-  type Open = {
-    kind: "snapshot" | "delta";
-    of: number;
-    seq: number;
-    entries: [K, T][];
-    upserts: [K, T][];
-    removes: K[];
+  /** A frame being joined, its own arm — the accumulating state. */
+  type Open =
+    | { kind: "snapshot"; of: number; seq: number; entries: [K, T][] }
+    | {
+        kind: "delta";
+        of: number;
+        seq: number;
+        upserts: [K, T][];
+        removes: K[];
+      };
+
+  const begin = (of: number, kind: Open["kind"]): Open =>
+    kind === "snapshot"
+      ? { kind, of, seq: 0, entries: [] }
+      : { kind, of, seq: 0, upserts: [], removes: [] };
+
+  /** Append one part's items. The caller has already matched the arms. */
+  const extend = (open: Open, msg: CollectionDeltasMsg<K, T>): void => {
+    if (open.kind === "snapshot" && msg.kind === "snapshot") {
+      open.entries.push(...msg.entries);
+    } else if (open.kind === "delta" && msg.kind === "delta") {
+      open.upserts.push(...msg.upserts);
+      open.removes.push(...msg.removes);
+    }
   };
 
-  const blank = (kind: Open["kind"], of: number): Open => ({
-    kind,
-    of,
-    seq: 0,
-    entries: [],
-    upserts: [],
-    removes: [],
-  });
+  /** The joined frame, its part marker dropped — what a consumer sees. */
+  const whole = (open: Open): CollectionDeltasMsg<K, T> =>
+    open.kind === "snapshot"
+      ? { kind: "snapshot", entries: open.entries }
+      : { kind: "delta", upserts: open.upserts, removes: open.removes };
 
   return Stream.mapAccumArray<
     Open | undefined,
@@ -255,39 +265,18 @@ export function reassembleCollectionDeltas<K, T>(
           out.push(msg);
           continue;
         }
-        if (msg.kind === "snapshot") {
-          if (
-            part.seq === 0 ||
-            open === undefined ||
-            open.kind !== "snapshot"
-          ) {
-            open = blank("snapshot", part.of);
-          }
-          // Parts of one frame are contiguous and ordered on the wire (the
-          // server is ack-gated and sequential); a duplicate or a gap is a bug
-          // worth surfacing rather than splicing in an invented order.
-          if (part.seq !== open.seq) throw misorderedPart(part.seq, open.seq);
-          open.entries.push(...msg.entries);
-          open.seq += 1;
-          if (open.seq === open.of) {
-            out.push({ kind: "snapshot", entries: open.entries });
-            open = undefined;
-          }
-          continue;
-        }
-        if (part.seq === 0 || open === undefined || open.kind !== "delta") {
-          open = blank("delta", part.of);
+        // `seq: 0` (or a different arm) starts a fresh buffer; a part that lands
+        // on the wrong one is a bug (a lost part, two frames spliced), refused
+        // rather than spliced in an invented order — parts are contiguous and
+        // ordered on the wire (the server is ack-gated and sequential).
+        if (part.seq === 0 || open === undefined || open.kind !== msg.kind) {
+          open = begin(part.of, msg.kind);
         }
         if (part.seq !== open.seq) throw misorderedPart(part.seq, open.seq);
-        open.upserts.push(...msg.upserts);
-        open.removes.push(...msg.removes);
+        extend(open, msg);
         open.seq += 1;
         if (open.seq === open.of) {
-          out.push({
-            kind: "delta",
-            upserts: open.upserts,
-            removes: open.removes,
-          });
+          out.push(whole(open));
           open = undefined;
         }
       }
